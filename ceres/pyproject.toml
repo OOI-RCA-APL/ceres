@@ -1,0 +1,55 @@
+[tool.poetry]
+name = "ceres"
+version = "0.1.0"
+description = ""
+authors = ["Jake Ploskey <jploskey@uw.edu>"]
+packages = [{ include = "ceres" }]
+
+[tool.poetry.dependencies]
+python = "^3.9"
+anyio = "^3.0.0"
+asyncpg = "^0.26.0"
+click = "^8.0.0"
+fastapi = "^0.67.0"
+mypy = "^0.961"
+pydantic = "^1.9.0"
+pyyaml = "^6.0"
+returns = "^0.19.0"
+sqlalchemy = "^1.4.0"
+uvicorn = "^0.14.0"
+uvloop = "^0.16.0"
+
+[tool.poetry.dev-dependencies]
+black = "22.3.0"
+flake8 = "4.0.1"
+isort = "5.10.1"
+poethepoet = "0.13.1"
+pytest = "7.1.2"
+pytest-asyncio = "0.18.3"
+sqlalchemy2-stubs = "^0.0.2-alpha.24"
+
+[tool.poetry.scripts]
+main = "ceres.main:main"
+
+[tool.poe.tasks]
+format = { shell = "isort . && black ." }
+lint = { shell = "isort . --check --diff && black --check . && flake8 . && mypy ." }
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+
+[tool.isort]
+profile = "black"
+multi_line_output = 3
+
+[tool.black]
+line-length = 100
+
+[[tool.mypy.overrides]]
+ignore_missing_imports = true
+no_implicit_optional = true
+strict = true
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"

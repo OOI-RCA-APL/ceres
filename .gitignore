@@ -1,0 +1,14 @@
+# Project
+/old/
+/playground/
+
+# Tools
+*.code-workspace
+
+# Python
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+
+# Other
+.DS_Store
