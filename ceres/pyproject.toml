@@ -7,6 +7,7 @@ packages = [{ include = "ceres" }]
 
 [tool.poetry.dependencies]
 python = "^3.9"
+aiosqlite = "^0.17.0"
 anyio = "^3.0.0"
 asyncpg = "^0.26.0"
 click = "^8.0.0"
@@ -26,7 +27,8 @@ isort = "5.10.1"
 poethepoet = "0.13.1"
 pytest = "7.1.2"
 pytest-asyncio = "0.18.3"
-sqlalchemy2-stubs = "^0.0.2-alpha.24"
+sqlalchemy2-stubs = "0.0.2-alpha.24"
+types-pyyaml = "6.0.11"
 
 [tool.poetry.scripts]
 main = "ceres.main:main"
@@ -45,9 +47,10 @@ multi_line_output = 3
 [tool.black]
 line-length = 100
 
-[[tool.mypy.overrides]]
+[tool.mypy]
 ignore_missing_imports = true
 no_implicit_optional = true
+plugins = ["sqlalchemy.ext.mypy.plugin", "pydantic.mypy"]
 strict = true
 
 [build-system]

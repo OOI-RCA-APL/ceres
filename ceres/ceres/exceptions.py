@@ -10,3 +10,15 @@ class ConfigException(CeresException):
 
 class ObjectLoadException(CeresException):
     pass
+
+
+class ConnectionException(CeresException):
+    pass
+
+
+class ConnectionInactiveException(ConnectionException):
+    pass
+
+
+class DisconnectException(ConnectionException):
+    pass

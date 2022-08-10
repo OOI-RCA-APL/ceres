@@ -2,7 +2,7 @@ import asyncio
 from abc import ABC, abstractmethod
 from asyncio import AbstractEventLoop, Event, Task
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Any, Optional, cast
 
 import anyio
 import uvloop
@@ -25,7 +25,7 @@ async def defer() -> None:
 
 @dataclass
 class TaskletInternal:
-    task: Optional[Task] = None
+    task: Optional[Task[Any]] = None
     stop: Event = field(default_factory=Event)
 
 
@@ -40,7 +40,7 @@ class Tasklet(ABC):
     @property
     def __tasklet__(self) -> TaskletInternal:
         if internal := self.__dict__.get(TASKLET_INTERNAL_ATTRIBUTE_NAME):
-            return internal
+            return cast(TaskletInternal, internal)
 
         internal = TaskletInternal()
         self.__dict__[TASKLET_INTERNAL_ATTRIBUTE_NAME] = internal
@@ -54,7 +54,7 @@ class Tasklet(ABC):
 
         ensure_event_loop()
 
-        def done(task: Task) -> None:
+        def done(task: Task[Any]) -> None:
             self.__tasklet__.task = None
             self.__tasklet__.stop.set()
 

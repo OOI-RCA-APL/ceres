@@ -9,40 +9,40 @@ from .app import App
 from .config import Config
 from .connection import ConnectionDescriptor
 from .tasks import Tasklet
-from .worker import Worker, WorkerConfig, WorkerProxy
+from .unit import Unit, UnitDescriptor, UnitProxy
 
 
-class WorkerManager(BaseManager):
+class UnitManager(BaseManager):
     pass
 
 
-WorkerManager.register("Worker", Worker)
+UnitManager.register("Unit", Unit)
 
 
-class WorkerHandle:
-    def __init__(self, config: WorkerConfig) -> None:
-        self._config = config
-        self._manager: Optional[WorkerManager] = None
-        self._instance: Optional[WorkerProxy] = None
-
-    @property
-    def setup(self) -> WorkerConfig:
-        return self._config
+class UnitHandle:
+    def __init__(self, descriptor: UnitDescriptor) -> None:
+        self._descriptor = descriptor
+        self._manager: Optional[UnitManager] = None
+        self._instance: Optional[UnitProxy] = None
 
     @property
-    def instance(self) -> Optional[WorkerProxy]:
+    def setup(self) -> UnitDescriptor:
+        return self._descriptor
+
+    @property
+    def instance(self) -> Optional[UnitProxy]:
         return self._instance
 
     def start(self) -> None:
-        self._manager = WorkerManager()
+        self._manager = UnitManager()
         self._manager.start()
-        instance = cast(WorkerProxy, cast(Any, self._manager).Worker())
+        instance = cast(UnitProxy, cast(Any, self._manager).Unit(self._descriptor))
         self._instance = instance
-        instance.startup(self._config)
+        instance.rpc_start()
 
     def stop(self) -> None:
         if self._instance:
-            self._instance.shutdown()
+            self._instance.rpc_stop()
             self._instance = None
         if self._manager:
             self._manager.shutdown()
@@ -54,66 +54,65 @@ class Supervisor(Tasklet):
         super().__init__()
         self._config = config or Config()
         self._app = app
-        self._workers: Dict[str, WorkerHandle] = {}
+        self._units: Dict[str, UnitHandle] = {}
 
     @property
     def logger(self) -> Logger:
         return logs.get("supervisor")
 
-    @property
-    def connections(self) -> Sequence[ConnectionDescriptor]:
-        return [
-            ConnectionDescriptor(
-                name=name,
-                module=definition.module,
-                worker=definition.worker,
-            )
-            for name, definition in self._config.connections.items()
-        ]
-
     async def execute(self) -> None:
         self.logger.info("Supervisor starting...")
 
-        names = sorted(
-            {
-                *(current.worker for current in self.connections),
-            }
-        )
-
-        self._workers = {}
-
-        for name in names:
-            self._workers[name] = WorkerHandle(
-                WorkerConfig(
-                    name=name,
-                    connections=[current for current in self.connections if current.worker == name],
+        for descriptor in self._get_unit_descriptors():
+            self._units[descriptor.name] = UnitHandle(
+                UnitDescriptor(
+                    name=descriptor.name,
+                    database=self._config.database,
+                    connections=descriptor.connections,
                 )
             )
 
-        async def process_worker(worker: WorkerHandle) -> None:
-            await anyio.to_thread.run_sync(worker.start, cancellable=True)
+        async def process_unit(unit: UnitHandle) -> None:
+            await anyio.to_thread.run_sync(unit.start, cancellable=True)
 
         try:
             async with anyio.create_task_group() as group:
-                for worker in self._workers.values():
-                    self.logger.info(f"Starting worker '{worker.setup.name}'...")
-                    group.start_soon(process_worker, worker)
+                for unit in self._units.values():
+                    self.logger.info(f"Starting unit '{unit.setup.name}'...")
+                    group.start_soon(process_unit, unit)
 
         except:
             await self.stop()
 
     async def stop(self) -> None:
-        if not self._workers:
+        if not self._units:
             return
 
-        self.logger.info("Stopping all workers...")
+        self.logger.info("Stopping all units...")
 
-        for worker in self._workers.values():
-            if worker.instance:
-                self.logger.info(f"Stopping worker '{worker.setup.name}'...")
-                worker.stop()
+        for unit in self._units.values():
+            if unit.instance:
+                self.logger.info(f"Stopping unit '{unit.setup.name}'...")
+                unit.stop()
 
-        self._workers = {}
-        self.logger.info("All workers were stopped successfully.")
+        self._units = {}
+        self.logger.info("All units were stopped successfully.")
 
         await super().stop()
+
+    def _get_unit_descriptors(self) -> Sequence[UnitDescriptor]:
+        return [
+            UnitDescriptor(
+                name=name,
+                database=self._config.database,
+                connections=[
+                    ConnectionDescriptor(
+                        name=name,
+                        module=connection.module,
+                        reconnect=connection.reconnect,
+                    )
+                    for name, connection in unit.connections.items()
+                ],
+            )
+            for name, unit in self._config.units.items()
+        ]

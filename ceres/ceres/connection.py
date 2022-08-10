@@ -1,14 +1,17 @@
 from abc import ABC, abstractmethod
-from asyncio import Queue as AsyncQueue
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import timedelta
 from enum import Enum
-from typing import Awaitable, Generic, Optional, TypeVar, Union, final
+from typing import Any, Awaitable, Optional, cast
 
 import anyio
 
-# from .generic import MessageT
-from .object import Object, ObjectDescriptor
+from .config import ReconnectConfig
+from .database import Database
+from .exceptions import ConnectionInactiveException
+from .message import Message
+from .object import Object, ObjectDescriptor, load_object
+from .tasks import Tasklet, defer
 
 
 class Connectivity(str, Enum):
@@ -17,20 +20,22 @@ class Connectivity(str, Enum):
     CONNECTED = "CONNECTED"
 
 
-class ReconnectStrategy(ABC):
-    def __init__(
-        self,
-        *,
-        interval: Union[int, float, timedelta],
-        backoff: Optional[float] = None,
-        max: Optional[Union[int, float, timedelta]] = None,
-    ) -> None:
-        self.interval = interval if isinstance(interval, timedelta) else timedelta(seconds=interval)
-        self.backoff: float = backoff if backoff is not None else 1
-        self.max: Optional[timedelta] = None
+class ReconnectScheduler:
+    def __init__(self, config: ReconnectConfig) -> None:
+        self.interval = (
+            config.interval
+            if isinstance(config.interval, timedelta)
+            else timedelta(seconds=config.interval)
+        )
+        self.backoff: float = config.backoff if config.backoff is not None else 1
+        self.max_interval: Optional[timedelta] = None
 
-        if max:
-            self.max = max if isinstance(max, timedelta) else timedelta(seconds=max)
+        if config.max_interval:
+            self.max_interval = (
+                config.max_interval
+                if isinstance(config.max_interval, timedelta)
+                else timedelta(seconds=config.max_interval)
+            )
 
         self._retries = 0
 
@@ -43,79 +48,112 @@ class ReconnectStrategy(ABC):
         return next
 
 
-MessageT = TypeVar("MessageT")
-
-
-@dataclass
-class ConnectionInternal(Generic[MessageT]):
-    outputs: AsyncQueue[MessageT] = field(default_factory=AsyncQueue)
-    connectivity: Connectivity = Connectivity.DISCONNECTED
-    reconnect_strategy: ReconnectStrategy = field(
-        default_factory=lambda: ReconnectStrategy(
-            interval=1,
-            backoff=2,
-            max=60,
-        )
-    )
-
-
-class Connection(Generic[MessageT], Object, ABC):
-    def __init__(self, reconnect_strategy: Optional[ReconnectStrategy] = None) -> None:
-        super().__init__()
-        if reconnect_strategy:
-            self.__internal__.reconnect_strategy = reconnect_strategy
-
-    @property
-    def connectivity(self) -> Connectivity:
-        return self.__internal__.connectivity
-
-    @property
-    def connected(self) -> bool:
-        return self.__internal__.connectivity == Connectivity.CONNECTED
-
-    @property
-    def __internal__(self) -> ConnectionInternal[MessageT]:
-        if internal := self.__dict__.get("__connection__"):
-            return internal
-
-        internal = ConnectionInternal()
-        self.__dict__["__connection__"] = internal
-        return internal
-
+class Connection(Object, ABC):
     @abstractmethod
     def connect(self) -> Awaitable[bool]:
         ...
 
     @abstractmethod
-    def send(self, message: MessageT) -> Awaitable[None]:
+    def disconnect(self) -> Awaitable[None]:
         ...
 
     @abstractmethod
-    def receive(self) -> Awaitable[MessageT]:
+    def send(self, data: str) -> Awaitable[Message]:
         ...
 
-    @final
-    async def get(self) -> MessageT:
-        return await self.__internal__.outputs.get()
-
-    @final
-    async def update(self) -> None:
-        while not self.connected:
-            self.__internal__.connectivity = Connectivity.CONNECTING
-            if await self.connect():
-                self.__internal__.connectivity = Connectivity.CONNECTED
-                break
-
-            self.__internal__.connectivity = Connectivity.DISCONNECTED
-            await anyio.sleep(self.__internal__.reconnect_strategy.next().total_seconds())
-
-        self.__internal__.reconnect_strategy.reset()
-
-        while self.connected:
-            message = await self.receive()
-            return self.__internal__.outputs.put_nowait(message)
+    @abstractmethod
+    def receive(self) -> Awaitable[Message]:
+        ...
 
 
 @dataclass(frozen=True)
 class ConnectionDescriptor(ObjectDescriptor[Connection]):
-    pass
+    reconnect: ReconnectConfig
+
+
+class ConnectionHandle(Tasklet):
+    def __init__(
+        self,
+        descriptor: ConnectionDescriptor,
+        database: Database,
+    ) -> None:
+        self._descriptor = descriptor
+        self._database = database
+        self._reconnect = ReconnectScheduler(descriptor.reconnect)
+        self._connection: Optional[Connection] = None
+        self._connectivity = Connectivity.DISCONNECTED
+
+    @property
+    def descriptor(self) -> ConnectionDescriptor:
+        return self._descriptor
+
+    @property
+    def connectivity(self) -> Connectivity:
+        return self._connectivity
+
+    @property
+    def connected(self) -> bool:
+        return self._connectivity == Connectivity.CONNECTED
+
+    async def connect(self) -> bool:
+        if not self._connection:
+            return False
+        if self.connected:
+            return True
+
+        self._connectivity = Connectivity.CONNECTING
+        if await self._connection.connect():
+            self._connectivity = Connectivity.CONNECTED
+        else:
+            self._connectivity = Connectivity.DISCONNECTED
+
+        return self.connected
+
+    async def disconnect(self) -> None:
+        if not self._connection:
+            return
+
+        await self._connection.disconnect()
+
+    async def send(self, data: str) -> Message:
+        if not self._connection:
+            raise ConnectionInactiveException("Connection is not active.")
+
+        return await self._connection.send(data)
+
+    async def receive(self) -> Message:
+        if not self._connection:
+            raise ConnectionInactiveException("Connection is not active.")
+
+        return await self._connection.receive()
+        ...
+
+    async def load(self) -> None:
+        if self._connection:
+            return
+
+        self._connection = await load_object(self._descriptor, cast(Any, Connection))
+
+    async def update(self) -> None:
+        if not self._connection:
+            return
+
+        while not self.connected:
+            self._connectivity = Connectivity.CONNECTING
+            if await self._connection.connect():
+                self._connectivity = Connectivity.CONNECTED
+                break
+
+            self._connectivity = Connectivity.DISCONNECTED
+            await anyio.sleep(self._reconnect.next().total_seconds())
+
+        self._reconnect.reset()
+
+        while self.connected:
+            message = await self._connection.receive()
+            print(message)
+
+    async def execute(self) -> None:
+        while True:
+            await self.update()
+            await defer()

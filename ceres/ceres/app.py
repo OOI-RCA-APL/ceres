@@ -9,8 +9,9 @@ import anyio
 from anyio import CancelScope, Event
 
 from . import logs
-from .config import Config, ConfigException, DatabaseConfig
+from .config import Config, DatabaseConfig
 from .database import Database
+from .exceptions import ConfigException
 from .tasks import Tasklet, ensure_event_loop
 
 if TYPE_CHECKING:
@@ -99,7 +100,7 @@ class App(Tasklet):
                 cancel.cancel()
 
         async def process(config: Config) -> None:
-            self.logger.info("Applying new configuration...")
+            self.logger.info("Applying configuration...")
             self._config = config
             self._server = (
                 self._server_cls(self._config.server, self) if self._config.server else None

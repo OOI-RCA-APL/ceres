@@ -1,3 +1,5 @@
+from typing import Any
+
 from fastapi import FastAPI, Response
 from starlette.status import HTTP_200_OK, HTTP_406_NOT_ACCEPTABLE
 from uvicorn import Config as UvicornConfig
@@ -8,7 +10,7 @@ from .app import App
 from .config import ServerConfig
 
 
-class Server(UvicornServer):
+class Server(UvicornServer):  # type: ignore
     def __init__(self, config: ServerConfig, app: App):
         super().__init__(
             UvicornConfig(
@@ -18,7 +20,7 @@ class Server(UvicornServer):
             )
         )
 
-    async def serve(self, sockets=None):
+    async def serve(self, sockets: Any = None) -> None:
         logs.setup()
         await super().serve(sockets)
         logs.setup()

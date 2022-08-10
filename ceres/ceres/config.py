@@ -1,8 +1,8 @@
 import os
 from abc import ABC
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, Literal, Optional, Union
 
-import yaml  # type: ignore
+import yaml
 from pydantic import BaseModel, PrivateAttr, ValidationError, validator
 from pydantic.error_wrappers import display_errors
 from yaml import YAMLError
@@ -16,7 +16,6 @@ if TYPE_CHECKING:
 class ObjectDefinition(BaseModel, ABC):
     module: Optional[str] = None
     instance: Optional[Any] = None
-    worker: str = "default"
 
     class Config:
         allow_arbitrary_types = True
@@ -29,8 +28,15 @@ class ObjectDefinition(BaseModel, ABC):
         return module
 
 
+class ReconnectConfig(BaseModel):
+    interval: float = 1
+    backoff: Optional[float] = None
+    max_interval: Optional[float] = 60 * 5
+
+
 class ConnectionDefinition(ObjectDefinition):
     instance: Optional["Connection"] = None
+    reconnect: ReconnectConfig = ReconnectConfig()
 
 
 class ServerConfig(BaseModel):
@@ -38,7 +44,14 @@ class ServerConfig(BaseModel):
     enable: bool = True
 
 
-class DatabaseConfig(BaseModel):
+class SQLiteDatabaseConfig(BaseModel):
+    type: Literal["sqlite"]
+    path: str = ":memory:"
+    echo: bool = False
+
+
+class PostgresDatabaseConfig(BaseModel):
+    type: Literal["postgres"]
     host: str = "0.0.0.0"
     port: int = 5432
     name: str = "epems"
@@ -47,10 +60,17 @@ class DatabaseConfig(BaseModel):
     echo: bool = False
 
 
-class Config(BaseModel):
-    server: Optional[ServerConfig] = None
-    database: Optional[DatabaseConfig] = None
+DatabaseConfig = Union[SQLiteDatabaseConfig, PostgresDatabaseConfig]
+
+
+class UnitConfig(BaseModel):
     connections: Dict[str, ConnectionDefinition] = {}
+
+
+class Config(BaseModel):
+    database: DatabaseConfig = SQLiteDatabaseConfig(type="sqlite")
+    server: Optional[ServerConfig] = None
+    units: Dict[str, UnitConfig] = {}
 
     __path__: str = PrivateAttr(default="")
 
