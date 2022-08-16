@@ -5,7 +5,7 @@
         <q-th>{{ info.name }}</q-th>
       </q-tr>
     </thead>
-    <tbody>
+    <tbody :style="$q.dark.isActive ? 'background-color: #131313' : ''">
       <q-tr no-hover>
         <q-td>
           <div class="justify-center row">
