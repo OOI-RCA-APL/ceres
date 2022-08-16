@@ -1,45 +1,75 @@
 <template>
-  <div>
-    <common-text class="q-ml-md q-my-xs" variant="title2">{{ title }}</common-text>
-    <q-separator />
-    <div v-if="unit && connection" class="q-pa-md">
-      <q-markup-table bordered class="q-mb-sm" dense flat separator="vertical">
-        <thead>
-          <q-tr no-hover>
-            <q-th class="text-left">State</q-th>
-            <q-th class="text-left">Enable</q-th>
-            <q-th class="text-left">Target</q-th>
-          </q-tr>
-        </thead>
-        <tbody>
-          <q-tr no-hover>
-            <q-td class="text-capitalize">{{ connection.state }}</q-td>
-            <q-td>
-              <q-toggle v-model="connection.enabled" class="q-ml-sm" dense />
-            </q-td>
-            <q-td>{{ connection.target }}</q-td>
-          </q-tr>
-        </tbody>
-      </q-markup-table>
+  <full-page :title="title">
+    <template #header-append>
+      <q-chip
+        v-if="connection"
+        class="q-ml-sm text-capitalize"
+        clickable
+        :color="connection.enabled ? 'primary' : 'grey'"
+        dense
+        text-color="white"
+        @click="connection && (connection.enabled = !connection.enabled)"
+      >
+        {{ connection.enabled ? 'Enabled' : 'Disabled' }}
+      </q-chip>
+      <q-chip
+        v-if="connection && connection.enabled"
+        class="q-ml-xs text-capitalize"
+        :color="connection.state === 'connected' ? 'positive' : 'warning'"
+        dense
+        text-color="white"
+      >
+        {{ connection.state }}
+      </q-chip>
+      <q-space />
+      <unit-controls v-if="unit" class="q-mr-md" :unit-name="unitName" />
+    </template>
+    <div class="q-pa-md">
+      <section-card v-if="unit && connection" class="q-mb-sm" padding title="Info">
+        <q-markup-table bordered class="q-mb-sm" dense flat separator="vertical">
+          <thead>
+            <q-tr no-hover>
+              <q-th class="text-left">Target</q-th>
+              <q-th class="text-left">Connected At</q-th>
+              <q-th class="text-left">Total Message Count</q-th>
+              <q-th class="text-left">Messages Today</q-th>
+            </q-tr>
+          </thead>
+          <tbody>
+            <q-tr no-hover>
+              <q-td>{{ connection.target }}</q-td>
+              <q-td>{{ moment.utc().subtract(5, 'minutes').format('YYYY/MM/DD HH:mm:ss') }}</q-td>
+              <q-td>{{ messageCount }}</q-td>
+              <q-td>{{ messageCount }}</q-td>
+            </q-tr>
+          </tbody>
+        </q-markup-table>
+      </section-card>
       <message-view
         :connection-name="connectionName"
         container-class="connections-page-message-view-container"
+        :message-count="100"
         title="Messages"
         :unit-name="unitName"
       />
     </div>
-  </div>
+  </full-page>
 </template>
 
 <script lang="ts" setup>
-import CommonText from '@/components/CommonText.vue'
 import MessageView from '@/components/MessageView.vue'
 import mock from '@/mock'
+import moment from 'moment'
+import FullPage from '@/components/FullPage.vue'
+import UnitControls from '@/components/UnitControls.vue'
+import SectionCard from '@/components/SectionCard.vue'
 
 const { unitName, connectionName } = defineProps<{
   unitName: string
   connectionName: string
 }>()
+
+const messageCount = 100
 
 const unit = $computed(() => {
   return mock.config.units[unitName] ?? null

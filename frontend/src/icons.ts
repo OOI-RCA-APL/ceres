@@ -1,7 +1,13 @@
 const icons = {
+  add: 'add',
+  close: 'close',
   darkMode: 'dark_mode',
+  delete: 'delete',
+  help: 'help',
+  job: 'build',
   lightMode: 'light_mode',
   menu: 'menu',
+  script: 'code',
   search: 'search',
   send: 'send',
   units: 'dataset',

@@ -38,11 +38,16 @@ import { QScrollArea } from 'quasar'
 import { onMounted, nextTick } from 'vue'
 import CommandInput from '@/components/CommandInput.vue'
 
-const { title, containerClass = undefined } = defineProps<{
+const {
+  title,
+  containerClass = undefined,
+  messageCount = 100,
+} = defineProps<{
   title: string
   containerClass?: string | null
   unitName: string
   connectionName: string
+  messageCount?: number
 }>()
 
 type Message = {
@@ -61,7 +66,7 @@ type ScrollInfo = {
 function generateMessages() {
   const output: Message[] = []
 
-  for (let i = 0; i < 100; i++) {
+  for (let i = 0; i < messageCount; i++) {
     const timestamp = moment
       .utc()
       .subtract(1, 'day')

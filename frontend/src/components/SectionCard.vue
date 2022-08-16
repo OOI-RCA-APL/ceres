@@ -20,20 +20,20 @@
       <slot name="header-append" />
     </div>
     <template v-if="$slots.default && !noBody">
-      <q-separator :class="inset ? 'q-mb-md' : ''" />
-      <q-card-section v-if="title || icon" :class="inset ? 'q-pt-none' : 'q-py-none'">
-        <slot v-if="inset" />
+      <q-separator :class="padding ? 'q-mb-md' : ''" />
+      <q-card-section v-if="title || icon" :class="padding ? 'q-pt-none' : 'q-py-none'">
+        <slot v-if="padding" />
       </q-card-section>
-      <slot v-if="!inset" />
+      <slot v-if="!padding" />
     </template>
   </q-card>
 </template>
 
 <script lang="ts" setup>
 import CommonText from './CommonText.vue'
-const { inset = false, noBody = false } = defineProps<{
+const { padding = false, noBody = false } = defineProps<{
   icon?: string
-  inset?: boolean
+  padding?: boolean
   title?: string
   to?: string
   noBody?: boolean

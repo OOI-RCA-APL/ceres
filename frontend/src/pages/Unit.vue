@@ -1,13 +1,14 @@
 <template>
-  <common-text class="q-ml-md q-my-xs" variant="title2">{{ title }}</common-text>
-  <q-separator />
-  <div v-if="isBlank" class="q-pa-md">
-    <q-chip>No configuration found.</q-chip>
-  </div>
-  <div v-else-if="unit" class="q-pa-md">
-    <q-card v-if="connectionCount > 0" bordered class="q-mb-sm q-pa-md" flat>
-      <div>
-        <common-text class="q-mb-sm" variant="title2">Connections</common-text>
+  <full-page :title="title">
+    <template #header-append>
+      <q-space />
+      <unit-controls v-if="name && unit" class="q-mr-md" :unit-name="name" />
+    </template>
+    <div v-if="isBlank" class="q-pa-md">
+      <q-chip>No configuration found.</q-chip>
+    </div>
+    <div v-else-if="unit" class="q-pa-md">
+      <section-card v-if="connectionCount > 0" class="q-mb-sm" padding title="Connections">
         <q-markup-table bordered dense flat separator="vertical">
           <thead>
             <q-tr no-hover>
@@ -34,23 +35,68 @@
             </q-tr>
           </tbody>
         </q-markup-table>
-      </div>
-    </q-card>
-    <q-card v-if="driverCount > 0" bordered class="q-mb-sm q-pa-md" flat>
-      <div>
-        <common-text class="q-mb-sm" variant="title2">Dashboard</common-text>
-      </div>
-      <template v-for="(driver, name) in unit.drivers" :key="name">
-        <dashboard :elements="driver.elements" />
-      </template>
-    </q-card>
-  </div>
+      </section-card>
+      <section-card v-if="driverCount > 0" class="q-mb-sm" padding title="Dashboard">
+        <template v-for="(driver, name) in unit.drivers" :key="name">
+          <dashboard :elements="driver.elements" />
+        </template>
+      </section-card>
+      <section-card padding title="Scheduled Jobs">
+        <q-markup-table bordered dense flat separator="cell">
+          <thead>
+            <q-tr no-hover>
+              <q-th class="text-left">Job</q-th>
+              <q-th class="text-left">Last Run</q-th>
+              <q-th class="text-left">Next Run</q-th>
+            </q-tr>
+          </thead>
+          <tbody>
+            <q-tr no-hover>
+              <q-td>sync-configuration</q-td>
+              <q-td>{{ moment.utc().add(0.5, 'hours').format('YYYY/MM/DD HH:DD:ss') }} UTC</q-td>
+              <q-td>{{ moment.utc().add(1, 'hours').format('YYYY/MM/DD HH:DD:ss') }} UTC</q-td>
+            </q-tr>
+            <q-tr no-hover>
+              <q-td>power-cycle</q-td>
+              <q-td>{{
+                moment
+                  .utc()
+                  .add(1, 'days')
+                  .set({
+                    hour: 0,
+                    minute: 0,
+                    second: 0,
+                    milliseconds: 0,
+                  })
+                  .format('YYYY/MM/DD HH:DD:ss UTC')
+              }}</q-td>
+              <q-td>{{
+                moment
+                  .utc()
+                  .add(2, 'days')
+                  .set({
+                    hour: 0,
+                    minute: 0,
+                    second: 0,
+                    milliseconds: 0,
+                  })
+                  .format('YYYY/MM/DD HH:DD:ss UTC')
+              }}</q-td>
+            </q-tr>
+          </tbody>
+        </q-markup-table>
+      </section-card>
+    </div>
+  </full-page>
 </template>
 
 <script lang="ts" setup>
-import CommonText from '@/components/CommonText.vue'
 import Dashboard from '@/components/Dashboard.vue'
+import SectionCard from '@/components/SectionCard.vue'
 import mock from '@/mock'
+import moment from 'moment'
+import FullPage from '@/components/FullPage.vue'
+import UnitControls from '@/components/UnitControls.vue'
 
 const { name = null } = defineProps<{
   name?: string | null

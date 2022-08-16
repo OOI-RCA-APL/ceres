@@ -1,6 +1,6 @@
 <template>
   <div class="self-page">
-    <q-splitter v-model="split" class="full-height" :limits="[10, 30]">
+    <q-splitter v-model="state.split" class="full-height" :limits="[10, 30]">
       <template #before>
         <div class="column full-height no-wrap overflow-hidden">
           <common-text class="q-ml-md q-py-xs" variant="title2">Units</common-text>
@@ -30,10 +30,19 @@
 </template>
 
 <script lang="ts" setup>
-import CommonText from '../components/CommonText.vue'
-import mock from '../mock'
+import CommonText from '@/components/CommonText.vue'
+import mock from '@/mock'
+import { usePersisted } from '@/persistence'
+import Zod from 'zod'
 
-let split = $ref(20)
+const StateSchema = Zod.object({
+  split: Zod.number().default(20),
+})
+
+const state = usePersisted({
+  schema: StateSchema,
+  methods: [{ type: 'local-storage', key: 'units' }],
+})
 </script>
 
 <style lang="scss">
