@@ -29,9 +29,13 @@ export type NumberElementInfo = BaseElementInfo & {
 
 export type ElementInfo = GuageElementInfo | NumberElementInfo
 
-export function createColorStops(value: number, color: ColorStop[] | string | undefined) {
+export function createColorStops(
+  value: number,
+  color: ColorStop[] | string | undefined,
+  darkMode: boolean
+) {
   if (color == null) {
-    color = 'black'
+    color = darkMode ? 'white' : 'black'
   }
 
   if (typeof color === 'string') {

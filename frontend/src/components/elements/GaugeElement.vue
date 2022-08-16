@@ -5,10 +5,13 @@
 <script lang="ts" setup>
 import { Option } from '@/chart'
 import { createColorStops, GuageElementInfo } from '@/element'
+import { useQuasar } from 'quasar'
 
 const { info } = defineProps<{
   info: GuageElementInfo
 }>()
+
+const quasar = useQuasar()
 
 const valueText = $computed(() => `${info.value}${info.unit}`)
 const valueTextScaling = $computed(() => {
@@ -16,7 +19,7 @@ const valueTextScaling = $computed(() => {
   return 1 - 0.1 * Math.max(valueText.length - maxUnscaledCharacters, 0)
 })
 
-const color = $computed(() => createColorStops(info.value, info.color))
+const color = $computed(() => createColorStops(info.value, info.color, quasar.dark.isActive))
 
 const min = Math.min(info.range.min)
 const max = Math.max(info.range.max)
@@ -24,6 +27,7 @@ const max = Math.max(info.range.max)
 const options = $computed(
   () =>
     ({
+      backgroundColor: 'transparent',
       series: [
         {
           min: min,

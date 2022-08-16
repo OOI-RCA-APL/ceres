@@ -5,17 +5,21 @@
 <script lang="ts" setup>
 import { Option } from '@/chart'
 import { createColorStops, NumberElementInfo } from '@/element'
+import { useQuasar } from 'quasar'
 
 const { info } = defineProps<{
   info: NumberElementInfo
 }>()
 
+const quasar = useQuasar()
+
 const valueText = $computed(() => `${info.value}${info.unit}`)
-const color = $computed(() => createColorStops(info.value, info.color))
+const color = $computed(() => createColorStops(info.value, info.color, quasar.dark.isActive))
 
 const options = $computed(
   () =>
     ({
+      backgroundColor: 'transparent',
       series: [
         {
           type: 'gauge',

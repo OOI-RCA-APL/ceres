@@ -3,7 +3,7 @@
     <q-splitter v-model="state.split" class="full-height" :limits="[10, 30]">
       <template #before>
         <div class="column full-height no-wrap overflow-hidden">
-          <common-text class="q-ml-md q-py-xs" variant="title2">Units</common-text>
+          <common-text class="q-ml-md q-py-sm" variant="title2">Units</common-text>
           <q-separator />
           <q-list class="col-grow overflow-auto q-pt-xs scroll" dense>
             <q-item
