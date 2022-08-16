@@ -1,17 +1,17 @@
 <template>
-  <q-markup-table flat bordered dense separator="cell">
+  <q-markup-table bordered dense flat separator="cell">
     <thead>
-      <tr>
-        <th>{{ info.name }}</th>
-      </tr>
+      <q-tr no-hover>
+        <q-th>{{ info.name }}</q-th>
+      </q-tr>
     </thead>
     <tbody>
-      <tr>
-        <td>
+      <q-tr no-hover>
+        <q-td>
           <gauge-element v-if="info.type === 'gauge'" :info="info" />
           <number-element v-else-if="info.type === 'number'" :info="info" />
-        </td>
-      </tr>
+        </q-td>
+      </q-tr>
     </tbody>
   </q-markup-table>
 </template>

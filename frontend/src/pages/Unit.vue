@@ -10,22 +10,28 @@
         <common-text class="q-mb-sm" variant="title2">Connections</common-text>
         <q-markup-table bordered dense flat separator="vertical">
           <thead>
-            <tr>
-              <th class="text-left">Connection</th>
-              <th class="text-left">State</th>
-              <th class="text-left">Enable</th>
-              <th class="text-left">Target</th>
-            </tr>
+            <q-tr no-hover>
+              <q-th class="text-left">Connection</q-th>
+              <q-th class="text-left">State</q-th>
+              <q-th class="text-left">Enable</q-th>
+              <q-th class="text-left">Target</q-th>
+            </q-tr>
           </thead>
           <tbody>
-            <tr v-for="(connection, name) in unit.connections" :key="name">
-              <td>{{ name }}</td>
-              <td class="text-capitalize">{{ connection.state }}</td>
-              <td>
+            <q-tr
+              v-for="(connection, connectionName) in unit.connections"
+              :key="connectionName"
+              no-hover
+            >
+              <router-link class="text-link" :to="`/units/${name}/connections/${connectionName}`">
+                <td>{{ connectionName }}</td>
+              </router-link>
+              <q-td class="text-capitalize">{{ connection.state }}</q-td>
+              <q-td>
                 <q-toggle v-model="connection.enabled" class="q-ml-sm" dense />
-              </td>
+              </q-td>
               <td>{{ connection.target }}</td>
-            </tr>
+            </q-tr>
           </tbody>
         </q-markup-table>
       </div>
@@ -42,9 +48,9 @@
 </template>
 
 <script lang="ts" setup>
-import CommonText from '../components/CommonText.vue'
-import Dashboard from '../components/Dashboard.vue'
-import mock from '../mock'
+import CommonText from '@/components/CommonText.vue'
+import Dashboard from '@/components/Dashboard.vue'
+import mock from '@/mock'
 
 const { name = null } = defineProps<{
   name?: string | null
@@ -67,17 +73,11 @@ const title = $computed(() => {
     return `Unit "${name}" does not exist.`
   }
 
-  if (unit.label) {
-    return `${unit.label} (@${name})`
-  }
-
   return `@${name}`
 })
 
 const connectionCount = $computed(() => Object.values(unit?.connections ?? []).length)
-
 const driverCount = $computed(() => Object.values(unit?.drivers ?? []).length)
-
 const pipelineCount = $computed(() => Object.values(unit?.pipelines ?? []).length)
 
 const isBlank = $computed(() => connectionCount + driverCount + pipelineCount === 0)

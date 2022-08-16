@@ -14,7 +14,7 @@
               :to="`/units/${name}`"
             >
               <q-item-section>
-                <q-item-label>{{ unit.label }}</q-item-label>
+                <q-item-label>@{{ name }}</q-item-label>
               </q-item-section>
             </q-item>
           </q-list>

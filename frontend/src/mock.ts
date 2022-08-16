@@ -5,7 +5,6 @@ const mock = reactive({
   config: {
     units: {
       ['ctd-101' as string]: {
-        label: 'CTD101',
         connections: {
           ['science' as string]: {
             module: 'ceres.standard.connections.tcp',
@@ -87,7 +86,6 @@ const mock = reactive({
         },
       },
       ['ctd-102' as string]: {
-        label: 'CTD102',
         connections: {
           ['science' as string]: {
             module: 'ceres.standard.connections.tcp',
@@ -169,7 +167,6 @@ const mock = reactive({
         },
       },
       ['tmp-101' as string]: {
-        label: 'TMP101',
         connections: {},
         drivers: {},
         pipelines: {},

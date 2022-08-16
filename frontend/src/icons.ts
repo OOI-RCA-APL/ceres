@@ -3,6 +3,7 @@ const icons = {
   lightMode: 'light_mode',
   menu: 'menu',
   search: 'search',
+  send: 'send',
   units: 'dataset',
   user: 'person',
 } as const

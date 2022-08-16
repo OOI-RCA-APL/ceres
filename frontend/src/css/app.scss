@@ -1,1 +1,34 @@
-// app global css in SCSS form
+// Global SCSS Styling
+
+.wrapper-link {
+  color: unset;
+  display: contents;
+  font-style: unset;
+  font-weight: unset;
+  font: unset;
+  text-decoration: unset;
+}
+
+.text-link {
+  color: unset;
+  display: contents;
+  font-style: unset;
+  font-weight: unset;
+  font: unset;
+  text-decoration: underline;
+}
+
+ol,
+ul {
+  padding-left: 2em;
+}
+
+@font-face {
+  font-family: 'Roboto Mono';
+  src: url(../assets/fonts/roboto-mono.ttf);
+}
+
+.monospace {
+  font-family: 'Roboto Mono', monospace;
+  font-size: 13px;
+}
