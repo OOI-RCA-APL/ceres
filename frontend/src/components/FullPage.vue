@@ -1,6 +1,6 @@
 <template>
   <div>
-    <div class="items-center row">
+    <div class="items-center position-sticky row">
       <common-text class="q-ml-md q-py-sm" variant="title2">{{ title }}</common-text>
       <slot name="header-append" />
     </div>

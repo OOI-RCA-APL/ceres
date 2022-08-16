@@ -5,9 +5,9 @@
         clickable
         color="primary"
         dense
+        flat
         :icon="icons.job"
         label="Jobs"
-        outline
         @click="isShowingJobsDialog = true"
       >
         <jobs-dialog v-model="isShowingJobsDialog" />
@@ -18,9 +18,9 @@
         clickable
         color="primary"
         dense
+        flat
         :icon="icons.script"
         label="Scripts"
-        outline
         @click="isShowingScriptsDialog = true"
       >
         <scripts-dialog v-model="isShowingScriptsDialog" />

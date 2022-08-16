@@ -3,8 +3,10 @@
     <q-splitter v-model="state.split" class="full-height" :limits="[10, 30]">
       <template #before>
         <div class="column full-height no-wrap overflow-hidden">
-          <common-text class="q-ml-md q-py-sm" variant="title2">Units</common-text>
-          <q-separator />
+          <div>
+            <common-text class="q-ml-md q-py-sm" variant="title2">Units</common-text>
+            <q-separator />
+          </div>
           <q-list class="col-grow overflow-auto q-pt-xs scroll" dense>
             <q-item
               v-for="(unit, name) in mock.config.units"
@@ -14,7 +16,7 @@
               :to="`/units/${name}`"
             >
               <q-item-section>
-                <q-item-label>@{{ name }}</q-item-label>
+                <q-item-label class="text-no-wrap">@{{ name }}</q-item-label>
               </q-item-section>
             </q-item>
           </q-list>

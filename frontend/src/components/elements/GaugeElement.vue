@@ -1,5 +1,5 @@
 <template>
-  <chart autoresize :option="options" style="min-height: 170px; padding-top: 12px" />
+  <chart autoresize class="self-chart" :option="options" />
 </template>
 
 <script lang="ts" setup>
@@ -93,3 +93,11 @@ const options = $computed(
     } as Option)
 )
 </script>
+
+<style lang="scss" scoped>
+.self-chart {
+  max-width: 180px;
+  min-height: 170px;
+  padding-top: 12px;
+}
+</style>

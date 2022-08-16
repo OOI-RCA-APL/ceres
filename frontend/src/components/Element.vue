@@ -8,8 +8,10 @@
     <tbody>
       <q-tr no-hover>
         <q-td>
-          <gauge-element v-if="info.type === 'gauge'" :info="info" />
-          <number-element v-else-if="info.type === 'number'" :info="info" />
+          <div class="justify-center row">
+            <gauge-element v-if="info.type === 'gauge'" :info="info" />
+            <number-element v-else-if="info.type === 'number'" :info="info" />
+          </div>
         </q-td>
       </q-tr>
     </tbody>
