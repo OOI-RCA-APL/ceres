@@ -13,7 +13,7 @@
             <tr>
               <th class="text-left">Connection</th>
               <th class="text-left">State</th>
-              <th class="text-left">Enabled</th>
+              <th class="text-left">Enable</th>
               <th class="text-left">Target</th>
             </tr>
           </thead>
@@ -22,7 +22,7 @@
               <td>{{ name }}</td>
               <td class="text-capitalize">{{ connection.state }}</td>
               <td>
-                <q-checkbox v-model="connection.enabled" class="q-ml-sm" dense />
+                <q-toggle v-model="connection.enabled" class="q-ml-sm" dense />
               </td>
               <td>{{ connection.target }}</td>
             </tr>

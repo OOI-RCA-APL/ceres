@@ -3,7 +3,7 @@ import { RouteRecordRaw } from 'vue-router'
 const routes: RouteRecordRaw[] = [
   {
     path: '',
-    component: () => import('./AppLayout.vue'),
+    component: () => import('../AppLayout.vue'),
     children: [
       {
         path: '',
@@ -11,18 +11,18 @@ const routes: RouteRecordRaw[] = [
       },
       {
         path: '/units',
-        component: () => import('./pages/Units.vue'),
+        component: () => import('../pages/Units.vue'),
         children: [
           {
             path: ':name?',
-            component: () => import('./pages/Unit.vue'),
+            component: () => import('../pages/Unit.vue'),
             props: (route) => ({
               name: parseStringOrNull(route.params.name),
             }),
           },
           {
             path: ':unitName/connections/:connectionName',
-            component: () => import('./pages/Unit.vue'),
+            component: () => import('../pages/Unit.vue'),
             props: (route) => ({
               unitName: route.params.unitName,
               connectionName: route.params.name,

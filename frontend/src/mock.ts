@@ -1,4 +1,5 @@
 import { reactive } from 'vue'
+import type { ElementInfo } from './element'
 
 const mock = reactive({
   config: {
@@ -36,9 +37,47 @@ const mock = reactive({
             },
             elements: [
               {
-                type: 'gauge',
+                name: 'Salinity',
+                type: 'number',
+                value: 10000,
+                unit: 'ppm',
               },
-            ],
+              {
+                name: 'Temperature',
+                type: 'gauge',
+                value: 25,
+                unit: '°C',
+                range: {
+                  min: 0,
+                  max: 100,
+                },
+                color: [
+                  { value: 50, color: 'green' },
+                  { value: 100, color: 'red' },
+                ],
+              },
+              {
+                name: 'Depth',
+                type: 'gauge',
+                value: 550,
+                unit: 'm',
+                range: {
+                  min: 0,
+                  max: 2000,
+                },
+              },
+              {
+                name: 'Internal Humidity',
+                type: 'number',
+                value: 75,
+                unit: '%',
+                color: [
+                  { value: 50, color: 'green' },
+                  { value: 80, color: 'orange' },
+                  { value: 100, color: 'red' },
+                ],
+              },
+            ] as ElementInfo[],
           },
         },
         pipelines: {
@@ -78,7 +117,49 @@ const mock = reactive({
               science: 'science',
               control: 'control',
             },
-            elements: [],
+            elements: [
+              {
+                name: 'Salinity',
+                type: 'number',
+                value: 5000,
+                unit: 'ppm',
+              },
+              {
+                name: 'Temperature',
+                type: 'gauge',
+                value: 75,
+                unit: '°C',
+                range: {
+                  min: 0,
+                  max: 100,
+                },
+                color: [
+                  { value: 50, color: 'green' },
+                  { value: 100, color: 'red' },
+                ],
+              },
+              {
+                name: 'Depth',
+                type: 'gauge',
+                value: 18000,
+                unit: 'm',
+                range: {
+                  min: 0,
+                  max: 2000,
+                },
+              },
+              {
+                name: 'Internal Humidity',
+                type: 'number',
+                value: 45,
+                unit: '%',
+                color: [
+                  { value: 50, color: 'green' },
+                  { value: 80, color: 'orange' },
+                  { value: 100, color: 'red' },
+                ],
+              },
+            ] as ElementInfo[],
           },
         },
         pipelines: {
@@ -103,4 +184,3 @@ export type Unit = typeof mock.config.units[string]
 export type Connection = Unit['connections'][string]
 export type Driver = Unit['drivers'][string]
 export type Pipelines = Unit['pipelines'][string]
-export type ElementInfo = Driver['elements']

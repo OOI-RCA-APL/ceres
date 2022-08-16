@@ -1,0 +1,46 @@
+export type ColorStop = {
+  value: number
+  color: string
+}
+
+export type Range = {
+  min: number
+  max: number
+}
+
+export type BaseElementInfo = {
+  name: string
+}
+
+export type GuageElementInfo = BaseElementInfo & {
+  type: 'gauge'
+  value: number
+  unit?: string
+  range: Range
+  color?: ColorStop[] | string
+}
+
+export type NumberElementInfo = BaseElementInfo & {
+  type: 'number'
+  value: number
+  unit?: string
+  color?: ColorStop[] | string
+}
+
+export type ElementInfo = GuageElementInfo | NumberElementInfo
+
+export function createColorStops(value: number, color: ColorStop[] | string | undefined) {
+  if (color == null) {
+    color = 'black'
+  }
+
+  if (typeof color === 'string') {
+    return [
+      [0, color],
+      [value, color],
+    ]
+  }
+
+  const max = Math.max(...color.map((entry) => entry.value))
+  return color.map((stop) => [stop.value / max, stop.color])
+}
