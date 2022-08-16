@@ -1,5 +1,5 @@
 <template>
-  <chart autoresize :option="options" style="min-height: 160px; padding-top: 12px" />
+  <chart autoresize :option="options" style="min-height: 170px; padding-top: 12px" />
 </template>
 
 <script lang="ts" setup>
@@ -47,7 +47,8 @@ const options = $computed(
           },
           axisTick: {
             distance: 0,
-            length: 4,
+            length: -6,
+            splitNumber: 4,
             lineStyle: {
               color: 'auto',
               width: 1,
@@ -63,15 +64,17 @@ const options = $computed(
           },
           axisLabel: {
             color: 'auto',
-            hideOverlap: true,
+            showMinLabel: true,
+            showMaxLabel: true,
             fontSize: 10,
-            distance: -16,
-            padding: [2, -8],
+            distance: -18,
+            padding: [3, -3],
             overflow: 'truncate',
           },
           detail: {
             valueAnimation: false,
-            fontSize: 26 * valueTextScaling,
+            fontSize: 22 * valueTextScaling,
+            fontWeight: 300,
             formatter: valueText,
             color: 'auto',
             offsetCenter: [0, '0%'],

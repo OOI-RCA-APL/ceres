@@ -40,7 +40,8 @@ const options = $computed(
           },
           detail: {
             valueAnimation: false,
-            fontSize: 26,
+            fontSize: 22,
+            fontWeight: 300,
             formatter: valueText,
             color: 'auto',
             offsetCenter: [0, '0%'],
