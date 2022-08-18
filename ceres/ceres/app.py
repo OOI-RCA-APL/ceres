@@ -9,7 +9,7 @@ import anyio
 from anyio import CancelScope, Event
 
 from . import logs
-from .config import Config, DatabaseConfig
+from .config import AppConfig, DatabaseConfig
 from .database import Database
 from .exceptions import ConfigException
 from .tasks import Tasklet, ensure_event_loop
@@ -29,9 +29,9 @@ class App(Tasklet):
         self._path = path
         self._server_cls = server_cls
         self._supervisor_cls = supervisor_cls
-        self._config = Config()
-        self._config_next: Optional[Config] = self._config
-        self._config_queue: AsyncQueue[Config] = AsyncQueue()
+        self._config = AppConfig()
+        self._config_next: Optional[AppConfig] = self._config
+        self._config_queue: AsyncQueue[AppConfig] = AsyncQueue()
         self._server: Optional["Server"] = None
         self._supervisor: Optional["Supervisor"] = None
 
@@ -58,7 +58,7 @@ class App(Tasklet):
         self.logger.info(f"Loading configuration from '{self._path}'...")
 
         try:
-            config = Config.load(self._path)
+            config = AppConfig.load(self._path)
         except ConfigException as error:
             self.logger.error(error.message)
             return
@@ -99,7 +99,7 @@ class App(Tasklet):
                 self._config_next = config
                 cancel.cancel()
 
-        async def process(config: Config) -> None:
+        async def process(config: AppConfig) -> None:
             self.logger.info("Applying configuration...")
             self._config = config
             self._server = (
@@ -147,7 +147,7 @@ class App(Tasklet):
     async def reload(self) -> Optional[ConfigException]:
         self.logger.info(f"Reloading configuration from '{self._path}'...")
         try:
-            config = Config.load(self._path)
+            config = AppConfig.load(self._path)
         except ConfigException as error:
             self.logger.error(error.message)
             self.logger.error("Reload failed, found errors in configuration.")
@@ -201,7 +201,7 @@ class App(Tasklet):
             finally:
                 await database.dispose()
 
-    async def _check_config(self, config: Config, wait: bool = False) -> bool:
+    async def _check_config(self, config: AppConfig, wait: bool = False) -> bool:
         if config.database:
             self.logger.info("Database configuration found, verifying it's reachable...")
             await self._wait_for_database(config.database, attempts=None if wait else 3)

@@ -6,10 +6,9 @@ import anyio
 
 from . import logs
 from .app import App
-from .config import Config
-from .connection import ConnectionDescriptor
+from .config import AppConfig
 from .tasks import Tasklet
-from .unit import Unit, UnitDescriptor, UnitProxy
+from .unit import Unit, UnitProxy, UnitSetup
 
 
 class UnitManager(BaseManager):
@@ -20,14 +19,14 @@ UnitManager.register("Unit", Unit)
 
 
 class UnitHandle:
-    def __init__(self, descriptor: UnitDescriptor) -> None:
-        self._descriptor = descriptor
+    def __init__(self, setup: UnitSetup) -> None:
+        self._setup = setup
         self._manager: Optional[UnitManager] = None
         self._instance: Optional[UnitProxy] = None
 
     @property
-    def setup(self) -> UnitDescriptor:
-        return self._descriptor
+    def setup(self) -> UnitSetup:
+        return self._setup
 
     @property
     def instance(self) -> Optional[UnitProxy]:
@@ -36,7 +35,7 @@ class UnitHandle:
     def start(self) -> None:
         self._manager = UnitManager()
         self._manager.start()
-        instance = cast(UnitProxy, cast(Any, self._manager).Unit(self._descriptor))
+        instance = cast(UnitProxy, cast(Any, self._manager).Unit(self._setup))
         self._instance = instance
         instance.rpc_start()
 
@@ -50,9 +49,9 @@ class UnitHandle:
 
 
 class Supervisor(Tasklet):
-    def __init__(self, config: Optional[Config], app: Optional[App]) -> None:
+    def __init__(self, config: Optional[AppConfig], app: Optional[App]) -> None:
         super().__init__()
-        self._config = config or Config()
+        self._config = config or AppConfig()
         self._app = app
         self._units: Dict[str, UnitHandle] = {}
 
@@ -63,14 +62,8 @@ class Supervisor(Tasklet):
     async def execute(self) -> None:
         self.logger.info("Supervisor starting...")
 
-        for descriptor in self._get_unit_descriptors():
-            self._units[descriptor.name] = UnitHandle(
-                UnitDescriptor(
-                    name=descriptor.name,
-                    database=self._config.database,
-                    connections=descriptor.connections,
-                )
-            )
+        for setup in self._get_unit_setups():
+            self._units[setup.unit.name] = UnitHandle(setup)
 
         async def process_unit(unit: UnitHandle) -> None:
             await anyio.to_thread.run_sync(unit.start, cancellable=True)
@@ -78,7 +71,7 @@ class Supervisor(Tasklet):
         try:
             async with anyio.create_task_group() as group:
                 for unit in self._units.values():
-                    self.logger.info(f"Starting unit '{unit.setup.name}'...")
+                    self.logger.info(f"Starting unit '{unit.setup.unit.name}'...")
                     group.start_soon(process_unit, unit)
 
         except:
@@ -92,7 +85,7 @@ class Supervisor(Tasklet):
 
         for unit in self._units.values():
             if unit.instance:
-                self.logger.info(f"Stopping unit '{unit.setup.name}'...")
+                self.logger.info(f"Stopping unit '{unit.setup.unit.name}'...")
                 unit.stop()
 
         self._units = {}
@@ -100,19 +93,11 @@ class Supervisor(Tasklet):
 
         await super().stop()
 
-    def _get_unit_descriptors(self) -> Sequence[UnitDescriptor]:
+    def _get_unit_setups(self) -> Sequence[UnitSetup]:
         return [
-            UnitDescriptor(
-                name=name,
+            UnitSetup(
+                unit=unit,
                 database=self._config.database,
-                connections=[
-                    ConnectionDescriptor(
-                        name=name,
-                        module=connection.module,
-                        reconnect=connection.reconnect,
-                    )
-                    for name, connection in unit.connections.items()
-                ],
             )
-            for name, unit in self._config.units.items()
+            for unit in self._config.units
         ]

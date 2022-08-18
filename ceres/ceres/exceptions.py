@@ -8,7 +8,7 @@ class ConfigException(CeresException):
     pass
 
 
-class ObjectLoadException(CeresException):
+class ComponentLoadException(CeresException):
     pass
 
 

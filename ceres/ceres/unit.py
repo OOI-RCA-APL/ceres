@@ -1,27 +1,22 @@
 import traceback
-from dataclasses import dataclass, field
 from logging import Logger
-from typing import Dict, List, Optional, Protocol, TypeVar
+from typing import Dict, Optional, Protocol
 
 import anyio
 from anyio.abc import TaskGroup
 
 from . import logs
-from .config import DatabaseConfig
-from .connection import ConnectionDescriptor, ConnectionHandle
+from .config import DatabaseConfig, UnitConfig
+from .connection import ConnectionHandle
+from .data import DataObject
 from .database import Database
-from .exceptions import ObjectLoadException
-from .object import Object
+from .exceptions import ComponentLoadException
 from .tasks import Tasklet, ensure_event_loop
 
-ObjectT = TypeVar("ObjectT", bound=Object)
 
-
-@dataclass(frozen=True)
-class UnitDescriptor:
-    name: str
+class UnitSetup(DataObject):
+    unit: UnitConfig
     database: DatabaseConfig
-    connections: List[ConnectionDescriptor] = field(default_factory=list)
 
 
 class UnitProxy(Protocol):
@@ -33,19 +28,19 @@ class UnitProxy(Protocol):
 
 
 class Unit(UnitProxy, Tasklet):
-    def __init__(self, descriptor: UnitDescriptor) -> None:
-        self._descriptor = descriptor
-        self._database = Database(self._descriptor.database)
+    def __init__(self, setup: UnitSetup) -> None:
+        self._setup = setup
+        self._database = Database(self._setup.database)
         self._connections: Dict[str, ConnectionHandle] = {}
         self._tasks: Optional[TaskGroup] = None
 
     @property
-    def descriptor(self) -> UnitDescriptor:
-        return self._descriptor
+    def setup(self) -> UnitSetup:
+        return self._setup
 
     @property
     def logger(self) -> Logger:
-        return logs.get(f"@{self._descriptor.name}")
+        return logs.get(f"@{self._setup.unit.name}")
 
     def rpc_start(self) -> None:
         async def run() -> None:
@@ -76,19 +71,19 @@ class Unit(UnitProxy, Tasklet):
 
         self._connections.clear()
 
-        for connection_descriptor in self._descriptor.connections:
-            self._connections[connection_descriptor.name] = ConnectionHandle(
-                descriptor=connection_descriptor,
+        for connection_config in self._setup.unit.connections:
+            self._connections[connection_config.name] = ConnectionHandle(
+                config=connection_config,
                 database=self._database,
             )
 
         for connection in self._connections.values():
             try:
                 await connection.load()
-                self.logger.info(f"Loaded connection '{connection.descriptor.name}'.")
-            except ObjectLoadException as exception:
+                self.logger.info(f"Loaded connection '{connection.config.name}'.")
+            except ComponentLoadException as exception:
                 self.logger.error(
-                    f"Failed to load connection '{connection.descriptor.name}'. {exception.message}"
+                    f"Failed to load connection '{connection.config.name}'. {exception.message}"
                 )
 
         async with anyio.create_task_group() as group:

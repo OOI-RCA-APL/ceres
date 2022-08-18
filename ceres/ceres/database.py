@@ -96,4 +96,4 @@ class MessageEntity(Entity):
 class ParticleEntity(Entity):
     __tablename__ = "particles"
     timestamp: datetime = Column(TIMESTAMP(timezone=True))
-    value: Any = Column(JSON, none_as_null=True)
+    value: Any = Column(JSON)

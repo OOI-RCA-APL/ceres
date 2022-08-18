@@ -1,61 +1,57 @@
+import itertools
 import os
 from abc import ABC
-from typing import TYPE_CHECKING, Any, Dict, Literal, Optional, Union
+from typing import TYPE_CHECKING, List, Literal, Optional, Union
 
 import yaml
-from pydantic import BaseModel, PrivateAttr, ValidationError, validator
+from pydantic import PrivateAttr, ValidationError, validator
 from pydantic.error_wrappers import display_errors
 from yaml import YAMLError
 
+from .data import DataObject
 from .exceptions import ConfigException
 
 if TYPE_CHECKING:
+    from .component import Component
     from .connection import Connection
 
 
-class ObjectDefinition(BaseModel, ABC):
-    module: Optional[str] = None
-    instance: Optional[Any] = None
-
+class ComponentConfig(DataObject, ABC):
     class Config:
         allow_arbitrary_types = True
 
-    @validator("module")
-    def _validate_module(cls, module: Optional[str], values: Dict[str, Any]) -> Optional[str]:
-        if module is None and values.get("instance") is None:
-            raise ValueError("module must be provided")
-
-        return module
+    name: str
+    component: Union[str, "Component"]
 
 
-class ReconnectConfig(BaseModel):
+class ReconnectConfig(DataObject):
     interval: float = 1
     backoff: Optional[float] = None
     max_interval: Optional[float] = 60 * 5
 
 
-class ConnectionDefinition(ObjectDefinition):
-    instance: Optional["Connection"] = None
+class ConnectionConfig(ComponentConfig):
+    component: Union[str, "Connection"]
     reconnect: ReconnectConfig = ReconnectConfig()
 
 
-class ServerConfig(BaseModel):
+class ServerConfig(DataObject):
     port: int
     enable: bool = True
 
 
-class SQLiteDatabaseConfig(BaseModel):
+class SQLiteDatabaseConfig(DataObject):
     type: Literal["sqlite"]
     path: str = ":memory:"
     echo: bool = False
 
 
-class PostgresDatabaseConfig(BaseModel):
+class PostgresDatabaseConfig(DataObject):
     type: Literal["postgres"]
     host: str = "0.0.0.0"
     port: int = 5432
-    name: str = "epems"
-    user: str = "epems"
+    name: str = "ceres"
+    user: str = "ceres"
     password: str
     echo: bool = False
 
@@ -63,14 +59,23 @@ class PostgresDatabaseConfig(BaseModel):
 DatabaseConfig = Union[SQLiteDatabaseConfig, PostgresDatabaseConfig]
 
 
-class UnitConfig(BaseModel):
-    connections: Dict[str, ConnectionDefinition] = {}
+class UnitConfig(DataObject):
+    name: str
+    connections: List[ConnectionConfig] = []
+
+    @validator("connections")
+    def _check_connections(cls, connections: List[ConnectionConfig]) -> List[ConnectionConfig]:
+        for name, group in itertools.groupby(connections, lambda connection: connection.name):
+            if len(list(group)) > 1:
+                raise ValueError(f"duplicate connection name '{name}'")
+
+        return connections
 
 
-class Config(BaseModel):
+class AppConfig(DataObject):
     database: DatabaseConfig = SQLiteDatabaseConfig(type="sqlite")
     server: Optional[ServerConfig] = None
-    units: Dict[str, UnitConfig] = {}
+    units: List[UnitConfig] = []
 
     __path__: str = PrivateAttr(default="")
 
@@ -78,8 +83,16 @@ class Config(BaseModel):
     def path(self) -> str:
         return self.__path__
 
+    @validator("units")
+    def _check_units(cls, units: List[UnitConfig]) -> List[UnitConfig]:
+        for name, group in itertools.groupby(units, lambda unit: unit.name):
+            if len(list(group)) > 1:
+                raise ValueError(f"duplicate unit name '{name}'")
+
+        return units
+
     @classmethod
-    def load(cls, path: str) -> "Config":
+    def load(cls, path: str) -> "AppConfig":
         try:
             path = os.path.realpath(path)
         except Exception:
@@ -96,7 +109,7 @@ class Config(BaseModel):
             raise ConfigException(f"Configuration file at '{path}' is not valid YAML or JSON.")
 
         try:
-            config = Config.parse_obj(data)
+            config = AppConfig.parse_obj(data)
         except ValidationError as error:
             raise ConfigException(
                 f"Configuration file at '{path}' is invalid:\n{display_errors(error.errors())}"

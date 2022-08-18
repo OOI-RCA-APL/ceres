@@ -1,16 +1,15 @@
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
 from datetime import timedelta
 from enum import Enum
 from typing import Any, Awaitable, Optional, cast
 
 import anyio
 
-from .config import ReconnectConfig
+from .component import Component, load_component
+from .config import ConnectionConfig, ReconnectConfig
 from .database import Database
 from .exceptions import ConnectionInactiveException
 from .message import Message
-from .object import Object, ObjectDescriptor, load_object
 from .tasks import Tasklet, defer
 
 
@@ -48,7 +47,7 @@ class ReconnectScheduler:
         return next
 
 
-class Connection(Object, ABC):
+class Connection(Component, ABC):
     @abstractmethod
     def connect(self) -> Awaitable[bool]:
         ...
@@ -66,26 +65,21 @@ class Connection(Object, ABC):
         ...
 
 
-@dataclass(frozen=True)
-class ConnectionDescriptor(ObjectDescriptor[Connection]):
-    reconnect: ReconnectConfig
-
-
 class ConnectionHandle(Tasklet):
     def __init__(
         self,
-        descriptor: ConnectionDescriptor,
+        config: ConnectionConfig,
         database: Database,
     ) -> None:
-        self._descriptor = descriptor
+        self._config = config
         self._database = database
-        self._reconnect = ReconnectScheduler(descriptor.reconnect)
+        self._reconnect = ReconnectScheduler(config.reconnect)
         self._connection: Optional[Connection] = None
         self._connectivity = Connectivity.DISCONNECTED
 
     @property
-    def descriptor(self) -> ConnectionDescriptor:
-        return self._descriptor
+    def config(self) -> ConnectionConfig:
+        return self._config
 
     @property
     def connectivity(self) -> Connectivity:
@@ -132,7 +126,7 @@ class ConnectionHandle(Tasklet):
         if self._connection:
             return
 
-        self._connection = await load_object(self._descriptor, cast(Any, Connection))
+        self._connection = await load_component(self._config, cast(Any, Connection))
 
     async def update(self) -> None:
         if not self._connection:
