@@ -27,7 +27,16 @@ export type NumberElementInfo = BaseElementInfo & {
   color?: ColorStop[] | string
 }
 
-export type ElementInfo = GuageElementInfo | NumberElementInfo
+export type BinaryStateElementInfo = BaseElementInfo & {
+  type: 'binary'
+  value: boolean
+  trueText: string
+  falseText: string
+  trueColor?: ColorStop[] | string
+  falseColor?: ColorStop[] | string
+}
+
+export type ElementInfo = GuageElementInfo | NumberElementInfo | BinaryStateElementInfo
 
 export function createColorStops(
   value: number,

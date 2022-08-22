@@ -51,6 +51,7 @@ const mock = reactive({
                   max: 100,
                 },
                 color: [
+                  { value: 10, color: 'blue' },
                   { value: 50, color: 'green' },
                   { value: 100, color: 'red' },
                 ],
@@ -75,6 +76,15 @@ const mock = reactive({
                   { value: 80, color: 'orange' },
                   { value: 100, color: 'red' },
                 ],
+              },
+              {
+                name: 'Leak Detect 1',
+                type: 'binary',
+                value: false,
+                trueText: 'Leak Detected!',
+                trueColor: 'red',
+                falseText: 'None Detected',
+                falseColor: 'green',
               },
             ] as ElementInfo[],
           },
