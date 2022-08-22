@@ -22,3 +22,11 @@ class ConnectionInactiveException(ConnectionException):
 
 class DisconnectException(ConnectionException):
     pass
+
+
+class DatabaseException(CeresException):
+    pass
+
+
+class DatabaseSchemaException(DatabaseException):
+    pass

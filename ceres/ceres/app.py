@@ -22,17 +22,20 @@ if TYPE_CHECKING:
 class App(Tasklet):
     def __init__(
         self,
-        path: str,
+        config_path: str,
         server_cls: Type["Server"],
         supervisor_cls: Type["Supervisor"],
     ) -> None:
-        self._path = path
-        self._server_cls = server_cls
-        self._supervisor_cls = supervisor_cls
-        self._config = AppConfig()
+        self._config_path = config_path
+        self._config = AppConfig.load(self._config_path)
         self._config_next: Optional[AppConfig] = self._config
         self._config_queue: AsyncQueue[AppConfig] = AsyncQueue()
+
+        self._server_cls = server_cls
+        self._supervisor_cls = supervisor_cls
+
         self._server: Optional["Server"] = None
+        self._database = Database(self._config.database)
         self._supervisor: Optional["Supervisor"] = None
 
     @property
@@ -40,37 +43,42 @@ class App(Tasklet):
         return logs.get("app")
 
     @property
-    def path(self) -> str:
-        return self._path
+    def config_path(self) -> str:
+        return self._config_path
+
+    @property
+    def config(self) -> AppConfig:
+        return self._config
 
     @property
     def server(self) -> Optional["Server"]:
         return self._server
 
     @property
+    def database(self) -> "Database":
+        return self._database
+
+    @property
     def supervisor(self) -> "Supervisor":
         if self._supervisor is None:
-            self._supervisor = self._supervisor_cls(self._config, self)
+            self._supervisor = self._supervisor_cls(self._config, self._database)
 
         return self._supervisor
 
+    async def _apply(self, config: AppConfig) -> None:
+        await self._database.dispose()
+        self._config = config
+        self._config_next = config
+        self._server = self._server_cls(config.server, self) if config.server else None
+        self._database = Database(config.database)
+        self._supervisor = self._supervisor_cls(config, self._database)
+
     async def execute(self) -> None:
-        self.logger.info(f"Loading configuration from '{self._path}'...")
-
-        try:
-            config = AppConfig.load(self._path)
-        except ConfigException as error:
-            self.logger.error(error.message)
-            return
-
-        if not await self._check_config(config):
+        if not await self._check_config(self._config):
             self.logger.error("Initial configuration check failed. Exiting...")
             return
 
-        self._config = config
-        self._config_next = config
-
-        sys.path.append(os.path.dirname(self._path))
+        sys.path.append(os.path.dirname(self._config_path))
 
         exit = Event()
 
@@ -101,28 +109,23 @@ class App(Tasklet):
 
         async def process(config: AppConfig) -> None:
             self.logger.info("Applying configuration...")
-            self._config = config
-            self._server = (
-                self._server_cls(self._config.server, self) if self._config.server else None
-            )
-            self._supervisor = self._supervisor_cls(self._config, self)
+            await self._apply(config)
 
             async with anyio.create_task_group() as group:
+                if self._supervisor:
+                    group.start_soon(self._supervisor.run)
                 if self._server:
                     group.start_soon(self._server.serve)
-                if self._supervisor:
-                    self._supervisor.start()
-                    group.start_soon(self._supervisor.join)
 
         loop = ensure_event_loop()
-
-        def trigger_exit_event() -> None:
-            exit.set()
 
         try:
             while self._config_next:
                 loop.remove_signal_handler(signal.SIGINT)
                 loop.remove_signal_handler(signal.SIGTERM)
+
+                def trigger_exit_event() -> None:
+                    exit.set()
 
                 loop.add_signal_handler(signal.SIGINT, lambda *args: trigger_exit_event())
                 loop.add_signal_handler(signal.SIGTERM, lambda *args: trigger_exit_event())
@@ -145,9 +148,9 @@ class App(Tasklet):
             loop.remove_signal_handler(signal.SIGTERM)
 
     async def reload(self) -> Optional[ConfigException]:
-        self.logger.info(f"Reloading configuration from '{self._path}'...")
+        self.logger.info(f"Reloading configuration from '{self._config_path}'...")
         try:
-            config = AppConfig.load(self._path)
+            config = AppConfig.load(self._config_path)
         except ConfigException as error:
             self.logger.error(error.message)
             self.logger.error("Reload failed, found errors in configuration.")

@@ -2,9 +2,8 @@ import importlib
 import inspect
 import traceback
 from abc import ABC
-from typing import Any, Callable, Type, TypeVar, cast
+from typing import Any, Callable, Type, TypeVar, Union, cast
 
-from .config import ComponentConfig
 from .exceptions import ComponentLoadException
 from .internal import awaitify
 
@@ -16,22 +15,22 @@ class Component(ABC):
 ComponentT = TypeVar("ComponentT", bound="Component")
 
 
-async def load_component(config: "ComponentConfig", cls: Type[ComponentT]) -> ComponentT:
-    if not isinstance(config.component, str):
-        if not isinstance(config.component, cls):
+async def load_component(source: Union[str, ComponentT], cls: Type[ComponentT]) -> ComponentT:
+    if not isinstance(source, str):
+        if not isinstance(source, cls):
             raise ComponentLoadException(
-                f"Component passed in configuration must be an instance of {cls}, got {config.component}."
+                f"Component passed in configuration must be an instance of {cls}, got {source}."
             )
 
-        return config.component
+        return source
 
     try:
-        module = importlib.import_module(config.component)
+        module = importlib.import_module(source)
     except ModuleNotFoundError:
-        raise ComponentLoadException(f"Module '{config.component}' was not found.")
+        raise ComponentLoadException(f"Module '{source}' was not found.")
     except Exception:
         raise ComponentLoadException(
-            f"Module '{config.component}' raised an exception while importing: {traceback.format_exc()}"
+            f"Module '{source}' raised an exception while importing: {traceback.format_exc()}"
         )
 
     init: Callable[[], Any] = cast(Any, getattr(module, "init", None))

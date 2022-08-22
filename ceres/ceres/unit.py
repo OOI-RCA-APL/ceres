@@ -1,25 +1,32 @@
 import traceback
 from logging import Logger
-from typing import Dict, Optional, Protocol
+from typing import Dict, List, Optional, Protocol
+from uuid import UUID
 
 import anyio
 from anyio.abc import TaskGroup
 
 from . import logs
-from .config import DatabaseConfig, UnitConfig
-from .connection import ConnectionHandle
+from .config import ConnectionConfig, DatabaseConfig
+from .connection import ConnectionContext, ConnectionHandle
 from .data import DataObject
 from .database import Database
 from .exceptions import ComponentLoadException
+from .path import ConnectionPath, UnitPath
 from .tasks import Tasklet, ensure_event_loop
 
 
-class UnitSetup(DataObject):
-    unit: UnitConfig
+class UnitContext(DataObject):
+    id: UUID
+    path: UnitPath
+    connections: List[ConnectionConfig]
     database: DatabaseConfig
 
 
 class UnitProxy(Protocol):
+    def rpc_get_context(self) -> UnitContext:
+        ...
+
     def rpc_start(self) -> None:
         ...
 
@@ -28,19 +35,26 @@ class UnitProxy(Protocol):
 
 
 class Unit(UnitProxy, Tasklet):
-    def __init__(self, setup: UnitSetup) -> None:
-        self._setup = setup
-        self._database = Database(self._setup.database)
+    def __init__(self, context: UnitContext) -> None:
+        self._context = context
+        self._database = Database(self._context.database)
         self._connections: Dict[str, ConnectionHandle] = {}
         self._tasks: Optional[TaskGroup] = None
 
     @property
-    def setup(self) -> UnitSetup:
-        return self._setup
+    def id(self) -> UUID:
+        return self._context.id
+
+    @property
+    def path(self) -> UnitPath:
+        return self._context.path
 
     @property
     def logger(self) -> Logger:
-        return logs.get(f"@{self._setup.unit.name}")
+        return logs.get(str(self._context.path))
+
+    def rpc_get_context(self) -> UnitContext:
+        return self._context
 
     def rpc_start(self) -> None:
         async def run() -> None:
@@ -71,19 +85,31 @@ class Unit(UnitProxy, Tasklet):
 
         self._connections.clear()
 
-        for connection_config in self._setup.unit.connections:
+        for connection_config in self._context.connections:
+            path = ConnectionPath.create(
+                self._context.path.unit,
+                connection_config.name,
+            )
+
+            id = await self._database.entities.get_connection_id(path)
+
             self._connections[connection_config.name] = ConnectionHandle(
-                config=connection_config,
-                database=self._database,
+                ConnectionContext(
+                    id=id,
+                    path=path,
+                    component=connection_config.component,
+                    database=self._database,
+                    reconnect=connection_config.reconnect,
+                )
             )
 
         for connection in self._connections.values():
             try:
                 await connection.load()
-                self.logger.info(f"Loaded connection '{connection.config.name}'.")
+                self.logger.info(f"Loaded connection '{connection.path}'.")
             except ComponentLoadException as exception:
                 self.logger.error(
-                    f"Failed to load connection '{connection.config.name}'. {exception.message}"
+                    f"Failed to load connection '{connection.path}'. {exception.message}"
                 )
 
         async with anyio.create_task_group() as group:

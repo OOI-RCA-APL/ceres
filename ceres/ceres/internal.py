@@ -15,7 +15,7 @@ async def awaitify(value: "T | Awaitable[T]") -> T:
     return cast(T, value)
 
 
-def entrypoint(function: Callable[..., Any]) -> Any:
+def syncify(function: Callable[..., Any]) -> Any:
     @wraps(function)
     def wrapper(*args: List[Any], **kwargs: Dict[str, Any]) -> Any:
         uvloop.install()

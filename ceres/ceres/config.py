@@ -1,6 +1,7 @@
 import itertools
 import os
 from abc import ABC
+from pathlib import Path
 from typing import TYPE_CHECKING, List, Literal, Optional, Union
 
 import yaml
@@ -41,22 +42,12 @@ class ServerConfig(DataObject):
 
 
 class SQLiteDatabaseConfig(DataObject):
-    type: Literal["sqlite"]
-    path: str = ":memory:"
-    echo: bool = False
+    type: Literal["sqlite"] = "sqlite"
+    path: Path
 
 
-class PostgresDatabaseConfig(DataObject):
-    type: Literal["postgres"]
-    host: str = "0.0.0.0"
-    port: int = 5432
-    name: str = "ceres"
-    user: str = "ceres"
-    password: str
-    echo: bool = False
-
-
-DatabaseConfig = Union[SQLiteDatabaseConfig, PostgresDatabaseConfig]
+DatabaseType = Literal["sqlite"]
+DatabaseConfig = SQLiteDatabaseConfig
 
 
 class UnitConfig(DataObject):
@@ -73,7 +64,7 @@ class UnitConfig(DataObject):
 
 
 class AppConfig(DataObject):
-    database: DatabaseConfig = SQLiteDatabaseConfig(type="sqlite")
+    database: DatabaseConfig
     server: Optional[ServerConfig] = None
     units: List[UnitConfig] = []
 
