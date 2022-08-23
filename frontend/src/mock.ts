@@ -44,7 +44,7 @@ const mock = reactive({
               {
                 name: 'Temperature',
                 type: 'gauge',
-                value: 25,
+                value: 25.2,
                 unit: '°C',
                 range: {
                   min: 0,
@@ -81,10 +81,10 @@ const mock = reactive({
                 name: 'Leak Detect 1',
                 type: 'binary',
                 value: false,
-                trueText: 'Leak Detected!',
-                trueColor: 'red',
-                falseText: 'None Detected',
-                falseColor: 'green',
+                options: [
+                  { value: false, label: 'Normal', color: 'green' },
+                  { value: true, label: 'Leak Detected', color: 'red' },
+                ],
               },
             ] as ElementInfo[],
           },
@@ -131,6 +131,18 @@ const mock = reactive({
                 type: 'number',
                 value: 5000,
                 unit: 'ppm',
+              },
+              {
+                name: 'Reactor 1 State',
+                type: 'binary',
+                value: 'super',
+                options: [
+                  { value: 'off', label: 'Offline', color: 'grey-8' },
+                  { value: 'sub', label: 'Subcritical', color: 'blue-5' },
+                  { value: 'stable', label: 'Critical', color: 'green' },
+                  { value: 'super', label: 'Supercritical', color: 'yellow-9' },
+                  { value: 'ohshit', label: 'Meltdown', color: 'negative' },
+                ],
               },
               {
                 name: 'Temperature',

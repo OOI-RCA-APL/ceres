@@ -8,6 +8,12 @@ export type Range = {
   max: number
 }
 
+export type State = {
+  value: string | boolean
+  label: string
+  color: string
+}
+
 export type BaseElementInfo = {
   name: string
 }
@@ -30,10 +36,7 @@ export type NumberElementInfo = BaseElementInfo & {
 export type BinaryStateElementInfo = BaseElementInfo & {
   type: 'binary'
   value: boolean
-  trueText: string
-  falseText: string
-  trueColor?: ColorStop[] | string
-  falseColor?: ColorStop[] | string
+  options: State[]
 }
 
 export type ElementInfo = GuageElementInfo | NumberElementInfo | BinaryStateElementInfo
