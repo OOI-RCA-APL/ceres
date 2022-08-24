@@ -9,9 +9,10 @@ export type Range = {
 }
 
 export type State = {
-  value: string | number | boolean
-  label: string
+  value: string | number
   color: string
+  icon?: string
+  description?: string
 }
 
 export type IndicatorColor = 'red' | 'yellow' | 'orange' | 'blue' | 'green'
@@ -36,9 +37,11 @@ export type NumberElementInfo = BaseElementInfo & {
 }
 
 export type StateElementInfo = BaseElementInfo & {
-  type: 'binary'
-  value: boolean
+  type: 'state'
+  value: string | number
   options: State[]
+  showOptions?: boolean
+  verticalIcons: boolean
 }
 
 export type IndicatorElementInfo = BaseElementInfo & {

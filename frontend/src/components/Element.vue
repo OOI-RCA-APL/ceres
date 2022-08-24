@@ -12,7 +12,7 @@
             <gauge-element v-if="info.type === 'gauge'" :info="info" />
             <number-element v-else-if="info.type === 'number'" :info="info" />
             <indicator-element v-else-if="info.type === 'indicator'" :info="info" />
-            <state-element v-else-if="info.type === 'binary'" :info="info" />
+            <state-element v-else-if="info.type === 'state'" :info="info" />
           </div>
         </q-td>
       </q-tr>
