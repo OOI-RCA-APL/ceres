@@ -16,6 +16,7 @@ export type State = {
 }
 
 export type IndicatorColor = 'red' | 'yellow' | 'orange' | 'blue' | 'green'
+export type IndicatorSize = 'xxs' | 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'xxl'
 
 export type BaseElementInfo = {
   name: string
@@ -49,6 +50,7 @@ export type IndicatorElementInfo = BaseElementInfo & {
   label: string
   value: boolean
   color: IndicatorColor
+  size?: IndicatorSize
   reversed?: boolean
 }
 

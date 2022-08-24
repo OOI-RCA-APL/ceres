@@ -1,6 +1,8 @@
 <template>
   <div class="items-center row text-center">
-    <div :class="[ledClass, 'self-led']"></div>
+    <div class="q-pa-sm">
+      <div :class="[ledClass, 'self-led']" :style="zoomStyle"></div>
+    </div>
     <div class="text-body1">{{ info.label }}</div>
   </div>
 </template>
@@ -14,6 +16,17 @@ const { info } = defineProps<{
 
 const isTriggered = $computed(() => (info.reversed ? !info.value : info.value))
 const ledClass = $computed(() => 'self-led-' + (isTriggered ? info.color : 'off'))
+const zoomStyle = $computed(() => `zoom: ${info.size ? sizes[info?.size] : sizes['md']}`)
+
+const sizes = {
+  xxs: 2,
+  xs: 3,
+  sm: 4,
+  md: 5,
+  lg: 6,
+  xl: 7,
+  xxl: 8,
+}
 </script>
 
 <style lang="scss" scoped>
@@ -44,9 +57,12 @@ const ledClass = $computed(() => 'self-led-' + (isTriggered ? info.color : 'off'
 .self-led {
   border-radius: 5px;
   width: 5px;
+  // width: 10px;
   height: 5px;
-  box-shadow: 0px 0px 1px black;
-  margin: 5px;
+  // height: 10px;
+  // box-shadow: 0px 0px 1px black;
+  border: 0.2px solid grey;
+  // box-shadow: 0px 0px 2px black;
   zoom: 5;
 }
 
@@ -57,6 +73,8 @@ const ledClass = $computed(() => 'self-led-' + (isTriggered ? info.color : 'off'
   margin-right: 1px;
   width: 3px;
   height: 2px;
+  // width: 8px;
+  // height: 6px;
   border-top-right-radius: 4px 3px;
   border-top-left-radius: 4px 3px;
   border-bottom-right-radius: 4px 3px;
