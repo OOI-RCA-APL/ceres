@@ -11,7 +11,8 @@
           <div class="justify-center row">
             <gauge-element v-if="info.type === 'gauge'" :info="info" />
             <number-element v-else-if="info.type === 'number'" :info="info" />
-            <binary-state-element v-else-if="info.type === 'binary'" :info="info" />
+            <indicator-element v-else-if="info.type === 'indicator'" :info="info" />
+            <state-element v-else-if="info.type === 'binary'" :info="info" />
           </div>
         </q-td>
       </q-tr>
@@ -22,8 +23,9 @@
 <script lang="ts" setup>
 import GaugeElement from '@/components/elements/GaugeElement.vue'
 import NumberElement from '@/components/elements/NumberElement.vue'
-import BinaryStateElement from './elements/BinaryStateElement.vue'
+import StateElement from './elements/StateElement.vue'
 import type { ElementInfo } from '@/element'
+import IndicatorElement from './elements/IndicatorElement.vue'
 
 defineProps<{
   info: ElementInfo

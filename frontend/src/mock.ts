@@ -78,13 +78,32 @@ const mock = reactive({
                 ],
               },
               {
-                name: 'Leak Detect 1',
-                type: 'binary',
+                name: 'Leak 1',
+                label: 'Leak',
+                type: 'indicator',
                 value: false,
-                options: [
-                  { value: false, label: 'Normal', color: 'green' },
-                  { value: true, label: 'Leak Detected', color: 'red' },
-                ],
+                color: 'red',
+              },
+              {
+                name: 'Leak 2',
+                label: 'Leak',
+                type: 'indicator',
+                value: true,
+                color: 'yellow',
+              },
+              {
+                name: 'Leak 3',
+                label: 'Leak',
+                type: 'indicator',
+                value: true,
+                color: 'brown',
+              },
+              {
+                name: 'Irridium Signal',
+                label: 'Iridium',
+                type: 'indicator',
+                value: true,
+                color: 'green',
               },
             ] as ElementInfo[],
           },
@@ -135,7 +154,7 @@ const mock = reactive({
               {
                 name: 'Reactor 1 State',
                 type: 'binary',
-                value: 'super',
+                value: 'sub',
                 options: [
                   { value: 'off', label: 'Offline', color: 'grey-8' },
                   { value: 'sub', label: 'Subcritical', color: 'blue-5' },

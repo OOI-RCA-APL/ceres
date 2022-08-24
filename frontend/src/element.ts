@@ -9,10 +9,12 @@ export type Range = {
 }
 
 export type State = {
-  value: string | boolean
+  value: string | number | boolean
   label: string
   color: string
 }
+
+export type IndicatorColor = 'red' | 'yellow' | 'orange' | 'blue' | 'green'
 
 export type BaseElementInfo = {
   name: string
@@ -33,13 +35,25 @@ export type NumberElementInfo = BaseElementInfo & {
   color?: ColorStop[] | string
 }
 
-export type BinaryStateElementInfo = BaseElementInfo & {
+export type StateElementInfo = BaseElementInfo & {
   type: 'binary'
   value: boolean
   options: State[]
 }
 
-export type ElementInfo = GuageElementInfo | NumberElementInfo | BinaryStateElementInfo
+export type IndicatorElementInfo = BaseElementInfo & {
+  type: 'indicator'
+  label: string
+  value: boolean
+  color: IndicatorColor
+  reversed?: boolean
+}
+
+export type ElementInfo =
+  | GuageElementInfo
+  | IndicatorElementInfo
+  | NumberElementInfo
+  | StateElementInfo
 
 export function createColorStops(
   value: number,
