@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Optional, Protocol
 
 from fastapi import FastAPI, Response
 from starlette.status import HTTP_200_OK, HTTP_406_NOT_ACCEPTABLE
@@ -7,14 +7,23 @@ from uvicorn import Server as UvicornServer
 
 from . import logs
 from .config import ServerConfig
-from .engine import Engine
+from .exceptions import ConfigException
+
+
+class ServerEngineProtocol(Protocol):
+    async def reload(self) -> Optional[ConfigException]:
+        ...
 
 
 class Server(UvicornServer):  # type: ignore
-    def __init__(self, config: ServerConfig, app: Engine):
+    def __init__(
+        self,
+        config: ServerConfig,
+        engine: ServerEngineProtocol,
+    ):
         super().__init__(
             UvicornConfig(
-                app=self.create_app(app),
+                app=self.create_app(engine),
                 port=config.port,
                 loop="none",
             )
@@ -34,7 +43,7 @@ class Server(UvicornServer):  # type: ignore
             await self.shutdown()
 
     @classmethod
-    def create_app(cls, engine: Engine) -> FastAPI:
+    def create_app(cls, engine: ServerEngineProtocol) -> FastAPI:
         app = FastAPI()
 
         @app.post("/reload")

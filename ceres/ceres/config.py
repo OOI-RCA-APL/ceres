@@ -64,8 +64,8 @@ class UnitConfig(DataObject):
 
 
 class EngineConfig(DataObject):
+    server: ServerConfig
     database: DatabaseConfig
-    server: Optional[ServerConfig] = None
     units: List[UnitConfig] = []
 
     __path__: str = PrivateAttr(default="")

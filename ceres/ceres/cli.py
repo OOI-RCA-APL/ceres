@@ -6,12 +6,10 @@ from click import Path
 from .database import Database
 from .engine import Engine
 from .internal import syncify
-from .server import Server
-from .supervisor import Supervisor
 
 
 def _create_engine(path: str) -> Engine:
-    return Engine(path, Server, Supervisor)
+    return Engine(path)
 
 
 def _create_database(path: str) -> Database:
@@ -43,12 +41,39 @@ def database() -> None:
     pass
 
 
-async def _can_connect_to_database(database: Database) -> bool:
+@database.command()
+@click.option(
+    "--config",
+    default="ceres.yaml",
+    type=Path(
+        exists=True,
+        resolve_path=True,
+        dir_okay=False,
+    ),
+)
+@syncify
+async def init(config: str) -> None:
+    database = _create_database(config)
+
     try:
         async with database.connect():
-            return True
+            pass
     except Exception:
-        return False
+        print("Failed to connect to database.")
+        return
+
+    if await database.tables():
+        print("Database appears to already be initialized. Ensure it provides this schema: ")
+        for statement in database.ddl:
+            print(f"> {statement}")
+        return
+
+    if _get_yes_no("Database appears to be uninitialized. Initialize now?"):
+        for statement in database.ddl:
+            print(f"> {statement}")
+        await database.init()
+    else:
+        print("Database has not been modified.")
 
 
 T = TypeVar("T")
@@ -108,35 +133,3 @@ def _get_yes_no(prompt: str, default: Optional[bool] = None) -> bool:
             return True
         if text in ("no", "n"):
             return False
-
-
-@database.command()
-@click.option(
-    "--config",
-    default="ceres.yaml",
-    type=Path(
-        exists=True,
-        resolve_path=True,
-        dir_okay=False,
-    ),
-)
-@syncify
-async def init(config: str) -> None:
-    database = _create_database(config)
-
-    if not await _can_connect_to_database(database):
-        print("Failed to connect to database.")
-        return
-
-    if await database.tables():
-        print("Database appears to already be initialized. Ensure it provides this schema: ")
-        for statement in database.ddl:
-            print(f"> {statement}")
-        return
-
-    if _get_yes_no("Database appears to be uninitialized. Initialize now?"):
-        for statement in database.ddl:
-            print(f"> {statement}")
-        await database.init()
-    else:
-        print("Database has not been modified.")

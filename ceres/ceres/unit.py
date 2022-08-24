@@ -150,7 +150,11 @@ class UnitHandle:
         self._manager.start()
         instance = cast(UnitProxy, cast(Any, self._manager).Unit(self._context))
         self._instance = instance
-        instance.rpc_start()
+
+        try:
+            instance.rpc_start()
+        except EOFError:
+            return
 
     def stop(self) -> None:
         if self._instance:

@@ -1,9 +1,10 @@
 import os
 import signal
 import sys
+import traceback
 from asyncio.queues import Queue as AsyncQueue
 from logging import Logger
-from typing import TYPE_CHECKING, Optional, Type
+from typing import Dict, Optional
 
 import anyio
 from anyio import CancelScope, Event
@@ -12,31 +13,21 @@ from . import logs
 from .config import DatabaseConfig, EngineConfig
 from .database import Database
 from .exceptions import ConfigException
+from .path import UnitPath
+from .server import Server, ServerEngineProtocol
 from .tasks import Tasklet, ensure_event_loop
-
-if TYPE_CHECKING:
-    from .server import Server
-    from .supervisor import Supervisor
+from .unit import UnitContext, UnitHandle
 
 
-class Engine(Tasklet):
-    def __init__(
-        self,
-        config_path: str,
-        server_cls: Type["Server"],
-        supervisor_cls: Type["Supervisor"],
-    ) -> None:
+class Engine(Tasklet, ServerEngineProtocol):
+    def __init__(self, config_path: str) -> None:
         self._config_path = config_path
         self._config = EngineConfig.load(self._config_path)
         self._config_next: Optional[EngineConfig] = self._config
         self._config_queue: AsyncQueue[EngineConfig] = AsyncQueue()
-
-        self._server_cls = server_cls
-        self._supervisor_cls = supervisor_cls
-
-        self._server: Optional["Server"] = None
+        self._server = Server(self._config.server, self)
         self._database = Database(self._config.database)
-        self._supervisor: Optional["Supervisor"] = None
+        self._units: Dict[UnitPath, UnitHandle] = {}
 
     @property
     def logger(self) -> Logger:
@@ -51,27 +42,19 @@ class Engine(Tasklet):
         return self._config
 
     @property
-    def server(self) -> Optional["Server"]:
+    def server(self) -> Server:
         return self._server
 
     @property
     def database(self) -> "Database":
         return self._database
 
-    @property
-    def supervisor(self) -> "Supervisor":
-        if self._supervisor is None:
-            self._supervisor = self._supervisor_cls(self._config, self._database)
-
-        return self._supervisor
-
     async def _apply(self, config: EngineConfig) -> None:
         await self._database.dispose()
         self._config = config
         self._config_next = config
-        self._server = self._server_cls(config.server, self) if config.server else None
+        self._server = Server(config.server, self)
         self._database = Database(config.database)
-        self._supervisor = self._supervisor_cls(config, self._database)
 
     async def execute(self) -> None:
         if not await self._check_config(self._config):
@@ -107,15 +90,23 @@ class Engine(Tasklet):
                 self._config_next = config
                 cancel.cancel()
 
-        async def process(config: EngineConfig) -> None:
-            self.logger.info("Applying configuration...")
-            await self._apply(config)
+        async def process_server() -> None:
+            await self._server.serve()
 
-            async with anyio.create_task_group() as group:
-                if self._supervisor:
-                    group.start_soon(self._supervisor.run)
-                if self._server:
-                    group.start_soon(self._server.serve)
+        async def process_units() -> None:
+            await self._create_units()
+
+            async def process_unit(unit: UnitHandle) -> None:
+                await anyio.to_thread.run_sync(unit.start, cancellable=True)
+
+            try:
+                async with anyio.create_task_group() as group:
+                    for unit in self._units.values():
+                        self.logger.info(f"Starting unit '{unit.path}'...")
+                        group.start_soon(process_unit, unit)
+            except Exception:
+                print(traceback.format_exc())
+                await self.stop()
 
         loop = ensure_event_loop()
 
@@ -130,16 +121,15 @@ class Engine(Tasklet):
                 loop.add_signal_handler(signal.SIGINT, lambda *args: trigger_exit_event())
                 loop.add_signal_handler(signal.SIGTERM, lambda *args: trigger_exit_event())
 
-                if self._server:
-                    await self._server.stop()
-                if self._supervisor:
-                    await self._supervisor.stop()
+                await self._server.stop()
+                await self._apply(self._config_next)
 
                 async with anyio.create_task_group() as group:
                     group.start_soon(process_exit)
                     group.start_soon(process_stop, group.cancel_scope)
                     group.start_soon(process_reload, group.cancel_scope)
-                    group.start_soon(process, self._config_next)
+                    group.start_soon(process_server)
+                    group.start_soon(process_units)
 
                 loop.remove_signal_handler(signal.SIGINT)
                 loop.remove_signal_handler(signal.SIGTERM)
@@ -161,12 +151,9 @@ class Engine(Tasklet):
         return None
 
     async def teardown(self) -> None:
-        if self._server:
-            self.logger.info("Stopping server...")
-            await self._server.stop()
-        if self._supervisor:
-            self.logger.info("Stopping supervisor...")
-            await self._supervisor.stop()
+        self.logger.info("Stopping server...")
+        await self._server.stop()
+        await self._stop_units()
 
     async def _wait_for_database(
         self,
@@ -209,3 +196,46 @@ class Engine(Tasklet):
 
         self.logger.info("Configuration passed all checks.")
         return True
+
+    async def _create_units(self) -> None:
+        self._units.clear()
+
+        for unit in self._config.units:
+            path = UnitPath.create(unit.name)
+            id = await self._database.entities.get_unit_id(path)
+
+            context = UnitContext(
+                id=id,
+                path=path,
+                connections=unit.connections,
+                database=self._config.database,
+            )
+
+            self._units[path] = UnitHandle(context)
+
+    async def _run_units(self) -> None:
+        async def process_unit(unit: UnitHandle) -> None:
+            await anyio.to_thread.run_sync(unit.start, cancellable=True)
+
+        try:
+            async with anyio.create_task_group() as group:
+                for unit in self._units.values():
+                    self.logger.info(f"Starting unit '{unit.path}'...")
+                    group.start_soon(process_unit, unit)
+        except Exception:
+            print(traceback.format_exc())
+            await self.stop()
+
+    async def _stop_units(self) -> None:
+        if not self._units:
+            return
+
+        self.logger.info("Stopping all units...")
+
+        for unit in self._units.values():
+            if unit.instance:
+                self.logger.info(f"Stopping unit '{unit.path}'...")
+                unit.stop()
+
+        self._units = {}
+        self.logger.info("All units were stopped successfully.")
