@@ -96,7 +96,7 @@ const mock = reactive({
                 label: 'Leak',
                 type: 'indicator',
                 value: true,
-                color: 'brown',
+                color: 'red',
               },
               {
                 name: 'Irridium Signal',
