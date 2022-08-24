@@ -1,4 +1,4 @@
-from ceres.data import DataObject
+from .data import DataObject
 
 
 class UnitPath(DataObject):

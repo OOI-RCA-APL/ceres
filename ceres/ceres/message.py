@@ -3,8 +3,7 @@ from uuid import UUID
 
 from pydantic import Field
 
-from ceres.data import DataObject
-
+from .data import DataObject
 from .database.entity import MessageDirection as EntityMessageDirection
 from .database.entity import MessageEntity, eid
 

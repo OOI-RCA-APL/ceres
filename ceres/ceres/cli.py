@@ -3,19 +3,19 @@ from typing import Callable, Optional, TypeVar
 import click
 from click import Path
 
-from .app import App
 from .database import Database
+from .engine import Engine
 from .internal import syncify
 from .server import Server
 from .supervisor import Supervisor
 
 
-def _create_app(path: str) -> App:
-    return App(path, Server, Supervisor)
+def _create_engine(path: str) -> Engine:
+    return Engine(path, Server, Supervisor)
 
 
 def _create_database(path: str) -> Database:
-    return _create_app(path).database
+    return _create_engine(path).database
 
 
 @click.group()
@@ -35,7 +35,7 @@ def main() -> None:
 )
 @syncify
 async def run(path: str) -> None:
-    await _create_app(path).run()
+    await _create_engine(path).run()
 
 
 @main.group()

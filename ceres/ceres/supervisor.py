@@ -7,7 +7,7 @@ from uuid import UUID
 import anyio
 
 from . import logs
-from .config import AppConfig
+from .config import EngineConfig
 from .database import Database
 from .path import UnitPath
 from .tasks import Tasklet
@@ -56,7 +56,7 @@ class UnitHandle:
 
 
 class Supervisor(Tasklet):
-    def __init__(self, config: AppConfig, database: Database) -> None:
+    def __init__(self, config: EngineConfig, database: Database) -> None:
         super().__init__()
         self._config = config
         self._database = database

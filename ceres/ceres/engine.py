@@ -9,7 +9,7 @@ import anyio
 from anyio import CancelScope, Event
 
 from . import logs
-from .config import AppConfig, DatabaseConfig
+from .config import DatabaseConfig, EngineConfig
 from .database import Database
 from .exceptions import ConfigException
 from .tasks import Tasklet, ensure_event_loop
@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from .supervisor import Supervisor
 
 
-class App(Tasklet):
+class Engine(Tasklet):
     def __init__(
         self,
         config_path: str,
@@ -27,9 +27,9 @@ class App(Tasklet):
         supervisor_cls: Type["Supervisor"],
     ) -> None:
         self._config_path = config_path
-        self._config = AppConfig.load(self._config_path)
-        self._config_next: Optional[AppConfig] = self._config
-        self._config_queue: AsyncQueue[AppConfig] = AsyncQueue()
+        self._config = EngineConfig.load(self._config_path)
+        self._config_next: Optional[EngineConfig] = self._config
+        self._config_queue: AsyncQueue[EngineConfig] = AsyncQueue()
 
         self._server_cls = server_cls
         self._supervisor_cls = supervisor_cls
@@ -40,14 +40,14 @@ class App(Tasklet):
 
     @property
     def logger(self) -> Logger:
-        return logs.get("app")
+        return logs.get("engine")
 
     @property
     def config_path(self) -> str:
         return self._config_path
 
     @property
-    def config(self) -> AppConfig:
+    def config(self) -> EngineConfig:
         return self._config
 
     @property
@@ -65,7 +65,7 @@ class App(Tasklet):
 
         return self._supervisor
 
-    async def _apply(self, config: AppConfig) -> None:
+    async def _apply(self, config: EngineConfig) -> None:
         await self._database.dispose()
         self._config = config
         self._config_next = config
@@ -107,7 +107,7 @@ class App(Tasklet):
                 self._config_next = config
                 cancel.cancel()
 
-        async def process(config: AppConfig) -> None:
+        async def process(config: EngineConfig) -> None:
             self.logger.info("Applying configuration...")
             await self._apply(config)
 
@@ -150,7 +150,7 @@ class App(Tasklet):
     async def reload(self) -> Optional[ConfigException]:
         self.logger.info(f"Reloading configuration from '{self._config_path}'...")
         try:
-            config = AppConfig.load(self._config_path)
+            config = EngineConfig.load(self._config_path)
         except ConfigException as error:
             self.logger.error(error.message)
             self.logger.error("Reload failed, found errors in configuration.")
@@ -160,15 +160,13 @@ class App(Tasklet):
         await self._config_queue.put(config)
         return None
 
-    async def stop(self) -> None:
+    async def teardown(self) -> None:
         if self._server:
             self.logger.info("Stopping server...")
             await self._server.stop()
         if self._supervisor:
             self.logger.info("Stopping supervisor...")
             await self._supervisor.stop()
-
-        await super().stop()
 
     async def _wait_for_database(
         self,
@@ -204,7 +202,7 @@ class App(Tasklet):
             finally:
                 await database.dispose()
 
-    async def _check_config(self, config: AppConfig, wait: bool = False) -> bool:
+    async def _check_config(self, config: EngineConfig, wait: bool = False) -> bool:
         if config.database:
             self.logger.info("Database configuration found, verifying it's reachable...")
             await self._wait_for_database(config.database, attempts=None if wait else 3)

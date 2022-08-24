@@ -63,7 +63,7 @@ class UnitConfig(DataObject):
         return connections
 
 
-class AppConfig(DataObject):
+class EngineConfig(DataObject):
     database: DatabaseConfig
     server: Optional[ServerConfig] = None
     units: List[UnitConfig] = []
@@ -83,7 +83,7 @@ class AppConfig(DataObject):
         return units
 
     @classmethod
-    def load(cls, path: str) -> "AppConfig":
+    def load(cls, path: str) -> "EngineConfig":
         try:
             path = os.path.realpath(path)
         except Exception:
@@ -100,7 +100,7 @@ class AppConfig(DataObject):
             raise ConfigException(f"Configuration file at '{path}' is not valid YAML or JSON.")
 
         try:
-            config = AppConfig.parse_obj(data)
+            config = EngineConfig.parse_obj(data)
         except ValidationError as error:
             raise ConfigException(
                 f"Configuration file at '{path}' is invalid:\n{display_errors(error.errors())}"

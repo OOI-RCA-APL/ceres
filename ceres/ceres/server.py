@@ -6,15 +6,15 @@ from uvicorn import Config as UvicornConfig
 from uvicorn import Server as UvicornServer
 
 from . import logs
-from .app import App
 from .config import ServerConfig
+from .engine import Engine
 
 
 class Server(UvicornServer):  # type: ignore
-    def __init__(self, config: ServerConfig, app: App):
+    def __init__(self, config: ServerConfig, app: Engine):
         super().__init__(
             UvicornConfig(
-                app=self.create_api(app),
+                app=self.create_app(app),
                 port=config.port,
                 loop="none",
             )
@@ -34,12 +34,12 @@ class Server(UvicornServer):  # type: ignore
             await self.shutdown()
 
     @classmethod
-    def create_api(cls, app: App) -> FastAPI:
-        api = FastAPI()
+    def create_app(cls, engine: Engine) -> FastAPI:
+        app = FastAPI()
 
-        @api.post("/reload")
+        @app.post("/reload")
         async def reload() -> Response:
-            error = await app.reload()
+            error = await engine.reload()
             return Response(status_code=HTTP_406_NOT_ACCEPTABLE if error else HTTP_200_OK)
 
-        return api
+        return app
