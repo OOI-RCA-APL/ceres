@@ -73,7 +73,6 @@
 
 <script lang="ts" setup>
 import { StateElementInfo } from '@/element'
-import SectionCard from '../SectionCard.vue'
 
 const { info } = defineProps<{
   info: StateElementInfo
