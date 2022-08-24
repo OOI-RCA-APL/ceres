@@ -44,7 +44,6 @@
             class="activity-status-indicator-table"
             dense
             flat
-            :ripple="false"
             separator="cell"
           >
             <tbody>
@@ -54,6 +53,7 @@
                     :color="option.color ?? 'primary'"
                     :icon="option.icon"
                     :label="option.value"
+                    :ripple="false"
                     size="sm"
                     square
                     text-color="white"
