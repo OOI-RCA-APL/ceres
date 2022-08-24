@@ -1,6 +1,7 @@
 import traceback
 from logging import Logger
-from typing import Dict, List, Optional, Protocol
+from multiprocessing.managers import BaseManager
+from typing import Any, Dict, List, Optional, Protocol, cast
 from uuid import UUID
 
 import anyio
@@ -117,3 +118,44 @@ class Unit(UnitProxy, Tasklet):
                 group.start_soon(connection.run)
 
             self._tasks = group
+
+
+class UnitManager(BaseManager):
+    pass
+
+
+UnitManager.register("Unit", Unit)
+
+
+class UnitHandle:
+    def __init__(self, context: UnitContext) -> None:
+        self._context = context
+        self._manager: Optional[UnitManager] = None
+        self._instance: Optional[UnitProxy] = None
+
+    @property
+    def id(self) -> UUID:
+        return self._context.id
+
+    @property
+    def path(self) -> UnitPath:
+        return self._context.path
+
+    @property
+    def instance(self) -> Optional[UnitProxy]:
+        return self._instance
+
+    def start(self) -> None:
+        self._manager = UnitManager()
+        self._manager.start()
+        instance = cast(UnitProxy, cast(Any, self._manager).Unit(self._context))
+        self._instance = instance
+        instance.rpc_start()
+
+    def stop(self) -> None:
+        if self._instance:
+            self._instance.rpc_stop()
+            self._instance = None
+        if self._manager:
+            self._manager.shutdown()
+            self._manager = None

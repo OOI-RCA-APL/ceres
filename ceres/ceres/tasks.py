@@ -71,9 +71,12 @@ class Tasklet(ABC):
         if not self.__tasklet__.task or self.__tasklet__.stop.is_set():
             return
 
-        self.__tasklet__.task.cancel()
-        self.__tasklet__.task = None
-        self.__tasklet__.stop.set()
+        try:
+            await self.teardown()
+        finally:
+            self.__tasklet__.task.cancel()
+            self.__tasklet__.task = None
+            self.__tasklet__.stop.set()
 
     async def join(self) -> None:
         if not self.__tasklet__.task:
