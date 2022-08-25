@@ -2,7 +2,7 @@ import itertools
 import os
 from abc import ABC
 from pathlib import Path
-from typing import TYPE_CHECKING, List, Literal, Optional, Union
+from typing import List, Literal, Optional, Union
 
 import yaml
 from pydantic import PrivateAttr, ValidationError, validator
@@ -12,17 +12,13 @@ from yaml import YAMLError
 from .data import DataObject
 from .exceptions import ConfigException
 
-if TYPE_CHECKING:
-    from .component import Component
-    from .connection import Connection
-
 
 class ComponentConfig(DataObject, ABC):
     class Config:
         allow_arbitrary_types = True
 
     name: str
-    component: Union[str, "Component"]
+    component: Union[str, object]
 
 
 class ReconnectConfig(DataObject):
@@ -32,7 +28,6 @@ class ReconnectConfig(DataObject):
 
 
 class ConnectionConfig(ComponentConfig):
-    component: Union[str, "Connection"]
     reconnect: ReconnectConfig = ReconnectConfig()
 
 

@@ -2,7 +2,7 @@ import asyncio
 from abc import ABC, abstractmethod
 from asyncio import AbstractEventLoop, Event, Task
 from dataclasses import dataclass, field
-from typing import Any, Optional, cast
+from typing import Any, Awaitable, Callable, Optional, TypeVar, cast
 
 import anyio
 import uvloop
@@ -31,10 +31,12 @@ class TaskletInternal:
 
 TASKLET_INTERNAL_ATTRIBUTE_NAME = "__tasklet_internal__"
 
+TaskletT = TypeVar("TaskletT", bound="Tasklet")
+
 
 class Tasklet(ABC):
     @property
-    def started(self) -> bool:
+    def running(self) -> bool:
         return self.__tasklet__.task is not None
 
     @property
@@ -46,7 +48,14 @@ class Tasklet(ABC):
         self.__dict__[TASKLET_INTERNAL_ATTRIBUTE_NAME] = internal
         return internal
 
-    def start(self) -> None:
+    def start(
+        self: TaskletT,
+        *,
+        on_completed: Optional[Callable[["TaskletT"], Optional[Awaitable[None]]]] = None,
+        on_exception: Optional[
+            Callable[["TaskletT", BaseException], Optional[Awaitable[None]]]
+        ] = None,
+    ) -> None:
         if self.__tasklet__.task:
             return
 
@@ -61,10 +70,16 @@ class Tasklet(ABC):
             if task.cancelled():
                 return
 
-            if exception := task.exception():
-                raise exception
+            if on_completed:
+                on_completed(self)
 
-        self.__tasklet__.task = asyncio.create_task(self.execute())
+            if exception := task.exception():
+                if on_exception:
+                    on_exception(self, exception)
+                else:
+                    raise exception
+
+        self.__tasklet__.task = asyncio.create_task(self._tasklet_run())
         self.__tasklet__.task.add_done_callback(done)
 
     async def stop(self) -> None:
@@ -72,7 +87,7 @@ class Tasklet(ABC):
             return
 
         try:
-            await self.teardown()
+            await self._tasklet_stop()
         finally:
             self.__tasklet__.task.cancel()
             self.__tasklet__.task = None
@@ -89,8 +104,9 @@ class Tasklet(ABC):
         await self.join()
 
     @abstractmethod
-    async def execute(self) -> None:
+    async def _tasklet_run(self) -> None:
         ...
 
-    async def teardown(self) -> None:
-        pass
+    @abstractmethod
+    async def _tasklet_stop(self) -> None:
+        ...

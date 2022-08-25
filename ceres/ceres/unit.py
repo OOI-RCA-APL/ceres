@@ -24,18 +24,15 @@ class UnitContext(DataObject):
     database: DatabaseConfig
 
 
-class UnitProxy(Protocol):
-    def rpc_get_context(self) -> UnitContext:
+class UnitProxyProtocol(Protocol):
+    def rpc_run(self) -> Optional[BaseException]:
         ...
 
-    def rpc_start(self) -> None:
-        ...
-
-    def rpc_stop(self) -> None:
+    def rpc_stop(self) -> Optional[BaseException]:
         ...
 
 
-class Unit(UnitProxy, Tasklet):
+class Unit(UnitProxyProtocol, Tasklet):
     def __init__(self, context: UnitContext) -> None:
         self._context = context
         self._database = Database(self._context.database)
@@ -54,35 +51,38 @@ class Unit(UnitProxy, Tasklet):
     def logger(self) -> Logger:
         return logs.get(str(self._context.path))
 
-    def rpc_get_context(self) -> UnitContext:
-        return self._context
-
-    def rpc_start(self) -> None:
-        async def run() -> None:
+    def rpc_run(self) -> Optional[BaseException]:
+        async def execute() -> None:
             try:
                 await self.run()
             except Exception:
                 self.logger.error(traceback.format_exc())
+                raise
 
-        ensure_event_loop().run_until_complete(run())
+        try:
+            ensure_event_loop().run_until_complete(execute())
+        except BaseException as exception:
+            return exception
 
-    def rpc_stop(self) -> None:
-        async def stop() -> None:
+        return None
+
+    def rpc_stop(self) -> Optional[BaseException]:
+        async def execute() -> None:
             try:
                 await self.stop()
             except Exception:
                 self.logger.error(traceback.format_exc())
+                raise
 
-        ensure_event_loop().run_until_complete(stop())
+        try:
+            ensure_event_loop().run_until_complete(execute())
+        except BaseException as exception:
+            return exception
 
-    async def teardown(self) -> None:
-        for connection in self._connections.values():
-            await connection.disconnect()
+        return None
 
-        await self._database.dispose()
-
-    async def execute(self) -> None:
-        await self.teardown()
+    async def _tasklet_run(self) -> None:
+        await self._tasklet_stop()
 
         self._connections.clear()
 
@@ -119,6 +119,12 @@ class Unit(UnitProxy, Tasklet):
 
             self._tasks = group
 
+    async def _tasklet_stop(self) -> None:
+        for connection in self._connections.values():
+            await connection._disconnect()
+
+        await self._database.dispose()
+
 
 class UnitManager(BaseManager):
     pass
@@ -127,11 +133,11 @@ class UnitManager(BaseManager):
 UnitManager.register("Unit", Unit)
 
 
-class UnitHandle:
+class UnitHandle(Tasklet):
     def __init__(self, context: UnitContext) -> None:
         self._context = context
         self._manager: Optional[UnitManager] = None
-        self._instance: Optional[UnitProxy] = None
+        self._instance: Optional[UnitProxyProtocol] = None
 
     @property
     def id(self) -> UUID:
@@ -142,24 +148,38 @@ class UnitHandle:
         return self._context.path
 
     @property
-    def instance(self) -> Optional[UnitProxy]:
+    def instance(self) -> Optional[UnitProxyProtocol]:
         return self._instance
 
-    def start(self) -> None:
-        self._manager = UnitManager()
-        self._manager.start()
-        instance = cast(UnitProxy, cast(Any, self._manager).Unit(self._context))
-        self._instance = instance
+    async def _tasklet_run(self) -> None:
+        def execute() -> None:
+            self._manager = UnitManager()
+            self._manager.start()
+            instance = cast(UnitProxyProtocol, cast(Any, self._manager).Unit(self._context))
+            self._instance = instance
 
-        try:
-            instance.rpc_start()
-        except EOFError:
-            return
+            try:
+                exception = instance.rpc_run()
+            except EOFError:
+                return
 
-    def stop(self) -> None:
-        if self._instance:
-            self._instance.rpc_stop()
-            self._instance = None
-        if self._manager:
-            self._manager.shutdown()
-            self._manager = None
+            if exception:
+                raise exception
+
+        await anyio.to_thread.run_sync(execute, cancellable=True)
+
+    async def _tasklet_stop(self) -> None:
+        def execute() -> None:
+            if self._instance:
+                exception = self._instance.rpc_stop()
+                self._instance = None
+            else:
+                exception = None
+
+            if self._manager:
+                self._manager.shutdown()
+
+            if exception:
+                raise exception
+
+        await anyio.to_thread.run_sync(execute)

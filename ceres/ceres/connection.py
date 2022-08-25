@@ -2,12 +2,12 @@ from abc import ABC, abstractmethod
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 from time import sleep
-from typing import Any, Awaitable, List, Optional, Union, cast
+from typing import Awaitable, List, Optional, Union
 from uuid import UUID
 
 import anyio
 
-from .component import Component, load_component
+from .component import Component
 from .config import ReconnectConfig
 from .data import DataObject
 from .database import Database
@@ -78,7 +78,7 @@ class ConnectionContext(DataObject):
 
     id: UUID
     path: ConnectionPath
-    component: Union[str, "Connection"]
+    component: Union[str, object]
     database: Database
     reconnect: ReconnectConfig
 
@@ -114,28 +114,11 @@ class ConnectionHandle(Tasklet):
     def connected(self) -> bool:
         return self._connectivity == Connectivity.CONNECTED
 
-    async def connect(self) -> bool:
-        if not self._connection:
-            return False
-        if self.connected:
-            return True
-
-        self._connectivity = Connectivity.CONNECTING
-        if await self._connection.connect():
-            self._connectivity = Connectivity.CONNECTED
-        else:
-            self._connectivity = Connectivity.DISCONNECTED
-
-        return self.connected
-
-    async def disconnect(self) -> None:
-        if not self._connection:
+    async def load(self) -> None:
+        if self._connection:
             return
 
-        try:
-            await self._connection.disconnect()
-        finally:
-            self._connectivity = Connectivity.DISCONNECTED
+        self._connection = await Connection.load(self._context.component)
 
     async def send(self, data: str) -> Message:
         if not self._connection:
@@ -144,7 +127,7 @@ class ConnectionHandle(Tasklet):
         try:
             await self._connection.send(data)
         except Exception:
-            await self.disconnect()
+            await self._disconnect()
             raise
 
         async with self._context.database.session() as session:
@@ -161,35 +144,26 @@ class ConnectionHandle(Tasklet):
 
         return Message.from_entity(entity)
 
-    async def receive(self) -> None:
-        if not self._connection:
-            raise ConnectionInactiveException("Connection is not active.")
+    async def _tasklet_run(self) -> None:
+        async def process_update() -> None:
+            while True:
+                await self._update()
 
-        try:
-            data = await self._connection.receive()
-        except Exception:
-            await self.disconnect()
-            raise
+        async def process_flush() -> None:
+            while True:
+                await anyio.sleep(0.1)
+                if not self._is_flushing:
+                    await self._flush()
 
-        sleep(1 / 1000000)
-        message = ReceivedMessage(
-            id=eid(),
-            timestamp=datetime.now(timezone.utc),
-            content=data,
-        )
+        async with anyio.create_task_group() as group:
+            group.start_soon(process_flush)
+            group.start_soon(process_update)
 
-        self._receive_buffer.append(message)
+    async def _tasklet_stop(self) -> None:
+        await self._disconnect()
+        await self._flush()
 
-        if not self._is_flushing and len(self._receive_buffer) >= MAX_RECEIVE_BUFFER_SIZE:
-            await self.flush()
-
-    async def load(self) -> None:
-        if self._connection:
-            return
-
-        self._connection = await load_component(self._context.component, cast(Any, Connection))
-
-    async def update(self) -> None:
+    async def _update(self) -> None:
         if not self._connection:
             return
 
@@ -205,9 +179,54 @@ class ConnectionHandle(Tasklet):
         self._reconnect.reset()
 
         while self.connected:
-            await self.receive()
+            await self._receive()
 
-    async def flush(self) -> None:
+    async def _connect(self) -> bool:
+        if not self._connection:
+            return False
+        if self.connected:
+            return True
+
+        self._connectivity = Connectivity.CONNECTING
+        if await self._connection.connect():
+            self._connectivity = Connectivity.CONNECTED
+        else:
+            self._connectivity = Connectivity.DISCONNECTED
+
+        return self.connected
+
+    async def _disconnect(self) -> None:
+        if not self._connection:
+            return
+
+        try:
+            await self._connection.disconnect()
+        finally:
+            self._connectivity = Connectivity.DISCONNECTED
+
+    async def _receive(self) -> None:
+        if not self._connection:
+            raise ConnectionInactiveException("Connection is not active.")
+
+        try:
+            data = await self._connection.receive()
+        except Exception:
+            await self._disconnect()
+            raise
+
+        sleep(1 / 1000000)
+        message = ReceivedMessage(
+            id=eid(),
+            timestamp=datetime.now(timezone.utc),
+            content=data,
+        )
+
+        self._receive_buffer.append(message)
+
+        if not self._is_flushing and len(self._receive_buffer) >= MAX_RECEIVE_BUFFER_SIZE:
+            await self._flush()
+
+    async def _flush(self) -> None:
         if not self._receive_buffer:
             return
 
@@ -216,7 +235,7 @@ class ConnectionHandle(Tasklet):
         messages = self._receive_buffer
         self._receive_buffer = []
 
-        async def execute() -> None:
+        try:
             async with self._context.database.session() as session:
                 session.add_all(
                     [
@@ -232,30 +251,7 @@ class ConnectionHandle(Tasklet):
                 )
 
                 await session.commit()
-
-        try:
-            await execute()
-            # anyio.to_thread(execute)
         except Exception:
             self._receive_buffer = [*messages, *self._receive_buffer]
         finally:
             self._is_flushing = False
-
-    async def execute(self) -> None:
-        async def process_update() -> None:
-            while True:
-                await self.update()
-
-        async def process_flush() -> None:
-            while True:
-                await anyio.sleep(0.1)
-                if not self._is_flushing:
-                    await self.flush()
-
-        async with anyio.create_task_group() as group:
-            group.start_soon(process_flush)
-            group.start_soon(process_update)
-
-    async def teardown(self) -> None:
-        await self.disconnect()
-        await self.flush()
