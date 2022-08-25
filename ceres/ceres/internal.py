@@ -1,7 +1,19 @@
 import asyncio
 import inspect
+import signal
+from contextlib import contextmanager
 from functools import wraps
-from typing import Any, Awaitable, Callable, Dict, List, TypeVar, cast
+from typing import (
+    Any,
+    Awaitable,
+    Callable,
+    Dict,
+    Iterator,
+    List,
+    Sequence,
+    TypeVar,
+    cast,
+)
 
 import uvloop
 
@@ -22,3 +34,18 @@ def syncify(function: Callable[..., Any]) -> Any:
         return asyncio.run(function(*args, **kwargs))
 
     return wrapper
+
+
+@contextmanager
+def use_signal_handler(signums: Sequence[int], handler: Callable[..., Any]) -> Iterator[None]:
+    originals: Dict[int, Any] = {}
+    for signum in signums:
+        if original := signal.getsignal(signum):
+            originals[signum] = original
+        signal.signal(signum, handler)
+
+    try:
+        yield
+    finally:
+        for signum, original in originals.items():
+            signal.signal(signum, original)

@@ -2,32 +2,34 @@ import os
 import signal
 import sys
 import traceback
-from asyncio.queues import Queue as AsyncQueue
+from asyncio import Event
 from logging import Logger
-from typing import Dict, Optional
+from queue import Empty, Queue
+from typing import Any, Dict, Optional
 
 import anyio
-from anyio import CancelScope, Event
+from anyio import CancelScope
 
 from . import logs
 from .config import DatabaseConfig, EngineConfig
 from .database import Database
-from .exceptions import ConfigException
+from .exceptions import ConfigException, ReloadAlreadyActiveException
+from .internal import use_signal_handler
 from .path import UnitPath
 from .server import Server, ServerEngineProtocol
-from .tasks import Tasklet, ensure_event_loop
+from .tasks import Tasklet
 from .unit import UnitContext, UnitHandle
 
 
 class Engine(Tasklet, ServerEngineProtocol):
     def __init__(self, config_path: str) -> None:
+        self._config = EngineConfig.load(config_path)
         self._config_path = config_path
-        self._config = EngineConfig.load(self._config_path)
-        self._config_next: Optional[EngineConfig] = self._config
-        self._config_queue: AsyncQueue[EngineConfig] = AsyncQueue()
+        self._config_queue: Queue[EngineConfig] = Queue()
         self._server: Optional[Server] = None
         self._database = Database(self._config.database)
         self._units: Dict[UnitPath, UnitHandle] = {}
+        self._reloading = Event()
 
     @property
     def logger(self) -> Logger:
@@ -36,6 +38,10 @@ class Engine(Tasklet, ServerEngineProtocol):
     @property
     def config_path(self) -> str:
         return self._config_path
+
+    @property
+    def config_directory(self) -> str:
+        return os.path.dirname(self._config_path)
 
     @property
     def config(self) -> EngineConfig:
@@ -49,21 +55,25 @@ class Engine(Tasklet, ServerEngineProtocol):
     def database(self) -> "Database":
         return self._database
 
-    async def reload(self) -> Optional[ConfigException]:
+    async def reload(self) -> None:
+        if self._reloading.is_set():
+            raise ReloadAlreadyActiveException("A reload is already is progress.")
+
         self.logger.info(f"Reloading configuration from '{self._config_path}'...")
         try:
             config = EngineConfig.load(self._config_path)
         except ConfigException as error:
             self.logger.error(error.message)
             self.logger.error("Reload failed, found errors in configuration.")
-            return error
+            raise
 
         if not await self._check_config(self._config):
             self.logger.error("Reload failed, configuration check was unsuccessful.")
-            return ConfigException("Configuration check failed.")
+            raise ConfigException("Configuration check failed.")
 
         self.logger.info("Queueing reload...")
-        await self._config_queue.put(config)
+        self._reloading.set()
+        self._config_queue.put(config)
         return None
 
     async def _tasklet_run(self) -> None:
@@ -71,94 +81,88 @@ class Engine(Tasklet, ServerEngineProtocol):
             self.logger.error("Initial configuration check failed. Exiting...")
             return
 
-        sys.path.append(os.path.dirname(self._config_path))
-
-        exit = Event()
-
-        async def process_exit() -> None:
-            await exit.wait()
-            self.logger.info("Exit event received.")
-            self._config_next = None
-            await self.stop()
-
-        async def process_stop(cancel: CancelScope) -> None:
-            await self.join()
-            self._config_next = None
-            cancel.cancel()
-
-        async def process_reload(cancel: CancelScope) -> None:
-            if exit.is_set():
-                self._config_next = None
-
-            if not self._config_next:
-                return
-
-            config = await self._config_queue.get()
-            self.logger.info("Received new configuration...")
-
-            if await self._check_config(config):
-                self._config_next = config
-                cancel.cancel()
-
-        started = False
-
-        def trigger_exit_event() -> None:
-            exit.set()
-
-        loop = ensure_event_loop()
-        loop.add_signal_handler(signal.SIGINT, lambda *args: trigger_exit_event())
-        loop.add_signal_handler(signal.SIGTERM, lambda *args: trigger_exit_event())
-
         try:
-            while self._config_next:
-                if not started:
-                    self._config = self._config_next
-                    try:
-                        await self._create_units()
-                        await self._start_units()
-                        await self._start_server()
-                    finally:
-                        started = True
-                else:
-                    self.logger.info("Applying configuration...")
-                    previous = self._config
-                    self._config = self._config_next
+            if self.config_directory not in sys.path:
+                sys.path.append(self.config_directory)
 
-                    if self._config == previous:
-                        self.logger.info("Configuration was not modified, doing nothing.")
-                    else:
-                        if self._config.server != previous.server:
-                            self.logger.info("Server configuration modified, reloading server...")
-                            await self._reload_server()
+            exiting = Event()
+            started = False
 
-                        if self._config.database != previous.database:
-                            self.logger.info(
-                                "Database configuration modified, reloading units and database..."
-                            )
-                            await self._stop_units()
-                            await self._database.dispose()
-                            self._database = Database(self._config.database)
+            while not exiting.is_set():
+                if started:
+                    await self._reloading.wait()
+                    await self._reload()
 
-                        if self._config.units != previous.units:
-                            self.logger.info("Unit configuration modified, reloading units...")
-                            await self._stop_units()
+                async def process_reload(cancel: CancelScope) -> None:
+                    await self._reloading.wait()
+                    cancel.cancel()
 
-                        await self._create_units()
-                        await self._start_units()
-                        await self._start_server()
+                def handle_exit_signal(*args: Any) -> None:
+                    exiting.set()
+                    group.cancel_scope.cancel()
 
-                async with anyio.create_task_group() as group:
-                    group.start_soon(process_exit)
-                    group.start_soon(process_stop, group.cancel_scope)
-                    group.start_soon(process_reload, group.cancel_scope)
-        finally:
-            loop.remove_signal_handler(signal.SIGINT)
-            loop.remove_signal_handler(signal.SIGTERM)
+                with use_signal_handler([signal.SIGINT, signal.SIGTERM], handle_exit_signal):
+                    async with anyio.create_task_group() as group:
+                        try:
+                            group.start_soon(process_reload, group.cancel_scope)
+
+                            await self._create_units()
+                            await self._start_units()
+                            await self._start_server()
+                        finally:
+                            started = True
+                            self._reloading.clear()
+
+            self.logger.info("Exit signal received, stopping...")
+        except KeyboardInterrupt:
+            self.logger.info("Exit signal received, stopping...")
+            await self.stop()
+            raise
 
     async def _tasklet_stop(self) -> None:
         await self._stop_server()
         await self._stop_units()
         await self._database.dispose()
+
+    async def _reload(self) -> None:
+        self.logger.info("Reloading configuration...")
+        config_previous = self._config
+
+        try:
+            self._config = self._config_queue.get()
+        except Empty:
+            pass
+
+        if self._config == config_previous:
+            self.logger.info("Configuration was not modified, doing nothing.")
+        else:
+            if self._config.server != config_previous.server:
+                self.logger.info("Server configuration modified, reloading server...")
+                try:
+                    await self._reload_server()
+                except Exception:
+                    self.logger.error(
+                        f"An issue occurred while reloading the server: {traceback.format_exc()}"
+                    )
+
+            if self._config.database != config_previous.database:
+                self.logger.info("Database configuration modified, reloading units and database...")
+                try:
+                    await self._stop_units()
+                    await self._database.dispose()
+                    self._database = Database(self._config.database)
+                except Exception:
+                    self.logger.error(
+                        f"An issue occurred while reloading units and database: {traceback.format_exc()}"
+                    )
+            elif self._config.units != config_previous.units:
+                self.logger.info("Unit configuration modified, reloading units...")
+                try:
+                    await self._stop_units()
+                except Exception:
+                    self.logger.error(
+                        f"An issue occurred while reloading units: {traceback.format_exc()}"
+                    )
 
     async def _start_server(self) -> None:
         if not self._server:

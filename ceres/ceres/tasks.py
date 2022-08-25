@@ -63,6 +63,15 @@ class Tasklet(ABC):
 
         ensure_event_loop()
 
+        async def task() -> None:
+            try:
+                await self._tasklet_run()
+                await self._tasklet_stop()
+            except:
+                self.__tasklet__.task = None
+                self.__tasklet__.stop.set()
+                raise
+
         def done(task: Task[Any]) -> None:
             self.__tasklet__.task = None
             self.__tasklet__.stop.set()
@@ -79,7 +88,7 @@ class Tasklet(ABC):
                 else:
                     raise exception
 
-        self.__tasklet__.task = asyncio.create_task(self._tasklet_run())
+        self.__tasklet__.task = asyncio.create_task(task())
         self.__tasklet__.task.add_done_callback(done)
 
     async def stop(self) -> None:
@@ -99,8 +108,18 @@ class Tasklet(ABC):
 
         await self.__tasklet__.stop.wait()
 
-    async def run(self) -> None:
-        self.start()
+    async def run(
+        self: TaskletT,
+        *,
+        on_completed: Optional[Callable[["TaskletT"], Optional[Awaitable[None]]]] = None,
+        on_exception: Optional[
+            Callable[["TaskletT", BaseException], Optional[Awaitable[None]]]
+        ] = None,
+    ) -> None:
+        self.start(
+            on_completed=on_completed,
+            on_exception=on_exception,
+        )
         await self.join()
 
     @abstractmethod

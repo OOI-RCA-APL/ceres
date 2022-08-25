@@ -4,6 +4,14 @@ class CeresException(Exception):
         self.message = message
 
 
+class ReloadException(CeresException):
+    pass
+
+
+class ReloadAlreadyActiveException(CeresException):
+    pass
+
+
 class ConfigException(CeresException):
     pass
 

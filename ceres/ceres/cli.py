@@ -1,11 +1,22 @@
 from typing import Callable, Optional, TypeVar
 
 import click
-from click import Path
+from click import ClickException, Path
 
 from .database import Database
 from .engine import Engine
+from .exceptions import ConfigException
 from .internal import syncify
+
+EXIT_CODE_INVALID_CONFIG = 1
+
+
+class InvalidConfigException(ClickException):
+    exit_code = 1
+
+
+class DatabaseUnreachableException(ClickException):
+    exit_code = 2
 
 
 def _create_engine(path: str) -> Engine:
@@ -22,8 +33,8 @@ def main() -> None:
 
 
 @main.command()
-@click.argument(
-    "path",
+@click.option(
+    "--config",
     default="ceres.yaml",
     type=Path(
         exists=True,
@@ -32,8 +43,13 @@ def main() -> None:
     ),
 )
 @syncify
-async def run(path: str) -> None:
-    await _create_engine(path).run()
+async def run(config: str) -> None:
+    try:
+        engine = _create_engine(config)
+    except ConfigException as exception:
+        raise InvalidConfigException(exception.message)
+
+    await engine.run()
 
 
 @main.group()
@@ -53,14 +69,16 @@ def database() -> None:
 )
 @syncify
 async def init(config: str) -> None:
-    database = _create_database(config)
+    try:
+        database = _create_database(config)
+    except ConfigException as exception:
+        raise InvalidConfigException(exception.message)
 
     try:
         async with database.connect():
             pass
     except Exception:
-        print("Failed to connect to database.")
-        return
+        raise DatabaseUnreachableException("Failed to connect to database.")
 
     if await database.tables():
         print("Database appears to already be initialized. Ensure it provides this schema: ")
