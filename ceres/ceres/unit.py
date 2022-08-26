@@ -11,7 +11,7 @@ from . import logs
 from .config import ConnectionConfig, DatabaseConfig, UnitConfig
 from .connection import ConnectionContext, ConnectionHandle
 from .data import DataObject
-from .database import Database
+from .database import create_database_manager
 from .exceptions import ComponentLoadException
 from .path import ConnectionPath, UnitPath
 from .tasks import Tasklet, ensure_event_loop
@@ -36,7 +36,7 @@ class UnitProxyProtocol(Protocol):
 class Unit(UnitProxyProtocol, Tasklet):
     def __init__(self, context: UnitContext) -> None:
         self._context = context
-        self._database = Database(self._context.database)
+        self._database = create_database_manager(self._context.database)
         self._connections: Dict[str, ConnectionHandle] = {}
         self._tasks: Optional[TaskGroup] = None
 

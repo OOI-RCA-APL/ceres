@@ -13,7 +13,7 @@ from anyio import CancelScope
 from . import logs
 from .config import DatabaseConfig, EngineConfig, UnitConfig
 from .data import DataObject
-from .database import Database
+from .database import DatabaseManager, create_database_manager
 from .exceptions import ConfigException, ReloadAlreadyActiveException
 from .internal import use_signal_handler
 from .path import UnitPath
@@ -35,7 +35,7 @@ class Engine(Tasklet, ServerEngineProtocol):
         self._config_path = config_path
         self._config_queue: Queue[EngineConfig] = Queue()
         self._server: Optional[Server] = None
-        self._database = Database(self._config.database)
+        self._database = create_database_manager(self._config.database)
         self._units: Dict[UnitPath, UnitHandle] = {}
         self._reloading = Event()
 
@@ -60,7 +60,7 @@ class Engine(Tasklet, ServerEngineProtocol):
         return self._server
 
     @property
-    def database(self) -> "Database":
+    def database(self) -> "DatabaseManager":
         return self._database
 
     def get_unit_sync_actions(self) -> List[UnitSyncAction]:
@@ -180,7 +180,7 @@ class Engine(Tasklet, ServerEngineProtocol):
             try:
                 await self._stop_units()
                 await self._database.dispose()
-                self._database = Database(self._config.database)
+                self._database = create_database_manager(self._config.database)
             except Exception:
                 self.logger.error(
                     f"An issue occurred while reloading units and database: {traceback.format_exc()}"
@@ -319,7 +319,7 @@ class Engine(Tasklet, ServerEngineProtocol):
 
         while True:
             try:
-                database = Database(config)
+                database = create_database_manager(config)
                 async with database.connect():
                     self.logger.info("Connected to database successfully.")
                     return True

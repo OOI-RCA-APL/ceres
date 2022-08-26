@@ -11,7 +11,7 @@ from sqlalchemy_utils import UUIDType
 from ..path import ConnectionPath, UnitPath
 
 if TYPE_CHECKING:
-    from . import Database
+    from .base import DatabaseManager
 
 BaseEntity = declarative_base()
 
@@ -30,15 +30,15 @@ class Entity(BaseEntity):
 
 
 class UnitEntity(Entity):
-    __tablename__ = "unit"
+    __tablename__ = "units"
     name: str = Column(String)
 
     connections: List["ConnectionEntity"] = relationship("ConnectionEntity", back_populates="unit")
 
 
 class ConnectionEntity(Entity):
-    __tablename__ = "connection"
-    unit_id: UUID = Column(UUIDType(binary=False), ForeignKey("unit.id"))
+    __tablename__ = "connections"
+    unit_id: UUID = Column(UUIDType(binary=False), ForeignKey("units.id"))
     name: str = Column(String)
 
     unit: UnitEntity = relationship(UnitEntity, back_populates="connections")
@@ -48,15 +48,15 @@ MessageDirection = Literal["send", "receive"]
 
 
 class MessageEntity(Entity):
-    __tablename__ = "message"
-    connection_id: UUID = Column(UUIDType(binary=False), ForeignKey("connection.id"))
+    __tablename__ = "messages"
+    connection_id: UUID = Column(UUIDType(binary=False), ForeignKey("connections.id"))
     timestamp: datetime = Column(TIMESTAMP(timezone=True))
     direction: MessageDirection = Column(String)
     content: str = Column(String)
 
 
 class EntityManager:
-    def __init__(self, database: "Database") -> None:
+    def __init__(self, database: "DatabaseManager") -> None:
         self._database = database
 
     async def get_unit_id(self, path: UnitPath) -> UUID:

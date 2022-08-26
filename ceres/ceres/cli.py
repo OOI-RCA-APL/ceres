@@ -3,7 +3,7 @@ from typing import Callable, Optional, TypeVar
 import click
 from click import ClickException, Path
 
-from .database import Database
+from .database import DatabaseManager
 from .engine import Engine
 from .exceptions import ConfigException
 from .internal import syncify
@@ -19,12 +19,12 @@ class DatabaseUnreachableException(ClickException):
     exit_code = 2
 
 
-def _create_engine(path: str) -> Engine:
-    return Engine(path)
+def _create_engine(config_path: str) -> Engine:
+    return Engine(config_path)
 
 
-def _create_database(path: str) -> Database:
-    return _create_engine(path).database
+def _create_database(config_path: str) -> DatabaseManager:
+    return _create_engine(config_path).database
 
 
 @click.group()
@@ -80,18 +80,21 @@ async def init(config: str) -> None:
     except Exception:
         raise DatabaseUnreachableException("Failed to connect to database.")
 
-    if await database.tables():
-        print("Database appears to already be initialized. Ensure it provides this schema: ")
-        for statement in database.ddl:
-            print(f"> {statement}")
-        return
+    print("Pending commands to execute: ")
+    for statement in database.ddl:
+        print(f"> {statement}")
 
-    if _get_yes_no("Database appears to be uninitialized. Initialize now?"):
-        for statement in database.ddl:
-            print(f"> {statement}")
+    if await database.tables():
+        confirm = "Database is not empty, execute above commands anyway?"
+    else:
+        confirm = "Database appears to be uninitialized. Initialize now?"
+
+    if _get_yes_no(confirm):
         await database.init()
     else:
         print("Database has not been modified.")
+
+    await database.dispose()
 
 
 T = TypeVar("T")

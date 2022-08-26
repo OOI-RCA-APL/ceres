@@ -10,7 +10,7 @@ import anyio
 from .component import Component
 from .config import ReconnectConfig
 from .data import DataObject
-from .database import Database
+from .database import DatabaseManager
 from .database.entity import MessageEntity, eid
 from .exceptions import ConnectionInactiveException
 from .message import Message
@@ -79,7 +79,7 @@ class ConnectionContext(DataObject):
     id: UUID
     path: ConnectionPath
     component: Union[str, object]
-    database: Database
+    database: DatabaseManager
     reconnect: ReconnectConfig
 
 
