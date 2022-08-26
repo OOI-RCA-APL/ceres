@@ -1,4 +1,6 @@
-from typing import Callable, Optional, TypeVar
+import functools
+import os
+from typing import Any, Callable, Optional, TypeVar, cast
 
 import click
 from click import ClickException, Path
@@ -27,21 +29,46 @@ def _create_database(config_path: str) -> DatabaseManager:
     return _create_engine(config_path).database
 
 
+CallableT = TypeVar("CallableT", bound=Callable[..., Any])
+
+
+def with_config(callable: CallableT) -> CallableT:
+    @functools.wraps(callable)
+    @click.option(
+        "--config",
+        default=None,
+        type=Path(
+            exists=True,
+            resolve_path=True,
+            dir_okay=False,
+        ),
+    )
+    def wrapper(*args: Any, config: Optional[str], **kwargs: Any) -> Any:
+        if not config:
+            possibilities = [
+                "ceres.yaml",
+                "ceres.yml",
+            ]
+
+            for possibility in possibilities:
+                if os.path.isfile(possibility):
+                    config = os.path.realpath(possibility)
+                    break
+            else:
+                raise ClickException(f"Must be in a directory containing one of: {possibilities}")
+
+        return callable(*args, config=config, **kwargs)
+
+    return cast(CallableT, wrapper)
+
+
 @click.group()
 def main() -> None:
     pass
 
 
 @main.command()
-@click.option(
-    "--config",
-    default="ceres.yaml",
-    type=Path(
-        exists=True,
-        resolve_path=True,
-        dir_okay=False,
-    ),
-)
+@with_config
 @syncify
 async def run(config: str) -> None:
     try:
@@ -58,15 +85,7 @@ def database() -> None:
 
 
 @database.command()
-@click.option(
-    "--config",
-    default="ceres.yaml",
-    type=Path(
-        exists=True,
-        resolve_path=True,
-        dir_okay=False,
-    ),
-)
+@with_config
 @syncify
 async def init(config: str) -> None:
     try:

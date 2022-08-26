@@ -18,9 +18,10 @@ class SQLiteDatabaseManager(DatabaseManager):
         engine = create_async_engine(
             f"sqlite+aiosqlite:///{config.path.resolve()}",
             **{
-                "echo": True,
                 "pool_pre_ping": True,  # Check to see if a connection has closed before use.
+                "pool_recycle": 60 * 5,  # Drop unused connections after 5 minutes.
             },
+            **(config.engine or {}),
         )
 
         @event.listens_for(engine.sync_engine, "connect")  # type: ignore

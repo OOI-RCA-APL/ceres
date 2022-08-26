@@ -2,7 +2,7 @@ import itertools
 import os
 from abc import ABC
 from pathlib import Path
-from typing import List, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 
 import yaml
 from pydantic import PrivateAttr, ValidationError, validator
@@ -36,12 +36,19 @@ class ServerConfig(DataObject):
     enable: bool = True
 
 
-class SQLiteDatabaseConfig(DataObject):
+DatabaseType = Literal["sqlite"]
+
+
+class BaseDatabaseConfig(DataObject):
+    type: DatabaseType
+    engine: Optional[Dict[str, Any]] = None
+
+
+class SQLiteDatabaseConfig(BaseDatabaseConfig):
     type: Literal["sqlite"] = "sqlite"
     path: Path
 
 
-DatabaseType = Literal["sqlite"]
 DatabaseConfig = SQLiteDatabaseConfig
 
 
