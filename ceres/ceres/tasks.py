@@ -20,7 +20,7 @@ def ensure_event_loop() -> AbstractEventLoop:
 
 
 async def defer() -> None:
-    await anyio.sleep(0.000001)
+    await anyio.sleep(1e-6)
 
 
 @dataclass

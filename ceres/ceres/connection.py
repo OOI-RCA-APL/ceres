@@ -1,7 +1,6 @@
 from abc import ABC, abstractmethod
 from datetime import datetime, timedelta, timezone
 from enum import Enum
-from time import sleep
 from typing import Awaitable, List, Optional, Union
 from uuid import UUID
 
@@ -97,6 +96,7 @@ class ConnectionHandle(Tasklet):
         self._connectivity = Connectivity.DISCONNECTED
         self._receive_buffer: List[ReceivedMessage] = []
         self._is_flushing = False
+        self._last_message_timestamp: Optional[datetime] = None
 
     @property
     def id(self) -> UUID:
@@ -214,13 +214,20 @@ class ConnectionHandle(Tasklet):
             await self._disconnect()
             raise
 
-        sleep(1 / 1000000)
+        # Ensure timestamps are different.
+        if self._last_message_timestamp:
+            while self._last_message_timestamp == datetime.now(timezone.utc):
+                await anyio.sleep(0)
+
+        timestamp = datetime.now(timezone.utc)
+
         message = ReceivedMessage(
             id=eid(),
-            timestamp=datetime.now(timezone.utc),
+            timestamp=timestamp,
             content=data,
         )
 
+        self._last_message_timestamp = timestamp
         self._receive_buffer.append(message)
 
         if not self._is_flushing and len(self._receive_buffer) >= MAX_RECEIVE_BUFFER_SIZE:
