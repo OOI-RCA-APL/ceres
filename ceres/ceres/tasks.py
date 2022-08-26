@@ -98,8 +98,9 @@ class Tasklet(ABC):
         try:
             await self._tasklet_stop()
         finally:
-            self.__tasklet__.task.cancel()
-            self.__tasklet__.task = None
+            if self.__tasklet__.task:
+                self.__tasklet__.task.cancel()
+                self.__tasklet__.task = None
             self.__tasklet__.stop.set()
 
     async def join(self) -> None:

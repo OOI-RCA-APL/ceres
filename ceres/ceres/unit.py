@@ -8,7 +8,7 @@ import anyio
 from anyio.abc import TaskGroup
 
 from . import logs
-from .config import ConnectionConfig, DatabaseConfig
+from .config import ConnectionConfig, DatabaseConfig, UnitConfig
 from .connection import ConnectionContext, ConnectionHandle
 from .data import DataObject
 from .database import Database
@@ -22,6 +22,7 @@ class UnitContext(DataObject):
     path: UnitPath
     connections: List[ConnectionConfig]
     database: DatabaseConfig
+    config: UnitConfig
 
 
 class UnitProxyProtocol(Protocol):
@@ -46,6 +47,10 @@ class Unit(UnitProxyProtocol, Tasklet):
     @property
     def path(self) -> UnitPath:
         return self._context.path
+
+    @property
+    def config(self) -> UnitConfig:
+        return self._context.config
 
     @property
     def logger(self) -> Logger:
@@ -146,6 +151,10 @@ class UnitHandle(Tasklet):
     @property
     def path(self) -> UnitPath:
         return self._context.path
+
+    @property
+    def config(self) -> UnitConfig:
+        return self._context.config
 
     @property
     def instance(self) -> Optional[UnitProxyProtocol]:
