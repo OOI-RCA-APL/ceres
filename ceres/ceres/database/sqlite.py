@@ -21,7 +21,7 @@ class SQLiteDatabaseAdapter(DatabaseAdapter):
             ) STRICT;
             """,
             """
-            CREATE UNIQUE INDEX uk_connection__id__unit_id ON connection (id, unit_id);
+            CREATE UNIQUE INDEX uk_connection__unit_id__name ON connection (unit_id, name);
             """,
             """
             CREATE TABLE message (

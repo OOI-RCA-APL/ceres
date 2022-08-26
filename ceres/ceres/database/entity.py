@@ -4,6 +4,7 @@ from uuid import UUID, uuid4
 
 import sqlalchemy as sql
 from sqlalchemy import TIMESTAMP, Column, ForeignKey, String
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import declarative_base, relationship
 from sqlalchemy_utils import UUIDType
 
@@ -58,55 +59,57 @@ class EntityManager:
     def __init__(self, database: "Database") -> None:
         self._database = database
 
-    async def get_unit(self, path: UnitPath) -> UnitEntity:
-        async with self._database.session() as session:
-            unit: Optional[UnitEntity] = (
-                await (session.execute(sql.select(UnitEntity).where(UnitEntity.name == path.unit)))
-            ).scalar()
-
-            if not unit:
-                unit = UnitEntity(id=eid(), name=path.unit)
-                session.add(unit)
-                await session.commit()
-
-            return unit
-
-    async def get_connection(self, path: ConnectionPath) -> ConnectionEntity:
-        async with self._database.session() as session:
-            connection: Optional[ConnectionEntity] = (
-                await (
-                    session.execute(
-                        sql.select(ConnectionEntity).where(ConnectionEntity.name == path.connection)
-                    )
-                )
-            ).scalar()
-
-            if not connection:
-                unit: Optional[UnitEntity] = (
-                    await (
-                        session.execute(sql.select(UnitEntity).where(UnitEntity.name == path.unit))
-                    )
-                ).scalar()
-
-                if not unit:
-                    unit = UnitEntity(
-                        id=eid(),
-                        name=path.unit,
-                    )
-                    session.add(unit)
-
-                connection = ConnectionEntity(
-                    id=eid(),
-                    unit=unit,
-                    name=path.unit,
-                )
-                session.add(connection)
-                await session.commit()
-
-            return connection
-
     async def get_unit_id(self, path: UnitPath) -> UUID:
-        return (await self.get_unit(path)).id
+        async with self._database.session() as session:
+            return (await self._get_unit(session, path)).id
 
     async def get_connection_id(self, path: ConnectionPath) -> UUID:
-        return (await self.get_connection(path)).id
+        async with self._database.session() as session:
+            return (await self._get_connection(session, path)).id
+
+    async def _get_unit(
+        self,
+        session: AsyncSession,
+        path: UnitPath,
+    ) -> UnitEntity:
+        unit: Optional[UnitEntity] = (
+            await (session.execute(sql.select(UnitEntity).where(UnitEntity.name == path.unit)))
+        ).scalar()
+
+        if not unit:
+            unit = UnitEntity(id=eid(), name=path.unit)
+            session.add(unit)
+            await session.commit()
+
+        return unit
+
+    async def _get_connection(
+        self,
+        session: AsyncSession,
+        path: ConnectionPath,
+    ) -> ConnectionEntity:
+        unit_id = await self.get_unit_id(UnitPath.create(path.unit))
+
+        connection: Optional[ConnectionEntity] = (
+            await (
+                session.execute(
+                    sql.select(ConnectionEntity).where(
+                        sql.and_(
+                            ConnectionEntity.unit_id == unit_id,
+                            ConnectionEntity.name == path.connection,
+                        )
+                    )
+                )
+            )
+        ).scalar()
+
+        if not connection:
+            connection = ConnectionEntity(
+                id=eid(),
+                unit_id=unit_id,
+                name=path.connection,
+            )
+            session.add(connection)
+            await session.commit()
+
+        return connection
