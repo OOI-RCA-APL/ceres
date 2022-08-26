@@ -23,7 +23,7 @@ export type BaseElementInfo = {
 }
 
 export type GuageElementInfo = BaseElementInfo & {
-  type: 'gauge'
+  type: 'gauge' | 'halfgauge'
   value: number
   unit?: string
   range: Range

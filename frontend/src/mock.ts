@@ -165,16 +165,32 @@ const mock = reactive({
                 unit: 'ppm',
               },
               {
-                name: 'Reactor 1 State',
-                type: 'binary',
-                value: 'sub',
-                options: [
-                  { value: 'off', label: 'Offline', color: 'grey-8' },
-                  { value: 'sub', label: 'Subcritical', color: 'blue-5' },
-                  { value: 'stable', label: 'Critical', color: 'green' },
-                  { value: 'super', label: 'Supercritical', color: 'yellow-9' },
-                  { value: 'ohshit', label: 'Meltdown', color: 'negative' },
+                name: 'Battery Level',
+                type: 'halfgauge',
+                value: 30,
+                unit: '%',
+                range: {
+                  min: 0,
+                  max: 100,
+                },
+                color: [
+                  { value: 25, color: 'red' },
+                  { value: 50, color: 'orange' },
+                  { value: 100, color: 'green' },
                 ],
+              },
+              {
+                name: 'Reactor 1 State',
+                type: 'state',
+                value: 'supercritical',
+                options: [
+                  { value: 'offline', color: 'grey-8' },
+                  { value: 'subcritical', color: 'blue-5' },
+                  { value: 'critical', color: 'green' },
+                  { value: 'supercritical', color: 'yellow-9' },
+                  { value: 'oh shit', color: 'negative' },
+                ],
+                showOptions: false,
               },
               {
                 name: 'Temperature',
