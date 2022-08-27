@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from datetime import datetime, timedelta, timezone
-from typing import Awaitable, List, Literal, Optional, Union
+from typing import List, Literal, Optional, Union
 from uuid import UUID
 
 import anyio
@@ -46,19 +46,19 @@ class ReconnectScheduler:
 
 class Connection(Component, ABC):
     @abstractmethod
-    def connect(self) -> Awaitable[bool]:
+    async def connect(self) -> bool:
         ...
 
     @abstractmethod
-    def disconnect(self) -> Awaitable[None]:
+    async def disconnect(self) -> None:
         ...
 
     @abstractmethod
-    def send(self, data: str) -> Awaitable[None]:
+    async def send(self, data: str) -> None:
         ...
 
     @abstractmethod
-    def receive(self) -> Awaitable[str]:
+    async def receive(self) -> str:
         ...
 
 

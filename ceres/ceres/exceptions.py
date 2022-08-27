@@ -28,6 +28,14 @@ class ConnectionInactiveException(ConnectionException):
     pass
 
 
+class ConnectionLostException(ConnectionException):
+    pass
+
+
+class ConnectionDecodeException(ConnectionException):
+    pass
+
+
 class DisconnectException(ConnectionException):
     pass
 
