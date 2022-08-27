@@ -1,7 +1,6 @@
 from abc import ABC, abstractmethod
 from datetime import datetime, timedelta, timezone
-from enum import Enum
-from typing import Awaitable, List, Optional, Union
+from typing import Awaitable, List, Literal, Optional, Union
 from uuid import UUID
 
 import anyio
@@ -15,14 +14,6 @@ from .exceptions import ConnectionInactiveException
 from .message import Message
 from .path import ConnectionPath
 from .tasks import Tasklet
-
-MAX_RECEIVE_BUFFER_SIZE = 2500
-
-
-class Connectivity(str, Enum):
-    DISCONNECTED = "DISCONNECTED"
-    CONNECTING = "CONNECTING"
-    CONNECTED = "CONNECTED"
 
 
 class ReconnectScheduler:
@@ -82,6 +73,9 @@ class ConnectionContext(DataObject):
     reconnect: ReconnectConfig
 
 
+ConnectionState = Literal["disconnected", "connecting", "connected"]
+
+
 class ReceivedMessage(DataObject):
     id: UUID
     timestamp: datetime
@@ -89,11 +83,13 @@ class ReceivedMessage(DataObject):
 
 
 class ConnectionHandle(Tasklet):
+    MAX_RECEIVE_BUFFER_SIZE = 2500
+
     def __init__(self, context: ConnectionContext) -> None:
         self._context = context
         self._reconnect = ReconnectScheduler(context.reconnect)
         self._connection: Optional[Connection] = None
-        self._connectivity = Connectivity.DISCONNECTED
+        self._state: ConnectionState = "disconnected"
         self._receive_buffer: List[ReceivedMessage] = []
         self._is_flushing = False
         self._last_message_timestamp: Optional[datetime] = None
@@ -107,12 +103,12 @@ class ConnectionHandle(Tasklet):
         return self._context.path
 
     @property
-    def connectivity(self) -> Connectivity:
-        return self._connectivity
+    def state(self) -> ConnectionState:
+        return self._state
 
     @property
     def connected(self) -> bool:
-        return self._connectivity == Connectivity.CONNECTED
+        return self._state == "connected"
 
     async def load(self) -> None:
         if self._connection:
@@ -168,12 +164,12 @@ class ConnectionHandle(Tasklet):
             return
 
         while not self.connected:
-            self._connectivity = Connectivity.CONNECTING
+            self._state = "connecting"
             if await self._connection.connect():
-                self._connectivity = Connectivity.CONNECTED
+                self._state = "connected"
                 break
 
-            self._connectivity = Connectivity.DISCONNECTED
+            self._state = "disconnected"
             await anyio.sleep(self._reconnect.next().total_seconds())
 
         self._reconnect.reset()
@@ -187,11 +183,11 @@ class ConnectionHandle(Tasklet):
         if self.connected:
             return True
 
-        self._connectivity = Connectivity.CONNECTING
+        self._state = "connecting"
         if await self._connection.connect():
-            self._connectivity = Connectivity.CONNECTED
+            self._state = "connecting"
         else:
-            self._connectivity = Connectivity.DISCONNECTED
+            self._state = "disconnected"
 
         return self.connected
 
@@ -202,7 +198,7 @@ class ConnectionHandle(Tasklet):
         try:
             await self._connection.disconnect()
         finally:
-            self._connectivity = Connectivity.DISCONNECTED
+            self._state = "disconnected"
 
     async def _receive(self) -> None:
         if not self._connection:
@@ -230,7 +226,7 @@ class ConnectionHandle(Tasklet):
         self._last_message_timestamp = timestamp
         self._receive_buffer.append(message)
 
-        if not self._is_flushing and len(self._receive_buffer) >= MAX_RECEIVE_BUFFER_SIZE:
+        if not self._is_flushing and len(self._receive_buffer) >= self.MAX_RECEIVE_BUFFER_SIZE:
             await self._flush()
 
     async def _flush(self) -> None:
