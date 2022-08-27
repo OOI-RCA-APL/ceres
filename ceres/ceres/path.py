@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from .data import DataObject
 
 
@@ -8,7 +10,7 @@ class UnitPath(DataObject):
     unit: str
 
     @classmethod
-    def create(cls, unit: str) -> "UnitPath":
+    def create(cls, unit: str) -> UnitPath:
         return UnitPath(unit=unit)
 
     def __str__(self) -> str:
@@ -23,7 +25,7 @@ class ConnectionPath(DataObject):
     connection: str
 
     @classmethod
-    def create(cls, unit: str, connection: str) -> "ConnectionPath":
+    def create(cls, unit: str, connection: str) -> ConnectionPath:
         return ConnectionPath(unit=unit, connection=connection)
 
     def __str__(self) -> str:

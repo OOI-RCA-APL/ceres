@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from datetime import datetime, timezone
 from uuid import UUID
 
@@ -21,5 +23,5 @@ class Message(DataObject):
     content: str
 
     @staticmethod
-    def from_entity(entity: MessageEntity) -> "Message":
+    def from_entity(entity: MessageEntity) -> Message:
         return Message.from_orm(entity)

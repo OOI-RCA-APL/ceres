@@ -1,6 +1,8 @@
+from __future__ import annotations
+
 import functools
 import os
-from typing import Any, Callable, Optional, TypeVar, cast
+from typing import Any, Callable, TypeVar, cast
 
 import click
 from click import ClickException, Path
@@ -43,7 +45,7 @@ def with_config(callable: CallableT) -> CallableT:
             dir_okay=False,
         ),
     )
-    def wrapper(*args: Any, config: Optional[str], **kwargs: Any) -> Any:
+    def wrapper(*args: Any, config: str | None, **kwargs: Any) -> Any:
         if not config:
             possibilities = [
                 "ceres.yaml",
@@ -119,7 +121,7 @@ async def init(config: str) -> None:
 T = TypeVar("T")
 
 
-def _get_value(parser: Callable[[str], T], prompt: str, default: Optional[T]) -> T:
+def _get_value(parser: Callable[[str], T], prompt: str, default: T | None = None) -> T:
     """
     Get input of a given type from the user. The first argument should be a function to parse the
     input text. If the parser throws an exception while parsing the input, the input will be
@@ -150,7 +152,7 @@ def _get_value(parser: Callable[[str], T], prompt: str, default: Optional[T]) ->
             pass
 
 
-def _get_yes_no(prompt: str, default: Optional[bool] = None) -> bool:
+def _get_yes_no(prompt: str, default: bool | None = None) -> bool:
     """
     Get a yes/no boolean input from the user with an optional default value.
 

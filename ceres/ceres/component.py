@@ -1,8 +1,10 @@
+from __future__ import annotations
+
 import importlib
 import inspect
 import traceback
 from abc import ABC
-from typing import Any, Callable, Type, TypeVar, Union, cast
+from typing import Any, Callable, TypeVar, cast
 
 from .exceptions import ComponentLoadException
 from .internal import awaitify
@@ -12,7 +14,7 @@ ComponentT = TypeVar("ComponentT", bound="Component")
 
 class Component(ABC):
     @classmethod
-    async def load(cls: Type[ComponentT], source: Union[str, object]) -> ComponentT:
+    async def load(cls: type[ComponentT], source: str | object) -> ComponentT:
         if not isinstance(source, str):
             if not isinstance(source, cls):
                 raise ComponentLoadException(

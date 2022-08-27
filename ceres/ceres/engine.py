@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 import signal
 import sys
@@ -5,7 +7,7 @@ import traceback
 from asyncio import Event
 from logging import Logger
 from queue import Empty, Queue
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Literal
 
 import anyio
 from anyio import CancelScope
@@ -34,9 +36,9 @@ class Engine(Tasklet, ServerEngineProtocol):
         self._config = EngineConfig.load(config_path)
         self._config_path = config_path
         self._config_queue: Queue[EngineConfig] = Queue()
-        self._server: Optional[Server] = None
+        self._server: Server | None = None
         self._database = create_database_manager(self._config.database)
-        self._units: Dict[UnitPath, UnitHandle] = {}
+        self._units: dict[UnitPath, UnitHandle] = {}
         self._reloading = Event()
 
     @property
@@ -56,22 +58,22 @@ class Engine(Tasklet, ServerEngineProtocol):
         return self._config
 
     @property
-    def server(self) -> Optional[Server]:
+    def server(self) -> Server | None:
         return self._server
 
     @property
-    def database(self) -> "DatabaseManager":
+    def database(self) -> DatabaseManager:
         return self._database
 
-    def get_unit_sync_actions(self) -> List[UnitSyncAction]:
-        configs: Dict[UnitPath, UnitConfig] = {
+    def get_unit_sync_actions(self) -> list[UnitSyncAction]:
+        configs: dict[UnitPath, UnitConfig] = {
             UnitPath.create(current.name): current for current in self._config.units
         }
-        units: Dict[UnitPath, UnitHandle] = {
+        units: dict[UnitPath, UnitHandle] = {
             current.path: current for current in self._units.values()
         }
 
-        actions: List[UnitSyncAction] = []
+        actions: list[UnitSyncAction] = []
 
         for path, config in configs.items():
             unit = units.get(path)
@@ -217,7 +219,7 @@ class Engine(Tasklet, ServerEngineProtocol):
         await self._start_server()
 
     async def _sync_units(self) -> None:
-        configs: Dict[UnitPath, UnitConfig] = {
+        configs: dict[UnitPath, UnitConfig] = {
             UnitPath.create(current.name): current for current in self._config.units
         }
 
@@ -306,7 +308,7 @@ class Engine(Tasklet, ServerEngineProtocol):
     async def _wait_for_database(
         self,
         config: DatabaseConfig,
-        attempts: Optional[int] = None,
+        attempts: int | None = None,
     ) -> bool:
         if attempts is not None and attempts <= 0:
             attempts = 1

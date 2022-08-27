@@ -1,26 +1,18 @@
+from __future__ import annotations
+
 import asyncio
 import inspect
 import signal
 from contextlib import contextmanager
 from functools import wraps
-from typing import (
-    Any,
-    Awaitable,
-    Callable,
-    Dict,
-    Iterator,
-    List,
-    Sequence,
-    TypeVar,
-    cast,
-)
+from typing import Any, Awaitable, Callable, Iterator, Sequence, TypeVar, cast
 
 import uvloop
 
 T = TypeVar("T")
 
 
-async def awaitify(value: "T | Awaitable[T]") -> T:
+async def awaitify(value: T | Awaitable[T]) -> T:
     if inspect.isawaitable(value):
         return cast(T, await value)
 
@@ -29,7 +21,7 @@ async def awaitify(value: "T | Awaitable[T]") -> T:
 
 def syncify(function: Callable[..., Any]) -> Any:
     @wraps(function)
-    def wrapper(*args: List[Any], **kwargs: Dict[str, Any]) -> Any:
+    def wrapper(*args: list[Any], **kwargs: dict[str, Any]) -> Any:
         uvloop.install()
         return asyncio.run(function(*args, **kwargs))
 
@@ -38,7 +30,7 @@ def syncify(function: Callable[..., Any]) -> Any:
 
 @contextmanager
 def use_signal_handler(signums: Sequence[int], handler: Callable[..., Any]) -> Iterator[None]:
-    originals: Dict[int, Any] = {}
+    originals: dict[int, Any] = {}
     for signum in signums:
         if original := signal.getsignal(signum):
             originals[signum] = original

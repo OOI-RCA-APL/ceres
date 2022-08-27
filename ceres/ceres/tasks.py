@@ -1,8 +1,10 @@
+from __future__ import annotations
+
 import asyncio
 from abc import ABC, abstractmethod
 from asyncio import AbstractEventLoop, Event, Task
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable, Optional, TypeVar, cast
+from typing import Any, Awaitable, Callable, TypeVar, cast
 
 import anyio
 import uvloop
@@ -25,7 +27,7 @@ async def defer() -> None:
 
 @dataclass
 class TaskletInternal:
-    task: Optional[Task[Any]] = None
+    task: Task[Any] | None = None
     stop: Event = field(default_factory=Event)
 
 
@@ -51,10 +53,8 @@ class Tasklet(ABC):
     def start(
         self: TaskletT,
         *,
-        on_completed: Optional[Callable[["TaskletT"], Optional[Awaitable[None]]]] = None,
-        on_exception: Optional[
-            Callable[["TaskletT", BaseException], Optional[Awaitable[None]]]
-        ] = None,
+        on_completed: Callable[[TaskletT], None | Awaitable[None]] | None = None,
+        on_exception: Callable[[TaskletT, BaseException], None | Awaitable[None]] | None = None,
     ) -> None:
         if self.__tasklet__.task:
             return
@@ -112,10 +112,8 @@ class Tasklet(ABC):
     async def run(
         self: TaskletT,
         *,
-        on_completed: Optional[Callable[["TaskletT"], Optional[Awaitable[None]]]] = None,
-        on_exception: Optional[
-            Callable[["TaskletT", BaseException], Optional[Awaitable[None]]]
-        ] = None,
+        on_completed: Callable[[TaskletT], None | Awaitable[None]] | None = None,
+        on_exception: Callable[[TaskletT, BaseException], None | Awaitable[None]] | None = None,
     ) -> None:
         self.start(
             on_completed=on_completed,

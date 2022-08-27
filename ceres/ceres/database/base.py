@@ -1,6 +1,8 @@
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from textwrap import dedent
-from typing import TYPE_CHECKING, Any, Dict, List, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import sqlalchemy as sql
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession
@@ -38,7 +40,7 @@ class DatabaseManager(ABC):
         ...
 
     @abstractmethod
-    def _create_ddl_statements(self) -> List[str]:
+    def _create_ddl_statements(self) -> list[str]:
         ...
 
     @abstractmethod
@@ -50,7 +52,7 @@ class DatabaseManager(ABC):
         return self._base_config.type
 
     @property
-    def ddl(self) -> List[str]:
+    def ddl(self) -> list[str]:
         return [self.compile(statement) for statement in self._create_ddl_statements()]
 
     @property
@@ -88,7 +90,7 @@ class DatabaseManager(ABC):
     def compile(
         self,
         command: str,
-        parameters: Dict[str, Any] = {},
+        parameters: dict[str, Any] = {},
     ) -> str:
         return str(
             sql.text(dedent(command).strip())
@@ -99,7 +101,7 @@ class DatabaseManager(ABC):
     def sql(
         self,
         command: str,
-        parameters: Dict[str, Any] = {},
+        parameters: dict[str, Any] = {},
     ) -> TextClause:
         return sql.text(self.compile(command, parameters))
 
@@ -108,6 +110,6 @@ class DatabaseManager(ABC):
             for statement in self.ddl:
                 await connection.execute(sql.text(statement))
 
-    async def tables(self) -> List[str]:
+    async def tables(self) -> list[str]:
         async with self.connect() as connection:
             return list((await connection.execute(sql.text(self._create_tables_query()))).scalars())

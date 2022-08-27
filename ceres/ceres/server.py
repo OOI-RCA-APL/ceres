@@ -1,4 +1,6 @@
-from typing import Any, Generic, Literal, Optional, Protocol, Type, TypeVar, Union
+from __future__ import annotations
+
+from typing import Any, Generic, Literal, Protocol, TypeVar, Union
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
@@ -18,7 +20,7 @@ class ServerEngineProtocol(Protocol):
     def config(self) -> EngineConfig:
         ...
 
-    async def reload(self) -> Optional[ConfigException]:
+    async def reload(self) -> None:
         ...
 
 
@@ -84,7 +86,7 @@ class Ok(GenericDataObject, Generic[OkDataT]):
     data: OkDataT
 
     @classmethod
-    def create(cls, data: OkDataT) -> "Ok[OkDataT]":
+    def create(cls, data: OkDataT) -> Ok[OkDataT]:
         return Ok(data=data)
 
     @classmethod
@@ -97,7 +99,7 @@ class Error(GenericDataObject, Generic[ErrorDataT]):
     data: ErrorDataT
 
     @classmethod
-    def create(cls, data: ErrorDataT) -> "Error[ErrorDataT]":
+    def create(cls, data: ErrorDataT) -> Error[ErrorDataT]:
         return Error(data=data)
 
     @classmethod
@@ -105,5 +107,5 @@ class Error(GenericDataObject, Generic[ErrorDataT]):
         return JSONResponse(cls.create(data).dict(), status)
 
 
-def result(ok: Type[OkDataT], error: Type[ErrorDataT]) -> Type[Any]:
+def result(ok: type[OkDataT], error: type[ErrorDataT]) -> type[Any]:
     return Union[Ok[ok], Error[error]]  # type: ignore

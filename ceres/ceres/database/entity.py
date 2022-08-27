@@ -1,5 +1,7 @@
+from __future__ import annotations
+
 from datetime import datetime
-from typing import TYPE_CHECKING, List, Literal, Optional
+from typing import TYPE_CHECKING, Literal
 from uuid import UUID, uuid4
 
 import sqlalchemy as sql
@@ -33,7 +35,7 @@ class UnitEntity(Entity):
     __tablename__ = "units"
     name: str = Column(String)
 
-    connections: List["ConnectionEntity"] = relationship("ConnectionEntity", back_populates="unit")
+    connections: list[ConnectionEntity] = relationship("ConnectionEntity", back_populates="unit")
 
 
 class ConnectionEntity(Entity):
@@ -72,7 +74,7 @@ class EntityManager:
         session: AsyncSession,
         path: UnitPath,
     ) -> UnitEntity:
-        unit: Optional[UnitEntity] = (
+        unit: UnitEntity | None = (
             await (session.execute(sql.select(UnitEntity).where(UnitEntity.name == path.unit)))
         ).scalar()
 
@@ -90,7 +92,7 @@ class EntityManager:
     ) -> ConnectionEntity:
         unit_id = await self.get_unit_id(UnitPath.create(path.unit))
 
-        connection: Optional[ConnectionEntity] = (
+        connection: ConnectionEntity | None = (
             await (
                 session.execute(
                     sql.select(ConnectionEntity).where(

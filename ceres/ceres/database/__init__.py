@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from ..config import DatabaseConfig
 from .base import DatabaseManager as DatabaseManager
 from .sqlite import SQLiteDatabaseManager as SQLiteDatabaseManager

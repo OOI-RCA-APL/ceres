@@ -1,8 +1,10 @@
+from __future__ import annotations
+
 import itertools
 import os
 from abc import ABC
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, Literal
 
 import yaml
 from pydantic import PrivateAttr, ValidationError, validator
@@ -18,13 +20,13 @@ class ComponentConfig(DataObject, ABC):
         allow_arbitrary_types = True
 
     name: str
-    component: Union[str, object]
+    component: str | object
 
 
 class ReconnectConfig(DataObject):
     interval: float = 1
-    backoff: Optional[float] = None
-    max_interval: Optional[float] = 60 * 5
+    backoff: float | None = None
+    max_interval: float | None = 60 * 5
 
 
 class ConnectionConfig(ComponentConfig):
@@ -41,7 +43,7 @@ DatabaseType = Literal["sqlite"]
 
 class BaseDatabaseConfig(DataObject):
     type: DatabaseType
-    engine: Optional[Dict[str, Any]] = None
+    engine: dict[str, Any] | None = None
 
 
 class SQLiteDatabaseConfig(BaseDatabaseConfig):
@@ -54,10 +56,10 @@ DatabaseConfig = SQLiteDatabaseConfig
 
 class UnitConfig(DataObject):
     name: str
-    connections: List[ConnectionConfig] = []
+    connections: list[ConnectionConfig] = []
 
     @validator("connections")
-    def _check_connections(cls, connections: List[ConnectionConfig]) -> List[ConnectionConfig]:
+    def _check_connections(cls, connections: list[ConnectionConfig]) -> list[ConnectionConfig]:
         for name, group in itertools.groupby(connections, lambda connection: connection.name):
             if len(list(group)) > 1:
                 raise ValueError(f"duplicate connection name '{name}'")
@@ -68,7 +70,7 @@ class UnitConfig(DataObject):
 class EngineConfig(DataObject):
     server: ServerConfig
     database: DatabaseConfig
-    units: List[UnitConfig] = []
+    units: list[UnitConfig] = []
 
     __path__: str = PrivateAttr(default="")
 
@@ -77,7 +79,7 @@ class EngineConfig(DataObject):
         return self.__path__
 
     @validator("units")
-    def _check_units(cls, units: List[UnitConfig]) -> List[UnitConfig]:
+    def _check_units(cls, units: list[UnitConfig]) -> list[UnitConfig]:
         for name, group in itertools.groupby(units, lambda unit: unit.name):
             if len(list(group)) > 1:
                 raise ValueError(f"duplicate unit name '{name}'")
@@ -85,7 +87,7 @@ class EngineConfig(DataObject):
         return units
 
     @classmethod
-    def load(cls, path: str) -> "EngineConfig":
+    def load(cls, path: str) -> EngineConfig:
         try:
             path = os.path.realpath(path)
         except Exception:

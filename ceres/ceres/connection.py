@@ -1,6 +1,8 @@
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from datetime import datetime, timedelta, timezone
-from typing import List, Literal, Optional, Union
+from typing import Literal
 from uuid import UUID
 
 import anyio
@@ -24,7 +26,7 @@ class ReconnectScheduler:
             else timedelta(seconds=config.interval)
         )
         self.backoff: float = config.backoff if config.backoff is not None else 1
-        self.max_interval: Optional[timedelta] = None
+        self.max_interval: timedelta | None = None
 
         if config.max_interval:
             self.max_interval = (
@@ -68,7 +70,7 @@ class ConnectionContext(DataObject):
 
     id: UUID
     path: ConnectionPath
-    component: Union[str, object]
+    component: str | object
     database: DatabaseManager
     reconnect: ReconnectConfig
 
@@ -88,11 +90,11 @@ class ConnectionHandle(Tasklet):
     def __init__(self, context: ConnectionContext) -> None:
         self._context = context
         self._reconnect = ReconnectScheduler(context.reconnect)
-        self._connection: Optional[Connection] = None
+        self._connection: Connection | None = None
         self._state: ConnectionState = "disconnected"
-        self._receive_buffer: List[ReceivedMessage] = []
+        self._receive_buffer: list[ReceivedMessage] = []
         self._is_flushing = False
-        self._last_message_timestamp: Optional[datetime] = None
+        self._last_message_timestamp: datetime | None = None
 
     @property
     def id(self) -> UUID:

@@ -1,7 +1,9 @@
+from __future__ import annotations
+
 import traceback
 from logging import Logger
 from multiprocessing.managers import BaseManager
-from typing import Any, Dict, List, Optional, Protocol, cast
+from typing import Any, Protocol, cast
 from uuid import UUID
 
 import anyio
@@ -20,16 +22,16 @@ from .tasks import Tasklet, ensure_event_loop
 class UnitContext(DataObject):
     id: UUID
     path: UnitPath
-    connections: List[ConnectionConfig]
+    connections: list[ConnectionConfig]
     database: DatabaseConfig
     config: UnitConfig
 
 
 class UnitProxyProtocol(Protocol):
-    def rpc_run(self) -> Optional[BaseException]:
+    def rpc_run(self) -> BaseException | None:
         ...
 
-    def rpc_stop(self) -> Optional[BaseException]:
+    def rpc_stop(self) -> BaseException | None:
         ...
 
 
@@ -37,8 +39,8 @@ class Unit(UnitProxyProtocol, Tasklet):
     def __init__(self, context: UnitContext) -> None:
         self._context = context
         self._database = create_database_manager(self._context.database)
-        self._connections: Dict[str, ConnectionHandle] = {}
-        self._tasks: Optional[TaskGroup] = None
+        self._connections: dict[str, ConnectionHandle] = {}
+        self._tasks: TaskGroup | None = None
 
     @property
     def id(self) -> UUID:
@@ -56,7 +58,7 @@ class Unit(UnitProxyProtocol, Tasklet):
     def logger(self) -> Logger:
         return logs.get(str(self._context.path))
 
-    def rpc_run(self) -> Optional[BaseException]:
+    def rpc_run(self) -> BaseException | None:
         async def execute() -> None:
             try:
                 await self.run()
@@ -71,7 +73,7 @@ class Unit(UnitProxyProtocol, Tasklet):
 
         return None
 
-    def rpc_stop(self) -> Optional[BaseException]:
+    def rpc_stop(self) -> BaseException | None:
         async def execute() -> None:
             try:
                 await self.stop()
@@ -141,8 +143,8 @@ UnitManager.register("Unit", Unit)
 class UnitHandle(Tasklet):
     def __init__(self, context: UnitContext) -> None:
         self._context = context
-        self._manager: Optional[UnitManager] = None
-        self._instance: Optional[UnitProxyProtocol] = None
+        self._manager: UnitManager | None = None
+        self._instance: UnitProxyProtocol | None = None
 
     @property
     def id(self) -> UUID:
@@ -157,7 +159,7 @@ class UnitHandle(Tasklet):
         return self._context.config
 
     @property
-    def instance(self) -> Optional[UnitProxyProtocol]:
+    def instance(self) -> UnitProxyProtocol | None:
         return self._instance
 
     async def _tasklet_run(self) -> None:

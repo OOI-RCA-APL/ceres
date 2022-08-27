@@ -1,7 +1,9 @@
+from __future__ import annotations
+
 import logging
 from logging import Logger
 from logging.config import dictConfig
-from typing import Any, Dict, Optional
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -19,13 +21,13 @@ class LogConfig(BaseModel):
 
 class LoggingState:
     config = LogConfig()
-    loggers: Dict[str, Logger] = {}
+    loggers: dict[str, Logger] = {}
 
 
 state = LoggingState
 
 
-def setup(config: Optional[LogConfig] = None) -> None:
+def setup(config: LogConfig | None = None) -> None:
     """
     Set up logging globally.
 
@@ -59,7 +61,7 @@ def get(name: str) -> Logger:
     return logger
 
 
-def _generate_config() -> Dict[str, Any]:
+def _generate_config() -> dict[str, Any]:
     return {
         "version": 1,
         "disable_existing_loggers": False,

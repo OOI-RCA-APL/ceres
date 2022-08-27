@@ -1,8 +1,9 @@
+from __future__ import annotations
+
 import asyncio
 from asyncio import StreamReader, StreamWriter
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Optional
 
 from ...connection import Connection
 from ...exceptions import (
@@ -30,7 +31,7 @@ class TCPConnection(Connection):
         self._port = port
         self._connect_timeout = connect_timeout
         self._separator = separator
-        self._stream: Optional[Stream] = None
+        self._stream: Stream | None = None
 
     @property
     def host(self) -> str:

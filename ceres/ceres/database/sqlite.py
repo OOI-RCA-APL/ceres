@@ -1,5 +1,7 @@
+from __future__ import annotations
+
 from sqlite3 import Connection as SQLiteConnection
-from typing import Any, List
+from typing import Any
 
 from sqlalchemy import event
 from sqlalchemy.engine import Connection
@@ -39,7 +41,7 @@ class SQLiteDatabaseManager(DatabaseManager):
 
         return engine
 
-    def _create_ddl_statements(self) -> List[str]:
+    def _create_ddl_statements(self) -> list[str]:
         return [
             """
             CREATE TABLE IF NOT EXISTS units (
