@@ -86,7 +86,6 @@ mypy-extensions = ">=0.4.3"
 pathspec = ">=0.9.0"
 platformdirs = ">=2"
 tomli = {version = ">=1.1.0", markers = "python_full_version < \"3.11.0a7\""}
-typing-extensions = {version = ">=3.10.0.0", markers = "python_version < \"3.10\""}
 
 [package.extras]
 colorama = ["colorama (>=0.4.3)"]
@@ -344,14 +343,6 @@ python-versions = ">=3.6.8"
 diagrams = ["jinja2", "railroad-diagrams"]
 
 [[package]]
-name = "pysqlite3-binary"
-version = "0.4.7.post7"
-description = "DB-API 2.0 interface for Sqlite 3.x"
-category = "main"
-optional = false
-python-versions = "*"
-
-[[package]]
 name = "pytest"
 version = "7.1.2"
 description = "pytest: simple powerful testing with Python"
@@ -472,7 +463,7 @@ url = ["furl (>=0.4.1)"]
 
 [[package]]
 name = "sqlalchemy2-stubs"
-version = "0.0.2a25"
+version = "0.0.2a26"
 description = "Typing Stubs for SQLAlchemy 1.4"
 category = "dev"
 optional = false
@@ -547,8 +538,8 @@ test = ["aiohttp", "flake8 (>=3.9.2,<3.10.0)", "mypy (>=0.800)", "psutil", "pyOp
 
 [metadata]
 lock-version = "1.1"
-python-versions = "^3.9"
-content-hash = "505e9b711ad2a9fcc8baa118493ff901bbfdcada2012b39d0256d9e1a5b8fdf7"
+python-versions = "^3.10"
+content-hash = "cd19d53f200ff6df9742c3f5272d6ee3b0b0298dd783000fcf698f5a4a22852a"
 
 [metadata.files]
 aiosqlite = [
@@ -821,13 +812,6 @@ pyparsing = [
     {file = "pyparsing-3.0.9-py3-none-any.whl", hash = "sha256:5026bae9a10eeaefb61dab2f09052b9f4307d44aee4eda64b309723d8d206bbc"},
     {file = "pyparsing-3.0.9.tar.gz", hash = "sha256:2b020ecf7d21b687f219b71ecad3631f644a47f01403fa1d1036b0c6416d70fb"},
 ]
-pysqlite3-binary = [
-    {file = "pysqlite3_binary-0.4.7.post7-cp310-cp310-manylinux_2_24_x86_64.whl", hash = "sha256:07c66200d36556f6f5788dc32fc9665be12216977030d033bf48cb5ee24b6f0a"},
-    {file = "pysqlite3_binary-0.4.7.post7-cp36-cp36m-manylinux_2_24_x86_64.whl", hash = "sha256:21c0d182435b133400b4d2d9a4c9f972bd0196c0928bb542b28a7b422f4a6130"},
-    {file = "pysqlite3_binary-0.4.7.post7-cp37-cp37m-manylinux_2_24_x86_64.whl", hash = "sha256:da7eaacd4079fe2aba0e941c9fbfa20ccc1c10123df7ae680eb92dd1644b964e"},
-    {file = "pysqlite3_binary-0.4.7.post7-cp38-cp38-manylinux_2_24_x86_64.whl", hash = "sha256:96be548f809516b4d32d19709e6b05670c23921f00eaffcf7f96fc0c6d722c68"},
-    {file = "pysqlite3_binary-0.4.7.post7-cp39-cp39-manylinux_2_24_x86_64.whl", hash = "sha256:edf1eb2fcbb2e6a5ca13869d2b4e91ebe61a775ce1f73e7efcdddb186143613e"},
-]
 pytest = [
     {file = "pytest-7.1.2-py3-none-any.whl", hash = "sha256:13d0e3ccfc2b6e26be000cb6568c832ba67ba32e719443bfe725814d3c42433c"},
     {file = "pytest-7.1.2.tar.gz", hash = "sha256:a06a0425453864a270bc45e71f783330a7428defb4230fb5e6a731fde06ecd45"},
@@ -923,8 +907,8 @@ sqlalchemy-utils = [
     {file = "SQLAlchemy_Utils-0.38.3-py3-none-any.whl", hash = "sha256:5c13b5d08adfaa85f3d4e8ec09a75136216fad41346980d02974a70a77988bf9"},
 ]
 sqlalchemy2-stubs = [
-    {file = "sqlalchemy2-stubs-0.0.2a25.tar.gz", hash = "sha256:2fbfddfee7fc6b45206dc52e9fe9d91a787efb6af13191debe84dda9b4798abd"},
-    {file = "sqlalchemy2_stubs-0.0.2a25-py3-none-any.whl", hash = "sha256:9104894cee3159906079c4a31c2a66fbedfc72a381c51dfd1d8ebae8ffd7f2ca"},
+    {file = "sqlalchemy2-stubs-0.0.2a26.tar.gz", hash = "sha256:2848755b30e177a3d39cd10c52c0fcbbbecb227a6a608fa53b0ce11070b156f7"},
+    {file = "sqlalchemy2_stubs-0.0.2a26-py3-none-any.whl", hash = "sha256:bb2e2cd88cb7c3710c2361ad0b085c86a287667a4a51b640c66711dd83fce82b"},
 ]
 starlette = [
     {file = "starlette-0.14.2-py3-none-any.whl", hash = "sha256:3c8e48e52736b3161e34c9f0e8153b4f32ec5d8995a3ee1d59410d92f75162ed"},
