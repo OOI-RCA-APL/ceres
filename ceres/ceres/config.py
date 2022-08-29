@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import PrivateAttr, ValidationError, validator
+from pydantic import Field, PrivateAttr, ValidationError, validator
 from yaml import YAMLError
 
 from .data import DataObject
@@ -42,9 +42,15 @@ class ServerConfig(DataObject):
 DatabaseType = Literal["sqlite"]
 
 
+class DatabaseRetryConfig(DataObject):
+    attempts: int | None = Field(gt=0)
+    timeout: float = Field(gt=0)
+
+
 class BaseDatabaseConfig(DataObject):
     type: DatabaseType
     engine: dict[str, Any] | None = None
+    retry: DatabaseRetryConfig = DatabaseRetryConfig(timeout=30)
 
 
 class SQLiteDatabaseConfig(BaseDatabaseConfig):
@@ -105,7 +111,7 @@ class EngineConfig(DataObject):
             raise ConfigException(f"Configuration file at '{path}' is not valid YAML or JSON.")
 
         try:
-            config = EngineConfig.parse_obj(data)
+            config = cls.parse_obj(data)
         except ValidationError as error:
             raise ConfigException(
                 f"Configuration file at '{path}' is invalid:\n{format_validation_error(error)}"

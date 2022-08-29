@@ -125,11 +125,10 @@ class Engine(Tasklet, ServerEngineProtocol):
         if not config:
             config = self._config
 
-        if config.database:
-            self.logger.info("Database configuration found, verifying it's reachable...")
-            if not await self._wait_for_database(config.database, attempts=None if wait else 3):
-                self.logger.error("Configuration check failed, could not reach database.")
-                return False
+        self.logger.info("Database configuration found, verifying it's reachable...")
+        if not await self._wait_for_database(config.database, attempts=None if wait else 3):
+            self.logger.error("Configuration check failed, could not reach database.")
+            return False
 
         if config.units:
             self.logger.info("Checking unit configurations...")

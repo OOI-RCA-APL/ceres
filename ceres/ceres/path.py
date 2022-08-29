@@ -1,12 +1,23 @@
 from __future__ import annotations
 
+from typing import Literal
+
 from .data import DataObject
 
+ComponentPathKind = Literal["connection"]
+PathKind = Literal["unit", "connection"]
 
-class UnitPath(DataObject):
+
+class BasePath(DataObject):
     class Config:
         frozen = True
 
+    kind: PathKind
+
+
+class UnitPath(BasePath):
+
+    kind: Literal["unit"] = "unit"
     unit: str
 
     @classmethod
@@ -17,10 +28,8 @@ class UnitPath(DataObject):
         return f"@{self.unit}"
 
 
-class ConnectionPath(DataObject):
-    class Config:
-        frozen = True
-
+class ConnectionPath(BasePath):
+    kind: Literal["connection"] = "connection"
     unit: str
     connection: str
 
@@ -30,3 +39,7 @@ class ConnectionPath(DataObject):
 
     def __str__(self) -> str:
         return f"@{self.unit}.connections.{self.connection}"
+
+
+Path = UnitPath | ConnectionPath
+ComponentPath = ConnectionPath
