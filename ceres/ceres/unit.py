@@ -106,6 +106,7 @@ class Unit(UnitProxyProtocol, Tasklet):
                     id=id,
                     path=path,
                     component=connection_config.component,
+                    parameters=connection_config.parameters,
                     database=self._database,
                     reconnect=connection_config.reconnect,
                 )
@@ -113,7 +114,7 @@ class Unit(UnitProxyProtocol, Tasklet):
 
         for connection in self._connections.values():
             try:
-                await connection.load()
+                connection.load()
                 self.logger.info(f"Loaded connection '{connection.path}'.")
             except ComponentLoadException as exception:
                 self.logger.error(

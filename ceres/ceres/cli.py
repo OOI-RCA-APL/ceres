@@ -23,6 +23,10 @@ class DatabaseUnreachableException(ClickException):
     exit_code = 2
 
 
+class CheckFailedException(ClickException):
+    exit_code = 3
+
+
 def _create_engine(config_path: str) -> Engine:
     return Engine(config_path)
 
@@ -79,6 +83,21 @@ async def run(config: str) -> None:
         raise InvalidConfigException(exception.message)
 
     await engine.run()
+
+
+@main.command()
+@with_config
+@syncify
+async def check(config: str) -> None:
+    try:
+        engine = _create_engine(config)
+    except ConfigException as exception:
+        raise CheckFailedException(exception.message)
+
+    if not await engine.check():
+        raise CheckFailedException("Check failed.")
+
+    print("All checks passed.")
 
 
 @main.group()

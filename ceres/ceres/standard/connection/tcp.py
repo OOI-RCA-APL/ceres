@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 
 from ...connection import Connection
+from ...data import DataObject
 from ...exceptions import (
     ConnectionDecodeException,
     ConnectionInactiveException,
@@ -19,27 +20,25 @@ class Stream:
     writer: StreamWriter
 
 
+class TCPConnectionParameters(DataObject):
+    host: str
+    port: int
+    connect_timeout: timedelta = timedelta(seconds=5)
+    separator: str = "\r\n"
+
+
 class TCPConnection(Connection):
-    def __init__(
-        self,
-        host: str,
-        port: int,
-        connect_timeout: timedelta = timedelta(seconds=5),
-        separator: str = "\r\n",
-    ) -> None:
-        self._host = host
-        self._port = port
-        self._connect_timeout = connect_timeout
-        self._separator = separator
+    def __init__(self, parameters: TCPConnectionParameters) -> None:
+        self._parameters = parameters
         self._stream: Stream | None = None
 
     @property
     def host(self) -> str:
-        return self._host
+        return self._parameters.host
 
     @property
     def port(self) -> int:
-        return self._port
+        return self._parameters.port
 
     async def connect(self) -> bool:
         if self._stream:
@@ -48,7 +47,7 @@ class TCPConnection(Connection):
         try:
             reader, writer = await asyncio.wait_for(
                 asyncio.open_connection(self.host, self.port),
-                self._connect_timeout.total_seconds(),
+                self._parameters.connect_timeout.total_seconds(),
             )
         except (ConnectionError, TimeoutError):
             return False
@@ -69,8 +68,8 @@ class TCPConnection(Connection):
         if not self._stream:
             raise ConnectionInactiveException("Connection is not active.")
 
-        if not data.endswith(self._separator):
-            data += self._separator
+        if not data.endswith(self._parameters.separator):
+            data += self._parameters.separator
 
         try:
             self._stream.writer.write(data.encode())
@@ -83,7 +82,7 @@ class TCPConnection(Connection):
             raise ConnectionInactiveException("Connection is not active.")
 
         try:
-            data = await self._stream.reader.readuntil(self._separator.encode())
+            data = await self._stream.reader.readuntil(self._parameters.separator.encode())
         except Exception:
             raise ConnectionLostException("Connection was lost.")
 

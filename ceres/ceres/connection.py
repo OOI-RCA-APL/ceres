@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from datetime import datetime, timedelta, timezone
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID
 
 import anyio
@@ -71,6 +71,7 @@ class ConnectionContext(DataObject):
     id: UUID
     path: ConnectionPath
     component: str | object
+    parameters: dict[str, Any]
     database: DatabaseManager
     reconnect: ReconnectConfig
 
@@ -112,11 +113,14 @@ class ConnectionHandle(Tasklet):
     def connected(self) -> bool:
         return self._state == "connected"
 
-    async def load(self) -> None:
+    def load(self) -> None:
         if self._connection:
             return
 
-        self._connection = await Connection.load(self._context.component)
+        self._connection = Connection.load(
+            self._context.component,
+            self._context.parameters,
+        )
 
     async def send(self, data: str) -> Message:
         if not self._connection:

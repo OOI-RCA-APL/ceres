@@ -4,17 +4,23 @@ import importlib
 import inspect
 import traceback
 from abc import ABC
-from typing import Any, Callable, TypeVar, cast
+from typing import Any, TypeVar
+
+from pydantic import ValidationError, validate_arguments
 
 from .exceptions import ComponentLoadException
-from .internal import awaitify
+from .internal import format_validation_error
 
 ComponentT = TypeVar("ComponentT", bound="Component")
 
 
 class Component(ABC):
     @classmethod
-    async def load(cls: type[ComponentT], source: str | object) -> ComponentT:
+    def load(
+        cls: type[ComponentT],
+        source: str | object,
+        parameters: dict[str, Any] = {},
+    ) -> ComponentT:
         if not isinstance(source, str):
             if not isinstance(source, cls):
                 raise ComponentLoadException(
@@ -29,30 +35,54 @@ class Component(ABC):
             raise ComponentLoadException(f"Module '{source}' was not found.")
         except Exception:
             raise ComponentLoadException(
-                f"Module '{source}' raised an exception while importing: {traceback.format_exc()}"
+                f"Component module {source} raised an exception while importing: {traceback.format_exc()}"
             )
 
-        init: Callable[[], Any] = cast(Any, getattr(module, "init", None))
+        target_cls: type[ComponentT] | None = None
 
-        if (
-            not init
-            or not inspect.isfunction(init)
-            or len(inspect.signature(init).parameters.keys()) > 0
-        ):
+        for _, member in inspect.getmembers(module):
+            if (
+                inspect.isclass(member)
+                and issubclass(member, cls)
+                and not inspect.isabstract(member)
+            ):
+                target_cls = member
+                break
+
+        if target_cls is None:
             raise ComponentLoadException(
-                f"Module '{module}' must contain an 'init()' function that takes no arguments."
+                f"Component module {module} must contain class a non-abstract subclass of {cls}."
+            )
+
+        signature = inspect.signature(target_cls)
+        arguments: dict[str, Any] = {}
+
+        # If there is a component argument named "parameters", assign all parameters to it as a
+        # dictionary. This allows using constructor arguments or a dedicated "parameters" type.
+        if "parameters" in signature.parameters:
+            for name, value in parameters.items():
+                if name in signature.parameters:
+                    arguments[name] = value
+
+            arguments["parameters"] = {**parameters}
+        else:
+            arguments = {**parameters}
+
+        __init__ = validate_arguments(target_cls.__init__)
+        instance = target_cls.__new__(target_cls)
+
+        try:
+            __init__.validate(instance, **arguments)  # type: ignore
+        except ValidationError as error:
+            raise ComponentLoadException(
+                f"Invalid parameters for {target_cls}: {format_validation_error(error)}"
             )
 
         try:
-            instance = await awaitify(init())
+            __init__(instance, **arguments)
         except Exception:
             raise ComponentLoadException(
-                f"Module '{module}' 'init()' raised an exception: {traceback.format_exc()}"
-            )
-
-        if not isinstance(instance, cls):
-            raise ComponentLoadException(
-                f"Module '{module}' 'init()' must return an instance of {cls}, got {instance}."
+                f"Exception raised during initialization for {target_cls}: {traceback.format_exc()}"
             )
 
         return instance

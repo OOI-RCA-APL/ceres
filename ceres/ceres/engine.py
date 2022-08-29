@@ -14,11 +14,16 @@ from anyio import CancelScope
 
 from . import logs
 from .config import DatabaseConfig, EngineConfig, UnitConfig
+from .connection import Connection
 from .data import DataObject
 from .database import DatabaseManager, create_database_manager
-from .exceptions import ConfigException, ReloadAlreadyActiveException
+from .exceptions import (
+    ComponentLoadException,
+    ConfigException,
+    ReloadAlreadyActiveException,
+)
 from .internal import use_signal_handler
-from .path import UnitPath
+from .path import ConnectionPath, UnitPath
 from .server import Server, ServerEngineProtocol
 from .tasks import Tasklet
 from .unit import UnitContext, UnitHandle
@@ -103,7 +108,7 @@ class Engine(Tasklet, ServerEngineProtocol):
             self.logger.error("Reload failed, found errors in configuration.")
             raise
 
-        if not await self._check_config(self._config):
+        if not await self.check(self._config):
             self.logger.error("Reload failed, configuration check was unsuccessful.")
             raise ConfigException("Configuration check failed.")
 
@@ -112,8 +117,38 @@ class Engine(Tasklet, ServerEngineProtocol):
         self._config_queue.put(config)
         return None
 
+    async def check(
+        self,
+        config: EngineConfig | None = None,
+        wait: bool = False,
+    ) -> bool:
+        if not config:
+            config = self._config
+
+        if config.database:
+            self.logger.info("Database configuration found, verifying it's reachable...")
+            if not await self._wait_for_database(config.database, attempts=None if wait else 3):
+                self.logger.error("Configuration check failed, could not reach database.")
+                return False
+
+        if config.units:
+            self.logger.info("Checking unit configurations...")
+            for unit in config.units:
+                for connection in unit.connections:
+                    path = ConnectionPath.create(unit.name, connection.name)
+                    try:
+                        Connection.load(connection.component, connection.parameters)
+                    except ComponentLoadException as exception:
+                        self.logger.error(
+                            f"Configuration check failed, component '{path}' failed to load. {exception.message}"
+                        )
+                        return False
+
+        self.logger.info("Configuration passed all checks.")
+        return True
+
     async def _tasklet_run(self) -> None:
-        if not await self._check_config(self._config):
+        if not await self.check(self._config):
             self.logger.error("Initial configuration check failed. Exiting...")
             return
 
@@ -313,7 +348,7 @@ class Engine(Tasklet, ServerEngineProtocol):
         if attempts is not None and attempts <= 0:
             attempts = 1
 
-        info = config.copy(update={"password": "<OMITTED>"}).json()
+        info = config.dict(exclude={"password"})
 
         self.logger.info(f"Using database configuration: {info}")
 
@@ -338,11 +373,3 @@ class Engine(Tasklet, ServerEngineProtocol):
                 return False
             finally:
                 await database.dispose()
-
-    async def _check_config(self, config: EngineConfig, wait: bool = False) -> bool:
-        if config.database:
-            self.logger.info("Database configuration found, verifying it's reachable...")
-            await self._wait_for_database(config.database, attempts=None if wait else 3)
-
-        self.logger.info("Configuration passed all checks.")
-        return True

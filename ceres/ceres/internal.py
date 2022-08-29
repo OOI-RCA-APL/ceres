@@ -8,6 +8,7 @@ from functools import wraps
 from typing import Any, Awaitable, Callable, Iterator, Sequence, TypeVar, cast
 
 import uvloop
+from pydantic import ValidationError
 
 T = TypeVar("T")
 
@@ -41,3 +42,9 @@ def use_signal_handler(signums: Sequence[int], handler: Callable[..., Any]) -> I
     finally:
         for signum, original in originals.items():
             signal.signal(signum, original)
+
+
+def format_validation_error(error: ValidationError) -> dict[str, Any]:
+    return {
+        ".".join(str(value) for value in error["loc"]): error["msg"] for error in error.errors()
+    }

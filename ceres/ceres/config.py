@@ -8,11 +8,11 @@ from typing import Any, Literal
 
 import yaml
 from pydantic import PrivateAttr, ValidationError, validator
-from pydantic.error_wrappers import display_errors
 from yaml import YAMLError
 
 from .data import DataObject
 from .exceptions import ConfigException
+from .internal import format_validation_error
 
 
 class ComponentConfig(DataObject, ABC):
@@ -21,6 +21,7 @@ class ComponentConfig(DataObject, ABC):
 
     name: str
     component: str | object
+    parameters: dict[str, Any] = {}
 
 
 class ReconnectConfig(DataObject):
@@ -107,7 +108,7 @@ class EngineConfig(DataObject):
             config = EngineConfig.parse_obj(data)
         except ValidationError as error:
             raise ConfigException(
-                f"Configuration file at '{path}' is invalid:\n{display_errors(error.errors())}"
+                f"Configuration file at '{path}' is invalid:\n{format_validation_error(error)}"
             )
 
         config.__path__ = path
