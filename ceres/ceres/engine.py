@@ -5,30 +5,32 @@ import signal
 import sys
 import traceback
 from asyncio import Event
+from enum import Enum
 from logging import Logger
 from queue import Empty, Queue
-from typing import Any, Literal
+from typing import Any
 
 import anyio
 from anyio import CancelScope
 
 from . import logs
-from .config import DatabaseConfig, EngineConfig, UnitConfig
-from .connection import Connection
+from .config import EngineConfig, UnitConfig
 from .data import DataObject
 from .database import DatabaseManager, create_database_manager
-from .exceptions import (
-    ComponentLoadException,
-    ConfigException,
-    ReloadAlreadyActiveException,
-)
+from .exceptions import ReloadAlreadyActiveException
 from .internal import use_signal_handler
-from .path import ConnectionPath, UnitPath
+from .load import EngineConfigError, load_engine_config
+from .path import UnitPath
+from .result import Result
 from .server import Server, ServerEngineProtocol
 from .tasks import Tasklet
 from .unit import UnitContext, UnitHandle
 
-UnitActionKind = Literal["start", "reload", "remove"]
+
+class UnitActionKind(str, Enum):
+    START = "start"
+    RELOAD = "reload"
+    REMOVE = "remove"
 
 
 class UnitSyncAction(DataObject):
@@ -37,9 +39,8 @@ class UnitSyncAction(DataObject):
 
 
 class Engine(Tasklet, ServerEngineProtocol):
-    def __init__(self, config_path: str) -> None:
-        self._config = EngineConfig.load(config_path)
-        self._config_path = config_path
+    def __init__(self, config: EngineConfig) -> None:
+        self._config = config
         self._config_queue: Queue[EngineConfig] = Queue()
         self._server: Server | None = None
         self._database = create_database_manager(self._config.database)
@@ -51,12 +52,15 @@ class Engine(Tasklet, ServerEngineProtocol):
         return logs.get("engine")
 
     @property
-    def config_path(self) -> str:
-        return self._config_path
+    def config_path(self) -> str | None:
+        return self._config.path
 
     @property
-    def config_directory(self) -> str:
-        return os.path.dirname(self._config_path)
+    def config_directory(self) -> str | None:
+        if self._config.path:
+            return os.path.dirname(self._config.path)
+
+        return None
 
     @property
     def config(self) -> EngineConfig:
@@ -86,73 +90,43 @@ class Engine(Tasklet, ServerEngineProtocol):
                 continue
 
             if not unit or not unit.running:
-                actions.append(UnitSyncAction(path=path, kind="start"))
+                actions.append(UnitSyncAction(path=path, kind=UnitActionKind.START))
             elif unit.config != config:
-                actions.append(UnitSyncAction(path=path, kind="reload"))
+                actions.append(UnitSyncAction(path=path, kind=UnitActionKind.RELOAD))
 
         for path, unit in self._units.items():
             if path not in configs:
-                actions.append(UnitSyncAction(path=path, kind="remove"))
+                actions.append(UnitSyncAction(path=path, kind=UnitActionKind.REMOVE))
 
         return actions
 
-    async def reload(self) -> None:
+    async def reload(self) -> Result[EngineConfig, list[EngineConfigError]]:
         if self._reloading.is_set():
             raise ReloadAlreadyActiveException("A reload is already is progress.")
 
-        self.logger.info(f"Reloading configuration from '{self._config_path}'...")
-        try:
-            config = EngineConfig.load(self._config_path)
-        except ConfigException as error:
-            self.logger.error(error.message)
-            self.logger.error("Reload failed, found errors in configuration.")
-            raise
+        if self.config_path:
+            self.logger.info(f"Reloading configuration from '{self.config_path}'...")
+            result = await load_engine_config(self.config_path)
+        else:
+            self.logger.info("No configuration path is set. Reloading current configuration...")
+            result = await load_engine_config(self._config)
 
-        if not await self.check(self._config):
-            self.logger.error("Reload failed, configuration check was unsuccessful.")
-            raise ConfigException("Configuration check failed.")
+        if not result.ok:
+            self.logger.error("Reload failed, found errors in configuration.")
+            return result
 
         self.logger.info("Queueing reload...")
         self._reloading.set()
-        self._config_queue.put(config)
-        return None
-
-    async def check(
-        self,
-        config: EngineConfig | None = None,
-        wait: bool = False,
-    ) -> bool:
-        if not config:
-            config = self._config
-
-        self.logger.info("Database configuration found, verifying it's reachable...")
-        if not await self._wait_for_database(config.database, attempts=None if wait else 3):
-            self.logger.error("Configuration check failed, could not reach database.")
-            return False
-
-        if config.units:
-            self.logger.info("Checking unit configurations...")
-            for unit in config.units:
-                for connection in unit.connections:
-                    path = ConnectionPath.create(unit.name, connection.name)
-                    try:
-                        Connection.load(connection.component, connection.parameters)
-                    except ComponentLoadException as exception:
-                        self.logger.error(
-                            f"Configuration check failed, component '{path}' failed to load. {exception.message}"
-                        )
-                        return False
-
-        self.logger.info("Configuration passed all checks.")
-        return True
+        self._config_queue.put(result.value)
+        return result
 
     async def _tasklet_run(self) -> None:
-        if not await self.check(self._config):
+        if not await load_engine_config(self._config):
             self.logger.error("Initial configuration check failed. Exiting...")
             return
 
         try:
-            if self.config_directory not in sys.path:
+            if self.config_directory and self.config_directory not in sys.path:
                 sys.path.append(self.config_directory)
 
             exiting = Event()
@@ -262,13 +236,13 @@ class Engine(Tasklet, ServerEngineProtocol):
         for action in actions:
             unit = self._units.get(action.path)
 
-            if action.kind == "remove":
+            if action.kind == UnitActionKind.REMOVE:
                 if unit:
                     self.logger.info(f"Removing unit '{action.path}'...")
                     await unit.stop()
                     self._units.pop(unit.path)
             else:
-                if action.kind == "start":
+                if action.kind == UnitActionKind.START:
                     if unit and unit.running:
                         continue
 
@@ -296,15 +270,19 @@ class Engine(Tasklet, ServerEngineProtocol):
                     unit.start()
 
         started = [
-            action for action in actions if action.kind == "start" and action.path in self._units
+            action
+            for action in actions
+            if action.kind == UnitActionKind.START and action.path in self._units
         ]
         reloaded = [
-            action for action in actions if action.kind == "reload" and action.path in self._units
+            action
+            for action in actions
+            if action.kind == UnitActionKind.RELOAD and action.path in self._units
         ]
         removed = [
             action
             for action in actions
-            if action.kind == "remove" and action.path not in self._units
+            if action.kind == UnitActionKind.REMOVE and action.path not in self._units
         ]
 
         if started:
@@ -338,37 +316,3 @@ class Engine(Tasklet, ServerEngineProtocol):
             f"An exception occurred in unit '{unit.path}': {traceback.format_exception(exception)}"
         )
         self._units.pop(unit.path)
-
-    async def _wait_for_database(
-        self,
-        config: DatabaseConfig,
-        attempts: int | None = None,
-    ) -> bool:
-        if attempts is not None and attempts <= 0:
-            attempts = 1
-
-        info = config.dict(exclude={"password"})
-
-        self.logger.info(f"Using database configuration: {info}")
-
-        attempt = 0
-
-        while True:
-            try:
-                database = create_database_manager(config)
-                async with database.connect():
-                    self.logger.info("Connected to database successfully.")
-                    return True
-            except Exception as exception:
-                if attempts is None or attempt < attempts:
-                    self.logger.info("Failed to connect to database. Retrying...")
-                    await database.dispose()
-                    await anyio.sleep(1)
-                    attempt += 1
-                    continue
-
-                self.logger.info(f"Failed to connect to database: {exception}")
-                await database.dispose()
-                return False
-            finally:
-                await database.dispose()

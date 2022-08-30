@@ -12,6 +12,8 @@ from . import logs
 from .config import EngineConfig, ServerConfig
 from .data import GenericDataObject
 from .exceptions import ConfigException, ReloadException
+from .load import EngineConfigError
+from .result import Result
 from .tasks import Tasklet
 
 
@@ -20,7 +22,7 @@ class ServerEngineProtocol(Protocol):
     def config(self) -> EngineConfig:
         ...
 
-    async def reload(self) -> None:
+    async def reload(self) -> Result[EngineConfig, list[EngineConfigError]]:
         ...
 
 

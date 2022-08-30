@@ -4,14 +4,79 @@ import importlib
 import inspect
 import traceback
 from abc import ABC
-from typing import Any, TypeVar
+from enum import Enum
+from typing import Any, Literal, TypeVar
 
 from pydantic import ValidationError, validate_arguments
 
-from .exceptions import ComponentLoadException
+from .data import DataObject
 from .internal import format_validation_error
+from .result import Err, Ok, Result
 
 ComponentT = TypeVar("ComponentT", bound="Component")
+
+
+class ComponentLoadErrorKind(str, Enum):
+    INVALID_COMPONENT_CLASS = "invalid-component-class"
+    COMPONENT_MODULE_NOT_FOUND = "component-module-not-found"
+    COMPONENT_MODULE_EXCEPTION = "component-module-exception"
+    COMPONENT_CLASS_NOT_FOUND = "component-class-not-found"
+    COMPONENT_INIT_EXCEPTION = "component-init-exception"
+    INVALID_COMPONENT_PARAMETERS = "invalid-component-parameters"
+
+
+class BaseComponentLoadError(DataObject):
+    kind: ComponentLoadErrorKind
+    message: str
+
+
+class InvalidComponentClassError(BaseComponentLoadError):
+    kind: Literal[
+        ComponentLoadErrorKind.INVALID_COMPONENT_CLASS
+    ] = ComponentLoadErrorKind.INVALID_COMPONENT_CLASS
+
+
+class ComponentModuleNotFoundError(BaseComponentLoadError):
+    kind: Literal[
+        ComponentLoadErrorKind.COMPONENT_MODULE_NOT_FOUND
+    ] = ComponentLoadErrorKind.COMPONENT_MODULE_NOT_FOUND
+
+
+class ComponentModuleExceptionError(BaseComponentLoadError):
+    kind: Literal[
+        ComponentLoadErrorKind.COMPONENT_MODULE_EXCEPTION
+    ] = ComponentLoadErrorKind.COMPONENT_MODULE_EXCEPTION
+    traceback: str
+
+
+class ComponentClassNotFoundError(BaseComponentLoadError):
+    kind: Literal[
+        ComponentLoadErrorKind.COMPONENT_CLASS_NOT_FOUND
+    ] = ComponentLoadErrorKind.COMPONENT_CLASS_NOT_FOUND
+
+
+class InvalidComponentParametersError(BaseComponentLoadError):
+    kind: Literal[
+        ComponentLoadErrorKind.INVALID_COMPONENT_PARAMETERS
+    ] = ComponentLoadErrorKind.INVALID_COMPONENT_PARAMETERS
+    errors: dict[str, Any]
+
+
+class ComponentInitExceptionError(BaseComponentLoadError):
+    kind: Literal[
+        ComponentLoadErrorKind.COMPONENT_INIT_EXCEPTION
+    ] = ComponentLoadErrorKind.COMPONENT_INIT_EXCEPTION
+    traceback: str
+
+
+ComponentLoadError = (
+    InvalidComponentClassError
+    | ComponentModuleNotFoundError
+    | ComponentModuleExceptionError
+    | ComponentClassNotFoundError
+    | InvalidComponentParametersError
+    | ComponentInitExceptionError
+)
 
 
 class Component(ABC):
@@ -20,22 +85,29 @@ class Component(ABC):
         cls: type[ComponentT],
         source: str | object,
         parameters: dict[str, Any] = {},
-    ) -> ComponentT:
+    ) -> Result[ComponentT, ComponentLoadError]:
         if not isinstance(source, str):
             if not isinstance(source, cls):
-                raise ComponentLoadException(
-                    f"Component passed in configuration must be an instance of {cls}, got {source}."
+                return Err.create(
+                    InvalidComponentClassError(
+                        message=f"Component passed in configuration must be an instance of {cls}, got {source}."
+                    )
                 )
 
-            return source
+            return Ok(value=source)
 
         try:
             module = importlib.import_module(source)
         except ModuleNotFoundError:
-            raise ComponentLoadException(f"Module '{source}' was not found.")
+            return Err.create(
+                ComponentModuleNotFoundError(message=f"Module '{source}' was not found.")
+            )
         except Exception:
-            raise ComponentLoadException(
-                f"Component module {source} raised an exception while importing: {traceback.format_exc()}"
+            return Err.create(
+                ComponentModuleExceptionError(
+                    message=f"Component module {source} raised an exception while importing.",
+                    traceback=traceback.format_exc(),
+                )
             )
 
         target_cls: type[ComponentT] | None = None
@@ -50,8 +122,10 @@ class Component(ABC):
                 break
 
         if target_cls is None:
-            raise ComponentLoadException(
-                f"Component module {module} must contain class a non-abstract subclass of {cls}."
+            return Err.create(
+                InvalidComponentClassError(
+                    message=f"Component module {module} must contain class a non-abstract subclass of {cls}."
+                )
             )
 
         signature = inspect.signature(target_cls)
@@ -74,15 +148,21 @@ class Component(ABC):
         try:
             __init__.validate(instance, **arguments)  # type: ignore
         except ValidationError as error:
-            raise ComponentLoadException(
-                f"Invalid parameters for {target_cls}: {format_validation_error(error)}"
+            return Err.create(
+                InvalidComponentParametersError(
+                    message=f"Invalid parameters for {target_cls}.",
+                    errors=format_validation_error(error),
+                )
             )
 
         try:
             __init__(instance, **arguments)
         except Exception:
-            raise ComponentLoadException(
-                f"Exception raised during initialization for {target_cls}: {traceback.format_exc()}"
+            return Err.create(
+                ComponentInitExceptionError(
+                    message=f"Exception raised when calling __init__() for {target_cls}.",
+                    traceback=traceback.format_exc(),
+                )
             )
 
-        return instance
+        return Ok.create(instance)

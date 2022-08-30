@@ -7,7 +7,7 @@ from uuid import UUID
 
 import anyio
 
-from .component import Component
+from .component import Component, ComponentLoadError
 from .config import ReconnectConfig
 from .data import DataObject
 from .database import DatabaseManager
@@ -15,6 +15,7 @@ from .database.entity import MessageEntity, eid
 from .exceptions import ConnectionInactiveException
 from .message import Message
 from .path import ConnectionPath
+from .result import Ok, Result
 from .tasks import Tasklet
 
 
@@ -113,14 +114,19 @@ class ConnectionHandle(Tasklet):
     def connected(self) -> bool:
         return self._state == "connected"
 
-    def load(self) -> None:
-        if self._connection:
-            return
+    def load(self) -> Result[Connection, ComponentLoadError]:
+        if not self._connection:
+            if not (
+                result := Connection.load(
+                    self._context.component,
+                    self._context.parameters,
+                )
+            ).ok:
+                return result
 
-        self._connection = Connection.load(
-            self._context.component,
-            self._context.parameters,
-        )
+            self._connection = result.value
+
+        return Ok.create(self._connection)
 
     async def send(self, data: str) -> Message:
         if not self._connection:

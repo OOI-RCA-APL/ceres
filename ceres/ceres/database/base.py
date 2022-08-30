@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.sql.elements import TextClause
 
-from ..config import DatabaseConfig, DatabaseType
+from ..config import DatabaseConfig, DatabaseKind
 from .entity import EntityManager
 
 
@@ -48,8 +48,8 @@ class DatabaseManager(ABC):
         ...
 
     @property
-    def type(self) -> DatabaseType:
-        return self._base_config.type
+    def kind(self) -> DatabaseKind:
+        return self._base_config.kind
 
     @property
     def ddl(self) -> list[str]:

@@ -11,7 +11,7 @@ class ReloadException(CeresException):
     pass
 
 
-class ReloadAlreadyActiveException(CeresException):
+class ReloadAlreadyActiveException(ReloadException):
     pass
 
 
@@ -19,8 +19,8 @@ class ConfigException(CeresException):
     pass
 
 
-class ComponentLoadException(CeresException):
-    pass
+# class ComponentLoadException(CeresException):
+#     pass
 
 
 class ConnectionException(CeresException):
@@ -36,16 +36,4 @@ class ConnectionLostException(ConnectionException):
 
 
 class ConnectionDecodeException(ConnectionException):
-    pass
-
-
-class DisconnectException(ConnectionException):
-    pass
-
-
-class DatabaseException(CeresException):
-    pass
-
-
-class DatabaseSchemaException(DatabaseException):
     pass

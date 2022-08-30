@@ -1,18 +1,14 @@
 from __future__ import annotations
 
 import itertools
-import os
 from abc import ABC
+from enum import Enum
 from pathlib import Path
 from typing import Any, Literal
 
-import yaml
-from pydantic import Field, PrivateAttr, ValidationError, validator
-from yaml import YAMLError
+from pydantic import Field, PrivateAttr, validator
 
 from .data import DataObject
-from .exceptions import ConfigException
-from .internal import format_validation_error
 
 
 class ComponentConfig(DataObject, ABC):
@@ -39,7 +35,8 @@ class ServerConfig(DataObject):
     enable: bool = True
 
 
-DatabaseType = Literal["sqlite"]
+class DatabaseKind(str, Enum):
+    SQLITE = "sqlite"
 
 
 class DatabaseRetryConfig(DataObject):
@@ -48,13 +45,13 @@ class DatabaseRetryConfig(DataObject):
 
 
 class BaseDatabaseConfig(DataObject):
-    type: DatabaseType
+    kind: DatabaseKind
     engine: dict[str, Any] | None = None
     retry: DatabaseRetryConfig = DatabaseRetryConfig(timeout=30)
 
 
 class SQLiteDatabaseConfig(BaseDatabaseConfig):
-    type: Literal["sqlite"] = "sqlite"
+    kind: Literal[DatabaseKind.SQLITE] = DatabaseKind.SQLITE
     path: Path
 
 
@@ -79,10 +76,10 @@ class EngineConfig(DataObject):
     database: DatabaseConfig
     units: list[UnitConfig] = []
 
-    __path__: str = PrivateAttr(default="")
+    __path__: str | None = PrivateAttr(default=None)
 
     @property
-    def path(self) -> str:
+    def path(self) -> str | None:
         return self.__path__
 
     @validator("units")
@@ -92,30 +89,3 @@ class EngineConfig(DataObject):
                 raise ValueError(f"duplicate unit name '{name}'")
 
         return units
-
-    @classmethod
-    def load(cls, path: str) -> EngineConfig:
-        try:
-            path = os.path.realpath(path)
-        except Exception:
-            raise ConfigException(f"Configuration file path '{path}' could not be resolved.")
-
-        try:
-            with open(path, "r") as stream:
-                data = yaml.safe_load(stream)
-        except OSError:
-            raise ConfigException(
-                f"Configuration file at '{path}' does not exist or is not readable."
-            )
-        except YAMLError:
-            raise ConfigException(f"Configuration file at '{path}' is not valid YAML or JSON.")
-
-        try:
-            config = cls.parse_obj(data)
-        except ValidationError as error:
-            raise ConfigException(
-                f"Configuration file at '{path}' is invalid:\n{format_validation_error(error)}"
-            )
-
-        config.__path__ = path
-        return config

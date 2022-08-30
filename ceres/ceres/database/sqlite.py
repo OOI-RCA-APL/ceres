@@ -7,15 +7,15 @@ from sqlalchemy import event
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
-from ..config import DatabaseConfig
+from ..config import DatabaseConfig, DatabaseKind
 from .base import DatabaseManager
 
 
 class SQLiteDatabaseManager(DatabaseManager):
     @classmethod
     def _create_engine(cls, config: DatabaseConfig) -> AsyncEngine:
-        if config.type != "sqlite":
-            raise ValueError(config.type)
+        if config.kind != DatabaseKind.SQLITE:
+            raise ValueError(config.kind)
 
         engine = create_async_engine(
             f"sqlite+aiosqlite:///{config.path.resolve()}",

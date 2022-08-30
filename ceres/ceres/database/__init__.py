@@ -6,7 +6,7 @@ from .sqlite import SQLiteDatabaseManager as SQLiteDatabaseManager
 
 
 def create_database_manager(config: DatabaseConfig) -> DatabaseManager:
-    if config.type == "sqlite":
+    if config.kind == "sqlite":
         return SQLiteDatabaseManager(config)
 
-    raise NotImplementedError(config.type)
+    raise NotImplementedError(config.kind)

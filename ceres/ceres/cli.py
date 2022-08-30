@@ -7,10 +7,11 @@ from typing import Any, Callable, TypeVar, cast
 import click
 from click import ClickException, Path
 
-from .database import DatabaseManager
+from .config import EngineConfig
+from .database import create_database_manager
 from .engine import Engine
-from .exceptions import ConfigException
 from .internal import syncify
+from .load import load_engine_config
 
 EXIT_CODE_INVALID_CONFIG = 1
 
@@ -27,18 +28,18 @@ class CheckFailedException(ClickException):
     exit_code = 3
 
 
-def _create_engine(config_path: str) -> Engine:
-    return Engine(config_path)
+# def _create_engine(config_path: str) -> Engine:
+#     return Engine(config_path)
 
 
-def _create_database(config_path: str) -> DatabaseManager:
-    return _create_engine(config_path).database
+# def _create_database(config_path: str) -> DatabaseManager:
+#     return _create_engine(config_path).database
 
 
 CallableT = TypeVar("CallableT", bound=Callable[..., Any])
 
 
-def with_config(callable: CallableT) -> CallableT:
+def action(callable: CallableT) -> CallableT:
     @functools.wraps(callable)
     @click.option(
         "--config",
@@ -49,7 +50,8 @@ def with_config(callable: CallableT) -> CallableT:
             dir_okay=False,
         ),
     )
-    def wrapper(*args: Any, config: str | None, **kwargs: Any) -> Any:
+    @syncify
+    async def wrapper(*args: Any, config: str | None, **kwargs: Any) -> Any:
         if not config:
             possibilities = [
                 "ceres.yaml",
@@ -63,7 +65,18 @@ def with_config(callable: CallableT) -> CallableT:
             else:
                 raise ClickException(f"Must be in a directory containing one of: {possibilities}")
 
-        return callable(*args, config=config, **kwargs)
+        def on_database_retry() -> None:
+            print("Failed to connect to database, retrying...")
+
+        if not (
+            result := await load_engine_config(
+                config,
+                on_database_retry=on_database_retry,
+            )
+        ).ok:
+            raise InvalidConfigException(f"Failed to load configuration. {result.json(indent=2)}")
+
+        return await callable(*args, config=result.value, **kwargs)
 
     return cast(CallableT, wrapper)
 
@@ -74,29 +87,14 @@ def main() -> None:
 
 
 @main.command()
-@with_config
-@syncify
-async def run(config: str) -> None:
-    try:
-        engine = _create_engine(config)
-    except ConfigException as exception:
-        raise InvalidConfigException(exception.message)
-
-    await engine.run()
+@action
+async def run(config: EngineConfig) -> None:
+    await Engine(config).run()
 
 
 @main.command()
-@with_config
-@syncify
-async def check(config: str) -> None:
-    try:
-        engine = _create_engine(config)
-    except ConfigException as exception:
-        raise CheckFailedException(exception.message)
-
-    if not await engine.check():
-        raise CheckFailedException("Check failed.")
-
+@action
+async def check(config: EngineConfig) -> None:
     print("All checks passed.")
 
 
@@ -106,13 +104,9 @@ def database() -> None:
 
 
 @database.command()
-@with_config
-@syncify
-async def init(config: str) -> None:
-    try:
-        database = _create_database(config)
-    except ConfigException as exception:
-        raise InvalidConfigException(exception.message)
+@action
+async def init(config: EngineConfig) -> None:
+    database = create_database_manager(config.database)
 
     try:
         async with database.connect():

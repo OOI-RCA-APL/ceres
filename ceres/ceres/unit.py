@@ -14,7 +14,6 @@ from .config import ConnectionConfig, DatabaseConfig, UnitConfig
 from .connection import ConnectionContext, ConnectionHandle
 from .data import DataObject
 from .database import create_database_manager
-from .exceptions import ComponentLoadException
 from .path import ConnectionPath, UnitPath
 from .tasks import Tasklet, ensure_event_loop
 
@@ -113,12 +112,11 @@ class Unit(UnitProxyProtocol, Tasklet):
             )
 
         for connection in self._connections.values():
-            try:
-                connection.load()
+            if (result := connection.load()).ok:
                 self.logger.info(f"Loaded connection '{connection.path}'.")
-            except ComponentLoadException as exception:
+            else:
                 self.logger.error(
-                    f"Failed to load connection '{connection.path}'. {exception.message}"
+                    f"Failed to load connection '{connection.path}'. Error: {result.json(indent=2)}"
                 )
 
         async with anyio.create_task_group() as group:
