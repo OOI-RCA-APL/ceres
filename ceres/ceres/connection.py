@@ -126,7 +126,7 @@ class ConnectionHandle(Tasklet):
 
             self._connection = result.value
 
-        return Ok.create(self._connection)
+        return Ok(self._connection)
 
     async def send(self, data: str) -> Message:
         if not self._connection:

@@ -17,7 +17,7 @@ from .connection import Connection
 from .data import DataObject
 from .database import create_database_manager
 from .path import ComponentPath, ConnectionPath
-from .result import Err, Ok, Result
+from .result import Fail, Ok, Result
 
 
 class SchemaProblem(DataObject):
@@ -98,20 +98,20 @@ async def load_engine_config(
             try:
                 path = os.path.realpath(config)
             except Exception:
-                return Err.create([EngineConfigReadError()])
+                return Fail([EngineConfigReadError()])
 
             try:
                 with open(path, "r") as stream:
                     data = yaml.safe_load(stream)
             except OSError:
-                return Err.create([EngineConfigReadError()])
+                return Fail([EngineConfigReadError()])
             except YAMLError:
-                return Err.create([EngineConfigParseError()])
+                return Fail([EngineConfigParseError()])
 
             config = EngineConfig.parse_obj(data)
             config.__path__ = path
     except ValidationError as error:
-        return Err.create([EngineConfigSchemaError(problems=extract_schema_problems(error))])
+        return Fail([EngineConfigSchemaError(problems=extract_schema_problems(error))])
 
     errors: list[EngineConfigError] = []
 
@@ -121,9 +121,9 @@ async def load_engine_config(
         errors.extend(await _check_components(config))
 
     if errors:
-        return Err.create(errors)
+        return Fail(errors)
 
-    return Ok.create(config)
+    return Ok(config)
 
 
 async def _check_database(

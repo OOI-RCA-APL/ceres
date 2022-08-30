@@ -28,18 +28,10 @@ class CheckFailedException(ClickException):
     exit_code = 3
 
 
-# def _create_engine(config_path: str) -> Engine:
-#     return Engine(config_path)
-
-
-# def _create_database(config_path: str) -> DatabaseManager:
-#     return _create_engine(config_path).database
-
-
 CallableT = TypeVar("CallableT", bound=Callable[..., Any])
 
 
-def action(callable: CallableT) -> CallableT:
+def register(callable: CallableT) -> CallableT:
     @functools.wraps(callable)
     @click.option(
         "--config",
@@ -87,13 +79,13 @@ def main() -> None:
 
 
 @main.command()
-@action
+@register
 async def run(config: EngineConfig) -> None:
     await Engine(config).run()
 
 
 @main.command()
-@action
+@register
 async def check(config: EngineConfig) -> None:
     print("All checks passed.")
 
@@ -104,7 +96,7 @@ def database() -> None:
 
 
 @database.command()
-@action
+@register
 async def init(config: EngineConfig) -> None:
     database = create_database_manager(config.database)
 

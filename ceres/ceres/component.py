@@ -11,7 +11,7 @@ from pydantic import ValidationError, validate_arguments
 
 from .data import DataObject
 from .internal import format_validation_error
-from .result import Err, Ok, Result
+from .result import Fail, Ok, Result
 
 ComponentT = TypeVar("ComponentT", bound="Component")
 
@@ -88,22 +88,20 @@ class Component(ABC):
     ) -> Result[ComponentT, ComponentLoadError]:
         if not isinstance(source, str):
             if not isinstance(source, cls):
-                return Err.create(
+                return Fail(
                     InvalidComponentClassError(
                         message=f"Component passed in configuration must be an instance of {cls}, got {source}."
                     )
                 )
 
-            return Ok(value=source)
+            return Ok(source)
 
         try:
             module = importlib.import_module(source)
         except ModuleNotFoundError:
-            return Err.create(
-                ComponentModuleNotFoundError(message=f"Module '{source}' was not found.")
-            )
+            return Fail(ComponentModuleNotFoundError(message=f"Module '{source}' was not found."))
         except Exception:
-            return Err.create(
+            return Fail(
                 ComponentModuleExceptionError(
                     message=f"Component module {source} raised an exception while importing.",
                     traceback=traceback.format_exc(),
@@ -122,7 +120,7 @@ class Component(ABC):
                 break
 
         if target_cls is None:
-            return Err.create(
+            return Fail(
                 InvalidComponentClassError(
                     message=f"Component module {module} must contain class a non-abstract subclass of {cls}."
                 )
@@ -148,7 +146,7 @@ class Component(ABC):
         try:
             __init__.validate(instance, **arguments)  # type: ignore
         except ValidationError as error:
-            return Err.create(
+            return Fail(
                 InvalidComponentParametersError(
                     message=f"Invalid parameters for {target_cls}.",
                     errors=format_validation_error(error),
@@ -158,11 +156,11 @@ class Component(ABC):
         try:
             __init__(instance, **arguments)
         except Exception:
-            return Err.create(
+            return Fail(
                 ComponentInitExceptionError(
                     message=f"Exception raised when calling __init__() for {target_cls}.",
                     traceback=traceback.format_exc(),
                 )
             )
 
-        return Ok.create(instance)
+        return Ok(instance)
