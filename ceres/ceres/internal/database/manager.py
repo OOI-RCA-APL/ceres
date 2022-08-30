@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.sql.elements import TextClause
 
-from ..config import DatabaseConfig, DatabaseKind
+from ...config import DatabaseConfig, DatabaseKind
 from .entity import EntityManager
 
 
@@ -33,6 +33,15 @@ class DatabaseManager(ABC):
             expire_on_commit=False,
             class_=AsyncSession,
         )
+
+    @staticmethod
+    def create(config: DatabaseConfig) -> DatabaseManager:
+        from .sqlite import SQLiteDatabaseManager
+
+        if config.kind == DatabaseKind.SQLITE:
+            return SQLiteDatabaseManager(config)
+
+        raise NotImplementedError(config.kind)
 
     @classmethod
     @abstractmethod

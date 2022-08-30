@@ -6,17 +6,17 @@ from typing import Any, Literal
 from uuid import UUID
 
 import anyio
+from pydantic import BaseModel
 
 from .component import Component, ComponentLoadError
 from .config import ReconnectConfig
-from .data import DataObject
-from .database import DatabaseManager
-from .database.entity import MessageEntity, eid
 from .exceptions import ConnectionInactiveException
+from .internal.database.entity import MessageDirection, MessageEntity, eid
+from .internal.database.manager import DatabaseManager
+from .internal.tasks import Tasklet
 from .message import Message
 from .path import ConnectionPath
 from .result import Ok, Result
-from .tasks import Tasklet
 
 
 class ReconnectScheduler:
@@ -65,7 +65,7 @@ class Connection(Component, ABC):
         ...
 
 
-class ConnectionContext(DataObject):
+class ConnectionContext(BaseModel):
     class Config:
         arbitrary_types_allowed = True
 
@@ -80,7 +80,7 @@ class ConnectionContext(DataObject):
 ConnectionState = Literal["disconnected", "connecting", "connected"]
 
 
-class ReceivedMessage(DataObject):
+class ReceivedMessage(BaseModel):
     id: UUID
     timestamp: datetime
     content: str
@@ -116,15 +116,11 @@ class ConnectionHandle(Tasklet):
 
     def load(self) -> Result[Connection, ComponentLoadError]:
         if not self._connection:
-            if not (
-                result := Connection.load(
-                    self._context.component,
-                    self._context.parameters,
-                )
-            ).ok:
-                return result
-
-            self._connection = result.value
+            match Connection.load(self._context.component, self._context.parameters):
+                case Ok(connection):
+                    self._connection = connection
+                case fail:
+                    return fail
 
         return Ok(self._connection)
 
@@ -143,7 +139,7 @@ class ConnectionHandle(Tasklet):
                 entity := MessageEntity(
                     connection_id=self._context.id,
                     timestamp=datetime.now(timezone.utc),
-                    direction="receive",
+                    direction=MessageDirection.SEND,
                     content=data,
                 )
             )
@@ -258,7 +254,7 @@ class ConnectionHandle(Tasklet):
                             id=message.id,
                             connection_id=self._context.id,
                             timestamp=message.timestamp,
-                            direction="receive",
+                            direction=MessageDirection.RECEIVE,
                             content=message.content,
                         )
                         for message in messages

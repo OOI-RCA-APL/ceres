@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from typing import Literal
 
-from .data import DataObject
+from pydantic import BaseModel
 
 ComponentPathKind = Literal["connection"]
 PathKind = Literal["unit", "connection"]
 
 
-class BasePath(DataObject):
+class BasePath(BaseModel):
     class Config:
         frozen = True
 
@@ -16,7 +16,6 @@ class BasePath(DataObject):
 
 
 class UnitPath(BasePath):
-
     kind: Literal["unit"] = "unit"
     unit: str
 

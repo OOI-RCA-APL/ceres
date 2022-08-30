@@ -15,14 +15,6 @@ class ReloadAlreadyActiveException(ReloadException):
     pass
 
 
-class ConfigException(CeresException):
-    pass
-
-
-# class ComponentLoadException(CeresException):
-#     pass
-
-
 class ConnectionException(CeresException):
     pass
 

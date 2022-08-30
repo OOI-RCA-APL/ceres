@@ -6,12 +6,10 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import Field, PrivateAttr, validator
-
-from .data import DataObject
+from pydantic import BaseModel, Field, PrivateAttr, validator
 
 
-class ComponentConfig(DataObject, ABC):
+class ComponentConfig(BaseModel, ABC):
     class Config:
         allow_arbitrary_types = True
 
@@ -20,7 +18,7 @@ class ComponentConfig(DataObject, ABC):
     parameters: dict[str, Any] = {}
 
 
-class ReconnectConfig(DataObject):
+class ReconnectConfig(BaseModel):
     interval: float = 1
     backoff: float | None = None
     max_interval: float | None = 60 * 5
@@ -30,7 +28,7 @@ class ConnectionConfig(ComponentConfig):
     reconnect: ReconnectConfig = ReconnectConfig()
 
 
-class ServerConfig(DataObject):
+class ServerConfig(BaseModel):
     port: int
     enable: bool = True
 
@@ -39,12 +37,12 @@ class DatabaseKind(str, Enum):
     SQLITE = "sqlite"
 
 
-class DatabaseRetryConfig(DataObject):
+class DatabaseRetryConfig(BaseModel):
     attempts: int | None = Field(gt=0)
     timeout: float = Field(gt=0)
 
 
-class BaseDatabaseConfig(DataObject):
+class BaseDatabaseConfig(BaseModel):
     kind: DatabaseKind
     engine: dict[str, Any] | None = None
     retry: DatabaseRetryConfig = DatabaseRetryConfig(timeout=30)
@@ -58,7 +56,7 @@ class SQLiteDatabaseConfig(BaseDatabaseConfig):
 DatabaseConfig = SQLiteDatabaseConfig
 
 
-class UnitConfig(DataObject):
+class UnitConfig(BaseModel):
     name: str
     connections: list[ConnectionConfig] = []
 
@@ -71,7 +69,7 @@ class UnitConfig(DataObject):
         return connections
 
 
-class EngineConfig(DataObject):
+class EngineConfig(BaseModel):
     server: ServerConfig
     database: DatabaseConfig
     units: list[UnitConfig] = []

@@ -1,19 +1,22 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import TYPE_CHECKING, Literal
+from enum import Enum
+from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
 import sqlalchemy as sql
-from sqlalchemy import TIMESTAMP, Column, ForeignKey, String
+from sqlalchemy import TIMESTAMP, Column
+from sqlalchemy import Enum as StringEnum
+from sqlalchemy import ForeignKey, String
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import declarative_base, relationship
 from sqlalchemy_utils import UUIDType
 
-from ..path import ConnectionPath, UnitPath
+from ...path import ConnectionPath, UnitPath
 
 if TYPE_CHECKING:
-    from .base import DatabaseManager
+    from .manager import DatabaseManager
 
 BaseEntity = declarative_base()
 
@@ -46,14 +49,18 @@ class ConnectionEntity(Entity):
     unit: UnitEntity = relationship(UnitEntity, back_populates="connections")
 
 
-MessageDirection = Literal["send", "receive"]
+class MessageDirection(str, Enum):
+    SEND = "send"
+    RECEIVE = "receive"
 
 
 class MessageEntity(Entity):
     __tablename__ = "messages"
     connection_id: UUID = Column(UUIDType(binary=False), ForeignKey("connections.id"))
     timestamp: datetime = Column(TIMESTAMP(timezone=True))
-    direction: MessageDirection = Column(String)
+    direction: MessageDirection = Column(
+        StringEnum(*[current.value for current in MessageDirection])
+    )
     content: str = Column(String)
 
 

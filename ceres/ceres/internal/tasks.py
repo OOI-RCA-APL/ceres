@@ -6,8 +6,15 @@ from asyncio import AbstractEventLoop, Event, Task
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, TypeVar, cast
 
-import anyio
 import uvloop
+
+
+def event_loop_exists() -> bool:
+    try:
+        asyncio.get_running_loop()
+        return True
+    except RuntimeError:
+        return False
 
 
 def ensure_event_loop() -> AbstractEventLoop:
@@ -19,10 +26,6 @@ def ensure_event_loop() -> AbstractEventLoop:
         asyncio.set_event_loop(loop)
 
     return loop
-
-
-async def defer() -> None:
-    await anyio.sleep(1e-6)
 
 
 @dataclass

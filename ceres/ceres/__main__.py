@@ -1,5 +1,6 @@
 from __future__ import annotations
 
-from ceres.cli import main
+from .internal.cli import main as main
 
-main()
+if __name__ == "__main__":
+    main()

@@ -12,38 +12,39 @@ from typing import Any
 
 import anyio
 from anyio import CancelScope
+from pydantic import BaseModel
 
-from . import logs
 from .config import EngineConfig, UnitConfig
-from .data import DataObject
-from .database import DatabaseManager, create_database_manager
 from .exceptions import ReloadAlreadyActiveException
-from .internal import use_signal_handler
-from .load import EngineConfigError, load_engine_config
+from .internal import logs
+from .internal.database.manager import DatabaseManager
+from .internal.server import Server, ServerEngineProtocol
+from .internal.tasks import Tasklet
+from .internal.unit import UnitContext, UnitHandle
+from .internal.utilities import use_signal_handler
+from .loader import EngineConfigError, EngineConfigLoader
 from .path import UnitPath
-from .result import Result
-from .server import Server, ServerEngineProtocol
-from .tasks import Tasklet
-from .unit import UnitContext, UnitHandle
+from .result import Ok, Result
 
 
-class UnitActionKind(str, Enum):
+class UnitSyncActionKind(str, Enum):
     START = "start"
     RELOAD = "reload"
     REMOVE = "remove"
 
 
-class UnitSyncAction(DataObject):
+class UnitSyncAction(BaseModel):
+    kind: UnitSyncActionKind
     path: UnitPath
-    kind: UnitActionKind
 
 
 class Engine(Tasklet, ServerEngineProtocol):
     def __init__(self, config: EngineConfig) -> None:
         self._config = config
         self._config_queue: Queue[EngineConfig] = Queue()
+        self._config_loader = EngineConfigLoader(logger=self.logger)
         self._server: Server | None = None
-        self._database = create_database_manager(self._config.database)
+        self._database = DatabaseManager.create(self._config.database)
         self._units: dict[UnitPath, UnitHandle] = {}
         self._reloading = Event()
 
@@ -66,62 +67,31 @@ class Engine(Tasklet, ServerEngineProtocol):
     def config(self) -> EngineConfig:
         return self._config
 
-    @property
-    def server(self) -> Server | None:
-        return self._server
-
-    @property
-    def database(self) -> DatabaseManager:
-        return self._database
-
-    def get_unit_sync_actions(self) -> list[UnitSyncAction]:
-        configs: dict[UnitPath, UnitConfig] = {
-            UnitPath.create(current.name): current for current in self._config.units
-        }
-        units: dict[UnitPath, UnitHandle] = {
-            current.path: current for current in self._units.values()
-        }
-
-        actions: list[UnitSyncAction] = []
-
-        for path, config in configs.items():
-            unit = units.get(path)
-            if unit and unit.running and unit.config == config:
-                continue
-
-            if not unit or not unit.running:
-                actions.append(UnitSyncAction(path=path, kind=UnitActionKind.START))
-            elif unit.config != config:
-                actions.append(UnitSyncAction(path=path, kind=UnitActionKind.RELOAD))
-
-        for path, unit in self._units.items():
-            if path not in configs:
-                actions.append(UnitSyncAction(path=path, kind=UnitActionKind.REMOVE))
-
-        return actions
-
     async def reload(self) -> Result[EngineConfig, list[EngineConfigError]]:
         if self._reloading.is_set():
             raise ReloadAlreadyActiveException("A reload is already is progress.")
 
+        source: str | EngineConfig
+
         if self.config_path:
             self.logger.info(f"Reloading configuration from '{self.config_path}'...")
-            result = await load_engine_config(self.config_path)
+            source = self.config_path
         else:
             self.logger.info("No configuration path is set. Reloading current configuration...")
-            result = await load_engine_config(self._config)
+            source = self._config
 
-        if not result.ok:
-            self.logger.error("Reload failed, found errors in configuration.")
-            return result
-
-        self.logger.info("Queueing reload...")
-        self._reloading.set()
-        self._config_queue.put(result.value)
-        return result
+        match await self._config_loader.load(source):
+            case Ok(config):
+                self.logger.info("Queueing reload...")
+                self._reloading.set()
+                self._config_queue.put(config)
+                return Ok(config)
+            case fail:
+                self.logger.error("Reload failed, found errors in configuration.")
+                return fail
 
     async def _tasklet_run(self) -> None:
-        if not await load_engine_config(self._config):
+        if not await self._config_loader.load(self._config):
             self.logger.error("Initial configuration check failed. Exiting...")
             return
 
@@ -190,13 +160,13 @@ class Engine(Tasklet, ServerEngineProtocol):
             try:
                 await self._stop_units()
                 await self._database.dispose()
-                self._database = create_database_manager(self._config.database)
+                self._database = DatabaseManager.create(self._config.database)
             except Exception:
                 self.logger.error(
                     f"An issue occurred while reloading units and database: {traceback.format_exc()}"
                 )
 
-        if self.get_unit_sync_actions():
+        if self._get_unit_sync_actions():
             self.logger.info("Syncing units...")
             try:
                 await self._sync_units()
@@ -231,18 +201,18 @@ class Engine(Tasklet, ServerEngineProtocol):
             UnitPath.create(current.name): current for current in self._config.units
         }
 
-        actions = self.get_unit_sync_actions()
+        actions = self._get_unit_sync_actions()
 
         for action in actions:
             unit = self._units.get(action.path)
 
-            if action.kind == UnitActionKind.REMOVE:
+            if action.kind == UnitSyncActionKind.REMOVE:
                 if unit:
                     self.logger.info(f"Removing unit '{action.path}'...")
                     await unit.stop()
                     self._units.pop(unit.path)
             else:
-                if action.kind == UnitActionKind.START:
+                if action.kind == UnitSyncActionKind.START:
                     if unit and unit.running:
                         continue
 
@@ -272,17 +242,17 @@ class Engine(Tasklet, ServerEngineProtocol):
         started = [
             action
             for action in actions
-            if action.kind == UnitActionKind.START and action.path in self._units
+            if action.kind == UnitSyncActionKind.START and action.path in self._units
         ]
         reloaded = [
             action
             for action in actions
-            if action.kind == UnitActionKind.RELOAD and action.path in self._units
+            if action.kind == UnitSyncActionKind.RELOAD and action.path in self._units
         ]
         removed = [
             action
             for action in actions
-            if action.kind == UnitActionKind.REMOVE and action.path not in self._units
+            if action.kind == UnitSyncActionKind.REMOVE and action.path not in self._units
         ]
 
         if started:
@@ -306,6 +276,32 @@ class Engine(Tasklet, ServerEngineProtocol):
             self._units.pop(unit.path)
 
         self.logger.info("All units were stopped successfully.")
+
+    def _get_unit_sync_actions(self) -> list[UnitSyncAction]:
+        configs: dict[UnitPath, UnitConfig] = {
+            UnitPath.create(current.name): current for current in self._config.units
+        }
+        units: dict[UnitPath, UnitHandle] = {
+            current.path: current for current in self._units.values()
+        }
+
+        actions: list[UnitSyncAction] = []
+
+        for path, config in configs.items():
+            unit = units.get(path)
+            if unit and unit.running and unit.config == config:
+                continue
+
+            if not unit or not unit.running:
+                actions.append(UnitSyncAction(path=path, kind=UnitSyncActionKind.START))
+            elif unit.config != config:
+                actions.append(UnitSyncAction(path=path, kind=UnitSyncActionKind.RELOAD))
+
+        for path, unit in self._units.items():
+            if path not in configs:
+                actions.append(UnitSyncAction(path=path, kind=UnitSyncActionKind.REMOVE))
+
+        return actions
 
     def _on_unit_completed(self, unit: UnitHandle) -> None:
         self.logger.info(f"Unit '{unit.path}' completed execution.")

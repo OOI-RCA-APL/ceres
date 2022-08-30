@@ -7,8 +7,8 @@ from sqlalchemy import event
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
-from ..config import DatabaseConfig, DatabaseKind
-from .base import DatabaseManager
+from ...config import DatabaseConfig, DatabaseKind
+from .manager import DatabaseManager
 
 
 class SQLiteDatabaseManager(DatabaseManager):

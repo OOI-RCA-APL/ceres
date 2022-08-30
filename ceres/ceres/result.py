@@ -3,51 +3,56 @@ from __future__ import annotations
 from typing import Any, Generic, Literal, TypeVar
 
 from pydantic.dataclasses import dataclass
-
-from .data import GenericDataObject
+from pydantic.generics import GenericModel
 
 ValueT = TypeVar("ValueT")
 ErrorT = TypeVar("ErrorT")
 
 
 @dataclass(frozen=True)
-class Ok(Generic[ValueT]):
+class Ok(Generic[ValueT, ErrorT]):
     value: ValueT
     ok: Literal[True] = True
 
     def __str__(self) -> str:
         return f"Ok({self.value})"
 
+    def __bool__(self) -> bool:
+        return True
+
     def dict(self) -> dict[str, Any]:
-        return OkModel(value=self.value).dict()
+        return _OkModel(value=self.value).dict()
 
     def json(self, **dumps_kwargs: Any) -> str:
-        return OkModel(value=self.value).json(**dumps_kwargs)
+        return _OkModel(value=self.value).json(**dumps_kwargs)
 
 
 @dataclass(frozen=True)
-class Fail(Generic[ErrorT]):
+class Fail(Generic[ValueT, ErrorT]):
     error: ErrorT
     ok: Literal[False] = False
 
     def __str__(self) -> str:
         return f"Fail({self.error})"
 
+    def __bool__(self) -> bool:
+        return False
+
     def dict(self) -> dict[str, Any]:
-        return ErrModel(error=self.error).dict()
+        return _ErrModel(error=self.error).dict()
 
     def json(self, **dumps_kwargs: Any) -> str:
-        return ErrModel(error=self.error).json(**dumps_kwargs)
+        return _ErrModel(error=self.error).json(**dumps_kwargs)
 
 
-Result = Ok[ValueT] | Fail[ErrorT]
+Result = Ok[ValueT, ErrorT] | Fail[ValueT, ErrorT]
 
 
-class OkModel(GenericDataObject, Generic[ValueT]):
+class _OkModel(GenericModel, Generic[ValueT]):
     ok: Literal[True] = True
     value: ValueT
 
 
-class ErrModel(GenericDataObject, Generic[ErrorT]):
+class _ErrModel(GenericModel, Generic[ErrorT]):
     ok: Literal[False] = False
     error: ErrorT

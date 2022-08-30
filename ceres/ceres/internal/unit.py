@@ -8,17 +8,18 @@ from uuid import UUID
 
 import anyio
 from anyio.abc import TaskGroup
+from pydantic import BaseModel
 
+from ..config import ConnectionConfig, DatabaseConfig, UnitConfig
+from ..connection import ConnectionContext, ConnectionHandle
+from ..path import ConnectionPath, UnitPath
+from ..result import Fail, Ok
 from . import logs
-from .config import ConnectionConfig, DatabaseConfig, UnitConfig
-from .connection import ConnectionContext, ConnectionHandle
-from .data import DataObject
-from .database import create_database_manager
-from .path import ConnectionPath, UnitPath
+from .database.manager import DatabaseManager
 from .tasks import Tasklet, ensure_event_loop
 
 
-class UnitContext(DataObject):
+class UnitContext(BaseModel):
     id: UUID
     path: UnitPath
     connections: list[ConnectionConfig]
@@ -37,7 +38,7 @@ class UnitProxyProtocol(Protocol):
 class Unit(UnitProxyProtocol, Tasklet):
     def __init__(self, context: UnitContext) -> None:
         self._context = context
-        self._database = create_database_manager(self._context.database)
+        self._database = DatabaseManager.create(self._context.database)
         self._connections: dict[str, ConnectionHandle] = {}
         self._tasks: TaskGroup | None = None
 
@@ -112,12 +113,13 @@ class Unit(UnitProxyProtocol, Tasklet):
             )
 
         for connection in self._connections.values():
-            if (result := connection.load()).ok:
-                self.logger.info(f"Loaded connection '{connection.path}'.")
-            else:
-                self.logger.error(
-                    f"Failed to load connection '{connection.path}'. Error: {result.json(indent=2)}"
-                )
+            match connection.load():
+                case Ok():
+                    self.logger.info(f"Loaded connection '{connection.path}'.")
+                case Fail(error):
+                    self.logger.error(
+                        f"Failed to load connection '{connection.path}'. Error: {error.json(indent=2)}"
+                    )
 
         async with anyio.create_task_group() as group:
             for connection in self._connections.values():

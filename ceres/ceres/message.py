@@ -3,16 +3,13 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from uuid import UUID
 
-from pydantic import Field
+from pydantic import BaseModel, Field
 
-from .data import DataObject
-from .database.entity import MessageDirection as EntityMessageDirection
-from .database.entity import MessageEntity, eid
-
-MessageDirection = EntityMessageDirection
+from .internal.database.entity import MessageDirection as MessageDirection
+from .internal.database.entity import MessageEntity, eid
 
 
-class Message(DataObject):
+class Message(BaseModel):
     class Config:
         orm_mode = True
 

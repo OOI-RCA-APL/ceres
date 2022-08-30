@@ -7,11 +7,10 @@ from abc import ABC
 from enum import Enum
 from typing import Any, Literal, TypeVar
 
-from pydantic import ValidationError, validate_arguments
+from pydantic import BaseModel, ValidationError, validate_arguments
 
-from .data import DataObject
-from .internal import format_validation_error
 from .result import Fail, Ok, Result
+from .validation import ValidationProblem
 
 ComponentT = TypeVar("ComponentT", bound="Component")
 
@@ -25,7 +24,7 @@ class ComponentLoadErrorKind(str, Enum):
     INVALID_COMPONENT_PARAMETERS = "invalid-component-parameters"
 
 
-class BaseComponentLoadError(DataObject):
+class BaseComponentLoadError(BaseModel):
     kind: ComponentLoadErrorKind
     message: str
 
@@ -59,7 +58,7 @@ class InvalidComponentParametersError(BaseComponentLoadError):
     kind: Literal[
         ComponentLoadErrorKind.INVALID_COMPONENT_PARAMETERS
     ] = ComponentLoadErrorKind.INVALID_COMPONENT_PARAMETERS
-    errors: dict[str, Any]
+    problems: list[ValidationProblem]
 
 
 class ComponentInitExceptionError(BaseComponentLoadError):
@@ -98,12 +97,17 @@ class Component(ABC):
 
         try:
             module = importlib.import_module(source)
-        except ModuleNotFoundError:
-            return Fail(ComponentModuleNotFoundError(message=f"Module '{source}' was not found."))
-        except Exception:
+        except Exception as exception:
+            if isinstance(exception, ModuleNotFoundError) and exception.name == source:
+                return Fail(
+                    ComponentModuleNotFoundError(
+                        message=f"Component module '{source}' was not found."
+                    )
+                )
+
             return Fail(
                 ComponentModuleExceptionError(
-                    message=f"Component module {source} raised an exception while importing.",
+                    message=f"Component module '{source}' raised an exception during import.",
                     traceback=traceback.format_exc(),
                 )
             )
@@ -149,7 +153,7 @@ class Component(ABC):
             return Fail(
                 InvalidComponentParametersError(
                     message=f"Invalid parameters for {target_cls}.",
-                    errors=format_validation_error(error),
+                    problems=ValidationProblem.extract(error),
                 )
             )
 
