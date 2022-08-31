@@ -11,10 +11,10 @@ from anyio.abc import TaskGroup
 from pydantic import BaseModel
 
 from ..config import ConnectionConfig, DatabaseConfig, UnitConfig
-from ..connection import ConnectionContext, ConnectionHandle
 from ..path import ConnectionPath, UnitPath
 from ..result import Fail, Ok
 from . import logs
+from .connection import ConnectionContext, ConnectionHandle
 from .database.manager import DatabaseManager
 from .tasks import Tasklet, ensure_event_loop
 

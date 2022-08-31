@@ -25,6 +25,7 @@ from ..errors import (
 from ..path import ConnectionPath
 from ..result import Fail, Ok, Result
 from ..validation import ValidationProblem
+from .component import load_component
 from .database.manager import DatabaseManager
 
 
@@ -145,7 +146,7 @@ class Configurator:
             for connection in unit.connections:
                 path = ConnectionPath.create(unit.name, connection.name)
                 self._log(f"Checking component '{path}'...")
-                match Connection.load(connection.component, connection.parameters):
+                match load_component(Connection, connection.component, connection.parameters):
                     case Fail(error):
                         errors.append(
                             ConfigComponentError(
