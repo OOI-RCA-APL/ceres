@@ -1,70 +1,67 @@
+from __future__ import annotations
+
 import itertools
-import os
 from abc import ABC
-from typing import TYPE_CHECKING, List, Literal, Optional, Union
+from enum import Enum
+from pathlib import Path
+from typing import Any, Literal
 
-import yaml
-from pydantic import PrivateAttr, ValidationError, validator
-from pydantic.error_wrappers import display_errors
-from yaml import YAMLError
-
-from .data import DataObject
-from .exceptions import ConfigException
-
-if TYPE_CHECKING:
-    from .component import Component
-    from .connection import Connection
+from pydantic import BaseModel, Field, PrivateAttr, validator
 
 
-class ComponentConfig(DataObject, ABC):
+class ComponentConfig(BaseModel, ABC):
     class Config:
         allow_arbitrary_types = True
 
     name: str
-    component: Union[str, "Component"]
+    component: str | object
+    parameters: dict[str, Any] = {}
 
 
-class ReconnectConfig(DataObject):
+class ReconnectConfig(BaseModel):
     interval: float = 1
-    backoff: Optional[float] = None
-    max_interval: Optional[float] = 60 * 5
+    backoff: float | None = None
+    max_interval: float | None = 60 * 5
 
 
 class ConnectionConfig(ComponentConfig):
-    component: Union[str, "Connection"]
     reconnect: ReconnectConfig = ReconnectConfig()
 
 
-class ServerConfig(DataObject):
+class ServerConfig(BaseModel):
     port: int
     enable: bool = True
 
 
-class SQLiteDatabaseConfig(DataObject):
-    type: Literal["sqlite"]
-    path: str = ":memory:"
-    echo: bool = False
+class DatabaseKind(str, Enum):
+    SQLITE = "sqlite"
 
 
-class PostgresDatabaseConfig(DataObject):
-    type: Literal["postgres"]
-    host: str = "0.0.0.0"
-    port: int = 5432
-    name: str = "ceres"
-    user: str = "ceres"
-    password: str
-    echo: bool = False
+class DatabaseRetryConfig(BaseModel):
+    attempts: int | None = Field(default=None, gt=0)
+    timeout: float = Field(gt=0)
 
 
-DatabaseConfig = Union[SQLiteDatabaseConfig, PostgresDatabaseConfig]
+class BaseDatabaseConfig(BaseModel):
+    kind: DatabaseKind
+    engine: dict[str, Any] | None = None
+    retry: DatabaseRetryConfig = DatabaseRetryConfig(timeout=30)
 
 
-class UnitConfig(DataObject):
+class SQLiteDatabaseConfig(BaseDatabaseConfig):
+    kind: Literal[DatabaseKind.SQLITE] = DatabaseKind.SQLITE
+    path: Path
+
+
+DatabaseConfig = SQLiteDatabaseConfig
+
+
+class UnitConfig(BaseModel):
     name: str
-    connections: List[ConnectionConfig] = []
+    connections: list[ConnectionConfig] = []
 
     @validator("connections")
-    def _check_connections(cls, connections: List[ConnectionConfig]) -> List[ConnectionConfig]:
+    def _check_connections(cls, connections: list[ConnectionConfig]) -> list[ConnectionConfig]:
         for name, group in itertools.groupby(connections, lambda connection: connection.name):
             if len(list(group)) > 1:
                 raise ValueError(f"duplicate connection name '{name}'")
@@ -72,48 +69,21 @@ class UnitConfig(DataObject):
         return connections
 
 
-class AppConfig(DataObject):
-    database: DatabaseConfig = SQLiteDatabaseConfig(type="sqlite")
-    server: Optional[ServerConfig] = None
-    units: List[UnitConfig] = []
+class Config(BaseModel):
+    server: ServerConfig
+    database: DatabaseConfig
+    units: list[UnitConfig] = []
 
-    __path__: str = PrivateAttr(default="")
+    __path__: str | None = PrivateAttr(default=None)
 
     @property
-    def path(self) -> str:
+    def path(self) -> str | None:
         return self.__path__
 
     @validator("units")
-    def _check_units(cls, units: List[UnitConfig]) -> List[UnitConfig]:
+    def _check_units(cls, units: list[UnitConfig]) -> list[UnitConfig]:
         for name, group in itertools.groupby(units, lambda unit: unit.name):
             if len(list(group)) > 1:
                 raise ValueError(f"duplicate unit name '{name}'")
 
         return units
-
-    @classmethod
-    def load(cls, path: str) -> "AppConfig":
-        try:
-            path = os.path.realpath(path)
-        except Exception:
-            raise ConfigException(f"Configuration file path '{path}' could not be resolved.")
-
-        try:
-            with open(path, "r") as stream:
-                data = yaml.safe_load(stream)
-        except OSError:
-            raise ConfigException(
-                f"Configuration file at '{path}' does not exist or is not readable."
-            )
-        except YAMLError:
-            raise ConfigException(f"Configuration file at '{path}' is not valid YAML or JSON.")
-
-        try:
-            config = AppConfig.parse_obj(data)
-        except ValidationError as error:
-            raise ConfigException(
-                f"Configuration file at '{path}' is invalid:\n{display_errors(error.errors())}"
-            )
-
-        config.__path__ = path
-        return config

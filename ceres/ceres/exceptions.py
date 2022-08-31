@@ -1,15 +1,10 @@
+from __future__ import annotations
+
+
 class CeresException(Exception):
     def __init__(self, message: str) -> None:
         super().__init__()
         self.message = message
-
-
-class ConfigException(CeresException):
-    pass
-
-
-class ComponentLoadException(CeresException):
-    pass
 
 
 class ConnectionException(CeresException):
@@ -20,5 +15,9 @@ class ConnectionInactiveException(ConnectionException):
     pass
 
 
-class DisconnectException(ConnectionException):
+class ConnectionLostException(ConnectionException):
+    pass
+
+
+class ConnectionDecodeException(ConnectionException):
     pass

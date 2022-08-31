@@ -6,32 +6,30 @@ authors = ["Jake Ploskey <jploskey@uw.edu>"]
 packages = [{ include = "ceres" }]
 
 [tool.poetry.dependencies]
-python = "^3.9"
+python = "^3.10"
 aiosqlite = "^0.17.0"
 anyio = "^3.0.0"
 asyncpg = "^0.26.0"
 click = "^8.0.0"
 fastapi = "^0.67.0"
-mypy = "^0.961"
 pydantic = "^1.9.0"
 pyyaml = "^6.0"
 returns = "^0.19.0"
 sqlalchemy = "^1.4.0"
+sqlalchemy-utils = "^0.38.3"
 uvicorn = "^0.14.0"
 uvloop = "^0.16.0"
 
 [tool.poetry.dev-dependencies]
-black = "22.3.0"
-flake8 = "4.0.1"
-isort = "5.10.1"
-poethepoet = "0.13.1"
-pytest = "7.1.2"
-pytest-asyncio = "0.18.3"
-sqlalchemy2-stubs = "0.0.2-alpha.24"
-types-pyyaml = "6.0.11"
-
-[tool.poetry.scripts]
-main = "ceres.main:main"
+black = "^22.6.0"
+flake8 = "^4.0.1"
+isort = "^5.10.1"
+mypy = "^0.971"
+poethepoet = "^0.13.1"
+pytest = "^7.1.2"
+pytest-asyncio = "^0.18.3"
+sqlalchemy2-stubs = "^0.0.2-alpha.25"
+types-pyyaml = "^6.0.11"
 
 [tool.poe.tasks]
 format = { shell = "isort . && black ." }
@@ -41,15 +39,15 @@ lint = { shell = "isort . --check --diff && black --check . && flake8 . && mypy 
 asyncio_mode = "auto"
 
 [tool.isort]
-profile = "black"
+add_imports = ["from __future__ import annotations"]
 multi_line_output = 3
+profile = "black"
 
 [tool.black]
 line-length = 100
 
 [tool.mypy]
 ignore_missing_imports = true
-no_implicit_optional = true
 plugins = ["sqlalchemy.ext.mypy.plugin", "pydantic.mypy"]
 strict = true
 
