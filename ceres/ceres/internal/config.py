@@ -20,7 +20,7 @@ from ..errors import (
     ConfigError,
     ConfigParseError,
     ConfigReadError,
-    ConfigSchemaError,
+    ConfigValidationError,
     ValidationProblem,
 )
 from ..path import ConnectionPath
@@ -71,7 +71,7 @@ async def load_config(
             config.__path__ = path
             log("Configuration file matches schema.")
     except ValidationError as error:
-        return Fail([ConfigSchemaError(problems=ValidationProblem.extract(error))])
+        return Fail([ConfigValidationError(problems=ValidationProblem.extract(error))])
 
     errors: list[ConfigError] = []
 

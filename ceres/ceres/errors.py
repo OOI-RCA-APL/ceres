@@ -91,7 +91,7 @@ ComponentError = (
 class ConfigErrorKind(str, Enum):
     READ_ERROR = "read-error"
     PARSE_ERROR = "parse-error"
-    SCHEMA_ERROR = "schema-error"
+    VALIDATION_ERROR = "validation-error"
     DATABASE_ERROR = "database-error"
     COMPONENT_ERROR = "component-error"
 
@@ -104,8 +104,8 @@ class ConfigParseError(BaseModel):
     kind: Literal[ConfigErrorKind.PARSE_ERROR] = ConfigErrorKind.PARSE_ERROR
 
 
-class ConfigSchemaError(BaseModel):
-    kind: Literal[ConfigErrorKind.SCHEMA_ERROR] = ConfigErrorKind.SCHEMA_ERROR
+class ConfigValidationError(BaseModel):
+    kind: Literal[ConfigErrorKind.VALIDATION_ERROR] = ConfigErrorKind.VALIDATION_ERROR
     problems: list[ValidationProblem] = []
 
 
@@ -124,7 +124,7 @@ class ConfigComponentError(BaseModel):
 ConfigError = (
     ConfigReadError
     | ConfigParseError
-    | ConfigSchemaError
+    | ConfigValidationError
     | ConfigDatabaseError
     | ConfigComponentError
 )
