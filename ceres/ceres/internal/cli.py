@@ -10,10 +10,10 @@ import click
 import uvloop
 from click import ClickException, Path
 
-from ..config import EngineConfig
+from ..config import Config
 from ..engine import Engine
-from ..loader import EngineConfigLoader
 from ..result import Ok
+from .configurator import Configurator
 from .database.manager import DatabaseManager
 
 
@@ -78,7 +78,7 @@ async def run(config_path: str) -> None:
 @with_config_path
 @asyncronous
 async def check(config_path: str) -> None:
-    match await EngineConfigLoader(logger=print).load(config_path):
+    match await Configurator(logger=print).load(config_path):
         case Ok():
             print("All checks passed.")
         case fail:
@@ -140,8 +140,8 @@ def _resolve_config_path(config_path: str | None) -> str:
     return config_path
 
 
-async def _get_config(config_path: str | None) -> EngineConfig:
-    match await EngineConfigLoader().load(_resolve_config_path(config_path)):
+async def _get_config(config_path: str | None) -> Config:
+    match await Configurator().load(_resolve_config_path(config_path)):
         case Ok(config):
             return config
         case fail:

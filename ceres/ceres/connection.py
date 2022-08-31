@@ -8,8 +8,9 @@ from uuid import UUID
 import anyio
 from pydantic import BaseModel
 
-from .component import Component, ComponentLoadError
+from .component import Component
 from .config import ReconnectConfig
+from .errors import ComponentError
 from .exceptions import ConnectionInactiveException
 from .internal.database.entity import MessageDirection, MessageEntity, eid
 from .internal.database.manager import DatabaseManager
@@ -114,7 +115,7 @@ class ConnectionHandle(Tasklet):
     def connected(self) -> bool:
         return self._state == "connected"
 
-    def load(self) -> Result[Connection, ComponentLoadError]:
+    def load(self) -> Result[Connection, ComponentError]:
         if not self._connection:
             match Connection.load(self._context.component, self._context.parameters):
                 case Ok(connection):

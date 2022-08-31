@@ -9,8 +9,8 @@ from starlette.status import HTTP_400_BAD_REQUEST
 from uvicorn import Config as UvicornConfig
 from uvicorn import Server as UvicornServer
 
-from ..config import EngineConfig, ServerConfig
-from ..loader import EngineConfigError
+from ..config import Config, ServerConfig
+from ..errors import ConfigError
 from ..result import Fail, Ok, Result
 from . import logs
 from .tasks import Tasklet
@@ -18,10 +18,10 @@ from .tasks import Tasklet
 
 class ServerEngineProtocol(Protocol):
     @property
-    def config(self) -> EngineConfig:
+    def config(self) -> Config:
         ...
 
-    async def reload(self) -> Result[EngineConfig, list[EngineConfigError]]:
+    async def reload(self) -> Result[Config, list[ConfigError]]:
         ...
 
 
@@ -58,7 +58,7 @@ class Server(Tasklet):
 
         @app.post(
             "/reload",
-            response_model=cast(Any, Success[EngineConfig] | Error[list[EngineConfigError]]),
+            response_model=cast(Any, Success[Config] | Error[list[ConfigError]]),
         )
         async def reload() -> Any:
             match await engine.reload():

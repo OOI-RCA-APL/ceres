@@ -5,76 +5,39 @@ import traceback
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 from logging import Logger
-from typing import Any, Callable, Literal, Sequence
+from typing import Any, Callable, Sequence
 
 import anyio
 import yaml
-from pydantic import BaseModel, ValidationError
+from pydantic import ValidationError
 from yaml import YAMLError
 
-from .component import ComponentLoadError
-from .config import EngineConfig
-from .connection import Connection
-from .internal.database.manager import DatabaseManager
-from .path import ComponentPath, ConnectionPath
-from .result import Fail, Ok, Result
-from .validation import ValidationProblem
-
-
-class EngineConfigErrorKind(str, Enum):
-    READ_ERROR = "read-error"
-    PARSE_ERROR = "parse-error"
-    SCHEMA_ERROR = "schema-error"
-    DATABASE_ERROR = "database-error"
-    COMPONENT_LOAD_ERROR = "component-load-error"
-
-
-class EngineConfigReadError(BaseModel):
-    kind: Literal[EngineConfigErrorKind.READ_ERROR] = EngineConfigErrorKind.READ_ERROR
-
-
-class EngineConfigParseError(BaseModel):
-    kind: Literal[EngineConfigErrorKind.PARSE_ERROR] = EngineConfigErrorKind.PARSE_ERROR
-
-
-class EngineConfigSchemaError(BaseModel):
-    kind: Literal[EngineConfigErrorKind.SCHEMA_ERROR] = EngineConfigErrorKind.SCHEMA_ERROR
-    problems: list[ValidationProblem] = []
-
-
-class EngineConfigDatabaseError(BaseModel):
-    kind: Literal[EngineConfigErrorKind.DATABASE_ERROR] = EngineConfigErrorKind.DATABASE_ERROR
-    message: str
-    exception: str
-
-
-class EngineConfigComponentLoadError(BaseModel):
-    kind: Literal[
-        EngineConfigErrorKind.COMPONENT_LOAD_ERROR
-    ] = EngineConfigErrorKind.COMPONENT_LOAD_ERROR
-    path: ComponentPath
-    inner: ComponentLoadError
-
-
-EngineConfigError = (
-    EngineConfigReadError
-    | EngineConfigParseError
-    | EngineConfigSchemaError
-    | EngineConfigDatabaseError
-    | EngineConfigComponentLoadError
+from ..config import Config
+from ..connection import Connection
+from ..errors import (
+    ConfigComponentError,
+    ConfigDatabaseError,
+    ConfigError,
+    ConfigParseError,
+    ConfigReadError,
+    ConfigSchemaError,
 )
+from ..path import ConnectionPath
+from ..result import Fail, Ok, Result
+from ..validation import ValidationProblem
+from .database.manager import DatabaseManager
 
 
-class EngineConfigCheckKind(str, Enum):
+class ConfigCheckKind(str, Enum):
     DATABASE = "database"
     COMPONENTS = "components"
 
 
-class EngineConfigLoader:
+class Configurator:
     def __init__(
         self,
         *,
-        checks: Sequence[EngineConfigCheckKind] = list(EngineConfigCheckKind),
+        checks: Sequence[ConfigCheckKind] = list(ConfigCheckKind),
         logger: Logger | Callable[[Any], None] | None = None,
     ) -> None:
         self._checks = list(checks)
@@ -91,41 +54,41 @@ class EngineConfigLoader:
 
     async def load(
         self,
-        config: str | dict[str, Any] | EngineConfig,
-        checks: Sequence[EngineConfigCheckKind] | None = None,
-    ) -> Result[EngineConfig, list[EngineConfigError]]:
+        config: str | dict[str, Any] | Config,
+        checks: Sequence[ConfigCheckKind] | None = None,
+    ) -> Result[Config, list[ConfigError]]:
         if checks is None:
             checks = self._checks
 
         try:
             if isinstance(config, dict):
-                config = EngineConfig.parse_obj(config)
+                config = Config.parse_obj(config)
                 self._log("Configuration object matches schema.")
             elif isinstance(config, str):
                 try:
                     path = os.path.realpath(config)
                 except Exception:
-                    return Fail([EngineConfigReadError()])
+                    return Fail([ConfigReadError()])
 
                 try:
                     with open(path, "r") as stream:
                         data = yaml.safe_load(stream)
                 except OSError:
-                    return Fail([EngineConfigReadError()])
+                    return Fail([ConfigReadError()])
                 except YAMLError:
-                    return Fail([EngineConfigParseError()])
+                    return Fail([ConfigParseError()])
 
-                config = EngineConfig.parse_obj(data)
+                config = Config.parse_obj(data)
                 config.__path__ = path
                 self._log("Configuration file matches schema.")
         except ValidationError as error:
-            return Fail([EngineConfigSchemaError(problems=ValidationProblem.extract(error))])
+            return Fail([ConfigSchemaError(problems=ValidationProblem.extract(error))])
 
-        errors: list[EngineConfigError] = []
+        errors: list[ConfigError] = []
 
-        if EngineConfigCheckKind.DATABASE in checks:
+        if ConfigCheckKind.DATABASE in checks:
             errors.extend(await self._check_database(config))
-        if EngineConfigCheckKind.COMPONENTS in checks:
+        if ConfigCheckKind.COMPONENTS in checks:
             errors.extend(await self._check_components(config))
 
         if errors:
@@ -133,10 +96,10 @@ class EngineConfigLoader:
 
         return Ok(config)
 
-    async def _check_database(self, config: EngineConfig) -> list[EngineConfigDatabaseError]:
+    async def _check_database(self, config: Config) -> list[ConfigDatabaseError]:
         self._log("Checking database configuration...")
 
-        errors: list[EngineConfigDatabaseError] = []
+        errors: list[ConfigDatabaseError] = []
 
         attempt = 0
         start = datetime.now(timezone.utc)
@@ -163,7 +126,7 @@ class EngineConfigLoader:
                 self._log("Failed to connect to database.")
                 await database.dispose()
                 return [
-                    EngineConfigDatabaseError(
+                    ConfigDatabaseError(
                         message="Failed to connect to database.",
                         exception=traceback.format_exc(),
                     )
@@ -173,10 +136,10 @@ class EngineConfigLoader:
 
         return errors
 
-    async def _check_components(self, config: EngineConfig) -> list[EngineConfigComponentLoadError]:
+    async def _check_components(self, config: Config) -> list[ConfigComponentError]:
         self._log("Checking component configurations...")
 
-        errors: list[EngineConfigComponentLoadError] = []
+        errors: list[ConfigComponentError] = []
 
         for unit in config.units:
             for connection in unit.connections:
@@ -185,9 +148,9 @@ class EngineConfigLoader:
                 match Connection.load(connection.component, connection.parameters):
                     case Fail(error):
                         errors.append(
-                            EngineConfigComponentLoadError(
+                            ConfigComponentError(
                                 path=path,
-                                inner=error,
+                                error=error,
                             )
                         )
 

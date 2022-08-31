@@ -14,15 +14,16 @@ import anyio
 from anyio import CancelScope
 from pydantic import BaseModel
 
-from .config import EngineConfig, UnitConfig
+from .config import Config, UnitConfig
+from .errors import ConfigError
 from .exceptions import ReloadAlreadyActiveException
 from .internal import logs
+from .internal.configurator import Configurator
 from .internal.database.manager import DatabaseManager
 from .internal.server import Server, ServerEngineProtocol
 from .internal.tasks import Tasklet
 from .internal.unit import UnitContext, UnitHandle
 from .internal.utilities import use_signal_handler
-from .loader import EngineConfigError, EngineConfigLoader
 from .path import UnitPath
 from .result import Ok, Result
 
@@ -39,10 +40,10 @@ class UnitSyncAction(BaseModel):
 
 
 class Engine(Tasklet, ServerEngineProtocol):
-    def __init__(self, config: EngineConfig) -> None:
+    def __init__(self, config: Config) -> None:
         self._config = config
-        self._config_queue: Queue[EngineConfig] = Queue()
-        self._config_loader = EngineConfigLoader(logger=self.logger)
+        self._config_queue: Queue[Config] = Queue()
+        self._configurator = Configurator(logger=self.logger)
         self._server: Server | None = None
         self._database = DatabaseManager.create(self._config.database)
         self._units: dict[UnitPath, UnitHandle] = {}
@@ -64,14 +65,14 @@ class Engine(Tasklet, ServerEngineProtocol):
         return None
 
     @property
-    def config(self) -> EngineConfig:
+    def config(self) -> Config:
         return self._config
 
-    async def reload(self) -> Result[EngineConfig, list[EngineConfigError]]:
+    async def reload(self) -> Result[Config, list[ConfigError]]:
         if self._reloading.is_set():
             raise ReloadAlreadyActiveException("A reload is already is progress.")
 
-        source: str | EngineConfig
+        source: str | Config
 
         if self.config_path:
             self.logger.info(f"Reloading configuration from '{self.config_path}'...")
@@ -80,7 +81,7 @@ class Engine(Tasklet, ServerEngineProtocol):
             self.logger.info("No configuration path is set. Reloading current configuration...")
             source = self._config
 
-        match await self._config_loader.load(source):
+        match await self._configurator.load(source):
             case Ok(config):
                 self.logger.info("Queueing reload...")
                 self._reloading.set()
@@ -91,7 +92,7 @@ class Engine(Tasklet, ServerEngineProtocol):
                 return fail
 
     async def _tasklet_run(self) -> None:
-        if not await self._config_loader.load(self._config):
+        if not await self._configurator.load(self._config):
             self.logger.error("Initial configuration check failed. Exiting...")
             return
 

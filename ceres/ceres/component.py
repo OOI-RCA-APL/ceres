@@ -4,78 +4,22 @@ import importlib
 import inspect
 import traceback
 from abc import ABC
-from enum import Enum
-from typing import Any, Literal, TypeVar
+from typing import Any, TypeVar
 
-from pydantic import BaseModel, ValidationError, validate_arguments
+from pydantic import ValidationError, validate_arguments
 
+from .errors import (
+    ComponentError,
+    ComponentInitExceptionError,
+    ComponentModuleExceptionError,
+    ComponentModuleNotFoundError,
+    InvalidComponentClassError,
+    InvalidComponentParametersError,
+)
 from .result import Fail, Ok, Result
 from .validation import ValidationProblem
 
 ComponentT = TypeVar("ComponentT", bound="Component")
-
-
-class ComponentLoadErrorKind(str, Enum):
-    INVALID_COMPONENT_CLASS = "invalid-component-class"
-    COMPONENT_MODULE_NOT_FOUND = "component-module-not-found"
-    COMPONENT_MODULE_EXCEPTION = "component-module-exception"
-    COMPONENT_CLASS_NOT_FOUND = "component-class-not-found"
-    COMPONENT_INIT_EXCEPTION = "component-init-exception"
-    INVALID_COMPONENT_PARAMETERS = "invalid-component-parameters"
-
-
-class BaseComponentLoadError(BaseModel):
-    kind: ComponentLoadErrorKind
-    message: str
-
-
-class InvalidComponentClassError(BaseComponentLoadError):
-    kind: Literal[
-        ComponentLoadErrorKind.INVALID_COMPONENT_CLASS
-    ] = ComponentLoadErrorKind.INVALID_COMPONENT_CLASS
-
-
-class ComponentModuleNotFoundError(BaseComponentLoadError):
-    kind: Literal[
-        ComponentLoadErrorKind.COMPONENT_MODULE_NOT_FOUND
-    ] = ComponentLoadErrorKind.COMPONENT_MODULE_NOT_FOUND
-
-
-class ComponentModuleExceptionError(BaseComponentLoadError):
-    kind: Literal[
-        ComponentLoadErrorKind.COMPONENT_MODULE_EXCEPTION
-    ] = ComponentLoadErrorKind.COMPONENT_MODULE_EXCEPTION
-    traceback: str
-
-
-class ComponentClassNotFoundError(BaseComponentLoadError):
-    kind: Literal[
-        ComponentLoadErrorKind.COMPONENT_CLASS_NOT_FOUND
-    ] = ComponentLoadErrorKind.COMPONENT_CLASS_NOT_FOUND
-
-
-class InvalidComponentParametersError(BaseComponentLoadError):
-    kind: Literal[
-        ComponentLoadErrorKind.INVALID_COMPONENT_PARAMETERS
-    ] = ComponentLoadErrorKind.INVALID_COMPONENT_PARAMETERS
-    problems: list[ValidationProblem]
-
-
-class ComponentInitExceptionError(BaseComponentLoadError):
-    kind: Literal[
-        ComponentLoadErrorKind.COMPONENT_INIT_EXCEPTION
-    ] = ComponentLoadErrorKind.COMPONENT_INIT_EXCEPTION
-    traceback: str
-
-
-ComponentLoadError = (
-    InvalidComponentClassError
-    | ComponentModuleNotFoundError
-    | ComponentModuleExceptionError
-    | ComponentClassNotFoundError
-    | InvalidComponentParametersError
-    | ComponentInitExceptionError
-)
 
 
 class Component(ABC):
@@ -84,7 +28,7 @@ class Component(ABC):
         cls: type[ComponentT],
         source: str | object,
         parameters: dict[str, Any] = {},
-    ) -> Result[ComponentT, ComponentLoadError]:
+    ) -> Result[ComponentT, ComponentError]:
         if not isinstance(source, str):
             if not isinstance(source, cls):
                 return Fail(

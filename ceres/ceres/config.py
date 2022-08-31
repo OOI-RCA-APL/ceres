@@ -69,7 +69,7 @@ class UnitConfig(BaseModel):
         return connections
 
 
-class EngineConfig(BaseModel):
+class Config(BaseModel):
     server: ServerConfig
     database: DatabaseConfig
     units: list[UnitConfig] = []
