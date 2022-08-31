@@ -157,7 +157,7 @@ const mock = reactive({
                   { value: 100, color: 'red' },
                 ],
               },
-            ],
+            ] as ElementInfo[],
           },
         },
         pipelines: {
