@@ -1,0 +1,25 @@
+name: CI
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+jobs:
+  main:
+    defaults:
+      run:
+        working-directory: ./ceres
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+          architecture: x64
+      - uses: snok/install-poetry@v1
+      - name: Install
+        run: poetry install
+      - name: Lint
+        run: poetry run task lint
