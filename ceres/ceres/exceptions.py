@@ -7,14 +7,6 @@ class CeresException(Exception):
         self.message = message
 
 
-class ReloadException(CeresException):
-    pass
-
-
-class ReloadAlreadyActiveException(ReloadException):
-    pass
-
-
 class ConnectionException(CeresException):
     pass
 

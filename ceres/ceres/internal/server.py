@@ -2,18 +2,18 @@ from __future__ import annotations
 
 from typing import Any, Generic, Literal, Protocol, TypeVar, cast
 
-from fastapi import FastAPI
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, Response
 from pydantic.generics import GenericModel
 from starlette.status import HTTP_400_BAD_REQUEST
 from uvicorn import Config as UvicornConfig
 from uvicorn import Server as UvicornServer
 
 from ..config import Config, ServerConfig
-from ..errors import ConfigError
+from ..errors import ReloadError
 from ..result import Fail, Ok, Result
 from . import logs
 from .tasks import Tasklet
+from .utilities import unreachable
 
 
 class ServerEngineProtocol(Protocol):
@@ -21,7 +21,7 @@ class ServerEngineProtocol(Protocol):
     def config(self) -> Config:
         ...
 
-    async def reload(self) -> Result[Config, list[ConfigError]]:
+    async def reload(self) -> Result[Config, ReloadError]:
         ...
 
 
@@ -35,7 +35,7 @@ class Server(Tasklet):
         self._engine = engine
         self._uvicorn = Uvicorn(
             UvicornConfig(
-                app=self._create_app(engine),
+                app=create_app(engine),
                 port=config.port,
                 loop="none",
             )
@@ -47,27 +47,6 @@ class Server(Tasklet):
     async def _tasklet_stop(self) -> None:
         if hasattr(self._uvicorn, "servers"):
             await self._uvicorn.shutdown()
-
-    @classmethod
-    def _create_app(cls, engine: ServerEngineProtocol) -> FastAPI:
-        app = FastAPI()
-
-        @app.on_event("startup")
-        def startup() -> None:
-            logs.setup()
-
-        @app.post(
-            "/reload",
-            response_model=cast(Any, Success[Config] | Error[list[ConfigError]]),
-        )
-        async def reload() -> Any:
-            match await engine.reload():
-                case Ok(config):
-                    return Success.create(config)
-                case Fail(errors):
-                    return Error.response(errors, HTTP_400_BAD_REQUEST)
-
-        return app
 
 
 class Uvicorn(UvicornServer):  # type: ignore
@@ -92,10 +71,6 @@ class Success(GenericModel, Generic[SuccessDataT]):
     def create(cls, data: SuccessDataT) -> Success[SuccessDataT]:
         return Success(data=data)
 
-    @classmethod
-    def response(cls, data: SuccessDataT, status: int) -> JSONResponse:
-        return JSONResponse(cls.create(data).dict(), status)
-
 
 class Error(GenericModel, Generic[ErrorDataT]):
     status: Literal["error"] = "error"
@@ -105,6 +80,30 @@ class Error(GenericModel, Generic[ErrorDataT]):
     def create(cls, data: ErrorDataT) -> Error[ErrorDataT]:
         return Error(data=data)
 
-    @classmethod
-    def response(cls, data: ErrorDataT, status: int) -> JSONResponse:
-        return JSONResponse(cls.create(data).dict(), status)
+
+def create_app(engine: ServerEngineProtocol) -> FastAPI:
+    app = FastAPI()
+
+    @app.on_event("startup")
+    def startup() -> None:
+        logs.setup()
+
+    @app.get("/config", response_model=Config)
+    async def config() -> Config:
+        return engine.config
+
+    @app.post(
+        "/reload",
+        response_model=cast(Any, Success[Config] | Error[ReloadError]),
+    )
+    async def reload(response: Response) -> Success[Config] | Error[ReloadError]:
+        match await engine.reload():
+            case Ok(config):
+                return Success.create(config)
+            case Fail(error):
+                response.status_code = HTTP_400_BAD_REQUEST
+                return Error.create(error)
+
+        unreachable()
+
+    return app

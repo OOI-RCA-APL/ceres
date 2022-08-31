@@ -15,17 +15,16 @@ from anyio import CancelScope
 from pydantic import BaseModel
 
 from .config import Config, UnitConfig
-from .errors import ConfigError
-from .exceptions import ReloadAlreadyActiveException
+from .errors import ReloadAlreadyActiveError, ReloadConfigInvalidError, ReloadError
 from .internal import logs
 from .internal.config import load_config
 from .internal.database.manager import DatabaseManager
 from .internal.server import Server, ServerEngineProtocol
 from .internal.tasks import Tasklet
 from .internal.unit import UnitContext, UnitHandle
-from .internal.utilities import use_signal_handler
+from .internal.utilities import unreachable, use_signal_handler
 from .path import UnitPath
-from .result import Ok, Result
+from .result import Fail, Ok, Result
 
 
 class UnitSyncActionKind(str, Enum):
@@ -67,9 +66,9 @@ class Engine(Tasklet, ServerEngineProtocol):
     def config(self) -> Config:
         return self._config
 
-    async def reload(self) -> Result[Config, list[ConfigError]]:
+    async def reload(self) -> Result[Config, ReloadError]:
         if self._reloading.is_set():
-            raise ReloadAlreadyActiveException("A reload is already is progress.")
+            return Fail(ReloadAlreadyActiveError())
 
         source: str | Config
 
@@ -86,9 +85,11 @@ class Engine(Tasklet, ServerEngineProtocol):
                 self._reloading.set()
                 self._config_queue.put(config)
                 return Ok(config)
-            case fail:
+            case Fail(errors):
                 self.logger.error("Reload failed, found errors in configuration.")
-                return fail
+                return Fail(ReloadConfigInvalidError(errors=errors))
+
+        unreachable()
 
     async def _tasklet_run(self) -> None:
         if not await load_config(self._config, logger=self.logger):

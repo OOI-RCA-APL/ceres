@@ -3,7 +3,7 @@ from __future__ import annotations
 import inspect
 import signal
 from contextlib import contextmanager
-from typing import Any, Awaitable, Callable, Iterator, Sequence, TypeVar, cast
+from typing import Any, Awaitable, Callable, Iterator, NoReturn, Sequence, TypeVar, cast
 
 T = TypeVar("T")
 
@@ -28,3 +28,12 @@ def use_signal_handler(signums: Sequence[int], handler: Callable[..., Any]) -> I
     finally:
         for signum, original in originals.items():
             signal.signal(signum, original)
+
+
+class UnreachableException(Exception):
+    def __init__(self) -> None:
+        self.message = "Unexpected code was reached. This is a bug."
+
+
+def unreachable() -> NoReturn:
+    raise UnreachableException()

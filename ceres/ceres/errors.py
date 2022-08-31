@@ -96,26 +96,30 @@ class ConfigErrorKind(str, Enum):
     COMPONENT_ERROR = "component-error"
 
 
-class ConfigReadError(BaseModel):
+class BaseConfigError(BaseModel):
+    pass
+
+
+class ConfigReadError(BaseConfigError):
     kind: Literal[ConfigErrorKind.READ_ERROR] = ConfigErrorKind.READ_ERROR
 
 
-class ConfigParseError(BaseModel):
+class ConfigParseError(BaseConfigError):
     kind: Literal[ConfigErrorKind.PARSE_ERROR] = ConfigErrorKind.PARSE_ERROR
 
 
-class ConfigValidationError(BaseModel):
+class ConfigValidationError(BaseConfigError):
     kind: Literal[ConfigErrorKind.VALIDATION_ERROR] = ConfigErrorKind.VALIDATION_ERROR
     problems: list[ValidationProblem] = []
 
 
-class ConfigDatabaseError(BaseModel):
+class ConfigDatabaseError(BaseConfigError):
     kind: Literal[ConfigErrorKind.DATABASE_ERROR] = ConfigErrorKind.DATABASE_ERROR
     message: str
     exception: str
 
 
-class ConfigComponentError(BaseModel):
+class ConfigComponentError(BaseConfigError):
     kind: Literal[ConfigErrorKind.COMPONENT_ERROR] = ConfigErrorKind.COMPONENT_ERROR
     path: ComponentPath
     error: ComponentError
@@ -128,3 +132,24 @@ ConfigError = (
     | ConfigDatabaseError
     | ConfigComponentError
 )
+
+
+class ReloadErrorKind(str, Enum):
+    CONFIG_INVALID = "config-invalid"
+    ALREADY_ACTIVE = "already-active"
+
+
+class BaseReloadError(BaseModel):
+    pass
+
+
+class ReloadConfigInvalidError(BaseReloadError):
+    kind: Literal[ReloadErrorKind.CONFIG_INVALID] = ReloadErrorKind.CONFIG_INVALID
+    errors: list[ConfigError]
+
+
+class ReloadAlreadyActiveError(BaseReloadError):
+    kind: Literal[ReloadErrorKind.ALREADY_ACTIVE] = ReloadErrorKind.ALREADY_ACTIVE
+
+
+ReloadError = ReloadConfigInvalidError | ReloadAlreadyActiveError

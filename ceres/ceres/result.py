@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Generic, Literal, TypeVar
+from typing import Any, Generic, Literal, TypeVar, final
 
 from pydantic.dataclasses import dataclass
 from pydantic.generics import GenericModel
@@ -9,6 +9,7 @@ ValueT = TypeVar("ValueT")
 ErrorT = TypeVar("ErrorT")
 
 
+@final
 @dataclass(frozen=True)
 class Ok(Generic[ValueT, ErrorT]):
     value: ValueT
@@ -27,6 +28,7 @@ class Ok(Generic[ValueT, ErrorT]):
         return _OkModel(value=self.value).json(**dumps_kwargs)
 
 
+@final
 @dataclass(frozen=True)
 class Fail(Generic[ValueT, ErrorT]):
     error: ErrorT
