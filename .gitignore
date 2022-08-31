@@ -4,11 +4,18 @@
 
 # Tools
 *.code-workspace
+.vscode/
 
 # Python
 __pycache__/
 .pytest_cache/
 .mypy_cache/
+
+# Node
+node_modules
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
 # Other
 .DS_Store
