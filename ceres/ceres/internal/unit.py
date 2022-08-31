@@ -10,12 +10,13 @@ import anyio
 from anyio.abc import TaskGroup
 from pydantic import BaseModel
 
-from ..config import ConnectionConfig, DatabaseConfig, UnitConfig
-from ..path import ConnectionPath, UnitPath
+from ..config import ConnectionConfig, DatabaseConfig, DriverConfig, UnitConfig
+from ..path import ConnectionPath, DriverPath, UnitPath
 from ..result import Fail, Ok
 from . import logs
-from .connection import ConnectionContext, ConnectionHandle
+from .connection import ConnectionHandle, ConnectionHandleContext
 from .database.manager import DatabaseManager
+from .driver import DriverHandle, DriverHandleContext
 from .tasks import Tasklet, ensure_event_loop
 
 
@@ -23,6 +24,7 @@ class UnitContext(BaseModel):
     id: UUID
     path: UnitPath
     connections: list[ConnectionConfig]
+    drivers: list[DriverConfig]
     database: DatabaseConfig
     config: UnitConfig
 
@@ -40,6 +42,7 @@ class Unit(UnitProxyProtocol, Tasklet):
         self._context = context
         self._database = DatabaseManager.create(self._context.database)
         self._connections: dict[str, ConnectionHandle] = {}
+        self._drivers: dict[str, DriverHandle] = {}
         self._tasks: TaskGroup | None = None
 
     @property
@@ -89,31 +92,48 @@ class Unit(UnitProxyProtocol, Tasklet):
         return None
 
     async def _tasklet_run(self) -> None:
-        await self._tasklet_stop()
+        await self._load_connections()
+        await self._load_drivers()
 
-        self._connections.clear()
+        async with anyio.create_task_group() as group:
+            for connection in self._connections.values():
+                group.start_soon(connection.run)
+            for driver in self._drivers.values():
+                group.start_soon(driver.run)
 
-        for connection_config in self._context.connections:
+            self._tasks = group
+
+    async def _tasklet_stop(self) -> None:
+        for connection in self._connections.values():
+            await connection.disconnect()
+
+        await self._database.dispose()
+
+    async def _load_connections(self) -> None:
+        for config in self._context.connections:
             path = ConnectionPath.create(
                 self._context.path.unit,
-                connection_config.name,
+                config.name,
             )
+
+            if config.name in self._connections:
+                continue
 
             id = await self._database.entities.get_connection_id(path)
 
-            self._connections[connection_config.name] = ConnectionHandle(
-                ConnectionContext(
+            self._connections[config.name] = ConnectionHandle(
+                ConnectionHandleContext(
                     id=id,
                     path=path,
-                    component=connection_config.component,
-                    parameters=connection_config.parameters,
+                    component=config.component,
+                    parameters=config.parameters,
                     database=self._database,
-                    reconnect=connection_config.reconnect,
+                    reconnect=config.reconnect,
                 )
             )
 
         for connection in self._connections.values():
-            match connection.load():
+            match await connection.load():
                 case Ok():
                     self.logger.info(f"Loaded connection '{connection.path}'.")
                 case Fail(error):
@@ -121,17 +141,36 @@ class Unit(UnitProxyProtocol, Tasklet):
                         f"Failed to load connection '{connection.path}'. Error: {error.json(indent=2)}"
                     )
 
-        async with anyio.create_task_group() as group:
-            for connection in self._connections.values():
-                group.start_soon(connection.run)
+    async def _load_drivers(self) -> None:
+        for config in self._context.drivers:
+            path = DriverPath.create(
+                self._context.path.unit,
+                config.name,
+            )
 
-            self._tasks = group
+            if config.name in self._drivers:
+                continue
 
-    async def _tasklet_stop(self) -> None:
-        for connection in self._connections.values():
-            await connection._disconnect()
+            id = await self._database.entities.get_driver_id(path)
 
-        await self._database.dispose()
+            self._drivers[config.name] = DriverHandle(
+                DriverHandleContext(
+                    id=id,
+                    path=path,
+                    component=config.component,
+                    parameters=config.parameters,
+                    database=self._database,
+                )
+            )
+
+        for driver in self._drivers.values():
+            match await driver.load():
+                case Ok():
+                    self.logger.info(f"Loaded driver '{driver.path}'.")
+                case Fail(error):
+                    self.logger.error(
+                        f"Failed to load driver '{driver.path}'. Error: {error.json(indent=2)}"
+                    )
 
 
 class UnitManager(BaseManager):

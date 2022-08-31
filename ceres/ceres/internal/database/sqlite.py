@@ -65,6 +65,21 @@ class SQLiteDatabaseManager(DatabaseManager):
                 ON connections (unit_id)
             """,
             """
+            CREATE TABLE IF NOT EXISTS drivers (
+                id TEXT NOT NULL PRIMARY KEY,
+                unit_id TEXT NOT NULL REFERENCES units,
+                name text NOT NULL
+            ) STRICT
+            """,
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS uk_drivers__unit_id__name
+                ON drivers (unit_id, name)
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS ix_drivers__unit_id
+                ON drivers (unit_id)
+            """,
+            """
             CREATE TABLE IF NOT EXISTS messages (
                 id TEXT NOT NULL PRIMARY KEY,
                 connection_id TEXT NOT NULL REFERENCES connections,

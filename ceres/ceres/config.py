@@ -13,9 +13,12 @@ class ComponentConfig(BaseModel, ABC):
     class Config:
         allow_arbitrary_types = True
 
-    name: str
     component: str | object
     parameters: dict[str, Any] = {}
+
+
+class UnitComponentConfig(ComponentConfig, ABC):
+    name: str
 
 
 class ReconnectConfig(BaseModel):
@@ -24,8 +27,12 @@ class ReconnectConfig(BaseModel):
     max_interval: float | None = 60 * 5
 
 
-class ConnectionConfig(ComponentConfig):
+class ConnectionConfig(UnitComponentConfig):
     reconnect: ReconnectConfig = ReconnectConfig()
+
+
+class DriverConfig(UnitComponentConfig):
+    pass
 
 
 class ServerConfig(BaseModel):
@@ -59,12 +66,21 @@ DatabaseConfig = SQLiteDatabaseConfig
 class UnitConfig(BaseModel):
     name: str
     connections: list[ConnectionConfig] = []
+    drivers: list[DriverConfig] = []
 
     @validator("connections")
     def _check_connections(cls, connections: list[ConnectionConfig]) -> list[ConnectionConfig]:
         for name, group in itertools.groupby(connections, lambda connection: connection.name):
             if len(list(group)) > 1:
                 raise ValueError(f"duplicate connection name '{name}'")
+
+        return connections
+
+    @validator("drivers")
+    def _check_drivers(cls, connections: list[DriverConfig]) -> list[DriverConfig]:
+        for name, group in itertools.groupby(connections, lambda connection: connection.name):
+            if len(list(group)) > 1:
+                raise ValueError(f"duplicate driver name '{name}'")
 
         return connections
 

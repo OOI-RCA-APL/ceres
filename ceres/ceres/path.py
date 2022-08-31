@@ -1,18 +1,17 @@
 from __future__ import annotations
 
+from abc import ABC
 from typing import Literal
 
 from pydantic import BaseModel
 
 ComponentPathKind = Literal["connection"]
-PathKind = Literal["unit", "connection"]
+PathKind = Literal["unit", "connection", "driver"]
 
 
-class BasePath(BaseModel):
+class BasePath(BaseModel, ABC):
     class Config:
         frozen = True
-
-    kind: PathKind
 
 
 class UnitPath(BasePath):
@@ -25,6 +24,10 @@ class UnitPath(BasePath):
 
     def __str__(self) -> str:
         return f"@{self.unit}"
+
+    @property
+    def name(self) -> str:
+        return self.unit
 
 
 class ConnectionPath(BasePath):
@@ -39,6 +42,27 @@ class ConnectionPath(BasePath):
     def __str__(self) -> str:
         return f"@{self.unit}.connections.{self.connection}"
 
+    @property
+    def name(self) -> str:
+        return self.connection
 
-Path = UnitPath | ConnectionPath
-ComponentPath = ConnectionPath
+
+class DriverPath(BasePath):
+    kind: Literal["driver"] = "driver"
+    unit: str
+    driver: str
+
+    @classmethod
+    def create(cls, unit: str, driver: str) -> DriverPath:
+        return DriverPath(unit=unit, driver=driver)
+
+    def __str__(self) -> str:
+        return f"@{self.unit}.drivers.{self.driver}"
+
+    @property
+    def name(self) -> str:
+        return self.driver
+
+
+Path = UnitPath | ConnectionPath | DriverPath
+UnitComponentPath = ConnectionPath | DriverPath

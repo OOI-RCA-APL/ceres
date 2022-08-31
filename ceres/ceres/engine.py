@@ -232,6 +232,7 @@ class Engine(Tasklet, ServerEngineProtocol):
                         id=id,
                         path=action.path,
                         connections=config.connections,
+                        drivers=config.drivers,
                         database=self._config.database,
                         config=config,
                     )

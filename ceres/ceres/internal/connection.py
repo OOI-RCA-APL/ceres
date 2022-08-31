@@ -9,7 +9,7 @@ import anyio
 from pydantic import BaseModel
 
 from ..config import ReconnectConfig
-from ..connection import Connection
+from ..connection import Connection, ConnectionContext
 from ..errors import ComponentError
 from ..exceptions import ConnectionInactiveException
 from ..message import Message
@@ -58,10 +58,10 @@ class ReconnectScheduler:
 class ConnectionHandle(Tasklet):
     MAX_RECEIVE_BUFFER_SIZE = 2500
 
-    def __init__(self, context: ConnectionContext) -> None:
+    def __init__(self, context: ConnectionHandleContext) -> None:
         self._context = context
         self._reconnect = ReconnectScheduler(context.reconnect)
-        self._connection: Connection | None = None
+        self._instance: Connection | None = None
         self._state = ConnectionState.DISCONNECTED
         self._receive_buffer: list[ReceivedMessage] = []
         self._is_flushing = False
@@ -83,24 +83,53 @@ class ConnectionHandle(Tasklet):
     def connected(self) -> bool:
         return self._state == ConnectionState.CONNECTED
 
-    def load(self) -> Result[Connection, ComponentError]:
-        if not self._connection:
+    async def load(self) -> Result[Connection, ComponentError]:
+        if not self._instance:
             match load_component(Connection, self._context.component, self._context.parameters):
-                case Ok(connection):
-                    self._connection = connection
+                case Ok(instance):
+                    self._instance = instance
+                    self._instance.setup(
+                        ConnectionContext(
+                            id=self._context.id,
+                            path=self._context.path,
+                        )
+                    )
                 case fail:
                     return fail
 
-        return Ok(self._connection)
+        return Ok(self._instance)
+
+    async def connect(self) -> bool:
+        if not self._instance:
+            return False
+        if self._state == ConnectionState.CONNECTED:
+            return True
+
+        self._state = ConnectionState.CONNECTING
+        if await self._instance.connect():
+            self._state = ConnectionState.CONNECTED
+        else:
+            self._state = ConnectionState.DISCONNECTED
+
+        return self.connected
+
+    async def disconnect(self) -> None:
+        if not self._instance or self._state == ConnectionState.DISCONNECTED:
+            return
+
+        try:
+            await self._instance.disconnect()
+        finally:
+            self._state = ConnectionState.DISCONNECTED
 
     async def send(self, data: str) -> Message:
-        if not self._connection:
+        if not self._instance:
             raise ConnectionInactiveException("Connection is not active.")
 
         try:
-            await self._connection.send(data)
+            await self._instance.send(data)
         except Exception:
-            await self._disconnect()
+            await self.disconnect()
             raise
 
         async with self._context.database.session() as session:
@@ -133,14 +162,14 @@ class ConnectionHandle(Tasklet):
             group.start_soon(process_update)
 
     async def _tasklet_stop(self) -> None:
-        await self._disconnect()
+        await self.disconnect()
         await self._flush()
 
     async def _update(self) -> None:
-        if not self._connection:
+        if not self._instance:
             return
 
-        while not await self._connect():
+        while not await self.connect():
             await anyio.sleep(self._reconnect.next().total_seconds())
 
         self._reconnect.reset()
@@ -148,37 +177,14 @@ class ConnectionHandle(Tasklet):
         while self._state == ConnectionState.CONNECTED:
             await self._receive()
 
-    async def _connect(self) -> bool:
-        if not self._connection:
-            return False
-        if self._state == ConnectionState.CONNECTED:
-            return True
-
-        self._state = ConnectionState.CONNECTING
-        if await self._connection.connect():
-            self._state = ConnectionState.CONNECTED
-        else:
-            self._state = ConnectionState.DISCONNECTED
-
-        return self.connected
-
-    async def _disconnect(self) -> None:
-        if not self._connection:
-            return
-
-        try:
-            await self._connection.disconnect()
-        finally:
-            self._state = ConnectionState.DISCONNECTED
-
     async def _receive(self) -> None:
-        if not self._connection:
+        if not self._instance:
             raise ConnectionInactiveException("Connection is not active.")
 
         try:
-            data = await self._connection.receive()
+            data = await self._instance.receive()
         except Exception:
-            await self._disconnect()
+            await self.disconnect()
             raise
 
         # Ensure timestamps are different.
@@ -231,7 +237,7 @@ class ConnectionHandle(Tasklet):
             self._is_flushing = False
 
 
-class ConnectionContext(BaseModel):
+class ConnectionHandleContext(BaseModel):
     class Config:
         arbitrary_types_allowed = True
 

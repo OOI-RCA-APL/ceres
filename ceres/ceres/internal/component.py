@@ -19,13 +19,13 @@ from ..errors import (
 )
 from ..result import Fail, Ok, Result
 
-ComponentT = TypeVar("ComponentT", bound="Component")
+ComponentT = TypeVar("ComponentT", bound="Component[Any]")
 
 
 def load_component(
     cls: type[ComponentT],
     source: str | object,
-    parameters: dict[str, Any] = {},
+    parameters: dict[str, Any],
 ) -> Result[ComponentT, ComponentError]:
     if not isinstance(source, str):
         if not isinstance(source, cls):

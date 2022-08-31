@@ -5,7 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ValidationError
 
-from .path import ComponentPath
+from .path import UnitComponentPath
 
 
 class ValidationProblem(BaseModel):
@@ -121,7 +121,7 @@ class ConfigDatabaseError(BaseConfigError):
 
 class ConfigComponentError(BaseConfigError):
     kind: Literal[ConfigErrorKind.COMPONENT_ERROR] = ConfigErrorKind.COMPONENT_ERROR
-    path: ComponentPath
+    path: UnitComponentPath
     error: ComponentError
 
 

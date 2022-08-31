@@ -1,16 +1,23 @@
 from __future__ import annotations
 
 from abc import ABC
+from uuid import UUID
 
-from .component import Component
+from .component import Component, ComponentContext
+from .path import ConnectionPath
 
 
-class Connection(Component, ABC):
+class ConnectionContext(ComponentContext):
+    id: UUID
+    path: ConnectionPath
+
+
+class Connection(Component[ConnectionContext], ABC):
     async def connect(self) -> bool:
-        raise NotImplementedError()
+        return True
 
     async def disconnect(self) -> None:
-        raise NotImplementedError()
+        pass
 
     async def send(self, data: str) -> None:
         raise NotImplementedError()

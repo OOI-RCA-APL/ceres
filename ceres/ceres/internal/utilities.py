@@ -3,7 +3,17 @@ from __future__ import annotations
 import inspect
 import signal
 from contextlib import contextmanager
-from typing import Any, Awaitable, Callable, Iterator, NoReturn, Sequence, TypeVar, cast
+from typing import (
+    Any,
+    Awaitable,
+    Callable,
+    Iterator,
+    MutableMapping,
+    NoReturn,
+    Sequence,
+    TypeVar,
+    cast,
+)
 
 T = TypeVar("T")
 
@@ -37,3 +47,12 @@ class UnreachableException(Exception):
 
 def unreachable() -> NoReturn:
     raise UnreachableException()
+
+
+def get_or_create(mapping: MutableMapping[str, T], key: str, factory: Callable[[], T]) -> T:
+    if key in mapping:
+        return mapping[key]
+
+    value = factory()
+    mapping[key] = value
+    return value
