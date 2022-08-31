@@ -18,7 +18,7 @@ from .config import Config, UnitConfig
 from .errors import ConfigError
 from .exceptions import ReloadAlreadyActiveException
 from .internal import logs
-from .internal.configurator import Configurator
+from .internal.config import load_config
 from .internal.database.manager import DatabaseManager
 from .internal.server import Server, ServerEngineProtocol
 from .internal.tasks import Tasklet
@@ -43,7 +43,6 @@ class Engine(Tasklet, ServerEngineProtocol):
     def __init__(self, config: Config) -> None:
         self._config = config
         self._config_queue: Queue[Config] = Queue()
-        self._configurator = Configurator(logger=self.logger)
         self._server: Server | None = None
         self._database = DatabaseManager.create(self._config.database)
         self._units: dict[UnitPath, UnitHandle] = {}
@@ -81,7 +80,7 @@ class Engine(Tasklet, ServerEngineProtocol):
             self.logger.info("No configuration path is set. Reloading current configuration...")
             source = self._config
 
-        match await self._configurator.load(source):
+        match await load_config(source, logger=self.logger):
             case Ok(config):
                 self.logger.info("Queueing reload...")
                 self._reloading.set()
@@ -92,7 +91,7 @@ class Engine(Tasklet, ServerEngineProtocol):
                 return fail
 
     async def _tasklet_run(self) -> None:
-        if not await self._configurator.load(self._config):
+        if not await load_config(self._config, logger=self.logger):
             self.logger.error("Initial configuration check failed. Exiting...")
             return
 

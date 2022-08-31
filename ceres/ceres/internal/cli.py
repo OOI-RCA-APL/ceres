@@ -13,7 +13,7 @@ from click import ClickException, Path
 from ..config import Config
 from ..engine import Engine
 from ..result import Ok
-from .configurator import Configurator
+from .config import load_config
 from .database.manager import DatabaseManager
 
 
@@ -78,7 +78,7 @@ async def run(config_path: str) -> None:
 @with_config_path
 @asyncronous
 async def check(config_path: str) -> None:
-    match await Configurator(logger=print).load(config_path):
+    match await load_config(config_path, logger=print):
         case Ok():
             print("All checks passed.")
         case fail:
@@ -141,7 +141,7 @@ def _resolve_config_path(config_path: str | None) -> str:
 
 
 async def _get_config(config_path: str | None) -> Config:
-    match await Configurator().load(_resolve_config_path(config_path)):
+    match await load_config(_resolve_config_path(config_path)):
         case Ok(config):
             return config
         case fail:

@@ -9,15 +9,15 @@ from pydantic import ValidationError, validate_arguments
 
 from ..component import Component
 from ..errors import (
+    ComponentClassInvalidError,
     ComponentError,
     ComponentInitExceptionError,
     ComponentModuleExceptionError,
     ComponentModuleNotFoundError,
-    InvalidComponentClassError,
-    InvalidComponentParametersError,
+    ComponentParametersInvalidError,
+    ValidationProblem,
 )
 from ..result import Fail, Ok, Result
-from ..validation import ValidationProblem
 
 ComponentT = TypeVar("ComponentT", bound="Component")
 
@@ -30,7 +30,7 @@ def load_component(
     if not isinstance(source, str):
         if not isinstance(source, cls):
             return Fail(
-                InvalidComponentClassError(
+                ComponentClassInvalidError(
                     message=f"Component passed in configuration must be an instance of {cls}, got {source}."
                 )
             )
@@ -54,14 +54,14 @@ def load_component(
 
     target_cls: type[ComponentT] | None = None
 
+    # Find the last non-abstract class in the module that is a subclass of the "cls" argument.
     for _, member in inspect.getmembers(module):
         if inspect.isclass(member) and issubclass(member, cls) and not inspect.isabstract(member):
             target_cls = member
-            break
 
     if target_cls is None:
         return Fail(
-            InvalidComponentClassError(
+            ComponentClassInvalidError(
                 message=f"Component module {module} must contain class a non-abstract subclass of {cls}."
             )
         )
@@ -87,7 +87,7 @@ def load_component(
         __init__.validate(instance, **arguments)  # type: ignore
     except ValidationError as error:
         return Fail(
-            InvalidComponentParametersError(
+            ComponentParametersInvalidError(
                 message=f"Invalid parameters for {target_cls}.",
                 problems=ValidationProblem.extract(error),
             )

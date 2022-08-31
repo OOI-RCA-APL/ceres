@@ -38,7 +38,7 @@ class DatabaseKind(str, Enum):
 
 
 class DatabaseRetryConfig(BaseModel):
-    attempts: int | None = Field(gt=0)
+    attempts: int | None = Field(default=None, gt=0)
     timeout: float = Field(gt=0)
 
 

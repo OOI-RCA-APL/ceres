@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from abc import ABC
+
 from .component import Component
 
 
-class Connection(Component):
+class Connection(Component, ABC):
     async def connect(self) -> bool:
         raise NotImplementedError()
 

@@ -3,10 +3,89 @@ from __future__ import annotations
 from enum import Enum
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from .path import ComponentPath
-from .validation import ValidationProblem
+
+
+class ValidationProblem(BaseModel):
+    location: list[str | int]
+    message: str
+    kind: str
+
+    @classmethod
+    def extract(cls, error: ValidationError) -> list[ValidationProblem]:
+        return [
+            ValidationProblem(
+                location=list(error["loc"]),
+                message=error["msg"],
+                kind=error["type"],
+            )
+            for error in error.errors()
+        ]
+
+
+class ComponentErrorKind(str, Enum):
+    COMPONENT_CLASS_INVALID = "component-class-invalid"
+    COMPONENT_MODULE_NOT_FOUND = "component-module-not-found"
+    COMPONENT_MODULE_EXCEPTION = "component-module-exception"
+    COMPONENT_CLASS_NOT_FOUND = "component-class-not-found"
+    COMPONENT_INIT_EXCEPTION = "component-init-exception"
+    COMPONENT_PARAMETERS_INVALID = "component-parameters-invalid"
+
+
+class BaseComponentError(BaseModel):
+    kind: ComponentErrorKind
+    message: str
+
+
+class ComponentModuleNotFoundError(BaseComponentError):
+    kind: Literal[
+        ComponentErrorKind.COMPONENT_MODULE_NOT_FOUND
+    ] = ComponentErrorKind.COMPONENT_MODULE_NOT_FOUND
+
+
+class ComponentModuleExceptionError(BaseComponentError):
+    kind: Literal[
+        ComponentErrorKind.COMPONENT_MODULE_EXCEPTION
+    ] = ComponentErrorKind.COMPONENT_MODULE_EXCEPTION
+    traceback: str
+
+
+class ComponentClassNotFoundError(BaseComponentError):
+    kind: Literal[
+        ComponentErrorKind.COMPONENT_CLASS_NOT_FOUND
+    ] = ComponentErrorKind.COMPONENT_CLASS_NOT_FOUND
+
+
+class ComponentClassInvalidError(BaseComponentError):
+    kind: Literal[
+        ComponentErrorKind.COMPONENT_CLASS_INVALID
+    ] = ComponentErrorKind.COMPONENT_CLASS_INVALID
+
+
+class ComponentParametersInvalidError(BaseComponentError):
+    kind: Literal[
+        ComponentErrorKind.COMPONENT_PARAMETERS_INVALID
+    ] = ComponentErrorKind.COMPONENT_PARAMETERS_INVALID
+    problems: list[ValidationProblem]
+
+
+class ComponentInitExceptionError(BaseComponentError):
+    kind: Literal[
+        ComponentErrorKind.COMPONENT_INIT_EXCEPTION
+    ] = ComponentErrorKind.COMPONENT_INIT_EXCEPTION
+    traceback: str
+
+
+ComponentError = (
+    ComponentModuleNotFoundError
+    | ComponentModuleExceptionError
+    | ComponentClassNotFoundError
+    | ComponentClassInvalidError
+    | ComponentParametersInvalidError
+    | ComponentInitExceptionError
+)
 
 
 class ConfigErrorKind(str, Enum):
@@ -48,67 +127,4 @@ ConfigError = (
     | ConfigSchemaError
     | ConfigDatabaseError
     | ConfigComponentError
-)
-
-
-class ComponentErrorKind(str, Enum):
-    INVALID_COMPONENT_CLASS = "invalid-component-class"
-    COMPONENT_MODULE_NOT_FOUND = "component-module-not-found"
-    COMPONENT_MODULE_EXCEPTION = "component-module-exception"
-    COMPONENT_CLASS_NOT_FOUND = "component-class-not-found"
-    COMPONENT_INIT_EXCEPTION = "component-init-exception"
-    INVALID_COMPONENT_PARAMETERS = "invalid-component-parameters"
-
-
-class BaseComponentError(BaseModel):
-    kind: ComponentErrorKind
-    message: str
-
-
-class InvalidComponentClassError(BaseComponentError):
-    kind: Literal[
-        ComponentErrorKind.INVALID_COMPONENT_CLASS
-    ] = ComponentErrorKind.INVALID_COMPONENT_CLASS
-
-
-class ComponentModuleNotFoundError(BaseComponentError):
-    kind: Literal[
-        ComponentErrorKind.COMPONENT_MODULE_NOT_FOUND
-    ] = ComponentErrorKind.COMPONENT_MODULE_NOT_FOUND
-
-
-class ComponentModuleExceptionError(BaseComponentError):
-    kind: Literal[
-        ComponentErrorKind.COMPONENT_MODULE_EXCEPTION
-    ] = ComponentErrorKind.COMPONENT_MODULE_EXCEPTION
-    traceback: str
-
-
-class ComponentClassNotFoundError(BaseComponentError):
-    kind: Literal[
-        ComponentErrorKind.COMPONENT_CLASS_NOT_FOUND
-    ] = ComponentErrorKind.COMPONENT_CLASS_NOT_FOUND
-
-
-class InvalidComponentParametersError(BaseComponentError):
-    kind: Literal[
-        ComponentErrorKind.INVALID_COMPONENT_PARAMETERS
-    ] = ComponentErrorKind.INVALID_COMPONENT_PARAMETERS
-    problems: list[ValidationProblem]
-
-
-class ComponentInitExceptionError(BaseComponentError):
-    kind: Literal[
-        ComponentErrorKind.COMPONENT_INIT_EXCEPTION
-    ] = ComponentErrorKind.COMPONENT_INIT_EXCEPTION
-    traceback: str
-
-
-ComponentError = (
-    InvalidComponentClassError
-    | ComponentModuleNotFoundError
-    | ComponentModuleExceptionError
-    | ComponentClassNotFoundError
-    | InvalidComponentParametersError
-    | ComponentInitExceptionError
 )
