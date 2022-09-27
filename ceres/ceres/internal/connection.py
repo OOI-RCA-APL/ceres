@@ -14,6 +14,7 @@ from ..errors import ComponentError
 from ..exceptions import ConnectionInactiveException
 from ..message import Message
 from ..path import ConnectionPath
+from ..protocols import BoundConnection, GlobalUnitProtocol
 from ..result import Ok, Result
 from .component import load_component
 from .database.entity import MessageDirection, MessageEntity, eid
@@ -55,7 +56,7 @@ class ReconnectScheduler:
         return next
 
 
-class ConnectionHandle(Tasklet):
+class ConnectionHandle(Tasklet, BoundConnection):
     MAX_RECEIVE_BUFFER_SIZE = 2500
 
     def __init__(self, context: ConnectionHandleContext) -> None:
@@ -90,6 +91,7 @@ class ConnectionHandle(Tasklet):
                     self._instance = instance
                     self._instance.setup(
                         ConnectionContext(
+                            unit=self._context.unit,
                             id=self._context.id,
                             path=self._context.path,
                         )
@@ -241,6 +243,7 @@ class ConnectionHandleContext(BaseModel):
     class Config:
         arbitrary_types_allowed = True
 
+    unit: GlobalUnitProtocol
     id: UUID
     path: ConnectionPath
     component: str | object

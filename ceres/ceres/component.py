@@ -6,10 +6,14 @@ from typing import Generic, TypeVar
 from pydantic import BaseModel
 
 from .exceptions import ComponentNotSetupException
+from .protocols import GlobalUnitProtocol
 
 
 class ComponentContext(BaseModel, ABC):
-    pass
+    class Config:
+        arbitrary_types_allowed = True
+
+    unit: GlobalUnitProtocol
 
 
 ContextT = TypeVar("ContextT", bound=ComponentContext)

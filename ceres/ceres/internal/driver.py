@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from ..driver import Driver, DriverContext
 from ..errors import ComponentError
 from ..path import DriverPath
+from ..protocols import GlobalUnitProtocol
 from ..result import Ok, Result
 from .component import load_component
 from .database.manager import DatabaseManager
@@ -35,6 +36,7 @@ class DriverHandle(Tasklet):
                     self._instance = instance
                     self._instance.setup(
                         DriverContext(
+                            unit=self._context.unit,
                             id=self._context.id,
                             path=self._context.path,
                         )
@@ -66,6 +68,7 @@ class DriverHandleContext(BaseModel):
     class Config:
         arbitrary_types_allowed = True
 
+    unit: GlobalUnitProtocol
     id: UUID
     path: DriverPath
     component: str | object

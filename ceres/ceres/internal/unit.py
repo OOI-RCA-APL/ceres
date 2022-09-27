@@ -12,6 +12,7 @@ from pydantic import BaseModel
 
 from ..config import ConnectionConfig, DatabaseConfig, DriverConfig, UnitConfig
 from ..path import ConnectionPath, DriverPath, UnitPath
+from ..protocols import BoundConnection, GlobalUnitProtocol
 from ..result import Fail, Ok
 from . import logs
 from .connection import ConnectionHandle, ConnectionHandleContext
@@ -37,7 +38,7 @@ class UnitProxyProtocol(Protocol):
         ...
 
 
-class Unit(UnitProxyProtocol, Tasklet):
+class Unit(UnitProxyProtocol, GlobalUnitProtocol, Tasklet):
     def __init__(self, context: UnitContext) -> None:
         self._context = context
         self._database = DatabaseManager.create(self._context.database)
@@ -60,6 +61,9 @@ class Unit(UnitProxyProtocol, Tasklet):
     @property
     def logger(self) -> Logger:
         return logs.get(str(self._context.path))
+
+    def get_connection(self, name: str) -> BoundConnection | None:
+        return self._connections.get(name)
 
     def rpc_run(self) -> BaseException | None:
         async def execute() -> None:
@@ -123,6 +127,7 @@ class Unit(UnitProxyProtocol, Tasklet):
 
             self._connections[config.name] = ConnectionHandle(
                 ConnectionHandleContext(
+                    unit=self,
                     id=id,
                     path=path,
                     component=config.component,
@@ -155,6 +160,7 @@ class Unit(UnitProxyProtocol, Tasklet):
 
             self._drivers[config.name] = DriverHandle(
                 DriverHandleContext(
+                    unit=self,
                     id=id,
                     path=path,
                     component=config.component,

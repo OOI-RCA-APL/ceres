@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field, PrivateAttr, validator
 
 class ComponentConfig(BaseModel, ABC):
     class Config:
-        allow_arbitrary_types = True
+        arbitrary_types_allowed = True
 
     component: str | object
     parameters: dict[str, Any] = {}
