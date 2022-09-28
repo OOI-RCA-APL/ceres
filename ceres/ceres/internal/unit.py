@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import itertools
 import traceback
 from logging import Logger
 from multiprocessing.managers import BaseManager
-from typing import Any, Protocol, cast
+from typing import Any, Iterable, Protocol, cast
 from uuid import UUID
 
 import anyio
@@ -11,8 +12,9 @@ from anyio.abc import TaskGroup
 from pydantic import BaseModel
 
 from ..config import ConnectionConfig, DatabaseConfig, DriverConfig, UnitConfig
+from ..events import Event
 from ..path import ConnectionPath, DriverPath, UnitPath
-from ..protocols import BoundConnection, GlobalUnitProtocol
+from ..protocols import GlobalUnitProtocol
 from ..result import Fail, Ok
 from . import logs
 from .connection import ConnectionHandle, ConnectionHandleContext
@@ -62,8 +64,28 @@ class Unit(UnitProxyProtocol, GlobalUnitProtocol, Tasklet):
     def logger(self) -> Logger:
         return logs.get(str(self._context.path))
 
-    def get_connection(self, name: str) -> BoundConnection | None:
+    @property
+    def components(self) -> Iterable[ConnectionHandle | DriverHandle]:
+        return itertools.chain(self.connections, self.drivers)
+
+    @property
+    def connections(self) -> Iterable[ConnectionHandle]:
+        return self._connections.values()
+
+    @property
+    def drivers(self) -> Iterable[DriverHandle]:
+        return self._drivers.values()
+
+    def get_connection(self, name: str) -> ConnectionHandle | None:
         return self._connections.get(name)
+
+    def get_driver(self, name: str) -> DriverHandle | None:
+        return self._drivers.get(name)
+
+    async def broadcast(self, event: Event) -> None:
+        for component in self.components:
+            if component.instance:
+                await component.instance.handle(event)
 
     def rpc_run(self) -> BaseException | None:
         async def execute() -> None:

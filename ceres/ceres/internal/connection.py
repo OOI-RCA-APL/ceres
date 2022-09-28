@@ -11,9 +11,15 @@ from pydantic import BaseModel
 from ..config import ReconnectConfig
 from ..connection import Connection, ConnectionContext
 from ..errors import ComponentError
+from ..events import (
+    ConnectedEvent,
+    DisconnectedEvent,
+    MessageReceivedEvent,
+    MessageSentEvent,
+)
 from ..exceptions import ConnectionInactiveException
 from ..message import Message
-from ..path import ConnectionPath
+from ..path import ConnectionPath, LocalConnectionPath
 from ..protocols import BoundConnection, GlobalUnitProtocol
 from ..result import Ok, Result
 from .component import load_component
@@ -84,6 +90,10 @@ class ConnectionHandle(Tasklet, BoundConnection):
     def connected(self) -> bool:
         return self._state == ConnectionState.CONNECTED
 
+    @property
+    def instance(self) -> Connection | None:
+        return self._instance
+
     async def load(self) -> Result[Connection, ComponentError]:
         if not self._instance:
             match load_component(Connection, self._context.component, self._context.parameters):
@@ -110,6 +120,12 @@ class ConnectionHandle(Tasklet, BoundConnection):
         self._state = ConnectionState.CONNECTING
         if await self._instance.connect():
             self._state = ConnectionState.CONNECTED
+            await self._context.unit.broadcast(
+                ConnectedEvent(
+                    path=LocalConnectionPath.create(self._context.path.name),
+                    timestamp=datetime.now(timezone.utc),
+                )
+            )
         else:
             self._state = ConnectionState.DISCONNECTED
 
@@ -123,6 +139,12 @@ class ConnectionHandle(Tasklet, BoundConnection):
             await self._instance.disconnect()
         finally:
             self._state = ConnectionState.DISCONNECTED
+            await self._context.unit.broadcast(
+                DisconnectedEvent(
+                    path=LocalConnectionPath.create(self._context.path.name),
+                    timestamp=datetime.now(timezone.utc),
+                )
+            )
 
     async def send(self, data: str) -> Message:
         if not self._instance:
@@ -146,7 +168,15 @@ class ConnectionHandle(Tasklet, BoundConnection):
 
             await session.commit()
 
-        return Message.from_entity(entity)
+        message = Message.from_entity(entity)
+        await self._context.unit.broadcast(
+            MessageSentEvent(
+                path=LocalConnectionPath.create(self._context.path.name),
+                message=message,
+            )
+        )
+
+        return message
 
     async def _tasklet_run(self) -> None:
         async def process_update() -> None:
@@ -207,6 +237,19 @@ class ConnectionHandle(Tasklet, BoundConnection):
 
         if not self._is_flushing and len(self._receive_buffer) >= self.MAX_RECEIVE_BUFFER_SIZE:
             await self._flush()
+
+        await self._context.unit.broadcast(
+            MessageReceivedEvent(
+                path=LocalConnectionPath.create(self._context.path.name),
+                message=Message(
+                    id=message.id,
+                    connection_id=self._context.id,
+                    timestamp=message.timestamp,
+                    content=message.content,
+                    direction=MessageDirection.RECEIVE,
+                ),
+            )
+        )
 
     async def _flush(self) -> None:
         if not self._receive_buffer:

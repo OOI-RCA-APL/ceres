@@ -29,6 +29,10 @@ class DriverHandle(Tasklet):
     def path(self) -> DriverPath:
         return self._context.path
 
+    @property
+    def instance(self) -> Driver | None:
+        return self._instance
+
     async def load(self) -> Result[Driver, ComponentError]:
         if not self._instance:
             match load_component(Driver, self._context.component, self._context.parameters):

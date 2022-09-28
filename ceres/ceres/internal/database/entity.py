@@ -14,7 +14,12 @@ from sqlalchemy.ext.declarative import declared_attr
 from sqlalchemy.orm import Mapped, declarative_base, relationship
 from sqlalchemy_utils import UUIDType
 
-from ...path import ConnectionPath, DriverPath, UnitComponentPath, UnitPath
+from ...path import (
+    ConnectionPath,
+    DriverPath,
+    ComponentPath,
+    UnitPath,
+)
 
 if TYPE_CHECKING:
     from .manager import DatabaseManager
@@ -123,7 +128,7 @@ class EntityManager:
         self,
         session: AsyncSession,
         UnitComponentEntity: type[UnitComponentEntityT],
-        path: UnitComponentPath,
+        path: ComponentPath,
     ) -> ComponentEntity:
         unit_id = await self.get_unit_id(UnitPath.create(path.unit))
 
