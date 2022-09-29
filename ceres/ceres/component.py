@@ -4,7 +4,7 @@ import inspect
 import traceback
 from abc import ABC
 from functools import cached_property
-from typing import Generic, Literal, Sequence, TypeVar
+from typing import Generic, Literal, Sequence, TypeVar, cast
 
 from pydantic import BaseModel
 
@@ -49,7 +49,7 @@ class Component(Generic[ContextT], ABC):
 
     async def handle(self, event: Event) -> None:
         for binding in self.bindings:
-            if event.path == binding.path and binding.event == event.kind:
+            if event.path == binding.path and isinstance(event, cast(type, binding.cls)):
                 if method := getattr(self, binding.method, None):
                     try:
                         if len(inspect.signature(method).parameters) == 0:
