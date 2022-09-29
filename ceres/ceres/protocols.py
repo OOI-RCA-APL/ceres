@@ -8,7 +8,7 @@ from .message import Message
 
 @runtime_checkable
 class BoundConnection(Protocol):
-    async def send(self, data: str) -> Message:
+    async def send(self, data: bytes) -> Message:
         ...
 
 

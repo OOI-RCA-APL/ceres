@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from logging import Logger
 from typing import Any
 from uuid import UUID
 
@@ -8,6 +9,7 @@ from pydantic import BaseModel
 
 from ..driver import Driver, DriverContext
 from ..errors import ComponentError
+from ..internal import logs
 from ..path import DriverPath
 from ..protocols import GlobalUnitProtocol
 from ..result import Ok, Result
@@ -32,6 +34,10 @@ class DriverHandle(Tasklet):
     @property
     def instance(self) -> Driver | None:
         return self._instance
+
+    @property
+    def logger(self) -> Logger:
+        return logs.get(str(self._context.path))
 
     async def load(self) -> Result[Driver, ComponentError]:
         if not self._instance:

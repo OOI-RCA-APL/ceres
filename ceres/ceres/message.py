@@ -17,7 +17,7 @@ class Message(BaseModel):
     connection_id: UUID
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     direction: MessageDirection
-    content: str
+    content: bytes
 
     @staticmethod
     def from_entity(entity: MessageEntity) -> Message:

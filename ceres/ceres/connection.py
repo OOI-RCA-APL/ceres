@@ -21,10 +21,10 @@ class Connection(Component[ConnectionContext], ABC):
     async def disconnect(self) -> None:
         pass
 
-    async def send(self, data: str) -> None:
+    async def send(self, data: bytes) -> None:
         raise NotImplementedError()
 
-    async def receive(self) -> str:
+    async def receive(self) -> bytes:
         raise NotImplementedError()
 
 

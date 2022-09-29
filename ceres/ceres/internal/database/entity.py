@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, TypeVar, cast
 from uuid import UUID, uuid4
 
 import sqlalchemy as sql
-from sqlalchemy import TIMESTAMP, Column
+from sqlalchemy import BINARY, TIMESTAMP, Column
 from sqlalchemy import Enum as StringEnum
 from sqlalchemy import ForeignKey, String
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,12 +14,7 @@ from sqlalchemy.ext.declarative import declared_attr
 from sqlalchemy.orm import Mapped, declarative_base, relationship
 from sqlalchemy_utils import UUIDType
 
-from ...path import (
-    ConnectionPath,
-    DriverPath,
-    ComponentPath,
-    UnitPath,
-)
+from ...path import ComponentPath, ConnectionPath, DriverPath, UnitPath
 
 if TYPE_CHECKING:
     from .manager import DatabaseManager
@@ -86,7 +81,7 @@ class MessageEntity(Entity):
     direction: MessageDirection = Column(
         StringEnum(*[current.value for current in MessageDirection])
     )
-    content: str = Column(String)
+    content: bytes = Column(BINARY)
 
 
 UnitComponentEntityT = TypeVar("UnitComponentEntityT", bound=UnitComponentEntity)

@@ -4,13 +4,17 @@ import inspect
 import traceback
 from abc import ABC
 from functools import cached_property
+from logging import Logger
 from typing import Generic, Literal, Sequence, TypeVar, cast
 
 from pydantic import BaseModel
 
+from ceres.internal import logs
+
 from .events import Event, EventBinding, get_event_bindings
 from .exceptions import ComponentNotSetupException
 from .internal.utilities import awaitify
+from .path import ComponentPath
 from .protocols import GlobalUnitProtocol
 
 
@@ -19,6 +23,7 @@ class ComponentContext(BaseModel, ABC):
         arbitrary_types_allowed = True
 
     unit: GlobalUnitProtocol
+    path: ComponentPath
 
 
 ContextT = TypeVar("ContextT", bound=ComponentContext)
@@ -42,6 +47,10 @@ class Component(Generic[ContextT], ABC):
             )
 
         return self.__context__
+
+    @property
+    def logger(self) -> Logger:
+        return logs.get(str(self.context.path))
 
     @cached_property
     def bindings(self) -> Sequence[EventBinding]:

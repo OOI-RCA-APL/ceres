@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from enum import Enum
+from logging import Logger
 from typing import Any
 from uuid import UUID
 
@@ -18,6 +19,7 @@ from ..events import (
     MessageSentEvent,
 )
 from ..exceptions import ConnectionInactiveException
+from ..internal import logs
 from ..message import Message
 from ..path import ConnectionPath, LocalConnectionPath
 from ..protocols import BoundConnection, GlobalUnitProtocol
@@ -31,7 +33,7 @@ from .tasks import Tasklet
 class ReceivedMessage(BaseModel):
     id: UUID
     timestamp: datetime
-    content: str
+    content: bytes
 
 
 class ReconnectScheduler:
@@ -94,6 +96,10 @@ class ConnectionHandle(Tasklet, BoundConnection):
     def instance(self) -> Connection | None:
         return self._instance
 
+    @property
+    def logger(self) -> Logger:
+        return logs.get(str(self._context.path))
+
     async def load(self) -> Result[Connection, ComponentError]:
         if not self._instance:
             match load_component(Connection, self._context.component, self._context.parameters):
@@ -117,6 +123,8 @@ class ConnectionHandle(Tasklet, BoundConnection):
         if self._state == ConnectionState.CONNECTED:
             return True
 
+        self.logger.info("Connecting...")
+
         self._state = ConnectionState.CONNECTING
         if await self._instance.connect():
             self._state = ConnectionState.CONNECTED
@@ -126,8 +134,10 @@ class ConnectionHandle(Tasklet, BoundConnection):
                     timestamp=datetime.now(timezone.utc),
                 )
             )
+            self.logger.info("Connected successfully.")
         else:
             self._state = ConnectionState.DISCONNECTED
+            self.logger.info("Failed to connect.")
 
         return self.connected
 
@@ -135,18 +145,23 @@ class ConnectionHandle(Tasklet, BoundConnection):
         if not self._instance or self._state == ConnectionState.DISCONNECTED:
             return
 
+        self.logger.info("Disconnecting...")
+
         try:
             await self._instance.disconnect()
         finally:
             self._state = ConnectionState.DISCONNECTED
-            await self._context.unit.broadcast(
-                DisconnectedEvent(
-                    path=LocalConnectionPath.create(self._context.path.name),
-                    timestamp=datetime.now(timezone.utc),
+            try:
+                await self._context.unit.broadcast(
+                    DisconnectedEvent(
+                        path=LocalConnectionPath.create(self._context.path.name),
+                        timestamp=datetime.now(timezone.utc),
+                    )
                 )
-            )
+            finally:
+                self.logger.info("Disconnected.")
 
-    async def send(self, data: str) -> Message:
+    async def send(self, data: bytes) -> Message:
         if not self._instance:
             raise ConnectionInactiveException("Connection is not active.")
 
@@ -218,6 +233,8 @@ class ConnectionHandle(Tasklet, BoundConnection):
         except Exception:
             await self.disconnect()
             raise
+
+        self.logger.info(f"Received: {repr(data)}")
 
         # Ensure timestamps are different.
         if self._last_message_timestamp:

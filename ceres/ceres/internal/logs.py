@@ -102,6 +102,7 @@ def _generate_config() -> dict[str, Any]:
                     name: {
                         "level": state.config.level,
                         "handlers": ["default"],
+                        "propagate": False,
                     }
                     for name in state.loggers.keys()
                 }
@@ -109,11 +110,12 @@ def _generate_config() -> dict[str, Any]:
             "uvicorn": {
                 "level": state.config.level,
                 "handlers": ["uvicorn"],
+                "propagate": False,
             },
             "uvicorn.access": {
                 "level": state.config.level,
-                "propagate": False,
                 "handlers": ["uvicorn.access"],
+                "propagate": False,
             },
         },
     }
