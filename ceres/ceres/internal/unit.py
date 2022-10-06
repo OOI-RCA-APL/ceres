@@ -85,7 +85,12 @@ class Unit(UnitProxyProtocol, GlobalUnitProtocol, Tasklet):
     async def broadcast(self, event: Event) -> None:
         for component in self.components:
             if component.instance:
-                await component.instance.handle(event)
+                try:
+                    await component.instance.handle(event)
+                except Exception:
+                    self.logger.error(
+                        f"{component.path} raised exception while handling event {event}: {traceback.format_exc()}"
+                    )
 
     def rpc_run(self) -> BaseException | None:
         async def execute() -> None:

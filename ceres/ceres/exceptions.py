@@ -29,3 +29,7 @@ class ConnectionLostException(ConnectionException):
 
 class ConnectionDecodeException(ConnectionException):
     pass
+
+
+class ParseException(CeresException):
+    pass

@@ -56,7 +56,12 @@ def load_component(
 
     # Find the last non-abstract class in the module that is a subclass of the "cls" argument.
     for _, member in inspect.getmembers(module):
-        if inspect.isclass(member) and issubclass(member, cls) and not inspect.isabstract(member):
+        if (
+            inspect.isclass(member)
+            and not inspect.isabstract(member)
+            and member is not cls
+            and issubclass(member, cls)
+        ):
             target_cls = member
 
     if target_cls is None:

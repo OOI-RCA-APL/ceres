@@ -151,6 +151,7 @@ async def _check_components(
                 log(f"Checking component '{path}'...")
                 match load_component(Driver, driver.component, driver.parameters):
                     case Fail(error):
+                        log("fail")
                         yield ConfigComponentError(
                             path=path,
                             error=error,
