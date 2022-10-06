@@ -28,7 +28,7 @@ class Connection(Component[ConnectionContext], ABC):
         raise NotImplementedError()
 
 
-class UseConnection:
+class ConnectionReference:
     def __init__(self, name: str) -> None:
         self.name = name
 
@@ -37,7 +37,7 @@ class UseConnection:
         return LocalConnectionPath.create(self.name)
 
     @overload
-    def __get__(self, component: None, owner: Any) -> UseConnection:
+    def __get__(self, component: None, owner: Any) -> ConnectionReference:
         ...
 
     @overload
@@ -48,7 +48,7 @@ class UseConnection:
         self,
         component: Component[ContextT] | None,
         owner: Any,
-    ) -> UseConnection | BoundConnection:
+    ) -> ConnectionReference | BoundConnection:
         if component is None:
             return self
 

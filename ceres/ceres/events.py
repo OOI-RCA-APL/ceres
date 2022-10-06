@@ -43,9 +43,9 @@ ConnectionEvent = ConnectedEvent | DisconnectedEvent | MessageSentEvent | Messag
 Event = ConnectionEvent
 
 if TYPE_CHECKING:
-    from .connection import UseConnection
+    from .connection import ConnectionReference
 
-    ListenSource = UseConnection
+    ListenSource = ConnectionReference
 
 EventT = TypeVar("EventT", bound=Event)
 
