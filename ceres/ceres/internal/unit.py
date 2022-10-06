@@ -4,6 +4,7 @@ import itertools
 import traceback
 from logging import Logger
 from multiprocessing.managers import BaseManager
+from threading import Lock
 from typing import Any, Iterable, Protocol, cast
 from uuid import UUID
 
@@ -164,13 +165,15 @@ class Unit(UnitProxyProtocol, GlobalUnitProtocol, Tasklet):
                 )
             )
 
-        for connection in self._connections.values():
-            match await connection.load():
+        for handle in self._connections.values():
+            match await handle.load():
                 case Ok():
-                    self.logger.info(f"Loaded connection '{connection.path}'.")
+                    self.logger.info(
+                        f"Loaded '{handle.path}' as {type(handle.instance)} with id '{handle.id}'."
+                    )
                 case Fail(error):
                     self.logger.error(
-                        f"Failed to load connection '{connection.path}'. Error: {error.json(indent=2)}"
+                        f"Failed to load connection '{handle.path}'. Error: {error.json(indent=2)}"
                     )
 
     async def _load_drivers(self) -> None:
@@ -196,13 +199,15 @@ class Unit(UnitProxyProtocol, GlobalUnitProtocol, Tasklet):
                 )
             )
 
-        for driver in self._drivers.values():
-            match await driver.load():
+        for handle in self._drivers.values():
+            match await handle.load():
                 case Ok():
-                    self.logger.info(f"Loaded driver '{driver.path}'.")
+                    self.logger.info(
+                        f"Loaded '{handle.path}' as {type(handle.instance)} with id '{handle.id}'."
+                    )
                 case Fail(error):
                     self.logger.error(
-                        f"Failed to load driver '{driver.path}'. Error: {error.json(indent=2)}"
+                        f"Failed to load '{handle.path}'. Error: {error.json(indent=2)}"
                     )
 
 
@@ -218,6 +223,7 @@ class UnitHandle(Tasklet):
         self._context = context
         self._manager: UnitManager | None = None
         self._instance: UnitProxyProtocol | None = None
+        self._lock = Lock()
 
     @property
     def id(self) -> UUID:
@@ -237,10 +243,11 @@ class UnitHandle(Tasklet):
 
     async def _tasklet_run(self) -> None:
         def execute() -> None:
-            self._manager = UnitManager()
-            self._manager.start()
-            instance = cast(UnitProxyProtocol, cast(Any, self._manager).Unit(self._context))
-            self._instance = instance
+            with self._lock:
+                self._manager = UnitManager()
+                self._manager.start()
+                instance = cast(UnitProxyProtocol, cast(Any, self._manager).Unit(self._context))
+                self._instance = instance
 
             try:
                 exception = instance.rpc_run()
@@ -254,14 +261,15 @@ class UnitHandle(Tasklet):
 
     async def _tasklet_stop(self) -> None:
         def execute() -> None:
-            if self._instance:
-                exception = self._instance.rpc_stop()
-                self._instance = None
-            else:
-                exception = None
+            with self._lock:
+                if self._instance:
+                    exception = self._instance.rpc_stop()
+                    self._instance = None
+                else:
+                    exception = None
 
-            if self._manager:
-                self._manager.shutdown()
+                if self._manager:
+                    self._manager.shutdown()
 
             if exception:
                 raise exception
