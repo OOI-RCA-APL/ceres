@@ -4,10 +4,12 @@ import importlib
 import inspect
 import traceback
 from typing import Any, TypeVar
+from uuid import UUID
 
-from pydantic import ValidationError, validate_arguments
+from pydantic import BaseModel, ValidationError, validate_arguments
 
 from ..component import Component
+from ..config import ComponentReferencesConfig
 from ..errors import (
     ComponentClassInvalidError,
     ComponentError,
@@ -17,7 +19,10 @@ from ..errors import (
     ComponentParametersInvalidError,
     ValidationProblem,
 )
+from ..path import ComponentPath
+from ..protocols import GlobalUnitProtocol
 from ..result import Fail, Ok, Result
+from .database.manager import DatabaseManager
 
 ComponentT = TypeVar("ComponentT", bound="Component[Any]")
 
@@ -109,3 +114,16 @@ def load_component(
         )
 
     return Ok(instance)
+
+
+class ComponentHandleContext(BaseModel):
+    class Config:
+        arbitrary_types_allowed = True
+
+    id: UUID
+    path: ComponentPath
+    unit: GlobalUnitProtocol
+    component: str | object
+    parameters: dict[str, Any]
+    references: ComponentReferencesConfig
+    database: DatabaseManager

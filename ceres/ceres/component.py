@@ -6,13 +6,14 @@ from abc import ABC
 from functools import cached_property
 from logging import Logger
 from typing import Generic, Literal, Sequence, TypeVar, cast
+from uuid import UUID
 
 from pydantic import BaseModel
 
-from ceres.internal import logs
-
+from .config import ComponentReferencesConfig
 from .events import Event, EventBinding, get_event_bindings
 from .exceptions import ComponentNotSetupException
+from .internal import logs
 from .internal.utilities import awaitify
 from .path import ComponentPath
 from .protocols import GlobalUnitProtocol
@@ -22,8 +23,10 @@ class ComponentContext(BaseModel, ABC):
     class Config:
         arbitrary_types_allowed = True
 
-    unit: GlobalUnitProtocol
+    id: UUID
     path: ComponentPath
+    unit: GlobalUnitProtocol
+    references: ComponentReferencesConfig
 
 
 ContextT = TypeVar("ContextT", bound=ComponentContext)
@@ -58,7 +61,20 @@ class Component(Generic[ContextT], ABC):
 
     async def handle(self, event: Event) -> None:
         for binding in self.bindings:
-            if event.path == binding.path and isinstance(event, cast(type, binding.cls)):
+            if not isinstance(event, cast(type, binding.cls)):
+                continue
+
+            if event.path.kind == binding.path.kind:
+                if binding.path.kind == "connection":
+                    references = self.context.references.connections
+                elif binding.path.kind == "driver":
+                    references = self.context.references.drivers
+                else:
+                    continue
+
+                if references.get(binding.path.name) != event.path.name:
+                    continue
+
                 if method := getattr(self, binding.method, None):
                     try:
                         if len(inspect.signature(method).parameters) == 0:

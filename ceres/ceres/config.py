@@ -8,17 +8,22 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, PrivateAttr, validator
 
+_NAME_REGEX = r"[a-zA-Z\-\_][a-zA-Z0-9\-\_]*"
+
+
+class ComponentReferencesConfig(BaseModel):
+    connections: dict[str, str] = {}
+    drivers: dict[str, str] = {}
+
 
 class ComponentConfig(BaseModel, ABC):
     class Config:
         arbitrary_types_allowed = True
 
+    name: str = Field(regex=_NAME_REGEX)
     component: str | object
     parameters: dict[str, Any] = {}
-
-
-class UnitComponentConfig(ComponentConfig, ABC):
-    name: str
+    references: ComponentReferencesConfig = ComponentReferencesConfig()
 
 
 class ReconnectConfig(BaseModel):
@@ -27,11 +32,11 @@ class ReconnectConfig(BaseModel):
     max_interval: float | None = 60 * 5
 
 
-class ConnectionConfig(UnitComponentConfig):
+class ConnectionConfig(ComponentConfig):
     reconnect: ReconnectConfig = ReconnectConfig()
 
 
-class DriverConfig(UnitComponentConfig):
+class DriverConfig(ComponentConfig):
     pass
 
 
@@ -64,7 +69,7 @@ DatabaseConfig = SQLiteDatabaseConfig
 
 
 class UnitConfig(BaseModel):
-    name: str
+    name: str = Field(regex=_NAME_REGEX)
     connections: list[ConnectionConfig] = []
     drivers: list[DriverConfig] = []
 

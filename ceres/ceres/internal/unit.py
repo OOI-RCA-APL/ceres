@@ -155,11 +155,12 @@ class Unit(UnitProxyProtocol, GlobalUnitProtocol, Tasklet):
 
             self._connections[config.name] = ConnectionHandle(
                 ConnectionHandleContext(
-                    unit=self,
                     id=id,
                     path=path,
+                    unit=self,
                     component=config.component,
                     parameters=config.parameters,
+                    references=config.references,
                     database=self._database,
                     reconnect=config.reconnect,
                 )
@@ -190,11 +191,12 @@ class Unit(UnitProxyProtocol, GlobalUnitProtocol, Tasklet):
 
             self._drivers[config.name] = DriverHandle(
                 DriverHandleContext(
-                    unit=self,
                     id=id,
                     path=path,
+                    unit=self,
                     component=config.component,
                     parameters=config.parameters,
+                    references=config.references,
                     database=self._database,
                 )
             )

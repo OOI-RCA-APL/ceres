@@ -1,16 +1,15 @@
 from __future__ import annotations
 
 from abc import ABC
-from typing import Any, overload
-from uuid import UUID
+from typing import Any
 
 from .component import Component, ComponentContext, ContextT
-from .path import ConnectionPath, LocalConnectionPath
-from .protocols import BoundConnection
+from .path import ConnectionPath
+from .protocols import ReferencedConnectionHandleProtocol
+from .reference import Reference, SelfT
 
 
 class ConnectionContext(ComponentContext):
-    id: UUID
     path: ConnectionPath
 
 
@@ -28,31 +27,19 @@ class Connection(Component[ConnectionContext], ABC):
         raise NotImplementedError()
 
 
-class ConnectionReference:
-    def __init__(self, name: str) -> None:
-        self.name = name
-
-    @property
-    def path(self) -> LocalConnectionPath:
-        return LocalConnectionPath.create(self.name)
-
-    @overload
-    def __get__(self, component: None, owner: Any) -> ConnectionReference:
-        ...
-
-    @overload
-    def __get__(self, component: Component[ContextT], owner: Any) -> BoundConnection:
-        ...
-
-    def __get__(
-        self,
+class ConnectionReference(Reference[ReferencedConnectionHandleProtocol]):
+    def __get__(  # type: ignore
+        self: SelfT,
         component: Component[ContextT] | None,
         owner: Any,
-    ) -> ConnectionReference | BoundConnection:
+    ) -> SelfT | ReferencedConnectionHandleProtocol:
         if component is None:
             return self
 
-        if connection := component.context.unit.get_connection(self.name):
+        if not (real_name := component.context.references.connections.get(self.name)):
+            raise ValueError(f"connection '{self.name}' is not defined in connection references")
+
+        if connection := component.context.unit.get_connection(real_name):
             return connection
 
-        raise ValueError(f"no connection in unit named '{self.name}'")
+        raise ValueError(f"no connection '{real_name}' in current unit")

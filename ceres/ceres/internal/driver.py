@@ -1,24 +1,21 @@
 from __future__ import annotations
 
 from logging import Logger
-from typing import Any
 from uuid import UUID
 
 import anyio
-from pydantic import BaseModel
 
 from ..driver import Driver, DriverContext
 from ..errors import ComponentError
 from ..internal import logs
 from ..path import DriverPath
-from ..protocols import GlobalUnitProtocol
+from ..protocols import ReferencedDriverHandleProtocol
 from ..result import Ok, Result
-from .component import load_component
-from .database.manager import DatabaseManager
+from .component import ComponentHandleContext, load_component
 from .tasks import Tasklet
 
 
-class DriverHandle(Tasklet):
+class DriverHandle(Tasklet, ReferencedDriverHandleProtocol):
     def __init__(self, context: DriverHandleContext) -> None:
         self._context = context
         self._instance: Driver | None = None
@@ -46,9 +43,10 @@ class DriverHandle(Tasklet):
                     self._instance = instance
                     self._instance.setup(
                         DriverContext(
-                            unit=self._context.unit,
                             id=self._context.id,
                             path=self._context.path,
+                            unit=self._context.unit,
+                            references=self._context.references,
                         )
                     )
                 case fail:
@@ -74,13 +72,5 @@ class DriverHandle(Tasklet):
         await self._instance.update()
 
 
-class DriverHandleContext(BaseModel):
-    class Config:
-        arbitrary_types_allowed = True
-
-    unit: GlobalUnitProtocol
-    id: UUID
+class DriverHandleContext(ComponentHandleContext):
     path: DriverPath
-    component: str | object
-    parameters: dict[str, Any]
-    database: DatabaseManager

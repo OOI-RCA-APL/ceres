@@ -3,7 +3,6 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 from logging import Logger
-from typing import Any
 from uuid import UUID
 
 import anyio
@@ -22,11 +21,10 @@ from ..exceptions import ConnectionInactiveException
 from ..internal import logs
 from ..message import Message
 from ..path import ConnectionPath, LocalConnectionPath
-from ..protocols import BoundConnection, GlobalUnitProtocol
+from ..protocols import ReferencedConnectionHandleProtocol
 from ..result import Ok, Result
-from .component import load_component
+from .component import ComponentHandleContext, load_component
 from .database.entity import MessageDirection, MessageEntity, eid
-from .database.manager import DatabaseManager
 from .tasks import Tasklet
 
 
@@ -64,7 +62,7 @@ class ReconnectScheduler:
         return next
 
 
-class ConnectionHandle(Tasklet, BoundConnection):
+class ConnectionHandle(Tasklet, ReferencedConnectionHandleProtocol):
     MAX_RECEIVE_BUFFER_SIZE = 2500
 
     def __init__(self, context: ConnectionHandleContext) -> None:
@@ -107,9 +105,10 @@ class ConnectionHandle(Tasklet, BoundConnection):
                     self._instance = instance
                     self._instance.setup(
                         ConnectionContext(
-                            unit=self._context.unit,
                             id=self._context.id,
                             path=self._context.path,
+                            unit=self._context.unit,
+                            references=self._context.references,
                         )
                     )
                 case fail:
@@ -299,16 +298,8 @@ class ConnectionHandle(Tasklet, BoundConnection):
             self._is_flushing = False
 
 
-class ConnectionHandleContext(BaseModel):
-    class Config:
-        arbitrary_types_allowed = True
-
-    unit: GlobalUnitProtocol
-    id: UUID
+class ConnectionHandleContext(ComponentHandleContext):
     path: ConnectionPath
-    component: str | object
-    parameters: dict[str, Any]
-    database: DatabaseManager
     reconnect: ReconnectConfig
 
 
