@@ -22,6 +22,7 @@ from .connection import ConnectionHandle, ConnectionHandleContext
 from .database.manager import DatabaseManager
 from .driver import DriverHandle, DriverHandleContext
 from .tasks import Tasklet, ensure_event_loop
+from .utilities import jsonify
 
 
 @dataclass(kw_only=True, frozen=True)
@@ -175,7 +176,7 @@ class Unit(UnitProxyProtocol, GlobalUnitProtocol, Tasklet):
                     )
                 case Fail(error):
                     self.logger.error(
-                        f"Failed to load connection '{handle.path}'. Error: {error.json(indent=2)}"
+                        f"Failed to load connection '{handle.path}'. Error: {jsonify(error, indent=2)}"
                     )
 
     async def _load_drivers(self) -> None:
@@ -210,7 +211,7 @@ class Unit(UnitProxyProtocol, GlobalUnitProtocol, Tasklet):
                     )
                 case Fail(error):
                     self.logger.error(
-                        f"Failed to load '{handle.path}'. Error: {error.json(indent=2)}"
+                        f"Failed to load '{handle.path}'. Error: {jsonify(error, indent=2)}"
                     )
 
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+import json
 import signal
 from contextlib import contextmanager
 from typing import (
@@ -15,6 +16,8 @@ from typing import (
     cast,
 )
 
+from pydantic.json import pydantic_encoder
+
 T = TypeVar("T")
 
 
@@ -23,6 +26,14 @@ async def awaitify(value: T | Awaitable[T]) -> T:
         return cast(T, await value)
 
     return cast(T, value)
+
+
+def jsonify(object: object, *, indent: int | str | None = None, **kwargs: Any) -> str:
+    return json.dumps(pydantic_encoder(object), indent=indent, **kwargs)
+
+
+def simplify(object: object) -> Any:
+    return pydantic_encoder(object)
 
 
 @contextmanager
