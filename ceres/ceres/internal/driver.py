@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from logging import Logger
 from uuid import UUID
 
@@ -72,5 +73,6 @@ class DriverHandle(Tasklet, ReferencedDriverHandleProtocol):
         await self._instance.update()
 
 
+@dataclass(kw_only=True, frozen=True)
 class DriverHandleContext(ComponentHandleContext):
     path: DriverPath

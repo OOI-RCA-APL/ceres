@@ -3,10 +3,11 @@ from __future__ import annotations
 import importlib
 import inspect
 import traceback
+from dataclasses import dataclass
 from typing import Any, TypeVar
 from uuid import UUID
 
-from pydantic import BaseModel, ValidationError, validate_arguments
+from pydantic import ValidationError, validate_arguments
 
 from ..component import Component
 from ..config import ComponentReferencesConfig
@@ -116,10 +117,8 @@ def load_component(
     return Ok(instance)
 
 
-class ComponentHandleContext(BaseModel):
-    class Config:
-        arbitrary_types_allowed = True
-
+@dataclass(kw_only=True, frozen=True)
+class ComponentHandleContext:
     id: UUID
     path: ComponentPath
     unit: GlobalUnitProtocol

@@ -3,12 +3,11 @@ from __future__ import annotations
 import inspect
 import traceback
 from abc import ABC
+from dataclasses import dataclass
 from functools import cached_property
 from logging import Logger
 from typing import Generic, Literal, Sequence, TypeVar, cast
 from uuid import UUID
-
-from pydantic import BaseModel
 
 from .config import ComponentReferencesConfig
 from .events import Event, EventBinding, get_event_bindings
@@ -19,10 +18,8 @@ from .path import ComponentPath
 from .protocols import GlobalUnitProtocol
 
 
-class ComponentContext(BaseModel, ABC):
-    class Config:
-        arbitrary_types_allowed = True
-
+@dataclass(kw_only=True, frozen=True)
+class ComponentContext:
     id: UUID
     path: ComponentPath
     unit: GlobalUnitProtocol

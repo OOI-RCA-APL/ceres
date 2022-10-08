@@ -1,17 +1,12 @@
 from __future__ import annotations
 
-from abc import ABC
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic.dataclasses import dataclass
 
 
-class BasePath(BaseModel, ABC):
-    class Config:
-        frozen = True
-
-
-class UnitPath(BasePath):
+@dataclass(kw_only=True, frozen=True)
+class UnitPath:
     kind: Literal["unit"] = "unit"
     unit: str
 
@@ -27,7 +22,8 @@ class UnitPath(BasePath):
         return self.unit
 
 
-class ConnectionPath(BasePath):
+@dataclass(kw_only=True, frozen=True)
+class ConnectionPath:
     kind: Literal["connection"] = "connection"
     unit: str
     connection: str
@@ -44,7 +40,8 @@ class ConnectionPath(BasePath):
         return self.connection
 
 
-class DriverPath(BasePath):
+@dataclass(kw_only=True, frozen=True)
+class DriverPath:
     kind: Literal["driver"] = "driver"
     unit: str
     driver: str
@@ -65,7 +62,8 @@ Path = UnitPath | ConnectionPath | DriverPath
 ComponentPath = ConnectionPath | DriverPath
 
 
-class LocalConnectionPath(BasePath):
+@dataclass(kw_only=True, frozen=True)
+class LocalConnectionPath:
     kind: Literal["connection"] = "connection"
     connection: str
 
@@ -81,7 +79,8 @@ class LocalConnectionPath(BasePath):
         return self.connection
 
 
-class LocalDriverPath(BasePath):
+@dataclass(kw_only=True, frozen=True)
+class LocalDriverPath:
     kind: Literal["driver"] = "driver"
     driver: str
 

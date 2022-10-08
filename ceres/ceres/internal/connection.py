@@ -1,12 +1,12 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 from logging import Logger
 from uuid import UUID
 
 import anyio
-from pydantic import BaseModel
 
 from ..config import ReconnectConfig
 from ..connection import Connection, ConnectionContext
@@ -28,7 +28,8 @@ from .database.entity import MessageDirection, MessageEntity, eid
 from .tasks import Tasklet
 
 
-class ReceivedMessage(BaseModel):
+@dataclass(kw_only=True, frozen=True)
+class ReceivedMessage:
     id: UUID
     timestamp: datetime
     content: bytes
@@ -298,6 +299,7 @@ class ConnectionHandle(Tasklet, ReferencedConnectionHandleProtocol):
             self._is_flushing = False
 
 
+@dataclass(kw_only=True, frozen=True)
 class ConnectionHandleContext(ComponentHandleContext):
     path: ConnectionPath
     reconnect: ReconnectConfig

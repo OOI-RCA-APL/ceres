@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import itertools
 import traceback
+from dataclasses import dataclass
 from logging import Logger
 from multiprocessing.managers import BaseManager
 from threading import Lock
@@ -10,7 +11,6 @@ from uuid import UUID
 
 import anyio
 from anyio.abc import TaskGroup
-from pydantic import BaseModel
 
 from ..config import ConnectionConfig, DatabaseConfig, DriverConfig, UnitConfig
 from ..events import Event
@@ -24,7 +24,8 @@ from .driver import DriverHandle, DriverHandleContext
 from .tasks import Tasklet, ensure_event_loop
 
 
-class UnitContext(BaseModel):
+@dataclass(kw_only=True, frozen=True)
+class UnitContext:
     id: UUID
     path: UnitPath
     connections: list[ConnectionConfig]

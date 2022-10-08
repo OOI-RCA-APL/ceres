@@ -5,19 +5,18 @@ from asyncio import StreamReader, StreamWriter
 from dataclasses import dataclass
 from datetime import timedelta
 
-from pydantic import BaseModel
-
 from ...connection import Connection
 from ...exceptions import ConnectionInactiveException, ConnectionLostException
 
 
-@dataclass
+@dataclass(kw_only=True, frozen=True)
 class Stream:
     reader: StreamReader
     writer: StreamWriter
 
 
-class TCPConnectionParameters(BaseModel):
+@dataclass(kw_only=True, frozen=True)
+class TCPConnectionParameters:
     host: str
     port: int
     connect_timeout: timedelta = timedelta(seconds=5)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC
+from dataclasses import dataclass
 from typing import Any
 
 import anyio
@@ -11,6 +12,7 @@ from .protocols import ReferencedDriverHandleProtocol
 from .reference import Reference, SelfT
 
 
+@dataclass(kw_only=True, frozen=True)
 class DriverContext(ComponentContext):
     path: DriverPath
 

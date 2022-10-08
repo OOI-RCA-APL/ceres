@@ -1,40 +1,46 @@
 from __future__ import annotations
 
 import inspect
+from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, Literal, TypeVar, overload
-
-from pydantic import BaseModel
 
 from .message import Message
 from .path import LocalComponentPath
 
-ConnectionEventKind = Literal["connected", "disconnected", "message-sent", "message-received"]
+ConnectionEventKind = Literal[
+    "none", "connected", "disconnected", "message-sent", "message-received"
+]
 EventKind = ConnectionEventKind
 
 
-class BaseEvent(BaseModel):
-    kind: EventKind
+@dataclass(kw_only=True, frozen=True)
+class BaseEvent:
+    kind: EventKind = "none"
     path: LocalComponentPath
 
 
+@dataclass(kw_only=True, frozen=True)
 class ConnectedEvent(BaseEvent):
-    kind: ConnectionEventKind = "connected"
+    kind: Literal["connected"] = "connected"
     timestamp: datetime
 
 
+@dataclass(kw_only=True, frozen=True)
 class DisconnectedEvent(BaseEvent):
-    kind: ConnectionEventKind = "disconnected"
+    kind: Literal["disconnected"] = "disconnected"
     timestamp: datetime
 
 
+@dataclass(kw_only=True, frozen=True)
 class MessageSentEvent(BaseEvent):
-    kind: ConnectionEventKind = "message-sent"
+    kind: Literal["message-sent"] = "message-sent"
     message: Message
 
 
+@dataclass(kw_only=True, frozen=True)
 class MessageReceivedEvent(BaseEvent):
-    kind: ConnectionEventKind = "message-received"
+    kind: Literal["message-received"] = "message-received"
     message: Message
 
 
@@ -47,15 +53,13 @@ if TYPE_CHECKING:
 
     ListenSource = ConnectionReference
 
-EventT = TypeVar("EventT", bound=Event)
+EventT = TypeVar("EventT", bound=BaseEvent)
 
 EVENT_BINDINGS_ATTRIBUTE = "__event_bindings__"
 
 
-class EventBinding(BaseModel):
-    class Config:
-        arbitrary_types_allowed = True
-
+@dataclass(kw_only=True, frozen=True)
+class EventBinding:
     path: LocalComponentPath
     cls: type | object
     method: str

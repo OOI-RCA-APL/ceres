@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC
+from dataclasses import dataclass
 from typing import Any
 
 from .component import Component, ComponentContext, ContextT
@@ -9,6 +10,7 @@ from .protocols import ReferencedConnectionHandleProtocol
 from .reference import Reference, SelfT
 
 
+@dataclass(kw_only=True, frozen=True)
 class ConnectionContext(ComponentContext):
     path: ConnectionPath
 
