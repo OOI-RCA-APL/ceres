@@ -6,7 +6,7 @@ from typing import Literal
 
 from pydantic import ValidationError
 
-from .path import ComponentPath
+from .path import ComponentPath, LocalComponentPath
 
 
 @dataclass(kw_only=True, frozen=True)
@@ -34,6 +34,7 @@ class ComponentErrorKind(str, Enum):
     COMPONENT_CLASS_NOT_FOUND = "component-class-not-found"
     COMPONENT_INIT_EXCEPTION = "component-init-exception"
     COMPONENT_PARAMETERS_INVALID = "component-parameters-invalid"
+    COMPONENT_REFERENCE_INVALID = "component-reference-invalid"
 
 
 @dataclass(kw_only=True, frozen=True)
@@ -87,6 +88,14 @@ class ComponentInitExceptionError(BaseComponentError):
     traceback: str
 
 
+@dataclass(kw_only=True, frozen=True)
+class ComponentReferenceInvalidError(BaseComponentError):
+    kind: Literal[
+        ComponentErrorKind.COMPONENT_REFERENCE_INVALID
+    ] = ComponentErrorKind.COMPONENT_REFERENCE_INVALID
+    reference: LocalComponentPath
+
+
 ComponentError = (
     ComponentModuleNotFoundError
     | ComponentModuleExceptionError
@@ -94,6 +103,7 @@ ComponentError = (
     | ComponentClassInvalidError
     | ComponentParametersInvalidError
     | ComponentInitExceptionError
+    | ComponentReferenceInvalidError
 )
 
 
@@ -103,6 +113,7 @@ class ConfigErrorKind(str, Enum):
     VALIDATION_ERROR = "validation-error"
     DATABASE_ERROR = "database-error"
     COMPONENT_ERROR = "component-error"
+    REFERENCE_ERROR = "reference-error"
 
 
 @dataclass(kw_only=True, frozen=True)
@@ -136,7 +147,7 @@ class ConfigDatabaseError(BaseConfigError):
 @dataclass(kw_only=True, frozen=True)
 class ConfigComponentError(BaseConfigError):
     kind: Literal[ConfigErrorKind.COMPONENT_ERROR] = ConfigErrorKind.COMPONENT_ERROR
-    path: ComponentPath
+    component: ComponentPath
     error: ComponentError
 
 

@@ -105,11 +105,11 @@ class EntityManager:
         path: UnitPath,
     ) -> UnitEntity:
         unit: UnitEntity | None = (
-            await (session.execute(sql.select(UnitEntity).where(UnitEntity.name == path.unit)))
+            await (session.execute(sql.select(UnitEntity).where(UnitEntity.name == path.name)))
         ).scalar()
 
         if not unit:
-            unit = UnitEntity(id=eid(), name=path.unit)
+            unit = UnitEntity(id=eid(), name=path.name)
             session.add(unit)
             await session.commit()
 

@@ -3,7 +3,17 @@ from __future__ import annotations
 import inspect
 from dataclasses import dataclass
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Awaitable, Callable, Literal, TypeVar, overload
+from functools import cache
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Awaitable,
+    Callable,
+    Literal,
+    Sequence,
+    TypeVar,
+    overload,
+)
 
 from .message import Message
 from .path import LocalComponentPath
@@ -112,14 +122,15 @@ def listen(
     return inner
 
 
-def get_event_bindings(obj: object) -> list[EventBinding]:
+@cache
+def get_event_bindings(cls: type) -> Sequence[EventBinding]:
     results: list[EventBinding] = []
 
-    for _, function in inspect.getmembers(type(obj)):
+    for _, function in inspect.getmembers(cls):
         if not inspect.isfunction(function):
             continue
 
         if bindings := getattr(function, EVENT_BINDINGS_ATTRIBUTE, None):
             results.extend(bindings)
 
-    return results
+    return tuple(results)

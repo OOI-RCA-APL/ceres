@@ -4,7 +4,6 @@ import inspect
 import traceback
 from abc import ABC
 from dataclasses import dataclass
-from functools import cached_property
 from logging import Logger
 from typing import Generic, Literal, Sequence, TypeVar, cast
 from uuid import UUID
@@ -16,6 +15,7 @@ from .internal import logs
 from .internal.utilities import awaitify
 from .path import ComponentPath
 from .protocols import GlobalUnitProtocol
+from .reference import ReferenceBinding, get_reference_bindings
 
 
 @dataclass(kw_only=True, frozen=True)
@@ -52,12 +52,16 @@ class Component(Generic[ContextT], ABC):
     def logger(self) -> Logger:
         return logs.get(str(self.context.path))
 
-    @cached_property
-    def bindings(self) -> Sequence[EventBinding]:
-        return tuple(get_event_bindings(self))
+    @classmethod
+    def get_event_bindings(cls) -> Sequence[EventBinding]:
+        return get_event_bindings(cls)
+
+    @classmethod
+    def get_reference_bindings(cls) -> Sequence[ReferenceBinding]:
+        return get_reference_bindings(cls)
 
     async def handle(self, event: Event) -> None:
-        for binding in self.bindings:
+        for binding in self.get_event_bindings():
             if not isinstance(event, cast(type, binding.cls)):
                 continue
 

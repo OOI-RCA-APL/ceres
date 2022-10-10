@@ -8,54 +8,46 @@ from pydantic.dataclasses import dataclass
 @dataclass(kw_only=True, frozen=True)
 class UnitPath:
     kind: Literal["unit"] = "unit"
-    unit: str
+    name: str
 
     @classmethod
-    def create(cls, unit: str) -> UnitPath:
-        return UnitPath(unit=unit)
+    def create(cls, name: str) -> UnitPath:
+        return cls(name=name)
 
     def __str__(self) -> str:
-        return f"@{self.unit}"
+        return f"@{self.name}"
 
     @property
-    def name(self) -> str:
-        return self.unit
+    def unit(self) -> str:
+        return self.name
 
 
 @dataclass(kw_only=True, frozen=True)
 class ConnectionPath:
     kind: Literal["connection"] = "connection"
     unit: str
-    connection: str
+    name: str
 
     @classmethod
-    def create(cls, unit: str, connection: str) -> ConnectionPath:
-        return ConnectionPath(unit=unit, connection=connection)
+    def create(cls, unit: str, name: str) -> ConnectionPath:
+        return cls(unit=unit, name=name)
 
     def __str__(self) -> str:
-        return f"@{self.unit}.connections.{self.connection}"
-
-    @property
-    def name(self) -> str:
-        return self.connection
+        return f"@{self.unit}.connections.{self.name}"
 
 
 @dataclass(kw_only=True, frozen=True)
 class DriverPath:
     kind: Literal["driver"] = "driver"
     unit: str
-    driver: str
+    name: str
 
     @classmethod
-    def create(cls, unit: str, driver: str) -> DriverPath:
-        return DriverPath(unit=unit, driver=driver)
+    def create(cls, unit: str, name: str) -> DriverPath:
+        return cls(unit=unit, name=name)
 
     def __str__(self) -> str:
-        return f"@{self.unit}.drivers.{self.driver}"
-
-    @property
-    def name(self) -> str:
-        return self.driver
+        return f"@{self.unit}.drivers.{self.name}"
 
 
 Path = UnitPath | ConnectionPath | DriverPath
@@ -65,35 +57,39 @@ ComponentPath = ConnectionPath | DriverPath
 @dataclass(kw_only=True, frozen=True)
 class LocalConnectionPath:
     kind: Literal["connection"] = "connection"
-    connection: str
+    name: str
 
     @classmethod
-    def create(cls, connection: str) -> LocalConnectionPath:
-        return LocalConnectionPath(connection=connection)
+    def create(cls, name: str) -> LocalConnectionPath:
+        return cls(name=name)
 
     def __str__(self) -> str:
-        return f".connections.{self.connection}"
-
-    @property
-    def name(self) -> str:
-        return self.connection
+        return f".connections.{self.name}"
 
 
 @dataclass(kw_only=True, frozen=True)
 class LocalDriverPath:
     kind: Literal["driver"] = "driver"
-    driver: str
+    name: str
 
     @classmethod
-    def create(cls, driver: str) -> LocalDriverPath:
-        return LocalDriverPath(driver=driver)
+    def create(cls, name: str) -> LocalDriverPath:
+        return cls(name=name)
 
     def __str__(self) -> str:
-        return f".drivers.{self.driver}"
-
-    @property
-    def name(self) -> str:
-        return self.driver
+        return f".drivers.{self.name}"
 
 
 LocalComponentPath = LocalConnectionPath | LocalDriverPath
+
+ComponentPathKind = Literal["connection", "driver"]
+
+
+def create_component_path(kind: ComponentPathKind, unit: str, name: str) -> ComponentPath:
+    match kind:
+        case "connection":
+            return ConnectionPath.create(unit, name)
+        case "driver":
+            return DriverPath.create(unit, name)
+
+    raise ValueError(kind)

@@ -146,7 +146,7 @@ class Unit(UnitProxyProtocol, GlobalUnitProtocol, Tasklet):
     async def _load_connections(self) -> None:
         for config in self._context.connections:
             path = ConnectionPath.create(
-                self._context.path.unit,
+                self._context.path.name,
                 config.name,
             )
 
@@ -182,7 +182,7 @@ class Unit(UnitProxyProtocol, GlobalUnitProtocol, Tasklet):
     async def _load_drivers(self) -> None:
         for config in self._context.drivers:
             path = DriverPath.create(
-                self._context.path.unit,
+                self._context.path.name,
                 config.name,
             )
 

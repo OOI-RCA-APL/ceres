@@ -12,10 +12,12 @@ import yaml
 from pydantic import ValidationError
 from yaml import YAMLError
 
-from ..config import Config
+from ..component import Component
+from ..config import ComponentConfig, Config, ConnectionConfig, DriverConfig, UnitConfig
 from ..connection import Connection
 from ..driver import Driver
 from ..errors import (
+    ComponentReferenceInvalidError,
     ConfigComponentError,
     ConfigDatabaseError,
     ConfigError,
@@ -24,7 +26,7 @@ from ..errors import (
     ConfigValidationError,
     ValidationProblem,
 )
-from ..path import ConnectionPath, DriverPath
+from ..path import ConnectionPath, DriverPath, create_component_path
 from ..result import Fail, Ok, Result
 from .component import load_component
 from .database.manager import DatabaseManager
@@ -132,29 +134,78 @@ async def _check_components(
 ) -> list[ConfigComponentError]:
     log("Checking component configurations...")
 
-    def check_connections() -> Iterable[ConfigComponentError]:
-        for unit in config.units:
-            for connection in unit.connections:
-                path = ConnectionPath.create(unit.name, connection.name)
+    def check_unit_config(unit_config: UnitConfig) -> Iterable[ConfigComponentError]:
+        loaded_connections: list[tuple[ConnectionConfig, Connection]] = []
+        loaded_drivers: list[tuple[DriverConfig, Driver]] = []
+
+        def check_connections() -> Iterable[ConfigComponentError]:
+            for connection_config in unit_config.connections:
+                path = ConnectionPath.create(unit_config.name, connection_config.name)
                 log(f"Checking component '{path}'...")
-                match load_component(Connection, connection.component, connection.parameters):
+                match load_component(
+                    Connection,
+                    connection_config.component,
+                    connection_config.parameters,
+                ):
+                    case Ok(connection):
+                        loaded_connections.append((connection_config, connection))
                     case Fail(error):
                         yield ConfigComponentError(
-                            path=path,
+                            component=path,
                             error=error,
                         )
 
-    def check_drivers() -> Iterable[ConfigComponentError]:
-        for unit in config.units:
-            for driver in unit.drivers:
-                path = DriverPath.create(unit.name, driver.name)
+        def check_drivers() -> Iterable[ConfigComponentError]:
+            for driver_config in unit_config.drivers:
+                path = DriverPath.create(unit_config.name, driver_config.name)
                 log(f"Checking component '{path}'...")
-                match load_component(Driver, driver.component, driver.parameters):
+                match load_component(
+                    Driver,
+                    driver_config.component,
+                    driver_config.parameters,
+                ):
+                    case Ok(driver):
+                        loaded_drivers.append((driver_config, driver))
                     case Fail(error):
                         log("fail")
                         yield ConfigComponentError(
-                            path=path,
+                            component=path,
                             error=error,
                         )
 
-    return [*check_connections(), *check_drivers()]
+        def check_references() -> Iterable[ConfigComponentError]:
+            loaded_components: list[tuple[ComponentConfig, Component[Any]]] = [
+                *loaded_connections,
+                *loaded_drivers,
+            ]
+
+            for component_config, component in loaded_components:
+                for binding in component.get_reference_bindings():
+                    if (
+                        binding.path.kind == "connection"
+                        and binding.path.name not in component_config.references.connections
+                        or binding.path.kind == "driver"
+                        and binding.path.name not in component_config.references.drivers
+                    ):
+                        path = create_component_path(
+                            "connection" if isinstance(component, Connection) else "driver",
+                            unit_config.name,
+                            component_config.name,
+                        )
+
+                        yield ConfigComponentError(
+                            component=path,
+                            error=ComponentReferenceInvalidError(
+                                message=f"{path} requires {binding.path.kind} reference '{binding.path.name}', but it is not assigned.",
+                                reference=binding.path,
+                            ),
+                        )
+
+        return [*check_connections(), *check_drivers(), *check_references()]
+
+    errors: list[ConfigComponentError] = []
+
+    for unit_config in config.units:
+        errors.extend(check_unit_config(unit_config))
+
+    return errors

@@ -7,7 +7,7 @@ from typing import Any
 import anyio
 
 from .component import Component, ComponentContext, ContextT
-from .path import DriverPath
+from .path import DriverPath, LocalDriverPath
 from .protocols import ReferencedDriverHandleProtocol
 from .reference import Reference, SelfT
 
@@ -23,6 +23,10 @@ class Driver(Component[DriverContext], ABC):
 
 
 class DriverReference(Reference[ReferencedDriverHandleProtocol]):
+    @property
+    def path(self) -> LocalDriverPath:
+        return LocalDriverPath.create(self.name)
+
     def __get__(  # type: ignore
         self: SelfT,
         component: Component[ContextT] | None,

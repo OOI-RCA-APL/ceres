@@ -6,7 +6,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, PrivateAttr, validator
+from pydantic import BaseModel, Field, PrivateAttr, root_validator, validator
 
 _NAME_REGEX = r"[a-zA-Z\-\_][a-zA-Z0-9\-\_]*"
 
@@ -88,6 +88,30 @@ class UnitConfig(BaseModel):
                 raise ValueError(f"duplicate driver name '{name}'")
 
         return connections
+
+    @root_validator
+    def _check_references(cls, fields: dict[str, Any]) -> dict[str, Any]:
+        name: str = fields["name"]
+        connections: dict[str, ConnectionConfig] = {
+            current.name: current for current in fields["connections"]
+        }
+        drivers: dict[str, DriverConfig] = {current.name: current for current in fields["drivers"]}
+        components: list[ComponentConfig] = [*connections.values(), *drivers.values()]
+
+        for component in components:
+            for name in component.references.connections.values():
+                if name not in connections:
+                    raise ValueError(
+                        f"invalid reference, connection '{name}' does not exist in unit '{name}'"
+                    )
+
+            for name in component.references.drivers.values():
+                if name not in connections:
+                    raise ValueError(
+                        f"invalid reference, driver '{name}' does not exist in unit '{name}'"
+                    )
+
+        return fields
 
 
 class Config(BaseModel):

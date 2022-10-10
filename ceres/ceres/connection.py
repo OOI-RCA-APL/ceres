@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .component import Component, ComponentContext, ContextT
-from .path import ConnectionPath
+from .path import ConnectionPath, LocalConnectionPath
 from .protocols import ReferencedConnectionHandleProtocol
 from .reference import Reference, SelfT
 
@@ -30,6 +30,10 @@ class Connection(Component[ConnectionContext], ABC):
 
 
 class ConnectionReference(Reference[ReferencedConnectionHandleProtocol]):
+    @property
+    def path(self) -> LocalConnectionPath:
+        return LocalConnectionPath.create(self.name)
+
     def __get__(  # type: ignore
         self: SelfT,
         component: Component[ContextT] | None,
