@@ -46,10 +46,6 @@ class UnitEntity(Entity):
 class ComponentEntity(Entity):
     __abstract__ = True
 
-
-class UnitComponentEntity(ComponentEntity):
-    __abstract__ = True
-
     @declared_attr
     def unit_id(cls) -> Mapped[UUID]:
         return Column(UUIDType(binary=False), ForeignKey("units.id"))
@@ -61,11 +57,11 @@ class UnitComponentEntity(ComponentEntity):
         return relationship(UnitEntity, back_populates=cls.__tablename__)
 
 
-class ConnectionEntity(UnitComponentEntity):
+class ConnectionEntity(ComponentEntity):
     __tablename__ = "connections"
 
 
-class DriverEntity(UnitComponentEntity):
+class DriverEntity(ComponentEntity):
     __tablename__ = "drivers"
 
 
@@ -84,7 +80,7 @@ class MessageEntity(Entity):
     content: bytes = Column(BINARY)
 
 
-UnitComponentEntityT = TypeVar("UnitComponentEntityT", bound=UnitComponentEntity)
+ComponentEntityT = TypeVar("ComponentEntityT", bound=ComponentEntity)
 
 
 class EntityManager:
@@ -97,11 +93,11 @@ class EntityManager:
 
     async def get_connection_id(self, path: ConnectionPath) -> UUID:
         async with self._database.session() as session:
-            return (await self._get_unit_component(session, ConnectionEntity, path)).id
+            return (await self._get_component(session, ConnectionEntity, path)).id
 
     async def get_driver_id(self, path: DriverPath) -> UUID:
         async with self._database.session() as session:
-            return (await self._get_unit_component(session, DriverEntity, path)).id
+            return (await self._get_component(session, DriverEntity, path)).id
 
     async def _get_unit(
         self,
@@ -119,23 +115,23 @@ class EntityManager:
 
         return unit
 
-    async def _get_unit_component(
+    async def _get_component(
         self,
         session: AsyncSession,
-        UnitComponentEntity: type[UnitComponentEntityT],
+        cls: type[ComponentEntityT],
         path: ComponentPath,
     ) -> ComponentEntity:
         unit_id = await self.get_unit_id(UnitPath.create(path.unit))
 
         component = cast(
-            UnitComponentEntityT | None,
+            ComponentEntityT | None,
             (
                 await (
                     session.execute(
-                        sql.select(UnitComponentEntity).where(
+                        sql.select(cls).where(
                             sql.and_(
-                                UnitComponentEntity.unit_id == unit_id,
-                                UnitComponentEntity.name == path.name,
+                                cls.unit_id == unit_id,
+                                cls.name == path.name,
                             )
                         )
                     )
@@ -144,7 +140,7 @@ class EntityManager:
         )
 
         if not component:
-            component = UnitComponentEntity(  # type: ignore
+            component = cls(  # type: ignore
                 id=eid(),
                 unit_id=unit_id,
                 name=path.name,
