@@ -5,6 +5,7 @@ import signal
 import sys
 import traceback
 from asyncio import Event
+from dataclasses import dataclass
 from enum import Enum
 from logging import Logger
 from queue import Empty, Queue
@@ -12,7 +13,6 @@ from typing import Any
 
 import anyio
 from anyio import CancelScope
-from pydantic import BaseModel
 
 from .config import Config, UnitConfig
 from .errors import ReloadAlreadyActiveError, ReloadConfigInvalidError, ReloadError
@@ -33,7 +33,8 @@ class UnitSyncActionKind(str, Enum):
     REMOVE = "remove"
 
 
-class UnitSyncAction(BaseModel):
+@dataclass(kw_only=True, frozen=True)
+class UnitSyncAction:
     kind: UnitSyncActionKind
     path: UnitPath
 
@@ -232,6 +233,7 @@ class Engine(Tasklet, ServerEngineProtocol):
                         id=id,
                         path=action.path,
                         connections=config.connections,
+                        drivers=config.drivers,
                         database=self._config.database,
                         config=config,
                     )

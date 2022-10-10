@@ -5,7 +5,7 @@ import traceback
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 from logging import Logger
-from typing import Any, Callable, Sequence
+from typing import Any, Callable, Iterable, Sequence
 
 import anyio
 import yaml
@@ -14,6 +14,7 @@ from yaml import YAMLError
 
 from ..config import Config
 from ..connection import Connection
+from ..driver import Driver
 from ..errors import (
     ConfigComponentError,
     ConfigDatabaseError,
@@ -23,7 +24,7 @@ from ..errors import (
     ConfigValidationError,
     ValidationProblem,
 )
-from ..path import ConnectionPath
+from ..path import ConnectionPath, DriverPath
 from ..result import Fail, Ok, Result
 from .component import load_component
 from .database.manager import DatabaseManager
@@ -131,19 +132,29 @@ async def _check_components(
 ) -> list[ConfigComponentError]:
     log("Checking component configurations...")
 
-    errors: list[ConfigComponentError] = []
-
-    for unit in config.units:
-        for connection in unit.connections:
-            path = ConnectionPath.create(unit.name, connection.name)
-            log(f"Checking component '{path}'...")
-            match load_component(Connection, connection.component, connection.parameters):
-                case Fail(error):
-                    errors.append(
-                        ConfigComponentError(
+    def check_connections() -> Iterable[ConfigComponentError]:
+        for unit in config.units:
+            for connection in unit.connections:
+                path = ConnectionPath.create(unit.name, connection.name)
+                log(f"Checking component '{path}'...")
+                match load_component(Connection, connection.component, connection.parameters):
+                    case Fail(error):
+                        yield ConfigComponentError(
                             path=path,
                             error=error,
                         )
-                    )
 
-    return errors
+    def check_drivers() -> Iterable[ConfigComponentError]:
+        for unit in config.units:
+            for driver in unit.drivers:
+                path = DriverPath.create(unit.name, driver.name)
+                log(f"Checking component '{path}'...")
+                match load_component(Driver, driver.component, driver.parameters):
+                    case Fail(error):
+                        log("fail")
+                        yield ConfigComponentError(
+                            path=path,
+                            error=error,
+                        )
+
+    return [*check_connections(), *check_drivers()]

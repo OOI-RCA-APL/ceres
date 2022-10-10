@@ -2,18 +2,19 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypeVar, cast
 from uuid import UUID, uuid4
 
 import sqlalchemy as sql
-from sqlalchemy import TIMESTAMP, Column
+from sqlalchemy import BINARY, TIMESTAMP, Column
 from sqlalchemy import Enum as StringEnum
 from sqlalchemy import ForeignKey, String
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import declarative_base, relationship
+from sqlalchemy.ext.declarative import declared_attr
+from sqlalchemy.orm import Mapped, declarative_base, relationship
 from sqlalchemy_utils import UUIDType
 
-from ...path import ConnectionPath, UnitPath
+from ...path import ComponentPath, ConnectionPath, DriverPath, UnitPath
 
 if TYPE_CHECKING:
     from .manager import DatabaseManager
@@ -39,14 +40,33 @@ class UnitEntity(Entity):
     name: str = Column(String)
 
     connections: list[ConnectionEntity] = relationship("ConnectionEntity", back_populates="unit")
+    drivers: list[DriverEntity] = relationship("DriverEntity", back_populates="unit")
 
 
-class ConnectionEntity(Entity):
-    __tablename__ = "connections"
-    unit_id: UUID = Column(UUIDType(binary=False), ForeignKey("units.id"))
+class ComponentEntity(Entity):
+    __abstract__ = True
+
+
+class UnitComponentEntity(ComponentEntity):
+    __abstract__ = True
+
+    @declared_attr
+    def unit_id(cls) -> Mapped[UUID]:
+        return Column(UUIDType(binary=False), ForeignKey("units.id"))
+
     name: str = Column(String)
 
-    unit: UnitEntity = relationship(UnitEntity, back_populates="connections")
+    @declared_attr
+    def unit(cls) -> relationship[UUID]:
+        return relationship(UnitEntity, back_populates=cls.__tablename__)
+
+
+class ConnectionEntity(UnitComponentEntity):
+    __tablename__ = "connections"
+
+
+class DriverEntity(UnitComponentEntity):
+    __tablename__ = "drivers"
 
 
 class MessageDirection(str, Enum):
@@ -61,7 +81,10 @@ class MessageEntity(Entity):
     direction: MessageDirection = Column(
         StringEnum(*[current.value for current in MessageDirection])
     )
-    content: str = Column(String)
+    content: bytes = Column(BINARY)
+
+
+UnitComponentEntityT = TypeVar("UnitComponentEntityT", bound=UnitComponentEntity)
 
 
 class EntityManager:
@@ -74,7 +97,11 @@ class EntityManager:
 
     async def get_connection_id(self, path: ConnectionPath) -> UUID:
         async with self._database.session() as session:
-            return (await self._get_connection(session, path)).id
+            return (await self._get_unit_component(session, ConnectionEntity, path)).id
+
+    async def get_driver_id(self, path: DriverPath) -> UUID:
+        async with self._database.session() as session:
+            return (await self._get_unit_component(session, DriverEntity, path)).id
 
     async def _get_unit(
         self,
@@ -92,33 +119,37 @@ class EntityManager:
 
         return unit
 
-    async def _get_connection(
+    async def _get_unit_component(
         self,
         session: AsyncSession,
-        path: ConnectionPath,
-    ) -> ConnectionEntity:
+        UnitComponentEntity: type[UnitComponentEntityT],
+        path: ComponentPath,
+    ) -> ComponentEntity:
         unit_id = await self.get_unit_id(UnitPath.create(path.unit))
 
-        connection: ConnectionEntity | None = (
-            await (
-                session.execute(
-                    sql.select(ConnectionEntity).where(
-                        sql.and_(
-                            ConnectionEntity.unit_id == unit_id,
-                            ConnectionEntity.name == path.connection,
+        component = cast(
+            UnitComponentEntityT | None,
+            (
+                await (
+                    session.execute(
+                        sql.select(UnitComponentEntity).where(
+                            sql.and_(
+                                UnitComponentEntity.unit_id == unit_id,
+                                UnitComponentEntity.name == path.name,
+                            )
                         )
                     )
                 )
-            )
-        ).scalar()
+            ).scalar(),
+        )
 
-        if not connection:
-            connection = ConnectionEntity(
+        if not component:
+            component = UnitComponentEntity(  # type: ignore
                 id=eid(),
                 unit_id=unit_id,
-                name=path.connection,
+                name=path.name,
             )
-            session.add(connection)
+            session.add(component)
             await session.commit()
 
-        return connection
+        return component

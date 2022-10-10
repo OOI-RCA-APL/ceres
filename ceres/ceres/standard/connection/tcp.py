@@ -5,27 +5,22 @@ from asyncio import StreamReader, StreamWriter
 from dataclasses import dataclass
 from datetime import timedelta
 
-from pydantic import BaseModel
-
 from ...connection import Connection
-from ...exceptions import (
-    ConnectionDecodeException,
-    ConnectionInactiveException,
-    ConnectionLostException,
-)
+from ...exceptions import ConnectionInactiveException, ConnectionLostException
 
 
-@dataclass
+@dataclass(kw_only=True, frozen=True)
 class Stream:
     reader: StreamReader
     writer: StreamWriter
 
 
-class TCPConnectionParameters(BaseModel):
+@dataclass(kw_only=True, frozen=True)
+class TCPConnectionParameters:
     host: str
     port: int
     connect_timeout: timedelta = timedelta(seconds=5)
-    separator: str = "\r\n"
+    separator: bytes = b"\r\n"
 
 
 class TCPConnection(Connection):
@@ -65,7 +60,7 @@ class TCPConnection(Connection):
             self._stream.writer.close()
             self._stream = None
 
-    async def send(self, data: str) -> None:
+    async def send(self, data: bytes) -> None:
         if not self._stream:
             raise ConnectionInactiveException("Connection is not active.")
 
@@ -73,21 +68,16 @@ class TCPConnection(Connection):
             data += self._parameters.separator
 
         try:
-            self._stream.writer.write(data.encode())
+            self._stream.writer.write(data)
             await self._stream.writer.drain()
         except Exception:
             raise ConnectionLostException("Connection was lost.")
 
-    async def receive(self) -> str:
+    async def receive(self) -> bytes:
         if not self._stream:
             raise ConnectionInactiveException("Connection is not active.")
 
         try:
-            data = await self._stream.reader.readuntil(self._parameters.separator.encode())
+            return await self._stream.reader.readuntil(self._parameters.separator)
         except Exception:
             raise ConnectionLostException("Connection was lost.")
-
-        try:
-            return data.decode("utf-8")
-        except Exception:
-            raise ConnectionDecodeException("Failed to decode data as UTF-8.")

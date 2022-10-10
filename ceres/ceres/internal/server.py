@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Generic, Literal, Protocol, TypeVar, cast
+from functools import wraps
+from typing import Any, Callable, Generic, Literal, Protocol, TypeVar, cast
 
 from fastapi import FastAPI, Response
 from pydantic.generics import GenericModel
@@ -13,7 +14,7 @@ from ..errors import ReloadError
 from ..result import Fail, Ok, Result
 from . import logs
 from .tasks import Tasklet
-from .utilities import unreachable
+from .utilities import awaitify, simplify, unreachable
 
 
 class ServerEngineProtocol(Protocol):
@@ -81,6 +82,14 @@ class Error(GenericModel, Generic[ErrorDataT]):
         return Error(data=data)
 
 
+def presimplify(function: Callable[..., Any]) -> Callable[..., Any]:
+    @wraps(function)
+    async def wrapper(*args: Any, **kwargs: Any) -> Any:
+        return simplify(await awaitify(function(*args, **kwargs)))
+
+    return wrapper
+
+
 def create_app(engine: ServerEngineProtocol) -> FastAPI:
     app = FastAPI()
 
@@ -89,6 +98,7 @@ def create_app(engine: ServerEngineProtocol) -> FastAPI:
         logs.setup()
 
     @app.get("/config", response_model=Config)
+    @presimplify
     async def config() -> Config:
         return engine.config
 
@@ -96,6 +106,7 @@ def create_app(engine: ServerEngineProtocol) -> FastAPI:
         "/reload",
         response_model=cast(Any, Success[Config] | Error[ReloadError]),
     )
+    @presimplify
     async def reload(response: Response) -> Success[Config] | Error[ReloadError]:
         match await engine.reload():
             case Ok(config):

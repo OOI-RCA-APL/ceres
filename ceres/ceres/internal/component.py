@@ -3,11 +3,14 @@ from __future__ import annotations
 import importlib
 import inspect
 import traceback
+from dataclasses import dataclass
 from typing import Any, TypeVar
+from uuid import UUID
 
 from pydantic import ValidationError, validate_arguments
 
 from ..component import Component
+from ..config import ComponentReferencesConfig
 from ..errors import (
     ComponentClassInvalidError,
     ComponentError,
@@ -17,15 +20,18 @@ from ..errors import (
     ComponentParametersInvalidError,
     ValidationProblem,
 )
+from ..path import ComponentPath
+from ..protocols import GlobalUnitProtocol
 from ..result import Fail, Ok, Result
+from .database.manager import DatabaseManager
 
-ComponentT = TypeVar("ComponentT", bound="Component")
+ComponentT = TypeVar("ComponentT", bound="Component[Any]")
 
 
 def load_component(
     cls: type[ComponentT],
     source: str | object,
-    parameters: dict[str, Any] = {},
+    parameters: dict[str, Any],
 ) -> Result[ComponentT, ComponentError]:
     if not isinstance(source, str):
         if not isinstance(source, cls):
@@ -56,7 +62,12 @@ def load_component(
 
     # Find the last non-abstract class in the module that is a subclass of the "cls" argument.
     for _, member in inspect.getmembers(module):
-        if inspect.isclass(member) and issubclass(member, cls) and not inspect.isabstract(member):
+        if (
+            inspect.isclass(member)
+            and not inspect.isabstract(member)
+            and member is not cls
+            and issubclass(member, cls)
+        ):
             target_cls = member
 
     if target_cls is None:
@@ -104,3 +115,14 @@ def load_component(
         )
 
     return Ok(instance)
+
+
+@dataclass(kw_only=True, frozen=True)
+class ComponentHandleContext:
+    id: UUID
+    path: ComponentPath
+    unit: GlobalUnitProtocol
+    component: str | object
+    parameters: dict[str, Any]
+    references: ComponentReferencesConfig
+    database: DatabaseManager

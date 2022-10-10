@@ -1,30 +1,38 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from enum import Enum
-from typing import Any
+from logging import Logger
 from uuid import UUID
 
 import anyio
-from pydantic import BaseModel
 
 from ..config import ReconnectConfig
-from ..connection import Connection
+from ..connection import Connection, ConnectionContext
 from ..errors import ComponentError
+from ..events import (
+    ConnectedEvent,
+    DisconnectedEvent,
+    MessageReceivedEvent,
+    MessageSentEvent,
+)
 from ..exceptions import ConnectionInactiveException
+from ..internal import logs
 from ..message import Message
-from ..path import ConnectionPath
+from ..path import ConnectionPath, LocalConnectionPath
+from ..protocols import ReferencedConnectionHandleProtocol
 from ..result import Ok, Result
-from .component import load_component
+from .component import ComponentHandleContext, load_component
 from .database.entity import MessageDirection, MessageEntity, eid
-from .database.manager import DatabaseManager
 from .tasks import Tasklet
 
 
-class ReceivedMessage(BaseModel):
+@dataclass(kw_only=True, frozen=True)
+class ReceivedMessage:
     id: UUID
     timestamp: datetime
-    content: str
+    content: bytes
 
 
 class ReconnectScheduler:
@@ -55,13 +63,13 @@ class ReconnectScheduler:
         return next
 
 
-class ConnectionHandle(Tasklet):
+class ConnectionHandle(Tasklet, ReferencedConnectionHandleProtocol):
     MAX_RECEIVE_BUFFER_SIZE = 2500
 
-    def __init__(self, context: ConnectionContext) -> None:
+    def __init__(self, context: ConnectionHandleContext) -> None:
         self._context = context
         self._reconnect = ReconnectScheduler(context.reconnect)
-        self._connection: Connection | None = None
+        self._instance: Connection | None = None
         self._state = ConnectionState.DISCONNECTED
         self._receive_buffer: list[ReceivedMessage] = []
         self._is_flushing = False
@@ -83,24 +91,84 @@ class ConnectionHandle(Tasklet):
     def connected(self) -> bool:
         return self._state == ConnectionState.CONNECTED
 
-    def load(self) -> Result[Connection, ComponentError]:
-        if not self._connection:
+    @property
+    def instance(self) -> Connection | None:
+        return self._instance
+
+    @property
+    def logger(self) -> Logger:
+        return logs.get(str(self._context.path))
+
+    async def load(self) -> Result[Connection, ComponentError]:
+        if not self._instance:
             match load_component(Connection, self._context.component, self._context.parameters):
-                case Ok(connection):
-                    self._connection = connection
+                case Ok(instance):
+                    self._instance = instance
+                    self._instance.setup(
+                        ConnectionContext(
+                            id=self._context.id,
+                            path=self._context.path,
+                            unit=self._context.unit,
+                            references=self._context.references,
+                        )
+                    )
                 case fail:
                     return fail
 
-        return Ok(self._connection)
+        return Ok(self._instance)
 
-    async def send(self, data: str) -> Message:
-        if not self._connection:
+    async def connect(self) -> bool:
+        if not self._instance:
+            return False
+        if self._state == ConnectionState.CONNECTED:
+            return True
+
+        self.logger.info("Connecting...")
+
+        self._state = ConnectionState.CONNECTING
+        if await self._instance.connect():
+            self._state = ConnectionState.CONNECTED
+            await self._context.unit.broadcast(
+                ConnectedEvent(
+                    path=LocalConnectionPath.create(self._context.path.name),
+                    timestamp=datetime.now(timezone.utc),
+                )
+            )
+            self.logger.info("Connected successfully.")
+        else:
+            self._state = ConnectionState.DISCONNECTED
+            self.logger.info("Failed to connect.")
+
+        return self.connected
+
+    async def disconnect(self) -> None:
+        if not self._instance or self._state == ConnectionState.DISCONNECTED:
+            return
+
+        self.logger.info("Disconnecting...")
+
+        try:
+            await self._instance.disconnect()
+        finally:
+            self._state = ConnectionState.DISCONNECTED
+            try:
+                await self._context.unit.broadcast(
+                    DisconnectedEvent(
+                        path=LocalConnectionPath.create(self._context.path.name),
+                        timestamp=datetime.now(timezone.utc),
+                    )
+                )
+            finally:
+                self.logger.info("Disconnected.")
+
+    async def send(self, data: bytes) -> Message:
+        if not self._instance:
             raise ConnectionInactiveException("Connection is not active.")
 
         try:
-            await self._connection.send(data)
+            await self._instance.send(data)
         except Exception:
-            await self._disconnect()
+            await self.disconnect()
             raise
 
         async with self._context.database.session() as session:
@@ -115,7 +183,15 @@ class ConnectionHandle(Tasklet):
 
             await session.commit()
 
-        return Message.from_entity(entity)
+        message = Message.from_entity(entity)
+        await self._context.unit.broadcast(
+            MessageSentEvent(
+                path=LocalConnectionPath.create(self._context.path.name),
+                message=message,
+            )
+        )
+
+        return message
 
     async def _tasklet_run(self) -> None:
         async def process_update() -> None:
@@ -133,14 +209,14 @@ class ConnectionHandle(Tasklet):
             group.start_soon(process_update)
 
     async def _tasklet_stop(self) -> None:
-        await self._disconnect()
+        await self.disconnect()
         await self._flush()
 
     async def _update(self) -> None:
-        if not self._connection:
+        if not self._instance:
             return
 
-        while not await self._connect():
+        while not await self.connect():
             await anyio.sleep(self._reconnect.next().total_seconds())
 
         self._reconnect.reset()
@@ -148,38 +224,17 @@ class ConnectionHandle(Tasklet):
         while self._state == ConnectionState.CONNECTED:
             await self._receive()
 
-    async def _connect(self) -> bool:
-        if not self._connection:
-            return False
-        if self._state == ConnectionState.CONNECTED:
-            return True
-
-        self._state = ConnectionState.CONNECTING
-        if await self._connection.connect():
-            self._state = ConnectionState.CONNECTED
-        else:
-            self._state = ConnectionState.DISCONNECTED
-
-        return self.connected
-
-    async def _disconnect(self) -> None:
-        if not self._connection:
-            return
-
-        try:
-            await self._connection.disconnect()
-        finally:
-            self._state = ConnectionState.DISCONNECTED
-
     async def _receive(self) -> None:
-        if not self._connection:
+        if not self._instance:
             raise ConnectionInactiveException("Connection is not active.")
 
         try:
-            data = await self._connection.receive()
+            data = await self._instance.receive()
         except Exception:
-            await self._disconnect()
+            await self.disconnect()
             raise
+
+        self.logger.info(f"Received: {repr(data)}")
 
         # Ensure timestamps are different.
         if self._last_message_timestamp:
@@ -199,6 +254,19 @@ class ConnectionHandle(Tasklet):
 
         if not self._is_flushing and len(self._receive_buffer) >= self.MAX_RECEIVE_BUFFER_SIZE:
             await self._flush()
+
+        await self._context.unit.broadcast(
+            MessageReceivedEvent(
+                path=LocalConnectionPath.create(self._context.path.name),
+                message=Message(
+                    id=message.id,
+                    connection_id=self._context.id,
+                    timestamp=message.timestamp,
+                    content=message.content,
+                    direction=MessageDirection.RECEIVE,
+                ),
+            )
+        )
 
     async def _flush(self) -> None:
         if not self._receive_buffer:
@@ -231,15 +299,9 @@ class ConnectionHandle(Tasklet):
             self._is_flushing = False
 
 
-class ConnectionContext(BaseModel):
-    class Config:
-        arbitrary_types_allowed = True
-
-    id: UUID
+@dataclass(kw_only=True, frozen=True)
+class ConnectionHandleContext(ComponentHandleContext):
     path: ConnectionPath
-    component: str | object
-    parameters: dict[str, Any]
-    database: DatabaseManager
     reconnect: ReconnectConfig
 
 

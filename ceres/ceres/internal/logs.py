@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass, field
 from logging import Logger
 from logging.config import dictConfig
 from typing import Any
 
-from pydantic import BaseModel
 
-
-class LogConfig(BaseModel):
+@dataclass(kw_only=True, frozen=True)
+class LogConfig:
     """
     Common logging configuration.
     """
@@ -19,12 +19,13 @@ class LogConfig(BaseModel):
     """
 
 
+@dataclass(kw_only=True)
 class LoggingState:
-    config = LogConfig()
-    loggers: dict[str, Logger] = {}
+    config: LogConfig = field(default_factory=LogConfig)
+    loggers: dict[str, Logger] = field(default_factory=dict)
 
 
-state = LoggingState
+state = LoggingState()
 
 
 def setup(config: LogConfig | None = None) -> None:
@@ -102,6 +103,7 @@ def _generate_config() -> dict[str, Any]:
                     name: {
                         "level": state.config.level,
                         "handlers": ["default"],
+                        "propagate": False,
                     }
                     for name in state.loggers.keys()
                 }
@@ -109,11 +111,12 @@ def _generate_config() -> dict[str, Any]:
             "uvicorn": {
                 "level": state.config.level,
                 "handlers": ["uvicorn"],
+                "propagate": False,
             },
             "uvicorn.access": {
                 "level": state.config.level,
-                "propagate": False,
                 "handlers": ["uvicorn.access"],
+                "propagate": False,
             },
         },
     }

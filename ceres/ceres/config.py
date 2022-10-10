@@ -8,14 +8,22 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, PrivateAttr, validator
 
+_NAME_REGEX = r"[a-zA-Z\-\_][a-zA-Z0-9\-\_]*"
+
+
+class ComponentReferencesConfig(BaseModel):
+    connections: dict[str, str] = {}
+    drivers: dict[str, str] = {}
+
 
 class ComponentConfig(BaseModel, ABC):
     class Config:
-        allow_arbitrary_types = True
+        arbitrary_types_allowed = True
 
-    name: str
+    name: str = Field(regex=_NAME_REGEX)
     component: str | object
     parameters: dict[str, Any] = {}
+    references: ComponentReferencesConfig = ComponentReferencesConfig()
 
 
 class ReconnectConfig(BaseModel):
@@ -26,6 +34,10 @@ class ReconnectConfig(BaseModel):
 
 class ConnectionConfig(ComponentConfig):
     reconnect: ReconnectConfig = ReconnectConfig()
+
+
+class DriverConfig(ComponentConfig):
+    pass
 
 
 class ServerConfig(BaseModel):
@@ -57,14 +69,23 @@ DatabaseConfig = SQLiteDatabaseConfig
 
 
 class UnitConfig(BaseModel):
-    name: str
+    name: str = Field(regex=_NAME_REGEX)
     connections: list[ConnectionConfig] = []
+    drivers: list[DriverConfig] = []
 
     @validator("connections")
     def _check_connections(cls, connections: list[ConnectionConfig]) -> list[ConnectionConfig]:
         for name, group in itertools.groupby(connections, lambda connection: connection.name):
             if len(list(group)) > 1:
                 raise ValueError(f"duplicate connection name '{name}'")
+
+        return connections
+
+    @validator("drivers")
+    def _check_drivers(cls, connections: list[DriverConfig]) -> list[DriverConfig]:
+        for name, group in itertools.groupby(connections, lambda connection: connection.name):
+            if len(list(group)) > 1:
+                raise ValueError(f"duplicate driver name '{name}'")
 
         return connections
 

@@ -7,7 +7,15 @@ class CeresException(Exception):
         self.message = message
 
 
-class ConnectionException(CeresException):
+class ComponentException(CeresException):
+    pass
+
+
+class ComponentNotSetupException(CeresException):
+    pass
+
+
+class ConnectionException(ComponentException):
     pass
 
 
@@ -20,4 +28,8 @@ class ConnectionLostException(ConnectionException):
 
 
 class ConnectionDecodeException(ConnectionException):
+    pass
+
+
+class ParseException(CeresException):
     pass

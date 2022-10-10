@@ -1,14 +1,16 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from enum import Enum
 from typing import Literal
 
-from pydantic import BaseModel, ValidationError
+from pydantic import ValidationError
 
 from .path import ComponentPath
 
 
-class ValidationProblem(BaseModel):
+@dataclass(kw_only=True, frozen=True)
+class ValidationProblem:
     location: list[str | int]
     message: str
     kind: str
@@ -34,17 +36,20 @@ class ComponentErrorKind(str, Enum):
     COMPONENT_PARAMETERS_INVALID = "component-parameters-invalid"
 
 
-class BaseComponentError(BaseModel):
+@dataclass(kw_only=True, frozen=True)
+class BaseComponentError:
     kind: ComponentErrorKind
     message: str
 
 
+@dataclass(kw_only=True, frozen=True)
 class ComponentModuleNotFoundError(BaseComponentError):
     kind: Literal[
         ComponentErrorKind.COMPONENT_MODULE_NOT_FOUND
     ] = ComponentErrorKind.COMPONENT_MODULE_NOT_FOUND
 
 
+@dataclass(kw_only=True, frozen=True)
 class ComponentModuleExceptionError(BaseComponentError):
     kind: Literal[
         ComponentErrorKind.COMPONENT_MODULE_EXCEPTION
@@ -52,18 +57,21 @@ class ComponentModuleExceptionError(BaseComponentError):
     traceback: str
 
 
+@dataclass(kw_only=True, frozen=True)
 class ComponentClassNotFoundError(BaseComponentError):
     kind: Literal[
         ComponentErrorKind.COMPONENT_CLASS_NOT_FOUND
     ] = ComponentErrorKind.COMPONENT_CLASS_NOT_FOUND
 
 
+@dataclass(kw_only=True, frozen=True)
 class ComponentClassInvalidError(BaseComponentError):
     kind: Literal[
         ComponentErrorKind.COMPONENT_CLASS_INVALID
     ] = ComponentErrorKind.COMPONENT_CLASS_INVALID
 
 
+@dataclass(kw_only=True, frozen=True)
 class ComponentParametersInvalidError(BaseComponentError):
     kind: Literal[
         ComponentErrorKind.COMPONENT_PARAMETERS_INVALID
@@ -71,6 +79,7 @@ class ComponentParametersInvalidError(BaseComponentError):
     problems: list[ValidationProblem]
 
 
+@dataclass(kw_only=True, frozen=True)
 class ComponentInitExceptionError(BaseComponentError):
     kind: Literal[
         ComponentErrorKind.COMPONENT_INIT_EXCEPTION
@@ -96,29 +105,35 @@ class ConfigErrorKind(str, Enum):
     COMPONENT_ERROR = "component-error"
 
 
-class BaseConfigError(BaseModel):
+@dataclass(kw_only=True, frozen=True)
+class BaseConfigError:
     pass
 
 
+@dataclass(kw_only=True, frozen=True)
 class ConfigReadError(BaseConfigError):
     kind: Literal[ConfigErrorKind.READ_ERROR] = ConfigErrorKind.READ_ERROR
 
 
+@dataclass(kw_only=True, frozen=True)
 class ConfigParseError(BaseConfigError):
     kind: Literal[ConfigErrorKind.PARSE_ERROR] = ConfigErrorKind.PARSE_ERROR
 
 
+@dataclass(kw_only=True, frozen=True)
 class ConfigValidationError(BaseConfigError):
     kind: Literal[ConfigErrorKind.VALIDATION_ERROR] = ConfigErrorKind.VALIDATION_ERROR
-    problems: list[ValidationProblem] = []
+    problems: list[ValidationProblem]
 
 
+@dataclass(kw_only=True, frozen=True)
 class ConfigDatabaseError(BaseConfigError):
     kind: Literal[ConfigErrorKind.DATABASE_ERROR] = ConfigErrorKind.DATABASE_ERROR
     message: str
     exception: str
 
 
+@dataclass(kw_only=True, frozen=True)
 class ConfigComponentError(BaseConfigError):
     kind: Literal[ConfigErrorKind.COMPONENT_ERROR] = ConfigErrorKind.COMPONENT_ERROR
     path: ComponentPath
@@ -139,15 +154,18 @@ class ReloadErrorKind(str, Enum):
     ALREADY_ACTIVE = "already-active"
 
 
-class BaseReloadError(BaseModel):
+@dataclass(kw_only=True, frozen=True)
+class BaseReloadError:
     pass
 
 
+@dataclass(kw_only=True, frozen=True)
 class ReloadConfigInvalidError(BaseReloadError):
     kind: Literal[ReloadErrorKind.CONFIG_INVALID] = ReloadErrorKind.CONFIG_INVALID
     errors: list[ConfigError]
 
 
+@dataclass(kw_only=True, frozen=True)
 class ReloadAlreadyActiveError(BaseReloadError):
     kind: Literal[ReloadErrorKind.ALREADY_ACTIVE] = ReloadErrorKind.ALREADY_ACTIVE
 
