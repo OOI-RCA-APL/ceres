@@ -19,7 +19,7 @@ from .errors import ReloadAlreadyActiveError, ReloadConfigInvalidError, ReloadEr
 from .internal import logs
 from .internal.config import load_config
 from .internal.database.manager import DatabaseManager
-from .internal.server import Server, ServerEngineProtocol
+from .internal.server import Server, ServerEngine
 from .internal.tasks import Tasklet
 from .internal.unit import UnitContext, UnitHandle
 from .internal.utilities import unreachable, use_signal_handler
@@ -39,7 +39,7 @@ class UnitSyncAction:
     path: UnitPath
 
 
-class Engine(Tasklet, ServerEngineProtocol):
+class Engine(Tasklet, ServerEngine):
     def __init__(self, config: Config) -> None:
         self._config = config
         self._config_queue: Queue[Config] = Queue()
@@ -234,6 +234,7 @@ class Engine(Tasklet, ServerEngineProtocol):
                         path=action.path,
                         connections=config.connections,
                         drivers=config.drivers,
+                        notifiers=config.notifiers,
                         database=self._config.database,
                         config=config,
                     )

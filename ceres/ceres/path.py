@@ -50,8 +50,22 @@ class DriverPath:
         return f"@{self.unit}.drivers.{self.name}"
 
 
+@dataclass(kw_only=True, frozen=True)
+class NotifierPath:
+    kind: Literal["notifier"] = "notifier"
+    unit: str
+    name: str
+
+    @classmethod
+    def create(cls, unit: str, name: str) -> NotifierPath:
+        return cls(unit=unit, name=name)
+
+    def __str__(self) -> str:
+        return f"@{self.unit}.notifiers.{self.name}"
+
+
 Path = UnitPath | ConnectionPath | DriverPath
-ComponentPath = ConnectionPath | DriverPath
+ComponentPath = ConnectionPath | DriverPath | NotifierPath
 
 
 @dataclass(kw_only=True, frozen=True)
@@ -80,9 +94,22 @@ class LocalDriverPath:
         return f".drivers.{self.name}"
 
 
-LocalComponentPath = LocalConnectionPath | LocalDriverPath
+@dataclass(kw_only=True, frozen=True)
+class LocalNotifierPath:
+    kind: Literal["notifier"] = "notifier"
+    name: str
 
-ComponentPathKind = Literal["connection", "driver"]
+    @classmethod
+    def create(cls, name: str) -> LocalNotifierPath:
+        return cls(name=name)
+
+    def __str__(self) -> str:
+        return f".notifiers.{self.name}"
+
+
+LocalComponentPath = LocalConnectionPath | LocalDriverPath | LocalNotifierPath
+
+ComponentPathKind = Literal["connection", "driver", "notifier"]
 
 
 def create_component_path(kind: ComponentPathKind, unit: str, name: str) -> ComponentPath:
@@ -91,5 +118,7 @@ def create_component_path(kind: ComponentPathKind, unit: str, name: str) -> Comp
             return ConnectionPath.create(unit, name)
         case "driver":
             return DriverPath.create(unit, name)
+        case "notifier":
+            return NotifierPath.create(unit, name)
 
     raise ValueError(kind)

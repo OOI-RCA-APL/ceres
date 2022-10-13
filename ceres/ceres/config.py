@@ -1,26 +1,41 @@
 from __future__ import annotations
 
 import itertools
+import re
 from abc import ABC
 from enum import Enum
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, PrivateAttr, root_validator, validator
+from pydantic import (
+    BaseModel,
+    ConstrainedStr,
+    Field,
+    PrivateAttr,
+    root_validator,
+    validator,
+)
 
-_NAME_REGEX = r"[a-zA-Z\-\_][a-zA-Z0-9\-\_]*"
+
+class NameStr(ConstrainedStr):
+    regex = re.compile(r"[a-zA-Z\-\_][a-zA-Z0-9\-\_]*")
+
+
+class EmailStr(ConstrainedStr):
+    regex = re.compile(r".+@.+")
 
 
 class ComponentReferencesConfig(BaseModel):
     connections: dict[str, str] = {}
     drivers: dict[str, str] = {}
+    notifiers: dict[str, str] = {}
 
 
 class ComponentConfig(BaseModel, ABC):
     class Config:
         arbitrary_types_allowed = True
 
-    name: str = Field(regex=_NAME_REGEX)
+    name: NameStr
     component: str | object
     parameters: dict[str, Any] = {}
     references: ComponentReferencesConfig = ComponentReferencesConfig()
@@ -37,6 +52,10 @@ class ConnectionConfig(ComponentConfig):
 
 
 class DriverConfig(ComponentConfig):
+    pass
+
+
+class NotifierConfig(ComponentConfig):
     pass
 
 
@@ -69,9 +88,10 @@ DatabaseConfig = SQLiteDatabaseConfig
 
 
 class UnitConfig(BaseModel):
-    name: str = Field(regex=_NAME_REGEX)
+    name: NameStr
     connections: list[ConnectionConfig] = []
     drivers: list[DriverConfig] = []
+    notifiers: list[NotifierConfig] = []
 
     @validator("connections")
     def _check_connections(cls, connections: list[ConnectionConfig]) -> list[ConnectionConfig]:
@@ -114,9 +134,16 @@ class UnitConfig(BaseModel):
         return fields
 
 
+class UserConfig(BaseModel):
+    username: NameStr
+    email: EmailStr
+    meta: dict[str, Any] = {}
+
+
 class Config(BaseModel):
     server: ServerConfig
     database: DatabaseConfig
+    users: list[UserConfig] = []
     units: list[UnitConfig] = []
 
     __path__: str | None = PrivateAttr(default=None)

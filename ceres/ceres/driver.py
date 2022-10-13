@@ -8,7 +8,7 @@ import anyio
 
 from .component import Component, ComponentContext, ContextT
 from .path import DriverPath, LocalDriverPath
-from .protocols import ReferencedDriverHandleProtocol
+from .protocols import ReferencedDriverHandle
 from .reference import Reference, SelfT
 
 
@@ -22,7 +22,7 @@ class Driver(Component[DriverContext], ABC):
         await anyio.sleep(1)
 
 
-class DriverReference(Reference[ReferencedDriverHandleProtocol]):
+class DriverReference(Reference[ReferencedDriverHandle]):
     @property
     def path(self) -> LocalDriverPath:
         return LocalDriverPath.create(self.name)
@@ -31,7 +31,7 @@ class DriverReference(Reference[ReferencedDriverHandleProtocol]):
         self: SelfT,
         component: Component[ContextT] | None,
         owner: Any,
-    ) -> SelfT | ReferencedDriverHandleProtocol:
+    ) -> SelfT | ReferencedDriverHandle:
         if component is None:
             return self
 

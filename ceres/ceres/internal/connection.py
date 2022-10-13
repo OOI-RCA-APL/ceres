@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 from logging import Logger
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import anyio
 
@@ -17,14 +17,14 @@ from ..events import (
     MessageReceivedEvent,
     MessageSentEvent,
 )
-from ..exceptions import ConnectionInactiveException
+from ..exceptions import ComponentNotLoadedException, ConnectionInactiveException
 from ..internal import logs
-from ..message import Message
+from ..message import Message, MessageDirection
 from ..path import ConnectionPath, LocalConnectionPath
-from ..protocols import ReferencedConnectionHandleProtocol
+from ..protocols import ReferencedConnectionHandle
 from ..result import Ok, Result
 from .component import ComponentHandleContext, load_component
-from .database.entity import MessageDirection, MessageEntity, eid
+from .database.entity import MessageEntity
 from .tasks import Tasklet
 
 
@@ -63,7 +63,7 @@ class ReconnectScheduler:
         return next
 
 
-class ConnectionHandle(Tasklet, ReferencedConnectionHandleProtocol):
+class ConnectionHandle(Tasklet, ReferencedConnectionHandle):
     MAX_RECEIVE_BUFFER_SIZE = 2500
 
     def __init__(self, context: ConnectionHandleContext) -> None:
@@ -163,7 +163,7 @@ class ConnectionHandle(Tasklet, ReferencedConnectionHandleProtocol):
 
     async def send(self, data: bytes) -> Message:
         if not self._instance:
-            raise ConnectionInactiveException("Connection is not active.")
+            raise ComponentNotLoadedException("Connection is not loaded.")
 
         try:
             await self._instance.send(data)
@@ -183,7 +183,7 @@ class ConnectionHandle(Tasklet, ReferencedConnectionHandleProtocol):
 
             await session.commit()
 
-        message = Message.from_entity(entity)
+        message = Message.create_from(entity)
         await self._context.unit.broadcast(
             MessageSentEvent(
                 path=LocalConnectionPath.create(self._context.path.name),
@@ -244,7 +244,7 @@ class ConnectionHandle(Tasklet, ReferencedConnectionHandleProtocol):
         timestamp = datetime.now(timezone.utc)
 
         message = ReceivedMessage(
-            id=eid(),
+            id=uuid4(),
             timestamp=timestamp,
             content=data,
         )

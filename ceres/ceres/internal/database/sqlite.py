@@ -80,13 +80,27 @@ class SQLiteDatabaseManager(DatabaseManager):
                 ON drivers (unit_id)
             """,
             """
+            CREATE TABLE IF NOT EXISTS notifiers (
+                id TEXT NOT NULL PRIMARY KEY,
+                unit_id TEXT NOT NULL REFERENCES units,
+                name text NOT NULL
+            ) STRICT
+            """,
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS uk_notifiers__unit_id__name
+                ON notifiers (unit_id, name)
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS ix_notifiers__unit_id
+                ON notifiers (unit_id)
+            """,
+            """
             CREATE TABLE IF NOT EXISTS messages (
                 id TEXT NOT NULL PRIMARY KEY,
                 connection_id TEXT NOT NULL REFERENCES connections,
                 timestamp TEXT NOT NULL,
-                direction TEXT NOT NULL,
-                content TEXT NOT NULL,
-                CHECK (direction in ('send', 'receive'))
+                direction TEXT NOT NULL CHECK (direction IN ('send', 'receive')),
+                content TEXT NOT NULL
             ) STRICT
             """,
             """
@@ -100,6 +114,27 @@ class SQLiteDatabaseManager(DatabaseManager):
             """
             CREATE INDEX IF NOT EXISTS ix_messages__content
                 ON messages (content)
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS alerts (
+                id TEXT NOT NULL PRIMARY KEY,
+                origin_id TEXT NOT NULL,
+                timestamp TEXT NOT NULL,
+                level TEXT NOT NULL CHECK (level IN ('info', 'warning', 'error')),
+                info TEXT NOT NULL CHECK (json_valid(info))
+            ) STRICT
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS ix_alerts__origin_id
+                ON alerts (origin_id)
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS ix_alerts__timestamp
+                ON alerts (timestamp)
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS ix_alerts__level
+                ON alerts (level)
             """,
         ]
 

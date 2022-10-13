@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 from datetime import datetime
-from enum import Enum
-from typing import TYPE_CHECKING, TypeVar, cast
+from typing import TYPE_CHECKING, Any, TypeVar, cast
 from uuid import UUID, uuid4
 
 import sqlalchemy as sql
-from sqlalchemy import BINARY, TIMESTAMP, Column
+from sqlalchemy import BINARY, JSON, TIMESTAMP, Column
 from sqlalchemy import Enum as StringEnum
 from sqlalchemy import ForeignKey, String
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,16 +13,14 @@ from sqlalchemy.ext.declarative import declared_attr
 from sqlalchemy.orm import Mapped, declarative_base, relationship
 from sqlalchemy_utils import UUIDType
 
-from ...path import ComponentPath, ConnectionPath, DriverPath, UnitPath
+from ...alert import AlertLevel
+from ...message import MessageDirection
+from ...path import ComponentPath, ConnectionPath, DriverPath, NotifierPath, UnitPath
 
 if TYPE_CHECKING:
     from .manager import DatabaseManager
 
 BaseEntity = declarative_base()
-
-
-def eid() -> UUID:
-    return uuid4()
 
 
 class Entity(BaseEntity):
@@ -41,6 +38,7 @@ class UnitEntity(Entity):
 
     connections: list[ConnectionEntity] = relationship("ConnectionEntity", back_populates="unit")
     drivers: list[DriverEntity] = relationship("DriverEntity", back_populates="unit")
+    notifiers: list[NotifierEntity] = relationship("NotifierEntity", back_populates="unit")
 
 
 class ComponentEntity(Entity):
@@ -65,9 +63,8 @@ class DriverEntity(ComponentEntity):
     __tablename__ = "drivers"
 
 
-class MessageDirection(str, Enum):
-    SEND = "send"
-    RECEIVE = "receive"
+class NotifierEntity(ComponentEntity):
+    __tablename__ = "notifiers"
 
 
 class MessageEntity(Entity):
@@ -78,6 +75,15 @@ class MessageEntity(Entity):
         StringEnum(*[current.value for current in MessageDirection])
     )
     content: bytes = Column(BINARY)
+
+
+class AlertEntity(Entity):
+    __tablename__ = "alerts"
+    origin_id: UUID = Column(UUIDType(binary=False))
+    timestamp: datetime = Column(TIMESTAMP(timezone=True))
+    kind: str = Column(String)
+    level: AlertLevel = Column(StringEnum(*[current.value for current in AlertLevel]))
+    info: dict[str, Any] = Column(JSON, default={})
 
 
 ComponentEntityT = TypeVar("ComponentEntityT", bound=ComponentEntity)
@@ -99,6 +105,20 @@ class EntityManager:
         async with self._database.session() as session:
             return (await self._get_component(session, DriverEntity, path)).id
 
+    async def get_notifier_id(self, path: NotifierPath) -> UUID:
+        async with self._database.session() as session:
+            return (await self._get_component(session, NotifierEntity, path)).id
+
+    async def get_component_id(self, path: ComponentPath) -> UUID:
+        if path.kind == "connection":
+            return await self.get_connection_id(path)
+        if path.kind == "driver":
+            return await self.get_driver_id(path)
+        if path.kind == "notifier":
+            return await self.get_notifier_id(path)
+
+        raise ValueError(path)
+
     async def _get_unit(
         self,
         session: AsyncSession,
@@ -109,7 +129,7 @@ class EntityManager:
         ).scalar()
 
         if not unit:
-            unit = UnitEntity(id=eid(), name=path.name)
+            unit = UnitEntity(id=uuid4(), name=path.name)
             session.add(unit)
             await session.commit()
 
@@ -141,7 +161,7 @@ class EntityManager:
 
         if not component:
             component = cls(  # type: ignore
-                id=eid(),
+                id=uuid4(),
                 unit_id=unit_id,
                 name=path.name,
             )

@@ -12,15 +12,22 @@ from uuid import UUID
 import anyio
 from anyio.abc import TaskGroup
 
-from ..config import ConnectionConfig, DatabaseConfig, DriverConfig, UnitConfig
+from ..config import (
+    ConnectionConfig,
+    DatabaseConfig,
+    DriverConfig,
+    NotifierConfig,
+    UnitConfig,
+)
 from ..events import Event
-from ..path import ConnectionPath, DriverPath, UnitPath
+from ..path import ConnectionPath, DriverPath, NotifierPath, UnitPath
 from ..protocols import GlobalUnitProtocol
 from ..result import Fail, Ok
 from . import logs
 from .connection import ConnectionHandle, ConnectionHandleContext
 from .database.manager import DatabaseManager
 from .driver import DriverHandle, DriverHandleContext
+from .notifier import NotifierHandle, NotifierHandleContext
 from .tasks import Tasklet, ensure_event_loop
 from .utilities import jsonify
 
@@ -31,6 +38,7 @@ class UnitContext:
     path: UnitPath
     connections: list[ConnectionConfig]
     drivers: list[DriverConfig]
+    notifiers: list[NotifierConfig]
     database: DatabaseConfig
     config: UnitConfig
 
@@ -49,6 +57,7 @@ class Unit(UnitProxyProtocol, GlobalUnitProtocol, Tasklet):
         self._database = DatabaseManager.create(self._context.database)
         self._connections: dict[str, ConnectionHandle] = {}
         self._drivers: dict[str, DriverHandle] = {}
+        self._notifiers: dict[str, NotifierHandle] = {}
         self._tasks: TaskGroup | None = None
 
     @property
@@ -79,11 +88,18 @@ class Unit(UnitProxyProtocol, GlobalUnitProtocol, Tasklet):
     def drivers(self) -> Iterable[DriverHandle]:
         return self._drivers.values()
 
+    @property
+    def notifiers(self) -> Iterable[NotifierHandle]:
+        return self._notifiers.values()
+
     def get_connection(self, name: str) -> ConnectionHandle | None:
         return self._connections.get(name)
 
     def get_driver(self, name: str) -> DriverHandle | None:
         return self._drivers.get(name)
+
+    def get_notifier(self, name: str) -> NotifierHandle | None:
+        return self._notifiers.get(name)
 
     async def broadcast(self, event: Event) -> None:
         for component in self.components:
@@ -128,12 +144,15 @@ class Unit(UnitProxyProtocol, GlobalUnitProtocol, Tasklet):
     async def _tasklet_run(self) -> None:
         await self._load_connections()
         await self._load_drivers()
+        await self._load_notifiers()
 
         async with anyio.create_task_group() as group:
             for connection in self._connections.values():
                 group.start_soon(connection.run)
             for driver in self._drivers.values():
                 group.start_soon(driver.run)
+            for notifier in self._notifiers.values():
+                group.start_soon(notifier.run)
 
             self._tasks = group
 
@@ -204,6 +223,41 @@ class Unit(UnitProxyProtocol, GlobalUnitProtocol, Tasklet):
             )
 
         for handle in self._drivers.values():
+            match await handle.load():
+                case Ok():
+                    self.logger.info(
+                        f"Loaded '{handle.path}' as {type(handle.instance)} with id '{handle.id}'."
+                    )
+                case Fail(error):
+                    self.logger.error(
+                        f"Failed to load '{handle.path}'. Error: {jsonify(error, indent=2)}"
+                    )
+
+    async def _load_notifiers(self) -> None:
+        for config in self._context.notifiers:
+            path = NotifierPath.create(
+                self._context.path.name,
+                config.name,
+            )
+
+            if config.name in self._notifiers:
+                continue
+
+            id = await self._database.entities.get_notifier_id(path)
+
+            self._notifiers[config.name] = NotifierHandle(
+                NotifierHandleContext(
+                    id=id,
+                    path=path,
+                    unit=self,
+                    component=config.component,
+                    parameters=config.parameters,
+                    references=config.references,
+                    database=self._database,
+                )
+            )
+
+        for handle in self._notifiers.values():
             match await handle.load():
                 case Ok():
                     self.logger.info(

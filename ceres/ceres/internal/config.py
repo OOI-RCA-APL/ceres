@@ -13,7 +13,14 @@ from pydantic import ValidationError
 from yaml import YAMLError
 
 from ..component import Component
-from ..config import ComponentConfig, Config, ConnectionConfig, DriverConfig, UnitConfig
+from ..config import (
+    ComponentConfig,
+    Config,
+    ConnectionConfig,
+    DriverConfig,
+    NotifierConfig,
+    UnitConfig,
+)
 from ..connection import Connection
 from ..driver import Driver
 from ..errors import (
@@ -26,7 +33,8 @@ from ..errors import (
     ConfigValidationError,
     ValidationProblem,
 )
-from ..path import ConnectionPath, DriverPath, create_component_path
+from ..notifier import Notifier
+from ..path import ConnectionPath, DriverPath, NotifierPath, create_component_path
 from ..result import Fail, Ok, Result
 from .component import load_component
 from .database.manager import DatabaseManager
@@ -137,6 +145,7 @@ async def _check_components(
     def check_unit_config(unit_config: UnitConfig) -> Iterable[ConfigComponentError]:
         loaded_connections: list[tuple[ConnectionConfig, Connection]] = []
         loaded_drivers: list[tuple[DriverConfig, Driver]] = []
+        loaded_notifiers: list[tuple[NotifierConfig, Notifier]] = []
 
         def check_connections() -> Iterable[ConfigComponentError]:
             for connection_config in unit_config.connections:
@@ -167,7 +176,23 @@ async def _check_components(
                     case Ok(driver):
                         loaded_drivers.append((driver_config, driver))
                     case Fail(error):
-                        log("fail")
+                        yield ConfigComponentError(
+                            component=path,
+                            error=error,
+                        )
+
+        def check_notifiers() -> Iterable[ConfigComponentError]:
+            for notifier_config in unit_config.notifiers:
+                path = NotifierPath.create(unit_config.name, notifier_config.name)
+                log(f"Checking component '{path}'...")
+                match load_component(
+                    Notifier,
+                    notifier_config.component,
+                    notifier_config.parameters,
+                ):
+                    case Ok(notifier):
+                        loaded_notifiers.append((notifier_config, notifier))
+                    case Fail(error):
                         yield ConfigComponentError(
                             component=path,
                             error=error,
@@ -177,6 +202,7 @@ async def _check_components(
             loaded_components: list[tuple[ComponentConfig, Component[Any]]] = [
                 *loaded_connections,
                 *loaded_drivers,
+                *loaded_notifiers,
             ]
 
             for component_config, component in loaded_components:
@@ -186,9 +212,11 @@ async def _check_components(
                         and binding.path.name not in component_config.references.connections
                         or binding.path.kind == "driver"
                         and binding.path.name not in component_config.references.drivers
+                        or binding.path.kind == "notifier"
+                        and binding.path.name not in component_config.references.notifiers
                     ):
                         path = create_component_path(
-                            "connection" if isinstance(component, Connection) else "driver",
+                            binding.path.kind,
                             unit_config.name,
                             component_config.name,
                         )
@@ -201,7 +229,12 @@ async def _check_components(
                             ),
                         )
 
-        return [*check_connections(), *check_drivers(), *check_references()]
+        return [
+            *check_connections(),
+            *check_drivers(),
+            *check_notifiers(),
+            *check_references(),
+        ]
 
     errors: list[ConfigComponentError] = []
 

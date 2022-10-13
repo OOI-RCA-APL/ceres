@@ -6,7 +6,7 @@ from typing import Any
 
 from .component import Component, ComponentContext, ContextT
 from .path import ConnectionPath, LocalConnectionPath
-from .protocols import ReferencedConnectionHandleProtocol
+from .protocols import ReferencedConnectionHandle
 from .reference import Reference, SelfT
 
 
@@ -29,7 +29,7 @@ class Connection(Component[ConnectionContext], ABC):
         raise NotImplementedError()
 
 
-class ConnectionReference(Reference[ReferencedConnectionHandleProtocol]):
+class ConnectionReference(Reference[ReferencedConnectionHandle]):
     @property
     def path(self) -> LocalConnectionPath:
         return LocalConnectionPath.create(self.name)
@@ -38,7 +38,7 @@ class ConnectionReference(Reference[ReferencedConnectionHandleProtocol]):
         self: SelfT,
         component: Component[ContextT] | None,
         owner: Any,
-    ) -> SelfT | ReferencedConnectionHandleProtocol:
+    ) -> SelfT | ReferencedConnectionHandle:
         if component is None:
             return self
 

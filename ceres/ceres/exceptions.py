@@ -15,6 +15,10 @@ class ComponentNotSetupException(CeresException):
     pass
 
 
+class ComponentNotLoadedException(CeresException):
+    pass
+
+
 class ConnectionException(ComponentException):
     pass
 

@@ -5,7 +5,7 @@ import traceback
 from abc import ABC
 from dataclasses import dataclass
 from logging import Logger
-from typing import Generic, Literal, Sequence, TypeVar, cast
+from typing import Generic, Sequence, TypeVar, cast
 from uuid import UUID
 
 from .config import ComponentReferencesConfig
@@ -27,9 +27,6 @@ class ComponentContext:
 
 
 ContextT = TypeVar("ContextT", bound=ComponentContext)
-
-
-ComponentKind = Literal["connection", "driver"]
 
 
 class Component(Generic[ContextT], ABC):
@@ -70,6 +67,8 @@ class Component(Generic[ContextT], ABC):
                     references = self.context.references.connections
                 elif binding.path.kind == "driver":
                     references = self.context.references.drivers
+                elif binding.path.kind == "notifier":
+                    references = self.context.references.notifiers
                 else:
                     continue
 

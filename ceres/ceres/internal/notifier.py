@@ -4,46 +4,47 @@ from dataclasses import dataclass
 from logging import Logger
 from uuid import UUID
 
-import anyio
-
-from ..driver import Driver, DriverContext
+from ..alert import Alert
+from ..config import UserConfig
 from ..errors import ComponentError
+from ..exceptions import ComponentNotLoadedException
 from ..internal import logs
-from ..path import DriverPath
-from ..protocols import ReferencedDriverHandle
+from ..notifier import Notifier, NotifierContext
+from ..path import NotifierPath
+from ..protocols import ReferencedNotifierHandle
 from ..result import Ok, Result
 from .component import ComponentHandleContext, load_component
 from .tasks import Tasklet
 
 
-class DriverHandle(Tasklet, ReferencedDriverHandle):
-    def __init__(self, context: DriverHandleContext) -> None:
+class NotifierHandle(Tasklet, ReferencedNotifierHandle):
+    def __init__(self, context: NotifierHandleContext) -> None:
         self._context = context
-        self._instance: Driver | None = None
+        self._instance: Notifier | None = None
 
     @property
     def id(self) -> UUID:
         return self._context.id
 
     @property
-    def path(self) -> DriverPath:
+    def path(self) -> NotifierPath:
         return self._context.path
 
     @property
-    def instance(self) -> Driver | None:
+    def instance(self) -> Notifier | None:
         return self._instance
 
     @property
     def logger(self) -> Logger:
         return logs.get(str(self._context.path))
 
-    async def load(self) -> Result[Driver, ComponentError]:
+    async def load(self) -> Result[Notifier, ComponentError]:
         if not self._instance:
-            match load_component(Driver, self._context.component, self._context.parameters):
+            match load_component(Notifier, self._context.component, self._context.parameters):
                 case Ok(instance):
                     self._instance = instance
                     self._instance.setup(
-                        DriverContext(
+                        NotifierContext(
                             id=self._context.id,
                             path=self._context.path,
                             unit=self._context.unit,
@@ -55,24 +56,19 @@ class DriverHandle(Tasklet, ReferencedDriverHandle):
 
         return Ok(self._instance)
 
-    async def _tasklet_run(self) -> None:
-        async def process_update() -> None:
-            while True:
-                await self._update()
+    async def send(self, users: list[UserConfig], alerts: list[Alert]) -> None:
+        if not self._instance:
+            raise ComponentNotLoadedException("Notifier is not loaded.")
 
-        async with anyio.create_task_group() as group:
-            group.start_soon(process_update)
+        await self._instance.send(users, alerts)
+
+    async def _tasklet_run(self) -> None:
+        pass
 
     async def _tasklet_stop(self) -> None:
         pass
 
-    async def _update(self) -> None:
-        if not self._instance:
-            return
-
-        await self._instance.update()
-
 
 @dataclass(kw_only=True, frozen=True)
-class DriverHandleContext(ComponentHandleContext):
-    path: DriverPath
+class NotifierHandleContext(ComponentHandleContext):
+    path: NotifierPath
