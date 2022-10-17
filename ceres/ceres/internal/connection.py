@@ -37,20 +37,13 @@ class ReceivedMessage:
 
 class ReconnectScheduler:
     def __init__(self, config: ReconnectConfig) -> None:
-        self.interval = (
-            config.interval
-            if isinstance(config.interval, timedelta)
-            else timedelta(seconds=config.interval)
-        )
-        self.backoff: float = config.backoff if config.backoff is not None else 1
-        self.max_interval: timedelta | None = None
+        self.interval = config.interval
+        self.max_interval = config.max_interval
 
-        if config.max_interval:
-            self.max_interval = (
-                config.max_interval
-                if isinstance(config.max_interval, timedelta)
-                else timedelta(seconds=config.max_interval)
-            )
+        if config.backoff is not None:
+            self.backoff: float = config.backoff
+        else:
+            self.backoff = 1
 
         self._retries = 0
 
@@ -59,6 +52,8 @@ class ReconnectScheduler:
 
     def next(self) -> timedelta:
         next = self.interval * self.backoff**self._retries
+        if self.max_interval is not None and next > self.max_interval:
+            next = self.max_interval
         self._retries += 1
         return next
 
@@ -217,7 +212,9 @@ class ConnectionHandle(Tasklet, ReferencedConnectionHandle):
             return
 
         while not await self.connect():
-            await anyio.sleep(self._reconnect.next().total_seconds())
+            seconds = self._reconnect.next().total_seconds()
+            self.logger.info(f"Attempting to reconnect in {seconds:g} seconds...")
+            await anyio.sleep(seconds)
 
         self._reconnect.reset()
 

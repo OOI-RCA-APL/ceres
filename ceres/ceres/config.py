@@ -3,11 +3,12 @@ from __future__ import annotations
 import itertools
 import re
 from abc import ABC
-from enum import Enum
+from datetime import timedelta
 from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import (
+    BaseConfig,
     BaseModel,
     ConstrainedStr,
     Field,
@@ -15,6 +16,8 @@ from pydantic import (
     root_validator,
     validator,
 )
+
+from .internal.utilities import decode_timedelta, encode_timedelta
 
 
 class NameStr(ConstrainedStr):
@@ -42,9 +45,13 @@ class ComponentConfig(BaseModel, ABC):
 
 
 class ReconnectConfig(BaseModel):
-    interval: float = 1
-    backoff: float | None = None
-    max_interval: float | None = 60 * 5
+    interval: timedelta = timedelta(seconds=1)
+    backoff: float | None = 2
+    max_interval: timedelta | None = timedelta(seconds=60)
+
+    @validator("interval", "max_interval", pre=True)
+    def _check_timedeltas(value: Any) -> timedelta:
+        return decode_timedelta(value)
 
 
 class ConnectionConfig(ComponentConfig):
@@ -64,8 +71,7 @@ class ServerConfig(BaseModel):
     enable: bool = True
 
 
-class DatabaseKind(str, Enum):
-    SQLITE = "sqlite"
+DatabaseKind = Literal["sqlite"]
 
 
 class DatabaseRetryConfig(BaseModel):
@@ -80,7 +86,7 @@ class BaseDatabaseConfig(BaseModel):
 
 
 class SQLiteDatabaseConfig(BaseDatabaseConfig):
-    kind: Literal[DatabaseKind.SQLITE] = DatabaseKind.SQLITE
+    kind: Literal["sqlite"] = "sqlite"
     path: Path
 
 
@@ -113,9 +119,11 @@ class UnitConfig(BaseModel):
     def _check_references(cls, fields: dict[str, Any]) -> dict[str, Any]:
         name: str = fields["name"]
         connections: dict[str, ConnectionConfig] = {
-            current.name: current for current in fields["connections"]
+            current.name: current for current in fields.get("connections", [])
         }
-        drivers: dict[str, DriverConfig] = {current.name: current for current in fields["drivers"]}
+        drivers: dict[str, DriverConfig] = {
+            current.name: current for current in fields.get("drivers", [])
+        }
         components: list[ComponentConfig] = [*connections.values(), *drivers.values()]
 
         for component in components:
@@ -141,6 +149,11 @@ class UserConfig(BaseModel):
 
 
 class Config(BaseModel):
+    class Config(BaseConfig):
+        json_encoders = {
+            timedelta: encode_timedelta,
+        }
+
     server: ServerConfig
     database: DatabaseConfig
     users: list[UserConfig] = []

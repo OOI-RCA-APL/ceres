@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from asyncio import StreamReader, StreamWriter
+from asyncio import StreamReader, StreamWriter, TimeoutError
 from dataclasses import dataclass
 from datetime import timedelta
 

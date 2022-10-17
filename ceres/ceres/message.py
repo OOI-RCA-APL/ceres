@@ -18,10 +18,21 @@ class MessageLike(Protocol):
     def id(self) -> UUID:
         ...
 
-    connection_id: UUID
-    timestamp: datetime
-    direction: MessageDirection
-    content: bytes
+    @property
+    def connection_id(self) -> UUID:
+        ...
+
+    @property
+    def timestamp(self) -> datetime:
+        ...
+
+    @property
+    def direction(self) -> MessageDirection:
+        ...
+
+    @property
+    def content(self) -> bytes:
+        ...
 
 
 @dataclass(kw_only=True, frozen=True)

@@ -109,8 +109,9 @@ async def _check_database(
     start = datetime.now(timezone.utc)
 
     while (datetime.now(timezone.utc) - start) < timedelta(seconds=config.database.retry.timeout):
+        database = DatabaseManager.create(config.database)
+
         try:
-            database = DatabaseManager.create(config.database)
             async with database.connect():
                 log("Connected to database successfully.")
                 return []

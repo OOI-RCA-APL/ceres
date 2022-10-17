@@ -19,11 +19,25 @@ class AlertLike(Protocol):
     def id(self) -> UUID:
         ...
 
-    origin_id: UUID
-    timestamp: datetime
-    kind: str
-    level: AlertLevel
-    info: dict[str, Any]
+    @property
+    def origin_id(self) -> UUID:
+        ...
+
+    @property
+    def timestamp(self) -> datetime:
+        ...
+
+    @property
+    def kind(self) -> str:
+        ...
+
+    @property
+    def level(self) -> AlertLevel:
+        ...
+
+    @property
+    def info(self) -> dict[str, Any]:
+        ...
 
 
 @dataclass(kw_only=True, frozen=True)
