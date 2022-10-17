@@ -37,7 +37,7 @@ def load_component(
         if not isinstance(source, cls):
             return Fail(
                 ComponentClassInvalidError(
-                    message=f"Component passed in configuration must be an instance of {cls}, got {source}."
+                    message=f"component passed in configuration must be an instance of {cls}, got {source}"
                 )
             )
 
@@ -48,12 +48,12 @@ def load_component(
     except Exception as exception:
         if isinstance(exception, ModuleNotFoundError) and exception.name == source:
             return Fail(
-                ComponentModuleNotFoundError(message=f"Component module '{source}' was not found.")
+                ComponentModuleNotFoundError(message=f"component module '{source}' was not found")
             )
 
         return Fail(
             ComponentModuleExceptionError(
-                message=f"Component module '{source}' raised an exception during import.",
+                message=f"component module '{source}' raised an exception during import",
                 traceback=traceback.format_exc(),
             )
         )
@@ -73,7 +73,7 @@ def load_component(
     if target_cls is None:
         return Fail(
             ComponentClassInvalidError(
-                message=f"Component module {module} must contain class a non-abstract subclass of {cls}."
+                message=f"component module {module} must contain class a non-abstract subclass of {cls}"
             )
         )
 
@@ -99,7 +99,7 @@ def load_component(
     except ValidationError as error:
         return Fail(
             ComponentParametersInvalidError(
-                message=f"Invalid parameters for {target_cls}.",
+                message=f"invalid parameters for {target_cls}",
                 problems=ValidationProblem.extract(error),
             )
         )
@@ -109,7 +109,7 @@ def load_component(
     except Exception:
         return Fail(
             ComponentInitExceptionError(
-                message=f"Exception raised when calling __init__() for {target_cls}.",
+                message=f"exception raised when calling __init__() for {target_cls}",
                 traceback=traceback.format_exc(),
             )
         )

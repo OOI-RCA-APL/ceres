@@ -10,7 +10,7 @@ from typing import Any, Callable, Iterable, Sequence
 import anyio
 import yaml
 from pydantic import ValidationError
-from yaml import YAMLError
+from yaml import MarkedYAMLError, YAMLError
 
 from ..component import Component
 from ..config import (
@@ -29,6 +29,7 @@ from ..errors import (
     ConfigDatabaseError,
     ConfigError,
     ConfigParseError,
+    ConfigParseErrorLocation,
     ConfigReadError,
     ConfigValidationError,
     ValidationProblem,
@@ -68,15 +69,34 @@ async def load_config(
             try:
                 path = os.path.realpath(config)
             except Exception:
-                return Fail([ConfigReadError()])
+                return Fail([ConfigReadError(message=f"path '{config}' could not be resolved")])
 
             try:
                 with open(path, "r") as stream:
                     data = yaml.safe_load(stream)
             except OSError:
-                return Fail([ConfigReadError()])
-            except YAMLError:
-                return Fail([ConfigParseError()])
+                return Fail([ConfigReadError(message=f"failed to read file at '{path}'")])
+            except YAMLError as error:
+                message: str | None = None
+                location: ConfigParseErrorLocation | None = None
+
+                if isinstance(error, MarkedYAMLError):
+                    message = error.problem
+
+                    if error.problem_mark:
+                        location = ConfigParseErrorLocation(
+                            line=error.problem_mark.line,
+                            column=error.problem_mark.column,
+                        )
+
+                return Fail(
+                    [
+                        ConfigParseError(
+                            message=message,
+                            location=location,
+                        )
+                    ]
+                )
 
             config = Config.parse_obj(data)
             config.__path__ = path
@@ -127,7 +147,7 @@ async def _check_database(
             await database.dispose()
             return [
                 ConfigDatabaseError(
-                    message="Failed to connect to database.",
+                    message="failed to connect to database",
                     exception=traceback.format_exc(),
                 )
             ]
@@ -225,7 +245,7 @@ async def _check_components(
                         yield ConfigComponentError(
                             component=path,
                             error=ComponentReferenceInvalidError(
-                                message=f"{path} requires {binding.path.kind} reference '{binding.path.name}', but it is not assigned.",
+                                message=f"{path} requires {binding.path.kind} reference '{binding.path.name}', but it is not assigned",
                                 reference=binding.path,
                             ),
                         )

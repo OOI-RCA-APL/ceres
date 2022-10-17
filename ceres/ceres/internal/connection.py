@@ -8,7 +8,7 @@ from uuid import UUID, uuid4
 
 import anyio
 
-from ..config import ReconnectConfig
+from ..config import ConnectionReconnectConfig
 from ..connection import Connection, ConnectionContext
 from ..errors import ComponentError
 from ..events import (
@@ -36,7 +36,7 @@ class ReceivedMessage:
 
 
 class ReconnectScheduler:
-    def __init__(self, config: ReconnectConfig) -> None:
+    def __init__(self, config: ConnectionReconnectConfig) -> None:
         self.interval = config.interval
         self.max_interval = config.max_interval
 
@@ -299,7 +299,7 @@ class ConnectionHandle(Tasklet, ReferencedConnectionHandle):
 @dataclass(kw_only=True, frozen=True)
 class ConnectionHandleContext(ComponentHandleContext):
     path: ConnectionPath
-    reconnect: ReconnectConfig
+    reconnect: ConnectionReconnectConfig
 
 
 class ConnectionState(str, Enum):

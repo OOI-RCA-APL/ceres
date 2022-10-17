@@ -10,23 +10,23 @@ from ...exceptions import ConnectionInactiveException, ConnectionLostException
 
 
 @dataclass(kw_only=True, frozen=True)
-class Stream:
-    reader: StreamReader
-    writer: StreamWriter
-
-
-@dataclass(kw_only=True, frozen=True)
 class TCPConnectionParameters:
     host: str
     port: int
-    connect_timeout: timedelta = timedelta(seconds=5)
+    timeout: timedelta = timedelta(seconds=5)
     separator: bytes = b"\r\n"
+
+
+@dataclass(kw_only=True, frozen=True)
+class _Stream:
+    reader: StreamReader
+    writer: StreamWriter
 
 
 class TCPConnection(Connection):
     def __init__(self, parameters: TCPConnectionParameters) -> None:
         self._parameters = parameters
-        self._stream: Stream | None = None
+        self._stream: _Stream | None = None
 
     @property
     def host(self) -> str:
@@ -43,12 +43,12 @@ class TCPConnection(Connection):
         try:
             reader, writer = await asyncio.wait_for(
                 asyncio.open_connection(self.host, self.port),
-                self._parameters.connect_timeout.total_seconds(),
+                self._parameters.timeout.total_seconds(),
             )
         except (ConnectionError, TimeoutError):
             return False
 
-        self._stream = Stream(
+        self._stream = _Stream(
             reader=reader,
             writer=writer,
         )

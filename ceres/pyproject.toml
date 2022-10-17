@@ -7,8 +7,10 @@ packages = [{ include = "ceres" }]
 
 [tool.poetry.dependencies]
 python = "^3.10"
+aiosmtplib = "^1.1.0"
 aiosqlite = "^0.17.0"
 anyio = "^3.0.0"
+apscheduler = "^3.9.0"
 asyncpg = "^0.26.0"
 click = "^8.0.0"
 fastapi = "^0.67.0"

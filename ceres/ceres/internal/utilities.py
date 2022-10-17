@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import inspect
 import json
+import re
 import signal
 from contextlib import contextmanager
 from datetime import timedelta
@@ -18,6 +19,7 @@ from typing import (
     cast,
 )
 
+from pydantic import ConstrainedStr
 from pydantic.json import pydantic_encoder
 
 T = TypeVar("T")
@@ -147,3 +149,15 @@ def literals(literal: type[Enum] | object) -> tuple[str, ...]:
         return tuple(value for value in __args__ if isinstance(value, str))
 
     return tuple()
+
+
+class NameStr(ConstrainedStr):
+    regex = re.compile(r"[a-zA-Z\-\_][a-zA-Z0-9\-\_]*")
+
+
+class EmailStr(ConstrainedStr):
+    regex = re.compile(r".+@.+")
+
+
+class NonEmptyStr(ConstrainedStr):
+    regex = re.compile(r".+")

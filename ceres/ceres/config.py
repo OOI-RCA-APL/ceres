@@ -1,32 +1,23 @@
 from __future__ import annotations
 
 import itertools
-import re
 from abc import ABC
 from datetime import timedelta
 from enum import Enum
 from pathlib import Path
 from typing import Any, Literal
 
+from apscheduler.triggers.cron import CronTrigger
 from pydantic import (
     BaseConfig,
     BaseModel,
-    ConstrainedStr,
     Field,
     PrivateAttr,
     root_validator,
     validator,
 )
 
-from .internal.utilities import decode_timedelta, encode_timedelta
-
-
-class NameStr(ConstrainedStr):
-    regex = re.compile(r"[a-zA-Z\-\_][a-zA-Z0-9\-\_]*")
-
-
-class EmailStr(ConstrainedStr):
-    regex = re.compile(r".+@.+")
+from .internal.utilities import EmailStr, NameStr, decode_timedelta, encode_timedelta
 
 
 class ComponentReferencesConfig(BaseModel):
@@ -45,26 +36,73 @@ class ComponentConfig(BaseModel, ABC):
     references: ComponentReferencesConfig = ComponentReferencesConfig()
 
 
-class ReconnectConfig(BaseModel):
+class ConnectionReconnectConfig(BaseModel):
     interval: timedelta = timedelta(seconds=1)
     backoff: float | None = 2
     max_interval: timedelta | None = timedelta(seconds=60)
 
     @validator("interval", "max_interval", pre=True)
-    def _check_timedeltas(value: Any) -> timedelta:
+    def _check_timedeltas(cls, value: Any) -> timedelta:
         return decode_timedelta(value)
 
 
 class ConnectionConfig(ComponentConfig):
-    reconnect: ReconnectConfig = ReconnectConfig()
+    reconnect: ConnectionReconnectConfig = ConnectionReconnectConfig()
 
 
 class DriverConfig(ComponentConfig):
     pass
 
 
+class ScheduleKind(str, Enum):
+    CRON = "cron"
+    INTERVAL = "interval"
+    AND = "and"
+    OR = "or"
+
+
+class BaseScheduleConfig(BaseModel):
+    kind: ScheduleKind
+
+
+class CronScheduleConfig(BaseScheduleConfig):
+    kind: Literal[ScheduleKind.CRON] = ScheduleKind.CRON
+    crontab: str
+
+    @validator("crontab")
+    def _validate_crontab(cls, crontab: str) -> str:
+        try:
+            CronTrigger.from_crontab(crontab)
+        except Exception:
+            raise ValueError("invalid crontab expression")
+
+        return crontab
+
+
+class IntervalScheduleConfig(BaseScheduleConfig):
+    kind: Literal[ScheduleKind.INTERVAL] = ScheduleKind.INTERVAL
+    interval: timedelta
+
+    @validator("interval", pre=True)
+    def _check_timedeltas(cls, value: Any) -> timedelta:
+        return decode_timedelta(value)
+
+
+class AndScheduleConfig(BaseScheduleConfig):
+    kind: Literal[ScheduleKind.AND] = ScheduleKind.AND
+    schedules: list[ScheduleConfig]
+
+
+class OrScheduleConfig(BaseScheduleConfig):
+    kind: Literal[ScheduleKind.OR] = ScheduleKind.OR
+    schedules: list[ScheduleConfig]
+
+
+ScheduleConfig = CronScheduleConfig
+
+
 class NotifierConfig(ComponentConfig):
-    pass
+    schedule: ScheduleConfig | None = None
 
 
 class ServerConfig(BaseModel):
