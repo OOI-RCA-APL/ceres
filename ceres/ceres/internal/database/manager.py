@@ -38,8 +38,9 @@ class DatabaseManager(ABC):
     def create(config: DatabaseConfig) -> DatabaseManager:
         from .sqlite import SQLiteDatabaseManager
 
-        if config.kind == "sqlite":
-            return SQLiteDatabaseManager(config)
+        match config.kind:
+            case DatabaseKind.SQLITE:
+                return SQLiteDatabaseManager(config)
 
         raise NotImplementedError(config.kind)
 

@@ -4,6 +4,7 @@ import itertools
 import re
 from abc import ABC
 from datetime import timedelta
+from enum import Enum
 from pathlib import Path
 from typing import Any, Literal
 
@@ -71,7 +72,8 @@ class ServerConfig(BaseModel):
     enable: bool = True
 
 
-DatabaseKind = Literal["sqlite"]
+class DatabaseKind(str, Enum):
+    SQLITE = "sqlite"
 
 
 class DatabaseRetryConfig(BaseModel):
@@ -86,7 +88,7 @@ class BaseDatabaseConfig(BaseModel):
 
 
 class SQLiteDatabaseConfig(BaseDatabaseConfig):
-    kind: Literal["sqlite"] = "sqlite"
+    kind: Literal[DatabaseKind.SQLITE] = DatabaseKind.SQLITE
     path: Path
 
 
