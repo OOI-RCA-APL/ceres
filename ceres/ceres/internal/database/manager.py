@@ -2,11 +2,15 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from textwrap import dedent
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any, cast
 
-import sqlalchemy as sql
-from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import (
+    AsyncConnection,
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+)
 from sqlalchemy.sql.elements import TextClause
 
 from ...config import DatabaseConfig, DatabaseKind
@@ -18,20 +22,16 @@ class DatabaseManager(ABC):
     Database manager that abstracts over SQLAlchemy's async engine type.
     """
 
-    if TYPE_CHECKING:
-        _session_maker: sessionmaker[AsyncSession]
-
     def __init__(self, config: DatabaseConfig) -> None:
         """
         Create a new database manager using the provided configuration.
         """
         self._base_config = config
         self._engine = self._create_engine(config)
-        self._session_maker = sessionmaker(
+        self._session_maker = async_sessionmaker(
             self._engine,
-            autocommit=False,
+            AsyncSession,
             expire_on_commit=False,
-            class_=AsyncSession,
         )
 
     @staticmethod
@@ -103,9 +103,9 @@ class DatabaseManager(ABC):
         parameters: dict[str, Any] = {},
     ) -> str:
         return str(
-            sql.text(dedent(command).strip())
+            text(dedent(command).strip())
             .bindparams(**parameters)
-            .compile(self._engine, compile_kwargs={"literal_binds": True})
+            .compile(self._engine.sync_engine, compile_kwargs={"literal_binds": True})
         )
 
     def sql(
@@ -113,13 +113,13 @@ class DatabaseManager(ABC):
         command: str,
         parameters: dict[str, Any] = {},
     ) -> TextClause:
-        return sql.text(self.compile(command, parameters))
+        return text(self.compile(command, parameters))
 
     async def init(self) -> None:
         async with self.begin() as connection:
             for statement in self.ddl:
-                await connection.execute(sql.text(statement))
+                await connection.execute(text(statement))
 
     async def tables(self) -> list[str]:
         async with self.connect() as connection:
-            return list((await connection.execute(sql.text(self._create_tables_query()))).scalars())
+            return list((await connection.execute(text(self._create_tables_query()))).scalars())

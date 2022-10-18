@@ -27,7 +27,7 @@ class ComponentReferencesConfig(BaseModel):
 
 
 class ComponentConfig(BaseModel, ABC):
-    class Config:
+    class Config(BaseConfig):
         arbitrary_types_allowed = True
 
     name: NameStr
@@ -98,7 +98,10 @@ class OrScheduleConfig(BaseScheduleConfig):
     schedules: list[ScheduleConfig]
 
 
-ScheduleConfig = CronScheduleConfig
+ScheduleConfig = CronScheduleConfig | IntervalScheduleConfig | AndScheduleConfig | OrScheduleConfig
+
+AndScheduleConfig.update_forward_refs()
+OrScheduleConfig.update_forward_refs()
 
 
 class NotifierConfig(ComponentConfig):

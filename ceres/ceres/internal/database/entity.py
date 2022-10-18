@@ -1,17 +1,20 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, TypeVar, cast
+from typing import TYPE_CHECKING, Any, TypeVar
 from uuid import UUID, uuid4
 
-import sqlalchemy as sql
-from sqlalchemy import BINARY, JSON, TIMESTAMP, Column
-from sqlalchemy import Enum as StringEnum
-from sqlalchemy import ForeignKey, String
+from sqlalchemy import BINARY, JSON, TIMESTAMP
+from sqlalchemy import Enum as Enumeration
+from sqlalchemy import ForeignKey, String, Uuid, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.ext.declarative import declared_attr
-from sqlalchemy.orm import Mapped, declarative_base, relationship
-from sqlalchemy_utils import UUIDType
+from sqlalchemy.orm import (
+    DeclarativeBase,
+    Mapped,
+    declared_attr,
+    mapped_column,
+    relationship,
+)
 
 from ...alert import AlertLevel
 from ...message import MessageDirection
@@ -20,38 +23,43 @@ from ...path import ComponentPath, ConnectionPath, DriverPath, NotifierPath, Uni
 if TYPE_CHECKING:
     from .manager import DatabaseManager
 
-BaseEntity = declarative_base()
 
-
-class Entity(BaseEntity):
+class Entity(DeclarativeBase):
     __abstract__ = True
     __mapper_args__ = {
         "eager_defaults": True,
     }
 
-    id: UUID = Column(UUIDType(binary=False), primary_key=True)
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
 
 
 class UnitEntity(Entity):
     __tablename__ = "units"
-    name: str = Column(String)
 
-    connections: list[ConnectionEntity] = relationship("ConnectionEntity", back_populates="unit")
-    drivers: list[DriverEntity] = relationship("DriverEntity", back_populates="unit")
-    notifiers: list[NotifierEntity] = relationship("NotifierEntity", back_populates="unit")
+    name: Mapped[str] = mapped_column(String)
+
+    connections: Mapped[list[ConnectionEntity]] = relationship(
+        "ConnectionEntity",
+        back_populates="unit",
+    )
+    drivers: Mapped[list[DriverEntity]] = relationship(
+        "DriverEntity",
+        back_populates="unit",
+    )
+    notifiers: Mapped[list[NotifierEntity]] = relationship(
+        "NotifierEntity",
+        back_populates="unit",
+    )
 
 
 class ComponentEntity(Entity):
     __abstract__ = True
 
-    @declared_attr
-    def unit_id(cls) -> Mapped[UUID]:
-        return Column(UUIDType(binary=False), ForeignKey("units.id"))
-
-    name: str = Column(String)
+    unit_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("units.id"))
+    name: Mapped[str] = mapped_column(String)
 
     @declared_attr
-    def unit(cls) -> relationship[UUID]:
+    def unit(cls) -> Mapped[UnitEntity]:
         return relationship(UnitEntity, back_populates=cls.__tablename__)
 
 
@@ -69,21 +77,23 @@ class NotifierEntity(ComponentEntity):
 
 class MessageEntity(Entity):
     __tablename__ = "messages"
-    connection_id: UUID = Column(UUIDType(binary=False), ForeignKey("connections.id"))
-    timestamp: datetime = Column(TIMESTAMP(timezone=True))
-    direction: MessageDirection = Column(
-        StringEnum(*[current.value for current in MessageDirection])
+    connection_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("connections.id"))
+    timestamp: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))
+    direction: Mapped[MessageDirection] = mapped_column(
+        Enumeration(*(current.value for current in MessageDirection))
     )
-    content: bytes = Column(BINARY)
+    content: Mapped[bytes] = mapped_column(BINARY)
 
 
 class AlertEntity(Entity):
     __tablename__ = "alerts"
-    origin_id: UUID = Column(UUIDType(binary=False))
-    timestamp: datetime = Column(TIMESTAMP(timezone=True))
-    kind: str = Column(String)
-    level: AlertLevel = Column(StringEnum(*[current.value for current in AlertLevel]))
-    info: dict[str, Any] = Column(JSON, default={})
+    origin_id: Mapped[UUID] = mapped_column(Uuid)
+    timestamp: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))
+    kind: Mapped[str] = mapped_column(String)
+    level: Mapped[AlertLevel] = mapped_column(
+        Enumeration(*(current.value for current in AlertLevel))
+    )
+    info: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
 
 
 ComponentEntityT = TypeVar("ComponentEntityT", bound=ComponentEntity)
@@ -124,11 +134,9 @@ class EntityManager:
         session: AsyncSession,
         path: UnitPath,
     ) -> UnitEntity:
-        unit: UnitEntity | None = (
-            await (session.execute(sql.select(UnitEntity).where(UnitEntity.name == path.name)))
-        ).scalar()
-
-        if not unit:
+        if not (
+            unit := await session.scalar(select(UnitEntity).where(UnitEntity.name == path.name))
+        ):
             unit = UnitEntity(id=uuid4(), name=path.name)
             session.add(unit)
             await session.commit()
@@ -143,24 +151,14 @@ class EntityManager:
     ) -> ComponentEntity:
         unit_id = await self.get_unit_id(UnitPath.create(path.unit))
 
-        component = cast(
-            ComponentEntityT | None,
-            (
-                await (
-                    session.execute(
-                        sql.select(cls).where(
-                            sql.and_(
-                                cls.unit_id == unit_id,
-                                cls.name == path.name,
-                            )
-                        )
-                    )
+        if not (
+            component := await (
+                session.scalar(
+                    select(cls).where((cls.unit_id == unit_id) & (cls.name == path.name))
                 )
-            ).scalar(),
-        )
-
-        if not component:
-            component = cls(  # type: ignore
+            )
+        ):
+            component = cls(
                 id=uuid4(),
                 unit_id=unit_id,
                 name=path.name,
