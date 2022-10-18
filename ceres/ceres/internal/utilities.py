@@ -16,13 +16,17 @@ from typing import (
     NoReturn,
     Sequence,
     TypeVar,
+    Union,
     cast,
 )
 
 from pydantic import ConstrainedStr
 from pydantic.json import pydantic_encoder
+from sqlalchemy.orm import Mapped
 
 T = TypeVar("T")
+
+MaybeMapped = Union[T, Mapped[T]]
 
 
 async def awaitify(value: T | Awaitable[T]) -> T:

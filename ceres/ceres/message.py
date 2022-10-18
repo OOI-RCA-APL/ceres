@@ -6,6 +6,8 @@ from enum import Enum
 from typing import Protocol, runtime_checkable
 from uuid import UUID, uuid4
 
+from .internal.utilities import MaybeMapped
+
 
 class MessageDirection(str, Enum):
     SEND = "send"
@@ -15,23 +17,23 @@ class MessageDirection(str, Enum):
 @runtime_checkable
 class MessageLike(Protocol):
     @property
-    def id(self) -> UUID:
+    def id(self) -> MaybeMapped[UUID]:
         ...
 
     @property
-    def connection_id(self) -> UUID:
+    def connection_id(self) -> MaybeMapped[UUID]:
         ...
 
     @property
-    def timestamp(self) -> datetime:
+    def timestamp(self) -> MaybeMapped[datetime]:
         ...
 
     @property
-    def direction(self) -> MessageDirection:
+    def direction(self) -> MaybeMapped[MessageDirection]:
         ...
 
     @property
-    def content(self) -> bytes:
+    def content(self) -> MaybeMapped[bytes]:
         ...
 
 

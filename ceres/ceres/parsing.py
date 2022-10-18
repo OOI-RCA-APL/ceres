@@ -98,7 +98,7 @@ class Parser:
 
         return None
 
-    def eat_pattern(self, pattern: bytes) -> bytes | None:
+    def eat_pattern(self, pattern: bytes) -> bytes:
         if result := self.try_eat_pattern(pattern):
             return result
 
@@ -110,7 +110,7 @@ class Parser:
 
         return None
 
-    def eat_int(self) -> int | None:
+    def eat_int(self) -> int:
         if (result := self.try_eat_int()) is not None:
             return result
 
@@ -122,7 +122,7 @@ class Parser:
 
         return None
 
-    def eat_float(self) -> float | None:
+    def eat_float(self) -> float:
         if (result := self.try_eat_float()) is not None:
             return result
 

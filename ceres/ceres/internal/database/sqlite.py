@@ -26,7 +26,7 @@ class SQLiteDatabaseManager(DatabaseManager):
             **(config.engine or {}),
         )
 
-        @event.listens_for(engine.sync_engine, "connect")  # type: ignore
+        @event.listens_for(engine.sync_engine, "connect")
         def connect(connection: SQLiteConnection, *args: Any) -> None:
             # Disable the "sqlite3" handling of automatic "BEGIN" statements.
             connection.isolation_level = None
@@ -34,7 +34,7 @@ class SQLiteDatabaseManager(DatabaseManager):
             # cursor = dbapi_connection.cursor()
             connection.execute("PRAGMA foreign_keys=ON")
 
-        @event.listens_for(engine.sync_engine, "begin")  # type: ignore
+        @event.listens_for(engine.sync_engine, "begin")
         def begin(connection: Connection) -> None:
             # Add our own "BEGIN" statement when requested.
             connection.exec_driver_sql("BEGIN")
