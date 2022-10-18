@@ -1,18 +1,15 @@
 from __future__ import annotations
 
-from typing import Literal
+from dataclasses import field
+from typing import Literal, overload
 
 from pydantic.dataclasses import dataclass
 
 
-@dataclass(kw_only=True, frozen=True)
+@dataclass(frozen=True)
 class UnitPath:
-    kind: Literal["unit"] = "unit"
+    kind: Literal["unit"] = field(default="unit", init=False)
     name: str
-
-    @classmethod
-    def create(cls, name: str) -> UnitPath:
-        return cls(name=name)
 
     def __str__(self) -> str:
         return f"@{self.name}"
@@ -22,103 +19,145 @@ class UnitPath:
         return self.name
 
 
-@dataclass(kw_only=True, frozen=True)
+@dataclass(frozen=True)
 class ConnectionPath:
-    kind: Literal["connection"] = "connection"
+    kind: Literal["connection"] = field(default="connection", init=False)
     unit: str
     name: str
-
-    @classmethod
-    def create(cls, unit: str, name: str) -> ConnectionPath:
-        return cls(unit=unit, name=name)
 
     def __str__(self) -> str:
         return f"@{self.unit}.connections.{self.name}"
 
 
-@dataclass(kw_only=True, frozen=True)
+@dataclass(frozen=True)
 class DriverPath:
-    kind: Literal["driver"] = "driver"
+    kind: Literal["driver"] = field(default="driver", init=False)
     unit: str
     name: str
-
-    @classmethod
-    def create(cls, unit: str, name: str) -> DriverPath:
-        return cls(unit=unit, name=name)
 
     def __str__(self) -> str:
         return f"@{self.unit}.drivers.{self.name}"
 
 
-@dataclass(kw_only=True, frozen=True)
+@dataclass(frozen=True)
 class NotifierPath:
-    kind: Literal["notifier"] = "notifier"
+    kind: Literal["notifier"] = field(default="notifier", init=False)
     unit: str
     name: str
-
-    @classmethod
-    def create(cls, unit: str, name: str) -> NotifierPath:
-        return cls(unit=unit, name=name)
 
     def __str__(self) -> str:
         return f"@{self.unit}.notifiers.{self.name}"
 
 
-Path = UnitPath | ConnectionPath | DriverPath
+ComponentPathKind = Literal["connection", "driver", "notifier"]
 ComponentPath = ConnectionPath | DriverPath | NotifierPath
 
+PathKind = Literal["unit"] | ComponentPathKind  # type: ignore
+Path = UnitPath | ComponentPath
 
-@dataclass(kw_only=True, frozen=True)
+
+@dataclass(frozen=True)
+class LocalUnitPath:
+    kind: Literal["unit"] = field(default="unit", init=False)
+
+    def __str__(self) -> str:
+        return "."
+
+
+@dataclass(frozen=True)
 class LocalConnectionPath:
-    kind: Literal["connection"] = "connection"
+    kind: Literal["connection"] = field(default="connection", init=False)
     name: str
-
-    @classmethod
-    def create(cls, name: str) -> LocalConnectionPath:
-        return cls(name=name)
 
     def __str__(self) -> str:
         return f".connections.{self.name}"
 
 
-@dataclass(kw_only=True, frozen=True)
+@dataclass(frozen=True)
 class LocalDriverPath:
-    kind: Literal["driver"] = "driver"
+    kind: Literal["driver"] = field(default="driver", init=False)
     name: str
-
-    @classmethod
-    def create(cls, name: str) -> LocalDriverPath:
-        return cls(name=name)
 
     def __str__(self) -> str:
         return f".drivers.{self.name}"
 
 
-@dataclass(kw_only=True, frozen=True)
+@dataclass(frozen=True)
 class LocalNotifierPath:
-    kind: Literal["notifier"] = "notifier"
+    kind: Literal["notifier"] = field(default="notifier", init=False)
     name: str
-
-    @classmethod
-    def create(cls, name: str) -> LocalNotifierPath:
-        return cls(name=name)
 
     def __str__(self) -> str:
         return f".notifiers.{self.name}"
 
 
 LocalComponentPath = LocalConnectionPath | LocalDriverPath | LocalNotifierPath
+LocalPath = LocalUnitPath | LocalComponentPath
 
-ComponentPathKind = Literal["connection", "driver", "notifier"]
+
+@overload
+def create_path(kind: Literal["unit"], unit: str) -> UnitPath:
+    ...
 
 
-def create_component_path(kind: ComponentPathKind, unit: str, name: str) -> ComponentPath:
+@overload
+def create_path(kind: Literal["connection"], unit: str, name: str) -> ConnectionPath:
+    ...
+
+
+@overload
+def create_path(kind: Literal["driver"], unit: str, name: str) -> DriverPath:
+    ...
+
+
+@overload
+def create_path(kind: Literal["notifier"], unit: str, name: str) -> NotifierPath:
+    ...
+
+
+def create_path(kind: PathKind, unit: str, name: str = "") -> Path:
     match kind:
+        case "unit":
+            return UnitPath(unit)
         case "connection":
-            return ConnectionPath.create(unit, name)
+            return ConnectionPath(unit, name)
         case "driver":
-            return DriverPath.create(unit, name)
+            return DriverPath(unit, name)
         case "notifier":
-            return NotifierPath.create(unit, name)
+            return NotifierPath(unit, name)
+
+    raise ValueError(kind)
+
+
+@overload
+def create_local_path(kind: Literal["unit"]) -> LocalUnitPath:
+    ...
+
+
+@overload
+def create_local_path(kind: Literal["connection"], name: str) -> LocalConnectionPath:
+    ...
+
+
+@overload
+def create_local_path(kind: Literal["driver"], name: str) -> LocalDriverPath:
+    ...
+
+
+@overload
+def create_local_path(kind: Literal["notifier"], name: str) -> LocalNotifierPath:
+    ...
+
+
+def create_local_path(kind: PathKind, name: str = "") -> LocalPath:
+    match kind:
+        case "unit":
+            return LocalUnitPath()
+        case "connection":
+            return LocalConnectionPath(name)
+        case "driver":
+            return LocalDriverPath(name)
+        case "notifier":
+            return LocalNotifierPath(name)
 
     raise ValueError(kind)

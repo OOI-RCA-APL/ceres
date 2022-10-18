@@ -25,7 +25,7 @@ class Notifier(Component[NotifierContext], ABC):
 class NotifierReference(Reference[ReferencedConnectionHandle]):
     @property
     def path(self) -> LocalNotifierPath:
-        return LocalNotifierPath.create(self.name)
+        return LocalNotifierPath(self.name)
 
     def __get__(  # type: ignore
         self: SelfT,

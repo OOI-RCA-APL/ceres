@@ -125,7 +125,7 @@ class ConnectionHandle(Tasklet, ReferencedConnectionHandle):
             self._state = ConnectionState.CONNECTED
             await self._context.unit.broadcast(
                 ConnectedEvent(
-                    path=LocalConnectionPath.create(self._context.path.name),
+                    path=LocalConnectionPath(self._context.path.name),
                     timestamp=datetime.now(timezone.utc),
                 )
             )
@@ -149,7 +149,7 @@ class ConnectionHandle(Tasklet, ReferencedConnectionHandle):
             try:
                 await self._context.unit.broadcast(
                     DisconnectedEvent(
-                        path=LocalConnectionPath.create(self._context.path.name),
+                        path=LocalConnectionPath(self._context.path.name),
                         timestamp=datetime.now(timezone.utc),
                     )
                 )
@@ -181,7 +181,7 @@ class ConnectionHandle(Tasklet, ReferencedConnectionHandle):
         message = Message.create_from(entity)
         await self._context.unit.broadcast(
             MessageSentEvent(
-                path=LocalConnectionPath.create(self._context.path.name),
+                path=LocalConnectionPath(self._context.path.name),
                 message=message,
             )
         )
@@ -254,7 +254,7 @@ class ConnectionHandle(Tasklet, ReferencedConnectionHandle):
 
         await self._context.unit.broadcast(
             MessageReceivedEvent(
-                path=LocalConnectionPath.create(self._context.path.name),
+                path=LocalConnectionPath(self._context.path.name),
                 message=Message(
                     id=message.id,
                     connection_id=self._context.id,

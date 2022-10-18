@@ -25,7 +25,7 @@ class Driver(Component[DriverContext], ABC):
 class DriverReference(Reference[ReferencedDriverHandle]):
     @property
     def path(self) -> LocalDriverPath:
-        return LocalDriverPath.create(self.name)
+        return LocalDriverPath(self.name)
 
     def __get__(  # type: ignore
         self: SelfT,

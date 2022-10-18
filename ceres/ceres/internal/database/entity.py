@@ -149,7 +149,7 @@ class EntityManager:
         cls: type[ComponentEntityT],
         path: ComponentPath,
     ) -> ComponentEntity:
-        unit_id = await self.get_unit_id(UnitPath.create(path.unit))
+        unit_id = await self.get_unit_id(UnitPath(path.unit))
 
         if not (
             component := await (

@@ -200,7 +200,7 @@ class Engine(Tasklet, ServerEngine):
 
     async def _sync_units(self) -> None:
         configs: dict[UnitPath, UnitConfig] = {
-            UnitPath.create(current.name): current for current in self._config.units
+            UnitPath(current.name): current for current in self._config.units
         }
 
         actions = self._get_unit_sync_actions()
@@ -283,7 +283,7 @@ class Engine(Tasklet, ServerEngine):
 
     def _get_unit_sync_actions(self) -> list[UnitSyncAction]:
         configs: dict[UnitPath, UnitConfig] = {
-            UnitPath.create(current.name): current for current in self._config.units
+            UnitPath(current.name): current for current in self._config.units
         }
         units: dict[UnitPath, UnitHandle] = {
             current.path: current for current in self._units.values()

@@ -32,7 +32,7 @@ class Connection(Component[ConnectionContext], ABC):
 class ConnectionReference(Reference[ReferencedConnectionHandle]):
     @property
     def path(self) -> LocalConnectionPath:
-        return LocalConnectionPath.create(self.name)
+        return LocalConnectionPath(self.name)
 
     def __get__(  # type: ignore
         self: SelfT,

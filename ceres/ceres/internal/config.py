@@ -35,7 +35,7 @@ from ..errors import (
     ValidationProblem,
 )
 from ..notifier import Notifier
-from ..path import ConnectionPath, DriverPath, NotifierPath, create_component_path
+from ..path import ConnectionPath, DriverPath, NotifierPath, create_path
 from ..result import Fail, Ok, Result
 from .component import load_component
 from .database.manager import DatabaseManager
@@ -170,7 +170,7 @@ async def _check_components(
 
         def check_connections() -> Iterable[ConfigComponentError]:
             for connection_config in unit_config.connections:
-                path = ConnectionPath.create(unit_config.name, connection_config.name)
+                path = ConnectionPath(unit_config.name, connection_config.name)
                 log(f"Checking component '{path}'...")
                 match load_component(
                     Connection,
@@ -187,7 +187,7 @@ async def _check_components(
 
         def check_drivers() -> Iterable[ConfigComponentError]:
             for driver_config in unit_config.drivers:
-                path = DriverPath.create(unit_config.name, driver_config.name)
+                path = DriverPath(unit_config.name, driver_config.name)
                 log(f"Checking component '{path}'...")
                 match load_component(
                     Driver,
@@ -204,7 +204,7 @@ async def _check_components(
 
         def check_notifiers() -> Iterable[ConfigComponentError]:
             for notifier_config in unit_config.notifiers:
-                path = NotifierPath.create(unit_config.name, notifier_config.name)
+                path = NotifierPath(unit_config.name, notifier_config.name)
                 log(f"Checking component '{path}'...")
                 match load_component(
                     Notifier,
@@ -236,7 +236,7 @@ async def _check_components(
                         or binding.path.kind == "notifier"
                         and binding.path.name not in component_config.references.notifiers
                     ):
-                        path = create_component_path(
+                        path = create_path(
                             binding.path.kind,
                             unit_config.name,
                             component_config.name,
