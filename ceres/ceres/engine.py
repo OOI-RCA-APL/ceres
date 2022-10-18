@@ -228,7 +228,7 @@ class Engine(Tasklet, ServerEngine):
                     self._units.pop(unit.path)
 
                 if config := configs.get(action.path):
-                    id = await self._database.entities.get_unit_id(action.path)
+                    id = await self._database.entities.get_id(action.path)
                     context = UnitContext(
                         id=id,
                         path=action.path,

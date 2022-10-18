@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from logging import Logger
 from multiprocessing.managers import BaseManager
 from threading import Lock
-from typing import Any, Iterable, Protocol, cast
+from typing import Any, Iterable, Protocol, cast, overload
 from uuid import UUID
 
 import anyio
@@ -20,7 +20,16 @@ from ..config import (
     UnitConfig,
 )
 from ..events import Event
-from ..path import ConnectionPath, DriverPath, NotifierPath, UnitPath
+from ..path import (
+    ConnectionPath,
+    DriverPath,
+    LocalComponentPath,
+    LocalConnectionPath,
+    LocalDriverPath,
+    LocalNotifierPath,
+    NotifierPath,
+    UnitPath,
+)
 from ..protocols import GlobalUnitProtocol
 from ..result import Fail, Ok
 from . import logs
@@ -77,8 +86,8 @@ class Unit(UnitProxyProtocol, GlobalUnitProtocol, Tasklet):
         return logs.get(str(self._context.path))
 
     @property
-    def components(self) -> Iterable[ConnectionHandle | DriverHandle]:
-        return itertools.chain(self.connections, self.drivers)
+    def components(self) -> Iterable[ConnectionHandle | DriverHandle | NotifierHandle]:
+        return itertools.chain(self.connections, self.drivers, self.notifiers)
 
     @property
     def connections(self) -> Iterable[ConnectionHandle]:
@@ -91,6 +100,27 @@ class Unit(UnitProxyProtocol, GlobalUnitProtocol, Tasklet):
     @property
     def notifiers(self) -> Iterable[NotifierHandle]:
         return self._notifiers.values()
+
+    @overload
+    def get_component(self, path: LocalConnectionPath) -> ConnectionHandle | None:
+        ...
+
+    @overload
+    def get_component(self, path: LocalDriverPath) -> DriverHandle | None:
+        ...
+
+    @overload
+    def get_component(self, path: LocalNotifierPath) -> NotifierHandle | None:
+        ...
+
+    def get_component(self, path: LocalComponentPath) -> object:
+        match path:
+            case LocalConnectionPath():
+                return self.get_connection(path.name)
+            case LocalDriverPath():
+                return self.get_driver(path.name)
+            case LocalNotifierPath():
+                return self.get_notifier(path.name)
 
     def get_connection(self, name: str) -> ConnectionHandle | None:
         return self._connections.get(name)
@@ -172,7 +202,7 @@ class Unit(UnitProxyProtocol, GlobalUnitProtocol, Tasklet):
             if config.name in self._connections:
                 continue
 
-            id = await self._database.entities.get_connection_id(path)
+            id = await self._database.entities.get_id(path)
 
             self._connections[config.name] = ConnectionHandle(
                 ConnectionHandleContext(
@@ -208,7 +238,7 @@ class Unit(UnitProxyProtocol, GlobalUnitProtocol, Tasklet):
             if config.name in self._drivers:
                 continue
 
-            id = await self._database.entities.get_driver_id(path)
+            id = await self._database.entities.get_id(path)
 
             self._drivers[config.name] = DriverHandle(
                 DriverHandleContext(
@@ -243,7 +273,7 @@ class Unit(UnitProxyProtocol, GlobalUnitProtocol, Tasklet):
             if config.name in self._notifiers:
                 continue
 
-            id = await self._database.entities.get_notifier_id(path)
+            id = await self._database.entities.get_id(path)
 
             self._notifiers[config.name] = NotifierHandle(
                 NotifierHandleContext(

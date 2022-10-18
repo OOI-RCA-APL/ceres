@@ -61,25 +61,14 @@ class Component(Generic[ContextT], ABC):
         for binding in self.get_event_bindings():
             if not isinstance(event, cast(type, binding.cls)):
                 continue
+            if self.context.references.remap(binding.path) != event.path:
+                continue
 
-            if event.path.kind == binding.path.kind:
-                if binding.path.kind == "connection":
-                    references = self.context.references.connections
-                elif binding.path.kind == "driver":
-                    references = self.context.references.drivers
-                elif binding.path.kind == "notifier":
-                    references = self.context.references.notifiers
-                else:
-                    continue
-
-                if references.get(binding.path.name) != event.path.name:
-                    continue
-
-                if method := getattr(self, binding.method, None):
-                    try:
-                        if len(inspect.signature(method).parameters) == 0:
-                            await awaitify(method())
-                        else:
-                            await awaitify(method(event))
-                    except Exception:
-                        traceback.print_exc()
+            if method := getattr(self, binding.method, None):
+                try:
+                    if len(inspect.signature(method).parameters) == 0:
+                        await awaitify(method())
+                    else:
+                        await awaitify(method(event))
+                except Exception:
+                    traceback.print_exc()

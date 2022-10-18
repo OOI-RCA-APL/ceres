@@ -18,7 +18,14 @@ from sqlalchemy.orm import (
 
 from ...alert import AlertLevel
 from ...message import MessageDirection
-from ...path import ComponentPath, ConnectionPath, DriverPath, NotifierPath, UnitPath
+from ...path import (
+    ComponentPath,
+    ConnectionPath,
+    DriverPath,
+    NotifierPath,
+    Path,
+    UnitPath,
+)
 
 if TYPE_CHECKING:
     from .manager import DatabaseManager
@@ -103,31 +110,17 @@ class EntityManager:
     def __init__(self, database: "DatabaseManager") -> None:
         self._database = database
 
-    async def get_unit_id(self, path: UnitPath) -> UUID:
+    async def get_id(self, path: Path) -> UUID:
         async with self._database.session() as session:
-            return (await self._get_unit(session, path)).id
-
-    async def get_connection_id(self, path: ConnectionPath) -> UUID:
-        async with self._database.session() as session:
-            return (await self._get_component(session, ConnectionEntity, path)).id
-
-    async def get_driver_id(self, path: DriverPath) -> UUID:
-        async with self._database.session() as session:
-            return (await self._get_component(session, DriverEntity, path)).id
-
-    async def get_notifier_id(self, path: NotifierPath) -> UUID:
-        async with self._database.session() as session:
-            return (await self._get_component(session, NotifierEntity, path)).id
-
-    async def get_component_id(self, path: ComponentPath) -> UUID:
-        if path.kind == "connection":
-            return await self.get_connection_id(path)
-        if path.kind == "driver":
-            return await self.get_driver_id(path)
-        if path.kind == "notifier":
-            return await self.get_notifier_id(path)
-
-        raise ValueError(path)
+            match path:
+                case UnitPath():
+                    return (await self._get_unit(session, path)).id
+                case ConnectionPath():
+                    return (await self._get_component(session, ConnectionEntity, path)).id
+                case DriverPath():
+                    return (await self._get_component(session, DriverEntity, path)).id
+                case NotifierPath():
+                    return (await self._get_component(session, NotifierEntity, path)).id
 
     async def _get_unit(
         self,
@@ -149,7 +142,7 @@ class EntityManager:
         cls: type[ComponentEntityT],
         path: ComponentPath,
     ) -> ComponentEntity:
-        unit_id = await self.get_unit_id(UnitPath(path.unit))
+        unit_id = (await self._get_unit(session, UnitPath(path.unit))).id
 
         if not (
             component := await (

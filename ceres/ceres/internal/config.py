@@ -228,14 +228,7 @@ async def _check_components(
 
             for component_config, component in loaded_components:
                 for binding in component.get_reference_bindings():
-                    if (
-                        binding.path.kind == "connection"
-                        and binding.path.name not in component_config.references.connections
-                        or binding.path.kind == "driver"
-                        and binding.path.name not in component_config.references.drivers
-                        or binding.path.kind == "notifier"
-                        and binding.path.name not in component_config.references.notifiers
-                    ):
+                    if not component_config.references.has(binding.path):
                         path = create_path(
                             binding.path.kind,
                             unit_config.name,

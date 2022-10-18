@@ -2,12 +2,11 @@ from __future__ import annotations
 
 from abc import ABC
 from dataclasses import dataclass
-from typing import Any
 
-from .component import Component, ComponentContext, ContextT
+from .component import Component, ComponentContext
 from .path import ConnectionPath, LocalConnectionPath
 from .protocols import ReferencedConnectionHandle
-from .reference import Reference, SelfT
+from .reference import Reference
 
 
 @dataclass(kw_only=True, frozen=True)
@@ -33,19 +32,3 @@ class ConnectionReference(Reference[ReferencedConnectionHandle]):
     @property
     def path(self) -> LocalConnectionPath:
         return LocalConnectionPath(self.name)
-
-    def __get__(  # type: ignore
-        self: SelfT,
-        component: Component[ContextT] | None,
-        owner: Any,
-    ) -> SelfT | ReferencedConnectionHandle:
-        if component is None:
-            return self
-
-        if not (real_name := component.context.references.connections.get(self.name)):
-            raise ValueError(f"connection '{self.name}' is not defined in connection references")
-
-        if connection := component.context.unit.get_connection(real_name):
-            return connection
-
-        raise ValueError(f"no connection '{real_name}' in current unit")

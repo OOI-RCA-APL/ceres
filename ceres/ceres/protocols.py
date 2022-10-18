@@ -1,11 +1,18 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, overload, runtime_checkable
 from uuid import UUID
 
 from .events import Event
 from .message import Message
-from .path import ConnectionPath, DriverPath, NotifierPath
+from .path import (
+    ConnectionPath,
+    DriverPath,
+    LocalConnectionPath,
+    LocalDriverPath,
+    LocalNotifierPath,
+    NotifierPath,
+)
 
 if TYPE_CHECKING:
     from .connection import Connection
@@ -63,6 +70,18 @@ class ReferencedNotifierHandle(Protocol):
 
 @runtime_checkable
 class GlobalUnitProtocol(Protocol):
+    @overload
+    def get_component(self, path: LocalConnectionPath) -> ReferencedConnectionHandle | None:
+        ...
+
+    @overload
+    def get_component(self, path: LocalDriverPath) -> ReferencedDriverHandle | None:
+        ...
+
+    @overload
+    def get_component(self, path: LocalNotifierPath) -> ReferencedNotifierHandle | None:
+        ...
+
     def get_connection(self, name: str) -> ReferencedConnectionHandle | None:
         ...
 

@@ -18,12 +18,36 @@ from pydantic import (
 )
 
 from .internal.utilities import EmailStr, NameStr, decode_timedelta, encode_timedelta
+from .path import (
+    LocalComponentPath,
+    LocalConnectionPath,
+    LocalDriverPath,
+    LocalNotifierPath,
+    create_local_path,
+)
 
 
 class ComponentReferencesConfig(BaseModel):
     connections: dict[str, str] = {}
     drivers: dict[str, str] = {}
     notifiers: dict[str, str] = {}
+
+    def has(self, path: LocalComponentPath) -> bool:
+        return self.remap(path) is not None
+
+    def remap(self, path: LocalComponentPath) -> LocalComponentPath | None:
+        match path:
+            case LocalConnectionPath():
+                name = self.connections.get(path.name)
+            case LocalDriverPath():
+                name = self.drivers.get(path.name)
+            case LocalNotifierPath():
+                name = self.notifiers.get(path.name)
+
+        if name is None:
+            return None
+
+        return create_local_path(path.kind, name)
 
 
 class ComponentConfig(BaseModel, ABC):
