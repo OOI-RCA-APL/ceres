@@ -1,100 +1,90 @@
 from __future__ import annotations
 
-import asyncio
-import functools
-import inspect
 import os
-from typing import Any, Callable, TypeVar, cast
+from pathlib import Path
+from typing import TypeVar
 
-import click
-import uvloop
-from click import ClickException, Path
+from click import ClickException as ExitException
+from rich import print
+from typer import Option, Typer
 
 from ..config import Config
 from ..engine import Engine
 from ..result import Ok
 from .config import load_config
 from .database.manager import DatabaseManager
+from .utilities import syncify
 
 
-class InvalidConfigException(ClickException):
+class InvalidConfigException(ExitException):
     exit_code = 1
 
 
-class DatabaseUnreachableException(ClickException):
+class DatabaseUnreachableException(ExitException):
     exit_code = 2
 
 
-class CheckFailedException(ClickException):
+class CheckFailedException(ExitException):
     exit_code = 3
 
 
-FunctionT = TypeVar("FunctionT", bound=Callable[..., Any])
+def _get_config_path(config_path: Path | None) -> Path:
+    if not config_path:
+        possibilities = [
+            "ceres.yaml",
+            "ceres.yml",
+        ]
+
+        for possibility in possibilities:
+            if os.path.isfile(possibility):
+                config_path = Path(os.path.realpath(possibility))
+                break
+        else:
+            raise ExitException(f"Must be in a directory containing one of: {possibilities}")
+
+    return config_path
 
 
-def asyncronous(function: FunctionT) -> Callable[..., None]:
-    if not inspect.iscoroutinefunction(function):
-        return function
-
-    @functools.wraps(function)
-    def wrapper(*args: list[Any], **kwargs: dict[str, Any]) -> Any:
-        uvloop.install()
-        return asyncio.run(function(*args, **kwargs))
-
-    return cast(FunctionT, wrapper)
+async def _get_config(config_path: Path | None) -> Config:
+    match await load_config(_get_config_path(config_path)):
+        case Ok(config):
+            return config
+        case fail:
+            raise InvalidConfigException(f"Failed to load configuration. {fail.json(indent=2)}")
 
 
-def with_config_path(callable: FunctionT) -> Callable[..., Any]:
-    @functools.wraps(callable)
-    @click.option(
-        "--config",
-        default=None,
-        type=Path(
-            exists=True,
-            resolve_path=True,
-            dir_okay=False,
-        ),
-    )
-    def wrapper(*args: Any, config: str | None, **kwargs: Any) -> Any:
-        return callable(*args, config_path=_resolve_config_path(config), **kwargs)
+CONFIG_PATH_OPTION = Option(
+    None,
+    "--config",
+    exists=True,
+    resolve_path=True,
+    dir_okay=False,
+    callback=_get_config_path,
+)
 
-    return cast(FunctionT, wrapper)
-
-
-@click.group()
-def main() -> None:
-    pass
+CONFIG_OPTION = Option(
+    None,
+    "--config",
+    exists=True,
+    resolve_path=True,
+    dir_okay=False,
+    callback=syncify(_get_config),
+)
 
 
-@main.command()
-@with_config_path
-@asyncronous
-async def run(config_path: str) -> None:
-    config = await _get_config(config_path)
+async def run(config: Config = CONFIG_OPTION) -> None:
     await Engine(config).run()
 
 
-@main.command()
-@with_config_path
-@asyncronous
-async def check(config_path: str) -> None:
-    match await load_config(config_path, logger=print):
+async def check(path: Path = CONFIG_PATH_OPTION) -> None:
+    match await load_config(path, logger=print):
         case Ok():
             print("All checks passed.")
         case fail:
             raise InvalidConfigException(f"Failed to load configuration. {fail.json(indent=2)}")
 
 
-@main.group()
-def database() -> None:
-    pass
-
-
-@database.command()
-@with_config_path
-@asyncronous
-async def init(config_path: str) -> None:
-    config = await _get_config(config_path)
+async def init(config: Config = CONFIG_OPTION) -> None:
     database = DatabaseManager.create(config.database)
 
     try:
@@ -123,31 +113,6 @@ async def init(config_path: str) -> None:
 T = TypeVar("T")
 
 
-def _resolve_config_path(config_path: str | None) -> str:
-    if not config_path:
-        possibilities = [
-            "ceres.yaml",
-            "ceres.yml",
-        ]
-
-        for possibility in possibilities:
-            if os.path.isfile(possibility):
-                config_path = os.path.realpath(possibility)
-                break
-        else:
-            raise ClickException(f"Must be in a directory containing one of: {possibilities}")
-
-    return config_path
-
-
-async def _get_config(config_path: str | None) -> Config:
-    match await load_config(_resolve_config_path(config_path)):
-        case Ok(config):
-            return config
-        case fail:
-            raise InvalidConfigException(f"Failed to load configuration. {fail.json(indent=2)}")
-
-
 def _get_yes_no(prompt: str, default: bool | None = None) -> bool:
     while True:
         if default is None:
@@ -164,3 +129,12 @@ def _get_yes_no(prompt: str, default: bool | None = None) -> bool:
             return True
         if text in ("no", "n"):
             return False
+
+
+main = Typer(no_args_is_help=True)
+main.command(help="Run the project.")(syncify(run))
+main.command(help="Check project configuration for correctness.")(syncify(check))
+
+database = Typer(no_args_is_help=True)
+main.add_typer(database, name="database", help="Manage the project database.")
+database.command(help="Initialize project database.")(syncify(init))

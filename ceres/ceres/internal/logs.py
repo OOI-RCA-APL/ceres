@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from logging import Logger
-from logging.config import dictConfig
-from typing import Any
+from logging import Formatter, Handler, Logger
+
+import uvicorn.logging
+from rich.logging import RichHandler
 
 
 @dataclass(kw_only=True, frozen=True)
@@ -25,7 +26,7 @@ class LoggingState:
     loggers: dict[str, Logger] = field(default_factory=dict)
 
 
-state = LoggingState()
+__state = LoggingState()
 
 
 def setup(config: LogConfig | None = None) -> None:
@@ -35,9 +36,47 @@ def setup(config: LogConfig | None = None) -> None:
     :param config: Configuration options to apply.
     """
     if config:
-        state.config = config
+        __state.config = config
+    date_format = "%Y-%m-%d %H:%M:%S"
 
-    dictConfig(_generate_config())
+    default_formatter = logging.Formatter(
+        "[%(asctime)s.%(msecs)03d] [%(process)s] [%(levelname)s] [%(name)s] %(message)s",
+        datefmt=date_format,
+    )
+    server_formatter = logging.Formatter(
+        "[%(asctime)s.%(msecs)03d] [%(process)s] [%(levelname)s] [server] %(message)s",
+        datefmt=date_format,
+    )
+    access_formatter = uvicorn.logging.AccessFormatter(
+        "[%(asctime)s.%(msecs)03d] [%(process)s] [%(levelname)s] [server] [%(client_addr)s] - %(request_line)s - %(status_code)s",
+        datefmt=date_format,
+    )
+
+    def create_handler(formatter: Formatter) -> RichHandler:
+        handler = RichHandler(
+            show_level=False,
+            show_path=False,
+            show_time=False,
+        )
+        handler.setFormatter(formatter)
+        return handler
+
+    default_handler = create_handler(default_formatter)
+    server_handler = create_handler(server_formatter)
+    access_handler = create_handler(access_formatter)
+
+    def setup_logger(name: str, handler: Handler) -> None:
+        logger = logging.getLogger(name)
+        logger.handlers = []
+        logger.addHandler(handler)
+        logger.setLevel(__state.config.level)
+        logger.propagate = False
+
+    for name in __state.loggers.keys():
+        setup_logger(name, default_handler)
+
+    setup_logger("uvicorn", server_handler)
+    setup_logger("uvicorn.access", access_handler)
 
 
 def main() -> Logger:
@@ -55,68 +94,8 @@ def get(name: str) -> Logger:
     :param name: The name of the logger. This will be displayed alongside any logged messages.
     """
     logger = logging.getLogger(name)
-    if name not in state.loggers:
-        state.loggers[name] = logger
+    if name not in __state.loggers:
+        __state.loggers[name] = logger
         setup()
 
     return logger
-
-
-def _generate_config() -> dict[str, Any]:
-    return {
-        "version": 1,
-        "disable_existing_loggers": False,
-        "formatters": {
-            "default": {
-                "()": "uvicorn.logging.DefaultFormatter",
-                "fmt": "[%(asctime)s] [%(process)s] [%(levelname)s] [%(name)s] %(message)s",
-            },
-            "uvicorn": {
-                "()": "uvicorn.logging.DefaultFormatter",
-                "fmt": "[%(asctime)s] [%(process)s] [%(levelname)s] [server] %(message)s",
-            },
-            "uvicorn.access": {
-                "()": "uvicorn.logging.AccessFormatter",
-                "fmt": "[%(asctime)s] [%(process)s] [%(levelname)s] [server] [%(client_addr)s] - %(request_line)s - %(status_code)s",
-            },
-        },
-        "handlers": {
-            "default": {
-                "class": "logging.StreamHandler",
-                "formatter": "default",
-                "stream": "ext://sys.stdout",
-            },
-            "uvicorn": {
-                "class": "logging.StreamHandler",
-                "formatter": "uvicorn",
-                "stream": "ext://sys.stdout",
-            },
-            "uvicorn.access": {
-                "class": "logging.StreamHandler",
-                "formatter": "uvicorn.access",
-                "stream": "ext://sys.stdout",
-            },
-        },
-        "loggers": {
-            **(
-                {
-                    name: {
-                        "level": state.config.level,
-                        "handlers": ["default"],
-                        "propagate": False,
-                    }
-                    for name in state.loggers.keys()
-                }
-            ),
-            "uvicorn": {
-                "level": state.config.level,
-                "handlers": ["uvicorn"],
-                "propagate": False,
-            },
-            "uvicorn.access": {
-                "level": state.config.level,
-                "handlers": ["uvicorn.access"],
-                "propagate": False,
-            },
-        },
-    }

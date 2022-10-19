@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import os
 import traceback
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 from logging import Logger
+from pathlib import Path
 from typing import Any, Callable, Iterable, Sequence
 
 import anyio
@@ -47,7 +47,7 @@ class ConfigCheckKind(str, Enum):
 
 
 async def load_config(
-    config: str | dict[str, Any] | Config,
+    config: Path | dict[str, Any] | Config,
     *,
     checks: Sequence[ConfigCheckKind] = list(ConfigCheckKind),
     logger: Logger | Callable[[Any], None] = lambda message: None,
@@ -65,9 +65,9 @@ async def load_config(
         if isinstance(config, dict):
             config = Config.parse_obj(config)
             log("Configuration object matches schema.")
-        elif isinstance(config, str):
+        elif isinstance(config, Path):
             try:
-                path = os.path.realpath(config)
+                path = config.resolve()
             except Exception:
                 return Fail([ConfigReadError(message=f"path '{config}' could not be resolved")])
 

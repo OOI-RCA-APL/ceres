@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import inspect
 import json
 import re
@@ -7,6 +8,7 @@ import signal
 from contextlib import contextmanager
 from datetime import timedelta
 from enum import Enum
+from functools import wraps
 from typing import (
     Any,
     Awaitable,
@@ -20,6 +22,7 @@ from typing import (
     cast,
 )
 
+import uvloop
 from pydantic import ConstrainedStr
 from pydantic.json import pydantic_encoder
 from sqlalchemy.orm import Mapped
@@ -42,6 +45,21 @@ def jsonify(object: object, *, indent: int | str | None = None, **kwargs: Any) -
 
 def simplify(object: object) -> Any:
     return pydantic_encoder(object)
+
+
+FunctionT = TypeVar("FunctionT", bound=Callable[..., Any])
+
+
+def syncify(function: FunctionT) -> FunctionT:
+    if not inspect.iscoroutinefunction(function):
+        return function
+
+    @wraps(function)
+    def wrapper(*args: list[Any], **kwargs: dict[str, Any]) -> Any:
+        uvloop.install()
+        return asyncio.run(function(*args, **kwargs))
+
+    return cast(FunctionT, wrapper)
 
 
 @contextmanager

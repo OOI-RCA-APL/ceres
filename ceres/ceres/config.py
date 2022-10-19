@@ -226,10 +226,10 @@ class Config(BaseModel):
     users: list[UserConfig] = []
     units: list[UnitConfig] = []
 
-    __path__: str | None = PrivateAttr(default=None)
+    __path__: Path | None = PrivateAttr(default=None)
 
     @property
-    def path(self) -> str | None:
+    def path(self) -> Path | None:
         return self.__path__
 
     @validator("units")
