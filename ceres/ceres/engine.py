@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import signal
 import sys
 import traceback
@@ -8,6 +7,7 @@ from asyncio import Event
 from dataclasses import dataclass
 from enum import Enum
 from logging import Logger
+from pathlib import Path
 from queue import Empty, Queue
 from typing import Any
 
@@ -16,6 +16,10 @@ from anyio import CancelScope
 
 from .config import Config, UnitConfig
 from .errors import ReloadAlreadyActiveError, ReloadConfigInvalidError, ReloadError
+from .exceptions import (
+    StartupConfigCheckFailedException,
+    StartupDatabaseInitFailedException,
+)
 from .internal import logs
 from .internal.config import load_config
 from .internal.database.manager import DatabaseManager
@@ -53,13 +57,13 @@ class Engine(Tasklet, ServerEngine):
         return logs.get("engine")
 
     @property
-    def config_path(self) -> str | None:
+    def config_path(self) -> Path | None:
         return self._config.path
 
     @property
-    def config_directory(self) -> str | None:
+    def config_directory(self) -> Path | None:
         if self._config.path:
-            return os.path.dirname(self._config.path)
+            return self._config.path.parent
 
         return None
 
@@ -71,7 +75,7 @@ class Engine(Tasklet, ServerEngine):
         if self._reloading.is_set():
             return Fail(ReloadAlreadyActiveError())
 
-        source: str | Config
+        source: Path | Config
 
         if self.config_path:
             self.logger.info(f"Reloading configuration from '{self.config_path}'...")
@@ -94,12 +98,22 @@ class Engine(Tasklet, ServerEngine):
 
     async def _tasklet_run(self) -> None:
         if not await load_config(self._config, logger=self.logger):
-            self.logger.error("Initial configuration check failed. Exiting...")
-            return
+            message = "Initial configuration check failed. Exiting..."
+            self.logger.error(message)
+            raise StartupConfigCheckFailedException(message)
+
+        if not await self._database.tables():
+            self.logger.info("Database appears empty, initializing database...")
+            try:
+                await self._database.init()
+                self.logger.info("Database initialized successfully.")
+            except Exception as exception:
+                self.logger.error("Database initialization failed.")
+                raise StartupDatabaseInitFailedException(str(exception))
 
         try:
-            if self.config_directory and self.config_directory not in sys.path:
-                sys.path.append(self.config_directory)
+            if self.config_directory and str(self.config_directory) not in sys.path:
+                sys.path.append(str(self.config_directory))
 
             exiting = Event()
             started = False
@@ -241,7 +255,10 @@ class Engine(Tasklet, ServerEngine):
 
                     unit = UnitHandle(context)
                     self._units[action.path] = unit
-                    unit.start()
+                    unit.start(
+                        on_completed=self._on_unit_completed,
+                        on_exception=self._on_unit_exception,
+                    )
 
         started = [
             action

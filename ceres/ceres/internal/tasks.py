@@ -32,6 +32,7 @@ def ensure_event_loop() -> AbstractEventLoop:
 class TaskletInternal:
     task: Task[Any] | None = None
     stop: Event = field(default_factory=Event)
+    exception: BaseException | None = None
 
 
 TASKLET_INTERNAL_ATTRIBUTE_NAME = "__tasklet_internal__"
@@ -62,59 +63,61 @@ class Tasklet(ABC):
         if self.__tasklet__.task:
             return
 
+        self.__tasklet__.exception = None
         self.__tasklet__.stop.clear()
 
         ensure_event_loop()
 
         async def task() -> None:
-            try:
-                await self._tasklet_run()
-                await self._tasklet_stop()
-            except:
-                self.__tasklet__.task = None
-                self.__tasklet__.stop.set()
-                raise
+            await self._tasklet_run()
+            await self._tasklet_stop()
 
         def done(task: Task[Any]) -> None:
             self.__tasklet__.task = None
             self.__tasklet__.stop.set()
+            self.__tasklet__.exception = None
 
             if task.cancelled():
                 return
 
+            if exception := task.exception():
+                self.__tasklet__.exception = exception
+                if on_exception:
+                    on_exception(self, exception)
+
             if on_completed:
                 on_completed(self)
 
-            if exception := task.exception():
-                if on_exception:
-                    on_exception(self, exception)
-                else:
-                    raise exception
-
-        self.__tasklet__.task = asyncio.create_task(task())
+        self.__tasklet__.task = asyncio.create_task(task(), name=str(type(self)))
         self.__tasklet__.task.add_done_callback(done)
 
-    async def stop(self) -> None:
-        if not self.__tasklet__.task or self.__tasklet__.stop.is_set():
-            return
+    async def stop(self, raise_exceptions: bool = False) -> None:
+        if self.__tasklet__.task:
+            self.__tasklet__.task = None
 
-        try:
-            await self._tasklet_stop()
-        finally:
-            if self.__tasklet__.task:
-                self.__tasklet__.task.cancel()
-                self.__tasklet__.task = None
-            self.__tasklet__.stop.set()
+            if not self.__tasklet__.stop.is_set():
+                self.__tasklet__.stop.set()
 
-    async def join(self) -> None:
+            try:
+                await self._tasklet_stop()
+            finally:
+                await self.__tasklet__.stop.wait()
+
+        if raise_exceptions and self.__tasklet__.exception:
+            raise self.__tasklet__.exception
+
+    async def join(self, raise_exceptions: bool = True) -> None:
         if not self.__tasklet__.task:
             return
 
         await self.__tasklet__.stop.wait()
+        if raise_exceptions and self.__tasklet__.exception:
+            raise self.__tasklet__.exception
 
     async def run(
         self: TaskletT,
         *,
+        raise_exceptions: bool = True,
         on_completed: Callable[[TaskletT], None | Awaitable[None]] | None = None,
         on_exception: Callable[[TaskletT, BaseException], None | Awaitable[None]] | None = None,
     ) -> None:
@@ -122,7 +125,7 @@ class Tasklet(ABC):
             on_completed=on_completed,
             on_exception=on_exception,
         )
-        await self.join()
+        await self.join(raise_exceptions)
 
     @abstractmethod
     async def _tasklet_run(self) -> None:
