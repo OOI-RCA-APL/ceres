@@ -3,14 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from enum import Enum
-from logging import Logger
 from uuid import UUID, uuid4
 
 import anyio
 
 from ..config import ConnectionReconnectConfig
 from ..connection import Connection, ConnectionContext
-from ..errors import ComponentError
 from ..events import (
     ConnectedEvent,
     DisconnectedEvent,
@@ -18,12 +16,10 @@ from ..events import (
     MessageSentEvent,
 )
 from ..exceptions import ComponentNotLoadedException, ConnectionInactiveException
-from ..internal import logs
 from ..message import Message, MessageDirection
 from ..path import ConnectionPath, LocalConnectionPath
 from ..protocols import ReferencedConnectionHandle
-from ..result import Ok, Result
-from .component import ComponentHandleContext, load_component
+from .component import ComponentHandle, ComponentHandleContext
 from .database.entity import MessageEntity
 from .tasks import Tasklet
 
@@ -58,21 +54,30 @@ class ReconnectScheduler:
         return next
 
 
-class ConnectionHandle(Tasklet, ReferencedConnectionHandle):
+@dataclass(kw_only=True, frozen=True)
+class ConnectionHandleContext(ComponentHandleContext):
+    path: ConnectionPath
+    reconnect: ConnectionReconnectConfig
+
+
+class ConnectionHandle(
+    ComponentHandle[
+        ConnectionHandleContext,
+        Connection,
+        ConnectionContext,
+    ],
+    Tasklet,
+    ReferencedConnectionHandle,
+):
     MAX_RECEIVE_BUFFER_SIZE = 2500
 
     def __init__(self, context: ConnectionHandleContext) -> None:
-        self._context = context
+        super().__init__(context)
         self._reconnect = ReconnectScheduler(context.reconnect)
-        self._instance: Connection | None = None
         self._state = ConnectionState.DISCONNECTED
         self._receive_buffer: list[ReceivedMessage] = []
         self._is_flushing = False
         self._last_message_timestamp: datetime | None = None
-
-    @property
-    def id(self) -> UUID:
-        return self._context.id
 
     @property
     def path(self) -> ConnectionPath:
@@ -86,31 +91,16 @@ class ConnectionHandle(Tasklet, ReferencedConnectionHandle):
     def connected(self) -> bool:
         return self._state == ConnectionState.CONNECTED
 
-    @property
-    def instance(self) -> Connection | None:
-        return self._instance
+    def _get_component_type(self) -> type[Connection]:  # type: ignore
+        return Connection
 
-    @property
-    def logger(self) -> Logger:
-        return logs.get(str(self._context.path))
-
-    async def load(self) -> Result[Connection, ComponentError]:
-        if not self._instance:
-            match load_component(Connection, self._context.component, self._context.parameters):
-                case Ok(instance):
-                    self._instance = instance
-                    self._instance.setup(
-                        ConnectionContext(
-                            id=self._context.id,
-                            path=self._context.path,
-                            unit=self._context.unit,
-                            references=self._context.references,
-                        )
-                    )
-                case fail:
-                    return fail
-
-        return Ok(self._instance)
+    def _get_component_context(self) -> ConnectionContext:
+        return ConnectionContext(
+            id=self._context.id,
+            path=self._context.path,
+            unit=self._context.unit,
+            references=self._context.references,
+        )
 
     async def connect(self) -> bool:
         if not self._instance:
@@ -294,12 +284,6 @@ class ConnectionHandle(Tasklet, ReferencedConnectionHandle):
             self._receive_buffer = [*messages, *self._receive_buffer]
         finally:
             self._is_flushing = False
-
-
-@dataclass(kw_only=True, frozen=True)
-class ConnectionHandleContext(ComponentHandleContext):
-    path: ConnectionPath
-    reconnect: ConnectionReconnectConfig
 
 
 class ConnectionState(str, Enum):

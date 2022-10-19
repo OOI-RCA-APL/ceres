@@ -9,10 +9,9 @@ from typing import TYPE_CHECKING, Any, Generic, Sequence, TypeVar, cast, overloa
 from .path import LocalComponentPath
 
 if TYPE_CHECKING:
-    from .component import Component, ContextT
+    from .component import Component, ComponentContext
 
-
-SelfT = TypeVar("SelfT", bound="Reference[Any]")
+SelfT = TypeVar("SelfT", bound="Reference")
 TargetT = TypeVar("TargetT")
 
 
@@ -29,12 +28,12 @@ class Reference(Generic[TargetT]):
         ...
 
     @overload
-    def __get__(self: SelfT, component: Component[ContextT], owner: Any) -> TargetT:
+    def __get__(self: SelfT, component: Component[ComponentContext], owner: Any) -> TargetT:
         ...
 
     def __get__(
         self: SelfT,
-        component: Component[ContextT] | None,
+        component: Component[ComponentContext] | None,
         owner: Any,
     ) -> SelfT | TargetT:
         if component is None:

@@ -1,59 +1,44 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from logging import Logger
-from uuid import UUID
 
 import anyio
 
 from ..driver import Driver, DriverContext
-from ..errors import ComponentError
-from ..internal import logs
 from ..path import DriverPath
 from ..protocols import ReferencedDriverHandle
-from ..result import Ok, Result
-from .component import ComponentHandleContext, load_component
+from .component import ComponentHandle, ComponentHandleContext
 from .tasks import Tasklet
 
 
-class DriverHandle(Tasklet, ReferencedDriverHandle):
-    def __init__(self, context: DriverHandleContext) -> None:
-        self._context = context
-        self._instance: Driver | None = None
+@dataclass(kw_only=True, frozen=True)
+class DriverHandleContext(ComponentHandleContext):
+    path: DriverPath
 
-    @property
-    def id(self) -> UUID:
-        return self._context.id
 
+class DriverHandle(
+    ComponentHandle[
+        DriverHandleContext,
+        Driver,
+        DriverContext,
+    ],
+    Tasklet,
+    ReferencedDriverHandle,
+):
     @property
     def path(self) -> DriverPath:
         return self._context.path
 
-    @property
-    def instance(self) -> Driver | None:
-        return self._instance
+    def _get_component_type(self) -> type[Driver]:  # type: ignore
+        return Driver
 
-    @property
-    def logger(self) -> Logger:
-        return logs.get(str(self._context.path))
-
-    async def load(self) -> Result[Driver, ComponentError]:
-        if not self._instance:
-            match load_component(Driver, self._context.component, self._context.parameters):
-                case Ok(instance):
-                    self._instance = instance
-                    self._instance.setup(
-                        DriverContext(
-                            id=self._context.id,
-                            path=self._context.path,
-                            unit=self._context.unit,
-                            references=self._context.references,
-                        )
-                    )
-                case fail:
-                    return fail
-
-        return Ok(self._instance)
+    def _get_component_context(self) -> DriverContext:
+        return DriverContext(
+            id=self._context.id,
+            path=self._context.path,
+            unit=self._context.unit,
+            references=self._context.references,
+        )
 
     async def _tasklet_run(self) -> None:
         async def process_update() -> None:
@@ -71,8 +56,3 @@ class DriverHandle(Tasklet, ReferencedDriverHandle):
             return
 
         await self._instance.update()
-
-
-@dataclass(kw_only=True, frozen=True)
-class DriverHandleContext(ComponentHandleContext):
-    path: DriverPath

@@ -25,16 +25,13 @@ class _Stream:
 
 class TCPConnection(Connection):
     def __init__(self, parameters: TCPConnectionParameters) -> None:
+        super().__init__()
         self._parameters = parameters
         self._stream: _Stream | None = None
 
     @property
-    def host(self) -> str:
-        return self._parameters.host
-
-    @property
-    def port(self) -> int:
-        return self._parameters.port
+    def parameters(self) -> TCPConnectionParameters:
+        return self._parameters
 
     async def connect(self) -> bool:
         if self._stream:
@@ -42,8 +39,11 @@ class TCPConnection(Connection):
 
         try:
             reader, writer = await asyncio.wait_for(
-                asyncio.open_connection(self.host, self.port),
-                self._parameters.timeout.total_seconds(),
+                asyncio.open_connection(
+                    self.parameters.host,
+                    self.parameters.port,
+                ),
+                self.parameters.timeout.total_seconds(),
             )
         except (ConnectionError, TimeoutError):
             return False
@@ -64,8 +64,8 @@ class TCPConnection(Connection):
         if not self._stream:
             raise ConnectionInactiveException("Connection is not active.")
 
-        if not data.endswith(self._parameters.separator):
-            data += self._parameters.separator
+        if not data.endswith(self.parameters.separator):
+            data += self.parameters.separator
 
         try:
             self._stream.writer.write(data)
@@ -78,6 +78,6 @@ class TCPConnection(Connection):
             raise ConnectionInactiveException("Connection is not active.")
 
         try:
-            return await self._stream.reader.readuntil(self._parameters.separator)
+            return await self._stream.reader.readuntil(self.parameters.separator)
         except Exception:
             raise ConnectionLostException("Connection was lost.")

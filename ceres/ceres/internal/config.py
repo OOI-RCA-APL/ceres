@@ -220,7 +220,7 @@ async def _check_components(
                         )
 
         def check_references() -> Iterable[ConfigComponentError]:
-            loaded_components: list[tuple[ComponentConfig, Component[Any]]] = [
+            loaded_components: list[tuple[ComponentConfig, Component]] = [
                 *loaded_connections,
                 *loaded_drivers,
                 *loaded_notifiers,

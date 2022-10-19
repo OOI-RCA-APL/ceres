@@ -32,6 +32,10 @@ class SMTPNotifier(Notifier):
         super().__init__()
         self._parameters = parameters
 
+    @property
+    def parameters(self) -> SMTPNotifierParameters:
+        return self._parameters
+
     async def send(self, users: list[UserConfig], alerts: list[Alert]) -> None:
         recipients = sorted(set(user.email.strip() for user in users if user.email.strip()))
         if not recipients:
@@ -42,21 +46,21 @@ class SMTPNotifier(Notifier):
             subject = prefix + subject
 
         message = EmailMessage()
-        message["From"] = self._parameters.sender
+        message["From"] = self.parameters.sender
         message["To"] = ",".join(recipients)
         message["Subject"] = subject
         message.set_content(jsonify(alerts))
 
-        if self._parameters.password is not None:
-            password = self._parameters.password.get_secret_value()
+        if self.parameters.password is not None:
+            password = self.parameters.password.get_secret_value()
         else:
             password = None
 
         await aiosmtplib.send(
             message=message,
-            username=self._parameters.username,
+            username=self.parameters.username,
             password=password,
-            timeout=self._parameters.timeout.total_seconds(),
-            use_tls=self._parameters.use_tls,
-            start_tls=self._parameters.start_tls,
+            timeout=self.parameters.timeout.total_seconds(),
+            use_tls=self.parameters.use_tls,
+            start_tls=self.parameters.start_tls,
         )

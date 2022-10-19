@@ -3,13 +3,15 @@ from __future__ import annotations
 import importlib
 import inspect
 import traceback
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, TypeVar
+from logging import Logger
+from typing import Any, Generic, TypeVar
 from uuid import UUID
 
 from pydantic import ValidationError, validate_arguments
 
-from ..component import Component
+from ..component import Component, ComponentContext
 from ..config import ComponentReferencesConfig
 from ..errors import (
     ComponentClassInvalidError,
@@ -23,9 +25,10 @@ from ..errors import (
 from ..path import ComponentPath
 from ..protocols import GlobalUnitProtocol
 from ..result import Fail, Ok, Result
+from . import logs
 from .database.manager import DatabaseManager
 
-ComponentT = TypeVar("ComponentT", bound="Component[Any]")
+ComponentT = TypeVar("ComponentT", bound=Component)
 
 
 def load_component(
@@ -126,3 +129,51 @@ class ComponentHandleContext:
     parameters: dict[str, Any]
     references: ComponentReferencesConfig
     database: DatabaseManager
+
+
+ComponentHandleContextT = TypeVar("ComponentHandleContextT", bound=ComponentHandleContext)
+ComponentContextT = TypeVar("ComponentContextT", bound=ComponentContext)
+
+
+class ComponentHandle(Generic[ComponentHandleContextT, ComponentT, ComponentContextT], ABC):
+    def __init__(self, context: ComponentHandleContextT) -> None:
+        self._context = context
+        self._instance: ComponentT | None = None
+
+    @property
+    def id(self) -> UUID:
+        return self._context.id
+
+    @property
+    def path(self) -> ComponentPath:
+        return self._context.path
+
+    @property
+    def instance(self) -> ComponentT | None:
+        return self._instance
+
+    @property
+    def logger(self) -> Logger:
+        return logs.get(str(self._context.path))
+
+    @classmethod
+    @abstractmethod
+    def _get_component_type(cls) -> type[ComponentT]:
+        raise NotImplementedError()
+
+    @abstractmethod
+    def _get_component_context(self) -> ComponentContextT:
+        raise NotImplementedError()
+
+    async def load(self) -> Result[ComponentT, ComponentError]:
+        if not self._instance:
+            match load_component(
+                self._get_component_type(), self._context.component, self._context.parameters
+            ):
+                case Ok(instance):
+                    self._instance = instance
+                    self._instance.setup(self._get_component_context())
+                case fail:
+                    return fail
+
+        return Ok(self._instance)

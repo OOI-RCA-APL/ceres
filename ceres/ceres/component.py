@@ -26,18 +26,18 @@ class ComponentContext:
     references: ComponentReferencesConfig
 
 
-ContextT = TypeVar("ContextT", bound=ComponentContext)
+ComponentContextT = TypeVar("ComponentContextT", bound=ComponentContext)
 
 
-class Component(Generic[ContextT], ABC):
+class Component(Generic[ComponentContextT], ABC):
     def __init__(self) -> None:
-        self.__context__: ContextT | None = None
+        self.__context__: ComponentContextT | None = None
 
-    def setup(self, context: ContextT) -> None:
+    def setup(self, context: ComponentContextT) -> None:
         self.__context__ = context
 
     @property
-    def context(self) -> ContextT:
+    def context(self) -> ComponentContextT:
         if not self.__context__:
             raise ComponentNotSetupException(
                 "Attempted to access component context before setup() is called."
