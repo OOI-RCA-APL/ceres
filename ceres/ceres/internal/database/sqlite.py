@@ -120,6 +120,7 @@ class SQLiteDatabaseManager(DatabaseManager):
                 id TEXT NOT NULL PRIMARY KEY,
                 origin_id TEXT NOT NULL,
                 timestamp TEXT NOT NULL,
+                kind TEXT NOT NULL,
                 level TEXT NOT NULL CHECK (level IN ('info', 'warning', 'error')),
                 info TEXT NOT NULL CHECK (json_valid(info))
             ) STRICT

@@ -20,7 +20,6 @@ from ..path import ConnectionPath, LocalConnectionPath
 from ..protocols import ReferencedConnectionHandle
 from .component import ComponentHandle, ComponentHandleContext
 from .database.entity import MessageEntity
-from .tasks import Tasklet
 
 
 @dataclass(kw_only=True, frozen=True)
@@ -65,7 +64,6 @@ class ConnectionHandle(
         Connection,
         ConnectionContext,
     ],
-    Tasklet,
     ReferencedConnectionHandle,
 ):
     MAX_RECEIVE_BUFFER_SIZE = 2500
@@ -178,6 +176,8 @@ class ConnectionHandle(
         return message
 
     async def _tasklet_run(self) -> None:
+        await super()._tasklet_run()
+
         async def process_update() -> None:
             while True:
                 await self._update()
@@ -194,6 +194,8 @@ class ConnectionHandle(
         )
 
     async def _tasklet_stop(self) -> None:
+        await super()._tasklet_stop()
+
         await self.disconnect()
         await self._flush()
 

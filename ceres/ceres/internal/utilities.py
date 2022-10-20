@@ -6,7 +6,7 @@ import json
 import re
 import signal
 from contextlib import contextmanager
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from functools import wraps
 from typing import (
@@ -78,6 +78,10 @@ async def run_as_thread(
     )
 
 
+def get_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
 @contextmanager
 def use_signal_handler(signums: Sequence[int], handler: Callable[..., Any]) -> Iterator[None]:
     originals: dict[int, Any] = {}
@@ -125,7 +129,7 @@ def encode_timedelta(value: timedelta) -> str:
     else:
         encoded_value, encoded_unit = value.total_seconds() / (60 * 60 * 24), "d"
 
-    return f"{str(encoded_value).rstrip('0').rstrip('.')},{encoded_unit}"
+    return f"{str(encoded_value).rstrip('0').rstrip('.')}{encoded_unit}"
 
 
 def decode_timedelta(value: str | timedelta | Any) -> timedelta:

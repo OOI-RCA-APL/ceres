@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from abc import ABC
 from dataclasses import dataclass
+from typing import Sequence
 
 from .alert import Alert
 from .component import Component, ComponentContext
@@ -18,7 +19,7 @@ class NotifierContext(ComponentContext):
 
 
 class Notifier(Component[NotifierContext], ABC):
-    async def send(self, users: list[UserConfig], alerts: list[Alert]) -> None:
+    async def send(self, users: Sequence[UserConfig], alerts: list[Alert]) -> None:
         raise NotImplementedError()
 
     async def update(self) -> None:

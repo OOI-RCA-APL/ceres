@@ -250,6 +250,7 @@ class Engine(Tasklet, ServerEngine):
                         notifiers=config.notifiers,
                         database=self._config.database,
                         config=config,
+                        users=self._config.users,
                     )
 
                     unit = UnitHandle(context)

@@ -18,6 +18,7 @@ from ..config import (
     DriverConfig,
     NotifierConfig,
     UnitConfig,
+    UserConfig,
 )
 from ..events import Event
 from ..path import (
@@ -50,6 +51,7 @@ class UnitContext:
     notifiers: list[NotifierConfig]
     database: DatabaseConfig
     config: UnitConfig
+    users: list[UserConfig]
 
 
 class UnitProxyProtocol(Protocol):
@@ -284,6 +286,9 @@ class Unit(UnitProxyProtocol, GlobalUnitProtocol, Tasklet):
                     parameters=config.parameters,
                     references=config.references,
                     database=self._database,
+                    schedule=config.schedule,
+                    lookback=config.lookback,
+                    users=self._context.users,
                 )
             )
 

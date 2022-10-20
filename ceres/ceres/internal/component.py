@@ -25,8 +25,10 @@ from ..errors import (
 from ..path import ComponentPath
 from ..protocols import GlobalUnitProtocol
 from ..result import Fail, Ok, Result
+from ..scheduler import Scheduler
 from . import logs
 from .database.manager import DatabaseManager
+from .tasks import Tasklet
 
 ComponentT = TypeVar("ComponentT", bound=Component)
 
@@ -135,10 +137,19 @@ ComponentHandleContextT = TypeVar("ComponentHandleContextT", bound=ComponentHand
 ComponentContextT = TypeVar("ComponentContextT", bound=ComponentContext)
 
 
-class ComponentHandle(Generic[ComponentHandleContextT, ComponentT, ComponentContextT], ABC):
+class ComponentHandle(
+    Generic[
+        ComponentHandleContextT,
+        ComponentT,
+        ComponentContextT,
+    ],
+    Tasklet,
+    ABC,
+):
     def __init__(self, context: ComponentHandleContextT) -> None:
         self._context = context
         self._instance: ComponentT | None = None
+        self._scheduler = Scheduler()
 
     @property
     def id(self) -> UUID:
@@ -153,8 +164,18 @@ class ComponentHandle(Generic[ComponentHandleContextT, ComponentT, ComponentCont
         return self._instance
 
     @property
+    def scheduler(self) -> Scheduler:
+        return self._scheduler
+
+    @property
     def logger(self) -> Logger:
         return logs.get(str(self._context.path))
+
+    async def _tasklet_run(self) -> None:
+        self._scheduler.start()
+
+    async def _tasklet_stop(self) -> None:
+        self._scheduler.stop()
 
     @classmethod
     @abstractmethod

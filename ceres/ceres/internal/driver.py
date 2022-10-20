@@ -6,7 +6,6 @@ from ..driver import Driver, DriverContext
 from ..path import DriverPath
 from ..protocols import ReferencedDriverHandle
 from .component import ComponentHandle, ComponentHandleContext
-from .tasks import Tasklet
 
 
 @dataclass(kw_only=True, frozen=True)
@@ -20,7 +19,6 @@ class DriverHandle(
         Driver,
         DriverContext,
     ],
-    Tasklet,
     ReferencedDriverHandle,
 ):
     @property
@@ -39,11 +37,12 @@ class DriverHandle(
         )
 
     async def _tasklet_run(self) -> None:
+        await super()._tasklet_run()
         while True:
             await self._update()
 
     async def _tasklet_stop(self) -> None:
-        pass
+        await super()._tasklet_stop()
 
     async def _update(self) -> None:
         if not self._instance:

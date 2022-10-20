@@ -67,7 +67,10 @@ class ConnectionReconnectConfig(BaseModel):
 
     @validator("interval", "max_interval", pre=True)
     def _check_timedeltas(cls, value: Any) -> timedelta:
-        return decode_timedelta(value)
+        if (parsed := decode_timedelta(value)) <= timedelta():
+            raise ValueError("must be greater than zero")
+
+        return parsed
 
 
 class ConnectionConfig(ComponentConfig):
@@ -109,7 +112,10 @@ class IntervalScheduleConfig(BaseScheduleConfig):
 
     @validator("interval", pre=True)
     def _check_timedeltas(cls, value: Any) -> timedelta:
-        return decode_timedelta(value)
+        if (parsed := decode_timedelta(value)) <= timedelta():
+            raise ValueError("must be greater than zero")
+
+        return parsed
 
 
 class AndScheduleConfig(BaseScheduleConfig):
@@ -130,6 +136,14 @@ OrScheduleConfig.update_forward_refs()
 
 class NotifierConfig(ComponentConfig):
     schedule: ScheduleConfig | None = None
+    lookback: timedelta
+
+    @validator("lookback", pre=True)
+    def _check_timedeltas(cls, value: Any) -> timedelta:
+        if (parsed := decode_timedelta(value)) <= timedelta():
+            raise ValueError("must be greater than zero")
+
+        return parsed
 
 
 class ServerConfig(BaseModel):
