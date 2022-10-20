@@ -1,18 +1,16 @@
 from __future__ import annotations
 
+import asyncio
 import signal
 import sys
 import traceback
-from asyncio import Event
+from asyncio import FIRST_COMPLETED, Event
 from dataclasses import dataclass
 from enum import Enum
 from logging import Logger
 from pathlib import Path
 from queue import Empty, Queue
 from typing import Any
-
-import anyio
-from anyio import CancelScope
 
 from .config import Config, UnitConfig
 from .errors import ReloadAlreadyActiveError, ReloadConfigInvalidError, ReloadError
@@ -123,29 +121,30 @@ class Engine(Tasklet, ServerEngine):
                     await self._reloading.wait()
                     await self._reload()
 
-                async def process_reload(cancel: CancelScope) -> None:
-                    await self._reloading.wait()
-                    cancel.cancel()
-
                 def handle_exit_signal(*args: Any) -> None:
                     exiting.set()
-                    group.cancel_scope.cancel()
 
                 with use_signal_handler([signal.SIGINT, signal.SIGTERM], handle_exit_signal):
-                    async with anyio.create_task_group() as group:
-                        try:
-                            group.start_soon(process_reload, group.cancel_scope)
+                    await self._sync_units()
+                    await self._start_server()
 
-                            await self._sync_units()
-                            await self._start_server()
-                        finally:
-                            started = True
-                            self._reloading.clear()
+                    started = True
+                    self._reloading.clear()
+
+                    tasks = [
+                        asyncio.create_task(self._reloading.wait(), name="reload-wait"),
+                        asyncio.create_task(exiting.wait(), name="exit-wait"),
+                    ]
+
+                    try:
+                        await asyncio.wait(tasks, return_when=FIRST_COMPLETED)
+                    finally:
+                        for task in tasks:
+                            task.cancel()
 
             self.logger.info("Exit signal received, stopping...")
         except KeyboardInterrupt:
             self.logger.info("Exit signal received, stopping...")
-            await self.stop()
             raise
 
     async def _tasklet_stop(self) -> None:
@@ -226,7 +225,7 @@ class Engine(Tasklet, ServerEngine):
                 if unit:
                     self.logger.info(f"Removing unit '{action.path}'...")
                     await unit.stop()
-                    self._units.pop(unit.path)
+                    self._units.pop(unit.path, None)
             else:
                 if action.kind == UnitSyncActionKind.START:
                     if unit and unit.running:
@@ -239,7 +238,7 @@ class Engine(Tasklet, ServerEngine):
 
                     self.logger.info(f"Reloading unit '{action.path}'...")
                     await unit.stop()
-                    self._units.pop(unit.path)
+                    self._units.pop(unit.path, None)
 
                 if config := configs.get(action.path):
                     id = await self._database.entities.get_id(action.path)
@@ -294,7 +293,7 @@ class Engine(Tasklet, ServerEngine):
                 self.logger.info(f"Stopping unit '{unit.path}'...")
                 await unit.stop()
 
-            self._units.pop(unit.path)
+            self._units.pop(unit.path, None)
 
         self.logger.info("All units were stopped successfully.")
 
@@ -326,10 +325,10 @@ class Engine(Tasklet, ServerEngine):
 
     def _on_unit_completed(self, unit: UnitHandle) -> None:
         self.logger.info(f"Unit '{unit.path}' completed execution.")
-        self._units.pop(unit.path)
+        self._units.pop(unit.path, None)
 
     def _on_unit_exception(self, unit: UnitHandle, exception: BaseException) -> None:
         self.logger.error(
             f"An exception occurred in unit '{unit.path}': {traceback.format_exception(exception)}"
         )
-        self._units.pop(unit.path)
+        self._units.pop(unit.path, None)

@@ -1,11 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 from uuid import UUID, uuid4
-
-import anyio
 
 from ..config import ConnectionReconnectConfig
 from ..connection import Connection, ConnectionContext
@@ -185,13 +184,14 @@ class ConnectionHandle(
 
         async def process_flush() -> None:
             while True:
-                await anyio.sleep(0.1)
+                await asyncio.sleep(0.1)
                 if not self._is_flushing:
                     await self._flush()
 
-        async with anyio.create_task_group() as group:
-            group.start_soon(process_flush)
-            group.start_soon(process_update)
+        await asyncio.gather(
+            process_update(),
+            process_flush(),
+        )
 
     async def _tasklet_stop(self) -> None:
         await self.disconnect()
@@ -204,7 +204,7 @@ class ConnectionHandle(
         while not await self.connect():
             seconds = self._reconnect.next().total_seconds()
             self.logger.info(f"Attempting to reconnect in {seconds:g} seconds...")
-            await anyio.sleep(seconds)
+            await asyncio.sleep(seconds)
 
         self._reconnect.reset()
 
@@ -226,7 +226,7 @@ class ConnectionHandle(
         # Ensure timestamps are different.
         if self._last_message_timestamp:
             while self._last_message_timestamp == datetime.now(timezone.utc):
-                await anyio.sleep(0)
+                await asyncio.sleep(0)
 
         timestamp = datetime.now(timezone.utc)
 

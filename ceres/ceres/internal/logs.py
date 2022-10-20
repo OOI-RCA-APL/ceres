@@ -37,6 +37,7 @@ def setup(config: LogConfig | None = None) -> None:
     """
     if config:
         __state.config = config
+
     date_format = "%Y-%m-%d %H:%M:%S"
 
     default_formatter = logging.Formatter(
@@ -50,6 +51,7 @@ def setup(config: LogConfig | None = None) -> None:
     access_formatter = uvicorn.logging.AccessFormatter(
         "[%(asctime)s.%(msecs)03d] [%(process)s] [%(levelname)s] [server] [%(client_addr)s] - %(request_line)s - %(status_code)s",
         datefmt=date_format,
+        use_colors=False,
     )
 
     def create_handler(formatter: Formatter) -> RichHandler:

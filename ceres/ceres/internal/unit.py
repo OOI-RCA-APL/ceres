@@ -1,16 +1,16 @@
 from __future__ import annotations
 
+import asyncio
 import itertools
 import traceback
+from asyncio import FIRST_COMPLETED
 from dataclasses import dataclass
 from logging import Logger
 from multiprocessing.managers import BaseManager
+from threading import Event as ThreadEvent
 from threading import Lock
 from typing import Any, Iterable, Protocol, cast, overload
 from uuid import UUID
-
-import anyio
-from anyio.abc import TaskGroup
 
 from ..config import (
     ConnectionConfig,
@@ -38,7 +38,7 @@ from .database.manager import DatabaseManager
 from .driver import DriverHandle, DriverHandleContext
 from .notifier import NotifierHandle, NotifierHandleContext
 from .tasks import Tasklet, ensure_event_loop
-from .utilities import jsonify
+from .utilities import jsonify, run_as_thread
 
 
 @dataclass(kw_only=True, frozen=True)
@@ -67,7 +67,9 @@ class Unit(UnitProxyProtocol, GlobalUnitProtocol, Tasklet):
         self._connections: dict[str, ConnectionHandle] = {}
         self._drivers: dict[str, DriverHandle] = {}
         self._notifiers: dict[str, NotifierHandle] = {}
-        self._tasks: TaskGroup | None = None
+        self._loop = ensure_event_loop()
+        self._stopping = ThreadEvent()
+        self._stopped = ThreadEvent()
 
     @property
     def id(self) -> UUID:
@@ -150,47 +152,45 @@ class Unit(UnitProxyProtocol, GlobalUnitProtocol, Tasklet):
                 raise
 
         try:
-            ensure_event_loop().run_until_complete(execute())
+            self._loop.run_until_complete(execute())
         except BaseException as exception:
             return exception
 
         return None
 
     def rpc_stop(self) -> BaseException | None:
-        async def execute() -> None:
-            try:
-                await self.stop()
-            except Exception:
-                self.logger.error(traceback.format_exc())
-                raise
-
-        try:
-            ensure_event_loop().run_until_complete(execute())
-        except BaseException as exception:
-            return exception
-
+        self._stopping.set()
+        self._stopped.wait()
         return None
 
     async def _tasklet_run(self) -> None:
+        self._stopping.clear()
+        self._stopped.clear()
+
+        async def process_stop() -> None:
+            while not self._stopping.is_set():
+                await asyncio.sleep(0.1)
+
         await self._load_connections()
         await self._load_drivers()
         await self._load_notifiers()
 
-        async with anyio.create_task_group() as group:
-            for connection in self._connections.values():
-                group.start_soon(connection.run)
-            for driver in self._drivers.values():
-                group.start_soon(driver.run)
-            for notifier in self._notifiers.values():
-                group.start_soon(notifier.run)
-
-            self._tasks = group
+        await asyncio.wait(
+            [
+                *(component.run() for component in self.components),
+                process_stop(),
+            ],
+            return_when=FIRST_COMPLETED,
+        )
 
     async def _tasklet_stop(self) -> None:
-        for connection in self._connections.values():
-            await connection.disconnect()
+        try:
+            for connection in self._connections.values():
+                await connection.disconnect()
 
-        await self._database.dispose()
+            await self._database.dispose()
+        finally:
+            self._stopped.set()
 
     async def _load_connections(self) -> None:
         for config in self._context.connections:
@@ -345,7 +345,7 @@ class UnitHandle(Tasklet):
             if exception:
                 raise exception
 
-        await anyio.to_thread.run_sync(execute, cancellable=True)
+        await run_as_thread(execute, cancellable=True)
 
     async def _tasklet_stop(self) -> None:
         def execute() -> None:
@@ -362,4 +362,4 @@ class UnitHandle(Tasklet):
             if exception:
                 raise exception
 
-        await anyio.to_thread.run_sync(execute)
+        await run_as_thread(execute)

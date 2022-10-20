@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-import anyio
-
 from ..driver import Driver, DriverContext
 from ..path import DriverPath
 from ..protocols import ReferencedDriverHandle
@@ -41,12 +39,8 @@ class DriverHandle(
         )
 
     async def _tasklet_run(self) -> None:
-        async def process_update() -> None:
-            while True:
-                await self._update()
-
-        async with anyio.create_task_group() as group:
-            group.start_soon(process_update)
+        while True:
+            await self._update()
 
     async def _tasklet_stop(self) -> None:
         pass

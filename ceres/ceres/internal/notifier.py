@@ -48,7 +48,14 @@ class NotifierHandle(
         await self._instance.send(users, alerts)
 
     async def _tasklet_run(self) -> None:
-        pass
+        while True:
+            await self._update()
 
     async def _tasklet_stop(self) -> None:
         pass
+
+    async def _update(self) -> None:
+        if not self._instance:
+            return
+
+        await self._instance.update()

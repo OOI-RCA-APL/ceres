@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import traceback
 from datetime import datetime, timedelta, timezone
 from enum import Enum
@@ -7,7 +8,6 @@ from logging import Logger
 from pathlib import Path
 from typing import Any, Callable, Iterable, Sequence
 
-import anyio
 import yaml
 from pydantic import ValidationError
 from yaml import MarkedYAMLError, YAMLError
@@ -139,7 +139,7 @@ async def _check_database(
             if config.database.retry.attempts is None or attempt < config.database.retry.attempts:
                 log("Failed to connect to database, trying again...")
                 await database.dispose()
-                await anyio.sleep(1)
+                await asyncio.sleep(1)
                 attempt += 1
                 continue
 

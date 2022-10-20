@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from abc import ABC
 from dataclasses import dataclass
 
@@ -19,6 +20,9 @@ class NotifierContext(ComponentContext):
 class Notifier(Component[NotifierContext], ABC):
     async def send(self, users: list[UserConfig], alerts: list[Alert]) -> None:
         raise NotImplementedError()
+
+    async def update(self) -> None:
+        await asyncio.sleep(1)
 
 
 class NotifierReference(Reference[ReferencedConnectionHandle]):

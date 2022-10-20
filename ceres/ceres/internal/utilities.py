@@ -22,7 +22,9 @@ from typing import (
     cast,
 )
 
+import anyio
 import uvloop
+from anyio import CapacityLimiter
 from pydantic import ConstrainedStr
 from pydantic.json import pydantic_encoder
 from sqlalchemy.orm import Mapped
@@ -60,6 +62,20 @@ def syncify(function: FunctionT) -> FunctionT:
         return asyncio.run(function(*args, **kwargs))
 
     return cast(FunctionT, wrapper)
+
+
+async def run_as_thread(
+    function: Callable[..., T],
+    *args: Any,
+    cancellable: bool = False,
+    limiter: CapacityLimiter | None = None,
+) -> T:
+    return await anyio.to_thread.run_sync(
+        function,
+        *args,
+        cancellable=cancellable,
+        limiter=limiter,
+    )
 
 
 @contextmanager
