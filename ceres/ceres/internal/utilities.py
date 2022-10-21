@@ -64,7 +64,7 @@ def syncify(function: FunctionT) -> FunctionT:
     return cast(FunctionT, wrapper)
 
 
-async def run_as_thread(
+async def run_in_thread(
     function: Callable[..., T],
     *args: Any,
     cancellable: bool = False,
@@ -115,7 +115,7 @@ def get_or_create(mapping: MutableMapping[str, T], key: str, factory: Callable[[
     return value
 
 
-def encode_timedelta(value: timedelta) -> str:
+def encode_td(value: timedelta) -> str:
     if value < timedelta(milliseconds=1):
         encoded_value, encoded_unit = float(value.microseconds), "us"
     elif value < timedelta(seconds=1):
@@ -132,7 +132,24 @@ def encode_timedelta(value: timedelta) -> str:
     return f"{str(encoded_value).rstrip('0').rstrip('.')}{encoded_unit}"
 
 
-def decode_timedelta(value: str | timedelta | Any) -> timedelta:
+def show_td(value: timedelta) -> str:
+    if value < timedelta(milliseconds=1):
+        encoded_value, encoded_unit = float(value.microseconds), "microseconds"
+    elif value < timedelta(seconds=1):
+        encoded_value, encoded_unit = value.microseconds / 1000, "milliseconds"
+    elif value < timedelta(minutes=1):
+        encoded_value, encoded_unit = value.total_seconds(), "seconds"
+    elif value < timedelta(hours=1):
+        encoded_value, encoded_unit = value.total_seconds() / 60, "minutes"
+    elif value < timedelta(days=1):
+        encoded_value, encoded_unit = value.total_seconds() / (60 * 60), "hours"
+    else:
+        encoded_value, encoded_unit = value.total_seconds() / (60 * 60 * 24), "days"
+
+    return f"{str(encoded_value).rstrip('0').rstrip('.')} {encoded_unit}"
+
+
+def decode_td(value: str | timedelta | Any) -> timedelta:
     if isinstance(value, timedelta):
         return value
 

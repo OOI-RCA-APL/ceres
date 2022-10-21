@@ -6,12 +6,12 @@ from typer import Typer
 from ....config import Config
 from ...database.manager import DatabaseManager
 from ...utilities import syncify
-from ..common import CONFIG_OPTION, get_yes_no
+from ..common import ConfigOption, get_yes_no
 from ..exceptions import CLIDatabaseUnreachableException
 
 
-async def init(config: Config = CONFIG_OPTION) -> None:
-    database = DatabaseManager.create(config.database)
+async def init(config: Config = ConfigOption(checks=[])) -> None:
+    database = DatabaseManager(config.database)
 
     try:
         async with database.connect():
@@ -36,8 +36,8 @@ async def init(config: Config = CONFIG_OPTION) -> None:
     await database.dispose()
 
 
-async def schema(config: Config = CONFIG_OPTION) -> None:
-    database = DatabaseManager.create(config.database)
+async def schema(config: Config = ConfigOption(checks=[])) -> None:
+    database = DatabaseManager(config.database)
 
     for statement in database.ddl:
         rich.print(f"{statement};")

@@ -14,7 +14,7 @@ from ..path import NotifierPath
 from ..protocols import ReferencedNotifierHandle
 from .component import ComponentHandle, ComponentHandleContext
 from .database.entity import AlertEntity
-from .utilities import encode_timedelta, get_now
+from .utilities import encode_td, get_now
 
 
 @dataclass(kw_only=True, frozen=True)
@@ -72,7 +72,7 @@ class NotifierHandle(
             ]
 
         self.logger.info(
-            f"Sending notification with {len(alerts)} alert(s) found since {encode_timedelta(self.lookback)} ago."
+            f"Sending notification with {len(alerts)} alert(s) found since {encode_td(self.lookback)} ago."
         )
 
         await self.send(self.users, alerts)

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import traceback
-from datetime import datetime, timedelta, timezone
 from enum import Enum
 from logging import Logger
 from pathlib import Path
@@ -39,23 +38,25 @@ from ..path import ConnectionPath, DriverPath, NotifierPath, create_path
 from ..result import Fail, Ok, Result
 from .component import load_component
 from .database.manager import DatabaseManager
+from .utilities import get_now, show_td
 
 
 class ConfigCheckKind(str, Enum):
     DATABASE = "database"
     COMPONENTS = "components"
 
+    @classmethod
+    def all(cls) -> Sequence[ConfigCheckKind]:
+        return tuple(cls)
+
 
 async def load_config(
     config: Path | dict[str, Any] | Config,
     *,
-    checks: Sequence[ConfigCheckKind] = list(ConfigCheckKind),
+    checks: Sequence[ConfigCheckKind] = ConfigCheckKind.all(),
     logger: Logger | Callable[[Any], None] = lambda message: None,
 ) -> Result[Config, list[ConfigError]]:
     def log(message: Any) -> None:
-        if not logger:
-            return
-
         if isinstance(logger, Logger):
             logger.info(message)
         else:
@@ -123,38 +124,38 @@ async def _check_database(
 ) -> list[ConfigDatabaseError]:
     log("Checking database configuration...")
 
-    errors: list[ConfigDatabaseError] = []
+    start = get_now()
+    timeout = config.database.retry.timeout
+    interval = config.database.retry.interval
 
-    attempt = 0
-    start = datetime.now(timezone.utc)
-
-    while (datetime.now(timezone.utc) - start) < timedelta(seconds=config.database.retry.timeout):
-        database = DatabaseManager.create(config.database)
+    while True:
+        database = DatabaseManager(config.database)
 
         try:
             async with database.connect():
                 log("Connected to database successfully.")
                 return []
         except Exception:
-            if config.database.retry.attempts is None or attempt < config.database.retry.attempts:
-                log("Failed to connect to database, trying again...")
-                await database.dispose()
-                await asyncio.sleep(1)
-                attempt += 1
-                continue
+            elapsed = get_now() - start
 
-            log("Failed to connect to database.")
+            if elapsed > timeout:
+                log(f"Failed to connect to database within {show_td(timeout)}.")
+                await database.dispose()
+                return [
+                    ConfigDatabaseError(
+                        message="failed to connect to database",
+                        exception=traceback.format_exc(),
+                    )
+                ]
+
+            log(
+                f"Failed to connect to database, {show_td(elapsed)} of {show_td(timeout)} timeout elapsed, retrying in {show_td(interval)}..."
+            )
             await database.dispose()
-            return [
-                ConfigDatabaseError(
-                    message="failed to connect to database",
-                    exception=traceback.format_exc(),
-                )
-            ]
+            await asyncio.sleep(interval.total_seconds())
+            continue
         finally:
             await database.dispose()
-
-    return errors
 
 
 async def _check_components(

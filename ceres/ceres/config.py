@@ -11,13 +11,13 @@ from apscheduler.triggers.cron import CronTrigger
 from pydantic import (
     BaseConfig,
     BaseModel,
-    Field,
     PrivateAttr,
+    SecretStr,
     root_validator,
     validator,
 )
 
-from .internal.utilities import EmailStr, NameStr, decode_timedelta, encode_timedelta
+from .internal.utilities import EmailStr, NameStr, decode_td, encode_td
 from .path import (
     LocalComponentPath,
     LocalConnectionPath,
@@ -67,7 +67,7 @@ class ConnectionReconnectConfig(BaseModel):
 
     @validator("interval", "max_interval", pre=True)
     def _check_timedeltas(cls, value: Any) -> timedelta:
-        if (parsed := decode_timedelta(value)) <= timedelta():
+        if (parsed := decode_td(value)) <= timedelta():
             raise ValueError("must be greater than zero")
 
         return parsed
@@ -112,7 +112,7 @@ class IntervalScheduleConfig(BaseScheduleConfig):
 
     @validator("interval", pre=True)
     def _check_timedeltas(cls, value: Any) -> timedelta:
-        if (parsed := decode_timedelta(value)) <= timedelta():
+        if (parsed := decode_td(value)) <= timedelta():
             raise ValueError("must be greater than zero")
 
         return parsed
@@ -140,7 +140,7 @@ class NotifierConfig(ComponentConfig):
 
     @validator("lookback", pre=True)
     def _check_timedeltas(cls, value: Any) -> timedelta:
-        if (parsed := decode_timedelta(value)) <= timedelta():
+        if (parsed := decode_td(value)) <= timedelta():
             raise ValueError("must be greater than zero")
 
         return parsed
@@ -153,17 +153,25 @@ class ServerConfig(BaseModel):
 
 class DatabaseKind(str, Enum):
     SQLITE = "sqlite"
+    POSTGRES = "postgres"
 
 
 class DatabaseRetryConfig(BaseModel):
-    attempts: int | None = Field(default=None, gt=0)
-    timeout: float = Field(gt=0)
+    timeout: timedelta = timedelta(seconds=15)
+    interval: timedelta = timedelta(seconds=3)
+
+    @validator("timeout", "interval", pre=True)
+    def _check_timedeltas(cls, value: Any) -> timedelta:
+        if (parsed := decode_td(value)) <= timedelta():
+            raise ValueError("must be greater than zero")
+
+        return parsed
 
 
 class BaseDatabaseConfig(BaseModel):
-    kind: DatabaseKind
+    # kind: DatabaseKind
     engine: dict[str, Any] | None = None
-    retry: DatabaseRetryConfig = DatabaseRetryConfig(timeout=30)
+    retry: DatabaseRetryConfig = DatabaseRetryConfig()
 
 
 class SQLiteDatabaseConfig(BaseDatabaseConfig):
@@ -171,7 +179,16 @@ class SQLiteDatabaseConfig(BaseDatabaseConfig):
     path: Path
 
 
-DatabaseConfig = SQLiteDatabaseConfig
+class PostgresDatabaseConfig(BaseDatabaseConfig):
+    kind: Literal[DatabaseKind.POSTGRES] = DatabaseKind.POSTGRES
+    host: str
+    port: int
+    database: str
+    user: str
+    password: SecretStr
+
+
+DatabaseConfig = SQLiteDatabaseConfig | PostgresDatabaseConfig
 
 
 class UnitConfig(BaseModel):
@@ -232,7 +249,7 @@ class UserConfig(BaseModel):
 class Config(BaseModel):
     class Config(BaseConfig):
         json_encoders = {
-            timedelta: encode_timedelta,
+            timedelta: encode_td,
         }
 
     server: ServerConfig

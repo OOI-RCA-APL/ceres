@@ -39,7 +39,7 @@ from .database.manager import DatabaseManager
 from .driver import DriverHandle, DriverHandleContext
 from .notifier import NotifierHandle, NotifierHandleContext
 from .tasks import Tasklet, ensure_event_loop
-from .utilities import jsonify, run_as_thread
+from .utilities import jsonify, run_in_thread
 
 
 @dataclass(kw_only=True, frozen=True)
@@ -65,7 +65,7 @@ class UnitProxyProtocol(Protocol):
 class Unit(UnitProxyProtocol, GlobalUnitProtocol, Tasklet):
     def __init__(self, context: UnitContext) -> None:
         self._context = context
-        self._database = DatabaseManager.create(self._context.database)
+        self._database = DatabaseManager(self._context.database)
         self._connections: dict[str, ConnectionHandle] = {}
         self._drivers: dict[str, DriverHandle] = {}
         self._notifiers: dict[str, NotifierHandle] = {}
@@ -350,7 +350,7 @@ class UnitHandle(Tasklet):
             if exception:
                 raise exception
 
-        await run_as_thread(execute, cancellable=True)
+        await run_in_thread(execute, cancellable=True)
 
     async def _tasklet_stop(self) -> None:
         def execute() -> None:
@@ -367,4 +367,4 @@ class UnitHandle(Tasklet):
             if exception:
                 raise exception
 
-        await run_as_thread(execute)
+        await run_in_thread(execute)

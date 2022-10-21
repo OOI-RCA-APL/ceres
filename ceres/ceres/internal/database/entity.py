@@ -32,15 +32,15 @@ if TYPE_CHECKING:
     from .manager import DatabaseManager
 
 
-class StringEnum(BaseEnum):
-    def __init__(self, cls: type[Enum]):
-        super().__init__(
-            *(current.value for current in cls),
-            native_enum=False,
-            create_constraint=True,
-        )
+def StringEnum(cls: type[Enum]) -> BaseEnum:
+    enum = BaseEnum(
+        *(current.value for current in cls),
+        native_enum=False,
+        create_constraint=True,
+    )
 
-        self.length = None
+    enum.length = None
+    return enum
 
 
 class Entity(DeclarativeBase):

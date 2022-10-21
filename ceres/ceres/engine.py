@@ -46,7 +46,7 @@ class Engine(Tasklet, ServerEngine):
         self._config = config
         self._config_queue: Queue[Config] = Queue()
         self._server: Server | None = None
-        self._database = DatabaseManager.create(self._config.database)
+        self._database = DatabaseManager(self._config.database)
         self._units: dict[UnitPath, UnitHandle] = {}
         self._reloading = Event()
 
@@ -100,6 +100,7 @@ class Engine(Tasklet, ServerEngine):
             self.logger.error(message)
             raise StartupConfigCheckFailedException(message)
 
+        print(await self._database.tables())
         if not await self._database.tables():
             self.logger.info("Database appears empty, initializing database...")
             try:
@@ -175,7 +176,7 @@ class Engine(Tasklet, ServerEngine):
             try:
                 await self._stop_units()
                 await self._database.dispose()
-                self._database = DatabaseManager.create(self._config.database)
+                self._database = DatabaseManager(self._config.database)
             except Exception:
                 self.logger.error(
                     f"An issue occurred while reloading units and database: {traceback.format_exc()}"
