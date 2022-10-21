@@ -5,14 +5,15 @@ import traceback
 from abc import ABC
 from dataclasses import dataclass
 from logging import Logger
-from typing import Generic, Sequence, TypeVar, cast
+from typing import Any, Generic, Sequence, TypeVar, cast
 from uuid import UUID
 
+from .alert import Alert, AlertLevel, RawAlertLevel
 from .config import ComponentReferencesConfig
 from .events import Event, EventBinding, get_event_bindings
 from .exceptions import ComponentNotSetupException
 from .internal import logs
-from .internal.utilities import awaitify
+from .internal.utilities import awaitify, get_now
 from .path import ComponentPath
 from .protocols import GlobalUnitProtocol
 from .reference import ReferenceBinding, get_reference_bindings
@@ -72,3 +73,20 @@ class Component(Generic[ComponentContextT], ABC):
                         await awaitify(method(event))
                 except Exception:
                     traceback.print_exc()
+
+    async def alert(
+        self,
+        level: AlertLevel | RawAlertLevel,
+        kind: str,
+        info: dict[str, Any] | None = None,
+    ) -> Alert:
+        alert = Alert(
+            origin_id=self.context.id,
+            timestamp=get_now(),
+            level=AlertLevel.create_from(level),
+            kind=kind,
+            info=info or {},
+        )
+
+        await self.context.unit.alert(alert)
+        return alert

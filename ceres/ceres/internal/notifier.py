@@ -75,6 +75,9 @@ class NotifierHandle(
             f"Sending notification with {len(alerts)} alert(s) found since {encode_td(self.lookback)} ago."
         )
 
+        if not self.users:
+            self.logger.info("No users exist to send notifications to.")
+
         await self.send(self.users, alerts)
 
     async def send(self, users: Sequence[UserConfig], alerts: list[Alert]) -> None:

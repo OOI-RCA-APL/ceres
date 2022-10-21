@@ -5,13 +5,14 @@ import itertools
 import traceback
 from asyncio import FIRST_COMPLETED
 from dataclasses import dataclass
-from logging import Logger
+from logging import ERROR, INFO, WARNING, Logger
 from multiprocessing.managers import BaseManager
 from threading import Event as ThreadEvent
 from threading import Lock
 from typing import Any, Iterable, Protocol, cast, overload
 from uuid import UUID
 
+from ..alert import Alert, AlertLevel
 from ..config import (
     ConnectionConfig,
     DatabaseConfig,
@@ -35,6 +36,7 @@ from ..protocols import GlobalUnitProtocol
 from ..result import Fail, Ok
 from . import logs
 from .connection import ConnectionHandle, ConnectionHandleContext
+from .database.entity import AlertEntity
 from .database.manager import DatabaseManager
 from .driver import DriverHandle, DriverHandleContext
 from .notifier import NotifierHandle, NotifierHandleContext
@@ -144,6 +146,40 @@ class Unit(UnitProxyProtocol, GlobalUnitProtocol, Tasklet):
                     self.logger.error(
                         f"{component.path} raised exception while handling event {event}: {traceback.format_exc()}"
                     )
+
+    async def alert(self, alert: Alert) -> None:
+        match alert.level:
+            case AlertLevel.INFO:
+                log_level = INFO
+            case AlertLevel.WARNING:
+                log_level = WARNING
+            case AlertLevel.ERROR:
+                log_level = ERROR
+            case _:
+                raise ValueError(alert.level)
+
+        origin = next(
+            (component for component in self.components if component.id == alert.origin_id), None
+        )
+
+        logger = origin.logger if origin else self.logger
+        logger.log(
+            log_level,
+            f"ALERT({alert.kind}{' ' + jsonify(alert.info) if alert.info else ''})",
+        )
+
+        async with self._database.session() as session:
+            entity = AlertEntity(
+                id=alert.id,
+                origin_id=alert.origin_id,
+                timestamp=alert.timestamp,
+                level=alert.level,
+                kind=alert.kind,
+                info=alert.info,
+            )
+
+            session.add(entity)
+            await session.commit()
 
     def rpc_run(self) -> BaseException | None:
         async def execute() -> None:

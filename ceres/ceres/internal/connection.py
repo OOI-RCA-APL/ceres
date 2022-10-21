@@ -119,7 +119,7 @@ class ConnectionHandle(
             self.logger.info("Connected successfully.")
         else:
             self._state = ConnectionState.DISCONNECTED
-            self.logger.info("Failed to connect.")
+            self.logger.error("Failed to connect.")
 
         return self.connected
 
@@ -204,8 +204,9 @@ class ConnectionHandle(
             return
 
         while not await self.connect():
+            await self.alert("error", "connection-attempt-failed")
             seconds = self._reconnect.next().total_seconds()
-            self.logger.info(f"Attempting to reconnect in {seconds:g} seconds...")
+            self.logger.info(f"Reconnecting in {seconds:g} seconds...")
             await asyncio.sleep(seconds)
 
         self._reconnect.reset()

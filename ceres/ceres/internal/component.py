@@ -11,6 +11,7 @@ from uuid import UUID
 
 from pydantic import ValidationError, validate_arguments
 
+from ..alert import Alert, AlertLevel, RawAlertLevel
 from ..component import Component, ComponentContext
 from ..config import ComponentReferencesConfig
 from ..errors import (
@@ -29,6 +30,7 @@ from ..scheduler import Scheduler
 from . import logs
 from .database.manager import DatabaseManager
 from .tasks import Tasklet
+from .utilities import get_now
 
 ComponentT = TypeVar("ComponentT", bound=Component)
 
@@ -198,3 +200,20 @@ class ComponentHandle(
                     return fail
 
         return Ok(self._instance)
+
+    async def alert(
+        self,
+        level: AlertLevel | RawAlertLevel,
+        kind: str,
+        info: dict[str, Any] | None = None,
+    ) -> Alert:
+        alert = Alert(
+            origin_id=self._context.id,
+            timestamp=get_now(),
+            level=AlertLevel.create_from(level),
+            kind=kind,
+            info=info or {},
+        )
+
+        await self._context.unit.alert(alert)
+        return alert

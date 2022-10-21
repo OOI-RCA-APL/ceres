@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol, overload, runtime_checkable
 from uuid import UUID
 
+from .alert import Alert
 from .events import Event
 from .message import Message
 from .path import (
@@ -97,4 +98,7 @@ class GlobalUnitProtocol(Protocol):
         ...
 
     async def broadcast(self, event: Event) -> None:
+        ...
+
+    async def alert(self, alert: Alert) -> None:
         ...

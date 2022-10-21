@@ -39,8 +39,6 @@ class SMTPNotifier(Notifier):
 
     async def send(self, users: Sequence[UserConfig], alerts: Sequence[Alert]) -> None:
         recipients = sorted(set(user.email.strip() for user in users if user.email.strip()))
-        if not recipients:
-            return
 
         subject = f"{len(alerts)} Alert(s)"
         if prefix:
@@ -56,6 +54,9 @@ class SMTPNotifier(Notifier):
             password = self.parameters.password.get_secret_value()
         else:
             password = None
+
+        if not recipients:
+            return
 
         await aiosmtplib.send(
             message=message,

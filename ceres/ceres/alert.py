@@ -3,16 +3,22 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Protocol, runtime_checkable
-from uuid import UUID
+from typing import Any, Literal, Protocol, runtime_checkable
+from uuid import UUID, uuid4
 
 from .internal.utilities import MaybeMapped
+
+RawAlertLevel = Literal["info", "warning", "error"]
 
 
 class AlertLevel(str, Enum):
     INFO = "info"
     WARNING = "warning"
     ERROR = "error"
+
+    @classmethod
+    def create_from(cls, raw: AlertLevel | RawAlertLevel) -> AlertLevel:
+        return cls(raw)
 
 
 @runtime_checkable
@@ -44,11 +50,11 @@ class AlertLike(Protocol):
 
 @dataclass(kw_only=True, frozen=True)
 class Alert:
-    id: UUID
+    id: UUID = field(default_factory=uuid4)
     origin_id: UUID
     timestamp: datetime
-    kind: str
     level: AlertLevel
+    kind: str
     info: dict[str, Any] = field(default_factory=dict)
 
     @staticmethod
@@ -57,7 +63,7 @@ class Alert:
             id=other.id,
             origin_id=other.origin_id,
             timestamp=other.timestamp,
-            kind=other.kind,
             level=other.level,
+            kind=other.kind,
             info=other.info,
         )

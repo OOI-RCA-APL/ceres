@@ -100,7 +100,6 @@ class Engine(Tasklet, ServerEngine):
             self.logger.error(message)
             raise StartupConfigCheckFailedException(message)
 
-        print(await self._database.tables())
         if not await self._database.tables():
             self.logger.info("Database appears empty, initializing database...")
             try:

@@ -25,7 +25,7 @@ from typing import (
 import anyio
 import uvloop
 from anyio import CapacityLimiter
-from pydantic import ConstrainedStr
+from pydantic import ConstrainedStr, parse_obj_as
 from pydantic.json import pydantic_encoder
 from sqlalchemy.orm import Mapped
 
@@ -41,12 +41,21 @@ async def awaitify(value: T | Awaitable[T]) -> T:
     return cast(T, value)
 
 
-def jsonify(object: object, *, indent: int | str | None = None, **kwargs: Any) -> str:
-    return json.dumps(pydantic_encoder(object), indent=indent, **kwargs)
+def hydrate(type: type[T], obj: Any) -> T:
+    return parse_obj_as(type, obj)
 
 
-def simplify(object: object) -> Any:
-    return pydantic_encoder(object)
+def jsonify(obj: object, *, indent: int | str | None = None, **kwargs: Any) -> str:
+    return json.dumps(
+        obj,
+        default=pydantic_encoder,
+        indent=indent,
+        **kwargs,
+    )
+
+
+def simplify(obj: Any) -> Any:
+    return json.loads(jsonify(obj))
 
 
 FunctionT = TypeVar("FunctionT", bound=Callable[..., Any])
@@ -149,17 +158,24 @@ def show_td(value: timedelta) -> str:
     return f"{str(encoded_value).rstrip('0').rstrip('.')} {encoded_unit}"
 
 
-def decode_td(value: str | timedelta | Any) -> timedelta:
+def decode_td(value: str | timedelta | int | float | Any) -> timedelta:
     if isinstance(value, timedelta):
         return value
+    if isinstance(value, (int, float)):
+        return timedelta(seconds=value)
 
     def get_exception() -> ValueError:
         return ValueError(
-            "invalid timedelta value, must be a number with suffix 'us', 'ms', 's', 'm', 'h' or 'd'."
+            "invalid timedelta value, must be a ISO formatted interval or number with suffix 'us', 'ms', 's', 'm', 'h' or 'd'."
         )
 
     if not isinstance(value, str):
         raise get_exception()
+
+    try:
+        return hydrate(timedelta, value)
+    except Exception:
+        pass
 
     if value.endswith("us"):
         decoded_unit = "us"
