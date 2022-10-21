@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from rich import print
+import rich
 from typer import Typer
 
 from ...config import Config
@@ -25,9 +25,9 @@ async def run(config: Config = CONFIG_OPTION) -> None:
 
 
 async def check(path: Path = CONFIG_PATH_OPTION) -> None:
-    match await load_config(path, logger=print):
+    match await load_config(path, logger=rich.print):
         case Ok():
-            print("All checks passed.")
+            rich.print("All checks passed.")
         case fail:
             raise CLIInvalidConfigException(f"Failed to load configuration. {fail.json(indent=2)}")
 

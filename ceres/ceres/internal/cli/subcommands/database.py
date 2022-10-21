@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from rich import print
+import rich
 from typer import Typer
 
 from ....config import Config
@@ -19,22 +19,32 @@ async def init(config: Config = CONFIG_OPTION) -> None:
     except Exception:
         raise CLIDatabaseUnreachableException("Failed to connect to database.")
 
-    print("Pending commands to execute: ")
-    for statement in database.ddl:
-        print(f"> {statement}")
+    print("<PENDING>")
+    await schema(config)
+    print("</PENDING>")
 
     if await database.tables():
         confirm = "Database is not empty, execute above commands anyway?"
     else:
-        confirm = "Database appears to be uninitialized. Initialize now?"
+        confirm = "Database appears uninitialized. Execute above commands now?"
 
     if get_yes_no(confirm):
         await database.init()
     else:
-        print("Database has not been modified.")
+        rich.print("Database has not been modified.")
 
     await database.dispose()
 
 
+async def schema(config: Config = CONFIG_OPTION) -> None:
+    database = DatabaseManager.create(config.database)
+
+    for statement in database.ddl:
+        rich.print(f"{statement};")
+
+
 database = Typer(no_args_is_help=True)
-database.command(help="Initialize project database.")(syncify(init))
+database.command(help="Create all required tables in the project database.")(syncify(init))
+database.command(help="Show DDL commands used to create required tables in the project database.")(
+    syncify(schema)
+)

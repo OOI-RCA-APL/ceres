@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from datetime import datetime
+from enum import Enum
 from typing import TYPE_CHECKING, Any, TypeVar
 from uuid import UUID, uuid4
 
-from sqlalchemy import BINARY, JSON, TIMESTAMP
-from sqlalchemy import Enum as Enumeration
-from sqlalchemy import ForeignKey, String, Uuid, select
+from sqlalchemy import JSON, TIMESTAMP
+from sqlalchemy import Enum as BaseEnum
+from sqlalchemy import ForeignKey, LargeBinary, String, Text, Uuid, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import (
     DeclarativeBase,
@@ -31,6 +32,17 @@ if TYPE_CHECKING:
     from .manager import DatabaseManager
 
 
+class StringEnum(BaseEnum):
+    def __init__(self, cls: type[Enum]):
+        super().__init__(
+            *(current.value for current in cls),
+            native_enum=False,
+            create_constraint=True,
+        )
+
+        self.length = None
+
+
 class Entity(DeclarativeBase):
     __abstract__ = True
     __mapper_args__ = {
@@ -43,7 +55,7 @@ class Entity(DeclarativeBase):
 class UnitEntity(Entity):
     __tablename__ = "units"
 
-    name: Mapped[str] = mapped_column(String)
+    name: Mapped[str] = mapped_column(Text)
 
     connections: Mapped[list[ConnectionEntity]] = relationship(
         "ConnectionEntity",
@@ -86,10 +98,8 @@ class MessageEntity(Entity):
     __tablename__ = "messages"
     connection_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("connections.id"))
     timestamp: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))
-    direction: Mapped[MessageDirection] = mapped_column(
-        Enumeration(*(current.value for current in MessageDirection))
-    )
-    content: Mapped[bytes] = mapped_column(BINARY)
+    direction: Mapped[MessageDirection] = mapped_column(StringEnum(MessageDirection))
+    content: Mapped[bytes] = mapped_column(LargeBinary)
 
 
 class AlertEntity(Entity):
@@ -97,9 +107,7 @@ class AlertEntity(Entity):
     origin_id: Mapped[UUID] = mapped_column(Uuid)
     timestamp: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))
     kind: Mapped[str] = mapped_column(String)
-    level: Mapped[AlertLevel] = mapped_column(
-        Enumeration(*(current.value for current in AlertLevel))
-    )
+    level: Mapped[AlertLevel] = mapped_column(StringEnum(AlertLevel))
     info: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
 
 

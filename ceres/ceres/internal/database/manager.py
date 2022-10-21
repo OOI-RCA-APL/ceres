@@ -1,20 +1,24 @@
 from __future__ import annotations
 
+import re
 from abc import ABC, abstractmethod
 from textwrap import dedent
 from typing import Any, cast
 
-from sqlalchemy import text
+from sqlalchemy import Engine as SyncEngine
+from sqlalchemy import Inspector, Table, text
 from sqlalchemy.ext.asyncio import (
     AsyncConnection,
     AsyncEngine,
     AsyncSession,
     async_sessionmaker,
 )
+from sqlalchemy.schema import CreateTable
 from sqlalchemy.sql.elements import TextClause
 
 from ...config import DatabaseConfig, DatabaseKind
-from .entity import EntityManager
+from ..utilities import run_as_thread
+from .entity import Entity, EntityManager
 
 
 class DatabaseManager(ABC):
@@ -26,8 +30,8 @@ class DatabaseManager(ABC):
         """
         Create a new database manager using the provided configuration.
         """
-        self._base_config = config
-        self._engine = self._create_engine(config)
+        self._config = config
+        self._engine = self._create_async_engine(config)
         self._session_maker = async_sessionmaker(
             self._engine,
             AsyncSession,
@@ -46,31 +50,32 @@ class DatabaseManager(ABC):
 
     @classmethod
     @abstractmethod
-    def _create_engine(cls, config: DatabaseConfig) -> AsyncEngine:
+    def _create_async_engine(cls, config: DatabaseConfig) -> AsyncEngine:
         ...
 
+    @classmethod
     @abstractmethod
-    def _create_ddl_statements(self) -> list[str]:
-        ...
-
-    @abstractmethod
-    def _create_tables_query(self) -> str:
+    def _create_sync_engine(cls, config: DatabaseConfig) -> SyncEngine:
         ...
 
     @property
     def kind(self) -> DatabaseKind:
-        return self._base_config.kind
+        return self._config.kind
 
     @property
     def ddl(self) -> list[str]:
-        return [self.compile(statement) for statement in self._create_ddl_statements()]
+        def get_ddl(table: Table) -> str:
+            return re.sub(
+                r"[\n\r]+\t",
+                "\n    ",
+                dedent(
+                    str(
+                        CreateTable(table, if_not_exists=True).compile(self._engine.sync_engine)
+                    ).strip()
+                ),
+            )
 
-    @property
-    def engine(self) -> AsyncEngine:
-        """
-        Access the underlying database async engine.
-        """
-        return self._engine
+        return [get_ddl(table) for table in Entity.metadata.tables.values()]
 
     @property
     def entities(self) -> EntityManager:
@@ -121,5 +126,9 @@ class DatabaseManager(ABC):
                 await connection.execute(text(statement))
 
     async def tables(self) -> list[str]:
-        async with self.connect() as connection:
-            return list((await connection.execute(text(self._create_tables_query()))).scalars())
+        engine = self._create_sync_engine(self._config)
+
+        try:
+            return await run_as_thread(lambda: Inspector.from_engine(engine).get_table_names())
+        finally:
+            engine.dispose()
