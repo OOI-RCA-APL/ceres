@@ -4,7 +4,7 @@ import re
 from textwrap import dedent
 from typing import Any, Iterable, cast
 
-from sqlalchemy import ClauseElement, Inspector, Table, text
+from sqlalchemy import ClauseElement, Table, inspect, text
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession, async_sessionmaker
 from sqlalchemy.schema import CreateIndex, CreateTable
 from sqlalchemy.sql.elements import TextClause
@@ -110,7 +110,7 @@ class DatabaseManager:
 
     async def tables(self) -> list[str]:
         engine = self._adapter.create_sync_engine()
-        inspector = Inspector.from_engine(engine)
+        inspector = inspect(engine)
 
         try:
             return await run_in_thread(lambda: inspector.get_table_names())

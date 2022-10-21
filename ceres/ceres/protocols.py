@@ -6,6 +6,7 @@ from uuid import UUID
 from .events import Event
 from .message import Message
 from .path import (
+    ComponentPath,
     ConnectionPath,
     DriverPath,
     LocalConnectionPath,
@@ -15,17 +16,29 @@ from .path import (
 )
 
 if TYPE_CHECKING:
+    from .component import Component
     from .connection import Connection
     from .driver import Driver
     from .notifier import Notifier
 
 
 @runtime_checkable
-class ReferencedConnectionHandle(Protocol):
+class ReferencedComponentHandle(Protocol):
     @property
     def id(self) -> UUID:
         ...
 
+    @property
+    def path(self) -> ComponentPath:
+        ...
+
+    @property
+    def instance(self) -> Component | None:
+        ...
+
+
+@runtime_checkable
+class ReferencedConnectionHandle(ReferencedComponentHandle, Protocol):
     @property
     def path(self) -> ConnectionPath:
         ...
@@ -39,11 +52,7 @@ class ReferencedConnectionHandle(Protocol):
 
 
 @runtime_checkable
-class ReferencedDriverHandle(Protocol):
-    @property
-    def id(self) -> UUID:
-        ...
-
+class ReferencedDriverHandle(ReferencedComponentHandle, Protocol):
     @property
     def path(self) -> DriverPath:
         ...
@@ -54,11 +63,7 @@ class ReferencedDriverHandle(Protocol):
 
 
 @runtime_checkable
-class ReferencedNotifierHandle(Protocol):
-    @property
-    def id(self) -> UUID:
-        ...
-
+class ReferencedNotifierHandle(ReferencedComponentHandle, Protocol):
     @property
     def path(self) -> NotifierPath:
         ...

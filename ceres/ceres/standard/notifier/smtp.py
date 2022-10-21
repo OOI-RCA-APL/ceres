@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from email.message import EmailMessage
 from sys import prefix
+from typing import Sequence
 
 import aiosmtplib
 from pydantic import SecretStr
@@ -36,7 +37,7 @@ class SMTPNotifier(Notifier):
     def parameters(self) -> SMTPNotifierParameters:
         return self._parameters
 
-    async def send(self, users: list[UserConfig], alerts: list[Alert]) -> None:
+    async def send(self, users: Sequence[UserConfig], alerts: Sequence[Alert]) -> None:
         recipients = sorted(set(user.email.strip() for user in users if user.email.strip()))
         if not recipients:
             return

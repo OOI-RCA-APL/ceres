@@ -9,7 +9,7 @@ from .alert import Alert
 from .component import Component, ComponentContext
 from .config import UserConfig
 from .path import LocalNotifierPath, NotifierPath
-from .protocols import ReferencedConnectionHandle
+from .protocols import ReferencedNotifierHandle
 from .reference import Reference
 
 
@@ -19,14 +19,14 @@ class NotifierContext(ComponentContext):
 
 
 class Notifier(Component[NotifierContext], ABC):
-    async def send(self, users: Sequence[UserConfig], alerts: list[Alert]) -> None:
+    async def send(self, users: Sequence[UserConfig], alerts: Sequence[Alert]) -> None:
         raise NotImplementedError()
 
     async def update(self) -> None:
         await asyncio.sleep(1)
 
 
-class NotifierReference(Reference[ReferencedConnectionHandle]):
+class NotifierReference(Reference[ReferencedNotifierHandle]):
     @property
     def path(self) -> LocalNotifierPath:
         return LocalNotifierPath(self.name)
