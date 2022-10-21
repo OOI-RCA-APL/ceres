@@ -5,12 +5,13 @@ from abc import ABC
 from datetime import timedelta
 from enum import Enum
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from apscheduler.triggers.cron import CronTrigger
 from pydantic import (
     BaseConfig,
     BaseModel,
+    Field,
     PrivateAttr,
     SecretStr,
     root_validator,
@@ -128,7 +129,10 @@ class OrScheduleConfig(BaseScheduleConfig):
     schedules: list[ScheduleConfig]
 
 
-ScheduleConfig = CronScheduleConfig | IntervalScheduleConfig | AndScheduleConfig | OrScheduleConfig
+ScheduleConfig = Annotated[
+    CronScheduleConfig | IntervalScheduleConfig | AndScheduleConfig | OrScheduleConfig,
+    Field(discriminator="kind"),
+]
 
 AndScheduleConfig.update_forward_refs()
 OrScheduleConfig.update_forward_refs()
@@ -188,7 +192,10 @@ class PostgresDatabaseConfig(BaseDatabaseConfig):
     password: SecretStr
 
 
-DatabaseConfig = SQLiteDatabaseConfig | PostgresDatabaseConfig
+DatabaseConfig = Annotated[
+    SQLiteDatabaseConfig | PostgresDatabaseConfig,
+    Field(discriminator="kind"),
+]
 
 
 class UnitConfig(BaseModel):
