@@ -1,13 +1,25 @@
 from __future__ import annotations
 
 from datetime import datetime
-from enum import Enum
+from enum import Enum as BaseEnum
 from typing import TYPE_CHECKING, Any, TypeVar
 from uuid import UUID, uuid4
 
-from sqlalchemy import JSON, TIMESTAMP
-from sqlalchemy import Enum as BaseEnum
-from sqlalchemy import ForeignKey, Index, LargeBinary, String, Text, Uuid, select
+from inflection import underscore
+from sqlalchemy import (
+    JSON,
+    TIMESTAMP,
+    CheckConstraint,
+    Enum,
+    ForeignKey,
+    Index,
+    LargeBinary,
+    PrimaryKeyConstraint,
+    String,
+    Text,
+    Uuid,
+    select,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import (
     DeclarativeBase,
@@ -32,15 +44,23 @@ if TYPE_CHECKING:
     from .manager import DatabaseManager
 
 
-def StringEnum(cls: type[Enum]) -> BaseEnum:
-    enum = BaseEnum(
+def TypedEnum(cls: type[BaseEnum]) -> Enum:
+    enum = Enum(
         *(current.value for current in cls),
         native_enum=False,
-        create_constraint=True,
+        create_constraint=False,
+        name=underscore(cls.__name__),
     )
 
     enum.length = None
     return enum
+
+
+def TypedEnumConstraint(column: str, cls: type[BaseEnum], name: str) -> CheckConstraint:
+    return CheckConstraint(
+        sqltext=f"{column} in ({', '.join([repr(enum.value) for enum in cls])})",
+        name=name,
+    )
 
 
 class Entity(DeclarativeBase):
@@ -49,15 +69,17 @@ class Entity(DeclarativeBase):
         "eager_defaults": True,
     }
 
-    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
-
 
 class UnitEntity(Entity):
     __tablename__ = "units"
 
+    id: Mapped[UUID] = mapped_column(Uuid)
     name: Mapped[str] = mapped_column(Text)
 
-    __table_args__ = (Index(f"uk_{__tablename__}__name", "name", unique=True),)
+    __table_args__ = (
+        PrimaryKeyConstraint("id", name=f"pk_{__tablename__}"),
+        Index(f"uq_{__tablename__}__name", "name", unique=True),
+    )
 
     connections: Mapped[list[ConnectionEntity]] = relationship(
         "ConnectionEntity",
@@ -76,41 +98,62 @@ class UnitEntity(Entity):
 class ComponentEntity(Entity):
     __abstract__ = True
 
-    unit_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("units.id"))
-    name: Mapped[str] = mapped_column(String)
+    @declared_attr
+    def id(cls) -> Mapped[UUID]:
+        return mapped_column(Uuid)
+
+    @declared_attr
+    def unit_id(cls) -> Mapped[UUID]:
+        return mapped_column(
+            Uuid,
+            ForeignKey("units.id", name=f"fk_{cls.__tablename__}__unit_id__units"),
+        )
+
+    @declared_attr
+    def name(cls) -> Mapped[str]:
+        return mapped_column(String)
 
     @declared_attr
     def unit(cls) -> Mapped[UnitEntity]:
         return relationship(UnitEntity, back_populates=cls.__tablename__)
 
+    @declared_attr
+    def __table_args__(cls) -> Any:
+        return (
+            PrimaryKeyConstraint("id", name=f"pk_{cls.__tablename__}"),
+            Index(f"uq_{cls.__tablename__}__unit_id__name", "unit_id", "name", unique=True),
+        )
+
 
 class ConnectionEntity(ComponentEntity):
     __tablename__ = "connections"
-    __table_args__ = (Index(f"uk_{__tablename__}__unit_id__name", "unit_id", "name", unique=True),)
 
 
 class DriverEntity(ComponentEntity):
     __tablename__ = "drivers"
-    __table_args__ = (Index(f"uk_{__tablename__}__unit_id__name", "unit_id", "name", unique=True),)
 
 
 class NotifierEntity(ComponentEntity):
     __tablename__ = "notifiers"
-    __table_args__ = (Index(f"uk_{__tablename__}__unit_id__name", "unit_id", "name", unique=True),)
 
 
 class MessageEntity(Entity):
     __tablename__ = "messages"
 
-    connection_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("connections.id"))
+    id: Mapped[UUID] = mapped_column(Uuid)
+    connection_id: Mapped[UUID] = mapped_column(
+        Uuid,
+        ForeignKey("connections.id", name=f"fk_{__tablename__}__connection_id__connection"),
+    )
     timestamp: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))
-    direction: Mapped[MessageDirection] = mapped_column(StringEnum(MessageDirection))
+    direction: Mapped[MessageDirection] = mapped_column(TypedEnum(MessageDirection))
     content: Mapped[bytes] = mapped_column(LargeBinary)
 
     __table_args__ = (
+        PrimaryKeyConstraint("id", name=f"pk_{__tablename__}"),
+        TypedEnumConstraint("direction", MessageDirection, name=f"ck_{__tablename__}__direction"),
         Index(f"ix_{__tablename__}__connection_id", "connection_id"),
         Index(f"ix_{__tablename__}__timestamp", "timestamp"),
-        Index(f"ix_{__tablename__}__direction", "direction"),
         Index(f"ix_{__tablename__}__content", "content"),
     )
 
@@ -118,13 +161,16 @@ class MessageEntity(Entity):
 class AlertEntity(Entity):
     __tablename__ = "alerts"
 
+    id: Mapped[UUID] = mapped_column(Uuid)
     origin_id: Mapped[UUID] = mapped_column(Uuid)
     timestamp: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))
     kind: Mapped[str] = mapped_column(String)
-    level: Mapped[AlertLevel] = mapped_column(StringEnum(AlertLevel))
+    level: Mapped[AlertLevel] = mapped_column(TypedEnum(AlertLevel))
     info: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
 
     __table_args__ = (
+        PrimaryKeyConstraint("id", name=f"pk_{__tablename__}"),
+        TypedEnumConstraint("level", AlertLevel, name=f"ck_{__tablename__}__level"),
         Index(f"ix_{__tablename__}__origin_id", "origin_id"),
         Index(f"ix_{__tablename__}__timestamp", "timestamp"),
         Index(f"ix_{__tablename__}__kind", "kind"),
