@@ -65,7 +65,6 @@ async def load_config(
     try:
         if isinstance(config, dict):
             config = Config.parse_obj(config)
-            log("Configuration object matches schema.")
         elif isinstance(config, Path):
             try:
                 path = config.resolve()
@@ -101,7 +100,6 @@ async def load_config(
 
             config = Config.parse_obj(data)
             config.__path__ = path
-            log("Configuration file matches schema.")
     except ValidationError as error:
         return Fail([ConfigValidationError(problems=ValidationProblem.extract(error))])
 

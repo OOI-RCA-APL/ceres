@@ -7,7 +7,7 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import JSON, TIMESTAMP
 from sqlalchemy import Enum as BaseEnum
-from sqlalchemy import ForeignKey, LargeBinary, String, Text, Uuid, select
+from sqlalchemy import ForeignKey, Index, LargeBinary, String, Text, Uuid, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import (
     DeclarativeBase,
@@ -57,6 +57,8 @@ class UnitEntity(Entity):
 
     name: Mapped[str] = mapped_column(Text)
 
+    __table_args__ = (Index(f"uk_{__tablename__}__name", "name", unique=True),)
+
     connections: Mapped[list[ConnectionEntity]] = relationship(
         "ConnectionEntity",
         back_populates="unit",
@@ -84,31 +86,50 @@ class ComponentEntity(Entity):
 
 class ConnectionEntity(ComponentEntity):
     __tablename__ = "connections"
+    __table_args__ = (Index(f"uk_{__tablename__}__unit_id__name", "unit_id", "name", unique=True),)
 
 
 class DriverEntity(ComponentEntity):
     __tablename__ = "drivers"
+    __table_args__ = (Index(f"uk_{__tablename__}__unit_id__name", "unit_id", "name", unique=True),)
 
 
 class NotifierEntity(ComponentEntity):
     __tablename__ = "notifiers"
+    __table_args__ = (Index(f"uk_{__tablename__}__unit_id__name", "unit_id", "name", unique=True),)
 
 
 class MessageEntity(Entity):
     __tablename__ = "messages"
+
     connection_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("connections.id"))
     timestamp: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))
     direction: Mapped[MessageDirection] = mapped_column(StringEnum(MessageDirection))
     content: Mapped[bytes] = mapped_column(LargeBinary)
 
+    __table_args__ = (
+        Index(f"ix_{__tablename__}__connection_id", "connection_id"),
+        Index(f"ix_{__tablename__}__timestamp", "timestamp"),
+        Index(f"ix_{__tablename__}__direction", "direction"),
+        Index(f"ix_{__tablename__}__content", "content"),
+    )
+
 
 class AlertEntity(Entity):
     __tablename__ = "alerts"
+
     origin_id: Mapped[UUID] = mapped_column(Uuid)
     timestamp: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))
     kind: Mapped[str] = mapped_column(String)
     level: Mapped[AlertLevel] = mapped_column(StringEnum(AlertLevel))
     info: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+
+    __table_args__ = (
+        Index(f"ix_{__tablename__}__origin_id", "origin_id"),
+        Index(f"ix_{__tablename__}__timestamp", "timestamp"),
+        Index(f"ix_{__tablename__}__kind", "kind"),
+        Index(f"ix_{__tablename__}__level", "level"),
+    )
 
 
 ComponentEntityT = TypeVar("ComponentEntityT", bound=ComponentEntity)

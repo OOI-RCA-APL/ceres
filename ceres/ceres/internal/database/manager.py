@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import re
 from textwrap import dedent
-from typing import Any, cast
+from typing import Any, Iterable, cast
 
-from sqlalchemy import Inspector, Table, text
+from sqlalchemy import ClauseElement, Inspector, Table, text
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession, async_sessionmaker
-from sqlalchemy.schema import CreateTable
+from sqlalchemy.schema import CreateIndex, CreateTable
 from sqlalchemy.sql.elements import TextClause
 
 from ...config import (
@@ -41,18 +41,23 @@ class DatabaseManager:
 
     @property
     def ddl(self) -> list[str]:
-        def get_ddl(table: Table) -> str:
+        def compile(element: ClauseElement) -> str:
             return re.sub(
                 r"[\n\r]+\t",
                 "\n    ",
-                dedent(
-                    str(
-                        CreateTable(table, if_not_exists=True).compile(self._engine.sync_engine)
-                    ).strip()
-                ),
+                dedent(str(element.compile(self._engine.sync_engine)).strip()),
             )
 
-        return [get_ddl(table) for table in Entity.metadata.tables.values()]
+        def get_table_ddl(table: Table) -> Iterable[str]:
+            yield compile(CreateTable(table, if_not_exists=True))
+            for index in table.indexes:
+                yield compile(CreateIndex(index, if_not_exists=True))  # type: ignore
+
+        commands: list[str] = []
+        for table in Entity.metadata.tables.values():
+            commands.extend(get_table_ddl(table))
+
+        return commands
 
     @classmethod
     def _create_adapter(cls, config: DatabaseConfig) -> DatabaseAdapter[DatabaseConfig]:
