@@ -9,7 +9,7 @@ from typing import Any, Generic, Sequence, TypeVar, cast
 from uuid import UUID
 
 from .alert import Alert, AlertLevel, RawAlertLevel
-from .config import ComponentReferencesConfig
+from .config import ComponentConfig, Config
 from .events import Event, EventBinding, get_event_bindings
 from .exceptions import ComponentNotSetupException
 from .internal import logs
@@ -23,8 +23,12 @@ from .reference import ReferenceBinding, get_reference_bindings
 class ComponentContext:
     id: UUID
     path: ComponentPath
+    config: Config
     unit: GlobalUnitProtocol
-    references: ComponentReferencesConfig
+
+    def __post_init__(self) -> None:
+        if not self.config.get_component(self.path):
+            raise ValueError(f"Component {self.path} is not defined in configuration.")
 
 
 ComponentContextT = TypeVar("ComponentContextT", bound=ComponentContext)
@@ -47,6 +51,13 @@ class Component(Generic[ComponentContextT], ABC):
         return self.__context__
 
     @property
+    def config(self) -> ComponentConfig | None:
+        if self.__context__:
+            return self.__context__.config.get_component(self.context.path)
+
+        return None
+
+    @property
     def logger(self) -> Logger:
         return logs.get(str(self.context.path))
 
@@ -59,10 +70,13 @@ class Component(Generic[ComponentContextT], ABC):
         return get_reference_bindings(cls)
 
     async def handle(self, event: Event) -> None:
+        if not self.config:
+            return
+
         for binding in self.get_event_bindings():
             if not isinstance(event, cast(type, binding.cls)):
                 continue
-            if self.context.references.remap(binding.path) != event.path:
+            if self.config.references.remap(binding.path) != event.path:
                 continue
 
             if method := getattr(self, binding.method, None):

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from ..config import DriverConfig
 from ..driver import Driver, DriverContext
 from ..path import DriverPath
 from ..protocols import ReferencedDriverHandle
@@ -25,6 +26,10 @@ class DriverHandle(
     def path(self) -> DriverPath:
         return self._context.path
 
+    @property
+    def config(self) -> DriverConfig:
+        return super().config  # type: ignore
+
     def _get_component_type(self) -> type[Driver]:  # type: ignore
         return Driver
 
@@ -32,8 +37,8 @@ class DriverHandle(
         return DriverContext(
             id=self._context.id,
             path=self._context.path,
+            config=self._context.config,
             unit=self._context.unit,
-            references=self._context.references,
         )
 
     async def _tasklet_run(self) -> None:

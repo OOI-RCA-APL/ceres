@@ -5,6 +5,7 @@ from abc import ABC
 from dataclasses import dataclass
 
 from .component import Component, ComponentContext
+from .config import DriverConfig
 from .path import DriverPath, LocalDriverPath
 from .protocols import ReferencedDriverHandle
 from .reference import Reference
@@ -16,6 +17,10 @@ class DriverContext(ComponentContext):
 
 
 class Driver(Component[DriverContext], ABC):
+    @property
+    def config(self) -> DriverConfig | None:
+        return super().config  # type: ignore
+
     async def update(self) -> None:
         await asyncio.sleep(1)
 

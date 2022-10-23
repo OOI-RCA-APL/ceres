@@ -240,17 +240,12 @@ class Engine(Tasklet, ServerEngine):
                     await unit.stop()
                     self._units.pop(unit.path, None)
 
-                if config := configs.get(action.path):
+                if action.path in configs:
                     id = await self._database.entities.get_id(action.path)
                     context = UnitContext(
                         id=id,
                         path=action.path,
-                        connections=config.connections,
-                        drivers=config.drivers,
-                        notifiers=config.notifiers,
-                        database=self._config.database,
-                        config=config,
-                        users=self._config.users,
+                        config=self._config,
                     )
 
                     unit = UnitHandle(context)

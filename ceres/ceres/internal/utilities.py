@@ -87,6 +87,11 @@ async def run_in_thread(
     )
 
 
+def unwrap(value: T | None) -> T:
+    assert value is not None
+    return value
+
+
 def get_now() -> datetime:
     return datetime.now(timezone.utc)
 

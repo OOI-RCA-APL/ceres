@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import timedelta
 from typing import Sequence
 
 from sqlalchemy import select
 
 from ..alert import Alert
-from ..config import ScheduleConfig, UserConfig
+from ..config import NotifierConfig, UserConfig
 from ..exceptions import ComponentNotLoadedException
 from ..notifier import Notifier, NotifierContext
 from ..path import NotifierPath
@@ -20,9 +19,6 @@ from .utilities import encode_td, get_now
 @dataclass(kw_only=True, frozen=True)
 class NotifierHandleContext(ComponentHandleContext):
     path: NotifierPath
-    schedule: ScheduleConfig | None
-    lookback: timedelta
-    users: list[UserConfig]
 
 
 class NotifierHandle(
@@ -38,16 +34,8 @@ class NotifierHandle(
         return self._context.path
 
     @property
-    def schedule(self) -> ScheduleConfig | None:
-        return self._context.schedule
-
-    @property
-    def lookback(self) -> timedelta:
-        return self._context.lookback
-
-    @property
-    def users(self) -> Sequence[UserConfig]:
-        return self._context.users
+    def config(self) -> NotifierConfig:
+        return super().config  # type: ignore
 
     def _get_component_type(self) -> type[Notifier]:  # type: ignore
         return Notifier
@@ -56,12 +44,12 @@ class NotifierHandle(
         return NotifierContext(
             id=self._context.id,
             path=self._context.path,
+            config=self._context.config,
             unit=self._context.unit,
-            references=self._context.references,
         )
 
     async def notify(self) -> None:
-        cutoff = get_now() - self.lookback
+        cutoff = get_now() - self.config.lookback
 
         async with self._context.database.session() as session:
             alerts = [
@@ -72,13 +60,13 @@ class NotifierHandle(
             ]
 
         self.logger.info(
-            f"Sending notification with {len(alerts)} alert(s) found since {encode_td(self.lookback)} ago."
+            f"Sending notification with {len(alerts)} alert(s) found since {encode_td(self.config.lookback)} ago."
         )
 
-        if not self.users:
+        if not self._context.config.users:
             self.logger.info("No users exist to send notifications to.")
 
-        await self.send(self.users, alerts)
+        await self.send(self._context.config.users, alerts)
 
     async def send(self, users: Sequence[UserConfig], alerts: list[Alert]) -> None:
         if not self._instance:
@@ -89,9 +77,9 @@ class NotifierHandle(
     async def _tasklet_run(self) -> None:
         await super()._tasklet_run()
 
-        if self.schedule:
-            self.logger.info(f"Scheduling notifications as: {self.schedule}")
-            self.scheduler.add_job(self.notify, self.schedule)
+        if self.config.schedule:
+            self.logger.info(f"Scheduling notifications as: {self.config.schedule}")
+            self.scheduler.add_job(self.notify, self.config.schedule)
         else:
             self.logger.warning(
                 "No scheduler is set. Notifications will not be sent automatically."

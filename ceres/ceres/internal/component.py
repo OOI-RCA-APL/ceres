@@ -13,7 +13,7 @@ from pydantic import ValidationError, validate_arguments
 
 from ..alert import Alert, AlertLevel, RawAlertLevel
 from ..component import Component, ComponentContext
-from ..config import ComponentReferencesConfig
+from ..config import ComponentConfig, Config
 from ..errors import (
     ComponentClassInvalidError,
     ComponentError,
@@ -30,7 +30,7 @@ from ..scheduler import Scheduler
 from . import logs
 from .database.manager import DatabaseManager
 from .tasks import Tasklet
-from .utilities import get_now
+from .utilities import get_now, unwrap
 
 ComponentT = TypeVar("ComponentT", bound=Component)
 
@@ -128,11 +128,13 @@ def load_component(
 class ComponentHandleContext:
     id: UUID
     path: ComponentPath
+    config: Config
     unit: GlobalUnitProtocol
-    component: str | object
-    parameters: dict[str, Any]
-    references: ComponentReferencesConfig
     database: DatabaseManager
+
+    def __post_init__(self) -> None:
+        if not self.config.get_component(self.path):
+            raise ValueError(f"Component {self.path} is not defined in configuration.")
 
 
 ComponentHandleContextT = TypeVar("ComponentHandleContextT", bound=ComponentHandleContext)
@@ -160,6 +162,10 @@ class ComponentHandle(
     @property
     def path(self) -> ComponentPath:
         return self._context.path
+
+    @property
+    def config(self) -> ComponentConfig:
+        return unwrap(self._context.config.get_component(self._context.path))
 
     @property
     def instance(self) -> ComponentT | None:
@@ -191,7 +197,9 @@ class ComponentHandle(
     async def load(self) -> Result[ComponentT, ComponentError]:
         if not self._instance:
             match load_component(
-                self._get_component_type(), self._context.component, self._context.parameters
+                self._get_component_type(),
+                self.config.component,
+                self.config.parameters,
             ):
                 case Ok(instance):
                     self._instance = instance

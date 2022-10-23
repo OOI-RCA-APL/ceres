@@ -5,7 +5,7 @@ from abc import ABC
 from datetime import timedelta
 from enum import Enum
 from pathlib import Path
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, overload
 
 from apscheduler.triggers.cron import CronTrigger
 from pydantic import (
@@ -20,10 +20,15 @@ from pydantic import (
 
 from .internal.utilities import EmailStr, NameStr, decode_td, encode_td
 from .path import (
+    ComponentPath,
+    ConnectionPath,
+    DriverPath,
     LocalComponentPath,
     LocalConnectionPath,
     LocalDriverPath,
     LocalNotifierPath,
+    NotifierPath,
+    UnitPath,
     create_local_path,
 )
 
@@ -265,6 +270,7 @@ class Config(BaseModel):
     units: list[UnitConfig] = []
 
     __path__: Path | None = PrivateAttr(default=None)
+    __component_path_cache__: dict[ComponentPath, ComponentConfig] = PrivateAttr(default={})
 
     @property
     def path(self) -> Path | None:
@@ -277,3 +283,47 @@ class Config(BaseModel):
                 raise ValueError(f"duplicate unit name '{name}'")
 
         return units
+
+    def get_unit(self, path: str | UnitPath) -> UnitConfig | None:
+        if isinstance(path, UnitPath):
+            path = path.name
+
+        return next(unit for unit in self.units if unit.name == path)
+
+    @overload
+    def get_component(self, path: ConnectionPath) -> ConnectionConfig | None:
+        ...
+
+    @overload
+    def get_component(self, path: DriverPath) -> DriverConfig | None:
+        ...
+
+    @overload
+    def get_component(self, path: NotifierPath) -> NotifierConfig | None:
+        ...
+
+    def get_component(self, path: ComponentPath) -> ComponentConfig | None:
+        if path in self.__component_path_cache__:
+            return self.__component_path_cache__[path]
+
+        component: ComponentConfig | None = None
+
+        if unit := self.get_unit(path.unit):
+            match path:
+                case ConnectionPath():
+                    component = next(
+                        (current for current in unit.connections if current.name == path.name), None
+                    )
+                case DriverPath():
+                    component = next(
+                        (current for current in unit.drivers if current.name == path.name), None
+                    )
+                case NotifierPath():
+                    component = next(
+                        (current for current in unit.notifiers if current.name == path.name), None
+                    )
+
+        if component:
+            self.__component_path_cache__[path] = component
+
+        return component

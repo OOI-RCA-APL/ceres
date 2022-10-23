@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from enum import Enum
 from uuid import UUID, uuid4
 
-from ..config import ConnectionReconnectConfig
+from ..config import ConnectionConfig, ConnectionReconnectConfig
 from ..connection import Connection, ConnectionContext
 from ..events import (
     ConnectedEvent,
@@ -55,7 +55,6 @@ class ReconnectScheduler:
 @dataclass(kw_only=True, frozen=True)
 class ConnectionHandleContext(ComponentHandleContext):
     path: ConnectionPath
-    reconnect: ConnectionReconnectConfig
 
 
 class ConnectionHandle(
@@ -70,15 +69,19 @@ class ConnectionHandle(
 
     def __init__(self, context: ConnectionHandleContext) -> None:
         super().__init__(context)
-        self._reconnect = ReconnectScheduler(context.reconnect)
         self._state = ConnectionState.DISCONNECTED
         self._receive_buffer: list[ReceivedMessage] = []
         self._is_flushing = False
         self._last_message_timestamp: datetime | None = None
+        self._reconnect = ReconnectScheduler(self.config.reconnect)
 
     @property
     def path(self) -> ConnectionPath:
         return self._context.path
+
+    @property
+    def config(self) -> ConnectionConfig:
+        return super().config  # type: ignore
 
     @property
     def state(self) -> ConnectionState:
@@ -95,8 +98,8 @@ class ConnectionHandle(
         return ConnectionContext(
             id=self._context.id,
             path=self._context.path,
+            config=self._context.config,
             unit=self._context.unit,
-            references=self._context.references,
         )
 
     async def connect(self) -> bool:

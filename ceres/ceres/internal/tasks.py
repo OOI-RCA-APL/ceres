@@ -72,28 +72,35 @@ class Tasklet(ABC):
         stopping_task = asyncio.create_task(self.__tasklet__.stopping.wait())
 
         async def main() -> None:
-            try:
-                await asyncio.wait(
-                    [
-                        run_task,
-                        cast(Any, stopping_task),
-                    ],
-                    return_when=FIRST_COMPLETED,
-                )
-            except Exception as exception:
-                self.__tasklet__.exception = exception
-                if on_exception:
-                    on_exception(self, exception)
-            finally:
-                run_task.cancel()
-                stopping_task.cancel()
+            done, _ = await asyncio.wait(
+                [
+                    run_task,
+                    cast(Any, stopping_task),
+                ],
+                return_when=FIRST_COMPLETED,
+            )
 
+            try:
+                if run_task in done:
+                    try:
+                        run_task.result()
+                    except Exception as exception:
+                        self.__tasklet__.exception = exception
+                        if on_exception:
+                            on_exception(self, exception)
+                else:
+                    run_task.cancel()
+
+                if stopping_task in done:
+                    stopping_task.result()
+                else:
+                    stopping_task.cancel()
+            finally:
                 try:
                     await self._tasklet_stop()
                 finally:
                     self.__tasklet__.task = None
                     self.__tasklet__.stopping.set()
-                    self.__tasklet__.exception = None
                     self.__tasklet__.stopped.set()
 
                     if on_completed:

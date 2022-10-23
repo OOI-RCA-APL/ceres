@@ -7,7 +7,7 @@ from typing import Sequence
 
 from .alert import Alert
 from .component import Component, ComponentContext
-from .config import UserConfig
+from .config import NotifierConfig, UserConfig
 from .path import LocalNotifierPath, NotifierPath
 from .protocols import ReferencedNotifierHandle
 from .reference import Reference
@@ -19,6 +19,10 @@ class NotifierContext(ComponentContext):
 
 
 class Notifier(Component[NotifierContext], ABC):
+    @property
+    def config(self) -> NotifierConfig | None:
+        return super().config  # type: ignore
+
     async def send(self, users: Sequence[UserConfig], alerts: Sequence[Alert]) -> None:
         raise NotImplementedError()
 
