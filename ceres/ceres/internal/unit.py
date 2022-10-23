@@ -116,11 +116,11 @@ class Unit(UnitProxyProtocol, GlobalUnitProtocol, Tasklet):
     def get_component(self, path: LocalComponentPath) -> object:
         match path:
             case LocalConnectionPath():
-                return self.get_connection(path.name)
+                return self._connections.get(path.name)
             case LocalDriverPath():
-                return self.get_driver(path.name)
+                return self._drivers.get(path.name)
             case LocalNotifierPath():
-                return self.get_notifier(path.name)
+                return self._notifiers.get(path.name)
 
     async def broadcast(self, event: Event) -> None:
         for component in self.components:

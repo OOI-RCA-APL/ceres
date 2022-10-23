@@ -11,7 +11,7 @@ from ...exceptions import StartupException
 from ...result import Ok
 from .. import logs
 from ..config import load_config
-from ..utilities import syncify
+from ..utilities import jsonify, syncify
 from .common import ConfigOption, ConfigPathOption
 from .exceptions import CLIInvalidConfigException, CLIStartupException
 from .subcommands.database import database
@@ -29,7 +29,9 @@ async def check(path: Path = ConfigPathOption()) -> None:
         case Ok():
             rich.print("All checks passed.")
         case fail:
-            raise CLIInvalidConfigException(f"Failed to load configuration. {fail.json(indent=2)}")
+            raise CLIInvalidConfigException(
+                f"Failed to load configuration. {jsonify(fail, indent=2)}"
+            )
 
 
 root = Typer(no_args_is_help=True)

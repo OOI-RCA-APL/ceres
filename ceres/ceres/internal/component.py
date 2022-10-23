@@ -6,7 +6,7 @@ import traceback
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from logging import Logger
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, Mapping, TypeVar
 from uuid import UUID
 
 from pydantic import ValidationError, validate_arguments
@@ -38,7 +38,7 @@ ComponentT = TypeVar("ComponentT", bound=Component)
 def load_component(
     cls: type[ComponentT],
     source: str | object,
-    parameters: dict[str, Any],
+    parameters: Mapping[str, Any],
 ) -> Result[ComponentT, ComponentError]:
     if not isinstance(source, str):
         if not isinstance(source, cls):

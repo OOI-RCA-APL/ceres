@@ -108,10 +108,6 @@ def create_app(engine: ServerEngine) -> FastAPI:
     )
     @presimplify
     async def reload(response: Response) -> Success[Config] | Error[ReloadError]:
-        simple = simplify(engine.config)
-        print(simple)
-
-        # result = Config.parse_obj(simple)
         match await engine.reload():
             case Ok(config):
                 return Success.create(config)

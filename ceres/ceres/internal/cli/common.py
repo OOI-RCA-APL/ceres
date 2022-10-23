@@ -10,7 +10,7 @@ from typer import Option
 from ...config import Config
 from ...result import Ok
 from ..config import ConfigCheckKind, load_config
-from ..utilities import syncify
+from ..utilities import jsonify, syncify
 from .exceptions import CLIInvalidConfigException
 
 
@@ -41,7 +41,9 @@ async def get_config(
         case Ok(config):
             return config
         case fail:
-            raise CLIInvalidConfigException(f"Failed to load configuration. {fail.json(indent=2)}")
+            raise CLIInvalidConfigException(
+                f"Failed to load configuration. {jsonify(fail, indent=2)}"
+            )
 
 
 def ConfigPathOption() -> Any:

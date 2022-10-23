@@ -5,29 +5,37 @@ import inspect
 import json
 import re
 import signal
+from collections.abc import Sequence
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 from functools import wraps
 from typing import (
+    TYPE_CHECKING,
     Any,
     Awaitable,
     Callable,
+    Iterable,
     Iterator,
     MutableMapping,
     NoReturn,
-    Sequence,
+    SupportsIndex,
     TypeVar,
     Union,
     cast,
+    overload,
 )
 
 import anyio
-import uvloop
 from anyio import CapacityLimiter
 from pydantic import ConstrainedStr, parse_obj_as
 from pydantic.json import pydantic_encoder
 from sqlalchemy.orm import Mapped
+
+from .tasks import ensure_event_loop
+
+if TYPE_CHECKING:
+    from _typeshed import SupportsKeysAndGetItem, SupportsRichComparison
 
 T = TypeVar("T")
 
@@ -67,7 +75,7 @@ def syncify(function: FunctionT) -> FunctionT:
 
     @wraps(function)
     def wrapper(*args: list[Any], **kwargs: dict[str, Any]) -> Any:
-        uvloop.install()
+        ensure_event_loop()
         return asyncio.run(function(*args, **kwargs))
 
     return cast(FunctionT, wrapper)
@@ -241,3 +249,257 @@ class EmailStr(ConstrainedStr):
 
 class NonEmptyStr(ConstrainedStr):
     regex = re.compile(r".+")
+
+
+KeyT = TypeVar("KeyT")
+ValueT = TypeVar("ValueT")
+FrozenDictT = TypeVar("FrozenDictT", bound="frozendict")
+
+
+class frozendict(dict[KeyT, ValueT]):
+    def __repr__(self) -> str:
+        name = type(self).__name__
+        if len(self) == 0:
+            return f"{name}()"
+
+        return f"{name}({super().__repr__()})"
+
+    def __hash__(self) -> int:  # type: ignore
+        return hash(frozenset(self.keys())) ^ hash(frozenset(self.values()))
+
+    def __getitem__(self, __key: KeyT) -> ValueT:
+        return super().__getitem__(__key)
+
+    def __iter__(self) -> Iterator[KeyT]:
+        return super().__iter__()
+
+    def __len__(self) -> int:
+        return super().__len__()
+
+    @overload  # type: ignore
+    def __or__(self: FrozenDictT, __value: SupportsKeysAndGetItem[KeyT, ValueT]) -> FrozenDictT:
+        ...
+
+    @overload
+    def __or__(self: FrozenDictT, __value: Iterable[tuple[KeyT, ValueT]]) -> FrozenDictT:
+        ...
+
+    def __or__(
+        self: FrozenDictT,
+        __value: SupportsKeysAndGetItem[KeyT, ValueT] | Iterable[tuple[KeyT, ValueT]],
+    ) -> FrozenDictT:
+        return frozendict(super().__or__(__value))  # type: ignore
+
+    @overload  # type: ignore
+    def __ior__(
+        self: FrozenDictT,
+        __value: SupportsKeysAndGetItem[KeyT, ValueT],
+    ) -> FrozenDictT:
+        ...
+
+    @overload
+    def __ior__(self: FrozenDictT, __value: Iterable[tuple[KeyT, ValueT]]) -> FrozenDictT:
+        ...
+
+    def __ior__(  # type: ignore
+        self: FrozenDictT,
+        __value: SupportsKeysAndGetItem[KeyT, ValueT] | Iterable[tuple[KeyT, ValueT]],
+    ) -> FrozenDictT:
+        return self | __value
+
+    @overload  # type: ignore
+    def __ror__(self: FrozenDictT, __value: SupportsKeysAndGetItem[KeyT, ValueT]) -> FrozenDictT:
+        ...
+
+    @overload
+    def __ror__(self: FrozenDictT, __value: Iterable[tuple[KeyT, ValueT]]) -> FrozenDictT:
+        ...
+
+    def __ror__(
+        self: FrozenDictT,
+        __value: SupportsKeysAndGetItem[KeyT, ValueT] | Iterable[tuple[KeyT, ValueT]],
+    ) -> FrozenDictT:
+        return self | __value
+
+    def set(self: FrozenDictT, __key: KeyT, __value: ValueT) -> FrozenDictT:
+        result = dict(self)
+        result[__key] = __value
+        return type(self)(result)
+
+    def setdefault(self: FrozenDictT, __key: KeyT, __default: ValueT) -> FrozenDictT:  # type: ignore
+        if __key in self:
+            return self
+
+        return self.set(__key, __default)
+
+    @overload  # type: ignore
+    def update(
+        self: FrozenDictT,
+        __value: SupportsKeysAndGetItem[KeyT, ValueT],
+        **kwargs: ValueT,
+    ) -> FrozenDictT:
+        ...
+
+    @overload
+    def update(
+        self: FrozenDictT,
+        __value: Iterable[tuple[KeyT, ValueT]],
+        **kwargs: ValueT,
+    ) -> FrozenDictT:
+        ...
+
+    @overload
+    def update(self: FrozenDictT, **kwargs: ValueT) -> FrozenDictT:
+        ...
+
+    def update(
+        self: FrozenDictT,
+        __value: SupportsKeysAndGetItem[KeyT, ValueT] | Iterable[tuple[KeyT, ValueT]] | None = None,
+        **kwargs: ValueT,
+    ) -> FrozenDictT:
+        result = dict(self)
+        result.update(__value or {}, **kwargs)
+        return type(self)(result)
+
+
+def __patch_frozendict() -> None:
+    """
+    Modify frozendict to disable all remaining mutating methods.
+    """
+    for method in [
+        dict.__delitem__,
+        dict.__setitem__,
+        dict.clear,
+        dict.pop,
+        dict.popitem,
+        # dict.setdefault,
+        # dict.update,
+    ]:
+
+        @wraps(method)  # type: ignore
+        def disabled(self: Any, *args: Any) -> NoReturn:
+            raise NotImplementedError(f"method disabled for {type(self)}")
+
+        setattr(frozendict, method.__name__, disabled)
+
+
+__patch_frozendict()
+
+FrozenListT = TypeVar("FrozenListT", bound="frozenlist")
+SortableFrozenListT = TypeVar("SortableFrozenListT", bound="frozenlist")
+
+
+class frozenlist(list[ValueT]):
+    def __repr__(self) -> str:
+        name = type(self).__name__
+        if len(self) == 0:
+            return f"{name}()"
+
+        return f"{name}([{super().__repr__()}])"
+
+    def __hash__(self) -> int:  # type: ignore
+        return hash(tuple(self))
+
+    def __len__(self) -> int:
+        return super().__len__()
+
+    @overload
+    def __getitem__(self, __index: SupportsIndex) -> ValueT:
+        ...
+
+    @overload
+    def __getitem__(self: FrozenListT, __index: slice) -> FrozenListT:
+        ...
+
+    def __getitem__(self: FrozenListT, __index: SupportsIndex | slice) -> ValueT | FrozenListT:
+        if isinstance(__index, slice):
+            return frozenlist(super().__getitem__(__index))  # type: ignore
+
+        return super().__getitem__(__index)  # type: ignore
+
+    def __add__(self: FrozenListT, __iterable: Iterable[ValueT]) -> FrozenListT:
+        return frozenlist([*self, *__iterable])  # type: ignore
+
+    def __iadd__(self: FrozenListT, __iterable: Iterable[ValueT]) -> FrozenListT:
+        return self + __iterable
+
+    def append(self: FrozenListT, __value: ValueT) -> FrozenListT:  # type: ignore
+        result = list(self)
+        result.append(__value)
+        return type(self)(result)
+
+    def extend(self: FrozenListT, __iterable: Iterable[ValueT]) -> FrozenListT:  # type: ignore
+        result = list(self)
+        result.extend(__iterable)
+        return type(self)(result)
+
+    def insert(self: FrozenListT, __index: SupportsIndex, __value: ValueT) -> FrozenListT:  # type: ignore
+        result = list(self)
+        result.insert(__index, __value)
+        return type(self)(result)
+
+    def remove(self: FrozenListT, __value: ValueT) -> FrozenListT:  # type: ignore
+        result = list(self)
+        result.remove(__value)
+        return type(self)(result)
+
+    def reverse(self: FrozenListT) -> FrozenListT:  # type: ignore
+        result = list(self)
+        result.reverse()
+        return type(self)(result)
+
+    @overload  # type: ignore
+    def sort(
+        self: SortableFrozenListT,
+        *,
+        key: None = None,
+        reverse: bool = False,
+    ) -> SortableFrozenListT:
+        ...
+
+    @overload
+    def sort(
+        self: FrozenListT,
+        *,
+        key: Callable[[ValueT], SupportsRichComparison],
+        reverse: bool = False,
+    ) -> FrozenListT:
+        ...
+
+    def sort(
+        self: FrozenListT,
+        *,
+        key: Callable[[ValueT], SupportsRichComparison] | None = None,
+        reverse: bool = False,
+    ) -> FrozenListT:
+        result = list(self)
+        result.sort(key=key, reverse=reverse)
+        return type(self)(result)
+
+
+def __patch_frozenlist() -> None:
+    """
+    Modify frozenlist to disable all remaining mutating methods.
+    """
+    for method in [
+        list.__delitem__,
+        list.__iadd__,
+        list.__setitem__,
+        # list.append,
+        list.clear,
+        # list.extend,
+        # list.insert,
+        list.pop,
+        # list.remove,
+        # list.reverse,
+        # list.sort,
+    ]:
+
+        @wraps(method)  # type: ignore
+        def disabled(self: Any, *args: Any) -> NoReturn:
+            raise NotImplementedError(f"method disabled for {type(self)}.")
+
+        setattr(frozenlist, method.__name__, disabled)
+
+
+__patch_frozenlist()

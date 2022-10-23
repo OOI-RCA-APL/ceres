@@ -20,6 +20,7 @@ sqlalchemy = "^2.0.0b2"
 typer = { extras = ["all"], version = "^0.6.0" }
 uvicorn = "^0.14.0"
 uvloop = "^0.16.0"
+frozendict = "^2.3.4"
 
 [tool.poetry.dev-dependencies]
 black = "^22.6.0"

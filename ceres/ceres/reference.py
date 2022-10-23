@@ -39,7 +39,10 @@ class Reference(Generic[TargetT]):
         if component is None:
             return self
 
-        if (path := component.context.references.remap(self.path)) is None:
+        if (
+            component.config is None
+            or (path := component.config.references.remap(self.path)) is None
+        ):
             raise ValueError(
                 f"{self.path.kind} '{self.name}' is not defined in {self.path.kind} references"
             )

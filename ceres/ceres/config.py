@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import itertools
-from abc import ABC
 from datetime import timedelta
 from enum import Enum
 from pathlib import Path
-from typing import Annotated, Any, Literal, overload
+from typing import Annotated, Any, Literal, Mapping, Sequence, overload
 
 from apscheduler.triggers.cron import CronTrigger
 from pydantic import (
@@ -18,7 +17,14 @@ from pydantic import (
     validator,
 )
 
-from .internal.utilities import EmailStr, NameStr, decode_td, encode_td
+from .internal.utilities import (
+    EmailStr,
+    NameStr,
+    decode_td,
+    encode_td,
+    frozendict,
+    frozenlist,
+)
 from .path import (
     ComponentPath,
     ConnectionPath,
@@ -33,10 +39,19 @@ from .path import (
 )
 
 
-class ComponentReferencesConfig(BaseModel):
-    connections: dict[str, str] = {}
-    drivers: dict[str, str] = {}
-    notifiers: dict[str, str] = {}
+class BaseConfigModel(BaseModel):
+    class Config(BaseConfig):
+        allow_mutation = False
+        arbitrary_types_allowed = True
+        json_encoders = {
+            timedelta: encode_td,
+        }
+
+
+class ComponentReferencesConfig(BaseConfigModel):
+    connections: frozendict[str, str] = frozendict()
+    drivers: frozendict[str, str] = frozendict()
+    notifiers: frozendict[str, str] = frozendict()
 
     def has(self, path: LocalComponentPath) -> bool:
         return self.remap(path) is not None
@@ -56,17 +71,14 @@ class ComponentReferencesConfig(BaseModel):
         return create_local_path(path.kind, name)
 
 
-class ComponentConfig(BaseModel, ABC):
-    class Config(BaseConfig):
-        arbitrary_types_allowed = True
-
+class ComponentConfig(BaseConfigModel):
     name: NameStr
     component: str | object
-    parameters: dict[str, Any] = {}
+    parameters: frozendict[str, Any] = frozendict()
     references: ComponentReferencesConfig = ComponentReferencesConfig()
 
 
-class ConnectionReconnectConfig(BaseModel):
+class ConnectionReconnectConfig(BaseConfigModel):
     interval: timedelta = timedelta(seconds=1)
     backoff: float | None = 2
     max_interval: timedelta | None = timedelta(seconds=60)
@@ -94,7 +106,7 @@ class ScheduleKind(str, Enum):
     OR = "or"
 
 
-class BaseScheduleConfig(BaseModel):
+class BaseScheduleConfig(BaseConfigModel):
     kind: ScheduleKind
 
 
@@ -126,12 +138,12 @@ class IntervalScheduleConfig(BaseScheduleConfig):
 
 class AndScheduleConfig(BaseScheduleConfig):
     kind: Literal[ScheduleKind.AND] = ScheduleKind.AND
-    schedules: list[ScheduleConfig]
+    schedules: frozenlist[ScheduleConfig]
 
 
 class OrScheduleConfig(BaseScheduleConfig):
     kind: Literal[ScheduleKind.OR] = ScheduleKind.OR
-    schedules: list[ScheduleConfig]
+    schedules: frozenlist[ScheduleConfig]
 
 
 ScheduleConfig = Annotated[
@@ -155,7 +167,7 @@ class NotifierConfig(ComponentConfig):
         return parsed
 
 
-class ServerConfig(BaseModel):
+class ServerConfig(BaseConfigModel):
     port: int
     enable: bool = True
 
@@ -165,7 +177,7 @@ class DatabaseKind(str, Enum):
     POSTGRES = "postgres"
 
 
-class DatabaseRetryConfig(BaseModel):
+class DatabaseRetryConfig(BaseConfigModel):
     timeout: timedelta = timedelta(seconds=15)
     interval: timedelta = timedelta(seconds=3)
 
@@ -177,9 +189,9 @@ class DatabaseRetryConfig(BaseModel):
         return parsed
 
 
-class BaseDatabaseConfig(BaseModel):
-    # kind: DatabaseKind
-    engine: dict[str, Any] | None = None
+class BaseDatabaseConfig(BaseConfigModel):
+    kind: DatabaseKind
+    engine: frozendict[str, Any] | None = None
     retry: DatabaseRetryConfig = DatabaseRetryConfig()
 
 
@@ -203,14 +215,16 @@ DatabaseConfig = Annotated[
 ]
 
 
-class UnitConfig(BaseModel):
+class UnitConfig(BaseConfigModel):
     name: NameStr
-    connections: list[ConnectionConfig] = []
-    drivers: list[DriverConfig] = []
-    notifiers: list[NotifierConfig] = []
+    connections: frozenlist[ConnectionConfig] = frozenlist()
+    drivers: frozenlist[DriverConfig] = frozenlist()
+    notifiers: frozenlist[NotifierConfig] = frozenlist()
 
     @validator("connections")
-    def _check_connections(cls, connections: list[ConnectionConfig]) -> list[ConnectionConfig]:
+    def _check_connections(
+        cls, connections: Sequence[ConnectionConfig]
+    ) -> Sequence[ConnectionConfig]:
         for name, group in itertools.groupby(connections, lambda connection: connection.name):
             if len(list(group)) > 1:
                 raise ValueError(f"duplicate connection name '{name}'")
@@ -218,15 +232,29 @@ class UnitConfig(BaseModel):
         return connections
 
     @validator("drivers")
-    def _check_drivers(cls, connections: list[DriverConfig]) -> list[DriverConfig]:
-        for name, group in itertools.groupby(connections, lambda connection: connection.name):
+    def _check_drivers(
+        cls,
+        drivers: Sequence[DriverConfig],
+    ) -> Sequence[DriverConfig]:
+        for name, group in itertools.groupby(drivers, lambda connection: connection.name):
             if len(list(group)) > 1:
                 raise ValueError(f"duplicate driver name '{name}'")
 
-        return connections
+        return drivers
+
+    @validator("notifiers")
+    def _check_notifiers(
+        cls,
+        notifiers: Sequence[NotifierConfig],
+    ) -> Sequence[NotifierConfig]:
+        for name, group in itertools.groupby(notifiers, lambda connection: connection.name):
+            if len(list(group)) > 1:
+                raise ValueError(f"duplicate notifier name '{name}'")
+
+        return notifiers
 
     @root_validator
-    def _check_references(cls, fields: dict[str, Any]) -> dict[str, Any]:
+    def _check_references(cls, fields: Mapping[str, Any]) -> Mapping[str, Any]:
         name: str = fields["name"]
         connections: dict[str, ConnectionConfig] = {
             current.name: current for current in fields.get("connections", [])
@@ -252,22 +280,17 @@ class UnitConfig(BaseModel):
         return fields
 
 
-class UserConfig(BaseModel):
+class UserConfig(BaseConfigModel):
     username: NameStr
     email: EmailStr
-    meta: dict[str, Any] = {}
+    meta: frozendict[str, Any] = frozendict()
 
 
-class Config(BaseModel):
-    class Config(BaseConfig):
-        json_encoders = {
-            timedelta: encode_td,
-        }
-
+class Config(BaseConfigModel):
     server: ServerConfig
     database: DatabaseConfig
-    users: list[UserConfig] = []
-    units: list[UnitConfig] = []
+    users: frozenlist[UserConfig] = frozenlist()
+    units: frozenlist[UnitConfig] = frozenlist()
 
     __path__: Path | None = PrivateAttr(default=None)
     __component_path_cache__: dict[ComponentPath, ComponentConfig] = PrivateAttr(default={})
