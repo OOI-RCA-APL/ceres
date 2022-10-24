@@ -358,7 +358,7 @@ class UnitHandle(Tasklet):
             if exception:
                 self.logger.error(f"An exception occurred in unit '{self.path}': {exception}")
 
-        await run_in_thread(execute, cancellable=True)
+        await run_in_thread(execute)
 
     async def _tasklet_stop(self) -> None:
         def execute() -> None:

@@ -24,7 +24,7 @@ from .internal.database.manager import DatabaseManager
 from .internal.server import Server, ServerEngine
 from .internal.tasks import Tasklet
 from .internal.unit import UnitContext, UnitHandle
-from .internal.utilities import unreachable, use_signal_handler
+from .internal.utilities import jsonify, unreachable, use_signal_handler
 from .path import UnitPath
 from .result import Fail, Ok, Result
 
@@ -95,10 +95,11 @@ class Engine(Tasklet, ServerEngine):
         unreachable()
 
     async def _tasklet_run(self) -> None:
-        if not await load_config(self._config, logger=self.logger):
-            message = "Initial configuration check failed. Exiting..."
-            self.logger.error(message)
-            raise StartupConfigCheckFailedException(message)
+        match await load_config(self._config, logger=self.logger):
+            case Fail() as fail:
+                raise StartupConfigCheckFailedException(
+                    f"Initial configuration check failed. {jsonify(fail, indent=2)}"
+                )
 
         if not await self._database.tables():
             self.logger.info("Database appears empty, initializing database...")

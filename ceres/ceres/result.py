@@ -13,8 +13,10 @@ ErrorT = TypeVar("ErrorT")
 @final
 @dataclass(frozen=True)
 class Ok(Generic[ValueT, ErrorT]):
-    value: ValueT
+    __match_args__ = ("value",)
+
     ok: Literal[True] = field(default=True, init=False)
+    value: ValueT
 
     def __str__(self) -> str:
         return f"Ok({self.value})"
@@ -26,8 +28,10 @@ class Ok(Generic[ValueT, ErrorT]):
 @final
 @dataclass(frozen=True)
 class Fail(Generic[ValueT, ErrorT]):
-    error: ErrorT
+    __match_args__ = ("error",)
+
     ok: Literal[False] = field(default=False, init=False)
+    error: ErrorT
 
     def __str__(self) -> str:
         return f"Fail({self.error})"

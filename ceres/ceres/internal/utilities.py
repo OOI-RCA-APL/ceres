@@ -26,8 +26,7 @@ from typing import (
     overload,
 )
 
-import anyio
-from anyio import CapacityLimiter
+from fastapi.concurrency import run_in_threadpool
 from pydantic import ConstrainedStr, parse_obj_as
 from pydantic.json import pydantic_encoder
 from sqlalchemy.orm import Mapped
@@ -81,18 +80,8 @@ def syncify(function: FunctionT) -> FunctionT:
     return cast(FunctionT, wrapper)
 
 
-async def run_in_thread(
-    function: Callable[..., T],
-    *args: Any,
-    cancellable: bool = False,
-    limiter: CapacityLimiter | None = None,
-) -> T:
-    return await anyio.to_thread.run_sync(
-        function,
-        *args,
-        cancellable=cancellable,
-        limiter=limiter,
-    )
+async def run_in_thread(function: Callable[..., T], *args: Any, **kwargs: Any) -> T:
+    return await run_in_threadpool(function, *args, **kwargs)
 
 
 def unwrap(value: T | None) -> T:

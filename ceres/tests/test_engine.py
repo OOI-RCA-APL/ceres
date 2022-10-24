@@ -1,9 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-
-from anyio import sleep
 
 from ceres.config import (
     Config,
@@ -29,5 +28,5 @@ async def test_engine_can_start() -> None:
         )
 
         engine.start()
-        await sleep(3)
+        await asyncio.sleep(3)
         await engine.stop(True)
