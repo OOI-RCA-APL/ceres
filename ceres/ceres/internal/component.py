@@ -134,7 +134,7 @@ class ComponentHandleContext:
 
     def __post_init__(self) -> None:
         if not self.config.get_component(self.path):
-            raise ValueError(f"Component {self.path} is not defined in configuration.")
+            raise ValueError(f"component {self.path} is not defined in configuration")
 
 
 ComponentHandleContextT = TypeVar("ComponentHandleContextT", bound=ComponentHandleContext)

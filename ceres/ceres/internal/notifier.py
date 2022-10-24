@@ -76,7 +76,7 @@ class NotifierHandle(
 
     async def send(self, users: Sequence[UserConfig], alerts: list[Alert]) -> None:
         if not self._instance:
-            raise ComponentNotLoadedException("Notifier is not loaded.")
+            raise ComponentNotLoadedException("notifier is not loaded")
 
         await self._instance.send(users, alerts)
 

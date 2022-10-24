@@ -62,7 +62,7 @@ class TCPConnection(Connection):
 
     async def send(self, data: bytes) -> None:
         if not self._stream:
-            raise ConnectionInactiveException("Connection is not active.")
+            raise ConnectionInactiveException("connection is not active")
 
         if not data.endswith(self.parameters.separator):
             data += self.parameters.separator
@@ -71,13 +71,13 @@ class TCPConnection(Connection):
             self._stream.writer.write(data)
             await self._stream.writer.drain()
         except Exception:
-            raise ConnectionLostException("Connection was lost.")
+            raise ConnectionLostException("connection was lost")
 
     async def receive(self) -> bytes:
         if not self._stream:
-            raise ConnectionInactiveException("Connection is not active.")
+            raise ConnectionInactiveException("connection is not active")
 
         try:
             return await self._stream.reader.readuntil(self.parameters.separator)
         except Exception:
-            raise ConnectionLostException("Connection was lost.")
+            raise ConnectionLostException("connection was lost")

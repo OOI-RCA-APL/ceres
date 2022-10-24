@@ -98,7 +98,7 @@ class Engine(Tasklet, ServerEngine):
         match await load_config(self._config, logger=self.logger):
             case Fail() as fail:
                 raise StartupConfigCheckFailedException(
-                    f"Initial configuration check failed. {jsonify(fail, indent=2)}"
+                    f"initial configuration check failed: {jsonify(fail, indent=2)}"
                 )
 
         if not await self._database.tables():

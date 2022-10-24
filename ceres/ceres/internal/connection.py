@@ -148,7 +148,7 @@ class ConnectionHandle(
 
     async def send(self, data: bytes) -> Message:
         if not self._instance:
-            raise ComponentNotLoadedException("Connection is not loaded.")
+            raise ComponentNotLoadedException("connection is not loaded")
 
         try:
             await self._instance.send(data)
@@ -219,7 +219,7 @@ class ConnectionHandle(
 
     async def _receive(self) -> None:
         if not self._instance:
-            raise ConnectionInactiveException("Connection is not active.")
+            raise ConnectionInactiveException("connection is not active")
 
         try:
             data = await self._instance.receive()

@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import field
-from typing import Generic, Literal, TypeVar, final
+from typing import TYPE_CHECKING, Generic, Literal, TypeVar, final
 
 from pydantic.dataclasses import dataclass
-from pydantic.generics import GenericModel
 
 ValueT = TypeVar("ValueT")
 ErrorT = TypeVar("ErrorT")
@@ -13,10 +12,11 @@ ErrorT = TypeVar("ErrorT")
 @final
 @dataclass(frozen=True)
 class Ok(Generic[ValueT, ErrorT]):
-    ok: Literal[True] = field(default=True, init=False)
     value: ValueT
+    ok: Literal[True] = field(default=True, init=False)
 
-    __match_args__ = ("value",)
+    if TYPE_CHECKING:
+        __match_args__: tuple[Literal["value"], Literal["ok"]] = ("value", "ok")
 
     def __str__(self) -> str:
         return f"Ok({self.value})"
@@ -28,10 +28,11 @@ class Ok(Generic[ValueT, ErrorT]):
 @final
 @dataclass(frozen=True)
 class Fail(Generic[ValueT, ErrorT]):
-    ok: Literal[False] = field(default=False, init=False)
     error: ErrorT
+    ok: Literal[False] = field(default=False, init=False)
 
-    __match_args__ = ("error",)
+    if TYPE_CHECKING:
+        __match_args__: tuple[Literal["error"], Literal["ok"]] = ("error", "ok")
 
     def __str__(self) -> str:
         return f"Fail({self.error})"
@@ -41,13 +42,3 @@ class Fail(Generic[ValueT, ErrorT]):
 
 
 Result = Ok[ValueT, ErrorT] | Fail[ValueT, ErrorT]
-
-
-class _OkModel(GenericModel, Generic[ValueT]):
-    ok: Literal[True] = True
-    value: ValueT
-
-
-class _ErrModel(GenericModel, Generic[ErrorT]):
-    ok: Literal[False] = False
-    error: ErrorT

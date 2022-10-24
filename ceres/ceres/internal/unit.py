@@ -302,7 +302,7 @@ class Unit(UnitProxyProtocol, GlobalUnitProtocol, Tasklet):
                     )
 
     def _on_component_exception(self, component: ComponentHandle, exception: BaseException) -> None:
-        self.logger.error(f"An exception occurred in component '{component.path}'. {exception}")
+        self.logger.error(f"Exception occurred in component '{component.path}': {exception}")
 
     def _on_component_completed(self, component: ComponentHandle) -> None:
         self.logger.info(f"Component '{component.path}' completed execution.")
@@ -356,7 +356,7 @@ class UnitHandle(Tasklet):
                 return
 
             if exception:
-                self.logger.error(f"An exception occurred in unit '{self.path}': {exception}")
+                self.logger.error(f"Exception occurred in unit '{self.path}': {exception}")
 
         await run_in_thread(execute)
 
