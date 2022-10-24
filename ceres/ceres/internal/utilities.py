@@ -256,15 +256,6 @@ class frozendict(dict[KeyT, ValueT]):
     def __hash__(self) -> int:  # type: ignore
         return hash(frozenset(self.keys())) ^ hash(frozenset(self.values()))
 
-    def __getitem__(self, __key: KeyT) -> ValueT:
-        return super().__getitem__(__key)
-
-    def __iter__(self) -> Iterator[KeyT]:
-        return super().__iter__()
-
-    def __len__(self) -> int:
-        return super().__len__()
-
     @overload  # type: ignore
     def __or__(self: FrozenDictT, __value: SupportsKeysAndGetItem[KeyT, ValueT]) -> FrozenDictT:
         ...
