@@ -20,6 +20,8 @@ jobs:
           architecture: x64
       - uses: snok/install-poetry@v1
       - name: Install
-        run: poetry install
+        run: poetry install --extras all
       - name: Lint
         run: poetry run task lint
+      - name: Test
+        run: poetry run pytest
