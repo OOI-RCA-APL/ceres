@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import timedelta
 from email.message import EmailMessage
-from sys import prefix
 from typing import Sequence
 
 import aiosmtplib
@@ -11,7 +10,7 @@ from pydantic import SecretStr
 
 from ...alert import Alert
 from ...config import UserConfig
-from ...internal.utilities import EmailStr, jsonify
+from ...internal.utilities import EmailStr, jsonify, show_td
 from ...notifier import Notifier
 
 
@@ -40,9 +39,12 @@ class SMTPNotifier(Notifier):
     async def send(self, users: Sequence[UserConfig], alerts: Sequence[Alert]) -> None:
         recipients = sorted(set(user.email.strip() for user in users if user.email.strip()))
 
-        subject = f"{len(alerts)} Alert(s)"
-        if prefix:
-            subject = prefix + subject
+        subject = f"{len(alerts)} alert(s) reported"
+
+        if self.config:
+            subject += f" in the last {show_td(self.config.lookback)}"
+        if self.parameters.prefix:
+            subject = self.parameters.prefix + subject
 
         message = EmailMessage()
         message["From"] = self.parameters.sender
@@ -58,7 +60,11 @@ class SMTPNotifier(Notifier):
         if not recipients:
             return
 
+        self.logger.info(f"Sending email '{subject}'...")
+
         await aiosmtplib.send(
+            hostname=self.parameters.host,
+            port=self.parameters.port,
             message=message,
             username=self.parameters.username,
             password=password,

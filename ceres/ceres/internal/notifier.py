@@ -49,9 +49,12 @@ class NotifierHandle(
         )
 
     async def notify(self) -> None:
-        cutoff = get_now() - self.config.lookback
+        users = self._context.config.users
+        database = self._context.database
+        lookback = self.config.lookback
+        cutoff = get_now() - lookback
 
-        async with self._context.database.session() as session:
+        async with database.session() as session:
             alerts = [
                 Alert.create_from(entity)
                 for entity in await session.scalars(
@@ -60,13 +63,16 @@ class NotifierHandle(
             ]
 
         self.logger.info(
-            f"Sending notification with {len(alerts)} alert(s) found since {encode_td(self.config.lookback)} ago."
+            f"{len(alerts)} alert(s) were emitted in the last {encode_td(lookback)}...",
         )
 
-        if not self._context.config.users:
-            self.logger.info("No users exist to send notifications to.")
+        if not users:
+            self.logger.warning("No users exist to send notifications to.")
+            return
 
+        self.logger.info(f"Sending email notification to {len(users)} user(s).")
         await self.send(self._context.config.users, alerts)
+        self.logger.info("Email notification sent successfully.")
 
     async def send(self, users: Sequence[UserConfig], alerts: list[Alert]) -> None:
         if not self._instance:
