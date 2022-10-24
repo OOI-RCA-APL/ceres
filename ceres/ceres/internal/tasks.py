@@ -6,8 +6,6 @@ from asyncio import FIRST_COMPLETED, AbstractEventLoop, Event, Task
 from dataclasses import dataclass, field
 from typing import Any, Callable, TypeVar, cast
 
-import uvloop
-
 
 def event_loop_exists() -> bool:
     try:
@@ -21,7 +19,13 @@ def ensure_event_loop() -> AbstractEventLoop:
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
-        uvloop.install()
+        try:
+            import uvloop
+
+            uvloop.install()
+        except Exception:
+            pass
+
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
 
