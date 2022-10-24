@@ -46,9 +46,6 @@ class DriverHandle(
         while True:
             await self._update()
 
-    async def _tasklet_stop(self) -> None:
-        await super()._tasklet_stop()
-
     async def _update(self) -> None:
         if not self._instance:
             return

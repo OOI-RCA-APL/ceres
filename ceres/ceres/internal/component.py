@@ -195,19 +195,20 @@ class ComponentHandle(
         raise NotImplementedError()
 
     async def load(self) -> Result[ComponentT, ComponentError]:
-        if not self._instance:
-            match load_component(
-                self._get_component_type(),
-                self.config.component,
-                self.config.parameters,
-            ):
-                case Ok(instance):
-                    self._instance = instance
-                    self._instance.setup(self._get_component_context())
-                case fail:
-                    return fail
+        if self._instance:
+            return Ok(self._instance)
 
-        return Ok(self._instance)
+        match load_component(
+            self._get_component_type(),
+            self.config.component,
+            self.config.parameters,
+        ):
+            case Ok(instance):
+                self._instance = instance
+                instance.setup(self._get_component_context())
+                return Ok(instance)
+            case fail:
+                return fail
 
     async def alert(
         self,
