@@ -472,7 +472,7 @@ def __patch_frozenlist() -> None:
     """
     for method in [
         list.__delitem__,
-        list.__iadd__,
+        # list.__iadd__,
         list.__setitem__,
         # list.append,
         list.clear,
