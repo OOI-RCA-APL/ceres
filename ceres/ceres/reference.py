@@ -1,18 +1,17 @@
 from __future__ import annotations
 
 import inspect
-from abc import abstractmethod, abstractproperty
+from abc import abstractproperty
 from dataclasses import dataclass
 from functools import cache
-from typing import TYPE_CHECKING, Any, Generic, Sequence, TypeVar, overload
+from typing import TYPE_CHECKING, Any, Generic, Sequence, TypeVar, cast, overload
 
 from .path import LocalComponentPath
 
 if TYPE_CHECKING:
-    from .component import Component, ContextT
+    from .component import Component, ComponentContext
 
-
-SelfT = TypeVar("SelfT", bound="Reference[Any]")
+SelfT = TypeVar("SelfT", bound="Reference")
 TargetT = TypeVar("TargetT")
 
 
@@ -29,16 +28,29 @@ class Reference(Generic[TargetT]):
         ...
 
     @overload
-    def __get__(self: SelfT, component: Component[ContextT], owner: Any) -> TargetT:
+    def __get__(self: SelfT, component: Component[ComponentContext], owner: Any) -> TargetT:
         ...
 
-    @abstractmethod
     def __get__(
         self: SelfT,
-        component: Component[ContextT] | None,
+        component: Component[ComponentContext] | None,
         owner: Any,
     ) -> SelfT | TargetT:
-        raise NotImplementedError()
+        if component is None:
+            return self
+
+        if (
+            component.config is None
+            or (path := component.config.references.remap(self.path)) is None
+        ):
+            raise ValueError(
+                f"{self.path.kind} '{self.name}' is not defined in {self.path.kind} references"
+            )
+
+        if target := component.context.unit.get_component(path):
+            return cast(TargetT, target)
+
+        raise ValueError(f"no {path.kind} '{path.name}' in current unit")
 
 
 @dataclass(kw_only=True, frozen=True)

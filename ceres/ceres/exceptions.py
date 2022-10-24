@@ -7,11 +7,27 @@ class CeresException(Exception):
         self.message = message
 
 
+class StartupException(CeresException):
+    pass
+
+
+class StartupConfigCheckFailedException(StartupException):
+    pass
+
+
+class StartupDatabaseInitFailedException(StartupException):
+    pass
+
+
 class ComponentException(CeresException):
     pass
 
 
 class ComponentNotSetupException(CeresException):
+    pass
+
+
+class ComponentNotLoadedException(CeresException):
     pass
 
 

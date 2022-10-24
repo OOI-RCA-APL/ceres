@@ -124,11 +124,20 @@ class BaseConfigError:
 @dataclass(kw_only=True, frozen=True)
 class ConfigReadError(BaseConfigError):
     kind: Literal[ConfigErrorKind.READ_ERROR] = ConfigErrorKind.READ_ERROR
+    message: str
+
+
+@dataclass(kw_only=True, frozen=True)
+class ConfigParseErrorLocation:
+    line: int
+    column: int
 
 
 @dataclass(kw_only=True, frozen=True)
 class ConfigParseError(BaseConfigError):
     kind: Literal[ConfigErrorKind.PARSE_ERROR] = ConfigErrorKind.PARSE_ERROR
+    message: str | None = None
+    location: ConfigParseErrorLocation | None = None
 
 
 @dataclass(kw_only=True, frozen=True)

@@ -3,14 +3,17 @@ from __future__ import annotations
 import importlib
 import inspect
 import traceback
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, TypeVar
+from logging import Logger
+from typing import Any, Generic, Mapping, TypeVar
 from uuid import UUID
 
 from pydantic import ValidationError, validate_arguments
 
-from ..component import Component
-from ..config import ComponentReferencesConfig
+from ..alert import Alert, AlertLevel, RawAlertLevel
+from ..component import Component, ComponentContext
+from ..config import ComponentConfig, Config
 from ..errors import (
     ComponentClassInvalidError,
     ComponentError,
@@ -23,21 +26,25 @@ from ..errors import (
 from ..path import ComponentPath
 from ..protocols import GlobalUnitProtocol
 from ..result import Fail, Ok, Result
+from ..scheduler import Scheduler
+from . import logs
 from .database.manager import DatabaseManager
+from .tasks import Tasklet
+from .utilities import get_now, unwrap
 
-ComponentT = TypeVar("ComponentT", bound="Component[Any]")
+ComponentT = TypeVar("ComponentT", bound=Component)
 
 
 def load_component(
     cls: type[ComponentT],
     source: str | object,
-    parameters: dict[str, Any],
+    parameters: Mapping[str, Any],
 ) -> Result[ComponentT, ComponentError]:
     if not isinstance(source, str):
         if not isinstance(source, cls):
             return Fail(
                 ComponentClassInvalidError(
-                    message=f"Component passed in configuration must be an instance of {cls}, got {source}."
+                    message=f"component passed in configuration must be an instance of {cls}, got {source}"
                 )
             )
 
@@ -48,12 +55,12 @@ def load_component(
     except Exception as exception:
         if isinstance(exception, ModuleNotFoundError) and exception.name == source:
             return Fail(
-                ComponentModuleNotFoundError(message=f"Component module '{source}' was not found.")
+                ComponentModuleNotFoundError(message=f"component module '{source}' was not found")
             )
 
         return Fail(
             ComponentModuleExceptionError(
-                message=f"Component module '{source}' raised an exception during import.",
+                message=f"component module '{source}' raised an exception during import",
                 traceback=traceback.format_exc(),
             )
         )
@@ -73,7 +80,7 @@ def load_component(
     if target_cls is None:
         return Fail(
             ComponentClassInvalidError(
-                message=f"Component module {module} must contain class a non-abstract subclass of {cls}."
+                message=f"component module {module} must contain class a non-abstract subclass of {cls}"
             )
         )
 
@@ -99,7 +106,7 @@ def load_component(
     except ValidationError as error:
         return Fail(
             ComponentParametersInvalidError(
-                message=f"Invalid parameters for {target_cls}.",
+                message=f"invalid parameters for {target_cls}",
                 problems=ValidationProblem.extract(error),
             )
         )
@@ -109,7 +116,7 @@ def load_component(
     except Exception:
         return Fail(
             ComponentInitExceptionError(
-                message=f"Exception raised when calling __init__() for {target_cls}.",
+                message=f"exception raised when calling __init__() for {target_cls}",
                 traceback=traceback.format_exc(),
             )
         )
@@ -121,8 +128,101 @@ def load_component(
 class ComponentHandleContext:
     id: UUID
     path: ComponentPath
+    config: Config
     unit: GlobalUnitProtocol
-    component: str | object
-    parameters: dict[str, Any]
-    references: ComponentReferencesConfig
     database: DatabaseManager
+
+    def __post_init__(self) -> None:
+        if not self.config.get_component(self.path):
+            raise ValueError(f"component {self.path} is not defined in configuration")
+
+
+ComponentHandleContextT = TypeVar("ComponentHandleContextT", bound=ComponentHandleContext)
+ComponentContextT = TypeVar("ComponentContextT", bound=ComponentContext)
+
+
+class ComponentHandle(
+    Generic[
+        ComponentHandleContextT,
+        ComponentT,
+        ComponentContextT,
+    ],
+    Tasklet,
+    ABC,
+):
+    def __init__(self, context: ComponentHandleContextT) -> None:
+        self._context = context
+        self._instance: ComponentT | None = None
+        self._scheduler = Scheduler()
+
+    @property
+    def id(self) -> UUID:
+        return self._context.id
+
+    @property
+    def path(self) -> ComponentPath:
+        return self._context.path
+
+    @property
+    def config(self) -> ComponentConfig:
+        return unwrap(self._context.config.get_component(self._context.path))
+
+    @property
+    def instance(self) -> ComponentT | None:
+        return self._instance
+
+    @property
+    def scheduler(self) -> Scheduler:
+        return self._scheduler
+
+    @property
+    def logger(self) -> Logger:
+        return logs.get(str(self._context.path))
+
+    async def _tasklet_run(self) -> None:
+        self._scheduler.start()
+
+    async def _tasklet_stop(self) -> None:
+        self._scheduler.stop()
+
+    @classmethod
+    @abstractmethod
+    def _get_component_type(cls) -> type[ComponentT]:
+        raise NotImplementedError()
+
+    @abstractmethod
+    def _get_component_context(self) -> ComponentContextT:
+        raise NotImplementedError()
+
+    async def load(self) -> Result[ComponentT, ComponentError]:
+        if self._instance:
+            return Ok(self._instance)
+
+        match load_component(
+            self._get_component_type(),
+            self.config.component,
+            self.config.parameters,
+        ):
+            case Ok(instance):
+                self._instance = instance
+                instance.setup(self._get_component_context())
+                return Ok(instance)
+            case fail:
+                return fail
+
+    async def alert(
+        self,
+        level: AlertLevel | RawAlertLevel,
+        kind: str,
+        info: dict[str, Any] | None = None,
+    ) -> Alert:
+        alert = Alert(
+            origin_id=self._context.id,
+            timestamp=get_now(),
+            level=AlertLevel.create_from(level),
+            kind=kind,
+            info=info or {},
+        )
+
+        await self._context.unit.alert(alert)
+        return alert

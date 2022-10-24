@@ -1,19 +1,25 @@
 from __future__ import annotations
 
-import os
+import asyncio
 import traceback
-from datetime import datetime, timedelta, timezone
 from enum import Enum
 from logging import Logger
+from pathlib import Path
 from typing import Any, Callable, Iterable, Sequence
 
-import anyio
 import yaml
 from pydantic import ValidationError
-from yaml import YAMLError
+from yaml import MarkedYAMLError, YAMLError
 
 from ..component import Component
-from ..config import ComponentConfig, Config, ConnectionConfig, DriverConfig, UnitConfig
+from ..config import (
+    ComponentConfig,
+    Config,
+    ConnectionConfig,
+    DriverConfig,
+    NotifierConfig,
+    UnitConfig,
+)
 from ..connection import Connection
 from ..driver import Driver
 from ..errors import (
@@ -22,31 +28,35 @@ from ..errors import (
     ConfigDatabaseError,
     ConfigError,
     ConfigParseError,
+    ConfigParseErrorLocation,
     ConfigReadError,
     ConfigValidationError,
     ValidationProblem,
 )
-from ..path import ConnectionPath, DriverPath, create_component_path
+from ..notifier import Notifier
+from ..path import ConnectionPath, DriverPath, NotifierPath, create_path
 from ..result import Fail, Ok, Result
 from .component import load_component
 from .database.manager import DatabaseManager
+from .utilities import get_now, show_td
 
 
 class ConfigCheckKind(str, Enum):
     DATABASE = "database"
     COMPONENTS = "components"
 
+    @classmethod
+    def all(cls) -> Sequence[ConfigCheckKind]:
+        return tuple(cls)
+
 
 async def load_config(
-    config: str | dict[str, Any] | Config,
+    config: Path | dict[str, Any] | Config,
     *,
-    checks: Sequence[ConfigCheckKind] = list(ConfigCheckKind),
+    checks: Sequence[ConfigCheckKind] = ConfigCheckKind.all(),
     logger: Logger | Callable[[Any], None] = lambda message: None,
 ) -> Result[Config, list[ConfigError]]:
     def log(message: Any) -> None:
-        if not logger:
-            return
-
         if isinstance(logger, Logger):
             logger.info(message)
         else:
@@ -55,24 +65,41 @@ async def load_config(
     try:
         if isinstance(config, dict):
             config = Config.parse_obj(config)
-            log("Configuration object matches schema.")
-        elif isinstance(config, str):
+        elif isinstance(config, Path):
             try:
-                path = os.path.realpath(config)
+                path = config.resolve()
             except Exception:
-                return Fail([ConfigReadError()])
+                return Fail([ConfigReadError(message=f"path '{config}' could not be resolved")])
 
             try:
                 with open(path, "r") as stream:
                     data = yaml.safe_load(stream)
             except OSError:
-                return Fail([ConfigReadError()])
-            except YAMLError:
-                return Fail([ConfigParseError()])
+                return Fail([ConfigReadError(message=f"failed to read file at '{path}'")])
+            except YAMLError as error:
+                message: str | None = None
+                location: ConfigParseErrorLocation | None = None
+
+                if isinstance(error, MarkedYAMLError):
+                    message = error.problem
+
+                    if error.problem_mark:
+                        location = ConfigParseErrorLocation(
+                            line=error.problem_mark.line,
+                            column=error.problem_mark.column,
+                        )
+
+                return Fail(
+                    [
+                        ConfigParseError(
+                            message=message,
+                            location=location,
+                        )
+                    ]
+                )
 
             config = Config.parse_obj(data)
             config.__path__ = path
-            log("Configuration file matches schema.")
     except ValidationError as error:
         return Fail([ConfigValidationError(problems=ValidationProblem.extract(error))])
 
@@ -95,37 +122,38 @@ async def _check_database(
 ) -> list[ConfigDatabaseError]:
     log("Checking database configuration...")
 
-    errors: list[ConfigDatabaseError] = []
+    start = get_now()
+    timeout = config.database.retry.timeout
+    interval = config.database.retry.interval
 
-    attempt = 0
-    start = datetime.now(timezone.utc)
+    while True:
+        database = DatabaseManager(config.database)
 
-    while (datetime.now(timezone.utc) - start) < timedelta(seconds=config.database.retry.timeout):
         try:
-            database = DatabaseManager.create(config.database)
             async with database.connect():
                 log("Connected to database successfully.")
                 return []
         except Exception:
-            if config.database.retry.attempts is None or attempt < config.database.retry.attempts:
-                log("Failed to connect to database, trying again...")
-                await database.dispose()
-                await anyio.sleep(1)
-                attempt += 1
-                continue
+            elapsed = get_now() - start
 
-            log("Failed to connect to database.")
+            if elapsed > timeout:
+                log(f"Failed to connect to database within {show_td(timeout)}.")
+                await database.dispose()
+                return [
+                    ConfigDatabaseError(
+                        message="failed to connect to database",
+                        exception=traceback.format_exc(),
+                    )
+                ]
+
+            log(
+                f"Failed to connect to database, {show_td(elapsed)} of {show_td(timeout)} timeout elapsed, retrying in {show_td(interval)}..."
+            )
             await database.dispose()
-            return [
-                ConfigDatabaseError(
-                    message="Failed to connect to database.",
-                    exception=traceback.format_exc(),
-                )
-            ]
+            await asyncio.sleep(interval.total_seconds())
+            continue
         finally:
             await database.dispose()
-
-    return errors
 
 
 async def _check_components(
@@ -137,10 +165,11 @@ async def _check_components(
     def check_unit_config(unit_config: UnitConfig) -> Iterable[ConfigComponentError]:
         loaded_connections: list[tuple[ConnectionConfig, Connection]] = []
         loaded_drivers: list[tuple[DriverConfig, Driver]] = []
+        loaded_notifiers: list[tuple[NotifierConfig, Notifier]] = []
 
         def check_connections() -> Iterable[ConfigComponentError]:
             for connection_config in unit_config.connections:
-                path = ConnectionPath.create(unit_config.name, connection_config.name)
+                path = ConnectionPath(unit_config.name, connection_config.name)
                 log(f"Checking component '{path}'...")
                 match load_component(
                     Connection,
@@ -157,7 +186,7 @@ async def _check_components(
 
         def check_drivers() -> Iterable[ConfigComponentError]:
             for driver_config in unit_config.drivers:
-                path = DriverPath.create(unit_config.name, driver_config.name)
+                path = DriverPath(unit_config.name, driver_config.name)
                 log(f"Checking component '{path}'...")
                 match load_component(
                     Driver,
@@ -167,28 +196,40 @@ async def _check_components(
                     case Ok(driver):
                         loaded_drivers.append((driver_config, driver))
                     case Fail(error):
-                        log("fail")
+                        yield ConfigComponentError(
+                            component=path,
+                            error=error,
+                        )
+
+        def check_notifiers() -> Iterable[ConfigComponentError]:
+            for notifier_config in unit_config.notifiers:
+                path = NotifierPath(unit_config.name, notifier_config.name)
+                log(f"Checking component '{path}'...")
+                match load_component(
+                    Notifier,
+                    notifier_config.component,
+                    notifier_config.parameters,
+                ):
+                    case Ok(notifier):
+                        loaded_notifiers.append((notifier_config, notifier))
+                    case Fail(error):
                         yield ConfigComponentError(
                             component=path,
                             error=error,
                         )
 
         def check_references() -> Iterable[ConfigComponentError]:
-            loaded_components: list[tuple[ComponentConfig, Component[Any]]] = [
+            loaded_components: list[tuple[ComponentConfig, Component]] = [
                 *loaded_connections,
                 *loaded_drivers,
+                *loaded_notifiers,
             ]
 
             for component_config, component in loaded_components:
                 for binding in component.get_reference_bindings():
-                    if (
-                        binding.path.kind == "connection"
-                        and binding.path.name not in component_config.references.connections
-                        or binding.path.kind == "driver"
-                        and binding.path.name not in component_config.references.drivers
-                    ):
-                        path = create_component_path(
-                            "connection" if isinstance(component, Connection) else "driver",
+                    if not component_config.references.has(binding.path):
+                        path = create_path(
+                            binding.path.kind,
                             unit_config.name,
                             component_config.name,
                         )
@@ -196,12 +237,17 @@ async def _check_components(
                         yield ConfigComponentError(
                             component=path,
                             error=ComponentReferenceInvalidError(
-                                message=f"{path} requires {binding.path.kind} reference '{binding.path.name}', but it is not assigned.",
+                                message=f"{path} requires {binding.path.kind} reference '{binding.path.name}', but it is not assigned",
                                 reference=binding.path,
                             ),
                         )
 
-        return [*check_connections(), *check_drivers(), *check_references()]
+        return [
+            *check_connections(),
+            *check_drivers(),
+            *check_notifiers(),
+            *check_references(),
+        ]
 
     errors: list[ConfigComponentError] = []
 

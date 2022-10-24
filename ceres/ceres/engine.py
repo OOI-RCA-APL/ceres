@@ -1,28 +1,30 @@
 from __future__ import annotations
 
-import os
+import asyncio
 import signal
 import sys
 import traceback
-from asyncio import Event
+from asyncio import FIRST_COMPLETED, Event
 from dataclasses import dataclass
 from enum import Enum
 from logging import Logger
+from pathlib import Path
 from queue import Empty, Queue
 from typing import Any
 
-import anyio
-from anyio import CancelScope
-
 from .config import Config, UnitConfig
 from .errors import ReloadAlreadyActiveError, ReloadConfigInvalidError, ReloadError
+from .exceptions import (
+    StartupConfigCheckFailedException,
+    StartupDatabaseInitFailedException,
+)
 from .internal import logs
 from .internal.config import load_config
 from .internal.database.manager import DatabaseManager
-from .internal.server import Server, ServerEngineProtocol
+from .internal.server import Server, ServerEngine
 from .internal.tasks import Tasklet
 from .internal.unit import UnitContext, UnitHandle
-from .internal.utilities import unreachable, use_signal_handler
+from .internal.utilities import jsonify, unreachable, use_signal_handler
 from .path import UnitPath
 from .result import Fail, Ok, Result
 
@@ -39,12 +41,12 @@ class UnitSyncAction:
     path: UnitPath
 
 
-class Engine(Tasklet, ServerEngineProtocol):
+class Engine(Tasklet, ServerEngine):
     def __init__(self, config: Config) -> None:
         self._config = config
         self._config_queue: Queue[Config] = Queue()
         self._server: Server | None = None
-        self._database = DatabaseManager.create(self._config.database)
+        self._database = DatabaseManager(self._config.database)
         self._units: dict[UnitPath, UnitHandle] = {}
         self._reloading = Event()
 
@@ -53,13 +55,13 @@ class Engine(Tasklet, ServerEngineProtocol):
         return logs.get("engine")
 
     @property
-    def config_path(self) -> str | None:
+    def config_path(self) -> Path | None:
         return self._config.path
 
     @property
-    def config_directory(self) -> str | None:
+    def config_directory(self) -> Path | None:
         if self._config.path:
-            return os.path.dirname(self._config.path)
+            return self._config.path.parent
 
         return None
 
@@ -71,7 +73,7 @@ class Engine(Tasklet, ServerEngineProtocol):
         if self._reloading.is_set():
             return Fail(ReloadAlreadyActiveError())
 
-        source: str | Config
+        source: Path | Config
 
         if self.config_path:
             self.logger.info(f"Reloading configuration from '{self.config_path}'...")
@@ -93,13 +95,24 @@ class Engine(Tasklet, ServerEngineProtocol):
         unreachable()
 
     async def _tasklet_run(self) -> None:
-        if not await load_config(self._config, logger=self.logger):
-            self.logger.error("Initial configuration check failed. Exiting...")
-            return
+        match await load_config(self._config, logger=self.logger):
+            case Fail() as fail:
+                raise StartupConfigCheckFailedException(
+                    f"initial configuration check failed: {jsonify(fail, indent=2)}"
+                )
+
+        if not await self._database.tables():
+            self.logger.info("Database appears empty, initializing database...")
+            try:
+                await self._database.init()
+                self.logger.info("Database initialized successfully.")
+            except Exception as exception:
+                self.logger.error("Database initialization failed.")
+                raise StartupDatabaseInitFailedException(str(exception))
 
         try:
-            if self.config_directory and self.config_directory not in sys.path:
-                sys.path.append(self.config_directory)
+            if self.config_directory and str(self.config_directory) not in sys.path:
+                sys.path.append(str(self.config_directory))
 
             exiting = Event()
             started = False
@@ -109,29 +122,30 @@ class Engine(Tasklet, ServerEngineProtocol):
                     await self._reloading.wait()
                     await self._reload()
 
-                async def process_reload(cancel: CancelScope) -> None:
-                    await self._reloading.wait()
-                    cancel.cancel()
-
                 def handle_exit_signal(*args: Any) -> None:
                     exiting.set()
-                    group.cancel_scope.cancel()
 
                 with use_signal_handler([signal.SIGINT, signal.SIGTERM], handle_exit_signal):
-                    async with anyio.create_task_group() as group:
-                        try:
-                            group.start_soon(process_reload, group.cancel_scope)
+                    await self._sync_units()
+                    await self._start_server()
 
-                            await self._sync_units()
-                            await self._start_server()
-                        finally:
-                            started = True
-                            self._reloading.clear()
+                    started = True
+                    self._reloading.clear()
+
+                    tasks = [
+                        asyncio.create_task(self._reloading.wait(), name="reload-wait"),
+                        asyncio.create_task(exiting.wait(), name="exit-wait"),
+                    ]
+
+                    try:
+                        await asyncio.wait(tasks, return_when=FIRST_COMPLETED)
+                    finally:
+                        for task in tasks:
+                            task.cancel()
 
             self.logger.info("Exit signal received, stopping...")
         except KeyboardInterrupt:
             self.logger.info("Exit signal received, stopping...")
-            await self.stop()
             raise
 
     async def _tasklet_stop(self) -> None:
@@ -162,7 +176,7 @@ class Engine(Tasklet, ServerEngineProtocol):
             try:
                 await self._stop_units()
                 await self._database.dispose()
-                self._database = DatabaseManager.create(self._config.database)
+                self._database = DatabaseManager(self._config.database)
             except Exception:
                 self.logger.error(
                     f"An issue occurred while reloading units and database: {traceback.format_exc()}"
@@ -200,7 +214,7 @@ class Engine(Tasklet, ServerEngineProtocol):
 
     async def _sync_units(self) -> None:
         configs: dict[UnitPath, UnitConfig] = {
-            UnitPath.create(current.name): current for current in self._config.units
+            UnitPath(current.name): current for current in self._config.units
         }
 
         actions = self._get_unit_sync_actions()
@@ -212,7 +226,7 @@ class Engine(Tasklet, ServerEngineProtocol):
                 if unit:
                     self.logger.info(f"Removing unit '{action.path}'...")
                     await unit.stop()
-                    self._units.pop(unit.path)
+                    self._units.pop(unit.path, None)
             else:
                 if action.kind == UnitSyncActionKind.START:
                     if unit and unit.running:
@@ -225,22 +239,22 @@ class Engine(Tasklet, ServerEngineProtocol):
 
                     self.logger.info(f"Reloading unit '{action.path}'...")
                     await unit.stop()
-                    self._units.pop(unit.path)
+                    self._units.pop(unit.path, None)
 
-                if config := configs.get(action.path):
-                    id = await self._database.entities.get_unit_id(action.path)
+                if action.path in configs:
+                    id = await self._database.entities.get_id(action.path)
                     context = UnitContext(
                         id=id,
                         path=action.path,
-                        connections=config.connections,
-                        drivers=config.drivers,
-                        database=self._config.database,
-                        config=config,
+                        config=self._config,
                     )
 
                     unit = UnitHandle(context)
                     self._units[action.path] = unit
-                    unit.start()
+                    unit.start(
+                        on_completed=self._on_unit_completed,
+                        on_exception=self._on_unit_exception,
+                    )
 
         started = [
             action
@@ -276,13 +290,13 @@ class Engine(Tasklet, ServerEngineProtocol):
                 self.logger.info(f"Stopping unit '{unit.path}'...")
                 await unit.stop()
 
-            self._units.pop(unit.path)
+            self._units.pop(unit.path, None)
 
         self.logger.info("All units were stopped successfully.")
 
     def _get_unit_sync_actions(self) -> list[UnitSyncAction]:
         configs: dict[UnitPath, UnitConfig] = {
-            UnitPath.create(current.name): current for current in self._config.units
+            UnitPath(current.name): current for current in self._config.units
         }
         units: dict[UnitPath, UnitHandle] = {
             current.path: current for current in self._units.values()
@@ -308,10 +322,10 @@ class Engine(Tasklet, ServerEngineProtocol):
 
     def _on_unit_completed(self, unit: UnitHandle) -> None:
         self.logger.info(f"Unit '{unit.path}' completed execution.")
-        self._units.pop(unit.path)
+        self._units.pop(unit.path, None)
 
     def _on_unit_exception(self, unit: UnitHandle, exception: BaseException) -> None:
         self.logger.error(
             f"An exception occurred in unit '{unit.path}': {traceback.format_exception(exception)}"
         )
-        self._units.pop(unit.path)
+        self._units.pop(unit.path, None)

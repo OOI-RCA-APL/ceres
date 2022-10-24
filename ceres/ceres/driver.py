@@ -1,15 +1,14 @@
 from __future__ import annotations
 
+import asyncio
 from abc import ABC
 from dataclasses import dataclass
-from typing import Any
 
-import anyio
-
-from .component import Component, ComponentContext, ContextT
+from .component import Component, ComponentContext
+from .config import DriverConfig
 from .path import DriverPath, LocalDriverPath
-from .protocols import ReferencedDriverHandleProtocol
-from .reference import Reference, SelfT
+from .protocols import ReferencedDriverHandle
+from .reference import Reference
 
 
 @dataclass(kw_only=True, frozen=True)
@@ -18,27 +17,15 @@ class DriverContext(ComponentContext):
 
 
 class Driver(Component[DriverContext], ABC):
+    @property
+    def config(self) -> DriverConfig | None:
+        return super().config  # type: ignore
+
     async def update(self) -> None:
-        await anyio.sleep(1)
+        await asyncio.sleep(1)
 
 
-class DriverReference(Reference[ReferencedDriverHandleProtocol]):
+class DriverReference(Reference[ReferencedDriverHandle]):
     @property
     def path(self) -> LocalDriverPath:
-        return LocalDriverPath.create(self.name)
-
-    def __get__(  # type: ignore
-        self: SelfT,
-        component: Component[ContextT] | None,
-        owner: Any,
-    ) -> SelfT | ReferencedDriverHandleProtocol:
-        if component is None:
-            return self
-
-        if not (real_name := component.context.references.drivers.get(self.name)):
-            raise ValueError(f"driver '{self.name}' is not defined in driver references")
-
-        if driver := component.context.unit.get_driver(real_name):
-            return driver
-
-        raise ValueError(f"no driver '{real_name}' in current unit")
+        return LocalDriverPath(self.name)

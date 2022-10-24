@@ -1,24 +1,44 @@
 from __future__ import annotations
 
+import asyncio
 import inspect
 import json
+import re
 import signal
+from collections.abc import Sequence
 from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
+from enum import Enum
+from functools import wraps
 from typing import (
+    TYPE_CHECKING,
     Any,
     Awaitable,
     Callable,
+    Iterable,
     Iterator,
     MutableMapping,
     NoReturn,
-    Sequence,
+    SupportsIndex,
     TypeVar,
+    Union,
     cast,
+    overload,
 )
 
+from fastapi.concurrency import run_in_threadpool
+from pydantic import ConstrainedStr, parse_obj_as
 from pydantic.json import pydantic_encoder
+from sqlalchemy.orm import Mapped
+
+from .tasks import ensure_event_loop
+
+if TYPE_CHECKING:
+    from _typeshed import SupportsKeysAndGetItem, SupportsRichComparison
 
 T = TypeVar("T")
+
+MaybeMapped = Union[T, Mapped[T]]
 
 
 async def awaitify(value: T | Awaitable[T]) -> T:
@@ -28,12 +48,49 @@ async def awaitify(value: T | Awaitable[T]) -> T:
     return cast(T, value)
 
 
-def jsonify(object: object, *, indent: int | str | None = None, **kwargs: Any) -> str:
-    return json.dumps(pydantic_encoder(object), indent=indent, **kwargs)
+def hydrate(type: type[T], obj: Any) -> T:
+    return parse_obj_as(type, obj)
 
 
-def simplify(object: object) -> Any:
-    return pydantic_encoder(object)
+def jsonify(obj: object, *, indent: int | str | None = None, **kwargs: Any) -> str:
+    return json.dumps(
+        obj,
+        default=pydantic_encoder,
+        indent=indent,
+        **kwargs,
+    )
+
+
+def simplify(obj: Any) -> Any:
+    return json.loads(jsonify(obj))
+
+
+FunctionT = TypeVar("FunctionT", bound=Callable[..., Any])
+
+
+def syncify(function: FunctionT) -> FunctionT:
+    if not inspect.iscoroutinefunction(function):
+        return function
+
+    @wraps(function)
+    def wrapper(*args: list[Any], **kwargs: dict[str, Any]) -> Any:
+        ensure_event_loop()
+        return asyncio.run(function(*args, **kwargs))
+
+    return cast(FunctionT, wrapper)
+
+
+async def run_in_thread(function: Callable[..., T], *args: Any, **kwargs: Any) -> T:
+    return await run_in_threadpool(function, *args, **kwargs)
+
+
+def unwrap(value: T | None) -> T:
+    assert value is not None
+    return value
+
+
+def get_now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 @contextmanager
@@ -67,3 +124,371 @@ def get_or_create(mapping: MutableMapping[str, T], key: str, factory: Callable[[
     value = factory()
     mapping[key] = value
     return value
+
+
+def encode_td(value: timedelta) -> str:
+    if value < timedelta(milliseconds=1):
+        encoded_value, encoded_unit = float(value.microseconds), "us"
+    elif value < timedelta(seconds=1):
+        encoded_value, encoded_unit = value.microseconds / 1000, "ms"
+    elif value < timedelta(minutes=1):
+        encoded_value, encoded_unit = value.total_seconds(), "s"
+    elif value < timedelta(hours=1):
+        encoded_value, encoded_unit = value.total_seconds() / 60, "m"
+    elif value < timedelta(days=1):
+        encoded_value, encoded_unit = value.total_seconds() / (60 * 60), "h"
+    else:
+        encoded_value, encoded_unit = value.total_seconds() / (60 * 60 * 24), "d"
+
+    return f"{str(encoded_value).rstrip('0').rstrip('.')}{encoded_unit}"
+
+
+def show_td(value: timedelta) -> str:
+    if value < timedelta(milliseconds=1):
+        encoded_value, encoded_unit = float(value.microseconds), "microseconds"
+    elif value < timedelta(seconds=1):
+        encoded_value, encoded_unit = value.microseconds / 1000, "milliseconds"
+    elif value < timedelta(minutes=1):
+        encoded_value, encoded_unit = value.total_seconds(), "seconds"
+    elif value < timedelta(hours=1):
+        encoded_value, encoded_unit = value.total_seconds() / 60, "minutes"
+    elif value < timedelta(days=1):
+        encoded_value, encoded_unit = value.total_seconds() / (60 * 60), "hours"
+    else:
+        encoded_value, encoded_unit = value.total_seconds() / (60 * 60 * 24), "days"
+
+    return f"{str(encoded_value).rstrip('0').rstrip('.')} {encoded_unit}"
+
+
+def decode_td(value: str | timedelta | int | float | Any) -> timedelta:
+    if isinstance(value, timedelta):
+        return value
+    if isinstance(value, (int, float)):
+        return timedelta(seconds=value)
+
+    def get_exception() -> ValueError:
+        return ValueError(
+            "invalid timedelta value, must be a ISO formatted interval or number with suffix 'us', 'ms', 's', 'm', 'h' or 'd'."
+        )
+
+    if not isinstance(value, str):
+        raise get_exception()
+
+    try:
+        return hydrate(timedelta, value)
+    except Exception:
+        pass
+
+    if value.endswith("us"):
+        decoded_unit = "us"
+    elif value.endswith("ms"):
+        decoded_unit = "ms"
+    elif value.endswith("s"):
+        decoded_unit = "s"
+    elif value.endswith("m"):
+        decoded_unit = "m"
+    elif value.endswith("h"):
+        decoded_unit = "h"
+    elif value.endswith("d"):
+        decoded_unit = "d"
+    else:
+        raise get_exception()
+
+    try:
+        decoded_value = float(value[: -len(decoded_unit)])
+    except Exception:
+        raise get_exception()
+
+    match decoded_unit:
+        case "us":
+            return timedelta(microseconds=decoded_value)
+        case "ms":
+            return timedelta(milliseconds=decoded_value)
+        case "s":
+            return timedelta(seconds=decoded_value)
+        case "m":
+            return timedelta(minutes=decoded_value)
+        case "h":
+            return timedelta(hours=decoded_value)
+        case "d":
+            return timedelta(days=decoded_value)
+
+    raise get_exception()
+
+
+def literals(literal: type[Enum] | object) -> tuple[str, ...]:
+    if isinstance(literal, type) and issubclass(literal, Enum):
+        return tuple(value.value for value in literal if isinstance(value, str))
+
+    __args__ = getattr(literal, "__args__", None)
+
+    if isinstance(__args__, tuple):
+        return tuple(value for value in __args__ if isinstance(value, str))
+
+    return tuple()
+
+
+class NameStr(ConstrainedStr):
+    regex = re.compile(r"[a-zA-Z\-\_][a-zA-Z0-9\-\_]*")
+
+
+class EmailStr(ConstrainedStr):
+    regex = re.compile(r".+@.+")
+
+
+class NonEmptyStr(ConstrainedStr):
+    regex = re.compile(r".+")
+
+
+KeyT = TypeVar("KeyT")
+ValueT = TypeVar("ValueT")
+FrozenDictT = TypeVar("FrozenDictT", bound="frozendict")
+
+
+class frozendict(dict[KeyT, ValueT]):
+    def __repr__(self) -> str:
+        name = type(self).__name__
+        if len(self) == 0:
+            return f"{name}()"
+
+        return f"{name}({super().__repr__()})"
+
+    def __hash__(self) -> int:  # type: ignore
+        return hash(frozenset(self.keys())) ^ hash(frozenset(self.values()))
+
+    def __getitem__(self, __key: KeyT) -> ValueT:
+        return super().__getitem__(__key)
+
+    def __iter__(self) -> Iterator[KeyT]:
+        return super().__iter__()
+
+    def __len__(self) -> int:
+        return super().__len__()
+
+    @overload  # type: ignore
+    def __or__(self: FrozenDictT, __value: SupportsKeysAndGetItem[KeyT, ValueT]) -> FrozenDictT:
+        ...
+
+    @overload
+    def __or__(self: FrozenDictT, __value: Iterable[tuple[KeyT, ValueT]]) -> FrozenDictT:
+        ...
+
+    def __or__(
+        self: FrozenDictT,
+        __value: SupportsKeysAndGetItem[KeyT, ValueT] | Iterable[tuple[KeyT, ValueT]],
+    ) -> FrozenDictT:
+        return frozendict(super().__or__(__value))  # type: ignore
+
+    @overload  # type: ignore
+    def __ior__(
+        self: FrozenDictT,
+        __value: SupportsKeysAndGetItem[KeyT, ValueT],
+    ) -> FrozenDictT:
+        ...
+
+    @overload
+    def __ior__(self: FrozenDictT, __value: Iterable[tuple[KeyT, ValueT]]) -> FrozenDictT:
+        ...
+
+    def __ior__(  # type: ignore
+        self: FrozenDictT,
+        __value: SupportsKeysAndGetItem[KeyT, ValueT] | Iterable[tuple[KeyT, ValueT]],
+    ) -> FrozenDictT:
+        return self | __value
+
+    @overload  # type: ignore
+    def __ror__(self: FrozenDictT, __value: SupportsKeysAndGetItem[KeyT, ValueT]) -> FrozenDictT:
+        ...
+
+    @overload
+    def __ror__(self: FrozenDictT, __value: Iterable[tuple[KeyT, ValueT]]) -> FrozenDictT:
+        ...
+
+    def __ror__(
+        self: FrozenDictT,
+        __value: SupportsKeysAndGetItem[KeyT, ValueT] | Iterable[tuple[KeyT, ValueT]],
+    ) -> FrozenDictT:
+        return self | __value
+
+    def set(self: FrozenDictT, __key: KeyT, __value: ValueT) -> FrozenDictT:
+        result = dict(self)
+        result[__key] = __value
+        return type(self)(result)
+
+    def setdefault(self: FrozenDictT, __key: KeyT, __default: ValueT) -> FrozenDictT:  # type: ignore
+        if __key in self:
+            return self
+
+        return self.set(__key, __default)
+
+    @overload  # type: ignore
+    def update(
+        self: FrozenDictT,
+        __value: SupportsKeysAndGetItem[KeyT, ValueT],
+        **kwargs: ValueT,
+    ) -> FrozenDictT:
+        ...
+
+    @overload
+    def update(
+        self: FrozenDictT,
+        __value: Iterable[tuple[KeyT, ValueT]],
+        **kwargs: ValueT,
+    ) -> FrozenDictT:
+        ...
+
+    @overload
+    def update(self: FrozenDictT, **kwargs: ValueT) -> FrozenDictT:
+        ...
+
+    def update(
+        self: FrozenDictT,
+        __value: SupportsKeysAndGetItem[KeyT, ValueT] | Iterable[tuple[KeyT, ValueT]] | None = None,
+        **kwargs: ValueT,
+    ) -> FrozenDictT:
+        result = dict(self)
+        result.update(__value or {}, **kwargs)
+        return type(self)(result)
+
+
+def __patch_frozendict() -> None:
+    """
+    Modify frozendict to disable all remaining mutating methods.
+    """
+    for method in [
+        dict.__delitem__,
+        dict.__setitem__,
+        dict.clear,
+        dict.pop,
+        dict.popitem,
+        # dict.setdefault,
+        # dict.update,
+    ]:
+
+        @wraps(method)  # type: ignore
+        def disabled(self: Any, *args: Any) -> NoReturn:
+            raise NotImplementedError(f"method disabled for {type(self)}")
+
+        setattr(frozendict, method.__name__, disabled)
+
+
+__patch_frozendict()
+
+FrozenListT = TypeVar("FrozenListT", bound="frozenlist")
+SortableFrozenListT = TypeVar("SortableFrozenListT", bound="frozenlist")
+
+
+class frozenlist(list[ValueT]):
+    def __repr__(self) -> str:
+        name = type(self).__name__
+        if len(self) == 0:
+            return f"{name}()"
+
+        return f"{name}([{super().__repr__()}])"
+
+    def __hash__(self) -> int:  # type: ignore
+        return hash(tuple(self))
+
+    def __len__(self) -> int:
+        return super().__len__()
+
+    @overload
+    def __getitem__(self, __index: SupportsIndex) -> ValueT:
+        ...
+
+    @overload
+    def __getitem__(self: FrozenListT, __index: slice) -> FrozenListT:
+        ...
+
+    def __getitem__(self: FrozenListT, __index: SupportsIndex | slice) -> ValueT | FrozenListT:
+        if isinstance(__index, slice):
+            return frozenlist(super().__getitem__(__index))  # type: ignore
+
+        return super().__getitem__(__index)  # type: ignore
+
+    def __add__(self: FrozenListT, __iterable: Iterable[ValueT]) -> FrozenListT:
+        return frozenlist([*self, *__iterable])  # type: ignore
+
+    def __iadd__(self: FrozenListT, __iterable: Iterable[ValueT]) -> FrozenListT:
+        return self + __iterable
+
+    def append(self: FrozenListT, __value: ValueT) -> FrozenListT:  # type: ignore
+        result = list(self)
+        result.append(__value)
+        return type(self)(result)
+
+    def extend(self: FrozenListT, __iterable: Iterable[ValueT]) -> FrozenListT:  # type: ignore
+        result = list(self)
+        result.extend(__iterable)
+        return type(self)(result)
+
+    def insert(self: FrozenListT, __index: SupportsIndex, __value: ValueT) -> FrozenListT:  # type: ignore
+        result = list(self)
+        result.insert(__index, __value)
+        return type(self)(result)
+
+    def remove(self: FrozenListT, __value: ValueT) -> FrozenListT:  # type: ignore
+        result = list(self)
+        result.remove(__value)
+        return type(self)(result)
+
+    def reverse(self: FrozenListT) -> FrozenListT:  # type: ignore
+        result = list(self)
+        result.reverse()
+        return type(self)(result)
+
+    @overload  # type: ignore
+    def sort(
+        self: SortableFrozenListT,
+        *,
+        key: None = None,
+        reverse: bool = False,
+    ) -> SortableFrozenListT:
+        ...
+
+    @overload
+    def sort(
+        self: FrozenListT,
+        *,
+        key: Callable[[ValueT], SupportsRichComparison],
+        reverse: bool = False,
+    ) -> FrozenListT:
+        ...
+
+    def sort(
+        self: FrozenListT,
+        *,
+        key: Callable[[ValueT], SupportsRichComparison] | None = None,
+        reverse: bool = False,
+    ) -> FrozenListT:
+        result = list(self)
+        result.sort(key=key, reverse=reverse)
+        return type(self)(result)
+
+
+def __patch_frozenlist() -> None:
+    """
+    Modify frozenlist to disable all remaining mutating methods.
+    """
+    for method in [
+        list.__delitem__,
+        list.__iadd__,
+        list.__setitem__,
+        # list.append,
+        list.clear,
+        # list.extend,
+        # list.insert,
+        list.pop,
+        # list.remove,
+        # list.reverse,
+        # list.sort,
+    ]:
+
+        @wraps(method)  # type: ignore
+        def disabled(self: Any, *args: Any) -> NoReturn:
+            raise NotImplementedError(f"method disabled for {type(self)}.")
+
+        setattr(frozenlist, method.__name__, disabled)
+
+
+__patch_frozenlist()

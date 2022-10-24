@@ -17,7 +17,7 @@ from .tasks import Tasklet
 from .utilities import awaitify, simplify, unreachable
 
 
-class ServerEngineProtocol(Protocol):
+class ServerEngine(Protocol):
     @property
     def config(self) -> Config:
         ...
@@ -30,7 +30,7 @@ class Server(Tasklet):
     def __init__(
         self,
         config: ServerConfig,
-        engine: ServerEngineProtocol,
+        engine: ServerEngine,
     ):
         self._config = config
         self._engine = engine
@@ -90,7 +90,7 @@ def presimplify(function: Callable[..., Any]) -> Callable[..., Any]:
     return wrapper
 
 
-def create_app(engine: ServerEngineProtocol) -> FastAPI:
+def create_app(engine: ServerEngine) -> FastAPI:
     app = FastAPI()
 
     @app.on_event("startup")

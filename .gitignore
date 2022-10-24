@@ -5,6 +5,7 @@
 # Tools
 *.code-workspace
 .vscode/
+.fleet/
 
 # Python
 __pycache__/

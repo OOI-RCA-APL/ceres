@@ -1,60 +1,128 @@
 from __future__ import annotations
 
 from datetime import datetime
-from enum import Enum
-from typing import TYPE_CHECKING, TypeVar, cast
+from enum import Enum as BaseEnum
+from typing import TYPE_CHECKING, Any, TypeVar
 from uuid import UUID, uuid4
 
-import sqlalchemy as sql
-from sqlalchemy import BINARY, TIMESTAMP, Column
-from sqlalchemy import Enum as StringEnum
-from sqlalchemy import ForeignKey, String
+from inflection import underscore
+from sqlalchemy import (
+    JSON,
+    TIMESTAMP,
+    CheckConstraint,
+    Enum,
+    ForeignKey,
+    Index,
+    LargeBinary,
+    PrimaryKeyConstraint,
+    String,
+    Text,
+    Uuid,
+    select,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.ext.declarative import declared_attr
-from sqlalchemy.orm import Mapped, declarative_base, relationship
-from sqlalchemy_utils import UUIDType
+from sqlalchemy.orm import (
+    DeclarativeBase,
+    Mapped,
+    declared_attr,
+    mapped_column,
+    relationship,
+)
 
-from ...path import ComponentPath, ConnectionPath, DriverPath, UnitPath
+from ...alert import AlertLevel
+from ...message import MessageDirection
+from ...path import (
+    ComponentPath,
+    ConnectionPath,
+    DriverPath,
+    NotifierPath,
+    Path,
+    UnitPath,
+)
 
 if TYPE_CHECKING:
     from .manager import DatabaseManager
 
-BaseEntity = declarative_base()
+
+def TypedEnum(cls: type[BaseEnum]) -> Enum:
+    enum = Enum(
+        *(current.value for current in cls),
+        native_enum=False,
+        create_constraint=False,
+        name=underscore(cls.__name__),
+    )
+
+    enum.length = None
+    return enum
 
 
-def eid() -> UUID:
-    return uuid4()
+def TypedEnumConstraint(column: str, cls: type[BaseEnum], name: str) -> CheckConstraint:
+    return CheckConstraint(
+        sqltext=f"{column} in ({', '.join([repr(enum.value) for enum in cls])})",
+        name=name,
+    )
 
 
-class Entity(BaseEntity):
+class Entity(DeclarativeBase):
     __abstract__ = True
     __mapper_args__ = {
         "eager_defaults": True,
     }
 
-    id: UUID = Column(UUIDType(binary=False), primary_key=True)
-
 
 class UnitEntity(Entity):
     __tablename__ = "units"
-    name: str = Column(String)
 
-    connections: list[ConnectionEntity] = relationship("ConnectionEntity", back_populates="unit")
-    drivers: list[DriverEntity] = relationship("DriverEntity", back_populates="unit")
+    id: Mapped[UUID] = mapped_column(Uuid)
+    name: Mapped[str] = mapped_column(Text)
+
+    __table_args__ = (
+        PrimaryKeyConstraint("id", name=f"pk_{__tablename__}"),
+        Index(f"uq_{__tablename__}__name", "name", unique=True),
+    )
+
+    connections: Mapped[list[ConnectionEntity]] = relationship(
+        "ConnectionEntity",
+        back_populates="unit",
+    )
+    drivers: Mapped[list[DriverEntity]] = relationship(
+        "DriverEntity",
+        back_populates="unit",
+    )
+    notifiers: Mapped[list[NotifierEntity]] = relationship(
+        "NotifierEntity",
+        back_populates="unit",
+    )
 
 
 class ComponentEntity(Entity):
     __abstract__ = True
 
     @declared_attr
-    def unit_id(cls) -> Mapped[UUID]:
-        return Column(UUIDType(binary=False), ForeignKey("units.id"))
-
-    name: str = Column(String)
+    def id(cls) -> Mapped[UUID]:
+        return mapped_column(Uuid)
 
     @declared_attr
-    def unit(cls) -> relationship[UUID]:
+    def unit_id(cls) -> Mapped[UUID]:
+        return mapped_column(
+            Uuid,
+            ForeignKey("units.id", name=f"fk_{cls.__tablename__}__unit_id__units"),
+        )
+
+    @declared_attr
+    def name(cls) -> Mapped[str]:
+        return mapped_column(String)
+
+    @declared_attr
+    def unit(cls) -> Mapped[UnitEntity]:
         return relationship(UnitEntity, back_populates=cls.__tablename__)
+
+    @declared_attr
+    def __table_args__(cls) -> Any:
+        return (
+            PrimaryKeyConstraint("id", name=f"pk_{cls.__tablename__}"),
+            Index(f"uq_{cls.__tablename__}__unit_id__name", "unit_id", "name", unique=True),
+        )
 
 
 class ConnectionEntity(ComponentEntity):
@@ -65,19 +133,49 @@ class DriverEntity(ComponentEntity):
     __tablename__ = "drivers"
 
 
-class MessageDirection(str, Enum):
-    SEND = "send"
-    RECEIVE = "receive"
+class NotifierEntity(ComponentEntity):
+    __tablename__ = "notifiers"
 
 
 class MessageEntity(Entity):
     __tablename__ = "messages"
-    connection_id: UUID = Column(UUIDType(binary=False), ForeignKey("connections.id"))
-    timestamp: datetime = Column(TIMESTAMP(timezone=True))
-    direction: MessageDirection = Column(
-        StringEnum(*[current.value for current in MessageDirection])
+
+    id: Mapped[UUID] = mapped_column(Uuid)
+    connection_id: Mapped[UUID] = mapped_column(
+        Uuid,
+        ForeignKey("connections.id", name=f"fk_{__tablename__}__connection_id__connection"),
     )
-    content: bytes = Column(BINARY)
+    timestamp: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))
+    direction: Mapped[MessageDirection] = mapped_column(TypedEnum(MessageDirection))
+    content: Mapped[bytes] = mapped_column(LargeBinary)
+
+    __table_args__ = (
+        PrimaryKeyConstraint("id", name=f"pk_{__tablename__}"),
+        TypedEnumConstraint("direction", MessageDirection, name=f"ck_{__tablename__}__direction"),
+        Index(f"ix_{__tablename__}__connection_id", "connection_id"),
+        Index(f"ix_{__tablename__}__timestamp", "timestamp"),
+        Index(f"ix_{__tablename__}__content", "content"),
+    )
+
+
+class AlertEntity(Entity):
+    __tablename__ = "alerts"
+
+    id: Mapped[UUID] = mapped_column(Uuid)
+    origin_id: Mapped[UUID] = mapped_column(Uuid)
+    timestamp: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))
+    level: Mapped[AlertLevel] = mapped_column(TypedEnum(AlertLevel))
+    kind: Mapped[str] = mapped_column(String)
+    info: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+
+    __table_args__ = (
+        PrimaryKeyConstraint("id", name=f"pk_{__tablename__}"),
+        TypedEnumConstraint("level", AlertLevel, name=f"ck_{__tablename__}__level"),
+        Index(f"ix_{__tablename__}__origin_id", "origin_id"),
+        Index(f"ix_{__tablename__}__timestamp", "timestamp"),
+        Index(f"ix_{__tablename__}__level", "level"),
+        Index(f"ix_{__tablename__}__kind", "kind"),
+    )
 
 
 ComponentEntityT = TypeVar("ComponentEntityT", bound=ComponentEntity)
@@ -87,29 +185,27 @@ class EntityManager:
     def __init__(self, database: "DatabaseManager") -> None:
         self._database = database
 
-    async def get_unit_id(self, path: UnitPath) -> UUID:
+    async def get_id(self, path: Path) -> UUID:
         async with self._database.session() as session:
-            return (await self._get_unit(session, path)).id
-
-    async def get_connection_id(self, path: ConnectionPath) -> UUID:
-        async with self._database.session() as session:
-            return (await self._get_component(session, ConnectionEntity, path)).id
-
-    async def get_driver_id(self, path: DriverPath) -> UUID:
-        async with self._database.session() as session:
-            return (await self._get_component(session, DriverEntity, path)).id
+            match path:
+                case UnitPath():
+                    return (await self._get_unit(session, path)).id
+                case ConnectionPath():
+                    return (await self._get_component(session, ConnectionEntity, path)).id
+                case DriverPath():
+                    return (await self._get_component(session, DriverEntity, path)).id
+                case NotifierPath():
+                    return (await self._get_component(session, NotifierEntity, path)).id
 
     async def _get_unit(
         self,
         session: AsyncSession,
         path: UnitPath,
     ) -> UnitEntity:
-        unit: UnitEntity | None = (
-            await (session.execute(sql.select(UnitEntity).where(UnitEntity.name == path.name)))
-        ).scalar()
-
-        if not unit:
-            unit = UnitEntity(id=eid(), name=path.name)
+        if not (
+            unit := await session.scalar(select(UnitEntity).where(UnitEntity.name == path.name))
+        ):
+            unit = UnitEntity(id=uuid4(), name=path.name)
             session.add(unit)
             await session.commit()
 
@@ -121,27 +217,17 @@ class EntityManager:
         cls: type[ComponentEntityT],
         path: ComponentPath,
     ) -> ComponentEntity:
-        unit_id = await self.get_unit_id(UnitPath.create(path.unit))
+        unit_id = (await self._get_unit(session, UnitPath(path.unit))).id
 
-        component = cast(
-            ComponentEntityT | None,
-            (
-                await (
-                    session.execute(
-                        sql.select(cls).where(
-                            sql.and_(
-                                cls.unit_id == unit_id,
-                                cls.name == path.name,
-                            )
-                        )
-                    )
+        if not (
+            component := await (
+                session.scalar(
+                    select(cls).where((cls.unit_id == unit_id) & (cls.name == path.name))
                 )
-            ).scalar(),
-        )
-
-        if not component:
-            component = cls(  # type: ignore
-                id=eid(),
+            )
+        ):
+            component = cls(
+                id=uuid4(),
                 unit_id=unit_id,
                 name=path.name,
             )
