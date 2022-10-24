@@ -277,7 +277,21 @@ class frozendict(dict[KeyT, ValueT]):
         self: FrozenDictT,
         __value: SupportsKeysAndGetItem[KeyT, ValueT] | Iterable[tuple[KeyT, ValueT]],
     ) -> FrozenDictT:
-        return frozendict(super().__or__(__value))  # type: ignore
+        return self.update(__value)
+
+    @overload  # type: ignore
+    def __ror__(self: FrozenDictT, __value: SupportsKeysAndGetItem[KeyT, ValueT]) -> FrozenDictT:
+        ...
+
+    @overload
+    def __ror__(self: FrozenDictT, __value: Iterable[tuple[KeyT, ValueT]]) -> FrozenDictT:
+        ...
+
+    def __ror__(
+        self: FrozenDictT,
+        __value: SupportsKeysAndGetItem[KeyT, ValueT] | Iterable[tuple[KeyT, ValueT]],
+    ) -> FrozenDictT:
+        return self.__or__(__value)
 
     @overload  # type: ignore
     def __ior__(
@@ -294,21 +308,7 @@ class frozendict(dict[KeyT, ValueT]):
         self: FrozenDictT,
         __value: SupportsKeysAndGetItem[KeyT, ValueT] | Iterable[tuple[KeyT, ValueT]],
     ) -> FrozenDictT:
-        return self | __value
-
-    @overload  # type: ignore
-    def __ror__(self: FrozenDictT, __value: SupportsKeysAndGetItem[KeyT, ValueT]) -> FrozenDictT:
-        ...
-
-    @overload
-    def __ror__(self: FrozenDictT, __value: Iterable[tuple[KeyT, ValueT]]) -> FrozenDictT:
-        ...
-
-    def __ror__(
-        self: FrozenDictT,
-        __value: SupportsKeysAndGetItem[KeyT, ValueT] | Iterable[tuple[KeyT, ValueT]],
-    ) -> FrozenDictT:
-        return self | __value
+        return self.__or__(__value)
 
     def set(self: FrozenDictT, __key: KeyT, __value: ValueT) -> FrozenDictT:
         result = dict(self)
@@ -384,7 +384,7 @@ class frozenlist(list[ValueT]):
         if len(self) == 0:
             return f"{name}()"
 
-        return f"{name}([{super().__repr__()}])"
+        return f"{name}({super().__repr__()})"
 
     def __hash__(self) -> int:  # type: ignore
         return hash(tuple(self))
@@ -407,10 +407,22 @@ class frozenlist(list[ValueT]):
         return super().__getitem__(__index)  # type: ignore
 
     def __add__(self: FrozenListT, __iterable: Iterable[ValueT]) -> FrozenListT:
-        return frozenlist([*self, *__iterable])  # type: ignore
+        return self.extend(__iterable)
+
+    def __radd__(self: FrozenListT, __iterable: Iterable[ValueT]) -> FrozenListT:
+        return self.__add__(__iterable)
 
     def __iadd__(self: FrozenListT, __iterable: Iterable[ValueT]) -> FrozenListT:
-        return self + __iterable
+        return self.__add__(__iterable)
+
+    def __mul__(self: FrozenListT, __times: SupportsIndex) -> FrozenListT:
+        return type(self)(super().__mul__(__times))
+
+    def __rmul__(self: FrozenListT, __times: SupportsIndex) -> FrozenListT:
+        return self.__mul__(__times)
+
+    def __imul__(self: FrozenListT, __times: SupportsIndex) -> FrozenListT:
+        return self.__mul__(__times)
 
     def append(self: FrozenListT, __value: ValueT) -> FrozenListT:  # type: ignore
         result = list(self)
