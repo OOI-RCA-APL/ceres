@@ -5,6 +5,7 @@ import inspect
 import json
 import re
 import signal
+import sys
 from collections.abc import Sequence
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
@@ -259,6 +260,9 @@ class frozendict(dict[KeyT, ValueT]):
     def __copy__(self: FrozenDictT) -> FrozenDictT:
         return self.copy()
 
+    def __reduce__(self) -> tuple[type[frozendict], tuple[dict[KeyT, ValueT]]]:
+        return (type(self), (dict(self),))
+
     @overload  # type: ignore
     def __or__(self: FrozenDictT, __value: SupportsKeysAndGetItem[KeyT, ValueT]) -> FrozenDictT:
         ...
@@ -304,6 +308,12 @@ class frozendict(dict[KeyT, ValueT]):
     ) -> FrozenDictT:
         return self.__or__(__value)
 
+    def __copy_if_unreferenced(self: FrozenDictT) -> FrozenDictT:
+        if sys.getrefcount(self) <= 5:
+            return self
+
+        return self.copy()
+
     def copy(self: FrozenDictT) -> FrozenDictT:
         return type(self)(self)
 
@@ -321,7 +331,7 @@ class frozendict(dict[KeyT, ValueT]):
     def fromkeys(
         cls: type[frozendict[KeyT, ValueT]],
         __iterable: Iterable[KeyT],
-        __value: ValueT = ...,
+        __value: ValueT,
     ) -> frozendict[KeyT, ValueT]:
         ...
 
@@ -334,9 +344,9 @@ class frozendict(dict[KeyT, ValueT]):
         return cls(dict.fromkeys(__iterable, __value))  # type: ignore
 
     def set(self: FrozenDictT, __key: KeyT, __value: ValueT) -> FrozenDictT:
-        result = dict(self)
-        result[__key] = __value
-        return type(self)(result)
+        result = self.__copy_if_unreferenced()
+        dict.__setitem__(result, __key, __value)
+        return result
 
     def setdefault(self: FrozenDictT, __key: KeyT, __default: ValueT) -> FrozenDictT:  # type: ignore
         if __key in self:
@@ -369,9 +379,14 @@ class frozendict(dict[KeyT, ValueT]):
         __value: SupportsKeysAndGetItem[KeyT, ValueT] | Iterable[tuple[KeyT, ValueT]] | None = None,
         **kwargs: ValueT,
     ) -> FrozenDictT:
-        result = dict(self)
-        result.update(__value or {}, **kwargs)
-        return type(self)(result)
+        result = self.__copy_if_unreferenced()
+
+        if __value is None:
+            dict.update(result, **kwargs)  # type: ignore
+        else:
+            dict.update(result, __value, **kwargs)  # type: ignore
+
+        return result
 
 
 def __patch_frozendict() -> None:
@@ -415,6 +430,9 @@ class frozenlist(list[ValueT]):
     def __copy__(self: FrozenListT) -> FrozenListT:
         return type(self)(self)
 
+    def __reduce__(self) -> tuple[type[frozenlist], tuple[list[ValueT]]]:
+        return (type(self), (list(self),))
+
     @overload
     def __getitem__(self, __index: SupportsIndex) -> ValueT:
         ...
@@ -447,30 +465,36 @@ class frozenlist(list[ValueT]):
     def __imul__(self: FrozenListT, __times: SupportsIndex) -> FrozenListT:
         return self.__mul__(__times)
 
+    def __copy_if_unreferenced(self: FrozenListT) -> FrozenListT:
+        if sys.getrefcount(self) <= 5:
+            return self
+
+        return type(self)(self)
+
     def append(self: FrozenListT, __value: ValueT) -> FrozenListT:  # type: ignore
-        result = list(self)
-        result.append(__value)
-        return type(self)(result)
+        result = self.__copy_if_unreferenced()
+        list.append(result, __value)
+        return result
 
     def extend(self: FrozenListT, __iterable: Iterable[ValueT]) -> FrozenListT:  # type: ignore
-        result = list(self)
-        result.extend(__iterable)
-        return type(self)(result)
+        result = self.__copy_if_unreferenced()
+        list.extend(result, __iterable)
+        return result
 
     def insert(self: FrozenListT, __index: SupportsIndex, __value: ValueT) -> FrozenListT:  # type: ignore
-        result = list(self)
-        result.insert(__index, __value)
-        return type(self)(result)
+        result = self.__copy_if_unreferenced()
+        list.insert(result, __index, __value)
+        return result
 
     def remove(self: FrozenListT, __value: ValueT) -> FrozenListT:  # type: ignore
-        result = list(self)
-        result.remove(__value)
-        return type(self)(result)
+        result = self.__copy_if_unreferenced()
+        list.remove(result, __value)
+        return result
 
     def reverse(self: FrozenListT) -> FrozenListT:  # type: ignore
-        result = list(self)
-        result.reverse()
-        return type(self)(result)
+        result = self.__copy_if_unreferenced()
+        list.reverse(result)
+        return result
 
     @overload  # type: ignore
     def sort(
@@ -496,9 +520,9 @@ class frozenlist(list[ValueT]):
         key: Callable[[ValueT], SupportsRichComparison] | None = None,
         reverse: bool = False,
     ) -> FrozenListT:
-        result = list(self)
-        result.sort(key=key, reverse=reverse)
-        return type(self)(result)
+        result = self.__copy_if_unreferenced()
+        list.sort(result, key=key, reverse=reverse)
+        return result
 
     @overload
     def set(self: FrozenListT, __index: SupportsIndex, __value: ValueT) -> FrozenListT:
@@ -511,9 +535,9 @@ class frozenlist(list[ValueT]):
     def set(
         self: FrozenListT, __index: SupportsIndex | slice, __value: ValueT | Iterable[ValueT]
     ) -> FrozenListT:
-        result = list(self)
-        result[__index] = __value  # type: ignore
-        return type(self)(result)
+        result = self.__copy_if_unreferenced()
+        list.__setitem__(result, __index, __value)  # type: ignore
+        return result
 
 
 def __patch_frozenlist() -> None:
