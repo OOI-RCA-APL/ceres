@@ -500,6 +500,21 @@ class frozenlist(list[ValueT]):
         result.sort(key=key, reverse=reverse)
         return type(self)(result)
 
+    @overload
+    def set(self: FrozenListT, __index: SupportsIndex, __value: ValueT) -> FrozenListT:
+        ...
+
+    @overload
+    def set(self: FrozenListT, __index: slice, __value: Iterable[ValueT]) -> FrozenListT:
+        ...
+
+    def set(
+        self: FrozenListT, __index: SupportsIndex | slice, __value: ValueT | Iterable[ValueT]
+    ) -> FrozenListT:
+        result = list(self)
+        result[__index] = __value  # type: ignore
+        return type(self)(result)
+
 
 def __patch_frozenlist() -> None:
     """
