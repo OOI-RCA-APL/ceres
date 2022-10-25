@@ -412,8 +412,8 @@ class frozenlist(list[ValueT]):
     def __hash__(self) -> int:  # type: ignore
         return hash(tuple(self))
 
-    def __len__(self) -> int:
-        return super().__len__()
+    def __copy__(self: FrozenListT) -> FrozenListT:
+        return type(self)(self)
 
     @overload
     def __getitem__(self, __index: SupportsIndex) -> ValueT:
