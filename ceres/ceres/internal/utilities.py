@@ -256,6 +256,9 @@ class frozendict(dict[KeyT, ValueT]):
     def __hash__(self) -> int:  # type: ignore
         return hash(frozenset(self.keys())) ^ hash(frozenset(self.values()))
 
+    def __copy__(self: FrozenDictT) -> FrozenDictT:
+        return self.copy()
+
     @overload  # type: ignore
     def __or__(self: FrozenDictT, __value: SupportsKeysAndGetItem[KeyT, ValueT]) -> FrozenDictT:
         ...
@@ -300,6 +303,35 @@ class frozendict(dict[KeyT, ValueT]):
         __value: SupportsKeysAndGetItem[KeyT, ValueT] | Iterable[tuple[KeyT, ValueT]],
     ) -> FrozenDictT:
         return self.__or__(__value)
+
+    def copy(self: FrozenDictT) -> FrozenDictT:
+        return type(self)(self)
+
+    @overload  # type: ignore
+    @classmethod
+    def fromkeys(
+        cls: type[frozendict[KeyT, None]],
+        __iterable: Iterable[KeyT],
+        __value: None = None,
+    ) -> frozendict[KeyT, None]:
+        ...
+
+    @overload
+    @classmethod
+    def fromkeys(
+        cls: type[frozendict[KeyT, ValueT]],
+        __iterable: Iterable[KeyT],
+        __value: ValueT = ...,
+    ) -> frozendict[KeyT, ValueT]:
+        ...
+
+    @classmethod
+    def fromkeys(  # type: ignore
+        cls,
+        __iterable: Iterable[KeyT],
+        __value: ValueT | None = None,
+    ) -> frozendict[KeyT, ValueT] | frozendict[KeyT, None]:
+        return cls(dict.fromkeys(__iterable, __value))  # type: ignore
 
     def set(self: FrozenDictT, __key: KeyT, __value: ValueT) -> FrozenDictT:
         result = dict(self)
