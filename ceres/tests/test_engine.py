@@ -28,5 +28,5 @@ async def test_engine_can_start() -> None:
         )
 
         engine.start()
-        await asyncio.sleep(3)
+        await asyncio.sleep(2)
         await engine.stop(True)

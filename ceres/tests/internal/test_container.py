@@ -6,24 +6,15 @@ from pydantic import BaseConfig, BaseModel
 
 from ceres.internal.container import Container, is_proxy
 
-
-class TypeEquals:
-    def __eq__(self, other: object) -> bool:
-        return type(self) is type(other) and super().__eq__(other)
-
-
-@dataclass
-class Dummy(TypeEquals):
-    pass
-
-
-@dataclass
-class DerivedDummy(Dummy):
-    pass
-
-
-assert Dummy() == Dummy()
-assert Dummy() != DerivedDummy()
+from .test_container__definitions import (
+    DerivedDummy,
+    Dummy,
+    MultipleDependencies,
+    MultipleDependencyDataclass,
+    One,
+    Three,
+    Two,
+)
 
 
 def test_has_cached_is_false_when_empty() -> None:
@@ -216,31 +207,11 @@ def test_get_class_with_one_dependency() -> None:
     assert single == SingleDependency(Dummy())
 
 
-class MultipleDependencies:
-    def __init__(self, a: Dummy, b: DerivedDummy, c: int, d: str) -> None:
-        self.dependencies = [a, b, c, d]
-
-    def __eq__(self, other: object) -> bool:
-        return (
-            isinstance(other, MultipleDependencies)
-            and type(self) is type(other)
-            and self.dependencies == other.dependencies
-        )
-
-
 def test_get_class_with_multiple_dependencies() -> None:
     container = Container()
     container.provide(int, lambda: 5)
     multiple = container.get(MultipleDependencies)
     assert multiple == MultipleDependencies(Dummy(), DerivedDummy(), 5, "")
-
-
-@dataclass
-class MultipleDependencyDataclass:
-    a: Dummy
-    b: DerivedDummy
-    c: int
-    d: str
 
 
 def test_get_dataclass_with_multiple_dependencies() -> None:
@@ -265,21 +236,6 @@ def test_get_base_model_with_multiple_dependencies() -> None:
     container.set(int, 5)
     multiple = container.get(MultipleDependencyBaseModel)
     assert multiple == MultipleDependencyBaseModel(a=Dummy(), b=DerivedDummy(), c=5, d="")
-
-
-@dataclass
-class Three(TypeEquals):
-    pass
-
-
-@dataclass
-class Two(TypeEquals):
-    inner: Three
-
-
-@dataclass
-class One(TypeEquals):
-    inner: Two
 
 
 def test_get_nested_dependencies() -> None:
