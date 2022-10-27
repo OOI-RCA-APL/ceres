@@ -1,61 +1,54 @@
-from __future__ import annotations
-
 import inspect
 import traceback
 from abc import ABC
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from logging import Logger
 from typing import Any, Generic, Sequence, TypeVar, cast
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from .alert import Alert, AlertLevel, RawAlertLevel
-from .config import ComponentConfig, Config
+from .config import ComponentReferencesConfig
 from .events import Event, EventBinding, get_event_bindings
-from .exceptions import ComponentNotSetupException
 from .internal import logs
 from .internal.utilities import awaitify, get_now
 from .path import ComponentPath
-from .protocols import GlobalUnitProtocol
 from .reference import ReferenceBinding, get_reference_bindings
 
 
 @dataclass(kw_only=True, frozen=True)
-class ComponentContext:
-    id: UUID
-    path: ComponentPath
-    config: Config
-    unit: GlobalUnitProtocol
+class ComponentParameters:
+    pass
 
-    def __post_init__(self) -> None:
-        if not self.config.get_component(self.path):
-            raise ValueError(f"component {self.path} is not defined in configuration")
+
+ComponentParametersT = TypeVar("ComponentParametersT", bound=ComponentParameters)
+
+
+@dataclass(kw_only=True, frozen=True)
+class ComponentContext:
+    id: UUID = field(default_factory=uuid4)
+    path: ComponentPath
+    references: ComponentReferencesConfig = field(default_factory=ComponentReferencesConfig)
 
 
 ComponentContextT = TypeVar("ComponentContextT", bound=ComponentContext)
 
 
-class Component(Generic[ComponentContextT], ABC):
-    def __init__(self) -> None:
-        self.__context__: ComponentContextT | None = None
+class Component(Generic[ComponentParametersT, ComponentContextT], ABC):
+    def __init__(
+        self,
+        parameters: ComponentParametersT,
+        context: ComponentContextT,
+    ) -> None:
+        self.__component_parameters__ = parameters
+        self.__component_context__ = context
 
-    def setup(self, context: ComponentContextT) -> None:
-        self.__context__ = context
+    @property
+    def parameters(self) -> ComponentParametersT:
+        return self.__component_parameters__
 
     @property
     def context(self) -> ComponentContextT:
-        if not self.__context__:
-            raise ComponentNotSetupException(
-                "attempted to access component context before setup() is called"
-            )
-
-        return self.__context__
-
-    @property
-    def config(self) -> ComponentConfig | None:
-        if self.__context__:
-            return self.__context__.config.get_component(self.context.path)
-
-        return None
+        return self.__component_context__
 
     @property
     def logger(self) -> Logger:
@@ -70,13 +63,10 @@ class Component(Generic[ComponentContextT], ABC):
         return get_reference_bindings(cls)
 
     async def handle(self, event: Event) -> None:
-        if not self.config:
-            return
-
         for binding in self.get_event_bindings():
             if not isinstance(event, cast(type, binding.cls)):
                 continue
-            if self.config.references.remap(binding.path) != event.path:
+            if self.context.references.remap(binding.path) != event.path:
                 continue
 
             if method := getattr(self, binding.method, None):
@@ -102,5 +92,20 @@ class Component(Generic[ComponentContextT], ABC):
             info=info or {},
         )
 
-        await self.context.unit.alert(alert)
+        # await self.context.unit.alert(alert)
         return alert
+
+
+ComponentInterface = Component[ComponentParameters, ComponentContext]
+
+
+class WithParameters(Generic[ComponentParametersT]):
+    @property
+    def parameters(self) -> ComponentParametersT:
+        return self.__component_parameters__  # type: ignore
+
+
+class WithContext(Generic[ComponentContextT]):
+    @property
+    def context(self) -> ComponentContextT:
+        return self.__component_context__  # type: ignore

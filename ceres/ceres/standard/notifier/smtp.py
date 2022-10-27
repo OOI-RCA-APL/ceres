@@ -9,13 +9,14 @@ import aiosmtplib
 from pydantic import SecretStr
 
 from ...alert import Alert
+from ...component import WithContext, WithParameters
 from ...config import UserConfig
-from ...internal.utilities import EmailStr, jsonify, show_td
-from ...notifier import Notifier
+from ...internal.utilities import EmailStr, jsonify
+from ...notifier import Notifier, NotifierContext, NotifierParameters
 
 
 @dataclass(kw_only=True, frozen=True)
-class SMTPNotifierParameters:
+class SMTPNotifierParameters(NotifierParameters):
     host: str
     port: int
     sender: EmailStr
@@ -27,22 +28,30 @@ class SMTPNotifierParameters:
     prefix: str | None = None
 
 
-class SMTPNotifier(Notifier):
-    def __init__(self, parameters: SMTPNotifierParameters) -> None:
-        super().__init__()
-        self._parameters = parameters
+@dataclass(kw_only=True, frozen=True)
+class SMTPNotifierContext(NotifierContext):
+    pass
 
-    @property
-    def parameters(self) -> SMTPNotifierParameters:
-        return self._parameters
+
+class SMTPNotifier(
+    WithParameters[SMTPNotifierParameters],
+    WithContext[SMTPNotifierContext],
+    Notifier,
+):
+    def __init__(
+        self,
+        parameters: SMTPNotifierParameters,
+        context: SMTPNotifierContext,
+    ) -> None:
+        super().__init__(parameters, context)
 
     async def send(self, users: Sequence[UserConfig], alerts: Sequence[Alert]) -> None:
         recipients = sorted(set(user.email.strip() for user in users if user.email.strip()))
 
         subject = f"{len(alerts)} alert(s) reported"
 
-        if self.config:
-            subject += f" in the last {show_td(self.config.lookback)}"
+        # if self.config:
+        #     subject += f" in the last {show_td(self.config.lookback)}"
         if self.parameters.prefix:
             subject = self.parameters.prefix + subject
 

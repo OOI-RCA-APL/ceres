@@ -91,9 +91,6 @@ class Container(ContainerContext):
 
         return result
 
-    # def _register(self, key: Key[T], provider: Provider[T]) -> None:
-    #     self._providers[key] = provider
-
 
 class ResolutionError(TypeError):
     def __init__(self, query: type):

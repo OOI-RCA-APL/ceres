@@ -20,8 +20,8 @@ from ..config import (
     NotifierConfig,
     UnitConfig,
 )
-from ..connection import Connection
-from ..driver import Driver
+from ..connection import Connection, ConnectionContext
+from ..driver import Driver, DriverContext
 from ..errors import (
     ComponentReferenceInvalidError,
     ConfigComponentError,
@@ -33,7 +33,7 @@ from ..errors import (
     ConfigValidationError,
     ValidationProblem,
 )
-from ..notifier import Notifier
+from ..notifier import Notifier, NotifierContext
 from ..path import ConnectionPath, DriverPath, NotifierPath, create_path
 from ..result import Fail, Ok, Result
 from .component import load_component
@@ -175,6 +175,7 @@ async def _check_components(
                     Connection,
                     connection_config.component,
                     connection_config.parameters,
+                    ConnectionContext(path=path),
                 ):
                     case Ok(connection):
                         loaded_connections.append((connection_config, connection))
@@ -192,6 +193,7 @@ async def _check_components(
                     Driver,
                     driver_config.component,
                     driver_config.parameters,
+                    DriverContext(path=path),
                 ):
                     case Ok(driver):
                         loaded_drivers.append((driver_config, driver))
@@ -209,6 +211,7 @@ async def _check_components(
                     Notifier,
                     notifier_config.component,
                     notifier_config.parameters,
+                    NotifierContext(path=path, users=config.users),
                 ):
                     case Ok(notifier):
                         loaded_notifiers.append((notifier_config, notifier))

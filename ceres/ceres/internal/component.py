@@ -30,15 +30,16 @@ from ..scheduler import Scheduler
 from . import logs
 from .database.manager import DatabaseManager
 from .tasks import Tasklet
-from .utilities import get_now, unwrap
+from .utilities import get_now, simplify, unwrap
 
-ComponentT = TypeVar("ComponentT", bound=Component)
+ComponentT = TypeVar("ComponentT", bound=Component, covariant=True)
 
 
 def load_component(
     cls: type[ComponentT],
     source: str | object,
     parameters: Mapping[str, Any],
+    context: ComponentContext,
 ) -> Result[ComponentT, ComponentError]:
     if not isinstance(source, str):
         if not isinstance(source, cls):
@@ -85,24 +86,19 @@ def load_component(
         )
 
     signature = inspect.signature(target_cls)
-    arguments: dict[str, Any] = {}
-
-    # If there is a component argument named "parameters", assign all parameters to it as a
-    # dictionary. This allows using constructor arguments or a dedicated "parameters" type.
-    if "parameters" in signature.parameters:
-        for name, value in parameters.items():
-            if name in signature.parameters:
-                arguments[name] = value
-
-        arguments["parameters"] = {**parameters}
-    else:
-        arguments = {**parameters}
-
     __init__ = validate_arguments(target_cls.__init__)
     instance = target_cls.__new__(target_cls)
 
+    args: list[Any] = []
+    args.append(instance)
+
+    if len(signature.parameters) > 0:
+        args.append(simplify(parameters))
+        if len(signature.parameters) > 1:
+            args.append(simplify(context))
+
     try:
-        __init__.validate(instance, **arguments)  # type: ignore
+        __init__.validate(*args)  # type: ignore
     except ValidationError as error:
         return Fail(
             ComponentParametersInvalidError(
@@ -112,7 +108,7 @@ def load_component(
         )
 
     try:
-        __init__(instance, **arguments)
+        __init__(*args)
     except Exception:
         return Fail(
             ComponentInitExceptionError(
@@ -137,8 +133,16 @@ class ComponentHandleContext:
             raise ValueError(f"component {self.path} is not defined in configuration")
 
 
-ComponentHandleContextT = TypeVar("ComponentHandleContextT", bound=ComponentHandleContext)
-ComponentContextT = TypeVar("ComponentContextT", bound=ComponentContext)
+ComponentHandleContextT = TypeVar(
+    "ComponentHandleContextT",
+    bound=ComponentHandleContext,
+    covariant=True,
+)
+ComponentContextT = TypeVar(
+    "ComponentContextT",
+    bound=ComponentContext,
+    covariant=True,
+)
 
 
 class ComponentHandle(
@@ -202,10 +206,10 @@ class ComponentHandle(
             self._get_component_type(),
             self.config.component,
             self.config.parameters,
+            self._get_component_context(),
         ):
             case Ok(instance):
                 self._instance = instance
-                instance.setup(self._get_component_context())
                 return Ok(instance)
             case fail:
                 return fail

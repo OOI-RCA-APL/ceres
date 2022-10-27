@@ -50,7 +50,7 @@ lint = { shell = "isort . --check --diff && black --check . && flake8 . && mypy 
 asyncio_mode = "auto"
 
 [tool.isort]
-add_imports = ["from __future__ import annotations"]
+# add_imports = ["from __future__ import annotations"]
 multi_line_output = 3
 profile = "black"
 

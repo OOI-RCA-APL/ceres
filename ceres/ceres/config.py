@@ -246,19 +246,32 @@ class UnitConfig(BaseConfigModel):
         drivers: dict[str, DriverConfig] = {
             current.name: current for current in fields.get("drivers", [])
         }
-        components: list[ComponentConfig] = [*connections.values(), *drivers.values()]
+        notifiers: dict[str, DriverConfig] = {
+            current.name: current for current in fields.get("notifiers", [])
+        }
+        components: list[ComponentConfig] = [
+            *connections.values(),
+            *drivers.values(),
+            *notifiers.values(),
+        ]
 
         for component in components:
-            for name in component.references.connections.values():
-                if name not in connections:
+            for connection_name in component.references.connections.values():
+                if connection_name not in connections:
                     raise ValueError(
-                        f"invalid reference, connection '{name}' does not exist in unit '{name}'"
+                        f"invalid reference, connection '{connection_name}' does not exist in unit '{name}'"
                     )
 
-            for name in component.references.drivers.values():
-                if name not in connections:
+            for driver_name in component.references.drivers.values():
+                if driver_name not in drivers:
                     raise ValueError(
-                        f"invalid reference, driver '{name}' does not exist in unit '{name}'"
+                        f"invalid reference, driver '{driver_name}' does not exist in unit '{name}'"
+                    )
+
+            for notifier_name in component.references.notifiers.values():
+                if notifier_name not in notifiers:
+                    raise ValueError(
+                        f"invalid reference, notifier '{notifier_name}' does not exist in unit '{name}'"
                     )
 
         return fields

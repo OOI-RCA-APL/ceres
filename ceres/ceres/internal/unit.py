@@ -251,8 +251,8 @@ class Unit(UnitProxyProtocol, GlobalUnitProtocol, Tasklet):
                 DriverHandleContext(
                     id=id,
                     path=path,
-                    unit=self,
                     config=self._context.config,
+                    unit=self,
                     database=self._database,
                 )
             )
@@ -284,8 +284,8 @@ class Unit(UnitProxyProtocol, GlobalUnitProtocol, Tasklet):
                 NotifierHandleContext(
                     id=id,
                     path=path,
-                    unit=self,
                     config=self._context.config,
+                    unit=self,
                     database=self._database,
                 )
             )

@@ -21,9 +21,9 @@ class UnitPath:
 
 @dataclass(frozen=True)
 class ConnectionPath:
-    kind: Literal["connection"] = field(default="connection", init=False)
     unit: str
     name: str
+    kind: Literal["connection"] = field(default="connection")
 
     def __str__(self) -> str:
         return f"@{self.unit}.connections.{self.name}"
@@ -31,9 +31,9 @@ class ConnectionPath:
 
 @dataclass(frozen=True)
 class DriverPath:
-    kind: Literal["driver"] = field(default="driver", init=False)
     unit: str
     name: str
+    kind: Literal["driver"] = field(default="driver")
 
     def __str__(self) -> str:
         return f"@{self.unit}.drivers.{self.name}"
@@ -41,9 +41,9 @@ class DriverPath:
 
 @dataclass(frozen=True)
 class NotifierPath:
-    kind: Literal["notifier"] = field(default="notifier", init=False)
     unit: str
     name: str
+    kind: Literal["notifier"] = field(default="notifier")
 
     def __str__(self) -> str:
         return f"@{self.unit}.notifiers.{self.name}"
@@ -58,7 +58,7 @@ Path = UnitPath | ComponentPath
 
 @dataclass(frozen=True)
 class LocalUnitPath:
-    kind: Literal["unit"] = field(default="unit", init=False)
+    kind: Literal["unit"] = field(default="unit")
 
     def __str__(self) -> str:
         return "."
@@ -66,8 +66,8 @@ class LocalUnitPath:
 
 @dataclass(frozen=True)
 class LocalConnectionPath:
-    kind: Literal["connection"] = field(default="connection", init=False)
     name: str
+    kind: Literal["connection"] = field(default="connection")
 
     def __str__(self) -> str:
         return f".connections.{self.name}"
@@ -75,8 +75,8 @@ class LocalConnectionPath:
 
 @dataclass(frozen=True)
 class LocalDriverPath:
-    kind: Literal["driver"] = field(default="driver", init=False)
     name: str
+    kind: Literal["driver"] = field(default="driver")
 
     def __str__(self) -> str:
         return f".drivers.{self.name}"
@@ -84,8 +84,8 @@ class LocalDriverPath:
 
 @dataclass(frozen=True)
 class LocalNotifierPath:
-    kind: Literal["notifier"] = field(default="notifier", init=False)
     name: str
+    kind: Literal["notifier"] = field(default="notifier")
 
     def __str__(self) -> str:
         return f".notifiers.{self.name}"

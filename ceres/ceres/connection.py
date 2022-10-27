@@ -1,13 +1,15 @@
-from __future__ import annotations
-
 from abc import ABC
 from dataclasses import dataclass
 
-from .component import Component, ComponentContext
-from .config import ConnectionConfig
+from .component import Component, ComponentContext, ComponentParameters
 from .path import ConnectionPath, LocalConnectionPath
 from .protocols import ReferencedConnectionHandle
 from .reference import Reference
+
+
+@dataclass(kw_only=True, frozen=True)
+class ConnectionParameters(ComponentParameters):
+    pass
 
 
 @dataclass(kw_only=True, frozen=True)
@@ -15,11 +17,7 @@ class ConnectionContext(ComponentContext):
     path: ConnectionPath
 
 
-class Connection(Component[ConnectionContext], ABC):
-    @property
-    def config(self) -> ConnectionConfig | None:
-        return super().config  # type: ignore
-
+class Connection(Component[ConnectionParameters, ConnectionContext], ABC):
     async def connect(self) -> bool:
         return True
 

@@ -5,16 +5,22 @@ from asyncio import StreamReader, StreamWriter, TimeoutError
 from dataclasses import dataclass
 from datetime import timedelta
 
-from ...connection import Connection
+from ...component import WithContext, WithParameters
+from ...connection import Connection, ConnectionContext, ConnectionParameters
 from ...exceptions import ConnectionInactiveException, ConnectionLostException
 
 
 @dataclass(kw_only=True, frozen=True)
-class TCPConnectionParameters:
+class TCPConnectionParameters(ConnectionParameters):
     host: str
     port: int
     timeout: timedelta = timedelta(seconds=5)
     separator: bytes = b"\r\n"
+
+
+@dataclass(kw_only=True, frozen=True)
+class TCPConnectionContext(ConnectionContext):
+    pass
 
 
 @dataclass(kw_only=True, frozen=True)
@@ -23,15 +29,18 @@ class _Stream:
     writer: StreamWriter
 
 
-class TCPConnection(Connection):
-    def __init__(self, parameters: TCPConnectionParameters) -> None:
-        super().__init__()
-        self._parameters = parameters
+class TCPConnection(
+    WithParameters[TCPConnectionParameters],
+    WithContext[TCPConnectionContext],
+    Connection,
+):
+    def __init__(
+        self,
+        parameters: TCPConnectionParameters,
+        context: ConnectionContext,
+    ) -> None:
+        super().__init__(parameters, context)
         self._stream: _Stream | None = None
-
-    @property
-    def parameters(self) -> TCPConnectionParameters:
-        return self._parameters
 
     async def connect(self) -> bool:
         if self._stream:

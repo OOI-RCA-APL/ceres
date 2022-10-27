@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -27,6 +25,12 @@ class ReceivedMessage:
     id: UUID
     timestamp: datetime
     content: bytes
+
+
+class ConnectionState(str, Enum):
+    DISCONNECTED = "disconnected"
+    CONNECTING = "connecting"
+    CONNECTED = "connected"
 
 
 class ReconnectScheduler:
@@ -58,7 +62,7 @@ class ConnectionHandleContext(ComponentHandleContext):
 
 
 class ConnectionHandle(
-    ComponentHandle[
+    ComponentHandle[  # type: ignore
         ConnectionHandleContext,
         Connection,
         ConnectionContext,
@@ -84,6 +88,10 @@ class ConnectionHandle(
         return super().config  # type: ignore
 
     @property
+    def instance(self) -> Connection | None:
+        return super().instance
+
+    @property
     def state(self) -> ConnectionState:
         return self._state
 
@@ -98,8 +106,7 @@ class ConnectionHandle(
         return ConnectionContext(
             id=self._context.id,
             path=self._context.path,
-            config=self._context.config,
-            unit=self._context.unit,
+            references=self.config.references,
         )
 
     async def connect(self) -> bool:
@@ -290,9 +297,3 @@ class ConnectionHandle(
             self._receive_buffer = [*messages, *self._receive_buffer]
         finally:
             self._is_flushing = False
-
-
-class ConnectionState(str, Enum):
-    DISCONNECTED = "disconnected"
-    CONNECTING = "connecting"
-    CONNECTED = "connected"

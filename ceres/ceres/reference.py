@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, Generic, Sequence, TypeVar, cast, overloa
 from .path import LocalComponentPath
 
 if TYPE_CHECKING:
-    from .component import Component, ComponentContext
+    from .component import ComponentInterface
 
 SelfT = TypeVar("SelfT", bound="Reference")
 TargetT = TypeVar("TargetT")
@@ -28,21 +28,18 @@ class Reference(Generic[TargetT]):
         ...
 
     @overload
-    def __get__(self: SelfT, component: Component[ComponentContext], owner: Any) -> TargetT:
+    def __get__(self: SelfT, component: ComponentInterface, owner: Any) -> TargetT:
         ...
 
     def __get__(
         self: SelfT,
-        component: Component[ComponentContext] | None,
+        component: ComponentInterface | None,
         owner: Any,
     ) -> SelfT | TargetT:
         if component is None:
             return self
 
-        if (
-            component.config is None
-            or (path := component.config.references.remap(self.path)) is None
-        ):
+        if (path := component.context.references.remap(self.path)) is None:
             raise ValueError(
                 f"{self.path.kind} '{self.name}' is not defined in {self.path.kind} references"
             )

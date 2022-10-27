@@ -15,7 +15,7 @@ class DriverHandleContext(ComponentHandleContext):
 
 
 class DriverHandle(
-    ComponentHandle[
+    ComponentHandle[  # type: ignore
         DriverHandleContext,
         Driver,
         DriverContext,
@@ -37,8 +37,7 @@ class DriverHandle(
         return DriverContext(
             id=self._context.id,
             path=self._context.path,
-            config=self._context.config,
-            unit=self._context.unit,
+            references=self.config.references,
         )
 
     async def _tasklet_run(self) -> None:
