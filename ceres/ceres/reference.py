@@ -4,7 +4,7 @@ import inspect
 from abc import abstractproperty
 from dataclasses import dataclass
 from functools import cache
-from typing import TYPE_CHECKING, Any, Generic, Sequence, TypeVar, cast, overload
+from typing import TYPE_CHECKING, Any, Generic, Sequence, TypeVar, overload
 
 from .path import LocalComponentPath
 
@@ -44,8 +44,8 @@ class Reference(Generic[TargetT]):
                 f"{self.path.kind} '{self.name}' is not defined in {self.path.kind} references"
             )
 
-        if target := component.context.unit.get_component(path):
-            return cast(TargetT, target)
+        # if target := component.context.unit.get_component(path):
+        #     return cast(TargetT, target)
 
         raise ValueError(f"no {path.kind} '{path.name}' in current unit")
 

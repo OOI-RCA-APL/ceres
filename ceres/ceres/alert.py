@@ -1,10 +1,12 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import field
 from datetime import datetime
 from enum import Enum
 from typing import Any, Literal, Protocol, runtime_checkable
 from uuid import UUID, uuid4
+
+from pydantic.dataclasses import dataclass
 
 from .internal.utilities import MaybeMapped
 

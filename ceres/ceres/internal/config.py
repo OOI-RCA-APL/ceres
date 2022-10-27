@@ -65,7 +65,7 @@ async def load_config(
 
     try:
         if isinstance(config, dict):
-            config = Config.parse_obj(config)
+            config = Config.from_data(config)
         elif isinstance(config, Path):
             try:
                 path = config.resolve()
@@ -99,8 +99,7 @@ async def load_config(
                     ]
                 )
 
-            config = Config.parse_obj(data)
-            config.__path__ = path
+            config = Config.from_data(data, path)
     except ValidationError as error:
         return Fail([ConfigValidationError(problems=ValidationProblem.extract(error))])
 
@@ -167,6 +166,7 @@ async def _check_components(
         loaded_components: list[tuple[ComponentConfig, Component]] = []
 
         def check_components() -> Iterable[ConfigComponentError]:
+            database = DatabaseManager(config.database)
             component_configs: list[ComponentConfig] = [
                 *unit_config.connections,
                 *unit_config.drivers,
@@ -199,6 +199,7 @@ async def _check_components(
                         component_config=component_config,
                         users=config.users,
                         units=config.units,
+                        database=database,
                     ),
                 ):
                     case Ok(component):

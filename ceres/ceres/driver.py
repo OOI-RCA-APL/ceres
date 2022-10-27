@@ -1,6 +1,7 @@
 import asyncio
 from abc import ABC
-from dataclasses import dataclass
+
+from pydantic.dataclasses import dataclass
 
 from .component import Component, ComponentContext, ComponentParameters
 from .path import DriverPath, LocalDriverPath

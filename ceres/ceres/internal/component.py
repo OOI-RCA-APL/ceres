@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 import importlib
 import inspect
@@ -12,7 +13,6 @@ from uuid import UUID
 
 from pydantic import ValidationError, validate_arguments
 
-from ..alert import Alert, AlertLevel, RawAlertLevel
 from ..component import (
     Component,
     ComponentContext,
@@ -33,11 +33,10 @@ from ..errors import (
 from ..path import ComponentPath
 from ..protocols import GlobalUnitProtocol
 from ..result import Fail, Ok, Result
-from ..scheduler import Scheduler
 from . import logs
 from .database.manager import DatabaseManager
 from .tasks import Tasklet
-from .utilities import get_now, object_has_field, unwrap
+from .utilities import hydrate, object_has_field, unwrap
 
 ComponentT = TypeVar("ComponentT", bound=Component, covariant=True)
 
@@ -93,8 +92,6 @@ def load_component(
         )
 
     signature = inspect.signature(target_cls)
-    __init__ = validate_arguments(target_cls.__init__)
-    instance = target_cls.__new__(target_cls)
 
     if len(signature.parameters) != 2:
         return Fail(
@@ -103,41 +100,55 @@ def load_component(
             )
         )
 
-    if not issubclass(target_cls.get_parameters_type(), ComponentParameters):
+    parameters_type = target_cls.get_parameters_type()
+    context_type = target_cls.get_context_type()
+
+    if not issubclass(parameters_type, ComponentParameters):
         return Fail(
             ComponentClassInvalidError(
                 message=f"first positional parameter of {target_cls.__init__} must be a subclass of {ComponentParameters}"
             )
         )
 
-    if not issubclass(target_cls.get_context_type(), ComponentContext):
+    if not issubclass(context_type, ComponentContext):
         return Fail(
             ComponentClassInvalidError(
                 message=f"second positional pararmeter {target_cls.__init__} must be a subclass of {ComponentContext}"
             )
         )
 
+    __init__ = validate_arguments(target_cls.__init__)
+    instance = target_cls.__new__(target_cls)
+
     arguments: list[Any] = []
     arguments.append(instance)
 
-    if len(signature.parameters) > 0:
-        arguments.append(parameters)
-        if len(signature.parameters) > 1:
-            context_type = target_cls.get_context_type()
-            context_data: dict[str, Any] = {}
+    try:
+        hydrated_parameters = hydrate(parameters_type, parameters)
+    except ValidationError as error:
+        return Fail(
+            ComponentParametersInvalidError(
+                message=f"invalid parameters for {target_cls}",
+                problems=ValidationProblem.extract(error),
+            )
+        )
 
-            for field in dataclasses.fields(context):
-                if object_has_field(context_type, field.name):
-                    context_data[field.name] = getattr(context, field.name)
+    arguments.append(hydrated_parameters)
 
-            arguments.append(context_type(**context_data))
+    context_arguments: dict[str, Any] = {}
+
+    for field in dataclasses.fields(context):
+        if object_has_field(context_type, field.name):
+            context_arguments[field.name] = getattr(context, field.name)
+
+    arguments.append(context_type(**context_arguments))
 
     try:
         __init__.validate(*arguments)  # type: ignore
     except ValidationError as error:
         return Fail(
             ComponentParametersInvalidError(
-                message=f"invalid parameters for {target_cls}",
+                message=f"invalid arguments for {target_cls}",
                 problems=ValidationProblem.extract(error),
             )
         )
@@ -192,7 +203,11 @@ class ComponentHandle(
     def __init__(self, context: ComponentHandleContextT) -> None:
         self._context = context
         self._instance: ComponentT | None = None
-        self._scheduler = Scheduler()
+
+    @classmethod
+    @abstractmethod
+    def _get_component_type(cls) -> type[ComponentT]:
+        raise NotImplementedError()
 
     @property
     def id(self) -> UUID:
@@ -211,23 +226,41 @@ class ComponentHandle(
         return self._instance
 
     @property
-    def scheduler(self) -> Scheduler:
-        return self._scheduler
-
-    @property
     def logger(self) -> Logger:
         return logs.get(str(self._context.path))
 
     async def _tasklet_run(self) -> None:
-        self._scheduler.start()
+        if not self._instance:
+            return
+
+        await asyncio.gather(
+            self._process_component(),
+            self._process_events(),
+            self._process_alerts(),
+        )
+
+    async def _process_component(self) -> None:
+        if self._instance:
+            await self._instance.run()
+
+    async def _process_events(self) -> None:
+        while True:
+            if self._instance:
+                async for event in self._instance.event_stream:
+                    await self._context.unit.handle_event(event)
+            else:
+                await asyncio.sleep(1)
+
+    async def _process_alerts(self) -> None:
+        while True:
+            if self._instance:
+                async for alert in self._instance.alert_stream:
+                    await self._context.unit.handle_alert(alert)
+            else:
+                await asyncio.sleep(1)
 
     async def _tasklet_stop(self) -> None:
-        self._scheduler.stop()
-
-    @classmethod
-    @abstractmethod
-    def _get_component_type(cls) -> type[ComponentT]:
-        raise NotImplementedError()
+        pass
 
     async def load(self) -> Result[ComponentT, ComponentError]:
         if self._instance:
@@ -246,6 +279,7 @@ class ComponentHandle(
                 component_config=self.config,
                 users=self._context.config.users,
                 units=self._context.config.units,
+                database=self._context.database,
             ),
         ):
             case Ok(instance):
@@ -253,20 +287,3 @@ class ComponentHandle(
                 return Ok(instance)
             case fail:
                 return fail
-
-    async def alert(
-        self,
-        level: AlertLevel | RawAlertLevel,
-        kind: str,
-        info: dict[str, Any] | None = None,
-    ) -> Alert:
-        alert = Alert(
-            origin_id=self._context.id,
-            timestamp=get_now(),
-            level=AlertLevel.create_from(level),
-            kind=kind,
-            info=info or {},
-        )
-
-        await self._context.unit.alert(alert)
-        return alert

@@ -15,12 +15,12 @@ from ...config import (
     PostgresDatabaseConfig,
     SQLiteDatabaseConfig,
 )
-from ..utilities import run_in_thread, unreachable
+from ..utilities import ValidateByType, run_in_thread, unreachable
 from .adapter import DatabaseAdapter
 from .entity import Entity, EntityManager
 
 
-class DatabaseManager:
+class DatabaseManager(ValidateByType):
     def __init__(self, config: DatabaseConfig) -> None:
         self._config = config
         self._adapter = self._create_adapter(config)

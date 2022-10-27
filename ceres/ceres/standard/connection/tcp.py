@@ -42,7 +42,7 @@ class TCPConnection(
         super().__init__(parameters, context)
         self._stream: _Stream | None = None
 
-    async def connect(self) -> bool:
+    async def try_connect(self) -> bool:
         if self._stream:
             return True
 
@@ -64,12 +64,12 @@ class TCPConnection(
 
         return True
 
-    async def disconnect(self) -> None:
+    async def try_disconnect(self) -> None:
         if self._stream:
             self._stream.writer.close()
             self._stream = None
 
-    async def send(self, data: bytes) -> None:
+    async def send_data(self, data: bytes) -> None:
         if not self._stream:
             raise ConnectionInactiveException("connection is not active")
 
@@ -82,7 +82,7 @@ class TCPConnection(
         except Exception:
             raise ConnectionLostException("connection was lost")
 
-    async def receive(self) -> bytes:
+    async def receive_data(self) -> bytes:
         if not self._stream:
             raise ConnectionInactiveException("connection is not active")
 

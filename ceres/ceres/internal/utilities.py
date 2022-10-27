@@ -20,6 +20,7 @@ from typing import (
     Callable,
     Iterable,
     Iterator,
+    Literal,
     MutableMapping,
     NoReturn,
     SupportsIndex,
@@ -29,6 +30,7 @@ from typing import (
     overload,
 )
 
+from apscheduler.triggers.cron import CronTrigger
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConstrainedStr, parse_obj_as
 from pydantic.json import pydantic_encoder
@@ -599,3 +601,46 @@ def __patch_frozenlist() -> None:
 
 
 __patch_frozenlist()
+
+
+@overload
+def validate_positive_timedelta(value: Any, *, nullable: Literal[False] = ...) -> timedelta:
+    ...
+
+
+@overload
+def validate_positive_timedelta(value: Any, *, nullable: Literal[True] = ...) -> timedelta | None:
+    ...
+
+
+def validate_positive_timedelta(value: Any, *, nullable: bool = False) -> timedelta | None:
+    if nullable and value is None:
+        return None
+
+    if (decoded := decode_td(value)) <= timedelta():
+        raise ValueError("must be greater than zero")
+
+    return decoded
+
+
+def validate_crontab(value: str) -> str:
+    try:
+        CronTrigger.from_crontab(value)
+    except Exception:
+        raise ValueError("invalid crontab expression")
+
+    return value
+
+
+class ValidateByType:
+    @classmethod
+    def __get_validators__(cls) -> Iterable[Any]:
+        if hasattr(super(), "__get_validators__"):
+            yield from super().__get_validators__()  # type: ignore
+
+        def validate_type(value: Any) -> Any:
+            if not isinstance(value, cls):
+                raise ValueError(f"must be an instance of {cls}")
+            return value
+
+        yield validate_type

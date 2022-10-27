@@ -122,17 +122,17 @@ class Unit(UnitProxyProtocol, GlobalUnitProtocol, Tasklet):
             case LocalNotifierPath():
                 return self._notifiers.get(path.name)
 
-    async def broadcast(self, event: Event) -> None:
+    async def handle_event(self, event: Event) -> None:
         for component in self.components:
             if component.instance:
                 try:
-                    await component.instance.handle(event)
+                    await component.instance.handle_event(event)
                 except Exception:
                     self.logger.error(
                         f"{component.path} raised exception while handling event {event}: {traceback.format_exc()}"
                     )
 
-    async def alert(self, alert: Alert) -> None:
+    async def handle_alert(self, alert: Alert) -> None:
         match alert.level:
             case AlertLevel.INFO:
                 log_level = INFO
@@ -201,9 +201,6 @@ class Unit(UnitProxyProtocol, GlobalUnitProtocol, Tasklet):
 
     async def _tasklet_stop(self) -> None:
         try:
-            for connection in self._connections.values():
-                await connection.disconnect()
-
             await self._database.dispose()
         finally:
             self._stopped.set()

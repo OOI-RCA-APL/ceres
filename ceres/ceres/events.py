@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import inspect
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from functools import cache
 from typing import (
@@ -15,55 +15,46 @@ from typing import (
     overload,
 )
 
+from .internal.utilities import get_now
 from .message import Message
 from .path import LocalComponentPath
 
-ConnectionEventKind = Literal[
-    "none", "connected", "disconnected", "message-sent", "message-received"
-]
-EventKind = ConnectionEventKind
-
 
 @dataclass(kw_only=True, frozen=True)
-class BaseEvent:
-    kind: EventKind = "none"
+class Event:
+    kind: str
     path: LocalComponentPath
+    timestamp: datetime = field(default_factory=get_now)
 
 
 @dataclass(kw_only=True, frozen=True)
-class ConnectedEvent(BaseEvent):
+class ConnectedEvent(Event):
     kind: Literal["connected"] = "connected"
-    timestamp: datetime
 
 
 @dataclass(kw_only=True, frozen=True)
-class DisconnectedEvent(BaseEvent):
+class DisconnectedEvent(Event):
     kind: Literal["disconnected"] = "disconnected"
-    timestamp: datetime
 
 
 @dataclass(kw_only=True, frozen=True)
-class MessageSentEvent(BaseEvent):
+class MessageSentEvent(Event):
     kind: Literal["message-sent"] = "message-sent"
     message: Message
 
 
 @dataclass(kw_only=True, frozen=True)
-class MessageReceivedEvent(BaseEvent):
+class MessageReceivedEvent(Event):
     kind: Literal["message-received"] = "message-received"
     message: Message
 
 
-ConnectionEvent = ConnectedEvent | DisconnectedEvent | MessageSentEvent | MessageReceivedEvent
-
-Event = ConnectionEvent
-
 if TYPE_CHECKING:
-    from .connection import ConnectionReference
+    from .reference import Reference
 
-    ListenSource = ConnectionReference
+    ListenSource = Reference[Any]
 
-EventT = TypeVar("EventT", bound=BaseEvent)
+EventT = TypeVar("EventT", bound=Event)
 
 EVENT_BINDINGS_ATTRIBUTE = "__event_bindings__"
 

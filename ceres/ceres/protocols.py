@@ -5,7 +5,6 @@ from uuid import UUID
 
 from .alert import Alert
 from .events import Event
-from .message import Message
 from .path import (
     ComponentPath,
     ConnectionPath,
@@ -48,9 +47,6 @@ class ReferencedConnectionHandle(ReferencedComponentHandle, Protocol):
     def instance(self) -> Connection | None:
         ...
 
-    async def send(self, data: bytes) -> Message:
-        ...
-
 
 @runtime_checkable
 class ReferencedDriverHandle(ReferencedComponentHandle, Protocol):
@@ -88,8 +84,8 @@ class GlobalUnitProtocol(Protocol):
     def get_component(self, path: LocalNotifierPath) -> ReferencedNotifierHandle | None:
         ...
 
-    async def broadcast(self, event: Event) -> None:
+    async def handle_event(self, event: Event) -> None:
         ...
 
-    async def alert(self, alert: Alert) -> None:
+    async def handle_alert(self, alert: Alert) -> None:
         ...

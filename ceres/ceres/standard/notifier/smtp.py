@@ -1,12 +1,10 @@
-from __future__ import annotations
-
-from dataclasses import dataclass
 from datetime import timedelta
 from email.message import EmailMessage
 from typing import Sequence
 
 import aiosmtplib
 from pydantic import SecretStr
+from pydantic.dataclasses import dataclass
 
 from ...alert import Alert
 from ...component import WithContext, WithParameters

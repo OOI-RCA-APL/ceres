@@ -1,29 +1,24 @@
 from __future__ import annotations
 
 import itertools
+import sys
+import warnings
+from dataclasses import field
 from datetime import timedelta
 from enum import Enum
 from pathlib import Path
-from typing import Annotated, Any, Literal, Mapping, Sequence, overload
+from typing import Any, Literal, Mapping, Sequence, overload
 
-from apscheduler.triggers.cron import CronTrigger
-from pydantic import (
-    BaseConfig,
-    BaseModel,
-    Field,
-    PrivateAttr,
-    SecretStr,
-    root_validator,
-    validator,
-)
+from pydantic import ConfigDict, Field, SecretStr, root_validator, validator
+from pydantic.dataclasses import dataclass
 
 from .internal.utilities import (
     EmailStr,
     NameStr,
-    decode_td,
-    encode_td,
     frozendict,
     frozenlist,
+    hydrate,
+    validate_positive_timedelta,
 )
 from .path import (
     ComponentPath,
@@ -39,19 +34,16 @@ from .path import (
 )
 
 
-class BaseConfigModel(BaseModel):
-    class Config(BaseConfig):
-        allow_mutation = False
-        arbitrary_types_allowed = True
-        json_encoders = {
-            timedelta: encode_td,
-        }
+@dataclass(kw_only=True, frozen=True)
+class BaseConfigObject:
+    pass
 
 
-class ComponentReferencesConfig(BaseConfigModel):
-    connections: frozendict[str, str] = frozendict()
-    drivers: frozendict[str, str] = frozendict()
-    notifiers: frozendict[str, str] = frozendict()
+@dataclass(kw_only=True, frozen=True)
+class ComponentReferencesConfig(BaseConfigObject):
+    connections: frozendict[str, str] = field(default_factory=frozendict)
+    drivers: frozendict[str, str] = field(default_factory=frozendict)
+    notifiers: frozendict[str, str] = field(default_factory=frozendict)
 
     def has(self, path: LocalComponentPath) -> bool:
         return self.remap(path) is not None
@@ -71,92 +63,32 @@ class ComponentReferencesConfig(BaseConfigModel):
         return create_local_path(path.kind, name)
 
 
-class ComponentConfig(BaseConfigModel):
+@dataclass(kw_only=True, frozen=True)
+class ComponentConfig(BaseConfigObject):
     kind: Literal["connection", "driver", "notifier"]
     name: NameStr
     component: str | object
-    parameters: frozendict[str, Any] = frozendict()
-    references: ComponentReferencesConfig = ComponentReferencesConfig()
+    parameters: frozendict[str, Any] = field(default_factory=frozendict)
+    references: ComponentReferencesConfig = field(default_factory=ComponentReferencesConfig)
 
 
-class ConnectionReconnectConfig(BaseConfigModel):
-    interval: timedelta = timedelta(seconds=1)
-    backoff: float | None = 2
-    max_interval: timedelta | None = timedelta(seconds=60)
-
-    @validator("interval", "max_interval", pre=True)
-    def _validate_timedeltas(cls, value: Any) -> timedelta:
-        return _validate_positive_timedelta(value)
-
-
+@dataclass(kw_only=True, frozen=True)
 class ConnectionConfig(ComponentConfig):
     kind: Literal["connection"] = "connection"
-    reconnect: ConnectionReconnectConfig = ConnectionReconnectConfig()
 
 
+@dataclass(kw_only=True, frozen=True)
 class DriverConfig(ComponentConfig):
     kind: Literal["driver"] = "driver"
 
 
-class ScheduleKind(str, Enum):
-    CRON = "cron"
-    INTERVAL = "interval"
-    AND = "and"
-    OR = "or"
-
-
-class BaseScheduleConfig(BaseConfigModel):
-    kind: ScheduleKind
-
-
-class CronScheduleConfig(BaseScheduleConfig):
-    kind: Literal[ScheduleKind.CRON] = ScheduleKind.CRON
-    crontab: str
-
-    @validator("crontab")
-    def _validate_crontab(cls, crontab: str) -> str:
-        return _validate_crontab(crontab)
-
-
-class IntervalScheduleConfig(BaseScheduleConfig):
-    kind: Literal[ScheduleKind.INTERVAL] = ScheduleKind.INTERVAL
-    interval: timedelta
-
-    @validator("interval", pre=True)
-    def _validate_timedeltas(cls, value: Any) -> timedelta:
-        return _validate_positive_timedelta(value)
-
-
-class AndScheduleConfig(BaseScheduleConfig):
-    kind: Literal[ScheduleKind.AND] = ScheduleKind.AND
-    schedules: frozenlist[ScheduleConfig]
-
-
-class OrScheduleConfig(BaseScheduleConfig):
-    kind: Literal[ScheduleKind.OR] = ScheduleKind.OR
-    schedules: frozenlist[ScheduleConfig]
-
-
-ScheduleConfig = Annotated[
-    CronScheduleConfig | IntervalScheduleConfig | AndScheduleConfig | OrScheduleConfig,
-    Field(discriminator="kind"),
-]
-
-AndScheduleConfig.update_forward_refs()
-OrScheduleConfig.update_forward_refs()
-
-
+@dataclass(kw_only=True, frozen=True)
 class NotifierConfig(ComponentConfig):
     kind: Literal["notifier"] = "notifier"
-    schedule: ScheduleConfig | None = None
-    lookback: timedelta
-
-    @validator("lookback", pre=True)
-    def _validate_timedeltas(cls, value: Any) -> timedelta:
-        return _validate_positive_timedelta(value)
 
 
-class ServerConfig(BaseConfigModel):
+@dataclass(kw_only=True, frozen=True)
+class ServerConfig(BaseConfigObject):
     port: int
     enable: bool = True
 
@@ -166,26 +98,30 @@ class DatabaseKind(str, Enum):
     POSTGRES = "postgres"
 
 
-class DatabaseRetryConfig(BaseConfigModel):
+@dataclass(kw_only=True, frozen=True)
+class DatabaseRetryConfig(BaseConfigObject):
     timeout: timedelta = timedelta(seconds=15)
     interval: timedelta = timedelta(seconds=3)
 
     @validator("timeout", "interval", pre=True)
     def _validate_timedeltas(cls, value: Any) -> timedelta:
-        return _validate_positive_timedelta(value)
+        return validate_positive_timedelta(value)
 
 
-class BaseDatabaseConfig(BaseConfigModel):
+@dataclass(kw_only=True, frozen=True)
+class BaseDatabaseConfig(BaseConfigObject):
     kind: DatabaseKind
     engine: frozendict[str, Any] | None = None
-    retry: DatabaseRetryConfig = DatabaseRetryConfig()
+    retry: DatabaseRetryConfig = field(default_factory=DatabaseRetryConfig)
 
 
+@dataclass(kw_only=True, frozen=True)
 class SQLiteDatabaseConfig(BaseDatabaseConfig):
     kind: Literal[DatabaseKind.SQLITE] = DatabaseKind.SQLITE
     path: Path
 
 
+@dataclass(kw_only=True, frozen=True)
 class PostgresDatabaseConfig(BaseDatabaseConfig):
     kind: Literal[DatabaseKind.POSTGRES] = DatabaseKind.POSTGRES
     host: str
@@ -195,17 +131,15 @@ class PostgresDatabaseConfig(BaseDatabaseConfig):
     password: SecretStr
 
 
-DatabaseConfig = Annotated[
-    SQLiteDatabaseConfig | PostgresDatabaseConfig,
-    Field(discriminator="kind"),
-]
+DatabaseConfig = SQLiteDatabaseConfig | PostgresDatabaseConfig
 
 
-class UnitConfig(BaseConfigModel):
+@dataclass(kw_only=True, frozen=True)
+class UnitConfig(BaseConfigObject):
     name: NameStr
-    connections: frozenlist[ConnectionConfig] = frozenlist()
-    drivers: frozenlist[DriverConfig] = frozenlist()
-    notifiers: frozenlist[NotifierConfig] = frozenlist()
+    connections: frozenlist[ConnectionConfig] = field(default_factory=frozenlist)
+    drivers: frozenlist[DriverConfig] = field(default_factory=frozenlist)
+    notifiers: frozenlist[NotifierConfig] = field(default_factory=frozenlist)
 
     @validator("connections")
     def _validate_connections(
@@ -280,24 +214,40 @@ class UnitConfig(BaseConfigModel):
         return fields
 
 
-class UserConfig(BaseConfigModel):
+@dataclass(kw_only=True, frozen=True)
+class UserConfig(BaseConfigObject):
     username: NameStr
     email: EmailStr
-    meta: frozendict[str, Any] = frozendict()
+    meta: frozendict[str, Any] = field(default_factory=frozendict)
 
 
-class Config(BaseConfigModel):
+warnings.filterwarnings(
+    action="ignore",
+    message="fields may not start with an underscore",
+    category=RuntimeWarning,
+    module=sys.modules[__name__].__name__,
+)
+
+
+@dataclass(kw_only=True, frozen=True, config=ConfigDict(underscore_attrs_are_private=True))
+class Config(BaseConfigObject):
     server: ServerConfig
-    database: DatabaseConfig
-    users: frozenlist[UserConfig] = frozenlist()
-    units: frozenlist[UnitConfig] = frozenlist()
+    database: DatabaseConfig = Field(discriminator="kind")
+    users: frozenlist[UserConfig] = field(default_factory=frozenlist)
+    units: frozenlist[UnitConfig] = field(default_factory=frozenlist)
 
-    __path__: Path | None = PrivateAttr(default=None)
-    __component_path_cache__: dict[ComponentPath, ComponentConfig] = PrivateAttr(default={})
+    _path: Path | None = None
+    _component_path_cache: dict[ComponentPath, ComponentConfig] = field(default_factory=dict)
+
+    @classmethod
+    def from_data(cls, data: Any, path: Path | None = None) -> Config:
+        instance = hydrate(cls, data)
+        object.__setattr__(instance, "__path__", path)
+        return instance
 
     @property
     def path(self) -> Path | None:
-        return self.__path__
+        return self._path
 
     @validator("units")
     def _validate_units(cls, units: list[UnitConfig]) -> list[UnitConfig]:
@@ -326,8 +276,8 @@ class Config(BaseConfigModel):
         ...
 
     def get_component(self, path: ComponentPath) -> ComponentConfig | None:
-        if path in self.__component_path_cache__:
-            return self.__component_path_cache__[path]
+        if path in self._component_path_cache:
+            return self._component_path_cache[path]
 
         component: ComponentConfig | None = None
 
@@ -347,22 +297,6 @@ class Config(BaseConfigModel):
                     )
 
         if component:
-            self.__component_path_cache__[path] = component
+            self._component_path_cache[path] = component
 
         return component
-
-
-def _validate_positive_timedelta(value: Any) -> timedelta:
-    if (decoded := decode_td(value)) <= timedelta():
-        raise ValueError("must be greater than zero")
-
-    return decoded
-
-
-def _validate_crontab(value: str) -> str:
-    try:
-        CronTrigger.from_crontab(value)
-    except Exception:
-        raise ValueError("invalid crontab expression")
-
-    return value

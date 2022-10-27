@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from enum import Enum
 from typing import Literal
 
 from pydantic import ValidationError
+from pydantic.dataclasses import dataclass
 
 from .path import ComponentPath, LocalComponentPath
 
