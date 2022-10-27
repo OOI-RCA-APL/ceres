@@ -18,6 +18,13 @@ class ConnectionContext(ComponentContext):
 
 
 class Connection(Component[ConnectionParameters, ConnectionContext], ABC):
+    def __init__(
+        self,
+        parameters: ConnectionParameters,
+        context: ConnectionContext,
+    ) -> None:
+        super().__init__(parameters, context)
+
     async def connect(self) -> bool:
         return True
 

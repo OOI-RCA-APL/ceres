@@ -12,7 +12,7 @@ from uuid import UUID
 from pydantic import ValidationError, validate_arguments
 
 from ..alert import Alert, AlertLevel, RawAlertLevel
-from ..component import Component, ComponentContext
+from ..component import Component, ComponentContext, FullComponentContext
 from ..config import ComponentConfig, Config
 from ..errors import (
     ComponentClassInvalidError,
@@ -30,7 +30,7 @@ from ..scheduler import Scheduler
 from . import logs
 from .database.manager import DatabaseManager
 from .tasks import Tasklet
-from .utilities import get_now, simplify, unwrap
+from .utilities import object_has_field, get_now, simplify, unwrap
 
 ComponentT = TypeVar("ComponentT", bound=Component, covariant=True)
 
@@ -39,7 +39,7 @@ def load_component(
     cls: type[ComponentT],
     source: str | object,
     parameters: Mapping[str, Any],
-    context: ComponentContext,
+    context: FullComponentContext,
 ) -> Result[ComponentT, ComponentError]:
     if not isinstance(source, str):
         if not isinstance(source, cls):
@@ -95,7 +95,14 @@ def load_component(
     if len(signature.parameters) > 0:
         args.append(simplify(parameters))
         if len(signature.parameters) > 1:
-            args.append(simplify(context))
+            context_type = target_cls.get_context_type()
+            context_data: dict[str, Any] = simplify(context)
+
+            for key in list(context_data.keys()):
+                if not object_has_field(context_type, key):
+                    context_data.pop(key, None)
+
+            args.append(context_data)
 
     try:
         __init__.validate(*args)  # type: ignore
@@ -194,10 +201,6 @@ class ComponentHandle(
     def _get_component_type(cls) -> type[ComponentT]:
         raise NotImplementedError()
 
-    @abstractmethod
-    def _get_component_context(self) -> ComponentContextT:
-        raise NotImplementedError()
-
     async def load(self) -> Result[ComponentT, ComponentError]:
         if self._instance:
             return Ok(self._instance)
@@ -206,7 +209,16 @@ class ComponentHandle(
             self._get_component_type(),
             self.config.component,
             self.config.parameters,
-            self._get_component_context(),
+            FullComponentContext(
+                id=self._context.id,
+                path=self._context.path,
+                references=self.config.references,
+                root_config=self._context.config,
+                unit_config=unwrap(self._context.config.get_unit(self._context.path.unit)),
+                component_config=self.config,
+                users=self._context.config.users,
+                units=self._context.config.units,
+            ),
         ):
             case Ok(instance):
                 self._instance = instance

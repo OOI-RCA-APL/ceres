@@ -24,6 +24,13 @@ class NotifierContext(ComponentContext):
 
 
 class Notifier(Component[NotifierParameters, NotifierContext], ABC):
+    def __init__(
+        self,
+        parameters: NotifierParameters,
+        context: NotifierContext,
+    ) -> None:
+        super().__init__(parameters, context)
+
     async def send(self, users: Sequence[UserConfig], alerts: Sequence[Alert]) -> None:
         raise NotImplementedError()
 

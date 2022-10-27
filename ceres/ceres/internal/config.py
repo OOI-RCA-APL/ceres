@@ -6,12 +6,13 @@ from enum import Enum
 from logging import Logger
 from pathlib import Path
 from typing import Any, Callable, Iterable, Sequence
+from uuid import uuid4
 
 import yaml
 from pydantic import ValidationError
 from yaml import MarkedYAMLError, YAMLError
 
-from ..component import Component
+from ..component import Component, FullComponentContext
 from ..config import (
     ComponentConfig,
     Config,
@@ -20,8 +21,8 @@ from ..config import (
     NotifierConfig,
     UnitConfig,
 )
-from ..connection import Connection, ConnectionContext
-from ..driver import Driver, DriverContext
+from ..connection import Connection
+from ..driver import Driver
 from ..errors import (
     ComponentReferenceInvalidError,
     ConfigComponentError,
@@ -33,12 +34,12 @@ from ..errors import (
     ConfigValidationError,
     ValidationProblem,
 )
-from ..notifier import Notifier, NotifierContext
-from ..path import ConnectionPath, DriverPath, NotifierPath, create_path
+from ..notifier import Notifier
+from ..path import create_path
 from ..result import Fail, Ok, Result
 from .component import load_component
 from .database.manager import DatabaseManager
-from .utilities import get_now, show_td
+from .utilities import get_now, show_td, unreachable
 
 
 class ConfigCheckKind(str, Enum):
@@ -163,58 +164,45 @@ async def _check_components(
     log("Checking component configurations...")
 
     def check_unit_config(unit_config: UnitConfig) -> Iterable[ConfigComponentError]:
-        loaded_connections: list[tuple[ConnectionConfig, Connection]] = []
-        loaded_drivers: list[tuple[DriverConfig, Driver]] = []
-        loaded_notifiers: list[tuple[NotifierConfig, Notifier]] = []
+        loaded_components: list[tuple[ComponentConfig, Component]] = []
 
-        def check_connections() -> Iterable[ConfigComponentError]:
-            for connection_config in unit_config.connections:
-                path = ConnectionPath(unit_config.name, connection_config.name)
+        def check_components() -> Iterable[ConfigComponentError]:
+            component_configs: list[ComponentConfig] = [
+                *unit_config.connections,
+                *unit_config.drivers,
+                *unit_config.notifiers,
+            ]
+
+            for component_config in component_configs:
+                match component_config:
+                    case ConnectionConfig():
+                        cls: type[Component] = Connection
+                    case DriverConfig():
+                        cls = Driver
+                    case NotifierConfig():
+                        cls = Notifier
+                    case _:
+                        unreachable()
+
+                path = create_path(component_config.kind, unit_config.name, component_config.name)
                 log(f"Checking component '{path}'...")
                 match load_component(
-                    Connection,
-                    connection_config.component,
-                    connection_config.parameters,
-                    ConnectionContext(path=path),
+                    cls,
+                    component_config.component,
+                    component_config.parameters,
+                    FullComponentContext(
+                        id=uuid4(),
+                        path=path,
+                        references=component_config.references,
+                        root_config=config,
+                        unit_config=unit_config,
+                        component_config=component_config,
+                        users=config.users,
+                        units=config.units,
+                    ),
                 ):
-                    case Ok(connection):
-                        loaded_connections.append((connection_config, connection))
-                    case Fail(error):
-                        yield ConfigComponentError(
-                            component=path,
-                            error=error,
-                        )
-
-        def check_drivers() -> Iterable[ConfigComponentError]:
-            for driver_config in unit_config.drivers:
-                path = DriverPath(unit_config.name, driver_config.name)
-                log(f"Checking component '{path}'...")
-                match load_component(
-                    Driver,
-                    driver_config.component,
-                    driver_config.parameters,
-                    DriverContext(path=path),
-                ):
-                    case Ok(driver):
-                        loaded_drivers.append((driver_config, driver))
-                    case Fail(error):
-                        yield ConfigComponentError(
-                            component=path,
-                            error=error,
-                        )
-
-        def check_notifiers() -> Iterable[ConfigComponentError]:
-            for notifier_config in unit_config.notifiers:
-                path = NotifierPath(unit_config.name, notifier_config.name)
-                log(f"Checking component '{path}'...")
-                match load_component(
-                    Notifier,
-                    notifier_config.component,
-                    notifier_config.parameters,
-                    NotifierContext(path=path, users=config.users),
-                ):
-                    case Ok(notifier):
-                        loaded_notifiers.append((notifier_config, notifier))
+                    case Ok(component):
+                        loaded_components.append((component_config, component))
                     case Fail(error):
                         yield ConfigComponentError(
                             component=path,
@@ -222,12 +210,6 @@ async def _check_components(
                         )
 
         def check_references() -> Iterable[ConfigComponentError]:
-            loaded_components: list[tuple[ComponentConfig, Component]] = [
-                *loaded_connections,
-                *loaded_drivers,
-                *loaded_notifiers,
-            ]
-
             for component_config, component in loaded_components:
                 for binding in component.get_reference_bindings():
                     if not component_config.references.has(binding.path):
@@ -246,9 +228,7 @@ async def _check_components(
                         )
 
         return [
-            *check_connections(),
-            *check_drivers(),
-            *check_notifiers(),
+            *check_components(),
             *check_references(),
         ]
 

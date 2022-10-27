@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import inspect
 import json
 import re
@@ -11,6 +12,7 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 from functools import wraps
+from types import UnionType
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -28,7 +30,7 @@ from typing import (
 )
 
 from fastapi.concurrency import run_in_threadpool
-from pydantic import ConstrainedStr, parse_obj_as
+from pydantic import BaseModel, ConstrainedStr, parse_obj_as
 from pydantic.json import pydantic_encoder
 from sqlalchemy.orm import Mapped
 
@@ -239,6 +241,37 @@ class EmailStr(ConstrainedStr):
 
 class NonEmptyStr(ConstrainedStr):
     regex = re.compile(r".+")
+
+
+def issubtype(value: Any, type_: type | UnionType) -> bool:
+    try:
+        if value == type_:
+            return True
+        if isinstance(value, type) and isinstance(type_, type):
+            return issubclass(value, type_)
+        if isinstance(type_, UnionType):
+            for arg in type_.__args__:
+                if issubtype(value, arg):
+                    return True
+    except Exception:
+        pass
+
+    return False
+
+
+def object_has_field(obj: Any, name: str, type: Any = None) -> bool:
+    if dataclasses.is_dataclass(obj):
+        return any(
+            field.name == name and (type is None or issubtype(field.type, type))
+            for field in dataclasses.fields(obj)
+        )
+    if isinstance(obj, BaseModel) or issubclass(obj, BaseModel):
+        return any(
+            field.name == name and (type is None or issubtype(field.type, type))
+            for field in obj.__fields__.values()
+        )
+
+    return False
 
 
 KeyT = TypeVar("KeyT")

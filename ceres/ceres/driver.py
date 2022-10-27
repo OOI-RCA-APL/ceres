@@ -19,6 +19,13 @@ class DriverContext(ComponentContext):
 
 
 class Driver(Component[DriverParameters, DriverContext], ABC):
+    def __init__(
+        self,
+        parameters: DriverParameters,
+        context: DriverContext,
+    ) -> None:
+        super().__init__(parameters, context)
+
     async def update(self) -> None:
         await asyncio.sleep(1)
 

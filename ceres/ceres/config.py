@@ -72,6 +72,7 @@ class ComponentReferencesConfig(BaseConfigModel):
 
 
 class ComponentConfig(BaseConfigModel):
+    kind: Literal["connection", "driver", "notifier"]
     name: NameStr
     component: str | object
     parameters: frozendict[str, Any] = frozendict()
@@ -89,11 +90,12 @@ class ConnectionReconnectConfig(BaseConfigModel):
 
 
 class ConnectionConfig(ComponentConfig):
+    kind: Literal["connection"] = "connection"
     reconnect: ConnectionReconnectConfig = ConnectionReconnectConfig()
 
 
 class DriverConfig(ComponentConfig):
-    pass
+    kind: Literal["driver"] = "driver"
 
 
 class ScheduleKind(str, Enum):
@@ -145,6 +147,7 @@ OrScheduleConfig.update_forward_refs()
 
 
 class NotifierConfig(ComponentConfig):
+    kind: Literal["notifier"] = "notifier"
     schedule: ScheduleConfig | None = None
     lookback: timedelta
 

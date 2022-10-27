@@ -22,7 +22,7 @@ class NotifierHandleContext(ComponentHandleContext):
 
 
 class NotifierHandle(
-    ComponentHandle[  # type: ignore
+    ComponentHandle[
         NotifierHandleContext,
         Notifier,
         NotifierContext,
@@ -39,14 +39,6 @@ class NotifierHandle(
 
     def _get_component_type(self) -> type[Notifier]:  # type: ignore
         return Notifier
-
-    def _get_component_context(self) -> NotifierContext:
-        return NotifierContext(
-            id=self._context.id,
-            path=self._context.path,
-            references=self.config.references,
-            users=self._context.config.users,
-        )
 
     async def notify(self) -> None:
         users = self._context.config.users

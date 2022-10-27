@@ -62,7 +62,7 @@ class ConnectionHandleContext(ComponentHandleContext):
 
 
 class ConnectionHandle(
-    ComponentHandle[  # type: ignore
+    ComponentHandle[
         ConnectionHandleContext,
         Connection,
         ConnectionContext,
@@ -101,13 +101,6 @@ class ConnectionHandle(
 
     def _get_component_type(self) -> type[Connection]:  # type: ignore
         return Connection
-
-    def _get_component_context(self) -> ConnectionContext:
-        return ConnectionContext(
-            id=self._context.id,
-            path=self._context.path,
-            references=self.config.references,
-        )
 
     async def connect(self) -> bool:
         if not self._instance:
