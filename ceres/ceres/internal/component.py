@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import importlib
 import inspect
 import traceback
@@ -12,10 +13,16 @@ from uuid import UUID
 from pydantic import ValidationError, validate_arguments
 
 from ..alert import Alert, AlertLevel, RawAlertLevel
-from ..component import Component, ComponentContext, FullComponentContext
+from ..component import (
+    Component,
+    ComponentContext,
+    ComponentParameters,
+    FullComponentContext,
+)
 from ..config import ComponentConfig, Config
 from ..errors import (
     ComponentClassInvalidError,
+    ComponentClassNotFoundError,
     ComponentError,
     ComponentInitExceptionError,
     ComponentModuleExceptionError,
@@ -30,7 +37,7 @@ from ..scheduler import Scheduler
 from . import logs
 from .database.manager import DatabaseManager
 from .tasks import Tasklet
-from .utilities import object_has_field, get_now, simplify, unwrap
+from .utilities import get_now, object_has_field, unwrap
 
 ComponentT = TypeVar("ComponentT", bound=Component, covariant=True)
 
@@ -80,7 +87,7 @@ def load_component(
 
     if target_cls is None:
         return Fail(
-            ComponentClassInvalidError(
+            ComponentClassNotFoundError(
                 message=f"component module {module} must contain class a non-abstract subclass of {cls}"
             )
         )
@@ -89,23 +96,44 @@ def load_component(
     __init__ = validate_arguments(target_cls.__init__)
     instance = target_cls.__new__(target_cls)
 
-    args: list[Any] = []
-    args.append(instance)
+    if len(signature.parameters) != 2:
+        return Fail(
+            ComponentClassInvalidError(
+                message=f"{target_cls.__init__} must match signature: def __init__{inspect.signature(Component.__init__)}"
+            )
+        )
+
+    if not issubclass(target_cls.get_parameters_type(), ComponentParameters):
+        return Fail(
+            ComponentClassInvalidError(
+                message=f"first positional parameter of {target_cls.__init__} must be a subclass of {ComponentParameters}"
+            )
+        )
+
+    if not issubclass(target_cls.get_context_type(), ComponentContext):
+        return Fail(
+            ComponentClassInvalidError(
+                message=f"second positional pararmeter {target_cls.__init__} must be a subclass of {ComponentContext}"
+            )
+        )
+
+    arguments: list[Any] = []
+    arguments.append(instance)
 
     if len(signature.parameters) > 0:
-        args.append(simplify(parameters))
+        arguments.append(parameters)
         if len(signature.parameters) > 1:
             context_type = target_cls.get_context_type()
-            context_data: dict[str, Any] = simplify(context)
+            context_data: dict[str, Any] = {}
 
-            for key in list(context_data.keys()):
-                if not object_has_field(context_type, key):
-                    context_data.pop(key, None)
+            for field in dataclasses.fields(context):
+                if object_has_field(context_type, field.name):
+                    context_data[field.name] = getattr(context, field.name)
 
-            args.append(context_data)
+            arguments.append(context_type(**context_data))
 
     try:
-        __init__.validate(*args)  # type: ignore
+        __init__.validate(*arguments)  # type: ignore
     except ValidationError as error:
         return Fail(
             ComponentParametersInvalidError(
@@ -115,7 +143,7 @@ def load_component(
         )
 
     try:
-        __init__(*args)
+        __init__(*arguments)
     except Exception:
         return Fail(
             ComponentInitExceptionError(

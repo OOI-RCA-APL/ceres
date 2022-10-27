@@ -37,7 +37,7 @@ class TCPConnection(
     def __init__(
         self,
         parameters: TCPConnectionParameters,
-        context: ConnectionContext,
+        context: TCPConnectionContext,
     ) -> None:
         super().__init__(parameters, context)
         self._stream: _Stream | None = None

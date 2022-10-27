@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from logging import Logger
 from typing import Any, Generic, Sequence, TypeVar, cast, get_type_hints
 from uuid import UUID, uuid4
+from asyncio import Queue as AsyncQueue
 
 from .alert import Alert, AlertLevel, RawAlertLevel
 from .config import (
@@ -63,6 +64,12 @@ class FullComponentContext(ComponentContext):
 ComponentContextT = TypeVar("ComponentContextT", bound=ComponentContext)
 
 
+@dataclass(kw_only=True)
+class ComponentInteral:
+    event_queue: AsyncQueue[Event] = AsyncQueue()
+    alert_queue: AsyncQueue[Alert] = AsyncQueue()
+
+
 class Component(Generic[ComponentParametersT, ComponentContextT], ABC):
     def __init__(
         self,
@@ -71,6 +78,7 @@ class Component(Generic[ComponentParametersT, ComponentContextT], ABC):
     ) -> None:
         self.__component_parameters__ = parameters
         self.__component_context__ = context
+        self.__component_internal__ = ComponentInteral()
 
     @classmethod
     def get_parameters_type(cls) -> type[ComponentParameters]:
