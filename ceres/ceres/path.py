@@ -3,13 +3,13 @@ from __future__ import annotations
 from dataclasses import field
 from typing import Literal, overload
 
-from pydantic.dataclasses import dataclass
+from pydantic.dataclasses import dataclass as validated_dataclass
 
 
-@dataclass(frozen=True)
+@validated_dataclass(frozen=True)
 class UnitPath:
-    kind: Literal["unit"] = field(default="unit", init=False)
     name: str
+    kind: Literal["unit"] = field(default="unit", init=False)
 
     def __str__(self) -> str:
         return f"@{self.name}"
@@ -19,7 +19,7 @@ class UnitPath:
         return self.name
 
 
-@dataclass(frozen=True)
+@validated_dataclass(frozen=True)
 class ConnectionPath:
     unit: str
     name: str
@@ -29,7 +29,7 @@ class ConnectionPath:
         return f"@{self.unit}.connections.{self.name}"
 
 
-@dataclass(frozen=True)
+@validated_dataclass(frozen=True)
 class DriverPath:
     unit: str
     name: str
@@ -39,7 +39,7 @@ class DriverPath:
         return f"@{self.unit}.drivers.{self.name}"
 
 
-@dataclass(frozen=True)
+@validated_dataclass(frozen=True)
 class NotifierPath:
     unit: str
     name: str
@@ -56,7 +56,7 @@ PathKind = Literal["unit"] | ComponentPathKind  # type: ignore
 Path = UnitPath | ComponentPath
 
 
-@dataclass(frozen=True)
+@validated_dataclass(frozen=True)
 class LocalUnitPath:
     kind: Literal["unit"] = field(default="unit")
 
@@ -64,7 +64,7 @@ class LocalUnitPath:
         return "."
 
 
-@dataclass(frozen=True)
+@validated_dataclass(frozen=True)
 class LocalConnectionPath:
     name: str
     kind: Literal["connection"] = field(default="connection")
@@ -73,7 +73,7 @@ class LocalConnectionPath:
         return f".connections.{self.name}"
 
 
-@dataclass(frozen=True)
+@validated_dataclass(frozen=True)
 class LocalDriverPath:
     name: str
     kind: Literal["driver"] = field(default="driver")
@@ -82,7 +82,7 @@ class LocalDriverPath:
         return f".drivers.{self.name}"
 
 
-@dataclass(frozen=True)
+@validated_dataclass(frozen=True)
 class LocalNotifierPath:
     name: str
     kind: Literal["notifier"] = field(default="notifier")

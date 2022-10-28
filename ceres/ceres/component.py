@@ -8,7 +8,7 @@ from logging import Logger
 from typing import Any, AsyncIterable, Generic, Sequence, TypeVar, cast, get_type_hints
 from uuid import UUID, uuid4
 
-import pydantic.dataclasses
+from pydantic.dataclasses import dataclass as validated_dataclass
 
 from .alert import Alert, AlertLevel, RawAlertLevel
 from .config import (
@@ -28,7 +28,7 @@ from .reference import ReferenceBinding, get_reference_bindings
 from .scheduler import Scheduler
 
 
-@pydantic.dataclasses.dataclass(kw_only=True, frozen=True)
+@validated_dataclass(kw_only=True, frozen=True)
 class ComponentParameters:
     pass
 
@@ -36,7 +36,7 @@ class ComponentParameters:
 ComponentParametersT = TypeVar("ComponentParametersT", bound=ComponentParameters)
 
 
-@pydantic.dataclasses.dataclass(kw_only=True, frozen=True)
+@validated_dataclass(kw_only=True, frozen=True)
 class ComponentContext:
     id: UUID = field(default_factory=uuid4)
     path: ComponentPath
@@ -57,7 +57,7 @@ class ComponentContext:
             raise ValueError(f"invalid context class, cannot provide fields: {extra}")
 
 
-@pydantic.dataclasses.dataclass(kw_only=True, frozen=True)
+@validated_dataclass(kw_only=True, frozen=True)
 class FullComponentContext(ComponentContext):
     id: UUID
     root_config: Config

@@ -5,7 +5,7 @@ from datetime import timedelta
 from typing import Any, Sequence
 
 from pydantic import Field, validator
-from pydantic.dataclasses import dataclass
+from pydantic.dataclasses import dataclass as validated_dataclass
 from sqlalchemy import select
 
 from .alert import Alert
@@ -25,7 +25,7 @@ from .reference import Reference
 from .schedule import Schedule
 
 
-@dataclass(kw_only=True, frozen=True)
+@validated_dataclass(kw_only=True, frozen=True)
 class NotifierParameters(ComponentParameters):
     schedule: Schedule | None = Field(default=None, discriminator="kind")
     lookback: timedelta
@@ -35,7 +35,7 @@ class NotifierParameters(ComponentParameters):
         return validate_positive_timedelta(value)
 
 
-@dataclass(kw_only=True, frozen=True)
+@validated_dataclass(kw_only=True, frozen=True)
 class NotifierContext(ComponentContext):
     path: NotifierPath
     users: frozenlist[UserConfig] = field(default_factory=frozenlist)
@@ -68,16 +68,14 @@ class Notifier(Component[NotifierParameters, NotifierContext], ABC):
             ]
 
         self.logger.info(
-            f"{len(alerts)} alert(s) were emitted in the last {encode_td(lookback)}...",
+            f"{len(alerts)} alert(s) were reported in the last {encode_td(lookback)}...",
         )
 
         if not users:
             self.logger.warning("No users exist to send notifications to.")
             return
 
-        self.logger.info(f"Sending email notification to {len(users)} user(s).")
         await self.send(self.context.users, alerts)
-        self.logger.info("Email notification sent successfully.")
 
     async def _tasklet_run(self) -> None:
         await super()._tasklet_run()

@@ -1,16 +1,18 @@
 from __future__ import annotations
 
 import asyncio
-from asyncio import StreamReader, StreamWriter, TimeoutError
+from asyncio import StreamReader, StreamWriter
 from dataclasses import dataclass
 from datetime import timedelta
+
+from pydantic.dataclasses import dataclass as validated_dataclass
 
 from ...component import WithContext, WithParameters
 from ...connection import Connection, ConnectionContext, ConnectionParameters
 from ...exceptions import ConnectionInactiveException, ConnectionLostException
 
 
-@dataclass(kw_only=True, frozen=True)
+@validated_dataclass(kw_only=True, frozen=True)
 class TCPConnectionParameters(ConnectionParameters):
     host: str
     port: int
@@ -18,7 +20,7 @@ class TCPConnectionParameters(ConnectionParameters):
     separator: bytes = b"\r\n"
 
 
-@dataclass(kw_only=True, frozen=True)
+@validated_dataclass(kw_only=True, frozen=True)
 class TCPConnectionContext(ConnectionContext):
     pass
 
@@ -54,7 +56,9 @@ class TCPConnection(
                 ),
                 self.parameters.timeout.total_seconds(),
             )
-        except (ConnectionError, TimeoutError):
+        except Exception as exception:
+            if error := str(exception).strip():
+                self.logger.error(error)
             return False
 
         self._stream = _Stream(
@@ -65,9 +69,16 @@ class TCPConnection(
         return True
 
     async def try_disconnect(self) -> None:
-        if self._stream:
+        if not self._stream:
+            return
+
+        try:
             self._stream.writer.close()
-            self._stream = None
+        except Exception as exception:
+            if error := str(exception).strip():
+                self.logger.error(error)
+
+        self._stream = None
 
     async def send_data(self, data: bytes) -> None:
         if not self._stream:

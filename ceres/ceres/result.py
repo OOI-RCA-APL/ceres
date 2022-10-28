@@ -3,14 +3,14 @@ from __future__ import annotations
 from dataclasses import field
 from typing import TYPE_CHECKING, Generic, Literal, TypeVar, final
 
-from pydantic.dataclasses import dataclass
+from pydantic.dataclasses import dataclass as validated_dataclass
 
 ValueT = TypeVar("ValueT")
 ErrorT = TypeVar("ErrorT")
 
 
 @final
-@dataclass(frozen=True)
+@validated_dataclass(frozen=True)
 class Ok(Generic[ValueT, ErrorT]):
     value: ValueT
     ok: Literal[True] = field(default=True, init=False)
@@ -26,7 +26,7 @@ class Ok(Generic[ValueT, ErrorT]):
 
 
 @final
-@dataclass(frozen=True)
+@validated_dataclass(frozen=True)
 class Fail(Generic[ValueT, ErrorT]):
     error: ErrorT
     ok: Literal[False] = field(default=False, init=False)

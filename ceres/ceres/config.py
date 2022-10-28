@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Literal, Mapping, Sequence, overload
 
 from pydantic import ConfigDict, Field, SecretStr, root_validator, validator
-from pydantic.dataclasses import dataclass
+from pydantic.dataclasses import dataclass as validated_dataclass
 
 from .internal.utilities import (
     EmailStr,
@@ -34,12 +34,12 @@ from .path import (
 )
 
 
-@dataclass(kw_only=True, frozen=True)
+@validated_dataclass(kw_only=True, frozen=True)
 class BaseConfigObject:
     pass
 
 
-@dataclass(kw_only=True, frozen=True)
+@validated_dataclass(kw_only=True, frozen=True)
 class ComponentReferencesConfig(BaseConfigObject):
     connections: frozendict[str, str] = field(default_factory=frozendict)
     drivers: frozendict[str, str] = field(default_factory=frozendict)
@@ -63,7 +63,7 @@ class ComponentReferencesConfig(BaseConfigObject):
         return create_local_path(path.kind, name)
 
 
-@dataclass(kw_only=True, frozen=True)
+@validated_dataclass(kw_only=True, frozen=True)
 class ComponentConfig(BaseConfigObject):
     kind: Literal["connection", "driver", "notifier"]
     name: NameStr
@@ -72,22 +72,22 @@ class ComponentConfig(BaseConfigObject):
     references: ComponentReferencesConfig = field(default_factory=ComponentReferencesConfig)
 
 
-@dataclass(kw_only=True, frozen=True)
+@validated_dataclass(kw_only=True, frozen=True)
 class ConnectionConfig(ComponentConfig):
     kind: Literal["connection"] = "connection"
 
 
-@dataclass(kw_only=True, frozen=True)
+@validated_dataclass(kw_only=True, frozen=True)
 class DriverConfig(ComponentConfig):
     kind: Literal["driver"] = "driver"
 
 
-@dataclass(kw_only=True, frozen=True)
+@validated_dataclass(kw_only=True, frozen=True)
 class NotifierConfig(ComponentConfig):
     kind: Literal["notifier"] = "notifier"
 
 
-@dataclass(kw_only=True, frozen=True)
+@validated_dataclass(kw_only=True, frozen=True)
 class ServerConfig(BaseConfigObject):
     port: int
     enable: bool = True
@@ -98,7 +98,7 @@ class DatabaseKind(str, Enum):
     POSTGRES = "postgres"
 
 
-@dataclass(kw_only=True, frozen=True)
+@validated_dataclass(kw_only=True, frozen=True)
 class DatabaseRetryConfig(BaseConfigObject):
     timeout: timedelta = timedelta(seconds=15)
     interval: timedelta = timedelta(seconds=3)
@@ -108,20 +108,20 @@ class DatabaseRetryConfig(BaseConfigObject):
         return validate_positive_timedelta(value)
 
 
-@dataclass(kw_only=True, frozen=True)
+@validated_dataclass(kw_only=True, frozen=True)
 class BaseDatabaseConfig(BaseConfigObject):
     kind: DatabaseKind
     engine: frozendict[str, Any] | None = None
     retry: DatabaseRetryConfig = field(default_factory=DatabaseRetryConfig)
 
 
-@dataclass(kw_only=True, frozen=True)
+@validated_dataclass(kw_only=True, frozen=True)
 class SQLiteDatabaseConfig(BaseDatabaseConfig):
     kind: Literal[DatabaseKind.SQLITE] = DatabaseKind.SQLITE
     path: Path
 
 
-@dataclass(kw_only=True, frozen=True)
+@validated_dataclass(kw_only=True, frozen=True)
 class PostgresDatabaseConfig(BaseDatabaseConfig):
     kind: Literal[DatabaseKind.POSTGRES] = DatabaseKind.POSTGRES
     host: str
@@ -134,7 +134,7 @@ class PostgresDatabaseConfig(BaseDatabaseConfig):
 DatabaseConfig = SQLiteDatabaseConfig | PostgresDatabaseConfig
 
 
-@dataclass(kw_only=True, frozen=True)
+@validated_dataclass(kw_only=True, frozen=True)
 class UnitConfig(BaseConfigObject):
     name: NameStr
     connections: frozenlist[ConnectionConfig] = field(default_factory=frozenlist)
@@ -214,7 +214,7 @@ class UnitConfig(BaseConfigObject):
         return fields
 
 
-@dataclass(kw_only=True, frozen=True)
+@validated_dataclass(kw_only=True, frozen=True)
 class UserConfig(BaseConfigObject):
     username: NameStr
     email: EmailStr
@@ -229,7 +229,9 @@ warnings.filterwarnings(
 )
 
 
-@dataclass(kw_only=True, frozen=True, config=ConfigDict(underscore_attrs_are_private=True))
+@validated_dataclass(
+    kw_only=True, frozen=True, config=ConfigDict(underscore_attrs_are_private=True)
+)
 class Config(BaseConfigObject):
     server: ServerConfig
     database: DatabaseConfig = Field(discriminator="kind")

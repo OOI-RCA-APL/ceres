@@ -1,7 +1,7 @@
 import asyncio
 from abc import ABC
 
-from pydantic.dataclasses import dataclass
+from pydantic.dataclasses import dataclass as validated_dataclass
 
 from .component import Component, ComponentContext, ComponentParameters
 from .path import DriverPath, LocalDriverPath
@@ -9,12 +9,12 @@ from .protocols import ReferencedDriverHandle
 from .reference import Reference
 
 
-@dataclass(kw_only=True, frozen=True)
+@validated_dataclass(kw_only=True, frozen=True)
 class DriverParameters(ComponentParameters):
     pass
 
 
-@dataclass(kw_only=True, frozen=True)
+@validated_dataclass(kw_only=True, frozen=True)
 class DriverContext(ComponentContext):
     path: DriverPath
 

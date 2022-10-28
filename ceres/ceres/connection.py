@@ -6,7 +6,7 @@ from enum import Enum
 from typing import Any, AsyncIterable
 
 from pydantic import validator
-from pydantic.dataclasses import dataclass
+from pydantic.dataclasses import dataclass as validated_dataclass
 
 from .component import Component, ComponentContext, ComponentParameters
 from .events import (
@@ -22,7 +22,7 @@ from .protocols import ReferencedConnectionHandle
 from .reference import Reference
 
 
-@dataclass(kw_only=True, frozen=True)
+@validated_dataclass(kw_only=True, frozen=True)
 class ConnectionReconnect:
     interval: timedelta = timedelta(seconds=1)
     backoff: float | None = 2
@@ -56,12 +56,12 @@ class ReconnectScheduler:
         return next
 
 
-@dataclass(kw_only=True, frozen=True)
+@validated_dataclass(kw_only=True, frozen=True)
 class ConnectionParameters(ComponentParameters):
     reconnect: ConnectionReconnect
 
 
-@dataclass(kw_only=True, frozen=True)
+@validated_dataclass(kw_only=True, frozen=True)
 class ConnectionContext(ComponentContext):
     path: ConnectionPath
 

@@ -6,7 +6,7 @@ from enum import Enum
 from typing import Any, Literal, Protocol, runtime_checkable
 from uuid import UUID, uuid4
 
-from pydantic.dataclasses import dataclass
+from pydantic.dataclasses import dataclass as validated_dataclass
 
 from .internal.utilities import MaybeMapped
 
@@ -50,7 +50,7 @@ class AlertLike(Protocol):
         ...
 
 
-@dataclass(kw_only=True, frozen=True)
+@validated_dataclass(kw_only=True, frozen=True)
 class Alert:
     id: UUID = field(default_factory=uuid4)
     origin_id: UUID

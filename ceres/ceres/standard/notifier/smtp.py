@@ -4,16 +4,16 @@ from typing import Sequence
 
 import aiosmtplib
 from pydantic import SecretStr
-from pydantic.dataclasses import dataclass
+from pydantic.dataclasses import dataclass as validated_dataclass
 
 from ...alert import Alert
 from ...component import WithContext, WithParameters
 from ...config import UserConfig
-from ...internal.utilities import EmailStr, jsonify
+from ...internal.utilities import EmailStr, jsonify, show_td
 from ...notifier import Notifier, NotifierContext, NotifierParameters
 
 
-@dataclass(kw_only=True, frozen=True)
+@validated_dataclass(kw_only=True, frozen=True)
 class SMTPNotifierParameters(NotifierParameters):
     host: str
     port: int
@@ -26,7 +26,7 @@ class SMTPNotifierParameters(NotifierParameters):
     prefix: str | None = None
 
 
-@dataclass(kw_only=True, frozen=True)
+@validated_dataclass(kw_only=True, frozen=True)
 class SMTPNotifierContext(NotifierContext):
     pass
 
@@ -44,12 +44,10 @@ class SMTPNotifier(
         super().__init__(parameters, context)
 
     async def send(self, users: Sequence[UserConfig], alerts: Sequence[Alert]) -> None:
+        self.logger.info(f"Sending email notification to {len(users)} user(s).")
         recipients = sorted(set(user.email.strip() for user in users if user.email.strip()))
 
-        subject = f"{len(alerts)} alert(s) reported"
-
-        # if self.config:
-        #     subject += f" in the last {show_td(self.config.lookback)}"
+        subject = f"{len(alerts)} alert(s) reported in the last {show_td(self.parameters.lookback)}"
         if self.parameters.prefix:
             subject = self.parameters.prefix + subject
 
@@ -69,13 +67,22 @@ class SMTPNotifier(
 
         self.logger.info(f"Sending email '{subject}'...")
 
-        await aiosmtplib.send(
-            hostname=self.parameters.host,
-            port=self.parameters.port,
-            message=message,
-            username=self.parameters.username,
-            password=password,
-            timeout=self.parameters.timeout.total_seconds(),
-            use_tls=self.parameters.use_tls,
-            start_tls=self.parameters.start_tls,
-        )
+        try:
+            await aiosmtplib.send(
+                hostname=self.parameters.host,
+                port=self.parameters.port,
+                message=message,
+                username=self.parameters.username,
+                password=password,
+                timeout=self.parameters.timeout.total_seconds(),
+                use_tls=self.parameters.use_tls,
+                start_tls=self.parameters.start_tls,
+            )
+        except Exception as exception:
+            if error := str(exception).strip():
+                self.logger.error(error)
+
+            self.logger.error("Failed to send email notification.")
+            return
+
+        self.logger.error("Email notification sent successfully.")
