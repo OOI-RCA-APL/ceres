@@ -11,18 +11,18 @@ from uuid import UUID, uuid4
 from pydantic.dataclasses import dataclass as validated_dataclass
 
 from .alert import Alert, AlertLevel, RawAlertLevel
-from .config import (
-    ComponentConfig,
-    ComponentReferencesConfig,
-    Config,
-    UnitConfig,
-    UserConfig,
-)
+from .config import ComponentConfig, Config, UnitConfig, UserConfig
 from .events import Event, EventBinding, get_event_bindings
 from .internal import logs
 from .internal.database.manager import DatabaseManager
 from .internal.tasks import Tasklet
-from .internal.utilities import awaitify, frozenlist, get_now, object_has_field
+from .internal.utilities import (
+    awaitify,
+    frozendict,
+    frozenlist,
+    get_now,
+    object_has_field,
+)
 from .path import ComponentPath
 from .reference import ReferenceBinding, get_reference_bindings
 from .scheduler import Scheduler
@@ -40,7 +40,7 @@ ComponentParametersT = TypeVar("ComponentParametersT", bound=ComponentParameters
 class ComponentContext:
     id: UUID = field(default_factory=uuid4)
     path: ComponentPath
-    references: ComponentReferencesConfig = field(default_factory=ComponentReferencesConfig)
+    references: frozendict[str, str] = field(default_factory=frozendict)
     database: DatabaseManager
 
     def __post_init__(self) -> None:
@@ -105,6 +105,14 @@ class Component(Generic[ComponentParametersT, ComponentContextT], Tasklet, ABC):
         return get_reference_bindings(cls)
 
     @property
+    def id(self) -> UUID:
+        return self.__component_context__.id
+
+    @property
+    def path(self) -> ComponentPath:
+        return self.__component_context__.path
+
+    @property
     def parameters(self) -> ComponentParametersT:
         return self.__component_parameters__
 
@@ -159,12 +167,12 @@ class Component(Generic[ComponentParametersT, ComponentContextT], Tasklet, ABC):
 
     async def handle_event(self, event: Event) -> None:
         for binding in self.get_event_bindings():
-            if not isinstance(event, cast(type, binding.cls)):
+            if not isinstance(event, cast(type, binding.event_cls)):
                 continue
-            if self.context.references.remap(binding.path) != event.path:
+            if self.context.references.get(binding.path.name) != event.path.name:
                 continue
 
-            if method := getattr(self, binding.method, None):
+            if method := getattr(self, binding.function.__name__, None):
                 try:
                     if len(inspect.signature(method).parameters) == 0:
                         await awaitify(method())

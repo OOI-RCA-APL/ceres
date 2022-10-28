@@ -16,6 +16,7 @@ from pydantic import ValidationError, validate_arguments
 from ..component import (
     Component,
     ComponentContext,
+    ComponentInterface,
     ComponentParameters,
     FullComponentContext,
 )
@@ -179,28 +180,8 @@ class ComponentHandleContext:
             raise ValueError(f"component {self.path} is not defined in configuration")
 
 
-ComponentHandleContextT = TypeVar(
-    "ComponentHandleContextT",
-    bound=ComponentHandleContext,
-    covariant=True,
-)
-ComponentContextT = TypeVar(
-    "ComponentContextT",
-    bound=ComponentContext,
-    covariant=True,
-)
-
-
-class ComponentHandle(
-    Generic[
-        ComponentHandleContextT,
-        ComponentT,
-        ComponentContextT,
-    ],
-    Tasklet,
-    ABC,
-):
-    def __init__(self, context: ComponentHandleContextT) -> None:
+class ComponentHandle(Generic[ComponentT], Tasklet, ABC):
+    def __init__(self, context: ComponentHandleContext) -> None:
         self._context = context
         self._instance: ComponentT | None = None
 
@@ -287,3 +268,6 @@ class ComponentHandle(
                 return Ok(instance)
             case fail:
                 return fail
+
+
+ComponentHandleInterface = ComponentHandle[ComponentInterface]

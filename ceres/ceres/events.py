@@ -15,44 +15,47 @@ from typing import (
     overload,
 )
 
+from pydantic.dataclasses import dataclass as validated_dataclass
+
 from .internal.utilities import get_now
 from .message import Message
 from .path import LocalComponentPath
 
 
-@dataclass(kw_only=True, frozen=True)
+@validated_dataclass(kw_only=True, frozen=True)
 class Event:
     kind: str
     path: LocalComponentPath
     timestamp: datetime = field(default_factory=get_now)
 
 
-@dataclass(kw_only=True, frozen=True)
+@validated_dataclass(kw_only=True, frozen=True)
 class ConnectedEvent(Event):
     kind: Literal["connected"] = "connected"
 
 
-@dataclass(kw_only=True, frozen=True)
+@validated_dataclass(kw_only=True, frozen=True)
 class DisconnectedEvent(Event):
     kind: Literal["disconnected"] = "disconnected"
 
 
-@dataclass(kw_only=True, frozen=True)
+@validated_dataclass(kw_only=True, frozen=True)
 class MessageSentEvent(Event):
     kind: Literal["message-sent"] = "message-sent"
     message: Message
 
 
-@dataclass(kw_only=True, frozen=True)
+@validated_dataclass(kw_only=True, frozen=True)
 class MessageReceivedEvent(Event):
     kind: Literal["message-received"] = "message-received"
     message: Message
 
 
 if TYPE_CHECKING:
-    from .reference import Reference
+    from .component import ComponentInterface
+    from .reference import ComponentReference
 
-    ListenSource = Reference[Any]
+    ListenSource = ComponentReference[ComponentInterface]
 
 EventT = TypeVar("EventT", bound=Event)
 
@@ -62,8 +65,8 @@ EVENT_BINDINGS_ATTRIBUTE = "__event_bindings__"
 @dataclass(kw_only=True, frozen=True)
 class EventBinding:
     path: LocalComponentPath
-    cls: type | object
-    method: str
+    event_cls: type | object
+    function: Callable
 
 
 @overload
@@ -103,8 +106,8 @@ def listen(
         bindings.append(
             EventBinding(
                 path=source.path,
-                cls=cls,
-                method=function.__name__,
+                event_cls=cls,
+                function=function,
             )
         )
 

@@ -1,19 +1,11 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol, overload, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 from uuid import UUID
 
 from .alert import Alert
 from .events import Event
-from .path import (
-    ComponentPath,
-    ConnectionPath,
-    DriverPath,
-    LocalConnectionPath,
-    LocalDriverPath,
-    LocalNotifierPath,
-    NotifierPath,
-)
+from .path import ComponentPath, LocalComponentPath
 
 if TYPE_CHECKING:
     from .component import Component
@@ -40,20 +32,12 @@ class ReferencedComponentHandle(Protocol):
 @runtime_checkable
 class ReferencedConnectionHandle(ReferencedComponentHandle, Protocol):
     @property
-    def path(self) -> ConnectionPath:
-        ...
-
-    @property
     def instance(self) -> Connection | None:
         ...
 
 
 @runtime_checkable
 class ReferencedDriverHandle(ReferencedComponentHandle, Protocol):
-    @property
-    def path(self) -> DriverPath:
-        ...
-
     @property
     def instance(self) -> Driver | None:
         ...
@@ -62,26 +46,13 @@ class ReferencedDriverHandle(ReferencedComponentHandle, Protocol):
 @runtime_checkable
 class ReferencedNotifierHandle(ReferencedComponentHandle, Protocol):
     @property
-    def path(self) -> NotifierPath:
-        ...
-
-    @property
     def instance(self) -> Notifier | None:
         ...
 
 
 @runtime_checkable
 class GlobalUnitProtocol(Protocol):
-    @overload
-    def get_component(self, path: LocalConnectionPath) -> ReferencedConnectionHandle | None:
-        ...
-
-    @overload
-    def get_component(self, path: LocalDriverPath) -> ReferencedDriverHandle | None:
-        ...
-
-    @overload
-    def get_component(self, path: LocalNotifierPath) -> ReferencedNotifierHandle | None:
+    def get_component(self, path: LocalComponentPath) -> ReferencedComponentHandle | None:
         ...
 
     async def handle_event(self, event: Event) -> None:

@@ -19,9 +19,6 @@ from .internal.utilities import (
     get_now,
     validate_positive_timedelta,
 )
-from .path import LocalNotifierPath, NotifierPath
-from .protocols import ReferencedNotifierHandle
-from .reference import Reference
 from .schedule import Schedule
 
 
@@ -37,7 +34,6 @@ class NotifierParameters(ComponentParameters):
 
 @validated_dataclass(kw_only=True, frozen=True)
 class NotifierContext(ComponentContext):
-    path: NotifierPath
     users: frozenlist[UserConfig] = field(default_factory=frozenlist)
     database: DatabaseManager
 
@@ -90,9 +86,3 @@ class Notifier(Component[NotifierParameters, NotifierContext], ABC):
 
         while True:
             await asyncio.sleep(1)
-
-
-class NotifierReference(Reference[ReferencedNotifierHandle]):
-    @property
-    def path(self) -> LocalNotifierPath:
-        return LocalNotifierPath(self.name)

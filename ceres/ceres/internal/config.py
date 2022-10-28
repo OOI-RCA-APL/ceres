@@ -13,14 +13,7 @@ from pydantic import ValidationError
 from yaml import MarkedYAMLError, YAMLError
 
 from ..component import Component, FullComponentContext
-from ..config import (
-    ComponentConfig,
-    Config,
-    ConnectionConfig,
-    DriverConfig,
-    NotifierConfig,
-    UnitConfig,
-)
+from ..config import ComponentConfig, Config, UnitConfig
 from ..connection import Connection
 from ..driver import Driver
 from ..errors import (
@@ -35,7 +28,7 @@ from ..errors import (
     ValidationProblem,
 )
 from ..notifier import Notifier
-from ..path import create_path
+from ..path import ComponentPath, create_path
 from ..result import Fail, Ok, Result
 from .component import load_component
 from .database.manager import DatabaseManager
@@ -167,24 +160,19 @@ async def _check_components(
 
         def check_components() -> Iterable[ConfigComponentError]:
             database = DatabaseManager(config.database)
-            component_configs: list[ComponentConfig] = [
-                *unit_config.connections,
-                *unit_config.drivers,
-                *unit_config.notifiers,
-            ]
 
-            for component_config in component_configs:
-                match component_config:
-                    case ConnectionConfig():
+            for component_config in unit_config.components:
+                match component_config.kind:
+                    case "connection":
                         cls: type[Component] = Connection
-                    case DriverConfig():
+                    case "driver":
                         cls = Driver
-                    case NotifierConfig():
+                    case "notifier":
                         cls = Notifier
                     case _:
                         unreachable()
 
-                path = create_path(component_config.kind, unit_config.name, component_config.name)
+                path = ComponentPath(unit_config.name, component_config.name)
                 log(f"Checking component '{path}'...")
                 match load_component(
                     cls,
@@ -213,9 +201,9 @@ async def _check_components(
         def check_references() -> Iterable[ConfigComponentError]:
             for component_config, component in loaded_components:
                 for binding in component.get_reference_bindings():
-                    if not component_config.references.has(binding.path):
+                    if binding.path.name not in component_config.references:
                         path = create_path(
-                            binding.path.kind,
+                            "component",
                             unit_config.name,
                             component_config.name,
                         )
@@ -223,7 +211,7 @@ async def _check_components(
                         yield ConfigComponentError(
                             component=path,
                             error=ComponentReferenceInvalidError(
-                                message=f"{path} requires {binding.path.kind} reference '{binding.path.name}', but it is not assigned",
+                                message=f"component '{path}' requires {binding.path.kind} reference '{binding.path.name}', but it is not assigned",
                                 reference=binding.path,
                             ),
                         )

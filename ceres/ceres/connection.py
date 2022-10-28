@@ -17,9 +17,7 @@ from .events import (
 )
 from .internal.utilities import validate_positive_timedelta
 from .message import Message, MessageDirection
-from .path import ConnectionPath, LocalConnectionPath
-from .protocols import ReferencedConnectionHandle
-from .reference import Reference
+from .path import LocalComponentPath
 
 
 @validated_dataclass(kw_only=True, frozen=True)
@@ -63,7 +61,7 @@ class ConnectionParameters(ComponentParameters):
 
 @validated_dataclass(kw_only=True, frozen=True)
 class ConnectionContext(ComponentContext):
-    path: ConnectionPath
+    pass
 
 
 class ConnectionState(str, Enum):
@@ -84,10 +82,6 @@ class Connection(Component[ConnectionParameters, ConnectionContext], ABC):
         self._last_message_received: Message | None = None
         self._reconnect = ReconnectScheduler(self.parameters.reconnect)
         self._message_queue: AsyncQueue[Message] = AsyncQueue()
-
-    @property
-    def path(self) -> ConnectionPath:
-        return self.context.path
 
     @property
     def state(self) -> ConnectionState:
@@ -140,7 +134,7 @@ class Connection(Component[ConnectionParameters, ConnectionContext], ABC):
             self._state = ConnectionState.CONNECTED
             self.emit_event(
                 ConnectedEvent(
-                    path=LocalConnectionPath(self.context.path.name),
+                    path=LocalComponentPath(self.context.path.name),
                 )
             )
             self.logger.info("Connected successfully.")
@@ -166,7 +160,7 @@ class Connection(Component[ConnectionParameters, ConnectionContext], ABC):
         self.emit_message(message)
         self.emit_event(
             MessageSentEvent(
-                path=LocalConnectionPath(self.context.path.name),
+                path=LocalComponentPath(self.context.path.name),
                 message=message,
             )
         )
@@ -186,7 +180,7 @@ class Connection(Component[ConnectionParameters, ConnectionContext], ABC):
         self.emit_message(message)
         self.emit_event(
             MessageReceivedEvent(
-                path=LocalConnectionPath(self.context.path.name),
+                path=LocalComponentPath(self.context.path.name),
                 message=message,
             )
         )
@@ -206,7 +200,7 @@ class Connection(Component[ConnectionParameters, ConnectionContext], ABC):
             self._state = ConnectionState.DISCONNECTED
             self.emit_event(
                 DisconnectedEvent(
-                    path=LocalConnectionPath(self.context.path.name),
+                    path=LocalComponentPath(self.context.path.name),
                 )
             )
 
@@ -235,9 +229,3 @@ class Connection(Component[ConnectionParameters, ConnectionContext], ABC):
         await super()._tasklet_stop()
 
         await self.try_disconnect()
-
-
-class ConnectionReference(Reference[ReferencedConnectionHandle]):
-    @property
-    def path(self) -> LocalConnectionPath:
-        return LocalConnectionPath(self.name)

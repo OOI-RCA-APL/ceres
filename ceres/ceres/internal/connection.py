@@ -1,27 +1,13 @@
 import asyncio
-from dataclasses import dataclass
 
-from ..connection import Connection, ConnectionContext
+from ..connection import Connection
 from ..message import Message, MessageDirection
-from ..path import ConnectionPath
 from ..protocols import ReferencedConnectionHandle
 from .component import ComponentHandle, ComponentHandleContext
 from .database.entity import MessageEntity
 
 
-@dataclass(kw_only=True, frozen=True)
-class ConnectionHandleContext(ComponentHandleContext):
-    path: ConnectionPath
-
-
-class ConnectionHandle(
-    ComponentHandle[
-        ConnectionHandleContext,
-        Connection,
-        ConnectionContext,
-    ],
-    ReferencedConnectionHandle,
-):
+class ConnectionHandle(ComponentHandle[Connection], ReferencedConnectionHandle):
     @classmethod
     def get_max_buffer_size(cls) -> int:
         return 2500
@@ -30,18 +16,10 @@ class ConnectionHandle(
     def _get_component_type(cls) -> type[Connection]:
         return Connection
 
-    def __init__(self, context: ConnectionHandleContext) -> None:
+    def __init__(self, context: ComponentHandleContext) -> None:
         super().__init__(context)
         self._buffer: list[Message] = []
         self._flushing = False
-
-    @property
-    def path(self) -> ConnectionPath:
-        return self._context.path
-
-    @property
-    def instance(self) -> Connection | None:
-        return super().instance
 
     async def _tasklet_run(self) -> None:
         await asyncio.gather(

@@ -20,39 +20,16 @@ class UnitPath:
 
 
 @validated_dataclass(frozen=True)
-class ConnectionPath:
+class ComponentPath:
     unit: str
     name: str
-    kind: Literal["connection"] = field(default="connection")
+    kind: Literal["component"] = field(default="component")
 
     def __str__(self) -> str:
-        return f"@{self.unit}.connections.{self.name}"
+        return f"@{self.unit}.{self.name}"
 
 
-@validated_dataclass(frozen=True)
-class DriverPath:
-    unit: str
-    name: str
-    kind: Literal["driver"] = field(default="driver")
-
-    def __str__(self) -> str:
-        return f"@{self.unit}.drivers.{self.name}"
-
-
-@validated_dataclass(frozen=True)
-class NotifierPath:
-    unit: str
-    name: str
-    kind: Literal["notifier"] = field(default="notifier")
-
-    def __str__(self) -> str:
-        return f"@{self.unit}.notifiers.{self.name}"
-
-
-ComponentPathKind = Literal["connection", "driver", "notifier"]
-ComponentPath = ConnectionPath | DriverPath | NotifierPath
-
-PathKind = Literal["unit"] | ComponentPathKind  # type: ignore
+PathKind = Literal["unit", "component"]
 Path = UnitPath | ComponentPath
 
 
@@ -65,33 +42,14 @@ class LocalUnitPath:
 
 
 @validated_dataclass(frozen=True)
-class LocalConnectionPath:
+class LocalComponentPath:
     name: str
-    kind: Literal["connection"] = field(default="connection")
+    kind: Literal["component"] = field(default="component")
 
     def __str__(self) -> str:
-        return f".connections.{self.name}"
+        return f".{self.name}"
 
 
-@validated_dataclass(frozen=True)
-class LocalDriverPath:
-    name: str
-    kind: Literal["driver"] = field(default="driver")
-
-    def __str__(self) -> str:
-        return f".drivers.{self.name}"
-
-
-@validated_dataclass(frozen=True)
-class LocalNotifierPath:
-    name: str
-    kind: Literal["notifier"] = field(default="notifier")
-
-    def __str__(self) -> str:
-        return f".notifiers.{self.name}"
-
-
-LocalComponentPath = LocalConnectionPath | LocalDriverPath | LocalNotifierPath
 LocalPath = LocalUnitPath | LocalComponentPath
 
 
@@ -101,17 +59,7 @@ def create_path(kind: Literal["unit"], unit: str) -> UnitPath:
 
 
 @overload
-def create_path(kind: Literal["connection"], unit: str, name: str) -> ConnectionPath:
-    ...
-
-
-@overload
-def create_path(kind: Literal["driver"], unit: str, name: str) -> DriverPath:
-    ...
-
-
-@overload
-def create_path(kind: Literal["notifier"], unit: str, name: str) -> NotifierPath:
+def create_path(kind: Literal["component"], unit: str, name: str) -> ComponentPath:
     ...
 
 
@@ -119,12 +67,8 @@ def create_path(kind: PathKind, unit: str, name: str = "") -> Path:
     match kind:
         case "unit":
             return UnitPath(unit)
-        case "connection":
-            return ConnectionPath(unit, name)
-        case "driver":
-            return DriverPath(unit, name)
-        case "notifier":
-            return NotifierPath(unit, name)
+        case "component":
+            return ComponentPath(unit, name)
 
     raise ValueError(kind)
 
@@ -135,17 +79,7 @@ def create_local_path(kind: Literal["unit"]) -> LocalUnitPath:
 
 
 @overload
-def create_local_path(kind: Literal["connection"], name: str) -> LocalConnectionPath:
-    ...
-
-
-@overload
-def create_local_path(kind: Literal["driver"], name: str) -> LocalDriverPath:
-    ...
-
-
-@overload
-def create_local_path(kind: Literal["notifier"], name: str) -> LocalNotifierPath:
+def create_local_path(kind: Literal["component"], name: str) -> LocalComponentPath:
     ...
 
 
@@ -154,10 +88,6 @@ def create_local_path(kind: PathKind, name: str = "") -> LocalPath:
         case "unit":
             return LocalUnitPath()
         case "connection":
-            return LocalConnectionPath(name)
-        case "driver":
-            return LocalDriverPath(name)
-        case "notifier":
-            return LocalNotifierPath(name)
+            return LocalComponentPath(name)
 
     raise ValueError(kind)

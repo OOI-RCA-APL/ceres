@@ -7,9 +7,9 @@ from dataclasses import field
 from datetime import timedelta
 from enum import Enum
 from pathlib import Path
-from typing import Any, Literal, Mapping, Sequence, overload
+from typing import Any, Literal, Mapping, Sequence
 
-from pydantic import ConfigDict, Field, SecretStr, root_validator, validator
+from pydantic import ConfigDict, Field, SecretStr, validator
 from pydantic.dataclasses import dataclass as validated_dataclass
 
 from .internal.utilities import (
@@ -20,18 +20,7 @@ from .internal.utilities import (
     hydrate,
     validate_positive_timedelta,
 )
-from .path import (
-    ComponentPath,
-    ConnectionPath,
-    DriverPath,
-    LocalComponentPath,
-    LocalConnectionPath,
-    LocalDriverPath,
-    LocalNotifierPath,
-    NotifierPath,
-    UnitPath,
-    create_local_path,
-)
+from .path import ComponentPath, UnitPath
 
 
 @validated_dataclass(kw_only=True, frozen=True)
@@ -40,51 +29,12 @@ class BaseConfigObject:
 
 
 @validated_dataclass(kw_only=True, frozen=True)
-class ComponentReferencesConfig(BaseConfigObject):
-    connections: frozendict[str, str] = field(default_factory=frozendict)
-    drivers: frozendict[str, str] = field(default_factory=frozendict)
-    notifiers: frozendict[str, str] = field(default_factory=frozendict)
-
-    def has(self, path: LocalComponentPath) -> bool:
-        return self.remap(path) is not None
-
-    def remap(self, path: LocalComponentPath) -> LocalComponentPath | None:
-        match path:
-            case LocalConnectionPath():
-                name = self.connections.get(path.name)
-            case LocalDriverPath():
-                name = self.drivers.get(path.name)
-            case LocalNotifierPath():
-                name = self.notifiers.get(path.name)
-
-        if name is None:
-            return None
-
-        return create_local_path(path.kind, name)
-
-
-@validated_dataclass(kw_only=True, frozen=True)
 class ComponentConfig(BaseConfigObject):
     kind: Literal["connection", "driver", "notifier"]
     name: NameStr
     component: str | object
-    parameters: frozendict[str, Any] = field(default_factory=frozendict)
-    references: ComponentReferencesConfig = field(default_factory=ComponentReferencesConfig)
-
-
-@validated_dataclass(kw_only=True, frozen=True)
-class ConnectionConfig(ComponentConfig):
-    kind: Literal["connection"] = "connection"
-
-
-@validated_dataclass(kw_only=True, frozen=True)
-class DriverConfig(ComponentConfig):
-    kind: Literal["driver"] = "driver"
-
-
-@validated_dataclass(kw_only=True, frozen=True)
-class NotifierConfig(ComponentConfig):
-    kind: Literal["notifier"] = "notifier"
+    parameters: frozendict[NameStr, Any] = field(default_factory=frozendict)
+    references: frozendict[NameStr, NameStr] = field(default_factory=frozendict)
 
 
 @validated_dataclass(kw_only=True, frozen=True)
@@ -137,81 +87,32 @@ DatabaseConfig = SQLiteDatabaseConfig | PostgresDatabaseConfig
 @validated_dataclass(kw_only=True, frozen=True)
 class UnitConfig(BaseConfigObject):
     name: NameStr
-    connections: frozenlist[ConnectionConfig] = field(default_factory=frozenlist)
-    drivers: frozenlist[DriverConfig] = field(default_factory=frozenlist)
-    notifiers: frozenlist[NotifierConfig] = field(default_factory=frozenlist)
+    components: frozenlist[ComponentConfig] = field(default_factory=frozenlist)
 
-    @validator("connections")
-    def _validate_connections(
+    @validator("components")
+    def _validate_components(
         cls,
-        connections: Sequence[ConnectionConfig],
-    ) -> Sequence[ConnectionConfig]:
-        for name, group in itertools.groupby(connections, lambda connection: connection.name):
+        components: Sequence[ComponentConfig],
+        values: Mapping[str, Any],
+    ) -> Sequence[ComponentConfig]:
+        name: str = values.get("name", "<ERROR>")
+        for component_name, group in itertools.groupby(
+            components,
+            lambda component: component.name,
+        ):
             if len(list(group)) > 1:
-                raise ValueError(f"duplicate connection name '{name}'")
+                raise ValueError(f"duplicate component name '{component_name}' in unit '{name}'")
 
-        return connections
-
-    @validator("drivers")
-    def _validate_drivers(
-        cls,
-        drivers: Sequence[DriverConfig],
-    ) -> Sequence[DriverConfig]:
-        for name, group in itertools.groupby(drivers, lambda connection: connection.name):
-            if len(list(group)) > 1:
-                raise ValueError(f"duplicate driver name '{name}'")
-
-        return drivers
-
-    @validator("notifiers")
-    def _validate_notifiers(
-        cls,
-        notifiers: Sequence[NotifierConfig],
-    ) -> Sequence[NotifierConfig]:
-        for name, group in itertools.groupby(notifiers, lambda connection: connection.name):
-            if len(list(group)) > 1:
-                raise ValueError(f"duplicate notifier name '{name}'")
-
-        return notifiers
-
-    @root_validator
-    def _validate_references(cls, fields: Mapping[str, Any]) -> Mapping[str, Any]:
-        name: str = fields["name"]
-        connections: dict[str, ConnectionConfig] = {
-            current.name: current for current in fields.get("connections", [])
-        }
-        drivers: dict[str, DriverConfig] = {
-            current.name: current for current in fields.get("drivers", [])
-        }
-        notifiers: dict[str, DriverConfig] = {
-            current.name: current for current in fields.get("notifiers", [])
-        }
-        components: list[ComponentConfig] = [
-            *connections.values(),
-            *drivers.values(),
-            *notifiers.values(),
-        ]
+        mapping: dict[str, ComponentConfig] = {current.name: current for current in components}
 
         for component in components:
-            for connection_name in component.references.connections.values():
-                if connection_name not in connections:
+            for component_name in component.references.values():
+                if component_name not in mapping:
                     raise ValueError(
-                        f"invalid reference, connection '{connection_name}' does not exist in unit '{name}'"
+                        f"invalid reference, component '{component_name}' does not exist in unit '{name}'"
                     )
 
-            for driver_name in component.references.drivers.values():
-                if driver_name not in drivers:
-                    raise ValueError(
-                        f"invalid reference, driver '{driver_name}' does not exist in unit '{name}'"
-                    )
-
-            for notifier_name in component.references.notifiers.values():
-                if notifier_name not in notifiers:
-                    raise ValueError(
-                        f"invalid reference, notifier '{notifier_name}' does not exist in unit '{name}'"
-                    )
-
-        return fields
+        return components
 
 
 @validated_dataclass(kw_only=True, frozen=True)
@@ -265,18 +166,6 @@ class Config(BaseConfigObject):
 
         return next(unit for unit in self.units if unit.name == path)
 
-    @overload
-    def get_component(self, path: ConnectionPath) -> ConnectionConfig | None:
-        ...
-
-    @overload
-    def get_component(self, path: DriverPath) -> DriverConfig | None:
-        ...
-
-    @overload
-    def get_component(self, path: NotifierPath) -> NotifierConfig | None:
-        ...
-
     def get_component(self, path: ComponentPath) -> ComponentConfig | None:
         if path in self._component_path_cache:
             return self._component_path_cache[path]
@@ -284,19 +173,9 @@ class Config(BaseConfigObject):
         component: ComponentConfig | None = None
 
         if unit := self.get_unit(path.unit):
-            match path:
-                case ConnectionPath():
-                    component = next(
-                        (current for current in unit.connections if current.name == path.name), None
-                    )
-                case DriverPath():
-                    component = next(
-                        (current for current in unit.drivers if current.name == path.name), None
-                    )
-                case NotifierPath():
-                    component = next(
-                        (current for current in unit.notifiers if current.name == path.name), None
-                    )
+            component = next(
+                (current for current in unit.components if current.name == path.name), None
+            )
 
         if component:
             self._component_path_cache[path] = component
