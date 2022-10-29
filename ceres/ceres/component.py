@@ -1,9 +1,10 @@
 import dataclasses
 import inspect
 import traceback
-from abc import ABC
+from abc import ABCMeta
 from asyncio import Queue as AsyncQueue
 from dataclasses import dataclass, field
+from inspect import Parameter
 from logging import Logger
 from typing import Any, AsyncIterable, Generic, Sequence, TypeVar, cast, get_type_hints
 from uuid import UUID, uuid4
@@ -14,6 +15,7 @@ from .address import ComponentAddress
 from .alert import Alert, AlertLevel, RawAlertLevel
 from .config import ComponentConfig, Config, UnitConfig, UserConfig
 from .events import Event, EventBinding, get_event_bindings
+from .exceptions import ComponentClassInvalidException
 from .internal import logs
 from .internal.database.manager import DatabaseManager
 from .internal.tasks import Tasklet
@@ -78,7 +80,54 @@ class ComponentInteral:
     scheduler: Scheduler = Scheduler()
 
 
-class Component(Generic[ComponentParametersT, ComponentContextT], Tasklet, ABC):
+class ComponentMeta(ABCMeta):
+    def __new__(
+        metacls,
+        name: str,
+        bases: tuple[type, ...],
+        namespace: Any,
+        **kwargs: dict[str, Any],
+    ) -> Any:
+        cls = super().__new__(metacls, name, bases, namespace, **kwargs)
+        __init__ = cls.__init__  # type: ignore
+        signature = inspect.signature(__init__)
+        parameters: tuple[Parameter, ...] = tuple(signature.parameters.values())
+
+        if len(parameters) != 3 or any(
+            parameter.kind == Parameter.KEYWORD_ONLY for parameter in parameters
+        ):
+            required = (
+                "def __init__(parameters: ComponentParametersT, context: ComponentContextT) -> None"
+            )
+            raise ComponentClassInvalidException(f"{__init__} must match match {required}")
+
+        hints = tuple(get_type_hints(__init__).values())
+        parameters_type = hints[0]
+        context_type = hints[1]
+
+        if not isinstance(parameters_type, TypeVar) and (
+            not isinstance(parameters_type, type)
+            or not issubclass(parameters_type, ComponentParameters)
+        ):
+            raise ComponentClassInvalidException(
+                f"first positional parameter of {__init__} must be a subclass of {ComponentParameters}"
+            )
+
+        if not isinstance(parameters_type, TypeVar) and (
+            not isinstance(context_type, type) or not issubclass(context_type, ComponentContext)
+        ):
+            raise ComponentClassInvalidException(
+                f"second positional pararmeter {__init__} must be a subclass of {ComponentContext}"
+            )
+
+        return cls
+
+
+class Component(
+    Generic[ComponentParametersT, ComponentContextT],
+    Tasklet,
+    metaclass=ComponentMeta,
+):
     def __init__(
         self,
         parameters: ComponentParametersT,

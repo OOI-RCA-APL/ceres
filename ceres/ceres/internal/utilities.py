@@ -233,16 +233,20 @@ def literals(literal: type[Enum] | object) -> tuple[str, ...]:
     return tuple()
 
 
-class NameStr(ConstrainedStr):
-    regex = re.compile(r"[a-zA-Z\-\_][a-zA-Z0-9\-\_]*")
+if TYPE_CHECKING:
+    NameStr = str
+    EmailStr = str
+    NonEmptyStr = str
+else:
 
+    class NameStr(ConstrainedStr):
+        regex = re.compile(r"[a-zA-Z\-\_][a-zA-Z0-9\-\_]*")
 
-class EmailStr(ConstrainedStr):
-    regex = re.compile(r".+@.+")
+    class EmailStr(ConstrainedStr):
+        regex = re.compile(r".+@.+")
 
-
-class NonEmptyStr(ConstrainedStr):
-    regex = re.compile(r".+")
+    class NonEmptyStr(ConstrainedStr):
+        regex = re.compile(r".+")
 
 
 def issubtype(value: Any, type_: type | UnionType) -> bool:

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 class CeresException(Exception):
     def __init__(self, message: str) -> None:
-        super().__init__()
+        super().__init__(message)
         self.message = message
 
 
@@ -23,7 +23,7 @@ class ComponentException(CeresException):
     pass
 
 
-class ComponentNotSetupException(CeresException):
+class ComponentClassInvalidException(CeresException):
     pass
 
 

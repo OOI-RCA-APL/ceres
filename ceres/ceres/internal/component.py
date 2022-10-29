@@ -14,13 +14,7 @@ from uuid import UUID
 from pydantic import ValidationError, validate_arguments
 
 from ..address import ComponentAddress
-from ..component import (
-    Component,
-    ComponentContext,
-    ComponentInterface,
-    ComponentParameters,
-    FullComponentContext,
-)
+from ..component import Component, ComponentInterface, FullComponentContext
 from ..config import ComponentConfig, Config
 from ..errors import (
     ComponentClassInvalidError,
@@ -92,40 +86,14 @@ def load_component(
             )
         )
 
-    signature = inspect.signature(target_cls)
-
-    if len(signature.parameters) != 2:
-        return Fail(
-            ComponentClassInvalidError(
-                message=f"{target_cls.__init__} must match signature: def __init__{inspect.signature(Component.__init__)}"
-            )
-        )
+    __init__ = validate_arguments(target_cls.__init__)
+    instance = target_cls.__new__(target_cls)
 
     parameters_type = target_cls.get_parameters_type()
     context_type = target_cls.get_context_type()
 
-    if not issubclass(parameters_type, ComponentParameters):
-        return Fail(
-            ComponentClassInvalidError(
-                message=f"first positional parameter of {target_cls.__init__} must be a subclass of {ComponentParameters}"
-            )
-        )
-
-    if not issubclass(context_type, ComponentContext):
-        return Fail(
-            ComponentClassInvalidError(
-                message=f"second positional pararmeter {target_cls.__init__} must be a subclass of {ComponentContext}"
-            )
-        )
-
-    __init__ = validate_arguments(target_cls.__init__)
-    instance = target_cls.__new__(target_cls)
-
-    arguments: list[Any] = []
-    arguments.append(instance)
-
     try:
-        hydrated_parameters = hydrate(parameters_type, parameters)
+        applied_parameters = hydrate(parameters_type, parameters)
     except ValidationError as error:
         return Fail(
             ComponentParametersInvalidError(
@@ -134,28 +102,26 @@ def load_component(
             )
         )
 
-    arguments.append(hydrated_parameters)
-
-    context_arguments: dict[str, Any] = {}
-
-    for field in dataclasses.fields(context):
-        if object_has_field(context_type, field.name):
-            context_arguments[field.name] = getattr(context, field.name)
-
-    arguments.append(context_type(**context_arguments))
-
     try:
-        __init__.validate(*arguments)  # type: ignore
-    except ValidationError as error:
+        context_arguments: dict[str, Any] = {}
+
+        for field in dataclasses.fields(context):
+            if object_has_field(context_type, field.name):
+                context_arguments[field.name] = getattr(context, field.name)
+
+        applied_context = context_type(**context_arguments)
+    except Exception:
         return Fail(
-            ComponentParametersInvalidError(
-                message=f"invalid arguments for {target_cls}",
-                problems=ValidationProblem.extract(error),
+            ComponentInitExceptionError(
+                message=f"exception raised when creating {context_type} for {target_cls}",
+                traceback=traceback.format_exc(),
             )
         )
 
+    applied_arguments = (instance, applied_parameters, applied_context)
+
     try:
-        __init__(*arguments)
+        __init__(*applied_arguments)  # type: ignore
     except Exception:
         return Fail(
             ComponentInitExceptionError(
