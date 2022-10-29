@@ -1,5 +1,5 @@
 import asyncio
-from abc import ABC
+from abc import ABC, abstractmethod
 from asyncio import Queue as AsyncQueue
 from datetime import timedelta
 from enum import Enum
@@ -111,17 +111,21 @@ class Connection(Component[ConnectionParameters, ConnectionContext], ABC):
         self._message_queue.put_nowait(message)
         return message
 
+    @abstractmethod
     async def try_connect(self) -> bool:
-        pass
+        ...
 
+    @abstractmethod
     async def try_disconnect(self) -> None:
-        pass
+        ...
 
+    @abstractmethod
     async def send_data(self, data: bytes) -> None:
-        raise NotImplementedError()
+        ...
 
+    @abstractmethod
     async def receive_data(self) -> bytes:
-        raise NotImplementedError()
+        ...
 
     async def connect(self) -> bool:
         if self._state == ConnectionState.CONNECTED:

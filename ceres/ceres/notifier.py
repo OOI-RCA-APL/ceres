@@ -1,5 +1,5 @@
 import asyncio
-from abc import ABC
+from abc import ABC, abstractmethod
 from dataclasses import field
 from datetime import timedelta
 from typing import Any, Sequence
@@ -46,6 +46,7 @@ class Notifier(Component[NotifierParameters, NotifierContext], ABC):
     ) -> None:
         super().__init__(parameters, context)
 
+    @abstractmethod
     async def send(self, users: Sequence[UserConfig], alerts: Sequence[Alert]) -> None:
         raise NotImplementedError()
 
