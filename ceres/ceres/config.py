@@ -12,6 +12,7 @@ from typing import Any, Literal, Mapping, Sequence
 from pydantic import ConfigDict, Field, SecretStr, validator
 from pydantic.dataclasses import dataclass as validated_dataclass
 
+from .address import ComponentAddress, UnitAddress
 from .internal.utilities import (
     EmailStr,
     NameStr,
@@ -20,7 +21,6 @@ from .internal.utilities import (
     hydrate,
     validate_positive_timedelta,
 )
-from .path import ComponentPath, UnitPath
 
 
 @validated_dataclass(kw_only=True, frozen=True)
@@ -140,7 +140,7 @@ class Config(BaseConfigObject):
     units: frozenlist[UnitConfig] = field(default_factory=frozenlist)
 
     _path: Path | None = None
-    _component_path_cache: dict[ComponentPath, ComponentConfig] = field(default_factory=dict)
+    _component_config_cache: dict[ComponentAddress, ComponentConfig] = field(default_factory=dict)
 
     @classmethod
     def from_data(cls, data: Any, path: Path | None = None) -> Config:
@@ -160,24 +160,24 @@ class Config(BaseConfigObject):
 
         return units
 
-    def get_unit(self, path: str | UnitPath) -> UnitConfig | None:
-        if isinstance(path, UnitPath):
-            path = path.name
+    def get_unit(self, address: str | UnitAddress) -> UnitConfig | None:
+        if isinstance(address, UnitAddress):
+            address = address.name
 
-        return next(unit for unit in self.units if unit.name == path)
+        return next(unit for unit in self.units if unit.name == address)
 
-    def get_component(self, path: ComponentPath) -> ComponentConfig | None:
-        if path in self._component_path_cache:
-            return self._component_path_cache[path]
+    def get_component(self, address: ComponentAddress) -> ComponentConfig | None:
+        if address in self._component_config_cache:
+            return self._component_config_cache[address]
 
         component: ComponentConfig | None = None
 
-        if unit := self.get_unit(path.unit):
+        if unit := self.get_unit(address.unit):
             component = next(
-                (current for current in unit.components if current.name == path.name), None
+                (current for current in unit.components if current.name == address.name), None
             )
 
         if component:
-            self._component_path_cache[path] = component
+            self._component_config_cache[address] = component
 
         return component

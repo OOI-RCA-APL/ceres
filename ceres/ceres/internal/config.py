@@ -12,6 +12,7 @@ import yaml
 from pydantic import ValidationError
 from yaml import MarkedYAMLError, YAMLError
 
+from ..address import ComponentAddress, create_address
 from ..component import Component, FullComponentContext
 from ..config import ComponentConfig, Config, UnitConfig
 from ..connection import Connection
@@ -28,7 +29,6 @@ from ..errors import (
     ValidationProblem,
 )
 from ..notifier import Notifier
-from ..path import ComponentPath, create_path
 from ..result import Fail, Ok, Result
 from .component import load_component
 from .database.manager import DatabaseManager
@@ -172,15 +172,15 @@ async def _check_components(
                     case _:
                         unreachable()
 
-                path = ComponentPath(unit_config.name, component_config.name)
-                log(f"Checking component '{path}'...")
+                address = ComponentAddress(unit_config.name, component_config.name)
+                log(f"Checking component '{address}'...")
                 match load_component(
                     cls,
                     component_config.component,
                     component_config.parameters,
                     FullComponentContext(
                         id=uuid4(),
-                        path=path,
+                        address=address,
                         references=component_config.references,
                         root_config=config,
                         unit_config=unit_config,
@@ -194,25 +194,25 @@ async def _check_components(
                         loaded_components.append((component_config, component))
                     case Fail(error):
                         yield ConfigComponentError(
-                            component=path,
+                            component=address,
                             error=error,
                         )
 
         def check_references() -> Iterable[ConfigComponentError]:
             for component_config, component in loaded_components:
                 for binding in component.get_reference_bindings():
-                    if binding.path.name not in component_config.references:
-                        path = create_path(
+                    if binding.address.name not in component_config.references:
+                        address = create_address(
                             "component",
                             unit_config.name,
                             component_config.name,
                         )
 
                         yield ConfigComponentError(
-                            component=path,
+                            component=address,
                             error=ComponentReferenceInvalidError(
-                                message=f"component '{path}' requires {binding.path.kind} reference '{binding.path.name}', but it is not assigned",
-                                reference=binding.path,
+                                message=f"component '{address}' requires {binding.address.kind} reference '{binding.address.name}', but it is not assigned",
+                                reference=binding.address,
                             ),
                         )
 

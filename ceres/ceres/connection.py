@@ -8,6 +8,7 @@ from typing import Any, AsyncIterable
 from pydantic import validator
 from pydantic.dataclasses import dataclass as validated_dataclass
 
+from .address import LocalComponentAddress
 from .component import Component, ComponentContext, ComponentParameters
 from .events import (
     ConnectedEvent,
@@ -17,7 +18,6 @@ from .events import (
 )
 from .internal.utilities import validate_positive_timedelta
 from .message import Message, MessageDirection
-from .path import LocalComponentPath
 
 
 @validated_dataclass(kw_only=True, frozen=True)
@@ -134,7 +134,7 @@ class Connection(Component[ConnectionParameters, ConnectionContext], ABC):
             self._state = ConnectionState.CONNECTED
             self.emit_event(
                 ConnectedEvent(
-                    path=LocalComponentPath(self.context.path.name),
+                    address=LocalComponentAddress(self.context.address.name),
                 )
             )
             self.logger.info("Connected successfully.")
@@ -160,7 +160,7 @@ class Connection(Component[ConnectionParameters, ConnectionContext], ABC):
         self.emit_message(message)
         self.emit_event(
             MessageSentEvent(
-                path=LocalComponentPath(self.context.path.name),
+                address=LocalComponentAddress(self.context.address.name),
                 message=message,
             )
         )
@@ -180,7 +180,7 @@ class Connection(Component[ConnectionParameters, ConnectionContext], ABC):
         self.emit_message(message)
         self.emit_event(
             MessageReceivedEvent(
-                path=LocalComponentPath(self.context.path.name),
+                address=LocalComponentAddress(self.context.address.name),
                 message=message,
             )
         )
@@ -200,7 +200,7 @@ class Connection(Component[ConnectionParameters, ConnectionContext], ABC):
             self._state = ConnectionState.DISCONNECTED
             self.emit_event(
                 DisconnectedEvent(
-                    path=LocalComponentPath(self.context.path.name),
+                    address=LocalComponentAddress(self.context.address.name),
                 )
             )
 

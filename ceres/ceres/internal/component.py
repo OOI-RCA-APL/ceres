@@ -13,6 +13,7 @@ from uuid import UUID
 
 from pydantic import ValidationError, validate_arguments
 
+from ..address import ComponentAddress
 from ..component import (
     Component,
     ComponentContext,
@@ -31,7 +32,6 @@ from ..errors import (
     ComponentParametersInvalidError,
     ValidationProblem,
 )
-from ..path import ComponentPath
 from ..protocols import GlobalUnitProtocol
 from ..result import Fail, Ok, Result
 from . import logs
@@ -170,14 +170,14 @@ def load_component(
 @dataclass(kw_only=True, frozen=True)
 class ComponentHandleContext:
     id: UUID
-    path: ComponentPath
+    address: ComponentAddress
     config: Config
     unit: GlobalUnitProtocol
     database: DatabaseManager
 
     def __post_init__(self) -> None:
-        if not self.config.get_component(self.path):
-            raise ValueError(f"component {self.path} is not defined in configuration")
+        if not self.config.get_component(self.address):
+            raise ValueError(f"component {self.address} is not defined in configuration")
 
 
 class ComponentHandle(Generic[ComponentT], Tasklet, ABC):
@@ -195,12 +195,12 @@ class ComponentHandle(Generic[ComponentT], Tasklet, ABC):
         return self._context.id
 
     @property
-    def path(self) -> ComponentPath:
-        return self._context.path
+    def address(self) -> ComponentAddress:
+        return self._context.address
 
     @property
     def config(self) -> ComponentConfig:
-        return unwrap(self._context.config.get_component(self._context.path))
+        return unwrap(self._context.config.get_component(self._context.address))
 
     @property
     def instance(self) -> ComponentT | None:
@@ -208,7 +208,7 @@ class ComponentHandle(Generic[ComponentT], Tasklet, ABC):
 
     @property
     def logger(self) -> Logger:
-        return logs.get(str(self._context.path))
+        return logs.get(str(self._context.address))
 
     async def _tasklet_run(self) -> None:
         if not self._instance:
@@ -253,10 +253,10 @@ class ComponentHandle(Generic[ComponentT], Tasklet, ABC):
             self.config.parameters,
             FullComponentContext(
                 id=self._context.id,
-                path=self._context.path,
+                address=self._context.address,
                 references=self.config.references,
                 root_config=self._context.config,
-                unit_config=unwrap(self._context.config.get_unit(self._context.path.unit)),
+                unit_config=unwrap(self._context.config.get_unit(self._context.address.unit)),
                 component_config=self.config,
                 users=self._context.config.users,
                 units=self._context.config.units,

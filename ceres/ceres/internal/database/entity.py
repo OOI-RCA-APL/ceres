@@ -23,9 +23,9 @@ from sqlalchemy import (
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
+from ...address import Address, ComponentAddress, UnitAddress
 from ...alert import AlertLevel
 from ...message import MessageDirection
-from ...path import ComponentPath, Path, UnitPath
 
 if TYPE_CHECKING:
     from .manager import DatabaseManager
@@ -140,25 +140,25 @@ class EntityManager:
     def __init__(self, database: "DatabaseManager") -> None:
         self._database = database
 
-    async def get_id(self, path: Path) -> UUID:
+    async def get_id(self, address: Address) -> UUID:
         async with self._database.session() as session:
-            match path:
-                case UnitPath():
-                    return (await self._get_unit(session, path)).id
-                case ComponentPath():
-                    return (await self._get_component(session, path)).id
+            match address:
+                case UnitAddress():
+                    return (await self._get_unit(session, address)).id
+                case ComponentAddress():
+                    return (await self._get_component(session, address)).id
 
     async def _get_unit(
         self,
         session: AsyncSession,
-        path: UnitPath,
+        address: UnitAddress,
     ) -> UnitEntity:
         if not (
-            unit := await session.scalar(select(UnitEntity).where(UnitEntity.name == path.name))
+            unit := await session.scalar(select(UnitEntity).where(UnitEntity.name == address.name))
         ):
             unit = UnitEntity(
                 id=uuid4(),
-                name=path.name,
+                name=address.name,
             )
             session.add(unit)
             await session.commit()
@@ -168,15 +168,16 @@ class EntityManager:
     async def _get_component(
         self,
         session: AsyncSession,
-        path: ComponentPath,
+        address: ComponentAddress,
     ) -> ComponentEntity:
-        unit_id = (await self._get_unit(session, UnitPath(path.unit))).id
+        unit_id = (await self._get_unit(session, UnitAddress(address.unit))).id
 
         if not (
             component := await (
                 session.scalar(
                     select(ComponentEntity).where(
-                        (ComponentEntity.unit_id == unit_id) & (ComponentEntity.name == path.name)
+                        (ComponentEntity.unit_id == unit_id)
+                        & (ComponentEntity.name == address.name)
                     )
                 )
             )
@@ -184,7 +185,7 @@ class EntityManager:
             component = ComponentEntity(
                 id=uuid4(),
                 unit_id=unit_id,
-                name=path.name,
+                name=address.name,
             )
             session.add(component)
             await session.commit()

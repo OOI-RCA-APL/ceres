@@ -7,7 +7,7 @@ from pydantic.dataclasses import dataclass as validated_dataclass
 
 
 @validated_dataclass(frozen=True)
-class UnitPath:
+class UnitAddress:
     name: str
     kind: Literal["unit"] = field(default="unit", init=False)
 
@@ -20,7 +20,7 @@ class UnitPath:
 
 
 @validated_dataclass(frozen=True)
-class ComponentPath:
+class ComponentAddress:
     unit: str
     name: str
     kind: Literal["component"] = field(default="component")
@@ -29,12 +29,12 @@ class ComponentPath:
         return f"@{self.unit}.{self.name}"
 
 
-PathKind = Literal["unit", "component"]
-Path = UnitPath | ComponentPath
+AddressKind = Literal["unit", "component"]
+Address = UnitAddress | ComponentAddress
 
 
 @validated_dataclass(frozen=True)
-class LocalUnitPath:
+class LocalUnitAddress:
     kind: Literal["unit"] = field(default="unit")
 
     def __str__(self) -> str:
@@ -42,7 +42,7 @@ class LocalUnitPath:
 
 
 @validated_dataclass(frozen=True)
-class LocalComponentPath:
+class LocalComponentAddress:
     name: str
     kind: Literal["component"] = field(default="component")
 
@@ -50,44 +50,44 @@ class LocalComponentPath:
         return f".{self.name}"
 
 
-LocalPath = LocalUnitPath | LocalComponentPath
+LocalAddress = LocalUnitAddress | LocalComponentAddress
 
 
 @overload
-def create_path(kind: Literal["unit"], unit: str) -> UnitPath:
+def create_address(kind: Literal["unit"], unit: str) -> UnitAddress:
     ...
 
 
 @overload
-def create_path(kind: Literal["component"], unit: str, name: str) -> ComponentPath:
+def create_address(kind: Literal["component"], unit: str, name: str) -> ComponentAddress:
     ...
 
 
-def create_path(kind: PathKind, unit: str, name: str = "") -> Path:
+def create_address(kind: AddressKind, unit: str, name: str = "") -> Address:
     match kind:
         case "unit":
-            return UnitPath(unit)
+            return UnitAddress(unit)
         case "component":
-            return ComponentPath(unit, name)
+            return ComponentAddress(unit, name)
 
     raise ValueError(kind)
 
 
 @overload
-def create_local_path(kind: Literal["unit"]) -> LocalUnitPath:
+def create_local_address(kind: Literal["unit"]) -> LocalUnitAddress:
     ...
 
 
 @overload
-def create_local_path(kind: Literal["component"], name: str) -> LocalComponentPath:
+def create_local_address(kind: Literal["component"], name: str) -> LocalComponentAddress:
     ...
 
 
-def create_local_path(kind: PathKind, name: str = "") -> LocalPath:
+def create_local_address(kind: AddressKind, name: str = "") -> LocalAddress:
     match kind:
         case "unit":
-            return LocalUnitPath()
+            return LocalUnitAddress()
         case "connection":
-            return LocalComponentPath(name)
+            return LocalComponentAddress(name)
 
     raise ValueError(kind)

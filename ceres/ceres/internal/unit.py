@@ -10,11 +10,11 @@ from threading import Lock
 from typing import Any, Iterable, Protocol, cast
 from uuid import UUID
 
+from ..address import ComponentAddress, LocalComponentAddress, UnitAddress
 from ..alert import Alert, AlertLevel
 from ..config import Config, UnitConfig
 from ..events import Event
-from ..path import ComponentPath, LocalComponentPath, UnitPath
-from ..protocols import GlobalUnitProtocol
+from ..protocols import GlobalUnitProtocol, ReferencedComponentHandle
 from ..result import Fail, Ok
 from . import logs
 from .component import ComponentHandle, ComponentHandleContext, ComponentHandleInterface
@@ -30,7 +30,7 @@ from .utilities import jsonify, run_in_thread, unreachable, unwrap
 @dataclass(kw_only=True, frozen=True)
 class UnitContext:
     id: UUID
-    path: UnitPath
+    address: UnitAddress
     config: Config
 
 
@@ -57,12 +57,12 @@ class Unit(UnitProxyProtocol, GlobalUnitProtocol, Tasklet):
         return self._context.id
 
     @property
-    def path(self) -> UnitPath:
-        return self._context.path
+    def address(self) -> UnitAddress:
+        return self._context.address
 
     @property
     def config(self) -> UnitConfig:
-        return unwrap(self._context.config.get_unit(self.path))
+        return unwrap(self._context.config.get_unit(self.address))
 
     @property
     def database(self) -> DatabaseManager:
@@ -70,14 +70,17 @@ class Unit(UnitProxyProtocol, GlobalUnitProtocol, Tasklet):
 
     @property
     def logger(self) -> Logger:
-        return logs.get(str(self._context.path))
+        return logs.get(str(self._context.address))
 
     @property
     def components(self) -> Iterable[ComponentHandleInterface]:
         return self._components.values()
 
-    def get_component(self, path: str | LocalComponentPath) -> ComponentHandleInterface | None:
-        return self._components.get(path if isinstance(path, str) else path.name)
+    def get_component(
+        self,
+        address: str | LocalComponentAddress,
+    ) -> ReferencedComponentHandle | None:
+        return self._components.get(address if isinstance(address, str) else address.name)
 
     async def handle_event(self, event: Event) -> None:
         for component in self.components:
@@ -86,7 +89,7 @@ class Unit(UnitProxyProtocol, GlobalUnitProtocol, Tasklet):
                     await component.instance.handle_event(event)
                 except Exception:
                     self.logger.error(
-                        f"{component.path} raised exception while handling event {event}: {traceback.format_exc()}"
+                        f"{component.address} raised exception while handling event {event}: {traceback.format_exc()}"
                     )
 
     async def handle_alert(self, alert: Alert) -> None:
@@ -162,12 +165,12 @@ class Unit(UnitProxyProtocol, GlobalUnitProtocol, Tasklet):
 
     async def _load_components(self) -> None:
         for config in self.config.components:
-            path = ComponentPath(self.path.name, config.name)
+            address = ComponentAddress(self.address.name, config.name)
 
             if config.name in self._components:
                 continue
 
-            id = await self._database.entities.get_id(path)
+            id = await self._database.entities.get_id(address)
 
             match config.kind:
                 case "connection":
@@ -182,7 +185,7 @@ class Unit(UnitProxyProtocol, GlobalUnitProtocol, Tasklet):
             self._components[config.name] = cls(
                 ComponentHandleContext(
                     id=id,
-                    path=path,
+                    address=address,
                     unit=self,
                     config=self._context.config,
                     database=self._database,
@@ -193,18 +196,18 @@ class Unit(UnitProxyProtocol, GlobalUnitProtocol, Tasklet):
             match await handle.load():
                 case Ok():
                     self.logger.info(
-                        f"Loaded '{handle.path}' as {type(handle.instance)} with id '{handle.id}'."
+                        f"Loaded '{handle.address}' as {type(handle.instance)} with id '{handle.id}'."
                     )
                 case Fail(error):
                     self.logger.error(
-                        f"Failed to load component '{handle.path}'. Error: {jsonify(error, indent=2)}"
+                        f"Failed to load component '{handle.address}'. Error: {jsonify(error, indent=2)}"
                     )
 
     def _on_component_exception(self, component: ComponentHandle, exception: BaseException) -> None:
-        self.logger.error(f"Exception occurred in component '{component.path}': {exception}")
+        self.logger.error(f"Exception occurred in component '{component.address}': {exception}")
 
     def _on_component_completed(self, component: ComponentHandle) -> None:
-        self.logger.info(f"Component '{component.path}' completed execution.")
+        self.logger.info(f"Component '{component.address}' completed execution.")
 
 
 class UnitManager(BaseManager):
@@ -226,12 +229,12 @@ class UnitHandle(Tasklet):
         return self._context.id
 
     @property
-    def path(self) -> UnitPath:
-        return self._context.path
+    def address(self) -> UnitAddress:
+        return self._context.address
 
     @property
     def config(self) -> UnitConfig:
-        return next(unit for unit in self._context.config.units if unit.name == self.path.name)
+        return next(unit for unit in self._context.config.units if unit.name == self.address.name)
 
     @property
     def instance(self) -> UnitProxyProtocol | None:
@@ -239,7 +242,7 @@ class UnitHandle(Tasklet):
 
     @property
     def logger(self) -> Logger:
-        return logs.get(str(self.path))
+        return logs.get(str(self.address))
 
     async def _tasklet_run(self) -> None:
         def execute() -> None:
@@ -255,7 +258,7 @@ class UnitHandle(Tasklet):
                 return
 
             if exception:
-                self.logger.error(f"Exception occurred in unit '{self.path}': {exception}")
+                self.logger.error(f"Exception occurred in unit '{self.address}': {exception}")
 
         await run_in_thread(execute)
 

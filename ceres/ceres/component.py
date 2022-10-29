@@ -10,6 +10,7 @@ from uuid import UUID, uuid4
 
 from pydantic.dataclasses import dataclass as validated_dataclass
 
+from .address import ComponentAddress
 from .alert import Alert, AlertLevel, RawAlertLevel
 from .config import ComponentConfig, Config, UnitConfig, UserConfig
 from .events import Event, EventBinding, get_event_bindings
@@ -23,7 +24,6 @@ from .internal.utilities import (
     get_now,
     object_has_field,
 )
-from .path import ComponentPath
 from .reference import ReferenceBinding, get_reference_bindings
 from .scheduler import Scheduler
 
@@ -39,14 +39,14 @@ ComponentParametersT = TypeVar("ComponentParametersT", bound=ComponentParameters
 @validated_dataclass(kw_only=True, frozen=True)
 class ComponentContext:
     id: UUID = field(default_factory=uuid4)
-    path: ComponentPath
+    address: ComponentAddress
     references: frozendict[str, str] = field(default_factory=frozendict)
     database: DatabaseManager
 
     def __post_init__(self) -> None:
         extra: list[tuple[str, Any]] = []
         for current in dataclasses.fields(self):
-            if current.name in ["path"]:
+            if current.name in ["address"]:
                 if not object_has_field(FullComponentContext, current.name):
                     extra.append((current.name, current.type))
             else:
@@ -109,8 +109,8 @@ class Component(Generic[ComponentParametersT, ComponentContextT], Tasklet, ABC):
         return self.__component_context__.id
 
     @property
-    def path(self) -> ComponentPath:
-        return self.__component_context__.path
+    def address(self) -> ComponentAddress:
+        return self.__component_context__.address
 
     @property
     def parameters(self) -> ComponentParametersT:
@@ -126,7 +126,7 @@ class Component(Generic[ComponentParametersT, ComponentContextT], Tasklet, ABC):
 
     @property
     def logger(self) -> Logger:
-        return logs.get(str(self.context.path))
+        return logs.get(str(self.context.address))
 
     @property
     async def event_stream(self) -> AsyncIterable[Event]:
@@ -167,9 +167,9 @@ class Component(Generic[ComponentParametersT, ComponentContextT], Tasklet, ABC):
 
     async def handle_event(self, event: Event) -> None:
         for binding in self.get_event_bindings():
-            if not isinstance(event, cast(type, binding.event_cls)):
+            if not isinstance(event, cast(type, binding.cls)):
                 continue
-            if self.context.references.get(binding.path.name) != event.path.name:
+            if self.context.references.get(binding.address.name) != event.address.name:
                 continue
 
             if method := getattr(self, binding.function.__name__, None):

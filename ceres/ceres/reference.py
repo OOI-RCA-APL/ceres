@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from functools import cache
 from typing import TYPE_CHECKING, Any, Generic, Sequence, TypeVar, overload
 
-from .path import LocalComponentPath
+from .address import LocalComponentAddress
 
 if TYPE_CHECKING:
     from .component import ComponentInterface
@@ -20,8 +20,8 @@ class ComponentReference(Generic[ComponentT]):
         self.name = name
 
     @property
-    def path(self) -> LocalComponentPath:
-        return LocalComponentPath(self.name)
+    def address(self) -> LocalComponentAddress:
+        return LocalComponentAddress(self.name)
 
     @overload
     def __get__(self: SelfT, component: None, owner: Any) -> SelfT:
@@ -51,8 +51,8 @@ class ReferenceBinding:
     name: str
 
     @property
-    def path(self) -> LocalComponentPath:
-        return LocalComponentPath(self.name)
+    def address(self) -> LocalComponentAddress:
+        return LocalComponentAddress(self.name)
 
 
 @cache

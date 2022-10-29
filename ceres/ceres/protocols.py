@@ -3,9 +3,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 from uuid import UUID
 
+from .address import ComponentAddress, LocalComponentAddress
 from .alert import Alert
 from .events import Event
-from .path import ComponentPath, LocalComponentPath
 
 if TYPE_CHECKING:
     from .component import Component
@@ -21,7 +21,7 @@ class ReferencedComponentHandle(Protocol):
         ...
 
     @property
-    def path(self) -> ComponentPath:
+    def address(self) -> ComponentAddress:
         ...
 
     @property
@@ -52,7 +52,7 @@ class ReferencedNotifierHandle(ReferencedComponentHandle, Protocol):
 
 @runtime_checkable
 class GlobalUnitProtocol(Protocol):
-    def get_component(self, path: LocalComponentPath) -> ReferencedComponentHandle | None:
+    def get_component(self, address: LocalComponentAddress) -> ReferencedComponentHandle | None:
         ...
 
     async def handle_event(self, event: Event) -> None:

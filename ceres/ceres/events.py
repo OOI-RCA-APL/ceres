@@ -17,15 +17,15 @@ from typing import (
 
 from pydantic.dataclasses import dataclass as validated_dataclass
 
+from .address import LocalComponentAddress
 from .internal.utilities import get_now
 from .message import Message
-from .path import LocalComponentPath
 
 
 @validated_dataclass(kw_only=True, frozen=True)
 class Event:
     kind: str
-    path: LocalComponentPath
+    address: LocalComponentAddress
     timestamp: datetime = field(default_factory=get_now)
 
 
@@ -64,8 +64,8 @@ EVENT_BINDINGS_ATTRIBUTE = "__event_bindings__"
 
 @dataclass(kw_only=True, frozen=True)
 class EventBinding:
-    path: LocalComponentPath
-    event_cls: type | object
+    address: LocalComponentAddress
+    cls: type | object
     function: Callable
 
 
@@ -105,8 +105,8 @@ def listen(
 
         bindings.append(
             EventBinding(
-                path=source.path,
-                event_cls=cls,
+                address=source.address,
+                cls=cls,
                 function=function,
             )
         )

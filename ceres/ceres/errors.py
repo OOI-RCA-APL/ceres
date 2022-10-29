@@ -6,7 +6,7 @@ from typing import Literal
 from pydantic import ValidationError
 from pydantic.dataclasses import dataclass as validated_dataclass
 
-from .path import ComponentPath, LocalComponentPath
+from .address import ComponentAddress, LocalComponentAddress
 
 
 @validated_dataclass(kw_only=True, frozen=True)
@@ -93,7 +93,7 @@ class ComponentReferenceInvalidError(BaseComponentError):
     kind: Literal[
         ComponentErrorKind.COMPONENT_REFERENCE_INVALID
     ] = ComponentErrorKind.COMPONENT_REFERENCE_INVALID
-    reference: LocalComponentPath
+    reference: LocalComponentAddress
 
 
 ComponentError = (
@@ -156,7 +156,7 @@ class ConfigDatabaseError(BaseConfigError):
 @validated_dataclass(kw_only=True, frozen=True)
 class ConfigComponentError(BaseConfigError):
     kind: Literal[ConfigErrorKind.COMPONENT_ERROR] = ConfigErrorKind.COMPONENT_ERROR
-    component: ComponentPath
+    component: ComponentAddress
     error: ComponentError
 
 

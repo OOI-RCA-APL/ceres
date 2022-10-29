@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-
 from ..notifier import Notifier
 from ..protocols import ReferencedNotifierHandle
 from .component import ComponentHandle
