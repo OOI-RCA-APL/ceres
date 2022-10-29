@@ -33,7 +33,7 @@ class ComponentConfig(BaseConfigObject):
     kind: Literal["connection", "driver", "notifier"]
     name: NameStr
     component: str | object
-    parameters: frozendict[NameStr, Any] = field(default_factory=frozendict)
+    parameters: frozendict[str, Any] = field(default_factory=frozendict)
     references: frozendict[NameStr, NameStr] = field(default_factory=frozendict)
 
 
