@@ -74,6 +74,11 @@ class FullComponentContext(ComponentContext):
 ComponentContextT = TypeVar("ComponentContextT", bound=ComponentContext)
 
 
+@validated_dataclass(kw_only=True, frozen=True)
+class ComponentReferences:
+    pass
+
+
 @dataclass(kw_only=True)
 class ComponentInteral:
     event_stream: Stream[Event] = field(default_factory=Stream)
@@ -181,11 +186,11 @@ class Component(
 
     @property
     def event_stream(self) -> StreamView[Event]:
-        return StreamView(self.__component_internal__.event_stream)
+        return self.__component_internal__.event_stream.view()
 
     @property
     def alert_stream(self) -> StreamView[Alert]:
-        return StreamView(self.__component_internal__.alert_stream)
+        return self.__component_internal__.alert_stream.view()
 
     def emit_event(self, event: Event) -> Event:
         self.__component_internal__.event_stream.put(event)

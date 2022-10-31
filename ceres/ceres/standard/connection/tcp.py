@@ -25,6 +25,11 @@ class TCPConnectionContext(ConnectionContext):
     pass
 
 
+@validated_dataclass(kw_only=True, frozen=True)
+class TCPConnectionReferences(ConnectionContext):
+    pass
+
+
 @dataclass(kw_only=True, frozen=True)
 class _Stream:
     reader: StreamReader

@@ -32,12 +32,11 @@ class ConnectionHandle(ComponentHandle[Connection], ReferencedConnectionHandle):
         if not self.instance:
             return
 
-        with self.instance.message_stream.read() as messages:
-            async for message in messages:
-                self._buffer.append(message)
+        async for message in self.instance.message_stream:
+            self._buffer.append(message)
 
-                if not self._flushing and len(self._buffer) >= self.get_max_buffer_size():
-                    await self._flush()
+            if not self._flushing and len(self._buffer) >= self.get_max_buffer_size():
+                await self._flush()
 
     async def _process_flush(self) -> None:
         while True:

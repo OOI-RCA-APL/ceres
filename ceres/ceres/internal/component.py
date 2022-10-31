@@ -196,17 +196,15 @@ class ComponentHandle(Generic[ComponentT], Tasklet, ABC):
         if not self.instance:
             return
 
-        with self.instance.event_stream.read() as events:
-            async for event in events:
-                await self._context.unit.handle_event(event)
+        async for event in self.instance.event_stream:
+            await self._context.unit.handle_event(event)
 
     async def _process_alerts(self) -> None:
         if not self.instance:
             return
 
-        with self.instance.alert_stream.read() as stream:
-            async for alert in stream:
-                await self._context.unit.handle_alert(alert)
+        async for alert in self.instance.alert_stream:
+            await self._context.unit.handle_alert(alert)
 
     async def _tasklet_stop(self) -> None:
         pass

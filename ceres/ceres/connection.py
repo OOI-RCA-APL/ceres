@@ -113,7 +113,7 @@ class Connection(Component[ConnectionParameters, ConnectionContext], ABC):
 
     @property
     def message_stream(self) -> StreamView[Message]:
-        return StreamView(self.__connection_internal__.message_stream)
+        return self.__connection_internal__.message_stream.view()
 
     def emit_message(self, message: Message) -> Message:
         self.__connection_internal__.message_stream.put(message)
