@@ -177,7 +177,7 @@ class ComponentHandle(Generic[ComponentT], Tasklet, ABC):
         return logs.get(str(self._context.address))
 
     async def _tasklet_run(self) -> None:
-        if not self._instance:
+        if not self.instance:
             return
 
         await asyncio.gather(
@@ -187,31 +187,33 @@ class ComponentHandle(Generic[ComponentT], Tasklet, ABC):
         )
 
     async def _process_component(self) -> None:
-        if self._instance:
-            await self._instance.run()
+        if not self.instance:
+            return
+
+        await self.instance.run()
 
     async def _process_events(self) -> None:
-        while True:
-            if self._instance:
-                async for event in self._instance.event_stream:
-                    await self._context.unit.handle_event(event)
-            else:
-                await asyncio.sleep(1)
+        if not self.instance:
+            return
+
+        with self.instance.event_stream.read() as events:
+            async for event in events:
+                await self._context.unit.handle_event(event)
 
     async def _process_alerts(self) -> None:
-        while True:
-            if self._instance:
-                async for alert in self._instance.alert_stream:
-                    await self._context.unit.handle_alert(alert)
-            else:
-                await asyncio.sleep(1)
+        if not self.instance:
+            return
+
+        with self.instance.alert_stream.read() as stream:
+            async for alert in stream:
+                await self._context.unit.handle_alert(alert)
 
     async def _tasklet_stop(self) -> None:
         pass
 
     async def load(self) -> Result[ComponentT, ComponentError]:
-        if self._instance:
-            return Ok(self._instance)
+        if self.instance:
+            return Ok(self.instance)
 
         match load_component(
             self._get_component_type(),

@@ -29,16 +29,15 @@ class ConnectionHandle(ComponentHandle[Connection], ReferencedConnectionHandle):
         )
 
     async def _process_messages(self) -> None:
-        while True:
-            if not self._instance:
-                await asyncio.sleep(1)
-                continue
+        if not self.instance:
+            return
 
-            message = await self._instance.get_next_message()
-            self._buffer.append(message)
+        with self.instance.message_stream.read() as messages:
+            async for message in messages:
+                self._buffer.append(message)
 
-            if not self._flushing and len(self._buffer) >= self.get_max_buffer_size():
-                await self._flush()
+                if not self._flushing and len(self._buffer) >= self.get_max_buffer_size():
+                    await self._flush()
 
     async def _process_flush(self) -> None:
         while True:

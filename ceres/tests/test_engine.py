@@ -12,7 +12,7 @@ from ceres.config import (
     UnitConfig,
 )
 from ceres.engine import Engine
-from ceres.internal.utilities import NameStr, frozenlist
+from ceres.internal.utilities import frozenlist
 
 
 async def test_engine_can_start() -> None:
@@ -24,7 +24,7 @@ async def test_engine_can_start() -> None:
                     kind=DatabaseKind.SQLITE,
                     path=Path(file.name),
                 ),
-                units=frozenlist([UnitConfig(name=NameStr("test"))]),
+                units=frozenlist([UnitConfig(name="test")]),
             )
         )
 

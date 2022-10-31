@@ -64,6 +64,12 @@ class Notifier(Component[NotifierParameters, NotifierContext], ABC):
                 )
             ]
 
+        if not alerts:
+            self.logger.info(
+                f"No alerts were reported in the last {encode_td(lookback)}. Notifications will not be sent."
+            )
+            return
+
         self.logger.info(
             f"{len(alerts)} alert(s) were reported in the last {encode_td(lookback)}...",
         )

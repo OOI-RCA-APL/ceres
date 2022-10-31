@@ -2,11 +2,10 @@ import dataclasses
 import inspect
 import traceback
 from abc import ABCMeta
-from asyncio import Queue as AsyncQueue
 from dataclasses import dataclass, field
 from inspect import Parameter
 from logging import Logger
-from typing import Any, AsyncIterable, Generic, Sequence, TypeVar, cast, get_type_hints
+from typing import Any, Generic, Sequence, TypeVar, cast, get_type_hints
 from uuid import UUID, uuid4
 
 from pydantic.dataclasses import dataclass as validated_dataclass
@@ -20,6 +19,7 @@ from .internal import logs
 from .internal.database.manager import DatabaseManager
 from .internal.tasks import Tasklet
 from .internal.utilities import (
+    ValidateByType,
     awaitify,
     frozendict,
     frozenlist,
@@ -28,6 +28,7 @@ from .internal.utilities import (
 )
 from .reference import ReferenceBinding, get_reference_bindings
 from .scheduler import Scheduler
+from .stream import Stream, StreamView
 
 
 @validated_dataclass(kw_only=True, frozen=True)
@@ -75,9 +76,9 @@ ComponentContextT = TypeVar("ComponentContextT", bound=ComponentContext)
 
 @dataclass(kw_only=True)
 class ComponentInteral:
-    event_queue: AsyncQueue[Event] = AsyncQueue()
-    alert_queue: AsyncQueue[Alert] = AsyncQueue()
-    scheduler: Scheduler = Scheduler()
+    event_stream: Stream[Event] = field(default_factory=Stream)
+    alert_stream: Stream[Alert] = field(default_factory=Stream)
+    scheduler: Scheduler = field(default_factory=Scheduler)
 
 
 class ComponentMeta(ABCMeta):
@@ -126,6 +127,7 @@ class ComponentMeta(ABCMeta):
 class Component(
     Generic[ComponentParametersT, ComponentContextT],
     Tasklet,
+    ValidateByType,
     metaclass=ComponentMeta,
 ):
     def __init__(
@@ -178,23 +180,15 @@ class Component(
         return logs.get(str(self.context.address))
 
     @property
-    async def event_stream(self) -> AsyncIterable[Event]:
-        while True:
-            yield await self.get_next_event()
+    def event_stream(self) -> StreamView[Event]:
+        return StreamView(self.__component_internal__.event_stream)
 
     @property
-    async def alert_stream(self) -> AsyncIterable[Alert]:
-        while True:
-            yield await self.get_next_alert()
-
-    async def get_next_event(self) -> Event:
-        return await self.__component_internal__.event_queue.get()
-
-    async def get_next_alert(self) -> Alert:
-        return await self.__component_internal__.alert_queue.get()
+    def alert_stream(self) -> StreamView[Alert]:
+        return StreamView(self.__component_internal__.alert_stream)
 
     def emit_event(self, event: Event) -> Event:
-        self.__component_internal__.event_queue.put_nowait(event)
+        self.__component_internal__.event_stream.put(event)
         return event
 
     def emit_alert(
@@ -211,7 +205,7 @@ class Component(
             info=info or {},
         )
 
-        self.__component_internal__.alert_queue.put_nowait(alert)
+        self.__component_internal__.alert_stream.put(alert)
         return alert
 
     async def handle_event(self, event: Event) -> None:

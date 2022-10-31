@@ -20,8 +20,8 @@ class DriverHandle(ComponentHandle[Driver], ReferencedDriverHandle):
 
     async def _process_update(self) -> None:
         while True:
-            if not self._instance:
+            if not self.instance:
                 await asyncio.sleep(1)
                 continue
 
-            await self._instance.update()
+            await self.instance.update()
