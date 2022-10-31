@@ -4,6 +4,7 @@ from asyncio import Queue as AsyncQueue
 from asyncio import QueueEmpty
 from collections.abc import AsyncIterator
 from typing import Any, Callable, Generic, Literal, TypeVar
+from weakref import WeakSet
 
 __all__ = [
     "Stream",
@@ -18,7 +19,7 @@ class Stream(Generic[T]):
     __slots__ = ("_readers",)
 
     def __init__(self) -> None:
-        self._readers: set[StreamReader[T]] = set()
+        self._readers: WeakSet[StreamReader[T]] = WeakSet()
 
     def put(self, value: T) -> None:
         for reader in self._readers:
@@ -29,10 +30,7 @@ class Stream(Generic[T]):
             self._readers.add(reader)
 
         def unregister() -> None:
-            try:
-                self._readers.remove(reader)
-            except KeyError:
-                pass
+            self._readers.discard(reader)
 
         reader: StreamReader[T] = StreamReader(register, unregister)
         return reader
@@ -55,7 +53,7 @@ class StreamView(Generic[T]):
 
 
 class StreamReader(AsyncIterator[T]):
-    __slots__ = ("_register", "_unregister", "_queue")
+    __slots__ = ("_register", "_unregister", "_queue", "__weakref__")
 
     def __init__(
         self,
