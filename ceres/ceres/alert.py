@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from dataclasses import field
 from datetime import datetime
 from enum import Enum
@@ -19,7 +17,7 @@ class AlertLevel(str, Enum):
     ERROR = "error"
 
     @classmethod
-    def create_from(cls, raw: AlertLevel | RawAlertLevel) -> AlertLevel:
+    def create_from(cls, raw: "AlertLevel" | RawAlertLevel) -> "AlertLevel":
         return cls(raw)
 
 
@@ -60,7 +58,7 @@ class Alert:
     info: dict[str, Any] = field(default_factory=dict)
 
     @staticmethod
-    def create_from(other: AlertLike) -> Alert:
+    def create_from(other: AlertLike) -> "Alert":
         return Alert(
             id=other.id,
             origin_id=other.origin_id,

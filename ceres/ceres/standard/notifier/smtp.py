@@ -7,7 +7,7 @@ from pydantic import SecretStr
 from pydantic.dataclasses import dataclass as validated_dataclass
 
 from ...alert import Alert
-from ...component import WithContext, WithParameters
+from ...component import ComponentReferences, WithContext, WithParameters
 from ...config import UserConfig
 from ...internal.utilities import EmailStr, jsonify, show_td
 from ...notifier import Notifier, NotifierContext, NotifierParameters
@@ -40,8 +40,9 @@ class SMTPNotifier(
         self,
         parameters: SMTPNotifierParameters,
         context: SMTPNotifierContext,
+        references: ComponentReferences,
     ) -> None:
-        super().__init__(parameters, context)
+        super().__init__(parameters, context, references)
 
     async def send(self, users: Sequence[UserConfig], alerts: Sequence[Alert]) -> None:
         self.logger.info(f"Sending email notification to {len(users)} user(s).")

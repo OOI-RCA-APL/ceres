@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import itertools
 import sys
 import warnings
@@ -7,7 +5,7 @@ from dataclasses import field
 from datetime import timedelta
 from enum import Enum
 from pathlib import Path
-from typing import Any, Literal, Mapping, Sequence
+from typing import Any, Iterable, Literal, Mapping, Sequence
 
 from pydantic import ConfigDict, Field, SecretStr, validator
 from pydantic.dataclasses import dataclass as validated_dataclass
@@ -35,6 +33,13 @@ class ComponentConfig(BaseConfigObject):
     component: str | object
     parameters: frozendict[str, Any] = field(default_factory=frozendict)
     references: frozendict[NameStr, NameStr] = field(default_factory=frozendict)
+
+    @validator("references", pre=True)
+    def _validate_references(cls, value: Any) -> Any:
+        if not isinstance(value, Mapping) and isinstance(value, Iterable):
+            return {key: key for key in value}
+
+        return value
 
 
 @validated_dataclass(kw_only=True, frozen=True)
@@ -131,7 +136,9 @@ warnings.filterwarnings(
 
 
 @validated_dataclass(
-    kw_only=True, frozen=True, config=ConfigDict(underscore_attrs_are_private=True)
+    kw_only=True,
+    frozen=True,
+    config=ConfigDict(underscore_attrs_are_private=True),
 )
 class Config(BaseConfigObject):
     server: ServerConfig
@@ -143,7 +150,7 @@ class Config(BaseConfigObject):
     _component_config_cache: dict[ComponentAddress, ComponentConfig] = field(default_factory=dict)
 
     @classmethod
-    def from_data(cls, data: Any, path: Path | None = None) -> Config:
+    def from_data(cls, data: Any, path: Path | None = None) -> "Config":
         instance = hydrate(cls, data)
         object.__setattr__(instance, "__path__", path)
         return instance

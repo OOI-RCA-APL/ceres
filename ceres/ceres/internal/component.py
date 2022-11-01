@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import asyncio
 import dataclasses
 import importlib
@@ -7,14 +5,20 @@ import inspect
 import traceback
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from functools import cache
 from logging import Logger
-from typing import Any, Generic, Mapping, TypeVar
+from typing import TYPE_CHECKING, Any, Generic, Mapping, TypeVar, get_type_hints
 from uuid import UUID
 
 from pydantic import ValidationError, validate_arguments
 
 from ..address import ComponentAddress
-from ..component import Component, ComponentInterface, FullComponentContext
+from ..component import (
+    CompleteComponentContext,
+    Component,
+    ComponentInterface,
+    ComponentReferences,
+)
 from ..config import ComponentConfig, Config
 from ..errors import (
     ComponentClassInvalidError,
@@ -24,45 +28,50 @@ from ..errors import (
     ComponentModuleExceptionError,
     ComponentModuleNotFoundError,
     ComponentParametersInvalidError,
+    ComponentReferenceInvalidError,
     ValidationProblem,
 )
-from ..protocols import GlobalUnitProtocol
 from ..result import Fail, Ok, Result
 from . import logs
 from .database.manager import DatabaseManager
 from .tasks import Tasklet
-from .utilities import hydrate, object_has_field, unwrap
+from .utilities import frozendict, hydrate, object_has_field, unwrap
+
+if TYPE_CHECKING:
+    from .unit import Unit
 
 ComponentT = TypeVar("ComponentT", bound=Component, covariant=True)
 
 
 def load_component(
     cls: type[ComponentT],
-    source: str | object,
-    parameters: Mapping[str, Any],
-    context: FullComponentContext,
+    config: ComponentConfig,
+    context: CompleteComponentContext,
+    siblings: Mapping[str, ComponentInterface],
 ) -> Result[ComponentT, ComponentError]:
-    if not isinstance(source, str):
-        if not isinstance(source, cls):
+    if not isinstance(config.component, str):
+        if not isinstance(config.component, cls):
             return Fail(
                 ComponentClassInvalidError(
-                    message=f"component passed in configuration must be an instance of {cls}, got {source}"
+                    message=f"component passed in configuration must be an instance of {cls}, got {config.component}"
                 )
             )
 
-        return Ok(source)
+        return Ok(config.component)
 
     try:
-        module = importlib.import_module(source)
+        module = importlib.import_module(config.component)
     except Exception as exception:
-        if isinstance(exception, ModuleNotFoundError) and exception.name == source:
+        if isinstance(exception, ModuleNotFoundError) and exception.name == config.component:
             return Fail(
-                ComponentModuleNotFoundError(message=f"component module '{source}' was not found")
+                ComponentModuleNotFoundError(
+                    message=f"component module '{config.component}' was not found"
+                )
             )
 
         return Fail(
             ComponentModuleExceptionError(
-                message=f"component module '{source}' raised an exception during import",
+                message=f"component module '{config.component}' raised an exception during import",
                 traceback=traceback.format_exc(),
             )
         )
@@ -91,9 +100,10 @@ def load_component(
 
     parameters_type = target_cls.get_parameters_type()
     context_type = target_cls.get_context_type()
+    references_type = target_cls.get_references_type()
 
     try:
-        applied_parameters = hydrate(parameters_type, parameters)
+        applied_parameters = hydrate(parameters_type, config.parameters)
     except ValidationError as error:
         return Fail(
             ComponentParametersInvalidError(
@@ -118,7 +128,44 @@ def load_component(
             )
         )
 
-    applied_arguments = (instance, applied_parameters, applied_context)
+    try:
+        references_arguments: dict[str, Any] = {}
+        reference_mapping = _get_reference_mapping(references_type)
+
+        for component_alias, component_type in reference_mapping.items():
+            if not (name := config.references.get(component_alias)):
+                return Fail(
+                    ComponentReferenceInvalidError(
+                        message=f"reference '{component_alias}' of type {component_type} is specified by {references_type}, but is missing from the component's references configuration",
+                    )
+                )
+
+            if not (sibling := siblings.get(name)):
+                return Fail(
+                    ComponentReferenceInvalidError(
+                        message=f"reference to component '{name}' of type {component_type} is specified by {references_type}, but it hasn't loaded yet or failed to load"
+                    )
+                )
+
+            if not isinstance(sibling, component_type):
+                return Fail(
+                    ComponentReferenceInvalidError(
+                        message=f"reference to component '{name}' is specified by {references_type} but component '{name}' is an instance of {type(sibling)}, not {component_type}"
+                    )
+                )
+
+            references_arguments[component_alias] = sibling
+
+        applied_references = references_type(**references_arguments)
+    except Exception:
+        return Fail(
+            ComponentInitExceptionError(
+                message=f"exception raised when creating {references_type} for {target_cls}",
+                traceback=traceback.format_exc(),
+            )
+        )
+
+    applied_arguments = (instance, applied_parameters, applied_context, applied_references)
 
     try:
         __init__(*applied_arguments)  # type: ignore
@@ -138,7 +185,7 @@ class ComponentHandleContext:
     id: UUID
     address: ComponentAddress
     config: Config
-    unit: GlobalUnitProtocol
+    unit: "Unit"
     database: DatabaseManager
 
     def __post_init__(self) -> None:
@@ -154,7 +201,7 @@ class ComponentHandle(Generic[ComponentT], Tasklet, ABC):
     @classmethod
     @abstractmethod
     def _get_component_type(cls) -> type[ComponentT]:
-        raise NotImplementedError()
+        ...
 
     @property
     def id(self) -> UUID:
@@ -215,9 +262,8 @@ class ComponentHandle(Generic[ComponentT], Tasklet, ABC):
 
         match load_component(
             self._get_component_type(),
-            self.config.component,
-            self.config.parameters,
-            FullComponentContext(
+            self.config,
+            CompleteComponentContext(
                 id=self._context.id,
                 address=self._context.address,
                 references=self.config.references,
@@ -228,6 +274,11 @@ class ComponentHandle(Generic[ComponentT], Tasklet, ABC):
                 units=self._context.config.units,
                 database=self._context.database,
             ),
+            {
+                component.address.name: component.instance
+                for component in self._context.unit.components
+                if component.instance
+            },
         ):
             case Ok(instance):
                 self._instance = instance
@@ -237,3 +288,20 @@ class ComponentHandle(Generic[ComponentT], Tasklet, ABC):
 
 
 ComponentHandleInterface = ComponentHandle[ComponentInterface]
+
+
+def _get_reference_mapping(
+    references: ComponentReferences | type[ComponentReferences],
+) -> Mapping[str, type["ComponentInterface"]]:
+    mapping: dict[str, type[ComponentInterface]] = {}
+    hints = get_type_hints(references)
+
+    for name, hint in hints.items():
+        if isinstance(hint, type) and issubclass(hint, Component):
+            mapping[name] = hint
+
+    return frozendict(mapping)
+
+
+if not TYPE_CHECKING:
+    _get_reference_mapping = cache(_get_reference_mapping)

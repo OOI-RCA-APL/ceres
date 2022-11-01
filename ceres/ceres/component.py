@@ -26,7 +26,6 @@ from .internal.utilities import (
     get_now,
     object_has_field,
 )
-from .reference import ReferenceBinding, get_reference_bindings
 from .scheduler import Scheduler
 from .stream import Stream, StreamView
 
@@ -50,10 +49,10 @@ class ComponentContext:
         extra: list[tuple[str, Any]] = []
         for current in dataclasses.fields(self):
             if current.name in ["address"]:
-                if not object_has_field(FullComponentContext, current.name):
+                if not object_has_field(CompleteComponentContext, current.name):
                     extra.append((current.name, current.type))
             else:
-                if not object_has_field(FullComponentContext, current.name, current.type):
+                if not object_has_field(CompleteComponentContext, current.name, current.type):
                     extra.append((current.name, current.type))
 
         if extra:
@@ -61,7 +60,7 @@ class ComponentContext:
 
 
 @validated_dataclass(kw_only=True, frozen=True)
-class FullComponentContext(ComponentContext):
+class CompleteComponentContext(ComponentContext):
     id: UUID
     root_config: Config
     unit_config: UnitConfig
@@ -77,6 +76,9 @@ ComponentContextT = TypeVar("ComponentContextT", bound=ComponentContext)
 @validated_dataclass(kw_only=True, frozen=True)
 class ComponentReferences:
     pass
+
+
+ComponentReferencesT = TypeVar("ComponentReferencesT", bound=ComponentReferences)
 
 
 @dataclass(kw_only=True)
@@ -99,17 +101,16 @@ class ComponentMeta(ABCMeta):
         signature = inspect.signature(__init__)
         parameters: tuple[Parameter, ...] = tuple(signature.parameters.values())
 
-        if len(parameters) != 3 or any(
+        if len(parameters) != 4 or any(
             parameter.kind == Parameter.KEYWORD_ONLY for parameter in parameters
         ):
-            required = (
-                "def __init__(parameters: ComponentParametersT, context: ComponentContextT) -> None"
-            )
+            required = "def __init__(parameters: ComponentParametersT, context: ComponentContextT, references: ComponentReferencesT) -> None"
             raise ComponentClassInvalidException(f"{__init__} must match match {required}")
 
         hints = tuple(get_type_hints(__init__).values())
         parameters_type = hints[0]
         context_type = hints[1]
+        references_type = hints[2]
 
         if not isinstance(parameters_type, TypeVar) and (
             not isinstance(parameters_type, type)
@@ -119,18 +120,33 @@ class ComponentMeta(ABCMeta):
                 f"first positional parameter of {__init__} must be a subclass of {ComponentParameters}"
             )
 
-        if not isinstance(parameters_type, TypeVar) and (
+        if not isinstance(context_type, TypeVar) and (
             not isinstance(context_type, type) or not issubclass(context_type, ComponentContext)
         ):
             raise ComponentClassInvalidException(
-                f"second positional pararmeter {__init__} must be a subclass of {ComponentContext}"
+                f"second positional parameter of {__init__} must be a subclass of {ComponentContext}"
             )
+
+        if not isinstance(references_type, TypeVar) and (
+            not isinstance(references_type, type)
+            or not issubclass(references_type, ComponentReferences)
+        ):
+            raise ComponentClassInvalidException(
+                f"third positional parameter of {__init__} must be a subclass of {ComponentReferences}"
+            )
+
+        if not isinstance(references_type, TypeVar):
+            for binding in get_event_bindings(cls):
+                if not object_has_field(references_type, binding.address.name):
+                    raise ComponentClassInvalidException(
+                        f"event listener {binding.function} refers to component '{binding.address.name}' which is not defined in {references_type}"
+                    )
 
         return cls
 
 
 class Component(
-    Generic[ComponentParametersT, ComponentContextT],
+    Generic[ComponentParametersT, ComponentContextT, ComponentReferencesT],
     Tasklet,
     ValidateByType,
     metaclass=ComponentMeta,
@@ -139,9 +155,11 @@ class Component(
         self,
         parameters: ComponentParametersT,
         context: ComponentContextT,
+        references: ComponentReferencesT,
     ) -> None:
         self.__component_parameters__ = parameters
         self.__component_context__ = context
+        self.__component_references__ = references
         self.__component_internal__ = ComponentInteral()
 
     @classmethod
@@ -153,12 +171,12 @@ class Component(
         return tuple(get_type_hints(cls.__init__).values())[1]  # type: ignore
 
     @classmethod
-    def get_event_bindings(cls) -> Sequence[EventBinding]:
-        return get_event_bindings(cls)
+    def get_references_type(cls) -> type[ComponentReferences]:
+        return tuple(get_type_hints(cls.__init__).values())[2]  # type: ignore
 
     @classmethod
-    def get_reference_bindings(cls) -> Sequence[ReferenceBinding]:
-        return get_reference_bindings(cls)
+    def get_event_bindings(cls) -> Sequence[EventBinding]:
+        return get_event_bindings(cls)
 
     @property
     def id(self) -> UUID:
@@ -175,6 +193,10 @@ class Component(
     @property
     def context(self) -> ComponentContextT:
         return self.__component_context__
+
+    @property
+    def references(self) -> ComponentReferencesT:
+        return self.__component_references__
 
     @property
     def scheduler(self) -> Scheduler:
@@ -236,7 +258,7 @@ class Component(
         self.scheduler.stop()
 
 
-ComponentInterface = Component[ComponentParameters, ComponentContext]
+ComponentInterface = Component[ComponentParameters, ComponentContext, ComponentReferences]
 
 
 class WithParameters(Generic[ComponentParametersT]):
@@ -249,3 +271,9 @@ class WithContext(Generic[ComponentContextT]):
     @property
     def context(self) -> ComponentContextT:
         return self.__component_context__  # type: ignore
+
+
+class WithReferences(Generic[ComponentReferencesT]):
+    @property
+    def references(self) -> ComponentReferencesT:
+        return self.__component_references__  # type: ignore

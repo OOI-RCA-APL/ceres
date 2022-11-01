@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import asyncio
 import traceback
 from enum import Enum
@@ -12,13 +10,12 @@ import yaml
 from pydantic import ValidationError
 from yaml import MarkedYAMLError, YAMLError
 
-from ..address import ComponentAddress, create_address
-from ..component import Component, FullComponentContext
-from ..config import ComponentConfig, Config, UnitConfig
+from ..address import ComponentAddress
+from ..component import CompleteComponentContext, Component
+from ..config import Config, UnitConfig
 from ..connection import Connection
 from ..driver import Driver
 from ..errors import (
-    ComponentReferenceInvalidError,
     ConfigComponentError,
     ConfigDatabaseError,
     ConfigError,
@@ -40,7 +37,7 @@ class ConfigCheckKind(str, Enum):
     COMPONENTS = "components"
 
     @classmethod
-    def all(cls) -> Sequence[ConfigCheckKind]:
+    def all(cls) -> Sequence["ConfigCheckKind"]:
         return tuple(cls)
 
 
@@ -156,7 +153,7 @@ async def _check_components(
     log("Checking component configurations...")
 
     def check_unit_config(unit_config: UnitConfig) -> Iterable[ConfigComponentError]:
-        loaded_components: list[tuple[ComponentConfig, Component]] = []
+        components: dict[str, Component] = {}
 
         def check_components() -> Iterable[ConfigComponentError]:
             database = DatabaseManager(config.database)
@@ -176,9 +173,8 @@ async def _check_components(
                 log(f"Checking component '{address}'...")
                 match load_component(
                     cls,
-                    component_config.component,
-                    component_config.parameters,
-                    FullComponentContext(
+                    component_config,
+                    CompleteComponentContext(
                         id=uuid4(),
                         address=address,
                         references=component_config.references,
@@ -189,37 +185,17 @@ async def _check_components(
                         units=config.units,
                         database=database,
                     ),
+                    components,
                 ):
                     case Ok(component):
-                        loaded_components.append((component_config, component))
+                        components[component_config.name] = component
                     case Fail(error):
                         yield ConfigComponentError(
                             component=address,
                             error=error,
                         )
 
-        def check_references() -> Iterable[ConfigComponentError]:
-            for component_config, component in loaded_components:
-                for binding in component.get_reference_bindings():
-                    if binding.address.name not in component_config.references:
-                        address = create_address(
-                            "component",
-                            unit_config.name,
-                            component_config.name,
-                        )
-
-                        yield ConfigComponentError(
-                            component=address,
-                            error=ComponentReferenceInvalidError(
-                                message=f"component '{address}' requires {binding.address.kind} reference '{binding.address.name}', but it is not assigned",
-                                reference=binding.address,
-                            ),
-                        )
-
-        return [
-            *check_components(),
-            *check_references(),
-        ]
+        yield from check_components()
 
     errors: list[ConfigComponentError] = []
 

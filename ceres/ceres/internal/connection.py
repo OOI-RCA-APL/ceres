@@ -2,12 +2,11 @@ import asyncio
 
 from ..connection import Connection
 from ..message import Message, MessageDirection
-from ..protocols import ReferencedConnectionHandle
 from .component import ComponentHandle, ComponentHandleContext
 from .database.entity import MessageEntity
 
 
-class ConnectionHandle(ComponentHandle[Connection], ReferencedConnectionHandle):
+class ConnectionHandle(ComponentHandle[Connection]):
     @classmethod
     def get_max_buffer_size(cls) -> int:
         return 2500

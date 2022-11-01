@@ -1,12 +1,10 @@
-from __future__ import annotations
-
 from enum import Enum
 from typing import Literal
 
 from pydantic import ValidationError
 from pydantic.dataclasses import dataclass as validated_dataclass
 
-from .address import ComponentAddress, LocalComponentAddress
+from .address import ComponentAddress
 
 
 @validated_dataclass(kw_only=True, frozen=True)
@@ -16,7 +14,7 @@ class ValidationProblem:
     kind: str
 
     @classmethod
-    def extract(cls, error: ValidationError) -> list[ValidationProblem]:
+    def extract(cls, error: ValidationError) -> list["ValidationProblem"]:
         return [
             ValidationProblem(
                 location=list(error["loc"]),
@@ -93,7 +91,6 @@ class ComponentReferenceInvalidError(BaseComponentError):
     kind: Literal[
         ComponentErrorKind.COMPONENT_REFERENCE_INVALID
     ] = ComponentErrorKind.COMPONENT_REFERENCE_INVALID
-    reference: LocalComponentAddress
 
 
 ComponentError = (

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import inspect
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -51,12 +49,6 @@ class MessageReceivedEvent(Event):
     message: Message
 
 
-if TYPE_CHECKING:
-    from .component import ComponentInterface
-    from .reference import ComponentReference
-
-    ListenSource = ComponentReference[ComponentInterface]
-
 EventT = TypeVar("EventT", bound=Event)
 
 EVENT_BINDINGS_ATTRIBUTE = "__event_bindings__"
@@ -71,7 +63,7 @@ class EventBinding:
 
 @overload
 def listen(
-    source: ListenSource,
+    source: str,
     cls: type[EventT],
 ) -> Callable[
     [Callable[[Any, EventT], None | Awaitable[None]]], Callable[[Any, EventT], Awaitable[None]]
@@ -81,7 +73,7 @@ def listen(
 
 @overload
 def listen(
-    source: ListenSource,
+    source: str,
     cls: object,
 ) -> Callable[
     [Callable[[Any, Event], None | Awaitable[None]]], Callable[[Any, Event], Awaitable[None]]
@@ -90,7 +82,7 @@ def listen(
 
 
 def listen(
-    source: ListenSource,
+    source: str,
     cls: type[EventT] | object,
 ) -> Callable[
     [Callable[[Any, EventT], None | Awaitable[None]]], Callable[[Any, EventT], Awaitable[None]]
@@ -105,7 +97,7 @@ def listen(
 
         bindings.append(
             EventBinding(
-                address=source.address,
+                address=LocalComponentAddress(source),
                 cls=cls,
                 function=function,
             )
@@ -116,7 +108,6 @@ def listen(
     return inner
 
 
-@cache
 def get_event_bindings(cls: type) -> Sequence[EventBinding]:
     results: list[EventBinding] = []
 
@@ -128,3 +119,7 @@ def get_event_bindings(cls: type) -> Sequence[EventBinding]:
             results.extend(bindings)
 
     return tuple(results)
+
+
+if not TYPE_CHECKING:
+    get_event_bindings = cache(get_event_bindings)

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from datetime import timedelta
 from enum import Enum
 from typing import Any, Literal
@@ -50,13 +48,13 @@ class IntervalSchedule(BaseSchedule):
 @validated_dataclass(kw_only=True, frozen=True)
 class AndSchedule(BaseSchedule):
     kind: Literal[ScheduleKind.AND] = ScheduleKind.AND
-    schedules: frozenlist[Schedule]
+    schedules: frozenlist["Schedule"]
 
 
 @validated_dataclass(kw_only=True, frozen=True)
 class OrSchedule(BaseSchedule):
     kind: Literal[ScheduleKind.OR] = ScheduleKind.OR
-    schedules: frozenlist[Schedule]
+    schedules: frozenlist["Schedule"]
 
 
 Schedule = CronSchedule | IntervalSchedule | AndSchedule | OrSchedule

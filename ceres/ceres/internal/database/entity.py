@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from datetime import datetime
 from enum import Enum as BaseEnum
 from typing import TYPE_CHECKING, Any, TypeVar
@@ -68,7 +66,7 @@ class UnitEntity(Entity):
         Index(f"uq_{__tablename__}__name", "name", unique=True),
     )
 
-    components: Mapped[list[ComponentEntity]] = relationship(
+    components: Mapped[list["ComponentEntity"]] = relationship(
         "ComponentEntity",
         back_populates="unit",
     )

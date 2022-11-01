@@ -1,5 +1,5 @@
 import asyncio
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from dataclasses import dataclass
 from datetime import timedelta
 from enum import Enum
@@ -9,14 +9,20 @@ from pydantic import validator
 from pydantic.dataclasses import dataclass as validated_dataclass
 
 from .address import LocalComponentAddress
-from .component import Component, ComponentContext, ComponentParameters
+from .component import (
+    Component,
+    ComponentContext,
+    ComponentParameters,
+    ComponentReferences,
+)
 from .events import (
     ConnectedEvent,
     DisconnectedEvent,
     MessageReceivedEvent,
     MessageSentEvent,
 )
-from .internal.utilities import validate_positive_timedelta
+from .exceptions import ConnectionLostException
+from .internal.utilities import jsonify, validate_positive_timedelta
 from .message import Message, MessageDirection
 from .stream import Stream, StreamView
 
@@ -80,13 +86,14 @@ class ConnectionInternal:
     message_stream: Stream[Message]
 
 
-class Connection(Component[ConnectionParameters, ConnectionContext], ABC):
+class Connection(Component[ConnectionParameters, ConnectionContext, ComponentReferences]):
     def __init__(
         self,
         parameters: ConnectionParameters,
         context: ConnectionContext,
+        references: ComponentReferences,
     ) -> None:
-        super().__init__(parameters, context)
+        super().__init__(parameters, context, references)
         self.__connection_internal__ = ConnectionInternal(
             state=ConnectionState.DISCONNECTED,
             last_message_sent=None,
@@ -142,7 +149,15 @@ class Connection(Component[ConnectionParameters, ConnectionContext], ABC):
         self.logger.info("Connecting...")
 
         self.__connection_internal__.state = ConnectionState.CONNECTING
-        if await self.try_connect():
+
+        try:
+            connected = await self.try_connect()
+        except Exception as exception:
+            connected = False
+            if error := str(exception).strip():
+                self.logger.error(error)
+
+        if connected:
             self.__connection_internal__.state = ConnectionState.CONNECTED
             self.emit_event(
                 ConnectedEvent(
@@ -159,7 +174,7 @@ class Connection(Component[ConnectionParameters, ConnectionContext], ABC):
     async def send(self, data: bytes) -> Message:
         try:
             await self.send_data(data)
-        except Exception:
+        except ConnectionLostException:
             await self.disconnect()
             raise
 
@@ -168,6 +183,8 @@ class Connection(Component[ConnectionParameters, ConnectionContext], ABC):
             direction=MessageDirection.SEND,
             content=data,
         )
+
+        self.logger.info(f"Sent: {jsonify(message.content)}")
 
         self.emit_message(message)
         self.emit_event(
@@ -182,12 +199,19 @@ class Connection(Component[ConnectionParameters, ConnectionContext], ABC):
         return message
 
     async def receive(self) -> Message:
-        data = await self.receive_data()
+        try:
+            data = await self.receive_data()
+        except ConnectionLostException:
+            await self.disconnect()
+            raise
+
         message = Message(
             connection_id=self.context.id,
             direction=MessageDirection.RECEIVE,
             content=data,
         )
+
+        self.logger.info(f"Received: {jsonify(message.content)}")
 
         self.emit_message(message)
         self.emit_event(
@@ -219,25 +243,28 @@ class Connection(Component[ConnectionParameters, ConnectionContext], ABC):
             self.logger.info("Disconnected.")
 
     async def _tasklet_run(self) -> None:
-        async def process_update() -> None:
-            while True:
-                while not await self.connect():
-                    self.emit_alert("error", "connection-attempt-failed")
-                    seconds = self.__connection_internal__.reconnect.next().total_seconds()
-                    self.logger.info(f"Reconnecting in {seconds:g} seconds...")
-                    await asyncio.sleep(seconds)
-
-        self.__connection_internal__.reconnect.reset()
-
-        while self.__connection_internal__.state == ConnectionState.CONNECTED:
-            await self.receive()
-
         await asyncio.gather(
             super()._tasklet_run(),
-            process_update(),
+            self._process_update(),
         )
+
+    async def _process_update(self) -> None:
+        while True:
+            self.__connection_internal__.reconnect.reset()
+
+            while not await self.connect():
+                self.emit_alert("error", "connection-attempt-failed")
+                seconds = self.__connection_internal__.reconnect.next().total_seconds()
+                self.logger.info(f"Reconnecting in {seconds:g} seconds...")
+                await asyncio.sleep(seconds)
+
+            while self.connected:
+                try:
+                    await self.receive()
+                except Exception as exception:
+                    if error := str(exception).strip():
+                        self.logger.error(error)
 
     async def _tasklet_stop(self) -> None:
         await super()._tasklet_stop()
-
         await self.try_disconnect()

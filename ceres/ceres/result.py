@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from dataclasses import field
 from typing import TYPE_CHECKING, Generic, Literal, TypeVar, final
 

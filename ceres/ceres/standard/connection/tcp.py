@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import asyncio
 from asyncio import StreamReader, StreamWriter
 from dataclasses import dataclass
@@ -7,7 +5,7 @@ from datetime import timedelta
 
 from pydantic.dataclasses import dataclass as validated_dataclass
 
-from ...component import WithContext, WithParameters
+from ...component import ComponentReferences, WithContext, WithParameters
 from ...connection import Connection, ConnectionContext, ConnectionParameters
 from ...exceptions import ConnectionInactiveException, ConnectionLostException
 
@@ -45,26 +43,22 @@ class TCPConnection(
         self,
         parameters: TCPConnectionParameters,
         context: TCPConnectionContext,
+        references: ComponentReferences,
     ) -> None:
-        super().__init__(parameters, context)
+        super().__init__(parameters, context, references)
         self._stream: _Stream | None = None
 
     async def try_connect(self) -> bool:
         if self._stream:
             return True
 
-        try:
-            reader, writer = await asyncio.wait_for(
-                asyncio.open_connection(
-                    self.parameters.host,
-                    self.parameters.port,
-                ),
-                self.parameters.timeout.total_seconds(),
-            )
-        except Exception as exception:
-            if error := str(exception).strip():
-                self.logger.error(error)
-            return False
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_connection(
+                self.parameters.host,
+                self.parameters.port,
+            ),
+            self.parameters.timeout.total_seconds(),
+        )
 
         self._stream = _Stream(
             reader=reader,

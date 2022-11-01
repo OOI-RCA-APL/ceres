@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import asyncio
 from abc import ABC, abstractmethod
 from asyncio import FIRST_COMPLETED, AbstractEventLoop, Event, Task

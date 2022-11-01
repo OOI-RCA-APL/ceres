@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import asyncio
 import traceback
 from dataclasses import dataclass
@@ -14,7 +12,6 @@ from ..address import ComponentAddress, LocalComponentAddress, UnitAddress
 from ..alert import Alert, AlertLevel
 from ..config import Config, UnitConfig
 from ..events import Event
-from ..protocols import GlobalUnitProtocol, ReferencedComponentHandle
 from ..result import Fail, Ok
 from . import logs
 from .component import ComponentHandle, ComponentHandleContext, ComponentHandleInterface
@@ -42,7 +39,7 @@ class UnitProxyProtocol(Protocol):
         ...
 
 
-class Unit(UnitProxyProtocol, GlobalUnitProtocol, Tasklet):
+class Unit(UnitProxyProtocol, Tasklet):
     def __init__(self, context: UnitContext) -> None:
         self._context = context
         self._database = DatabaseManager(self._context.config.database)
@@ -79,7 +76,7 @@ class Unit(UnitProxyProtocol, GlobalUnitProtocol, Tasklet):
     def get_component(
         self,
         address: str | LocalComponentAddress,
-    ) -> ReferencedComponentHandle | None:
+    ) -> ComponentHandleInterface | None:
         return self._components.get(address if isinstance(address, str) else address.name)
 
     async def handle_event(self, event: Event) -> None:
