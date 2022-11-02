@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import asyncio
 from abc import ABC, abstractmethod
 from asyncio import FIRST_COMPLETED, AbstractEventLoop, Event, Task
@@ -49,6 +47,10 @@ class Tasklet(ABC):
     @property
     def running(self) -> bool:
         return self.__tasklet__.task is not None
+
+    @property
+    def stopping(self) -> bool:
+        return self.running and self.__tasklet__.stopping.is_set()
 
     @property
     def __tasklet__(self) -> TaskletInternal:

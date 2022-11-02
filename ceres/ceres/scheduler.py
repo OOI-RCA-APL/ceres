@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from typing import Any, Callable
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -8,13 +6,7 @@ from apscheduler.triggers.combining import AndTrigger, OrTrigger
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
-from .config import (
-    AndScheduleConfig,
-    CronScheduleConfig,
-    IntervalScheduleConfig,
-    OrScheduleConfig,
-    ScheduleConfig,
-)
+from .schedule import AndSchedule, CronSchedule, IntervalSchedule, OrSchedule, Schedule
 
 
 class Scheduler:
@@ -22,15 +14,17 @@ class Scheduler:
         self._inner = AsyncIOScheduler()
 
     def start(self) -> None:
-        self._inner.start()
+        if not self._inner.running:
+            self._inner.start()
 
     def stop(self, wait: bool = False) -> None:
-        self._inner.shutdown(wait)
+        if self._inner.running:
+            self._inner.shutdown(wait)
 
     def add_job(
         self,
         function: Callable[[], Any],
-        schedule: ScheduleConfig,
+        schedule: Schedule,
         name: str | None = None,
     ) -> None:
         name = name or function.__name__
@@ -47,13 +41,17 @@ class Scheduler:
 
         self._inner.remove_job(name)
 
-    def _create_trigger(self, config: ScheduleConfig) -> BaseTrigger:
-        match config:
-            case CronScheduleConfig():
-                return CronTrigger.from_crontab(config.crontab)
-            case IntervalScheduleConfig():
-                return IntervalTrigger(seconds=config.interval.total_seconds())
-            case AndScheduleConfig():
-                return AndTrigger([self._create_trigger(schedule) for schedule in config.schedules])
-            case OrScheduleConfig():
-                return OrTrigger([self._create_trigger(schedule) for schedule in config.schedules])
+    def _create_trigger(self, schedule: Schedule) -> BaseTrigger:
+        match schedule:
+            case CronSchedule():
+                return CronTrigger.from_crontab(schedule.crontab)
+            case IntervalSchedule():
+                return IntervalTrigger(seconds=schedule.interval.total_seconds())
+            case AndSchedule():
+                return AndTrigger(
+                    [self._create_trigger(schedule) for schedule in schedule.schedules]
+                )
+            case OrSchedule():
+                return OrTrigger(
+                    [self._create_trigger(schedule) for schedule in schedule.schedules]
+                )

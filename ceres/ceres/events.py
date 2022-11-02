@@ -1,7 +1,5 @@
-from __future__ import annotations
-
 import inspect
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from functools import cache
 from typing import (
@@ -15,69 +13,57 @@ from typing import (
     overload,
 )
 
+from pydantic.dataclasses import dataclass as validated_dataclass
+
+from .address import LocalComponentAddress
+from .internal.utilities import get_now
 from .message import Message
-from .path import LocalComponentPath
-
-ConnectionEventKind = Literal[
-    "none", "connected", "disconnected", "message-sent", "message-received"
-]
-EventKind = ConnectionEventKind
 
 
-@dataclass(kw_only=True, frozen=True)
-class BaseEvent:
-    kind: EventKind = "none"
-    path: LocalComponentPath
+@validated_dataclass(kw_only=True, frozen=True)
+class Event:
+    kind: str
+    address: LocalComponentAddress
+    timestamp: datetime = field(default_factory=get_now)
 
 
-@dataclass(kw_only=True, frozen=True)
-class ConnectedEvent(BaseEvent):
+@validated_dataclass(kw_only=True, frozen=True)
+class ConnectedEvent(Event):
     kind: Literal["connected"] = "connected"
-    timestamp: datetime
 
 
-@dataclass(kw_only=True, frozen=True)
-class DisconnectedEvent(BaseEvent):
+@validated_dataclass(kw_only=True, frozen=True)
+class DisconnectedEvent(Event):
     kind: Literal["disconnected"] = "disconnected"
-    timestamp: datetime
 
 
-@dataclass(kw_only=True, frozen=True)
-class MessageSentEvent(BaseEvent):
+@validated_dataclass(kw_only=True, frozen=True)
+class MessageSentEvent(Event):
     kind: Literal["message-sent"] = "message-sent"
     message: Message
 
 
-@dataclass(kw_only=True, frozen=True)
-class MessageReceivedEvent(BaseEvent):
+@validated_dataclass(kw_only=True, frozen=True)
+class MessageReceivedEvent(Event):
     kind: Literal["message-received"] = "message-received"
     message: Message
 
 
-ConnectionEvent = ConnectedEvent | DisconnectedEvent | MessageSentEvent | MessageReceivedEvent
-
-Event = ConnectionEvent
-
-if TYPE_CHECKING:
-    from .connection import ConnectionReference
-
-    ListenSource = ConnectionReference
-
-EventT = TypeVar("EventT", bound=BaseEvent)
+EventT = TypeVar("EventT", bound=Event)
 
 EVENT_BINDINGS_ATTRIBUTE = "__event_bindings__"
 
 
 @dataclass(kw_only=True, frozen=True)
 class EventBinding:
-    path: LocalComponentPath
+    address: LocalComponentAddress
     cls: type | object
-    method: str
+    function: Callable
 
 
 @overload
 def listen(
-    source: ListenSource,
+    source: str,
     cls: type[EventT],
 ) -> Callable[
     [Callable[[Any, EventT], None | Awaitable[None]]], Callable[[Any, EventT], Awaitable[None]]
@@ -87,7 +73,7 @@ def listen(
 
 @overload
 def listen(
-    source: ListenSource,
+    source: str,
     cls: object,
 ) -> Callable[
     [Callable[[Any, Event], None | Awaitable[None]]], Callable[[Any, Event], Awaitable[None]]
@@ -96,7 +82,7 @@ def listen(
 
 
 def listen(
-    source: ListenSource,
+    source: str,
     cls: type[EventT] | object,
 ) -> Callable[
     [Callable[[Any, EventT], None | Awaitable[None]]], Callable[[Any, EventT], Awaitable[None]]
@@ -111,9 +97,9 @@ def listen(
 
         bindings.append(
             EventBinding(
-                path=source.path,
+                address=LocalComponentAddress(source),
                 cls=cls,
-                method=function.__name__,
+                function=function,
             )
         )
 
@@ -122,7 +108,6 @@ def listen(
     return inner
 
 
-@cache
 def get_event_bindings(cls: type) -> Sequence[EventBinding]:
     results: list[EventBinding] = []
 
@@ -134,3 +119,7 @@ def get_event_bindings(cls: type) -> Sequence[EventBinding]:
             results.extend(bindings)
 
     return tuple(results)
+
+
+if not TYPE_CHECKING:
+    get_event_bindings = cache(get_event_bindings)

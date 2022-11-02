@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from functools import wraps
 from typing import Any, Callable, Generic, Literal, Protocol, TypeVar, cast
 
@@ -69,7 +67,7 @@ class Success(GenericModel, Generic[SuccessDataT]):
     data: SuccessDataT
 
     @classmethod
-    def create(cls, data: SuccessDataT) -> Success[SuccessDataT]:
+    def create(cls, data: SuccessDataT) -> "Success[SuccessDataT]":
         return Success(data=data)
 
 
@@ -78,7 +76,7 @@ class Error(GenericModel, Generic[ErrorDataT]):
     data: ErrorDataT
 
     @classmethod
-    def create(cls, data: ErrorDataT) -> Error[ErrorDataT]:
+    def create(cls, data: ErrorDataT) -> "Error[ErrorDataT]":
         return Error(data=data)
 
 

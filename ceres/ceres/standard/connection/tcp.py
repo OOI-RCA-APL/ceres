@@ -1,20 +1,31 @@
-from __future__ import annotations
-
 import asyncio
-from asyncio import StreamReader, StreamWriter, TimeoutError
+from asyncio import StreamReader, StreamWriter
 from dataclasses import dataclass
 from datetime import timedelta
 
-from ...connection import Connection
+from pydantic.dataclasses import dataclass as validated_dataclass
+
+from ...component import ComponentReferences, WithContext, WithParameters
+from ...connection import Connection, ConnectionContext, ConnectionParameters
 from ...exceptions import ConnectionInactiveException, ConnectionLostException
 
 
-@dataclass(kw_only=True, frozen=True)
-class TCPConnectionParameters:
+@validated_dataclass(kw_only=True, frozen=True)
+class TCPConnectionParameters(ConnectionParameters):
     host: str
     port: int
     timeout: timedelta = timedelta(seconds=5)
     separator: bytes = b"\r\n"
+
+
+@validated_dataclass(kw_only=True, frozen=True)
+class TCPConnectionContext(ConnectionContext):
+    pass
+
+
+@validated_dataclass(kw_only=True, frozen=True)
+class TCPConnectionReferences(ConnectionContext):
+    pass
 
 
 @dataclass(kw_only=True, frozen=True)
@@ -23,30 +34,31 @@ class _Stream:
     writer: StreamWriter
 
 
-class TCPConnection(Connection):
-    def __init__(self, parameters: TCPConnectionParameters) -> None:
-        super().__init__()
-        self._parameters = parameters
+class TCPConnection(
+    WithParameters[TCPConnectionParameters],
+    WithContext[TCPConnectionContext],
+    Connection,
+):
+    def __init__(
+        self,
+        parameters: TCPConnectionParameters,
+        context: TCPConnectionContext,
+        references: ComponentReferences,
+    ) -> None:
+        super().__init__(parameters, context, references)
         self._stream: _Stream | None = None
 
-    @property
-    def parameters(self) -> TCPConnectionParameters:
-        return self._parameters
-
-    async def connect(self) -> bool:
+    async def try_connect(self) -> bool:
         if self._stream:
             return True
 
-        try:
-            reader, writer = await asyncio.wait_for(
-                asyncio.open_connection(
-                    self.parameters.host,
-                    self.parameters.port,
-                ),
-                self.parameters.timeout.total_seconds(),
-            )
-        except (ConnectionError, TimeoutError):
-            return False
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_connection(
+                self.parameters.host,
+                self.parameters.port,
+            ),
+            self.parameters.timeout.total_seconds(),
+        )
 
         self._stream = _Stream(
             reader=reader,
@@ -55,12 +67,19 @@ class TCPConnection(Connection):
 
         return True
 
-    async def disconnect(self) -> None:
-        if self._stream:
-            self._stream.writer.close()
-            self._stream = None
+    async def try_disconnect(self) -> None:
+        if not self._stream:
+            return
 
-    async def send(self, data: bytes) -> None:
+        try:
+            self._stream.writer.close()
+        except Exception as exception:
+            if error := str(exception).strip():
+                self.logger.error(error)
+
+        self._stream = None
+
+    async def send_data(self, data: bytes) -> None:
         if not self._stream:
             raise ConnectionInactiveException("connection is not active")
 
@@ -73,7 +92,7 @@ class TCPConnection(Connection):
         except Exception:
             raise ConnectionLostException("connection was lost")
 
-    async def receive(self) -> bytes:
+    async def receive_data(self) -> bytes:
         if not self._stream:
             raise ConnectionInactiveException("connection is not active")
 

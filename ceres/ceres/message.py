@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
@@ -46,7 +44,7 @@ class Message:
     content: bytes
 
     @staticmethod
-    def create_from(other: MessageLike) -> Message:
+    def create_from(other: MessageLike) -> "Message":
         return Message(
             id=other.id,
             connection_id=other.connection_id,

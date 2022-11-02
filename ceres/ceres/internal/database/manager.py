@@ -1,5 +1,4 @@
-from __future__ import annotations
-
+import asyncio
 import re
 from textwrap import dedent
 from typing import Any, Iterable, cast
@@ -15,12 +14,12 @@ from ...config import (
     PostgresDatabaseConfig,
     SQLiteDatabaseConfig,
 )
-from ..utilities import run_in_thread, unreachable
+from ..utilities import ValidateByType, unreachable
 from .adapter import DatabaseAdapter
 from .entity import Entity, EntityManager
 
 
-class DatabaseManager:
+class DatabaseManager(ValidateByType):
     def __init__(self, config: DatabaseConfig) -> None:
         self._config = config
         self._adapter = self._create_adapter(config)
@@ -113,6 +112,6 @@ class DatabaseManager:
         inspector = inspect(engine)
 
         try:
-            return await run_in_thread(lambda: inspector.get_table_names())
+            return await asyncio.to_thread(lambda: inspector.get_table_names())
         finally:
             engine.dispose()

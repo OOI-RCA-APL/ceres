@@ -3,9 +3,10 @@
 /playground/
 
 # Tools
-*.code-workspace
-.vscode/
 .fleet/
+.idea/
+.vscode/
+*.code-workspace
 
 # Python
 __pycache__/

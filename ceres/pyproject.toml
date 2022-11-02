@@ -16,10 +16,11 @@ pyyaml = "^6.0"
 sqlalchemy = "^2.0.0b2"
 typer = { version = "^0.6.0", extras = ["all"] }
 uvicorn = "^0.14.0"
+"zope.proxy" = "^4.5.0"
 
 aiosqlite = { version = "^0.17.0", optional = true }
 psycopg = { version = "^3.1.0", extras = ["binary"], optional = true }
-uvloop = { version = "^0.16.0", optional = true }
+uvloop = { version = "^0.17.0", optional = true }
 
 [tool.poetry.extras]
 postgres = ["psycopg"]
@@ -49,7 +50,6 @@ lint = { shell = "isort . --check --diff && black --check . && flake8 . && mypy 
 asyncio_mode = "auto"
 
 [tool.isort]
-add_imports = ["from __future__ import annotations"]
 multi_line_output = 3
 profile = "black"
 

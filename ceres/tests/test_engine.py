@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import asyncio
 from pathlib import Path
 from tempfile import NamedTemporaryFile
@@ -12,6 +10,7 @@ from ceres.config import (
     UnitConfig,
 )
 from ceres.engine import Engine
+from ceres.internal.utilities import frozenlist
 
 
 async def test_engine_can_start() -> None:
@@ -23,10 +22,10 @@ async def test_engine_can_start() -> None:
                     kind=DatabaseKind.SQLITE,
                     path=Path(file.name),
                 ),
-                units=[UnitConfig(name="test")],
+                units=frozenlist([UnitConfig(name="test")]),
             )
         )
 
         engine.start()
-        await asyncio.sleep(3)
+        await asyncio.sleep(2)
         await engine.stop(True)

@@ -1,31 +1,33 @@
-from __future__ import annotations
-
 import asyncio
-from abc import ABC
-from dataclasses import dataclass
 
-from .component import Component, ComponentContext
-from .config import DriverConfig
-from .path import DriverPath, LocalDriverPath
-from .protocols import ReferencedDriverHandle
-from .reference import Reference
+from pydantic.dataclasses import dataclass as validated_dataclass
+
+from .component import (
+    Component,
+    ComponentContext,
+    ComponentParameters,
+    ComponentReferences,
+)
 
 
-@dataclass(kw_only=True, frozen=True)
+@validated_dataclass(kw_only=True, frozen=True)
+class DriverParameters(ComponentParameters):
+    pass
+
+
+@validated_dataclass(kw_only=True, frozen=True)
 class DriverContext(ComponentContext):
-    path: DriverPath
+    pass
 
 
-class Driver(Component[DriverContext], ABC):
-    @property
-    def config(self) -> DriverConfig | None:
-        return super().config  # type: ignore
+class Driver(Component[DriverParameters, DriverContext, ComponentReferences]):
+    def __init__(
+        self,
+        parameters: DriverParameters,
+        context: DriverContext,
+        references: ComponentReferences,
+    ) -> None:
+        super().__init__(parameters, context, references)
 
     async def update(self) -> None:
         await asyncio.sleep(1)
-
-
-class DriverReference(Reference[ReferencedDriverHandle]):
-    @property
-    def path(self) -> LocalDriverPath:
-        return LocalDriverPath(self.name)

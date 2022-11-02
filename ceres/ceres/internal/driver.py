@@ -1,53 +1,24 @@
-from __future__ import annotations
+import asyncio
 
-from dataclasses import dataclass
-
-from ..config import DriverConfig
-from ..driver import Driver, DriverContext
-from ..path import DriverPath
-from ..protocols import ReferencedDriverHandle
-from .component import ComponentHandle, ComponentHandleContext
+from ..driver import Driver
+from .component import ComponentHandle
 
 
-@dataclass(kw_only=True, frozen=True)
-class DriverHandleContext(ComponentHandleContext):
-    path: DriverPath
-
-
-class DriverHandle(
-    ComponentHandle[
-        DriverHandleContext,
-        Driver,
-        DriverContext,
-    ],
-    ReferencedDriverHandle,
-):
-    @property
-    def path(self) -> DriverPath:
-        return self._context.path
-
-    @property
-    def config(self) -> DriverConfig:
-        return super().config  # type: ignore
-
-    def _get_component_type(self) -> type[Driver]:  # type: ignore
+class DriverHandle(ComponentHandle[Driver]):
+    @classmethod
+    def _get_component_type(cls) -> type[Driver]:
         return Driver
 
-    def _get_component_context(self) -> DriverContext:
-        return DriverContext(
-            id=self._context.id,
-            path=self._context.path,
-            config=self._context.config,
-            unit=self._context.unit,
+    async def _tasklet_run(self) -> None:
+        await asyncio.gather(
+            super()._tasklet_run(),
+            self._process_update(),
         )
 
-    async def _tasklet_run(self) -> None:
-        await super()._tasklet_run()
+    async def _process_update(self) -> None:
         while True:
-            await self._update()
+            if not self.instance:
+                await asyncio.sleep(1)
+                continue
 
-    async def _update(self) -> None:
-        if not self._instance:
-            return
-
-        await self._instance.update()
+            await self.instance.update()

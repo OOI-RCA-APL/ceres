@@ -1,46 +1,32 @@
-from __future__ import annotations
-
 import asyncio
-import itertools
 import traceback
 from dataclasses import dataclass
 from logging import ERROR, INFO, WARNING, Logger
 from multiprocessing.managers import BaseManager
-from threading import Event as ThreadEvent
 from threading import Lock
-from typing import Any, Iterable, Protocol, cast, overload
+from typing import Any, Iterable, Protocol, cast
 from uuid import UUID
 
+from ..address import ComponentAddress, LocalComponentAddress, UnitAddress
 from ..alert import Alert, AlertLevel
 from ..config import Config, UnitConfig
 from ..events import Event
-from ..path import (
-    ConnectionPath,
-    DriverPath,
-    LocalComponentPath,
-    LocalConnectionPath,
-    LocalDriverPath,
-    LocalNotifierPath,
-    NotifierPath,
-    UnitPath,
-)
-from ..protocols import GlobalUnitProtocol
 from ..result import Fail, Ok
 from . import logs
-from .component import ComponentHandle
-from .connection import ConnectionHandle, ConnectionHandleContext
+from .component import ComponentHandle, ComponentHandleContext, ComponentHandleInterface
+from .connection import ConnectionHandle
 from .database.entity import AlertEntity
 from .database.manager import DatabaseManager
-from .driver import DriverHandle, DriverHandleContext
-from .notifier import NotifierHandle, NotifierHandleContext
+from .driver import DriverHandle
+from .notifier import NotifierHandle
 from .tasks import Tasklet, ensure_event_loop
-from .utilities import jsonify, run_in_thread, unwrap
+from .utilities import jsonify, unreachable, unwrap
 
 
 @dataclass(kw_only=True, frozen=True)
 class UnitContext:
     id: UUID
-    path: UnitPath
+    address: UnitAddress
     config: Config
 
 
@@ -52,30 +38,24 @@ class UnitProxyProtocol(Protocol):
         ...
 
 
-class Unit(UnitProxyProtocol, GlobalUnitProtocol, Tasklet):
+class Unit(UnitProxyProtocol, Tasklet):
     def __init__(self, context: UnitContext) -> None:
         self._context = context
         self._database = DatabaseManager(self._context.config.database)
-
-        self._connections: dict[str, ConnectionHandle] = {}
-        self._drivers: dict[str, DriverHandle] = {}
-        self._notifiers: dict[str, NotifierHandle] = {}
-
+        self._components: dict[str, ComponentHandleInterface] = {}
         self._loop = ensure_event_loop()
-        self._stopping = ThreadEvent()
-        self._stopped = ThreadEvent()
 
     @property
     def id(self) -> UUID:
         return self._context.id
 
     @property
-    def path(self) -> UnitPath:
-        return self._context.path
+    def address(self) -> UnitAddress:
+        return self._context.address
 
     @property
     def config(self) -> UnitConfig:
-        return unwrap(self._context.config.get_unit(self.path))
+        return unwrap(self._context.config.get_unit(self.address))
 
     @property
     def database(self) -> DatabaseManager:
@@ -83,56 +63,29 @@ class Unit(UnitProxyProtocol, GlobalUnitProtocol, Tasklet):
 
     @property
     def logger(self) -> Logger:
-        return logs.get(str(self._context.path))
+        return logs.get(str(self._context.address))
 
     @property
-    def components(self) -> Iterable[ConnectionHandle | DriverHandle | NotifierHandle]:
-        return itertools.chain(self.connections, self.drivers, self.notifiers)
+    def components(self) -> Iterable[ComponentHandleInterface]:
+        return self._components.values()
 
-    @property
-    def connections(self) -> Iterable[ConnectionHandle]:
-        return self._connections.values()
+    def get_component(
+        self,
+        address: str | LocalComponentAddress,
+    ) -> ComponentHandleInterface | None:
+        return self._components.get(address if isinstance(address, str) else address.name)
 
-    @property
-    def drivers(self) -> Iterable[DriverHandle]:
-        return self._drivers.values()
-
-    @property
-    def notifiers(self) -> Iterable[NotifierHandle]:
-        return self._notifiers.values()
-
-    @overload
-    def get_component(self, path: LocalConnectionPath) -> ConnectionHandle | None:
-        ...
-
-    @overload
-    def get_component(self, path: LocalDriverPath) -> DriverHandle | None:
-        ...
-
-    @overload
-    def get_component(self, path: LocalNotifierPath) -> NotifierHandle | None:
-        ...
-
-    def get_component(self, path: LocalComponentPath) -> object:
-        match path:
-            case LocalConnectionPath():
-                return self._connections.get(path.name)
-            case LocalDriverPath():
-                return self._drivers.get(path.name)
-            case LocalNotifierPath():
-                return self._notifiers.get(path.name)
-
-    async def broadcast(self, event: Event) -> None:
+    async def handle_event(self, event: Event) -> None:
         for component in self.components:
             if component.instance:
                 try:
-                    await component.instance.handle(event)
+                    await component.instance.handle_event(event)
                 except Exception:
                     self.logger.error(
-                        f"{component.path} raised exception while handling event {event}: {traceback.format_exc()}"
+                        f"{component.address} raised exception while handling event {event}: {traceback.format_exc()}"
                     )
 
-    async def alert(self, alert: Alert) -> None:
+    async def handle_alert(self, alert: Alert) -> None:
         match alert.level:
             case AlertLevel.INFO:
                 log_level = INFO
@@ -175,17 +128,10 @@ class Unit(UnitProxyProtocol, GlobalUnitProtocol, Tasklet):
         return None
 
     def rpc_stop(self) -> BaseException | None:
-        self._stopping.set()
-        self._stopped.wait()
-        return None
+        return asyncio.run_coroutine_threadsafe(self.stop(), self._loop).exception()
 
     async def _tasklet_run(self) -> None:
-        self._stopping.clear()
-        self._stopped.clear()
-
-        await self._load_connections()
-        await self._load_drivers()
-        await self._load_notifiers()
+        await self._load_components()
 
         for component in self.components:
             component.start(
@@ -193,119 +139,58 @@ class Unit(UnitProxyProtocol, GlobalUnitProtocol, Tasklet):
                 on_completed=self._on_component_completed,
             )
 
-        while not self._stopping.is_set():
-            await asyncio.sleep(0.1)
-
-        for component in self.components:
-            await component.stop()
+        await self.join()
 
     async def _tasklet_stop(self) -> None:
-        try:
-            for connection in self._connections.values():
-                await connection.disconnect()
+        for component in self.components:
+            await component.stop()
+        await self._database.dispose()
 
-            await self._database.dispose()
-        finally:
-            self._stopped.set()
+    async def _load_components(self) -> None:
+        for config in self.config.components:
+            address = ComponentAddress(self.address.name, config.name)
 
-    async def _load_connections(self) -> None:
-        for config in self.config.connections:
-            path = ConnectionPath(self.path.name, config.name)
-
-            if config.name in self._connections:
+            if config.name in self._components:
                 continue
 
-            id = await self._database.entities.get_id(path)
+            id = await self._database.entities.get_id(address)
 
-            self._connections[config.name] = ConnectionHandle(
-                ConnectionHandleContext(
+            match config.kind:
+                case "connection":
+                    cls: type[ComponentHandle] = ConnectionHandle
+                case "driver":
+                    cls = DriverHandle
+                case "notifier":
+                    cls = NotifierHandle
+                case _:
+                    unreachable()
+
+            self._components[config.name] = cls(
+                ComponentHandleContext(
                     id=id,
-                    path=path,
+                    address=address,
                     unit=self,
                     config=self._context.config,
                     database=self._database,
                 )
             )
 
-        for handle in self._connections.values():
+        for handle in self._components.values():
             match await handle.load():
                 case Ok():
                     self.logger.info(
-                        f"Loaded '{handle.path}' as {type(handle.instance)} with id '{handle.id}'."
+                        f"Loaded '{handle.address}' as {type(handle.instance)} with id '{handle.id}'."
                     )
                 case Fail(error):
                     self.logger.error(
-                        f"Failed to load connection '{handle.path}'. Error: {jsonify(error, indent=2)}"
-                    )
-
-    async def _load_drivers(self) -> None:
-        for config in self.config.drivers:
-            path = DriverPath(self.path.name, config.name)
-
-            if config.name in self._drivers:
-                continue
-
-            id = await self._database.entities.get_id(path)
-
-            self._drivers[config.name] = DriverHandle(
-                DriverHandleContext(
-                    id=id,
-                    path=path,
-                    unit=self,
-                    config=self._context.config,
-                    database=self._database,
-                )
-            )
-
-        for handle in self._drivers.values():
-            match await handle.load():
-                case Ok():
-                    self.logger.info(
-                        f"Loaded '{handle.path}' as {type(handle.instance)} with id '{handle.id}'."
-                    )
-                case Fail(error):
-                    self.logger.error(
-                        f"Failed to load '{handle.path}'. Error: {jsonify(error, indent=2)}"
-                    )
-
-    async def _load_notifiers(self) -> None:
-        for config in self.config.notifiers:
-            path = NotifierPath(
-                self._context.path.name,
-                config.name,
-            )
-
-            if config.name in self._notifiers:
-                continue
-
-            id = await self._database.entities.get_id(path)
-
-            self._notifiers[config.name] = NotifierHandle(
-                NotifierHandleContext(
-                    id=id,
-                    path=path,
-                    unit=self,
-                    config=self._context.config,
-                    database=self._database,
-                )
-            )
-
-        for handle in self._notifiers.values():
-            match await handle.load():
-                case Ok():
-                    self.logger.info(
-                        f"Loaded '{handle.path}' as {type(handle.instance)} with id '{handle.id}'."
-                    )
-                case Fail(error):
-                    self.logger.error(
-                        f"Failed to load '{handle.path}'. Error: {jsonify(error, indent=2)}"
+                        f"Failed to load component '{handle.address}'. Error: {jsonify(error, indent=2)}"
                     )
 
     def _on_component_exception(self, component: ComponentHandle, exception: BaseException) -> None:
-        self.logger.error(f"Exception occurred in component '{component.path}': {exception}")
+        self.logger.error(f"Exception occurred in component '{component.address}': {exception}")
 
     def _on_component_completed(self, component: ComponentHandle) -> None:
-        self.logger.info(f"Component '{component.path}' completed execution.")
+        self.logger.info(f"Component '{component.address}' completed execution.")
 
 
 class UnitManager(BaseManager):
@@ -327,12 +212,12 @@ class UnitHandle(Tasklet):
         return self._context.id
 
     @property
-    def path(self) -> UnitPath:
-        return self._context.path
+    def address(self) -> UnitAddress:
+        return self._context.address
 
     @property
     def config(self) -> UnitConfig:
-        return next(unit for unit in self._context.config.units if unit.name == self.path.name)
+        return next(unit for unit in self._context.config.units if unit.name == self.address.name)
 
     @property
     def instance(self) -> UnitProxyProtocol | None:
@@ -340,7 +225,7 @@ class UnitHandle(Tasklet):
 
     @property
     def logger(self) -> Logger:
-        return logs.get(str(self.path))
+        return logs.get(str(self.address))
 
     async def _tasklet_run(self) -> None:
         def execute() -> None:
@@ -353,19 +238,25 @@ class UnitHandle(Tasklet):
             try:
                 exception = instance.rpc_run()
             except EOFError:
-                return
+                pass
 
             if exception:
-                self.logger.error(f"Exception occurred in unit '{self.path}': {exception}")
+                self.logger.error(
+                    f"Exception occurred while running unit '{self.address}': {exception}"
+                )
 
-        await run_in_thread(execute)
+        await asyncio.to_thread(execute)
 
     async def _tasklet_stop(self) -> None:
         def execute() -> None:
             with self._lock:
                 if self._instance:
-                    exception = self._instance.rpc_stop()
-                    self._instance = None
+                    try:
+                        exception = self._instance.rpc_stop()
+                    except EOFError:
+                        pass
+                    finally:
+                        self._instance = None
                 else:
                     exception = None
 
@@ -373,6 +264,8 @@ class UnitHandle(Tasklet):
                     self._manager.shutdown()
 
             if exception:
-                raise exception
+                self.logger.error(
+                    f"Exception occurred while stopping unit '{self.address}': {exception}"
+                )
 
-        await run_in_thread(execute)
+        await asyncio.to_thread(execute)

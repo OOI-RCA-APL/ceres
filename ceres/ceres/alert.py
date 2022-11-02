@@ -1,10 +1,10 @@
-from __future__ import annotations
-
-from dataclasses import dataclass, field
+from dataclasses import field
 from datetime import datetime
 from enum import Enum
 from typing import Any, Literal, Protocol, runtime_checkable
 from uuid import UUID, uuid4
+
+from pydantic.dataclasses import dataclass as validated_dataclass
 
 from .internal.utilities import MaybeMapped
 
@@ -17,7 +17,7 @@ class AlertLevel(str, Enum):
     ERROR = "error"
 
     @classmethod
-    def create_from(cls, raw: AlertLevel | RawAlertLevel) -> AlertLevel:
+    def create_from(cls, raw: "AlertLevel" | RawAlertLevel) -> "AlertLevel":
         return cls(raw)
 
 
@@ -48,7 +48,7 @@ class AlertLike(Protocol):
         ...
 
 
-@dataclass(kw_only=True, frozen=True)
+@validated_dataclass(kw_only=True, frozen=True)
 class Alert:
     id: UUID = field(default_factory=uuid4)
     origin_id: UUID
@@ -58,7 +58,7 @@ class Alert:
     info: dict[str, Any] = field(default_factory=dict)
 
     @staticmethod
-    def create_from(other: AlertLike) -> Alert:
+    def create_from(other: AlertLike) -> "Alert":
         return Alert(
             id=other.id,
             origin_id=other.origin_id,
