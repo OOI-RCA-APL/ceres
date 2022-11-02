@@ -13,12 +13,7 @@ from uuid import UUID
 from pydantic import ValidationError, validate_arguments
 
 from ..address import ComponentAddress
-from ..component import (
-    CompleteComponentContext,
-    Component,
-    ComponentInterface,
-    ComponentReferences,
-)
+from ..component import CompleteComponentContext, Component, ComponentReferences
 from ..config import ComponentConfig, Config
 from ..errors import (
     ComponentClassInvalidError,
@@ -47,7 +42,7 @@ def load_component(
     cls: type[ComponentT],
     config: ComponentConfig,
     context: CompleteComponentContext,
-    siblings: Mapping[str, ComponentInterface],
+    siblings: Mapping[str, Component],
 ) -> Result[ComponentT, ComponentError]:
     if not isinstance(config.component, str):
         if not isinstance(config.component, cls):
@@ -168,7 +163,7 @@ def load_component(
     applied_arguments = (instance, applied_parameters, applied_context, applied_references)
 
     try:
-        __init__(*applied_arguments)  # type: ignore
+        __init__(*applied_arguments)
     except Exception:
         return Fail(
             ComponentInitExceptionError(
@@ -287,13 +282,13 @@ class ComponentHandle(Generic[ComponentT], Tasklet, ABC):
                 return fail
 
 
-ComponentHandleInterface = ComponentHandle[ComponentInterface]
+ComponentHandleInterface = ComponentHandle[Component]
 
 
 def _get_reference_mapping(
     references: ComponentReferences | type[ComponentReferences],
-) -> Mapping[str, type["ComponentInterface"]]:
-    mapping: dict[str, type[ComponentInterface]] = {}
+) -> Mapping[str, type["Component"]]:
+    mapping: dict[str, type[Component]] = {}
     hints = get_type_hints(references)
 
     for name, hint in hints.items():

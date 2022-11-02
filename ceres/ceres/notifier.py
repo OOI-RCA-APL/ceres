@@ -1,6 +1,6 @@
 import asyncio
 from abc import abstractmethod
-from dataclasses import field
+from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Any, Sequence
 
@@ -9,12 +9,7 @@ from pydantic.dataclasses import dataclass as validated_dataclass
 from sqlalchemy import select
 
 from .alert import Alert
-from .component import (
-    Component,
-    ComponentContext,
-    ComponentParameters,
-    ComponentReferences,
-)
+from .component import Component, ComponentContext, ComponentParameters
 from .config import UserConfig
 from .internal.database.entity import AlertEntity
 from .internal.database.manager import DatabaseManager
@@ -43,14 +38,10 @@ class NotifierContext(ComponentContext):
     database: DatabaseManager
 
 
-class Notifier(Component[NotifierParameters, NotifierContext, ComponentReferences]):
-    def __init__(
-        self,
-        parameters: NotifierParameters,
-        context: NotifierContext,
-        references: ComponentReferences,
-    ) -> None:
-        super().__init__(parameters, context, references)
+@dataclass  # type: ignore
+class Notifier(Component):
+    parameters: NotifierParameters
+    context: NotifierContext
 
     @abstractmethod
     async def send(self, users: Sequence[UserConfig], alerts: Sequence[Alert]) -> None:

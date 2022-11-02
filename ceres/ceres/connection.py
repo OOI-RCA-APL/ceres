@@ -9,12 +9,7 @@ from pydantic import validator
 from pydantic.dataclasses import dataclass as validated_dataclass
 
 from .address import LocalComponentAddress
-from .component import (
-    Component,
-    ComponentContext,
-    ComponentParameters,
-    ComponentReferences,
-)
+from .component import Component, ComponentContext, ComponentParameters
 from .events import (
     ConnectedEvent,
     DisconnectedEvent,
@@ -86,14 +81,13 @@ class ConnectionInternal:
     message_stream: Stream[Message]
 
 
-class Connection(Component[ConnectionParameters, ConnectionContext, ComponentReferences]):
-    def __init__(
-        self,
-        parameters: ConnectionParameters,
-        context: ConnectionContext,
-        references: ComponentReferences,
-    ) -> None:
-        super().__init__(parameters, context, references)
+@dataclass
+class Connection(Component):
+    parameters: ConnectionParameters
+    context: ConnectionContext
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
         self.__connection_internal__ = ConnectionInternal(
             state=ConnectionState.DISCONNECTED,
             last_message_sent=None,

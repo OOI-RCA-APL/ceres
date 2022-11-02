@@ -5,7 +5,6 @@ from datetime import timedelta
 
 from pydantic.dataclasses import dataclass as validated_dataclass
 
-from ...component import ComponentReferences, WithContext, WithParameters
 from ...connection import Connection, ConnectionContext, ConnectionParameters
 from ...exceptions import ConnectionInactiveException, ConnectionLostException
 
@@ -34,18 +33,13 @@ class _Stream:
     writer: StreamWriter
 
 
-class TCPConnection(
-    WithParameters[TCPConnectionParameters],
-    WithContext[TCPConnectionContext],
-    Connection,
-):
-    def __init__(
-        self,
-        parameters: TCPConnectionParameters,
-        context: TCPConnectionContext,
-        references: ComponentReferences,
-    ) -> None:
-        super().__init__(parameters, context, references)
+@dataclass
+class TCPConnection(Connection):
+    parameters: TCPConnectionParameters
+    context: TCPConnectionContext
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
         self._stream: _Stream | None = None
 
     async def try_connect(self) -> bool:

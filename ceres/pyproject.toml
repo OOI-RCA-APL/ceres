@@ -59,6 +59,8 @@ line-length = 100
 [tool.mypy]
 disallow_any_generics = false
 ignore_missing_imports = true
+show_error_codes = true
+disable_error_code = ["misc"]
 plugins = ["sqlalchemy.ext.mypy.plugin", "pydantic.mypy"]
 strict = true
 

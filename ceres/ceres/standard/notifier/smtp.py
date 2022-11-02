@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from datetime import timedelta
 from email.message import EmailMessage
 from typing import Sequence
@@ -7,7 +8,6 @@ from pydantic import SecretStr
 from pydantic.dataclasses import dataclass as validated_dataclass
 
 from ...alert import Alert
-from ...component import ComponentReferences, WithContext, WithParameters
 from ...config import UserConfig
 from ...internal.utilities import EmailStr, jsonify, show_td
 from ...notifier import Notifier, NotifierContext, NotifierParameters
@@ -31,18 +31,10 @@ class SMTPNotifierContext(NotifierContext):
     pass
 
 
-class SMTPNotifier(
-    WithParameters[SMTPNotifierParameters],
-    WithContext[SMTPNotifierContext],
-    Notifier,
-):
-    def __init__(
-        self,
-        parameters: SMTPNotifierParameters,
-        context: SMTPNotifierContext,
-        references: ComponentReferences,
-    ) -> None:
-        super().__init__(parameters, context, references)
+@dataclass
+class SMTPNotifier(Notifier):
+    parameters: SMTPNotifierParameters
+    context: SMTPNotifierContext
 
     async def send(self, users: Sequence[UserConfig], alerts: Sequence[Alert]) -> None:
         self.logger.info(f"Sending email notification to {len(users)} user(s).")

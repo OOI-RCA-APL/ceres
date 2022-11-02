@@ -1,13 +1,9 @@
 import asyncio
+from dataclasses import dataclass
 
 from pydantic.dataclasses import dataclass as validated_dataclass
 
-from .component import (
-    Component,
-    ComponentContext,
-    ComponentParameters,
-    ComponentReferences,
-)
+from .component import Component, ComponentContext, ComponentParameters
 
 
 @validated_dataclass(kw_only=True, frozen=True)
@@ -20,14 +16,10 @@ class DriverContext(ComponentContext):
     pass
 
 
-class Driver(Component[DriverParameters, DriverContext, ComponentReferences]):
-    def __init__(
-        self,
-        parameters: DriverParameters,
-        context: DriverContext,
-        references: ComponentReferences,
-    ) -> None:
-        super().__init__(parameters, context, references)
+@dataclass
+class Driver(Component):
+    parameters: DriverParameters
+    context: DriverContext
 
     async def update(self) -> None:
         await asyncio.sleep(1)

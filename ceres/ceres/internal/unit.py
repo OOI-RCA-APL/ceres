@@ -187,7 +187,9 @@ class Unit(UnitProxyProtocol, Tasklet):
                     )
 
     def _on_component_exception(self, component: ComponentHandle, exception: BaseException) -> None:
-        self.logger.error(f"Exception occurred in component '{component.address}': {exception}")
+        self.logger.error(
+            f"Exception occurred in component '{component.address}': {traceback.format_exception(exception)}"
+        )
 
     def _on_component_completed(self, component: ComponentHandle) -> None:
         self.logger.info(f"Component '{component.address}' completed execution.")

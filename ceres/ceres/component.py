@@ -1,11 +1,11 @@
 import dataclasses
 import inspect
 import traceback
-from abc import ABCMeta
+from abc import ABC
 from dataclasses import dataclass, field
 from inspect import Parameter
 from logging import Logger
-from typing import Any, Generic, Sequence, TypeVar, cast, get_type_hints
+from typing import Any, Sequence, TypeVar, cast, get_type_hints
 from uuid import UUID, uuid4
 
 from pydantic.dataclasses import dataclass as validated_dataclass
@@ -88,91 +88,33 @@ class ComponentInteral:
     scheduler: Scheduler = field(default_factory=Scheduler)
 
 
-class ComponentMeta(ABCMeta):
-    def __new__(
-        metacls,
-        name: str,
-        bases: tuple[type, ...],
-        namespace: Any,
-        **kwargs: dict[str, Any],
-    ) -> Any:
-        cls = super().__new__(metacls, name, bases, namespace, **kwargs)
-        __init__ = cls.__init__  # type: ignore
-        signature = inspect.signature(__init__)
-        parameters: tuple[Parameter, ...] = tuple(signature.parameters.values())
-
-        if len(parameters) != 4 or any(
-            parameter.kind == Parameter.KEYWORD_ONLY for parameter in parameters
-        ):
-            required = "def __init__(parameters: ComponentParametersT, context: ComponentContextT, references: ComponentReferencesT) -> None"
-            raise ComponentClassInvalidException(f"{__init__} must match match {required}")
-
-        hints = tuple(get_type_hints(__init__).values())
-        parameters_type = hints[0]
-        context_type = hints[1]
-        references_type = hints[2]
-
-        if not isinstance(parameters_type, TypeVar) and (
-            not isinstance(parameters_type, type)
-            or not issubclass(parameters_type, ComponentParameters)
-        ):
-            raise ComponentClassInvalidException(
-                f"first positional parameter of {__init__} must be a subclass of {ComponentParameters}"
-            )
-
-        if not isinstance(context_type, TypeVar) and (
-            not isinstance(context_type, type) or not issubclass(context_type, ComponentContext)
-        ):
-            raise ComponentClassInvalidException(
-                f"second positional parameter of {__init__} must be a subclass of {ComponentContext}"
-            )
-
-        if not isinstance(references_type, TypeVar) and (
-            not isinstance(references_type, type)
-            or not issubclass(references_type, ComponentReferences)
-        ):
-            raise ComponentClassInvalidException(
-                f"third positional parameter of {__init__} must be a subclass of {ComponentReferences}"
-            )
-
-        if not isinstance(references_type, TypeVar):
-            for binding in get_event_bindings(cls):
-                if not object_has_field(references_type, binding.address.name):
-                    raise ComponentClassInvalidException(
-                        f"event listener {binding.function} refers to component '{binding.address.name}' which is not defined in {references_type}"
-                    )
-
-        return cls
+ComponentT = TypeVar("ComponentT", bound="Component")
 
 
-class Component(
-    Generic[ComponentParametersT, ComponentContextT, ComponentReferencesT],
-    Tasklet,
-    ValidateByType,
-    metaclass=ComponentMeta,
-):
-    def __init__(
-        self,
-        parameters: ComponentParametersT,
-        context: ComponentContextT,
-        references: ComponentReferencesT,
-    ) -> None:
-        self.__component_parameters__ = parameters
-        self.__component_context__ = context
-        self.__component_references__ = references
+@dataclass
+class Component(Tasklet, ValidateByType, ABC):
+    parameters: ComponentParameters
+    context: ComponentContext
+    references: ComponentReferences
+
+    def __init_subclass__(cls) -> None:
+        super().__init_subclass__()
+        _validate_component_cls(cls)
+
+    def __post_init__(self) -> None:
         self.__component_internal__ = ComponentInteral()
 
     @classmethod
     def get_parameters_type(cls) -> type[ComponentParameters]:
-        return tuple(get_type_hints(cls.__init__).values())[0]  # type: ignore
+        return get_type_hints(cls)["parameters"]  # type: ignore
 
     @classmethod
     def get_context_type(cls) -> type[ComponentContext]:
-        return tuple(get_type_hints(cls.__init__).values())[1]  # type: ignore
+        return get_type_hints(cls)["context"]  # type: ignore
 
     @classmethod
     def get_references_type(cls) -> type[ComponentReferences]:
-        return tuple(get_type_hints(cls.__init__).values())[2]  # type: ignore
+        return get_type_hints(cls)["references"]  # type: ignore
 
     @classmethod
     def get_event_bindings(cls) -> Sequence[EventBinding]:
@@ -180,23 +122,11 @@ class Component(
 
     @property
     def id(self) -> UUID:
-        return self.__component_context__.id
+        return self.context.id
 
     @property
     def address(self) -> ComponentAddress:
-        return self.__component_context__.address
-
-    @property
-    def parameters(self) -> ComponentParametersT:
-        return self.__component_parameters__
-
-    @property
-    def context(self) -> ComponentContextT:
-        return self.__component_context__
-
-    @property
-    def references(self) -> ComponentReferencesT:
-        return self.__component_references__
+        return self.context.address
 
     @property
     def scheduler(self) -> Scheduler:
@@ -258,22 +188,34 @@ class Component(
         self.scheduler.stop()
 
 
-ComponentInterface = Component[ComponentParameters, ComponentContext, ComponentReferences]
+def _validate_component_cls(cls: type[Component]) -> None:
+    __init__ = dataclass(cls).__init__
+    hints = tuple(get_type_hints(__init__).values())
+    signature = inspect.signature(__init__)
+    parameters: tuple[Parameter, ...] = tuple(signature.parameters.values())
 
+    def is_subclass_or_typevar(subcls: type, cls: type) -> bool:
+        if isinstance(subcls, TypeVar):
+            return True
 
-class WithParameters(Generic[ComponentParametersT]):
-    @property
-    def parameters(self) -> ComponentParametersT:
-        return self.__component_parameters__  # type: ignore
+        return isinstance(cls, type) and isinstance(subcls, type) and issubclass(subcls, cls)
 
+    if (
+        len(parameters) != 4
+        or any(parameter.kind == Parameter.KEYWORD_ONLY for parameter in parameters)
+        or not is_subclass_or_typevar(hints[0], ComponentParameters)
+        or not is_subclass_or_typevar(hints[1], ComponentContext)
+        or not is_subclass_or_typevar(hints[2], ComponentReferences)
+    ):
+        raise ComponentClassInvalidException(
+            f"signature of {__init__} must match {inspect.signature(Component.__init__)}, got {signature}"
+        )
 
-class WithContext(Generic[ComponentContextT]):
-    @property
-    def context(self) -> ComponentContextT:
-        return self.__component_context__  # type: ignore
+    references_type = hints[3]
 
-
-class WithReferences(Generic[ComponentReferencesT]):
-    @property
-    def references(self) -> ComponentReferencesT:
-        return self.__component_references__  # type: ignore
+    if isinstance(references_type, type) and issubclass(references_type, ComponentReferences):
+        for binding in get_event_bindings(cls):
+            if not object_has_field(references_type, binding.address.name):
+                raise ComponentClassInvalidException(
+                    f"event listener {binding.function} refers to component '{binding.address.name}' which is not defined in {references_type}"
+                )
