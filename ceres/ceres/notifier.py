@@ -1,6 +1,6 @@
 import asyncio
 from abc import abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import field
 from datetime import timedelta
 from typing import Any, Sequence
 
@@ -38,7 +38,7 @@ class NotifierContext(ComponentContext):
     database: DatabaseManager
 
 
-@dataclass  # type: ignore
+@validated_dataclass
 class Notifier(Component):
     parameters: NotifierParameters
     context: NotifierContext

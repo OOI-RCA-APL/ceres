@@ -19,7 +19,6 @@ from .internal import logs
 from .internal.database.manager import DatabaseManager
 from .internal.tasks import Tasklet
 from .internal.utilities import (
-    ValidateByType,
     awaitify,
     frozendict,
     frozenlist,
@@ -91,8 +90,8 @@ class ComponentInteral:
 ComponentT = TypeVar("ComponentT", bound="Component")
 
 
-@dataclass
-class Component(Tasklet, ValidateByType, ABC):
+@validated_dataclass
+class Component(Tasklet, ABC):
     parameters: ComponentParameters
     context: ComponentContext
     references: ComponentReferences

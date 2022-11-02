@@ -1,5 +1,4 @@
 import asyncio
-from dataclasses import dataclass
 
 from pydantic.dataclasses import dataclass as validated_dataclass
 
@@ -16,7 +15,7 @@ class DriverContext(ComponentContext):
     pass
 
 
-@dataclass
+@validated_dataclass
 class Driver(Component):
     parameters: DriverParameters
     context: DriverContext

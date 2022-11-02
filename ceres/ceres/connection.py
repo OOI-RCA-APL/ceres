@@ -81,7 +81,7 @@ class ConnectionInternal:
     message_stream: Stream[Message]
 
 
-@dataclass
+@validated_dataclass
 class Connection(Component):
     parameters: ConnectionParameters
     context: ConnectionContext
