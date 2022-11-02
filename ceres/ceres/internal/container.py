@@ -19,7 +19,8 @@ from typing import (
     get_type_hints,
 )
 
-from zope.proxy import ProxyBase, isProxy, setProxiedObject
+# from zope.proxy import ProxyBase, isProxy, setProxiedObject
+from wrapt import ObjectProxy
 
 T = TypeVar("T")
 
@@ -244,16 +245,16 @@ def type_forward_ref_scope(type_: Union[type[T], Callable[..., T]]) -> Mapping[s
     return getattr(sys.modules.get(type_.__module__, None), "__dict__", {})
 
 
-class Proxy(ProxyBase):  # type: ignore
+class Proxy(ObjectProxy):  # type: ignore
     pass
 
 
 def bind_proxy(proxy: Proxy, target: Any) -> None:
-    setProxiedObject(proxy, target)
+    proxy.__wrapped__ = target
 
 
 def is_proxy(value: Any) -> TypeGuard[Proxy]:
-    return bool(isProxy(value, Proxy))
+    return isinstance(value, Proxy)
 
 
 def get_origin(type_: Any) -> Any:
