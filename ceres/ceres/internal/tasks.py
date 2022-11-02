@@ -49,6 +49,10 @@ class Tasklet(ABC):
         return self.__tasklet__.task is not None
 
     @property
+    def stopping(self) -> bool:
+        return self.running and self.__tasklet__.stopping.is_set()
+
+    @property
     def __tasklet__(self) -> TaskletInternal:
         if internal := self.__dict__.get(TASKLET_INTERNAL_ATTRIBUTE_NAME):
             return cast(TaskletInternal, internal)

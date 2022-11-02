@@ -3,7 +3,6 @@ import traceback
 from dataclasses import dataclass
 from logging import ERROR, INFO, WARNING, Logger
 from multiprocessing.managers import BaseManager
-from threading import Event as ThreadEvent
 from threading import Lock
 from typing import Any, Iterable, Protocol, cast
 from uuid import UUID
@@ -21,7 +20,7 @@ from .database.manager import DatabaseManager
 from .driver import DriverHandle
 from .notifier import NotifierHandle
 from .tasks import Tasklet, ensure_event_loop
-from .utilities import jsonify, run_in_thread, unreachable, unwrap
+from .utilities import jsonify, unreachable, unwrap
 
 
 @dataclass(kw_only=True, frozen=True)
@@ -44,10 +43,7 @@ class Unit(UnitProxyProtocol, Tasklet):
         self._context = context
         self._database = DatabaseManager(self._context.config.database)
         self._components: dict[str, ComponentHandleInterface] = {}
-
         self._loop = ensure_event_loop()
-        self._stopping = ThreadEvent()
-        self._stopped = ThreadEvent()
 
     @property
     def id(self) -> UUID:
@@ -132,14 +128,9 @@ class Unit(UnitProxyProtocol, Tasklet):
         return None
 
     def rpc_stop(self) -> BaseException | None:
-        self._stopping.set()
-        self._stopped.wait()
-        return None
+        return asyncio.run_coroutine_threadsafe(self.stop(), self._loop).exception()
 
     async def _tasklet_run(self) -> None:
-        self._stopping.clear()
-        self._stopped.clear()
-
         await self._load_components()
 
         for component in self.components:
@@ -148,17 +139,12 @@ class Unit(UnitProxyProtocol, Tasklet):
                 on_completed=self._on_component_completed,
             )
 
-        while not self._stopping.is_set():
-            await asyncio.sleep(0.1)
-
-        for component in self.components:
-            await component.stop()
+        await self.join()
 
     async def _tasklet_stop(self) -> None:
-        try:
-            await self._database.dispose()
-        finally:
-            self._stopped.set()
+        for component in self.components:
+            await component.stop()
+        await self._database.dispose()
 
     async def _load_components(self) -> None:
         for config in self.config.components:
@@ -252,19 +238,25 @@ class UnitHandle(Tasklet):
             try:
                 exception = instance.rpc_run()
             except EOFError:
-                return
+                pass
 
             if exception:
-                self.logger.error(f"Exception occurred in unit '{self.address}': {exception}")
+                self.logger.error(
+                    f"Exception occurred while running unit '{self.address}': {exception}"
+                )
 
-        await run_in_thread(execute)
+        await asyncio.to_thread(execute)
 
     async def _tasklet_stop(self) -> None:
         def execute() -> None:
             with self._lock:
                 if self._instance:
-                    exception = self._instance.rpc_stop()
-                    self._instance = None
+                    try:
+                        exception = self._instance.rpc_stop()
+                    except EOFError:
+                        pass
+                    finally:
+                        self._instance = None
                 else:
                     exception = None
 
@@ -272,6 +264,8 @@ class UnitHandle(Tasklet):
                     self._manager.shutdown()
 
             if exception:
-                raise exception
+                self.logger.error(
+                    f"Exception occurred while stopping unit '{self.address}': {exception}"
+                )
 
-        await run_in_thread(execute)
+        await asyncio.to_thread(execute)

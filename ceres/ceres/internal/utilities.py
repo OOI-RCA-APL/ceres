@@ -31,7 +31,6 @@ from typing import (
 )
 
 from apscheduler.triggers.cron import CronTrigger
-from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConstrainedStr, parse_obj_as
 from pydantic.json import pydantic_encoder
 from sqlalchemy.orm import Mapped
@@ -83,10 +82,6 @@ def syncify(function: FunctionT) -> FunctionT:
         return asyncio.run(function(*args, **kwargs))
 
     return cast(FunctionT, wrapper)
-
-
-async def run_in_thread(function: Callable[..., T], *args: Any, **kwargs: Any) -> T:
-    return await run_in_threadpool(function, *args, **kwargs)
 
 
 def unwrap(value: T | None) -> T:
