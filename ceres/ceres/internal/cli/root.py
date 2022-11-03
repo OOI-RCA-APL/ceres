@@ -7,9 +7,10 @@ from ...config import Config
 from ...engine import Engine
 from ...exceptions import StartupException
 from ...result import Ok
+from ...utilities import jsonify
 from .. import logs
 from ..config import load_config
-from ..utilities import jsonify, syncify
+from ..utilities import syncify
 from .common import ConfigOption, ConfigPathOption
 from .exceptions import CLIInvalidConfigException, CLIStartupException
 from .subcommands.database import database

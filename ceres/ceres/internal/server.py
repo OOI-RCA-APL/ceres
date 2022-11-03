@@ -10,9 +10,10 @@ from uvicorn import Server as UvicornServer
 from ..config import Config, ServerConfig
 from ..errors import ReloadError
 from ..result import Fail, Ok, Result
+from ..utilities import awaitify, simplify
 from . import logs
 from .tasks import Tasklet
-from .utilities import awaitify, simplify, unreachable
+from .utilities import unreachable
 
 
 class ServerEngine(Protocol):

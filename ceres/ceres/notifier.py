@@ -5,7 +5,6 @@ from datetime import timedelta
 from typing import Any, Sequence
 
 from pydantic import Field, validator
-from pydantic.dataclasses import dataclass as validated_dataclass
 from sqlalchemy import select
 
 from .alert import Alert
@@ -13,16 +12,12 @@ from .component import Component, ComponentContext, ComponentParameters
 from .config import UserConfig
 from .internal.database.entity import AlertEntity
 from .internal.database.manager import DatabaseManager
-from .internal.utilities import (
-    encode_td,
-    frozenlist,
-    get_now,
-    validate_positive_timedelta,
-)
+from .internal.utilities import encode_td, frozenlist, validate_positive_timedelta
 from .schedule import Schedule
+from .utilities import utc, vdc
 
 
-@validated_dataclass(kw_only=True, frozen=True)
+@vdc(frozen=True)
 class NotifierParameters(ComponentParameters):
     schedule: Schedule | None = Field(default=None, discriminator="kind")
     lookback: timedelta
@@ -32,13 +27,12 @@ class NotifierParameters(ComponentParameters):
         return validate_positive_timedelta(value)
 
 
-@validated_dataclass(kw_only=True, frozen=True)
+@vdc(frozen=True)
 class NotifierContext(ComponentContext):
     users: frozenlist[UserConfig] = field(default_factory=frozenlist)
     database: DatabaseManager
 
 
-@validated_dataclass
 class Notifier(Component):
     parameters: NotifierParameters
     context: NotifierContext
@@ -51,7 +45,7 @@ class Notifier(Component):
         users = self.context.users
         lookback = self.parameters.lookback
         database = self.context.database
-        cutoff = get_now() - lookback
+        cutoff = utc() - lookback
 
         async with database.session() as session:
             alerts = [

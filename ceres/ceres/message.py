@@ -1,10 +1,11 @@
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, Union, runtime_checkable
 from uuid import UUID, uuid4
 
-from .internal.utilities import MaybeMapped
+if TYPE_CHECKING:
+    from .internal.database.entity import MessageEntity
 
 
 class MessageDirection(str, Enum):
@@ -15,23 +16,23 @@ class MessageDirection(str, Enum):
 @runtime_checkable
 class MessageLike(Protocol):
     @property
-    def id(self) -> MaybeMapped[UUID]:
+    def id(self) -> UUID:
         ...
 
     @property
-    def connection_id(self) -> MaybeMapped[UUID]:
+    def connection_id(self) -> UUID:
         ...
 
     @property
-    def timestamp(self) -> MaybeMapped[datetime]:
+    def timestamp(self) -> datetime:
         ...
 
     @property
-    def direction(self) -> MaybeMapped[MessageDirection]:
+    def direction(self) -> MessageDirection:
         ...
 
     @property
-    def content(self) -> MaybeMapped[bytes]:
+    def content(self) -> bytes:
         ...
 
 
@@ -44,7 +45,7 @@ class Message:
     content: bytes
 
     @staticmethod
-    def create_from(other: MessageLike) -> "Message":
+    def create_from(other: Union[MessageLike, "MessageEntity"]) -> "Message":
         return Message(
             id=other.id,
             connection_id=other.connection_id,

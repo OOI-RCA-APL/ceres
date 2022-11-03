@@ -1,9 +1,10 @@
 from typing import Any
 
+from ...config import PostgresDatabaseConfig
 from .adapter import DatabaseAdapter
 
 
-class PostgresDatabaseAdapter(DatabaseAdapter):
+class PostgresDatabaseAdapter(DatabaseAdapter[PostgresDatabaseConfig]):
     def get_async_engine_url(self) -> str:
         return (
             "postgresql+psycopg://"

@@ -41,20 +41,20 @@ from .utilities import (
 if TYPE_CHECKING:
     from .unit import Unit
 
-ComponentT = TypeVar("ComponentT", bound=Component, covariant=True)
+ComponentT = TypeVar("ComponentT", bound=Component)
 
 
 def load_component(
-    cls: type[ComponentT],
+    supercls: type[ComponentT],
     config: ComponentConfig,
     context: CompleteComponentContext,
     siblings: Mapping[str, Component],
 ) -> Result[ComponentT, ComponentError]:
     if not isinstance(config.component, str):
-        if not isinstance(config.component, cls):
+        if not isinstance(config.component, supercls):
             return Fail(
                 ComponentClassInvalidError(
-                    message=f"component passed in configuration must be an instance of {cls}, got {config.component}"
+                    message=f"component passed in configuration must be an instance of {supercls}, got {config.component}"
                 )
             )
 
@@ -77,60 +77,57 @@ def load_component(
             )
         )
 
-    target_cls: type[ComponentT] | None = None
+    cls: type[ComponentT] | None = None
 
     # Find the last non-abstract class in the module that is a subclass of the "cls" argument.
     for _, member in inspect.getmembers(module):
         if (
             inspect.isclass(member)
             and not inspect.isabstract(member)
-            and member is not cls
-            and issubclass(member, cls)
+            and member is not supercls
+            and issubclass(member, supercls)
         ):
-            target_cls = member
+            cls = member
 
-    if target_cls is None:
+    if cls is None:
         return Fail(
             ComponentClassNotFoundError(
-                message=f"component module {module} must contain class a non-abstract subclass of {cls}"
+                message=f"component module {module} must contain class a non-abstract subclass of {supercls}"
             )
         )
 
-    __init__ = validate_arguments(target_cls.__init__)
-    instance = target_cls.__new__(target_cls)
-
-    parameters_type = target_cls.get_parameters_type()
-    context_type = target_cls.get_context_type()
-    references_type = target_cls.get_references_type()
+    parameters_type = cls.get_parameters_type()
+    context_type = cls.get_context_type()
+    references_type = cls.get_references_type()
 
     try:
         applied_parameters = hydrate(parameters_type, config.parameters)
     except ValidationError as error:
         return Fail(
             ComponentParametersInvalidError(
-                message=f"invalid parameters for {target_cls}",
+                message=f"invalid parameters for {cls}",
                 problems=ValidationProblem.extract(error),
             )
         )
 
     try:
-        context_arguments: dict[str, Any] = {}
+        context_kwargs: dict[str, Any] = {}
 
         for field in dataclasses.fields(context):
             if object_has_field(context_type, field.name):
-                context_arguments[field.name] = getattr(context, field.name)
+                context_kwargs[field.name] = getattr(context, field.name)
 
-        applied_context = context_type(**context_arguments)
+        applied_context = context_type(**context_kwargs)
     except Exception:
         return Fail(
             ComponentInitExceptionError(
-                message=f"exception raised when creating {context_type} for {target_cls}",
+                message=f"exception raised when creating {context_type} for {cls}",
                 traceback=traceback.format_exc(),
             )
         )
 
     try:
-        references_arguments: dict[str, Any] = {}
+        references_kwargs: dict[str, Any] = {}
         reference_mapping = _get_reference_mapping(references_type)
 
         for component_alias, component_type in reference_mapping.items():
@@ -155,25 +152,27 @@ def load_component(
                     )
                 )
 
-            references_arguments[component_alias] = sibling
+            references_kwargs[component_alias] = sibling
 
-        applied_references = references_type(**references_arguments)
+        applied_references = references_type(**references_kwargs)
     except Exception:
         return Fail(
             ComponentInitExceptionError(
-                message=f"exception raised when creating {references_type} for {target_cls}",
+                message=f"exception raised when creating {references_type} for {cls}",
                 traceback=traceback.format_exc(),
             )
         )
 
-    applied_arguments = (instance, applied_parameters, applied_context, applied_references)
-
     try:
-        __init__(*applied_arguments)
+        instance = validate_arguments(cls)(
+            parameters=applied_parameters,
+            context=applied_context,
+            references=applied_references,
+        )
     except Exception:
         return Fail(
             ComponentInitExceptionError(
-                message=f"exception raised when calling __init__() for {target_cls}",
+                message=f"exception raised when calling __init__() for {cls}",
                 traceback=traceback.format_exc(),
             )
         )

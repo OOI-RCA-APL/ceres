@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any, Iterable, Literal, Mapping, Sequence
 
 from pydantic import ConfigDict, Field, SecretStr, validator
-from pydantic.dataclasses import dataclass as validated_dataclass
 
 from .address import ComponentAddress, UnitAddress
 from .internal.utilities import (
@@ -19,14 +18,15 @@ from .internal.utilities import (
     hydrate,
     validate_positive_timedelta,
 )
+from .utilities import vdc
 
 
-@validated_dataclass(kw_only=True, frozen=True)
+@vdc(frozen=True)
 class BaseConfigObject:
     pass
 
 
-@validated_dataclass(kw_only=True, frozen=True)
+@vdc(frozen=True)
 class ComponentConfig(BaseConfigObject):
     kind: Literal["connection", "driver", "notifier"]
     name: NameStr
@@ -35,14 +35,14 @@ class ComponentConfig(BaseConfigObject):
     references: frozendict[NameStr, NameStr] = field(default_factory=frozendict)
 
     @validator("references", pre=True)
-    def _validate_references(cls, value: Any) -> Any:
+    def _validate_references(cls, value: object) -> Any:
         if not isinstance(value, Mapping) and isinstance(value, Iterable):
-            return {key: key for key in value}
+            return {key: key for key in value}  # type: ignore
 
-        return value
+        return value  # type: ignore
 
 
-@validated_dataclass(kw_only=True, frozen=True)
+@vdc(frozen=True)
 class ServerConfig(BaseConfigObject):
     port: int
     enable: bool = True
@@ -53,7 +53,7 @@ class DatabaseKind(str, Enum):
     POSTGRES = "postgres"
 
 
-@validated_dataclass(kw_only=True, frozen=True)
+@vdc(frozen=True)
 class DatabaseRetryConfig(BaseConfigObject):
     timeout: timedelta = timedelta(seconds=15)
     interval: timedelta = timedelta(seconds=3)
@@ -63,20 +63,20 @@ class DatabaseRetryConfig(BaseConfigObject):
         return validate_positive_timedelta(value)
 
 
-@validated_dataclass(kw_only=True, frozen=True)
+@vdc(frozen=True)
 class BaseDatabaseConfig(BaseConfigObject):
     kind: DatabaseKind
     engine: frozendict[str, Any] | None = None
     retry: DatabaseRetryConfig = field(default_factory=DatabaseRetryConfig)
 
 
-@validated_dataclass(kw_only=True, frozen=True)
+@vdc(frozen=True)
 class SQLiteDatabaseConfig(BaseDatabaseConfig):
     kind: Literal[DatabaseKind.SQLITE] = DatabaseKind.SQLITE
     path: Path
 
 
-@validated_dataclass(kw_only=True, frozen=True)
+@vdc(frozen=True)
 class PostgresDatabaseConfig(BaseDatabaseConfig):
     kind: Literal[DatabaseKind.POSTGRES] = DatabaseKind.POSTGRES
     host: str
@@ -89,7 +89,7 @@ class PostgresDatabaseConfig(BaseDatabaseConfig):
 DatabaseConfig = SQLiteDatabaseConfig | PostgresDatabaseConfig
 
 
-@validated_dataclass(kw_only=True, frozen=True)
+@vdc(frozen=True)
 class UnitConfig(BaseConfigObject):
     name: NameStr
     components: frozenlist[ComponentConfig] = field(default_factory=frozenlist)
@@ -120,7 +120,7 @@ class UnitConfig(BaseConfigObject):
         return components
 
 
-@validated_dataclass(kw_only=True, frozen=True)
+@vdc(frozen=True)
 class UserConfig(BaseConfigObject):
     username: NameStr
     email: EmailStr
@@ -135,7 +135,7 @@ warnings.filterwarnings(
 )
 
 
-@validated_dataclass(
+@vdc(
     kw_only=True,
     frozen=True,
     config=ConfigDict(underscore_attrs_are_private=True),

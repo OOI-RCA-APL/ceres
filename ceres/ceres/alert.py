@@ -1,12 +1,13 @@
 from dataclasses import field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Literal, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Literal, Protocol, Union, runtime_checkable
 from uuid import UUID, uuid4
 
-from pydantic.dataclasses import dataclass as validated_dataclass
+from .utilities import vdc
 
-from .internal.utilities import MaybeMapped
+if TYPE_CHECKING:
+    from .internal.database.entity import AlertEntity
 
 RawAlertLevel = Literal["info", "warning", "error"]
 
@@ -24,31 +25,31 @@ class AlertLevel(str, Enum):
 @runtime_checkable
 class AlertLike(Protocol):
     @property
-    def id(self) -> MaybeMapped[UUID]:
+    def id(self) -> UUID:
         ...
 
     @property
-    def origin_id(self) -> MaybeMapped[UUID]:
+    def origin_id(self) -> UUID:
         ...
 
     @property
-    def timestamp(self) -> MaybeMapped[datetime]:
+    def timestamp(self) -> datetime:
         ...
 
     @property
-    def kind(self) -> MaybeMapped[str]:
+    def kind(self) -> str:
         ...
 
     @property
-    def level(self) -> MaybeMapped[AlertLevel]:
+    def level(self) -> AlertLevel:
         ...
 
     @property
-    def info(self) -> MaybeMapped[dict[str, Any]]:
+    def info(self) -> dict[str, Any]:
         ...
 
 
-@validated_dataclass(kw_only=True, frozen=True)
+@vdc(frozen=True)
 class Alert:
     id: UUID = field(default_factory=uuid4)
     origin_id: UUID
@@ -58,7 +59,7 @@ class Alert:
     info: dict[str, Any] = field(default_factory=dict)
 
     @staticmethod
-    def create_from(other: AlertLike) -> "Alert":
+    def create_from(other: Union[AlertLike, "AlertEntity"]) -> "Alert":
         return Alert(
             id=other.id,
             origin_id=other.origin_id,

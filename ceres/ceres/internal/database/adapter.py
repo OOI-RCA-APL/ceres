@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from ...config import DatabaseConfig
 
-ConfigT = TypeVar("ConfigT", bound=DatabaseConfig)
+ConfigT = TypeVar("ConfigT", bound=DatabaseConfig, covariant=True)
 
 
 class DatabaseAdapter(Generic[ConfigT], ABC):

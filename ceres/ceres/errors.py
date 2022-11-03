@@ -2,12 +2,12 @@ from enum import Enum
 from typing import Literal
 
 from pydantic import ValidationError
-from pydantic.dataclasses import dataclass as validated_dataclass
 
 from .address import ComponentAddress
+from .utilities import vdc
 
 
-@validated_dataclass(kw_only=True, frozen=True)
+@vdc(frozen=True)
 class ValidationProblem:
     location: list[str | int]
     message: str
@@ -35,20 +35,20 @@ class ComponentErrorKind(str, Enum):
     COMPONENT_REFERENCE_INVALID = "component-reference-invalid"
 
 
-@validated_dataclass(kw_only=True, frozen=True)
+@vdc(frozen=True)
 class BaseComponentError:
     kind: ComponentErrorKind
     message: str
 
 
-@validated_dataclass(kw_only=True, frozen=True)
+@vdc(frozen=True)
 class ComponentModuleNotFoundError(BaseComponentError):
     kind: Literal[
         ComponentErrorKind.COMPONENT_MODULE_NOT_FOUND
     ] = ComponentErrorKind.COMPONENT_MODULE_NOT_FOUND
 
 
-@validated_dataclass(kw_only=True, frozen=True)
+@vdc(frozen=True)
 class ComponentModuleExceptionError(BaseComponentError):
     kind: Literal[
         ComponentErrorKind.COMPONENT_MODULE_EXCEPTION
@@ -56,21 +56,21 @@ class ComponentModuleExceptionError(BaseComponentError):
     traceback: str
 
 
-@validated_dataclass(kw_only=True, frozen=True)
+@vdc(frozen=True)
 class ComponentClassNotFoundError(BaseComponentError):
     kind: Literal[
         ComponentErrorKind.COMPONENT_CLASS_NOT_FOUND
     ] = ComponentErrorKind.COMPONENT_CLASS_NOT_FOUND
 
 
-@validated_dataclass(kw_only=True, frozen=True)
+@vdc(frozen=True)
 class ComponentClassInvalidError(BaseComponentError):
     kind: Literal[
         ComponentErrorKind.COMPONENT_CLASS_INVALID
     ] = ComponentErrorKind.COMPONENT_CLASS_INVALID
 
 
-@validated_dataclass(kw_only=True, frozen=True)
+@vdc(frozen=True)
 class ComponentParametersInvalidError(BaseComponentError):
     kind: Literal[
         ComponentErrorKind.COMPONENT_PARAMETERS_INVALID
@@ -78,7 +78,7 @@ class ComponentParametersInvalidError(BaseComponentError):
     problems: list[ValidationProblem]
 
 
-@validated_dataclass(kw_only=True, frozen=True)
+@vdc(frozen=True)
 class ComponentInitExceptionError(BaseComponentError):
     kind: Literal[
         ComponentErrorKind.COMPONENT_INIT_EXCEPTION
@@ -86,7 +86,7 @@ class ComponentInitExceptionError(BaseComponentError):
     traceback: str
 
 
-@validated_dataclass(kw_only=True, frozen=True)
+@vdc(frozen=True)
 class ComponentReferenceInvalidError(BaseComponentError):
     kind: Literal[
         ComponentErrorKind.COMPONENT_REFERENCE_INVALID
@@ -113,44 +113,44 @@ class ConfigErrorKind(str, Enum):
     REFERENCE_ERROR = "reference-error"
 
 
-@validated_dataclass(kw_only=True, frozen=True)
+@vdc(frozen=True)
 class BaseConfigError:
     pass
 
 
-@validated_dataclass(kw_only=True, frozen=True)
+@vdc(frozen=True)
 class ConfigReadError(BaseConfigError):
     kind: Literal[ConfigErrorKind.READ_ERROR] = ConfigErrorKind.READ_ERROR
     message: str
 
 
-@validated_dataclass(kw_only=True, frozen=True)
+@vdc(frozen=True)
 class ConfigParseErrorLocation:
     line: int
     column: int
 
 
-@validated_dataclass(kw_only=True, frozen=True)
+@vdc(frozen=True)
 class ConfigParseError(BaseConfigError):
     kind: Literal[ConfigErrorKind.PARSE_ERROR] = ConfigErrorKind.PARSE_ERROR
     message: str | None = None
     location: ConfigParseErrorLocation | None = None
 
 
-@validated_dataclass(kw_only=True, frozen=True)
+@vdc(frozen=True)
 class ConfigValidationError(BaseConfigError):
     kind: Literal[ConfigErrorKind.VALIDATION_ERROR] = ConfigErrorKind.VALIDATION_ERROR
     problems: list[ValidationProblem]
 
 
-@validated_dataclass(kw_only=True, frozen=True)
+@vdc(frozen=True)
 class ConfigDatabaseError(BaseConfigError):
     kind: Literal[ConfigErrorKind.DATABASE_ERROR] = ConfigErrorKind.DATABASE_ERROR
     message: str
     exception: str
 
 
-@validated_dataclass(kw_only=True, frozen=True)
+@vdc(frozen=True)
 class ConfigComponentError(BaseConfigError):
     kind: Literal[ConfigErrorKind.COMPONENT_ERROR] = ConfigErrorKind.COMPONENT_ERROR
     component: ComponentAddress
@@ -171,18 +171,18 @@ class ReloadErrorKind(str, Enum):
     ALREADY_ACTIVE = "already-active"
 
 
-@validated_dataclass(kw_only=True, frozen=True)
+@vdc(frozen=True)
 class BaseReloadError:
     pass
 
 
-@validated_dataclass(kw_only=True, frozen=True)
+@vdc(frozen=True)
 class ReloadConfigInvalidError(BaseReloadError):
     kind: Literal[ReloadErrorKind.CONFIG_INVALID] = ReloadErrorKind.CONFIG_INVALID
     errors: list[ConfigError]
 
 
-@validated_dataclass(kw_only=True, frozen=True)
+@vdc(frozen=True)
 class ReloadAlreadyActiveError(BaseReloadError):
     kind: Literal[ReloadErrorKind.ALREADY_ACTIVE] = ReloadErrorKind.ALREADY_ACTIVE
 

@@ -4,4 +4,4 @@ from .root import root
 
 def main() -> None:
     ensure_event_loop()
-    root()
+    root()  # type: ignore

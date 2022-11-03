@@ -2,15 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
-import inspect
-import json
 import re
-import signal
 import sys
-from collections.abc import Sequence
-from contextlib import contextmanager
-from datetime import datetime, timedelta, timezone
-from enum import Enum
+from datetime import timedelta
 from functools import cache, wraps
 from types import MappingProxyType, UnionType
 from typing import (
@@ -19,23 +13,21 @@ from typing import (
     Awaitable,
     Callable,
     Iterable,
-    Iterator,
     Literal,
     Mapping,
     NoReturn,
+    ParamSpec,
     SupportsIndex,
     TypeVar,
-    Union,
     cast,
     get_type_hints,
     overload,
 )
 
 from apscheduler.triggers.cron import CronTrigger
-from pydantic import BaseModel, ConstrainedStr, parse_obj_as
-from pydantic.json import pydantic_encoder
-from sqlalchemy.orm import Mapped
+from pydantic import BaseModel, ConstrainedStr
 
+from ..utilities import hydrate
 from .tasks import ensure_event_loop
 
 if TYPE_CHECKING:
@@ -43,70 +35,21 @@ if TYPE_CHECKING:
 
 T = TypeVar("T")
 
-MaybeMapped = Union[T, Mapped[T]]
+ParamsT = ParamSpec("ParamsT")
 
 
-async def awaitify(value: T | Awaitable[T]) -> T:
-    if inspect.isawaitable(value):
-        return cast(T, await value)
-
-    return cast(T, value)
-
-
-def hydrate(type: type[T], obj: Any) -> T:
-    return parse_obj_as(type, obj)
-
-
-def jsonify(obj: object, *, indent: int | str | None = None, **kwargs: Any) -> str:
-    return json.dumps(
-        obj,
-        default=pydantic_encoder,
-        indent=indent,
-        **kwargs,
-    )
-
-
-def simplify(obj: Any) -> Any:
-    return json.loads(jsonify(obj))
-
-
-FunctionT = TypeVar("FunctionT", bound=Callable[..., Any])
-
-
-def syncify(function: FunctionT) -> FunctionT:
-    if not inspect.iscoroutinefunction(function):
-        return function
-
+def syncify(function: Callable[ParamsT, Awaitable[T]]) -> Callable[ParamsT, T]:
     @wraps(function)
     def wrapper(*args: list[Any], **kwargs: dict[str, Any]) -> Any:
         ensure_event_loop()
-        return asyncio.run(function(*args, **kwargs))
+        return asyncio.run(function(*args, **kwargs))  # type: ignore
 
-    return cast(FunctionT, wrapper)
+    return cast(Callable[ParamsT, T], wrapper)
 
 
 def unwrap(value: T | None) -> T:
     assert value is not None
     return value
-
-
-def get_now() -> datetime:
-    return datetime.now(timezone.utc)
-
-
-@contextmanager
-def use_signal_handler(signums: Sequence[int], handler: Callable[..., Any]) -> Iterator[None]:
-    originals: dict[int, Any] = {}
-    for signum in signums:
-        if original := signal.getsignal(signum):
-            originals[signum] = original
-        signal.signal(signum, handler)
-
-    try:
-        yield
-    finally:
-        for signum, original in originals.items():
-            signal.signal(signum, original)
 
 
 class UnreachableException(Exception):
@@ -216,18 +159,6 @@ def decode_td(value: str | timedelta | int | float | Any) -> timedelta:
     raise get_exception()
 
 
-def literals(literal: type[Enum] | object) -> tuple[str, ...]:
-    if isinstance(literal, type) and issubclass(literal, Enum):
-        return tuple(value.value for value in literal if isinstance(value, str))
-
-    __args__ = getattr(literal, "__args__", None)
-
-    if isinstance(__args__, tuple):
-        return tuple(value for value in __args__ if isinstance(value, str))
-
-    return tuple()
-
-
 if TYPE_CHECKING:
     NameStr = str
     EmailStr = str
@@ -268,7 +199,7 @@ def object_has_field(obj: Any, name: str, type: Any = None) -> bool:
         )
     if isinstance(obj, BaseModel) or issubclass(obj, BaseModel):
         return any(
-            field.name == name and (type is None or issubtype(field.type, type))
+            field.name == name and (type is None or issubtype(field.type_, type))
             for field in obj.__fields__.values()
         )
 
@@ -277,13 +208,13 @@ def object_has_field(obj: Any, name: str, type: Any = None) -> bool:
 
 KeyT = TypeVar("KeyT", covariant=True)
 ValueT = TypeVar("ValueT", covariant=True)
-FrozenDictT = TypeVar("FrozenDictT", bound="frozendict")
+FrozenDictT = TypeVar("FrozenDictT", bound="frozendict[Any, Any]")
 
 NewKeyT = TypeVar("NewKeyT")
 NewValueT = TypeVar("NewValueT")
 
 
-class frozendict(dict[KeyT, ValueT]):
+class frozendict(dict[KeyT, ValueT]):  # type: ignore
     def __repr__(self) -> str:
         name = type(self).__name__
         if len(self) == 0:
@@ -297,7 +228,7 @@ class frozendict(dict[KeyT, ValueT]):
     def __copy__(self: FrozenDictT) -> FrozenDictT:
         return self.copy()
 
-    def __reduce__(self) -> tuple[type[frozendict], tuple[dict[KeyT, ValueT]]]:
+    def __reduce__(self) -> tuple[type[frozendict[Any, Any]], tuple[dict[KeyT, ValueT]]]:
         return (type(self), (dict(self),))
 
     @overload  # type: ignore
@@ -418,7 +349,7 @@ class frozendict(dict[KeyT, ValueT]):
         self: frozendict[KeyT, ValueT],
         __value: SupportsKeysAndGetItem[NewKeyT, NewValueT],
         **kwargs: NewValueT,
-    ) -> frozendict[KeyT, ValueT]:
+    ) -> frozendict[KeyT | NewKeyT, ValueT | NewValueT]:
         ...
 
     @overload
@@ -433,7 +364,7 @@ class frozendict(dict[KeyT, ValueT]):
     def update(
         self: frozendict[KeyT, ValueT],
         **kwargs: NewValueT,
-    ) -> frozendict[KeyT | NewKeyT, ValueT | NewValueT]:
+    ) -> frozendict[KeyT, ValueT | NewValueT]:
         ...
 
     def update(  # type: ignore
@@ -476,11 +407,11 @@ def __patch_frozendict() -> None:
 
 __patch_frozendict()
 
-FrozenListT = TypeVar("FrozenListT", bound="frozenlist")
-SortableFrozenListT = TypeVar("SortableFrozenListT", bound="frozenlist")
+FrozenListT = TypeVar("FrozenListT", bound="frozenlist[Any]")
+SortableFrozenListT = TypeVar("SortableFrozenListT", bound="frozenlist[Any]")
 
 
-class frozenlist(list[ValueT]):
+class frozenlist(list[ValueT]):  # type: ignore
     def __repr__(self) -> str:
         name = type(self).__name__
         if len(self) == 0:
@@ -494,7 +425,7 @@ class frozenlist(list[ValueT]):
     def __copy__(self: FrozenListT) -> FrozenListT:
         return type(self)(self)
 
-    def __reduce__(self) -> tuple[type[frozenlist], tuple[list[ValueT]]]:
+    def __reduce__(self) -> tuple[type[frozenlist[ValueT]], tuple[list[ValueT]]]:
         return (type(self), (list(self),))
 
     @overload
@@ -691,17 +622,3 @@ def validate_crontab(value: str) -> str:
         raise ValueError("invalid crontab expression")
 
     return value
-
-
-class ValidateByType:
-    @classmethod
-    def __get_validators__(cls) -> Iterable[Any]:
-        if hasattr(super(), "__get_validators__"):
-            yield from super().__get_validators__()  # type: ignore
-
-        def validate_type(value: Any) -> Any:
-            if not isinstance(value, cls):
-                raise ValueError(f"must be an instance of {cls}")
-            return value
-
-        yield validate_type

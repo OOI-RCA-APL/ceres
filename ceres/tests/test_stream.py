@@ -29,7 +29,7 @@ async def test_single_reader() -> None:
     stream.put("B")
     stream.put("C")
     assert (await task) == ["A", "B", "C"]
-    assert not stream._readers
+    assert not stream.readers
 
 
 async def test_multiple_readers() -> None:
@@ -40,7 +40,7 @@ async def test_multiple_readers() -> None:
     stream.put("B")
     stream.put("C")
     assert (await asyncio.gather(*tasks)) == [["A", "B", "C"]] * 10
-    assert not stream._readers
+    assert not stream.readers
 
 
 async def test_single_iterator() -> None:
@@ -51,7 +51,7 @@ async def test_single_iterator() -> None:
     stream.put("B")
     stream.put("C")
     assert (await task) == ["A", "B", "C"]
-    assert not stream._readers
+    assert not stream.readers
 
 
 async def test_multiple_iterators() -> None:
@@ -62,7 +62,7 @@ async def test_multiple_iterators() -> None:
     stream.put("B")
     stream.put("C")
     assert (await asyncio.gather(*tasks)) == [["A", "B", "C"]] * 10
-    assert not stream._readers
+    assert not stream.readers
 
 
 async def test_clear() -> None:
@@ -74,4 +74,4 @@ async def test_clear() -> None:
         assert len(values) == 3
         assert values.clear() == ["A", "B", "C"]
         assert len(values) == 0
-    assert not stream._readers
+    assert not stream.readers

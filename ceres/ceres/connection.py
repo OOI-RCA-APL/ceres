@@ -6,7 +6,6 @@ from enum import Enum
 from typing import Any
 
 from pydantic import validator
-from pydantic.dataclasses import dataclass as validated_dataclass
 
 from .address import LocalComponentAddress
 from .component import Component, ComponentContext, ComponentParameters
@@ -17,12 +16,13 @@ from .events import (
     MessageSentEvent,
 )
 from .exceptions import ConnectionLostException
-from .internal.utilities import jsonify, validate_positive_timedelta
+from .internal.utilities import validate_positive_timedelta
 from .message import Message, MessageDirection
 from .stream import Stream, StreamView
+from .utilities import jsonify, vdc
 
 
-@validated_dataclass(kw_only=True, frozen=True)
+@vdc(frozen=True)
 class ConnectionReconnect:
     interval: timedelta = timedelta(seconds=1)
     backoff: float | None = 2
@@ -56,12 +56,12 @@ class ReconnectScheduler:
         return next
 
 
-@validated_dataclass(kw_only=True, frozen=True)
+@vdc(frozen=True)
 class ConnectionParameters(ComponentParameters):
     reconnect: ConnectionReconnect
 
 
-@validated_dataclass(kw_only=True, frozen=True)
+@vdc(frozen=True)
 class ConnectionContext(ComponentContext):
     pass
 
@@ -81,7 +81,6 @@ class ConnectionInternal:
     message_stream: Stream[Message]
 
 
-@validated_dataclass
 class Connection(Component):
     parameters: ConnectionParameters
     context: ConnectionContext
