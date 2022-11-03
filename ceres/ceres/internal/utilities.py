@@ -622,3 +622,8 @@ def validate_crontab(value: str) -> str:
         raise ValueError("invalid crontab expression")
 
     return value
+
+
+async def sleep_forever() -> None:
+    while True:
+        await asyncio.sleep(timedelta(hours=1).total_seconds())

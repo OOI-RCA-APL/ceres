@@ -25,6 +25,7 @@ from .internal.utilities import (
     frozenlist,
     get_type_annotations,
     object_has_field,
+    sleep_forever,
 )
 from .scheduler import Scheduler
 from .stream import Stream, StreamView
@@ -240,6 +241,7 @@ class Component(Tasklet, metaclass=ComponentMeta):
 
     async def _tasklet_run(self) -> None:
         self.scheduler.start()
+        await sleep_forever()
 
     async def _tasklet_stop(self) -> None:
         self.scheduler.stop()

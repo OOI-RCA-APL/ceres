@@ -1,5 +1,3 @@
-import asyncio
-
 from .component import Component, ComponentContext, ComponentParameters
 from .utilities import vdc
 
@@ -17,6 +15,3 @@ class DriverContext(ComponentContext):
 class Driver(Component):
     parameters: DriverParameters
     context: DriverContext
-
-    async def update(self) -> None:
-        await asyncio.sleep(1)

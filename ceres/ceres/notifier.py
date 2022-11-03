@@ -1,4 +1,3 @@
-import asyncio
 from abc import abstractmethod
 from dataclasses import field
 from datetime import timedelta
@@ -72,8 +71,6 @@ class Notifier(Component):
         await self.send(self.context.users, alerts)
 
     async def _tasklet_run(self) -> None:
-        await super()._tasklet_run()
-
         if self.parameters.schedule:
             self.logger.info(f"Scheduling notifications as: {self.parameters.schedule}")
             self.scheduler.add_job(self.notify, self.parameters.schedule)
@@ -82,5 +79,4 @@ class Notifier(Component):
                 "No scheduler is set. Notifications will not be sent automatically."
             )
 
-        while True:
-            await asyncio.sleep(1)
+        await super()._tasklet_run()
