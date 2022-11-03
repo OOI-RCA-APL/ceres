@@ -33,7 +33,7 @@ class _Stream:
     writer: StreamWriter
 
 
-@dataclass
+@validated_dataclass
 class TCPConnection(Connection):
     parameters: TCPConnectionParameters
     context: TCPConnectionContext

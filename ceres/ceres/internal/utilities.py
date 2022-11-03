@@ -11,8 +11,8 @@ from collections.abc import Sequence
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from enum import Enum
-from functools import wraps
-from types import UnionType
+from functools import cache, wraps
+from types import MappingProxyType, UnionType
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -21,12 +21,13 @@ from typing import (
     Iterable,
     Iterator,
     Literal,
-    MutableMapping,
+    Mapping,
     NoReturn,
     SupportsIndex,
     TypeVar,
     Union,
     cast,
+    get_type_hints,
     overload,
 )
 
@@ -117,13 +118,12 @@ def unreachable() -> NoReturn:
     raise UnreachableException()
 
 
-def get_or_create(mapping: MutableMapping[str, T], key: str, factory: Callable[[], T]) -> T:
-    if key in mapping:
-        return mapping[key]
+def get_type_annotations(obj: object) -> Mapping[str, Any]:
+    return MappingProxyType(get_type_hints(obj))
 
-    value = factory()
-    mapping[key] = value
-    return value
+
+if not TYPE_CHECKING:
+    get_type_annotations = cache(get_type_annotations)
 
 
 def encode_td(value: timedelta) -> str:

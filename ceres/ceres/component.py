@@ -23,6 +23,7 @@ from .internal.utilities import (
     frozendict,
     frozenlist,
     get_now,
+    get_type_annotations,
     object_has_field,
 )
 from .scheduler import Scheduler
@@ -105,15 +106,15 @@ class Component(Tasklet, ABC):
 
     @classmethod
     def get_parameters_type(cls) -> type[ComponentParameters]:
-        return get_type_hints(cls)["parameters"]  # type: ignore
+        return get_type_annotations(cls)["parameters"]  # type: ignore
 
     @classmethod
     def get_context_type(cls) -> type[ComponentContext]:
-        return get_type_hints(cls)["context"]  # type: ignore
+        return get_type_annotations(cls)["context"]  # type: ignore
 
     @classmethod
     def get_references_type(cls) -> type[ComponentReferences]:
-        return get_type_hints(cls)["references"]  # type: ignore
+        return get_type_annotations(cls)["references"]  # type: ignore
 
     @classmethod
     def get_event_bindings(cls) -> Sequence[EventBinding]:

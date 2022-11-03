@@ -1,4 +1,3 @@
-from dataclasses import dataclass
 from datetime import timedelta
 from email.message import EmailMessage
 from typing import Sequence
@@ -31,7 +30,7 @@ class SMTPNotifierContext(NotifierContext):
     pass
 
 
-@dataclass
+@validated_dataclass
 class SMTPNotifier(Notifier):
     parameters: SMTPNotifierParameters
     context: SMTPNotifierContext

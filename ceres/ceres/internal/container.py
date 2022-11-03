@@ -3,7 +3,6 @@ import sys
 import typing
 from abc import ABCMeta, abstractmethod
 from dataclasses import dataclass
-from functools import partial, partialmethod
 from inspect import Parameter
 from typing import (
     Any,
@@ -16,10 +15,8 @@ from typing import (
     TypeVar,
     Union,
     cast,
-    get_type_hints,
 )
 
-# from zope.proxy import ProxyBase, isProxy, setProxiedObject
 from wrapt import ObjectProxy
 
 T = TypeVar("T")
@@ -221,26 +218,6 @@ def unwrap_decorators(obj: Any) -> Any:
     return obj
 
 
-def get_return_type(obj: type[T] | Callable[..., T]) -> type[T]:
-    obj = unwrap_decorators(obj)
-
-    if isinstance(obj, type):
-        return obj
-
-    if isinstance(obj, (partial, partialmethod)):
-        return get_return_type(obj.func)
-
-    try:
-        type_hints = get_type_hints(obj)
-    except TypeError:
-        type_hints = get_type_hints(obj.__call__)  # type: ignore
-
-    if "return" not in type_hints:
-        raise TypeError(f"Missing return type annotation for {obj}")
-
-    return cast(type[T], type_hints["return"])
-
-
 def type_forward_ref_scope(type_: Union[type[T], Callable[..., T]]) -> Mapping[str, Any]:
     return getattr(sys.modules.get(type_.__module__, None), "__dict__", {})
 
@@ -255,9 +232,3 @@ def bind_proxy(proxy: Proxy, target: Any) -> None:
 
 def is_proxy(value: Any) -> TypeGuard[Proxy]:
     return isinstance(value, Proxy)
-
-
-def get_origin(type_: Any) -> Any:
-    if type_ is Generic:
-        return type_
-    return getattr(type_, "__origin__", None)

@@ -7,7 +7,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from functools import cache
 from logging import Logger
-from typing import TYPE_CHECKING, Any, Generic, Mapping, TypeVar, get_type_hints
+from typing import TYPE_CHECKING, Any, Generic, Mapping, TypeVar
 from uuid import UUID
 
 from pydantic import ValidationError, validate_arguments
@@ -30,7 +30,13 @@ from ..result import Fail, Ok, Result
 from . import logs
 from .database.manager import DatabaseManager
 from .tasks import Tasklet
-from .utilities import frozendict, hydrate, object_has_field, unwrap
+from .utilities import (
+    frozendict,
+    get_type_annotations,
+    hydrate,
+    object_has_field,
+    unwrap,
+)
 
 if TYPE_CHECKING:
     from .unit import Unit
@@ -289,11 +295,11 @@ def _get_reference_mapping(
     references: ComponentReferences | type[ComponentReferences],
 ) -> Mapping[str, type["Component"]]:
     mapping: dict[str, type[Component]] = {}
-    hints = get_type_hints(references)
+    annotations = get_type_annotations(references)
 
-    for name, hint in hints.items():
-        if isinstance(hint, type) and issubclass(hint, Component):
-            mapping[name] = hint
+    for name, annotation in annotations.items():
+        if isinstance(annotation, type) and issubclass(annotation, Component):
+            mapping[name] = annotation
 
     return frozendict(mapping)
 
