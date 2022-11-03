@@ -3,12 +3,13 @@ import signal
 import sys
 import traceback
 from asyncio import FIRST_COMPLETED, Event
+from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import Enum
 from logging import Logger
 from pathlib import Path
 from queue import Empty, Queue
-from typing import Any
+from typing import Any, Callable, Iterator, Sequence
 
 from .address import UnitAddress
 from .config import Config, UnitConfig
@@ -23,8 +24,9 @@ from .internal.database.manager import DatabaseManager
 from .internal.server import Server, ServerEngine
 from .internal.tasks import Tasklet
 from .internal.unit import UnitContext, UnitHandle
-from .internal.utilities import jsonify, unreachable, use_signal_handler
+from .internal.utilities import unreachable
 from .result import Fail, Ok, Result
+from .utilities import jsonify
 
 
 class UnitSyncActionKind(str, Enum):
@@ -94,6 +96,8 @@ class Engine(Tasklet, ServerEngine):
 
     async def _tasklet_run(self) -> None:
         match await load_config(self._config, logger=self.logger):
+            case Ok():
+                pass
             case Fail() as fail:
                 raise StartupConfigCheckFailedException(
                     f"initial configuration check failed: {jsonify(fail, indent=2)}"
@@ -123,7 +127,7 @@ class Engine(Tasklet, ServerEngine):
                 def handle_exit_signal(*args: Any) -> None:
                     exiting.set()
 
-                with use_signal_handler([signal.SIGINT, signal.SIGTERM], handle_exit_signal):
+                with _use_signals([signal.SIGINT, signal.SIGTERM], handle_exit_signal):
                     await self._sync_units()
                     await self._start_server()
 
@@ -231,7 +235,7 @@ class Engine(Tasklet, ServerEngine):
                         continue
 
                     self.logger.info(f"Starting unit '{action.address}'...")
-                elif action.kind == "reload":
+                elif action.kind == UnitSyncActionKind.RELOAD:
                     if not unit:
                         continue
 
@@ -327,3 +331,18 @@ class Engine(Tasklet, ServerEngine):
             f"An exception occurred in unit '{unit.address}': {traceback.format_exception(exception)}"
         )
         self._units.pop(unit.address, None)
+
+
+@contextmanager
+def _use_signals(signums: Sequence[int], handler: Callable[..., Any]) -> Iterator[None]:
+    originals: dict[int, Any] = {}
+    for signum in signums:
+        if original := signal.getsignal(signum):
+            originals[signum] = original
+        signal.signal(signum, handler)
+
+    try:
+        yield
+    finally:
+        for signum, original in originals.items():
+            signal.signal(signum, original)

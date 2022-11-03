@@ -3,7 +3,6 @@ from enum import Enum
 from typing import Any, Literal
 
 from pydantic import validator
-from pydantic.dataclasses import dataclass as validated_dataclass
 
 from .config import BaseConfigObject
 from .internal.utilities import (
@@ -11,6 +10,7 @@ from .internal.utilities import (
     validate_crontab,
     validate_positive_timedelta,
 )
+from .utilities import vdc
 
 
 class ScheduleKind(str, Enum):
@@ -20,12 +20,12 @@ class ScheduleKind(str, Enum):
     OR = "or"
 
 
-@validated_dataclass(kw_only=True, frozen=True)
+@vdc(frozen=True)
 class BaseSchedule(BaseConfigObject):
     kind: ScheduleKind
 
 
-@validated_dataclass(kw_only=True, frozen=True)
+@vdc(frozen=True)
 class CronSchedule(BaseSchedule):
     kind: Literal[ScheduleKind.CRON] = ScheduleKind.CRON
     crontab: str
@@ -35,7 +35,7 @@ class CronSchedule(BaseSchedule):
         return validate_crontab(crontab)
 
 
-@validated_dataclass(kw_only=True, frozen=True)
+@vdc(frozen=True)
 class IntervalSchedule(BaseSchedule):
     kind: Literal[ScheduleKind.INTERVAL] = ScheduleKind.INTERVAL
     interval: timedelta
@@ -45,13 +45,13 @@ class IntervalSchedule(BaseSchedule):
         return validate_positive_timedelta(value)
 
 
-@validated_dataclass(kw_only=True, frozen=True)
+@vdc(frozen=True)
 class AndSchedule(BaseSchedule):
     kind: Literal[ScheduleKind.AND] = ScheduleKind.AND
     schedules: frozenlist["Schedule"]
 
 
-@validated_dataclass(kw_only=True, frozen=True)
+@vdc(frozen=True)
 class OrSchedule(BaseSchedule):
     kind: Literal[ScheduleKind.OR] = ScheduleKind.OR
     schedules: frozenlist["Schedule"]

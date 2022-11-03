@@ -1,14 +1,14 @@
 from dataclasses import field
 from typing import TYPE_CHECKING, Generic, Literal, TypeVar, final
 
-from pydantic.dataclasses import dataclass as validated_dataclass
+from .utilities import vdc
 
 ValueT = TypeVar("ValueT")
 ErrorT = TypeVar("ErrorT")
 
 
 @final
-@validated_dataclass(frozen=True)
+@vdc(kw_only=False, frozen=True)
 class Ok(Generic[ValueT, ErrorT]):
     value: ValueT
     ok: Literal[True] = field(default=True, init=False)
@@ -24,7 +24,7 @@ class Ok(Generic[ValueT, ErrorT]):
 
 
 @final
-@validated_dataclass(frozen=True)
+@vdc(kw_only=False, frozen=True)
 class Fail(Generic[ValueT, ErrorT]):
     error: ErrorT
     ok: Literal[False] = field(default=False, init=False)

@@ -12,6 +12,7 @@ from ..alert import Alert, AlertLevel
 from ..config import Config, UnitConfig
 from ..events import Event
 from ..result import Fail, Ok
+from ..utilities import jsonify
 from . import logs
 from .component import ComponentHandle, ComponentHandleContext, ComponentHandleInterface
 from .connection import ConnectionHandle
@@ -20,7 +21,7 @@ from .database.manager import DatabaseManager
 from .driver import DriverHandle
 from .notifier import NotifierHandle
 from .tasks import Tasklet, ensure_event_loop
-from .utilities import jsonify, unreachable, unwrap
+from .utilities import unreachable, unwrap
 
 
 @dataclass(kw_only=True, frozen=True)
@@ -157,7 +158,7 @@ class Unit(UnitProxyProtocol, Tasklet):
 
             match config.kind:
                 case "connection":
-                    cls: type[ComponentHandle] = ConnectionHandle
+                    cls: type[ComponentHandle[Any]] = ConnectionHandle
                 case "driver":
                     cls = DriverHandle
                 case "notifier":
@@ -165,7 +166,7 @@ class Unit(UnitProxyProtocol, Tasklet):
                 case _:
                     unreachable()
 
-            self._components[config.name] = cls(
+            self._components[config.name] = cls(  # type: ignore
                 ComponentHandleContext(
                     id=id,
                     address=address,
@@ -186,12 +187,16 @@ class Unit(UnitProxyProtocol, Tasklet):
                         f"Failed to load component '{handle.address}'. Error: {jsonify(error, indent=2)}"
                     )
 
-    def _on_component_exception(self, component: ComponentHandle, exception: BaseException) -> None:
+    def _on_component_exception(
+        self,
+        component: ComponentHandleInterface,
+        exception: BaseException,
+    ) -> None:
         self.logger.error(
             f"Exception occurred in component '{component.address}': {traceback.format_exception(exception)}"
         )
 
-    def _on_component_completed(self, component: ComponentHandle) -> None:
+    def _on_component_completed(self, component: ComponentHandleInterface) -> None:
         self.logger.info(f"Component '{component.address}' completed execution.")
 
 
@@ -240,6 +245,7 @@ class UnitHandle(Tasklet):
             try:
                 exception = instance.rpc_run()
             except EOFError:
+                exception = None
                 pass
 
             if exception:
@@ -256,6 +262,7 @@ class UnitHandle(Tasklet):
                     try:
                         exception = self._instance.rpc_stop()
                     except EOFError:
+                        exception = None
                         pass
                     finally:
                         self._instance = None

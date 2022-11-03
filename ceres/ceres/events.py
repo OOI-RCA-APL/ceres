@@ -13,37 +13,35 @@ from typing import (
     overload,
 )
 
-from pydantic.dataclasses import dataclass as validated_dataclass
-
 from .address import LocalComponentAddress
-from .internal.utilities import get_now
 from .message import Message
+from .utilities import utc, vdc
 
 
-@validated_dataclass(kw_only=True, frozen=True)
+@vdc(frozen=True)
 class Event:
     kind: str
     address: LocalComponentAddress
-    timestamp: datetime = field(default_factory=get_now)
+    timestamp: datetime = field(default_factory=utc)
 
 
-@validated_dataclass(kw_only=True, frozen=True)
+@vdc(frozen=True)
 class ConnectedEvent(Event):
     kind: Literal["connected"] = "connected"
 
 
-@validated_dataclass(kw_only=True, frozen=True)
+@vdc(frozen=True)
 class DisconnectedEvent(Event):
     kind: Literal["disconnected"] = "disconnected"
 
 
-@validated_dataclass(kw_only=True, frozen=True)
+@vdc(frozen=True)
 class MessageSentEvent(Event):
     kind: Literal["message-sent"] = "message-sent"
     message: Message
 
 
-@validated_dataclass(kw_only=True, frozen=True)
+@vdc(frozen=True)
 class MessageReceivedEvent(Event):
     kind: Literal["message-received"] = "message-received"
     message: Message
@@ -51,14 +49,14 @@ class MessageReceivedEvent(Event):
 
 EventT = TypeVar("EventT", bound=Event)
 
-EVENT_BINDINGS_ATTRIBUTE = "__event_bindings__"
+_EVENT_BINDINGS_ATTRIBUTE = "__event_bindings__"
 
 
 @dataclass(kw_only=True, frozen=True)
 class EventBinding:
     address: LocalComponentAddress
     cls: type | object
-    function: Callable
+    function: Callable[..., Any]
 
 
 @overload
@@ -90,10 +88,10 @@ def listen(
     [Callable[[Any, Event], None | Awaitable[None]]], Callable[[Any, Event], Awaitable[None]]
 ]:
     def inner(function: Callable[[Any, Event], None | Awaitable[None]]) -> Any:
-        bindings: list[EventBinding] | None = getattr(function, EVENT_BINDINGS_ATTRIBUTE, None)
-        if not bindings or not isinstance(bindings, list):
-            bindings = []
-            setattr(function, EVENT_BINDINGS_ATTRIBUTE, bindings)
+        bindings: Sequence[EventBinding] | None = getattr(function, _EVENT_BINDINGS_ATTRIBUTE, None)
+        if not isinstance(bindings, list):
+            bindings = list(bindings or [])
+            setattr(function, _EVENT_BINDINGS_ATTRIBUTE, bindings)
 
         bindings.append(
             EventBinding(
@@ -115,7 +113,7 @@ def get_event_bindings(cls: type) -> Sequence[EventBinding]:
         if not inspect.isfunction(function):
             continue
 
-        if bindings := getattr(function, EVENT_BINDINGS_ATTRIBUTE, None):
+        if bindings := getattr(function, _EVENT_BINDINGS_ATTRIBUTE, None):
             results.extend(bindings)
 
     return tuple(results)

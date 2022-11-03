@@ -46,7 +46,7 @@ class Scheduler:
             case CronSchedule():
                 return CronTrigger.from_crontab(schedule.crontab)
             case IntervalSchedule():
-                return IntervalTrigger(seconds=schedule.interval.total_seconds())
+                return IntervalTrigger(seconds=int(schedule.interval.total_seconds()))
             case AndSchedule():
                 return AndTrigger(
                     [self._create_trigger(schedule) for schedule in schedule.schedules]

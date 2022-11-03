@@ -3,7 +3,7 @@ from __future__ import annotations
 from asyncio import Queue as AsyncQueue
 from asyncio import QueueEmpty
 from collections.abc import AsyncIterator
-from typing import Any, AsyncIterable, Literal, TypeVar
+from typing import Any, AsyncIterable, Literal, Sequence, TypeVar
 from weakref import WeakSet
 
 __all__ = [
@@ -21,12 +21,16 @@ class Stream(AsyncIterable[T]):
     def __init__(self) -> None:
         self._readers: WeakSet[StreamReader[T]] = WeakSet()
 
+    @property
+    def readers(self) -> Sequence[StreamReader[T]]:
+        return list(self._readers)
+
     def __aiter__(self) -> StreamReader[T]:
         return self.read()
 
     def put(self, value: T) -> None:
         for reader in self._readers:
-            reader._put(value)
+            reader.feed(value)
 
     def read(self) -> StreamReader[T]:
         return StreamReader(self)
@@ -34,13 +38,13 @@ class Stream(AsyncIterable[T]):
     def view(self) -> StreamView[T]:
         return StreamView(self)
 
-    def _has_reader(self, reader: StreamReader) -> bool:
+    def has_reader(self, reader: StreamReader[Any]) -> bool:
         return reader in self._readers
 
-    def _add_reader(self, reader: StreamReader) -> None:
+    def add_reader(self, reader: StreamReader[T]) -> None:
         self._readers.add(reader)
 
-    def _remove_reader(self, reader: StreamReader) -> None:
+    def remove_reader(self, reader: StreamReader[T]) -> None:
         self._readers.discard(reader)
 
 
@@ -49,6 +53,10 @@ class StreamView(AsyncIterable[T]):
 
     def __init__(self, stream: Stream[T]) -> None:
         self._stream = stream
+
+    @property
+    def readers(self) -> Sequence[StreamReader[T]]:
+        return self._stream.readers
 
     def __aiter__(self) -> StreamReader[T]:
         return self._stream.__aiter__()
@@ -70,7 +78,7 @@ class StreamReader(AsyncIterator[T]):
 
     @property
     def attached(self) -> bool:
-        return self._stream._has_reader(self)
+        return self._stream.has_reader(self)
 
     def __len__(self) -> int:
         return self._queue.qsize()
@@ -110,10 +118,10 @@ class StreamReader(AsyncIterator[T]):
         return values
 
     def attach(self) -> None:
-        self._stream._add_reader(self)
+        self._stream.add_reader(self)
 
     def detach(self) -> None:
-        self._stream._remove_reader(self)
+        self._stream.remove_reader(self)
 
-    def _put(self, value: T) -> None:
+    def feed(self, value: T) -> None:
         self._queue.put_nowait(value)

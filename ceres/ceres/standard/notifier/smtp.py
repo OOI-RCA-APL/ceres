@@ -4,15 +4,15 @@ from typing import Sequence
 
 import aiosmtplib
 from pydantic import SecretStr
-from pydantic.dataclasses import dataclass as validated_dataclass
 
 from ...alert import Alert
 from ...config import UserConfig
-from ...internal.utilities import EmailStr, jsonify, show_td
+from ...internal.utilities import EmailStr, show_td
 from ...notifier import Notifier, NotifierContext, NotifierParameters
+from ...utilities import jsonify, vdc
 
 
-@validated_dataclass(kw_only=True, frozen=True)
+@vdc(frozen=True)
 class SMTPNotifierParameters(NotifierParameters):
     host: str
     port: int
@@ -25,12 +25,12 @@ class SMTPNotifierParameters(NotifierParameters):
     prefix: str | None = None
 
 
-@validated_dataclass(kw_only=True, frozen=True)
+@vdc(frozen=True)
 class SMTPNotifierContext(NotifierContext):
     pass
 
 
-@validated_dataclass
+@vdc
 class SMTPNotifier(Notifier):
     parameters: SMTPNotifierParameters
     context: SMTPNotifierContext

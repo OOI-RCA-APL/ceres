@@ -17,7 +17,7 @@ from typing import (
     cast,
 )
 
-from wrapt import ObjectProxy
+from wrapt import ObjectProxy  # type: ignore
 
 T = TypeVar("T")
 
@@ -35,8 +35,8 @@ class ContainerContext(Protocol):
 
 class Container(ContainerContext):
     def __init__(self) -> None:
-        self._providers: dict[Key, Provider] = {}
-        self._instances: dict[Key, Any] = {}
+        self._providers: dict[Key[Any], Provider[Any]] = {}
+        self._instances: dict[Key[Any], Any] = {}
 
     def provide(self, key: Key[T], factory: Factory[T] | None = None) -> None:
         if factory is None:
@@ -81,7 +81,7 @@ class Container(ContainerContext):
 
         if cached:
             # Bind the proxy to the real instance.
-            bind_proxy(proxy, result)
+            bind_proxy(proxy, result)  # type: ignore
             # Store the real instance in the cache.
             self._instances[key] = result
 
@@ -113,7 +113,10 @@ class InstanceProvider(Provider[T]):
         return hash(("InstanceProvider", id(self._instance)))
 
     def __eq__(self, other: object) -> bool:
-        return isinstance(other, InstanceProvider) and self._instance == other._instance
+        return isinstance(other, InstanceProvider) and self._instance == cast(
+            T,
+            other._instance,  # type: ignore
+        )
 
 
 class FactoryProvider(Provider[T]):
@@ -157,7 +160,7 @@ class FactoryParameter:
     defaulted: bool
 
 
-def get_parameters(factory: Callable[..., T]) -> list[FactoryParameter]:
+def get_parameters(factory: Callable[..., Any]) -> list[FactoryParameter]:
     parameters: list[FactoryParameter] = []
 
     try:

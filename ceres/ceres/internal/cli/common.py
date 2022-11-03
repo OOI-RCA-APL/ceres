@@ -7,8 +7,9 @@ from typer import Option
 
 from ...config import Config
 from ...result import Ok
+from ...utilities import jsonify
 from ..config import ConfigCheckKind, load_config
-from ..utilities import jsonify, syncify
+from ..utilities import syncify
 from .exceptions import CLIInvalidConfigException
 
 

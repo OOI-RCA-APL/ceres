@@ -3,13 +3,12 @@ from asyncio import StreamReader, StreamWriter
 from dataclasses import dataclass
 from datetime import timedelta
 
-from pydantic.dataclasses import dataclass as validated_dataclass
-
 from ...connection import Connection, ConnectionContext, ConnectionParameters
 from ...exceptions import ConnectionInactiveException, ConnectionLostException
+from ...utilities import vdc
 
 
-@validated_dataclass(kw_only=True, frozen=True)
+@vdc(frozen=True)
 class TCPConnectionParameters(ConnectionParameters):
     host: str
     port: int
@@ -17,12 +16,12 @@ class TCPConnectionParameters(ConnectionParameters):
     separator: bytes = b"\r\n"
 
 
-@validated_dataclass(kw_only=True, frozen=True)
+@vdc(frozen=True)
 class TCPConnectionContext(ConnectionContext):
     pass
 
 
-@validated_dataclass(kw_only=True, frozen=True)
+@vdc(frozen=True)
 class TCPConnectionReferences(ConnectionContext):
     pass
 
@@ -33,7 +32,6 @@ class _Stream:
     writer: StreamWriter
 
 
-@validated_dataclass
 class TCPConnection(Connection):
     parameters: TCPConnectionParameters
     context: TCPConnectionContext

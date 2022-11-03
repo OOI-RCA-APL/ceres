@@ -27,9 +27,10 @@ from ..errors import (
 )
 from ..notifier import Notifier
 from ..result import Fail, Ok, Result
+from ..utilities import utc
 from .component import load_component
 from .database.manager import DatabaseManager
-from .utilities import get_now, show_td, unreachable
+from .utilities import show_td, unreachable
 
 
 class ConfigCheckKind(str, Enum):
@@ -112,7 +113,7 @@ async def _check_database(
 ) -> list[ConfigDatabaseError]:
     log("Checking database configuration...")
 
-    start = get_now()
+    start = utc()
     timeout = config.database.retry.timeout
     interval = config.database.retry.interval
 
@@ -124,7 +125,7 @@ async def _check_database(
                 log("Connected to database successfully.")
                 return []
         except Exception:
-            elapsed = get_now() - start
+            elapsed = utc() - start
 
             if elapsed > timeout:
                 log(f"Failed to connect to database within {show_td(timeout)}.")

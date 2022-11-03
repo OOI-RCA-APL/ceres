@@ -1,14 +1,16 @@
 import dataclasses
 import inspect
 import traceback
-from abc import ABC
+from abc import ABCMeta
 from dataclasses import dataclass, field
 from inspect import Parameter
 from logging import Logger
-from typing import Any, Sequence, TypeVar, cast, get_type_hints
+from typing import Any, Callable, Sequence, TypeVar, cast, get_type_hints
 from uuid import UUID, uuid4
 
-from pydantic.dataclasses import dataclass as validated_dataclass
+from pydantic import Field
+from pydantic.fields import FieldInfo
+from typing_extensions import dataclass_transform
 
 from .address import ComponentAddress
 from .alert import Alert, AlertLevel, RawAlertLevel
@@ -19,18 +21,17 @@ from .internal import logs
 from .internal.database.manager import DatabaseManager
 from .internal.tasks import Tasklet
 from .internal.utilities import (
-    awaitify,
     frozendict,
     frozenlist,
-    get_now,
     get_type_annotations,
     object_has_field,
 )
 from .scheduler import Scheduler
 from .stream import Stream, StreamView
+from .utilities import awaitify, utc, vdc
 
 
-@validated_dataclass(kw_only=True, frozen=True)
+@vdc(frozen=True)
 class ComponentParameters:
     pass
 
@@ -38,7 +39,7 @@ class ComponentParameters:
 ComponentParametersT = TypeVar("ComponentParametersT", bound=ComponentParameters)
 
 
-@validated_dataclass(kw_only=True, frozen=True)
+@vdc(frozen=True)
 class ComponentContext:
     id: UUID = field(default_factory=uuid4)
     address: ComponentAddress
@@ -59,7 +60,7 @@ class ComponentContext:
             raise ValueError(f"invalid context class, cannot provide fields: {extra}")
 
 
-@validated_dataclass(kw_only=True, frozen=True)
+@vdc(frozen=True)
 class CompleteComponentContext(ComponentContext):
     id: UUID
     root_config: Config
@@ -73,7 +74,7 @@ class CompleteComponentContext(ComponentContext):
 ComponentContextT = TypeVar("ComponentContextT", bound=ComponentContext)
 
 
-@validated_dataclass(kw_only=True, frozen=True)
+@vdc(frozen=True)
 class ComponentReferences:
     pass
 
@@ -90,16 +91,72 @@ class ComponentInteral:
 
 ComponentT = TypeVar("ComponentT", bound="Component")
 
+_COMPONENT_FIELD_SPECIFIERS: tuple[Callable[..., Any], type[FieldInfo]] = (Field, FieldInfo)
 
-@validated_dataclass
-class Component(Tasklet, ABC):
+
+@dataclass_transform(kw_only_default=True, field_specifiers=_COMPONENT_FIELD_SPECIFIERS)
+class ComponentMeta(ABCMeta):
+    def __new__(
+        cls,
+        name: str,
+        bases: tuple[type[Any], ...],
+        namespace: dict[str, Any],
+        **kwargs: Any,
+    ) -> type[Any]:
+        cls = super().__new__(cls, name, bases, namespace, **kwargs)
+        cls = vdc(cls)  # type: ignore
+
+        __init__ = cls.__init__
+        hints = get_type_hints(__init__)
+        signature = inspect.signature(__init__)
+
+        def is_subclass_or_typevar(subcls: type, cls: type) -> bool:
+            if isinstance(subcls, TypeVar):
+                return True
+
+            return isinstance(cls, type) and isinstance(subcls, type) and issubclass(subcls, cls)
+
+        parameters_hint = hints.get("parameters")
+        context_hint = hints.get("context")
+        references_hint = hints.get("references")
+
+        if (
+            not all(
+                i == 0
+                or (
+                    parameter.kind == Parameter.KEYWORD_ONLY
+                    and (
+                        parameter.name in ("parameters", "context", "references")
+                        or parameter.default != Parameter.empty
+                    )
+                )
+                for i, parameter in enumerate(signature.parameters.values())
+            )
+            or not parameters_hint
+            or not context_hint
+            or not references_hint
+            or not is_subclass_or_typevar(parameters_hint, ComponentParameters)
+            or not is_subclass_or_typevar(context_hint, ComponentContext)
+            or not is_subclass_or_typevar(references_hint, ComponentReferences)
+        ):
+            raise ComponentClassInvalidException(
+                f"signature of {__init__} must be compatible with {inspect.signature(Component.__init__)}, got {signature}"
+            )
+
+        if isinstance(references_hint, type) and issubclass(references_hint, ComponentReferences):
+            for binding in cls.get_event_bindings():
+                if not object_has_field(references_hint, binding.address.name):
+                    raise ComponentClassInvalidException(
+                        f"event listener {binding.function} refers to component '{binding.address.name}' which is not defined in {references_hint.__init__} with signature {inspect.signature(references_hint.__init__)}"
+                    )
+
+        return cls
+
+
+class Component(Tasklet, metaclass=ComponentMeta):
     parameters: ComponentParameters
     context: ComponentContext
     references: ComponentReferences
-
-    def __init_subclass__(cls) -> None:
-        super().__init_subclass__()
-        _validate_component_cls(cls)
 
     def __post_init__(self) -> None:
         self.__component_internal__ = ComponentInteral()
@@ -156,7 +213,7 @@ class Component(Tasklet, ABC):
     ) -> Alert:
         alert = Alert(
             origin_id=self.context.id,
-            timestamp=get_now(),
+            timestamp=utc(),
             level=AlertLevel.create_from(level),
             kind=kind,
             info=info or {},
@@ -186,36 +243,3 @@ class Component(Tasklet, ABC):
 
     async def _tasklet_stop(self) -> None:
         self.scheduler.stop()
-
-
-def _validate_component_cls(cls: type[Component]) -> None:
-    __init__ = dataclass(cls).__init__
-    hints = tuple(get_type_hints(__init__).values())
-    signature = inspect.signature(__init__)
-    parameters: tuple[Parameter, ...] = tuple(signature.parameters.values())
-
-    def is_subclass_or_typevar(subcls: type, cls: type) -> bool:
-        if isinstance(subcls, TypeVar):
-            return True
-
-        return isinstance(cls, type) and isinstance(subcls, type) and issubclass(subcls, cls)
-
-    if (
-        len(parameters) != 4
-        or any(parameter.kind == Parameter.KEYWORD_ONLY for parameter in parameters)
-        or not is_subclass_or_typevar(hints[0], ComponentParameters)
-        or not is_subclass_or_typevar(hints[1], ComponentContext)
-        or not is_subclass_or_typevar(hints[2], ComponentReferences)
-    ):
-        raise ComponentClassInvalidException(
-            f"signature of {__init__} must match {inspect.signature(Component.__init__)}, got {signature}"
-        )
-
-    references_type = hints[3]
-
-    if isinstance(references_type, type) and issubclass(references_type, ComponentReferences):
-        for binding in get_event_bindings(cls):
-            if not object_has_field(references_type, binding.address.name):
-                raise ComponentClassInvalidException(
-                    f"event listener {binding.function} refers to component '{binding.address.name}' which is not defined in {references_type}"
-                )

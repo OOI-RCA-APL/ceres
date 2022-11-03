@@ -1,10 +1,10 @@
 from dataclasses import field
 from typing import Literal, overload
 
-from pydantic.dataclasses import dataclass as validated_dataclass
+from .utilities import vdc
 
 
-@validated_dataclass(frozen=True)
+@vdc(kw_only=False, frozen=True)
 class UnitAddress:
     name: str
     kind: Literal["unit"] = field(default="unit", init=False)
@@ -17,7 +17,7 @@ class UnitAddress:
         return self.name
 
 
-@validated_dataclass(frozen=True)
+@vdc(kw_only=False, frozen=True)
 class ComponentAddress:
     unit: str
     name: str
@@ -31,7 +31,7 @@ AddressKind = Literal["unit", "component"]
 Address = UnitAddress | ComponentAddress
 
 
-@validated_dataclass(frozen=True)
+@vdc(kw_only=False, frozen=True)
 class LocalUnitAddress:
     kind: Literal["unit"] = field(default="unit")
 
@@ -39,7 +39,7 @@ class LocalUnitAddress:
         return "."
 
 
-@validated_dataclass(frozen=True)
+@vdc(kw_only=False, frozen=True)
 class LocalComponentAddress:
     name: str
     kind: Literal["component"] = field(default="component")
@@ -85,7 +85,7 @@ def create_local_address(kind: AddressKind, name: str = "") -> LocalAddress:
     match kind:
         case "unit":
             return LocalUnitAddress()
-        case "connection":
+        case "component":
             return LocalComponentAddress(name)
 
     raise ValueError(kind)
