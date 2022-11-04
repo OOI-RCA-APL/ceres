@@ -15,7 +15,7 @@ from typing_extensions import dataclass_transform
 from .address import ComponentAddress
 from .alert import Alert, AlertLevel, RawAlertLevel
 from .config import ComponentConfig, Config, UnitConfig, UserConfig
-from .events import Event, EventBinding, get_event_bindings
+from .events import AlertEmittedEvent, Event, EventBinding, get_event_bindings
 from .exceptions import ComponentClassInvalidException
 from .internal import logs
 from .internal.database.manager import DatabaseManager
@@ -25,7 +25,6 @@ from .internal.utilities import (
     frozenlist,
     get_type_annotations,
     object_has_field,
-    sleep_forever,
 )
 from .scheduler import Scheduler
 from .stream import Stream, StreamView
@@ -85,8 +84,8 @@ ComponentReferencesT = TypeVar("ComponentReferencesT", bound=ComponentReferences
 
 @dataclass(kw_only=True)
 class ComponentInteral:
-    event_stream: Stream[Event] = field(default_factory=Stream)
-    alert_stream: Stream[Alert] = field(default_factory=Stream)
+    incoming_event_stream: Stream[Event] = field(default_factory=Stream)
+    outgoing_event_stream: Stream[Event] = field(default_factory=Stream)
     scheduler: Scheduler = field(default_factory=Scheduler)
 
 
@@ -196,14 +195,10 @@ class Component(Tasklet, metaclass=ComponentMeta):
 
     @property
     def event_stream(self) -> StreamView[Event]:
-        return self.__component_internal__.event_stream.view()
-
-    @property
-    def alert_stream(self) -> StreamView[Alert]:
-        return self.__component_internal__.alert_stream.view()
+        return self.__component_internal__.outgoing_event_stream.view()
 
     def emit_event(self, event: Event) -> Event:
-        self.__component_internal__.event_stream.put(event)
+        self.__component_internal__.outgoing_event_stream.put(event)
         return event
 
     def emit_alert(
@@ -220,10 +215,26 @@ class Component(Tasklet, metaclass=ComponentMeta):
             info=info or {},
         )
 
-        self.__component_internal__.alert_stream.put(alert)
+        self.__component_internal__.outgoing_event_stream.put(
+            AlertEmittedEvent(
+                address=self.address,
+                alert=alert,
+            )
+        )
         return alert
 
-    async def handle_event(self, event: Event) -> None:
+    def handle_event(self, event: Event) -> None:
+        self.__component_internal__.incoming_event_stream.put(event)
+
+    async def _tasklet_run(self) -> None:
+        self.scheduler.start()
+        await self._process_incoming_events()
+
+    async def _process_incoming_events(self) -> None:
+        async for event in self.__component_internal__.incoming_event_stream:
+            await self._process_incoming_event(event)
+
+    async def _process_incoming_event(self, event: Event) -> None:
         for binding in self.get_event_bindings():
             if not isinstance(event, cast(type, binding.cls)):
                 continue
@@ -237,11 +248,9 @@ class Component(Tasklet, metaclass=ComponentMeta):
                     else:
                         await awaitify(method(event))
                 except Exception:
-                    traceback.print_exc()
-
-    async def _tasklet_run(self) -> None:
-        self.scheduler.start()
-        await sleep_forever()
+                    self.logger.error(
+                        f"An exception occurred while processing event {event}: {traceback.format_exc()}"
+                    )
 
     async def _tasklet_stop(self) -> None:
         self.scheduler.stop()

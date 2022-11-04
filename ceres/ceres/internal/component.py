@@ -230,7 +230,6 @@ class ComponentHandle(Generic[ComponentT], Tasklet, ABC):
         await asyncio.gather(
             self._process_component(),
             self._process_events(),
-            self._process_alerts(),
         )
 
     async def _process_component(self) -> None:
@@ -244,14 +243,7 @@ class ComponentHandle(Generic[ComponentT], Tasklet, ABC):
             return
 
         async for event in self.instance.event_stream:
-            await self._context.unit.handle_event(event)
-
-    async def _process_alerts(self) -> None:
-        if not self.instance:
-            return
-
-        async for alert in self.instance.alert_stream:
-            await self._context.unit.handle_alert(alert)
+            await self._context.unit.dispatch_event(event)
 
     async def _tasklet_stop(self) -> None:
         pass

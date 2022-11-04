@@ -10,7 +10,7 @@ from uuid import UUID
 from ..address import ComponentAddress, LocalComponentAddress, UnitAddress
 from ..alert import Alert, AlertLevel
 from ..config import Config, UnitConfig
-from ..events import Event
+from ..events import AlertEmittedEvent, Event
 from ..result import Fail, Ok
 from ..utilities import jsonify
 from . import logs
@@ -76,17 +76,22 @@ class Unit(UnitProxyProtocol, Tasklet):
     ) -> ComponentHandleInterface | None:
         return self._components.get(address if isinstance(address, str) else address.name)
 
-    async def handle_event(self, event: Event) -> None:
+    async def dispatch_event(self, event: Event) -> None:
         for component in self.components:
-            if component.instance:
-                try:
-                    await component.instance.handle_event(event)
-                except Exception:
-                    self.logger.error(
-                        f"{component.address} raised exception while handling event {event}: {traceback.format_exc()}"
-                    )
+            if not component.instance:
+                continue
 
-    async def handle_alert(self, alert: Alert) -> None:
+            try:
+                component.instance.handle_event(event)
+            except Exception:
+                self.logger.error(
+                    f"{component.address} raised exception while handling event {event}: {traceback.format_exc()}"
+                )
+
+        if isinstance(event, AlertEmittedEvent):
+            await self._handle_alert(event.alert)
+
+    async def _handle_alert(self, alert: Alert) -> None:
         match alert.level:
             case AlertLevel.INFO:
                 log_level = INFO

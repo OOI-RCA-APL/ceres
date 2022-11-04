@@ -7,7 +7,6 @@ from typing import Any
 
 from pydantic import validator
 
-from .address import LocalComponentAddress
 from .component import Component, ComponentContext, ComponentParameters
 from .events import (
     ConnectedEvent,
@@ -18,7 +17,6 @@ from .events import (
 from .exceptions import ConnectionLostException
 from .internal.utilities import validate_positive_timedelta
 from .message import Message, MessageDirection
-from .stream import Stream, StreamView
 from .utilities import jsonify, vdc
 
 
@@ -78,7 +76,6 @@ class ConnectionInternal:
     last_message_sent: Message | None
     last_message_received: Message | None
     reconnect: ReconnectScheduler
-    message_stream: Stream[Message]
 
 
 class Connection(Component):
@@ -92,7 +89,6 @@ class Connection(Component):
             last_message_sent=None,
             last_message_received=None,
             reconnect=ReconnectScheduler(self.parameters.reconnect),
-            message_stream=Stream(),
         )
 
     @property
@@ -110,14 +106,6 @@ class Connection(Component):
     @property
     def last_message_received(self) -> Message | None:
         return self.__connection_internal__.last_message_received
-
-    @property
-    def message_stream(self) -> StreamView[Message]:
-        return self.__connection_internal__.message_stream.view()
-
-    def emit_message(self, message: Message) -> Message:
-        self.__connection_internal__.message_stream.put(message)
-        return message
 
     @abstractmethod
     async def try_connect(self) -> bool:
@@ -152,11 +140,7 @@ class Connection(Component):
 
         if connected:
             self.__connection_internal__.state = ConnectionState.CONNECTED
-            self.emit_event(
-                ConnectedEvent(
-                    address=LocalComponentAddress(self.context.address.name),
-                )
-            )
+            self.emit_event(ConnectedEvent(address=self.address))
             self.logger.info("Connected successfully.")
         else:
             self.__connection_internal__.state = ConnectionState.DISCONNECTED
@@ -179,10 +163,9 @@ class Connection(Component):
 
         self.logger.info(f"Sent: {jsonify(message.content)}")
 
-        self.emit_message(message)
         self.emit_event(
             MessageSentEvent(
-                address=LocalComponentAddress(self.context.address.name),
+                address=self.address,
                 message=message,
             )
         )
@@ -206,10 +189,9 @@ class Connection(Component):
 
         self.logger.info(f"Received: {jsonify(message.content)}")
 
-        self.emit_message(message)
         self.emit_event(
             MessageReceivedEvent(
-                address=LocalComponentAddress(self.context.address.name),
+                address=self.address,
                 message=message,
             )
         )
@@ -227,12 +209,7 @@ class Connection(Component):
             await self.try_disconnect()
         finally:
             self.__connection_internal__.state = ConnectionState.DISCONNECTED
-            self.emit_event(
-                DisconnectedEvent(
-                    address=LocalComponentAddress(self.context.address.name),
-                )
-            )
-
+            self.emit_event(DisconnectedEvent(address=self.address))
             self.logger.info("Disconnected.")
 
     async def _tasklet_run(self) -> None:

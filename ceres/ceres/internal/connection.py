@@ -1,6 +1,8 @@
 import asyncio
+import traceback
 
 from ..connection import Connection
+from ..events import MessageReceivedEvent, MessageSentEvent
 from ..message import Message, MessageDirection
 from .component import ComponentHandle, ComponentHandleContext
 from .database.entity import MessageEntity
@@ -17,31 +19,37 @@ class ConnectionHandle(ComponentHandle[Connection]):
 
     def __init__(self, context: ComponentHandleContext) -> None:
         super().__init__(context)
-        self._buffer: list[Message] = []
-        self._flushing = False
+        self._message_buffer: list[Message] = []
+        self._is_flushing_messages = False
 
     async def _tasklet_run(self) -> None:
         await asyncio.gather(
             super()._tasklet_run(),
-            self._process_messages(),
-            self._process_flush(),
+            self._process_message_events(),
+            self._process_message_flush(),
         )
 
-    async def _process_messages(self) -> None:
+    async def _process_message_events(self) -> None:
         if not self.instance:
             return
 
-        async for message in self.instance.message_stream:
-            self._buffer.append(message)
+        async for event in self.instance.event_stream:
+            if isinstance(event, (MessageSentEvent, MessageReceivedEvent)):
+                self._message_buffer.append(event.message)
+                if (
+                    not self._is_flushing_messages
+                    and len(self._message_buffer) >= self.get_max_buffer_size()
+                ):
+                    await self._flush_messages()
 
-            if not self._flushing and len(self._buffer) >= self.get_max_buffer_size():
-                await self._flush()
+    async def _process_message_flush(self) -> None:
+        if not self.instance:
+            return
 
-    async def _process_flush(self) -> None:
         while True:
             await asyncio.sleep(0.1)
-            if not self._flushing:
-                await self._flush()
+            if not self._is_flushing_messages:
+                await self._flush_messages()
 
     async def _tasklet_stop(self) -> None:
         await super()._tasklet_stop()
@@ -50,16 +58,16 @@ class ConnectionHandle(ComponentHandle[Connection]):
             if self.instance:
                 await self.instance.disconnect()
         finally:
-            await self._flush()
+            await self._flush_messages()
 
-    async def _flush(self) -> None:
-        if not self._buffer:
+    async def _flush_messages(self) -> None:
+        if not self._message_buffer:
             return
 
-        self._flushing = True
+        self._is_flushing_messages = True
 
-        messages = self._buffer
-        self._buffer = []
+        messages = self._message_buffer
+        self._message_buffer = []
 
         try:
             async with self._context.database.session() as session:
@@ -78,6 +86,9 @@ class ConnectionHandle(ComponentHandle[Connection]):
 
                 await session.commit()
         except Exception:
-            self._buffer = [*messages, *self._buffer]
+            self._message_buffer = [*messages, *self._message_buffer]
+            self.logger.error(
+                f"An exception occurred when flushing messages: {traceback.format_exc()}"
+            )
         finally:
-            self._flushing = False
+            self._is_flushing_messages = False

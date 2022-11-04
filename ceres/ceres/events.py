@@ -13,7 +13,8 @@ from typing import (
     overload,
 )
 
-from .address import LocalComponentAddress
+from .address import ComponentAddress, LocalComponentAddress
+from .alert import Alert
 from .message import Message
 from .utilities import utc, vdc
 
@@ -21,7 +22,7 @@ from .utilities import utc, vdc
 @vdc(frozen=True)
 class Event:
     kind: str
-    address: LocalComponentAddress
+    address: ComponentAddress
     timestamp: datetime = field(default_factory=utc)
 
 
@@ -45,6 +46,12 @@ class MessageSentEvent(Event):
 class MessageReceivedEvent(Event):
     kind: Literal["message-received"] = "message-received"
     message: Message
+
+
+@vdc(frozen=True)
+class AlertEmittedEvent(Event):
+    kind: Literal["alert-emitted"] = "alert-emitted"
+    alert: Alert
 
 
 EventT = TypeVar("EventT", bound=Event)
