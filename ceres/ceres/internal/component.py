@@ -15,6 +15,8 @@ from pydantic import ValidationError, validate_arguments
 from ..address import ComponentAddress
 from ..component import CompleteComponentContext, Component, ComponentReferences
 from ..config import ComponentConfig, Config
+from ..connection import Connection
+from ..driver import Driver
 from ..errors import (
     ComponentClassInvalidError,
     ComponentClassNotFoundError,
@@ -26,6 +28,7 @@ from ..errors import (
     ComponentReferenceInvalidError,
     ValidationProblem,
 )
+from ..notifier import Notifier
 from ..result import Fail, Ok, Result
 from . import logs
 from .database.manager import DatabaseManager
@@ -200,7 +203,7 @@ class ComponentHandle(Generic[ComponentT], Tasklet, ABC):
 
     @classmethod
     @abstractmethod
-    def _get_component_type(cls) -> type[ComponentT]:
+    def get_component_type(cls) -> type[ComponentT]:
         ...
 
     @property
@@ -246,14 +249,17 @@ class ComponentHandle(Generic[ComponentT], Tasklet, ABC):
             await self._context.unit.dispatch_event(event)
 
     async def _tasklet_stop(self) -> None:
-        pass
+        if not self.instance:
+            return
+
+        await self.instance.stop()
 
     async def load(self) -> Result[ComponentT, ComponentError]:
         if self.instance:
             return Ok(self.instance)
 
         match load_component(
-            self._get_component_type(),
+            self.get_component_type(),
             self.config,
             CompleteComponentContext(
                 id=self._context.id,
@@ -297,3 +303,21 @@ def _get_reference_mapping(
 
 if not TYPE_CHECKING:
     _get_reference_mapping = cache(_get_reference_mapping)
+
+
+class ConnectionHandle(ComponentHandle[Connection]):
+    @classmethod
+    def get_component_type(cls) -> type[Connection]:
+        return Connection
+
+
+class DriverHandle(ComponentHandle[Driver]):
+    @classmethod
+    def get_component_type(cls) -> type[Driver]:
+        return Driver
+
+
+class NotifierHandle(ComponentHandle[Notifier]):
+    @classmethod
+    def get_component_type(cls) -> type[Notifier]:
+        return Notifier

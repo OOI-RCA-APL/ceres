@@ -10,16 +10,22 @@ from uuid import UUID
 from ..address import ComponentAddress, LocalComponentAddress, UnitAddress
 from ..alert import Alert, AlertLevel
 from ..config import Config, UnitConfig
-from ..events import AlertEmittedEvent, Event
+from ..events import AlertEmittedEvent, Event, MessageReceivedEvent, MessageSentEvent
+from ..message import Message, MessageDirection
 from ..result import Fail, Ok
 from ..utilities import jsonify
 from . import logs
-from .component import ComponentHandle, ComponentHandleContext, ComponentHandleInterface
-from .connection import ConnectionHandle
-from .database.entity import AlertEntity
+from .component import (
+    ComponentHandle,
+    ComponentHandleContext,
+    ComponentHandleInterface,
+    ConnectionHandle,
+    DriverHandle,
+    NotifierHandle,
+)
+from .database.buffer import EntityBuffer
+from .database.entity import AlertEntity, MessageEntity
 from .database.manager import DatabaseManager
-from .driver import DriverHandle
-from .notifier import NotifierHandle
 from .tasks import Tasklet, ensure_event_loop
 from .utilities import unreachable, unwrap
 
@@ -45,6 +51,16 @@ class Unit(UnitProxyProtocol, Tasklet):
         self._database = DatabaseManager(self._context.config.database)
         self._components: dict[str, ComponentHandleInterface] = {}
         self._loop = ensure_event_loop()
+        self._message_buffer: EntityBuffer[MessageEntity] = EntityBuffer(
+            2500,
+            self._database,
+            self.logger,
+        )
+        self._alert_buffer: EntityBuffer[AlertEntity] = EntityBuffer(
+            2500,
+            self._database,
+            self.logger,
+        )
 
     @property
     def id(self) -> UUID:
@@ -88,8 +104,24 @@ class Unit(UnitProxyProtocol, Tasklet):
                     f"{component.address} raised exception while handling event {event}: {traceback.format_exc()}"
                 )
 
-        if isinstance(event, AlertEmittedEvent):
-            await self._handle_alert(event.alert)
+        match event:
+            case MessageSentEvent() | MessageReceivedEvent():
+                await self._handle_message(event.message)
+            case AlertEmittedEvent():
+                await self._handle_alert(event.alert)
+            case _:
+                pass
+
+    async def _handle_message(self, message: Message) -> None:
+        await self._message_buffer.add(
+            MessageEntity(
+                id=message.id,
+                connection_id=message.connection_id,
+                timestamp=message.timestamp,
+                direction=MessageDirection.RECEIVE,
+                content=message.content,
+            )
+        )
 
     async def _handle_alert(self, alert: Alert) -> None:
         match alert.level:
@@ -112,8 +144,8 @@ class Unit(UnitProxyProtocol, Tasklet):
             f"ALERT({alert.kind}{' ' + jsonify(alert.info) if alert.info else ''})",
         )
 
-        async with self._database.session() as session:
-            entity = AlertEntity(
+        await self._alert_buffer.add(
+            AlertEntity(
                 id=alert.id,
                 origin_id=alert.origin_id,
                 timestamp=alert.timestamp,
@@ -121,9 +153,7 @@ class Unit(UnitProxyProtocol, Tasklet):
                 kind=alert.kind,
                 info=alert.info,
             )
-
-            session.add(entity)
-            await session.commit()
+        )
 
     def rpc_run(self) -> BaseException | None:
         try:
@@ -145,7 +175,22 @@ class Unit(UnitProxyProtocol, Tasklet):
                 on_completed=self._on_component_completed,
             )
 
-        await self.join()
+        await asyncio.gather(
+            self._process_message_buffer(),
+            self._process_alert_buffer(),
+        )
+
+    async def _process_message_buffer(self) -> None:
+        while True:
+            await asyncio.sleep(0.1)
+            if not self._message_buffer.flushing:
+                await self._message_buffer.flush()
+
+    async def _process_alert_buffer(self) -> None:
+        while True:
+            await asyncio.sleep(0.1)
+            if not self._alert_buffer.flushing:
+                await self._alert_buffer.flush()
 
     async def _tasklet_stop(self) -> None:
         for component in self.components:
