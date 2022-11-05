@@ -1,3 +1,4 @@
+import dataclasses
 from datetime import datetime
 from enum import Enum as BaseEnum
 from typing import TYPE_CHECKING, Any, TypeVar
@@ -19,7 +20,14 @@ from sqlalchemy import (
     select,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy.orm import (
+    DeclarativeBase,
+    Mapped,
+    MappedAsDataclass,
+    declared_attr,
+    mapped_column,
+    relationship,
+)
 
 from ...address import Address, ComponentAddress, UnitAddress
 from ...alert import AlertLevel
@@ -48,11 +56,14 @@ def TypedEnumConstraint(column: str, cls: type[BaseEnum], name: str) -> CheckCon
     )
 
 
-class Entity(DeclarativeBase):
+class Entity(MappedAsDataclass, DeclarativeBase):
     __abstract__ = True
     __mapper_args__ = {
         "eager_defaults": True,
     }
+
+    def values(self) -> dict[str, Any]:
+        return dataclasses.asdict(self)
 
 
 class UnitEntity(Entity):
@@ -66,10 +77,9 @@ class UnitEntity(Entity):
         Index(f"uq_{__tablename__}__name", "name", unique=True),
     )
 
-    components: Mapped[list["ComponentEntity"]] = relationship(
-        "ComponentEntity",
-        back_populates="unit",
-    )
+    @declared_attr
+    def components(cls) -> Mapped[list["ComponentEntity"]]:
+        return relationship("ComponentEntity", back_populates="unit")
 
 
 class ComponentEntity(Entity):
@@ -82,7 +92,9 @@ class ComponentEntity(Entity):
 
     name: Mapped[str] = mapped_column(String)
 
-    unit: Mapped[UnitEntity] = relationship(UnitEntity, back_populates=__tablename__)
+    @declared_attr
+    def unit(cls) -> Mapped[UnitEntity]:
+        return relationship(UnitEntity, back_populates="components")
 
     __table_args__ = (
         PrimaryKeyConstraint("id", name=f"pk_{__tablename__}"),

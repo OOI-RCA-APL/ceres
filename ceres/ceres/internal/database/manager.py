@@ -36,6 +36,10 @@ class DatabaseManager(ValidateByType):
         return self._config.kind
 
     @property
+    def adapter(self) -> DatabaseAdapter[DatabaseConfig]:
+        return self._adapter
+
+    @property
     def entities(self) -> EntityManager:
         return EntityManager(self)
 

@@ -51,12 +51,14 @@ class Unit(UnitProxyProtocol, Tasklet):
         self._database = DatabaseManager(self._context.config.database)
         self._components: dict[str, ComponentHandleInterface] = {}
         self._loop = ensure_event_loop()
-        self._message_buffer: EntityBuffer[MessageEntity] = EntityBuffer(
+        self._message_buffer = EntityBuffer(
+            MessageEntity,
             2500,
             self._database,
             self.logger,
         )
-        self._alert_buffer: EntityBuffer[AlertEntity] = EntityBuffer(
+        self._alert_buffer = EntityBuffer(
+            AlertEntity,
             2500,
             self._database,
             self.logger,
