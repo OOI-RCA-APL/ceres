@@ -6,38 +6,34 @@ import aiosmtplib
 from pydantic import SecretStr
 
 from ...alert import Alert
-from ...config import UserConfig
-from ...internal.utilities import EmailStr, show_td
-from ...notifier import Notifier, NotifierContext, NotifierParameters
-from ...utilities import jsonify, vdc
+from ...internal.utilities import EmailStr, frozenlist, show_td
+from ...notifier import Notifier
+from ...utilities import jsonify
 
 
-@vdc(frozen=True)
-class SMTPNotifierParameters(NotifierParameters):
-    host: str
-    port: int
-    sender: EmailStr
-    use_tls: bool = False
-    start_tls: bool = False
-    username: str | None = None
-    password: SecretStr | None = None
-    timeout: timedelta = timedelta(seconds=30)
-    prefix: str | None = None
-
-
-@vdc(frozen=True)
-class SMTPNotifierContext(NotifierContext):
-    pass
-
-
-@vdc
 class SMTPNotifier(Notifier):
-    parameters: SMTPNotifierParameters
-    context: SMTPNotifierContext
+    class Parameters(Notifier.Parameters):
+        host: str
+        port: int
+        sender: EmailStr
+        recipients: frozenlist[EmailStr]
+        use_tls: bool = False
+        start_tls: bool = False
+        username: str | None = None
+        password: SecretStr | None = None
+        timeout: timedelta = timedelta(seconds=30)
+        prefix: str | None = None
 
-    async def send(self, users: Sequence[UserConfig], alerts: Sequence[Alert]) -> None:
-        self.logger.info(f"Sending email notification to {len(users)} user(s).")
-        recipients = sorted(set(user.email.strip() for user in users if user.email.strip()))
+    class Context(Notifier.Context):
+        pass
+
+    parameters: Parameters
+    context: Context
+
+    async def send(self, alerts: Sequence[Alert]) -> None:
+        self.logger.info(
+            f"Sending email notification to {len(self.parameters.recipients)} recipients(s)."
+        )
 
         subject = f"{len(alerts)} alert(s) reported in the last {show_td(self.parameters.lookback)}"
         if self.parameters.prefix:
@@ -45,7 +41,7 @@ class SMTPNotifier(Notifier):
 
         message = EmailMessage()
         message["From"] = self.parameters.sender
-        message["To"] = ",".join(recipients)
+        message["To"] = ",".join(self.parameters.recipients)
         message["Subject"] = subject
         message.set_content(jsonify(alerts))
 
@@ -54,7 +50,7 @@ class SMTPNotifier(Notifier):
         else:
             password = None
 
-        if not recipients:
+        if not self.parameters.recipients:
             return
 
         self.logger.info(f"Sending email '{subject}'...")

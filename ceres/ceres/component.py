@@ -1,85 +1,32 @@
 import dataclasses
 import inspect
 import traceback
-from abc import ABCMeta
 from dataclasses import dataclass, field
 from inspect import Parameter
 from logging import Logger
-from typing import Any, Callable, Sequence, TypeVar, cast, get_type_hints
+from typing import Any, Sequence, TypeVar, get_type_hints
 from uuid import UUID, uuid4
 
-from pydantic import Field
-from pydantic.fields import FieldInfo
 from typing_extensions import dataclass_transform
 
 from .address import ComponentAddress
 from .alert import Alert, AlertLevel, RawAlertLevel
-from .config import ComponentConfig, Config, UnitConfig, UserConfig
+from .config import ComponentConfig, Config, UnitConfig
 from .events import AlertEmittedEvent, Event, EventBinding, get_event_bindings
 from .exceptions import ComponentClassInvalidException
 from .internal import logs
+from .internal.database.entity import EntityManager
 from .internal.database.manager import DatabaseManager
 from .internal.tasks import Tasklet
-from .internal.utilities import (
-    frozendict,
-    frozenlist,
-    get_type_annotations,
-    object_has_field,
-)
+from .internal.utilities import get_type_annotations, loose_isinstance, object_has_field
 from .scheduler import Scheduler
 from .stream import Stream, StreamView
-from .utilities import awaitify, utc, vdc
-
-
-@vdc(frozen=True)
-class ComponentParameters:
-    pass
-
-
-ComponentParametersT = TypeVar("ComponentParametersT", bound=ComponentParameters)
-
-
-@vdc(frozen=True)
-class ComponentContext:
-    id: UUID = field(default_factory=uuid4)
-    address: ComponentAddress
-    references: frozendict[str, str] = field(default_factory=frozendict)
-    database: DatabaseManager
-
-    def __post_init__(self) -> None:
-        extra: list[tuple[str, Any]] = []
-        for current in dataclasses.fields(self):
-            if current.name in ["address"]:
-                if not object_has_field(CompleteComponentContext, current.name):
-                    extra.append((current.name, current.type))
-            else:
-                if not object_has_field(CompleteComponentContext, current.name, current.type):
-                    extra.append((current.name, current.type))
-
-        if extra:
-            raise ValueError(f"invalid context class, cannot provide fields: {extra}")
-
-
-@vdc(frozen=True)
-class CompleteComponentContext(ComponentContext):
-    id: UUID
-    root_config: Config
-    unit_config: UnitConfig
-    component_config: ComponentConfig
-    users: frozenlist[UserConfig]
-    units: frozenlist[UnitConfig]
-    database: DatabaseManager
-
-
-ComponentContextT = TypeVar("ComponentContextT", bound=ComponentContext)
-
-
-@vdc(frozen=True)
-class ComponentReferences:
-    pass
-
-
-ComponentReferencesT = TypeVar("ComponentReferencesT", bound=ComponentReferences)
+from .utilities import (
+    VALIDATED_DATACLASS_FIELD_SPECIFIERS,
+    ValidatedDataclassMeta,
+    awaitify,
+    utc,
+)
 
 
 @dataclass(kw_only=True)
@@ -90,21 +37,24 @@ class ComponentInteral:
 
 
 ComponentT = TypeVar("ComponentT", bound="Component")
+EventT = TypeVar("EventT", bound=Event)
 
-_COMPONENT_FIELD_SPECIFIERS: tuple[Callable[..., Any], type[FieldInfo]] = (Field, FieldInfo)
 
-
-@dataclass_transform(kw_only_default=True, field_specifiers=_COMPONENT_FIELD_SPECIFIERS)
-class ComponentMeta(ABCMeta):
+@dataclass_transform(
+    kw_only_default=True,
+    field_specifiers=VALIDATED_DATACLASS_FIELD_SPECIFIERS,
+)
+class ComponentMeta(ValidatedDataclassMeta):
     def __new__(
-        cls,
+        metacls,  # type: ignore
         name: str,
         bases: tuple[type[Any], ...],
         namespace: dict[str, Any],
         **kwargs: Any,
     ) -> type[Any]:
-        cls = super().__new__(cls, name, bases, namespace, **kwargs)
-        cls = vdc(cls)  # type: ignore
+        cls: type["Component"] = super().__new__(metacls, name, bases, namespace, **kwargs)  # type: ignore
+        if cls.__module__ == __name__ and cls.__name__ == "Component":
+            return cls
 
         __init__ = cls.__init__
         hints = get_type_hints(__init__)
@@ -135,15 +85,15 @@ class ComponentMeta(ABCMeta):
             or not parameters_hint
             or not context_hint
             or not references_hint
-            or not is_subclass_or_typevar(parameters_hint, ComponentParameters)
-            or not is_subclass_or_typevar(context_hint, ComponentContext)
-            or not is_subclass_or_typevar(references_hint, ComponentReferences)
+            or not is_subclass_or_typevar(parameters_hint, Component.Parameters)
+            or not is_subclass_or_typevar(context_hint, Component.Context)
+            or not is_subclass_or_typevar(references_hint, Component.References)
         ):
             raise ComponentClassInvalidException(
                 f"signature of {__init__} must be compatible with {inspect.signature(Component.__init__)}, got {signature}"
             )
 
-        if isinstance(references_hint, type) and issubclass(references_hint, ComponentReferences):
+        if isinstance(references_hint, type) and issubclass(references_hint, Component.References):
             for binding in cls.get_event_bindings():
                 if not object_has_field(references_hint, binding.address.name):
                     raise ComponentClassInvalidException(
@@ -154,23 +104,43 @@ class ComponentMeta(ABCMeta):
 
 
 class Component(Tasklet, metaclass=ComponentMeta):
-    parameters: ComponentParameters
-    context: ComponentContext
-    references: ComponentReferences
+    class Context(metaclass=ValidatedDataclassMeta, frozen=True):
+        id: UUID = field(default_factory=uuid4)
+        address: ComponentAddress
+
+        def __post_init__(self) -> None:
+            extra: list[tuple[str, Any]] = []
+
+            for current in dataclasses.fields(self):
+                if not object_has_field(CompleteComponentContext, current.name, current.type):
+                    extra.append((current.name, current.type))
+
+            if extra:
+                raise ValueError(f"invalid context class, cannot provide fields: {extra}")
+
+    class Parameters(metaclass=ValidatedDataclassMeta, frozen=True):
+        pass
+
+    class References(metaclass=ValidatedDataclassMeta, frozen=True):
+        pass
+
+    parameters: Parameters = field(default_factory=Parameters)
+    context: Context
+    references: References = field(default_factory=References)
 
     def __post_init__(self) -> None:
         self.__component_internal__ = ComponentInteral()
 
     @classmethod
-    def get_parameters_type(cls) -> type[ComponentParameters]:
+    def get_parameters_type(cls) -> type[Parameters]:
         return get_type_annotations(cls)["parameters"]  # type: ignore
 
     @classmethod
-    def get_context_type(cls) -> type[ComponentContext]:
+    def get_context_type(cls) -> type[Context]:
         return get_type_annotations(cls)["context"]  # type: ignore
 
     @classmethod
-    def get_references_type(cls) -> type[ComponentReferences]:
+    def get_references_type(cls) -> type[References]:
         return get_type_annotations(cls)["references"]  # type: ignore
 
     @classmethod
@@ -197,7 +167,7 @@ class Component(Tasklet, metaclass=ComponentMeta):
     def event_stream(self) -> StreamView[Event]:
         return self.__component_internal__.outgoing_event_stream.view()
 
-    def emit_event(self, event: Event) -> Event:
+    def emit_event(self, event: EventT) -> EventT:
         self.__component_internal__.outgoing_event_stream.put(event)
         return event
 
@@ -215,12 +185,13 @@ class Component(Tasklet, metaclass=ComponentMeta):
             info=info or {},
         )
 
-        self.__component_internal__.outgoing_event_stream.put(
+        self.emit_event(
             AlertEmittedEvent(
                 address=self.address,
                 alert=alert,
             )
         )
+
         return alert
 
     def handle_event(self, event: Event) -> None:
@@ -236,9 +207,12 @@ class Component(Tasklet, metaclass=ComponentMeta):
 
     async def _process_incoming_event(self, event: Event) -> None:
         for binding in self.get_event_bindings():
-            if not isinstance(event, cast(type, binding.cls)):
+            if not loose_isinstance(event, binding.cls):
                 continue
-            if self.context.references.get(binding.address.name) != event.address.name:
+            target = getattr(self.references, binding.address.name, None)
+            if not isinstance(target, Component):
+                continue
+            if target.context.address != event.address:
                 continue
 
             if method := getattr(self, binding.function.__name__, None):
@@ -254,3 +228,12 @@ class Component(Tasklet, metaclass=ComponentMeta):
 
     async def _tasklet_stop(self) -> None:
         self.scheduler.stop()
+
+
+class CompleteComponentContext(Component.Context):
+    id: UUID
+    root_config: Config
+    unit_config: UnitConfig
+    component_config: ComponentConfig
+    database: DatabaseManager
+    entities: EntityManager

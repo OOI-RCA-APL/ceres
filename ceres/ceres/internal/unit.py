@@ -9,6 +9,7 @@ from uuid import UUID
 
 from ..address import ComponentAddress, LocalComponentAddress, UnitAddress
 from ..alert import Alert, AlertLevel
+from ..component import Component
 from ..config import Config, UnitConfig
 from ..events import AlertEmittedEvent, Event, MessageReceivedEvent, MessageSentEvent
 from ..message import Message, MessageDirection
@@ -18,7 +19,6 @@ from . import logs
 from .component import (
     ComponentHandle,
     ComponentHandleContext,
-    ComponentHandleInterface,
     ConnectionHandle,
     DriverHandle,
     NotifierHandle,
@@ -27,14 +27,19 @@ from .database.buffer import EntityBuffer
 from .database.entity import AlertEntity, MessageEntity
 from .database.manager import DatabaseManager
 from .tasks import Tasklet, ensure_event_loop
-from .utilities import unreachable, unwrap
+from .utilities import unreachable
 
 
 @dataclass(kw_only=True, frozen=True)
 class UnitContext:
     id: UUID
     address: UnitAddress
-    config: Config
+    root_config: Config
+    unit_config: UnitConfig
+
+    def __post_init__(self) -> None:
+        assert self.root_config.get_unit(self.address)
+        assert self.unit_config in self.root_config.units
 
 
 class UnitProxyProtocol(Protocol):
@@ -48,8 +53,8 @@ class UnitProxyProtocol(Protocol):
 class Unit(UnitProxyProtocol, Tasklet):
     def __init__(self, context: UnitContext) -> None:
         self._context = context
-        self._database = DatabaseManager(self._context.config.database)
-        self._components: dict[str, ComponentHandleInterface] = {}
+        self._database = DatabaseManager(self._context.root_config.database)
+        self._components: dict[str, ComponentHandle[Component]] = {}
         self._loop = ensure_event_loop()
         self._message_buffer = EntityBuffer(
             MessageEntity,
@@ -74,7 +79,7 @@ class Unit(UnitProxyProtocol, Tasklet):
 
     @property
     def config(self) -> UnitConfig:
-        return unwrap(self._context.config.get_unit(self.address))
+        return self._context.unit_config
 
     @property
     def database(self) -> DatabaseManager:
@@ -85,13 +90,13 @@ class Unit(UnitProxyProtocol, Tasklet):
         return logs.get(str(self._context.address))
 
     @property
-    def components(self) -> Iterable[ComponentHandleInterface]:
+    def components(self) -> Iterable[ComponentHandle[Component]]:
         return self._components.values()
 
     def get_component(
         self,
         address: str | LocalComponentAddress,
-    ) -> ComponentHandleInterface | None:
+    ) -> ComponentHandle[Component] | None:
         return self._components.get(address if isinstance(address, str) else address.name)
 
     async def dispatch_event(self, event: Event) -> None:
@@ -200,15 +205,15 @@ class Unit(UnitProxyProtocol, Tasklet):
         await self._database.dispose()
 
     async def _load_components(self) -> None:
-        for config in self.config.components:
-            address = ComponentAddress(self.address.name, config.name)
+        for component_config in self.config.components:
+            address = ComponentAddress(self.address.name, component_config.name)
 
-            if config.name in self._components:
+            if component_config.name in self._components:
                 continue
 
-            id = await self._database.entities.get_id(address)
+            id = await self._database.entities.get_address_id(address)
 
-            match config.kind:
+            match component_config.kind:
                 case "connection":
                     cls: type[ComponentHandle[Any]] = ConnectionHandle
                 case "driver":
@@ -218,13 +223,14 @@ class Unit(UnitProxyProtocol, Tasklet):
                 case _:
                     unreachable()
 
-            self._components[config.name] = cls(  # type: ignore
+            self._components[component_config.name] = cls(
                 ComponentHandleContext(
                     id=id,
                     address=address,
+                    root_config=self._context.root_config,
+                    unit_config=self.config,
+                    component_config=component_config,
                     unit=self,
-                    config=self._context.config,
-                    database=self._database,
                 )
             )
 
@@ -241,14 +247,14 @@ class Unit(UnitProxyProtocol, Tasklet):
 
     def _on_component_exception(
         self,
-        component: ComponentHandleInterface,
+        component: ComponentHandle[Component],
         exception: BaseException,
     ) -> None:
         self.logger.error(
             f"Exception occurred in component '{component.address}': {traceback.format_exception(exception)}"
         )
 
-    def _on_component_completed(self, component: ComponentHandleInterface) -> None:
+    def _on_component_completed(self, component: ComponentHandle[Component]) -> None:
         self.logger.info(f"Component '{component.address}' completed execution.")
 
 
@@ -276,7 +282,9 @@ class UnitHandle(Tasklet):
 
     @property
     def config(self) -> UnitConfig:
-        return next(unit for unit in self._context.config.units if unit.name == self.address.name)
+        return next(
+            unit for unit in self._context.root_config.units if unit.name == self.address.name
+        )
 
     @property
     def instance(self) -> UnitProxyProtocol | None:

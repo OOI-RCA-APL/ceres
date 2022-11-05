@@ -3,27 +3,8 @@ from asyncio import StreamReader, StreamWriter
 from dataclasses import dataclass
 from datetime import timedelta
 
-from ...connection import Connection, ConnectionContext, ConnectionParameters
+from ...connection import Connection
 from ...exceptions import ConnectionInactiveException, ConnectionLostException
-from ...utilities import vdc
-
-
-@vdc(frozen=True)
-class TCPConnectionParameters(ConnectionParameters):
-    host: str
-    port: int
-    timeout: timedelta = timedelta(seconds=5)
-    separator: bytes = b"\r\n"
-
-
-@vdc(frozen=True)
-class TCPConnectionContext(ConnectionContext):
-    pass
-
-
-@vdc(frozen=True)
-class TCPConnectionReferences(ConnectionContext):
-    pass
 
 
 @dataclass(kw_only=True, frozen=True)
@@ -33,8 +14,13 @@ class _Stream:
 
 
 class TCPConnection(Connection):
-    parameters: TCPConnectionParameters
-    context: TCPConnectionContext
+    class Parameters(Connection.Parameters):
+        host: str
+        port: int
+        timeout: timedelta = timedelta(seconds=5)
+        separator: bytes = b"\r\n"
+
+    parameters: Parameters
 
     def __post_init__(self) -> None:
         super().__post_init__()

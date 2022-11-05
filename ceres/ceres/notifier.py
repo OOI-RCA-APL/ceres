@@ -1,74 +1,55 @@
 from abc import abstractmethod
-from dataclasses import field
 from datetime import timedelta
 from typing import Any, Sequence
 
 from pydantic import Field, validator
-from sqlalchemy import select
 
 from .alert import Alert
-from .component import Component, ComponentContext, ComponentParameters
-from .config import UserConfig
-from .internal.database.entity import AlertEntity
-from .internal.database.manager import DatabaseManager
-from .internal.utilities import encode_td, frozenlist, validate_positive_timedelta
+from .component import Component
+from .internal.database.entity import EntityManager
+from .internal.utilities import encode_td, validate_positive_timedelta
 from .schedule import Schedule
-from .utilities import utc, vdc
-
-
-@vdc(frozen=True)
-class NotifierParameters(ComponentParameters):
-    schedule: Schedule | None = Field(default=None, discriminator="kind")
-    lookback: timedelta
-
-    @validator("lookback", pre=True)
-    def _validate_lookback(cls, value: Any) -> timedelta:
-        return validate_positive_timedelta(value)
-
-
-@vdc(frozen=True)
-class NotifierContext(ComponentContext):
-    users: frozenlist[UserConfig] = field(default_factory=frozenlist)
-    database: DatabaseManager
+from .utilities import utc
 
 
 class Notifier(Component):
-    parameters: NotifierParameters
-    context: NotifierContext
+    class Parameters(Component.Parameters):
+        schedule: Schedule | None = Field(default=None, discriminator="kind")
+        lookback: timedelta
+
+        @validator("lookback", pre=True)
+        def _validate_lookback(cls, value: Any) -> timedelta:
+            return validate_positive_timedelta(value)
+
+    class Context(Component.Context):
+        entities: EntityManager
+
+    parameters: Parameters
+    context: Context
 
     @abstractmethod
-    async def send(self, users: Sequence[UserConfig], alerts: Sequence[Alert]) -> None:
+    async def send(self, alerts: Sequence[Alert]) -> None:
         ...
 
     async def notify(self) -> None:
-        users = self.context.users
-        lookback = self.parameters.lookback
-        database = self.context.database
-        cutoff = utc() - lookback
+        cutoff = utc() - self.parameters.lookback
 
-        async with database.session() as session:
-            alerts = [
-                Alert.create_from(entity)
-                for entity in await session.scalars(
-                    select(AlertEntity).where(AlertEntity.timestamp > cutoff)
-                )
-            ]
+        alerts = await self.context.entities.get_alerts(
+            where=lambda alert: alert.timestamp > cutoff
+        )
 
         if not alerts:
             self.logger.info(
-                f"No alerts were reported in the last {encode_td(lookback)}. Notifications will not be sent."
+                f"No alerts were reported in the last {encode_td(self.parameters.lookback)}. Notifications will not be sent."
             )
             return
 
         self.logger.info(
-            f"{len(alerts)} alert(s) were reported in the last {encode_td(lookback)}...",
+            f"{len(alerts)} alert(s) were reported in the last {encode_td(self.parameters.lookback)}.",
         )
 
-        if not users:
-            self.logger.warning("No users exist to send notifications to.")
-            return
-
-        await self.send(self.context.users, alerts)
+        self.logger.info("Sending notifications...")
+        await self.send(alerts)
 
     async def _tasklet_run(self) -> None:
         if self.parameters.schedule:

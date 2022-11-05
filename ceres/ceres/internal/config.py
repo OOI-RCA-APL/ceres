@@ -178,13 +178,11 @@ async def _check_components(
                     CompleteComponentContext(
                         id=uuid4(),
                         address=address,
-                        references=component_config.references,
                         root_config=config,
                         unit_config=unit_config,
                         component_config=component_config,
-                        users=config.users,
-                        units=config.units,
                         database=database,
+                        entities=database.entities,
                     ),
                     components,
                 ):

@@ -7,7 +7,7 @@ from typing import Any
 
 from pydantic import validator
 
-from .component import Component, ComponentContext, ComponentParameters
+from .component import Component
 from .events import (
     ConnectedEvent,
     DisconnectedEvent,
@@ -54,16 +54,6 @@ class ReconnectScheduler:
         return next
 
 
-@vdc(frozen=True)
-class ConnectionParameters(ComponentParameters):
-    reconnect: ConnectionReconnect
-
-
-@vdc(frozen=True)
-class ConnectionContext(ComponentContext):
-    pass
-
-
 class ConnectionState(str, Enum):
     DISCONNECTED = "disconnected"
     CONNECTING = "connecting"
@@ -79,8 +69,10 @@ class ConnectionInternal:
 
 
 class Connection(Component):
-    parameters: ConnectionParameters
-    context: ConnectionContext
+    class Parameters(Component.Parameters):
+        reconnect: ConnectionReconnect
+
+    parameters: Parameters
 
     def __post_init__(self) -> None:
         super().__post_init__()

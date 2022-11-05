@@ -2,6 +2,7 @@ import inspect
 from dataclasses import dataclass, field
 from datetime import datetime
 from functools import cache
+from types import UnionType
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -62,7 +63,7 @@ _EVENT_BINDINGS_ATTRIBUTE = "__event_bindings__"
 @dataclass(kw_only=True, frozen=True)
 class EventBinding:
     address: LocalComponentAddress
-    cls: type | object
+    cls: type | UnionType
     function: Callable[..., Any]
 
 
@@ -79,7 +80,7 @@ def listen(
 @overload
 def listen(
     source: str,
-    cls: object,
+    cls: UnionType,
 ) -> Callable[
     [Callable[[Any, Event], None | Awaitable[None]]], Callable[[Any, Event], Awaitable[None]]
 ]:
@@ -88,7 +89,7 @@ def listen(
 
 def listen(
     source: str,
-    cls: type[EventT] | object,
+    cls: type[EventT] | UnionType,
 ) -> Callable[
     [Callable[[Any, EventT], None | Awaitable[None]]], Callable[[Any, EventT], Awaitable[None]]
 ] | Callable[

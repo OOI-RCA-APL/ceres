@@ -22,12 +22,7 @@ from .utilities import vdc
 
 
 @vdc(frozen=True)
-class BaseConfigObject:
-    pass
-
-
-@vdc(frozen=True)
-class ComponentConfig(BaseConfigObject):
+class ComponentConfig:
     kind: Literal["connection", "driver", "notifier"]
     name: NameStr
     component: str | object
@@ -43,7 +38,7 @@ class ComponentConfig(BaseConfigObject):
 
 
 @vdc(frozen=True)
-class ServerConfig(BaseConfigObject):
+class ServerConfig:
     port: int
     enable: bool = True
 
@@ -54,7 +49,7 @@ class DatabaseKind(str, Enum):
 
 
 @vdc(frozen=True)
-class DatabaseRetryConfig(BaseConfigObject):
+class DatabaseRetryConfig:
     timeout: timedelta = timedelta(seconds=15)
     interval: timedelta = timedelta(seconds=3)
 
@@ -64,7 +59,7 @@ class DatabaseRetryConfig(BaseConfigObject):
 
 
 @vdc(frozen=True)
-class BaseDatabaseConfig(BaseConfigObject):
+class BaseDatabaseConfig:
     kind: DatabaseKind
     engine: frozendict[str, Any] | None = None
     retry: DatabaseRetryConfig = field(default_factory=DatabaseRetryConfig)
@@ -90,7 +85,7 @@ DatabaseConfig = SQLiteDatabaseConfig | PostgresDatabaseConfig
 
 
 @vdc(frozen=True)
-class UnitConfig(BaseConfigObject):
+class UnitConfig:
     name: NameStr
     components: frozenlist[ComponentConfig] = field(default_factory=frozenlist)
 
@@ -121,7 +116,7 @@ class UnitConfig(BaseConfigObject):
 
 
 @vdc(frozen=True)
-class UserConfig(BaseConfigObject):
+class UserConfig:
     username: NameStr
     email: EmailStr
     meta: frozendict[str, Any] = field(default_factory=frozendict)
@@ -136,11 +131,10 @@ warnings.filterwarnings(
 
 
 @vdc(
-    kw_only=True,
     frozen=True,
     config=ConfigDict(underscore_attrs_are_private=True),
 )
-class Config(BaseConfigObject):
+class Config:
     server: ServerConfig
     database: DatabaseConfig = Field(discriminator="kind")
     users: frozenlist[UserConfig] = field(default_factory=frozenlist)

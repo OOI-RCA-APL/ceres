@@ -215,7 +215,7 @@ class Engine(Tasklet, ServerEngine):
         await self._start_server()
 
     async def _sync_units(self) -> None:
-        configs: dict[UnitAddress, UnitConfig] = {
+        unit_configs: dict[UnitAddress, UnitConfig] = {
             UnitAddress(current.name): current for current in self._config.units
         }
 
@@ -243,12 +243,13 @@ class Engine(Tasklet, ServerEngine):
                     await unit.stop()
                     self._units.pop(unit.address, None)
 
-                if action.address in configs:
-                    id = await self._database.entities.get_id(action.address)
+                if unit_config := unit_configs.get(action.address):
+                    id = await self._database.entities.get_address_id(action.address)
                     context = UnitContext(
                         id=id,
                         address=action.address,
-                        config=self._config,
+                        root_config=self._config,
+                        unit_config=unit_config,
                     )
 
                     unit = UnitHandle(context)

@@ -1,7 +1,7 @@
 import dataclasses
 from datetime import datetime
 from enum import Enum as BaseEnum
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, TypeVar
 from uuid import UUID, uuid4
 
 from inflection import underscore
@@ -9,6 +9,7 @@ from sqlalchemy import (
     JSON,
     TIMESTAMP,
     CheckConstraint,
+    ColumnElement,
     Enum,
     ForeignKey,
     Index,
@@ -28,10 +29,12 @@ from sqlalchemy.orm import (
     mapped_column,
     relationship,
 )
+from sqlalchemy.sql.roles import ExpressionElementRole
 
 from ...address import Address, ComponentAddress, UnitAddress
-from ...alert import AlertLevel
-from ...message import MessageDirection
+from ...alert import Alert, AlertLevel
+from ...message import Message, MessageDirection
+from ...utilities import ValidateByType
 
 if TYPE_CHECKING:
     from .manager import DatabaseManager
@@ -145,18 +148,74 @@ class AlertEntity(Entity):
 
 ComponentEntityT = TypeVar("ComponentEntityT", bound=ComponentEntity)
 
+EntityT = TypeVar("EntityT", bound=Entity)
 
-class EntityManager:
+_WhereValue = TypeVar("_WhereValue", bound=ColumnElement[bool] | ExpressionElementRole[bool])
+_OrderByValue = TypeVar("_OrderByValue", bound=ColumnElement[Any] | ExpressionElementRole[Any])
+
+
+class EntityManager(ValidateByType):
     def __init__(self, database: "DatabaseManager") -> None:
         self._database = database
 
-    async def get_id(self, address: Address) -> UUID:
+    async def get_address_id(self, address: Address) -> UUID:
         async with self._database.session() as session:
             match address:
                 case UnitAddress():
                     return (await self._get_unit(session, address)).id
                 case ComponentAddress():
                     return (await self._get_component(session, address)).id
+
+    async def get_alerts(
+        self,
+        *,
+        where: Callable[[type[AlertEntity]], _WhereValue] | None = None,
+        order_by: Callable[[type[AlertEntity]], _OrderByValue] | None = None,
+        limit: int | None = None,
+    ) -> list[Alert]:
+        entities = await self._get_entities(
+            AlertEntity,
+            where=where,
+            order_by=order_by,
+            limit=limit,
+        )
+
+        return [Alert.create_from(entity) for entity in entities]
+
+    async def get_messages(
+        self,
+        *,
+        where: Callable[[type[MessageEntity]], _WhereValue] | None = None,
+        order_by: Callable[[type[MessageEntity]], _OrderByValue] | None = None,
+        limit: int | None = None,
+    ) -> list[Message]:
+        entities = await self._get_entities(
+            MessageEntity,
+            where=where,
+            order_by=order_by,
+            limit=limit,
+        )
+
+        return [Message.create_from(entity) for entity in entities]
+
+    async def _get_entities(
+        self,
+        cls: type[EntityT],
+        *,
+        where: Callable[[type[EntityT]], _WhereValue] | None = None,
+        order_by: Callable[[type[EntityT]], _OrderByValue] | None = None,
+        limit: int | None = None,
+    ) -> list[EntityT]:
+        query = select(cls)
+        if where is not None:
+            query = select(AlertEntity).where(where(cls))
+        if order_by is not None:
+            query = query.order_by(order_by(cls))
+        if limit is not None:
+            query = query.limit(limit)
+
+        async with self._database.session() as session:
+            return list(await session.scalars(query))
 
     async def _get_unit(
         self,

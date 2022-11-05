@@ -4,7 +4,6 @@ from typing import Any, Literal
 
 from pydantic import validator
 
-from .config import BaseConfigObject
 from .internal.utilities import (
     frozenlist,
     validate_crontab,
@@ -21,7 +20,7 @@ class ScheduleKind(str, Enum):
 
 
 @vdc(frozen=True)
-class BaseSchedule(BaseConfigObject):
+class BaseSchedule:
     kind: ScheduleKind
 
 

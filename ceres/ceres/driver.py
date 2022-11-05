@@ -1,17 +1,5 @@
-from .component import Component, ComponentContext, ComponentParameters
-from .utilities import vdc
-
-
-@vdc(frozen=True)
-class DriverParameters(ComponentParameters):
-    pass
-
-
-@vdc(frozen=True)
-class DriverContext(ComponentContext):
-    pass
+from .component import Component
 
 
 class Driver(Component):
-    parameters: DriverParameters
-    context: DriverContext
+    pass

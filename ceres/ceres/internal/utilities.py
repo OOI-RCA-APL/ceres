@@ -18,6 +18,7 @@ from typing import (
     NoReturn,
     ParamSpec,
     SupportsIndex,
+    TypeGuard,
     TypeVar,
     cast,
     get_type_hints,
@@ -175,20 +176,43 @@ else:
         regex = re.compile(r".+")
 
 
-def issubtype(value: Any, type_: type | UnionType) -> bool:
+def issubtype(subtype: Any, base: type | UnionType) -> bool:
     try:
-        if value == type_:
+        if subtype is base:
             return True
-        if isinstance(value, type) and isinstance(type_, type):
-            return issubclass(value, type_)
-        if isinstance(type_, UnionType):
-            for arg in type_.__args__:
-                if issubtype(value, arg):
+        if isinstance(subtype, type) and isinstance(base, type):
+            return issubclass(subtype, base)
+        if isinstance(base, UnionType):
+            for arg in base.__args__:
+                if issubtype(subtype, arg):
                     return True
     except Exception:
         pass
 
     return False
+
+
+InstanceT = TypeVar("InstanceT")
+
+
+@overload
+def loose_isinstance(instance: object, type: type[InstanceT]) -> TypeGuard[InstanceT]:
+    ...
+
+
+@overload
+def loose_isinstance(instance: object, type: UnionType) -> bool:
+    ...
+
+
+def loose_isinstance(
+    instance: object,
+    type: type[InstanceT] | UnionType,
+) -> TypeGuard[InstanceT] | bool:
+    try:
+        return isinstance(instance, type)
+    except Exception:
+        return False
 
 
 def object_has_field(obj: Any, name: str, type: Any = None) -> bool:

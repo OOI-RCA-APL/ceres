@@ -13,8 +13,8 @@ from uuid import UUID
 from pydantic import ValidationError, validate_arguments
 
 from ..address import ComponentAddress
-from ..component import CompleteComponentContext, Component, ComponentReferences
-from ..config import ComponentConfig, Config
+from ..component import CompleteComponentContext, Component
+from ..config import ComponentConfig, Config, UnitConfig
 from ..connection import Connection
 from ..driver import Driver
 from ..errors import (
@@ -31,28 +31,21 @@ from ..errors import (
 from ..notifier import Notifier
 from ..result import Fail, Ok, Result
 from . import logs
-from .database.manager import DatabaseManager
 from .tasks import Tasklet
-from .utilities import (
-    frozendict,
-    get_type_annotations,
-    hydrate,
-    object_has_field,
-    unwrap,
-)
+from .utilities import frozendict, get_type_annotations, hydrate, object_has_field
 
 if TYPE_CHECKING:
     from .unit import Unit
 
-ComponentT = TypeVar("ComponentT", bound=Component)
+LoadedComponentT = TypeVar("LoadedComponentT", bound=Component)
 
 
 def load_component(
-    supercls: type[ComponentT],
+    supercls: type[LoadedComponentT],
     config: ComponentConfig,
     context: CompleteComponentContext,
     siblings: Mapping[str, Component],
-) -> Result[ComponentT, ComponentError]:
+) -> Result[LoadedComponentT, ComponentError]:
     if not isinstance(config.component, str):
         if not isinstance(config.component, supercls):
             return Fail(
@@ -80,7 +73,7 @@ def load_component(
             )
         )
 
-    cls: type[ComponentT] | None = None
+    cls: type[LoadedComponentT] | None = None
 
     # Find the last non-abstract class in the module that is a subclass of the "cls" argument.
     for _, member in inspect.getmembers(module):
@@ -187,13 +180,18 @@ def load_component(
 class ComponentHandleContext:
     id: UUID
     address: ComponentAddress
-    config: Config
+    root_config: Config
+    unit_config: UnitConfig
+    component_config: ComponentConfig
     unit: "Unit"
-    database: DatabaseManager
 
     def __post_init__(self) -> None:
-        if not self.config.get_component(self.address):
-            raise ValueError(f"component {self.address} is not defined in configuration")
+        assert self.root_config.get_component(self.address)
+        assert self.unit_config in self.root_config.units
+        assert self.component_config in self.unit_config.components
+
+
+ComponentT = TypeVar("ComponentT", bound=Component, covariant=True)
 
 
 class ComponentHandle(Generic[ComponentT], Tasklet, ABC):
@@ -216,7 +214,7 @@ class ComponentHandle(Generic[ComponentT], Tasklet, ABC):
 
     @property
     def config(self) -> ComponentConfig:
-        return unwrap(self._context.config.get_component(self._context.address))
+        return self._context.component_config
 
     @property
     def instance(self) -> ComponentT | None:
@@ -262,15 +260,13 @@ class ComponentHandle(Generic[ComponentT], Tasklet, ABC):
             self.get_component_type(),
             self.config,
             CompleteComponentContext(
-                id=self._context.id,
-                address=self._context.address,
-                references=self.config.references,
-                root_config=self._context.config,
-                unit_config=unwrap(self._context.config.get_unit(self._context.address.unit)),
+                id=self.id,
+                address=self.address,
+                root_config=self._context.root_config,
+                unit_config=self._context.unit_config,
                 component_config=self.config,
-                users=self._context.config.users,
-                units=self._context.config.units,
-                database=self._context.database,
+                database=self._context.unit.database,
+                entities=self._context.unit.database.entities,
             ),
             {
                 component.address.name: component.instance
@@ -285,11 +281,8 @@ class ComponentHandle(Generic[ComponentT], Tasklet, ABC):
                 return fail
 
 
-ComponentHandleInterface = ComponentHandle[Component]
-
-
 def _get_reference_mapping(
-    references: ComponentReferences | type[ComponentReferences],
+    references: Component.References | type[Component.References],
 ) -> Mapping[str, type["Component"]]:
     mapping: dict[str, type[Component]] = {}
     annotations = get_type_annotations(references)
