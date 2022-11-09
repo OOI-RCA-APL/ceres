@@ -27,7 +27,7 @@ from .database.buffer import EntityBuffer
 from .database.entity import AlertEntity, MessageEntity
 from .database.manager import DatabaseManager
 from .tasks import Tasklet, ensure_event_loop
-from .utilities import unreachable
+from .utilities import strify, unreachable
 
 
 @dataclass(kw_only=True, frozen=True)
@@ -238,7 +238,7 @@ class Unit(UnitProxyProtocol, Tasklet):
             match await handle.load():
                 case Ok():
                     self.logger.info(
-                        f"Loaded '{handle.address}' as {type(handle.instance)} with id '{handle.id}'."
+                        f"Loaded '{handle.address}' as {strify(type(handle.instance))} with id '{handle.id}'."
                     )
                 case Fail(error):
                     self.logger.error(
@@ -310,7 +310,7 @@ class UnitHandle(Tasklet):
 
             if exception:
                 self.logger.error(
-                    f"Exception occurred while running unit '{self.address}': {exception}"
+                    f"Exception occurred while running unit '{self.address}': {strify(exception)}"
                 )
 
         await asyncio.to_thread(execute)
@@ -334,7 +334,7 @@ class UnitHandle(Tasklet):
 
             if exception:
                 self.logger.error(
-                    f"Exception occurred while stopping unit '{self.address}': {exception}"
+                    f"Exception occurred while stopping unit '{self.address}': {strify(exception)}"
                 )
 
         await asyncio.to_thread(execute)

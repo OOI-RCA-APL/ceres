@@ -39,6 +39,13 @@ T = TypeVar("T")
 ParamsT = ParamSpec("ParamsT")
 
 
+def strify(value: object) -> str:
+    try:
+        return str(value)
+    except Exception:
+        return "<__str__() raised exception>"
+
+
 def syncify(function: Callable[ParamsT, Awaitable[T]]) -> Callable[ParamsT, T]:
     @wraps(function)
     def wrapper(*args: list[Any], **kwargs: dict[str, Any]) -> Any:
@@ -611,7 +618,7 @@ def __patch_frozenlist() -> None:
 
         @wraps(method)  # type: ignore
         def disabled(self: Any, *args: Any) -> NoReturn:
-            raise NotImplementedError(f"method disabled for {type(self)}.")
+            raise NotImplementedError(f"method disabled for {strify(type(self))}.")
 
         setattr(frozenlist, method.__name__, disabled)
 

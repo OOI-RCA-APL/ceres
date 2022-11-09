@@ -32,7 +32,13 @@ from ..notifier import Notifier
 from ..result import Fail, Ok, Result
 from . import logs
 from .tasks import Tasklet
-from .utilities import frozendict, get_type_annotations, hydrate, object_has_field
+from .utilities import (
+    frozendict,
+    get_type_annotations,
+    hydrate,
+    object_has_field,
+    strify,
+)
 
 if TYPE_CHECKING:
     from .unit import Unit
@@ -50,7 +56,7 @@ def load_component(
         if not isinstance(config.component, supercls):
             return Fail(
                 ComponentClassInvalidError(
-                    message=f"component passed in configuration must be an instance of {supercls}, got {config.component}"
+                    message=f"component passed in configuration must be an instance of {strify(supercls)}, got {strify(config.component)}"
                 )
             )
 
@@ -88,7 +94,7 @@ def load_component(
     if cls is None:
         return Fail(
             ComponentClassNotFoundError(
-                message=f"component module {module} must contain class a non-abstract subclass of {supercls}"
+                message=f"component module {module} must contain class a non-abstract subclass of {strify(supercls)}"
             )
         )
 
@@ -101,7 +107,7 @@ def load_component(
     except ValidationError as error:
         return Fail(
             ComponentParametersInvalidError(
-                message=f"invalid parameters for {cls}",
+                message=f"invalid parameters for {strify(cls)}",
                 problems=ValidationProblem.extract(error),
             )
         )
@@ -117,7 +123,7 @@ def load_component(
     except Exception:
         return Fail(
             ComponentInitExceptionError(
-                message=f"exception raised when creating {context_type} for {cls}",
+                message=f"exception raised when creating {strify(context_type)} for {strify(cls)}",
                 traceback=traceback.format_exc(),
             )
         )
@@ -130,21 +136,21 @@ def load_component(
             if not (name := config.references.get(component_alias)):
                 return Fail(
                     ComponentReferenceInvalidError(
-                        message=f"reference '{component_alias}' of type {component_type} is specified by {references_type}, but is missing from the component's references configuration",
+                        message=f"reference '{component_alias}' of type {strify(component_type)} is specified by {strify(references_type)}, but is missing from the component's references configuration",
                     )
                 )
 
             if not (sibling := siblings.get(name)):
                 return Fail(
                     ComponentReferenceInvalidError(
-                        message=f"reference to component '{name}' of type {component_type} is specified by {references_type}, but it hasn't loaded yet or failed to load"
+                        message=f"reference to component '{name}' of type {strify(component_type)} is specified by {strify(references_type)}, but it hasn't loaded yet or failed to load"
                     )
                 )
 
             if not isinstance(sibling, component_type):
                 return Fail(
                     ComponentReferenceInvalidError(
-                        message=f"reference to component '{name}' is specified by {references_type} but component '{name}' is an instance of {type(sibling)}, not {component_type}"
+                        message=f"reference to component '{name}' is specified by {strify(references_type)} but component '{name}' is an instance of {strify(type(sibling))}, not {strify(component_type)}"
                     )
                 )
 
@@ -154,7 +160,7 @@ def load_component(
     except Exception:
         return Fail(
             ComponentInitExceptionError(
-                message=f"exception raised when creating {references_type} for {cls}",
+                message=f"exception raised when creating {strify(references_type)} for {strify(cls)}",
                 traceback=traceback.format_exc(),
             )
         )
@@ -168,7 +174,7 @@ def load_component(
     except Exception:
         return Fail(
             ComponentInitExceptionError(
-                message=f"exception raised when calling __init__() for {cls}",
+                message=f"exception raised when calling __init__() for {strify(cls)}",
                 traceback=traceback.format_exc(),
             )
         )
