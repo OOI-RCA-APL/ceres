@@ -10,7 +10,7 @@ from logging import Logger
 from typing import TYPE_CHECKING, Any, Generic, Mapping, TypeVar
 from uuid import UUID
 
-from pydantic import ValidationError, validate_arguments
+from pydantic import ValidationError, parse_obj_as, validate_arguments
 
 from ..address import ComponentAddress
 from ..component import CompleteComponentContext, Component
@@ -32,13 +32,7 @@ from ..notifier import Notifier
 from ..result import Fail, Ok, Result
 from . import logs
 from .tasks import Tasklet
-from .utilities import (
-    frozendict,
-    get_type_annotations,
-    hydrate,
-    object_has_field,
-    strify,
-)
+from .utilities import frozendict, get_type_annotations, object_has_field, strify
 
 if TYPE_CHECKING:
     from .unit import Unit
@@ -103,7 +97,7 @@ def load_component(
     references_type = cls.get_references_type()
 
     try:
-        applied_parameters = hydrate(parameters_type, config.parameters)
+        applied_parameters = parse_obj_as(parameters_type, config.parameters)
     except ValidationError as error:
         return Fail(
             ComponentParametersInvalidError(

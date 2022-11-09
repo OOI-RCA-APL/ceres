@@ -22,7 +22,7 @@ from typing import (
 )
 
 import pydantic
-from pydantic import BaseModel, ConfigDict, Field, parse_obj_as
+from pydantic import BaseModel, ConfigDict, Field
 from pydantic.fields import FieldInfo
 from pydantic.json import pydantic_encoder
 from typing_extensions import dataclass_transform
@@ -39,10 +39,6 @@ async def awaitify(value: Awaitable[T] | T) -> T:
         return cast(T, await value)
 
     return cast(T, value)
-
-
-def hydrate(type: type[T], obj: Any) -> T:
-    return parse_obj_as(type, obj)
 
 
 def jsonify(obj: object, *, indent: int | str | None = None, **kwargs: Any) -> str:

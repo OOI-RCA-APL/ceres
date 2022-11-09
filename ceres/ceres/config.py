@@ -7,7 +7,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Iterable, Literal, Mapping, Sequence
 
-from pydantic import ConfigDict, Field, SecretStr, validator
+from pydantic import ConfigDict, Field, SecretStr, parse_obj_as, validator
 
 from .address import ComponentAddress, UnitAddress
 from .internal.utilities import (
@@ -15,7 +15,6 @@ from .internal.utilities import (
     NameStr,
     frozendict,
     frozenlist,
-    hydrate,
     validate_positive_timedelta,
 )
 from .utilities import vdc
@@ -145,7 +144,7 @@ class Config:
 
     @classmethod
     def from_data(cls, data: Any, path: Path | None = None) -> "Config":
-        instance = hydrate(cls, data)
+        instance = parse_obj_as(cls, data)
         object.__setattr__(instance, "__path__", path)
         return instance
 

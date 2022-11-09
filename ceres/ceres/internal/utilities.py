@@ -26,9 +26,8 @@ from typing import (
 )
 
 from apscheduler.triggers.cron import CronTrigger
-from pydantic import BaseModel, ConstrainedStr
+from pydantic import BaseModel, ConstrainedStr, parse_obj_as
 
-from ..utilities import hydrate
 from .tasks import ensure_event_loop
 
 if TYPE_CHECKING:
@@ -126,7 +125,7 @@ def decode_td(value: str | timedelta | int | float | Any) -> timedelta:
         raise get_exception()
 
     try:
-        return hydrate(timedelta, value)
+        return parse_obj_as(timedelta, value)
     except Exception:
         pass
 
