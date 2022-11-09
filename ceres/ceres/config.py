@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Iterable, Literal, Mapping, Sequence
 
 from pydantic import ConfigDict, Field, SecretStr, parse_obj_as, validator
+from typing_extensions import Self
 
 from .address import ComponentAddress, UnitAddress
 from .internal.utilities import (
@@ -143,7 +144,7 @@ class Config:
     _component_config_cache: dict[ComponentAddress, ComponentConfig] = field(default_factory=dict)
 
     @classmethod
-    def from_data(cls, data: Any, path: Path | None = None) -> "Config":
+    def from_data(cls, data: Any, path: Path | None = None) -> Self:
         instance = parse_obj_as(cls, data)
         object.__setattr__(instance, "__path__", path)
         return instance

@@ -4,6 +4,7 @@ from typing import Any, Callable, Generic, Literal, Protocol, TypeVar, cast
 from fastapi import FastAPI, Response
 from pydantic.generics import GenericModel
 from starlette.status import HTTP_400_BAD_REQUEST
+from typing_extensions import Self
 from uvicorn import Config as UvicornConfig
 from uvicorn import Server as UvicornServer
 
@@ -68,7 +69,7 @@ class Success(GenericModel, Generic[SuccessDataT]):
     data: SuccessDataT
 
     @classmethod
-    def create(cls, data: SuccessDataT) -> "Success[SuccessDataT]":
+    def create(cls, data: SuccessDataT) -> Self:
         return Success(data=data)
 
 
@@ -77,7 +78,7 @@ class Error(GenericModel, Generic[ErrorDataT]):
     data: ErrorDataT
 
     @classmethod
-    def create(cls, data: ErrorDataT) -> "Error[ErrorDataT]":
+    def create(cls, data: ErrorDataT) -> Self:
         return Error(data=data)
 
 

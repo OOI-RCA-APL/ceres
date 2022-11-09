@@ -4,6 +4,8 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any, Literal, Protocol, Union, runtime_checkable
 from uuid import UUID, uuid4
 
+from typing_extensions import Self
+
 from .utilities import vdc
 
 if TYPE_CHECKING:
@@ -18,7 +20,7 @@ class AlertLevel(str, Enum):
     ERROR = "error"
 
     @classmethod
-    def create_from(cls, raw: "AlertLevel" | RawAlertLevel) -> "AlertLevel":
+    def create_from(cls, raw: Self | RawAlertLevel) -> Self:
         return cls(raw)
 
 
@@ -58,9 +60,9 @@ class Alert:
     kind: str
     info: dict[str, Any] = field(default_factory=dict)
 
-    @staticmethod
-    def create_from(other: Union[AlertLike, "AlertEntity"]) -> "Alert":
-        return Alert(
+    @classmethod
+    def create_from(cls, other: Union[AlertLike, "AlertEntity"]) -> Self:
+        return cls(
             id=other.id,
             origin_id=other.origin_id,
             timestamp=other.timestamp,

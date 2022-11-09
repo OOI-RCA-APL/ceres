@@ -28,6 +28,7 @@ from typing import (
 
 from apscheduler.triggers.cron import CronTrigger
 from pydantic import BaseModel, ConstrainedStr, parse_obj_as
+from typing_extensions import Self
 
 if TYPE_CHECKING:
     from _typeshed import SupportsKeysAndGetItem, SupportsRichComparison
@@ -239,7 +240,6 @@ def object_has_field(obj: Any, name: str, type: Any = None) -> bool:
 
 KeyT = TypeVar("KeyT", covariant=True)
 ValueT = TypeVar("ValueT", covariant=True)
-FrozenDictT = TypeVar("FrozenDictT", bound="frozendict[Any, Any]")
 
 NewKeyT = TypeVar("NewKeyT")
 NewValueT = TypeVar("NewValueT")
@@ -256,10 +256,10 @@ class frozendict(dict[KeyT, ValueT]):  # type: ignore
     def __hash__(self) -> int:  # type: ignore
         return hash(frozenset(self.keys())) ^ hash(frozenset(self.values()))
 
-    def __copy__(self: FrozenDictT) -> FrozenDictT:
+    def __copy__(self) -> Self:
         return self.copy()
 
-    def __reduce__(self) -> tuple[type[frozendict[Any, Any]], tuple[dict[KeyT, ValueT]]]:
+    def __reduce__(self) -> tuple[type[Self], tuple[dict[KeyT, ValueT]]]:
         return (type(self), (dict(self),))
 
     @overload  # type: ignore
@@ -321,13 +321,13 @@ class frozendict(dict[KeyT, ValueT]):  # type: ignore
     ) -> frozendict[KeyT | NewKeyT, ValueT | NewValueT]:
         return self.__or__(__value)  # type: ignore
 
-    def __copy_if_unreferenced(self: FrozenDictT) -> FrozenDictT:
+    def __copy_if_unreferenced(self) -> Self:
         if sys.getrefcount(self) <= 5:
             return self
 
         return self.copy()
 
-    def copy(self: FrozenDictT) -> FrozenDictT:
+    def copy(self) -> Self:
         return type(self)(self)
 
     @overload  # type: ignore
@@ -438,7 +438,6 @@ def __patch_frozendict() -> None:
 
 __patch_frozendict()
 
-FrozenListT = TypeVar("FrozenListT", bound="frozenlist[Any]")
 SortableFrozenListT = TypeVar("SortableFrozenListT", bound="frozenlist[Any]")
 
 
@@ -453,7 +452,7 @@ class frozenlist(list[ValueT]):  # type: ignore
     def __hash__(self) -> int:  # type: ignore
         return hash(tuple(self))
 
-    def __copy__(self: FrozenListT) -> FrozenListT:
+    def __copy__(self) -> Self:
         return type(self)(self)
 
     def __reduce__(self) -> tuple[type[frozenlist[ValueT]], tuple[list[ValueT]]]:
@@ -464,10 +463,10 @@ class frozenlist(list[ValueT]):  # type: ignore
         ...
 
     @overload
-    def __getitem__(self: FrozenListT, __index: slice) -> FrozenListT:
+    def __getitem__(self, __index: slice) -> Self:
         ...
 
-    def __getitem__(self: FrozenListT, __index: SupportsIndex | slice) -> ValueT | FrozenListT:
+    def __getitem__(self, __index: SupportsIndex | slice) -> ValueT | Self:
         if isinstance(__index, slice):
             return frozenlist(super().__getitem__(__index))  # type: ignore
 
@@ -491,16 +490,16 @@ class frozenlist(list[ValueT]):  # type: ignore
     ) -> frozenlist[ValueT | NewValueT]:
         return self.__add__(__iterable)
 
-    def __mul__(self: FrozenListT, __times: SupportsIndex) -> FrozenListT:
+    def __mul__(self, __times: SupportsIndex) -> Self:
         return type(self)(super().__mul__(__times))
 
-    def __rmul__(self: FrozenListT, __times: SupportsIndex) -> FrozenListT:
+    def __rmul__(self, __times: SupportsIndex) -> Self:
         return self.__mul__(__times)
 
-    def __imul__(self: FrozenListT, __times: SupportsIndex) -> FrozenListT:
+    def __imul__(self, __times: SupportsIndex) -> Self:
         return self.__mul__(__times)
 
-    def __copy_if_unreferenced(self: FrozenListT) -> FrozenListT:
+    def __copy_if_unreferenced(self) -> Self:
         if sys.getrefcount(self) <= 5:
             return self
 
@@ -539,7 +538,7 @@ class frozenlist(list[ValueT]):  # type: ignore
         list.remove(result, __value)  # type: ignore
         return result
 
-    def reverse(self: FrozenListT) -> FrozenListT:  # type: ignore
+    def reverse(self) -> Self:  # type: ignore
         result = self.__copy_if_unreferenced()
         list.reverse(result)
         return result
@@ -555,19 +554,19 @@ class frozenlist(list[ValueT]):  # type: ignore
 
     @overload
     def sort(
-        self: FrozenListT,
+        self,
         *,
         key: Callable[[ValueT], SupportsRichComparison],
         reverse: bool = False,
-    ) -> FrozenListT:
+    ) -> Self:
         ...
 
     def sort(
-        self: FrozenListT,
+        self,
         *,
         key: Callable[[ValueT], SupportsRichComparison] | None = None,
         reverse: bool = False,
-    ) -> FrozenListT:
+    ) -> Self:
         result = self.__copy_if_unreferenced()
         list.sort(result, key=key, reverse=reverse)
         return result

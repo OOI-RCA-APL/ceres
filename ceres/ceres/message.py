@@ -4,6 +4,8 @@ from enum import Enum
 from typing import TYPE_CHECKING, Protocol, Union, runtime_checkable
 from uuid import UUID, uuid4
 
+from typing_extensions import Self
+
 if TYPE_CHECKING:
     from .internal.database.entity import MessageEntity
 
@@ -44,9 +46,9 @@ class Message:
     direction: MessageDirection
     content: bytes
 
-    @staticmethod
-    def create_from(other: Union[MessageLike, "MessageEntity"]) -> "Message":
-        return Message(
+    @classmethod
+    def create_from(cls, other: Union[MessageLike, "MessageEntity"]) -> Self:
+        return cls(
             id=other.id,
             connection_id=other.connection_id,
             timestamp=other.timestamp,

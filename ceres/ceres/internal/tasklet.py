@@ -2,7 +2,9 @@ import asyncio
 from abc import ABC, abstractmethod
 from asyncio import FIRST_COMPLETED, Event, Task
 from dataclasses import dataclass, field
-from typing import Any, Callable, TypeVar, cast
+from typing import Any, Callable, cast
+
+from typing_extensions import Self
 
 __all__ = [
     "Tasklet",
@@ -18,8 +20,6 @@ class TaskletInternal:
 
 
 TASKLET_INTERNAL_ATTRIBUTE_NAME = "__tasklet_internal__"
-
-TaskletT = TypeVar("TaskletT", bound="Tasklet")
 
 
 class Tasklet(ABC):
@@ -49,10 +49,10 @@ class Tasklet(ABC):
         return internal
 
     def start(
-        self: TaskletT,
+        self,
         *,
-        on_completed: Callable[[TaskletT], None] | None = None,
-        on_exception: Callable[[TaskletT, BaseException], None] | None = None,
+        on_completed: Callable[[Self], None] | None = None,
+        on_exception: Callable[[Self, BaseException], None] | None = None,
     ) -> None:
         if self.__tasklet__.task:
             return
@@ -120,11 +120,11 @@ class Tasklet(ABC):
             raise self.__tasklet__.exception
 
     async def run(
-        self: TaskletT,
+        self,
         *,
         raise_exceptions: bool = True,
-        on_completed: Callable[[TaskletT], None] | None = None,
-        on_exception: Callable[[TaskletT, BaseException], None] | None = None,
+        on_completed: Callable[[Self], None] | None = None,
+        on_exception: Callable[[Self, BaseException], None] | None = None,
     ) -> None:
         self.start(
             on_completed=on_completed,
