@@ -26,8 +26,8 @@ from .component import (
 from .database.buffer import EntityBuffer
 from .database.entity import AlertEntity, MessageEntity
 from .database.manager import DatabaseManager
-from .tasks import Tasklet, ensure_event_loop
-from .utilities import strify, unreachable
+from .tasklet import Tasklet
+from .utilities import setup_event_loop, strify, unreachable
 
 
 @dataclass(kw_only=True, frozen=True)
@@ -55,7 +55,7 @@ class Unit(UnitProxyProtocol, Tasklet):
         self._context = context
         self._database = DatabaseManager(self._context.root_config.database)
         self._components: dict[str, ComponentHandle[Component]] = {}
-        self._loop = ensure_event_loop()
+        self._loop = setup_event_loop()
         self._message_buffer = EntityBuffer(
             MessageEntity,
             2500,
@@ -173,7 +173,7 @@ class Unit(UnitProxyProtocol, Tasklet):
     def rpc_stop(self) -> BaseException | None:
         return asyncio.run_coroutine_threadsafe(self.stop(), self._loop).exception()
 
-    async def _tasklet_run(self) -> None:
+    async def __run__(self) -> None:
         await self._load_components()
 
         for component in self.components:
@@ -199,7 +199,7 @@ class Unit(UnitProxyProtocol, Tasklet):
             if not self._alert_buffer.flushing:
                 await self._alert_buffer.flush()
 
-    async def _tasklet_stop(self) -> None:
+    async def __stop__(self) -> None:
         for component in self.components:
             await component.stop()
         await self._database.dispose()
@@ -294,7 +294,7 @@ class UnitHandle(Tasklet):
     def logger(self) -> Logger:
         return logs.get(str(self.address))
 
-    async def _tasklet_run(self) -> None:
+    async def __run__(self) -> None:
         def execute() -> None:
             with self._lock:
                 self._manager = UnitManager()
@@ -315,7 +315,7 @@ class UnitHandle(Tasklet):
 
         await asyncio.to_thread(execute)
 
-    async def _tasklet_stop(self) -> None:
+    async def __stop__(self) -> None:
         def execute() -> None:
             with self._lock:
                 if self._instance:

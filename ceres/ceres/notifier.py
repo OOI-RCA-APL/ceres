@@ -51,7 +51,7 @@ class Notifier(Component):
         self.logger.info("Sending notifications...")
         await self.send(alerts)
 
-    async def _tasklet_run(self) -> None:
+    async def __run__(self) -> None:
         if self.parameters.schedule:
             self.logger.info(f"Scheduling notifications as: {self.parameters.schedule}")
             self.scheduler.add_job(self.notify, self.parameters.schedule)
@@ -60,4 +60,4 @@ class Notifier(Component):
                 "No scheduler is set. Notifications will not be sent automatically."
             )
 
-        await super()._tasklet_run()
+        await super().__run__()

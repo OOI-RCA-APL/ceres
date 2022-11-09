@@ -204,9 +204,9 @@ class Connection(Component):
             self.emit_event(DisconnectedEvent(address=self.address))
             self.logger.info("Disconnected.")
 
-    async def _tasklet_run(self) -> None:
+    async def __run__(self) -> None:
         await asyncio.gather(
-            super()._tasklet_run(),
+            super().__run__(),
             self._process_update(),
         )
 
@@ -227,6 +227,6 @@ class Connection(Component):
                     if error := str(exception).strip():
                         self.logger.error(error)
 
-    async def _tasklet_stop(self) -> None:
-        await super()._tasklet_stop()
+    async def __stop__(self) -> None:
+        await super().__stop__()
         await self.try_disconnect()

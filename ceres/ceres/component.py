@@ -17,7 +17,7 @@ from .exceptions import ComponentClassInvalidException
 from .internal import logs
 from .internal.database.entity import EntityManager
 from .internal.database.manager import DatabaseManager
-from .internal.tasks import Tasklet
+from .internal.tasklet import Tasklet
 from .internal.utilities import get_type_annotations, loose_isinstance, object_has_field
 from .scheduler import Scheduler
 from .stream import Stream, StreamView
@@ -197,7 +197,7 @@ class Component(Tasklet, metaclass=ComponentMeta):
     def handle_event(self, event: Event) -> None:
         self.__component_internal__.incoming_event_stream.put(event)
 
-    async def _tasklet_run(self) -> None:
+    async def __run__(self) -> None:
         self.scheduler.start()
         await self._process_incoming_events()
 
@@ -226,7 +226,7 @@ class Component(Tasklet, metaclass=ComponentMeta):
                         f"An exception occurred while processing event {event}: {traceback.format_exc()}"
                     )
 
-    async def _tasklet_stop(self) -> None:
+    async def __stop__(self) -> None:
         self.scheduler.stop()
 
 

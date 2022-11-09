@@ -31,7 +31,7 @@ from ..errors import (
 from ..notifier import Notifier
 from ..result import Fail, Ok, Result
 from . import logs
-from .tasks import Tasklet
+from .tasklet import Tasklet
 from .utilities import frozendict, get_type_annotations, object_has_field, strify
 
 if TYPE_CHECKING:
@@ -224,7 +224,7 @@ class ComponentHandle(Generic[ComponentT], Tasklet, ABC):
     def logger(self) -> Logger:
         return logs.get(str(self._context.address))
 
-    async def _tasklet_run(self) -> None:
+    async def __run__(self) -> None:
         if not self.instance:
             return
 
@@ -246,7 +246,7 @@ class ComponentHandle(Generic[ComponentT], Tasklet, ABC):
         async for event in self.instance.event_stream:
             await self._context.unit.dispatch_event(event)
 
-    async def _tasklet_stop(self) -> None:
+    async def __stop__(self) -> None:
         if not self.instance:
             return
 

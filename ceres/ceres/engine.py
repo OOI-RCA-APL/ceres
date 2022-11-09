@@ -22,7 +22,7 @@ from .internal import logs
 from .internal.config import load_config
 from .internal.database.manager import DatabaseManager
 from .internal.server import Server, ServerEngine
-from .internal.tasks import Tasklet
+from .internal.tasklet import Tasklet
 from .internal.unit import UnitContext, UnitHandle
 from .internal.utilities import unreachable
 from .result import Fail, Ok, Result
@@ -94,7 +94,7 @@ class Engine(Tasklet, ServerEngine):
 
         unreachable()
 
-    async def _tasklet_run(self) -> None:
+    async def __run__(self) -> None:
         match await load_config(self._config, logger=self.logger):
             case Ok():
                 pass
@@ -150,7 +150,7 @@ class Engine(Tasklet, ServerEngine):
             self.logger.info("Exit signal received, stopping...")
             raise
 
-    async def _tasklet_stop(self) -> None:
+    async def __stop__(self) -> None:
         await self._stop_server()
         await self._stop_units()
         await self._database.dispose()

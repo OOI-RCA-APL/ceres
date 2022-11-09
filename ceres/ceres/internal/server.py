@@ -12,7 +12,7 @@ from ..errors import ReloadError
 from ..result import Fail, Ok, Result
 from ..utilities import awaitify, simplify
 from . import logs
-from .tasks import Tasklet
+from .tasklet import Tasklet
 from .utilities import unreachable
 
 
@@ -41,10 +41,10 @@ class Server(Tasklet):
             )
         )
 
-    async def _tasklet_run(self) -> None:
+    async def __run__(self) -> None:
         await self._uvicorn.serve()
 
-    async def _tasklet_stop(self) -> None:
+    async def __stop__(self) -> None:
         if hasattr(self._uvicorn, "servers"):
             await self._uvicorn.shutdown()
 

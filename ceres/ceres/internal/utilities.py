@@ -4,6 +4,7 @@ import asyncio
 import dataclasses
 import re
 import sys
+from asyncio import AbstractEventLoop
 from datetime import timedelta
 from functools import cache, wraps
 from types import MappingProxyType, UnionType
@@ -28,8 +29,6 @@ from typing import (
 from apscheduler.triggers.cron import CronTrigger
 from pydantic import BaseModel, ConstrainedStr, parse_obj_as
 
-from .tasks import ensure_event_loop
-
 if TYPE_CHECKING:
     from _typeshed import SupportsKeysAndGetItem, SupportsRichComparison
 
@@ -48,7 +47,9 @@ def strify(value: object) -> str:
 def syncify(function: Callable[ParamsT, Awaitable[T]]) -> Callable[ParamsT, T]:
     @wraps(function)
     def wrapper(*args: list[Any], **kwargs: dict[str, Any]) -> Any:
-        ensure_event_loop()
+        from .utilities import setup_event_loop
+
+        setup_event_loop()
         return asyncio.run(function(*args, **kwargs))  # type: ignore
 
     return cast(Callable[ParamsT, T], wrapper)
@@ -657,3 +658,28 @@ def validate_crontab(value: str) -> str:
 async def sleep_forever() -> None:
     while True:
         await asyncio.sleep(timedelta(hours=1).total_seconds())
+
+
+def event_loop_exists() -> bool:
+    try:
+        asyncio.get_running_loop()
+        return True
+    except RuntimeError:
+        return False
+
+
+def setup_event_loop() -> AbstractEventLoop:
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        try:
+            import uvloop
+
+            uvloop.install()
+        except Exception:
+            pass
+
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+    return loop

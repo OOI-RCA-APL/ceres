@@ -1,33 +1,12 @@
 import asyncio
 from abc import ABC, abstractmethod
-from asyncio import FIRST_COMPLETED, AbstractEventLoop, Event, Task
+from asyncio import FIRST_COMPLETED, Event, Task
 from dataclasses import dataclass, field
 from typing import Any, Callable, TypeVar, cast
 
-
-def event_loop_exists() -> bool:
-    try:
-        asyncio.get_running_loop()
-        return True
-    except RuntimeError:
-        return False
-
-
-def ensure_event_loop() -> AbstractEventLoop:
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        try:
-            import uvloop
-
-            uvloop.install()
-        except Exception:
-            pass
-
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
-    return loop
+__all__ = [
+    "Tasklet",
+]
 
 
 @dataclass
@@ -52,6 +31,14 @@ class Tasklet(ABC):
     def stopping(self) -> bool:
         return self.running and self.__tasklet__.stopping.is_set()
 
+    @abstractmethod
+    async def __run__(self) -> None:
+        ...
+
+    @abstractmethod
+    async def __stop__(self) -> None:
+        ...
+
     @property
     def __tasklet__(self) -> TaskletInternal:
         if internal := self.__dict__.get(TASKLET_INTERNAL_ATTRIBUTE_NAME):
@@ -74,7 +61,7 @@ class Tasklet(ABC):
         self.__tasklet__.stopping.clear()
         self.__tasklet__.stopped.clear()
 
-        run_task = asyncio.create_task(self._tasklet_run())
+        run_task = asyncio.create_task(self.__run__())
         stopping_task = asyncio.create_task(self.__tasklet__.stopping.wait())
 
         async def main() -> None:
@@ -103,7 +90,7 @@ class Tasklet(ABC):
                     stopping_task.cancel()
             finally:
                 try:
-                    await self._tasklet_stop()
+                    await self.__stop__()
                 finally:
                     self.__tasklet__.task = None
                     self.__tasklet__.stopping.set()
@@ -144,11 +131,3 @@ class Tasklet(ABC):
             on_exception=on_exception,
         )
         await self.join(raise_exceptions)
-
-    @abstractmethod
-    async def _tasklet_run(self) -> None:
-        ...
-
-    @abstractmethod
-    async def _tasklet_stop(self) -> None:
-        ...
