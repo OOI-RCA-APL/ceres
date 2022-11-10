@@ -11,7 +11,6 @@ from typing import (
     Generic,
     Mapping,
     Protocol,
-    TypeGuard,
     TypeVar,
     Union,
     cast,
@@ -19,60 +18,56 @@ from typing import (
 
 from wrapt import ObjectProxy  # type: ignore
 
-T = TypeVar("T")
-
-__all__ = ["Container", "ResolutionError"]
-
-
-Key = Callable[..., T]
-Factory = Callable[..., T]
+_T = TypeVar("_T")
+_Key = Callable[..., _T]
+_Factory = Callable[..., _T]
 
 
-class ContainerContext(Protocol):
-    def get(self, key: Callable[..., T]) -> T:
+class _Context(Protocol):
+    def get(self, key: Callable[..., _T]) -> _T:
         ...
 
 
-class Container(ContainerContext):
+class Container(_Context):
     def __init__(self) -> None:
-        self._providers: dict[Key[Any], Provider[Any]] = {}
-        self._instances: dict[Key[Any], Any] = {}
+        self._providers: dict[_Key[Any], Provider[Any]] = {}
+        self._instances: dict[_Key[Any], Any] = {}
 
-    def provide(self, key: Key[T], factory: Factory[T] | None = None) -> None:
+    def provide(self, key: _Key[_T], factory: _Factory[_T] | None = None) -> None:
         if factory is None:
             factory = key
 
         self.remove(key)
         self._providers[key] = FactoryProvider(factory)
 
-    def set(self, key: Key[T], instance: T) -> None:
+    def set(self, key: _Key[_T], instance: _T) -> None:
         self._providers[key] = InstanceProvider(instance)
         self._instances[key] = instance
 
-    def remove(self, key: Key[T]) -> T | None:
+    def remove(self, key: _Key[_T]) -> _T | None:
         self._providers.pop(key, None)
-        return cast(T | None, self._instances.pop(key, None))
+        return cast(_T | None, self._instances.pop(key, None))
 
     def clear(self) -> None:
         self._providers.clear()
         self._instances.clear()
 
-    def has_provider(self, key: Key[T]) -> bool:
+    def has_provider(self, key: _Key[_T]) -> bool:
         return key in self._providers
 
-    def has_cached(self, key: Key[T]) -> bool:
+    def has_cached(self, key: _Key[_T]) -> bool:
         return key in self._instances
 
-    def get(self, key: Key[T], *, cached: bool = True) -> T:
+    def get(self, key: _Key[_T], *, cached: bool = True) -> _T:
         if cached and key in self._instances:
-            return cast(T, self._instances[key])
+            return cast(_T, self._instances[key])
 
         if cached:
             # Create empty proxy object in cache.
             proxy = Proxy(None)
             self._instances[key] = proxy
 
-        provider: Provider[T] | None = self._providers.get(key)
+        provider: Provider[_T] | None = self._providers.get(key)
         if not provider:
             provider = FactoryProvider(key)
             self._providers[key] = provider
@@ -96,17 +91,17 @@ class ResolutionError(TypeError):
         )
 
 
-class Provider(Generic[T], metaclass=ABCMeta):
+class Provider(Generic[_T], metaclass=ABCMeta):
     @abstractmethod
-    def provide(self, container: ContainerContext) -> T:
+    def provide(self, container: _Context) -> _T:
         ...
 
 
-class InstanceProvider(Provider[T]):
-    def __init__(self, instance: T):
+class InstanceProvider(Provider[_T]):
+    def __init__(self, instance: _T):
         self._instance = instance
 
-    def provide(self, container: ContainerContext) -> T:
+    def provide(self, container: _Context) -> _T:
         return self._instance
 
     def __hash__(self) -> int:
@@ -114,24 +109,24 @@ class InstanceProvider(Provider[T]):
 
     def __eq__(self, other: object) -> bool:
         return isinstance(other, InstanceProvider) and self._instance == cast(
-            T,
+            _T,
             other._instance,  # type: ignore
         )
 
 
-class FactoryProvider(Provider[T]):
-    def __init__(self, factory: Callable[..., T]):
+class FactoryProvider(Provider[_T]):
+    def __init__(self, factory: Callable[..., _T]):
         self._factory = factory
         self._parameters = get_parameters(factory)
-        self._scope = type_forward_ref_scope(factory)
+        self._scope = _type_forward_ref_scope(factory)
 
-    def provide(self, container: ContainerContext) -> T:
+    def provide(self, container: _Context) -> _T:
         args: list[Any] = []
         kwargs: dict[str, Any] = {}
 
         for parameter in self._parameters:
             # Evaluate ForwardRefs for module-level declarations in the same module as the class.
-            query = evaluate_type(parameter.annotation, globals(), self._scope)
+            query = _evaluate_type(parameter.annotation, globals(), self._scope)
 
             try:
                 if parameter.positional:
@@ -206,7 +201,7 @@ def get_parameters(factory: Callable[..., Any]) -> list[FactoryParameter]:
 _eval_type = getattr(typing, "_eval_type")
 
 
-def evaluate_type(
+def _evaluate_type(
     type_: Any,
     globalns: Any,
     localns: Any,
@@ -215,13 +210,7 @@ def evaluate_type(
     return _eval_type(type_, globalns, localns, recursive_guard)  # type: ignore
 
 
-def unwrap_decorators(obj: Any) -> Any:
-    while hasattr(obj, "__wrapped__"):
-        obj = obj.__wrapped__
-    return obj
-
-
-def type_forward_ref_scope(type_: Union[type[T], Callable[..., T]]) -> Mapping[str, Any]:
+def _type_forward_ref_scope(type_: Union[type[_T], Callable[..., _T]]) -> Mapping[str, Any]:
     return getattr(sys.modules.get(type_.__module__, None), "__dict__", {})
 
 
@@ -231,7 +220,3 @@ class Proxy(ObjectProxy):  # type: ignore
 
 def bind_proxy(proxy: Proxy, target: Any) -> None:
     proxy.__wrapped__ = target
-
-
-def is_proxy(value: Any) -> TypeGuard[Proxy]:
-    return isinstance(value, Proxy)

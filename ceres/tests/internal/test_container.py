@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 from pydantic import BaseConfig, BaseModel
 
-from ceres.internal.container import Container, is_proxy
+from ceres.internal.container import Container, Proxy
 
 from .test_container__definitions import (
     DerivedDummy,
@@ -255,6 +255,6 @@ def test_get_nested_dependencies_with_cycle() -> None:
     cyclical = one.inner.inner
 
     assert one == One(Two(ThreeCyclical(one)))
-    assert not is_proxy(one)
-    assert not is_proxy(one.inner)
-    assert isinstance(cyclical, ThreeCyclical) and is_proxy(cyclical.inner)
+    assert not isinstance(one, Proxy)
+    assert not isinstance(one.inner, Proxy)
+    assert isinstance(cyclical, ThreeCyclical) and isinstance(cyclical.inner, Proxy)

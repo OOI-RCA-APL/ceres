@@ -146,9 +146,7 @@ class AlertEntity(Entity):
     )
 
 
-ComponentEntityT = TypeVar("ComponentEntityT", bound=ComponentEntity)
-
-EntityT = TypeVar("EntityT", bound=Entity)
+_EntityT = TypeVar("_EntityT", bound=Entity)
 
 _WhereValue = TypeVar("_WhereValue", bound=ColumnElement[bool] | ExpressionElementRole[bool])
 _OrderByValue = TypeVar("_OrderByValue", bound=ColumnElement[Any] | ExpressionElementRole[Any])
@@ -200,12 +198,12 @@ class EntityManager(ValidateByType):
 
     async def _get_entities(
         self,
-        cls: type[EntityT],
+        cls: type[_EntityT],
         *,
-        where: Callable[[type[EntityT]], _WhereValue] | None = None,
-        order_by: Callable[[type[EntityT]], _OrderByValue] | None = None,
+        where: Callable[[type[_EntityT]], _WhereValue] | None = None,
+        order_by: Callable[[type[_EntityT]], _OrderByValue] | None = None,
         limit: int | None = None,
-    ) -> list[EntityT]:
+    ) -> list[_EntityT]:
         query = select(cls)
         if where is not None:
             query = select(AlertEntity).where(where(cls))

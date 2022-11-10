@@ -3,13 +3,12 @@ import signal
 import sys
 import traceback
 from asyncio import FIRST_COMPLETED, Event
-from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import Enum
 from logging import Logger
 from pathlib import Path
 from queue import Empty, Queue
-from typing import Any, Callable, Iterator, Mapping, Sequence
+from typing import Any, Mapping
 
 from .address import ComponentAddress, LocalComponentAddress, UnitAddress
 from .config import Config, UnitConfig
@@ -24,13 +23,9 @@ from .internal.database.manager import DatabaseManager
 from .internal.server import Server
 from .internal.tasklet import Tasklet
 from .internal.unit import UnitContext, UnitHandle
-from .internal.utilities import unreachable
+from .internal.utilities import temporary_signal_handler, unreachable
 from .result import Fail, Ok, Result
 from .utilities import jsonify
-
-__all__ = [
-    "Engine",
-]
 
 
 class UnitSyncActionKind(str, Enum):
@@ -131,7 +126,7 @@ class Engine(Tasklet):
                 def handle_exit_signal(*args: Any) -> None:
                     exiting.set()
 
-                with _use_signals([signal.SIGINT, signal.SIGTERM], handle_exit_signal):
+                with temporary_signal_handler([signal.SIGINT, signal.SIGTERM], handle_exit_signal):
                     await self._sync_units()
                     await self._start_server()
 
@@ -378,18 +373,3 @@ class Engine(Tasklet):
             f"An exception occurred in unit '{unit.address}': {traceback.format_exception(exception)}"
         )
         self._units.pop(unit.address, None)
-
-
-@contextmanager
-def _use_signals(signums: Sequence[int], handler: Callable[..., Any]) -> Iterator[None]:
-    originals: dict[int, Any] = {}
-    for signum in signums:
-        if original := signal.getsignal(signum):
-            originals[signum] = original
-        signal.signal(signum, handler)
-
-    try:
-        yield
-    finally:
-        for signum, original in originals.items():
-            signal.signal(signum, original)

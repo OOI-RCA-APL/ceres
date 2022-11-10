@@ -4,8 +4,10 @@ import asyncio
 import dataclasses
 import inspect
 import re
+import signal
 import sys
 from asyncio import AbstractEventLoop
+from contextlib import contextmanager
 from datetime import timedelta
 from functools import cache, wraps
 from types import MappingProxyType, UnionType
@@ -14,8 +16,8 @@ from typing import (
     Any,
     Awaitable,
     Callable,
-    Coroutine,
     Iterable,
+    Iterator,
     Literal,
     Mapping,
     NoReturn,
@@ -36,9 +38,7 @@ from typing_extensions import Self
 if TYPE_CHECKING:
     from _typeshed import SupportsKeysAndGetItem, SupportsRichComparison
 
-T = TypeVar("T")
-
-ParamsT = ParamSpec("ParamsT")
+_T = TypeVar("_T")
 
 
 def strify(value: object) -> str:
@@ -48,15 +48,18 @@ def strify(value: object) -> str:
         return "<__str__() raised exception>"
 
 
-def syncify(function: Callable[ParamsT, Awaitable[T]]) -> Callable[ParamsT, T]:
+_P = ParamSpec("_P")
+
+
+def syncify(function: Callable[_P, Awaitable[_T]]) -> Callable[_P, _T]:
     @wraps(function)
     def wrapper(*args: list[Any], **kwargs: dict[str, Any]) -> Any:
         return setup_event_loop().run_until_complete(function(*args, **kwargs))  # type: ignore
 
-    return cast(Callable[ParamsT, T], wrapper)
+    return cast(Callable[_P, _T], wrapper)
 
 
-def unwrap(value: T | None) -> T:
+def unwrap(value: _T | None) -> _T:
     assert value is not None
     return value
 
@@ -200,11 +203,8 @@ def issubtype(subtype: Any, base: type | UnionType) -> bool:
     return False
 
 
-InstanceT = TypeVar("InstanceT")
-
-
 @overload
-def loose_isinstance(instance: object, type: type[InstanceT]) -> TypeGuard[InstanceT]:
+def loose_isinstance(instance: object, type: type[_T]) -> TypeGuard[_T]:
     ...
 
 
@@ -215,8 +215,8 @@ def loose_isinstance(instance: object, type: UnionType) -> bool:
 
 def loose_isinstance(
     instance: object,
-    type: type[InstanceT] | UnionType,
-) -> TypeGuard[InstanceT] | bool:
+    type: type[_T] | UnionType,
+) -> TypeGuard[_T] | bool:
     try:
         return isinstance(instance, type)
     except Exception:
@@ -238,14 +238,14 @@ def object_has_field(obj: Any, name: str, type: Any = None) -> bool:
     return False
 
 
-KeyT = TypeVar("KeyT", covariant=True)
-ValueT = TypeVar("ValueT", covariant=True)
+_KeyT = TypeVar("_KeyT", covariant=True)
+_ValueT = TypeVar("_ValueT", covariant=True)
 
-NewKeyT = TypeVar("NewKeyT")
-NewValueT = TypeVar("NewValueT")
+_NewKeyT = TypeVar("_NewKeyT")
+_NewValueT = TypeVar("_NewValueT")
 
 
-class frozendict(dict[KeyT, ValueT]):  # type: ignore
+class frozendict(dict[_KeyT, _ValueT]):  # type: ignore
     def __repr__(self) -> str:
         name = type(self).__name__
         if len(self) == 0:
@@ -259,66 +259,69 @@ class frozendict(dict[KeyT, ValueT]):  # type: ignore
     def __copy__(self) -> Self:
         return self.copy()
 
-    def __reduce__(self) -> tuple[type[Self], tuple[dict[KeyT, ValueT]]]:
+    def __reduce__(self) -> tuple[type[Self], tuple[dict[_KeyT, _ValueT]]]:
         return (type(self), (dict(self),))
 
     @overload  # type: ignore
     def __or__(
-        self: frozendict[KeyT, ValueT],
-        __value: SupportsKeysAndGetItem[NewKeyT, NewValueT],
-    ) -> frozendict[KeyT | NewKeyT, ValueT | NewValueT]:
+        self: frozendict[_KeyT, _ValueT],
+        __value: SupportsKeysAndGetItem[_NewKeyT, _NewValueT],
+    ) -> frozendict[_KeyT | _NewKeyT, _ValueT | _NewValueT]:
         ...
 
     @overload
     def __or__(
-        self: frozendict[KeyT, ValueT],
-        __value: Iterable[tuple[NewKeyT, NewValueT]],
-    ) -> frozendict[KeyT | NewKeyT, ValueT | NewValueT]:
+        self: frozendict[_KeyT, _ValueT],
+        __value: Iterable[tuple[_NewKeyT, _NewValueT]],
+    ) -> frozendict[_KeyT | _NewKeyT, _ValueT | _NewValueT]:
         ...
 
     def __or__(
-        self: frozendict[KeyT, ValueT],
-        __value: SupportsKeysAndGetItem[NewKeyT, NewValueT] | Iterable[tuple[NewKeyT, NewValueT]],
-    ) -> frozendict[KeyT | NewKeyT, ValueT | NewValueT]:
+        self: frozendict[_KeyT, _ValueT],
+        __value: SupportsKeysAndGetItem[_NewKeyT, _NewValueT]
+        | Iterable[tuple[_NewKeyT, _NewValueT]],
+    ) -> frozendict[_KeyT | _NewKeyT, _ValueT | _NewValueT]:
         return self.update(__value)
 
     @overload
     def __ror__(
-        self: frozendict[KeyT, ValueT],
-        __value: SupportsKeysAndGetItem[NewKeyT, NewValueT],
-    ) -> frozendict[KeyT | NewKeyT, ValueT | NewValueT]:
+        self: frozendict[_KeyT, _ValueT],
+        __value: SupportsKeysAndGetItem[_NewKeyT, _NewValueT],
+    ) -> frozendict[_KeyT | _NewKeyT, _ValueT | _NewValueT]:
         ...
 
     @overload
     def __ror__(
-        self: frozendict[KeyT, ValueT],
-        __value: Iterable[tuple[NewKeyT, NewValueT]],
-    ) -> frozendict[KeyT | NewKeyT, ValueT | NewValueT]:
+        self: frozendict[_KeyT, _ValueT],
+        __value: Iterable[tuple[_NewKeyT, _NewValueT]],
+    ) -> frozendict[_KeyT | _NewKeyT, _ValueT | _NewValueT]:
         ...
 
     def __ror__(
-        self: frozendict[KeyT, ValueT],
-        __value: SupportsKeysAndGetItem[NewKeyT, NewValueT] | Iterable[tuple[NewKeyT, NewValueT]],
-    ) -> frozendict[KeyT | NewKeyT, ValueT | NewValueT]:
+        self: frozendict[_KeyT, _ValueT],
+        __value: SupportsKeysAndGetItem[_NewKeyT, _NewValueT]
+        | Iterable[tuple[_NewKeyT, _NewValueT]],
+    ) -> frozendict[_KeyT | _NewKeyT, _ValueT | _NewValueT]:
         return self.__or__(__value)  # type: ignore
 
     @overload
     def __ior__(
-        self: frozendict[KeyT, ValueT],
-        __value: SupportsKeysAndGetItem[NewKeyT, NewValueT],
-    ) -> frozendict[KeyT | NewKeyT, ValueT | NewValueT]:
+        self: frozendict[_KeyT, _ValueT],
+        __value: SupportsKeysAndGetItem[_NewKeyT, _NewValueT],
+    ) -> frozendict[_KeyT | _NewKeyT, _ValueT | _NewValueT]:
         ...
 
     @overload
     def __ior__(
-        self: frozendict[KeyT, ValueT], __value: Iterable[tuple[NewKeyT, NewValueT]]
-    ) -> frozendict[KeyT | NewKeyT, ValueT | NewValueT]:
+        self: frozendict[_KeyT, _ValueT], __value: Iterable[tuple[_NewKeyT, _NewValueT]]
+    ) -> frozendict[_KeyT | _NewKeyT, _ValueT | _NewValueT]:
         ...
 
     def __ior__(  # type: ignore
-        self: frozendict[KeyT, ValueT],
-        __value: SupportsKeysAndGetItem[NewKeyT, NewValueT] | Iterable[tuple[NewKeyT, NewValueT]],
-    ) -> frozendict[KeyT | NewKeyT, ValueT | NewValueT]:
+        self: frozendict[_KeyT, _ValueT],
+        __value: SupportsKeysAndGetItem[_NewKeyT, _NewValueT]
+        | Iterable[tuple[_NewKeyT, _NewValueT]],
+    ) -> frozendict[_KeyT | _NewKeyT, _ValueT | _NewValueT]:
         return self.__or__(__value)  # type: ignore
 
     def __copy_if_unreferenced(self) -> Self:
@@ -333,43 +336,43 @@ class frozendict(dict[KeyT, ValueT]):  # type: ignore
     @overload  # type: ignore
     @classmethod
     def fromkeys(
-        cls: type[frozendict[KeyT, None]],
-        __iterable: Iterable[KeyT],
+        cls: type[frozendict[_KeyT, None]],
+        __iterable: Iterable[_KeyT],
         __value: None = None,
-    ) -> frozendict[KeyT, None]:
+    ) -> frozendict[_KeyT, None]:
         ...
 
     @overload
     @classmethod
     def fromkeys(
         cls,
-        __iterable: Iterable[NewKeyT],
-        __value: NewValueT,
-    ) -> frozendict[NewKeyT, NewValueT]:
+        __iterable: Iterable[_NewKeyT],
+        __value: _NewValueT,
+    ) -> frozendict[_NewKeyT, _NewValueT]:
         ...
 
     @classmethod
     def fromkeys(  # type: ignore
         cls,
-        __iterable: Iterable[NewKeyT],
-        __value: NewValueT | None = None,
-    ) -> frozendict[NewKeyT, NewValueT] | frozendict[NewKeyT, None]:
+        __iterable: Iterable[_NewKeyT],
+        __value: _NewValueT | None = None,
+    ) -> frozendict[_NewKeyT, _NewValueT] | frozendict[_NewKeyT, None]:
         return cls(dict.fromkeys(__iterable, __value))  # type: ignore
 
     def set(
-        self: frozendict[KeyT, ValueT],
-        __key: NewKeyT,
-        __value: NewValueT,
-    ) -> frozendict[KeyT | NewKeyT, ValueT | NewValueT]:
+        self: frozendict[_KeyT, _ValueT],
+        __key: _NewKeyT,
+        __value: _NewValueT,
+    ) -> frozendict[_KeyT | _NewKeyT, _ValueT | _NewValueT]:
         result = self.__copy_if_unreferenced()
         dict.__setitem__(result, __key, __value)  # type: ignore
         return result
 
     def setdefault(  # type: ignore
-        self: frozendict[KeyT, ValueT],
-        __key: NewKeyT,
-        __default: NewValueT,
-    ) -> frozendict[KeyT | NewKeyT, ValueT | NewValueT]:
+        self: frozendict[_KeyT, _ValueT],
+        __key: _NewKeyT,
+        __default: _NewValueT,
+    ) -> frozendict[_KeyT | _NewKeyT, _ValueT | _NewValueT]:
         if __key in self:
             return self
 
@@ -377,34 +380,34 @@ class frozendict(dict[KeyT, ValueT]):  # type: ignore
 
     @overload  # type: ignore
     def update(
-        self: frozendict[KeyT, ValueT],
-        __value: SupportsKeysAndGetItem[NewKeyT, NewValueT],
-        **kwargs: NewValueT,
-    ) -> frozendict[KeyT | NewKeyT, ValueT | NewValueT]:
+        self: frozendict[_KeyT, _ValueT],
+        __value: SupportsKeysAndGetItem[_NewKeyT, _NewValueT],
+        **kwargs: _NewValueT,
+    ) -> frozendict[_KeyT | _NewKeyT, _ValueT | _NewValueT]:
         ...
 
     @overload
     def update(
-        self: frozendict[KeyT, ValueT],
-        __value: Iterable[tuple[NewKeyT, NewValueT]],
-        **kwargs: NewValueT,
-    ) -> frozendict[KeyT | NewKeyT, ValueT | NewValueT]:
+        self: frozendict[_KeyT, _ValueT],
+        __value: Iterable[tuple[_NewKeyT, _NewValueT]],
+        **kwargs: _NewValueT,
+    ) -> frozendict[_KeyT | _NewKeyT, _ValueT | _NewValueT]:
         ...
 
     @overload
     def update(
-        self: frozendict[KeyT, ValueT],
-        **kwargs: NewValueT,
-    ) -> frozendict[KeyT, ValueT | NewValueT]:
+        self: frozendict[_KeyT, _ValueT],
+        **kwargs: _NewValueT,
+    ) -> frozendict[_KeyT, _ValueT | _NewValueT]:
         ...
 
     def update(  # type: ignore
-        self: frozendict[KeyT, ValueT],
-        __value: SupportsKeysAndGetItem[NewKeyT, NewValueT]
-        | Iterable[tuple[NewKeyT, NewValueT]]
+        self: frozendict[_KeyT, _ValueT],
+        __value: SupportsKeysAndGetItem[_NewKeyT, _NewValueT]
+        | Iterable[tuple[_NewKeyT, _NewValueT]]
         | None = None,
-        **kwargs: NewValueT,
-    ) -> frozendict[KeyT | NewKeyT, ValueT | NewValueT]:
+        **kwargs: _NewValueT,
+    ) -> frozendict[_KeyT | _NewKeyT, _ValueT | _NewValueT]:
         result = self.__copy_if_unreferenced()
 
         if __value is None:
@@ -438,10 +441,10 @@ def __patch_frozendict() -> None:
 
 __patch_frozendict()
 
-SortableFrozenListT = TypeVar("SortableFrozenListT", bound="frozenlist[Any]")
+_SortableFrozenListT = TypeVar("_SortableFrozenListT", bound="frozenlist[Any]")
 
 
-class frozenlist(list[ValueT]):  # type: ignore
+class frozenlist(list[_ValueT]):  # type: ignore
     def __repr__(self) -> str:
         name = type(self).__name__
         if len(self) == 0:
@@ -455,39 +458,39 @@ class frozenlist(list[ValueT]):  # type: ignore
     def __copy__(self) -> Self:
         return type(self)(self)
 
-    def __reduce__(self) -> tuple[type[frozenlist[ValueT]], tuple[list[ValueT]]]:
+    def __reduce__(self) -> tuple[type[frozenlist[_ValueT]], tuple[list[_ValueT]]]:
         return (type(self), (list(self),))
 
     @overload
-    def __getitem__(self, __index: SupportsIndex) -> ValueT:
+    def __getitem__(self, __index: SupportsIndex) -> _ValueT:
         ...
 
     @overload
     def __getitem__(self, __index: slice) -> Self:
         ...
 
-    def __getitem__(self, __index: SupportsIndex | slice) -> ValueT | Self:
+    def __getitem__(self, __index: SupportsIndex | slice) -> _ValueT | Self:
         if isinstance(__index, slice):
             return frozenlist(super().__getitem__(__index))  # type: ignore
 
         return super().__getitem__(__index)  # type: ignore
 
     def __add__(
-        self: frozenlist[ValueT],
-        __iterable: Iterable[NewValueT],
-    ) -> frozenlist[ValueT | NewValueT]:
+        self: frozenlist[_ValueT],
+        __iterable: Iterable[_NewValueT],
+    ) -> frozenlist[_ValueT | _NewValueT]:
         return self.extend(__iterable)
 
     def __radd__(
-        self: frozenlist[ValueT],
-        __iterable: Iterable[NewValueT],
-    ) -> frozenlist[ValueT | NewValueT]:
+        self: frozenlist[_ValueT],
+        __iterable: Iterable[_NewValueT],
+    ) -> frozenlist[_ValueT | _NewValueT]:
         return self.__add__(__iterable)
 
     def __iadd__(
-        self: frozenlist[ValueT],
-        __iterable: Iterable[NewValueT],
-    ) -> frozenlist[ValueT | NewValueT]:
+        self: frozenlist[_ValueT],
+        __iterable: Iterable[_NewValueT],
+    ) -> frozenlist[_ValueT | _NewValueT]:
         return self.__add__(__iterable)
 
     def __mul__(self, __times: SupportsIndex) -> Self:
@@ -506,34 +509,34 @@ class frozenlist(list[ValueT]):  # type: ignore
         return type(self)(self)
 
     def append(  # type: ignore
-        self: frozenlist[ValueT],
-        __value: NewValueT,
-    ) -> frozenlist[ValueT | NewValueT]:
+        self: frozenlist[_ValueT],
+        __value: _NewValueT,
+    ) -> frozenlist[_ValueT | _NewValueT]:
         result = self.__copy_if_unreferenced()
         list.append(result, __value)  # type: ignore
         return result
 
     def extend(  # type: ignore
-        self: frozenlist[ValueT],
-        __iterable: Iterable[NewValueT],
-    ) -> frozenlist[ValueT | NewValueT]:
+        self: frozenlist[_ValueT],
+        __iterable: Iterable[_NewValueT],
+    ) -> frozenlist[_ValueT | _NewValueT]:
         result = self.__copy_if_unreferenced()
         list.extend(result, __iterable)  # type: ignore
         return result
 
     def insert(  # type: ignore
-        self: frozenlist[ValueT],
+        self: frozenlist[_ValueT],
         __index: SupportsIndex,
-        __value: NewValueT,
-    ) -> frozenlist[ValueT | NewValueT]:
+        __value: _NewValueT,
+    ) -> frozenlist[_ValueT | _NewValueT]:
         result = self.__copy_if_unreferenced()
         list.insert(result, __index, __value)  # type: ignore
         return result
 
     def remove(  # type: ignore
-        self: frozenlist[ValueT],
-        __value: NewValueT,
-    ) -> frozenlist[ValueT | NewValueT]:
+        self: frozenlist[_ValueT],
+        __value: _NewValueT,
+    ) -> frozenlist[_ValueT | _NewValueT]:
         result = self.__copy_if_unreferenced()
         list.remove(result, __value)  # type: ignore
         return result
@@ -545,18 +548,18 @@ class frozenlist(list[ValueT]):  # type: ignore
 
     @overload  # type: ignore
     def sort(
-        self: SortableFrozenListT,
+        self: _SortableFrozenListT,
         *,
         key: None = None,
         reverse: bool = False,
-    ) -> SortableFrozenListT:
+    ) -> _SortableFrozenListT:
         ...
 
     @overload
     def sort(
         self,
         *,
-        key: Callable[[ValueT], SupportsRichComparison],
+        key: Callable[[_ValueT], SupportsRichComparison],
         reverse: bool = False,
     ) -> Self:
         ...
@@ -564,7 +567,7 @@ class frozenlist(list[ValueT]):  # type: ignore
     def sort(
         self,
         *,
-        key: Callable[[ValueT], SupportsRichComparison] | None = None,
+        key: Callable[[_ValueT], SupportsRichComparison] | None = None,
         reverse: bool = False,
     ) -> Self:
         result = self.__copy_if_unreferenced()
@@ -573,25 +576,25 @@ class frozenlist(list[ValueT]):  # type: ignore
 
     @overload
     def set(
-        self: frozenlist[ValueT],
+        self: frozenlist[_ValueT],
         __index: SupportsIndex,
-        __value: NewValueT,
-    ) -> frozenlist[ValueT | NewValueT]:
+        __value: _NewValueT,
+    ) -> frozenlist[_ValueT | _NewValueT]:
         ...
 
     @overload
     def set(
-        self: frozenlist[ValueT],
+        self: frozenlist[_ValueT],
         __index: slice,
-        __value: Iterable[NewValueT],
-    ) -> frozenlist[ValueT | NewValueT]:
+        __value: Iterable[_NewValueT],
+    ) -> frozenlist[_ValueT | _NewValueT]:
         ...
 
     def set(  # type: ignore
-        self: frozenlist[ValueT],
+        self: frozenlist[_ValueT],
         __index: SupportsIndex | slice,
-        __value: NewValueT | Iterable[NewValueT],
-    ) -> frozenlist[ValueT | NewValueT]:
+        __value: _NewValueT | Iterable[_NewValueT],
+    ) -> frozenlist[_ValueT | _NewValueT]:
         result = self.__copy_if_unreferenced()
         list.__setitem__(result, __index, __value)  # type: ignore
         return result
@@ -684,8 +687,8 @@ def setup_event_loop() -> AbstractEventLoop:
     return loop
 
 
-def get_bindings(cls: type[Any], attribute: str, type: type[T]) -> list[T]:
-    output: list[T] = []
+def get_bindings(cls: type[Any], attribute: str, type: type[_T]) -> list[_T]:
+    output: list[_T] = []
 
     for _, function in inspect.getmembers(cls):
         if not inspect.isfunction(function):
@@ -700,8 +703,8 @@ def get_bindings(cls: type[Any], attribute: str, type: type[T]) -> list[T]:
     return output
 
 
-def add_binding(function: Callable[..., Any], attribute: str, value: T) -> list[T]:
-    values: Sequence[T] | None = getattr(function, attribute, None)
+def add_binding(function: Callable[..., Any], attribute: str, value: _T) -> list[_T]:
+    values: Sequence[_T] | None = getattr(function, attribute, None)
 
     if not isinstance(values, list):
         values = list(values or [])
@@ -710,3 +713,18 @@ def add_binding(function: Callable[..., Any], attribute: str, value: T) -> list[
     values.append(value)
 
     return values
+
+
+@contextmanager
+def temporary_signal_handler(signums: Sequence[int], handler: Callable[..., Any]) -> Iterator[None]:
+    originals: dict[int, Any] = {}
+    for signum in signums:
+        if original := signal.getsignal(signum):
+            originals[signum] = original
+        signal.signal(signum, handler)
+
+    try:
+        yield
+    finally:
+        for signum, original in originals.items():
+            signal.signal(signum, original)

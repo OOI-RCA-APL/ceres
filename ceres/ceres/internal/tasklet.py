@@ -6,10 +6,6 @@ from typing import Any, Callable, cast
 
 from typing_extensions import Self
 
-__all__ = [
-    "Tasklet",
-]
-
 
 @dataclass
 class TaskletInternal:
@@ -19,7 +15,7 @@ class TaskletInternal:
     exception: BaseException | None = None
 
 
-TASKLET_INTERNAL_ATTRIBUTE_NAME = "__tasklet_internal__"
+_TASKLET_INTERNAL_ATTRIBUTE_NAME = "__tasklet_internal__"
 
 
 class Tasklet(ABC):
@@ -41,11 +37,11 @@ class Tasklet(ABC):
 
     @property
     def __tasklet__(self) -> TaskletInternal:
-        if internal := self.__dict__.get(TASKLET_INTERNAL_ATTRIBUTE_NAME):
+        if internal := self.__dict__.get(_TASKLET_INTERNAL_ATTRIBUTE_NAME):
             return cast(TaskletInternal, internal)
 
         internal = TaskletInternal()
-        self.__dict__[TASKLET_INTERNAL_ATTRIBUTE_NAME] = internal
+        self.__dict__[_TASKLET_INTERNAL_ATTRIBUTE_NAME] = internal
         return internal
 
     def start(

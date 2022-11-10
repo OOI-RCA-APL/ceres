@@ -1,7 +1,6 @@
 import asyncio
 import dataclasses
 import importlib
-import inspect
 import traceback
 from abc import ABC, abstractmethod
 from dataclasses import dataclass

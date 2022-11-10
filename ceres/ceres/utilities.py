@@ -27,18 +27,18 @@ from pydantic.fields import FieldInfo
 from pydantic.json import pydantic_encoder
 from typing_extensions import dataclass_transform
 
-T = TypeVar("T")
+_T = TypeVar("_T")
 
 
 def utc() -> datetime:
     return datetime.now(timezone.utc)
 
 
-async def awaitify(value: Awaitable[T] | T) -> T:
+async def awaitify(value: Awaitable[_T] | _T) -> _T:
     if inspect.isawaitable(value):
-        return cast(T, await value)
+        return cast(_T, await value)
 
-    return cast(T, value)
+    return cast(_T, value)
 
 
 def jsonify(obj: object, *, indent: int | str | None = None, **kwargs: Any) -> str:
@@ -108,7 +108,7 @@ if TYPE_CHECKING:
     )
     @overload
     def vdc(
-        cls: type[T],
+        cls: type[_T],
         *,
         init: bool = True,
         repr: bool = True,
@@ -119,7 +119,7 @@ if TYPE_CHECKING:
         config: ConfigDict | None = None,
         validate_on_init: bool | None = None,
         kw_only: bool = True,
-    ) -> type[T]:
+    ) -> type[_T]:
         ...
 
 
@@ -128,7 +128,7 @@ if TYPE_CHECKING:
     field_descriptors=VALIDATED_DATACLASS_FIELD_SPECIFIERS,
 )
 def vdc(
-    cls: type[T] | None = None,
+    cls: type[_T] | None = None,
     *,
     init: bool = True,
     repr: bool = True,
@@ -139,7 +139,7 @@ def vdc(
     config: ConfigDict | None = None,
     validate_on_init: bool | None = None,
     kw_only: bool = True,
-) -> Callable[[type[T]], type[T]] | type:
+) -> Callable[[type[_T]], type[_T]] | type:
     config_defaults = ConfigDict(
         arbitrary_types_allowed=True,
     )

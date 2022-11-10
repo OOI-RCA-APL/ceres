@@ -19,7 +19,7 @@ from uvicorn import Server as UvicornServer
 
 from ..address import ComponentAddress
 from ..component import ActionBinding, Component, QueryBinding
-from ..config import ComponentConfig, Config, ServerConfig, UnitConfig
+from ..config import Config, ServerConfig
 from ..errors import ReloadError
 from ..result import Fail, Ok
 from ..utilities import awaitify, simplify
@@ -40,7 +40,7 @@ class Server(Tasklet):
     ):
         self._config = config
         self._engine = engine
-        self._uvicorn = Uvicorn(
+        self._uvicorn = _Uvicorn(
             UvicornConfig(
                 app=create_app(engine),
                 port=config.port,
@@ -56,7 +56,7 @@ class Server(Tasklet):
             await self._uvicorn.shutdown()
 
 
-class Uvicorn(UvicornServer):  # type: ignore
+class _Uvicorn(UvicornServer):  # type: ignore
     async def serve(self, sockets: Any = None) -> None:
         logs.setup()
         await super().serve(sockets)
@@ -66,25 +66,25 @@ class Uvicorn(UvicornServer):  # type: ignore
         pass
 
 
-SuccessDataT = TypeVar("SuccessDataT")
-ErrorDataT = TypeVar("ErrorDataT")
+_SuccessDataT = TypeVar("_SuccessDataT")
+_ErrorDataT = TypeVar("_ErrorDataT")
 
 
-class Success(GenericModel, Generic[SuccessDataT]):
+class Success(GenericModel, Generic[_SuccessDataT]):
     status: Literal["ok"] = "ok"
-    data: SuccessDataT
+    data: _SuccessDataT
 
     @classmethod
-    def create(cls, data: SuccessDataT) -> Self:
+    def create(cls, data: _SuccessDataT) -> Self:
         return Success(data=data)
 
 
-class Error(GenericModel, Generic[ErrorDataT]):
+class Error(GenericModel, Generic[_ErrorDataT]):
     status: Literal["error"] = "error"
-    data: ErrorDataT
+    data: _ErrorDataT
 
     @classmethod
-    def create(cls, data: ErrorDataT) -> Self:
+    def create(cls, data: _ErrorDataT) -> Self:
         return Error(data=data)
 
 

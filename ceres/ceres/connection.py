@@ -31,7 +31,7 @@ class ConnectionReconnect:
         return validate_positive_timedelta(value)
 
 
-class ReconnectScheduler:
+class _ReconnectScheduler:
     def __init__(self, config: ConnectionReconnect) -> None:
         self.interval = config.interval
         self.max_interval = config.max_interval
@@ -65,7 +65,7 @@ class ConnectionInternal:
     state: ConnectionState
     last_message_sent: Message | None
     last_message_received: Message | None
-    reconnect: ReconnectScheduler
+    reconnect: _ReconnectScheduler
 
 
 class Connection(Component, ABC):
@@ -80,7 +80,7 @@ class Connection(Component, ABC):
             state=ConnectionState.DISCONNECTED,
             last_message_sent=None,
             last_message_received=None,
-            reconnect=ReconnectScheduler(self.parameters.reconnect),
+            reconnect=_ReconnectScheduler(self.parameters.reconnect),
         )
 
     @property

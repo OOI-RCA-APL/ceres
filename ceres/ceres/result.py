@@ -3,14 +3,14 @@ from typing import TYPE_CHECKING, Generic, Literal, TypeVar, final
 
 from .utilities import vdc
 
-ValueT = TypeVar("ValueT")
-ErrorT = TypeVar("ErrorT")
+_ValueT = TypeVar("_ValueT")
+_ErrorT = TypeVar("_ErrorT")
 
 
 @final
 @vdc(kw_only=False, frozen=True)
-class Ok(Generic[ValueT, ErrorT]):
-    value: ValueT
+class Ok(Generic[_ValueT, _ErrorT]):
+    value: _ValueT
     ok: Literal[True] = field(default=True, init=False)
 
     if TYPE_CHECKING:
@@ -25,8 +25,8 @@ class Ok(Generic[ValueT, ErrorT]):
 
 @final
 @vdc(kw_only=False, frozen=True)
-class Fail(Generic[ValueT, ErrorT]):
-    error: ErrorT
+class Fail(Generic[_ValueT, _ErrorT]):
+    error: _ErrorT
     ok: Literal[False] = field(default=False, init=False)
 
     if TYPE_CHECKING:
@@ -39,4 +39,4 @@ class Fail(Generic[ValueT, ErrorT]):
         return False
 
 
-Result = Ok[ValueT, ErrorT] | Fail[ValueT, ErrorT]
+Result = Ok[_ValueT, _ErrorT] | Fail[_ValueT, _ErrorT]
