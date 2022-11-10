@@ -1,4 +1,4 @@
-from abc import abstractmethod
+from abc import ABC, abstractmethod
 from datetime import timedelta
 from typing import Any, Sequence
 
@@ -12,7 +12,7 @@ from .schedule import Schedule
 from .utilities import utc
 
 
-class Notifier(Component):
+class Notifier(Component, ABC):
     class Parameters(Component.Parameters):
         schedule: Schedule | None = Field(default=None, discriminator="kind")
         lookback: timedelta

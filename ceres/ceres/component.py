@@ -2,23 +2,42 @@ import dataclasses
 import inspect
 import traceback
 from dataclasses import dataclass, field
+from functools import cache
 from inspect import Parameter
 from logging import Logger
-from typing import Any, Sequence, TypeVar, get_type_hints
+from types import MappingProxyType, UnionType
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Awaitable,
+    Callable,
+    Mapping,
+    Sequence,
+    TypeVar,
+    final,
+    get_type_hints,
+    overload,
+)
 from uuid import UUID, uuid4
 
 from typing_extensions import dataclass_transform
 
-from .address import ComponentAddress
+from .address import ComponentAddress, LocalComponentAddress
 from .alert import Alert, AlertLevel, RawAlertLevel
 from .config import ComponentConfig, Config, UnitConfig
-from .events import AlertEmittedEvent, Event, EventBinding, get_event_bindings
+from .events import AlertEmittedEvent, Event
 from .exceptions import ComponentClassInvalidException
 from .internal import logs
 from .internal.database.entity import EntityManager
 from .internal.database.manager import DatabaseManager
 from .internal.tasklet import Tasklet
-from .internal.utilities import get_type_annotations, loose_isinstance, object_has_field
+from .internal.utilities import (
+    add_binding,
+    get_bindings,
+    get_type_annotations,
+    loose_isinstance,
+    object_has_field,
+)
 from .scheduler import Scheduler
 from .stream import Stream, StreamView
 from .utilities import (
@@ -27,6 +46,14 @@ from .utilities import (
     awaitify,
     utc,
 )
+
+__all__ = [
+    "Component",
+    "ComponentMeta",
+    "EventBinding",
+    "ActionBinding",
+    "QueryBinding",
+]
 
 
 @dataclass(kw_only=True)
@@ -112,7 +139,7 @@ class Component(Tasklet, metaclass=ComponentMeta):
             extra: list[tuple[str, Any]] = []
 
             for current in dataclasses.fields(self):
-                if not object_has_field(CompleteComponentContext, current.name, current.type):
+                if not object_has_field(Component.CompleteContext, current.name, current.type):
                     extra.append((current.name, current.type))
 
             if extra:
@@ -127,6 +154,16 @@ class Component(Tasklet, metaclass=ComponentMeta):
     parameters: Parameters = field(default_factory=Parameters)
     context: Context
     references: References = field(default_factory=References)
+
+    @final
+    class CompleteContext(Context):
+        id: UUID
+        address: ComponentAddress
+        root_config: Config
+        unit_config: UnitConfig
+        component_config: ComponentConfig
+        database: DatabaseManager
+        entities: EntityManager
 
     def __post_init__(self) -> None:
         self.__component_internal__ = ComponentInteral()
@@ -144,8 +181,16 @@ class Component(Tasklet, metaclass=ComponentMeta):
         return get_type_annotations(cls)["references"]  # type: ignore
 
     @classmethod
-    def get_event_bindings(cls) -> Sequence[EventBinding]:
+    def get_event_bindings(cls) -> Sequence["EventBinding"]:
         return get_event_bindings(cls)
+
+    @classmethod
+    def get_action_bindings(cls) -> Mapping[str, "ActionBinding"]:
+        return get_action_bindings(cls)
+
+    @classmethod
+    def get_query_bindings(cls) -> Mapping[str, "QueryBinding"]:
+        return get_query_bindings(cls)
 
     @property
     def id(self) -> UUID:
@@ -207,7 +252,7 @@ class Component(Tasklet, metaclass=ComponentMeta):
 
     async def _process_incoming_event(self, event: Event) -> None:
         for binding in self.get_event_bindings():
-            if not loose_isinstance(event, binding.cls):
+            if not loose_isinstance(event, binding.event_cls):
                 continue
             target = getattr(self.references, binding.address.name, None)
             if not isinstance(target, Component):
@@ -230,10 +275,133 @@ class Component(Tasklet, metaclass=ComponentMeta):
         self.scheduler.stop()
 
 
-class CompleteComponentContext(Component.Context):
-    id: UUID
-    root_config: Config
-    unit_config: UnitConfig
-    component_config: ComponentConfig
-    database: DatabaseManager
-    entities: EntityManager
+FunctionT = TypeVar("FunctionT", bound=Callable[..., Any])
+
+EVENT_BINDINGS_ATTRIBUTE = "__event_bindings__"
+ACTION_BINDINGS_ATTRIBUTE = "__action_bindings__"
+QUERY_BINDINGS_ATTRIBUTE = "__value_bindings__"
+
+
+@dataclass(kw_only=True, frozen=True)
+class EventBinding:
+    address: LocalComponentAddress
+    event_cls: type | UnionType
+    function: Callable[..., Any]
+
+
+@dataclass(kw_only=True, frozen=True)
+class ActionBinding:
+    name: str
+    function: Callable[..., Any]
+
+
+@dataclass(kw_only=True, frozen=True)
+class QueryBinding:
+    name: str
+    function: Callable[..., Any]
+
+
+@overload
+def listen(
+    source: str,
+    cls: type[EventT],
+) -> Callable[
+    [Callable[[Any, EventT], None | Awaitable[None]]], Callable[[Any, EventT], Awaitable[None]]
+]:
+    ...
+
+
+@overload
+def listen(
+    source: str,
+    cls: UnionType,
+) -> Callable[
+    [Callable[[Any, Event], None | Awaitable[None]]], Callable[[Any, Event], Awaitable[None]]
+]:
+    ...
+
+
+def listen(
+    source: str,
+    cls: type[EventT] | UnionType,
+) -> Callable[
+    [Callable[[Any, EventT], None | Awaitable[None]]], Callable[[Any, EventT], Awaitable[None]]
+] | Callable[
+    [Callable[[Any, Event], None | Awaitable[None]]], Callable[[Any, Event], Awaitable[None]]
+]:
+    def inner(function: Callable[[Any, Event], None | Awaitable[None]]) -> Any:
+        bindings: Sequence[EventBinding] | None = getattr(function, EVENT_BINDINGS_ATTRIBUTE, None)
+        if not isinstance(bindings, list):
+            bindings = list(bindings or [])
+            setattr(function, EVENT_BINDINGS_ATTRIBUTE, bindings)
+
+        bindings.append(
+            EventBinding(
+                address=LocalComponentAddress(source),
+                event_cls=cls,
+                function=function,
+            )
+        )
+
+        return function
+
+    return inner
+
+
+def action(name: str) -> Callable[[FunctionT], FunctionT]:
+    def bind(function: FunctionT) -> FunctionT:
+        add_binding(
+            function,
+            ACTION_BINDINGS_ATTRIBUTE,
+            ActionBinding(
+                name=name,
+                function=function,
+            ),
+        )
+        return function
+
+    return bind
+
+
+def query(name: str) -> Callable[[FunctionT], FunctionT]:
+    def bind(function: FunctionT) -> FunctionT:
+        add_binding(
+            function,
+            QUERY_BINDINGS_ATTRIBUTE,
+            QueryBinding(
+                name=name,
+                function=function,
+            ),
+        )
+
+        return function
+
+    return bind
+
+
+def get_event_bindings(cls: type[ComponentT]) -> Sequence[EventBinding]:
+    return tuple(get_bindings(cls, EVENT_BINDINGS_ATTRIBUTE, EventBinding))
+
+
+def get_action_bindings(cls: type[ComponentT]) -> Mapping[str, ActionBinding]:
+    return MappingProxyType(
+        {
+            binding.name: binding
+            for binding in get_bindings(cls, ACTION_BINDINGS_ATTRIBUTE, ActionBinding)
+        }
+    )
+
+
+def get_query_bindings(cls: type[ComponentT]) -> Mapping[str, QueryBinding]:
+    return MappingProxyType(
+        {
+            binding.name: binding
+            for binding in get_bindings(cls, QUERY_BINDINGS_ATTRIBUTE, QueryBinding)
+        }
+    )
+
+
+if not TYPE_CHECKING:
+    get_event_bindings = cache(get_event_bindings)
+    get_action_bindings = cache(get_action_bindings)
+    get_query_bindings = cache(get_query_bindings)

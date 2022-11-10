@@ -1,36 +1,42 @@
 from functools import wraps
-from typing import Any, Callable, Generic, Literal, Protocol, TypeVar, cast
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Generic,
+    Literal,
+    TypeVar,
+    cast,
+    get_type_hints,
+)
 
-from fastapi import FastAPI, Response
+from fastapi import APIRouter, FastAPI, Response
 from pydantic.generics import GenericModel
 from starlette.status import HTTP_400_BAD_REQUEST
 from typing_extensions import Self
 from uvicorn import Config as UvicornConfig
 from uvicorn import Server as UvicornServer
 
-from ..config import Config, ServerConfig
+from ..address import ComponentAddress
+from ..component import ActionBinding, Component, QueryBinding
+from ..config import ComponentConfig, Config, ServerConfig, UnitConfig
 from ..errors import ReloadError
-from ..result import Fail, Ok, Result
+from ..result import Fail, Ok
 from ..utilities import awaitify, simplify
 from . import logs
+from .component import load_component_cls
 from .tasklet import Tasklet
 from .utilities import unreachable
 
-
-class ServerEngine(Protocol):
-    @property
-    def config(self) -> Config:
-        ...
-
-    async def reload(self) -> Result[Config, ReloadError]:
-        ...
+if TYPE_CHECKING:
+    from ..engine import Engine
 
 
 class Server(Tasklet):
     def __init__(
         self,
         config: ServerConfig,
-        engine: ServerEngine,
+        engine: "Engine",
     ):
         self._config = config
         self._engine = engine
@@ -90,19 +96,20 @@ def presimplify(function: Callable[..., Any]) -> Callable[..., Any]:
     return wrapper
 
 
-def create_app(engine: ServerEngine) -> FastAPI:
+def create_app(engine: "Engine") -> FastAPI:
     app = FastAPI()
+    api = APIRouter()
 
-    @app.on_event("startup")
+    @api.on_event("startup")
     def startup() -> None:
         logs.setup()
 
-    @app.get("/config", response_model=Config)
+    @api.get("/config", response_model=Config)
     @presimplify
     async def config() -> Config:
         return engine.config
 
-    @app.post(
+    @api.post(
         "/reload",
         response_model=cast(Any, Success[Config] | Error[ReloadError]),
     )
@@ -117,4 +124,67 @@ def create_app(engine: ServerEngine) -> FastAPI:
 
         unreachable()
 
+    def register(
+        router: APIRouter,
+        address: ComponentAddress,
+        binding: ActionBinding | QueryBinding,
+    ) -> None:
+        if (method := getattr(instance, binding.function.__name__, None)) is None:
+            return
+
+        match binding:
+            case ActionBinding():
+                term = "actions"
+            case QueryBinding():
+                term = "queries"
+
+        path = f"/units/{address.unit}/components/{address.name}/{term}/{binding.name}"
+        try:
+            model = get_type_hints(method).get("return")
+        except Exception:
+            return
+
+        match term:
+            case "actions":
+
+                @router.post(path, response_model=model)
+                @wraps(method)
+                async def action_endpoint(*args: Any, **kwargs: Any) -> Any:
+                    return await engine.call_action(
+                        address,
+                        binding.name,
+                        kwargs,
+                    )
+
+            case "queries":
+
+                @router.get(path, response_model=model)
+                @wraps(method)
+                async def query_endpoint(*args: Any, **kwargs: Any) -> Any:
+                    return await engine.call_query(
+                        address,
+                        binding.name,
+                        kwargs,
+                    )
+
+    for unit_config in engine.config.units:
+        for component_config in unit_config.components:
+            match load_component_cls(Component, component_config):
+                case Ok(cls):
+                    pass
+                case Fail():
+                    continue
+
+            instance = cls.__new__(cls)
+            actions = cls.get_action_bindings()
+            queries = cls.get_query_bindings()
+
+            for binding in [*actions.values(), *queries.values()]:
+                register(
+                    api,
+                    ComponentAddress(unit_config.name, component_config.name),
+                    binding,
+                )
+
+    app.include_router(api, prefix="/api")
     return app

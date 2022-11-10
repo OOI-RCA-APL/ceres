@@ -1,11 +1,15 @@
 import asyncio
+import inspect
 import traceback
 from dataclasses import dataclass
 from logging import ERROR, INFO, WARNING, Logger
 from multiprocessing.managers import BaseManager
 from threading import Lock
-from typing import Any, Iterable, Protocol, cast
+from types import MappingProxyType
+from typing import Any, Mapping, Protocol, cast
 from uuid import UUID
+
+from pydantic import validate_arguments
 
 from ..address import ComponentAddress, LocalComponentAddress, UnitAddress
 from ..alert import Alert, AlertLevel
@@ -14,7 +18,7 @@ from ..config import Config, UnitConfig
 from ..events import AlertEmittedEvent, Event, MessageReceivedEvent, MessageSentEvent
 from ..message import Message, MessageDirection
 from ..result import Fail, Ok
-from ..utilities import jsonify
+from ..utilities import awaitify, jsonify
 from . import logs
 from .component import (
     ComponentHandle,
@@ -47,6 +51,22 @@ class UnitProxyProtocol(Protocol):
         ...
 
     def rpc_stop(self) -> BaseException | None:
+        ...
+
+    def rpc_call_action(
+        self,
+        address: LocalComponentAddress,
+        action: str,
+        arguments: Mapping[str, Any],
+    ) -> BaseException | None:
+        ...
+
+    def rpc_call_query(
+        self,
+        address: LocalComponentAddress,
+        query: str,
+        arguments: Mapping[str, Any],
+    ) -> BaseException | None:
         ...
 
 
@@ -90,17 +110,17 @@ class Unit(UnitProxyProtocol, Tasklet):
         return logs.get(str(self._context.address))
 
     @property
-    def components(self) -> Iterable[ComponentHandle[Component]]:
-        return self._components.values()
+    def components(self) -> Mapping[str, ComponentHandle[Component]]:
+        return MappingProxyType(self._components)
 
-    def get_component(
+    def get_component_handle(
         self,
         address: str | LocalComponentAddress,
     ) -> ComponentHandle[Component] | None:
         return self._components.get(address if isinstance(address, str) else address.name)
 
     async def dispatch_event(self, event: Event) -> None:
-        for component in self.components:
+        for component in self.components.values():
             if not component.instance:
                 continue
 
@@ -142,7 +162,12 @@ class Unit(UnitProxyProtocol, Tasklet):
                 raise ValueError(alert.level)
 
         origin = next(
-            (component for component in self.components if component.id == alert.origin_id), None
+            (
+                component
+                for component in self.components.values()
+                if component.id == alert.origin_id
+            ),
+            None,
         )
 
         logger = origin.logger if origin else self.logger
@@ -173,10 +198,96 @@ class Unit(UnitProxyProtocol, Tasklet):
     def rpc_stop(self) -> BaseException | None:
         return asyncio.run_coroutine_threadsafe(self.stop(), self._loop).exception()
 
+    def rpc_call_action(
+        self,
+        address: LocalComponentAddress,
+        action: str,
+        arguments: Mapping[str, Any],
+    ) -> BaseException | Any:
+        future = asyncio.run_coroutine_threadsafe(
+            self.call_action(address, action, arguments),
+            self._loop,
+        )
+
+        try:
+            return future.result()
+        except BaseException as exception:
+            return exception
+
+    def rpc_call_query(
+        self,
+        address: LocalComponentAddress,
+        query: str,
+        arguments: Mapping[str, Any],
+    ) -> BaseException | Any:
+        future = asyncio.run_coroutine_threadsafe(
+            self.call_query(address, query, arguments),
+            self._loop,
+        )
+
+        try:
+            return future.result()
+        except BaseException as exception:
+            return exception
+
+    async def call_action(
+        self,
+        address: LocalComponentAddress,
+        action: str,
+        arguments: Mapping[str, Any],
+    ) -> Any:
+        if (component := self.get_component_handle(address)) is None:
+            raise ValueError(f"component at {address} does not exist")
+        if component.instance is None:
+            raise ValueError(f"component at {address} is not loaded")
+
+        instance = component.instance
+        if (binding := instance.get_action_bindings().get(action)) is None:
+            raise ValueError(
+                f"component of type {strify(type(component))} at {address} has no action named '{action}'"
+            )
+
+        if (
+            method := getattr(instance, binding.function.__name__, None)
+        ) is None or not inspect.ismethod(method):
+            raise ValueError(
+                f"component of type {strify(type(instance))} at address {address} has no method named '{action}' "
+            )
+
+        result = await awaitify(validate_arguments(method)(**arguments))
+        return result
+
+    async def call_query(
+        self,
+        address: LocalComponentAddress,
+        query: str,
+        arguments: Mapping[str, Any],
+    ) -> Any:
+        if (component := self.get_component_handle(address)) is None:
+            raise ValueError(f"component at {address} does not exist")
+        if component.instance is None:
+            raise ValueError(f"component at {address} is not loaded")
+
+        instance = component.instance
+        if (binding := instance.get_query_bindings().get(query)) is None:
+            raise ValueError(
+                f"component of type {strify(type(component))} at {address} has no query named '{query}'"
+            )
+
+        if (
+            method := getattr(instance, binding.function.__name__, None)
+        ) is None or not inspect.ismethod(method):
+            raise ValueError(
+                f"component of type {strify(type(instance))} at address {address} has no method named '{query}' "
+            )
+
+        result = await awaitify(validate_arguments(method)(**arguments))
+        return result
+
     async def __run__(self) -> None:
         await self._load_components()
 
-        for component in self.components:
+        for component in self.components.values():
             component.start(
                 on_exception=self._on_component_exception,
                 on_completed=self._on_component_completed,
@@ -200,7 +311,7 @@ class Unit(UnitProxyProtocol, Tasklet):
                 await self._alert_buffer.flush()
 
     async def __stop__(self) -> None:
-        for component in self.components:
+        for component in self.components.values():
             await component.stop()
         await self._database.dispose()
 
@@ -303,14 +414,14 @@ class UnitHandle(Tasklet):
                 self._instance = instance
 
             try:
-                exception = instance.rpc_run()
+                result = instance.rpc_run()
             except EOFError:
-                exception = None
+                result = None
                 pass
 
-            if exception:
+            if isinstance(result, BaseException):
                 self.logger.error(
-                    f"Exception occurred while running unit '{self.address}': {strify(exception)}"
+                    f"Exception occurred while running unit '{self.address}': {strify(result)}"
                 )
 
         await asyncio.to_thread(execute)
@@ -320,21 +431,63 @@ class UnitHandle(Tasklet):
             with self._lock:
                 if self._instance:
                     try:
-                        exception = self._instance.rpc_stop()
+                        result = self._instance.rpc_stop()
                     except EOFError:
-                        exception = None
+                        result = None
                         pass
                     finally:
                         self._instance = None
                 else:
-                    exception = None
+                    result = None
 
                 if self._manager:
                     self._manager.shutdown()
 
-            if exception:
+            if isinstance(result, BaseException):
                 self.logger.error(
-                    f"Exception occurred while stopping unit '{self.address}': {strify(exception)}"
+                    f"Exception occurred while stopping unit '{self.address}': {strify(result)}"
                 )
 
         await asyncio.to_thread(execute)
+
+    async def call_action(
+        self,
+        address: LocalComponentAddress,
+        action: str,
+        arguments: Mapping[str, Any],
+    ) -> Any:
+        def execute() -> Any:
+            if self.instance is None:
+                raise ValueError(f"unit at {address} is not loaded")
+
+            result = self.instance.rpc_call_action(address, action, arguments)
+            if isinstance(result, BaseException):
+                self.logger.error(
+                    f"Exception occurred while running calling action '{action}' on component '{self.address}': {strify(result)}"
+                )
+                raise result
+
+            return result
+
+        return await asyncio.to_thread(execute)
+
+    async def call_query(
+        self,
+        address: LocalComponentAddress,
+        query: str,
+        arguments: Mapping[str, Any],
+    ) -> Any:
+        def execute() -> Any:
+            if self.instance is None:
+                raise ValueError(f"unit at {address} is not loaded")
+
+            result = self.instance.rpc_call_query(address, query, arguments)
+            if isinstance(result, BaseException):
+                self.logger.error(
+                    f"Exception occurred while running calling action '{query}' on component '{self.address}': {strify(result)}"
+                )
+                raise result
+
+            return result
+
+        return await asyncio.to_thread(execute)

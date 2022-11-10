@@ -11,7 +11,7 @@ from pydantic import ValidationError
 from yaml import MarkedYAMLError, YAMLError
 
 from ..address import ComponentAddress
-from ..component import CompleteComponentContext, Component
+from ..component import Component
 from ..config import Config, UnitConfig
 from ..connection import Connection
 from ..driver import Driver
@@ -175,7 +175,7 @@ async def _check_components(
                 match load_component(
                     cls,
                     component_config,
-                    CompleteComponentContext(
+                    Component.CompleteContext(
                         id=uuid4(),
                         address=address,
                         root_config=config,

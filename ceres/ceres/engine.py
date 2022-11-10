@@ -9,9 +9,9 @@ from enum import Enum
 from logging import Logger
 from pathlib import Path
 from queue import Empty, Queue
-from typing import Any, Callable, Iterator, Sequence
+from typing import Any, Callable, Iterator, Mapping, Sequence
 
-from .address import UnitAddress
+from .address import ComponentAddress, LocalComponentAddress, UnitAddress
 from .config import Config, UnitConfig
 from .errors import ReloadAlreadyActiveError, ReloadConfigInvalidError, ReloadError
 from .exceptions import (
@@ -21,12 +21,16 @@ from .exceptions import (
 from .internal import logs
 from .internal.config import load_config
 from .internal.database.manager import DatabaseManager
-from .internal.server import Server, ServerEngine
+from .internal.server import Server
 from .internal.tasklet import Tasklet
 from .internal.unit import UnitContext, UnitHandle
 from .internal.utilities import unreachable
 from .result import Fail, Ok, Result
 from .utilities import jsonify
+
+__all__ = [
+    "Engine",
+]
 
 
 class UnitSyncActionKind(str, Enum):
@@ -41,7 +45,7 @@ class UnitSyncAction:
     address: UnitAddress
 
 
-class Engine(Tasklet, ServerEngine):
+class Engine(Tasklet):
     def __init__(self, config: Config) -> None:
         self._config = config
         self._config_queue: Queue[Config] = Queue()
@@ -155,6 +159,36 @@ class Engine(Tasklet, ServerEngine):
         await self._stop_units()
         await self._database.dispose()
 
+    async def call_action(
+        self,
+        address: ComponentAddress,
+        action: str,
+        arguments: Mapping[str, Any],
+    ) -> Any:
+        if (unit := self._units.get(UnitAddress(address.unit))) is None:
+            raise ValueError(f"unit at {address} does not exist")
+
+        return await unit.call_action(
+            LocalComponentAddress(address.name),
+            action,
+            arguments,
+        )
+
+    async def call_query(
+        self,
+        address: ComponentAddress,
+        query: str,
+        arguments: Mapping[str, Any],
+    ) -> Any:
+        if (unit := self._units.get(UnitAddress(address.unit))) is None:
+            raise ValueError(f"unit at {address} does not exist")
+
+        return await unit.call_query(
+            LocalComponentAddress(address.name),
+            query,
+            arguments,
+        )
+
     async def _reload(self) -> None:
         self.logger.info("Reloading...")
         config_previous = self._config
@@ -198,9 +232,13 @@ class Engine(Tasklet, ServerEngine):
     async def _start_server(self) -> None:
         if not self._server:
             self._server = Server(self._config.server, self)
+
         if not self._server.running:
             self.logger.info("Starting server...")
-            self._server.start()
+            self._server.start(
+                on_completed=self._on_server_completed,
+                on_exception=self._on_server_exception,
+            )
 
     async def _stop_server(self) -> None:
         if self._server:
@@ -322,6 +360,14 @@ class Engine(Tasklet, ServerEngine):
                 actions.append(UnitSyncAction(address=address, kind=UnitSyncActionKind.REMOVE))
 
         return actions
+
+    def _on_server_completed(self, server: Server) -> None:
+        self.logger.info(f"Server completed execution.")
+
+    def _on_server_exception(self, server: Server, exception: BaseException) -> None:
+        self.logger.error(
+            f"An exception occurred in server: {traceback.format_exception(exception)}"
+        )
 
     def _on_unit_completed(self, unit: UnitHandle) -> None:
         self.logger.info(f"Unit '{unit.address}' completed execution.")

@@ -1,5 +1,5 @@
 import asyncio
-from abc import abstractmethod
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import timedelta
 from enum import Enum
@@ -68,7 +68,7 @@ class ConnectionInternal:
     reconnect: ReconnectScheduler
 
 
-class Connection(Component):
+class Connection(Component, ABC):
     class Parameters(Component.Parameters):
         reconnect: ConnectionReconnect
 

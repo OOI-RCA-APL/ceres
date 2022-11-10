@@ -7,13 +7,13 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from functools import cache
 from logging import Logger
-from typing import TYPE_CHECKING, Any, Generic, Mapping, TypeVar
+from typing import TYPE_CHECKING, Any, Generic, Mapping, TypeVar, cast
 from uuid import UUID
 
 from pydantic import ValidationError, parse_obj_as, validate_arguments
 
 from ..address import ComponentAddress
-from ..component import CompleteComponentContext, Component
+from ..component import Component
 from ..config import ComponentConfig, Config, UnitConfig
 from ..connection import Connection
 from ..driver import Driver
@@ -40,12 +40,10 @@ if TYPE_CHECKING:
 LoadedComponentT = TypeVar("LoadedComponentT", bound=Component)
 
 
-def load_component(
+def load_component_cls(
     supercls: type[LoadedComponentT],
     config: ComponentConfig,
-    context: CompleteComponentContext,
-    siblings: Mapping[str, Component],
-) -> Result[LoadedComponentT, ComponentError]:
+) -> Result[type[LoadedComponentT], ComponentError]:
     if not isinstance(config.component, str):
         if not isinstance(config.component, supercls):
             return Fail(
@@ -54,43 +52,61 @@ def load_component(
                 )
             )
 
-        return Ok(config.component)
+        return Ok(type(config.component))
+
+    last_dot_index = config.component.rindex(".")
+    cls_module_path = config.component[:last_dot_index]
+    cls_name = config.component[last_dot_index + 1 :]
 
     try:
-        module = importlib.import_module(config.component)
+        module = importlib.import_module(cls_module_path)
     except Exception as exception:
-        if isinstance(exception, ModuleNotFoundError) and exception.name == config.component:
+        if isinstance(exception, ModuleNotFoundError) and exception.name == cls_module_path:
             return Fail(
                 ComponentModuleNotFoundError(
-                    message=f"component module '{config.component}' was not found"
+                    message=f"component module '{cls_module_path}' was not found"
                 )
             )
 
         return Fail(
             ComponentModuleExceptionError(
-                message=f"component module '{config.component}' raised an exception during import",
+                message=f"component module '{cls_module_path}' raised an exception during import",
                 traceback=traceback.format_exc(),
             )
         )
 
-    cls: type[LoadedComponentT] | None = None
-
-    # Find the last non-abstract class in the module that is a subclass of the "cls" argument.
-    for _, member in inspect.getmembers(module):
-        if (
-            inspect.isclass(member)
-            and not inspect.isabstract(member)
-            and member is not supercls
-            and issubclass(member, supercls)
-        ):
-            cls = member
-
+    cls: type[LoadedComponentT] = getattr(module, cls_name, None)  # type: ignore
     if cls is None:
         return Fail(
             ComponentClassNotFoundError(
-                message=f"component module {module} must contain class a non-abstract subclass of {strify(supercls)}"
+                message=f"component module {module} does not contain component class {cls_name}"
             )
         )
+
+    if not issubclass(cls, supercls):
+        return Fail(
+            ComponentClassInvalidError(
+                message=f"component {strify(cls)} must be subclass of {strify(supercls)}"
+            )
+        )
+
+    return Ok(cls)
+
+
+def load_component(
+    supercls: type[LoadedComponentT],
+    config: ComponentConfig,
+    context: Component.CompleteContext,
+    siblings: Mapping[str, Component],
+) -> Result[LoadedComponentT, ComponentError]:
+    match load_component_cls(supercls, config):
+        case Ok(cls):
+            pass
+        case Fail(error):
+            return Fail(error)
+
+    if not isinstance(config.component, str):
+        return Ok(cast(LoadedComponentT, config.component))
 
     parameters_type = cls.get_parameters_type()
     context_type = cls.get_context_type()
@@ -225,7 +241,7 @@ class ComponentHandle(Generic[ComponentT], Tasklet, ABC):
         return logs.get(str(self._context.address))
 
     async def __run__(self) -> None:
-        if not self.instance:
+        if self.instance is None:
             return
 
         await asyncio.gather(
@@ -234,32 +250,32 @@ class ComponentHandle(Generic[ComponentT], Tasklet, ABC):
         )
 
     async def _process_component(self) -> None:
-        if not self.instance:
+        if self.instance is None:
             return
 
         await self.instance.run()
 
     async def _process_events(self) -> None:
-        if not self.instance:
+        if self.instance is None:
             return
 
         async for event in self.instance.event_stream:
             await self._context.unit.dispatch_event(event)
 
     async def __stop__(self) -> None:
-        if not self.instance:
+        if self.instance is None:
             return
 
         await self.instance.stop()
 
     async def load(self) -> Result[ComponentT, ComponentError]:
-        if self.instance:
+        if self.instance is not None:
             return Ok(self.instance)
 
         match load_component(
             self.get_component_type(),
             self.config,
-            CompleteComponentContext(
+            Component.CompleteContext(
                 id=self.id,
                 address=self.address,
                 root_config=self._context.root_config,
@@ -269,8 +285,8 @@ class ComponentHandle(Generic[ComponentT], Tasklet, ABC):
                 entities=self._context.unit.database.entities,
             ),
             {
-                component.address.name: component.instance
-                for component in self._context.unit.components
+                name: component.instance
+                for name, component in self._context.unit.components.items()
                 if component.instance
             },
         ):
