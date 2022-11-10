@@ -1,9 +1,8 @@
-import asyncio
 import re
 from textwrap import dedent
-from typing import Any, Iterable, cast
+from typing import Any, Callable, Iterable, TypeVar, cast
 
-from sqlalchemy import ClauseElement, Table, inspect, text
+from sqlalchemy import ClauseElement, Connection, Table, inspect, text
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession, async_sessionmaker
 from sqlalchemy.schema import CreateIndex, CreateTable
 from sqlalchemy.sql.elements import TextClause
@@ -19,12 +18,14 @@ from ..utilities import unreachable
 from .adapter import DatabaseAdapter
 from .entity import Entity, EntityManager
 
+_T = TypeVar("_T")
+
 
 class DatabaseManager(ValidateByType):
     def __init__(self, config: DatabaseConfig) -> None:
         self._config = config
         self._adapter = self._create_adapter(config)
-        self._engine = self._adapter.create_async_engine()
+        self._engine = self._adapter.create_engine()
         self._session_maker = async_sessionmaker(
             self._engine,
             AsyncSession,
@@ -113,10 +114,8 @@ class DatabaseManager(ValidateByType):
                 await connection.execute(text(statement))
 
     async def tables(self) -> list[str]:
-        engine = self._adapter.create_sync_engine()
-        inspector = inspect(engine)
+        return await self._run_sync(lambda connection: inspect(connection).get_table_names())
 
-        try:
-            return await asyncio.to_thread(lambda: inspector.get_table_names())
-        finally:
-            engine.dispose()
+    async def _run_sync(self, callback: Callable[[Connection], _T]) -> _T:
+        async with self.connect() as connection:
+            return await connection.run_sync(callback)
