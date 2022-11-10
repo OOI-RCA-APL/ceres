@@ -47,24 +47,16 @@ class UnitContext:
 
 
 class UnitProxyProtocol(Protocol):
-    def rpc_run(self) -> BaseException | None:
+    def interprocess_run(self) -> BaseException | None:
         ...
 
-    def rpc_stop(self) -> BaseException | None:
+    def interprocess_stop(self) -> BaseException | None:
         ...
 
-    def rpc_call_action(
+    def interprocess_rpc(
         self,
         address: LocalComponentAddress,
-        action: str,
-        arguments: Mapping[str, Any],
-    ) -> BaseException | None:
-        ...
-
-    def rpc_call_query(
-        self,
-        address: LocalComponentAddress,
-        query: str,
+        name: str,
         arguments: Mapping[str, Any],
     ) -> BaseException | None:
         ...
@@ -187,7 +179,7 @@ class Unit(UnitProxyProtocol, Tasklet):
             )
         )
 
-    def rpc_run(self) -> BaseException | None:
+    def interprocess_run(self) -> BaseException | None:
         try:
             self._loop.run_until_complete(self.run())
         except BaseException as exception:
@@ -195,17 +187,17 @@ class Unit(UnitProxyProtocol, Tasklet):
 
         return None
 
-    def rpc_stop(self) -> BaseException | None:
+    def interprocess_stop(self) -> BaseException | None:
         return asyncio.run_coroutine_threadsafe(self.stop(), self._loop).exception()
 
-    def rpc_call_action(
+    def interprocess_rpc(
         self,
         address: LocalComponentAddress,
-        action: str,
+        name: str,
         arguments: Mapping[str, Any],
     ) -> BaseException | Any:
         future = asyncio.run_coroutine_threadsafe(
-            self.call_action(address, action, arguments),
+            self.rpc(address, name, arguments),
             self._loop,
         )
 
@@ -214,26 +206,10 @@ class Unit(UnitProxyProtocol, Tasklet):
         except BaseException as exception:
             return exception
 
-    def rpc_call_query(
+    async def rpc(
         self,
         address: LocalComponentAddress,
-        query: str,
-        arguments: Mapping[str, Any],
-    ) -> BaseException | Any:
-        future = asyncio.run_coroutine_threadsafe(
-            self.call_query(address, query, arguments),
-            self._loop,
-        )
-
-        try:
-            return future.result()
-        except BaseException as exception:
-            return exception
-
-    async def call_action(
-        self,
-        address: LocalComponentAddress,
-        action: str,
+        name: str,
         arguments: Mapping[str, Any],
     ) -> Any:
         if (component := self.get_component_handle(address)) is None:
@@ -242,43 +218,14 @@ class Unit(UnitProxyProtocol, Tasklet):
             raise ValueError(f"component at {address} is not loaded")
 
         instance = component.instance
-        if (binding := instance.get_action_bindings().get(action)) is None:
-            raise ValueError(
-                f"component of type {strify(type(component))} at {address} has no action named '{action}'"
-            )
 
         if (
-            method := getattr(instance, binding.function.__name__, None)
-        ) is None or not inspect.ismethod(method):
+            (binding := instance.get_rpc_bindings().get(name)) is None
+            or (method := getattr(instance, binding.function.__name__, None)) is None
+            or not inspect.ismethod(method)
+        ):
             raise ValueError(
-                f"component of type {strify(type(instance))} at address {address} has no method named '{action}' "
-            )
-
-        result = await awaitify(validate_arguments(method)(**arguments))
-        return result
-
-    async def call_query(
-        self,
-        address: LocalComponentAddress,
-        query: str,
-        arguments: Mapping[str, Any],
-    ) -> Any:
-        if (component := self.get_component_handle(address)) is None:
-            raise ValueError(f"component at {address} does not exist")
-        if component.instance is None:
-            raise ValueError(f"component at {address} is not loaded")
-
-        instance = component.instance
-        if (binding := instance.get_query_bindings().get(query)) is None:
-            raise ValueError(
-                f"component of type {strify(type(component))} at {address} has no query named '{query}'"
-            )
-
-        if (
-            method := getattr(instance, binding.function.__name__, None)
-        ) is None or not inspect.ismethod(method):
-            raise ValueError(
-                f"component of type {strify(type(instance))} at address {address} has no method named '{query}' "
+                f"component of type {strify(type(component))} at {address} has no rpc method named '{name}'"
             )
 
         result = await awaitify(validate_arguments(method)(**arguments))
@@ -414,7 +361,7 @@ class UnitHandle(Tasklet):
                 self._instance = instance
 
             try:
-                result = instance.rpc_run()
+                result = instance.interprocess_run()
             except EOFError:
                 result = None
                 pass
@@ -431,7 +378,7 @@ class UnitHandle(Tasklet):
             with self._lock:
                 if self._instance:
                     try:
-                        result = self._instance.rpc_stop()
+                        result = self._instance.interprocess_stop()
                     except EOFError:
                         result = None
                         pass
@@ -450,7 +397,7 @@ class UnitHandle(Tasklet):
 
         await asyncio.to_thread(execute)
 
-    async def call_action(
+    async def rpc(
         self,
         address: LocalComponentAddress,
         action: str,
@@ -460,31 +407,10 @@ class UnitHandle(Tasklet):
             if self.instance is None:
                 raise ValueError(f"unit at {address} is not loaded")
 
-            result = self.instance.rpc_call_action(address, action, arguments)
+            result = self.instance.interprocess_rpc(address, action, arguments)
             if isinstance(result, BaseException):
                 self.logger.error(
                     f"Exception occurred while running calling action '{action}' on component '{self.address}': {strify(result)}"
-                )
-                raise result
-
-            return result
-
-        return await asyncio.to_thread(execute)
-
-    async def call_query(
-        self,
-        address: LocalComponentAddress,
-        query: str,
-        arguments: Mapping[str, Any],
-    ) -> Any:
-        def execute() -> Any:
-            if self.instance is None:
-                raise ValueError(f"unit at {address} is not loaded")
-
-            result = self.instance.rpc_call_query(address, query, arguments)
-            if isinstance(result, BaseException):
-                self.logger.error(
-                    f"Exception occurred while running calling action '{query}' on component '{self.address}': {strify(result)}"
                 )
                 raise result
 

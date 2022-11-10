@@ -2,6 +2,7 @@ import dataclasses
 import inspect
 import traceback
 from dataclasses import dataclass, field
+from enum import Enum
 from functools import cache
 from inspect import Parameter
 from logging import Logger
@@ -177,12 +178,8 @@ class Component(Tasklet, metaclass=ComponentMeta):
         return _get_event_bindings(cls)
 
     @classmethod
-    def get_action_bindings(cls) -> Mapping[str, "ActionBinding"]:
-        return _get_action_bindings(cls)
-
-    @classmethod
-    def get_query_bindings(cls) -> Mapping[str, "QueryBinding"]:
-        return _get_query_bindings(cls)
+    def get_rpc_bindings(cls) -> Mapping[str, "RPCBinding"]:
+        return _get_rpc_bindings(cls)
 
     @property
     def id(self) -> UUID:
@@ -267,29 +264,14 @@ class Component(Tasklet, metaclass=ComponentMeta):
         self.scheduler.stop()
 
 
-FunctionT = TypeVar("FunctionT", bound=Callable[..., Any])
-
 EVENT_BINDINGS_ATTRIBUTE = "__event_bindings__"
-ACTION_BINDINGS_ATTRIBUTE = "__action_bindings__"
-QUERY_BINDINGS_ATTRIBUTE = "__value_bindings__"
+RPC_BINDINGS_ATTRIBUTE = "__rpc_bindings__"
 
 
 @dataclass(kw_only=True, frozen=True)
 class EventBinding:
     address: LocalComponentAddress
     event_cls: type | UnionType
-    function: Callable[..., Any]
-
-
-@dataclass(kw_only=True, frozen=True)
-class ActionBinding:
-    name: str
-    function: Callable[..., Any]
-
-
-@dataclass(kw_only=True, frozen=True)
-class QueryBinding:
-    name: str
     function: Callable[..., Any]
 
 
@@ -340,13 +322,29 @@ def listen(
     return inner
 
 
-def action(name: str) -> Callable[[FunctionT], FunctionT]:
-    def bind(function: FunctionT) -> FunctionT:
+class RPCKind(str, Enum):
+    QUERY = "query"
+    ACTION = "action"
+
+
+@dataclass(kw_only=True, frozen=True)
+class RPCBinding:
+    name: str
+    kind: RPCKind
+    function: Callable[..., Any]
+
+
+_FunctionT = TypeVar("_FunctionT", bound=Callable[..., Any])
+
+
+def rpc(name: str, kind: RPCKind) -> Callable[[_FunctionT], _FunctionT]:
+    def bind(function: _FunctionT) -> _FunctionT:
         add_binding(
             function,
-            ACTION_BINDINGS_ATTRIBUTE,
-            ActionBinding(
+            RPC_BINDINGS_ATTRIBUTE,
+            RPCBinding(
                 name=name,
+                kind=kind,
                 function=function,
             ),
         )
@@ -355,45 +353,24 @@ def action(name: str) -> Callable[[FunctionT], FunctionT]:
     return bind
 
 
-def query(name: str) -> Callable[[FunctionT], FunctionT]:
-    def bind(function: FunctionT) -> FunctionT:
-        add_binding(
-            function,
-            QUERY_BINDINGS_ATTRIBUTE,
-            QueryBinding(
-                name=name,
-                function=function,
-            ),
-        )
+def query(name: str) -> Callable[[_FunctionT], _FunctionT]:
+    return rpc(name, RPCKind.QUERY)
 
-        return function
 
-    return bind
+def action(name: str) -> Callable[[_FunctionT], _FunctionT]:
+    return rpc(name, RPCKind.ACTION)
 
 
 def _get_event_bindings(cls: type[_ComponentT]) -> Sequence[EventBinding]:
     return tuple(get_bindings(cls, EVENT_BINDINGS_ATTRIBUTE, EventBinding))
 
 
-def _get_action_bindings(cls: type[_ComponentT]) -> Mapping[str, ActionBinding]:
+def _get_rpc_bindings(cls: type[_ComponentT]) -> Mapping[str, RPCBinding]:
     return MappingProxyType(
-        {
-            binding.name: binding
-            for binding in get_bindings(cls, ACTION_BINDINGS_ATTRIBUTE, ActionBinding)
-        }
-    )
-
-
-def _get_query_bindings(cls: type[_ComponentT]) -> Mapping[str, QueryBinding]:
-    return MappingProxyType(
-        {
-            binding.name: binding
-            for binding in get_bindings(cls, QUERY_BINDINGS_ATTRIBUTE, QueryBinding)
-        }
+        {binding.name: binding for binding in get_bindings(cls, RPC_BINDINGS_ATTRIBUTE, RPCBinding)}
     )
 
 
 if not TYPE_CHECKING:
     _get_event_bindings = cache(_get_event_bindings)
-    _get_action_bindings = cache(_get_action_bindings)
-    _get_query_bindings = cache(_get_query_bindings)
+    _get_rpc_bindings = cache(_get_rpc_bindings)

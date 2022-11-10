@@ -18,7 +18,7 @@ from uvicorn import Config as UvicornConfig
 from uvicorn import Server as UvicornServer
 
 from ..address import ComponentAddress
-from ..component import ActionBinding, Component, QueryBinding
+from ..component import Component, RPCBinding, RPCKind
 from ..config import Config, ServerConfig
 from ..errors import ReloadError
 from ..result import Fail, Ok
@@ -124,48 +124,43 @@ def create_app(engine: "Engine") -> FastAPI:
 
         unreachable()
 
-    def register(
+    def register_rpc_route(
         router: APIRouter,
         address: ComponentAddress,
-        binding: ActionBinding | QueryBinding,
+        binding: RPCBinding,
     ) -> None:
         if (method := getattr(instance, binding.function.__name__, None)) is None:
             return
 
-        match binding:
-            case ActionBinding():
-                term = "actions"
-            case QueryBinding():
+        @wraps(method)
+        async def endpoint(*args: Any, **kwargs: Any) -> Any:
+            return await engine.rpc(
+                address,
+                binding.name,
+                kwargs,
+            )
+
+        match binding.kind:
+            case RPCKind.QUERY:
                 term = "queries"
+                methods = ["GET"]
+            case RPCKind.ACTION:
+                term = "actions"
+                methods = ["POST"]
 
         path = f"/units/{address.unit}/components/{address.name}/{term}/{binding.name}"
+
         try:
-            model = get_type_hints(method).get("return")
+            response_model = get_type_hints(method).get("return")
         except Exception:
             return
 
-        match term:
-            case "actions":
-
-                @router.post(path, response_model=model)
-                @wraps(method)
-                async def action_endpoint(*args: Any, **kwargs: Any) -> Any:
-                    return await engine.call_action(
-                        address,
-                        binding.name,
-                        kwargs,
-                    )
-
-            case "queries":
-
-                @router.get(path, response_model=model)
-                @wraps(method)
-                async def query_endpoint(*args: Any, **kwargs: Any) -> Any:
-                    return await engine.call_query(
-                        address,
-                        binding.name,
-                        kwargs,
-                    )
+        router.add_api_route(
+            path=path,
+            endpoint=endpoint,
+            methods=methods,
+            response_model=response_model,
+        )
 
     for unit_config in engine.config.units:
         for component_config in unit_config.components:
@@ -176,11 +171,10 @@ def create_app(engine: "Engine") -> FastAPI:
                     continue
 
             instance = cls.__new__(cls)
-            actions = cls.get_action_bindings()
-            queries = cls.get_query_bindings()
+            rpcs = cls.get_rpc_bindings()
 
-            for binding in [*actions.values(), *queries.values()]:
-                register(
+            for binding in rpcs.values():
+                register_rpc_route(
                     api,
                     ComponentAddress(unit_config.name, component_config.name),
                     binding,

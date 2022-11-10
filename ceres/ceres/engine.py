@@ -154,33 +154,18 @@ class Engine(Tasklet):
         await self._stop_units()
         await self._database.dispose()
 
-    async def call_action(
+    async def rpc(
         self,
         address: ComponentAddress,
-        action: str,
+        name: str,
         arguments: Mapping[str, Any],
     ) -> Any:
         if (unit := self._units.get(UnitAddress(address.unit))) is None:
             raise ValueError(f"unit at {address} does not exist")
 
-        return await unit.call_action(
+        return await unit.rpc(
             LocalComponentAddress(address.name),
-            action,
-            arguments,
-        )
-
-    async def call_query(
-        self,
-        address: ComponentAddress,
-        query: str,
-        arguments: Mapping[str, Any],
-    ) -> Any:
-        if (unit := self._units.get(UnitAddress(address.unit))) is None:
-            raise ValueError(f"unit at {address} does not exist")
-
-        return await unit.call_query(
-            LocalComponentAddress(address.name),
-            query,
+            name,
             arguments,
         )
 
