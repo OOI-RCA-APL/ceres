@@ -73,6 +73,12 @@ def unreachable() -> NoReturn:
     raise UnreachableException()
 
 
+def snakecase(text: str) -> str:
+    text = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1_\2", text)
+    text = re.sub(r"([a-z\d])([A-Z])", r"\1_\2", text)
+    return text.replace("-", "_").lower()
+
+
 def get_type_annotations(obj: object) -> Mapping[str, Any]:
     return MappingProxyType(get_type_hints(obj))
 

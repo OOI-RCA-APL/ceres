@@ -4,7 +4,6 @@ from enum import Enum as BaseEnum
 from typing import TYPE_CHECKING, Any, Callable, TypeVar
 from uuid import UUID, uuid4
 
-from inflection import underscore
 from sqlalchemy import (
     JSON,
     TIMESTAMP,
@@ -35,6 +34,7 @@ from ...address import Address, ComponentAddress, UnitAddress
 from ...alert import Alert, AlertLevel
 from ...message import Message, MessageDirection
 from ...utilities import ValidateByType
+from ..utilities import snakecase
 
 if TYPE_CHECKING:
     from .manager import DatabaseManager
@@ -45,7 +45,7 @@ def TypedEnum(cls: type[BaseEnum]) -> Enum:
         *(current.value for current in cls),
         native_enum=False,
         create_constraint=False,
-        name=underscore(cls.__name__),
+        name=snakecase(cls.__name__),
     )
 
     enum.length = None
