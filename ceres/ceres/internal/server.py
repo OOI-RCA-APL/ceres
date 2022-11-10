@@ -14,8 +14,8 @@ from fastapi import APIRouter, FastAPI, Response
 from pydantic.generics import GenericModel
 from starlette.status import HTTP_400_BAD_REQUEST
 from typing_extensions import Self
-from uvicorn import Config as UvicornConfig
-from uvicorn import Server as UvicornServer
+from uvicorn.config import Config as UvicornConfig
+from uvicorn.server import Server as UvicornServer
 
 from ..address import ComponentAddress
 from ..component import Component, RPCBinding, RPCKind
