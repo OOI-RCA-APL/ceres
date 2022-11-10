@@ -668,29 +668,24 @@ async def sleep_forever() -> None:
         await asyncio.sleep(timedelta(hours=1).total_seconds())
 
 
-def event_loop_exists() -> bool:
-    try:
-        asyncio.get_running_loop()
-        return True
-    except RuntimeError:
-        return False
-
-
 def setup_event_loop() -> AbstractEventLoop:
     try:
-        loop = asyncio.get_running_loop()
+        return asyncio.get_running_loop()
     except RuntimeError:
         try:
-            import uvloop
+            from uvloop import EventLoopPolicy
 
-            uvloop.install()
+            if not isinstance(asyncio.get_event_loop_policy(), EventLoopPolicy):
+                asyncio.set_event_loop_policy(EventLoopPolicy())
         except Exception:
             pass
 
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
-    return loop
+        try:
+            return asyncio.get_event_loop()
+        except Exception:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            return loop
 
 
 def get_bindings(cls: type[Any], attribute: str, type: type[_T]) -> list[_T]:
