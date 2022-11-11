@@ -97,14 +97,18 @@ def presimplify(function: Callable[..., Any]) -> Callable[..., Any]:
 
 
 def create_app(engine: "Engine") -> FastAPI:
-    app = FastAPI()
-    api = APIRouter()
+    app = FastAPI(redoc_url=None)
+    api = APIRouter(prefix="/api")
 
     @api.on_event("startup")
     def startup() -> None:
         logs.setup()
 
-    @api.get("/config", response_model=Config)
+    @api.get(
+        "/config",
+        response_model=Config,
+        tags=["engine"],
+    )
     @presimplify
     async def config() -> Config:
         return engine.config
@@ -112,6 +116,7 @@ def create_app(engine: "Engine") -> FastAPI:
     @api.post(
         "/reload",
         response_model=cast(Any, Success[Config] | Error[ReloadError]),
+        tags=["engine"],
     )
     @presimplify
     async def reload(response: Response) -> Success[Config] | Error[ReloadError]:
@@ -125,7 +130,7 @@ def create_app(engine: "Engine") -> FastAPI:
         unreachable()
 
     def register_rpc_route(
-        router: APIRouter,
+        unit: APIRouter,
         address: ComponentAddress,
         binding: RPCBinding,
     ) -> None:
@@ -148,22 +153,29 @@ def create_app(engine: "Engine") -> FastAPI:
                 term = "actions"
                 methods = ["POST"]
 
-        path = f"/units/{address.unit}/components/{address.name}/{term}/{binding.name}"
+        path = f"/{term}/{binding.name}"
 
         try:
             response_model = get_type_hints(method).get("return")
         except Exception:
             return
 
-        router.add_api_route(
+        unit.add_api_route(
             path=path,
             endpoint=endpoint,
             methods=methods,
             response_model=response_model,
         )
 
+    units = APIRouter(prefix="/units")
+
     for unit_config in engine.config.units:
+        unit = APIRouter(prefix=f"/{unit_config.name}")
+        components = APIRouter(prefix="/components", tags=["components"])
+
         for component_config in unit_config.components:
+            component = APIRouter(prefix=f"/{component_config.name}")
+
             match load_component_cls(Component, component_config):
                 case Ok(cls):
                     pass
@@ -175,10 +187,17 @@ def create_app(engine: "Engine") -> FastAPI:
 
             for binding in rpcs.values():
                 register_rpc_route(
-                    api,
+                    component,
                     ComponentAddress(unit_config.name, component_config.name),
                     binding,
                 )
 
-    app.include_router(api, prefix="/api")
+            components.include_router(component)
+
+        unit.include_router(components)
+        units.include_router(unit)
+
+    api.include_router(units)
+    app.include_router(api)
+
     return app

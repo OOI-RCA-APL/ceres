@@ -1,6 +1,7 @@
 import dataclasses
 import inspect
 import traceback
+from abc import ABC
 from dataclasses import dataclass, field
 from enum import Enum
 from functools import cache
@@ -12,6 +13,7 @@ from typing import (
     Any,
     Awaitable,
     Callable,
+    Literal,
     Mapping,
     Sequence,
     TypeVar,
@@ -38,7 +40,9 @@ from .internal.utilities import (
     get_type_annotations,
     loose_isinstance,
     object_has_field,
+    strify,
 )
+from .schedule import Schedule
 from .scheduler import Scheduler
 from .stream import Stream, StreamView
 from .utilities import (
@@ -181,6 +185,10 @@ class Component(Tasklet, metaclass=ComponentMeta):
     def get_rpc_bindings(cls) -> Mapping[str, "RPCBinding"]:
         return _get_rpc_bindings(cls)
 
+    @classmethod
+    def get_job_bindings(cls) -> Mapping[str, "JobBinding"]:
+        return _get_job_bindings(cls)
+
     @property
     def id(self) -> UUID:
         return self.context.id
@@ -233,6 +241,31 @@ class Component(Tasklet, metaclass=ComponentMeta):
 
     async def __run__(self) -> None:
         self.scheduler.start()
+
+        for job in self.get_job_bindings().values():
+            if job.default_schedule is None:
+                continue
+
+            if (method := getattr(self, job.action.function.__name__, None)) is None:
+                continue
+
+            async def execute() -> None:
+                if method is None:
+                    return
+
+                try:
+                    if job.default_parameters is ...:
+                        await awaitify(method())
+                    else:
+                        await awaitify(method(job.default_parameters))
+                except Exception:
+                    self.logger.error(
+                        f"An exception occurred while running job '{job.name}': {traceback.format_exc()}"
+                    )
+
+            self.logger.info(f"Scheduling job '{job.name}' as: {job.default_schedule}")
+            self.scheduler.add_job(execute, job.default_schedule, name=job.name)
+
         await self._process_incoming_events()
 
     async def _process_incoming_events(self) -> None:
@@ -266,6 +299,7 @@ class Component(Tasklet, metaclass=ComponentMeta):
 
 EVENT_BINDINGS_ATTRIBUTE = "__event_bindings__"
 RPC_BINDINGS_ATTRIBUTE = "__rpc_bindings__"
+JOB_BINDINGS_ATTRIBUTE = "__job_bindings__"
 
 
 @dataclass(kw_only=True, frozen=True)
@@ -328,23 +362,40 @@ class RPCKind(str, Enum):
 
 
 @dataclass(kw_only=True, frozen=True)
-class RPCBinding:
-    name: str
+class RPCBinding(ABC):
     kind: RPCKind
+    name: str
     function: Callable[..., Any]
+
+
+@dataclass(kw_only=True, frozen=True)
+class QueryBinding(RPCBinding):
+    kind: Literal[RPCKind.QUERY] = RPCKind.QUERY
+
+
+@dataclass(kw_only=True, frozen=True)
+class ActionBinding(RPCBinding):
+    kind: Literal[RPCKind.ACTION] = RPCKind.ACTION
+
+
+@dataclass(kw_only=True, frozen=True)
+class JobBinding:
+    name: str
+    action: ActionBinding
+    default_schedule: Schedule | None = None
+    default_parameters: object | None = ...
 
 
 _FunctionT = TypeVar("_FunctionT", bound=Callable[..., Any])
 
 
-def rpc(name: str, kind: RPCKind) -> Callable[[_FunctionT], _FunctionT]:
+def query(name: str) -> Callable[[_FunctionT], _FunctionT]:
     def bind(function: _FunctionT) -> _FunctionT:
         add_binding(
             function,
             RPC_BINDINGS_ATTRIBUTE,
-            RPCBinding(
+            QueryBinding(
                 name=name,
-                kind=kind,
                 function=function,
             ),
         )
@@ -353,12 +404,67 @@ def rpc(name: str, kind: RPCKind) -> Callable[[_FunctionT], _FunctionT]:
     return bind
 
 
-def query(name: str) -> Callable[[_FunctionT], _FunctionT]:
-    return rpc(name, RPCKind.QUERY)
-
-
 def action(name: str) -> Callable[[_FunctionT], _FunctionT]:
-    return rpc(name, RPCKind.ACTION)
+    def bind(function: _FunctionT) -> _FunctionT:
+        parameters = inspect.signature(function).parameters
+
+        if len(parameters) not in (1, 2):
+            raise ValueError(
+                f"action {strify(function)} must receive exactly one or two positional arguments, 'self' and the action's parameters"
+            )
+
+        add_binding(
+            function,
+            RPC_BINDINGS_ATTRIBUTE,
+            ActionBinding(
+                name=name,
+                function=function,
+            ),
+        )
+        return function
+
+    return bind
+
+
+def job(
+    name: str,
+    *,
+    default_schedule: Schedule | None = None,
+    default_parameters: object | None = None,
+) -> Callable[[_FunctionT], _FunctionT]:
+    def bind(function: _FunctionT) -> _FunctionT:
+        action = next(
+            (
+                rpc
+                for rpc in getattr(function, RPC_BINDINGS_ATTRIBUTE, [])
+                if isinstance(rpc, ActionBinding)
+            ),
+            None,
+        )
+
+        if action is None:
+            raise ValueError("job must be bound to an action")
+
+        parameters = inspect.signature(action.function).parameters
+        if len(parameters) == 1 and default_parameters is not ...:
+            raise ValueError(
+                "job action does not take any parameters, but default parameters have been specified"
+            )
+
+        add_binding(
+            function,
+            JOB_BINDINGS_ATTRIBUTE,
+            JobBinding(
+                name=name,
+                action=action,
+                default_schedule=default_schedule,
+                default_parameters=default_parameters,
+            ),
+        )
+
+        return function
+
+    return bind
 
 
 def _get_event_bindings(cls: type[_ComponentT]) -> Sequence[EventBinding]:
@@ -367,10 +473,23 @@ def _get_event_bindings(cls: type[_ComponentT]) -> Sequence[EventBinding]:
 
 def _get_rpc_bindings(cls: type[_ComponentT]) -> Mapping[str, RPCBinding]:
     return MappingProxyType(
-        {binding.name: binding for binding in get_bindings(cls, RPC_BINDINGS_ATTRIBUTE, RPCBinding)}
+        {
+            rpc.name: rpc
+            for rpc in sorted(
+                get_bindings(cls, RPC_BINDINGS_ATTRIBUTE, RPCBinding),
+                key=lambda rpc: 0 if rpc.kind == RPCKind.QUERY else 1,
+            )
+        }
+    )
+
+
+def _get_job_bindings(cls: type[_ComponentT]) -> Mapping[str, JobBinding]:
+    return MappingProxyType(
+        {job.name: job for job in get_bindings(cls, JOB_BINDINGS_ATTRIBUTE, JobBinding)}
     )
 
 
 if not TYPE_CHECKING:
     _get_event_bindings = cache(_get_event_bindings)
     _get_rpc_bindings = cache(_get_rpc_bindings)
+    _get_job_bindings = cache(_get_job_bindings)

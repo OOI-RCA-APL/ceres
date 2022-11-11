@@ -673,7 +673,7 @@ def setup_event_loop() -> AbstractEventLoop:
         return asyncio.get_running_loop()
     except RuntimeError:
         try:
-            from uvloop import EventLoopPolicy
+            from uvloop import EventLoopPolicy  # type: ignore
 
             if not isinstance(asyncio.get_event_loop_policy(), EventLoopPolicy):
                 asyncio.set_event_loop_policy(EventLoopPolicy())

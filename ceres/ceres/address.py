@@ -26,7 +26,6 @@ class ComponentAddress:
     def __str__(self) -> str:
         return f"@{self.unit}.{self.name}"
 
-
 AddressKind = Literal["unit", "component"]
 Address = UnitAddress | ComponentAddress
 
