@@ -40,7 +40,7 @@ if TYPE_CHECKING:
     from .manager import DatabaseManager
 
 
-def TypedEnum(cls: type[BaseEnum]) -> Enum:
+def _TypedEnum(cls: type[BaseEnum]) -> Enum:
     enum = Enum(
         *(current.value for current in cls),
         native_enum=False,
@@ -52,7 +52,7 @@ def TypedEnum(cls: type[BaseEnum]) -> Enum:
     return enum
 
 
-def TypedEnumConstraint(column: str, cls: type[BaseEnum], name: str) -> CheckConstraint:
+def _TypedEnumConstraint(column: str, cls: type[BaseEnum], name: str) -> CheckConstraint:
     return CheckConstraint(
         sqltext=f"{column} in ({', '.join([repr(enum.value) for enum in cls])})",
         name=name,
@@ -114,12 +114,12 @@ class MessageEntity(Entity):
         ForeignKey(ComponentEntity.id, name=f"fk_{__tablename__}__connection_id__connection"),
     )
     timestamp: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))
-    direction: Mapped[MessageDirection] = mapped_column(TypedEnum(MessageDirection))
+    direction: Mapped[MessageDirection] = mapped_column(_TypedEnum(MessageDirection))
     content: Mapped[bytes] = mapped_column(LargeBinary)
 
     __table_args__ = (
         PrimaryKeyConstraint("id", name=f"pk_{__tablename__}"),
-        TypedEnumConstraint("direction", MessageDirection, name=f"ck_{__tablename__}__direction"),
+        _TypedEnumConstraint("direction", MessageDirection, name=f"ck_{__tablename__}__direction"),
         Index(f"ix_{__tablename__}__connection_id", "connection_id"),
         Index(f"ix_{__tablename__}__timestamp", "timestamp"),
         Index(f"ix_{__tablename__}__content", "content"),
@@ -132,13 +132,13 @@ class AlertEntity(Entity):
     id: Mapped[UUID] = mapped_column(Uuid)
     origin_id: Mapped[UUID] = mapped_column(Uuid)
     timestamp: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))
-    level: Mapped[AlertLevel] = mapped_column(TypedEnum(AlertLevel))
+    level: Mapped[AlertLevel] = mapped_column(_TypedEnum(AlertLevel))
     kind: Mapped[str] = mapped_column(String)
     info: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
 
     __table_args__ = (
         PrimaryKeyConstraint("id", name=f"pk_{__tablename__}"),
-        TypedEnumConstraint("level", AlertLevel, name=f"ck_{__tablename__}__level"),
+        _TypedEnumConstraint("level", AlertLevel, name=f"ck_{__tablename__}__level"),
         Index(f"ix_{__tablename__}__origin_id", "origin_id"),
         Index(f"ix_{__tablename__}__timestamp", "timestamp"),
         Index(f"ix_{__tablename__}__level", "level"),
