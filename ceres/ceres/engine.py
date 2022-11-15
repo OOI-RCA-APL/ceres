@@ -3,7 +3,6 @@ import signal
 import sys
 import traceback
 from asyncio import FIRST_COMPLETED, Event
-from dataclasses import dataclass
 from enum import Enum
 from logging import Logger
 from pathlib import Path
@@ -25,7 +24,7 @@ from .internal.tasklet import Tasklet
 from .internal.unit import UnitContext, UnitHandle
 from .internal.utilities import temporary_signal_handler, unreachable
 from .result import Fail, Ok, Result
-from .utilities import jsonify
+from .utilities import VDC, jsonify
 
 
 class UnitSyncActionKind(str, Enum):
@@ -34,8 +33,7 @@ class UnitSyncActionKind(str, Enum):
     REMOVE = "remove"
 
 
-@dataclass(kw_only=True, frozen=True)
-class UnitSyncAction:
+class UnitSyncAction(VDC, frozen=True):
     kind: UnitSyncActionKind
     address: UnitAddress
 

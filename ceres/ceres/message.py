@@ -1,10 +1,12 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from datetime import datetime, timezone
 from enum import Enum
 from typing import TYPE_CHECKING, Protocol, Union, runtime_checkable
 from uuid import UUID, uuid4
 
 from typing_extensions import Self
+
+from .utilities import VDC
 
 if TYPE_CHECKING:
     from .internal.database.entity import MessageEntity
@@ -38,8 +40,7 @@ class MessageLike(Protocol):
         ...
 
 
-@dataclass(kw_only=True, frozen=True)
-class Message:
+class Message(VDC, frozen=True):
     id: UUID = field(default_factory=uuid4)
     connection_id: UUID
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))

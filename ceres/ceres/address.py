@@ -1,11 +1,10 @@
 from dataclasses import field
 from typing import Literal, overload
 
-from .utilities import vdc
+from .utilities import VDC
 
 
-@vdc(kw_only=False, frozen=True)
-class UnitAddress:
+class UnitAddress(VDC, kw_only=False, frozen=True):
     name: str
     kind: Literal["unit"] = field(default="unit", init=False)
 
@@ -17,8 +16,7 @@ class UnitAddress:
         return self.name
 
 
-@vdc(kw_only=False, frozen=True)
-class ComponentAddress:
+class ComponentAddress(VDC, kw_only=False, frozen=True):
     unit: str
     name: str
     kind: Literal["component"] = field(default="component")
@@ -26,20 +24,19 @@ class ComponentAddress:
     def __str__(self) -> str:
         return f"@{self.unit}.{self.name}"
 
+
 AddressKind = Literal["unit", "component"]
 Address = UnitAddress | ComponentAddress
 
 
-@vdc(kw_only=False, frozen=True)
-class LocalUnitAddress:
+class LocalUnitAddress(VDC, kw_only=False, frozen=True):
     kind: Literal["unit"] = field(default="unit")
 
     def __str__(self) -> str:
         return "."
 
 
-@vdc(kw_only=False, frozen=True)
-class LocalComponentAddress:
+class LocalComponentAddress(VDC, kw_only=False, frozen=True):
     name: str
     kind: Literal["component"] = field(default="component")
 

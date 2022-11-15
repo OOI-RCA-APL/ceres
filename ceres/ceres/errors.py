@@ -4,11 +4,10 @@ from typing import Literal
 from pydantic import ValidationError
 
 from .address import ComponentAddress
-from .utilities import vdc
+from .utilities import VDC
 
 
-@vdc(frozen=True)
-class ValidationProblem:
+class ValidationProblem(VDC, frozen=True):
     location: list[str | int]
     message: str
     kind: str
@@ -25,6 +24,10 @@ class ValidationProblem:
         ]
 
 
+class Error(VDC, frozen=True):
+    kind: str
+
+
 class ComponentErrorKind(str, Enum):
     COMPONENT_CLASS_INVALID = "component-class-invalid"
     COMPONENT_MODULE_NOT_FOUND = "component-module-not-found"
@@ -35,59 +38,51 @@ class ComponentErrorKind(str, Enum):
     COMPONENT_REFERENCE_INVALID = "component-reference-invalid"
 
 
-@vdc(frozen=True)
-class BaseComponentError:
+class BaseComponentError(Error, frozen=True):
     kind: ComponentErrorKind
     message: str
 
 
-@vdc(frozen=True)
-class ComponentModuleNotFoundError(BaseComponentError):
+class ComponentModuleNotFoundError(BaseComponentError, frozen=True):
     kind: Literal[
         ComponentErrorKind.COMPONENT_MODULE_NOT_FOUND
     ] = ComponentErrorKind.COMPONENT_MODULE_NOT_FOUND
 
 
-@vdc(frozen=True)
-class ComponentModuleExceptionError(BaseComponentError):
+class ComponentModuleExceptionError(BaseComponentError, frozen=True):
     kind: Literal[
         ComponentErrorKind.COMPONENT_MODULE_EXCEPTION
     ] = ComponentErrorKind.COMPONENT_MODULE_EXCEPTION
     traceback: str
 
 
-@vdc(frozen=True)
-class ComponentClassNotFoundError(BaseComponentError):
+class ComponentClassNotFoundError(BaseComponentError, frozen=True):
     kind: Literal[
         ComponentErrorKind.COMPONENT_CLASS_NOT_FOUND
     ] = ComponentErrorKind.COMPONENT_CLASS_NOT_FOUND
 
 
-@vdc(frozen=True)
-class ComponentClassInvalidError(BaseComponentError):
+class ComponentClassInvalidError(BaseComponentError, frozen=True):
     kind: Literal[
         ComponentErrorKind.COMPONENT_CLASS_INVALID
     ] = ComponentErrorKind.COMPONENT_CLASS_INVALID
 
 
-@vdc(frozen=True)
-class ComponentParametersInvalidError(BaseComponentError):
+class ComponentParametersInvalidError(BaseComponentError, frozen=True):
     kind: Literal[
         ComponentErrorKind.COMPONENT_PARAMETERS_INVALID
     ] = ComponentErrorKind.COMPONENT_PARAMETERS_INVALID
     problems: list[ValidationProblem]
 
 
-@vdc(frozen=True)
-class ComponentInitExceptionError(BaseComponentError):
+class ComponentInitExceptionError(BaseComponentError, frozen=True):
     kind: Literal[
         ComponentErrorKind.COMPONENT_INIT_EXCEPTION
     ] = ComponentErrorKind.COMPONENT_INIT_EXCEPTION
     traceback: str
 
 
-@vdc(frozen=True)
-class ComponentReferenceInvalidError(BaseComponentError):
+class ComponentReferenceInvalidError(BaseComponentError, frozen=True):
     kind: Literal[
         ComponentErrorKind.COMPONENT_REFERENCE_INVALID
     ] = ComponentErrorKind.COMPONENT_REFERENCE_INVALID
@@ -113,45 +108,38 @@ class ConfigErrorKind(str, Enum):
     REFERENCE_ERROR = "reference-error"
 
 
-@vdc(frozen=True)
-class BaseConfigError:
+class BaseConfigError(Error, frozen=True):
     pass
 
 
-@vdc(frozen=True)
-class ConfigReadError(BaseConfigError):
+class ConfigReadError(BaseConfigError, frozen=True):
     kind: Literal[ConfigErrorKind.READ_ERROR] = ConfigErrorKind.READ_ERROR
     message: str
 
 
-@vdc(frozen=True)
-class ConfigParseErrorLocation:
+class ConfigParseErrorLocation(VDC):
     line: int
     column: int
 
 
-@vdc(frozen=True)
-class ConfigParseError(BaseConfigError):
+class ConfigParseError(BaseConfigError, frozen=True):
     kind: Literal[ConfigErrorKind.PARSE_ERROR] = ConfigErrorKind.PARSE_ERROR
     message: str | None = None
     location: ConfigParseErrorLocation | None = None
 
 
-@vdc(frozen=True)
-class ConfigValidationError(BaseConfigError):
+class ConfigValidationError(BaseConfigError, frozen=True):
     kind: Literal[ConfigErrorKind.VALIDATION_ERROR] = ConfigErrorKind.VALIDATION_ERROR
     problems: list[ValidationProblem]
 
 
-@vdc(frozen=True)
-class ConfigDatabaseError(BaseConfigError):
+class ConfigDatabaseError(BaseConfigError, frozen=True):
     kind: Literal[ConfigErrorKind.DATABASE_ERROR] = ConfigErrorKind.DATABASE_ERROR
     message: str
     exception: str
 
 
-@vdc(frozen=True)
-class ConfigComponentError(BaseConfigError):
+class ConfigComponentError(BaseConfigError, frozen=True):
     kind: Literal[ConfigErrorKind.COMPONENT_ERROR] = ConfigErrorKind.COMPONENT_ERROR
     component: ComponentAddress
     error: ComponentError
@@ -171,19 +159,16 @@ class ReloadErrorKind(str, Enum):
     ALREADY_ACTIVE = "already-active"
 
 
-@vdc(frozen=True)
-class BaseReloadError:
+class BaseReloadError(Error, frozen=True):
     pass
 
 
-@vdc(frozen=True)
-class ReloadConfigInvalidError(BaseReloadError):
+class ReloadConfigInvalidError(BaseReloadError, frozen=True):
     kind: Literal[ReloadErrorKind.CONFIG_INVALID] = ReloadErrorKind.CONFIG_INVALID
     errors: list[ConfigError]
 
 
-@vdc(frozen=True)
-class ReloadAlreadyActiveError(BaseReloadError):
+class ReloadAlreadyActiveError(BaseReloadError, frozen=True):
     kind: Literal[ReloadErrorKind.ALREADY_ACTIVE] = ReloadErrorKind.ALREADY_ACTIVE
 
 

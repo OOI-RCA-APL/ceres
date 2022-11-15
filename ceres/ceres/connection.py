@@ -17,11 +17,10 @@ from .events import (
 from .exceptions import ConnectionLostException
 from .internal.utilities import validate_positive_timedelta
 from .message import Message, MessageDirection
-from .utilities import jsonify, vdc
+from .utilities import VDC, jsonify
 
 
-@vdc(frozen=True)
-class ConnectionReconnect:
+class ConnectionReconnect(VDC, frozen=True):
     interval: timedelta = timedelta(seconds=1)
     backoff: float | None = 2
     max_interval: timedelta | None = timedelta(seconds=60)

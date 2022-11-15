@@ -6,7 +6,7 @@ from uuid import UUID, uuid4
 
 from typing_extensions import Self
 
-from .utilities import vdc
+from .utilities import VDC
 
 if TYPE_CHECKING:
     from .internal.database.entity import AlertEntity
@@ -51,8 +51,7 @@ class AlertLike(Protocol):
         ...
 
 
-@vdc(frozen=True)
-class Alert:
+class Alert(VDC, frozen=True):
     id: UUID = field(default_factory=uuid4)
     origin_id: UUID
     timestamp: datetime

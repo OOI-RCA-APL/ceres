@@ -9,7 +9,7 @@ from .internal.utilities import (
     validate_crontab,
     validate_positive_timedelta,
 )
-from .utilities import vdc
+from .utilities import VDC
 
 
 class ScheduleKind(str, Enum):
@@ -19,7 +19,7 @@ class ScheduleKind(str, Enum):
     OR = "or"
 
 
-class BaseSchedule:
+class BaseSchedule(VDC):
     def __and__(self, other: "Schedule") -> "AndSchedule":
         assert isinstance(self, Schedule)
         assert isinstance(other, Schedule)
@@ -31,8 +31,7 @@ class BaseSchedule:
         return OrSchedule(schedules=frozenlist([self, other]))
 
 
-@vdc(kw_only=False, frozen=True)
-class CronSchedule(BaseSchedule):
+class CronSchedule(BaseSchedule, kw_only=False):
     crontab: str
     kind: Literal[ScheduleKind.CRON] = Field(default=ScheduleKind.CRON, init=False)
 
@@ -41,8 +40,7 @@ class CronSchedule(BaseSchedule):
         return validate_crontab(crontab)
 
 
-@vdc(kw_only=False, frozen=True)
-class IntervalSchedule(BaseSchedule):
+class IntervalSchedule(BaseSchedule, kw_only=False):
     interval: timedelta
     kind: Literal[ScheduleKind.INTERVAL] = Field(default=ScheduleKind.INTERVAL, init=False)
 
@@ -51,8 +49,7 @@ class IntervalSchedule(BaseSchedule):
         return validate_positive_timedelta(value)
 
 
-@vdc(kw_only=False, frozen=True)
-class AndSchedule(BaseSchedule):
+class AndSchedule(BaseSchedule, kw_only=False):
     schedules: frozenlist["Schedule"]
     kind: Literal[ScheduleKind.AND] = Field(default=ScheduleKind.AND, init=False)
 
@@ -65,8 +62,7 @@ class AndSchedule(BaseSchedule):
         return AndSchedule(schedules=frozenlist([*self.schedules, other]))
 
 
-@vdc(kw_only=False, frozen=True)
-class OrSchedule(BaseSchedule):
+class OrSchedule(BaseSchedule, kw_only=False):
     schedules: frozenlist["Schedule"]
     kind: Literal[ScheduleKind.OR] = Field(default=ScheduleKind.OR, init=False)
 

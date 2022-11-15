@@ -5,9 +5,10 @@ from logging import Formatter, Handler, Logger
 import uvicorn.logging
 from rich.logging import RichHandler
 
+from ..utilities import VDC
 
-@dataclass(kw_only=True, frozen=True)
-class LogConfig:
+
+class LogConfig(VDC, frozen=True):
     """
     Common logging configuration.
     """

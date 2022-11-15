@@ -1,20 +1,19 @@
 from dataclasses import field
 from typing import TYPE_CHECKING, Generic, Literal, TypeVar, final
 
-from .utilities import vdc
+from .utilities import VDC
 
 _ValueT = TypeVar("_ValueT")
 _ErrorT = TypeVar("_ErrorT")
 
 
 @final
-@vdc(kw_only=False, frozen=True)
-class Ok(Generic[_ValueT, _ErrorT]):
+class Ok(Generic[_ValueT, _ErrorT], VDC, kw_only=False, frozen=True):
     value: _ValueT
     ok: Literal[True] = field(default=True, init=False)
 
     if TYPE_CHECKING:
-        __match_args__: tuple[Literal["value"], Literal["ok"]] = ("value", "ok")
+        __match_args__: tuple[Literal["value"], Literal["ok"]] = ("value", "ok")  # type: ignore
 
     def __str__(self) -> str:
         return f"Ok({self.value})"
@@ -24,13 +23,12 @@ class Ok(Generic[_ValueT, _ErrorT]):
 
 
 @final
-@vdc(kw_only=False, frozen=True)
-class Fail(Generic[_ValueT, _ErrorT]):
+class Fail(Generic[_ValueT, _ErrorT], VDC, kw_only=False, frozen=True):
     error: _ErrorT
     ok: Literal[False] = field(default=False, init=False)
 
     if TYPE_CHECKING:
-        __match_args__: tuple[Literal["error"], Literal["ok"]] = ("error", "ok")
+        __match_args__: tuple[Literal["error"], Literal["ok"]] = ("error", "ok")  # type: ignore
 
     def __str__(self) -> str:
         return f"Fail({self.error})"

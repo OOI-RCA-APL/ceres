@@ -5,39 +5,33 @@ from typing import Literal
 from .address import ComponentAddress
 from .alert import Alert
 from .message import Message
-from .utilities import utc, vdc
+from .utilities import VDC, utc
 
 
-@vdc(frozen=True)
-class Event:
+class Event(VDC, frozen=True):
     kind: str
     address: ComponentAddress
     timestamp: datetime = field(default_factory=utc)
 
 
-@vdc(frozen=True)
-class ConnectedEvent(Event):
+class ConnectedEvent(Event, frozen=True):
     kind: Literal["connected"] = "connected"
 
 
-@vdc(frozen=True)
-class DisconnectedEvent(Event):
+class DisconnectedEvent(Event, frozen=True):
     kind: Literal["disconnected"] = "disconnected"
 
 
-@vdc(frozen=True)
-class MessageSentEvent(Event):
+class MessageSentEvent(Event, frozen=True):
     kind: Literal["message-sent"] = "message-sent"
     message: Message
 
 
-@vdc(frozen=True)
-class MessageReceivedEvent(Event):
+class MessageReceivedEvent(Event, frozen=True):
     kind: Literal["message-received"] = "message-received"
     message: Message
 
 
-@vdc(frozen=True)
-class AlertEmittedEvent(Event):
+class AlertEmittedEvent(Event, frozen=True):
     kind: Literal["alert-emitted"] = "alert-emitted"
     alert: Alert

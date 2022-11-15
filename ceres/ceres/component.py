@@ -45,12 +45,7 @@ from .internal.utilities import (
 from .schedule import Schedule
 from .scheduler import Scheduler
 from .stream import Stream, StreamView
-from .utilities import (
-    VALIDATED_DATACLASS_FIELD_SPECIFIERS,
-    ValidatedDataclassMeta,
-    awaitify,
-    utc,
-)
+from .utilities import VDC, VDC_FIELD_SPECIFIERS, awaitify, utc
 
 
 @dataclass(kw_only=True)
@@ -66,19 +61,11 @@ _EventT = TypeVar("_EventT", bound=Event)
 
 @dataclass_transform(
     kw_only_default=True,
-    field_specifiers=VALIDATED_DATACLASS_FIELD_SPECIFIERS,
+    field_specifiers=VDC_FIELD_SPECIFIERS,
 )
-class ComponentMeta(ValidatedDataclassMeta):
-    def __new__(
-        metacls,  # type: ignore
-        name: str,
-        bases: tuple[type[Any], ...],
-        namespace: dict[str, Any],
-        **kwargs: Any,
-    ) -> type[Any]:
-        cls: type["Component"] = super().__new__(metacls, name, bases, namespace, **kwargs)  # type: ignore
-        if cls.__module__ == __name__ and cls.__name__ == "Component":
-            return cls
+class Component(VDC, Tasklet):
+    def __init_subclass__(cls, **kwargs: Any) -> type[Any]:
+        super().__init_subclass__(**kwargs)
 
         __init__ = cls.__init__
         hints = get_type_hints(__init__)
@@ -126,9 +113,10 @@ class ComponentMeta(ValidatedDataclassMeta):
 
         return cls
 
+    class Parameters(VDC, immutable=True):
+        pass
 
-class Component(Tasklet, metaclass=ComponentMeta):
-    class Context(metaclass=ValidatedDataclassMeta, frozen=True):
+    class Context(VDC, immutable=True):
         id: UUID = field(default_factory=uuid4)
         address: ComponentAddress
 
@@ -142,10 +130,7 @@ class Component(Tasklet, metaclass=ComponentMeta):
             if extra:
                 raise ValueError(f"invalid context class, cannot provide fields: {extra}")
 
-    class Parameters(metaclass=ValidatedDataclassMeta, frozen=True):
-        pass
-
-    class References(metaclass=ValidatedDataclassMeta, frozen=True):
+    class References(VDC, immutable=True):
         pass
 
     parameters: Parameters = field(default_factory=Parameters)
@@ -302,8 +287,7 @@ RPC_BINDINGS_ATTRIBUTE = "__rpc_bindings__"
 JOB_BINDINGS_ATTRIBUTE = "__job_bindings__"
 
 
-@dataclass(kw_only=True, frozen=True)
-class EventBinding:
+class EventBinding(VDC):
     address: LocalComponentAddress
     event_cls: type | UnionType
     function: Callable[..., Any]
@@ -361,25 +345,21 @@ class RPCKind(str, Enum):
     ACTION = "action"
 
 
-@dataclass(kw_only=True, frozen=True)
-class RPCBinding(ABC):
+class RPCBinding(VDC, ABC, frozen=True):
     kind: RPCKind
     name: str
     function: Callable[..., Any]
 
 
-@dataclass(kw_only=True, frozen=True)
-class QueryBinding(RPCBinding):
+class QueryBinding(RPCBinding, frozen=True):
     kind: Literal[RPCKind.QUERY] = RPCKind.QUERY
 
 
-@dataclass(kw_only=True, frozen=True)
-class ActionBinding(RPCBinding):
+class ActionBinding(RPCBinding, frozen=True):
     kind: Literal[RPCKind.ACTION] = RPCKind.ACTION
 
 
-@dataclass(kw_only=True, frozen=True)
-class JobBinding:
+class JobBinding(VDC, frozen=True):
     name: str
     action: ActionBinding
     default_schedule: Schedule | None = None
