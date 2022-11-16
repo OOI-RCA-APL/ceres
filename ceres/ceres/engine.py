@@ -10,6 +10,7 @@ from queue import Empty, Queue
 from typing import Any, Mapping
 
 from .address import ComponentAddress, LocalComponentAddress, UnitAddress
+from .component import ProcedureKind
 from .config import Config, UnitConfig
 from .errors import ReloadAlreadyActiveError, ReloadConfigInvalidError, ReloadError
 from .exceptions import (
@@ -152,18 +153,20 @@ class Engine(Tasklet):
         await self._stop_units()
         await self._database.dispose()
 
-    async def rpc(
+    async def call(
         self,
         address: ComponentAddress,
-        name: str,
+        kind: ProcedureKind,
+        procedure: str,
         arguments: Mapping[str, Any],
     ) -> Any:
         if (unit := self._units.get(UnitAddress(address.unit))) is None:
             raise ValueError(f"unit at {address} does not exist")
 
-        return await unit.rpc(
+        return await unit.call(
             LocalComponentAddress(address.name),
-            name,
+            kind,
+            procedure,
             arguments,
         )
 
@@ -204,6 +207,8 @@ class Engine(Tasklet):
                 self.logger.error(
                     f"An issue occurred while syncing units: {traceback.format_exc()}"
                 )
+        else:
+            self.logger.info("Everything is up to date. Nothing to do.")
 
         self.logger.info("Reload completed.")
 

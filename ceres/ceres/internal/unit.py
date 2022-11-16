@@ -13,7 +13,7 @@ from pydantic import validate_arguments
 
 from ..address import ComponentAddress, LocalComponentAddress, UnitAddress
 from ..alert import Alert, AlertLevel
-from ..component import Component
+from ..component import Component, ProcedureKind
 from ..config import Config, UnitConfig
 from ..events import AlertEmittedEvent, Event, MessageReceivedEvent, MessageSentEvent
 from ..message import Message, MessageDirection
@@ -53,10 +53,11 @@ class UnitProxyProtocol(Protocol):
     def interprocess_stop(self) -> BaseException | None:
         ...
 
-    def interprocess_rpc(
+    def interprocess_call(
         self,
         address: LocalComponentAddress,
-        name: str,
+        kind: ProcedureKind,
+        procedure: str,
         arguments: Mapping[str, Any],
     ) -> BaseException | None:
         ...
@@ -190,14 +191,15 @@ class Unit(UnitProxyProtocol, Tasklet):
     def interprocess_stop(self) -> BaseException | None:
         return asyncio.run_coroutine_threadsafe(self.stop(), self._loop).exception()
 
-    def interprocess_rpc(
+    def interprocess_call(
         self,
         address: LocalComponentAddress,
-        name: str,
+        kind: ProcedureKind,
+        procedure: str,
         arguments: Mapping[str, Any],
     ) -> BaseException | Any:
         future = asyncio.run_coroutine_threadsafe(
-            self.rpc(address, name, arguments),
+            self.call(address, kind, procedure, arguments),
             self._loop,
         )
 
@@ -206,10 +208,11 @@ class Unit(UnitProxyProtocol, Tasklet):
         except BaseException as exception:
             return exception
 
-    async def rpc(
+    async def call(
         self,
         address: LocalComponentAddress,
-        name: str,
+        kind: ProcedureKind,
+        procedure: str,
         arguments: Mapping[str, Any],
     ) -> Any:
         if (component := self.get_component_handle(address)) is None:
@@ -220,12 +223,12 @@ class Unit(UnitProxyProtocol, Tasklet):
         instance = component.instance
 
         if (
-            (binding := instance.get_rpc_bindings().get(name)) is None
-            or (method := getattr(instance, binding.function.__name__, None)) is None
+            (binding := instance.get_procedure_bindings(kind).get(procedure)) is None
+            or (method := getattr(instance, binding.function, None)) is None
             or not inspect.ismethod(method)
         ):
             raise ValueError(
-                f"component of type {strify(type(component))} at {address} has no rpc method named '{name}'"
+                f"component of type {strify(type(component))} at {address} has no declared procedure named '{procedure}'"
             )
 
         result = await awaitify(validate_arguments(method)(**arguments))
@@ -397,20 +400,21 @@ class UnitHandle(Tasklet):
 
         await asyncio.to_thread(execute)
 
-    async def rpc(
+    async def call(
         self,
         address: LocalComponentAddress,
-        action: str,
+        kind: ProcedureKind,
+        procedure: str,
         arguments: Mapping[str, Any],
     ) -> Any:
         def execute() -> Any:
             if self.instance is None:
                 raise ValueError(f"unit at {address} is not loaded")
 
-            result = self.instance.interprocess_rpc(address, action, arguments)
+            result = self.instance.interprocess_call(address, kind, procedure, arguments)
             if isinstance(result, BaseException):
                 self.logger.error(
-                    f"Exception occurred while running calling action '{action}' on component '{self.address}': {strify(result)}"
+                    f"Exception occurred while running calling action '{procedure}' on component '{self.address}': {strify(result)}"
                 )
                 raise result
 

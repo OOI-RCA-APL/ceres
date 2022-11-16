@@ -18,7 +18,13 @@ from uvicorn.config import Config as UvicornConfig
 from uvicorn.server import Server as UvicornServer
 
 from ..address import ComponentAddress
-from ..component import Component, RPCBinding, RPCKind
+from ..component import (
+    ActionBinding,
+    Component,
+    JobBinding,
+    ProcedureBinding,
+    QueryBinding,
+)
 from ..config import Config, ServerConfig
 from ..errors import ReloadError
 from ..result import Fail, Ok
@@ -129,31 +135,37 @@ def create_app(engine: "Engine") -> FastAPI:
 
         unreachable()
 
-    def register_rpc_route(
+    def register_procedure_route(
         unit: APIRouter,
         address: ComponentAddress,
-        binding: RPCBinding,
+        procedure: ProcedureBinding,
     ) -> None:
-        if (method := getattr(instance, binding.function.__name__, None)) is None:
+        if (method := getattr(instance, procedure.function, None)) is None:
             return
 
         @wraps(method)
         async def endpoint(*args: Any, **kwargs: Any) -> Any:
-            return await engine.rpc(
+            return await engine.call(
                 address,
-                binding.name,
+                procedure.kind,
+                procedure.name,
                 kwargs,
             )
 
-        match binding.kind:
-            case RPCKind.QUERY:
+        match procedure:
+            case QueryBinding():
                 term = "queries"
                 methods = ["GET"]
-            case RPCKind.ACTION:
+            case ActionBinding():
                 term = "actions"
                 methods = ["POST"]
+            case JobBinding():
+                term = "jobs"
+                methods = ["POST"]
+            case _:
+                return
 
-        path = f"/{term}/{binding.name}"
+        path = f"/{term}/{procedure.name}/execute"
 
         try:
             response_model = get_type_hints(method).get("return")
@@ -183,13 +195,13 @@ def create_app(engine: "Engine") -> FastAPI:
                     continue
 
             instance = cls.__new__(cls)
-            rpcs = cls.get_rpc_bindings()
+            procedures = [*cls.get_query_bindings().values(), *cls.get_action_bindings().values()]
 
-            for binding in rpcs.values():
-                register_rpc_route(
+            for procedure in procedures:
+                register_procedure_route(
                     component,
                     ComponentAddress(unit_config.name, component_config.name),
-                    binding,
+                    procedure,
                 )
 
             components.include_router(component)

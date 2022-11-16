@@ -4,12 +4,10 @@ import traceback
 from abc import ABC
 from dataclasses import dataclass, field
 from enum import Enum
-from functools import cache
 from inspect import Parameter
 from logging import Logger
 from types import MappingProxyType, UnionType
 from typing import (
-    TYPE_CHECKING,
     Any,
     Awaitable,
     Callable,
@@ -36,6 +34,7 @@ from .internal.database.manager import DatabaseManager
 from .internal.tasklet import Tasklet
 from .internal.utilities import (
     add_binding,
+    cached,
     get_bindings,
     get_type_annotations,
     loose_isinstance,
@@ -105,7 +104,7 @@ class Component(VDC, Tasklet):
             )
 
         if isinstance(references_hint, type) and issubclass(references_hint, Component.References):
-            for binding in cls.get_event_bindings():
+            for binding in cls.get_listener_bindings():
                 if not object_has_field(references_hint, binding.address.name):
                     raise ComponentClassInvalidException(
                         f"event listener {binding.function} refers to component '{binding.address.name}' which is not defined in {references_hint.__init__} with signature {inspect.signature(references_hint.__init__)}"
@@ -163,16 +162,30 @@ class Component(VDC, Tasklet):
         return get_type_annotations(cls)["references"]  # type: ignore
 
     @classmethod
-    def get_event_bindings(cls) -> Sequence["EventBinding"]:
-        return _get_event_bindings(cls)
+    def get_listener_bindings(cls) -> Sequence["ListenerBinding"]:
+        return _get_listener_bindings(cls)
 
     @classmethod
-    def get_rpc_bindings(cls) -> Mapping[str, "RPCBinding"]:
-        return _get_rpc_bindings(cls)
+    def get_query_bindings(cls) -> Mapping[str, "QueryBinding"]:
+        return _get_query_bindings(cls)
+
+    @classmethod
+    def get_action_bindings(cls) -> Mapping[str, "ActionBinding"]:
+        return _get_action_bindings(cls)
 
     @classmethod
     def get_job_bindings(cls) -> Mapping[str, "JobBinding"]:
         return _get_job_bindings(cls)
+
+    @classmethod
+    def get_procedure_bindings(cls, kind: "ProcedureKind") -> Mapping[str, "ProcedureBinding"]:
+        match kind:
+            case ProcedureKind.QUERY:
+                return cls.get_query_bindings()
+            case ProcedureKind.ACTION:
+                return cls.get_action_bindings()
+            case ProcedureKind.JOB:
+                return cls.get_job_bindings()
 
     @property
     def id(self) -> UUID:
@@ -231,7 +244,7 @@ class Component(VDC, Tasklet):
             if job.default_schedule is None:
                 continue
 
-            if (method := getattr(self, job.action.function.__name__, None)) is None:
+            if (method := getattr(self, job.function, None)) is None:
                 continue
 
             async def execute() -> None:
@@ -258,8 +271,8 @@ class Component(VDC, Tasklet):
             await self._process_incoming_event(event)
 
     async def _process_incoming_event(self, event: Event) -> None:
-        for binding in self.get_event_bindings():
-            if not loose_isinstance(event, binding.event_cls):
+        for binding in self.get_listener_bindings():
+            if not loose_isinstance(event, binding.event):
                 continue
             target = getattr(self.references, binding.address.name, None)
             if not isinstance(target, Component):
@@ -267,7 +280,7 @@ class Component(VDC, Tasklet):
             if target.context.address != event.address:
                 continue
 
-            if method := getattr(self, binding.function.__name__, None):
+            if method := getattr(self, binding.function, None):
                 try:
                     if len(inspect.signature(method).parameters) == 0:
                         await awaitify(method())
@@ -282,21 +295,19 @@ class Component(VDC, Tasklet):
         self.scheduler.stop()
 
 
-EVENT_BINDINGS_ATTRIBUTE = "__event_bindings__"
-RPC_BINDINGS_ATTRIBUTE = "__rpc_bindings__"
-JOB_BINDINGS_ATTRIBUTE = "__job_bindings__"
+LISTENER_BINDINGS_ATTRIBUTE = "__listener_bindings__"
 
 
-class EventBinding(VDC):
+class ListenerBinding(VDC):
     address: LocalComponentAddress
-    event_cls: type | UnionType
-    function: Callable[..., Any]
+    event: type | UnionType
+    function: str
 
 
 @overload
 def listen(
     source: str,
-    cls: type[_EventT],
+    event: type[_EventT],
 ) -> Callable[
     [Callable[[Any, _EventT], None | Awaitable[None]]], Callable[[Any, _EventT], Awaitable[None]]
 ]:
@@ -306,7 +317,7 @@ def listen(
 @overload
 def listen(
     source: str,
-    cls: UnionType,
+    event: UnionType,
 ) -> Callable[
     [Callable[[Any, Event], None | Awaitable[None]]], Callable[[Any, Event], Awaitable[None]]
 ]:
@@ -315,23 +326,28 @@ def listen(
 
 def listen(
     source: str,
-    cls: type[_EventT] | UnionType,
+    event: type[_EventT] | UnionType,
 ) -> Callable[
     [Callable[[Any, _EventT], None | Awaitable[None]]], Callable[[Any, _EventT], Awaitable[None]]
 ] | Callable[
     [Callable[[Any, Event], None | Awaitable[None]]], Callable[[Any, Event], Awaitable[None]]
 ]:
     def inner(function: Callable[[Any, Event], None | Awaitable[None]]) -> Any:
-        bindings: Sequence[EventBinding] | None = getattr(function, EVENT_BINDINGS_ATTRIBUTE, None)
+        bindings: Sequence[ListenerBinding] | None = getattr(
+            function,
+            LISTENER_BINDINGS_ATTRIBUTE,
+            None,
+        )
+
         if not isinstance(bindings, list):
             bindings = list(bindings or [])
-            setattr(function, EVENT_BINDINGS_ATTRIBUTE, bindings)
+            setattr(function, LISTENER_BINDINGS_ATTRIBUTE, bindings)
 
         bindings.append(
-            EventBinding(
+            ListenerBinding(
                 address=LocalComponentAddress(source),
-                event_cls=cls,
-                function=function,
+                event=event,
+                function=function.__name__,
             )
         )
 
@@ -340,45 +356,58 @@ def listen(
     return inner
 
 
-class RPCKind(str, Enum):
+PROCEDURE_BINDINGS_ATTRIBUTE = "__procedure_bindings__"
+
+
+class ProcedureKind(str, Enum):
     QUERY = "query"
     ACTION = "action"
+    JOB = "job"
 
 
-class RPCBinding(VDC, ABC, frozen=True):
-    kind: RPCKind
+class BaseProcedureBinding(VDC, ABC, frozen=True):
+    kind: ProcedureKind
     name: str
-    function: Callable[..., Any]
+    function: str
 
 
-class QueryBinding(RPCBinding, frozen=True):
-    kind: Literal[RPCKind.QUERY] = RPCKind.QUERY
+class QueryBinding(BaseProcedureBinding, frozen=True):
+    kind: Literal[ProcedureKind.QUERY] = ProcedureKind.QUERY
 
 
-class ActionBinding(RPCBinding, frozen=True):
-    kind: Literal[RPCKind.ACTION] = RPCKind.ACTION
+class ActionBinding(BaseProcedureBinding, frozen=True):
+    kind: Literal[ProcedureKind.ACTION] = ProcedureKind.ACTION
 
 
-class JobBinding(VDC, frozen=True):
-    name: str
-    action: ActionBinding
+class JobBinding(BaseProcedureBinding, frozen=True):
+    kind: Literal[ProcedureKind.JOB] = ProcedureKind.JOB
     default_schedule: Schedule | None = None
     default_parameters: object | None = ...
 
+
+ProcedureBinding = QueryBinding | ActionBinding | JobBinding
 
 _FunctionT = TypeVar("_FunctionT", bound=Callable[..., Any])
 
 
 def query(name: str) -> Callable[[_FunctionT], _FunctionT]:
     def bind(function: _FunctionT) -> _FunctionT:
+        parameters = inspect.signature(function).parameters
+
         add_binding(
             function,
-            RPC_BINDINGS_ATTRIBUTE,
+            PROCEDURE_BINDINGS_ATTRIBUTE,
             QueryBinding(
                 name=name,
-                function=function,
+                function=function.__name__,
             ),
         )
+
+        if len(parameters) not in (1, 2):
+            raise ValueError(
+                f"query {strify(function)} must receive exactly one or two positional arguments, 'self' and the query's parameters"
+            )
+
         return function
 
     return bind
@@ -395,10 +424,10 @@ def action(name: str) -> Callable[[_FunctionT], _FunctionT]:
 
         add_binding(
             function,
-            RPC_BINDINGS_ATTRIBUTE,
+            PROCEDURE_BINDINGS_ATTRIBUTE,
             ActionBinding(
                 name=name,
-                function=function,
+                function=function.__name__,
             ),
         )
         return function
@@ -413,19 +442,13 @@ def job(
     default_parameters: object | None = None,
 ) -> Callable[[_FunctionT], _FunctionT]:
     def bind(function: _FunctionT) -> _FunctionT:
-        action = next(
-            (
-                rpc
-                for rpc in getattr(function, RPC_BINDINGS_ATTRIBUTE, [])
-                if isinstance(rpc, ActionBinding)
-            ),
-            None,
-        )
+        parameters = inspect.signature(function).parameters
 
-        if action is None:
-            raise ValueError("job must be bound to an action")
+        if len(parameters) not in (1, 2):
+            raise ValueError(
+                f"job {strify(function)} must receive exactly one or two positional arguments, 'self' and the job's parameters"
+            )
 
-        parameters = inspect.signature(action.function).parameters
         if len(parameters) == 1 and default_parameters is not ...:
             raise ValueError(
                 "job action does not take any parameters, but default parameters have been specified"
@@ -433,10 +456,10 @@ def job(
 
         add_binding(
             function,
-            JOB_BINDINGS_ATTRIBUTE,
+            PROCEDURE_BINDINGS_ATTRIBUTE,
             JobBinding(
                 name=name,
-                action=action,
+                function=function.__name__,
                 default_schedule=default_schedule,
                 default_parameters=default_parameters,
             ),
@@ -447,29 +470,36 @@ def job(
     return bind
 
 
-def _get_event_bindings(cls: type[_ComponentT]) -> Sequence[EventBinding]:
-    return tuple(get_bindings(cls, EVENT_BINDINGS_ATTRIBUTE, EventBinding))
+@cached
+def _get_listener_bindings(cls: type[_ComponentT]) -> Sequence[ListenerBinding]:
+    return tuple(get_bindings(cls, LISTENER_BINDINGS_ATTRIBUTE, ListenerBinding))
 
 
-def _get_rpc_bindings(cls: type[_ComponentT]) -> Mapping[str, RPCBinding]:
+@cached
+def _get_query_bindings(cls: type[_ComponentT]) -> Mapping[str, QueryBinding]:
     return MappingProxyType(
         {
-            rpc.name: rpc
-            for rpc in sorted(
-                get_bindings(cls, RPC_BINDINGS_ATTRIBUTE, RPCBinding),
-                key=lambda rpc: 0 if rpc.kind == RPCKind.QUERY else 1,
-            )
+            binding.name: binding
+            for binding in get_bindings(cls, PROCEDURE_BINDINGS_ATTRIBUTE, QueryBinding)
         }
     )
 
 
-def _get_job_bindings(cls: type[_ComponentT]) -> Mapping[str, JobBinding]:
+@cached
+def _get_action_bindings(cls: type[_ComponentT]) -> Mapping[str, ActionBinding]:
     return MappingProxyType(
-        {job.name: job for job in get_bindings(cls, JOB_BINDINGS_ATTRIBUTE, JobBinding)}
+        {
+            binding.name: binding
+            for binding in get_bindings(cls, PROCEDURE_BINDINGS_ATTRIBUTE, ActionBinding)
+        }
     )
 
 
-if not TYPE_CHECKING:
-    _get_event_bindings = cache(_get_event_bindings)
-    _get_rpc_bindings = cache(_get_rpc_bindings)
-    _get_job_bindings = cache(_get_job_bindings)
+@cached
+def _get_job_bindings(cls: type[_ComponentT]) -> Mapping[str, JobBinding]:
+    return MappingProxyType(
+        {
+            binding.name: binding
+            for binding in get_bindings(cls, PROCEDURE_BINDINGS_ATTRIBUTE, JobBinding)
+        }
+    )

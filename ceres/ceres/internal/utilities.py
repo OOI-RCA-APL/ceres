@@ -64,6 +64,13 @@ def unwrap(value: _T | None) -> _T:
     return value
 
 
+_FunctionT = TypeVar("_FunctionT", bound=Callable[..., Any])
+
+
+def cached(function: _FunctionT) -> _FunctionT:
+    return cast(_FunctionT, cache(function))
+
+
 class UnreachableException(Exception):
     def __init__(self) -> None:
         self.message = "Unexpected code was reached. This is a bug."
@@ -79,12 +86,9 @@ def snakecase(text: str) -> str:
     return text.replace("-", "_").lower()
 
 
+@cached
 def get_type_annotations(obj: object) -> Mapping[str, Any]:
     return MappingProxyType(get_type_hints(obj))
-
-
-if not TYPE_CHECKING:
-    get_type_annotations = cache(get_type_annotations)
 
 
 def encode_td(value: timedelta) -> str:
