@@ -32,13 +32,14 @@ class ConnectionReconnect(VDC, frozen=True):
 
 class _ReconnectScheduler:
     def __init__(self, config: ConnectionReconnect) -> None:
-        self.interval = config.interval
-        self.max_interval = config.max_interval
+        self._initial_interval = config.interval
+        self._current_interval = config.interval
+        self._max_interval = config.max_interval
 
         if config.backoff is not None:
-            self.backoff: float = config.backoff
+            self._backoff: float = config.backoff
         else:
-            self.backoff = 1
+            self._backoff = 1
 
         self._retries = 0
 
@@ -46,11 +47,13 @@ class _ReconnectScheduler:
         self._retries = 0
 
     def next(self) -> timedelta:
-        next = self.interval * self.backoff**self._retries
-        if self.max_interval is not None and next > self.max_interval:
-            next = self.max_interval
+        interval = self._current_interval * self._backoff
+        if self._max_interval is not None and interval > self._max_interval:
+            interval = self._max_interval
+        self._current_interval = interval
         self._retries += 1
-        return next
+
+        return interval
 
 
 class ConnectionState(str, Enum):
