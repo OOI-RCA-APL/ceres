@@ -6,9 +6,9 @@ import aiosmtplib
 from pydantic import SecretStr
 
 from ...alert import Alert
+from ...data import jsonify
 from ...internal.utilities import EmailStr, frozenlist, show_td
 from ...notifier import Notifier
-from ...utilities import jsonify
 
 
 class SMTPNotifier(Notifier):

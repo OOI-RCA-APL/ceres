@@ -1,14 +1,11 @@
 from __future__ import annotations
 
 import dataclasses
-import inspect
 import json
 from abc import ABC
-from datetime import datetime, timezone
 from types import MappingProxyType
 from typing import (
     Any,
-    Awaitable,
     Callable,
     ClassVar,
     Iterable,
@@ -16,7 +13,6 @@ from typing import (
     Protocol,
     TypeGuard,
     TypeVar,
-    cast,
     runtime_checkable,
 )
 
@@ -27,17 +23,6 @@ from pydantic.json import pydantic_encoder
 from typing_extensions import dataclass_transform
 
 _T = TypeVar("_T")
-
-
-def utc() -> datetime:
-    return datetime.now(timezone.utc)
-
-
-async def awaitify(value: Awaitable[_T] | _T) -> _T:
-    if inspect.isawaitable(value):
-        return cast(_T, await value)
-
-    return cast(_T, value)
 
 
 def jsonify(obj: object, *, indent: int | str | None = None, **kwargs: Any) -> str:

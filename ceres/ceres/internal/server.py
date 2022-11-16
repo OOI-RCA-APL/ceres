@@ -26,13 +26,13 @@ from ..component import (
     QueryBinding,
 )
 from ..config import Config, ServerConfig
+from ..data import simplify
 from ..errors import ReloadError
 from ..result import Fail, Ok
-from ..utilities import awaitify, simplify
 from . import logs
 from .component import load_component_cls
 from .tasklet import Tasklet
-from .utilities import unreachable
+from .utilities import awaitify, unreachable
 
 if TYPE_CHECKING:
     from ..engine import Engine

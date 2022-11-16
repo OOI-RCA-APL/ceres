@@ -1,7 +1,7 @@
 from dataclasses import field
 from typing import TYPE_CHECKING, Generic, Literal, TypeVar, final
 
-from .utilities import VDC
+from .data import VDC
 
 _ValueT = TypeVar("_ValueT")
 _ErrorT = TypeVar("_ErrorT")

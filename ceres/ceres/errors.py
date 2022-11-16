@@ -4,7 +4,7 @@ from typing import Literal
 from pydantic import ValidationError
 
 from .address import ComponentAddress
-from .utilities import VDC
+from .data import VDC
 
 
 class ValidationProblem(VDC, frozen=True):

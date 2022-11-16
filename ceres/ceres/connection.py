@@ -8,6 +8,7 @@ from typing import Any
 from pydantic import validator
 
 from .component import Component
+from .data import VDC, jsonify
 from .events import (
     ConnectedEvent,
     DisconnectedEvent,
@@ -17,7 +18,6 @@ from .events import (
 from .exceptions import ConnectionLostException
 from .internal.utilities import validate_positive_timedelta
 from .message import Message, MessageDirection
-from .utilities import VDC, jsonify
 
 
 class ConnectionReconnect(VDC, frozen=True):

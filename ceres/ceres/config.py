@@ -9,8 +9,8 @@ from pydantic import Field, SecretStr, parse_obj_as, validator
 from typing_extensions import Self
 
 from .address import ComponentAddress, UnitAddress
+from .data import VDC
 from .internal.utilities import EmailStr, NameStr, validate_positive_timedelta
-from .utilities import VDC
 
 
 class ConfigObject(VDC, frozen=True):

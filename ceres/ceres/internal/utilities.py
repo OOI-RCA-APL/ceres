@@ -59,6 +59,13 @@ def syncify(function: Callable[_P, Awaitable[_T]]) -> Callable[_P, _T]:
     return cast(Callable[_P, _T], wrapper)
 
 
+async def awaitify(value: Awaitable[_T] | _T) -> _T:
+    if inspect.isawaitable(value):
+        return cast(_T, await value)
+
+    return cast(_T, value)
+
+
 def unwrap(value: _T | None) -> _T:
     assert value is not None
     return value

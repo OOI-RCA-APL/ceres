@@ -5,7 +5,7 @@ from logging import Formatter, Handler, Logger
 import uvicorn.logging
 from rich.logging import RichHandler
 
-from ..utilities import VDC
+from ..data import VDC
 
 
 class LogConfig(VDC, frozen=True):

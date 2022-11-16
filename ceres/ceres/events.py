@@ -4,8 +4,9 @@ from typing import Literal
 
 from .address import ComponentAddress
 from .alert import Alert
+from .data import VDC
+from .datetime import utc
 from .message import Message
-from .utilities import VDC, utc
 
 
 class Event(VDC, frozen=True):

@@ -4,12 +4,12 @@ from typing import Any, Literal
 
 from pydantic import Field, validator
 
+from .data import VDC
 from .internal.utilities import (
     frozenlist,
     validate_crontab,
     validate_positive_timedelta,
 )
-from .utilities import VDC
 
 
 class ScheduleKind(str, Enum):

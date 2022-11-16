@@ -32,8 +32,8 @@ from sqlalchemy.sql.roles import ExpressionElementRole
 
 from ...address import Address, ComponentAddress, UnitAddress
 from ...alert import Alert, AlertLevel
+from ...data import ValidateByType
 from ...message import Message, MessageDirection
-from ...utilities import ValidateByType
 from ..utilities import snakecase
 
 if TYPE_CHECKING:

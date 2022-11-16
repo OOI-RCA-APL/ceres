@@ -13,7 +13,7 @@ from ...config import (
     PostgresDatabaseConfig,
     SQLiteDatabaseConfig,
 )
-from ...utilities import ValidateByType
+from ...data import ValidateByType
 from ..utilities import unreachable
 from .adapter import DatabaseAdapter
 from .entity import Entity, EntityManager

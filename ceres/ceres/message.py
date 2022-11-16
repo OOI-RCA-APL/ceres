@@ -6,7 +6,7 @@ from uuid import UUID, uuid4
 
 from typing_extensions import Self
 
-from .utilities import VDC
+from .data import VDC
 
 if TYPE_CHECKING:
     from .internal.database.entity import MessageEntity

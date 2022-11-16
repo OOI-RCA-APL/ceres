@@ -12,6 +12,7 @@ from typing import Any, Mapping
 from .address import ComponentAddress, LocalComponentAddress, UnitAddress
 from .component import ProcedureKind
 from .config import Config, UnitConfig
+from .data import VDC, jsonify
 from .errors import ReloadAlreadyActiveError, ReloadConfigInvalidError, ReloadError
 from .exceptions import (
     StartupConfigCheckFailedException,
@@ -25,7 +26,6 @@ from .internal.tasklet import Tasklet
 from .internal.unit import UnitContext, UnitHandle
 from .internal.utilities import temporary_signal_handler, unreachable
 from .result import Fail, Ok, Result
-from .utilities import VDC, jsonify
 
 
 class UnitSyncActionKind(str, Enum):

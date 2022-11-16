@@ -1,5 +1,4 @@
 import asyncio
-import inspect
 import traceback
 from dataclasses import dataclass
 from logging import ERROR, INFO, WARNING, Logger
@@ -9,16 +8,14 @@ from types import MappingProxyType
 from typing import Any, Mapping, Protocol, cast
 from uuid import UUID
 
-from pydantic import validate_arguments
-
 from ..address import ComponentAddress, LocalComponentAddress, UnitAddress
 from ..alert import Alert, AlertLevel
 from ..component import Component, ProcedureKind
 from ..config import Config, UnitConfig
+from ..data import jsonify
 from ..events import AlertEmittedEvent, Event, MessageReceivedEvent, MessageSentEvent
 from ..message import Message, MessageDirection
 from ..result import Fail, Ok
-from ..utilities import awaitify, jsonify
 from . import logs
 from .component import (
     ComponentHandle,
@@ -220,19 +217,7 @@ class Unit(UnitProxyProtocol, Tasklet):
         if component.instance is None:
             raise ValueError(f"component at {address} is not loaded")
 
-        instance = component.instance
-
-        if (
-            (binding := instance.get_procedure_bindings(kind).get(procedure)) is None
-            or (method := getattr(instance, binding.function, None)) is None
-            or not inspect.ismethod(method)
-        ):
-            raise ValueError(
-                f"component of type {strify(type(component))} at {address} has no declared procedure named '{procedure}'"
-            )
-
-        result = await awaitify(validate_arguments(method)(**arguments))
-        return result
+        return component.instance.call(kind, procedure, arguments)
 
     async def __run__(self) -> None:
         await self._load_components()

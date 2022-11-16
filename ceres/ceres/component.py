@@ -21,11 +21,14 @@ from typing import (
 )
 from uuid import UUID, uuid4
 
+from pydantic import validate_arguments
 from typing_extensions import dataclass_transform
 
 from .address import ComponentAddress, LocalComponentAddress
 from .alert import Alert, AlertLevel, RawAlertLevel
 from .config import ComponentConfig, Config, UnitConfig
+from .data import VDC, VDC_FIELD_SPECIFIERS
+from .datetime import utc
 from .events import AlertEmittedEvent, Event
 from .exceptions import ComponentClassInvalidException
 from .internal import logs
@@ -34,6 +37,7 @@ from .internal.database.manager import DatabaseManager
 from .internal.tasklet import Tasklet
 from .internal.utilities import (
     add_binding,
+    awaitify,
     cached,
     get_bindings,
     get_type_annotations,
@@ -44,7 +48,6 @@ from .internal.utilities import (
 from .schedule import Schedule
 from .scheduler import Scheduler
 from .stream import Stream, StreamView
-from .utilities import VDC, VDC_FIELD_SPECIFIERS, awaitify, utc
 
 
 @dataclass(kw_only=True)
@@ -206,6 +209,23 @@ class Component(VDC, Tasklet):
     @property
     def event_stream(self) -> StreamView[Event]:
         return self.__component_internal__.outgoing_event_stream.view()
+
+    async def call(
+        self,
+        kind: "ProcedureKind",
+        procedure: str,
+        arguments: Mapping[str, Any],
+    ) -> Any:
+        if (
+            (binding := self.get_procedure_bindings(kind).get(procedure)) is None
+            or (method := getattr(self, binding.function, None)) is None
+            or not inspect.ismethod(method)
+        ):
+            raise ValueError(
+                f"component of type {strify(type(self))} at {self.address} has no declared procedure named '{procedure}'"
+            )
+
+        return await awaitify(validate_arguments(method)(**arguments))
 
     def emit_event(self, event: _EventT) -> _EventT:
         self.__component_internal__.outgoing_event_stream.put(event)

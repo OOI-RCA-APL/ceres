@@ -6,10 +6,10 @@ from pydantic import Field, validator
 
 from .alert import Alert
 from .component import Component
+from .datetime import utc
 from .internal.database.entity import EntityManager
 from .internal.utilities import encode_td, validate_positive_timedelta
 from .schedule import Schedule
-from .utilities import utc
 
 
 class Notifier(Component, ABC):

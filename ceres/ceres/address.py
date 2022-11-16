@@ -1,7 +1,7 @@
 from dataclasses import field
 from typing import Literal, overload
 
-from .utilities import VDC
+from .data import VDC
 
 
 class UnitAddress(VDC, kw_only=False, frozen=True):

@@ -14,6 +14,7 @@ from ..address import ComponentAddress
 from ..component import Component
 from ..config import Config, UnitConfig
 from ..connection import Connection
+from ..datetime import utc
 from ..driver import Driver
 from ..errors import (
     ConfigComponentError,
@@ -27,7 +28,6 @@ from ..errors import (
 )
 from ..notifier import Notifier
 from ..result import Fail, Ok, Result
-from ..utilities import utc
 from .component import load_component
 from .database.manager import DatabaseManager
 from .utilities import show_td, unreachable
