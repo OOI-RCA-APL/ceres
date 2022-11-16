@@ -16,12 +16,14 @@ from typing import (
     Any,
     Awaitable,
     Callable,
+    ClassVar,
     Iterable,
     Iterator,
     Literal,
     Mapping,
     NoReturn,
     ParamSpec,
+    Protocol,
     Sequence,
     SupportsIndex,
     TypeGuard,
@@ -29,6 +31,7 @@ from typing import (
     cast,
     get_type_hints,
     overload,
+    runtime_checkable,
 )
 
 from apscheduler.triggers.cron import CronTrigger
@@ -64,6 +67,67 @@ async def awaitify(value: Awaitable[_T] | _T) -> _T:
         return cast(_T, await value)
 
     return cast(_T, value)
+
+
+def dictify(obj: object) -> dict[str, Any]:
+    def includes(key: str) -> bool:
+        return not key.startswith("__")
+
+    try:
+        if isinstance(obj, Mapping):
+            return dict(obj)
+        if is_dataclass(obj):
+            return dataclasses.asdict(obj)
+        if isinstance(obj, BaseModel):
+            return obj.dict()
+        if isinstance(obj, type):
+            return {key: getattr(obj, key) for key in dir(obj) if includes(key)}
+        if hasattr(obj, "__slots__"):
+            return {
+                name: getattr(obj, name) for name in obj.__slots__ if includes(name)  # type: ignore
+            }
+        return {key: value for key, value in obj.__dict__.items() if not includes(key)}
+    except Exception:
+        raise ValueError("object cannot be dictified")
+
+
+@runtime_checkable
+class DataclassLike(Protocol):
+    __dataclass_fields__: ClassVar[dict[str, Any]]
+    __dataclass_params__: ClassVar[Any]
+    __post_init__: ClassVar[Callable[..., None]]
+
+
+@runtime_checkable
+class PydanticDataclassLike(DataclassLike, Protocol):
+    __pydantic_run_validation__: ClassVar[bool]
+    __post_init_post_parse__: ClassVar[Callable[..., None]]
+    __pydantic_initialised__: ClassVar[bool]
+    __pydantic_model__: ClassVar[type[BaseModel]]
+    __pydantic_validate_values__: ClassVar[Callable[[DataclassLike], None]]
+    __pydantic_has_field_info_default__: ClassVar[bool]
+
+
+def is_dataclass(obj: object) -> TypeGuard[DataclassLike]:
+    return dataclasses.is_dataclass(obj)
+
+
+def is_pydantic_dataclass(obj: object) -> TypeGuard[PydanticDataclassLike]:
+    return dataclasses.is_dataclass(obj) and hasattr(obj, "__pydantic_model__")
+
+
+class ValidateByType:
+    @classmethod
+    def __get_validators__(cls) -> Iterable[Any]:
+        if hasattr(super(), "__get_validators__"):
+            yield from super().__get_validators__()  # type: ignore
+
+        def validate_type(value: Any) -> Any:
+            if not isinstance(value, cls):
+                raise ValueError(f"must be an instance of {cls}")
+            return value
+
+        yield validate_type
 
 
 def unwrap(value: _T | None) -> _T:

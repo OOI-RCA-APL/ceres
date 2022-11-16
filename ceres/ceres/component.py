@@ -27,7 +27,7 @@ from typing_extensions import dataclass_transform
 from .address import ComponentAddress, LocalComponentAddress
 from .alert import Alert, AlertLevel, RawAlertLevel
 from .config import ComponentConfig, Config, UnitConfig
-from .data import VDC, VDC_FIELD_SPECIFIERS
+from .data import DATA_OBJECT_FIELD_SPECIFIERS, DataObject
 from .datetime import utc
 from .events import AlertEmittedEvent, Event
 from .exceptions import ComponentClassInvalidException
@@ -63,9 +63,9 @@ _EventT = TypeVar("_EventT", bound=Event)
 
 @dataclass_transform(
     kw_only_default=True,
-    field_specifiers=VDC_FIELD_SPECIFIERS,
+    field_specifiers=DATA_OBJECT_FIELD_SPECIFIERS,
 )
-class Component(VDC, Tasklet):
+class Component(DataObject, Tasklet):
     def __init_subclass__(cls, **kwargs: Any) -> type[Any]:
         super().__init_subclass__(**kwargs)
 
@@ -115,10 +115,10 @@ class Component(VDC, Tasklet):
 
         return cls
 
-    class Parameters(VDC, immutable=True):
+    class Parameters(DataObject, immutable=True):
         pass
 
-    class Context(VDC, immutable=True):
+    class Context(DataObject, immutable=True):
         id: UUID = field(default_factory=uuid4)
         address: ComponentAddress
 
@@ -132,7 +132,7 @@ class Component(VDC, Tasklet):
             if extra:
                 raise ValueError(f"invalid context class, cannot provide fields: {extra}")
 
-    class References(VDC, immutable=True):
+    class References(DataObject, immutable=True):
         pass
 
     parameters: Parameters = field(default_factory=Parameters)
@@ -318,7 +318,7 @@ class Component(VDC, Tasklet):
 LISTENER_BINDINGS_ATTRIBUTE = "__listener_bindings__"
 
 
-class ListenerBinding(VDC):
+class ListenerBinding(DataObject):
     address: LocalComponentAddress
     event: type | UnionType
     function: str
@@ -385,7 +385,7 @@ class ProcedureKind(str, Enum):
     JOB = "job"
 
 
-class BaseProcedureBinding(VDC, ABC, frozen=True):
+class BaseProcedureBinding(DataObject, ABC, frozen=True):
     kind: ProcedureKind
     name: str
     function: str

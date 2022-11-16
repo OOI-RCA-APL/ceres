@@ -12,7 +12,7 @@ from typing import Any, Mapping
 from .address import ComponentAddress, LocalComponentAddress, UnitAddress
 from .component import ProcedureKind
 from .config import Config, UnitConfig
-from .data import VDC, jsonify
+from .data import DataObject, jsonify
 from .errors import ReloadAlreadyActiveError, ReloadConfigInvalidError, ReloadError
 from .exceptions import (
     StartupConfigCheckFailedException,
@@ -34,7 +34,7 @@ class UnitSyncActionKind(str, Enum):
     REMOVE = "remove"
 
 
-class UnitSyncAction(VDC, frozen=True):
+class UnitSyncAction(DataObject, frozen=True):
     kind: UnitSyncActionKind
     address: UnitAddress
 

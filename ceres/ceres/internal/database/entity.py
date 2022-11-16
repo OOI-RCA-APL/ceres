@@ -32,7 +32,6 @@ from sqlalchemy.sql.roles import ExpressionElementRole
 
 from ...address import Address, ComponentAddress, UnitAddress
 from ...alert import Alert, AlertLevel
-from ...data import ValidateByType
 from ...message import Message, MessageDirection
 from ..utilities import snakecase
 
@@ -152,7 +151,7 @@ _WhereValue = TypeVar("_WhereValue", bound=ColumnElement[bool] | ExpressionEleme
 _OrderByValue = TypeVar("_OrderByValue", bound=ColumnElement[Any] | ExpressionElementRole[Any])
 
 
-class EntityManager(ValidateByType):
+class EntityManager:
     def __init__(self, database: "DatabaseManager") -> None:
         self._database = database
 

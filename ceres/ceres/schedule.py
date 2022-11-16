@@ -4,7 +4,7 @@ from typing import Any, Literal
 
 from pydantic import Field, validator
 
-from .data import VDC
+from .data import DataObject
 from .internal.utilities import (
     frozenlist,
     validate_crontab,
@@ -19,7 +19,7 @@ class ScheduleKind(str, Enum):
     OR = "or"
 
 
-class BaseSchedule(VDC):
+class BaseSchedule(DataObject):
     def __and__(self, other: "Schedule") -> "AndSchedule":
         assert isinstance(self, Schedule)
         assert isinstance(other, Schedule)

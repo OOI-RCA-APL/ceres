@@ -4,10 +4,10 @@ from typing import Literal
 from pydantic import ValidationError
 
 from .address import ComponentAddress
-from .data import VDC
+from .data import DataObject
 
 
-class ValidationProblem(VDC, frozen=True):
+class ValidationProblem(DataObject, frozen=True):
     location: list[str | int]
     message: str
     kind: str
@@ -24,7 +24,7 @@ class ValidationProblem(VDC, frozen=True):
         ]
 
 
-class Error(VDC, frozen=True):
+class Error(DataObject, frozen=True):
     kind: str
 
 
@@ -117,7 +117,7 @@ class ConfigReadError(BaseConfigError, frozen=True):
     message: str
 
 
-class ConfigParseErrorLocation(VDC):
+class ConfigParseErrorLocation(DataObject):
     line: int
     column: int
 

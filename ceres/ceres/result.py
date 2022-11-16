@@ -1,14 +1,14 @@
 from dataclasses import field
 from typing import TYPE_CHECKING, Generic, Literal, TypeVar, final
 
-from .data import VDC
+from .data import DataObject
 
 _ValueT = TypeVar("_ValueT")
 _ErrorT = TypeVar("_ErrorT")
 
 
 @final
-class Ok(Generic[_ValueT, _ErrorT], VDC, kw_only=False, frozen=True):
+class Ok(Generic[_ValueT, _ErrorT], DataObject, kw_only=False, frozen=True):
     value: _ValueT
     ok: Literal[True] = field(default=True, init=False)
 
@@ -23,7 +23,7 @@ class Ok(Generic[_ValueT, _ErrorT], VDC, kw_only=False, frozen=True):
 
 
 @final
-class Fail(Generic[_ValueT, _ErrorT], VDC, kw_only=False, frozen=True):
+class Fail(Generic[_ValueT, _ErrorT], DataObject, kw_only=False, frozen=True):
     error: _ErrorT
     ok: Literal[False] = field(default=False, init=False)
 

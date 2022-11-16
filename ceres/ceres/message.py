@@ -6,7 +6,7 @@ from uuid import UUID, uuid4
 
 from typing_extensions import Self
 
-from .data import VDC
+from .data import DataObject
 
 if TYPE_CHECKING:
     from .internal.database.entity import MessageEntity
@@ -40,7 +40,7 @@ class MessageLike(Protocol):
         ...
 
 
-class Message(VDC, frozen=True):
+class Message(DataObject, frozen=True):
     id: UUID = field(default_factory=uuid4)
     connection_id: UUID
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))

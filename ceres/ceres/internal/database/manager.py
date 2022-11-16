@@ -13,7 +13,6 @@ from ...config import (
     PostgresDatabaseConfig,
     SQLiteDatabaseConfig,
 )
-from ...data import ValidateByType
 from ..utilities import unreachable
 from .adapter import DatabaseAdapter
 from .entity import Entity, EntityManager
@@ -21,7 +20,7 @@ from .entity import Entity, EntityManager
 _T = TypeVar("_T")
 
 
-class DatabaseManager(ValidateByType):
+class DatabaseManager:
     def __init__(self, config: DatabaseConfig) -> None:
         self._config = config
         self._adapter = self._create_adapter(config)

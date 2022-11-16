@@ -4,32 +4,24 @@ import dataclasses
 import json
 from abc import ABC
 from types import MappingProxyType
-from typing import (
-    Any,
-    Callable,
-    ClassVar,
-    Iterable,
-    Mapping,
-    Protocol,
-    TypeGuard,
-    TypeVar,
-    runtime_checkable,
-)
+from typing import Any, Callable, ClassVar
 
 import pydantic
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import ConfigDict, Field
 from pydantic.fields import FieldInfo
+from pydantic.fields import FieldInfo as FieldInfo
 from pydantic.json import pydantic_encoder
 from typing_extensions import dataclass_transform
 
-_T = TypeVar("_T")
+from .internal.utilities import dictify, is_pydantic_dataclass
 
 
-def jsonify(obj: object, *, indent: int | str | None = None, **kwargs: Any) -> str:
+def jsonify(obj: object, **kwargs: Any) -> str:
+    default = kwargs.get("default")
+
     return json.dumps(
         obj,
-        default=pydantic_encoder,
-        indent=indent,
+        default=default if default is not None else pydantic_encoder,
         **kwargs,
     )
 
@@ -38,69 +30,8 @@ def simplify(obj: object) -> Any:
     return json.loads(jsonify(obj))
 
 
-def dictify(obj: object) -> dict[str, Any]:
-    def includes(key: str) -> bool:
-        return not key.startswith("__")
-
-    try:
-        if isinstance(obj, Mapping):
-            return dict(obj)
-        if _is_dataclass(obj):
-            return dataclasses.asdict(obj)
-        if isinstance(obj, BaseModel):
-            return obj.dict()
-        if isinstance(obj, type):
-            return {key: getattr(obj, key) for key in dir(obj) if includes(key)}
-        if hasattr(obj, "__slots__"):
-            return {
-                name: getattr(obj, name) for name in obj.__slots__ if includes(name)  # type: ignore
-            }
-        return {key: value for key, value in obj.__dict__.items() if not includes(key)}
-    except Exception:
-        raise ValueError("object cannot be dictified")
-
-
-class ValidateByType:
-    @classmethod
-    def __get_validators__(cls) -> Iterable[Any]:
-        if hasattr(super(), "__get_validators__"):
-            yield from super().__get_validators__()  # type: ignore
-
-        def validate_type(value: Any) -> Any:
-            if not isinstance(value, cls):
-                raise ValueError(f"must be an instance of {cls}")
-            return value
-
-        yield validate_type
-
-
-@runtime_checkable
-class _DataclassLike(Protocol):
-    __dataclass_fields__: ClassVar[dict[str, Any]]
-    __dataclass_params__: ClassVar[Any]
-    __post_init__: ClassVar[Callable[..., None]]
-
-
-@runtime_checkable
-class _PydanticDataclassLike(_DataclassLike, Protocol):
-    __pydantic_run_validation__: ClassVar[bool]
-    __post_init_post_parse__: ClassVar[Callable[..., None]]
-    __pydantic_initialised__: ClassVar[bool]
-    __pydantic_model__: ClassVar[type[BaseModel]]
-    __pydantic_validate_values__: ClassVar[Callable[[_DataclassLike], None]]
-    __pydantic_has_field_info_default__: ClassVar[bool]
-
-
-def _is_dataclass(obj: object) -> TypeGuard[_DataclassLike]:
-    return dataclasses.is_dataclass(obj)
-
-
-def _is_pydantic_dataclass(obj: object) -> TypeGuard[_PydanticDataclassLike]:
-    return dataclasses.is_dataclass(obj) and hasattr(obj, "__pydantic_model__")
-
-
-VDC_FIELD_SPECIFIERS: tuple[Callable[..., Any], type[FieldInfo]] = (Field, FieldInfo)
-VDC_DEFAULT_CONFIG = MappingProxyType(
+DATA_OBJECT_FIELD_SPECIFIERS: tuple[Callable[..., Any], type[FieldInfo]] = (Field, FieldInfo)
+DATA_OBJECT_DEFAULT_CONFIG = MappingProxyType(
     ConfigDict(
         arbitrary_types_allowed=True,
         validate_assignment=True,
@@ -108,12 +39,17 @@ VDC_DEFAULT_CONFIG = MappingProxyType(
 )
 
 
+@dataclasses.dataclass(kw_only=True, frozen=True)
+class _DataObjectParams:
+    immutable: bool = False
+
+
 @dataclass_transform(
     kw_only_default=True,
-    field_specifiers=VDC_FIELD_SPECIFIERS,
+    field_specifiers=DATA_OBJECT_FIELD_SPECIFIERS,
 )
-class VDC(ABC):
-    __vdc_immutable__: bool = False
+class DataObject(ABC):
+    __data_object_params__: ClassVar[_DataObjectParams] = _DataObjectParams()
 
     def __init_subclass__(
         cls,
@@ -129,21 +65,23 @@ class VDC(ABC):
         validate_on_init: bool | None = None,
         kw_only: bool = True,
     ) -> None:
-        if immutable:
-            cls.__vdc_immutable__ = True
+        cls.__data_object_params__ = dataclasses.replace(
+            cls.__data_object_params__,
+            immutable=immutable or cls.__data_object_params__.immutable,
+        )
 
-        if cls.__vdc_immutable__:
+        if cls.__data_object_params__.immutable:
             frozen = True
 
         inherited_config: dict[str, Any] = {}
 
         for base in reversed(cls.__bases__):
-            if _is_pydantic_dataclass(base):
+            if is_pydantic_dataclass(base):
                 inherited_config.update(dictify(base.__pydantic_model__.__config__))
 
         config = ConfigDict(
             **{
-                **VDC_DEFAULT_CONFIG,
+                **DATA_OBJECT_DEFAULT_CONFIG,
                 **inherited_config,
                 **(config or {}),
             }
