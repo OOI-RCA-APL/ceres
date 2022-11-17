@@ -116,6 +116,12 @@ def is_pydantic_dataclass(obj: object) -> TypeGuard[PydanticDataclassLike]:
     return dataclasses.is_dataclass(obj) and hasattr(obj, "__pydantic_model__")
 
 
+def is_json_object_type(
+    type_: type | UnionType,
+) -> TypeGuard[DataclassLike | BaseModel | Mapping[Any, Any]]:
+    return dataclasses.is_dataclass(type_) or issubtype(type_, BaseModel | Mapping)
+
+
 class ValidateByType:
     @classmethod
     def __get_validators__(cls) -> Iterable[Any]:
@@ -268,16 +274,14 @@ else:
         regex = re.compile(r".+")
 
 
-def issubtype(subtype: Any, base: type | UnionType) -> bool:
+def issubtype(subtype: type | UnionType, base: type | UnionType) -> bool:
     try:
         if subtype is base:
             return True
         if isinstance(subtype, type) and isinstance(base, type):
             return issubclass(subtype, base)
-        if isinstance(base, UnionType):
-            for arg in base.__args__:
-                if issubtype(subtype, arg):
-                    return True
+        if isinstance(subtype, UnionType):
+            return all(issubtype(arg, base) for arg in subtype.__args__)
     except Exception:
         pass
 
@@ -777,18 +781,6 @@ def get_bindings(cls: type[Any], attribute: str, type: type[_T]) -> list[_T]:
                         output.append(value)
 
     return output
-
-
-def add_binding(function: Callable[..., Any], attribute: str, value: _T) -> list[_T]:
-    values: Sequence[_T] | None = getattr(function, attribute, None)
-
-    if not isinstance(values, list):
-        values = list(values or [])
-        setattr(function, attribute, values)
-
-    values.append(value)
-
-    return values
 
 
 @contextmanager

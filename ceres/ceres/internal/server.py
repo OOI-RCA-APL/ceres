@@ -94,12 +94,14 @@ class Server(Tasklet):
 
             @wraps(method)
             async def endpoint(*args: Any, **kwargs: Any) -> Any:
+                input = [*args, *kwargs.values()][0] if kwargs else None
+
                 return simplify(
                     await self._engine.call(
                         address,
                         procedure.kind,
                         procedure.name,
-                        kwargs,
+                        input,
                     )
                 )
 

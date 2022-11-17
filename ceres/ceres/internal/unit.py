@@ -55,7 +55,7 @@ class UnitProxyProtocol(Protocol):
         address: LocalComponentAddress,
         kind: ProcedureKind,
         procedure: str,
-        arguments: Mapping[str, Any],
+        input: Any = None,
     ) -> BaseException | None:
         ...
 
@@ -193,10 +193,10 @@ class Unit(UnitProxyProtocol, Tasklet):
         address: LocalComponentAddress,
         kind: ProcedureKind,
         procedure: str,
-        arguments: Mapping[str, Any],
+        input: Any = None,
     ) -> BaseException | Any:
         future = asyncio.run_coroutine_threadsafe(
-            self.call(address, kind, procedure, arguments),
+            self.call(address, kind, procedure, input),
             self._loop,
         )
 
@@ -210,14 +210,14 @@ class Unit(UnitProxyProtocol, Tasklet):
         address: LocalComponentAddress,
         kind: ProcedureKind,
         procedure: str,
-        arguments: Mapping[str, Any],
+        input: Any = None,
     ) -> Any:
         if (component := self.get_component_handle(address)) is None:
             raise ValueError(f"component at {address} does not exist")
         if component.instance is None:
             raise ValueError(f"component at {address} is not loaded")
 
-        return component.instance.call(kind, procedure, arguments)
+        return await component.instance.call(kind, procedure, input)
 
     async def __run__(self) -> None:
         await self._load_components()
@@ -390,13 +390,13 @@ class UnitHandle(Tasklet):
         address: LocalComponentAddress,
         kind: ProcedureKind,
         procedure: str,
-        arguments: Mapping[str, Any],
+        input: Any = None,
     ) -> Any:
         def execute() -> Any:
             if self.instance is None:
                 raise ValueError(f"unit at {address} is not loaded")
 
-            result = self.instance.interprocess_call(address, kind, procedure, arguments)
+            result = self.instance.interprocess_call(address, kind, procedure, input)
             if isinstance(result, BaseException):
                 self.logger.error(
                     f"Exception occurred while running calling action '{procedure}' on component '{self.address}': {strify(result)}"

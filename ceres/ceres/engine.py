@@ -7,7 +7,7 @@ from enum import Enum
 from logging import Logger
 from pathlib import Path
 from queue import Empty, Queue
-from typing import Any, Mapping
+from typing import Any
 
 from .address import ComponentAddress, LocalComponentAddress, UnitAddress
 from .component import ProcedureKind
@@ -158,7 +158,7 @@ class Engine(Tasklet):
         address: ComponentAddress,
         kind: ProcedureKind,
         procedure: str,
-        arguments: Mapping[str, Any],
+        input: Any = None,
     ) -> Any:
         if (unit := self._units.get(UnitAddress(address.unit))) is None:
             raise ValueError(f"unit at {address} does not exist")
@@ -167,7 +167,7 @@ class Engine(Tasklet):
             LocalComponentAddress(address.name),
             kind,
             procedure,
-            arguments,
+            input,
         )
 
     async def _reload(self) -> None:

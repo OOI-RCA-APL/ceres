@@ -4,7 +4,7 @@ import dataclasses
 import json
 from abc import ABC
 from types import MappingProxyType
-from typing import Any, Callable, ClassVar
+from typing import Any, Callable, ClassVar, cast
 
 import pydantic
 from pydantic import ConfigDict, Field
@@ -73,17 +73,22 @@ class DataObject(ABC):
         if cls.__data_object_params__.immutable:
             frozen = True
 
-        inherited_config: dict[str, Any] = {}
+        inherited_config = ConfigDict()
 
         for base in reversed(cls.__bases__):
             if is_pydantic_dataclass(base):
-                inherited_config.update(dictify(base.__pydantic_model__.__config__))
+                inherited_config.update(
+                    cast(ConfigDict, dictify(base.__pydantic_model__.__config__))
+                )
 
         config = ConfigDict(
             **{
                 **DATA_OBJECT_DEFAULT_CONFIG,
                 **inherited_config,
-                **(config or {}),
+                **ConfigDict(
+                    title=cls.__qualname__,
+                ),
+                **(config or ConfigDict()),
             }
         )
 

@@ -36,11 +36,11 @@ from .internal.database.entity import EntityManager
 from .internal.database.manager import DatabaseManager
 from .internal.tasklet import Tasklet
 from .internal.utilities import (
-    add_binding,
     awaitify,
     cached,
     get_bindings,
     get_type_annotations,
+    is_json_object_type,
     loose_isinstance,
     object_has_field,
     strify,
@@ -214,7 +214,7 @@ class Component(DataObject, Tasklet):
         self,
         kind: "ProcedureKind",
         procedure: str,
-        arguments: Mapping[str, Any],
+        input: Any = None,
     ) -> Any:
         if (
             (binding := self.get_procedure_bindings(kind).get(procedure)) is None
@@ -225,7 +225,11 @@ class Component(DataObject, Tasklet):
                 f"component of type {strify(type(self))} at {self.address} has no declared procedure named '{procedure}'"
             )
 
-        return await awaitify(validate_arguments(method)(**arguments))
+        arguments: list[Any] = []
+        if input is not None:
+            arguments.append(input)
+
+        return await awaitify(validate_arguments(method)(*arguments))
 
     def emit_event(self, event: _EventT) -> _EventT:
         self.__component_internal__.outgoing_event_stream.put(event)
@@ -272,10 +276,10 @@ class Component(DataObject, Tasklet):
                     return
 
                 try:
-                    if job.default_parameters is ...:
+                    if job.default_input is ...:
                         await awaitify(method())
                     else:
-                        await awaitify(method(job.default_parameters))
+                        await awaitify(method(job.default_input))
                 except Exception:
                     self.logger.error(
                         f"An exception occurred while running job '{job.name}': {traceback.format_exc()}"
@@ -313,6 +317,21 @@ class Component(DataObject, Tasklet):
 
     async def __stop__(self) -> None:
         self.scheduler.stop()
+
+
+_T = TypeVar("_T")
+
+
+def _bind(function: Callable[..., Any], attribute: str, binding: _T) -> tuple[_T, ...]:
+    bindings: Sequence[_T] | None = getattr(function, attribute, None)
+
+    if not isinstance(bindings, Sequence):
+        bindings = ()
+
+    bindings = tuple([*bindings, binding])
+    setattr(function, attribute, bindings)
+
+    return bindings
 
 
 LISTENER_BINDINGS_ATTRIBUTE = "__listener_bindings__"
@@ -353,22 +372,14 @@ def listen(
     [Callable[[Any, Event], None | Awaitable[None]]], Callable[[Any, Event], Awaitable[None]]
 ]:
     def inner(function: Callable[[Any, Event], None | Awaitable[None]]) -> Any:
-        bindings: Sequence[ListenerBinding] | None = getattr(
+        _bind(
             function,
             LISTENER_BINDINGS_ATTRIBUTE,
-            None,
-        )
-
-        if not isinstance(bindings, list):
-            bindings = list(bindings or [])
-            setattr(function, LISTENER_BINDINGS_ATTRIBUTE, bindings)
-
-        bindings.append(
             ListenerBinding(
                 address=LocalComponentAddress(source),
                 event=event,
                 function=function.__name__,
-            )
+            ),
         )
 
         return function
@@ -402,31 +413,58 @@ class ActionBinding(BaseProcedureBinding, frozen=True):
 class JobBinding(BaseProcedureBinding, frozen=True):
     kind: Literal[ProcedureKind.JOB] = ProcedureKind.JOB
     default_schedule: Schedule | None = None
-    default_parameters: object | None = ...
+    default_input: object | None = None
 
 
 ProcedureBinding = QueryBinding | ActionBinding | JobBinding
+
+
+def _bind_procedure(
+    function: Callable[..., Any],
+    name: str,
+    binding: ProcedureBinding,
+) -> None:
+    parameters = [*inspect.signature(function).parameters.values()]
+    if len(parameters) not in (1, 2) or any(
+        parameter.kind not in (Parameter.POSITIONAL_OR_KEYWORD, Parameter.POSITIONAL_ONLY)
+        for parameter in parameters
+    ):
+        raise ValueError(
+            f"{binding.kind} {strify(function)} have exactly one or two positional parameters, 'self', and optionally, an input parameter"
+        )
+
+    if len(parameters) > 1:
+        input_parameter = parameters[1]
+        input_parameter_hint = get_type_hints(function)[input_parameter.name]
+
+        if not is_json_object_type(input_parameter_hint):
+            raise ValueError(
+                f"second positional parameter '{input_parameter.name}' of {binding.kind} {strify(function)} must be parseable as a JSON object"
+            )
+
+    _bind(
+        function,
+        PROCEDURE_BINDINGS_ATTRIBUTE,
+        QueryBinding(
+            name=name,
+            function=function.__name__,
+        ),
+    )
+
 
 _FunctionT = TypeVar("_FunctionT", bound=Callable[..., Any])
 
 
 def query(name: str) -> Callable[[_FunctionT], _FunctionT]:
     def bind(function: _FunctionT) -> _FunctionT:
-        parameters = inspect.signature(function).parameters
-
-        add_binding(
+        _bind_procedure(
             function,
-            PROCEDURE_BINDINGS_ATTRIBUTE,
+            name,
             QueryBinding(
                 name=name,
                 function=function.__name__,
             ),
         )
-
-        if len(parameters) not in (1, 2):
-            raise ValueError(
-                f"query {strify(function)} must receive exactly one or two positional arguments, 'self' and the query's parameters"
-            )
 
         return function
 
@@ -435,21 +473,15 @@ def query(name: str) -> Callable[[_FunctionT], _FunctionT]:
 
 def action(name: str) -> Callable[[_FunctionT], _FunctionT]:
     def bind(function: _FunctionT) -> _FunctionT:
-        parameters = inspect.signature(function).parameters
-
-        if len(parameters) not in (1, 2):
-            raise ValueError(
-                f"action {strify(function)} must receive exactly one or two positional arguments, 'self' and the action's parameters"
-            )
-
-        add_binding(
+        _bind_procedure(
             function,
-            PROCEDURE_BINDINGS_ATTRIBUTE,
+            name,
             ActionBinding(
                 name=name,
                 function=function.__name__,
             ),
         )
+
         return function
 
     return bind
@@ -459,29 +491,23 @@ def job(
     name: str,
     *,
     default_schedule: Schedule | None = None,
-    default_parameters: object | None = None,
+    default_input: object | None = None,
 ) -> Callable[[_FunctionT], _FunctionT]:
     def bind(function: _FunctionT) -> _FunctionT:
         parameters = inspect.signature(function).parameters
-
-        if len(parameters) not in (1, 2):
+        if len(parameters) == 1 and default_input is not None:
             raise ValueError(
-                f"job {strify(function)} must receive exactly one or two positional arguments, 'self' and the job's parameters"
+                "job action does not take any input, but a default input has been specified"
             )
 
-        if len(parameters) == 1 and default_parameters is not ...:
-            raise ValueError(
-                "job action does not take any parameters, but default parameters have been specified"
-            )
-
-        add_binding(
+        _bind_procedure(
             function,
-            PROCEDURE_BINDINGS_ATTRIBUTE,
+            name,
             JobBinding(
                 name=name,
                 function=function.__name__,
                 default_schedule=default_schedule,
-                default_parameters=default_parameters,
+                default_input=default_input,
             ),
         )
 
