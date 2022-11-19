@@ -18,7 +18,7 @@ from typing import (
 )
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, Field, ValidationError, validate_arguments
+from pydantic import Field, ValidationError, validate_arguments
 from typing_extensions import dataclass_transform
 
 from .address import ComponentAddress, LocalComponentAddress
@@ -456,7 +456,6 @@ def _bind_procedure(
         input_parameter_hint = get_type_hints(function)[input_parameter.name]
 
         if not is_json_object_type(input_parameter_hint):
-            print(issubclass(input_parameter_hint, BaseModel))
             raise ValueError(
                 f"second positional parameter '{input_parameter.name}' of {binding.kind} {strify(function)} must be parseable as a JSON object"
             )
