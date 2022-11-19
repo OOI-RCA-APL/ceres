@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-import dataclasses
 import json
 from abc import ABC
 from types import MappingProxyType
-from typing import Any, Callable, ClassVar, cast
+from typing import Any, Callable, cast
 
 import pydantic
-from pydantic import ConfigDict, Field
+import pydantic.generics
+from pydantic import BaseConfig, BaseModel, ConfigDict, Field
 from pydantic.fields import FieldInfo
 from pydantic.fields import FieldInfo as FieldInfo
 from pydantic.json import pydantic_encoder
@@ -30,8 +30,11 @@ def simplify(obj: object) -> Any:
     return json.loads(jsonify(obj))
 
 
-DATA_OBJECT_FIELD_SPECIFIERS: tuple[Callable[..., Any], type[FieldInfo]] = (Field, FieldInfo)
-DATA_OBJECT_DEFAULT_CONFIG = MappingProxyType(
+VALIDATED_DATACLASS_FIELD_SPECIFIERS: tuple[Callable[..., Any], type[FieldInfo]] = (
+    Field,
+    FieldInfo,
+)
+VALIDATED_DATACLASS_DEFAULT_CONFIG = MappingProxyType(
     ConfigDict(
         arbitrary_types_allowed=True,
         validate_assignment=True,
@@ -39,18 +42,23 @@ DATA_OBJECT_DEFAULT_CONFIG = MappingProxyType(
 )
 
 
-@dataclasses.dataclass(kw_only=True, frozen=True)
-class _DataObjectParams:
-    immutable: bool = False
+class DataObject(BaseModel, ABC):
+    class Config(BaseConfig):
+        arbitrary_types_allowed = True
+        orm_mode = True
+        validate_assignment = True
+
+
+class FrozenDataObject(DataObject, ABC):
+    class Config(DataObject.Config):
+        frozen = True
 
 
 @dataclass_transform(
     kw_only_default=True,
-    field_specifiers=DATA_OBJECT_FIELD_SPECIFIERS,
+    field_specifiers=VALIDATED_DATACLASS_FIELD_SPECIFIERS,
 )
-class DataObject(ABC):
-    __data_object_params__: ClassVar[_DataObjectParams] = _DataObjectParams()
-
+class ValidatedDataclass(ABC):
     def __init_subclass__(
         cls,
         *,
@@ -59,20 +67,12 @@ class DataObject(ABC):
         eq: bool = True,
         order: bool = False,
         unsafe_hash: bool = False,
-        immutable: bool = False,
         frozen: bool = False,
         config: ConfigDict | None = None,
         validate_on_init: bool | None = None,
         kw_only: bool = True,
     ) -> None:
-        cls.__data_object_params__ = dataclasses.replace(
-            cls.__data_object_params__,
-            immutable=immutable or cls.__data_object_params__.immutable,
-        )
-
-        if cls.__data_object_params__.immutable:
-            frozen = True
-
+        super().__init_subclass__()
         inherited_config = ConfigDict()
 
         for base in reversed(cls.__bases__):
@@ -83,7 +83,7 @@ class DataObject(ABC):
 
         config = ConfigDict(
             **{
-                **DATA_OBJECT_DEFAULT_CONFIG,
+                **VALIDATED_DATACLASS_DEFAULT_CONFIG,
                 **inherited_config,
                 **ConfigDict(
                     title=cls.__qualname__,

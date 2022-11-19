@@ -1,5 +1,4 @@
 import asyncio
-import dataclasses
 import importlib
 import traceback
 from abc import ABC, abstractmethod
@@ -143,7 +142,7 @@ def load_component(
     try:
         context_kwargs: dict[str, Any] = {}
 
-        for field in dataclasses.fields(context):
+        for field in context.__fields__.values():
             if object_has_field(context_type, field.name):
                 context_kwargs[field.name] = getattr(context, field.name)
 

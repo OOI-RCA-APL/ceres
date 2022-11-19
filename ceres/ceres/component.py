@@ -1,4 +1,3 @@
-import dataclasses
 import inspect
 import traceback
 from abc import ABC
@@ -15,20 +14,30 @@ from typing import (
     Mapping,
     Sequence,
     TypeVar,
-    final,
     get_type_hints,
     overload,
 )
 from uuid import UUID, uuid4
 
-from pydantic import validate_arguments
+from pydantic import BaseModel, Field, ValidationError, validate_arguments
 from typing_extensions import dataclass_transform
 
 from .address import ComponentAddress, LocalComponentAddress
 from .alert import Alert, AlertLevel, RawAlertLevel
 from .config import ComponentConfig, Config, UnitConfig
-from .data import DATA_OBJECT_FIELD_SPECIFIERS, DataObject
+from .data import (
+    VALIDATED_DATACLASS_FIELD_SPECIFIERS,
+    FrozenDataObject,
+    ValidatedDataclass,
+)
 from .datetime import utc
+from .errors import (
+    ProcedureDoesNotExistError,
+    ProcedureError,
+    ProcedureExceptionError,
+    ProcedureInvalidInputError,
+    ValidationProblem,
+)
 from .events import AlertEmittedEvent, Event
 from .exceptions import ComponentClassInvalidException
 from .internal import logs
@@ -43,8 +52,10 @@ from .internal.utilities import (
     is_json_object_type,
     loose_isinstance,
     object_has_field,
+    pre_validate_arguments,
     strify,
 )
+from .result import Fail, Ok, Result
 from .schedule import Schedule
 from .scheduler import Scheduler
 from .stream import Stream, StreamView
@@ -63,9 +74,9 @@ _EventT = TypeVar("_EventT", bound=Event)
 
 @dataclass_transform(
     kw_only_default=True,
-    field_specifiers=DATA_OBJECT_FIELD_SPECIFIERS,
+    field_specifiers=VALIDATED_DATACLASS_FIELD_SPECIFIERS,
 )
-class Component(DataObject, Tasklet):
+class Component(ValidatedDataclass, Tasklet):
     def __init_subclass__(cls, **kwargs: Any) -> type[Any]:
         super().__init_subclass__(**kwargs)
 
@@ -115,31 +126,33 @@ class Component(DataObject, Tasklet):
 
         return cls
 
-    class Parameters(DataObject, immutable=True):
+    class Parameters(FrozenDataObject):
         pass
 
-    class Context(DataObject, immutable=True):
-        id: UUID = field(default_factory=uuid4)
+    class Context(FrozenDataObject):
+        id: UUID = Field(default_factory=uuid4)
         address: ComponentAddress
 
-        def __post_init__(self) -> None:
+        def __init_subclass__(cls) -> None:
+            if cls.__module__ == __name__:
+                return
+
             extra: list[tuple[str, Any]] = []
 
-            for current in dataclasses.fields(self):
-                if not object_has_field(Component.CompleteContext, current.name, current.type):
-                    extra.append((current.name, current.type))
+            for current in cls.__fields__.values():
+                if not object_has_field(Component.CompleteContext, current.name, current.type_):
+                    extra.append((current.name, current.type_))
 
             if extra:
                 raise ValueError(f"invalid context class, cannot provide fields: {extra}")
 
-    class References(DataObject, immutable=True):
+    class References(FrozenDataObject):
         pass
 
-    parameters: Parameters = field(default_factory=Parameters)
+    parameters: Parameters = Field(default_factory=Parameters)
     context: Context
-    references: References = field(default_factory=References)
+    references: References = Field(default_factory=References)
 
-    @final
     class CompleteContext(Context):
         id: UUID
         address: ComponentAddress
@@ -214,22 +227,28 @@ class Component(DataObject, Tasklet):
         self,
         kind: "ProcedureKind",
         procedure: str,
-        input: Any = None,
-    ) -> Any:
+        input: object | None = None,
+    ) -> Result[object | None, ProcedureError]:
         if (
             (binding := self.get_procedure_bindings(kind).get(procedure)) is None
             or (method := getattr(self, binding.function, None)) is None
             or not inspect.ismethod(method)
         ):
-            raise ValueError(
-                f"component of type {strify(type(self))} at {self.address} has no declared procedure named '{procedure}'"
-            )
+            return Fail(ProcedureDoesNotExistError())
 
-        arguments: list[Any] = []
+        arguments: list[object] = []
         if input is not None:
             arguments.append(input)
 
-        return await awaitify(validate_arguments(method)(*arguments))
+        try:
+            pre_validate_arguments(method, *arguments)
+        except ValidationError as error:
+            return Fail(ProcedureInvalidInputError(problems=ValidationProblem.extract(error)))
+
+        try:
+            return Ok(await awaitify(validate_arguments(method)(*arguments)))
+        except Exception:
+            return Fail(ProcedureExceptionError(exception=traceback.format_exc()))
 
     def emit_event(self, event: _EventT) -> _EventT:
         self.__component_internal__.outgoing_event_stream.put(event)
@@ -337,7 +356,7 @@ def _bind(function: Callable[..., Any], attribute: str, binding: _T) -> tuple[_T
 LISTENER_BINDINGS_ATTRIBUTE = "__listener_bindings__"
 
 
-class ListenerBinding(DataObject):
+class ListenerBinding(FrozenDataObject):
     address: LocalComponentAddress
     event: type | UnionType
     function: str
@@ -396,21 +415,21 @@ class ProcedureKind(str, Enum):
     JOB = "job"
 
 
-class BaseProcedureBinding(DataObject, ABC, frozen=True):
+class BaseProcedureBinding(FrozenDataObject, ABC):
     kind: ProcedureKind
     name: str
     function: str
 
 
-class QueryBinding(BaseProcedureBinding, frozen=True):
+class QueryBinding(BaseProcedureBinding):
     kind: Literal[ProcedureKind.QUERY] = ProcedureKind.QUERY
 
 
-class ActionBinding(BaseProcedureBinding, frozen=True):
+class ActionBinding(BaseProcedureBinding):
     kind: Literal[ProcedureKind.ACTION] = ProcedureKind.ACTION
 
 
-class JobBinding(BaseProcedureBinding, frozen=True):
+class JobBinding(BaseProcedureBinding):
     kind: Literal[ProcedureKind.JOB] = ProcedureKind.JOB
     default_schedule: Schedule | None = None
     default_input: object | None = None
@@ -438,6 +457,7 @@ def _bind_procedure(
         input_parameter_hint = get_type_hints(function)[input_parameter.name]
 
         if not is_json_object_type(input_parameter_hint):
+            print(issubclass(input_parameter_hint, BaseModel))
             raise ValueError(
                 f"second positional parameter '{input_parameter.name}' of {binding.kind} {strify(function)} must be parseable as a JSON object"
             )
@@ -496,9 +516,7 @@ def job(
     def bind(function: _FunctionT) -> _FunctionT:
         parameters = inspect.signature(function).parameters
         if len(parameters) == 1 and default_input is not None:
-            raise ValueError(
-                "job action does not take any input, but a default input has been specified"
-            )
+            raise ValueError("job does not take any input, but a default input has been specified")
 
         _bind_procedure(
             function,

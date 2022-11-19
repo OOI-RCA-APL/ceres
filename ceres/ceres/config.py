@@ -1,28 +1,27 @@
 import itertools
-from dataclasses import field
 from datetime import timedelta
 from enum import Enum
 from pathlib import Path
 from typing import Any, Iterable, Literal, Mapping, Sequence
 
-from pydantic import Field, SecretStr, parse_obj_as, validator
+from pydantic import Field, PrivateAttr, SecretStr, parse_obj_as, validator
 from typing_extensions import Self
 
 from .address import ComponentAddress, UnitAddress
-from .data import DataObject
+from .data import FrozenDataObject
 from .internal.utilities import EmailStr, NameStr, validate_positive_timedelta
 
 
-class ConfigObject(DataObject, frozen=True):
+class ConfigObject(FrozenDataObject):
     pass
 
 
-class ComponentConfig(ConfigObject, frozen=True):
+class ComponentConfig(ConfigObject):
     kind: Literal["connection", "driver", "notifier"]
     name: NameStr
     component: str | object
-    parameters: dict[str, Any] = field(default_factory=dict)
-    references: dict[NameStr, NameStr] = field(default_factory=dict)
+    parameters: dict[str, Any] = Field(default_factory=dict)
+    references: dict[NameStr, NameStr] = Field(default_factory=dict)
 
     @validator("references", pre=True)
     def _validate_references(cls, value: object) -> Any:
@@ -32,7 +31,7 @@ class ComponentConfig(ConfigObject, frozen=True):
         return value  # type: ignore
 
 
-class ServerConfig(ConfigObject, frozen=True):
+class ServerConfig(ConfigObject):
     port: int
     enable: bool = True
 
@@ -42,7 +41,7 @@ class DatabaseKind(str, Enum):
     POSTGRES = "postgres"
 
 
-class DatabaseRetryConfig(ConfigObject, frozen=True):
+class DatabaseRetryConfig(ConfigObject):
     timeout: timedelta = timedelta(seconds=15)
     interval: timedelta = timedelta(seconds=3)
 
@@ -51,18 +50,18 @@ class DatabaseRetryConfig(ConfigObject, frozen=True):
         return validate_positive_timedelta(value)
 
 
-class BaseDatabaseConfig(ConfigObject, frozen=True):
+class BaseDatabaseConfig(ConfigObject):
     kind: DatabaseKind
     engine: dict[str, Any] | None = None
-    retry: DatabaseRetryConfig = field(default_factory=DatabaseRetryConfig)
+    retry: DatabaseRetryConfig = DatabaseRetryConfig()
 
 
-class SQLiteDatabaseConfig(BaseDatabaseConfig, frozen=True):
+class SQLiteDatabaseConfig(BaseDatabaseConfig):
     kind: Literal[DatabaseKind.SQLITE] = DatabaseKind.SQLITE
     path: Path
 
 
-class PostgresDatabaseConfig(BaseDatabaseConfig, frozen=True):
+class PostgresDatabaseConfig(BaseDatabaseConfig):
     kind: Literal[DatabaseKind.POSTGRES] = DatabaseKind.POSTGRES
     host: str
     port: int
@@ -74,9 +73,9 @@ class PostgresDatabaseConfig(BaseDatabaseConfig, frozen=True):
 DatabaseConfig = SQLiteDatabaseConfig | PostgresDatabaseConfig
 
 
-class UnitConfig(ConfigObject, frozen=True):
+class UnitConfig(ConfigObject):
     name: NameStr
-    components: list[ComponentConfig] = field(default_factory=list)
+    components: list[ComponentConfig] = Field(default_factory=list)
 
     @validator("components")
     def _validate_components(
@@ -104,28 +103,27 @@ class UnitConfig(ConfigObject, frozen=True):
         return components
 
 
-class UserConfig(ConfigObject, frozen=True):
+class UserConfig(ConfigObject):
     username: NameStr
     email: EmailStr
-    meta: dict[str, Any] = field(default_factory=dict)
+    meta: dict[str, Any] = Field(default_factory=dict)
 
 
-class Config(ConfigObject, frozen=True):
+class Config(ConfigObject):
     server: ServerConfig
     database: DatabaseConfig = Field(discriminator="kind")
-    users: list[UserConfig] = field(default_factory=list)
-    units: list[UnitConfig] = field(default_factory=list)
+    users: list[UserConfig] = Field(default_factory=list)
+    units: list[UnitConfig] = Field(default_factory=list)
 
-    def __post_init__(self) -> None:
-        self._path: Path | None
-        object.__setattr__(self, "_path", None)
-        self._component_config_cache: dict[ComponentAddress, ComponentConfig]
-        object.__setattr__(self, "_component_config_cache", {})
+    _path: Path | None = PrivateAttr(None)
+    _component_config_cache: dict[ComponentAddress, ComponentConfig] = PrivateAttr(
+        default_factory=dict
+    )
 
     @classmethod
     def from_data(cls, data: Any, path: Path | None = None) -> Self:
         instance = parse_obj_as(cls, data)
-        object.__setattr__(instance, "__path__", path)
+        cls._path = path
         return instance
 
     @property

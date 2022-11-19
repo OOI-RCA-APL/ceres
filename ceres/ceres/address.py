@@ -1,10 +1,10 @@
 from dataclasses import field
 from typing import Literal, overload
 
-from .data import DataObject
+from .data import ValidatedDataclass
 
 
-class UnitAddress(DataObject, kw_only=False, frozen=True):
+class UnitAddress(ValidatedDataclass, kw_only=False, frozen=True):
     name: str
     kind: Literal["unit"] = field(default="unit", init=False)
 
@@ -16,7 +16,7 @@ class UnitAddress(DataObject, kw_only=False, frozen=True):
         return self.name
 
 
-class ComponentAddress(DataObject, kw_only=False, frozen=True):
+class ComponentAddress(ValidatedDataclass, kw_only=False, frozen=True):
     unit: str
     name: str
     kind: Literal["component"] = field(default="component")
@@ -29,14 +29,14 @@ AddressKind = Literal["unit", "component"]
 Address = UnitAddress | ComponentAddress
 
 
-class LocalUnitAddress(DataObject, kw_only=False, frozen=True):
+class LocalUnitAddress(ValidatedDataclass, kw_only=False, frozen=True):
     kind: Literal["unit"] = field(default="unit")
 
     def __str__(self) -> str:
         return "."
 
 
-class LocalComponentAddress(DataObject, kw_only=False, frozen=True):
+class LocalComponentAddress(ValidatedDataclass, kw_only=False, frozen=True):
     name: str
     kind: Literal["component"] = field(default="component")
 

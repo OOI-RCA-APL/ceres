@@ -1,19 +1,10 @@
+import inspect
 from functools import wraps
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Callable,
-    Generic,
-    Literal,
-    TypeVar,
-    cast,
-    get_type_hints,
-)
+from logging import Logger
+from typing import TYPE_CHECKING, Any, Callable, cast, get_type_hints
 
 from fastapi import APIRouter, FastAPI, Response
-from pydantic.generics import GenericModel
 from starlette.status import HTTP_400_BAD_REQUEST
-from typing_extensions import Self
 from uvicorn.config import Config as UvicornConfig
 from uvicorn.server import Server as BaseUvicorn
 
@@ -27,8 +18,8 @@ from ..component import (
 )
 from ..config import Config, ServerConfig
 from ..data import simplify
-from ..errors import ReloadError
-from ..result import Fail, Ok
+from ..errors import ProcedureError, ReloadError
+from ..result import Fail, Ok, Result
 from . import logs
 from .component import load_component_cls
 from .tasklet import Tasklet
@@ -55,6 +46,10 @@ class Server(Tasklet):
     @property
     def engine(self) -> "Engine":
         return self._engine
+
+    @property
+    def logger(self) -> Logger:
+        return logs.get("uvicorn")
 
     async def __run__(self) -> None:
         self._uvicorn = Uvicorn(
@@ -90,13 +85,16 @@ class Server(Tasklet):
             procedure: ProcedureBinding,
         ) -> None:
             if (method := getattr(component, procedure.function, None)) is None:
+                self.logger.error(
+                    f"Failed to access {procedure.kind} method named '{procedure.function}'. No API route will be generated generation."
+                )
                 return
 
             @wraps(method)
             async def endpoint(*args: Any, **kwargs: Any) -> Any:
                 input = [*args, *kwargs.values()][0] if kwargs else None
 
-                return simplify(
+                result = simplify(
                     await self._engine.call(
                         address,
                         procedure.kind,
@@ -104,6 +102,21 @@ class Server(Tasklet):
                         input,
                     )
                 )
+
+                return result
+
+            try:
+                return_type_hint: Any = get_type_hints(method)["return"]
+            except Exception:
+                self.logger.error(
+                    f"Failed to get return type hint for {procedure.kind} {method}. No API route will be generated."
+                )
+                return
+
+            response_model = Result[return_type_hint, ProcedureError]
+            endpoint.__signature__ = inspect.signature(method).replace(  # type: ignore
+                return_annotation=response_model
+            )
 
             match procedure:
                 case QueryBinding():
@@ -116,11 +129,6 @@ class Server(Tasklet):
                     return
 
             path = f"/{term}/{procedure.name}"
-
-            try:
-                response_model = get_type_hints(method).get("return")
-            except Exception:
-                return
 
             router.add_api_route(
                 path=path,
@@ -144,17 +152,17 @@ class Server(Tasklet):
 
         @api.post(
             "/reload",
-            response_model=cast(Any, Success[Config] | Error[ReloadError]),
+            response_model=cast(Any, Result[Config, ReloadError]),
             tags=["engine"],
         )
         @presimplify
-        async def reload(response: Response) -> Success[Config] | Error[ReloadError]:
+        async def reload(response: Response) -> Result[Config, ReloadError]:
             match await self._engine.reload():
                 case Ok(config):
-                    return Success.create(config)
+                    return Ok(config)
                 case Fail(error):
                     response.status_code = HTTP_400_BAD_REQUEST
-                    return Error.create(error)
+                    return Fail(error)
 
             unreachable()
 
@@ -207,25 +215,3 @@ class Uvicorn(BaseUvicorn):
     def install_signal_handlers(self) -> None:
         # Don't install anything, this will be handled externally.
         pass
-
-
-_SuccessDataT = TypeVar("_SuccessDataT")
-_ErrorDataT = TypeVar("_ErrorDataT")
-
-
-class Success(GenericModel, Generic[_SuccessDataT]):
-    status: Literal["ok"] = "ok"
-    data: _SuccessDataT
-
-    @classmethod
-    def create(cls, data: _SuccessDataT) -> Self:
-        return Success(data=data)
-
-
-class Error(GenericModel, Generic[_ErrorDataT]):
-    status: Literal["error"] = "error"
-    data: _ErrorDataT
-
-    @classmethod
-    def create(cls, data: _ErrorDataT) -> Self:
-        return Error(data=data)

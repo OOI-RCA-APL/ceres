@@ -36,6 +36,8 @@ from typing import (
 
 from apscheduler.triggers.cron import CronTrigger
 from pydantic import BaseModel, ConstrainedStr, parse_obj_as
+from pydantic.decorator import ValidatedFunction
+from pydantic.utils import lenient_issubclass
 from typing_extensions import Self
 
 if TYPE_CHECKING:
@@ -117,9 +119,9 @@ def is_pydantic_dataclass(obj: object) -> TypeGuard[PydanticDataclassLike]:
 
 
 def is_json_object_type(
-    type_: type | UnionType,
+    type_: type,
 ) -> TypeGuard[DataclassLike | BaseModel | Mapping[Any, Any]]:
-    return dataclasses.is_dataclass(type_) or issubtype(type_, BaseModel | Mapping)
+    return dataclasses.is_dataclass(type_) or (lenient_issubclass(type_, (BaseModel, Mapping)))
 
 
 class ValidateByType:
@@ -278,7 +280,7 @@ def issubtype(subtype: type | UnionType, base: type | UnionType) -> bool:
     try:
         if subtype is base:
             return True
-        if isinstance(subtype, type) and isinstance(base, type):
+        if isinstance(subtype, type) and isinstance(base, type | UnionType):
             return issubclass(subtype, base)
         if isinstance(subtype, UnionType):
             return all(issubtype(arg, base) for arg in subtype.__args__)
@@ -796,3 +798,11 @@ def temporary_signal_handler(signums: Sequence[int], handler: Callable[..., Any]
     finally:
         for signum, original in originals.items():
             signal.signal(signum, original)
+
+
+def pre_validate_arguments(
+    function: Callable[_P, Any],
+    *args: _P.args,
+    **kwargs: _P.kwargs,
+) -> BaseModel:
+    return ValidatedFunction(function, None).init_model_instance(*args, **kwargs)

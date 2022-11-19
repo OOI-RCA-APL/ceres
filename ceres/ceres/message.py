@@ -1,12 +1,13 @@
-from dataclasses import field
-from datetime import datetime, timezone
+from datetime import datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Protocol, Union, runtime_checkable
 from uuid import UUID, uuid4
 
+from pydantic import Field
 from typing_extensions import Self
 
-from .data import DataObject
+from .data import FrozenDataObject
+from .datetime import utc
 
 if TYPE_CHECKING:
     from .internal.database.entity import MessageEntity
@@ -40,10 +41,10 @@ class MessageLike(Protocol):
         ...
 
 
-class Message(DataObject, frozen=True):
-    id: UUID = field(default_factory=uuid4)
+class Message(FrozenDataObject):
+    id: UUID = Field(default_factory=uuid4)
     connection_id: UUID
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = Field(default_factory=utc)
     direction: MessageDirection
     content: bytes
 

@@ -1,10 +1,10 @@
 from datetime import timedelta
 from enum import Enum
-from typing import Any, Literal
+from typing import Any, Iterable, Literal
 
-from pydantic import Field, validator
+from pydantic import validator
 
-from .data import DataObject
+from .data import FrozenDataObject
 from .internal.utilities import (
     frozenlist,
     validate_crontab,
@@ -19,7 +19,7 @@ class ScheduleKind(str, Enum):
     OR = "or"
 
 
-class BaseSchedule(DataObject):
+class BaseSchedule(FrozenDataObject):
     def __and__(self, other: "Schedule") -> "AndSchedule":
         assert isinstance(self, Schedule)
         assert isinstance(other, Schedule)
@@ -31,27 +31,36 @@ class BaseSchedule(DataObject):
         return OrSchedule(schedules=frozenlist([self, other]))
 
 
-class CronSchedule(BaseSchedule, kw_only=False):
+class CronSchedule(BaseSchedule):
     crontab: str
-    kind: Literal[ScheduleKind.CRON] = Field(default=ScheduleKind.CRON, init=False)
+    kind: Literal[ScheduleKind.CRON] = ScheduleKind.CRON
+
+    def __init__(self, crontab: timedelta) -> None:
+        super().__init__(crontab=crontab)  # type: ignore
 
     @validator("crontab")
     def _validate_crontab(cls, crontab: str) -> str:
         return validate_crontab(crontab)
 
 
-class IntervalSchedule(BaseSchedule, kw_only=False):
+class IntervalSchedule(BaseSchedule):
     interval: timedelta
-    kind: Literal[ScheduleKind.INTERVAL] = Field(default=ScheduleKind.INTERVAL, init=False)
+    kind: Literal[ScheduleKind.INTERVAL] = ScheduleKind.INTERVAL
+
+    def __init__(self, interval: timedelta) -> None:
+        super().__init__(interval=interval)  # type: ignore
 
     @validator("interval", pre=True)
     def _validate_timedeltas(cls, value: Any) -> timedelta:
         return validate_positive_timedelta(value)
 
 
-class AndSchedule(BaseSchedule, kw_only=False):
+class AndSchedule(BaseSchedule):
     schedules: frozenlist["Schedule"]
-    kind: Literal[ScheduleKind.AND] = Field(default=ScheduleKind.AND, init=False)
+    kind: Literal[ScheduleKind.AND] = ScheduleKind.AND
+
+    def __init__(self, schedules: Iterable["Schedule"]) -> None:
+        super().__init__(schedules=frozenlist(schedules))  # type: ignore
 
     def __and__(self, other: "Schedule") -> "AndSchedule":
         assert isinstance(self, Schedule)
@@ -62,9 +71,12 @@ class AndSchedule(BaseSchedule, kw_only=False):
         return AndSchedule(schedules=frozenlist([*self.schedules, other]))
 
 
-class OrSchedule(BaseSchedule, kw_only=False):
+class OrSchedule(BaseSchedule):
     schedules: frozenlist["Schedule"]
-    kind: Literal[ScheduleKind.OR] = Field(default=ScheduleKind.OR, init=False)
+    kind: Literal[ScheduleKind.OR] = ScheduleKind.OR
+
+    def __init__(self, schedules: Iterable["Schedule"]) -> None:
+        super().__init__(schedules=frozenlist(schedules))  # type: ignore
 
     def __or__(self, other: "Schedule") -> "OrSchedule":
         assert isinstance(self, Schedule)
@@ -75,7 +87,7 @@ class OrSchedule(BaseSchedule, kw_only=False):
         return OrSchedule(schedules=frozenlist([*self.schedules, other]))
 
 
-Schedule = CronSchedule | IntervalSchedule | AndSchedule | OrSchedule
+Schedule = CronSchedule | IntervalSchedule | AndSchedule | OrSchedule  # type: ignore
 
-AndSchedule.__pydantic_model__.update_forward_refs()  # type: ignore
-OrSchedule.__pydantic_model__.update_forward_refs()  # type: ignore
+AndSchedule.update_forward_refs()
+OrSchedule.update_forward_refs()

@@ -13,9 +13,14 @@ from ..alert import Alert, AlertLevel
 from ..component import Component, ProcedureKind
 from ..config import Config, UnitConfig
 from ..data import jsonify
+from ..errors import (
+    ProcedureComponentNotLoadedError,
+    ProcedureDoesNotExistError,
+    ProcedureError,
+)
 from ..events import AlertEmittedEvent, Event, MessageReceivedEvent, MessageSentEvent
 from ..message import Message, MessageDirection
-from ..result import Fail, Ok
+from ..result import Fail, Ok, Result
 from . import logs
 from .component import (
     ComponentHandle,
@@ -55,8 +60,8 @@ class UnitProxyProtocol(Protocol):
         address: LocalComponentAddress,
         kind: ProcedureKind,
         procedure: str,
-        input: Any = None,
-    ) -> BaseException | None:
+        input: object | None = None,
+    ) -> BaseException | Result[object | None, ProcedureError]:
         ...
 
 
@@ -181,6 +186,7 @@ class Unit(UnitProxyProtocol, Tasklet):
         try:
             self._loop.run_until_complete(self.run())
         except BaseException as exception:
+            self.logger.error(f"An exception occurred while running: {traceback.format_exc()}")
             return exception
 
         return None
@@ -193,8 +199,8 @@ class Unit(UnitProxyProtocol, Tasklet):
         address: LocalComponentAddress,
         kind: ProcedureKind,
         procedure: str,
-        input: Any = None,
-    ) -> BaseException | Any:
+        input: object | None = None,
+    ) -> BaseException | Result[object | None, ProcedureError]:
         future = asyncio.run_coroutine_threadsafe(
             self.call(address, kind, procedure, input),
             self._loop,
@@ -210,12 +216,12 @@ class Unit(UnitProxyProtocol, Tasklet):
         address: LocalComponentAddress,
         kind: ProcedureKind,
         procedure: str,
-        input: Any = None,
-    ) -> Any:
+        input: object | None = None,
+    ) -> Result[object | None, ProcedureError]:
         if (component := self.get_component_handle(address)) is None:
-            raise ValueError(f"component at {address} does not exist")
+            return Fail(ProcedureDoesNotExistError())
         if component.instance is None:
-            raise ValueError(f"component at {address} is not loaded")
+            return Fail(ProcedureComponentNotLoadedError())
 
         return await component.instance.call(kind, procedure, input)
 
@@ -356,7 +362,7 @@ class UnitHandle(Tasklet):
 
             if isinstance(result, BaseException):
                 self.logger.error(
-                    f"Exception occurred while running unit '{self.address}': {strify(result)}"
+                    f"Exception occurred while running unit '{self.address}': {strify(traceback.format_exception(result))}"
                 )
 
         await asyncio.to_thread(execute)
@@ -390,7 +396,7 @@ class UnitHandle(Tasklet):
         address: LocalComponentAddress,
         kind: ProcedureKind,
         procedure: str,
-        input: Any = None,
+        input: object | None = None,
     ) -> Any:
         def execute() -> Any:
             if self.instance is None:

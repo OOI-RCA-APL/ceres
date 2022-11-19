@@ -1,19 +1,21 @@
-from dataclasses import field
-from typing import TYPE_CHECKING, Generic, Literal, TypeVar, final
+from typing import Any, Generic, Literal, TypeVar
 
-from .data import DataObject
+from pydantic.generics import GenericModel
+
+from .data import FrozenDataObject
 
 _ValueT = TypeVar("_ValueT")
 _ErrorT = TypeVar("_ErrorT")
 
 
-@final
-class Ok(Generic[_ValueT, _ErrorT], DataObject, kw_only=False, frozen=True):
+class Ok(FrozenDataObject, GenericModel, Generic[_ValueT]):
+    ok: Literal[True] = True
     value: _ValueT
-    ok: Literal[True] = field(default=True, init=False)
 
-    if TYPE_CHECKING:
-        __match_args__: tuple[Literal["value"], Literal["ok"]] = ("value", "ok")  # type: ignore
+    def __init__(self, value: _ValueT, **kwargs: Any) -> None:
+        super().__init__(value=value)  # type: ignore
+
+    __match_args__: tuple[Literal["value"]] = ("value",)  # type: ignore
 
     def __str__(self) -> str:
         return f"Ok({self.value})"
@@ -22,13 +24,14 @@ class Ok(Generic[_ValueT, _ErrorT], DataObject, kw_only=False, frozen=True):
         return True
 
 
-@final
-class Fail(Generic[_ValueT, _ErrorT], DataObject, kw_only=False, frozen=True):
+class Fail(FrozenDataObject, GenericModel, Generic[_ErrorT]):
+    ok: Literal[False] = False
     error: _ErrorT
-    ok: Literal[False] = field(default=False, init=False)
 
-    if TYPE_CHECKING:
-        __match_args__: tuple[Literal["error"], Literal["ok"]] = ("error", "ok")  # type: ignore
+    def __init__(self, error: _ErrorT, **kwargs: Any) -> None:
+        super().__init__(error=error)  # type: ignore
+
+    __match_args__: tuple[Literal["error"]] = ("error",)  # type: ignore
 
     def __str__(self) -> str:
         return f"Fail({self.error})"
@@ -37,4 +40,4 @@ class Fail(Generic[_ValueT, _ErrorT], DataObject, kw_only=False, frozen=True):
         return False
 
 
-Result = Ok[_ValueT, _ErrorT] | Fail[_ValueT, _ErrorT]
+Result = Ok[_ValueT] | Fail[_ErrorT]

@@ -12,8 +12,13 @@ from typing import Any
 from .address import ComponentAddress, LocalComponentAddress, UnitAddress
 from .component import ProcedureKind
 from .config import Config, UnitConfig
-from .data import DataObject, jsonify
-from .errors import ReloadAlreadyActiveError, ReloadConfigInvalidError, ReloadError
+from .data import FrozenDataObject, jsonify
+from .errors import (
+    ProcedureError,
+    ReloadAlreadyActiveError,
+    ReloadConfigInvalidError,
+    ReloadError,
+)
 from .exceptions import (
     StartupConfigCheckFailedException,
     StartupDatabaseInitFailedException,
@@ -34,7 +39,7 @@ class UnitSyncActionKind(str, Enum):
     REMOVE = "remove"
 
 
-class UnitSyncAction(DataObject, frozen=True):
+class UnitSyncAction(FrozenDataObject):
     kind: UnitSyncActionKind
     address: UnitAddress
 
@@ -158,8 +163,8 @@ class Engine(Tasklet):
         address: ComponentAddress,
         kind: ProcedureKind,
         procedure: str,
-        input: Any = None,
-    ) -> Any:
+        input: object | None = None,
+    ) -> Result[object | None, ProcedureError]:
         if (unit := self._units.get(UnitAddress(address.unit))) is None:
             raise ValueError(f"unit at {address} does not exist")
 
@@ -328,19 +333,19 @@ class Engine(Tasklet):
 
         actions: list[UnitSyncAction] = []
 
-        for address, config in configs.items():
-            unit = units.get(address)
-            if unit and unit.running and unit.config == config:
+        for unit_address, unit_config in configs.items():
+            unit = units.get(unit_address)
+            if unit and unit.running and unit.config == unit_config:
                 continue
 
             if not unit or not unit.running:
-                actions.append(UnitSyncAction(address=address, kind=UnitSyncActionKind.START))
-            elif unit.config != config:
-                actions.append(UnitSyncAction(address=address, kind=UnitSyncActionKind.RELOAD))
+                actions.append(UnitSyncAction(address=unit_address, kind=UnitSyncActionKind.START))
+            elif unit.config != unit_config:
+                actions.append(UnitSyncAction(address=unit_address, kind=UnitSyncActionKind.RELOAD))
 
-        for address, unit in self._units.items():
-            if address not in configs:
-                actions.append(UnitSyncAction(address=address, kind=UnitSyncActionKind.REMOVE))
+        for unit_address, unit in self._units.items():
+            if unit_address not in configs:
+                actions.append(UnitSyncAction(address=unit_address, kind=UnitSyncActionKind.REMOVE))
 
         return actions
 

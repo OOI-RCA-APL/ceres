@@ -8,7 +8,7 @@ from typing import Any
 from pydantic import validator
 
 from .component import Component
-from .data import DataObject, jsonify
+from .data import FrozenDataObject, jsonify
 from .events import (
     ConnectedEvent,
     DisconnectedEvent,
@@ -20,7 +20,7 @@ from .internal.utilities import validate_positive_timedelta
 from .message import Message, MessageDirection
 
 
-class ConnectionReconnect(DataObject, frozen=True):
+class ConnectionReconnect(FrozenDataObject):
     interval: timedelta = timedelta(seconds=1)
     backoff: float | None = 2
     max_interval: timedelta | None = timedelta(seconds=60)
