@@ -405,7 +405,7 @@ class UnitHandle(Tasklet):
             result = self.instance.interprocess_call(address, kind, procedure, input)
             if isinstance(result, BaseException):
                 self.logger.error(
-                    f"Exception occurred while running calling action '{procedure}' on component '{self.address}': {strify(result)}"
+                    f"Exception occurred while running calling {kind} '{procedure}' on component '{self.address}': {strify(result)}"
                 )
                 raise result
 
