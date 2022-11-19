@@ -4,7 +4,7 @@ from typing import Any, Iterable, Literal, Sequence
 
 from pydantic import validator
 
-from .data import FrozenDataObject
+from .data import ImmutableDataObject
 from .internal.utilities import validate_crontab, validate_positive_timedelta
 
 
@@ -15,7 +15,7 @@ class ScheduleKind(str, Enum):
     OR = "or"
 
 
-class BaseSchedule(FrozenDataObject):
+class BaseSchedule(ImmutableDataObject):
     def __and__(self, other: "Schedule") -> "AndSchedule":
         assert isinstance(self, Schedule)
         assert isinstance(other, Schedule)

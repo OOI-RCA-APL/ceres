@@ -7,9 +7,10 @@ from typing import Any, Callable, cast
 
 import pydantic
 import pydantic.generics
-from pydantic import BaseConfig, BaseModel, ConfigDict, Field
+from pydantic import BaseConfig, ConfigDict, Field
 from pydantic.fields import FieldInfo
 from pydantic.fields import FieldInfo as FieldInfo
+from pydantic.generics import GenericModel
 from pydantic.json import pydantic_encoder
 from typing_extensions import dataclass_transform
 
@@ -30,6 +31,18 @@ def simplify(obj: object) -> Any:
     return json.loads(jsonify(obj))
 
 
+class DataObject(GenericModel, ABC):
+    class Config(BaseConfig):
+        arbitrary_types_allowed = True
+        orm_mode = True
+        validate_assignment = True
+
+
+class ImmutableDataObject(DataObject, ABC):
+    class Config(DataObject.Config):
+        frozen = True
+
+
 VALIDATED_DATACLASS_FIELD_SPECIFIERS: tuple[Callable[..., Any], type[FieldInfo]] = (
     Field,
     FieldInfo,
@@ -40,18 +53,6 @@ VALIDATED_DATACLASS_DEFAULT_CONFIG = MappingProxyType(
         validate_assignment=True,
     )
 )
-
-
-class DataObject(BaseModel, ABC):
-    class Config(BaseConfig):
-        arbitrary_types_allowed = True
-        orm_mode = True
-        validate_assignment = True
-
-
-class FrozenDataObject(DataObject, ABC):
-    class Config(DataObject.Config):
-        frozen = True
 
 
 @dataclass_transform(

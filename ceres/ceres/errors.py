@@ -4,10 +4,10 @@ from typing import Literal
 from pydantic import ValidationError
 
 from .address import ComponentAddress
-from .data import DataObject, FrozenDataObject
+from .data import DataObject, ImmutableDataObject
 
 
-class ValidationProblem(FrozenDataObject):
+class ValidationProblem(ImmutableDataObject):
     location: list[str | int]
     message: str
     kind: str
@@ -24,7 +24,7 @@ class ValidationProblem(FrozenDataObject):
         ]
 
 
-class Error(FrozenDataObject):
+class Error(ImmutableDataObject):
     kind: str
 
 

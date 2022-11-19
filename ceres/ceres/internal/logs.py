@@ -5,11 +5,10 @@ from logging import Formatter, Handler, Logger
 import uvicorn.logging
 from rich.logging import RichHandler
 
-from ..data import FrozenDataObject
+from ..data import ImmutableDataObject
 
 
-class LogConfig(FrozenDataObject):
-
+class LogConfig(ImmutableDataObject):
     level: str = "INFO"
     """
     Set a log level for loggers.

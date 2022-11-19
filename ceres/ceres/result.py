@@ -1,14 +1,12 @@
 from typing import Any, Generic, Literal, TypeVar
 
-from pydantic.generics import GenericModel
-
-from .data import FrozenDataObject
+from .data import ImmutableDataObject
 
 _ValueT = TypeVar("_ValueT")
 _ErrorT = TypeVar("_ErrorT")
 
 
-class Ok(FrozenDataObject, GenericModel, Generic[_ValueT]):
+class Ok(ImmutableDataObject, Generic[_ValueT]):
     ok: Literal[True] = True
     value: _ValueT
 
@@ -24,7 +22,7 @@ class Ok(FrozenDataObject, GenericModel, Generic[_ValueT]):
         return True
 
 
-class Fail(FrozenDataObject, GenericModel, Generic[_ErrorT]):
+class Fail(ImmutableDataObject, Generic[_ErrorT]):
     ok: Literal[False] = False
     error: _ErrorT
 

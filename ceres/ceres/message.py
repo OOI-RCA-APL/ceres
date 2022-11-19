@@ -6,7 +6,7 @@ from uuid import UUID, uuid4
 from pydantic import Field
 from typing_extensions import Self
 
-from .data import FrozenDataObject
+from .data import ImmutableDataObject
 from .datetime import utc
 
 if TYPE_CHECKING:
@@ -41,7 +41,7 @@ class MessageLike(Protocol):
         ...
 
 
-class Message(FrozenDataObject):
+class Message(ImmutableDataObject):
     id: UUID = Field(default_factory=uuid4)
     connection_id: UUID
     timestamp: datetime = Field(default_factory=utc)

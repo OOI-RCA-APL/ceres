@@ -12,7 +12,7 @@ from typing import Any
 from .address import ComponentAddress, LocalComponentAddress, UnitAddress
 from .component import ProcedureKind
 from .config import Config, UnitConfig
-from .data import FrozenDataObject, jsonify
+from .data import ImmutableDataObject, jsonify
 from .errors import (
     ProcedureError,
     ReloadAlreadyActiveError,
@@ -39,7 +39,7 @@ class UnitSyncActionKind(str, Enum):
     REMOVE = "remove"
 
 
-class UnitSyncAction(FrozenDataObject):
+class UnitSyncAction(ImmutableDataObject):
     kind: UnitSyncActionKind
     address: UnitAddress
 

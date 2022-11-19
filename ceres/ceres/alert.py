@@ -6,7 +6,7 @@ from uuid import UUID, uuid4
 from pydantic import Field
 from typing_extensions import Self
 
-from .data import FrozenDataObject
+from .data import ImmutableDataObject
 
 if TYPE_CHECKING:
     from .internal.database.entity import AlertEntity
@@ -51,7 +51,7 @@ class AlertLike(Protocol):
         ...
 
 
-class Alert(FrozenDataObject):
+class Alert(ImmutableDataObject):
     id: UUID = Field(default_factory=uuid4)
     origin_id: UUID
     timestamp: datetime

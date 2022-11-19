@@ -8,11 +8,11 @@ from pydantic import Field, PrivateAttr, SecretStr, parse_obj_as, validator
 from typing_extensions import Self
 
 from .address import ComponentAddress, UnitAddress
-from .data import FrozenDataObject
+from .data import ImmutableDataObject
 from .internal.utilities import EmailStr, NameStr, validate_positive_timedelta
 
 
-class ConfigObject(FrozenDataObject):
+class ConfigObject(ImmutableDataObject):
     pass
 
 

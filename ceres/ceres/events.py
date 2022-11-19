@@ -5,12 +5,12 @@ from pydantic import Field
 
 from .address import ComponentAddress
 from .alert import Alert
-from .data import FrozenDataObject
+from .data import ImmutableDataObject
 from .datetime import utc
 from .message import Message
 
 
-class Event(FrozenDataObject):
+class Event(ImmutableDataObject):
     kind: str
     address: ComponentAddress
     timestamp: datetime = Field(default_factory=utc)

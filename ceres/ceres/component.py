@@ -1,6 +1,5 @@
 import inspect
 import traceback
-from abc import ABC
 from dataclasses import dataclass, field
 from enum import Enum
 from inspect import Parameter
@@ -27,7 +26,7 @@ from .alert import Alert, AlertLevel, RawAlertLevel
 from .config import ComponentConfig, Config, UnitConfig
 from .data import (
     VALIDATED_DATACLASS_FIELD_SPECIFIERS,
-    FrozenDataObject,
+    ImmutableDataObject,
     ValidatedDataclass,
 )
 from .datetime import utc
@@ -62,7 +61,7 @@ from .stream import Stream, StreamView
 
 
 @dataclass(kw_only=True)
-class ComponentInteral:
+class ComponentInternal:
     incoming_event_stream: Stream[Event] = field(default_factory=Stream)
     outgoing_event_stream: Stream[Event] = field(default_factory=Stream)
     scheduler: Scheduler = field(default_factory=Scheduler)
@@ -126,10 +125,10 @@ class Component(ValidatedDataclass, Tasklet):
 
         return cls
 
-    class Parameters(FrozenDataObject):
+    class Parameters(ImmutableDataObject):
         pass
 
-    class Context(FrozenDataObject):
+    class Context(ImmutableDataObject):
         id: UUID = Field(default_factory=uuid4)
         address: ComponentAddress
 
@@ -146,7 +145,7 @@ class Component(ValidatedDataclass, Tasklet):
             if extra:
                 raise ValueError(f"invalid context class, cannot provide fields: {extra}")
 
-    class References(FrozenDataObject):
+    class References(ImmutableDataObject):
         pass
 
     parameters: Parameters = Field(default_factory=Parameters)
@@ -163,7 +162,7 @@ class Component(ValidatedDataclass, Tasklet):
         entities: EntityManager
 
     def __post_init__(self) -> None:
-        self.__component_internal__ = ComponentInteral()
+        self.__component_internal__ = ComponentInternal()
 
     @classmethod
     def get_parameters_type(cls) -> type[Parameters]:
@@ -347,7 +346,7 @@ def _bind(function: Callable[..., Any], attribute: str, binding: _T) -> tuple[_T
     if not isinstance(bindings, Sequence):
         bindings = ()
 
-    bindings = tuple([*bindings, binding])
+    bindings = (*bindings, binding)
     setattr(function, attribute, bindings)
 
     return bindings
@@ -356,7 +355,7 @@ def _bind(function: Callable[..., Any], attribute: str, binding: _T) -> tuple[_T
 LISTENER_BINDINGS_ATTRIBUTE = "__listener_bindings__"
 
 
-class ListenerBinding(FrozenDataObject):
+class ListenerBinding(ImmutableDataObject):
     address: LocalComponentAddress
     event: type | UnionType
     function: str
@@ -415,7 +414,7 @@ class ProcedureKind(str, Enum):
     JOB = "job"
 
 
-class BaseProcedureBinding(FrozenDataObject, ABC):
+class BaseProcedureBinding(ImmutableDataObject):
     kind: ProcedureKind
     name: str
     function: str
