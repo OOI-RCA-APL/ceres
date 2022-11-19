@@ -8,6 +8,7 @@ from typing import Any
 from pydantic import validator
 
 from .component import Component
+from .data import FrozenDataObject, jsonify
 from .events import (
     ConnectedEvent,
     DisconnectedEvent,
@@ -17,11 +18,9 @@ from .events import (
 from .exceptions import ConnectionLostException
 from .internal.utilities import validate_positive_timedelta
 from .message import Message, MessageDirection
-from .utilities import jsonify, vdc
 
 
-@vdc(frozen=True)
-class ConnectionReconnect:
+class ConnectionReconnect(FrozenDataObject):
     interval: timedelta = timedelta(seconds=1)
     backoff: float | None = 2
     max_interval: timedelta | None = timedelta(seconds=60)
@@ -31,15 +30,16 @@ class ConnectionReconnect:
         return validate_positive_timedelta(value)
 
 
-class ReconnectScheduler:
+class _ReconnectScheduler:
     def __init__(self, config: ConnectionReconnect) -> None:
-        self.interval = config.interval
-        self.max_interval = config.max_interval
+        self._initial_interval = config.interval
+        self._current_interval = config.interval
+        self._max_interval = config.max_interval
 
         if config.backoff is not None:
-            self.backoff: float = config.backoff
+            self._backoff: float = config.backoff
         else:
-            self.backoff = 1
+            self._backoff = 1
 
         self._retries = 0
 
@@ -47,11 +47,13 @@ class ReconnectScheduler:
         self._retries = 0
 
     def next(self) -> timedelta:
-        next = self.interval * self.backoff**self._retries
-        if self.max_interval is not None and next > self.max_interval:
-            next = self.max_interval
+        interval = self._current_interval * self._backoff
+        if self._max_interval is not None and interval > self._max_interval:
+            interval = self._max_interval
+        self._current_interval = interval
         self._retries += 1
-        return next
+
+        return interval
 
 
 class ConnectionState(str, Enum):
@@ -65,7 +67,7 @@ class ConnectionInternal:
     state: ConnectionState
     last_message_sent: Message | None
     last_message_received: Message | None
-    reconnect: ReconnectScheduler
+    reconnect: _ReconnectScheduler
 
 
 class Connection(Component, ABC):
@@ -80,7 +82,7 @@ class Connection(Component, ABC):
             state=ConnectionState.DISCONNECTED,
             last_message_sent=None,
             last_message_received=None,
-            reconnect=ReconnectScheduler(self.parameters.reconnect),
+            reconnect=_ReconnectScheduler(self.parameters.reconnect),
         )
 
     @property

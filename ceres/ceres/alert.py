@@ -1,12 +1,12 @@
-from dataclasses import field
 from datetime import datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Literal, Protocol, Union, runtime_checkable
 from uuid import UUID, uuid4
 
+from pydantic import Field
 from typing_extensions import Self
 
-from .utilities import vdc
+from .data import FrozenDataObject
 
 if TYPE_CHECKING:
     from .internal.database.entity import AlertEntity
@@ -51,14 +51,13 @@ class AlertLike(Protocol):
         ...
 
 
-@vdc(frozen=True)
-class Alert:
-    id: UUID = field(default_factory=uuid4)
+class Alert(FrozenDataObject):
+    id: UUID = Field(default_factory=uuid4)
     origin_id: UUID
     timestamp: datetime
     level: AlertLevel
     kind: str
-    info: dict[str, Any] = field(default_factory=dict)
+    info: dict[str, Any] = Field(default_factory=dict)
 
     @classmethod
     def create_from(cls, other: Union[AlertLike, "AlertEntity"]) -> Self:

@@ -1,13 +1,9 @@
 import re
 from functools import lru_cache
+from re import Pattern
 from typing import Callable
 
 from .exceptions import ParseException
-
-
-@lru_cache(maxsize=5000, typed=True)
-def _get_regex(pattern: bytes) -> re.Pattern[bytes]:
-    return re.compile(pattern)
 
 
 class Parser:
@@ -143,3 +139,8 @@ class Parser:
             return result
 
         raise ParseException(f"expected whitespace, got {repr(self.remaining)}")
+
+
+@lru_cache(maxsize=5000, typed=True)
+def _get_regex(pattern: bytes) -> Pattern[bytes]:
+    return re.compile(pattern)

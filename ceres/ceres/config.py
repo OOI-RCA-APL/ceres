@@ -1,33 +1,27 @@
 import itertools
-import sys
-import warnings
-from dataclasses import field
 from datetime import timedelta
 from enum import Enum
 from pathlib import Path
 from typing import Any, Iterable, Literal, Mapping, Sequence
 
-from pydantic import ConfigDict, Field, SecretStr, parse_obj_as, validator
+from pydantic import Field, PrivateAttr, SecretStr, parse_obj_as, validator
 from typing_extensions import Self
 
 from .address import ComponentAddress, UnitAddress
-from .internal.utilities import (
-    EmailStr,
-    NameStr,
-    frozendict,
-    frozenlist,
-    validate_positive_timedelta,
-)
-from .utilities import vdc
+from .data import FrozenDataObject
+from .internal.utilities import EmailStr, NameStr, validate_positive_timedelta
 
 
-@vdc(frozen=True)
-class ComponentConfig:
+class ConfigObject(FrozenDataObject):
+    pass
+
+
+class ComponentConfig(ConfigObject):
     kind: Literal["connection", "driver", "notifier"]
     name: NameStr
     component: str | object
-    parameters: frozendict[str, Any] = field(default_factory=frozendict)
-    references: frozendict[NameStr, NameStr] = field(default_factory=frozendict)
+    parameters: Mapping[str, Any] = Field(default_factory=dict)
+    references: Mapping[NameStr, NameStr] = Field(default_factory=dict)
 
     @validator("references", pre=True)
     def _validate_references(cls, value: object) -> Any:
@@ -37,8 +31,7 @@ class ComponentConfig:
         return value  # type: ignore
 
 
-@vdc(frozen=True)
-class ServerConfig:
+class ServerConfig(ConfigObject):
     port: int
     enable: bool = True
 
@@ -48,8 +41,7 @@ class DatabaseKind(str, Enum):
     POSTGRES = "postgres"
 
 
-@vdc(frozen=True)
-class DatabaseRetryConfig:
+class DatabaseRetryConfig(ConfigObject):
     timeout: timedelta = timedelta(seconds=15)
     interval: timedelta = timedelta(seconds=3)
 
@@ -58,20 +50,17 @@ class DatabaseRetryConfig:
         return validate_positive_timedelta(value)
 
 
-@vdc(frozen=True)
-class BaseDatabaseConfig:
+class BaseDatabaseConfig(ConfigObject):
     kind: DatabaseKind
-    engine: frozendict[str, Any] | None = None
-    retry: DatabaseRetryConfig = field(default_factory=DatabaseRetryConfig)
+    engine: Mapping[str, Any] | None = None
+    retry: DatabaseRetryConfig = DatabaseRetryConfig()
 
 
-@vdc(frozen=True)
 class SQLiteDatabaseConfig(BaseDatabaseConfig):
     kind: Literal[DatabaseKind.SQLITE] = DatabaseKind.SQLITE
     path: Path
 
 
-@vdc(frozen=True)
 class PostgresDatabaseConfig(BaseDatabaseConfig):
     kind: Literal[DatabaseKind.POSTGRES] = DatabaseKind.POSTGRES
     host: str
@@ -84,10 +73,9 @@ class PostgresDatabaseConfig(BaseDatabaseConfig):
 DatabaseConfig = SQLiteDatabaseConfig | PostgresDatabaseConfig
 
 
-@vdc(frozen=True)
-class UnitConfig:
+class UnitConfig(ConfigObject):
     name: NameStr
-    components: frozenlist[ComponentConfig] = field(default_factory=frozenlist)
+    components: Sequence[ComponentConfig] = Field(default_factory=list)
 
     @validator("components")
     def _validate_components(
@@ -115,38 +103,27 @@ class UnitConfig:
         return components
 
 
-@vdc(frozen=True)
-class UserConfig:
+class UserConfig(ConfigObject):
     username: NameStr
     email: EmailStr
-    meta: frozendict[str, Any] = field(default_factory=frozendict)
+    meta: Mapping[str, Any] = Field(default_factory=dict)
 
 
-warnings.filterwarnings(
-    action="ignore",
-    message="fields may not start with an underscore",
-    category=RuntimeWarning,
-    module=sys.modules[__name__].__name__,
-)
-
-
-@vdc(
-    frozen=True,
-    config=ConfigDict(underscore_attrs_are_private=True),
-)
-class Config:
+class Config(ConfigObject):
     server: ServerConfig
     database: DatabaseConfig = Field(discriminator="kind")
-    users: frozenlist[UserConfig] = field(default_factory=frozenlist)
-    units: frozenlist[UnitConfig] = field(default_factory=frozenlist)
+    users: Sequence[UserConfig] = Field(default_factory=list)
+    units: Sequence[UnitConfig] = Field(default_factory=list)
 
-    _path: Path | None = None
-    _component_config_cache: dict[ComponentAddress, ComponentConfig] = field(default_factory=dict)
+    _path: Path | None = PrivateAttr(None)
+    _component_config_cache: dict[ComponentAddress, ComponentConfig] = PrivateAttr(
+        default_factory=dict
+    )
 
     @classmethod
     def from_data(cls, data: Any, path: Path | None = None) -> Self:
         instance = parse_obj_as(cls, data)
-        object.__setattr__(instance, "__path__", path)
+        cls._path = path
         return instance
 
     @property
@@ -154,7 +131,7 @@ class Config:
         return self._path
 
     @validator("units")
-    def _validate_units(cls, units: list[UnitConfig]) -> list[UnitConfig]:
+    def _validate_units(cls, units: Sequence[UnitConfig]) -> Sequence[UnitConfig]:
         for name, group in itertools.groupby(units, lambda unit: unit.name):
             if len(list(group)) > 1:
                 raise ValueError(f"duplicate unit name '{name}'")

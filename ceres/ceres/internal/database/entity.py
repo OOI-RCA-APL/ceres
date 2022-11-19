@@ -4,7 +4,6 @@ from enum import Enum as BaseEnum
 from typing import TYPE_CHECKING, Any, Callable, TypeVar
 from uuid import UUID, uuid4
 
-from inflection import underscore
 from sqlalchemy import (
     JSON,
     TIMESTAMP,
@@ -34,25 +33,25 @@ from sqlalchemy.sql.roles import ExpressionElementRole
 from ...address import Address, ComponentAddress, UnitAddress
 from ...alert import Alert, AlertLevel
 from ...message import Message, MessageDirection
-from ...utilities import ValidateByType
+from ..utilities import snakecase
 
 if TYPE_CHECKING:
     from .manager import DatabaseManager
 
 
-def TypedEnum(cls: type[BaseEnum]) -> Enum:
+def _TypedEnum(cls: type[BaseEnum]) -> Enum:
     enum = Enum(
         *(current.value for current in cls),
         native_enum=False,
         create_constraint=False,
-        name=underscore(cls.__name__),
+        name=snakecase(cls.__name__),
     )
 
     enum.length = None
     return enum
 
 
-def TypedEnumConstraint(column: str, cls: type[BaseEnum], name: str) -> CheckConstraint:
+def _TypedEnumConstraint(column: str, cls: type[BaseEnum], name: str) -> CheckConstraint:
     return CheckConstraint(
         sqltext=f"{column} in ({', '.join([repr(enum.value) for enum in cls])})",
         name=name,
@@ -114,12 +113,12 @@ class MessageEntity(Entity):
         ForeignKey(ComponentEntity.id, name=f"fk_{__tablename__}__connection_id__connection"),
     )
     timestamp: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))
-    direction: Mapped[MessageDirection] = mapped_column(TypedEnum(MessageDirection))
+    direction: Mapped[MessageDirection] = mapped_column(_TypedEnum(MessageDirection))
     content: Mapped[bytes] = mapped_column(LargeBinary)
 
     __table_args__ = (
         PrimaryKeyConstraint("id", name=f"pk_{__tablename__}"),
-        TypedEnumConstraint("direction", MessageDirection, name=f"ck_{__tablename__}__direction"),
+        _TypedEnumConstraint("direction", MessageDirection, name=f"ck_{__tablename__}__direction"),
         Index(f"ix_{__tablename__}__connection_id", "connection_id"),
         Index(f"ix_{__tablename__}__timestamp", "timestamp"),
         Index(f"ix_{__tablename__}__content", "content"),
@@ -132,13 +131,13 @@ class AlertEntity(Entity):
     id: Mapped[UUID] = mapped_column(Uuid)
     origin_id: Mapped[UUID] = mapped_column(Uuid)
     timestamp: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))
-    level: Mapped[AlertLevel] = mapped_column(TypedEnum(AlertLevel))
+    level: Mapped[AlertLevel] = mapped_column(_TypedEnum(AlertLevel))
     kind: Mapped[str] = mapped_column(String)
     info: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
 
     __table_args__ = (
         PrimaryKeyConstraint("id", name=f"pk_{__tablename__}"),
-        TypedEnumConstraint("level", AlertLevel, name=f"ck_{__tablename__}__level"),
+        _TypedEnumConstraint("level", AlertLevel, name=f"ck_{__tablename__}__level"),
         Index(f"ix_{__tablename__}__origin_id", "origin_id"),
         Index(f"ix_{__tablename__}__timestamp", "timestamp"),
         Index(f"ix_{__tablename__}__level", "level"),
@@ -146,15 +145,13 @@ class AlertEntity(Entity):
     )
 
 
-ComponentEntityT = TypeVar("ComponentEntityT", bound=ComponentEntity)
-
-EntityT = TypeVar("EntityT", bound=Entity)
+_EntityT = TypeVar("_EntityT", bound=Entity)
 
 _WhereValue = TypeVar("_WhereValue", bound=ColumnElement[bool] | ExpressionElementRole[bool])
 _OrderByValue = TypeVar("_OrderByValue", bound=ColumnElement[Any] | ExpressionElementRole[Any])
 
 
-class EntityManager(ValidateByType):
+class EntityManager:
     def __init__(self, database: "DatabaseManager") -> None:
         self._database = database
 
@@ -200,12 +197,12 @@ class EntityManager(ValidateByType):
 
     async def _get_entities(
         self,
-        cls: type[EntityT],
+        cls: type[_EntityT],
         *,
-        where: Callable[[type[EntityT]], _WhereValue] | None = None,
-        order_by: Callable[[type[EntityT]], _OrderByValue] | None = None,
+        where: Callable[[type[_EntityT]], _WhereValue] | None = None,
+        order_by: Callable[[type[_EntityT]], _OrderByValue] | None = None,
         limit: int | None = None,
-    ) -> list[EntityT]:
+    ) -> list[_EntityT]:
         query = select(cls)
         if where is not None:
             query = select(AlertEntity).where(where(cls))

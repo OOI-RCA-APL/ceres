@@ -5,12 +5,10 @@ from logging import Formatter, Handler, Logger
 import uvicorn.logging
 from rich.logging import RichHandler
 
+from ..data import FrozenDataObject
 
-@dataclass(kw_only=True, frozen=True)
-class LogConfig:
-    """
-    Common logging configuration.
-    """
+
+class LogConfig(FrozenDataObject):
 
     level: str = "INFO"
     """

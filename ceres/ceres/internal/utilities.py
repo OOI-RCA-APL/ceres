@@ -4,8 +4,9 @@ import asyncio
 import dataclasses
 import inspect
 import re
-import sys
+import signal
 from asyncio import AbstractEventLoop
+from contextlib import contextmanager
 from datetime import timedelta
 from functools import cache, wraps
 from types import MappingProxyType, UnionType
@@ -14,31 +15,29 @@ from typing import (
     Any,
     Awaitable,
     Callable,
-    Coroutine,
+    ClassVar,
     Iterable,
+    Iterator,
     Literal,
     Mapping,
     NoReturn,
     ParamSpec,
+    Protocol,
     Sequence,
-    SupportsIndex,
     TypeGuard,
     TypeVar,
     cast,
     get_type_hints,
     overload,
+    runtime_checkable,
 )
 
 from apscheduler.triggers.cron import CronTrigger
 from pydantic import BaseModel, ConstrainedStr, parse_obj_as
-from typing_extensions import Self
+from pydantic.decorator import ValidatedFunction
+from pydantic.utils import lenient_issubclass
 
-if TYPE_CHECKING:
-    from _typeshed import SupportsKeysAndGetItem, SupportsRichComparison
-
-T = TypeVar("T")
-
-ParamsT = ParamSpec("ParamsT")
+_T = TypeVar("_T")
 
 
 def strify(value: object) -> str:
@@ -48,17 +47,101 @@ def strify(value: object) -> str:
         return "<__str__() raised exception>"
 
 
-def syncify(function: Callable[ParamsT, Awaitable[T]]) -> Callable[ParamsT, T]:
+_P = ParamSpec("_P")
+
+
+def syncify(function: Callable[_P, Awaitable[_T]]) -> Callable[_P, _T]:
     @wraps(function)
     def wrapper(*args: list[Any], **kwargs: dict[str, Any]) -> Any:
         return setup_event_loop().run_until_complete(function(*args, **kwargs))  # type: ignore
 
-    return cast(Callable[ParamsT, T], wrapper)
+    return cast(Callable[_P, _T], wrapper)
 
 
-def unwrap(value: T | None) -> T:
+async def awaitify(value: Awaitable[_T] | _T) -> _T:
+    if inspect.isawaitable(value):
+        return cast(_T, await value)
+
+    return cast(_T, value)
+
+
+def dictify(obj: object) -> dict[str, Any]:
+    def includes(key: str) -> bool:
+        return not key.startswith("__")
+
+    try:
+        if isinstance(obj, Mapping):
+            return dict(obj)
+        if is_dataclass(obj):
+            return dataclasses.asdict(obj)
+        if isinstance(obj, BaseModel):
+            return obj.dict()
+        if isinstance(obj, type):
+            return {key: getattr(obj, key) for key in dir(obj) if includes(key)}
+        if hasattr(obj, "__slots__"):
+            return {
+                name: getattr(obj, name) for name in obj.__slots__ if includes(name)  # type: ignore
+            }
+        return {key: value for key, value in obj.__dict__.items() if not includes(key)}
+    except Exception:
+        raise ValueError("object cannot be dictified")
+
+
+@runtime_checkable
+class DataclassLike(Protocol):
+    __dataclass_fields__: ClassVar[dict[str, Any]]
+    __dataclass_params__: ClassVar[Any]
+    __post_init__: ClassVar[Callable[..., None]]
+
+
+@runtime_checkable
+class PydanticDataclassLike(DataclassLike, Protocol):
+    __pydantic_run_validation__: ClassVar[bool]
+    __post_init_post_parse__: ClassVar[Callable[..., None]]
+    __pydantic_initialised__: ClassVar[bool]
+    __pydantic_model__: ClassVar[type[BaseModel]]
+    __pydantic_validate_values__: ClassVar[Callable[[DataclassLike], None]]
+    __pydantic_has_field_info_default__: ClassVar[bool]
+
+
+def is_dataclass(obj: object) -> TypeGuard[DataclassLike]:
+    return dataclasses.is_dataclass(obj)
+
+
+def is_pydantic_dataclass(obj: object) -> TypeGuard[PydanticDataclassLike]:
+    return dataclasses.is_dataclass(obj) and hasattr(obj, "__pydantic_model__")
+
+
+def is_json_object_type(
+    type_: type,
+) -> TypeGuard[DataclassLike | BaseModel | Mapping[Any, Any]]:
+    return dataclasses.is_dataclass(type_) or (lenient_issubclass(type_, (BaseModel, Mapping)))
+
+
+class ValidateByType:
+    @classmethod
+    def __get_validators__(cls) -> Iterable[Any]:
+        if hasattr(super(), "__get_validators__"):
+            yield from super().__get_validators__()  # type: ignore
+
+        def validate_type(value: Any) -> Any:
+            if not isinstance(value, cls):
+                raise ValueError(f"must be an instance of {cls}")
+            return value
+
+        yield validate_type
+
+
+def unwrap(value: _T | None) -> _T:
     assert value is not None
     return value
+
+
+_FunctionT = TypeVar("_FunctionT", bound=Callable[..., Any])
+
+
+def cached(function: _FunctionT) -> _FunctionT:
+    return cast(_FunctionT, cache(function))
 
 
 class UnreachableException(Exception):
@@ -70,12 +153,15 @@ def unreachable() -> NoReturn:
     raise UnreachableException()
 
 
+def snakecase(text: str) -> str:
+    text = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1_\2", text)
+    text = re.sub(r"([a-z\d])([A-Z])", r"\1_\2", text)
+    return text.replace("-", "_").lower()
+
+
+@cached
 def get_type_annotations(obj: object) -> Mapping[str, Any]:
     return MappingProxyType(get_type_hints(obj))
-
-
-if not TYPE_CHECKING:
-    get_type_annotations = cache(get_type_annotations)
 
 
 def encode_td(value: timedelta) -> str:
@@ -184,27 +270,22 @@ else:
         regex = re.compile(r".+")
 
 
-def issubtype(subtype: Any, base: type | UnionType) -> bool:
+def issubtype(subtype: type | UnionType, base: type | UnionType) -> bool:
     try:
         if subtype is base:
             return True
-        if isinstance(subtype, type) and isinstance(base, type):
+        if isinstance(subtype, type) and isinstance(base, type | UnionType):
             return issubclass(subtype, base)
-        if isinstance(base, UnionType):
-            for arg in base.__args__:
-                if issubtype(subtype, arg):
-                    return True
+        if isinstance(subtype, UnionType):
+            return all(issubtype(arg, base) for arg in subtype.__args__)
     except Exception:
         pass
 
     return False
 
 
-InstanceT = TypeVar("InstanceT")
-
-
 @overload
-def loose_isinstance(instance: object, type: type[InstanceT]) -> TypeGuard[InstanceT]:
+def loose_isinstance(instance: object, type: type[_T]) -> TypeGuard[_T]:
     ...
 
 
@@ -215,8 +296,8 @@ def loose_isinstance(instance: object, type: UnionType) -> bool:
 
 def loose_isinstance(
     instance: object,
-    type: type[InstanceT] | UnionType,
-) -> TypeGuard[InstanceT] | bool:
+    type: type[_T] | UnionType,
+) -> TypeGuard[_T] | bool:
     try:
         return isinstance(instance, type)
     except Exception:
@@ -236,393 +317,6 @@ def object_has_field(obj: Any, name: str, type: Any = None) -> bool:
         )
 
     return False
-
-
-KeyT = TypeVar("KeyT", covariant=True)
-ValueT = TypeVar("ValueT", covariant=True)
-
-NewKeyT = TypeVar("NewKeyT")
-NewValueT = TypeVar("NewValueT")
-
-
-class frozendict(dict[KeyT, ValueT]):  # type: ignore
-    def __repr__(self) -> str:
-        name = type(self).__name__
-        if len(self) == 0:
-            return f"{name}()"
-
-        return f"{name}({super().__repr__()})"
-
-    def __hash__(self) -> int:  # type: ignore
-        return hash(frozenset(self.keys())) ^ hash(frozenset(self.values()))
-
-    def __copy__(self) -> Self:
-        return self.copy()
-
-    def __reduce__(self) -> tuple[type[Self], tuple[dict[KeyT, ValueT]]]:
-        return (type(self), (dict(self),))
-
-    @overload  # type: ignore
-    def __or__(
-        self: frozendict[KeyT, ValueT],
-        __value: SupportsKeysAndGetItem[NewKeyT, NewValueT],
-    ) -> frozendict[KeyT | NewKeyT, ValueT | NewValueT]:
-        ...
-
-    @overload
-    def __or__(
-        self: frozendict[KeyT, ValueT],
-        __value: Iterable[tuple[NewKeyT, NewValueT]],
-    ) -> frozendict[KeyT | NewKeyT, ValueT | NewValueT]:
-        ...
-
-    def __or__(
-        self: frozendict[KeyT, ValueT],
-        __value: SupportsKeysAndGetItem[NewKeyT, NewValueT] | Iterable[tuple[NewKeyT, NewValueT]],
-    ) -> frozendict[KeyT | NewKeyT, ValueT | NewValueT]:
-        return self.update(__value)
-
-    @overload
-    def __ror__(
-        self: frozendict[KeyT, ValueT],
-        __value: SupportsKeysAndGetItem[NewKeyT, NewValueT],
-    ) -> frozendict[KeyT | NewKeyT, ValueT | NewValueT]:
-        ...
-
-    @overload
-    def __ror__(
-        self: frozendict[KeyT, ValueT],
-        __value: Iterable[tuple[NewKeyT, NewValueT]],
-    ) -> frozendict[KeyT | NewKeyT, ValueT | NewValueT]:
-        ...
-
-    def __ror__(
-        self: frozendict[KeyT, ValueT],
-        __value: SupportsKeysAndGetItem[NewKeyT, NewValueT] | Iterable[tuple[NewKeyT, NewValueT]],
-    ) -> frozendict[KeyT | NewKeyT, ValueT | NewValueT]:
-        return self.__or__(__value)  # type: ignore
-
-    @overload
-    def __ior__(
-        self: frozendict[KeyT, ValueT],
-        __value: SupportsKeysAndGetItem[NewKeyT, NewValueT],
-    ) -> frozendict[KeyT | NewKeyT, ValueT | NewValueT]:
-        ...
-
-    @overload
-    def __ior__(
-        self: frozendict[KeyT, ValueT], __value: Iterable[tuple[NewKeyT, NewValueT]]
-    ) -> frozendict[KeyT | NewKeyT, ValueT | NewValueT]:
-        ...
-
-    def __ior__(  # type: ignore
-        self: frozendict[KeyT, ValueT],
-        __value: SupportsKeysAndGetItem[NewKeyT, NewValueT] | Iterable[tuple[NewKeyT, NewValueT]],
-    ) -> frozendict[KeyT | NewKeyT, ValueT | NewValueT]:
-        return self.__or__(__value)  # type: ignore
-
-    def __copy_if_unreferenced(self) -> Self:
-        if sys.getrefcount(self) <= 5:
-            return self
-
-        return self.copy()
-
-    def copy(self) -> Self:
-        return type(self)(self)
-
-    @overload  # type: ignore
-    @classmethod
-    def fromkeys(
-        cls: type[frozendict[KeyT, None]],
-        __iterable: Iterable[KeyT],
-        __value: None = None,
-    ) -> frozendict[KeyT, None]:
-        ...
-
-    @overload
-    @classmethod
-    def fromkeys(
-        cls,
-        __iterable: Iterable[NewKeyT],
-        __value: NewValueT,
-    ) -> frozendict[NewKeyT, NewValueT]:
-        ...
-
-    @classmethod
-    def fromkeys(  # type: ignore
-        cls,
-        __iterable: Iterable[NewKeyT],
-        __value: NewValueT | None = None,
-    ) -> frozendict[NewKeyT, NewValueT] | frozendict[NewKeyT, None]:
-        return cls(dict.fromkeys(__iterable, __value))  # type: ignore
-
-    def set(
-        self: frozendict[KeyT, ValueT],
-        __key: NewKeyT,
-        __value: NewValueT,
-    ) -> frozendict[KeyT | NewKeyT, ValueT | NewValueT]:
-        result = self.__copy_if_unreferenced()
-        dict.__setitem__(result, __key, __value)  # type: ignore
-        return result
-
-    def setdefault(  # type: ignore
-        self: frozendict[KeyT, ValueT],
-        __key: NewKeyT,
-        __default: NewValueT,
-    ) -> frozendict[KeyT | NewKeyT, ValueT | NewValueT]:
-        if __key in self:
-            return self
-
-        return self.set(__key, __default)
-
-    @overload  # type: ignore
-    def update(
-        self: frozendict[KeyT, ValueT],
-        __value: SupportsKeysAndGetItem[NewKeyT, NewValueT],
-        **kwargs: NewValueT,
-    ) -> frozendict[KeyT | NewKeyT, ValueT | NewValueT]:
-        ...
-
-    @overload
-    def update(
-        self: frozendict[KeyT, ValueT],
-        __value: Iterable[tuple[NewKeyT, NewValueT]],
-        **kwargs: NewValueT,
-    ) -> frozendict[KeyT | NewKeyT, ValueT | NewValueT]:
-        ...
-
-    @overload
-    def update(
-        self: frozendict[KeyT, ValueT],
-        **kwargs: NewValueT,
-    ) -> frozendict[KeyT, ValueT | NewValueT]:
-        ...
-
-    def update(  # type: ignore
-        self: frozendict[KeyT, ValueT],
-        __value: SupportsKeysAndGetItem[NewKeyT, NewValueT]
-        | Iterable[tuple[NewKeyT, NewValueT]]
-        | None = None,
-        **kwargs: NewValueT,
-    ) -> frozendict[KeyT | NewKeyT, ValueT | NewValueT]:
-        result = self.__copy_if_unreferenced()
-
-        if __value is None:
-            dict.update(result, **kwargs)  # type: ignore
-        else:
-            dict.update(result, __value, **kwargs)  # type: ignore
-
-        return result
-
-
-def __patch_frozendict() -> None:
-    """
-    Modify frozendict to disable all remaining mutating methods.
-    """
-    for method in [
-        dict.__delitem__,
-        dict.__setitem__,
-        dict.clear,
-        dict.pop,
-        dict.popitem,
-        # dict.setdefault,
-        # dict.update,
-    ]:
-
-        @wraps(method)  # type: ignore
-        def disabled(self: Any, *args: Any) -> NoReturn:
-            raise NotImplementedError(f"method disabled for {type(self)}")
-
-        setattr(frozendict, method.__name__, disabled)
-
-
-__patch_frozendict()
-
-SortableFrozenListT = TypeVar("SortableFrozenListT", bound="frozenlist[Any]")
-
-
-class frozenlist(list[ValueT]):  # type: ignore
-    def __repr__(self) -> str:
-        name = type(self).__name__
-        if len(self) == 0:
-            return f"{name}()"
-
-        return f"{name}({super().__repr__()})"
-
-    def __hash__(self) -> int:  # type: ignore
-        return hash(tuple(self))
-
-    def __copy__(self) -> Self:
-        return type(self)(self)
-
-    def __reduce__(self) -> tuple[type[frozenlist[ValueT]], tuple[list[ValueT]]]:
-        return (type(self), (list(self),))
-
-    @overload
-    def __getitem__(self, __index: SupportsIndex) -> ValueT:
-        ...
-
-    @overload
-    def __getitem__(self, __index: slice) -> Self:
-        ...
-
-    def __getitem__(self, __index: SupportsIndex | slice) -> ValueT | Self:
-        if isinstance(__index, slice):
-            return frozenlist(super().__getitem__(__index))  # type: ignore
-
-        return super().__getitem__(__index)  # type: ignore
-
-    def __add__(
-        self: frozenlist[ValueT],
-        __iterable: Iterable[NewValueT],
-    ) -> frozenlist[ValueT | NewValueT]:
-        return self.extend(__iterable)
-
-    def __radd__(
-        self: frozenlist[ValueT],
-        __iterable: Iterable[NewValueT],
-    ) -> frozenlist[ValueT | NewValueT]:
-        return self.__add__(__iterable)
-
-    def __iadd__(
-        self: frozenlist[ValueT],
-        __iterable: Iterable[NewValueT],
-    ) -> frozenlist[ValueT | NewValueT]:
-        return self.__add__(__iterable)
-
-    def __mul__(self, __times: SupportsIndex) -> Self:
-        return type(self)(super().__mul__(__times))
-
-    def __rmul__(self, __times: SupportsIndex) -> Self:
-        return self.__mul__(__times)
-
-    def __imul__(self, __times: SupportsIndex) -> Self:
-        return self.__mul__(__times)
-
-    def __copy_if_unreferenced(self) -> Self:
-        if sys.getrefcount(self) <= 5:
-            return self
-
-        return type(self)(self)
-
-    def append(  # type: ignore
-        self: frozenlist[ValueT],
-        __value: NewValueT,
-    ) -> frozenlist[ValueT | NewValueT]:
-        result = self.__copy_if_unreferenced()
-        list.append(result, __value)  # type: ignore
-        return result
-
-    def extend(  # type: ignore
-        self: frozenlist[ValueT],
-        __iterable: Iterable[NewValueT],
-    ) -> frozenlist[ValueT | NewValueT]:
-        result = self.__copy_if_unreferenced()
-        list.extend(result, __iterable)  # type: ignore
-        return result
-
-    def insert(  # type: ignore
-        self: frozenlist[ValueT],
-        __index: SupportsIndex,
-        __value: NewValueT,
-    ) -> frozenlist[ValueT | NewValueT]:
-        result = self.__copy_if_unreferenced()
-        list.insert(result, __index, __value)  # type: ignore
-        return result
-
-    def remove(  # type: ignore
-        self: frozenlist[ValueT],
-        __value: NewValueT,
-    ) -> frozenlist[ValueT | NewValueT]:
-        result = self.__copy_if_unreferenced()
-        list.remove(result, __value)  # type: ignore
-        return result
-
-    def reverse(self) -> Self:  # type: ignore
-        result = self.__copy_if_unreferenced()
-        list.reverse(result)
-        return result
-
-    @overload  # type: ignore
-    def sort(
-        self: SortableFrozenListT,
-        *,
-        key: None = None,
-        reverse: bool = False,
-    ) -> SortableFrozenListT:
-        ...
-
-    @overload
-    def sort(
-        self,
-        *,
-        key: Callable[[ValueT], SupportsRichComparison],
-        reverse: bool = False,
-    ) -> Self:
-        ...
-
-    def sort(
-        self,
-        *,
-        key: Callable[[ValueT], SupportsRichComparison] | None = None,
-        reverse: bool = False,
-    ) -> Self:
-        result = self.__copy_if_unreferenced()
-        list.sort(result, key=key, reverse=reverse)
-        return result
-
-    @overload
-    def set(
-        self: frozenlist[ValueT],
-        __index: SupportsIndex,
-        __value: NewValueT,
-    ) -> frozenlist[ValueT | NewValueT]:
-        ...
-
-    @overload
-    def set(
-        self: frozenlist[ValueT],
-        __index: slice,
-        __value: Iterable[NewValueT],
-    ) -> frozenlist[ValueT | NewValueT]:
-        ...
-
-    def set(  # type: ignore
-        self: frozenlist[ValueT],
-        __index: SupportsIndex | slice,
-        __value: NewValueT | Iterable[NewValueT],
-    ) -> frozenlist[ValueT | NewValueT]:
-        result = self.__copy_if_unreferenced()
-        list.__setitem__(result, __index, __value)  # type: ignore
-        return result
-
-
-def __patch_frozenlist() -> None:
-    """
-    Modify frozenlist to disable all remaining mutating methods.
-    """
-    for method in [
-        list.__delitem__,
-        # list.__iadd__,
-        list.__setitem__,
-        # list.append,
-        list.clear,
-        # list.extend,
-        # list.insert,
-        list.pop,
-        # list.remove,
-        # list.reverse,
-        # list.sort,
-    ]:
-
-        @wraps(method)  # type: ignore
-        def disabled(self: Any, *args: Any) -> NoReturn:
-            raise NotImplementedError(f"method disabled for {strify(type(self))}.")
-
-        setattr(frozenlist, method.__name__, disabled)
-
-
-__patch_frozenlist()
 
 
 @overload
@@ -659,33 +353,28 @@ async def sleep_forever() -> None:
         await asyncio.sleep(timedelta(hours=1).total_seconds())
 
 
-def event_loop_exists() -> bool:
-    try:
-        asyncio.get_running_loop()
-        return True
-    except RuntimeError:
-        return False
-
-
 def setup_event_loop() -> AbstractEventLoop:
     try:
-        loop = asyncio.get_running_loop()
+        return asyncio.get_running_loop()
     except RuntimeError:
         try:
-            import uvloop
+            from uvloop import EventLoopPolicy  # type: ignore
 
-            uvloop.install()
+            if not isinstance(asyncio.get_event_loop_policy(), EventLoopPolicy):
+                asyncio.set_event_loop_policy(EventLoopPolicy())
         except Exception:
             pass
 
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+        try:
+            return asyncio.get_event_loop()
+        except Exception:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            return loop
 
-    return loop
 
-
-def get_bindings(cls: type[Any], attribute: str, type: type[T]) -> list[T]:
-    output: list[T] = []
+def get_bindings(cls: type[Any], attribute: str, type: type[_T]) -> list[_T]:
+    output: list[_T] = []
 
     for _, function in inspect.getmembers(cls):
         if not inspect.isfunction(function):
@@ -700,13 +389,24 @@ def get_bindings(cls: type[Any], attribute: str, type: type[T]) -> list[T]:
     return output
 
 
-def add_binding(function: Callable[..., Any], attribute: str, value: T) -> list[T]:
-    values: Sequence[T] | None = getattr(function, attribute, None)
+@contextmanager
+def temporary_signal_handler(signums: Sequence[int], handler: Callable[..., Any]) -> Iterator[None]:
+    originals: dict[int, Any] = {}
+    for signum in signums:
+        if original := signal.getsignal(signum):
+            originals[signum] = original
+        signal.signal(signum, handler)
 
-    if not isinstance(values, list):
-        values = list(values or [])
-        setattr(function, attribute, values)
+    try:
+        yield
+    finally:
+        for signum, original in originals.items():
+            signal.signal(signum, original)
 
-    values.append(value)
 
-    return values
+def pre_validate_arguments(
+    function: Callable[_P, Any],
+    *args: _P.args,
+    **kwargs: _P.kwargs,
+) -> BaseModel:
+    return ValidatedFunction(function, None).init_model_instance(*args, **kwargs)

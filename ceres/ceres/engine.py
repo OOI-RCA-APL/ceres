@@ -3,17 +3,22 @@ import signal
 import sys
 import traceback
 from asyncio import FIRST_COMPLETED, Event
-from contextlib import contextmanager
-from dataclasses import dataclass
 from enum import Enum
 from logging import Logger
 from pathlib import Path
 from queue import Empty, Queue
-from typing import Any, Callable, Iterator, Mapping, Sequence
+from typing import Any
 
 from .address import ComponentAddress, LocalComponentAddress, UnitAddress
+from .component import ProcedureKind
 from .config import Config, UnitConfig
-from .errors import ReloadAlreadyActiveError, ReloadConfigInvalidError, ReloadError
+from .data import FrozenDataObject, jsonify
+from .errors import (
+    ProcedureError,
+    ReloadAlreadyActiveError,
+    ReloadConfigInvalidError,
+    ReloadError,
+)
 from .exceptions import (
     StartupConfigCheckFailedException,
     StartupDatabaseInitFailedException,
@@ -24,13 +29,8 @@ from .internal.database.manager import DatabaseManager
 from .internal.server import Server
 from .internal.tasklet import Tasklet
 from .internal.unit import UnitContext, UnitHandle
-from .internal.utilities import unreachable
+from .internal.utilities import temporary_signal_handler, unreachable
 from .result import Fail, Ok, Result
-from .utilities import jsonify
-
-__all__ = [
-    "Engine",
-]
 
 
 class UnitSyncActionKind(str, Enum):
@@ -39,8 +39,7 @@ class UnitSyncActionKind(str, Enum):
     REMOVE = "remove"
 
 
-@dataclass(kw_only=True, frozen=True)
-class UnitSyncAction:
+class UnitSyncAction(FrozenDataObject):
     kind: UnitSyncActionKind
     address: UnitAddress
 
@@ -131,7 +130,7 @@ class Engine(Tasklet):
                 def handle_exit_signal(*args: Any) -> None:
                     exiting.set()
 
-                with _use_signals([signal.SIGINT, signal.SIGTERM], handle_exit_signal):
+                with temporary_signal_handler([signal.SIGINT, signal.SIGTERM], handle_exit_signal):
                     await self._sync_units()
                     await self._start_server()
 
@@ -159,34 +158,21 @@ class Engine(Tasklet):
         await self._stop_units()
         await self._database.dispose()
 
-    async def call_action(
+    async def call(
         self,
         address: ComponentAddress,
-        action: str,
-        arguments: Mapping[str, Any],
-    ) -> Any:
+        kind: ProcedureKind,
+        procedure: str,
+        input: object | None = None,
+    ) -> Result[object | None, ProcedureError]:
         if (unit := self._units.get(UnitAddress(address.unit))) is None:
             raise ValueError(f"unit at {address} does not exist")
 
-        return await unit.call_action(
+        return await unit.call(
             LocalComponentAddress(address.name),
-            action,
-            arguments,
-        )
-
-    async def call_query(
-        self,
-        address: ComponentAddress,
-        query: str,
-        arguments: Mapping[str, Any],
-    ) -> Any:
-        if (unit := self._units.get(UnitAddress(address.unit))) is None:
-            raise ValueError(f"unit at {address} does not exist")
-
-        return await unit.call_query(
-            LocalComponentAddress(address.name),
-            query,
-            arguments,
+            kind,
+            procedure,
+            input,
         )
 
     async def _reload(self) -> None:
@@ -226,6 +212,8 @@ class Engine(Tasklet):
                 self.logger.error(
                     f"An issue occurred while syncing units: {traceback.format_exc()}"
                 )
+        else:
+            self.logger.info("Everything is up to date. Nothing to do.")
 
         self.logger.info("Reload completed.")
 
@@ -345,19 +333,19 @@ class Engine(Tasklet):
 
         actions: list[UnitSyncAction] = []
 
-        for address, config in configs.items():
-            unit = units.get(address)
-            if unit and unit.running and unit.config == config:
+        for unit_address, unit_config in configs.items():
+            unit = units.get(unit_address)
+            if unit and unit.running and unit.config == unit_config:
                 continue
 
             if not unit or not unit.running:
-                actions.append(UnitSyncAction(address=address, kind=UnitSyncActionKind.START))
-            elif unit.config != config:
-                actions.append(UnitSyncAction(address=address, kind=UnitSyncActionKind.RELOAD))
+                actions.append(UnitSyncAction(address=unit_address, kind=UnitSyncActionKind.START))
+            elif unit.config != unit_config:
+                actions.append(UnitSyncAction(address=unit_address, kind=UnitSyncActionKind.RELOAD))
 
-        for address, unit in self._units.items():
-            if address not in configs:
-                actions.append(UnitSyncAction(address=address, kind=UnitSyncActionKind.REMOVE))
+        for unit_address, unit in self._units.items():
+            if unit_address not in configs:
+                actions.append(UnitSyncAction(address=unit_address, kind=UnitSyncActionKind.REMOVE))
 
         return actions
 
@@ -378,18 +366,3 @@ class Engine(Tasklet):
             f"An exception occurred in unit '{unit.address}': {traceback.format_exception(exception)}"
         )
         self._units.pop(unit.address, None)
-
-
-@contextmanager
-def _use_signals(signums: Sequence[int], handler: Callable[..., Any]) -> Iterator[None]:
-    originals: dict[int, Any] = {}
-    for signum in signums:
-        if original := signal.getsignal(signum):
-            originals[signum] = original
-        signal.signal(signum, handler)
-
-    try:
-        yield
-    finally:
-        for signum, original in originals.items():
-            signal.signal(signum, original)

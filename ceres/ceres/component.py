@@ -1,30 +1,43 @@
-import dataclasses
 import inspect
 import traceback
+from abc import ABC
 from dataclasses import dataclass, field
-from functools import cache
+from enum import Enum
 from inspect import Parameter
 from logging import Logger
 from types import MappingProxyType, UnionType
 from typing import (
-    TYPE_CHECKING,
     Any,
     Awaitable,
     Callable,
+    Literal,
     Mapping,
     Sequence,
     TypeVar,
-    final,
     get_type_hints,
     overload,
 )
 from uuid import UUID, uuid4
 
+from pydantic import BaseModel, Field, ValidationError, validate_arguments
 from typing_extensions import dataclass_transform
 
 from .address import ComponentAddress, LocalComponentAddress
 from .alert import Alert, AlertLevel, RawAlertLevel
 from .config import ComponentConfig, Config, UnitConfig
+from .data import (
+    VALIDATED_DATACLASS_FIELD_SPECIFIERS,
+    FrozenDataObject,
+    ValidatedDataclass,
+)
+from .datetime import utc
+from .errors import (
+    ProcedureDoesNotExistError,
+    ProcedureError,
+    ProcedureExceptionError,
+    ProcedureInvalidInputError,
+    ValidationProblem,
+)
 from .events import AlertEmittedEvent, Event
 from .exceptions import ComponentClassInvalidException
 from .internal import logs
@@ -32,28 +45,20 @@ from .internal.database.entity import EntityManager
 from .internal.database.manager import DatabaseManager
 from .internal.tasklet import Tasklet
 from .internal.utilities import (
-    add_binding,
+    awaitify,
+    cached,
     get_bindings,
     get_type_annotations,
+    is_json_object_type,
     loose_isinstance,
     object_has_field,
+    pre_validate_arguments,
+    strify,
 )
+from .result import Fail, Ok, Result
+from .schedule import Schedule
 from .scheduler import Scheduler
 from .stream import Stream, StreamView
-from .utilities import (
-    VALIDATED_DATACLASS_FIELD_SPECIFIERS,
-    ValidatedDataclassMeta,
-    awaitify,
-    utc,
-)
-
-__all__ = [
-    "Component",
-    "ComponentMeta",
-    "EventBinding",
-    "ActionBinding",
-    "QueryBinding",
-]
 
 
 @dataclass(kw_only=True)
@@ -63,25 +68,17 @@ class ComponentInteral:
     scheduler: Scheduler = field(default_factory=Scheduler)
 
 
-ComponentT = TypeVar("ComponentT", bound="Component")
-EventT = TypeVar("EventT", bound=Event)
+_ComponentT = TypeVar("_ComponentT", bound="Component")
+_EventT = TypeVar("_EventT", bound=Event)
 
 
 @dataclass_transform(
     kw_only_default=True,
     field_specifiers=VALIDATED_DATACLASS_FIELD_SPECIFIERS,
 )
-class ComponentMeta(ValidatedDataclassMeta):
-    def __new__(
-        metacls,  # type: ignore
-        name: str,
-        bases: tuple[type[Any], ...],
-        namespace: dict[str, Any],
-        **kwargs: Any,
-    ) -> type[Any]:
-        cls: type["Component"] = super().__new__(metacls, name, bases, namespace, **kwargs)  # type: ignore
-        if cls.__module__ == __name__ and cls.__name__ == "Component":
-            return cls
+class Component(ValidatedDataclass, Tasklet):
+    def __init_subclass__(cls, **kwargs: Any) -> type[Any]:
+        super().__init_subclass__(**kwargs)
 
         __init__ = cls.__init__
         hints = get_type_hints(__init__)
@@ -121,7 +118,7 @@ class ComponentMeta(ValidatedDataclassMeta):
             )
 
         if isinstance(references_hint, type) and issubclass(references_hint, Component.References):
-            for binding in cls.get_event_bindings():
+            for binding in cls.get_listener_bindings():
                 if not object_has_field(references_hint, binding.address.name):
                     raise ComponentClassInvalidException(
                         f"event listener {binding.function} refers to component '{binding.address.name}' which is not defined in {references_hint.__init__} with signature {inspect.signature(references_hint.__init__)}"
@@ -129,33 +126,33 @@ class ComponentMeta(ValidatedDataclassMeta):
 
         return cls
 
+    class Parameters(FrozenDataObject):
+        pass
 
-class Component(Tasklet, metaclass=ComponentMeta):
-    class Context(metaclass=ValidatedDataclassMeta, frozen=True):
-        id: UUID = field(default_factory=uuid4)
+    class Context(FrozenDataObject):
+        id: UUID = Field(default_factory=uuid4)
         address: ComponentAddress
 
-        def __post_init__(self) -> None:
+        def __init_subclass__(cls) -> None:
+            if cls.__module__ == __name__:
+                return
+
             extra: list[tuple[str, Any]] = []
 
-            for current in dataclasses.fields(self):
-                if not object_has_field(Component.CompleteContext, current.name, current.type):
-                    extra.append((current.name, current.type))
+            for current in cls.__fields__.values():
+                if not object_has_field(Component.CompleteContext, current.name, current.type_):
+                    extra.append((current.name, current.type_))
 
             if extra:
                 raise ValueError(f"invalid context class, cannot provide fields: {extra}")
 
-    class Parameters(metaclass=ValidatedDataclassMeta, frozen=True):
+    class References(FrozenDataObject):
         pass
 
-    class References(metaclass=ValidatedDataclassMeta, frozen=True):
-        pass
-
-    parameters: Parameters = field(default_factory=Parameters)
+    parameters: Parameters = Field(default_factory=Parameters)
     context: Context
-    references: References = field(default_factory=References)
+    references: References = Field(default_factory=References)
 
-    @final
     class CompleteContext(Context):
         id: UUID
         address: ComponentAddress
@@ -181,16 +178,30 @@ class Component(Tasklet, metaclass=ComponentMeta):
         return get_type_annotations(cls)["references"]  # type: ignore
 
     @classmethod
-    def get_event_bindings(cls) -> Sequence["EventBinding"]:
-        return get_event_bindings(cls)
-
-    @classmethod
-    def get_action_bindings(cls) -> Mapping[str, "ActionBinding"]:
-        return get_action_bindings(cls)
+    def get_listener_bindings(cls) -> Sequence["ListenerBinding"]:
+        return _get_listener_bindings(cls)
 
     @classmethod
     def get_query_bindings(cls) -> Mapping[str, "QueryBinding"]:
-        return get_query_bindings(cls)
+        return _get_query_bindings(cls)
+
+    @classmethod
+    def get_action_bindings(cls) -> Mapping[str, "ActionBinding"]:
+        return _get_action_bindings(cls)
+
+    @classmethod
+    def get_job_bindings(cls) -> Mapping[str, "JobBinding"]:
+        return _get_job_bindings(cls)
+
+    @classmethod
+    def get_procedure_bindings(cls, kind: "ProcedureKind") -> Mapping[str, "ProcedureBinding"]:
+        match kind:
+            case ProcedureKind.QUERY:
+                return cls.get_query_bindings()
+            case ProcedureKind.ACTION:
+                return cls.get_action_bindings()
+            case ProcedureKind.JOB:
+                return cls.get_job_bindings()
 
     @property
     def id(self) -> UUID:
@@ -212,7 +223,34 @@ class Component(Tasklet, metaclass=ComponentMeta):
     def event_stream(self) -> StreamView[Event]:
         return self.__component_internal__.outgoing_event_stream.view()
 
-    def emit_event(self, event: EventT) -> EventT:
+    async def call(
+        self,
+        kind: "ProcedureKind",
+        procedure: str,
+        input: object | None = None,
+    ) -> Result[object | None, ProcedureError]:
+        if (
+            (binding := self.get_procedure_bindings(kind).get(procedure)) is None
+            or (method := getattr(self, binding.function, None)) is None
+            or not inspect.ismethod(method)
+        ):
+            return Fail(ProcedureDoesNotExistError())
+
+        arguments: list[object] = []
+        if input is not None:
+            arguments.append(input)
+
+        try:
+            pre_validate_arguments(method, *arguments)
+        except ValidationError as error:
+            return Fail(ProcedureInvalidInputError(problems=ValidationProblem.extract(error)))
+
+        try:
+            return Ok(await awaitify(validate_arguments(method)(*arguments)))
+        except Exception:
+            return Fail(ProcedureExceptionError(exception=traceback.format_exc()))
+
+    def emit_event(self, event: _EventT) -> _EventT:
         self.__component_internal__.outgoing_event_stream.put(event)
         return event
 
@@ -244,6 +282,31 @@ class Component(Tasklet, metaclass=ComponentMeta):
 
     async def __run__(self) -> None:
         self.scheduler.start()
+
+        for job in self.get_job_bindings().values():
+            if job.default_schedule is None:
+                continue
+
+            if (method := getattr(self, job.function, None)) is None:
+                continue
+
+            async def execute() -> None:
+                if method is None:
+                    return
+
+                try:
+                    if job.default_input is ...:
+                        await awaitify(method())
+                    else:
+                        await awaitify(method(job.default_input))
+                except Exception:
+                    self.logger.error(
+                        f"An exception occurred while running job '{job.name}': {traceback.format_exc()}"
+                    )
+
+            self.logger.info(f"Scheduling job '{job.name}' as: {job.default_schedule}")
+            self.scheduler.add_job(execute, job.default_schedule, name=job.name)
+
         await self._process_incoming_events()
 
     async def _process_incoming_events(self) -> None:
@@ -251,8 +314,8 @@ class Component(Tasklet, metaclass=ComponentMeta):
             await self._process_incoming_event(event)
 
     async def _process_incoming_event(self, event: Event) -> None:
-        for binding in self.get_event_bindings():
-            if not loose_isinstance(event, binding.event_cls):
+        for binding in self.get_listener_bindings():
+            if not loose_isinstance(event, binding.event):
                 continue
             target = getattr(self.references, binding.address.name, None)
             if not isinstance(target, Component):
@@ -260,7 +323,7 @@ class Component(Tasklet, metaclass=ComponentMeta):
             if target.context.address != event.address:
                 continue
 
-            if method := getattr(self, binding.function.__name__, None):
+            if method := getattr(self, binding.function, None):
                 try:
                     if len(inspect.signature(method).parameters) == 0:
                         await awaitify(method())
@@ -275,38 +338,36 @@ class Component(Tasklet, metaclass=ComponentMeta):
         self.scheduler.stop()
 
 
-FunctionT = TypeVar("FunctionT", bound=Callable[..., Any])
-
-EVENT_BINDINGS_ATTRIBUTE = "__event_bindings__"
-ACTION_BINDINGS_ATTRIBUTE = "__action_bindings__"
-QUERY_BINDINGS_ATTRIBUTE = "__value_bindings__"
+_T = TypeVar("_T")
 
 
-@dataclass(kw_only=True, frozen=True)
-class EventBinding:
+def _bind(function: Callable[..., Any], attribute: str, binding: _T) -> tuple[_T, ...]:
+    bindings: Sequence[_T] | None = getattr(function, attribute, None)
+
+    if not isinstance(bindings, Sequence):
+        bindings = ()
+
+    bindings = tuple([*bindings, binding])
+    setattr(function, attribute, bindings)
+
+    return bindings
+
+
+LISTENER_BINDINGS_ATTRIBUTE = "__listener_bindings__"
+
+
+class ListenerBinding(FrozenDataObject):
     address: LocalComponentAddress
-    event_cls: type | UnionType
-    function: Callable[..., Any]
-
-
-@dataclass(kw_only=True, frozen=True)
-class ActionBinding:
-    name: str
-    function: Callable[..., Any]
-
-
-@dataclass(kw_only=True, frozen=True)
-class QueryBinding:
-    name: str
-    function: Callable[..., Any]
+    event: type | UnionType
+    function: str
 
 
 @overload
 def listen(
     source: str,
-    cls: type[EventT],
+    event: type[_EventT],
 ) -> Callable[
-    [Callable[[Any, EventT], None | Awaitable[None]]], Callable[[Any, EventT], Awaitable[None]]
+    [Callable[[Any, _EventT], None | Awaitable[None]]], Callable[[Any, _EventT], Awaitable[None]]
 ]:
     ...
 
@@ -314,7 +375,7 @@ def listen(
 @overload
 def listen(
     source: str,
-    cls: UnionType,
+    event: UnionType,
 ) -> Callable[
     [Callable[[Any, Event], None | Awaitable[None]]], Callable[[Any, Event], Awaitable[None]]
 ]:
@@ -323,24 +384,21 @@ def listen(
 
 def listen(
     source: str,
-    cls: type[EventT] | UnionType,
+    event: type[_EventT] | UnionType,
 ) -> Callable[
-    [Callable[[Any, EventT], None | Awaitable[None]]], Callable[[Any, EventT], Awaitable[None]]
+    [Callable[[Any, _EventT], None | Awaitable[None]]], Callable[[Any, _EventT], Awaitable[None]]
 ] | Callable[
     [Callable[[Any, Event], None | Awaitable[None]]], Callable[[Any, Event], Awaitable[None]]
 ]:
     def inner(function: Callable[[Any, Event], None | Awaitable[None]]) -> Any:
-        bindings: Sequence[EventBinding] | None = getattr(function, EVENT_BINDINGS_ATTRIBUTE, None)
-        if not isinstance(bindings, list):
-            bindings = list(bindings or [])
-            setattr(function, EVENT_BINDINGS_ATTRIBUTE, bindings)
-
-        bindings.append(
-            EventBinding(
+        _bind(
+            function,
+            LISTENER_BINDINGS_ATTRIBUTE,
+            ListenerBinding(
                 address=LocalComponentAddress(source),
-                event_cls=cls,
-                function=function,
-            )
+                event=event,
+                function=function.__name__,
+            ),
         )
 
         return function
@@ -348,29 +406,83 @@ def listen(
     return inner
 
 
-def action(name: str) -> Callable[[FunctionT], FunctionT]:
-    def bind(function: FunctionT) -> FunctionT:
-        add_binding(
-            function,
-            ACTION_BINDINGS_ATTRIBUTE,
-            ActionBinding(
-                name=name,
-                function=function,
-            ),
+PROCEDURE_BINDINGS_ATTRIBUTE = "__procedure_bindings__"
+
+
+class ProcedureKind(str, Enum):
+    QUERY = "query"
+    ACTION = "action"
+    JOB = "job"
+
+
+class BaseProcedureBinding(FrozenDataObject, ABC):
+    kind: ProcedureKind
+    name: str
+    function: str
+
+
+class QueryBinding(BaseProcedureBinding):
+    kind: Literal[ProcedureKind.QUERY] = ProcedureKind.QUERY
+
+
+class ActionBinding(BaseProcedureBinding):
+    kind: Literal[ProcedureKind.ACTION] = ProcedureKind.ACTION
+
+
+class JobBinding(BaseProcedureBinding):
+    kind: Literal[ProcedureKind.JOB] = ProcedureKind.JOB
+    default_schedule: Schedule | None = None
+    default_input: object | None = None
+
+
+ProcedureBinding = QueryBinding | ActionBinding | JobBinding
+
+
+def _bind_procedure(
+    function: Callable[..., Any],
+    name: str,
+    binding: ProcedureBinding,
+) -> None:
+    parameters = [*inspect.signature(function).parameters.values()]
+    if len(parameters) not in (1, 2) or any(
+        parameter.kind not in (Parameter.POSITIONAL_OR_KEYWORD, Parameter.POSITIONAL_ONLY)
+        for parameter in parameters
+    ):
+        raise ValueError(
+            f"{binding.kind} {strify(function)} have exactly one or two positional parameters, 'self', and optionally, an input parameter"
         )
-        return function
 
-    return bind
+    if len(parameters) > 1:
+        input_parameter = parameters[1]
+        input_parameter_hint = get_type_hints(function)[input_parameter.name]
+
+        if not is_json_object_type(input_parameter_hint):
+            print(issubclass(input_parameter_hint, BaseModel))
+            raise ValueError(
+                f"second positional parameter '{input_parameter.name}' of {binding.kind} {strify(function)} must be parseable as a JSON object"
+            )
+
+    _bind(
+        function,
+        PROCEDURE_BINDINGS_ATTRIBUTE,
+        QueryBinding(
+            name=name,
+            function=function.__name__,
+        ),
+    )
 
 
-def query(name: str) -> Callable[[FunctionT], FunctionT]:
-    def bind(function: FunctionT) -> FunctionT:
-        add_binding(
+_FunctionT = TypeVar("_FunctionT", bound=Callable[..., Any])
+
+
+def query(name: str) -> Callable[[_FunctionT], _FunctionT]:
+    def bind(function: _FunctionT) -> _FunctionT:
+        _bind_procedure(
             function,
-            QUERY_BINDINGS_ATTRIBUTE,
+            name,
             QueryBinding(
                 name=name,
-                function=function,
+                function=function.__name__,
             ),
         )
 
@@ -379,29 +491,79 @@ def query(name: str) -> Callable[[FunctionT], FunctionT]:
     return bind
 
 
-def get_event_bindings(cls: type[ComponentT]) -> Sequence[EventBinding]:
-    return tuple(get_bindings(cls, EVENT_BINDINGS_ATTRIBUTE, EventBinding))
+def action(name: str) -> Callable[[_FunctionT], _FunctionT]:
+    def bind(function: _FunctionT) -> _FunctionT:
+        _bind_procedure(
+            function,
+            name,
+            ActionBinding(
+                name=name,
+                function=function.__name__,
+            ),
+        )
+
+        return function
+
+    return bind
 
 
-def get_action_bindings(cls: type[ComponentT]) -> Mapping[str, ActionBinding]:
+def job(
+    name: str,
+    *,
+    default_schedule: Schedule | None = None,
+    default_input: object | None = None,
+) -> Callable[[_FunctionT], _FunctionT]:
+    def bind(function: _FunctionT) -> _FunctionT:
+        parameters = inspect.signature(function).parameters
+        if len(parameters) == 1 and default_input is not None:
+            raise ValueError("job does not take any input, but a default input has been specified")
+
+        _bind_procedure(
+            function,
+            name,
+            JobBinding(
+                name=name,
+                function=function.__name__,
+                default_schedule=default_schedule,
+                default_input=default_input,
+            ),
+        )
+
+        return function
+
+    return bind
+
+
+@cached
+def _get_listener_bindings(cls: type[_ComponentT]) -> Sequence[ListenerBinding]:
+    return tuple(get_bindings(cls, LISTENER_BINDINGS_ATTRIBUTE, ListenerBinding))
+
+
+@cached
+def _get_query_bindings(cls: type[_ComponentT]) -> Mapping[str, QueryBinding]:
     return MappingProxyType(
         {
             binding.name: binding
-            for binding in get_bindings(cls, ACTION_BINDINGS_ATTRIBUTE, ActionBinding)
+            for binding in get_bindings(cls, PROCEDURE_BINDINGS_ATTRIBUTE, QueryBinding)
         }
     )
 
 
-def get_query_bindings(cls: type[ComponentT]) -> Mapping[str, QueryBinding]:
+@cached
+def _get_action_bindings(cls: type[_ComponentT]) -> Mapping[str, ActionBinding]:
     return MappingProxyType(
         {
             binding.name: binding
-            for binding in get_bindings(cls, QUERY_BINDINGS_ATTRIBUTE, QueryBinding)
+            for binding in get_bindings(cls, PROCEDURE_BINDINGS_ATTRIBUTE, ActionBinding)
         }
     )
 
 
-if not TYPE_CHECKING:
-    get_event_bindings = cache(get_event_bindings)
-    get_action_bindings = cache(get_action_bindings)
-    get_query_bindings = cache(get_query_bindings)
+@cached
+def _get_job_bindings(cls: type[_ComponentT]) -> Mapping[str, JobBinding]:
+    return MappingProxyType(
+        {
+            binding.name: binding
+            for binding in get_bindings(cls, PROCEDURE_BINDINGS_ATTRIBUTE, JobBinding)
+        }
+    )

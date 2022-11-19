@@ -6,13 +6,13 @@ from ...config import DatabaseKind
 from .entity import Entity
 from .manager import DatabaseManager
 
-EntityT = TypeVar("EntityT", bound=Entity)
+_EntityT = TypeVar("_EntityT", bound=Entity)
 
 
-class EntityBuffer(Generic[EntityT]):
+class EntityBuffer(Generic[_EntityT]):
     def __init__(
         self,
-        cls: type[EntityT],
+        cls: type[_EntityT],
         max_size: int,
         database: DatabaseManager,
         logger: Logger | None = None,  # TODO: Remove this.
@@ -20,12 +20,12 @@ class EntityBuffer(Generic[EntityT]):
         self._cls = cls
         self._max_size = max_size
         self._database = database
-        self._entities: list[EntityT] = []
+        self._entities: list[_EntityT] = []
         self._flushing = False
         self._logger = logger
 
     @property
-    def cls(self) -> type[EntityT]:
+    def cls(self) -> type[_EntityT]:
         return self._cls
 
     @property
@@ -40,7 +40,7 @@ class EntityBuffer(Generic[EntityT]):
     def flushing(self) -> bool:
         return self._flushing
 
-    async def add(self, entity: EntityT) -> None:
+    async def add(self, entity: _EntityT) -> None:
         self._entities.append(entity)
         if len(self._entities) >= self._max_size:
             await self.flush()

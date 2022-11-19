@@ -1,12 +1,10 @@
 import asyncio
-import dataclasses
 import importlib
-import inspect
 import traceback
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from functools import cache
 from logging import Logger
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Generic, Mapping, TypeVar, cast
 from uuid import UUID
 
@@ -32,7 +30,7 @@ from ..notifier import Notifier
 from ..result import Fail, Ok, Result
 from . import logs
 from .tasklet import Tasklet
-from .utilities import frozendict, get_type_annotations, object_has_field, strify
+from .utilities import cached, get_type_annotations, object_has_field, strify
 
 if TYPE_CHECKING:
     from .unit import Unit
@@ -93,6 +91,20 @@ def load_component_cls(
     return Ok(cls)
 
 
+@cached
+def _get_reference_mapping(
+    references: Component.References | type[Component.References],
+) -> Mapping[str, type["Component"]]:
+    mapping: dict[str, type[Component]] = {}
+    annotations = get_type_annotations(references)
+
+    for name, annotation in annotations.items():
+        if isinstance(annotation, type) and issubclass(annotation, Component):
+            mapping[name] = annotation
+
+    return MappingProxyType(mapping)
+
+
 def load_component(
     supercls: type[LoadedComponentT],
     config: ComponentConfig,
@@ -125,7 +137,7 @@ def load_component(
     try:
         context_kwargs: dict[str, Any] = {}
 
-        for field in dataclasses.fields(context):
+        for field in context.__fields__.values():
             if object_has_field(context_type, field.name):
                 context_kwargs[field.name] = getattr(context, field.name)
 
@@ -295,23 +307,6 @@ class ComponentHandle(Generic[ComponentT], Tasklet, ABC):
                 return Ok(instance)
             case fail:
                 return fail
-
-
-def _get_reference_mapping(
-    references: Component.References | type[Component.References],
-) -> Mapping[str, type["Component"]]:
-    mapping: dict[str, type[Component]] = {}
-    annotations = get_type_annotations(references)
-
-    for name, annotation in annotations.items():
-        if isinstance(annotation, type) and issubclass(annotation, Component):
-            mapping[name] = annotation
-
-    return frozendict(mapping)
-
-
-if not TYPE_CHECKING:
-    _get_reference_mapping = cache(_get_reference_mapping)
 
 
 class ConnectionHandle(ComponentHandle[Connection]):
