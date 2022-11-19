@@ -20,8 +20,8 @@ class ComponentConfig(ConfigObject):
     kind: Literal["connection", "driver", "notifier"]
     name: NameStr
     component: str | object
-    parameters: dict[str, Any] = Field(default_factory=dict)
-    references: dict[NameStr, NameStr] = Field(default_factory=dict)
+    parameters: Mapping[str, Any] = Field(default_factory=dict)
+    references: Mapping[NameStr, NameStr] = Field(default_factory=dict)
 
     @validator("references", pre=True)
     def _validate_references(cls, value: object) -> Any:
@@ -52,7 +52,7 @@ class DatabaseRetryConfig(ConfigObject):
 
 class BaseDatabaseConfig(ConfigObject):
     kind: DatabaseKind
-    engine: dict[str, Any] | None = None
+    engine: Mapping[str, Any] | None = None
     retry: DatabaseRetryConfig = DatabaseRetryConfig()
 
 
@@ -75,7 +75,7 @@ DatabaseConfig = SQLiteDatabaseConfig | PostgresDatabaseConfig
 
 class UnitConfig(ConfigObject):
     name: NameStr
-    components: list[ComponentConfig] = Field(default_factory=list)
+    components: Sequence[ComponentConfig] = Field(default_factory=list)
 
     @validator("components")
     def _validate_components(
@@ -106,14 +106,14 @@ class UnitConfig(ConfigObject):
 class UserConfig(ConfigObject):
     username: NameStr
     email: EmailStr
-    meta: dict[str, Any] = Field(default_factory=dict)
+    meta: Mapping[str, Any] = Field(default_factory=dict)
 
 
 class Config(ConfigObject):
     server: ServerConfig
     database: DatabaseConfig = Field(discriminator="kind")
-    users: list[UserConfig] = Field(default_factory=list)
-    units: list[UnitConfig] = Field(default_factory=list)
+    users: Sequence[UserConfig] = Field(default_factory=list)
+    units: Sequence[UnitConfig] = Field(default_factory=list)
 
     _path: Path | None = PrivateAttr(None)
     _component_config_cache: dict[ComponentAddress, ComponentConfig] = PrivateAttr(
@@ -131,7 +131,7 @@ class Config(ConfigObject):
         return self._path
 
     @validator("units")
-    def _validate_units(cls, units: list[UnitConfig]) -> list[UnitConfig]:
+    def _validate_units(cls, units: Sequence[UnitConfig]) -> Sequence[UnitConfig]:
         for name, group in itertools.groupby(units, lambda unit: unit.name):
             if len(list(group)) > 1:
                 raise ValueError(f"duplicate unit name '{name}'")

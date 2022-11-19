@@ -7,7 +7,7 @@ from pydantic import SecretStr
 
 from ...alert import Alert
 from ...data import jsonify
-from ...internal.utilities import EmailStr, frozenlist, show_td
+from ...internal.utilities import EmailStr, show_td
 from ...notifier import Notifier
 
 
@@ -16,7 +16,7 @@ class SMTPNotifier(Notifier):
         host: str
         port: int
         sender: EmailStr
-        recipients: frozenlist[EmailStr]
+        recipients: Sequence[EmailStr]
         use_tls: bool = False
         start_tls: bool = False
         username: str | None = None

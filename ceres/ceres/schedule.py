@@ -1,15 +1,11 @@
 from datetime import timedelta
 from enum import Enum
-from typing import Any, Iterable, Literal
+from typing import Any, Iterable, Literal, Sequence
 
 from pydantic import validator
 
 from .data import FrozenDataObject
-from .internal.utilities import (
-    frozenlist,
-    validate_crontab,
-    validate_positive_timedelta,
-)
+from .internal.utilities import validate_crontab, validate_positive_timedelta
 
 
 class ScheduleKind(str, Enum):
@@ -23,17 +19,17 @@ class BaseSchedule(FrozenDataObject):
     def __and__(self, other: "Schedule") -> "AndSchedule":
         assert isinstance(self, Schedule)
         assert isinstance(other, Schedule)
-        return AndSchedule(schedules=frozenlist([self, other]))
+        return AndSchedule(schedules=[self, other])
 
     def __or__(self, other: "Schedule") -> "OrSchedule":
         assert isinstance(self, Schedule)
         assert isinstance(other, Schedule)
-        return OrSchedule(schedules=frozenlist([self, other]))
+        return OrSchedule(schedules=[self, other])
 
 
 class CronSchedule(BaseSchedule):
-    crontab: str
     kind: Literal[ScheduleKind.CRON] = ScheduleKind.CRON
+    crontab: str
 
     def __init__(self, crontab: timedelta) -> None:
         super().__init__(crontab=crontab)  # type: ignore
@@ -44,8 +40,8 @@ class CronSchedule(BaseSchedule):
 
 
 class IntervalSchedule(BaseSchedule):
-    interval: timedelta
     kind: Literal[ScheduleKind.INTERVAL] = ScheduleKind.INTERVAL
+    interval: timedelta
 
     def __init__(self, interval: timedelta) -> None:
         super().__init__(interval=interval)  # type: ignore
@@ -56,35 +52,35 @@ class IntervalSchedule(BaseSchedule):
 
 
 class AndSchedule(BaseSchedule):
-    schedules: frozenlist["Schedule"]
     kind: Literal[ScheduleKind.AND] = ScheduleKind.AND
+    schedules: Sequence["Schedule"]
 
     def __init__(self, schedules: Iterable["Schedule"]) -> None:
-        super().__init__(schedules=frozenlist(schedules))  # type: ignore
+        super().__init__(schedules=schedules)  # type: ignore
 
     def __and__(self, other: "Schedule") -> "AndSchedule":
         assert isinstance(self, Schedule)
         assert isinstance(other, Schedule)
         if isinstance(other, AndSchedule):
-            return AndSchedule(schedules=frozenlist([*self.schedules, *other.schedules]))
+            return AndSchedule(schedules=[*self.schedules, *other.schedules])
 
-        return AndSchedule(schedules=frozenlist([*self.schedules, other]))
+        return AndSchedule(schedules=[*self.schedules, other])
 
 
 class OrSchedule(BaseSchedule):
-    schedules: frozenlist["Schedule"]
     kind: Literal[ScheduleKind.OR] = ScheduleKind.OR
+    schedules: Sequence["Schedule"]
 
     def __init__(self, schedules: Iterable["Schedule"]) -> None:
-        super().__init__(schedules=frozenlist(schedules))  # type: ignore
+        super().__init__(schedules=schedules)  # type: ignore
 
     def __or__(self, other: "Schedule") -> "OrSchedule":
         assert isinstance(self, Schedule)
         assert isinstance(other, Schedule)
         if isinstance(other, OrSchedule):
-            return OrSchedule(schedules=frozenlist([*self.schedules, *other.schedules]))
+            return OrSchedule(schedules=[*self.schedules, *other.schedules])
 
-        return OrSchedule(schedules=frozenlist([*self.schedules, other]))
+        return OrSchedule(schedules=[*self.schedules, other])
 
 
 Schedule = CronSchedule | IntervalSchedule | AndSchedule | OrSchedule  # type: ignore

@@ -4,6 +4,7 @@ import traceback
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from logging import Logger
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Generic, Mapping, TypeVar, cast
 from uuid import UUID
 
@@ -29,13 +30,7 @@ from ..notifier import Notifier
 from ..result import Fail, Ok, Result
 from . import logs
 from .tasklet import Tasklet
-from .utilities import (
-    cached,
-    frozendict,
-    get_type_annotations,
-    object_has_field,
-    strify,
-)
+from .utilities import cached, get_type_annotations, object_has_field, strify
 
 if TYPE_CHECKING:
     from .unit import Unit
@@ -107,7 +102,7 @@ def _get_reference_mapping(
         if isinstance(annotation, type) and issubclass(annotation, Component):
             mapping[name] = annotation
 
-    return frozendict(mapping)
+    return MappingProxyType(mapping)
 
 
 def load_component(
