@@ -1,5 +1,4 @@
 from datetime import datetime
-from typing import Literal
 
 from pydantic import Field
 
@@ -11,29 +10,25 @@ from .message import Message
 
 
 class Event(ImmutableDataObject):
-    kind: str
     address: ComponentAddress
     timestamp: datetime = Field(default_factory=utc)
 
 
 class ConnectedEvent(Event):
-    kind: Literal["connected"] = "connected"
+    pass
 
 
 class DisconnectedEvent(Event):
-    kind: Literal["disconnected"] = "disconnected"
+    pass
 
 
 class MessageSentEvent(Event):
-    kind: Literal["message-sent"] = "message-sent"
     message: Message
 
 
 class MessageReceivedEvent(Event):
-    kind: Literal["message-received"] = "message-received"
     message: Message
 
 
 class AlertEmittedEvent(Event):
-    kind: Literal["alert-emitted"] = "alert-emitted"
     alert: Alert
