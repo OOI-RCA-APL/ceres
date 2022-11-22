@@ -1,5 +1,7 @@
-build: install
+build: build-console install
 	poetry build
+build-console:
+	cd ./ceres/console/web && npm run build
 install:
 	poetry install --extras all
 update:
@@ -15,3 +17,4 @@ clean:
 	rm -rf ./*/**/.mypy_cache
 	rm -rf ./*/**/.pytest_cache
 	rm -rf ./dist
+	rm -rf ./ceres/console/static

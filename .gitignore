@@ -1,6 +1,7 @@
 # Project
 dist/
 /playground/
+static/
 
 # Tools
 .fleet/

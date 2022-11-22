@@ -1,9 +1,13 @@
+import AppLayout from '@/AppLayout.vue'
+import Connection from '@/pages/Connection.vue'
+import Unit from '@/pages/Unit.vue'
+import Units from '@/pages/Units.vue'
 import { RouteRecordRaw } from 'vue-router'
 
 const routes: RouteRecordRaw[] = [
   {
     path: '',
-    component: () => import('@/AppLayout.vue'),
+    component: AppLayout,
     children: [
       {
         path: '',
@@ -11,11 +15,11 @@ const routes: RouteRecordRaw[] = [
       },
       {
         path: '/units',
-        component: () => import('@/pages/Units.vue'),
+        component: Units,
         children: [
           {
             path: ':unitName/connections/:connectionName',
-            component: () => import('@/pages/Connection.vue'),
+            component: Connection,
             props: (route) => ({
               unitName: route.params.unitName,
               connectionName: route.params.connectionName,
@@ -23,7 +27,7 @@ const routes: RouteRecordRaw[] = [
           },
           {
             path: ':name?',
-            component: () => import('@/pages/Unit.vue'),
+            component: Unit,
             props: (route) => ({
               name: parseStringOrNull(route.params.name),
             }),

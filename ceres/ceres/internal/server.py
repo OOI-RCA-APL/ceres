@@ -1,9 +1,10 @@
 import inspect
 from functools import wraps
 from logging import Logger
-from typing import TYPE_CHECKING, Any, Callable, cast, get_type_hints
+from typing import TYPE_CHECKING, Any, get_type_hints
 
 from fastapi import APIRouter, FastAPI, Response
+from fastapi.middleware.cors import CORSMiddleware
 from starlette.status import HTTP_400_BAD_REQUEST
 from uvicorn.config import Config as UvicornConfig
 from uvicorn.server import Server as BaseUvicorn
@@ -16,20 +17,30 @@ from ..component import (
     ProcedureBinding,
     QueryBinding,
 )
-from ..config import Config, ServerConfig
+from ..config import ComponentConfig, Config, ServerConfig, UnitConfig
+from ..console import Static
 from ..data import simplify
 from ..errors import ProcedureError, ReloadError
 from ..result import Fail, Ok, Result
 from . import logs
 from .component import load_component_cls
 from .tasklet import Tasklet
-from .utilities import awaitify, unreachable
+from .utilities import unreachable
 
 if TYPE_CHECKING:
     from ..engine import Engine
 
 
 class Server(Tasklet):
+    class Uvicorn(BaseUvicorn):
+        async def serve(self, sockets: Any = None) -> None:
+            logs.setup()
+            await super().serve(sockets)
+
+        def install_signal_handlers(self) -> None:
+            # Don't install anything, this will be handled externally.
+            pass
+
     def __init__(
         self,
         config: ServerConfig,
@@ -37,7 +48,7 @@ class Server(Tasklet):
     ):
         self._config = config
         self._engine = engine
-        self._uvicorn: Uvicorn | None = None
+        self._uvicorn: Server.Uvicorn | None = None
 
     @property
     def config(self) -> ServerConfig:
@@ -52,9 +63,9 @@ class Server(Tasklet):
         return logs.get("uvicorn")
 
     async def __run__(self) -> None:
-        self._uvicorn = Uvicorn(
+        self._uvicorn = Server.Uvicorn(
             UvicornConfig(
-                app=self.generate_app(),
+                app=self._generate_app(),
                 port=self.config.port,
                 loop="none",
             )
@@ -67,95 +78,37 @@ class Server(Tasklet):
             await self._uvicorn.shutdown()
             self._uvicorn = None
 
-    def generate_app(self) -> FastAPI:
-        app = FastAPI(redoc_url=None)
-        api = APIRouter(prefix="/api")
+    def _generate_app(self) -> FastAPI:
+        app = FastAPI(
+            redoc_url=None,
+            docs_url="/api/docs",
+            openapi_url="/api/openapi.json",
+        )
 
-        def presimplify(function: Callable[..., Any]) -> Callable[..., Any]:
-            @wraps(function)
-            async def wrapper(*args: Any, **kwargs: Any) -> Any:
-                return simplify(await awaitify(function(*args, **kwargs)))
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=["*"],
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
 
-            return wrapper
+        app.include_router(self._generate_api_router(), prefix="/api")
+        app.mount("/", Static(), name="static")
+        return app
 
-        def register_procedure(
-            router: APIRouter,
-            component: object,
-            address: ComponentAddress,
-            procedure: ProcedureBinding,
-        ) -> None:
-            if (method := getattr(component, procedure.function, None)) is None:
-                self.logger.error(
-                    f"Failed to access {procedure.kind} method named '{procedure.function}'. No API route will be generated generation."
-                )
-                return
-
-            @wraps(method)
-            async def endpoint(*args: Any, **kwargs: Any) -> Any:
-                input = [*args, *kwargs.values()][0] if kwargs else None
-
-                result = simplify(
-                    await self._engine.call(
-                        address,
-                        procedure.kind,
-                        procedure.name,
-                        input,
-                    )
-                )
-
-                return result
-
-            try:
-                return_type_hint: Any = get_type_hints(method)["return"]
-            except Exception:
-                self.logger.error(
-                    f"Failed to get return type hint for {procedure.kind} {method}. No API route will be generated."
-                )
-                return
-
-            response_model = Result[return_type_hint, ProcedureError]
-            endpoint.__signature__ = inspect.signature(method).replace(  # type: ignore
-                return_annotation=response_model
-            )
-
-            match procedure:
-                case QueryBinding():
-                    term = "queries"
-                case ActionBinding():
-                    term = "actions"
-                case JobBinding():
-                    term = "jobs"
-                case _:
-                    return
-
-            path = f"/{term}/{procedure.name}"
-
-            router.add_api_route(
-                path=path,
-                endpoint=endpoint,
-                methods=["POST"],
-                response_model=response_model,
-            )
+    def _generate_api_router(self) -> APIRouter:
+        api = APIRouter()
 
         @api.on_event("startup")
         def startup() -> None:
             logs.setup()
 
-        @api.get(
-            "/config",
-            response_model=Config,
-            tags=["engine"],
-        )
-        @presimplify
+        @api.get("/config", response_model=Config, tags=["engine"])
         async def config() -> Config:
             return self._engine.config
 
-        @api.post(
-            "/reload",
-            response_model=cast(Any, Result[Config, ReloadError]),
-            tags=["engine"],
-        )
-        @presimplify
+        @api.post("/reload", response_model=Result[Config, ReloadError], tags=["engine"])
         async def reload(response: Response) -> Result[Config, ReloadError]:
             match await self._engine.reload():
                 case Ok(config):
@@ -166,52 +119,125 @@ class Server(Tasklet):
 
             unreachable()
 
-        units = APIRouter(prefix="/units")
+        api.include_router(self._generate_units_router(), prefix="/units")
+        return api
+
+    def _generate_units_router(self) -> APIRouter:
+        units = APIRouter()
 
         for unit_config in self._engine.config.units:
             unit = APIRouter(prefix=f"/{unit_config.name}")
-            components = APIRouter(prefix="/components", tags=["components"])
 
-            for component_config in unit_config.components:
-                component = APIRouter(prefix=f"/{component_config.name}")
-
-                match load_component_cls(Component, component_config):
-                    case Ok(component_cls):
-                        pass
-                    case Fail():
-                        continue
-
-                component_instance = component_cls.__new__(component_cls)
-                procedures = [
-                    *component_cls.get_query_bindings().values(),
-                    *component_cls.get_action_bindings().values(),
-                    *component_cls.get_job_bindings().values(),
-                ]
-
-                for procedure in procedures:
-                    register_procedure(
-                        component,
-                        component_instance,
-                        ComponentAddress(unit_config.name, component_config.name),
-                        procedure,
-                    )
-
-                components.include_router(component)
-
-            unit.include_router(components)
+            unit.include_router(
+                self._generate_components_router(unit_config),
+                prefix="/components",
+                tags=["components"],
+            )
             units.include_router(unit)
 
-        api.include_router(units)
-        app.include_router(api)
+        return units
 
-        return app
+    def _generate_components_router(self, unit_config: UnitConfig) -> APIRouter:
+        components = APIRouter()
 
+        for component_config in unit_config.components:
+            components.include_router(
+                self._generate_component_router(unit_config, component_config),
+                prefix=f"/{component_config.name}",
+            )
 
-class Uvicorn(BaseUvicorn):
-    async def serve(self, sockets: Any = None) -> None:
-        logs.setup()
-        await super().serve(sockets)
+        return components
 
-    def install_signal_handlers(self) -> None:
-        # Don't install anything, this will be handled externally.
-        pass
+    def _generate_component_router(
+        self,
+        unit_config: UnitConfig,
+        component_config: ComponentConfig,
+    ) -> APIRouter:
+        component = APIRouter()
+
+        match load_component_cls(Component, component_config):
+            case Ok(component_cls):
+                pass
+            case Fail():
+                return component
+
+        procedures = [
+            *component_cls.get_query_bindings().values(),
+            *component_cls.get_action_bindings().values(),
+            *component_cls.get_job_bindings().values(),
+        ]
+
+        for procedure in procedures:
+            self._register_procedure(
+                component,
+                unit_config,
+                component_config,
+                component_cls,
+                procedure,
+            )
+
+        return component
+
+    def _register_procedure(
+        self,
+        router: APIRouter,
+        unit_config: UnitConfig,
+        component_config: ComponentConfig,
+        component_cls: type[Component],
+        procedure: ProcedureBinding,
+    ) -> None:
+        match procedure:
+            case QueryBinding():
+                term = "queries"
+            case ActionBinding():
+                term = "actions"
+            case JobBinding():
+                term = "jobs"
+
+        path = f"/{term}/{procedure.name}"
+
+        instance = component_cls.__new__(component_cls)
+        if (method := getattr(instance, procedure.function, None)) is None:
+            self.logger.error(
+                f"Failed to access {procedure.kind} method named '{procedure.function}'. No API route will be generated generation."
+            )
+            return
+
+        @wraps(method)
+        async def post(*args: Any, **kwargs: Any) -> Any:
+            input = [*args, *kwargs.values()][0] if kwargs else None
+
+            result = simplify(
+                await self._engine.call(
+                    ComponentAddress(unit_config.name, component_config.name),
+                    procedure.kind,
+                    procedure.name,
+                    input,
+                )
+            )
+
+            return result
+
+        try:
+            return_type_hint: Any = get_type_hints(method)["return"]
+        except Exception:
+            self.logger.error(
+                f"Failed to get return type hint for {procedure.kind} {method}. No API route will be generated."
+            )
+            return
+
+        response_model = Result[return_type_hint, ProcedureError]
+
+        original_signature = inspect.signature(method)
+        modified_signature = original_signature.replace(  # type: ignore
+            return_annotation=response_model
+        )
+
+        post.__signature__ = modified_signature  # type: ignore
+
+        router.add_api_route(
+            path=path,
+            endpoint=post,
+            methods=["POST"],
+            response_model=response_model,
+        )

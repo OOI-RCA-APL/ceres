@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-var-requires */
 /* eslint-env node */
 
 // https://v2.quasar.dev/quasar-cli-vite/quasar-config-js
@@ -23,6 +24,7 @@ module.exports = configure(() => {
 
     // https://v2.quasar.dev/quasar-cli-vite/quasar-config-js#build
     build: {
+      distDir: path.join(__dirname, '../static'),
       target: {
         browser: ['es2019', 'edge88', 'firefox78', 'chrome87', 'safari13.1'],
         node: 'node16',
@@ -35,6 +37,20 @@ module.exports = configure(() => {
         config.resolve ??= {}
         config.resolve.alias ??= {}
         config.resolve.alias['@'] = path.resolve(__dirname, './src')
+        // config.rollupOptions = {
+        //   output: {
+        //     manualChunks: false,
+        //     inlineDynamicImports: true,
+        //     entryFileNames: '[name].js', // currently does not work for the legacy bundle
+        //     assetFileNames: '[name].[ext]', // currently does not work for images
+        //   },
+        // }
+        config.rollupOptions = {
+          output: {
+            manualChunks: {},
+          },
+        }
+
         return config
       },
     },
