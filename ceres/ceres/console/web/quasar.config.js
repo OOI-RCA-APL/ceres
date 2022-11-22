@@ -6,7 +6,26 @@
 const { configure } = require('quasar/wrappers')
 const path = require('path')
 
-module.exports = configure(() => {
+module.exports = configure((context) => {
+  function getDevelopmentEnvironment() {
+    if (context.prod) {
+      return null
+    }
+
+    const dotenv =
+      require('dotenv').config({
+        path: path.join(__dirname, '.env'),
+        override: true,
+      }).parsed ?? {}
+
+    return {
+      ceresApiPort: Number(dotenv.DEVELOPMENT_CERES_API_PORT ?? 9000),
+      ceresConsolePort: Number(dotenv.DEVELOPMENT_CERES_CONSOLE_PORT ?? 10000),
+    }
+  }
+
+  development = getDevelopmentEnvironment()
+
   return {
     eslint: {
       warnings: true,
@@ -37,28 +56,23 @@ module.exports = configure(() => {
         config.resolve ??= {}
         config.resolve.alias ??= {}
         config.resolve.alias['@'] = path.resolve(__dirname, './src')
-        // config.rollupOptions = {
-        //   output: {
-        //     manualChunks: false,
-        //     inlineDynamicImports: true,
-        //     entryFileNames: '[name].js', // currently does not work for the legacy bundle
-        //     assetFileNames: '[name].[ext]', // currently does not work for images
-        //   },
-        // }
-        config.rollupOptions = {
-          output: {
-            manualChunks: {},
-          },
-        }
-
         return config
       },
     },
 
     // https://v2.quasar.dev/quasar-cli-vite/quasar-config-js#devServer
-    devServer: {
-      open: true,
-    },
+    devServer: development
+      ? {
+          open: true,
+          port: development.ceresConsolePort,
+          proxy: {
+            '/api': {
+              target: `http://0.0.0.0:${development.ceresApiPort}/api`,
+              changeOrigin: true,
+            },
+          },
+        }
+      : {},
 
     // https://v2.quasar.dev/quasar-cli-vite/quasar-config-js#framework
     framework: {
