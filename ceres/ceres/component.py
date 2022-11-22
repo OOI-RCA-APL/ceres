@@ -439,7 +439,6 @@ ProcedureBinding = QueryBinding | ActionBinding | JobBinding
 
 def _bind_procedure(
     function: Callable[..., Any],
-    name: str,
     binding: ProcedureBinding,
 ) -> None:
     parameters = [*inspect.signature(function).parameters.values()]
@@ -463,10 +462,7 @@ def _bind_procedure(
     _bind(
         function,
         PROCEDURE_BINDINGS_ATTRIBUTE,
-        QueryBinding(
-            name=name,
-            function=function.__name__,
-        ),
+        binding,
     )
 
 
@@ -477,7 +473,6 @@ def query(name: str) -> Callable[[_FunctionT], _FunctionT]:
     def bind(function: _FunctionT) -> _FunctionT:
         _bind_procedure(
             function,
-            name,
             QueryBinding(
                 name=name,
                 function=function.__name__,
@@ -493,7 +488,6 @@ def action(name: str) -> Callable[[_FunctionT], _FunctionT]:
     def bind(function: _FunctionT) -> _FunctionT:
         _bind_procedure(
             function,
-            name,
             ActionBinding(
                 name=name,
                 function=function.__name__,
@@ -518,7 +512,6 @@ def job(
 
         _bind_procedure(
             function,
-            name,
             JobBinding(
                 name=name,
                 function=function.__name__,
