@@ -37,6 +37,9 @@ class DataObject(GenericModel, ABC):
         orm_mode = True
         validate_assignment = True
 
+    def __str__(self) -> str:
+        return super().__repr__()
+
 
 class ImmutableDataObject(DataObject, ABC):
     class Config(DataObject.Config):
