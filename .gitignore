@@ -1,19 +1,23 @@
 # Project
 .env
-dist/
 /playground/
+dist/
 static/
 
 # Tools
 .fleet/
 .idea/
+.tool-versions
 .vscode/
 *.code-workspace
 
 # Python
 __pycache__/
-.pytest_cache/
 .mypy_cache/
+.pytest_cache/
+.python-version
+.venv
+poetry.toml
 
 # Node
 node_modules
