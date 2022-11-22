@@ -4,7 +4,7 @@ from pathlib import Path
 from fastapi.staticfiles import StaticFiles
 
 
-class Static(StaticFiles):
+class Console(StaticFiles):
     def __init__(self) -> None:
         super().__init__(
             directory=Path(__file__).parent / "static",

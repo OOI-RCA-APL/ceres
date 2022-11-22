@@ -18,7 +18,7 @@ from ..component import (
     QueryBinding,
 )
 from ..config import ComponentConfig, Config, ServerConfig, UnitConfig
-from ..console import Static
+from ..console import Console
 from ..data import simplify
 from ..errors import ProcedureError, ReloadError
 from ..result import Fail, Ok, Result
@@ -94,7 +94,7 @@ class Server(Tasklet):
         )
 
         app.include_router(self._generate_api_router(), prefix="/api")
-        app.mount("/", Static(), name="static")
+        app.mount("/", Console(), name="console")
         return app
 
     def _generate_api_router(self) -> APIRouter:
