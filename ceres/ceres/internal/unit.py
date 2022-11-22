@@ -5,7 +5,7 @@ from logging import ERROR, INFO, WARNING, Logger
 from multiprocessing.managers import BaseManager
 from threading import Lock
 from types import MappingProxyType
-from typing import Any, Mapping, Protocol, cast
+from typing import Any, Mapping, Protocol, cast, final
 from uuid import UUID
 
 from ..address import ComponentAddress, LocalComponentAddress, UnitAddress
@@ -65,6 +65,7 @@ class UnitProxyProtocol(Protocol):
         ...
 
 
+@final
 class Unit(UnitProxyProtocol, Tasklet):
     def __init__(self, context: UnitContext) -> None:
         self._context = context

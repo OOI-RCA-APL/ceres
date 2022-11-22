@@ -1,4 +1,4 @@
-from typing import Any, Callable
+from typing import Any, Callable, final
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.base import BaseTrigger
@@ -9,6 +9,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 from .schedule import AndSchedule, CronSchedule, IntervalSchedule, OrSchedule, Schedule
 
 
+@final
 class Scheduler:
     def __init__(self) -> None:
         self._inner = AsyncIOScheduler()

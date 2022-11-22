@@ -7,7 +7,7 @@ from enum import Enum
 from logging import Logger
 from pathlib import Path
 from queue import Empty, Queue
-from typing import Any
+from typing import Any, final
 
 from .address import ComponentAddress, LocalComponentAddress, UnitAddress
 from .component import ProcedureKind
@@ -44,6 +44,7 @@ class UnitSyncAction(ImmutableDataObject):
     address: UnitAddress
 
 
+@final
 class Engine(Tasklet):
     def __init__(self, config: Config) -> None:
         self._config = config
