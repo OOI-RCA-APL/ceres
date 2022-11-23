@@ -8,7 +8,7 @@ from ..common import ConfigOption, get_yes_no
 from ..exceptions import CLIDatabaseUnreachableException
 
 
-async def init(config: Config = ConfigOption(checks=[])) -> None:
+async def init(*, config: Config = ConfigOption(checks=[])) -> None:
     database = DatabaseManager(config.database)
 
     try:
@@ -18,7 +18,7 @@ async def init(config: Config = ConfigOption(checks=[])) -> None:
         raise CLIDatabaseUnreachableException("Failed to connect to database.")
 
     print("<PENDING>")
-    await schema(config)
+    await schema(config=config)
     print("</PENDING>")
 
     if await database.tables():
@@ -34,7 +34,7 @@ async def init(config: Config = ConfigOption(checks=[])) -> None:
     await database.dispose()
 
 
-async def schema(config: Config = ConfigOption(checks=[])) -> None:
+async def schema(*, config: Config = ConfigOption(checks=[])) -> None:
     database = DatabaseManager(config.database)
 
     for statement in database.ddl:

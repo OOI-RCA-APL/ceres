@@ -16,6 +16,7 @@ pyyaml = "^6.0.0"
 sqlalchemy = "^2.0.0b3"
 typer = { version = ">=0.6.0", extras = ["all"] }
 uvicorn = ">=0.14.0"
+watchfiles = ">=0.10.0"
 
 aiosqlite = { version = ">=0.17.0", optional = true }
 psycopg = { version = "^3.1.0", extras = ["binary"], optional = true }

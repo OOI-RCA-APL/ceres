@@ -128,7 +128,7 @@ class Engine(Tasklet):
                     await self._reloading.wait()
                     await self._reload()
 
-                def handle_exit_signal(*args: Any) -> None:
+                def handle_exit_signal(*args: Any, **kwargs: Any) -> None:
                     exiting.set()
 
                 with temporary_signal_handler([signal.SIGINT, signal.SIGTERM], handle_exit_signal):
