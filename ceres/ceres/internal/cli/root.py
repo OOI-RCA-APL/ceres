@@ -85,7 +85,10 @@ async def check(*, path: Path = ConfigPathOption()) -> None:
             )
 
 
-root = Typer(no_args_is_help=True)
+root = Typer(
+    no_args_is_help=True,
+    add_completion=False,
+)
 root.command(help="Run the project.")(syncify(run))
 root.command(help="Check project configuration for correctness.")(syncify(check))
 
