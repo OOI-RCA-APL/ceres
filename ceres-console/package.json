@@ -6,12 +6,10 @@
   "author": "Jake Ploskey <jploskey@uw.edu>",
   "private": true,
   "scripts": {
-    "dev": "yarn quasar dev",
-    "build": "yarn quasar build",
-    "lint": "yarn eslint . && yarn prettier --check .",
-    "fix": "yarn eslint --fix . && yarn prettier --write .",
-    "eslint": "eslint --ext .js,.ts,.vue",
-    "prettier": "prettier --ignore-path .gitignore"
+    "build": "quasar build",
+    "run": "quasar dev",
+    "lint": "eslint --ext .js,.ts,.vue . && prettier --ignore-path .gitignore --check .",
+    "format": "eslint --ext .js,.ts,.vue --fix . && prettier --ignore-path .gitignore --write ."
   },
   "dependencies": {
     "@quasar/extras": "^1.0.0",

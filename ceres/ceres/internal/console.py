@@ -7,7 +7,7 @@ from fastapi.staticfiles import StaticFiles
 class Console(StaticFiles):
     def __init__(self) -> None:
         super().__init__(
-            directory=Path(__file__).parent / "static",
+            directory=(Path(__file__).parent / "../static/console").resolve(),
             html=True,
             check_dir=False,
         )

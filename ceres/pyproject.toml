@@ -3,8 +3,7 @@ name = "ceres"
 version = "0.1.0"
 description = ""
 authors = ["Jake Ploskey <jploskey@uw.edu>"]
-include = ["./ceres/**/*.py", "./ceres/py.typed", "./ceres/console/static"]
-exclude = ["./ceres/console/web"]
+include = ["./ceres/**/*.py", "./ceres/static/**/*", "./ceres/py.typed"]
 
 [tool.poetry.dependencies]
 python = "^3.10"

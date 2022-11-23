@@ -18,12 +18,12 @@ from ..component import (
     QueryBinding,
 )
 from ..config import ComponentConfig, Config, ServerConfig, UnitConfig
-from ..console import Console
 from ..data import simplify
 from ..errors import ProcedureError, ReloadError
 from ..result import Fail, Ok, Result
 from . import logs
 from .component import load_component_cls
+from .console import Console
 from .tasklet import Tasklet
 from .utilities import unreachable
 
@@ -32,15 +32,6 @@ if TYPE_CHECKING:
 
 
 class Server(Tasklet):
-    class Uvicorn(BaseUvicorn):
-        async def serve(self, sockets: Any = None) -> None:
-            logs.setup()
-            await super().serve(sockets)
-
-        def install_signal_handlers(self) -> None:
-            # Don't install anything, this will be handled externally.
-            pass
-
     def __init__(
         self,
         config: ServerConfig,
@@ -48,7 +39,7 @@ class Server(Tasklet):
     ):
         self._config = config
         self._engine = engine
-        self._uvicorn: Server.Uvicorn | None = None
+        self._uvicorn: Uvicorn | None = None
 
     @property
     def config(self) -> ServerConfig:
@@ -63,7 +54,7 @@ class Server(Tasklet):
         return logs.get("uvicorn")
 
     async def __run__(self) -> None:
-        self._uvicorn = Server.Uvicorn(
+        self._uvicorn = Uvicorn(
             UvicornConfig(
                 app=self._generate_app(),
                 port=self.config.port,
@@ -241,3 +232,13 @@ class Server(Tasklet):
             methods=["POST"],
             response_model=response_model,
         )
+
+
+class Uvicorn(BaseUvicorn):
+    async def serve(self, sockets: Any = None) -> None:
+        logs.setup()
+        await super().serve(sockets)
+
+    def install_signal_handlers(self) -> None:
+        # Don't install anything, this will be handled externally.
+        pass

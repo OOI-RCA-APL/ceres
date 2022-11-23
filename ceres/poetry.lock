@@ -339,7 +339,7 @@ diagrams = ["jinja2", "railroad-diagrams"]
 
 [[package]]
 name = "pyright"
-version = "1.1.280"
+version = "1.1.281"
 description = "Command line wrapper for pyright"
 category = "dev"
 optional = false
@@ -430,7 +430,7 @@ jupyter = ["ipywidgets (>=7.5.1,<8.0.0)"]
 
 [[package]]
 name = "setuptools"
-version = "65.6.0"
+version = "65.6.2"
 description = "Easily download, build, install, upgrade, and uninstall Python packages"
 category = "main"
 optional = false
@@ -630,7 +630,7 @@ uvloop = ["uvloop"]
 [metadata]
 lock-version = "1.1"
 python-versions = "^3.10"
-content-hash = "53dd38e9e82d1e92261755cb72836e9e3c0c2cee5769ee29aef69fab279c73d3"
+content-hash = "df7ba68399c71dbec701c242327ae03dcc7ec36d120b2baf976b2b46b1b80507"
 
 [metadata.files]
 aiosmtplib = [
@@ -902,8 +902,8 @@ pyparsing = [
     {file = "pyparsing-3.0.9.tar.gz", hash = "sha256:2b020ecf7d21b687f219b71ecad3631f644a47f01403fa1d1036b0c6416d70fb"},
 ]
 pyright = [
-    {file = "pyright-1.1.280-py3-none-any.whl", hash = "sha256:25917a14d873252c5c2e6fdbec322888c0480f6db95068ff6459befa9af3c92a"},
-    {file = "pyright-1.1.280.tar.gz", hash = "sha256:4bcb167251419b3b736137b0535cb6bbfb5bef16eb74057eaf3ccaccb01d74c1"},
+    {file = "pyright-1.1.281-py3-none-any.whl", hash = "sha256:9e52d460c5201c8870a3aa053289a0595874b739314d67b0fdf531c25f17ca01"},
+    {file = "pyright-1.1.281.tar.gz", hash = "sha256:21be27aa562d3e2f1563515a118dcf9a3fd197747604ed47277d36cfe5376c7a"},
 ]
 pytest = [
     {file = "pytest-7.2.0-py3-none-any.whl", hash = "sha256:892f933d339f068883b6fd5a459f03d85bfcb355e4981e146d2c7616c21fef71"},
@@ -968,8 +968,8 @@ rich = [
     {file = "rich-12.6.0.tar.gz", hash = "sha256:ba3a3775974105c221d31141f2c116f4fd65c5ceb0698657a11e9f295ec93fd0"},
 ]
 setuptools = [
-    {file = "setuptools-65.6.0-py3-none-any.whl", hash = "sha256:6211d2f5eddad8757bd0484923ca7c0a6302ebc4ab32ea5e94357176e0ca0840"},
-    {file = "setuptools-65.6.0.tar.gz", hash = "sha256:d1eebf881c6114e51df1664bc2c9133d022f78d12d5f4f665b9191f084e2862d"},
+    {file = "setuptools-65.6.2-py3-none-any.whl", hash = "sha256:97a4a824325146ebc8dc29b0aa5f3b1eaa590a0f00cacbfdf81831670f07862d"},
+    {file = "setuptools-65.6.2.tar.gz", hash = "sha256:41fa68ecac9e099122990d7437bc10683b966c32a591caa2824dffcffd5dea7a"},
 ]
 shellingham = [
     {file = "shellingham-1.5.0-py2.py3-none-any.whl", hash = "sha256:a8f02ba61b69baaa13facdba62908ca8690a94b8119b69f5ec5873ea85f7391b"},

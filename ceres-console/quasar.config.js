@@ -43,7 +43,7 @@ module.exports = configure((context) => {
 
     // https://v2.quasar.dev/quasar-cli-vite/quasar-config-js#build
     build: {
-      distDir: path.join(__dirname, '../static'),
+      distDir: path.join(__dirname, '../ceres/ceres/static/console'),
       target: {
         browser: ['es2019', 'edge88', 'firefox78', 'chrome87', 'safari13.1'],
         node: 'node16',
