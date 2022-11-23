@@ -37,8 +37,6 @@ from pydantic import BaseModel, ConstrainedStr, parse_obj_as
 from pydantic.decorator import ValidatedFunction
 from pydantic.utils import lenient_issubclass
 
-_T = TypeVar("_T")
-
 
 def strify(value: object) -> str:
     try:
@@ -48,12 +46,16 @@ def strify(value: object) -> str:
 
 
 _P = ParamSpec("_P")
+_T = TypeVar("_T")
 
 
-def syncify(function: Callable[_P, Awaitable[_T]]) -> Callable[_P, _T]:
+def syncify(function: Callable[_P, Awaitable[_T] | _T]) -> Callable[_P, _T]:
+    if not inspect.iscoroutinefunction(function):
+        return cast(Callable[_P, _T], function)
+
     @wraps(function)
-    def wrapper(*args: list[Any], **kwargs: dict[str, Any]) -> Any:
-        return setup_event_loop().run_until_complete(function(*args, **kwargs))  # type: ignore
+    def wrapper(*args: _P.args, **kwargs: _P.kwargs) -> Any:
+        return setup_event_loop().run_until_complete(function(*args, **kwargs))
 
     return cast(Callable[_P, _T], wrapper)
 

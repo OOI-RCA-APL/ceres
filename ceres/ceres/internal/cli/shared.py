@@ -1,9 +1,12 @@
+from __future__ import annotations
+
 import os
+from functools import wraps
 from pathlib import Path
-from typing import Any, Sequence
+from typing import TYPE_CHECKING, Any, ParamSpec, Sequence, TypeVar
 
 import rich
-from typer import Option
+from typer import Option, Typer
 
 from ...config import Config
 from ...data import jsonify
@@ -11,6 +14,30 @@ from ...result import Ok
 from ..config import ConfigCheckKind, load_config
 from ..utilities import syncify
 from .exceptions import CLIInvalidConfigException
+
+
+class AsyncTyper(Typer):
+    if not TYPE_CHECKING:
+
+        @wraps(Typer.command)
+        def command(self, *args, **kwargs):
+            base = super()
+
+            def decorator(function):
+                base.command(*args, **kwargs)(syncify(function))
+                return function
+
+            return decorator
+
+        @wraps(Typer.callback)
+        def callback(self, *args, **kwargs):
+            base = super()
+
+            def decorator(function):
+                base.callback(*args, **kwargs)(syncify(function))
+                return function
+
+            return decorator
 
 
 def get_config_path(config_path: Path | None) -> Path:
@@ -63,6 +90,7 @@ def ConfigOption(*, checks: Sequence[ConfigCheckKind]) -> Any:
     return Option(
         None,
         "--config",
+        help="Provide an explicit path to a Ceres configuration file.",
         exists=True,
         resolve_path=True,
         dir_okay=False,
@@ -86,3 +114,7 @@ def get_yes_no(prompt: str, default: bool | None = None) -> bool:
             return True
         if text in ("no", "n"):
             return False
+
+
+_P = ParamSpec("_P")
+_T = TypeVar("_T")

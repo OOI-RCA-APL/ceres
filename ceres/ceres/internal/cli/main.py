@@ -5,7 +5,7 @@ from typing import Any, Iterable
 import anyio
 import rich
 from anyio.abc import TaskGroup
-from typer import Typer
+from typer import Option
 from watchfiles import Change, PythonFilter, arun_process
 
 from ...config import Config
@@ -15,13 +15,32 @@ from ...exceptions import StartupException
 from ...result import Ok
 from .. import logs
 from ..config import load_config
-from ..utilities import strify, syncify, temporary_signal_handler
-from .common import ConfigOption, ConfigPathOption
+from ..utilities import setup_event_loop, strify, syncify, temporary_signal_handler
 from .exceptions import CLIInvalidConfigException, CLIStartupException
+from .shared import AsyncTyper, ConfigOption, ConfigPathOption
 from .subcommands.database import database
 
+main = AsyncTyper(
+    name="ceres",
+    no_args_is_help=True,
+    add_completion=False,
+)
 
-async def run(*, config: Config = ConfigOption(checks=[]), watch: bool = False) -> None:
+main.add_typer(database)
+
+
+@main.command()
+async def run(
+    *,
+    config: Config = ConfigOption(checks=[]),
+    watch: bool = Option(
+        False,
+        help="Automatically restart the application on code changes.",
+    ),
+) -> None:
+    """
+    Start the Ceres as a foreground process.
+    """
     try:
         if watch:
             await _run_watch(config)
@@ -29,6 +48,26 @@ async def run(*, config: Config = ConfigOption(checks=[]), watch: bool = False) 
             await Engine(config).run()
     except StartupException as exception:
         raise CLIStartupException(f"Engine startup failed. {exception.message}")
+
+
+@main.command()
+async def check(*, path: Path = ConfigPathOption()) -> None:
+    """
+    Check project configuration for correctness.
+    """
+    match await load_config(path, logger=rich.print):
+        case Ok():
+            rich.print("All checks passed.")
+        case fail:
+            raise CLIInvalidConfigException(
+                f"Failed to load configuration. {jsonify(fail, indent=2)}"
+            )
+
+
+@main.callback()
+def setup() -> None:
+    setup_event_loop()
+    logs.setup()
 
 
 def _run_sync(*, config: Config, watch: bool = False) -> None:
@@ -53,10 +92,7 @@ async def _run_watch(config: Config) -> None:
             # Watch for changes in the project directory.
             *([Path(config.path).parent] if config.path else []),
             target=_run_sync,
-            kwargs={
-                "config": config,
-                "watch": False,
-            },
+            kwargs={"config": config, "watch": False},
             watch_filter=PythonFilter(
                 # Ignore changes to this module in particular.
                 ignore_paths=[__file__],
@@ -73,28 +109,3 @@ async def _run_watch(config: Config) -> None:
     with temporary_signal_handler([signal.SIGINT, signal.SIGTERM], handle_exit_signal):
         async with anyio.create_task_group() as group:
             group.start_soon(main, name="main")
-
-
-async def check(*, path: Path = ConfigPathOption()) -> None:
-    match await load_config(path, logger=rich.print):
-        case Ok():
-            rich.print("All checks passed.")
-        case fail:
-            raise CLIInvalidConfigException(
-                f"Failed to load configuration. {jsonify(fail, indent=2)}"
-            )
-
-
-root = Typer(
-    no_args_is_help=True,
-    add_completion=False,
-)
-root.command(help="Run the project.")(syncify(run))
-root.command(help="Check project configuration for correctness.")(syncify(check))
-
-root.add_typer(database, name="database", help="Manage the project database.")
-
-
-@root.callback()
-def setup() -> None:
-    logs.setup()
