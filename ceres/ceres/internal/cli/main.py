@@ -6,7 +6,6 @@ import anyio
 import rich
 from anyio.abc import TaskGroup
 from typer import Option
-from watchfiles import Change, PythonFilter, arun_process
 
 from ...config import Config
 from ...data import jsonify
@@ -76,6 +75,8 @@ def _run_sync(*, config: Config, watch: bool = False) -> None:
 
 async def _run_watch(config: Config) -> None:
     async def main() -> None:
+        from watchfiles import Change, PythonFilter, arun_process
+
         import ceres
 
         def callback(changes: Iterable[tuple[Change, str]]) -> None:
