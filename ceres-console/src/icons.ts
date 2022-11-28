@@ -2,6 +2,7 @@ const icons = {
   add: 'add',
   close: 'close',
   darkMode: 'dark_mode',
+  dashboard: 'dashboard',
   delete: 'delete',
   help: 'help',
   job: 'build',

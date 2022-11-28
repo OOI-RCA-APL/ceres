@@ -33,7 +33,7 @@ module.exports = configure((context) => {
     },
 
     // https://v2.quasar.dev/quasar-cli-vite/boot-files
-    boot: ['echarts'],
+    boot: ['boot'],
 
     // https://v2.quasar.dev/quasar-cli-vite/quasar-config-js#css
     css: ['app.scss'],
@@ -48,6 +48,12 @@ module.exports = configure((context) => {
         browser: ['es2019', 'edge88', 'firefox78', 'chrome87', 'safari13.1'],
         node: 'node16',
       },
+      env: development
+        ? {
+            DEVELOPMENT_CERES_API_PORT: development.ceresApiPort,
+            DEVELOPMENT_CERES_CONSOLE_PORT: development.ceresConsolePort,
+          }
+        : undefined,
       vueRouterMode: 'history',
       viteVuePluginOptions: {
         reactivityTransform: true,
@@ -67,8 +73,10 @@ module.exports = configure((context) => {
           port: development.ceresConsolePort,
           proxy: {
             '/api': {
-              target: `http://0.0.0.0:${development.ceresApiPort}/api`,
+              target: `http://0.0.0.0:${development.ceresApiPort}`,
               changeOrigin: true,
+              ws: true,
+              secure: false,
             },
           },
         }

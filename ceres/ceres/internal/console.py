@@ -6,11 +6,10 @@ from fastapi.staticfiles import StaticFiles
 
 class Console(StaticFiles):
     def __init__(self) -> None:
-        super().__init__(
-            directory=(Path(__file__).parent / "../static/console").resolve(),
-            html=True,
-            check_dir=False,
-        )
+        directory = Path(__file__).parent / "../../static/console"
+        directory = directory.resolve()
+        directory.mkdir(mode=755, parents=True, exist_ok=True)
+        super().__init__(directory=directory, html=True)
 
     def lookup_path(self, path: str) -> tuple[str, os.stat_result | None]:
         path, result = super().lookup_path(path)

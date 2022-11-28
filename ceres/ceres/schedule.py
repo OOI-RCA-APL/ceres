@@ -31,7 +31,7 @@ class CronSchedule(BaseSchedule):
     kind: Literal[ScheduleKind.CRON] = ScheduleKind.CRON
     crontab: str
 
-    def __init__(self, crontab: timedelta) -> None:
+    def __init__(self, crontab: timedelta, **kwargs: object) -> None:
         super().__init__(crontab=crontab)  # type: ignore
 
     @validator("crontab")
@@ -47,7 +47,7 @@ class IntervalSchedule(BaseSchedule):
         super().__init__(interval=interval)  # type: ignore
 
     @validator("interval", pre=True)
-    def _validate_timedeltas(cls, value: Any) -> timedelta:
+    def _validate_timedeltas(cls, value: Any, **kwargs: object) -> timedelta:
         return validate_positive_timedelta(value)
 
 
@@ -55,7 +55,7 @@ class AndSchedule(BaseSchedule):
     kind: Literal[ScheduleKind.AND] = ScheduleKind.AND
     schedules: Sequence["Schedule"]
 
-    def __init__(self, schedules: Iterable["Schedule"]) -> None:
+    def __init__(self, schedules: Iterable["Schedule"], **kwargs: object) -> None:
         super().__init__(schedules=schedules)  # type: ignore
 
     def __and__(self, other: "Schedule") -> "AndSchedule":
@@ -71,7 +71,7 @@ class OrSchedule(BaseSchedule):
     kind: Literal[ScheduleKind.OR] = ScheduleKind.OR
     schedules: Sequence["Schedule"]
 
-    def __init__(self, schedules: Iterable["Schedule"]) -> None:
+    def __init__(self, schedules: Iterable["Schedule"], **kwargs: object) -> None:
         super().__init__(schedules=schedules)  # type: ignore
 
     def __or__(self, other: "Schedule") -> "OrSchedule":

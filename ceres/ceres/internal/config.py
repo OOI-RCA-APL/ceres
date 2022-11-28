@@ -3,7 +3,7 @@ import traceback
 from enum import Enum
 from logging import Logger
 from pathlib import Path
-from typing import Any, Callable, Iterable, Sequence
+from typing import Callable, Iterable, Sequence
 from uuid import uuid4
 
 import yaml
@@ -12,7 +12,7 @@ from yaml import MarkedYAMLError, YAMLError
 
 from ..address import ComponentAddress
 from ..component import Component
-from ..config import Config, UnitConfig
+from ..config import ComponentKind, Config, UnitConfig
 from ..connection import Connection
 from ..datetime import utc
 from ..driver import Driver
@@ -30,7 +30,7 @@ from ..notifier import Notifier
 from ..result import Fail, Ok, Result
 from .component import load_component
 from .database.manager import DatabaseManager
-from .utilities import show_td, unreachable
+from .utilities import show_td
 
 
 class ConfigCheckKind(str, Enum):
@@ -43,12 +43,12 @@ class ConfigCheckKind(str, Enum):
 
 
 async def load_config(
-    config: Path | dict[str, Any] | Config,
+    config: Path | dict[str, object] | Config,
     *,
     checks: Sequence[ConfigCheckKind] = ConfigCheckKind.all(),
-    logger: Logger | Callable[[Any], None] = lambda message: None,
+    logger: Logger | Callable[[object], None] = lambda message: None,
 ) -> Result[Config, list[ConfigError]]:
-    def log(message: Any) -> None:
+    def log(message: object) -> None:
         if isinstance(logger, Logger):
             logger.info(message)
         else:
@@ -109,7 +109,7 @@ async def load_config(
 
 async def _check_database(
     config: Config,
-    log: Callable[[Any], None],
+    log: Callable[[object], None],
 ) -> list[ConfigDatabaseError]:
     log("Checking database configuration...")
 
@@ -149,7 +149,7 @@ async def _check_database(
 
 async def _check_components(
     config: Config,
-    log: Callable[[Any], None],
+    log: Callable[[object], None],
 ) -> list[ConfigComponentError]:
     log("Checking component configurations...")
 
@@ -161,14 +161,12 @@ async def _check_components(
 
             for component_config in unit_config.components:
                 match component_config.kind:
-                    case "connection":
+                    case ComponentKind.CONNECTION:
                         cls: type[Component] = Connection
-                    case "driver":
+                    case ComponentKind.DRIVER:
                         cls = Driver
-                    case "notifier":
+                    case ComponentKind.NOTIFIER:
                         cls = Notifier
-                    case _:
-                        unreachable()
 
                 address = ComponentAddress(unit_config.name, component_config.name)
                 log(f"Checking component '{address}'...")

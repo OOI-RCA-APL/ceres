@@ -21,7 +21,7 @@
     <q-separator class="q-mb-sm" />
     <div class="q-px-sm">
       <command-input
-        :connection-name="connectionName"
+        :connection-name="componentName"
         label="Send Command"
         :unit-name="unitName"
         @send="(command) => onSend(command)"
@@ -31,23 +31,24 @@
 </template>
 
 <script lang="ts" setup>
+import { getComponent, useMessageStream } from '@/api/queries'
+import CommandInput from '@/components/CommandInput.vue'
 import MessageViewItem from '@/components/MessageViewItem.vue'
 import SectionCard from '@/components/SectionCard.vue'
 import moment from 'moment'
 import { QScrollArea } from 'quasar'
-import { onMounted, nextTick } from 'vue'
-import CommandInput from '@/components/CommandInput.vue'
+import { nextTick, onMounted } from 'vue'
 
 const {
   title,
   containerClass = undefined,
-  messageCount = 100,
+  unitName,
+  componentName,
 } = defineProps<{
   title: string
   containerClass?: string | null
   unitName: string
-  connectionName: string
-  messageCount?: number
+  componentName: string
 }>()
 
 type Message = {
@@ -63,37 +64,20 @@ type ScrollInfo = {
   verticalContainerSize: number
 }
 
-function generateMessages() {
-  const output: Message[] = []
-
-  for (let i = 0; i < messageCount; i++) {
-    const timestamp = moment
-      .utc()
-      .subtract(1, 'day')
-      .subtract(60, 'seconds')
-      .add(Math.random() * 60, 'seconds')
-
-    if (Math.random() < 0.9) {
-      output.push({
-        timestamp: timestamp.format(),
-        direction: 'receive',
-        content: String(Math.floor(Math.random() * 10000)),
-      })
-    } else {
-      output.push({
-        timestamp: timestamp.format(),
-        direction: 'send',
-        content: '<SETTIME:' + timestamp.format(),
-      })
-    }
-  }
-
-  return output
-}
+const info = await getComponent(unitName, componentName)
 
 let search = $ref('')
-let container = $ref<QScrollArea | null>(null)
-let messages = $ref<Message[]>(generateMessages())
+let container = $shallowRef<QScrollArea | null>(null)
+let messages = $ref<Message[]>([])
+
+useMessageStream(info.id, (message) => {
+  messages.push(message)
+  setTimeout(() => {
+    nextTick(() => {
+      scrollToBottom()
+    })
+  })
+})
 
 let scrollInfo = $ref(null as ScrollInfo | null)
 

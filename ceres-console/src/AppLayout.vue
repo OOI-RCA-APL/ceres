@@ -8,7 +8,7 @@
           :icon="icons.menu"
           @click="state.isDrawerOpen = !state.isDrawerOpen"
         />
-        <q-toolbar-title @click="router.push('/')">
+        <q-toolbar-title class="cursor-pointer" @click="router.push('/')">
           <common-text variant="title1">{{ constants.appName }}</common-text>
         </q-toolbar-title>
         <q-btn
@@ -23,6 +23,14 @@
     <q-drawer v-model="state.isDrawerOpen" behavior="mobile" bordered :width="200">
       <q-scroll-area class="fit">
         <q-list>
+          <q-item clickable to="/">
+            <q-item-section avatar>
+              <q-icon :name="icons.dashboard" />
+            </q-item-section>
+            <q-item-section avatar>
+              <q-item-label>Dashboard</q-item-label>
+            </q-item-section>
+          </q-item>
           <q-item clickable to="/units">
             <q-item-section avatar>
               <q-icon :name="icons.units" />

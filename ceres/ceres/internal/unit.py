@@ -11,7 +11,7 @@ from uuid import UUID
 from ..address import ComponentAddress, LocalComponentAddress, UnitAddress
 from ..alert import Alert, AlertLevel
 from ..component import Component, ProcedureKind
-from ..config import Config, UnitConfig
+from ..config import ComponentKind, Config, UnitConfig
 from ..data import jsonify
 from ..errors import (
     ProcedureComponentNotLoadedError,
@@ -33,7 +33,7 @@ from .database.buffer import EntityBuffer
 from .database.entity import AlertEntity, MessageEntity
 from .database.manager import DatabaseManager
 from .tasklet import Tasklet
-from .utilities import setup_event_loop, strify, unreachable
+from .utilities import setup_event_loop, strify
 
 
 @dataclass(kw_only=True, frozen=True)
@@ -267,14 +267,12 @@ class Unit(UnitProxyProtocol, Tasklet):
             id = await self._database.entities.get_address_id(address)
 
             match component_config.kind:
-                case "connection":
-                    cls: type[ComponentHandle[Any]] = ConnectionHandle
-                case "driver":
+                case ComponentKind.CONNECTION:
+                    cls = ConnectionHandle
+                case ComponentKind.DRIVER:
                     cls = DriverHandle
-                case "notifier":
+                case ComponentKind.NOTIFIER:
                     cls = NotifierHandle
-                case _:
-                    unreachable()
 
             self._components[component_config.name] = cls(
                 ComponentHandleContext(

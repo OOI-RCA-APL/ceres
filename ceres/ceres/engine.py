@@ -181,9 +181,14 @@ class Engine(Tasklet):
         config_previous = self._config
 
         try:
-            self._config = self._config_queue.get()
+            self._config = self._config_queue.get_nowait()
         except Empty:
-            pass
+            self.logger.warning("No new configuration was found, ignoring reload.")
+            return
+
+        if self._config == config_previous:
+            self.logger.info("Configuration was not modified. Nothing to reload.")
+            return
 
         if self._config.server != config_previous.server:
             self.logger.info("Server configuration modified, reloading server...")
@@ -213,14 +218,16 @@ class Engine(Tasklet):
                 self.logger.error(
                     f"An issue occurred while syncing units: {traceback.format_exc()}"
                 )
-        else:
-            self.logger.info("Everything is up to date. Nothing to do.")
 
         self.logger.info("Reload completed.")
 
     async def _start_server(self) -> None:
         if not self._server:
-            self._server = Server(self._config.server, self)
+            self._server = Server(
+                self._config.server,
+                self,
+                self._database,
+            )
 
         if not self._server.running:
             self.logger.info("Starting server...")

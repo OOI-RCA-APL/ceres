@@ -1,5 +1,6 @@
 import AppLayout from '@/AppLayout.vue'
-import Connection from '@/pages/Connection.vue'
+import Component from '@/pages/Component.vue'
+import Dashboard from '@/pages/Dashboard.vue'
 import Unit from '@/pages/Unit.vue'
 import Units from '@/pages/Units.vue'
 import { RouteRecordRaw } from 'vue-router'
@@ -11,18 +12,18 @@ const routes: RouteRecordRaw[] = [
     children: [
       {
         path: '',
-        redirect: '/units',
+        component: Dashboard,
       },
       {
         path: '/units',
         component: Units,
         children: [
           {
-            path: ':unitName/connections/:connectionName',
-            component: Connection,
+            path: ':unitName/components/:componentName',
+            component: Component,
             props: (route) => ({
               unitName: route.params.unitName,
-              connectionName: route.params.connectionName,
+              componentName: route.params.componentName,
             }),
           },
           {
@@ -52,20 +53,5 @@ function parseStringOrNull(value: string | string[]) {
 
   return value[0] ?? null
 }
-
-// function parseArray(values?: LocationQueryValue | LocationQueryValue[]) {
-//   if (values == null) {
-//     return []
-//   }
-
-//   if (typeof values === 'string') {
-//     return values
-//       .split(',')
-//       .map((value) => value.trim())
-//       .filter((value) => value !== '')
-//   }
-
-//   return values
-// }
 
 export default routes

@@ -1,3 +1,4 @@
+import warnings
 from typing import Any, Callable, final
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -7,6 +8,12 @@ from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
 from .schedule import AndSchedule, CronSchedule, IntervalSchedule, OrSchedule, Schedule
+
+warnings.filterwarnings(
+    action="ignore",
+    module="apscheduler",
+    message=r".*localize method is no longer necessary.*",
+)
 
 
 @final

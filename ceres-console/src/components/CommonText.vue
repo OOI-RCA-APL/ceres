@@ -15,21 +15,21 @@ const classes = $computed(() => `self-${variant}`)
 <style lang="scss" scoped>
 .self-title1 {
   font-family: 'Roboto';
-  font-size: 24px;
+  font-size: 22px;
   font-weight: 300;
   line-height: 1.5em;
 }
 
 .self-title2 {
   font-family: 'Roboto';
-  font-size: 20px;
+  font-size: 18px;
   font-weight: 300;
   line-height: 1.5em;
 }
 
 .self-title3 {
   font-family: 'Roboto';
-  font-size: 18px;
+  font-size: 14px;
   font-weight: 300;
   line-height: 1em;
 }

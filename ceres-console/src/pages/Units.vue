@@ -9,14 +9,14 @@
           </div>
           <q-list class="col-grow overflow-auto q-pt-xs scroll" dense>
             <q-item
-              v-for="(unit, name) in mock.config.units"
-              :key="name"
+              v-for="unit in config.data.units"
+              :key="unit.name"
               clickable
               dense
-              :to="`/units/${name}`"
+              :to="`/units/${unit.name}`"
             >
               <q-item-section>
-                <q-item-label class="text-no-wrap">@{{ name }}</q-item-label>
+                <q-item-label class="text-no-wrap">@{{ unit.name }}</q-item-label>
               </q-item-section>
             </q-item>
           </q-list>
@@ -32,8 +32,8 @@
 </template>
 
 <script lang="ts" setup>
+import { useConfig } from '@/api/queries'
 import CommonText from '@/components/CommonText.vue'
-import mock from '@/mock'
 import { usePersisted } from '@/persistence'
 import Zod from 'zod'
 
@@ -45,6 +45,8 @@ const state = usePersisted({
   schema: StateSchema,
   methods: [{ type: 'local-storage', key: 'units' }],
 })
+
+const config = useConfig()
 </script>
 
 <style lang="scss">

@@ -21,7 +21,6 @@
 
 <script lang="ts" setup>
 import icons from '@/icons'
-import mock from '@/mock'
 import { usePersisted } from '@/persistence'
 import { useQuasar } from 'quasar'
 import { computed, watch } from 'vue'
@@ -33,21 +32,14 @@ const { unitName, connectionName } = defineProps<{
   connectionName: string
 }>()
 
-const unit = $computed(() => {
-  return mock.config.units[unitName] ?? null
-})
-
-const connection = $computed(() => {
-  if (unit == null) {
-    return null
-  }
-
-  return unit.connections[connectionName] ?? null
-})
-
 const emit = defineEmits<{
   (emit: 'send', command: string): void
 }>()
+
+// const config = useConfig()
+
+// const unit = $computed(() => config.getUnit(unitName))
+// const connection = $computed(() => config.getComponent(unitName, connectionName))
 
 const quasar = useQuasar()
 
@@ -112,7 +104,8 @@ function onDownKeyPressed() {
   }
 }
 
-const isConnected = $computed(() => connection?.enabled && connection?.state === 'connected')
+// const isConnected = $computed(() => connection?.enabled && connection?.state === 'connected')
+const isConnected = true
 
 async function submit() {
   if (state.command.trim() === '') {

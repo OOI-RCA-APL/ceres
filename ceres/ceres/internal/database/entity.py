@@ -205,7 +205,7 @@ class EntityManager:
     ) -> list[_EntityT]:
         query = select(cls)
         if where is not None:
-            query = select(AlertEntity).where(where(cls))
+            query = select(cls).where(where(cls))
         if order_by is not None:
             query = query.order_by(order_by(cls))
         if limit is not None:

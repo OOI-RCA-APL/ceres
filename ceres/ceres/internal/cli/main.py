@@ -79,7 +79,7 @@ async def _run_watch(config: Config) -> None:
 
         import ceres
 
-        def callback(changes: Iterable[tuple[Change, str]]) -> None:
+        async def callback(changes: Iterable[tuple[Change, str]]) -> None:
             info = sorted(
                 [(path, change._name_) for (change, path) in changes],
                 key=lambda current: current[0],

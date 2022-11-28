@@ -1,15 +1,20 @@
+import asyncio
 import inspect
+from datetime import datetime
 from functools import wraps
 from logging import Logger
 from typing import TYPE_CHECKING, Any, get_type_hints
+from uuid import UUID
 
-from fastapi import APIRouter, FastAPI, Response
+from fastapi import APIRouter, FastAPI, Query, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.status import HTTP_400_BAD_REQUEST
 from uvicorn.config import Config as UvicornConfig
 from uvicorn.server import Server as BaseUvicorn
+from websockets.exceptions import ConnectionClosedError
 
-from ..address import ComponentAddress
+from ..address import ComponentAddress, UnitAddress
+from ..alert import Alert
 from ..component import (
     ActionBinding,
     Component,
@@ -18,12 +23,16 @@ from ..component import (
     QueryBinding,
 )
 from ..config import ComponentConfig, Config, ServerConfig, UnitConfig
-from ..data import simplify
+from ..data import DataObject, jsonify, simplify
+from ..datetime import utc
 from ..errors import ProcedureError, ReloadError
+from ..message import Message
 from ..result import Fail, Ok, Result
+from ..stream import Stream
 from . import logs
 from .component import load_component_cls
 from .console import Console
+from .database.manager import DatabaseManager
 from .tasklet import Tasklet
 from .utilities import unreachable
 
@@ -31,14 +40,28 @@ if TYPE_CHECKING:
     from ..engine import Engine
 
 
+class UnitInfo(DataObject):
+    id: UUID
+    config: UnitConfig
+
+
+class ComponentInfo(DataObject):
+    id: UUID
+    config: ComponentConfig
+
+
 class Server(Tasklet):
     def __init__(
         self,
         config: ServerConfig,
         engine: "Engine",
+        database: DatabaseManager,
     ):
         self._config = config
         self._engine = engine
+        self._database = database
+        self._message_stream: Stream[Message] = Stream()
+        self._alert_stream: Stream[Alert] = Stream()
         self._uvicorn: Uvicorn | None = None
 
     @property
@@ -50,10 +73,21 @@ class Server(Tasklet):
         return self._engine
 
     @property
+    def database(self) -> DatabaseManager:
+        return self._database
+
+    @property
     def logger(self) -> Logger:
         return logs.get("uvicorn")
 
     async def __run__(self) -> None:
+        await asyncio.gather(
+            self._process_uvicorn(),
+            self._process_messages(),
+            self._process_alerts(),
+        )
+
+    async def _process_uvicorn(self) -> None:
         self._uvicorn = Uvicorn(
             UvicornConfig(
                 app=self._generate_app(),
@@ -63,6 +97,42 @@ class Server(Tasklet):
         )
 
         await self._uvicorn.serve()
+
+    async def _process_messages(self) -> None:
+        cursor = utc()
+
+        while True:
+            await asyncio.sleep(0.1)
+            messages = await self._database.entities.get_messages(
+                where=lambda message: message.timestamp > cursor,
+                order_by=lambda message: message.timestamp.desc(),
+            )
+
+            if not messages:
+                continue
+
+            for message in reversed(messages):
+                self._message_stream.put(message)
+
+            cursor = messages[0].timestamp
+
+    async def _process_alerts(self) -> None:
+        cursor = utc()
+
+        while True:
+            await asyncio.sleep(0.1)
+            alerts = await self._database.entities.get_alerts(
+                where=lambda message: message.timestamp > cursor,
+                order_by=lambda message: message.timestamp.desc(),
+            )
+
+            if not alerts:
+                continue
+
+            for alert in reversed(alerts):
+                self._alert_stream.put(alert)
+
+            cursor = alerts[0].timestamp
 
     async def __stop__(self) -> None:
         if self._uvicorn is not None:
@@ -110,6 +180,63 @@ class Server(Tasklet):
 
             unreachable()
 
+        @api.get("/messages", response_model=list[Message])
+        async def messages(
+            component_id: UUID | None = None,
+            before: datetime | None = None,
+            after: datetime | None = None,
+            limit: int = Query(default=100, ge=0, le=100),
+        ) -> list[Message]:
+            return await self._database.entities.get_messages(
+                where=lambda message: (
+                    (message.connection_id == component_id) | (component_id is None)
+                )
+                & (before is None or message.timestamp < before)
+                & (after is None or message.timestamp > after),
+                order_by=lambda message: message.timestamp,
+                limit=limit,
+            )
+
+        @api.websocket("/message-stream")
+        async def message_stream(socket: WebSocket, component_id: UUID | None = None) -> None:
+            try:
+                await socket.accept()
+
+                async for message in self._message_stream:
+                    if component_id is not None and message.connection_id != component_id:
+                        continue
+                    await socket.send_text(jsonify(message))
+            except (WebSocketDisconnect, ConnectionClosedError):
+                pass
+
+        @api.get("/alerts", response_model=list[Alert])
+        async def alerts(
+            origin_id: UUID | None = None,
+            before: datetime | None = None,
+            after: datetime | None = None,
+            limit: int = Query(default=100, ge=0, le=100),
+        ) -> list[Alert]:
+            return await self._database.entities.get_alerts(
+                where=lambda alert: ((alert.origin_id == origin_id) | (origin_id is None))
+                & (before is None or alert.timestamp < before)
+                & (after is None or alert.timestamp > after),
+                order_by=lambda alert: alert.timestamp,
+                limit=limit,
+            )
+
+        @api.websocket("/alert-stream")
+        async def alert_stream(socket: WebSocket, origin_id: UUID | None = None) -> None:
+            try:
+                await socket.accept()
+
+                async for alert in self._alert_stream:
+                    if origin_id is not None and alert.origin_id != origin_id:
+                        continue
+
+                    await socket.send_text(jsonify(alert))
+            except (WebSocketDisconnect, ConnectionClosedError):
+                pass
+
         api.include_router(self._generate_units_router(), prefix="/units")
         return api
 
@@ -118,6 +245,14 @@ class Server(Tasklet):
 
         for unit_config in self._engine.config.units:
             unit = APIRouter(prefix=f"/{unit_config.name}")
+
+            @unit.get("", response_model=UnitInfo)
+            async def get() -> UnitInfo:
+                id = await self._database.entities.get_address_id(UnitAddress(unit_config.name))
+                return UnitInfo(
+                    id=id,
+                    config=unit_config,
+                )
 
             unit.include_router(
                 self._generate_components_router(unit_config),
@@ -145,6 +280,16 @@ class Server(Tasklet):
         component_config: ComponentConfig,
     ) -> APIRouter:
         component = APIRouter()
+
+        @component.get("", response_model=ComponentInfo)
+        async def get() -> ComponentInfo:
+            id = await self._database.entities.get_address_id(
+                ComponentAddress(unit_config.name, component_config.name)
+            )
+            return ComponentInfo(
+                id=id,
+                config=component_config,
+            )
 
         match load_component_cls(Component, component_config):
             case Ok(component_cls):
@@ -196,7 +341,7 @@ class Server(Tasklet):
 
         @wraps(method)
         async def post(*args: Any, **kwargs: Any) -> Any:
-            input = [*args, *kwargs.values()][0] if kwargs else None
+            input = next(*args, *kwargs.values()) if args or kwargs else None
 
             result = simplify(
                 await self._engine.call(
@@ -211,13 +356,12 @@ class Server(Tasklet):
 
         try:
             return_type_hint: Any = get_type_hints(method)["return"]
+            response_model = Result[return_type_hint, ProcedureError]
         except Exception:
             self.logger.error(
-                f"Failed to get return type hint for {procedure.kind} {method}. No API route will be generated."
+                f"Failed to get valid return type hint for {procedure.kind} {method}. No API route will be generated."
             )
             return
-
-        response_model = Result[return_type_hint, ProcedureError]
 
         original_signature = inspect.signature(method)
         modified_signature = original_signature.replace(  # type: ignore

@@ -1,0 +1,141 @@
+import { defineStore } from 'pinia'
+import { watchEffect } from 'vue'
+import { useQuery } from 'vue-query'
+import Zod, { ZodTypeAny } from 'zod'
+import {
+  ComponentInfo,
+  ComponentInfoModel,
+  Config,
+  ConfigModel,
+  MessageModel,
+  Result,
+  ResultModel,
+  UnitInfo,
+  UnitInfoModel,
+} from './models'
+export * from 'vue-query'
+
+export async function reload(): Promise<Result<Config>> {
+  return await post('/api/reload', ResultModel(ConfigModel) as any)
+}
+
+export async function getConfig(): Promise<Config> {
+  return await get('/api/config', ConfigModel)
+}
+
+export async function getUnit(name: string): Promise<UnitInfo> {
+  return await get(`/api/units/${name}`, UnitInfoModel)
+}
+
+export async function getComponent(unit: string, name: string): Promise<ComponentInfo> {
+  return await get(`/api/units/${unit}/components/${name}`, ComponentInfoModel)
+}
+
+function getWebSocketURI(relative: string) {
+  const protocol = window.location.protocol.startsWith('https') ? 'wss' : 'ws'
+  const port =
+    process.env.NODE_ENV === 'production'
+      ? window.location.port
+      : process.env.DEVELOPMENT_CERES_API_PORT
+
+  const host = window.location.host.slice(0, window.location.host.indexOf(':'))
+  return `${protocol}://${host}:${port}${relative}`
+}
+
+export function useMessageStream<TModel extends ZodTypeAny>(
+  componentId: string,
+  onMessage: (message: Zod.infer<TModel>) => unknown
+) {
+  useStream(
+    getWebSocketURI(`/api/message-stream?component_id=${encodeURIComponent(componentId)}`),
+    // `ws://localhost:9000/api/message-stream?component_id=${encodeURIComponent(componentId)}`,
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore
+    MessageModel,
+    onMessage
+  )
+}
+
+export const useConfig = defineStore('config', () => {
+  const query = useQuery(['config'], getConfig, { retry: false })
+
+  const data = $computed(() => query.data.value as Config)
+  const error = $computed(() => query.error)
+
+  async function load() {
+    await query.suspense()
+  }
+
+  function getUnit(unitName: string) {
+    return data.units.find((unit) => unit.name === unitName) ?? null
+  }
+
+  function getComponent(unitName: string, componentName: string) {
+    return getUnit(unitName)?.components.find((component) => component.name === componentName)
+  }
+
+  return {
+    data: $$(data),
+    error: $$(error),
+    load,
+    getUnit,
+    getComponent,
+  }
+})
+
+async function get<TModel extends ZodTypeAny>(
+  url: string | URL,
+  model: TModel
+): Promise<Zod.infer<TModel>> {
+  const response = await fetch(url)
+  const json = await response.json()
+  return await model.parseAsync(json)
+}
+
+async function post<TModel extends ZodTypeAny>(
+  url: string | URL,
+  model: TModel,
+  data?: unknown
+): Promise<Zod.infer<TModel>> {
+  const response = await fetch(url, {
+    method: 'POST',
+    body: data != null ? JSON.stringify(data) : undefined,
+  })
+
+  const json = await response.json()
+  return await model.parseAsync(json)
+}
+
+function useStream<TModel extends ZodTypeAny>(
+  url: string | URL,
+  model: TModel,
+  onMessage: (message: Zod.infer<TModel>) => unknown
+) {
+  watchEffect((onCleanup) => {
+    const socket = new WebSocket(url)
+    socket.addEventListener('open', () => {
+      console.log(`connected to '${url}'`)
+    })
+
+    socket.addEventListener('message', (event) => {
+      const data = JSON.parse(event.data)
+      if (data === undefined) {
+        console.log(`invalid JSON message from '${url}': '${event.data}'`)
+        return
+      }
+
+      console.log(`message on '${url}': '${JSON.stringify(event.data)}'`)
+      onMessage(model.parse(data))
+    })
+
+    socket.addEventListener('error', (event) => {
+      console.log(`error on '${url}': ${event.type}`)
+    })
+
+    socket.addEventListener('close', () => {
+      console.log(`disconnected from '${url}'`)
+    })
+
+    onCleanup(() => socket.close())
+  })
+}
