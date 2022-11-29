@@ -31,7 +31,8 @@
 </template>
 
 <script lang="ts" setup>
-import { getComponent, useMessageStream } from '@/api/queries'
+import { Message } from '@/api/models'
+import { getComponent, getMessages, useMessageStream } from '@/api/queries'
 import CommandInput from '@/components/CommandInput.vue'
 import MessageViewItem from '@/components/MessageViewItem.vue'
 import SectionCard from '@/components/SectionCard.vue'
@@ -51,12 +52,6 @@ const {
   componentName: string
 }>()
 
-type Message = {
-  timestamp: string
-  direction: 'send' | 'receive'
-  content: string
-}
-
 type ScrollInfo = {
   verticalPosition: number
   verticalPercentage: number
@@ -70,16 +65,57 @@ let search = $ref('')
 let container = $shallowRef<QScrollArea | null>(null)
 let messages = $ref<Message[]>([])
 
+let earliestMessageTimestamp = $ref<string | null>(null)
+let isMessageScrollbackExhausted = $ref(false)
+let isLoadingPreviousMessages = $ref(false)
+
+let scroll = $ref(null as ScrollInfo | null)
+
+async function onScroll(info: ScrollInfo) {
+  scroll = info
+  if (isAtTop && !isLoadingPreviousMessages && !isMessageScrollbackExhausted) {
+    await loadPreviousMessages()
+  }
+}
+
+const isAtTop = $computed(() => scroll != null && scroll.verticalPercentage == 0)
+const isAtBottom = $computed(() => scroll != null && scroll.verticalPercentage >= 0.975)
+
+async function loadPreviousMessages() {
+  isLoadingPreviousMessages = true
+
+  try {
+    const previous = await getMessages({
+      component_id: info.id,
+      before: earliestMessageTimestamp == null ? undefined : earliestMessageTimestamp,
+      limit: 50,
+    })
+
+    console.log(JSON.stringify(previous))
+
+    if (previous.length === 0) {
+      isMessageScrollbackExhausted = true
+    }
+
+    messages = [...previous, ...messages]
+  } finally {
+    isLoadingPreviousMessages = false
+    if (messages.length) {
+      earliestMessageTimestamp = messages[0].timestamp
+    }
+  }
+}
+
 useMessageStream(info.id, (message) => {
   messages.push(message)
-  setTimeout(() => {
-    nextTick(() => {
-      scrollToBottom()
+  if (isAtBottom) {
+    setTimeout(() => {
+      nextTick(() => {
+        scrollToBottom()
+      })
     })
-  })
+  }
 })
-
-let scrollInfo = $ref(null as ScrollInfo | null)
 
 const matched = $computed(() =>
   messages.filter(
@@ -90,23 +126,14 @@ const matched = $computed(() =>
   )
 )
 
-function onScroll(info: ScrollInfo) {
-  scrollInfo = info
-}
-
 function scrollToBottom() {
-  if (container != null && scrollInfo != null) {
+  if (container != null && scroll != null) {
     container.setScrollPosition('vertical', container.getScroll().verticalSize)
   }
 }
 
 function onSend(command: string) {
-  messages.push({
-    timestamp: moment.utc().format(),
-    direction: 'send',
-    content: command,
-  })
-
+  console.log('sending: ' + command)
   setTimeout(() => {
     nextTick(() => {
       scrollToBottom()
@@ -114,6 +141,7 @@ function onSend(command: string) {
   })
 }
 
+await loadPreviousMessages()
 onMounted(() => {
   const interval = setInterval(() => {
     scrollToBottom()

@@ -7,6 +7,7 @@ import {
   ComponentInfoModel,
   Config,
   ConfigModel,
+  Message,
   MessageModel,
   Result,
   ResultModel,
@@ -29,6 +30,22 @@ export async function getUnit(name: string): Promise<UnitInfo> {
 
 export async function getComponent(unit: string, name: string): Promise<ComponentInfo> {
   return await get(`/api/units/${unit}/components/${name}`, ComponentInfoModel)
+}
+
+export async function getMessages({
+  component_id,
+  before,
+  after,
+}: {
+  component_id?: string
+  before?: string
+  after?: string
+  limit?: number
+}): Promise<Message[]> {
+  return await get(
+    `/api/messages` + createQueryParams({ component_id, before, after }),
+    Zod.array(MessageModel)
+  )
 }
 
 function getWebSocketURI(relative: string) {
@@ -104,6 +121,23 @@ async function post<TModel extends ZodTypeAny>(
 
   const json = await response.json()
   return await model.parseAsync(json)
+}
+
+function createQueryParams(values: Record<string, string | number | null | undefined>): string {
+  const result = new URLSearchParams()
+  for (const key of Object.keys(values)) {
+    const value = values[key]
+    if (value !== undefined) {
+      result.append(key, String(value))
+    }
+  }
+
+  const text = result.toString()
+  if (text !== '') {
+    return '?' + text
+  }
+
+  return text
 }
 
 function useStream<TModel extends ZodTypeAny>(

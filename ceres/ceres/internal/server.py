@@ -187,14 +187,18 @@ class Server(Tasklet):
             after: datetime | None = None,
             limit: int = Query(default=100, ge=0, le=100),
         ) -> list[Message]:
-            return await self._database.entities.get_messages(
-                where=lambda message: (
-                    (message.connection_id == component_id) | (component_id is None)
+            return list(
+                reversed(
+                    await self._database.entities.get_messages(
+                        where=lambda message: (
+                            (message.connection_id == component_id) | (component_id is None)
+                        )
+                        & (before is None or message.timestamp < before)
+                        & (after is None or message.timestamp > after),
+                        order_by=lambda message: message.timestamp.desc(),
+                        limit=limit,
+                    )
                 )
-                & (before is None or message.timestamp < before)
-                & (after is None or message.timestamp > after),
-                order_by=lambda message: message.timestamp,
-                limit=limit,
             )
 
         @api.websocket("/message-stream")
@@ -216,12 +220,16 @@ class Server(Tasklet):
             after: datetime | None = None,
             limit: int = Query(default=100, ge=0, le=100),
         ) -> list[Alert]:
-            return await self._database.entities.get_alerts(
-                where=lambda alert: ((alert.origin_id == origin_id) | (origin_id is None))
-                & (before is None or alert.timestamp < before)
-                & (after is None or alert.timestamp > after),
-                order_by=lambda alert: alert.timestamp,
-                limit=limit,
+            return list(
+                reversed(
+                    await self._database.entities.get_alerts(
+                        where=lambda alert: ((alert.origin_id == origin_id) | (origin_id is None))
+                        & (before is None or alert.timestamp < before)
+                        & (after is None or alert.timestamp > after),
+                        order_by=lambda alert: alert.timestamp,
+                        limit=limit,
+                    )
+                )
             )
 
         @api.websocket("/alert-stream")
