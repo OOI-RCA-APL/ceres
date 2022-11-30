@@ -18,7 +18,6 @@ from typing import (
     Iterator,
     Literal,
     Mapping,
-    NoReturn,
     ParamSpec,
     Protocol,
     Sequence,
@@ -142,15 +141,6 @@ _FunctionT = TypeVar("_FunctionT", bound=Callable[..., Any])
 
 def cached(function: _FunctionT) -> _FunctionT:
     return cast(_FunctionT, cache(function))
-
-
-class UnreachableException(Exception):
-    def __init__(self) -> None:
-        self.message = "Unexpected code was reached. This is a bug."
-
-
-def unreachable() -> NoReturn:
-    raise UnreachableException()
 
 
 def snakecase(text: str) -> str:

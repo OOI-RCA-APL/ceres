@@ -1,10 +1,14 @@
 import re
 from textwrap import dedent
-from sqlalchemy.ext.asyncio import AsyncEngine
 from typing import Any, Callable, Iterable, TypeVar, cast
 
 from sqlalchemy import ClauseElement, Connection, Table, inspect, text
-from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import (
+    AsyncConnection,
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+)
 from sqlalchemy.schema import CreateIndex, CreateTable
 from sqlalchemy.sql.elements import TextClause
 
@@ -14,7 +18,6 @@ from ...config import (
     PostgresDatabaseConfig,
     SQLiteDatabaseConfig,
 )
-from ..utilities import unreachable
 from .adapter import DatabaseAdapter
 from .entity import Entity, EntityManager
 
@@ -79,8 +82,6 @@ class DatabaseManager:
                 from .postgres import PostgresDatabaseAdapter
 
                 return PostgresDatabaseAdapter(config)
-
-        unreachable()
 
     def session(self) -> AsyncSession:
         return self._session_maker()

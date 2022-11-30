@@ -26,12 +26,13 @@ from .exceptions import (
     StartupDatabaseInitFailedException,
 )
 from .internal import logs
+from .internal.app import App
 from .internal.config import load_config
 from .internal.database.manager import DatabaseManager
 from .internal.server import Server
 from .internal.tasklet import Tasklet
 from .internal.unit import UnitContext, UnitHandle
-from .internal.utilities import temporary_signal_handler, unreachable
+from .internal.utilities import temporary_signal_handler
 from .message import Message
 from .result import Fail, Ok, Result
 from .stream import Stream, StreamView
@@ -53,7 +54,7 @@ class Engine(Tasklet):
     def __init__(self, config: Config) -> None:
         self._config = config
         self._config_queue: Queue[Config] = Queue()
-        self._server: Server | None = None
+        self._server = Server(App(self), self._config.server)
         self._database = DatabaseManager(self._config.database)
         self._units: dict[UnitAddress, UnitHandle] = {}
         self._reloading = Event()
@@ -113,8 +114,6 @@ class Engine(Tasklet):
             case Fail(errors):
                 self.logger.error("Reload failed, found errors in configuration.")
                 return Fail(ReloadConfigInvalidError(errors=errors))
-
-        unreachable()
 
     async def __run__(self) -> None:
         match await load_config(self._config, logger=self.logger):
@@ -289,26 +288,21 @@ class Engine(Tasklet):
         self.logger.info("Reload completed.")
 
     async def _start_server(self) -> None:
-        if not self._server:
-            self._server = Server(
-                self._config.server,
-                self,
-            )
+        if self._server.running:
+            return
 
-        if not self._server.running:
-            self.logger.info("Starting server...")
-            self._server.start(
-                on_completed=self._on_server_completed,
-                on_exception=self._on_server_exception,
-            )
+        self.logger.info("Starting server...")
+        self._server.start(
+            on_completed=self._on_server_completed,
+            on_exception=self._on_server_exception,
+        )
 
     async def _stop_server(self) -> None:
-        if self._server:
-            if self._server.running:
-                self.logger.info("Stopping server...")
-                await self._server.stop()
+        if not self._server.running:
+            return
 
-        self._server = None
+        self.logger.info("Stopping server...")
+        await self._server.stop()
 
     async def _reload_server(self) -> None:
         await self._stop_server()

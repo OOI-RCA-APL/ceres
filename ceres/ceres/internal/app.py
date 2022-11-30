@@ -1,10 +1,11 @@
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Mapping
+from typing import TYPE_CHECKING, Any, Mapping, final
 from uuid import UUID
 
 from fastapi import (
     APIRouter,
     Depends,
+    FastAPI,
     HTTPException,
     Query,
     Request,
@@ -12,6 +13,7 @@ from fastapi import (
     WebSocket,
     WebSocketDisconnect,
 )
+from fastapi.middleware.cors import CORSMiddleware
 from starlette.status import HTTP_400_BAD_REQUEST
 from websockets.exceptions import ConnectionClosedError
 
@@ -24,6 +26,7 @@ from ..errors import Error, ProcedureError, ReloadError
 from ..message import Message
 from ..result import Fail, Ok, Result
 from . import logs
+from .console import Console
 from .database.entity import EntityManager
 from .database.manager import DatabaseManager
 from .utilities import NameStr
@@ -44,11 +47,12 @@ class ComponentInfo(DataObject):
     config: ComponentConfig
 
 
-router = APIRouter()
+api = APIRouter()
 
 
 def use_engine(request: Request) -> Engine:
-    return request.app.state.engine
+    assert isinstance(request.app, App)
+    return request.app.engine
 
 
 def use_database(request: Request) -> DatabaseManager:
@@ -59,17 +63,12 @@ def use_entities(request: Request) -> EntityManager:
     return use_database(request).entities
 
 
-@router.on_event("startup")
-def startup() -> None:
-    logs.setup()
-
-
-@router.get("/config", response_model=Config, tags=["engine"])
+@api.get("/config", response_model=Config, tags=["engine"])
 async def get_config(engine: Engine = Depends(use_engine)) -> Config:
     return engine.config
 
 
-@router.post("/reload", response_model=Result[Config, ReloadError], tags=["engine"])
+@api.post("/reload", response_model=Result[Config, ReloadError], tags=["engine"])
 async def reload(
     response: Response,
     engine: Engine = Depends(use_engine),
@@ -82,7 +81,7 @@ async def reload(
             return Fail(error)
 
 
-@router.get("/messages", response_model=list[Message], tags=["data"])
+@api.get("/messages", response_model=list[Message], tags=["data"])
 async def get_messages(
     component_id: UUID | None = None,
     before: datetime | None = None,
@@ -105,7 +104,7 @@ async def get_messages(
     )
 
 
-@router.get("/alerts", response_model=list[Alert], tags=["data"])
+@api.get("/alerts", response_model=list[Alert], tags=["data"])
 async def get_alerts(
     origin_id: UUID | None = None,
     before: datetime | None = None,
@@ -126,7 +125,7 @@ async def get_alerts(
     )
 
 
-@router.websocket("/message-stream")
+@api.websocket("/message-stream")
 async def message_stream(
     socket: WebSocket,
     component_id: UUID | None = None,
@@ -143,7 +142,7 @@ async def message_stream(
         pass
 
 
-@router.websocket("/alert-stream")
+@api.websocket("/alert-stream")
 async def alert_stream(
     socket: WebSocket,
     origin_id: UUID | None = None,
@@ -161,7 +160,7 @@ async def alert_stream(
         pass
 
 
-@router.get("/units/:unit", response_model=UnitInfo, tags=["units"])
+@api.get("/units/:unit", response_model=UnitInfo, tags=["units"])
 async def get_unit_info(
     unit: NameStr,
     engine: Engine = Depends(use_engine),
@@ -175,7 +174,7 @@ async def get_unit_info(
     return UnitInfo(id=id, config=config)
 
 
-@router.get(
+@api.get(
     "/units/{unit}/components/{component}",
     response_model=ComponentInfo,
     tags=["components"],
@@ -206,7 +205,7 @@ async def _run_procedure(
     return await engine.call(address, kind, procedure, input)
 
 
-@router.post(
+@api.post(
     "/units/{unit}/components/{component}/queries/{query}",
     response_model=Result[Any | None, Error],
     tags=["procedures"],
@@ -221,7 +220,7 @@ async def run_query(
     return await _run_procedure(engine, unit, component, ProcedureKind.QUERY, query, input)
 
 
-@router.post(
+@api.post(
     "/units/{unit}/components/{component}/actions/{action}",
     response_model=Result[Any | None, Error],
     tags=["procedures"],
@@ -236,7 +235,7 @@ async def run_action(
     return await _run_procedure(engine, unit, component, ProcedureKind.ACTION, action, input)
 
 
-@router.post(
+@api.post(
     "/units/{unit}/components/{component}/jobs/{job}",
     response_model=Result[Any | None, Error],
     tags=["procedures"],
@@ -249,3 +248,29 @@ async def run_job(
     engine: Engine = Depends(use_engine),
 ) -> Result[object | None, ProcedureError]:
     return await _run_procedure(engine, unit, component, ProcedureKind.JOB, job, input)
+
+
+@final
+class App(FastAPI):
+    def __init__(self, engine: Engine) -> None:
+        super().__init__(
+            redoc_url=None,
+            docs_url="/api/docs",
+            openapi_url="/api/openapi.json",
+        )
+
+        self.engine = engine
+        self.add_middleware(
+            CORSMiddleware,
+            allow_origins=["*"],
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+
+        @self.on_event("startup")
+        def startup() -> None:
+            logs.setup()
+
+        self.include_router(api, prefix="/api")
+        self.mount("/", Console(), name="console")
