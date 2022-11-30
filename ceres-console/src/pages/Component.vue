@@ -20,16 +20,12 @@
             <q-tr no-hover>
               <q-th class="text-left">Target</q-th>
               <q-th class="text-left">Connected At</q-th>
-              <q-th class="text-left">Total Message Count</q-th>
-              <q-th class="text-left">Messages Today</q-th>
             </q-tr>
           </thead>
           <tbody>
             <q-tr no-hover>
               <q-td>(TARGET)</q-td>
               <q-td>(CONNECTED AT)</q-td>
-              <q-td>{{ messageCount }}</q-td>
-              <q-td>{{ messageCount }}</q-td>
             </q-tr>
           </tbody>
         </q-markup-table>
@@ -55,8 +51,6 @@ const { unitName, componentName } = defineProps<{
   unitName: string
   componentName: string
 }>()
-
-const messageCount = 100
 
 const config = useConfig()
 

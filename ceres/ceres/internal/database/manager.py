@@ -1,5 +1,6 @@
 import re
 from textwrap import dedent
+from sqlalchemy.ext.asyncio import AsyncEngine
 from typing import Any, Callable, Iterable, TypeVar, cast
 
 from sqlalchemy import ClauseElement, Connection, Table, inspect, text
@@ -42,6 +43,10 @@ class DatabaseManager:
     @property
     def entities(self) -> EntityManager:
         return EntityManager(self)
+
+    @property
+    def engine(self) -> AsyncEngine:
+        return self._engine
 
     @property
     def ddl(self) -> list[str]:

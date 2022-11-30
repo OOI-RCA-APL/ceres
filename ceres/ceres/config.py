@@ -127,7 +127,8 @@ class Config(ConfigObject):
     @classmethod
     def from_data(cls, data: Any, path: Path | None = None) -> Self:
         instance = parse_obj_as(cls, data)
-        cls._path = path
+        object.__setattr__(instance, "_path", path)
+        object.__setattr__(instance, "_component_config_cache", {})
         return instance
 
     @property
