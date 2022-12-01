@@ -139,7 +139,7 @@ class Unit(UnitProxyProtocol, Tasklet):
         await self._message_buffer.add(
             MessageEntity(
                 id=message.id,
-                connection_id=message.connection_id,
+                component_id=message.component_id,
                 timestamp=message.timestamp,
                 direction=MessageDirection.RECEIVE,
                 content=message.content,

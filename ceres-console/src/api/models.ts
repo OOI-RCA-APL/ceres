@@ -10,7 +10,7 @@ export const MessageDirectionModel = Zod.enum(['send', 'receive'])
 export type Message = Zod.infer<typeof MessageModel>
 export const MessageModel = Zod.object({
   id: Zod.string(),
-  connection_id: Zod.string(),
+  component_id: Zod.string(),
   timestamp: Zod.string(),
   direction: MessageDirectionModel,
   content: Zod.string(),

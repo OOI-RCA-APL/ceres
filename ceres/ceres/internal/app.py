@@ -93,7 +93,7 @@ async def get_messages(
         reversed(
             await entities.get_messages(
                 where=lambda message: (
-                    (message.connection_id == component_id) | (component_id is None)
+                    (message.component_id == component_id) | (component_id is None)
                 )
                 & (before is None or message.timestamp < before)
                 & (after is None or message.timestamp > after),
@@ -135,7 +135,7 @@ async def message_stream(
         await socket.accept()
 
         async for message in engine.message_stream:
-            if component_id is not None and message.connection_id != component_id:
+            if component_id is not None and message.component_id != component_id:
                 continue
             await socket.send_text(jsonify(message))
     except (WebSocketDisconnect, ConnectionClosedError):

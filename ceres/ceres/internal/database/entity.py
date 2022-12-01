@@ -14,7 +14,6 @@ from sqlalchemy import (
     Index,
     LargeBinary,
     PrimaryKeyConstraint,
-    String,
     Text,
     Uuid,
     select,
@@ -92,7 +91,7 @@ class ComponentEntity(Entity):
         ForeignKey(UnitEntity.id, name=f"fk_{__tablename__}__unit_id__units"),
     )
 
-    name: Mapped[str] = mapped_column(String)
+    name: Mapped[str] = mapped_column(Text)
 
     @declared_attr
     def unit(cls) -> Mapped[UnitEntity]:
@@ -108,9 +107,9 @@ class MessageEntity(Entity):
     __tablename__ = "messages"
 
     id: Mapped[UUID] = mapped_column(Uuid)
-    connection_id: Mapped[UUID] = mapped_column(
+    component_id: Mapped[UUID] = mapped_column(
         Uuid,
-        ForeignKey(ComponentEntity.id, name=f"fk_{__tablename__}__connection_id__connection"),
+        ForeignKey(ComponentEntity.id, name=f"fk_{__tablename__}__component_id__components"),
     )
     timestamp: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))
     direction: Mapped[MessageDirection] = mapped_column(_TypedEnum(MessageDirection))
@@ -119,7 +118,7 @@ class MessageEntity(Entity):
     __table_args__ = (
         PrimaryKeyConstraint("id", name=f"pk_{__tablename__}"),
         _TypedEnumConstraint("direction", MessageDirection, name=f"ck_{__tablename__}__direction"),
-        Index(f"ix_{__tablename__}__connection_id", "connection_id"),
+        Index(f"ix_{__tablename__}__component_id", "component_id"),
         Index(f"ix_{__tablename__}__timestamp", "timestamp"),
         Index(f"ix_{__tablename__}__content", "content"),
     )
@@ -132,7 +131,7 @@ class AlertEntity(Entity):
     origin_id: Mapped[UUID] = mapped_column(Uuid)
     timestamp: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))
     level: Mapped[AlertLevel] = mapped_column(_TypedEnum(AlertLevel))
-    kind: Mapped[str] = mapped_column(String)
+    kind: Mapped[str] = mapped_column(Text)
     info: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
 
     __table_args__ = (

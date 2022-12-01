@@ -25,7 +25,7 @@ class MessageLike(Protocol):
         ...
 
     @property
-    def connection_id(self) -> UUID:
+    def component_id(self) -> UUID:
         ...
 
     @property
@@ -43,7 +43,7 @@ class MessageLike(Protocol):
 
 class Message(ImmutableDataObject):
     id: UUID = Field(default_factory=uuid4)
-    connection_id: UUID
+    component_id: UUID
     timestamp: datetime = Field(default_factory=utc)
     direction: MessageDirection
     content: bytes
@@ -52,7 +52,7 @@ class Message(ImmutableDataObject):
     def create_from(cls, other: Union[MessageLike, "MessageEntity"]) -> Self:
         return cls(
             id=other.id,
-            connection_id=other.connection_id,
+            component_id=other.component_id,
             timestamp=other.timestamp,
             direction=other.direction,
             content=other.content,
