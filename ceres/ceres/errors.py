@@ -1,27 +1,9 @@
 from enum import Enum
 from typing import Literal
 
-from pydantic import ValidationError
-
 from .address import ComponentAddress
 from .data import DataObject, ImmutableDataObject
-
-
-class ValidationProblem(ImmutableDataObject):
-    location: list[str | int]
-    message: str
-    kind: str
-
-    @classmethod
-    def extract(cls, error: ValidationError) -> list["ValidationProblem"]:
-        return [
-            ValidationProblem(
-                location=list(error["loc"]),
-                message=error["msg"],
-                kind=error["type"],
-            )
-            for error in error.errors()
-        ]
+from .validation import ValidationProblem
 
 
 class Error(ImmutableDataObject):

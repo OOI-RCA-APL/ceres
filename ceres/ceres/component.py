@@ -35,7 +35,6 @@ from .errors import (
     ProcedureError,
     ProcedureExceptionError,
     ProcedureInvalidInputError,
-    ValidationProblem,
 )
 from .events import AlertEmittedEvent, Event
 from .exceptions import ComponentClassInvalidException
@@ -57,6 +56,7 @@ from .result import Fail, Ok, Result
 from .schedule import Schedule
 from .scheduler import Scheduler
 from .stream import Stream, StreamView
+from .validation import ValidationProblem
 
 
 @dataclass(kw_only=True)
