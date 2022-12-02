@@ -2,7 +2,7 @@ import itertools
 from datetime import timedelta
 from enum import Enum
 from pathlib import Path
-from typing import Any, Iterable, Literal, Mapping, Sequence
+from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping, Sequence
 
 from pydantic import Field, SecretStr, parse_obj_as, validator
 from typing_extensions import Self
@@ -10,6 +10,12 @@ from typing_extensions import Self
 from .address import ComponentAddress, UnitAddress
 from .data import ImmutableDataObject
 from .internal.utilities import EmailStr, NameStr, validate_positive_timedelta
+from .result import Ok
+
+if TYPE_CHECKING:
+    from .component import Component
+else:
+    Component = "Component"
 
 
 class ConfigObject(ImmutableDataObject):
@@ -164,3 +170,17 @@ class Config(ConfigObject):
             self._component_config_cache[address] = component
 
         return component
+
+    def get_component_cls(self, address: ComponentAddress) -> type[Component] | None:
+        config = self.get_component(address)
+        if config is None:
+            return None
+
+        from .component import Component
+        from .internal.component import load_component_cls
+
+        match load_component_cls(Component, config):
+            case Ok(cls):
+                return cls
+            case _:
+                return None

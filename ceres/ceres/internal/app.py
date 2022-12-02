@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Mapping, final
+from typing import TYPE_CHECKING, Any, Mapping, Sequence, final
 from uuid import UUID
 
 from fastapi import (
@@ -19,9 +19,9 @@ from websockets.exceptions import ConnectionClosedError
 
 from ..address import ComponentAddress, UnitAddress
 from ..alert import Alert
-from ..component import ProcedureKind
+from ..component import ActionBinding, JobBinding, ProcedureKind, QueryBinding
 from ..config import ComponentConfig, Config, UnitConfig
-from ..data import DataObject, jsonify
+from ..data import ImmutableDataObject, jsonify
 from ..errors import Error, ProcedureError, ReloadError
 from ..message import Message
 from ..result import Fail, Ok, Result
@@ -37,14 +37,17 @@ else:
     Engine = "Engine"
 
 
-class UnitInfo(DataObject):
+class UnitInfo(ImmutableDataObject):
     id: UUID
     config: UnitConfig
 
 
-class ComponentInfo(DataObject):
+class ComponentInfo(ImmutableDataObject):
     id: UUID
     config: ComponentConfig
+    queries: Sequence[QueryBinding]
+    actions: Sequence[ActionBinding]
+    jobs: Sequence[JobBinding]
 
 
 api = APIRouter()
@@ -186,11 +189,18 @@ async def get_component_info(
     entities: EntityManager = Depends(use_entities),
 ) -> ComponentInfo:
     address = ComponentAddress(unit, component)
-    config = engine.config.get_component(address)
-    if config is None:
+    component_config = engine.config.get_component(address)
+    component_cls = engine.config.get_component_cls(address)
+    if component_config is None or component_cls is None:
         raise HTTPException(404)
     id = await entities.get_address_id(address)
-    return ComponentInfo(id=id, config=config)
+    return ComponentInfo(
+        id=id,
+        config=component_config,
+        queries=list(component_cls.get_query_bindings().values()),
+        actions=list(component_cls.get_action_bindings().values()),
+        jobs=list(component_cls.get_job_bindings().values()),
+    )
 
 
 async def _run_procedure(

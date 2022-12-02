@@ -32,7 +32,6 @@ from typing import (
 from apscheduler.triggers.cron import CronTrigger
 from pydantic import BaseModel, ConstrainedStr, parse_obj_as
 from pydantic.decorator import ValidatedFunction
-from pydantic.utils import lenient_issubclass
 
 
 def strify(value: object) -> str:
@@ -109,12 +108,6 @@ def is_dataclass(obj: object) -> TypeGuard[DataclassLike]:
 
 def is_pydantic_dataclass(obj: object) -> TypeGuard[PydanticDataclassLike]:
     return dataclasses.is_dataclass(obj) and hasattr(obj, "__pydantic_model__")
-
-
-def is_json_object_type(
-    type_: type,
-) -> TypeGuard[DataclassLike | BaseModel | Mapping[Any, Any]]:
-    return dataclasses.is_dataclass(type_) or (lenient_issubclass(type_, (BaseModel, Mapping)))
 
 
 class ValidateByType:

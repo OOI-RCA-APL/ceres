@@ -18,7 +18,7 @@ from typing import (
 )
 from uuid import UUID, uuid4
 
-from pydantic import Field, ValidationError, validate_arguments
+from pydantic import Field, ValidationError, schema_of, validate_arguments
 from typing_extensions import dataclass_transform
 
 from .address import ComponentAddress, LocalComponentAddress
@@ -48,7 +48,6 @@ from .internal.utilities import (
     cached,
     get_bindings,
     get_type_annotations,
-    is_json_object_type,
     loose_isinstance,
     object_has_field,
     pre_validate_arguments,
@@ -414,10 +413,16 @@ class ProcedureKind(str, Enum):
     JOB = "job"
 
 
+class ProcedureSchemas(ImmutableDataObject):
+    input: Mapping[str, Any] | None
+    output: Mapping[str, Any]
+
+
 class BaseProcedureBinding(ImmutableDataObject):
     kind: ProcedureKind
     name: str
     function: str
+    schemas: ProcedureSchemas
 
 
 class QueryBinding(BaseProcedureBinding):
@@ -437,32 +442,71 @@ class JobBinding(BaseProcedureBinding):
 ProcedureBinding = QueryBinding | ActionBinding | JobBinding
 
 
-def _bind_procedure(
+def _get_schema(hint: Any) -> Mapping[str, Any]:
+    schema = schema_of(hint)
+
+    if schema.get("type") == "null":
+        schema = {"title": "Null", "type": "null"}
+    elif "definitions" in schema and schema["definitions"]:
+        schema = list(schema["definitions"].values())[0]
+
+    title = schema.get("title")
+    if title is not None:
+        if title.startswith("ParsingModel[") and title.endswith("]"):
+            title = title[len("ParsingModel[") : -1]
+
+        schema["title"] = title
+
+    return schema
+
+
+def _validate_procedure(
     function: Callable[..., Any],
-    binding: ProcedureBinding,
-) -> None:
-    parameters = [*inspect.signature(function).parameters.values()]
+    kind: ProcedureKind,
+) -> ProcedureSchemas:
+    signature = inspect.signature(function)
+    parameters = [*signature.parameters.values()]
     if len(parameters) not in (1, 2) or any(
         parameter.kind not in (Parameter.POSITIONAL_OR_KEYWORD, Parameter.POSITIONAL_ONLY)
         for parameter in parameters
     ):
         raise ValueError(
-            f"{binding.kind} {strify(function)} have exactly one or two positional parameters, 'self', and optionally, an input parameter"
+            f"{kind} {strify(function)} have exactly one or two positional parameters, 'self', and optionally, an input parameter"
         )
 
-    if len(parameters) > 1:
-        input_parameter = parameters[1]
-        input_parameter_hint = get_type_hints(function)[input_parameter.name]
+    hints = get_type_hints(function)
 
-        if not is_json_object_type(input_parameter_hint):
+    if len(parameters) == 1:
+        input_schema: Mapping[str, Any] | None = None
+    else:
+        input_parameter = parameters[1]
+        if input_parameter.name not in hints:
             raise ValueError(
-                f"second positional parameter '{input_parameter.name}' of {binding.kind} {strify(function)} must be parseable as a JSON object"
+                f"second positional parameter '{input_parameter.name}' of {kind} {strify(function)} must have a type hint"
             )
 
-    _bind(
-        function,
-        PROCEDURE_BINDINGS_ATTRIBUTE,
-        binding,
+        input_hint = hints[input_parameter.name]
+        try:
+            input_schema = _get_schema(input_hint)
+        except Exception:
+            raise ValueError(
+                f"second positional parameter '{input_parameter.name}' of {kind} {strify(function)} must be parseable as a JSON object"
+            )
+
+    if "return" not in hints:
+        raise ValueError(f"return type of {kind} {strify(function)} must be specified")
+
+    output_hint = hints["return"]
+    try:
+        output_schema = _get_schema(output_hint)
+    except Exception:
+        raise ValueError(
+            f"return type of of {kind} {strify(function)} must be serializable as a JSON object"
+        )
+
+    return ProcedureSchemas(
+        input=input_schema,
+        output=output_schema,
     )
 
 
@@ -471,11 +515,14 @@ _FunctionT = TypeVar("_FunctionT", bound=Callable[..., Any])
 
 def query(name: str) -> Callable[[_FunctionT], _FunctionT]:
     def bind(function: _FunctionT) -> _FunctionT:
-        _bind_procedure(
+        schemas = _validate_procedure(function, ProcedureKind.QUERY)
+        _bind(
             function,
+            PROCEDURE_BINDINGS_ATTRIBUTE,
             QueryBinding(
                 name=name,
                 function=function.__name__,
+                schemas=schemas,
             ),
         )
 
@@ -486,11 +533,14 @@ def query(name: str) -> Callable[[_FunctionT], _FunctionT]:
 
 def action(name: str) -> Callable[[_FunctionT], _FunctionT]:
     def bind(function: _FunctionT) -> _FunctionT:
-        _bind_procedure(
+        schemas = _validate_procedure(function, ProcedureKind.ACTION)
+        _bind(
             function,
+            PROCEDURE_BINDINGS_ATTRIBUTE,
             ActionBinding(
                 name=name,
                 function=function.__name__,
+                schemas=schemas,
             ),
         )
 
@@ -510,11 +560,14 @@ def job(
         if len(parameters) == 1 and default_input is not None:
             raise ValueError("job does not take any input, but a default input has been specified")
 
-        _bind_procedure(
+        schemas = _validate_procedure(function, ProcedureKind.JOB)
+        _bind(
             function,
+            PROCEDURE_BINDINGS_ATTRIBUTE,
             JobBinding(
                 name=name,
                 function=function.__name__,
+                schemas=schemas,
                 default_schedule=default_schedule,
                 default_input=default_input,
             ),
