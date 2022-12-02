@@ -3,7 +3,7 @@ import traceback
 from dataclasses import dataclass, field
 from enum import Enum
 from inspect import Parameter
-from logging import Logger
+from logging import ERROR, INFO, WARNING, Logger
 from types import MappingProxyType, UnionType
 from typing import (
     Any,
@@ -22,14 +22,14 @@ from pydantic import Field, ValidationError, validate_arguments
 from typing_extensions import dataclass_transform
 
 from .address import ComponentAddress, LocalComponentAddress
-from .alert import Alert, AlertLevel, RawAlertLevel
+from .alert import Alert, AlertLevel
 from .config import ComponentConfig, Config, UnitConfig
 from .data import (
     VALIDATED_DATACLASS_FIELD_SPECIFIERS,
     ImmutableDataObject,
     ValidatedDataclass,
+    jsonify,
 )
-from .datetime import utc
 from .errors import (
     ProcedureDoesNotExistError,
     ProcedureError,
@@ -250,30 +250,30 @@ class Component(ValidatedDataclass, Tasklet):
             return Fail(ProcedureExceptionError(exception=traceback.format_exc()))
 
     def emit_event(self, event: _EventT) -> _EventT:
+        if "component_id" not in event.__fields_set__ or event.component_id == UUID(int=0):
+            object.__setattr__(event, "component_id", self.id)
+
         self.__component_internal__.outgoing_event_stream.put(event)
         return event
 
-    def emit_alert(
-        self,
-        level: AlertLevel | RawAlertLevel,
-        kind: str,
-        info: dict[str, Any] | None = None,
-    ) -> Alert:
-        alert = Alert(
-            origin_id=self.context.id,
-            timestamp=utc(),
-            level=AlertLevel.create_from(level),
-            kind=kind,
-            info=info or {},
+    def emit_alert(self, alert: Alert) -> Alert:
+        if "component_id" not in alert.__fields_set__ or alert.component_id == UUID(int=0):
+            object.__setattr__(alert, "component_id", self.id)
+
+        match alert.level:
+            case AlertLevel.INFO:
+                log_level = INFO
+            case AlertLevel.WARNING:
+                log_level = WARNING
+            case AlertLevel.ERROR:
+                log_level = ERROR
+
+        self.logger.log(
+            log_level,
+            f"ALERT({alert.code}{' ' + jsonify(alert.info) if alert.info else ''})",
         )
 
-        self.emit_event(
-            AlertEmittedEvent(
-                address=self.address,
-                alert=alert,
-            )
-        )
-
+        self.emit_event(AlertEmittedEvent(alert=alert))
         return alert
 
     def handle_event(self, event: Event) -> None:

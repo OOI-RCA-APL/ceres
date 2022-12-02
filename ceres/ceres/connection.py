@@ -7,6 +7,7 @@ from typing import Any
 
 from pydantic import validator
 
+from .alert import Alert, AlertLevel
 from .component import Component
 from .data import ImmutableDataObject, jsonify
 from .events import (
@@ -134,7 +135,7 @@ class Connection(Component, ABC):
 
         if connected:
             self.__connection_internal__.state = ConnectionState.CONNECTED
-            self.emit_event(ConnectedEvent(address=self.address))
+            self.emit_event(ConnectedEvent())
             self.logger.info("Connected successfully.")
         else:
             self.__connection_internal__.state = ConnectionState.DISCONNECTED
@@ -157,13 +158,7 @@ class Connection(Component, ABC):
 
         self.logger.info(f"Sent: {jsonify(message.content)}")
 
-        self.emit_event(
-            MessageSentEvent(
-                address=self.address,
-                message=message,
-            )
-        )
-
+        self.emit_event(MessageSentEvent(message=message))
         self.__connection_internal__.last_message_sent = message
 
         return message
@@ -182,13 +177,7 @@ class Connection(Component, ABC):
         )
 
         self.logger.info(f"Received: {jsonify(message.content)}")
-
-        self.emit_event(
-            MessageReceivedEvent(
-                address=self.address,
-                message=message,
-            )
-        )
+        self.emit_event(MessageReceivedEvent(message=message))
 
         self.__connection_internal__.last_message_received = message
         return message
@@ -203,7 +192,7 @@ class Connection(Component, ABC):
             await self.try_disconnect()
         finally:
             self.__connection_internal__.state = ConnectionState.DISCONNECTED
-            self.emit_event(DisconnectedEvent(address=self.address))
+            self.emit_event(DisconnectedEvent())
             self.logger.info("Disconnected.")
 
     async def __run__(self) -> None:
@@ -217,7 +206,12 @@ class Connection(Component, ABC):
             self.__connection_internal__.reconnect.reset()
 
             while not await self.connect():
-                self.emit_alert("error", "connection-attempt-failed")
+                self.emit_alert(
+                    Alert(
+                        level=AlertLevel.ERROR,
+                        code="connection-attempt-failed",
+                    )
+                )
                 seconds = self.__connection_internal__.reconnect.next().total_seconds()
                 self.logger.info(f"Reconnecting in {seconds:g} seconds...")
                 await asyncio.sleep(seconds)

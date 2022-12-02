@@ -22,7 +22,7 @@ export const AlertLevelModel = Zod.enum(['info', 'warning', 'error'])
 export type Alert = Zod.infer<typeof AlertModel>
 export const AlertModel = Zod.object({
   id: Zod.string(),
-  origin_id: Zod.string(),
+  component_id: Zod.string(),
   timestamp: Zod.string(),
   level: AlertLevelModel,
   kind: Zod.string(),

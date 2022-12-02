@@ -106,7 +106,7 @@ async def get_messages(
 
 @api.get("/alerts", response_model=list[Alert], tags=["data"])
 async def get_alerts(
-    origin_id: UUID | None = None,
+    component_id: UUID | None = None,
     before: datetime | None = None,
     after: datetime | None = None,
     limit: int = Query(default=100, ge=0, le=100),
@@ -115,7 +115,7 @@ async def get_alerts(
     return list(
         reversed(
             await entities.get_alerts(
-                where=lambda alert: ((alert.origin_id == origin_id) | (origin_id is None))
+                where=lambda alert: ((alert.component_id == component_id) | (component_id is None))
                 & (before is None or alert.timestamp < before)
                 & (after is None or alert.timestamp > after),
                 order_by=lambda alert: alert.timestamp,
@@ -145,14 +145,14 @@ async def message_stream(
 @api.websocket("/alert-stream")
 async def alert_stream(
     socket: WebSocket,
-    origin_id: UUID | None = None,
+    component_id: UUID | None = None,
     engine: Engine = Depends(use_engine),
 ) -> None:
     try:
         await socket.accept()
 
         async for alert in engine.alert_stream:
-            if origin_id is not None and alert.origin_id != origin_id:
+            if component_id is not None and alert.component_id != component_id:
                 continue
 
             await socket.send_text(jsonify(alert))

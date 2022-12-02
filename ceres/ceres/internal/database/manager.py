@@ -62,7 +62,7 @@ class DatabaseManager:
 
         def get_table_ddl(table: Table) -> Iterable[str]:
             yield compile(CreateTable(table, if_not_exists=True))
-            for index in table.indexes:
+            for index in sorted(table.indexes, key=lambda index: str(index.name)):
                 yield compile(CreateIndex(index, if_not_exists=True))  # type: ignore
 
         commands: list[str] = []

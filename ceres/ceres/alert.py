@@ -7,6 +7,7 @@ from pydantic import Field
 from typing_extensions import Self
 
 from .data import ImmutableDataObject
+from .datetime import utc
 
 if TYPE_CHECKING:
     from .internal.database.entity import AlertEntity
@@ -31,7 +32,7 @@ class AlertLike(Protocol):
         ...
 
     @property
-    def origin_id(self) -> UUID:
+    def component_id(self) -> UUID:
         ...
 
     @property
@@ -39,7 +40,7 @@ class AlertLike(Protocol):
         ...
 
     @property
-    def kind(self) -> str:
+    def code(self) -> str:
         ...
 
     @property
@@ -53,19 +54,19 @@ class AlertLike(Protocol):
 
 class Alert(ImmutableDataObject):
     id: UUID = Field(default_factory=uuid4)
-    origin_id: UUID
-    timestamp: datetime
+    component_id: UUID = UUID(int=0)
+    timestamp: datetime = Field(default_factory=utc)
     level: AlertLevel
-    kind: str
+    code: str
     info: dict[str, Any] = Field(default_factory=dict)
 
     @classmethod
     def create_from(cls, other: Union[AlertLike, "AlertEntity"]) -> Self:
         return cls(
             id=other.id,
-            origin_id=other.origin_id,
+            component_id=other.component_id,
             timestamp=other.timestamp,
             level=other.level,
-            kind=other.kind,
+            code=other.code,
             info=other.info,
         )

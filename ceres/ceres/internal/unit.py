@@ -1,7 +1,7 @@
 import asyncio
 import traceback
 from dataclasses import dataclass
-from logging import ERROR, INFO, WARNING, Logger
+from logging import Logger
 from multiprocessing.managers import BaseManager
 from threading import Lock
 from types import MappingProxyType
@@ -9,7 +9,7 @@ from typing import Any, Mapping, Protocol, cast, final
 from uuid import UUID
 
 from ..address import ComponentAddress, LocalComponentAddress, UnitAddress
-from ..alert import Alert, AlertLevel
+from ..alert import Alert
 from ..component import Component, ProcedureKind
 from ..config import ComponentKind, Config, UnitConfig
 from ..data import jsonify
@@ -147,38 +147,13 @@ class Unit(UnitProxyProtocol, Tasklet):
         )
 
     async def _handle_alert(self, alert: Alert) -> None:
-        match alert.level:
-            case AlertLevel.INFO:
-                log_level = INFO
-            case AlertLevel.WARNING:
-                log_level = WARNING
-            case AlertLevel.ERROR:
-                log_level = ERROR
-            case _:
-                raise ValueError(alert.level)
-
-        origin = next(
-            (
-                component
-                for component in self.components.values()
-                if component.id == alert.origin_id
-            ),
-            None,
-        )
-
-        logger = origin.logger if origin else self.logger
-        logger.log(
-            log_level,
-            f"ALERT({alert.kind}{' ' + jsonify(alert.info) if alert.info else ''})",
-        )
-
         await self._alert_buffer.add(
             AlertEntity(
                 id=alert.id,
-                origin_id=alert.origin_id,
+                component_id=alert.component_id,
                 timestamp=alert.timestamp,
                 level=alert.level,
-                kind=alert.kind,
+                code=alert.code,
                 info=alert.info,
             )
         )

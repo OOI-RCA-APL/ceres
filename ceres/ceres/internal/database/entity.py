@@ -128,19 +128,19 @@ class AlertEntity(Entity):
     __tablename__ = "alerts"
 
     id: Mapped[UUID] = mapped_column(Uuid)
-    origin_id: Mapped[UUID] = mapped_column(Uuid)
+    component_id: Mapped[UUID] = mapped_column(Uuid)
     timestamp: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))
     level: Mapped[AlertLevel] = mapped_column(_TypedEnum(AlertLevel))
-    kind: Mapped[str] = mapped_column(Text)
+    code: Mapped[str] = mapped_column(Text)
     info: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
 
     __table_args__ = (
         PrimaryKeyConstraint("id", name=f"pk_{__tablename__}"),
         _TypedEnumConstraint("level", AlertLevel, name=f"ck_{__tablename__}__level"),
-        Index(f"ix_{__tablename__}__origin_id", "origin_id"),
+        Index(f"ix_{__tablename__}__component_id", "component_id"),
         Index(f"ix_{__tablename__}__timestamp", "timestamp"),
         Index(f"ix_{__tablename__}__level", "level"),
-        Index(f"ix_{__tablename__}__kind", "kind"),
+        Index(f"ix_{__tablename__}__code", "code"),
     )
 
 
