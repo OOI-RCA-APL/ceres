@@ -228,9 +228,14 @@ class Unit(UnitProxyProtocol, Tasklet):
                 await self._alert_buffer.flush()
 
     async def __stop__(self) -> None:
-        for component in self.components.values():
-            await component.stop()
-        await self._database.dispose()
+        async def stop() -> None:
+            for component in reversed(self.components.values()):
+                self.logger.info(f"Stopping component '{component.address}'...")
+                await component.stop()
+
+            await self._database.dispose()
+
+        await asyncio.shield(asyncio.create_task(stop()))
 
     async def _load_components(self) -> None:
         for component_config in self.config.components:
@@ -281,7 +286,7 @@ class Unit(UnitProxyProtocol, Tasklet):
         )
 
     def _on_component_completed(self, component: ComponentHandle[Component]) -> None:
-        self.logger.info(f"Component '{component.address}' completed execution.")
+        self.logger.info(f"Component '{component.address}' stopped.")
 
 
 class UnitManager(BaseManager):

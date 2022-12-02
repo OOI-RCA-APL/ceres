@@ -8,12 +8,12 @@ from fastapi import (
     FastAPI,
     HTTPException,
     Query,
-    Request,
     Response,
     WebSocket,
     WebSocketDisconnect,
 )
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.requests import HTTPConnection
 from starlette.status import HTTP_400_BAD_REQUEST
 from websockets.exceptions import ConnectionClosedError
 
@@ -53,17 +53,17 @@ class ComponentInfo(ImmutableDataObject):
 api = APIRouter()
 
 
-def use_engine(request: Request) -> Engine:
-    assert isinstance(request.app, App)
-    return request.app.engine
+def use_engine(connection: HTTPConnection) -> Engine:
+    assert isinstance(connection.app, App)
+    return connection.app.engine
 
 
-def use_database(request: Request) -> DatabaseManager:
-    return use_engine(request).database
+def use_database(connection: HTTPConnection) -> DatabaseManager:
+    return use_engine(connection).database
 
 
-def use_entities(request: Request) -> EntityManager:
-    return use_database(request).entities
+def use_entities(connection: HTTPConnection) -> EntityManager:
+    return use_database(connection).entities
 
 
 @api.get("/config", response_model=Config, tags=["engine"])

@@ -221,9 +221,12 @@ class Engine(Tasklet):
             cursor = alerts[0].timestamp
 
     async def __stop__(self) -> None:
-        await self._stop_server()
-        await self._stop_units()
-        await self._database.dispose()
+        async def stop() -> None:
+            await self._stop_server()
+            await self._stop_units()
+            await self._database.dispose()
+
+        await asyncio.shield(asyncio.create_task(stop()))
 
     async def call(
         self,
@@ -382,12 +385,14 @@ class Engine(Tasklet):
 
         self.logger.info("Stopping all units...")
 
-        for unit in [*self._units.values()]:
+        async def stop(unit: UnitHandle) -> None:
             if unit.instance:
                 self.logger.info(f"Stopping unit '{unit.address}'...")
                 await unit.stop()
 
             self._units.pop(unit.address, None)
+
+        await asyncio.gather(*(stop(unit) for unit in self._units.values()))
 
         self.logger.info("All units were stopped successfully.")
 
@@ -418,7 +423,7 @@ class Engine(Tasklet):
         return actions
 
     def _on_server_completed(self, server: Server) -> None:
-        self.logger.info(f"Server completed execution.")
+        self.logger.info(f"Server stopped.")
 
     def _on_server_exception(self, server: Server, exception: BaseException) -> None:
         self.logger.error(
@@ -426,7 +431,7 @@ class Engine(Tasklet):
         )
 
     def _on_unit_completed(self, unit: UnitHandle) -> None:
-        self.logger.info(f"Unit '{unit.address}' completed execution.")
+        self.logger.info(f"Unit '{unit.address}' stopped.")
         self._units.pop(unit.address, None)
 
     def _on_unit_exception(self, unit: UnitHandle, exception: BaseException) -> None:
