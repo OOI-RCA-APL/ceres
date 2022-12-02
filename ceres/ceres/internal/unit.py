@@ -354,7 +354,6 @@ class UnitHandle(Tasklet):
                         result = self._instance.interprocess_stop()
                     except EOFError:
                         result = None
-                        pass
                     finally:
                         self._instance = None
                 else:
