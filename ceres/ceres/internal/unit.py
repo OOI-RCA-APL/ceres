@@ -2,10 +2,21 @@ import asyncio
 import traceback
 from dataclasses import dataclass
 from logging import Logger
-from multiprocessing.managers import BaseManager
+from multiprocessing import Queue
+from multiprocessing.managers import BaseManager, SyncManager
 from threading import Lock
 from types import MappingProxyType
-from typing import Any, Mapping, Protocol, cast, final
+from typing import (
+    Any,
+    AsyncIterable,
+    Generic,
+    Mapping,
+    Protocol,
+    TypeVar,
+    cast,
+    final,
+    runtime_checkable,
+)
 from uuid import UUID
 
 from ..address import ComponentAddress, LocalComponentAddress, UnitAddress
@@ -17,10 +28,12 @@ from ..errors import (
     ProcedureComponentNotLoadedError,
     ProcedureDoesNotExistError,
     ProcedureError,
+    ProcedureExceptionError,
 )
 from ..events import AlertEmittedEvent, Event, MessageReceivedEvent, MessageSentEvent
 from ..message import Message, MessageDirection
 from ..result import Fail, Ok, Result
+from ..stream import Stream
 from . import logs
 from .component import (
     ComponentHandle,
@@ -48,11 +61,23 @@ class UnitContext:
         assert self.unit_config in self.root_config.units
 
 
-class UnitProxyProtocol(Protocol):
-    def interprocess_run(self) -> BaseException | None:
+_T = TypeVar("_T")
+
+
+@runtime_checkable
+class _InterprocessQueueProtocol(Protocol, Generic[_T]):
+    def get(self) -> _T:
         ...
 
-    def interprocess_stop(self) -> BaseException | None:
+    def put_nowait(self, value: _T) -> _T:
+        ...
+
+
+class UnitProxyProtocol(Protocol):
+    def interprocess_run(self) -> None | BaseException:
+        ...
+
+    def interprocess_stop(self) -> None | BaseException:
         ...
 
     def interprocess_call(
@@ -61,7 +86,16 @@ class UnitProxyProtocol(Protocol):
         kind: ProcedureKind,
         procedure: str,
         input: object | None = None,
-    ) -> BaseException | Result[object | None, ProcedureError]:
+    ) -> Result[object | None, ProcedureError] | BaseException:
+        ...
+
+    def interprocess_subscribe(
+        self,
+        queue: _InterprocessQueueProtocol[object | None],
+        address: LocalComponentAddress,
+        subscription: str,
+        input: object | None = None,
+    ) -> Result[None, ProcedureError] | BaseException:
         ...
 
 
@@ -158,7 +192,7 @@ class Unit(UnitProxyProtocol, Tasklet):
             )
         )
 
-    def interprocess_run(self) -> BaseException | None:
+    def interprocess_run(self) -> None | BaseException:
         try:
             self._loop.run_until_complete(self.run())
         except BaseException as exception:
@@ -167,7 +201,7 @@ class Unit(UnitProxyProtocol, Tasklet):
 
         return None
 
-    def interprocess_stop(self) -> BaseException | None:
+    def interprocess_stop(self) -> None | BaseException:
         return asyncio.run_coroutine_threadsafe(self.stop(), self._loop).exception()
 
     def interprocess_call(
@@ -176,9 +210,44 @@ class Unit(UnitProxyProtocol, Tasklet):
         kind: ProcedureKind,
         procedure: str,
         input: object | None = None,
-    ) -> BaseException | Result[object | None, ProcedureError]:
+    ) -> Result[object | None, ProcedureError] | BaseException:
         future = asyncio.run_coroutine_threadsafe(
             self.call(address, kind, procedure, input),
+            self._loop,
+        )
+
+        try:
+            return future.result()
+        except BaseException as exception:
+            return exception
+
+    async def _feed_subscription(
+        self,
+        queue: _InterprocessQueueProtocol[object | None],
+        address: LocalComponentAddress,
+        subscription: str,
+        input: object | None = None,
+    ) -> Result[None, ProcedureError]:
+        match await self.subscribe(address, subscription, input):
+            case Ok(values):
+                pass
+            case Fail() as fail:
+                return fail
+
+        async for value in values:
+            queue.put_nowait(value)
+
+        return Ok(None)
+
+    def interprocess_subscribe(
+        self,
+        queue: _InterprocessQueueProtocol[object | None],
+        address: LocalComponentAddress,
+        subscription: str,
+        input: object | None = None,
+    ) -> Result[None, ProcedureError] | BaseException:
+        future = asyncio.run_coroutine_threadsafe(
+            self._feed_subscription(queue, address, subscription, input),
             self._loop,
         )
 
@@ -200,6 +269,19 @@ class Unit(UnitProxyProtocol, Tasklet):
             return Fail(ProcedureComponentNotLoadedError())
 
         return await component.instance.call(kind, procedure, input)
+
+    async def subscribe(
+        self,
+        address: LocalComponentAddress,
+        subscription: str,
+        input: object | None = None,
+    ) -> Result[AsyncIterable[object | None], ProcedureError]:
+        if (component := self.get_component_handle(address)) is None:
+            return Fail(ProcedureDoesNotExistError())
+        if component.instance is None:
+            return Fail(ProcedureComponentNotLoadedError())
+
+        return await component.instance.subscribe(subscription, input)
 
     async def __run__(self) -> None:
         await self._load_components()
@@ -289,11 +371,12 @@ class Unit(UnitProxyProtocol, Tasklet):
         self.logger.info(f"Component '{component.address}' stopped.")
 
 
-class UnitManager(BaseManager):
+class UnitManager(SyncManager):
     pass
 
 
 UnitManager.register("Unit", Unit)
+# UnitManager.register("Queue", Queue)
 
 
 class UnitHandle(Tasklet):
@@ -337,7 +420,6 @@ class UnitHandle(Tasklet):
                 result = instance.interprocess_run()
             except EOFError:
                 result = None
-                pass
 
             if isinstance(result, BaseException):
                 self.logger.error(
@@ -375,18 +457,66 @@ class UnitHandle(Tasklet):
         kind: ProcedureKind,
         procedure: str,
         input: object | None = None,
-    ) -> Any:
-        def execute() -> Any:
+    ) -> Result[object | None, ProcedureError]:
+        def execute() -> Result[object | None, ProcedureError]:
             if self.instance is None:
-                raise ValueError(f"unit at {address} is not loaded")
+                return Fail(ProcedureComponentNotLoadedError())
 
-            result = self.instance.interprocess_call(address, kind, procedure, input)
+            try:
+                result = self.instance.interprocess_call(address, kind, procedure, input)
+            except EOFError:
+                return Fail(ProcedureComponentNotLoadedError())
+
             if isinstance(result, BaseException):
                 self.logger.error(
                     f"Exception occurred while running calling {kind} '{procedure}' on component '{self.address}': {strify(result)}"
                 )
-                raise result
+                return Fail(ProcedureExceptionError(traceback=traceback.format_exception(result)))
 
             return result
 
         return await asyncio.to_thread(execute)
+
+    async def subscribe(
+        self,
+        address: LocalComponentAddress,
+        subscription: str,
+        input: object | None = None,
+    ) -> Result[AsyncIterable[object | None], ProcedureError]:
+        queue = cast(_InterprocessQueueProtocol[object | None], cast(Any, self._manager).Queue())
+        values: Stream[object | None] = Stream()
+
+        def subscriber_thread() -> Result[None, ProcedureError]:
+            if self.instance is None or self._manager is None:
+                return Fail(ProcedureComponentNotLoadedError())
+
+            try:
+                result = self.instance.interprocess_subscribe(queue, address, subscription, input)
+            except EOFError:
+                return Fail(ProcedureComponentNotLoadedError())
+
+            if isinstance(result, BaseException):
+                self.logger.error(
+                    f"Exception occurred while getting subscription '{subscription}' on component '{self.address}': {strify(result)}"
+                )
+                return Fail(ProcedureExceptionError(traceback=traceback.format_exception(result)))
+
+            return Ok(None)
+
+        def deque_thread() -> None:
+            while True:
+                values.put(queue.get())
+
+        # TODO: Actually handle the result of this.
+        subscriber_task = asyncio.create_task(asyncio.to_thread(subscriber_thread))
+        deque_task = asyncio.create_task(asyncio.to_thread(deque_thread))
+
+        async def iterate() -> AsyncIterable[object | None]:
+            try:
+                async for value in values:
+                    yield value
+            finally:
+                subscriber_task.cancel()
+                deque_task.cancel()
+
+        return Ok(iterate())

@@ -7,7 +7,7 @@ from enum import Enum
 from logging import Logger
 from pathlib import Path
 from queue import Empty, Queue
-from typing import Any, final
+from typing import Any, AsyncIterable, final
 
 from .address import ComponentAddress, LocalComponentAddress, UnitAddress
 from .alert import Alert
@@ -17,6 +17,7 @@ from .data import ImmutableDataObject, jsonify
 from .datetime import utc
 from .errors import (
     ProcedureError,
+    ProcedureUnitDoesNotExistError,
     ReloadAlreadyActiveError,
     ReloadConfigInvalidError,
     ReloadError,
@@ -242,6 +243,21 @@ class Engine(Tasklet):
             LocalComponentAddress(address.name),
             kind,
             procedure,
+            input,
+        )
+
+    async def subscribe(
+        self,
+        address: ComponentAddress,
+        subscription: str,
+        input: object | None = None,
+    ) -> Result[AsyncIterable[object | None], ProcedureError]:
+        if (unit := self._units.get(UnitAddress(address.unit))) is None:
+            return Fail(ProcedureUnitDoesNotExistError())
+
+        return await unit.subscribe(
+            LocalComponentAddress(address.name),
+            subscription,
             input,
         )
 

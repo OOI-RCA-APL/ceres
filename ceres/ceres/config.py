@@ -151,9 +151,11 @@ class Config(ConfigObject):
 
     def get_unit(self, address: str | UnitAddress) -> UnitConfig | None:
         if isinstance(address, UnitAddress):
-            address = address.name
+            name = address.name
+        else:
+            name = address
 
-        return next(unit for unit in self.units if unit.name == address)
+        return next((unit for unit in self.units if unit.name == name), None)
 
     def get_component(self, address: ComponentAddress) -> ComponentConfig | None:
         if address in self._component_config_cache:

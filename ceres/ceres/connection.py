@@ -87,6 +87,11 @@ class Connection(Component, ABC):
         )
 
     @property
+    @abstractmethod
+    def target(self) -> str:
+        ...
+
+    @property
     def state(self) -> ConnectionState:
         return self.__connection_internal__.state
 

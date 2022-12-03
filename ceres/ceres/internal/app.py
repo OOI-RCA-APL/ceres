@@ -1,3 +1,4 @@
+from asyncio import CancelledError
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Mapping, Sequence, final
 from uuid import UUID
@@ -15,14 +16,14 @@ from fastapi import (
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.requests import HTTPConnection
 from starlette.status import HTTP_400_BAD_REQUEST
-from websockets.exceptions import ConnectionClosedError
+from websockets.exceptions import ConnectionClosed
 
 from ..address import ComponentAddress, UnitAddress
 from ..alert import Alert
 from ..component import ActionBinding, JobBinding, ProcedureKind, QueryBinding
 from ..config import ComponentConfig, Config, UnitConfig
 from ..data import ImmutableDataObject, jsonify
-from ..errors import Error, ProcedureError, ReloadError
+from ..errors import Error, ProcedureCancelledError, ProcedureError, ReloadError
 from ..message import Message
 from ..result import Fail, Ok, Result
 from . import logs
@@ -141,7 +142,7 @@ async def message_stream(
             if component_id is not None and message.component_id != component_id:
                 continue
             await socket.send_text(jsonify(message))
-    except (WebSocketDisconnect, ConnectionClosedError):
+    except (WebSocketDisconnect, ConnectionClosed):
         pass
 
 
@@ -159,11 +160,11 @@ async def alert_stream(
                 continue
 
             await socket.send_text(jsonify(alert))
-    except (WebSocketDisconnect, ConnectionClosedError):
+    except (WebSocketDisconnect, ConnectionClosed):
         pass
 
 
-@api.get("/units/:unit", response_model=UnitInfo, tags=["units"])
+@api.get("/units/{unit}", response_model=UnitInfo, tags=["units"])
 async def get_unit_info(
     unit: NameStr,
     engine: Engine = Depends(use_engine),
@@ -258,6 +259,36 @@ async def run_job(
     engine: Engine = Depends(use_engine),
 ) -> Result[object | None, ProcedureError]:
     return await _run_procedure(engine, unit, component, ProcedureKind.JOB, job, input)
+
+
+@api.websocket("/units/{unit}/components/{component}/subscriptions/{subscription}")
+async def run_subscription(
+    socket: WebSocket,
+    unit: NameStr,
+    component: NameStr,
+    subscription: NameStr,
+    input: Mapping[str, object] | None = None,
+    engine: Engine = Depends(use_engine),
+) -> None:
+    await socket.accept()
+
+    try:
+        address = ComponentAddress(unit, component)
+
+        match await engine.subscribe(address, subscription, input):
+            case Ok(values):
+                pass
+            case Fail() as fail:
+                await socket.close(reason=jsonify(fail))
+                return
+
+        try:
+            async for value in values:
+                await socket.send_text(jsonify(value))
+        except CancelledError:
+            await socket.close(reason=jsonify(Fail(ProcedureCancelledError())))
+    except (WebSocketDisconnect, ConnectionClosed):
+        pass
 
 
 @final

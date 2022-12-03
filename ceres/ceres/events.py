@@ -33,5 +33,3 @@ class MessageReceivedEvent(Event):
 
 class AlertEmittedEvent(Event):
     alert: Alert
-
-

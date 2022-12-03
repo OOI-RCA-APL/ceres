@@ -26,6 +26,10 @@ class TCPConnection(Connection):
         super().__post_init__()
         self._stream: _Stream | None = None
 
+    @property
+    def target(self) -> str:
+        return f"{self.parameters.host}:{self.parameters.port}"
+
     async def try_connect(self) -> bool:
         if self._stream:
             return True

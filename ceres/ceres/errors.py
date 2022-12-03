@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Literal
+from typing import Literal, Sequence
 
 from .address import ComponentAddress
 from .data import DataObject, ImmutableDataObject
@@ -44,7 +44,7 @@ class ComponentClassInvalidError(BaseComponentError):
 
 class ComponentParametersInvalidError(BaseComponentError):
     kind: Literal[ComponentErrorKind.PARAMETERS_INVALID] = ComponentErrorKind.PARAMETERS_INVALID
-    problems: list[ValidationProblem]
+    problems: Sequence[ValidationProblem]
 
 
 class ComponentInitExceptionError(BaseComponentError):
@@ -98,7 +98,7 @@ class ConfigParseError(BaseConfigError):
 
 class ConfigValidationError(BaseConfigError):
     kind: Literal[ConfigErrorKind.VALIDATION_ERROR] = ConfigErrorKind.VALIDATION_ERROR
-    problems: list[ValidationProblem]
+    problems: Sequence[ValidationProblem]
 
 
 class ConfigDatabaseError(BaseConfigError):
@@ -133,7 +133,7 @@ class BaseReloadError(Error):
 
 class ReloadConfigInvalidError(BaseReloadError):
     kind: Literal[ReloadErrorKind.CONFIG_INVALID] = ReloadErrorKind.CONFIG_INVALID
-    errors: list[ConfigError]
+    errors: Sequence[ConfigError]
 
 
 class ReloadAlreadyActiveError(BaseReloadError):
@@ -144,15 +144,21 @@ ReloadError = ReloadConfigInvalidError | ReloadAlreadyActiveError
 
 
 class ProcedureErrorKind(str, Enum):
+    UNIT_DOES_NOT_EXIST = "unit-does-not-exist"
     COMPONENT_DOES_NOT_EXIST = "component-does-not-exist"
     COMPONENT_NOT_LOADED = "component-not-loaded"
     DOES_NOT_EXIST = "does-not-exist"
     INVALID_INPUT = "invalid-input"
+    CANCELLED = "cancelled"
     EXCEPTION = "exception"
 
 
 class BaseProcedureError(Error):
     kind: ProcedureErrorKind
+
+
+class ProcedureUnitDoesNotExistError(BaseProcedureError):
+    kind: Literal[ProcedureErrorKind.UNIT_DOES_NOT_EXIST] = ProcedureErrorKind.UNIT_DOES_NOT_EXIST
 
 
 class ProcedureComponentDoesNotExistError(BaseProcedureError):
@@ -171,18 +177,25 @@ class ProcedureDoesNotExistError(BaseProcedureError):
 
 class ProcedureInvalidInputError(BaseProcedureError):
     kind: Literal[ProcedureErrorKind.INVALID_INPUT] = ProcedureErrorKind.INVALID_INPUT
-    problems: list[ValidationProblem]
+    problems: Sequence[ValidationProblem]
+
+
+class ProcedureCancelledError(BaseProcedureError):
+    kind: Literal[ProcedureErrorKind.CANCELLED] = ProcedureErrorKind.CANCELLED
 
 
 class ProcedureExceptionError(BaseProcedureError):
     kind: Literal[ProcedureErrorKind.EXCEPTION] = ProcedureErrorKind.EXCEPTION
-    exception: str
+    traceback: Sequence[str]
 
 
 ProcedureError = (
-    ProcedureComponentDoesNotExistError
+    ProcedureUnitDoesNotExistError
+    | ProcedureUnitDoesNotExistError
+    | ProcedureComponentDoesNotExistError
     | ProcedureDoesNotExistError
     | ProcedureComponentNotLoadedError
     | ProcedureInvalidInputError
+    | ProcedureCancelledError
     | ProcedureExceptionError
 )

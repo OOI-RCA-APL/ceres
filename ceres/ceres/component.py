@@ -7,18 +7,21 @@ from logging import ERROR, INFO, WARNING, Logger
 from types import MappingProxyType, UnionType
 from typing import (
     Any,
+    AsyncIterable,
     Awaitable,
     Callable,
     Literal,
     Mapping,
     Sequence,
     TypeVar,
+    final,
     get_type_hints,
     overload,
 )
 from uuid import UUID, uuid4
 
 from pydantic import Field, ValidationError, schema_of, validate_arguments
+from pydantic.utils import lenient_issubclass
 from typing_extensions import dataclass_transform
 
 from .address import ComponentAddress, LocalComponentAddress
@@ -163,34 +166,47 @@ class Component(ValidatedDataclass, Tasklet):
     def __post_init__(self) -> None:
         self.__component_internal__ = ComponentInternal()
 
+    @final
     @classmethod
     def get_parameters_type(cls) -> type[Parameters]:
         return get_type_annotations(cls)["parameters"]  # type: ignore
 
+    @final
     @classmethod
     def get_context_type(cls) -> type[Context]:
         return get_type_annotations(cls)["context"]  # type: ignore
 
+    @final
     @classmethod
     def get_references_type(cls) -> type[References]:
         return get_type_annotations(cls)["references"]  # type: ignore
 
+    @final
     @classmethod
     def get_listener_bindings(cls) -> Sequence["ListenerBinding"]:
         return _get_listener_bindings(cls)
 
+    @final
     @classmethod
     def get_query_bindings(cls) -> Mapping[str, "QueryBinding"]:
         return _get_query_bindings(cls)
 
+    @final
     @classmethod
     def get_action_bindings(cls) -> Mapping[str, "ActionBinding"]:
         return _get_action_bindings(cls)
 
+    @final
+    @classmethod
+    def get_subscription_bindings(cls) -> Mapping[str, "SubscriptionBinding"]:
+        return _get_subscription_bindings(cls)
+
+    @final
     @classmethod
     def get_job_bindings(cls) -> Mapping[str, "JobBinding"]:
         return _get_job_bindings(cls)
 
+    @final
     @classmethod
     def get_procedure_bindings(cls, kind: "ProcedureKind") -> Mapping[str, "ProcedureBinding"]:
         match kind:
@@ -198,6 +214,8 @@ class Component(ValidatedDataclass, Tasklet):
                 return cls.get_query_bindings()
             case ProcedureKind.ACTION:
                 return cls.get_action_bindings()
+            case ProcedureKind.SUBSCRIPTION:
+                return cls.get_subscription_bindings()
             case ProcedureKind.JOB:
                 return cls.get_job_bindings()
 
@@ -246,7 +264,33 @@ class Component(ValidatedDataclass, Tasklet):
         try:
             return Ok(await awaitify(validate_arguments(method)(*arguments)))
         except Exception:
-            return Fail(ProcedureExceptionError(exception=traceback.format_exc()))
+            return Fail(ProcedureExceptionError(traceback=traceback.format_exc()))
+
+    async def subscribe(
+        self,
+        subscription: str,
+        input: object | None = None,
+    ) -> Result[AsyncIterable[object | None], ProcedureError]:
+        if (
+            (binding := self.get_subscription_bindings().get(subscription)) is None
+            or (method := getattr(self, binding.function, None)) is None
+            or not inspect.ismethod(method)
+        ):
+            return Fail(ProcedureDoesNotExistError())
+
+        arguments: list[object] = []
+        if input is not None:
+            arguments.append(input)
+
+        try:
+            pre_validate_arguments(method, *arguments)
+        except ValidationError as error:
+            return Fail(ProcedureInvalidInputError(problems=ValidationProblem.extract(error)))
+
+        try:
+            return Ok(validate_arguments(method)(*arguments))
+        except Exception:
+            return Fail(ProcedureExceptionError(traceback=traceback.format_exc()))
 
     def emit_event(self, event: _EventT) -> _EventT:
         if "component_id" not in event.__fields_set__ or event.component_id == UUID(int=0):
@@ -411,6 +455,7 @@ class ProcedureKind(str, Enum):
     QUERY = "query"
     ACTION = "action"
     JOB = "job"
+    SUBSCRIPTION = "subscription"
 
 
 class ProcedureSchemas(ImmutableDataObject):
@@ -439,7 +484,11 @@ class JobBinding(BaseProcedureBinding):
     default_input: object | None = None
 
 
-ProcedureBinding = QueryBinding | ActionBinding | JobBinding
+class SubscriptionBinding(BaseProcedureBinding):
+    kind: Literal[ProcedureKind.SUBSCRIPTION] = ProcedureKind.SUBSCRIPTION
+
+
+ProcedureBinding = QueryBinding | ActionBinding | JobBinding | SubscriptionBinding
 
 
 def _get_schema(hint: Any) -> Mapping[str, Any]:
@@ -497,11 +546,23 @@ def _validate_procedure(
         raise ValueError(f"return type of {kind} {strify(function)} must be specified")
 
     output_hint = hints["return"]
+
+    if kind == ProcedureKind.SUBSCRIPTION:
+        error = ValueError(f"return type of {kind} {strify(function)} must be AsyncIterable[T]")
+        if output_hint.__name__ != "AsyncIterable":
+            raise error
+
+        try:
+            output_hint = output_hint.__args__[0]  # type: ignore
+        except Exception:
+            traceback.print_exc()
+            raise error
+
     try:
         output_schema = _get_schema(output_hint)
     except Exception:
         raise ValueError(
-            f"return type of of {kind} {strify(function)} must be serializable as a JSON object"
+            f"return type of {kind} {strify(function)} must be serializable as a JSON object"
         )
 
     return ProcedureSchemas(
@@ -510,11 +571,14 @@ def _validate_procedure(
     )
 
 
-_FunctionT = TypeVar("_FunctionT", bound=Callable[..., Any])
+_ProtocolFunctionT = TypeVar(
+    "_ProtocolFunctionT",
+    bound=Callable[[Any], Any] | Callable[[Any, Any], Any],
+)
 
 
-def query(name: str) -> Callable[[_FunctionT], _FunctionT]:
-    def bind(function: _FunctionT) -> _FunctionT:
+def query(name: str) -> Callable[[_ProtocolFunctionT], _ProtocolFunctionT]:
+    def bind(function: _ProtocolFunctionT) -> _ProtocolFunctionT:
         schemas = _validate_procedure(function, ProcedureKind.QUERY)
         _bind(
             function,
@@ -531,8 +595,8 @@ def query(name: str) -> Callable[[_FunctionT], _FunctionT]:
     return bind
 
 
-def action(name: str) -> Callable[[_FunctionT], _FunctionT]:
-    def bind(function: _FunctionT) -> _FunctionT:
+def action(name: str) -> Callable[[_ProtocolFunctionT], _ProtocolFunctionT]:
+    def bind(function: _ProtocolFunctionT) -> _ProtocolFunctionT:
         schemas = _validate_procedure(function, ProcedureKind.ACTION)
         _bind(
             function,
@@ -554,8 +618,8 @@ def job(
     *,
     default_schedule: Schedule | None = None,
     default_input: object | None = None,
-) -> Callable[[_FunctionT], _FunctionT]:
-    def bind(function: _FunctionT) -> _FunctionT:
+) -> Callable[[_ProtocolFunctionT], _ProtocolFunctionT]:
+    def bind(function: _ProtocolFunctionT) -> _ProtocolFunctionT:
         parameters = inspect.signature(function).parameters
         if len(parameters) == 1 and default_input is not None:
             raise ValueError("job does not take any input, but a default input has been specified")
@@ -570,6 +634,30 @@ def job(
                 schemas=schemas,
                 default_schedule=default_schedule,
                 default_input=default_input,
+            ),
+        )
+
+        return function
+
+    return bind
+
+
+_SubscriptionFunctionT = TypeVar(
+    "_SubscriptionFunctionT",
+    bound=Callable[[Any], AsyncIterable[Any]] | Callable[[Any, Any], AsyncIterable[Any]],
+)
+
+
+def subscription(name: str) -> Callable[[_SubscriptionFunctionT], _SubscriptionFunctionT]:
+    def bind(function: _SubscriptionFunctionT) -> _SubscriptionFunctionT:
+        schemas = _validate_procedure(function, ProcedureKind.SUBSCRIPTION)
+        _bind(
+            function,
+            PROCEDURE_BINDINGS_ATTRIBUTE,
+            SubscriptionBinding(
+                name=name,
+                function=function.__name__,
+                schemas=schemas,
             ),
         )
 
@@ -609,5 +697,15 @@ def _get_job_bindings(cls: type[_ComponentT]) -> Mapping[str, JobBinding]:
         {
             binding.name: binding
             for binding in get_bindings(cls, PROCEDURE_BINDINGS_ATTRIBUTE, JobBinding)
+        }
+    )
+
+
+@cached
+def _get_subscription_bindings(cls: type[_ComponentT]) -> Mapping[str, SubscriptionBinding]:
+    return MappingProxyType(
+        {
+            binding.name: binding
+            for binding in get_bindings(cls, PROCEDURE_BINDINGS_ATTRIBUTE, SubscriptionBinding)
         }
     )
