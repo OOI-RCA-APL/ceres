@@ -21,7 +21,6 @@ from typing import (
 from uuid import UUID, uuid4
 
 from pydantic import Field, ValidationError, schema_of, validate_arguments
-from pydantic.utils import lenient_issubclass
 from typing_extensions import dataclass_transform
 
 from .address import ComponentAddress, LocalComponentAddress

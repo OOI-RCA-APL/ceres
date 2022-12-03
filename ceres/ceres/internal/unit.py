@@ -2,8 +2,7 @@ import asyncio
 import traceback
 from dataclasses import dataclass
 from logging import Logger
-from multiprocessing import Queue
-from multiprocessing.managers import BaseManager, SyncManager
+from multiprocessing.managers import SyncManager
 from threading import Lock
 from types import MappingProxyType
 from typing import (
