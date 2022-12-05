@@ -20,7 +20,13 @@ from websockets.exceptions import ConnectionClosed
 
 from ..address import ComponentAddress, UnitAddress
 from ..alert import Alert
-from ..component import ActionBinding, JobBinding, ProcedureKind, QueryBinding
+from ..component import (
+    ActionBinding,
+    JobBinding,
+    ProcedureKind,
+    QueryBinding,
+    SubscriptionBinding,
+)
 from ..config import ComponentConfig, Config, UnitConfig
 from ..data import ImmutableDataObject, jsonify
 from ..errors import Error, ProcedureCancelledError, ProcedureError, ReloadError
@@ -49,6 +55,7 @@ class ComponentInfo(ImmutableDataObject):
     queries: Sequence[QueryBinding]
     actions: Sequence[ActionBinding]
     jobs: Sequence[JobBinding]
+    subscriptions: Sequence[SubscriptionBinding]
 
 
 api = APIRouter()
@@ -201,6 +208,7 @@ async def get_component_info(
         queries=list(component_cls.get_query_bindings().values()),
         actions=list(component_cls.get_action_bindings().values()),
         jobs=list(component_cls.get_job_bindings().values()),
+        subscriptions=list(component_cls.get_subscription_bindings().values()),
     )
 
 
