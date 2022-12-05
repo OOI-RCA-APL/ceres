@@ -9,7 +9,7 @@ from typing_extensions import Self
 
 from .address import ComponentAddress, UnitAddress
 from .data import ImmutableDataObject
-from .internal.utilities import EmailStr, NameStr, validate_positive_timedelta
+from .internal.utilities import NameStr, validate_positive_timedelta
 from .result import Ok
 
 if TYPE_CHECKING:
@@ -85,9 +85,15 @@ class PostgresDatabaseConfig(BaseDatabaseConfig):
 DatabaseConfig = SQLiteDatabaseConfig | PostgresDatabaseConfig
 
 
+class Concurrency(str, Enum):
+    THREAD = "thread"
+    PROCESS = "process"
+
+
 class UnitConfig(ConfigObject):
     name: NameStr
     components: Sequence[ComponentConfig] = Field(default_factory=list)
+    concurrency: Concurrency | None = None
 
     @validator("components")
     def _validate_components(
@@ -115,16 +121,14 @@ class UnitConfig(ConfigObject):
         return components
 
 
-class UserConfig(ConfigObject):
-    username: NameStr
-    email: EmailStr
-    meta: Mapping[str, Any] = Field(default_factory=dict)
+class RuntimeConfig(ConfigObject):
+    concurrency: Concurrency = Concurrency.THREAD
 
 
 class Config(ConfigObject):
     server: ServerConfig
     database: DatabaseConfig = Field(discriminator="kind")
-    users: Sequence[UserConfig] = Field(default_factory=list)
+    runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
     units: Sequence[UnitConfig] = Field(default_factory=list)
 
     _path: Path | None = None

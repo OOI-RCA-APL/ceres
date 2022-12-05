@@ -3,6 +3,7 @@ import traceback
 from dataclasses import dataclass
 from logging import Logger
 from multiprocessing.managers import SyncManager
+from queue import Queue as ThreadSafeQueue
 from threading import Lock
 from types import MappingProxyType
 from typing import (
@@ -21,7 +22,7 @@ from uuid import UUID
 from ..address import ComponentAddress, LocalComponentAddress, UnitAddress
 from ..alert import Alert
 from ..component import Component, ProcedureKind
-from ..config import ComponentKind, Config, UnitConfig
+from ..config import ComponentKind, Concurrency, Config, UnitConfig
 from ..data import jsonify
 from ..errors import (
     ProcedureComponentNotLoadedError,
@@ -64,7 +65,7 @@ _T = TypeVar("_T")
 
 
 @runtime_checkable
-class _InterprocessQueueProtocol(Protocol, Generic[_T]):
+class _QueueLike(Protocol, Generic[_T]):
     def get(self) -> _T:
         ...
 
@@ -73,13 +74,13 @@ class _InterprocessQueueProtocol(Protocol, Generic[_T]):
 
 
 class UnitProxyProtocol(Protocol):
-    def interprocess_run(self) -> None | BaseException:
+    def run_sync(self) -> None | BaseException:
         ...
 
-    def interprocess_stop(self) -> None | BaseException:
+    def stop_sync(self) -> None | BaseException:
         ...
 
-    def interprocess_call(
+    def call_sync(
         self,
         address: LocalComponentAddress,
         kind: ProcedureKind,
@@ -88,9 +89,9 @@ class UnitProxyProtocol(Protocol):
     ) -> Result[object | None, ProcedureError] | BaseException:
         ...
 
-    def interprocess_subscribe(
+    def subscribe_sync(
         self,
-        queue: _InterprocessQueueProtocol[object | None],
+        queue: _QueueLike[object | None],
         address: LocalComponentAddress,
         subscription: str,
         input: object | None = None,
@@ -191,7 +192,7 @@ class Unit(UnitProxyProtocol, Tasklet):
             )
         )
 
-    def interprocess_run(self) -> None | BaseException:
+    def run_sync(self) -> None | BaseException:
         try:
             self._loop.run_until_complete(self.run())
         except BaseException as exception:
@@ -200,10 +201,10 @@ class Unit(UnitProxyProtocol, Tasklet):
 
         return None
 
-    def interprocess_stop(self) -> None | BaseException:
+    def stop_sync(self) -> None | BaseException:
         return asyncio.run_coroutine_threadsafe(self.stop(), self._loop).exception()
 
-    def interprocess_call(
+    def call_sync(
         self,
         address: LocalComponentAddress,
         kind: ProcedureKind,
@@ -222,7 +223,7 @@ class Unit(UnitProxyProtocol, Tasklet):
 
     async def _feed_subscription(
         self,
-        queue: _InterprocessQueueProtocol[object | None],
+        queue: _QueueLike[object | None],
         address: LocalComponentAddress,
         subscription: str,
         input: object | None = None,
@@ -238,9 +239,9 @@ class Unit(UnitProxyProtocol, Tasklet):
 
         return Ok(None)
 
-    def interprocess_subscribe(
+    def subscribe_sync(
         self,
-        queue: _InterprocessQueueProtocol[object | None],
+        queue: _QueueLike[object | None],
         address: LocalComponentAddress,
         subscription: str,
         input: object | None = None,
@@ -370,18 +371,17 @@ class Unit(UnitProxyProtocol, Tasklet):
         self.logger.info(f"Component '{component.address}' stopped.")
 
 
-class UnitManager(SyncManager):
+class UnitProcess(SyncManager):
     pass
 
 
-UnitManager.register("Unit", Unit)
-# UnitManager.register("Queue", Queue)
+UnitProcess.register("Unit", Unit)
 
 
 class UnitHandle(Tasklet):
     def __init__(self, context: UnitContext) -> None:
         self._context = context
-        self._manager: UnitManager | None = None
+        self._process: UnitProcess | None = None
         self._instance: UnitProxyProtocol | None = None
         self._lock = Lock()
 
@@ -407,16 +407,26 @@ class UnitHandle(Tasklet):
     def logger(self) -> Logger:
         return logs.get(str(self.address))
 
+    @property
+    def concurrency(self) -> Concurrency:
+        return (
+            self._context.unit_config.concurrency or self._context.root_config.runtime.concurrency
+        )
+
     async def __run__(self) -> None:
         def execute() -> None:
             with self._lock:
-                self._manager = UnitManager()
-                self._manager.start()
-                instance = cast(UnitProxyProtocol, cast(Any, self._manager).Unit(self._context))
-                self._instance = instance
+                if self.concurrency == Concurrency.PROCESS:
+                    self._process = UnitProcess()
+                    self._process.start()
+                    self._instance = cast(
+                        UnitProxyProtocol, cast(Any, self._process).Unit(self._context)
+                    )
+                else:
+                    self._instance = Unit(self._context)
 
             try:
-                result = instance.interprocess_run()
+                result = self._instance.run_sync()
             except EOFError:
                 result = None
 
@@ -432,7 +442,7 @@ class UnitHandle(Tasklet):
             with self._lock:
                 if self._instance:
                     try:
-                        result = self._instance.interprocess_stop()
+                        result = self._instance.stop_sync()
                     except EOFError:
                         result = None
                     finally:
@@ -440,8 +450,8 @@ class UnitHandle(Tasklet):
                 else:
                     result = None
 
-                if self._manager:
-                    self._manager.shutdown()
+                if self._process:
+                    self._process.shutdown()
 
             if isinstance(result, BaseException):
                 self.logger.error(
@@ -462,7 +472,7 @@ class UnitHandle(Tasklet):
                 return Fail(ProcedureComponentNotLoadedError())
 
             try:
-                result = self.instance.interprocess_call(address, kind, procedure, input)
+                result = self.instance.call_sync(address, kind, procedure, input)
             except EOFError:
                 return Fail(ProcedureComponentNotLoadedError())
 
@@ -482,15 +492,27 @@ class UnitHandle(Tasklet):
         subscription: str,
         input: object | None = None,
     ) -> Result[AsyncIterable[object | None], ProcedureError]:
-        queue = cast(_InterprocessQueueProtocol[object | None], cast(Any, self._manager).Queue())
+        if self.instance is None or (
+            self.concurrency == Concurrency.PROCESS and self._process is None
+        ):
+            return Fail(ProcedureComponentNotLoadedError())
+
+        match self.concurrency:
+            case Concurrency.PROCESS:
+                queue = cast(Any, self._process).Queue()
+            case Concurrency.THREAD:
+                queue = cast(Any, ThreadSafeQueue())
+
         values: Stream[object | None] = Stream()
 
         def subscriber_thread() -> Result[None, ProcedureError]:
-            if self.instance is None or self._manager is None:
+            if self.instance is None or (
+                self.concurrency == Concurrency.PROCESS and self._process is None
+            ):
                 return Fail(ProcedureComponentNotLoadedError())
 
             try:
-                result = self.instance.interprocess_subscribe(queue, address, subscription, input)
+                result = self.instance.subscribe_sync(queue, address, subscription, input)
             except EOFError:
                 return Fail(ProcedureComponentNotLoadedError())
 
