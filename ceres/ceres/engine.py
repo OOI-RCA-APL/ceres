@@ -11,7 +11,6 @@ from typing import Any, AsyncIterable, final
 
 from .address import ComponentAddress, LocalComponentAddress, UnitAddress
 from .alert import Alert
-from .component import ProcedureKind
 from .config import Config, UnitConfig
 from .data import ImmutableDataObject, jsonify
 from .datetime import utc
@@ -35,6 +34,7 @@ from .internal.tasklet import Tasklet
 from .internal.unit import UnitContext, UnitHandle
 from .internal.utilities import temporary_signal_handler
 from .message import Message
+from .procedure import CallableProcedureKind, SubscribableProcedureKind
 from .result import Fail, Ok, Result
 from .stream import Stream, StreamView
 
@@ -232,7 +232,7 @@ class Engine(Tasklet):
     async def call(
         self,
         address: ComponentAddress,
-        kind: ProcedureKind,
+        kind: CallableProcedureKind,
         procedure: str,
         input: object | None = None,
     ) -> Result[object | None, ProcedureError]:
@@ -249,7 +249,8 @@ class Engine(Tasklet):
     async def subscribe(
         self,
         address: ComponentAddress,
-        subscription: str,
+        kind: SubscribableProcedureKind,
+        procedure: str,
         input: object | None = None,
     ) -> Result[AsyncIterable[object | None], ProcedureError]:
         if (unit := self._units.get(UnitAddress(address.unit))) is None:
@@ -257,7 +258,8 @@ class Engine(Tasklet):
 
         return await unit.subscribe(
             LocalComponentAddress(address.name),
-            subscription,
+            kind,
+            procedure,
             input,
         )
 

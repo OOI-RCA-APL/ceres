@@ -32,6 +32,7 @@ from typing import (
 from apscheduler.triggers.cron import CronTrigger
 from pydantic import BaseModel, ConstrainedStr, parse_obj_as
 from pydantic.decorator import ValidatedFunction
+import rich
 
 
 def strify(value: object) -> str:
@@ -356,22 +357,6 @@ def setup_event_loop() -> AbstractEventLoop:
             return loop
 
 
-def get_bindings(cls: type[Any], attribute: str, type: type[_T]) -> list[_T]:
-    output: list[_T] = []
-
-    for _, function in inspect.getmembers(cls):
-        if not inspect.isfunction(function):
-            continue
-
-        if values := getattr(function, attribute, None):
-            if isinstance(values, Iterable):
-                for value in values:
-                    if isinstance(value, type):
-                        output.append(value)
-
-    return output
-
-
 @contextmanager
 def temporary_signal_handler(signums: Sequence[int], handler: Callable[..., Any]) -> Iterator[None]:
     originals: dict[int, Any] = {}
@@ -393,3 +378,8 @@ def pre_validate_arguments(
     **kwargs: _P.kwargs,
 ) -> BaseModel:
     return ValidatedFunction(function, None).init_model_instance(*args, **kwargs)
+
+
+def dbg(value: _T) -> _T:
+    rich.print(value)
+    return value

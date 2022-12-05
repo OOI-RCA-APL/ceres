@@ -1,29 +1,25 @@
 import inspect
 import traceback
 from dataclasses import dataclass, field
-from enum import Enum
 from inspect import Parameter
 from logging import ERROR, INFO, WARNING, Logger
-from types import MappingProxyType, UnionType
+from types import MappingProxyType
 from typing import (
     Any,
     AsyncIterable,
-    Awaitable,
-    Callable,
-    Literal,
     Mapping,
     Sequence,
     TypeVar,
+    cast,
     final,
     get_type_hints,
-    overload,
 )
 from uuid import UUID, uuid4
 
-from pydantic import Field, ValidationError, schema_of, validate_arguments
+from pydantic import Field, ValidationError, validate_arguments
 from typing_extensions import dataclass_transform
 
-from .address import ComponentAddress, LocalComponentAddress
+from .address import ComponentAddress
 from .alert import Alert, AlertLevel
 from .config import ComponentConfig, Config, UnitConfig
 from .data import (
@@ -41,21 +37,31 @@ from .errors import (
 from .events import AlertEmittedEvent, Event
 from .exceptions import ComponentClassInvalidException
 from .internal import logs
+from .internal.binding import get_bindings
 from .internal.database.entity import EntityManager
 from .internal.database.manager import DatabaseManager
 from .internal.tasklet import Tasklet
 from .internal.utilities import (
     awaitify,
     cached,
-    get_bindings,
     get_type_annotations,
     loose_isinstance,
     object_has_field,
     pre_validate_arguments,
-    strify,
+)
+from .listener import ListenerBinding
+from .procedure import (
+    ActionBinding,
+    BaseProcedureBinding,
+    CallableProcedureKind,
+    DisplayBinding,
+    JobBinding,
+    ProcedureKind,
+    QueryBinding,
+    SubscribableProcedureKind,
+    SubscriptionBinding,
 )
 from .result import Fail, Ok, Result
-from .schedule import Schedule
 from .scheduler import Scheduler
 from .stream import Stream, StreamView
 from .validation import ValidationProblem
@@ -182,41 +188,48 @@ class Component(ValidatedDataclass, Tasklet):
 
     @final
     @classmethod
-    def get_listener_bindings(cls) -> Sequence["ListenerBinding"]:
+    def get_listener_bindings(cls) -> Sequence[ListenerBinding]:
         return _get_listener_bindings(cls)
 
     @final
     @classmethod
-    def get_query_bindings(cls) -> Mapping[str, "QueryBinding"]:
-        return _get_query_bindings(cls)
+    def get_query_bindings(cls) -> Mapping[str, QueryBinding]:
+        return _get_procedure_bindings(cls, QueryBinding)
 
     @final
     @classmethod
-    def get_action_bindings(cls) -> Mapping[str, "ActionBinding"]:
-        return _get_action_bindings(cls)
+    def get_action_bindings(cls) -> Mapping[str, ActionBinding]:
+        return _get_procedure_bindings(cls, ActionBinding)
 
     @final
     @classmethod
-    def get_subscription_bindings(cls) -> Mapping[str, "SubscriptionBinding"]:
-        return _get_subscription_bindings(cls)
+    def get_job_bindings(cls) -> Mapping[str, JobBinding]:
+        return _get_procedure_bindings(cls, JobBinding)
 
     @final
     @classmethod
-    def get_job_bindings(cls) -> Mapping[str, "JobBinding"]:
-        return _get_job_bindings(cls)
+    def get_subscription_bindings(cls) -> Mapping[str, SubscriptionBinding]:
+        return _get_procedure_bindings(cls, SubscriptionBinding)
 
     @final
     @classmethod
-    def get_procedure_bindings(cls, kind: "ProcedureKind") -> Mapping[str, "ProcedureBinding"]:
+    def get_display_bindings(cls) -> Mapping[str, DisplayBinding]:
+        return _get_procedure_bindings(cls, DisplayBinding)
+
+    @final
+    @classmethod
+    def get_procedure_bindings(cls, kind: "ProcedureKind") -> Mapping[str, BaseProcedureBinding]:
         match kind:
             case ProcedureKind.QUERY:
                 return cls.get_query_bindings()
             case ProcedureKind.ACTION:
                 return cls.get_action_bindings()
-            case ProcedureKind.SUBSCRIPTION:
-                return cls.get_subscription_bindings()
             case ProcedureKind.JOB:
                 return cls.get_job_bindings()
+            case ProcedureKind.SUBSCRIPTION:
+                return cls.get_subscription_bindings()
+            case ProcedureKind.DISPLAY:
+                return cls.get_display_bindings()
 
     @property
     def id(self) -> UUID:
@@ -238,7 +251,7 @@ class Component(ValidatedDataclass, Tasklet):
     def event_stream(self) -> StreamView[Event]:
         return self.__component_internal__.outgoing_event_stream.view()
 
-    async def call(
+    async def _invoke(
         self,
         kind: "ProcedureKind",
         procedure: str,
@@ -265,31 +278,24 @@ class Component(ValidatedDataclass, Tasklet):
         except Exception:
             return Fail(ProcedureExceptionError(traceback=traceback.format_exc()))
 
+    async def call(
+        self,
+        kind: CallableProcedureKind,
+        procedure: str,
+        input: object | None = None,
+    ) -> Result[object | None, ProcedureError]:
+        return await self._invoke(kind.upcast(), procedure, input)
+
     async def subscribe(
         self,
-        subscription: str,
+        kind: SubscribableProcedureKind,
+        procedure: str,
         input: object | None = None,
     ) -> Result[AsyncIterable[object | None], ProcedureError]:
-        if (
-            (binding := self.get_subscription_bindings().get(subscription)) is None
-            or (method := getattr(self, binding.function, None)) is None
-            or not inspect.ismethod(method)
-        ):
-            return Fail(ProcedureDoesNotExistError())
-
-        arguments: list[object] = []
-        if input is not None:
-            arguments.append(input)
-
-        try:
-            pre_validate_arguments(method, *arguments)
-        except ValidationError as error:
-            return Fail(ProcedureInvalidInputError(problems=ValidationProblem.extract(error)))
-
-        try:
-            return Ok(validate_arguments(method)(*arguments))
-        except Exception:
-            return Fail(ProcedureExceptionError(traceback=traceback.format_exc()))
+        return cast(
+            Result[AsyncIterable[object | None], ProcedureError],
+            await self._invoke(kind.upcast(), procedure, input),
+        )
 
     def emit_event(self, event: _EventT) -> _EventT:
         if "component_id" not in event.__fields_set__ or event.component_id == UUID(int=0):
@@ -379,332 +385,19 @@ class Component(ValidatedDataclass, Tasklet):
         self.scheduler.stop()
 
 
-_T = TypeVar("_T")
+@cached
+def _get_listener_bindings(component_cls: type[Component]) -> Sequence[ListenerBinding]:
+    return tuple(get_bindings(component_cls, ListenerBinding))
 
 
-def _bind(function: Callable[..., Any], attribute: str, binding: _T) -> tuple[_T, ...]:
-    bindings: Sequence[_T] | None = getattr(function, attribute, None)
-
-    if not isinstance(bindings, Sequence):
-        bindings = ()
-
-    bindings = (*bindings, binding)
-    setattr(function, attribute, bindings)
-
-    return bindings
-
-
-LISTENER_BINDINGS_ATTRIBUTE = "__listener_bindings__"
-
-
-class ListenerBinding(ImmutableDataObject):
-    address: LocalComponentAddress
-    event: type | UnionType
-    function: str
-
-
-@overload
-def listen(
-    source: str,
-    event: type[_EventT],
-) -> Callable[
-    [Callable[[Any, _EventT], None | Awaitable[None]]], Callable[[Any, _EventT], Awaitable[None]]
-]:
-    ...
-
-
-@overload
-def listen(
-    source: str,
-    event: UnionType,
-) -> Callable[
-    [Callable[[Any, Event], None | Awaitable[None]]], Callable[[Any, Event], Awaitable[None]]
-]:
-    ...
-
-
-def listen(
-    source: str,
-    event: type[_EventT] | UnionType,
-) -> Callable[
-    [Callable[[Any, _EventT], None | Awaitable[None]]], Callable[[Any, _EventT], Awaitable[None]]
-] | Callable[
-    [Callable[[Any, Event], None | Awaitable[None]]], Callable[[Any, Event], Awaitable[None]]
-]:
-    def inner(function: Callable[[Any, Event], None | Awaitable[None]]) -> Any:
-        _bind(
-            function,
-            LISTENER_BINDINGS_ATTRIBUTE,
-            ListenerBinding(
-                address=LocalComponentAddress(source),
-                event=event,
-                function=function.__name__,
-            ),
-        )
-
-        return function
-
-    return inner
-
-
-PROCEDURE_BINDINGS_ATTRIBUTE = "__procedure_bindings__"
-
-
-class ProcedureKind(str, Enum):
-    QUERY = "query"
-    ACTION = "action"
-    JOB = "job"
-    SUBSCRIPTION = "subscription"
-
-
-class ProcedureSchemas(ImmutableDataObject):
-    input: Mapping[str, Any] | None
-    output: Mapping[str, Any]
-
-
-class BaseProcedureBinding(ImmutableDataObject):
-    kind: ProcedureKind
-    name: str
-    function: str
-    schemas: ProcedureSchemas
-
-
-class QueryBinding(BaseProcedureBinding):
-    kind: Literal[ProcedureKind.QUERY] = ProcedureKind.QUERY
-
-
-class ActionBinding(BaseProcedureBinding):
-    kind: Literal[ProcedureKind.ACTION] = ProcedureKind.ACTION
-
-
-class JobBinding(BaseProcedureBinding):
-    kind: Literal[ProcedureKind.JOB] = ProcedureKind.JOB
-    default_schedule: Schedule | None = None
-    default_input: object | None = None
-
-
-class SubscriptionBinding(BaseProcedureBinding):
-    kind: Literal[ProcedureKind.SUBSCRIPTION] = ProcedureKind.SUBSCRIPTION
-
-
-ProcedureBinding = QueryBinding | ActionBinding | JobBinding | SubscriptionBinding
-
-
-def _get_schema(hint: Any) -> Mapping[str, Any]:
-    schema = schema_of(hint)
-
-    if schema.get("type") == "null":
-        schema = {"title": "Null", "type": "null"}
-    elif "definitions" in schema and schema["definitions"]:
-        schema = list(schema["definitions"].values())[0]
-
-    title = schema.get("title")
-    if title is not None:
-        if title.startswith("ParsingModel[") and title.endswith("]"):
-            title = title[len("ParsingModel[") : -1]
-
-        schema["title"] = title
-
-    return schema
-
-
-def _validate_procedure(
-    function: Callable[..., Any],
-    kind: ProcedureKind,
-) -> ProcedureSchemas:
-    signature = inspect.signature(function)
-    parameters = [*signature.parameters.values()]
-    if len(parameters) not in (1, 2) or any(
-        parameter.kind not in (Parameter.POSITIONAL_OR_KEYWORD, Parameter.POSITIONAL_ONLY)
-        for parameter in parameters
-    ):
-        raise ValueError(
-            f"{kind} {strify(function)} have exactly one or two positional parameters, 'self', and optionally, an input parameter"
-        )
-
-    hints = get_type_hints(function)
-
-    if len(parameters) == 1:
-        input_schema: Mapping[str, Any] | None = None
-    else:
-        input_parameter = parameters[1]
-        if input_parameter.name not in hints:
-            raise ValueError(
-                f"second positional parameter '{input_parameter.name}' of {kind} {strify(function)} must have a type hint"
-            )
-
-        input_hint = hints[input_parameter.name]
-        try:
-            input_schema = _get_schema(input_hint)
-        except Exception:
-            raise ValueError(
-                f"second positional parameter '{input_parameter.name}' of {kind} {strify(function)} must be parseable as a JSON object"
-            )
-
-    if "return" not in hints:
-        raise ValueError(f"return type of {kind} {strify(function)} must be specified")
-
-    output_hint = hints["return"]
-
-    if kind == ProcedureKind.SUBSCRIPTION:
-        error = ValueError(f"return type of {kind} {strify(function)} must be AsyncIterable[T]")
-        if output_hint.__name__ != "AsyncIterable":
-            raise error
-
-        try:
-            output_hint = output_hint.__args__[0]  # type: ignore
-        except Exception:
-            traceback.print_exc()
-            raise error
-
-    try:
-        output_schema = _get_schema(output_hint)
-    except Exception:
-        raise ValueError(
-            f"return type of {kind} {strify(function)} must be serializable as a JSON object"
-        )
-
-    return ProcedureSchemas(
-        input=input_schema,
-        output=output_schema,
-    )
-
-
-_ProtocolFunctionT = TypeVar(
-    "_ProtocolFunctionT",
-    bound=Callable[[Any], Any] | Callable[[Any, Any], Any],
-)
-
-
-def query(name: str) -> Callable[[_ProtocolFunctionT], _ProtocolFunctionT]:
-    def bind(function: _ProtocolFunctionT) -> _ProtocolFunctionT:
-        schemas = _validate_procedure(function, ProcedureKind.QUERY)
-        _bind(
-            function,
-            PROCEDURE_BINDINGS_ATTRIBUTE,
-            QueryBinding(
-                name=name,
-                function=function.__name__,
-                schemas=schemas,
-            ),
-        )
-
-        return function
-
-    return bind
-
-
-def action(name: str) -> Callable[[_ProtocolFunctionT], _ProtocolFunctionT]:
-    def bind(function: _ProtocolFunctionT) -> _ProtocolFunctionT:
-        schemas = _validate_procedure(function, ProcedureKind.ACTION)
-        _bind(
-            function,
-            PROCEDURE_BINDINGS_ATTRIBUTE,
-            ActionBinding(
-                name=name,
-                function=function.__name__,
-                schemas=schemas,
-            ),
-        )
-
-        return function
-
-    return bind
-
-
-def job(
-    name: str,
-    *,
-    default_schedule: Schedule | None = None,
-    default_input: object | None = None,
-) -> Callable[[_ProtocolFunctionT], _ProtocolFunctionT]:
-    def bind(function: _ProtocolFunctionT) -> _ProtocolFunctionT:
-        parameters = inspect.signature(function).parameters
-        if len(parameters) == 1 and default_input is not None:
-            raise ValueError("job does not take any input, but a default input has been specified")
-
-        schemas = _validate_procedure(function, ProcedureKind.JOB)
-        _bind(
-            function,
-            PROCEDURE_BINDINGS_ATTRIBUTE,
-            JobBinding(
-                name=name,
-                function=function.__name__,
-                schemas=schemas,
-                default_schedule=default_schedule,
-                default_input=default_input,
-            ),
-        )
-
-        return function
-
-    return bind
-
-
-_SubscriptionFunctionT = TypeVar(
-    "_SubscriptionFunctionT",
-    bound=Callable[[Any], AsyncIterable[Any]] | Callable[[Any, Any], AsyncIterable[Any]],
-)
-
-
-def subscription(name: str) -> Callable[[_SubscriptionFunctionT], _SubscriptionFunctionT]:
-    def bind(function: _SubscriptionFunctionT) -> _SubscriptionFunctionT:
-        schemas = _validate_procedure(function, ProcedureKind.SUBSCRIPTION)
-        _bind(
-            function,
-            PROCEDURE_BINDINGS_ATTRIBUTE,
-            SubscriptionBinding(
-                name=name,
-                function=function.__name__,
-                schemas=schemas,
-            ),
-        )
-
-        return function
-
-    return bind
+_ProcedureBindingT = TypeVar("_ProcedureBindingT", bound=BaseProcedureBinding)
 
 
 @cached
-def _get_listener_bindings(cls: type[_ComponentT]) -> Sequence[ListenerBinding]:
-    return tuple(get_bindings(cls, LISTENER_BINDINGS_ATTRIBUTE, ListenerBinding))
-
-
-@cached
-def _get_query_bindings(cls: type[_ComponentT]) -> Mapping[str, QueryBinding]:
+def _get_procedure_bindings(
+    component_cls: type[_ComponentT],
+    binding_cls: type[_ProcedureBindingT],
+) -> Mapping[str, _ProcedureBindingT]:
     return MappingProxyType(
-        {
-            binding.name: binding
-            for binding in get_bindings(cls, PROCEDURE_BINDINGS_ATTRIBUTE, QueryBinding)
-        }
-    )
-
-
-@cached
-def _get_action_bindings(cls: type[_ComponentT]) -> Mapping[str, ActionBinding]:
-    return MappingProxyType(
-        {
-            binding.name: binding
-            for binding in get_bindings(cls, PROCEDURE_BINDINGS_ATTRIBUTE, ActionBinding)
-        }
-    )
-
-
-@cached
-def _get_job_bindings(cls: type[_ComponentT]) -> Mapping[str, JobBinding]:
-    return MappingProxyType(
-        {
-            binding.name: binding
-            for binding in get_bindings(cls, PROCEDURE_BINDINGS_ATTRIBUTE, JobBinding)
-        }
-    )
-
-
-@cached
-def _get_subscription_bindings(cls: type[_ComponentT]) -> Mapping[str, SubscriptionBinding]:
-    return MappingProxyType(
-        {
-            binding.name: binding
-            for binding in get_bindings(cls, PROCEDURE_BINDINGS_ATTRIBUTE, SubscriptionBinding)
-        }
+        {binding.name: binding for binding in get_bindings(component_cls, binding_cls)}
     )

@@ -2,8 +2,8 @@ from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar
 
 from .data import ImmutableDataObject
 
-_ValueT = TypeVar("_ValueT")
-_ErrorT = TypeVar("_ErrorT")
+_ValueT = TypeVar("_ValueT", covariant=True)
+_ErrorT = TypeVar("_ErrorT", covariant=True)
 
 
 class __Result:

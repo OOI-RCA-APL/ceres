@@ -11,6 +11,8 @@ from .datetime import utc
 
 if TYPE_CHECKING:
     from .internal.database.entity import AlertEntity
+else:
+    AlertEntity = "AlertEntity"
 
 RawAlertLevel = Literal["info", "warning", "error"]
 
@@ -61,7 +63,7 @@ class Alert(ImmutableDataObject):
     info: dict[str, Any] = Field(default_factory=dict)
 
     @classmethod
-    def create_from(cls, other: Union[AlertLike, "AlertEntity"]) -> Self:
+    def create_from(cls, other: Union[AlertLike, AlertEntity]) -> Self:
         return cls(
             id=other.id,
             component_id=other.component_id,

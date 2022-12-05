@@ -20,17 +20,18 @@ from websockets.exceptions import ConnectionClosed
 
 from ..address import ComponentAddress, UnitAddress
 from ..alert import Alert
-from ..component import (
-    ActionBinding,
-    JobBinding,
-    ProcedureKind,
-    QueryBinding,
-    SubscriptionBinding,
-)
 from ..config import ComponentConfig, Config, UnitConfig
 from ..data import ImmutableDataObject, jsonify
-from ..errors import Error, ProcedureCancelledError, ProcedureError, ReloadError
+from ..errors import ProcedureCancelledError, ProcedureError, ReloadError
 from ..message import Message
+from ..procedure import (
+    ActionBinding,
+    CallableProcedureKind,
+    JobBinding,
+    QueryBinding,
+    SubscribableProcedureKind,
+    SubscriptionBinding,
+)
 from ..result import Fail, Ok, Result
 from . import logs
 from .console import Console
@@ -212,21 +213,20 @@ async def get_component_info(
     )
 
 
-async def _run_procedure(
+async def _call(
     engine: Engine,
     unit: NameStr,
     component: NameStr,
-    kind: ProcedureKind,
+    kind: CallableProcedureKind,
     procedure: NameStr,
     input: Mapping[str, object] | None,
 ) -> Result[object | None, ProcedureError]:
-    address = ComponentAddress(unit, component)
-    return await engine.call(address, kind, procedure, input)
+    return await engine.call(ComponentAddress(unit, component), kind, procedure, input)
 
 
 @api.post(
     "/units/{unit}/components/{component}/queries/{query}",
-    response_model=Result[Any | None, Error],
+    response_model=Result[Any | None, ProcedureError],
     tags=["procedures"],
 )
 async def run_query(
@@ -236,12 +236,12 @@ async def run_query(
     input: Mapping[str, object] | None = None,
     engine: Engine = Depends(use_engine),
 ) -> Result[object | None, ProcedureError]:
-    return await _run_procedure(engine, unit, component, ProcedureKind.QUERY, query, input)
+    return await _call(engine, unit, component, CallableProcedureKind.QUERY, query, input)
 
 
 @api.post(
     "/units/{unit}/components/{component}/actions/{action}",
-    response_model=Result[Any | None, Error],
+    response_model=Result[Any | None, ProcedureError],
     tags=["procedures"],
 )
 async def run_action(
@@ -251,12 +251,12 @@ async def run_action(
     input: Mapping[str, object] | None = None,
     engine: Engine = Depends(use_engine),
 ) -> Result[object | None, ProcedureError]:
-    return await _run_procedure(engine, unit, component, ProcedureKind.ACTION, action, input)
+    return await _call(engine, unit, component, CallableProcedureKind.ACTION, action, input)
 
 
 @api.post(
     "/units/{unit}/components/{component}/jobs/{job}",
-    response_model=Result[Any | None, Error],
+    response_model=Result[Any | None, ProcedureError],
     tags=["procedures"],
 )
 async def run_job(
@@ -266,24 +266,22 @@ async def run_job(
     input: Mapping[str, object] | None = None,
     engine: Engine = Depends(use_engine),
 ) -> Result[object | None, ProcedureError]:
-    return await _run_procedure(engine, unit, component, ProcedureKind.JOB, job, input)
+    return await _call(engine, unit, component, CallableProcedureKind.JOB, job, input)
 
 
-@api.websocket("/units/{unit}/components/{component}/subscriptions/{subscription}")
-async def run_subscription(
+async def _subscribe(
+    engine: Engine,
     socket: WebSocket,
     unit: NameStr,
     component: NameStr,
-    subscription: NameStr,
+    kind: SubscribableProcedureKind,
+    procedure: NameStr,
     input: Mapping[str, object] | None = None,
-    engine: Engine = Depends(use_engine),
 ) -> None:
     await socket.accept()
 
     try:
-        address = ComponentAddress(unit, component)
-
-        match await engine.subscribe(address, subscription, input):
+        match await engine.subscribe(ComponentAddress(unit, component), kind, procedure, input):
             case Ok(values):
                 pass
             case Fail() as fail:
@@ -297,6 +295,46 @@ async def run_subscription(
             await socket.close(reason=jsonify(Fail(ProcedureCancelledError())))
     except (WebSocketDisconnect, ConnectionClosed):
         pass
+
+
+@api.websocket("/units/{unit}/components/{component}/subscriptions/{subscription}")
+async def run_subscription(
+    socket: WebSocket,
+    unit: NameStr,
+    component: NameStr,
+    subscription: NameStr,
+    input: Mapping[str, object] | None = None,
+    engine: Engine = Depends(use_engine),
+) -> None:
+    await _subscribe(
+        engine,
+        socket,
+        unit,
+        component,
+        SubscribableProcedureKind.SUBSCRIPTION,
+        subscription,
+        input,
+    )
+
+
+@api.websocket("/units/{unit}/components/{component}/display/{display}")
+async def run_display(
+    socket: WebSocket,
+    unit: NameStr,
+    component: NameStr,
+    display: NameStr,
+    input: Mapping[str, object] | None = None,
+    engine: Engine = Depends(use_engine),
+) -> None:
+    await _subscribe(
+        engine,
+        socket,
+        unit,
+        component,
+        SubscribableProcedureKind.SUBSCRIPTION,
+        display,
+        input,
+    )
 
 
 @final

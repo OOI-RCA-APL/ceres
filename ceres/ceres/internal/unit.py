@@ -21,7 +21,7 @@ from uuid import UUID
 
 from ..address import ComponentAddress, LocalComponentAddress, UnitAddress
 from ..alert import Alert
-from ..component import Component, ProcedureKind
+from ..component import CallableProcedureKind, Component, SubscribableProcedureKind
 from ..config import ComponentKind, Concurrency, Config, UnitConfig
 from ..data import jsonify
 from ..errors import (
@@ -83,7 +83,7 @@ class UnitProxyProtocol(Protocol):
     def call_sync(
         self,
         address: LocalComponentAddress,
-        kind: ProcedureKind,
+        kind: CallableProcedureKind,
         procedure: str,
         input: object | None = None,
     ) -> Result[object | None, ProcedureError] | BaseException:
@@ -93,7 +93,8 @@ class UnitProxyProtocol(Protocol):
         self,
         queue: _QueueLike[object | None],
         address: LocalComponentAddress,
-        subscription: str,
+        kind: SubscribableProcedureKind,
+        procedure: str,
         input: object | None = None,
     ) -> Result[None, ProcedureError] | BaseException:
         ...
@@ -207,7 +208,7 @@ class Unit(UnitProxyProtocol, Tasklet):
     def call_sync(
         self,
         address: LocalComponentAddress,
-        kind: ProcedureKind,
+        kind: CallableProcedureKind,
         procedure: str,
         input: object | None = None,
     ) -> Result[object | None, ProcedureError] | BaseException:
@@ -221,35 +222,27 @@ class Unit(UnitProxyProtocol, Tasklet):
         except BaseException as exception:
             return exception
 
-    async def _feed_subscription(
-        self,
-        queue: _QueueLike[object | None],
-        address: LocalComponentAddress,
-        subscription: str,
-        input: object | None = None,
-    ) -> Result[None, ProcedureError]:
-        match await self.subscribe(address, subscription, input):
-            case Ok(values):
-                pass
-            case Fail() as fail:
-                return fail
-
-        async for value in values:
-            queue.put_nowait(value)
-
-        return Ok(None)
-
     def subscribe_sync(
         self,
         queue: _QueueLike[object | None],
         address: LocalComponentAddress,
-        subscription: str,
+        kind: SubscribableProcedureKind,
+        procedure: str,
         input: object | None = None,
     ) -> Result[None, ProcedureError] | BaseException:
-        future = asyncio.run_coroutine_threadsafe(
-            self._feed_subscription(queue, address, subscription, input),
-            self._loop,
-        )
+        async def feed() -> Result[None, ProcedureError]:
+            match await self.subscribe(address, kind, procedure, input):
+                case Ok(values):
+                    pass
+                case Fail() as fail:
+                    return fail
+
+            async for value in values:
+                queue.put_nowait(value)
+
+            return Ok(None)
+
+        future = asyncio.run_coroutine_threadsafe(feed(), self._loop)
 
         try:
             return future.result()
@@ -259,7 +252,7 @@ class Unit(UnitProxyProtocol, Tasklet):
     async def call(
         self,
         address: LocalComponentAddress,
-        kind: ProcedureKind,
+        kind: CallableProcedureKind,
         procedure: str,
         input: object | None = None,
     ) -> Result[object | None, ProcedureError]:
@@ -273,7 +266,8 @@ class Unit(UnitProxyProtocol, Tasklet):
     async def subscribe(
         self,
         address: LocalComponentAddress,
-        subscription: str,
+        kind: SubscribableProcedureKind,
+        procedure: str,
         input: object | None = None,
     ) -> Result[AsyncIterable[object | None], ProcedureError]:
         if (component := self.get_component_handle(address)) is None:
@@ -281,7 +275,7 @@ class Unit(UnitProxyProtocol, Tasklet):
         if component.instance is None:
             return Fail(ProcedureComponentNotLoadedError())
 
-        return await component.instance.subscribe(subscription, input)
+        return await component.instance.subscribe(kind, procedure, input)
 
     async def __run__(self) -> None:
         await self._load_components()
@@ -463,7 +457,7 @@ class UnitHandle(Tasklet):
     async def call(
         self,
         address: LocalComponentAddress,
-        kind: ProcedureKind,
+        kind: CallableProcedureKind,
         procedure: str,
         input: object | None = None,
     ) -> Result[object | None, ProcedureError]:
@@ -489,7 +483,8 @@ class UnitHandle(Tasklet):
     async def subscribe(
         self,
         address: LocalComponentAddress,
-        subscription: str,
+        kind: SubscribableProcedureKind,
+        procedure: str,
         input: object | None = None,
     ) -> Result[AsyncIterable[object | None], ProcedureError]:
         if self.instance is None or (
@@ -512,13 +507,13 @@ class UnitHandle(Tasklet):
                 return Fail(ProcedureComponentNotLoadedError())
 
             try:
-                result = self.instance.subscribe_sync(queue, address, subscription, input)
+                result = self.instance.subscribe_sync(queue, address, kind, procedure, input)
             except EOFError:
                 return Fail(ProcedureComponentNotLoadedError())
 
             if isinstance(result, BaseException):
                 self.logger.error(
-                    f"Exception occurred while getting subscription '{subscription}' on component '{self.address}': {strify(result)}"
+                    f"Exception occurred while getting {kind} '{procedure}' on component '{self.address}': {strify(result)}"
                 )
                 return Fail(ProcedureExceptionError(traceback=traceback.format_exception(result)))
 
