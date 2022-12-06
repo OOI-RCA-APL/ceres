@@ -1,14 +1,14 @@
 <template>
   <q-btn-toggle
-    v-if="info.showOptions"
+    v-if="info.show_options"
     v-model="info.value"
     class="no-pointer-events"
     color="grey-5"
-    :options="options"
+    :options="options as any"
     readonly
     :ripple="false"
     size="md"
-    :stack="info.verticalIcons"
+    :stack="info.vertical_icons"
     text-color="grey-4"
     :toggle-color="selected?.color"
   />
@@ -16,12 +16,12 @@
     v-else
     class="text-uppercase"
     :color="selected?.color"
-    :icon="selected?.icon"
+    :icon="selected?.icon ?? undefined"
     :label="selected?.value"
     :ripple="false"
     size="lg"
     square
-    :stack="info.verticalIcons"
+    :stack="info.vertical_icons"
     text-color="white"
   >
     <q-menu
@@ -51,7 +51,7 @@
                 <q-th class="text-capitalize text-center">
                   <q-chip
                     :color="option.color ?? 'primary'"
-                    :icon="option.icon"
+                    :icon="option.icon ?? undefined"
                     :label="option.value"
                     :ripple="false"
                     size="sm"
@@ -72,10 +72,10 @@
 </template>
 
 <script lang="ts" setup>
-import { StateElementInfo } from '@/element'
+import { StateDisplayInfo } from '@/display'
 
 const { info } = defineProps<{
-  info: StateElementInfo
+  info: StateDisplayInfo
 }>()
 
 const selected = $computed(() => info.options.find((state) => state.value === info.value))

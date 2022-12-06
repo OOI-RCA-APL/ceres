@@ -4,16 +4,16 @@
 
 <script lang="ts" setup>
 import { Option } from '@/chart'
-import { createColorStops, NumberElementInfo } from '@/element'
+import { createColorStops, NumberDisplayInfo } from '@/display'
 import { useQuasar } from 'quasar'
 
 const { info } = defineProps<{
-  info: NumberElementInfo
+  info: NumberDisplayInfo
 }>()
 
 const quasar = useQuasar()
 
-const valueText = $computed(() => `${info.value}${info.unit}`)
+const valueText = $computed(() => (info.unit ? `${info.value}${info.unit}` : `${info.value}`))
 const color = $computed(() => createColorStops(info.value, info.color, quasar.dark.isActive))
 
 const options = $computed(
@@ -47,7 +47,7 @@ const options = $computed(
             fontSize: 22,
             fontWeight: 300,
             formatter: valueText,
-            color: 'auto',
+            color: 'inherit',
             offsetCenter: [0, '0%'],
           },
           data: [

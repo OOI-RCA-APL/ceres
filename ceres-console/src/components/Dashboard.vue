@@ -1,14 +1,14 @@
 <template>
   <div class="column q-gutter-sm">
-    <element v-for="(info, i) in elements" :key="i" :info="info" />
+    <!-- <element v-for="(info, i) in displays" :key="i" :info="info" /> -->
   </div>
 </template>
 
 <script lang="ts" setup>
-import Element from '@/components/Element.vue'
-import type { ElementInfo } from '@/element'
+// import Element from '@/components/Display.vue'
+import type { DisplayInfo } from '@/display'
 
 defineProps<{
-  elements: ElementInfo[]
+  displays: DisplayInfo[]
 }>()
 </script>

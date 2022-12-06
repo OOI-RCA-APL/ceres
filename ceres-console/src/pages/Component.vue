@@ -2,18 +2,18 @@
   <full-page :title="title">
     <template #header-append>
       <q-chip
-        v-if="component?.kind === 'connection'"
+        v-if="componentConfig?.kind === 'connection'"
         class="q-ml-xs text-capitalize"
-        :color="(component as any)['state'] === 'connected' ? 'positive' : 'warning'"
+        :color="(componentConfig as any)['state'] === 'connected' ? 'positive' : 'warning'"
         dense
         text-color="white"
       >
         Connected
       </q-chip>
       <q-space />
-      <unit-controls v-if="unit" class="q-mr-md" :unit-name="unitName" />
+      <unit-controls v-if="unitConfig" class="q-mr-md" :unit-name="unitName" />
     </template>
-    <div v-if="unit && component?.kind === 'connection'" class="q-pa-md">
+    <div v-if="unitConfig && componentConfig?.kind === 'connection'" class="q-pa-md">
       <section-card class="q-mb-sm" padding title="Info">
         <q-markup-table bordered class="q-mb-sm" dense flat separator="vertical">
           <thead>
@@ -37,11 +37,22 @@
         :unit-name="unitName"
       />
     </div>
+    <div v-if="componentInfo.displays.length" class="q-pa-md">
+      <display
+        v-for="display in componentInfo.displays"
+        :key="display.name"
+        class="q-mb-sm"
+        :component-name="componentName"
+        :display-name="display.name"
+        :unit-name="unitName"
+      />
+    </div>
   </full-page>
 </template>
 
 <script lang="ts" setup>
-import { useConfig } from '@/api/queries'
+import { getComponent, useConfig } from '@/api/queries'
+import Display from '@/components/Display.vue'
 import FullPage from '@/components/FullPage.vue'
 import MessageView from '@/components/MessageView.vue'
 import SectionCard from '@/components/SectionCard.vue'
@@ -53,16 +64,17 @@ const { unitName, componentName } = defineProps<{
 }>()
 
 const config = useConfig()
+const unitConfig = $computed(() => config.getUnit(unitName))
+const componentConfig = $computed(() => config.getComponent(unitName, componentName))
 
-const unit = $computed(() => config.getUnit(unitName))
-const component = $computed(() => config.getComponent(unitName, componentName))
+const componentInfo = await getComponent(unitName, componentName)
 
 const title = $computed(() => {
-  if (unit == null) {
+  if (unitConfig == null) {
     return `Unit "${unitName}" does not exist.`
   }
 
-  if (component == null) {
+  if (componentConfig == null) {
     return `Connection "${componentName}" does not exist.`
   }
 

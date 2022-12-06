@@ -4,11 +4,11 @@
 
 <script lang="ts" setup>
 import { Option } from '@/chart'
-import { ColorStop, createColorStops, GuageElementInfo } from '@/element'
+import { ColorStop, createColorStops, GuageDisplayInfo } from '@/display'
 import { useQuasar } from 'quasar'
 
 const { info } = defineProps<{
-  info: GuageElementInfo
+  info: GuageDisplayInfo
 }>()
 
 const quasar = useQuasar()
@@ -56,7 +56,7 @@ const options = $computed(
             width: 8,
             offsetCenter: [0, '-65%'],
             itemStyle: {
-              color: 'auto',
+              color: 'inherit',
             },
           },
           axisLine: {
@@ -102,7 +102,7 @@ const options = $computed(
             fontSize: 22 * valueTextScaling,
             fontWeight: 'bolder',
             formatter: valueText,
-            color: 'auto',
+            color: 'inherit',
           },
           data: [
             {

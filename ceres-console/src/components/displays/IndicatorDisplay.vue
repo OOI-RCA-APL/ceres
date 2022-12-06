@@ -8,10 +8,10 @@
 </template>
 
 <script lang="ts" setup>
-import { IndicatorElementInfo } from '@/element'
+import { IndicatorDisplayInfo } from '@/display'
 
 const { info } = defineProps<{
-  info: IndicatorElementInfo
+  info: IndicatorDisplayInfo
 }>()
 
 const isTriggered = $computed(() => (info.reversed ? !info.value : info.value))

@@ -1,3 +1,4 @@
+import { DisplayInfoModel } from '@/display'
 import { defineStore } from 'pinia'
 import { watchEffect } from 'vue'
 import { useQuery } from 'vue-query'
@@ -152,14 +153,22 @@ function useStream<TModel extends ZodTypeAny>(
     })
 
     socket.addEventListener('message', (event) => {
-      const data = JSON.parse(event.data)
-      if (data === undefined) {
+      let data
+      try {
+        data = JSON.parse(event.data)
+      } catch {
         console.log(`invalid JSON message from '${url}': '${event.data}'`)
         return
       }
 
       console.log(`message on '${url}': '${JSON.stringify(event.data)}'`)
-      onMessage(model.parse(data))
+
+      const result = model.safeParse(data)
+      if (result.success) {
+        onMessage(result.data)
+      } else {
+        console.error(result.error)
+      }
     })
 
     socket.addEventListener('error', (event) => {
@@ -170,6 +179,32 @@ function useStream<TModel extends ZodTypeAny>(
       console.log(`disconnected from '${url}'`)
     })
 
-    onCleanup(() => socket.close())
+    function onUnload() {
+      if (socket.readyState == WebSocket.OPEN) {
+        socket.close()
+      }
+    }
+
+    window.addEventListener('unload', onUnload)
+
+    onCleanup(() => {
+      window.removeEventListener('unload', onUnload)
+      socket.close()
+    })
   })
+}
+
+export function useDisplayStream<TModel extends ZodTypeAny>(
+  unitName: string,
+  componentName: string,
+  displayName: string,
+  onDisplay: (message: Zod.infer<TModel>) => unknown
+) {
+  return useStream(
+    getWebSocketURI(`/api/units/${unitName}/components/${componentName}/displays/${displayName}`),
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore
+    DisplayInfoModel,
+    onDisplay
+  )
 }

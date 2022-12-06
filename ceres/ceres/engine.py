@@ -7,7 +7,7 @@ from enum import Enum
 from logging import Logger
 from pathlib import Path
 from queue import Empty, Queue
-from typing import Any, AsyncIterable, final
+from typing import Any, final
 
 from .address import ComponentAddress, LocalComponentAddress, UnitAddress
 from .alert import Alert
@@ -31,7 +31,7 @@ from .internal.config import load_config
 from .internal.database.manager import DatabaseManager
 from .internal.server import Server
 from .internal.tasklet import Tasklet
-from .internal.unit import UnitContext, UnitHandle
+from .internal.unit import Subscription, UnitContext, UnitHandle
 from .internal.utilities import temporary_signal_handler
 from .message import Message
 from .procedure import CallableProcedureKind, SubscribableProcedureKind
@@ -252,7 +252,7 @@ class Engine(Tasklet):
         kind: SubscribableProcedureKind,
         procedure: str,
         input: object | None = None,
-    ) -> Result[AsyncIterable[object | None], ProcedureError]:
+    ) -> Result[Subscription, ProcedureError]:
         if (unit := self._units.get(UnitAddress(address.unit))) is None:
             return Fail(ProcedureUnitDoesNotExistError())
 
@@ -262,6 +262,12 @@ class Engine(Tasklet):
             procedure,
             input,
         )
+
+    async def unsubscribe(self, address: ComponentAddress, subscription: Subscription) -> None:
+        if (unit := self._units.get(UnitAddress(address.unit))) is None:
+            return
+
+        await unit.unsubscribe(subscription)
 
     async def _reload(self) -> None:
         self.logger.info("Reloading...")

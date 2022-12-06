@@ -110,10 +110,18 @@ export const UnitInfoModel = Zod.object({
   config: UnitConfigModel,
 })
 
+export type DisplayBinding = Zod.infer<typeof DisplayBindingModel>
+export const DisplayBindingModel = Zod.object({
+  kind: Zod.literal('display'),
+  name: Zod.string(),
+  function: Zod.string(),
+})
+
 export type ComponentInfo = Zod.infer<typeof ComponentInfoModel>
 export const ComponentInfoModel = Zod.object({
   id: Zod.string(),
   config: ComponentConfigModel,
+  displays: Zod.array(DisplayBindingModel),
 })
 
 export type Ok<TValue> = {

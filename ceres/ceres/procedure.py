@@ -1,6 +1,7 @@
 import inspect
 import traceback
 from enum import Enum
+from functools import wraps
 from inspect import Parameter
 from typing import (
     Any,
@@ -168,14 +169,14 @@ def _validate_procedure(
     )
 
 
-_ProtocolFunctionT = TypeVar(
-    "_ProtocolFunctionT",
+_CallableProcedureFunctionT = TypeVar(
+    "_CallableProcedureFunctionT",
     bound=Callable[[Any], Any] | Callable[[Any, Any], Any],
 )
 
 
-def query(name: str) -> Callable[[_ProtocolFunctionT], _ProtocolFunctionT]:
-    def bind(function: _ProtocolFunctionT) -> _ProtocolFunctionT:
+def query(name: str) -> Callable[[_CallableProcedureFunctionT], _CallableProcedureFunctionT]:
+    def bind(function: _CallableProcedureFunctionT) -> _CallableProcedureFunctionT:
         schemas = _validate_procedure(function, ProcedureKind.QUERY)
         add_binding(
             function,
@@ -191,8 +192,8 @@ def query(name: str) -> Callable[[_ProtocolFunctionT], _ProtocolFunctionT]:
     return bind
 
 
-def action(name: str) -> Callable[[_ProtocolFunctionT], _ProtocolFunctionT]:
-    def bind(function: _ProtocolFunctionT) -> _ProtocolFunctionT:
+def action(name: str) -> Callable[[_CallableProcedureFunctionT], _CallableProcedureFunctionT]:
+    def bind(function: _CallableProcedureFunctionT) -> _CallableProcedureFunctionT:
         schemas = _validate_procedure(function, ProcedureKind.ACTION)
         add_binding(
             function,
@@ -213,8 +214,8 @@ def job(
     *,
     default_schedule: Schedule | None = None,
     default_input: object | None = None,
-) -> Callable[[_ProtocolFunctionT], _ProtocolFunctionT]:
-    def bind(function: _ProtocolFunctionT) -> _ProtocolFunctionT:
+) -> Callable[[_CallableProcedureFunctionT], _CallableProcedureFunctionT]:
+    def bind(function: _CallableProcedureFunctionT) -> _CallableProcedureFunctionT:
         parameters = inspect.signature(function).parameters
         if len(parameters) == 1 and default_input is not None:
             raise ValueError("job does not take any input, but a default input has been specified")
@@ -236,14 +237,18 @@ def job(
     return bind
 
 
-_SubscriptionFunctionT = TypeVar(
-    "_SubscriptionFunctionT",
+_SubscribableProcedureFunctionT = TypeVar(
+    "_SubscribableProcedureFunctionT",
     bound=Callable[[Any], AsyncIterable[Any]] | Callable[[Any, Any], AsyncIterable[Any]],
 )
 
 
-def subscription(name: str) -> Callable[[_SubscriptionFunctionT], _SubscriptionFunctionT]:
-    def bind(function: _SubscriptionFunctionT) -> _SubscriptionFunctionT:
+def subscription(
+    name: str,
+    *,
+    dedupe: bool = False,
+) -> Callable[[_SubscribableProcedureFunctionT], _SubscribableProcedureFunctionT]:
+    def bind(function: _SubscribableProcedureFunctionT) -> _SubscribableProcedureFunctionT:
         schemas = _validate_procedure(function, ProcedureKind.SUBSCRIPTION)
         add_binding(
             function,
@@ -254,13 +259,20 @@ def subscription(name: str) -> Callable[[_SubscriptionFunctionT], _SubscriptionF
             ),
         )
 
+        if dedupe:
+            function = _dedupe(function)
+
         return function
 
     return bind
 
 
-def display(name: str) -> Callable[[_SubscriptionFunctionT], _SubscriptionFunctionT]:
-    def bind(function: _SubscriptionFunctionT) -> _SubscriptionFunctionT:
+def display(
+    name: str,
+    *,
+    dedupe: bool = False,
+) -> Callable[[_SubscribableProcedureFunctionT], _SubscribableProcedureFunctionT]:
+    def bind(function: _SubscribableProcedureFunctionT) -> _SubscribableProcedureFunctionT:
         schemas = _validate_procedure(function, ProcedureKind.SUBSCRIPTION)
         add_binding(
             function,
@@ -271,6 +283,24 @@ def display(name: str) -> Callable[[_SubscriptionFunctionT], _SubscriptionFuncti
             ),
         )
 
+        if dedupe:
+            function = _dedupe(function)
+
         return function
 
     return bind
+
+
+def _dedupe(function: _SubscribableProcedureFunctionT) -> _SubscribableProcedureFunctionT:
+    @wraps(function)
+    async def wrapper(*args: object, **kwargs: object) -> AsyncIterable[object | None]:
+        yielded = False
+        previous: object = None
+
+        async for value in function(*args, **kwargs):
+            if not yielded or value != previous:
+                yielded = True
+                yield value
+                previous = value
+
+    return wrapper  # type: ignore

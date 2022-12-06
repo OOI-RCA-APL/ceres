@@ -1,3 +1,4 @@
+import asyncio
 from asyncio import CancelledError
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Mapping, Sequence, final
@@ -22,7 +23,7 @@ from ..address import ComponentAddress, UnitAddress
 from ..alert import Alert
 from ..config import ComponentConfig, Config, UnitConfig
 from ..data import ImmutableDataObject, jsonify
-from ..errors import ProcedureCancelledError, ProcedureError, ReloadError
+from ..errors import ProcedureError, ReloadError
 from ..message import Message
 from ..procedure import (
     ActionBinding,
@@ -282,28 +283,32 @@ async def _subscribe(
     input: Mapping[str, object] | None = None,
 ) -> None:
     await socket.accept()
+    address = ComponentAddress(unit, component)
+
+    match await engine.subscribe(address, kind, procedure, input):
+        case Ok(subscription):
+            pass
+        case Fail() as fail:
+            await socket.close(
+                code=1008,
+                reason=jsonify(fail),
+            )
+            return
+
+    async def write() -> None:
+        while True:
+            await socket.send_text(jsonify(await subscription.queue.get()))
+
+    write_task = asyncio.create_task(write(), name="write")
 
     try:
-        match await engine.subscribe(ComponentAddress(unit, component), kind, procedure, input):
-            case Ok(values):
-                pass
-            case Fail() as fail:
-                await socket.close(
-                    code=1008,
-                    reason=jsonify(fail),
-                )
-                return
-
-        try:
-            async for value in values:
-                await socket.send_text(jsonify(value))
-        except CancelledError:
-            await socket.close(
-                code=1001,
-                reason=jsonify(Fail(ProcedureCancelledError())),
-            )
-    except (WebSocketDisconnect, ConnectionClosed):
+        while True:
+            await socket.receive_text()
+    except (WebSocketDisconnect, ConnectionClosed, CancelledError):
         pass
+    finally:
+        write_task.cancel()
+        await engine.unsubscribe(address, subscription)
 
 
 @api.websocket("/units/{unit}/components/{component}/subscriptions/{subscription}")
