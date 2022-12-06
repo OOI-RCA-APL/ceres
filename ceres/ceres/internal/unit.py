@@ -1,4 +1,5 @@
 import asyncio
+import threading
 import traceback
 from dataclasses import dataclass, field
 from logging import Logger
@@ -6,17 +7,7 @@ from multiprocessing.managers import SyncManager
 from queue import Queue as ThreadSafeQueue
 from threading import Lock
 from types import MappingProxyType
-from typing import (
-    Any,
-    AsyncIterable,
-    Generic,
-    Mapping,
-    Protocol,
-    TypeVar,
-    cast,
-    final,
-    runtime_checkable,
-)
+from typing import Any, AsyncIterable, Mapping, Protocol, TypeVar, cast, final
 from uuid import UUID, uuid4
 
 from ..address import ComponentAddress, LocalComponentAddress, UnitAddress
@@ -45,7 +36,7 @@ from .database.buffer import EntityBuffer
 from .database.entity import AlertEntity, MessageEntity
 from .database.manager import DatabaseManager
 from .tasklet import Tasklet
-from .utilities import setup_event_loop, spawn, strify
+from .utilities import QueueLike, get_or_cancel, setup_event_loop, spawn, strify
 
 
 @dataclass(kw_only=True, frozen=True)
@@ -63,19 +54,10 @@ class UnitContext:
 _T = TypeVar("_T")
 
 
-@runtime_checkable
-class _QueueLike(Protocol, Generic[_T]):
-    def get(self) -> _T:
-        ...
-
-    def put_nowait(self, value: _T) -> _T:
-        ...
-
-
 @dataclass(kw_only=True, frozen=True)
 class Subscriber:
     subscription_id: UUID = field(default_factory=uuid4)
-    queue: _QueueLike[object | None]
+    queue: QueueLike[object | None]
 
 
 @dataclass(kw_only=True, frozen=True)
@@ -83,6 +65,7 @@ class Subscription:
     id: UUID
     queue: asyncio.Queue[object | None]
     task: asyncio.Task[object]
+    cancelled: threading.Event
 
 
 @dataclass(kw_only=True, frozen=True)
@@ -563,10 +546,16 @@ class UnitHandle(Tasklet):
             case Fail() as fail:
                 return fail
 
+        cancelled = threading.Event()
+
         async def dequeue() -> None:
+            def get() -> object | None:
+                return get_or_cancel(subscriber.queue, cancelled)
+
             while True:
                 await asyncio.sleep(0)
-                subscription.queue.put_nowait(await spawn(subscriber.queue.get))
+                value = await spawn(get)
+                subscription.queue.put_nowait(value)
 
         task = asyncio.create_task(dequeue())
 
@@ -574,6 +563,7 @@ class UnitHandle(Tasklet):
             id=subscriber.subscription_id,
             queue=asyncio.Queue(),
             task=task,
+            cancelled=cancelled,
         )
 
         self.logger.info("subscribed: " + str(subscription.id))
@@ -588,3 +578,4 @@ class UnitHandle(Tasklet):
             self.logger.info("unsubscribed: " + str(subscription.id))
         finally:
             subscription.task.cancel()
+            subscription.cancelled.set()

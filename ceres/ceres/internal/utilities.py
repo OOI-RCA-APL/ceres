@@ -7,6 +7,8 @@ from asyncio import AbstractEventLoop
 from contextlib import contextmanager
 from datetime import timedelta
 from functools import cache, wraps
+from queue import Empty
+from threading import Event as ThreadEvent
 from types import MappingProxyType, UnionType
 from typing import (
     TYPE_CHECKING,
@@ -14,6 +16,7 @@ from typing import (
     Awaitable,
     Callable,
     ClassVar,
+    Generic,
     Iterable,
     Iterator,
     Literal,
@@ -395,3 +398,22 @@ async def spawn(function: Callable[_P, _T], *args: _P.args, **kwargs: _P.kwargs)
         cancellable=True,
         limiter=CapacityLimiter(4096),
     )
+
+
+@runtime_checkable
+class QueueLike(Protocol, Generic[_T]):
+    def get(self, *, timeout: float | None = None) -> _T:
+        ...
+
+    def put_nowait(self, value: _T) -> _T:
+        ...
+
+
+def get_or_cancel(queue: QueueLike[_T], cancelled: ThreadEvent) -> _T:
+    while not cancelled.is_set():
+        try:
+            return queue.get(timeout=1)
+        except Empty:
+            pass
+
+    raise Empty()
