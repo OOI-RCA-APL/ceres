@@ -11,8 +11,8 @@ export type Range = {
 export type State = {
   value: string | number
   color: string
-  icon?: string
-  description?: string
+  icon?: string | null
+  description?: string | null
 }
 
 export type IndicatorColor = 'red' | 'yellow' | 'orange' | 'blue' | 'green'
@@ -22,27 +22,19 @@ export type BaseElementInfo = {
   name: string
 }
 
-export type GuageElementInfo = BaseElementInfo & {
-  type: 'gauge' | 'halfgauge'
-  value: number
-  unit?: string
-  range: Range
-  color?: ColorStop[] | string
-}
-
 export type NumberElementInfo = BaseElementInfo & {
   type: 'number'
   value: number
-  unit?: string
-  color?: ColorStop[] | string
+  unit?: string | null
+  color?: ColorStop[] | string | null
 }
 
 export type StateElementInfo = BaseElementInfo & {
   type: 'state'
   value: string | number
   options: State[]
-  showOptions?: boolean
-  verticalIcons: boolean
+  show_options: boolean
+  vertical_icons: boolean
 }
 
 export type IndicatorElementInfo = BaseElementInfo & {
@@ -50,15 +42,23 @@ export type IndicatorElementInfo = BaseElementInfo & {
   label: string
   value: boolean
   color: IndicatorColor
-  size?: IndicatorSize
-  reversed?: boolean
+  size?: IndicatorSize | null
+  reversed?: boolean | null
+}
+
+export type GuageElementInfo = BaseElementInfo & {
+  type: 'gauge' | 'halfgauge'
+  value: number
+  unit?: string | null
+  range: Range
+  color?: ColorStop[] | string | null
 }
 
 export type ElementInfo =
-  | GuageElementInfo
-  | IndicatorElementInfo
   | NumberElementInfo
   | StateElementInfo
+  | IndicatorElementInfo
+  | GuageElementInfo
 
 export function createColorStops(
   value: number,

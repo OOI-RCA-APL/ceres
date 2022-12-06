@@ -27,6 +27,7 @@ from ..message import Message
 from ..procedure import (
     ActionBinding,
     CallableProcedureKind,
+    DisplayBinding,
     JobBinding,
     QueryBinding,
     SubscribableProcedureKind,
@@ -57,6 +58,7 @@ class ComponentInfo(ImmutableDataObject):
     actions: Sequence[ActionBinding]
     jobs: Sequence[JobBinding]
     subscriptions: Sequence[SubscriptionBinding]
+    displays: Sequence[DisplayBinding]
 
 
 api = APIRouter()
@@ -210,6 +212,7 @@ async def get_component_info(
         actions=list(component_cls.get_action_bindings().values()),
         jobs=list(component_cls.get_job_bindings().values()),
         subscriptions=list(component_cls.get_subscription_bindings().values()),
+        displays=list(component_cls.get_display_bindings().values()),
     )
 
 
@@ -285,14 +288,20 @@ async def _subscribe(
             case Ok(values):
                 pass
             case Fail() as fail:
-                await socket.close(reason=jsonify(fail))
+                await socket.close(
+                    code=1008,
+                    reason=jsonify(fail),
+                )
                 return
 
         try:
             async for value in values:
                 await socket.send_text(jsonify(value))
         except CancelledError:
-            await socket.close(reason=jsonify(Fail(ProcedureCancelledError())))
+            await socket.close(
+                code=1001,
+                reason=jsonify(Fail(ProcedureCancelledError())),
+            )
     except (WebSocketDisconnect, ConnectionClosed):
         pass
 
@@ -317,7 +326,7 @@ async def run_subscription(
     )
 
 
-@api.websocket("/units/{unit}/components/{component}/display/{display}")
+@api.websocket("/units/{unit}/components/{component}/displays/{display}")
 async def run_display(
     socket: WebSocket,
     unit: NameStr,
@@ -331,7 +340,7 @@ async def run_display(
         socket,
         unit,
         component,
-        SubscribableProcedureKind.SUBSCRIPTION,
+        SubscribableProcedureKind.DISPLAY,
         display,
         input,
     )

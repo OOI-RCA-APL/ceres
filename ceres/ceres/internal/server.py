@@ -50,11 +50,6 @@ class Server(Tasklet):
 
 
 class Uvicorn(BaseUvicorn):
-    def __init__(self, config: UvicornConfig) -> None:
-        super().__init__(config)
-        if not hasattr(self, "servers"):
-            self.servers = []
-
     async def serve(self, sockets: Any = None) -> None:
         logs.setup()
         await super().serve(sockets)
@@ -79,4 +74,5 @@ class Uvicorn(BaseUvicorn):
             return_exceptions=True
         )
 
-        await super().shutdown(sockets)
+        if hasattr(self, "servers"):
+            await super().shutdown(sockets)

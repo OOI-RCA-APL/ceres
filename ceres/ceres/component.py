@@ -367,7 +367,7 @@ class Component(ValidatedDataclass, Tasklet):
             target = getattr(self.references, binding.address.name, None)
             if not isinstance(target, Component):
                 continue
-            if target.context.address != event.address:
+            if target.context.id != event.component_id:
                 continue
 
             if method := getattr(self, binding.function, None):

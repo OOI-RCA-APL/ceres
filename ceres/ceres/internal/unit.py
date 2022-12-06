@@ -1,6 +1,6 @@
 import asyncio
 import traceback
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from logging import Logger
 from multiprocessing.managers import SyncManager
 from queue import Queue as ThreadSafeQueue
@@ -17,7 +17,7 @@ from typing import (
     final,
     runtime_checkable,
 )
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from ..address import ComponentAddress, LocalComponentAddress, UnitAddress
 from ..alert import Alert
@@ -73,14 +73,25 @@ class _QueueLike(Protocol, Generic[_T]):
         ...
 
 
+@dataclass(kw_only=True, frozen=True)
+class Subscriber:
+    id: UUID = field(default_factory=uuid4)
+    queue: _QueueLike[object | None]
+
+
+@dataclass(kw_only=True, frozen=True)
+class Subscription:
+    task: asyncio.Task[None]
+
+
 class UnitProxyProtocol(Protocol):
-    def run_sync(self) -> None | BaseException:
+    def remote_run(self) -> None | BaseException:
         ...
 
-    def stop_sync(self) -> None | BaseException:
+    def remote_stop(self) -> None | BaseException:
         ...
 
-    def call_sync(
+    def remote_call(
         self,
         address: LocalComponentAddress,
         kind: CallableProcedureKind,
@@ -89,14 +100,17 @@ class UnitProxyProtocol(Protocol):
     ) -> Result[object | None, ProcedureError] | BaseException:
         ...
 
-    def subscribe_sync(
+    def remote_subscribe(
         self,
-        queue: _QueueLike[object | None],
+        subscriber: Subscriber,
         address: LocalComponentAddress,
         kind: SubscribableProcedureKind,
         procedure: str,
         input: object | None = None,
     ) -> Result[None, ProcedureError] | BaseException:
+        ...
+
+    def remote_unsubscribe(self, subscriber_id: UUID) -> None:
         ...
 
 
@@ -107,6 +121,7 @@ class Unit(UnitProxyProtocol, Tasklet):
         self._database = DatabaseManager(self._context.root_config.database)
         self._components: dict[str, ComponentHandle[Component]] = {}
         self._loop = setup_event_loop()
+        self._subscriptions: dict[UUID, Subscription] = {}
         self._message_buffer = EntityBuffer(
             MessageEntity,
             2500,
@@ -193,7 +208,7 @@ class Unit(UnitProxyProtocol, Tasklet):
             )
         )
 
-    def run_sync(self) -> None | BaseException:
+    def remote_run(self) -> None | BaseException:
         try:
             self._loop.run_until_complete(self.run())
         except BaseException as exception:
@@ -202,10 +217,10 @@ class Unit(UnitProxyProtocol, Tasklet):
 
         return None
 
-    def stop_sync(self) -> None | BaseException:
+    def remote_stop(self) -> None | BaseException:
         return asyncio.run_coroutine_threadsafe(self.stop(), self._loop).exception()
 
-    def call_sync(
+    def remote_call(
         self,
         address: LocalComponentAddress,
         kind: CallableProcedureKind,
@@ -222,32 +237,45 @@ class Unit(UnitProxyProtocol, Tasklet):
         except BaseException as exception:
             return exception
 
-    def subscribe_sync(
+    def remote_subscribe(
         self,
-        queue: _QueueLike[object | None],
+        subscriber: Subscriber,
         address: LocalComponentAddress,
         kind: SubscribableProcedureKind,
         procedure: str,
         input: object | None = None,
     ) -> Result[None, ProcedureError] | BaseException:
-        async def feed() -> Result[None, ProcedureError]:
+        async def subscribe() -> Result[asyncio.Task[None], ProcedureError]:
             match await self.subscribe(address, kind, procedure, input):
                 case Ok(values):
                     pass
                 case Fail() as fail:
                     return fail
 
-            async for value in values:
-                queue.put_nowait(value)
+            async def feed() -> None:
+                async for value in values:
+                    subscriber.queue.put_nowait(value)
 
-            return Ok(None)
+            return Ok(asyncio.create_task(feed()))
 
-        future = asyncio.run_coroutine_threadsafe(feed(), self._loop)
+        future = asyncio.run_coroutine_threadsafe(subscribe(), self._loop)
 
         try:
-            return future.result()
+            match future.result():
+                case Ok(task):
+                    pass
+                case Fail() as fail:
+                    return fail
         except BaseException as exception:
             return exception
+
+        state = Subscription(task=task)
+        self._subscriptions[subscriber.id] = state
+        return Ok(None)
+
+    def remote_unsubscribe(self, subscriber_id: UUID) -> None:
+        if (subscription := self._subscriptions.pop(subscriber_id, None)) is not None:
+            subscription.task.cancel()
 
     async def call(
         self,
@@ -420,7 +448,7 @@ class UnitHandle(Tasklet):
                     self._instance = Unit(self._context)
 
             try:
-                result = self._instance.run_sync()
+                result = self._instance.remote_run()
             except EOFError:
                 result = None
 
@@ -436,7 +464,7 @@ class UnitHandle(Tasklet):
             with self._lock:
                 if self._instance:
                     try:
-                        result = self._instance.stop_sync()
+                        result = self._instance.remote_stop()
                     except EOFError:
                         result = None
                     finally:
@@ -466,7 +494,7 @@ class UnitHandle(Tasklet):
                 return Fail(ProcedureComponentNotLoadedError())
 
             try:
-                result = self.instance.call_sync(address, kind, procedure, input)
+                result = self.instance.remote_call(address, kind, procedure, input)
             except EOFError:
                 return Fail(ProcedureComponentNotLoadedError())
 
@@ -492,22 +520,20 @@ class UnitHandle(Tasklet):
         ):
             return Fail(ProcedureComponentNotLoadedError())
 
+        instance = self.instance
+
         match self.concurrency:
             case Concurrency.PROCESS:
                 queue = cast(Any, self._process).Queue()
             case Concurrency.THREAD:
                 queue = cast(Any, ThreadSafeQueue())
 
+        subscriber = Subscriber(queue=queue)
         values: Stream[object | None] = Stream()
 
-        def subscriber_thread() -> Result[None, ProcedureError]:
-            if self.instance is None or (
-                self.concurrency == Concurrency.PROCESS and self._process is None
-            ):
-                return Fail(ProcedureComponentNotLoadedError())
-
+        def subscribe() -> Result[None, ProcedureError]:
             try:
-                result = self.instance.subscribe_sync(queue, address, kind, procedure, input)
+                result = instance.remote_subscribe(subscriber, address, kind, procedure, input)
             except EOFError:
                 return Fail(ProcedureComponentNotLoadedError())
 
@@ -517,22 +543,33 @@ class UnitHandle(Tasklet):
                 )
                 return Fail(ProcedureExceptionError(traceback=traceback.format_exception(result)))
 
-            return Ok(None)
+            return result
 
-        def deque_thread() -> None:
+        def unsubscribe() -> None:
+            instance.remote_unsubscribe(subscriber.id)
+
+        def deque() -> None:
             while True:
-                values.put(queue.get())
+                values.put(subscriber.queue.get())
 
-        # TODO: Actually handle the result of this.
-        subscriber_task = asyncio.create_task(asyncio.to_thread(subscriber_thread))
-        deque_task = asyncio.create_task(asyncio.to_thread(deque_thread))
+        match await asyncio.to_thread(subscribe):
+            case Ok():
+                pass
+            case Fail() as fail:
+                return fail
+
+        deque_task = asyncio.create_task(asyncio.to_thread(deque))
 
         async def iterate() -> AsyncIterable[object | None]:
             try:
                 async for value in values:
                     yield value
             finally:
-                subscriber_task.cancel()
-                deque_task.cancel()
+                try:
+                    await asyncio.to_thread(unsubscribe)
+                except EOFError:
+                    pass
+                finally:
+                    deque_task.cancel()
 
         return Ok(iterate())
