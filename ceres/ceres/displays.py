@@ -30,18 +30,18 @@ class DisplayKind(str, Enum):
     GUAGE = "guage"
 
 
-class BaseDisplayInfo(ImmutableDataObject):
+class BaseDisplay(ImmutableDataObject):
     kind: str
 
 
-class NumberDisplayInfo(ImmutableDataObject):
+class NumberDisplay(ImmutableDataObject):
     kind: Literal[DisplayKind.NUMBER] = DisplayKind.NUMBER
     value: float
     unit: str | None = None
     color: Sequence[ColorStop] | Color | None = None
 
 
-class StateDisplayInfo(ImmutableDataObject):
+class StateDisplay(ImmutableDataObject):
     kind: Literal[DisplayKind.STATE] = DisplayKind.STATE
     value: str | float
     options: Sequence[StateInfo]
@@ -53,7 +53,7 @@ IndicatorColor = Literal["red", "yellow", "orange", "blue", "green"]
 IndicatorSize = Literal["xxs", "xs", "sm", "md", "lg", "xl", "xxl"]
 
 
-class IndicatorDisplayInfo(ImmutableDataObject):
+class IndicatorDisplay(ImmutableDataObject):
     kind: Literal[DisplayKind.INDICATOR] = DisplayKind.INDICATOR
     label: str
     value: bool
@@ -62,7 +62,7 @@ class IndicatorDisplayInfo(ImmutableDataObject):
     reversed: bool = False
 
 
-class GuageDisplayInfo(ImmutableDataObject):
+class GuageDisplay(ImmutableDataObject):
     kind: Literal[DisplayKind.GUAGE] = DisplayKind.GUAGE
     value: float
     unit: str | None = None

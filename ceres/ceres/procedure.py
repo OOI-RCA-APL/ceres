@@ -270,7 +270,7 @@ def subscription(
 def display(
     name: str,
     *,
-    dedupe: bool = False,
+    dedupe: bool = True,
 ) -> Callable[[_SubscribableProcedureFunctionT], _SubscribableProcedureFunctionT]:
     def bind(function: _SubscribableProcedureFunctionT) -> _SubscribableProcedureFunctionT:
         schemas = _validate_procedure(function, ProcedureKind.SUBSCRIPTION)

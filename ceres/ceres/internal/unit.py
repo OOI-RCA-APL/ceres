@@ -566,7 +566,7 @@ class UnitHandle(Tasklet):
             cancelled=cancelled,
         )
 
-        self.logger.info("subscribed: " + str(subscription.id))
+        self.logger.info(f"Subscribed: {subscription.id}")
         return Ok(subscription)
 
     async def unsubscribe(self, subscription: Subscription) -> None:
@@ -575,7 +575,7 @@ class UnitHandle(Tasklet):
 
         try:
             await spawn(self.instance.remote_unsubscribe, subscription.id)
-            self.logger.info("unsubscribed: " + str(subscription.id))
+            self.logger.info(f"Unsubscribed: {subscription.id}")
         finally:
             subscription.task.cancel()
             subscription.cancelled.set()
