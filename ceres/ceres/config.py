@@ -2,7 +2,7 @@ import itertools
 from datetime import timedelta
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping, Sequence
+from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping, Sequence, Union
 
 from pydantic import Field, SecretStr, parse_obj_as, validator
 from typing_extensions import Self
@@ -31,7 +31,7 @@ class ComponentKind(str, Enum):
 class ComponentConfig(ConfigObject):
     kind: ComponentKind
     name: NameStr
-    component: str | object
+    component: Union[str, type[Component], Component]
     parameters: Mapping[NameStr, Any] = Field(default_factory=dict)
     references: Mapping[NameStr, NameStr] = Field(default_factory=dict)
 
@@ -126,7 +126,7 @@ class RuntimeConfig(ConfigObject):
 
 
 class Config(ConfigObject):
-    server: ServerConfig
+    server: ServerConfig | None = None
     database: DatabaseConfig = Field(discriminator="kind")
     runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
     units: Sequence[UnitConfig] = Field(default_factory=list)
@@ -190,3 +190,8 @@ class Config(ConfigObject):
                 return cls
             case _:
                 return None
+
+
+from .component import Component
+
+ComponentConfig.update_forward_refs()

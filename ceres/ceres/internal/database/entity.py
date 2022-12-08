@@ -36,6 +36,8 @@ from ..utilities import snakecase
 
 if TYPE_CHECKING:
     from .manager import DatabaseManager
+else:
+    DatabaseManager = "DatabaseManager"
 
 
 def _TypedEnum(cls: type[BaseEnum]) -> Enum:
@@ -151,7 +153,7 @@ _OrderByValue = TypeVar("_OrderByValue", bound=ColumnElement[Any] | ExpressionEl
 
 
 class EntityManager:
-    def __init__(self, database: "DatabaseManager") -> None:
+    def __init__(self, database: DatabaseManager) -> None:
         self._database = database
 
     async def get_address_id(self, address: Address) -> UUID:

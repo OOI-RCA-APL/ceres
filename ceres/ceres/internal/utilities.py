@@ -417,3 +417,17 @@ def get_or_cancel(queue: QueueLike[_T], cancelled: ThreadEvent) -> _T:
             pass
 
     raise Empty()
+
+
+def lenient_isinstance(obj: object, cls: type[_T] | None) -> TypeGuard[_T]:
+    try:
+        return isinstance(obj, cls)  # type: ignore
+    except TypeError:
+        return False
+
+
+def lenient_issubclass(obj: object, cls: type[_T] | None) -> TypeGuard[type[_T]]:
+    try:
+        return isinstance(obj, type) and issubclass(obj, cls)  # type: ignore
+    except TypeError:
+        return False

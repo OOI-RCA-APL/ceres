@@ -55,7 +55,12 @@ class Engine(Tasklet):
     def __init__(self, config: Config) -> None:
         self._config = config
         self._config_queue: Queue[Config] = Queue()
-        self._server = Server(App(self), self._config.server)
+
+        if self._config.server:
+            self._server = Server(App(self), self._config.server)
+        else:
+            self._server = None
+
         self._database = DatabaseManager(self._config.database)
         self._units: dict[UnitAddress, UnitHandle] = {}
         self._reloading = Event()
@@ -315,7 +320,7 @@ class Engine(Tasklet):
         self.logger.info("Reload completed.")
 
     async def _start_server(self) -> None:
-        if self._server.running:
+        if not self._server or self._server.running:
             return
 
         self.logger.info("Starting server...")
@@ -325,7 +330,7 @@ class Engine(Tasklet):
         )
 
     async def _stop_server(self) -> None:
-        if not self._server.running:
+        if not self._server or not self._server.running:
             return
 
         self.logger.info("Stopping server...")

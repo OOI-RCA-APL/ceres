@@ -30,27 +30,38 @@ from ..notifier import Notifier
 from ..result import Fail, Ok, Result
 from . import logs
 from .tasklet import Tasklet
-from .utilities import cached, get_type_annotations, object_has_field, strify
+from .utilities import (
+    cached,
+    get_type_annotations,
+    lenient_isinstance,
+    lenient_issubclass,
+    object_has_field,
+    strify,
+)
 
 if TYPE_CHECKING:
     from .unit import Unit
+else:
+    Unit = "Unit"
 
-LoadedComponentT = TypeVar("LoadedComponentT", bound=Component)
+_ComponentT = TypeVar("_ComponentT", bound=Component)
 
 
 def load_component_cls(
-    supercls: type[LoadedComponentT],
+    supercls: type[_ComponentT],
     config: ComponentConfig,
-) -> Result[type[LoadedComponentT], ComponentError]:
+) -> Result[type[_ComponentT], ComponentError]:
     if not isinstance(config.component, str):
-        if not isinstance(config.component, supercls):
-            return Fail(
-                ComponentClassInvalidError(
-                    message=f"component passed in configuration must be an instance of {strify(supercls)}, got {strify(config.component)}"
-                )
-            )
+        if lenient_issubclass(config.component, supercls) or lenient_isinstance(
+            config.component, supercls
+        ):
+            return Ok(type(config.component))
 
-        return Ok(type(config.component))
+        return Fail(
+            ComponentClassInvalidError(
+                message=f"component passed in configuration must be a subclass or instance of {strify(supercls)}, got {strify(config.component)}"
+            )
+        )
 
     last_dot_index = config.component.rindex(".")
     cls_module_path = config.component[:last_dot_index]
@@ -73,7 +84,7 @@ def load_component_cls(
             )
         )
 
-    cls: type[LoadedComponentT] = getattr(module, cls_name, None)  # type: ignore
+    cls: type[_ComponentT] = getattr(module, cls_name, None)  # type: ignore
     if cls is None:
         return Fail(
             ComponentClassNotFoundError(
@@ -106,11 +117,14 @@ def _get_reference_mapping(
 
 
 def load_component(
-    supercls: type[LoadedComponentT],
+    supercls: type[_ComponentT],
     config: ComponentConfig,
     context: Component.CompleteContext,
     siblings: Mapping[str, Component],
-) -> Result[LoadedComponentT, ComponentError]:
+) -> Result[_ComponentT, ComponentError]:
+    if lenient_isinstance(config.component, supercls):
+        return Ok(config.component)
+
     match load_component_cls(supercls, config):
         case Ok(cls):
             pass
@@ -118,7 +132,7 @@ def load_component(
             return Fail(error)
 
     if not isinstance(config.component, str):
-        return Ok(cast(LoadedComponentT, config.component))
+        return Ok(cast(_ComponentT, config.component))
 
     parameters_type = cls.get_parameters_type()
     context_type = cls.get_context_type()
@@ -211,7 +225,7 @@ class ComponentHandleContext:
     root_config: Config
     unit_config: UnitConfig
     component_config: ComponentConfig
-    unit: "Unit"
+    unit: Unit
 
     def __post_init__(self) -> None:
         assert self.root_config.get_component(self.address)

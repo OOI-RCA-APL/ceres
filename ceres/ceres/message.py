@@ -11,6 +11,8 @@ from .datetime import utc
 
 if TYPE_CHECKING:
     from .internal.database.entity import MessageEntity
+else:
+    MessageEntity = "MessageEntity"
 
 
 class MessageDirection(str, Enum):
@@ -49,7 +51,7 @@ class Message(ImmutableDataObject):
     content: bytes
 
     @classmethod
-    def create_from(cls, other: Union[MessageLike, "MessageEntity"]) -> Self:
+    def create_from(cls, other: Union[MessageLike, MessageEntity]) -> Self:
         return cls(
             id=other.id,
             component_id=other.component_id,
