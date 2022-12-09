@@ -108,7 +108,7 @@ class Unit(UnitProxyProtocol, Tasklet):
     def __init__(self, context: UnitContext) -> None:
         self._context = context
         self._database = DatabaseManager(self._context.root_config.database)
-        self._components: dict[str, ComponentHandle[Component]] = {}
+        self._component_handles: dict[str, ComponentHandle[Component]] = {}
         self._loop = setup_event_loop()
         self._subscription_feeds: dict[UUID, SubscriptionFeed] = {}
         self._message_buffer = EntityBuffer(
@@ -146,13 +146,13 @@ class Unit(UnitProxyProtocol, Tasklet):
 
     @property
     def components(self) -> Mapping[str, ComponentHandle[Component]]:
-        return MappingProxyType(self._components)
+        return MappingProxyType(self._component_handles)
 
     def get_component_handle(
         self,
         address: str | LocalComponentAddress,
     ) -> ComponentHandle[Component] | None:
-        return self._components.get(address if isinstance(address, str) else address.name)
+        return self._component_handles.get(address if isinstance(address, str) else address.name)
 
     async def dispatch_event(self, event: Event) -> None:
         for component in self.components.values():
@@ -339,7 +339,7 @@ class Unit(UnitProxyProtocol, Tasklet):
         for component_config in self.config.components:
             address = ComponentAddress(self.address.name, component_config.name)
 
-            if component_config.name in self._components:
+            if component_config.name in self._component_handles:
                 continue
 
             id = await self._database.entities.get_address_id(address)
@@ -352,7 +352,7 @@ class Unit(UnitProxyProtocol, Tasklet):
                 case ComponentKind.NOTIFIER:
                     cls = NotifierHandle
 
-            self._components[component_config.name] = cls(
+            self._component_handles[component_config.name] = cls(
                 ComponentHandleContext(
                     id=id,
                     address=address,
@@ -363,28 +363,28 @@ class Unit(UnitProxyProtocol, Tasklet):
                 )
             )
 
-        for handle in self._components.values():
-            match await handle.load():
+        for component_handle in self._component_handles.values():
+            match await component_handle.load():
                 case Ok():
                     self.logger.info(
-                        f"Loaded '{handle.address}' as {strify(type(handle.instance))} with id '{handle.id}'."
+                        f"Loaded '{component_handle.address}' as {strify(type(component_handle.instance))} with id '{component_handle.id}'."
                     )
                 case Fail(error):
                     self.logger.error(
-                        f"Failed to load component '{handle.address}'. Error: {jsonify(error, indent=2)}"
+                        f"Failed to load component '{component_handle.address}'. Error: {jsonify(error, indent=2)}"
                     )
 
     def _on_component_exception(
         self,
-        component: ComponentHandle[Component],
+        component_handle: ComponentHandle[Component],
         exception: BaseException,
     ) -> None:
         self.logger.error(
-            f"Exception occurred in component '{component.address}': {traceback.format_exception(exception)}"
+            f"Exception occurred in component '{component_handle.address}': {traceback.format_exception(exception)}"
         )
 
-    def _on_component_completed(self, component: ComponentHandle[Component]) -> None:
-        self.logger.info(f"Component '{component.address}' stopped.")
+    def _on_component_completed(self, handle: ComponentHandle[Component]) -> None:
+        self.logger.info(f"Component '{handle.address}' stopped.")
 
 
 class UnitProcess(SyncManager):

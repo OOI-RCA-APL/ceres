@@ -144,13 +144,13 @@ ReloadError = ReloadConfigInvalidError | ReloadAlreadyActiveError
 
 
 class ProcedureErrorKind(str, Enum):
-    UNIT_DOES_NOT_EXIST = "unit-does-not-exist"
-    COMPONENT_DOES_NOT_EXIST = "component-does-not-exist"
-    COMPONENT_NOT_LOADED = "component-not-loaded"
-    DOES_NOT_EXIST = "does-not-exist"
-    INVALID_INPUT = "invalid-input"
-    CANCELLED = "cancelled"
-    EXCEPTION = "exception"
+    UNIT_DOES_NOT_EXIST = "procedure-unit-does-not-exist"
+    COMPONENT_DOES_NOT_EXIST = "procedure-component-does-not-exist"
+    COMPONENT_NOT_LOADED = "procedure-component-not-loaded"
+    DOES_NOT_EXIST = "procedure-does-not-exist"
+    INVALID_INPUT = "procedure-invalid-input"
+    CANCELLED = "procedure-cancelled"
+    EXCEPTION = "procedure-exception"
 
 
 class BaseProcedureError(Error):

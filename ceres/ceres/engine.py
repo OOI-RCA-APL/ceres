@@ -62,7 +62,7 @@ class Engine(Tasklet):
             self._server = None
 
         self._database = DatabaseManager(self._config.database)
-        self._units: dict[UnitAddress, UnitHandle] = {}
+        self._unit_handles: dict[UnitAddress, UnitHandle] = {}
         self._reloading = Event()
         self._message_stream: Stream[Message] = Stream()
         self._alert_stream: Stream[Alert] = Stream()
@@ -241,10 +241,10 @@ class Engine(Tasklet):
         procedure: str,
         input: object | None = None,
     ) -> Result[object | None, ProcedureError]:
-        if (unit := self._units.get(UnitAddress(address.unit))) is None:
+        if (unit_handle := self._unit_handles.get(UnitAddress(address.unit))) is None:
             raise ValueError(f"unit at {address} does not exist")
 
-        return await unit.call(
+        return await unit_handle.call(
             LocalComponentAddress(address.name),
             kind,
             procedure,
@@ -258,10 +258,10 @@ class Engine(Tasklet):
         procedure: str,
         input: object | None = None,
     ) -> Result[Subscription, ProcedureError]:
-        if (unit := self._units.get(UnitAddress(address.unit))) is None:
+        if (unit_handle := self._unit_handles.get(UnitAddress(address.unit))) is None:
             return Fail(ProcedureUnitDoesNotExistError())
 
-        return await unit.subscribe(
+        return await unit_handle.subscribe(
             LocalComponentAddress(address.name),
             kind,
             procedure,
@@ -269,10 +269,10 @@ class Engine(Tasklet):
         )
 
     async def unsubscribe(self, address: ComponentAddress, subscription: Subscription) -> None:
-        if (unit := self._units.get(UnitAddress(address.unit))) is None:
+        if (unit_handle := self._unit_handles.get(UnitAddress(address.unit))) is None:
             return
 
-        await unit.unsubscribe(subscription)
+        await unit_handle.unsubscribe(subscription)
 
     async def _reload(self) -> None:
         self.logger.info("Reloading...")
@@ -348,26 +348,26 @@ class Engine(Tasklet):
         actions = self._get_unit_sync_actions()
 
         for action in actions:
-            unit = self._units.get(action.address)
+            unit_handle = self._unit_handles.get(action.address)
 
             if action.kind == UnitSyncActionKind.REMOVE:
-                if unit:
+                if unit_handle:
                     self.logger.info(f"Removing unit '{action.address}'...")
-                    await unit.stop()
-                    self._units.pop(unit.address, None)
+                    await unit_handle.stop()
+                    self._unit_handles.pop(unit_handle.address, None)
             else:
                 if action.kind == UnitSyncActionKind.START:
-                    if unit and unit.running:
+                    if unit_handle and unit_handle.running:
                         continue
 
                     self.logger.info(f"Starting unit '{action.address}'...")
                 elif action.kind == UnitSyncActionKind.RELOAD:
-                    if not unit:
+                    if not unit_handle:
                         continue
 
                     self.logger.info(f"Reloading unit '{action.address}'...")
-                    await unit.stop()
-                    self._units.pop(unit.address, None)
+                    await unit_handle.stop()
+                    self._unit_handles.pop(unit_handle.address, None)
 
                 if unit_config := unit_configs.get(action.address):
                     id = await self._database.entities.get_address_id(action.address)
@@ -378,9 +378,9 @@ class Engine(Tasklet):
                         unit_config=unit_config,
                     )
 
-                    unit = UnitHandle(context)
-                    self._units[action.address] = unit
-                    unit.start(
+                    unit_handle = UnitHandle(context)
+                    self._unit_handles[action.address] = unit_handle
+                    unit_handle.start(
                         on_completed=self._on_unit_completed,
                         on_exception=self._on_unit_exception,
                     )
@@ -388,17 +388,17 @@ class Engine(Tasklet):
         started = [
             action
             for action in actions
-            if action.kind == UnitSyncActionKind.START and action.address in self._units
+            if action.kind == UnitSyncActionKind.START and action.address in self._unit_handles
         ]
         reloaded = [
             action
             for action in actions
-            if action.kind == UnitSyncActionKind.RELOAD and action.address in self._units
+            if action.kind == UnitSyncActionKind.RELOAD and action.address in self._unit_handles
         ]
         removed = [
             action
             for action in actions
-            if action.kind == UnitSyncActionKind.REMOVE and action.address not in self._units
+            if action.kind == UnitSyncActionKind.REMOVE and action.address not in self._unit_handles
         ]
 
         if started:
@@ -409,19 +409,19 @@ class Engine(Tasklet):
             self.logger.info(f"{len(removed)} unit(s) removed.")
 
     async def _stop_units(self) -> None:
-        if not self._units:
+        if not self._unit_handles:
             return
 
         self.logger.info("Stopping all units...")
 
-        async def stop(unit: UnitHandle) -> None:
-            if unit.instance:
-                self.logger.info(f"Stopping unit '{unit.address}'...")
-                await unit.stop()
+        async def stop(unit_handle: UnitHandle) -> None:
+            if unit_handle.instance:
+                self.logger.info(f"Stopping unit '{unit_handle.address}'...")
+                await unit_handle.stop()
 
-            self._units.pop(unit.address, None)
+            self._unit_handles.pop(unit_handle.address, None)
 
-        await asyncio.gather(*(stop(unit) for unit in self._units.values()))
+        await asyncio.gather(*(stop(unit) for unit in self._unit_handles.values()))
 
         self.logger.info("All units were stopped successfully.")
 
@@ -430,22 +430,22 @@ class Engine(Tasklet):
             UnitAddress(current.name): current for current in self._config.units
         }
         units: dict[UnitAddress, UnitHandle] = {
-            current.address: current for current in self._units.values()
+            current.address: current for current in self._unit_handles.values()
         }
 
         actions: list[UnitSyncAction] = []
 
         for unit_address, unit_config in configs.items():
-            unit = units.get(unit_address)
-            if unit and unit.running and unit.config == unit_config:
+            unit_handle = units.get(unit_address)
+            if unit_handle and unit_handle.running and unit_handle.config == unit_config:
                 continue
 
-            if not unit or not unit.running:
+            if not unit_handle or not unit_handle.running:
                 actions.append(UnitSyncAction(address=unit_address, kind=UnitSyncActionKind.START))
-            elif unit.config != unit_config:
+            elif unit_handle.config != unit_config:
                 actions.append(UnitSyncAction(address=unit_address, kind=UnitSyncActionKind.RELOAD))
 
-        for unit_address, unit in self._units.items():
+        for unit_address, unit_handle in self._unit_handles.items():
             if unit_address not in configs:
                 actions.append(UnitSyncAction(address=unit_address, kind=UnitSyncActionKind.REMOVE))
 
@@ -459,12 +459,12 @@ class Engine(Tasklet):
             f"An exception occurred in server: {traceback.format_exception(exception)}"
         )
 
-    def _on_unit_completed(self, unit: UnitHandle) -> None:
-        self.logger.info(f"Unit '{unit.address}' stopped.")
-        self._units.pop(unit.address, None)
+    def _on_unit_completed(self, unit_handle: UnitHandle) -> None:
+        self.logger.info(f"Unit '{unit_handle.address}' stopped.")
+        self._unit_handles.pop(unit_handle.address, None)
 
-    def _on_unit_exception(self, unit: UnitHandle, exception: BaseException) -> None:
+    def _on_unit_exception(self, unit_handle: UnitHandle, exception: BaseException) -> None:
         self.logger.error(
-            f"An exception occurred in unit '{unit.address}': {traceback.format_exception(exception)}"
+            f"An exception occurred in unit '{unit_handle.address}': {traceback.format_exception(exception)}"
         )
-        self._units.pop(unit.address, None)
+        self._unit_handles.pop(unit_handle.address, None)
