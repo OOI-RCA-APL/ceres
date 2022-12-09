@@ -22,15 +22,13 @@ class ConfigObject(ImmutableDataObject):
     pass
 
 
-class ComponentKind(str, Enum):
+class ComponentRoleKind(str, Enum):
     CONNECTION = "connection"
-    DRIVER = "driver"
-    NOTIFIER = "notifier"
 
 
 class ComponentConfig(ConfigObject):
-    kind: ComponentKind
     name: NameStr
+    roles: Sequence[ComponentRoleKind] = Field(default_factory=list)
     component: Union[str, type[Component], Component]
     parameters: Mapping[NameStr, Any] = Field(default_factory=dict)
     references: Mapping[NameStr, NameStr] = Field(default_factory=dict)
@@ -85,7 +83,7 @@ class PostgresDatabaseConfig(BaseDatabaseConfig):
 DatabaseConfig = SQLiteDatabaseConfig | PostgresDatabaseConfig
 
 
-class Concurrency(str, Enum):
+class ConcurrencyKind(str, Enum):
     THREAD = "thread"
     PROCESS = "process"
 
@@ -93,7 +91,7 @@ class Concurrency(str, Enum):
 class UnitConfig(ConfigObject):
     name: NameStr
     components: Sequence[ComponentConfig] = Field(default_factory=list)
-    concurrency: Concurrency | None = None
+    concurrency: ConcurrencyKind | None = None
 
     @validator("components")
     def _validate_components(
@@ -122,7 +120,7 @@ class UnitConfig(ConfigObject):
 
 
 class RuntimeConfig(ConfigObject):
-    concurrency: Concurrency = Concurrency.THREAD
+    concurrency: ConcurrencyKind = ConcurrencyKind.THREAD
 
 
 class Config(ConfigObject):
@@ -182,10 +180,9 @@ class Config(ConfigObject):
         if config is None:
             return None
 
-        from .component import Component
         from .internal.component import load_component_cls
 
-        match load_component_cls(Component, config):
+        match load_component_cls(config):
             case Ok(cls):
                 return cls
             case _:

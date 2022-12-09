@@ -1,20 +1,21 @@
 import traceback
 from logging import Logger
-from typing import Generic, TypeVar
+from typing import Generic, TypeVar, final
 
 from ...config import DatabaseKind
+from . import Database
 from .entity import Entity
-from .manager import DatabaseManager
 
 _EntityT = TypeVar("_EntityT", bound=Entity)
 
 
-class EntityBuffer(Generic[_EntityT]):
+@final
+class EntityWriteBuffer(Generic[_EntityT]):
     def __init__(
         self,
         cls: type[_EntityT],
         max_size: int,
-        database: DatabaseManager,
+        database: Database,
         logger: Logger | None = None,  # TODO: Remove this.
     ) -> None:
         self._cls = cls

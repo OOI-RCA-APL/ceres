@@ -2,6 +2,7 @@ import asyncio
 from asyncio import StreamReader, StreamWriter
 from dataclasses import dataclass
 from datetime import timedelta
+from typing import final
 
 from ...connection import Connection
 from ...exceptions import ConnectionInactiveException, ConnectionLostException
@@ -13,6 +14,7 @@ class _Stream:
     writer: StreamWriter
 
 
+@final
 class TCPConnection(Connection):
     class Parameters(Connection.Parameters):
         host: str

@@ -1,14 +1,15 @@
 from sqlite3 import Connection as SQLiteConnection
-from typing import Any
+from typing import Any, final
 
 from sqlalchemy import event
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from ...config import SQLiteDatabaseConfig
-from .adapter import DatabaseAdapter
+from ....config import SQLiteDatabaseConfig
+from ..adapter import DatabaseAdapter
 
 
+@final
 class SQLiteDatabaseAdapter(DatabaseAdapter[SQLiteDatabaseConfig]):
     def get_engine_url(self) -> str:
         return f"sqlite+aiosqlite:///{self.config.path.resolve()}"
@@ -22,7 +23,7 @@ class SQLiteDatabaseAdapter(DatabaseAdapter[SQLiteDatabaseConfig]):
             #   1. Automatically emitting "BEGIN"
             #   2. Automatically emitting "COMMIT" before any DDL
             # https://docs.sqlalchemy.org/en/latest/dialects/sqlite.html#serializable-isolation-savepoints-transactional-ddl
-            connection.isolation_level = None
+            # connection.isolation_level = None
             # Enable foreign key handling by default.
             # https://docs.sqlalchemy.org/en/latest/dialects/sqlite.html#foreign-key-support
             connection.execute("PRAGMA foreign_keys=ON")

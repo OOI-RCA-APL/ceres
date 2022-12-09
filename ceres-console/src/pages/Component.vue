@@ -2,7 +2,7 @@
   <full-page :title="title">
     <template #header-append>
       <q-chip
-        v-if="componentConfig?.kind === 'connection'"
+        v-if="componentConfig?.roles.includes('connection')"
         class="q-ml-xs text-capitalize"
         :color="(componentConfig as any)['state'] === 'connected' ? 'positive' : 'warning'"
         dense
@@ -13,7 +13,7 @@
       <q-space />
       <unit-controls v-if="unitConfig" class="q-mr-md" :unit-name="unitName" />
     </template>
-    <div v-if="unitConfig && componentConfig?.kind === 'connection'" class="q-pa-md">
+    <div v-if="unitConfig && componentConfig?.roles.includes('connection')" class="q-pa-md">
       <section-card class="q-mb-sm" padding title="Info">
         <q-markup-table bordered class="q-mb-sm" dense flat separator="vertical">
           <thead>

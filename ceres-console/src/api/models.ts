@@ -29,12 +29,12 @@ export const AlertModel = Zod.object({
   info: Zod.record(Zod.string(), Zod.unknown()).default(() => ({})),
 })
 
-export type ComponentKind = Zod.infer<typeof ComponentKindModel>
-export const ComponentKindModel = Zod.enum(['connection', 'driver', 'notifier'])
+export type ComponentRoleKind = Zod.infer<typeof ComponentRoleKindModel>
+export const ComponentRoleKindModel = Zod.enum(['connection'])
 
 export const ComponentConfigModel = Zod.object({
-  kind: ComponentKindModel,
   name: NameStrModel,
+  roles: Zod.array(ComponentRoleKindModel).default(() => []),
   component: Zod.string(),
   parameters: Zod.record(NameStrModel, Zod.unknown()).default(() => ({})),
   references: Zod.record(NameStrModel, NameStrModel).default(() => ({})),

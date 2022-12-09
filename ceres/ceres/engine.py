@@ -28,7 +28,7 @@ from .exceptions import (
 from .internal import logs
 from .internal.app import App
 from .internal.config import load_config
-from .internal.database.manager import DatabaseManager
+from .internal.database import Database
 from .internal.server import Server
 from .internal.tasklet import Tasklet
 from .internal.unit import Subscription, UnitContext, UnitHandle
@@ -61,7 +61,7 @@ class Engine(Tasklet):
         else:
             self._server = None
 
-        self._database = DatabaseManager(self._config.database)
+        self._database = Database(self._config.database)
         self._unit_handles: dict[UnitAddress, UnitHandle] = {}
         self._reloading = Event()
         self._message_stream: Stream[Message] = Stream()
@@ -87,7 +87,7 @@ class Engine(Tasklet):
         return self._config
 
     @property
-    def database(self) -> DatabaseManager:
+    def database(self) -> Database:
         return self._database
 
     @property
@@ -302,7 +302,7 @@ class Engine(Tasklet):
             try:
                 await self._stop_units()
                 await self._database.dispose()
-                self._database = DatabaseManager(self._config.database)
+                self._database = Database(self._config.database)
             except Exception:
                 self.logger.error(
                     f"An issue occurred while reloading units and database: {traceback.format_exc()}"

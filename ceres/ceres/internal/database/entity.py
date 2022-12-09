@@ -1,7 +1,7 @@
 import dataclasses
 from datetime import datetime
 from enum import Enum as BaseEnum
-from typing import TYPE_CHECKING, Any, Callable, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, TypeVar, final
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
@@ -35,9 +35,9 @@ from ...message import Message, MessageDirection
 from ..utilities import snakecase
 
 if TYPE_CHECKING:
-    from .manager import DatabaseManager
+    from . import Database
 else:
-    DatabaseManager = "DatabaseManager"
+    Database = "DatabaseManager"
 
 
 def _TypedEnum(cls: type[BaseEnum]) -> Enum:
@@ -69,6 +69,7 @@ class Entity(MappedAsDataclass, DeclarativeBase):
         return dataclasses.asdict(self)
 
 
+@final
 class UnitEntity(Entity):
     __tablename__ = "units"
 
@@ -85,6 +86,7 @@ class UnitEntity(Entity):
         return relationship("ComponentEntity", back_populates="unit")
 
 
+@final
 class ComponentEntity(Entity):
     __tablename__ = "components"
     id: Mapped[UUID] = mapped_column(Uuid)
@@ -105,6 +107,7 @@ class ComponentEntity(Entity):
     )
 
 
+@final
 class MessageEntity(Entity):
     __tablename__ = "messages"
 
@@ -126,6 +129,7 @@ class MessageEntity(Entity):
     )
 
 
+@final
 class AlertEntity(Entity):
     __tablename__ = "alerts"
 
@@ -147,13 +151,13 @@ class AlertEntity(Entity):
 
 
 _EntityT = TypeVar("_EntityT", bound=Entity)
+_WhereT = TypeVar("_WhereT", bound=ColumnElement[bool] | ExpressionElementRole[bool])
+_OrderByT = TypeVar("_OrderByT", bound=ColumnElement[Any] | ExpressionElementRole[Any])
 
-_WhereValue = TypeVar("_WhereValue", bound=ColumnElement[bool] | ExpressionElementRole[bool])
-_OrderByValue = TypeVar("_OrderByValue", bound=ColumnElement[Any] | ExpressionElementRole[Any])
 
-
+@final
 class EntityManager:
-    def __init__(self, database: DatabaseManager) -> None:
+    def __init__(self, database: Database) -> None:
         self._database = database
 
     async def get_address_id(self, address: Address) -> UUID:
@@ -167,8 +171,8 @@ class EntityManager:
     async def get_alerts(
         self,
         *,
-        where: Callable[[type[AlertEntity]], _WhereValue] | None = None,
-        order_by: Callable[[type[AlertEntity]], _OrderByValue] | None = None,
+        where: Callable[[type[AlertEntity]], _WhereT] | None = None,
+        order_by: Callable[[type[AlertEntity]], _OrderByT] | None = None,
         limit: int | None = None,
     ) -> list[Alert]:
         entities = await self._get_entities(
@@ -183,8 +187,8 @@ class EntityManager:
     async def get_messages(
         self,
         *,
-        where: Callable[[type[MessageEntity]], _WhereValue] | None = None,
-        order_by: Callable[[type[MessageEntity]], _OrderByValue] | None = None,
+        where: Callable[[type[MessageEntity]], _WhereT] | None = None,
+        order_by: Callable[[type[MessageEntity]], _OrderByT] | None = None,
         limit: int | None = None,
     ) -> list[Message]:
         entities = await self._get_entities(
@@ -200,8 +204,8 @@ class EntityManager:
         self,
         cls: type[_EntityT],
         *,
-        where: Callable[[type[_EntityT]], _WhereValue] | None = None,
-        order_by: Callable[[type[_EntityT]], _OrderByValue] | None = None,
+        where: Callable[[type[_EntityT]], _WhereT] | None = None,
+        order_by: Callable[[type[_EntityT]], _OrderByT] | None = None,
         limit: int | None = None,
     ) -> list[_EntityT]:
         query = select(cls)

@@ -1,7 +1,10 @@
-from ...config import PostgresDatabaseConfig
-from .adapter import DatabaseAdapter
+from typing import final
+
+from ....config import PostgresDatabaseConfig
+from ..adapter import DatabaseAdapter
 
 
+@final
 class PostgresDatabaseAdapter(DatabaseAdapter[PostgresDatabaseConfig]):
     def get_engine_url(self) -> str:
         return (

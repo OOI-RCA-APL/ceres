@@ -35,33 +35,17 @@
           </q-tr>
         </tbody>
       </q-markup-table>
-      <q-markup-table v-if="drivers.length" bordered dense flat separator="vertical">
+      <q-markup-table v-if="components.length" bordered dense flat separator="vertical">
         <thead>
           <q-tr no-hover>
-            <q-th class="self-name-column text-left">Driver</q-th>
+            <q-th class="self-name-column text-left">Component</q-th>
             <q-th class="text-left">Enabled</q-th>
           </q-tr>
         </thead>
         <tbody>
-          <q-tr v-for="driver in drivers" :key="driver.name" no-hover>
-            <router-link class="text-link" :to="`/units/${name}/components/${driver.name}`">
-              <q-td class="self-name-column">@{{ name }}.{{ driver.name }}</q-td>
-            </router-link>
-            <q-td class="text-capitalize">Yes</q-td>
-          </q-tr>
-        </tbody>
-      </q-markup-table>
-      <q-markup-table v-if="notifiers.length" bordered dense flat separator="vertical">
-        <thead>
-          <q-tr no-hover>
-            <q-th class="self-name-column text-left">Driver</q-th>
-            <q-th class="text-left">Enabled</q-th>
-          </q-tr>
-        </thead>
-        <tbody>
-          <q-tr v-for="notifier in notifiers" :key="notifier.name" no-hover>
-            <router-link class="text-link" :to="`/units/${name}/components/${notifier.name}`">
-              <q-td class="self-name-column">@{{ name }}.{{ notifier.name }}</q-td>
+          <q-tr v-for="component in components" :key="component.name" no-hover>
+            <router-link class="text-link" :to="`/units/${name}/components/${component.name}`">
+              <q-td class="self-name-column">@{{ name }}.{{ component.name }}</q-td>
             </router-link>
             <q-td class="text-capitalize">Yes</q-td>
           </q-tr>
@@ -98,10 +82,8 @@ const title = $computed(() => {
 
 const components = $computed(() => unit?.components ?? [])
 const connections = $computed(() =>
-  components.filter((component) => component.kind === 'connection')
+  components.filter((component) => component.roles.includes('connection'))
 )
-const drivers = $computed(() => components.filter((component) => component.kind === 'driver'))
-const notifiers = $computed(() => components.filter((component) => component.kind === 'notifier'))
 </script>
 
 <style lang="scss" scoped>

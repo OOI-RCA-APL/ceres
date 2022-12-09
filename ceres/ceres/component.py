@@ -38,8 +38,8 @@ from .events import AlertEmittedEvent, Event
 from .exceptions import ComponentClassInvalidException
 from .internal import logs
 from .internal.binding import get_bindings
+from .internal.database import Database
 from .internal.database.entity import EntityManager
-from .internal.database.manager import DatabaseManager
 from .internal.tasklet import Tasklet
 from .internal.utilities import (
     awaitify,
@@ -165,7 +165,7 @@ class Component(ValidatedDataclass, Tasklet):
         root_config: Config
         unit_config: UnitConfig
         component_config: ComponentConfig
-        database: DatabaseManager
+        database: Database
         entities: EntityManager
 
     def __post_init__(self) -> None:

@@ -37,8 +37,8 @@ from ..procedure import (
 from ..result import Fail, Ok, Result
 from . import logs
 from .console import Console
+from .database import Database
 from .database.entity import EntityManager
-from .database.manager import DatabaseManager
 from .utilities import NameStr
 
 if TYPE_CHECKING:
@@ -70,7 +70,7 @@ def use_engine(connection: HTTPConnection) -> Engine:
     return connection.app.engine
 
 
-def use_database(connection: HTTPConnection) -> DatabaseManager:
+def use_database(connection: HTTPConnection) -> Database:
     return use_engine(connection).database
 
 

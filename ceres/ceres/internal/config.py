@@ -12,10 +12,8 @@ from yaml import MarkedYAMLError, YAMLError
 
 from ..address import ComponentAddress
 from ..component import Component
-from ..config import ComponentKind, Config, UnitConfig
-from ..connection import Connection
+from ..config import Config, UnitConfig
 from ..datetime import utc
-from ..driver import Driver
 from ..errors import (
     ConfigComponentError,
     ConfigDatabaseError,
@@ -26,10 +24,9 @@ from ..errors import (
     ConfigValidationError,
     ValidationProblem,
 )
-from ..notifier import Notifier
 from ..result import Fail, Ok, Result
 from .component import load_component
-from .database.manager import DatabaseManager
+from .database import Database
 from .utilities import show_td
 
 
@@ -118,7 +115,7 @@ async def _check_database(
     interval = config.database.retry.interval
 
     while True:
-        database = DatabaseManager(config.database)
+        database = Database(config.database)
 
         try:
             async with database.connect():
@@ -157,21 +154,13 @@ async def _check_components(
         components: dict[str, Component] = {}
 
         def check_components() -> Iterable[ConfigComponentError]:
-            database = DatabaseManager(config.database)
+            database = Database(config.database)
 
             for component_config in unit_config.components:
-                match component_config.kind:
-                    case ComponentKind.CONNECTION:
-                        cls: type[Component] = Connection
-                    case ComponentKind.DRIVER:
-                        cls = Driver
-                    case ComponentKind.NOTIFIER:
-                        cls = Notifier
 
                 address = ComponentAddress(unit_config.name, component_config.name)
                 log(f"Checking component '{address}'...")
                 match load_component(
-                    cls,
                     component_config,
                     Component.CompleteContext(
                         id=uuid4(),

@@ -12,8 +12,8 @@ from uuid import UUID, uuid4
 
 from ..address import ComponentAddress, LocalComponentAddress, UnitAddress
 from ..alert import Alert
-from ..component import CallableProcedureKind, Component, SubscribableProcedureKind
-from ..config import ComponentKind, Concurrency, Config, UnitConfig
+from ..component import CallableProcedureKind, SubscribableProcedureKind
+from ..config import ConcurrencyKind, Config, UnitConfig
 from ..data import jsonify
 from ..errors import (
     ProcedureComponentNotLoadedError,
@@ -25,16 +25,10 @@ from ..events import AlertEmittedEvent, Event, MessageReceivedEvent, MessageSent
 from ..message import Message, MessageDirection
 from ..result import Fail, Ok, Result
 from . import logs
-from .component import (
-    ComponentHandle,
-    ComponentHandleContext,
-    ConnectionHandle,
-    DriverHandle,
-    NotifierHandle,
-)
-from .database.buffer import EntityBuffer
+from .component import ComponentHandle, ComponentHandleContext
+from .database import Database
+from .database.buffer import EntityWriteBuffer
 from .database.entity import AlertEntity, MessageEntity
-from .database.manager import DatabaseManager
 from .tasklet import Tasklet
 from .utilities import QueueLike, get_or_cancel, setup_event_loop, spawn, strify
 
@@ -107,17 +101,17 @@ class UnitProxyProtocol(Protocol):
 class Unit(UnitProxyProtocol, Tasklet):
     def __init__(self, context: UnitContext) -> None:
         self._context = context
-        self._database = DatabaseManager(self._context.root_config.database)
-        self._component_handles: dict[str, ComponentHandle[Component]] = {}
+        self._database = Database(self._context.root_config.database)
+        self._component_handles: dict[str, ComponentHandle] = {}
         self._loop = setup_event_loop()
         self._subscription_feeds: dict[UUID, SubscriptionFeed] = {}
-        self._message_buffer = EntityBuffer(
+        self._message_write_buffer = EntityWriteBuffer(
             MessageEntity,
             2500,
             self._database,
             self.logger,
         )
-        self._alert_buffer = EntityBuffer(
+        self._alert_write_buffer = EntityWriteBuffer(
             AlertEntity,
             2500,
             self._database,
@@ -137,7 +131,7 @@ class Unit(UnitProxyProtocol, Tasklet):
         return self._context.unit_config
 
     @property
-    def database(self) -> DatabaseManager:
+    def database(self) -> Database:
         return self._database
 
     @property
@@ -145,13 +139,10 @@ class Unit(UnitProxyProtocol, Tasklet):
         return logs.get(str(self._context.address))
 
     @property
-    def components(self) -> Mapping[str, ComponentHandle[Component]]:
+    def components(self) -> Mapping[str, ComponentHandle]:
         return MappingProxyType(self._component_handles)
 
-    def get_component_handle(
-        self,
-        address: str | LocalComponentAddress,
-    ) -> ComponentHandle[Component] | None:
+    def get_component_handle(self, address: LocalComponentAddress) -> ComponentHandle | None:
         return self._component_handles.get(address if isinstance(address, str) else address.name)
 
     async def dispatch_event(self, event: Event) -> None:
@@ -175,7 +166,7 @@ class Unit(UnitProxyProtocol, Tasklet):
                 pass
 
     async def _handle_message(self, message: Message) -> None:
-        await self._message_buffer.add(
+        await self._message_write_buffer.add(
             MessageEntity(
                 id=message.id,
                 component_id=message.component_id,
@@ -186,7 +177,7 @@ class Unit(UnitProxyProtocol, Tasklet):
         )
 
     async def _handle_alert(self, alert: Alert) -> None:
-        await self._alert_buffer.add(
+        await self._alert_write_buffer.add(
             AlertEntity(
                 id=alert.id,
                 component_id=alert.component_id,
@@ -313,14 +304,14 @@ class Unit(UnitProxyProtocol, Tasklet):
     async def _process_message_buffer(self) -> None:
         while True:
             await asyncio.sleep(0.1)
-            if not self._message_buffer.flushing:
-                await self._message_buffer.flush()
+            if not self._message_write_buffer.flushing:
+                await self._message_write_buffer.flush()
 
     async def _process_alert_buffer(self) -> None:
         while True:
             await asyncio.sleep(0.1)
-            if not self._alert_buffer.flushing:
-                await self._alert_buffer.flush()
+            if not self._alert_write_buffer.flushing:
+                await self._alert_write_buffer.flush()
 
     async def __stop__(self) -> None:
         async def stop() -> None:
@@ -344,15 +335,7 @@ class Unit(UnitProxyProtocol, Tasklet):
 
             id = await self._database.entities.get_address_id(address)
 
-            match component_config.kind:
-                case ComponentKind.CONNECTION:
-                    cls = ConnectionHandle
-                case ComponentKind.DRIVER:
-                    cls = DriverHandle
-                case ComponentKind.NOTIFIER:
-                    cls = NotifierHandle
-
-            self._component_handles[component_config.name] = cls(
+            self._component_handles[component_config.name] = ComponentHandle(
                 ComponentHandleContext(
                     id=id,
                     address=address,
@@ -374,16 +357,12 @@ class Unit(UnitProxyProtocol, Tasklet):
                         f"Failed to load component '{component_handle.address}'. Error: {jsonify(error, indent=2)}"
                     )
 
-    def _on_component_exception(
-        self,
-        component_handle: ComponentHandle[Component],
-        exception: BaseException,
-    ) -> None:
+    def _on_component_exception(self, handle: ComponentHandle, exception: BaseException) -> None:
         self.logger.error(
-            f"Exception occurred in component '{component_handle.address}': {traceback.format_exception(exception)}"
+            f"Exception occurred in component '{handle.address}': {traceback.format_exception(exception)}"
         )
 
-    def _on_component_completed(self, handle: ComponentHandle[Component]) -> None:
+    def _on_component_completed(self, handle: ComponentHandle) -> None:
         self.logger.info(f"Component '{handle.address}' stopped.")
 
 
@@ -424,7 +403,7 @@ class UnitHandle(Tasklet):
         return logs.get(str(self.address))
 
     @property
-    def concurrency(self) -> Concurrency:
+    def concurrency(self) -> ConcurrencyKind:
         return (
             self._context.unit_config.concurrency or self._context.root_config.runtime.concurrency
         )
@@ -432,7 +411,7 @@ class UnitHandle(Tasklet):
     async def __run__(self) -> None:
         def execute() -> None:
             with self._lock:
-                if self.concurrency == Concurrency.PROCESS:
+                if self.concurrency == ConcurrencyKind.PROCESS:
                     self._process = UnitProcess()
                     self._process.start()
                     self._instance = cast(
@@ -510,16 +489,16 @@ class UnitHandle(Tasklet):
         input: object | None = None,
     ) -> Result[Subscription, ProcedureError]:
         if self.instance is None or (
-            self.concurrency == Concurrency.PROCESS and self._process is None
+            self.concurrency == ConcurrencyKind.PROCESS and self._process is None
         ):
             return Fail(ProcedureComponentNotLoadedError())
 
         instance = self.instance
 
         match self.concurrency:
-            case Concurrency.PROCESS:
+            case ConcurrencyKind.PROCESS:
                 queue = cast(Any, self._process).Queue()
-            case Concurrency.THREAD:
+            case ConcurrencyKind.THREAD:
                 queue = cast(Any, ThreadSafeQueue())
 
         subscriber = Subscriber(queue=queue)

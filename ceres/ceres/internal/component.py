@@ -1,20 +1,18 @@
 import asyncio
 import importlib
 import traceback
-from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from logging import Logger
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Generic, Mapping, TypeVar, cast
+from typing import TYPE_CHECKING, Any, Mapping, Sequence, TypeVar, cast, final
 from uuid import UUID
 
 from pydantic import ValidationError, parse_obj_as, validate_arguments
 
 from ..address import ComponentAddress
 from ..component import Component
-from ..config import ComponentConfig, Config, UnitConfig
+from ..config import ComponentConfig, ComponentRoleKind, Config, UnitConfig
 from ..connection import Connection
-from ..driver import Driver
 from ..errors import (
     ComponentClassInvalidError,
     ComponentClassNotFoundError,
@@ -26,14 +24,12 @@ from ..errors import (
     ComponentReferenceInvalidError,
     ValidationProblem,
 )
-from ..notifier import Notifier
 from ..result import Fail, Ok, Result
 from . import logs
 from .tasklet import Tasklet
 from .utilities import (
     cached,
     get_type_annotations,
-    lenient_isinstance,
     lenient_issubclass,
     object_has_field,
     strify,
@@ -47,19 +43,12 @@ else:
 _ComponentT = TypeVar("_ComponentT", bound=Component)
 
 
-def load_component_cls(
-    supercls: type[_ComponentT],
-    config: ComponentConfig,
-) -> Result[type[_ComponentT], ComponentError]:
+def load_component_cls(config: ComponentConfig) -> Result[type[Component], ComponentError]:
     if not isinstance(config.component, str):
-        if lenient_issubclass(config.component, supercls) or lenient_isinstance(
-            config.component, supercls
-        ):
-            return Ok(type(config.component))
-
+        missing = _get_missing_component_base_classes(config.component, config.roles)
         return Fail(
             ComponentClassInvalidError(
-                message=f"component passed in configuration must be a subclass or instance of {strify(supercls)}, got {strify(config.component)}"
+                message=f"component passed in configuration must be a subclass or instance of {strify(missing)}, got {strify(config.component)}"
             )
         )
 
@@ -92,10 +81,11 @@ def load_component_cls(
             )
         )
 
-    if not issubclass(cls, supercls):
+    missing = _get_missing_component_base_classes(cls, config.roles)
+    if missing:
         return Fail(
             ComponentClassInvalidError(
-                message=f"component {strify(cls)} must be subclass of {strify(supercls)}"
+                message=f"component {strify(cls)} must be subclass of {strify(missing)}"
             )
         )
 
@@ -116,16 +106,48 @@ def _get_reference_mapping(
     return MappingProxyType(mapping)
 
 
+def _get_component_role_cls(role: ComponentRoleKind) -> type[Component]:
+    match role:
+        case ComponentRoleKind.CONNECTION:
+            return Connection
+
+    raise ValueError(role)
+
+
+def _get_required_component_base_classes(
+    roles: Sequence[ComponentRoleKind],
+) -> tuple[type[Component], ...]:
+    classes = [Component]
+
+    for role in roles:
+        cls = _get_component_role_cls(role)
+        if cls not in classes:
+            classes.append(cls)
+
+    return tuple(classes)
+
+
+def _get_missing_component_base_classes(
+    component: type[Component] | Component,
+    roles: Sequence[ComponentRoleKind],
+) -> Sequence[type[Component]]:
+    if not isinstance(component, type):
+        component = type(component)
+
+    bases = _get_required_component_base_classes(roles)
+    return [base for base in bases if not lenient_issubclass(component, base)]
+
+
 def load_component(
-    supercls: type[_ComponentT],
     config: ComponentConfig,
     context: Component.CompleteContext,
     siblings: Mapping[str, Component],
-) -> Result[_ComponentT, ComponentError]:
-    if lenient_isinstance(config.component, supercls):
-        return Ok(config.component)
+) -> Result[Component, ComponentError]:
+    if not isinstance(config.component, str | type):
+        if not _get_missing_component_base_classes(type(config.component), config.roles):
+            return Ok(config.component)
 
-    match load_component_cls(supercls, config):
+    match load_component_cls(config):
         case Ok(cls):
             pass
         case Fail(error):
@@ -233,18 +255,11 @@ class ComponentHandleContext:
         assert self.component_config in self.unit_config.components
 
 
-ComponentT = TypeVar("ComponentT", bound=Component, covariant=True)
-
-
-class ComponentHandle(Generic[ComponentT], Tasklet, ABC):
+@final
+class ComponentHandle(Tasklet):
     def __init__(self, context: ComponentHandleContext) -> None:
         self._context = context
-        self._instance: ComponentT | None = None
-
-    @classmethod
-    @abstractmethod
-    def get_component_type(cls) -> type[ComponentT]:
-        ...
+        self._instance: Component | None = None
 
     @property
     def id(self) -> UUID:
@@ -259,7 +274,7 @@ class ComponentHandle(Generic[ComponentT], Tasklet, ABC):
         return self._context.component_config
 
     @property
-    def instance(self) -> ComponentT | None:
+    def instance(self) -> Component | None:
         return self._instance
 
     @property
@@ -294,12 +309,11 @@ class ComponentHandle(Generic[ComponentT], Tasklet, ABC):
 
         await self.instance.stop()
 
-    async def load(self) -> Result[ComponentT, ComponentError]:
+    async def load(self) -> Result[Component, ComponentError]:
         if self.instance is not None:
             return Ok(self.instance)
 
         match load_component(
-            self.get_component_type(),
             self.config,
             Component.CompleteContext(
                 id=self.id,
@@ -321,21 +335,3 @@ class ComponentHandle(Generic[ComponentT], Tasklet, ABC):
                 return Ok(instance)
             case fail:
                 return fail
-
-
-class ConnectionHandle(ComponentHandle[Connection]):
-    @classmethod
-    def get_component_type(cls) -> type[Connection]:
-        return Connection
-
-
-class DriverHandle(ComponentHandle[Driver]):
-    @classmethod
-    def get_component_type(cls) -> type[Driver]:
-        return Driver
-
-
-class NotifierHandle(ComponentHandle[Notifier]):
-    @classmethod
-    def get_component_type(cls) -> type[Notifier]:
-        return Notifier

@@ -1,7 +1,7 @@
 import rich
 
 from ....config import Config
-from ...database.manager import DatabaseManager
+from ...database import Database
 from ..exceptions import CLIDatabaseUnreachableException
 from ..shared import AsyncTyper, ConfigOption, get_yes_no
 
@@ -17,7 +17,7 @@ async def init(*, config: Config = ConfigOption(checks=[])) -> None:
     """
     Create all required tables in the project database.
     """
-    database = DatabaseManager(config.database)
+    database = Database(config.database)
 
     try:
         async with database.connect():
@@ -47,7 +47,7 @@ async def schema(*, config: Config = ConfigOption(checks=[])) -> None:
     """
     Show DDL commands used to create required tables in the project database.
     """
-    database = DatabaseManager(config.database)
+    database = Database(config.database)
 
     for statement in database.ddl:
         rich.print(f"{statement};")

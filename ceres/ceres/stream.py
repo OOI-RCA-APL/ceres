@@ -1,7 +1,7 @@
 from asyncio import Queue as AsyncQueue
 from asyncio import QueueEmpty
 from collections.abc import AsyncIterator
-from typing import Any, AsyncIterable, Literal, Sequence, TypeVar
+from typing import Any, AsyncIterable, Literal, Sequence, TypeVar, final
 from weakref import WeakSet
 
 from typing_extensions import Self
@@ -9,6 +9,7 @@ from typing_extensions import Self
 _T = TypeVar("_T")
 
 
+@final
 class StreamReader(AsyncIterator[_T]):
     __slots__ = ("_stream", "_queue", "__weakref__")
 
@@ -68,6 +69,7 @@ class StreamReader(AsyncIterator[_T]):
         self._queue.put_nowait(value)
 
 
+@final
 class StreamView(AsyncIterable[_T]):
     __slots__ = ("_stream",)
 
@@ -88,6 +90,7 @@ class StreamView(AsyncIterable[_T]):
         return self._stream.view()
 
 
+@final
 class Stream(AsyncIterable[_T]):
     __slots__ = ("_readers",)
 

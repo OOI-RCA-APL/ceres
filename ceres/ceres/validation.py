@@ -13,7 +13,7 @@ class ValidationProblem(ImmutableDataObject):
     def extract(cls, error: ValidationError) -> list[Self]:
         return [
             ValidationProblem(
-                location=list(error["loc"]),
+                location=list(segment for segment in error["loc"] if segment != "__root__"),
                 message=error["msg"],
                 kind=error["type"],
             )
