@@ -7,7 +7,7 @@ from multiprocessing.managers import SyncManager
 from queue import Queue as ThreadSafeQueue
 from threading import Lock
 from types import MappingProxyType
-from typing import Any, AsyncIterable, Mapping, Protocol, TypeVar, cast, final
+from typing import Any, AsyncIterable, Mapping, Protocol, cast, final
 from uuid import UUID, uuid4
 
 from ..address import ComponentAddress, LocalComponentAddress, UnitAddress
@@ -39,13 +39,12 @@ class UnitContext:
     address: UnitAddress
     root_config: Config
     unit_config: UnitConfig
+    database: Database | None = None
+    loop: asyncio.AbstractEventLoop | None = None
 
     def __post_init__(self) -> None:
         assert self.root_config.get_unit(self.address)
         assert self.unit_config in self.root_config.units
-
-
-_T = TypeVar("_T")
 
 
 @dataclass(kw_only=True, frozen=True)
@@ -67,7 +66,7 @@ class SubscriptionFeed:
     task: asyncio.Task[None]
 
 
-class UnitProxyProtocol(Protocol):
+class UnitRemoteProtocol(Protocol):
     def remote_run(self) -> None | BaseException:
         ...
 
@@ -98,12 +97,12 @@ class UnitProxyProtocol(Protocol):
 
 
 @final
-class Unit(UnitProxyProtocol, Tasklet):
+class Unit(UnitRemoteProtocol, Tasklet):
     def __init__(self, context: UnitContext) -> None:
         self._context = context
-        self._database = Database(self._context.root_config.database)
+        self._database = context.database or Database(self._context.root_config.database)
+        self._loop = context.loop or setup_event_loop()
         self._component_handles: dict[str, ComponentHandle] = {}
-        self._loop = setup_event_loop()
         self._subscription_feeds: dict[UUID, SubscriptionFeed] = {}
         self._message_write_buffer = EntityWriteBuffer(
             MessageEntity,
@@ -133,6 +132,12 @@ class Unit(UnitProxyProtocol, Tasklet):
     @property
     def database(self) -> Database:
         return self._database
+
+    @property
+    def concurrency(self) -> ConcurrencyKind:
+        return (
+            self._context.unit_config.concurrency or self._context.root_config.runtime.concurrency
+        )
 
     @property
     def logger(self) -> Logger:
@@ -190,7 +195,10 @@ class Unit(UnitProxyProtocol, Tasklet):
 
     def remote_run(self) -> None | BaseException:
         try:
-            self._loop.run_until_complete(self.run())
+            if self._loop.is_running():
+                asyncio.run_coroutine_threadsafe(self.run(), self._loop).exception()
+            else:
+                self._loop.run_until_complete(self.run())
         except BaseException as exception:
             self.logger.error(f"An exception occurred while running: {traceback.format_exc()}")
             return exception
@@ -377,7 +385,7 @@ class UnitHandle(Tasklet):
     def __init__(self, context: UnitContext) -> None:
         self._context = context
         self._process: UnitProcess | None = None
-        self._instance: UnitProxyProtocol | None = None
+        self._instance: UnitRemoteProtocol | None = None
         self._lock = Lock()
 
     @property
@@ -395,7 +403,7 @@ class UnitHandle(Tasklet):
         )
 
     @property
-    def instance(self) -> UnitProxyProtocol | None:
+    def instance(self) -> UnitRemoteProtocol | None:
         return self._instance
 
     @property
@@ -415,7 +423,7 @@ class UnitHandle(Tasklet):
                     self._process = UnitProcess()
                     self._process.start()
                     self._instance = cast(
-                        UnitProxyProtocol, cast(Any, self._process).Unit(self._context)
+                        UnitRemoteProtocol, cast(Any, self._process).Unit(self._context)
                     )
                 else:
                     self._instance = Unit(self._context)
@@ -499,6 +507,8 @@ class UnitHandle(Tasklet):
             case ConcurrencyKind.PROCESS:
                 queue = cast(Any, self._process).Queue()
             case ConcurrencyKind.THREAD:
+                queue = cast(Any, ThreadSafeQueue())
+            case ConcurrencyKind.ASYNC:
                 queue = cast(Any, ThreadSafeQueue())
 
         subscriber = Subscriber(queue=queue)

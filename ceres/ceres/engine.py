@@ -2,7 +2,7 @@ import asyncio
 import signal
 import sys
 import traceback
-from asyncio import FIRST_COMPLETED, Event
+from asyncio import FIRST_COMPLETED, Event, get_running_loop
 from enum import Enum
 from logging import Logger
 from pathlib import Path
@@ -11,7 +11,7 @@ from typing import Any, final
 
 from .address import ComponentAddress, LocalComponentAddress, UnitAddress
 from .alert import Alert
-from .config import Config, UnitConfig
+from .config import ConcurrencyKind, Config, UnitConfig
 from .data import ImmutableDataObject, jsonify
 from .datetime import utc
 from .errors import (
@@ -371,11 +371,14 @@ class Engine(Tasklet):
 
                 if unit_config := unit_configs.get(action.address):
                     id = await self._database.entities.get_address_id(action.address)
+                    concurrency = unit_config.concurrency or self._config.runtime.concurrency
                     context = UnitContext(
                         id=id,
                         address=action.address,
                         root_config=self._config,
                         unit_config=unit_config,
+                        database=self._database if concurrency == ConcurrencyKind.ASYNC else None,
+                        loop=get_running_loop() if concurrency == ConcurrencyKind.ASYNC else None,
                     )
 
                     unit_handle = UnitHandle(context)

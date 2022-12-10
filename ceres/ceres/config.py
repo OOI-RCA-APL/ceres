@@ -2,9 +2,9 @@ import itertools
 from datetime import timedelta
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping, Sequence, Union
+from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping, Sequence, Union, cast
 
-from pydantic import Field, SecretStr, parse_obj_as, validator
+from pydantic import Field, SecretStr, parse_obj_as, root_validator, validator
 from typing_extensions import Self
 
 from .address import ComponentAddress, UnitAddress
@@ -68,7 +68,7 @@ class BaseDatabaseConfig(ConfigObject):
 
 class SQLiteDatabaseConfig(BaseDatabaseConfig):
     kind: Literal[DatabaseKind.SQLITE] = DatabaseKind.SQLITE
-    path: Path
+    path: Path | None = None
 
 
 class PostgresDatabaseConfig(BaseDatabaseConfig):
@@ -84,6 +84,7 @@ DatabaseConfig = SQLiteDatabaseConfig | PostgresDatabaseConfig
 
 
 class ConcurrencyKind(str, Enum):
+    ASYNC = "async"
     THREAD = "thread"
     PROCESS = "process"
 
@@ -120,7 +121,7 @@ class UnitConfig(ConfigObject):
 
 
 class RuntimeConfig(ConfigObject):
-    concurrency: ConcurrencyKind = ConcurrencyKind.THREAD
+    concurrency: ConcurrencyKind = ConcurrencyKind.ASYNC
 
 
 class Config(ConfigObject):
@@ -131,6 +132,22 @@ class Config(ConfigObject):
 
     _path: Path | None = None
     _component_config_cache: dict[ComponentAddress, ComponentConfig] = {}
+
+    @root_validator
+    def _validate_root(cls, values: Mapping[str, object]) -> Mapping[str, object]:
+        database = cast(DatabaseConfig, values["database"])
+        runtime = cast(RuntimeConfig, values["runtime"])
+        units = cast(Sequence[UnitConfig], values["units"])
+
+        if isinstance(database, SQLiteDatabaseConfig) and database.path is None:
+            if runtime.concurrency != ConcurrencyKind.ASYNC or any(
+                (unit.concurrency or runtime.concurrency) != ConcurrencyKind.ASYNC for unit in units
+            ):
+                raise ValueError(
+                    "in-memory SQLite database can only be used with 'async' concurrency (the default)"
+                )
+
+        return values
 
     @classmethod
     def from_data(cls, data: Any, path: Path | None = None) -> Self:

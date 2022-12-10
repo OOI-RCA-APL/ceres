@@ -30,9 +30,15 @@ class Database:
         self._config = config
         self._adapter = _create_adapter(config)
         self._engine = self._adapter.create_engine()
-        self._sessionmaker = async_sessionmaker(
+        self._create_session = async_sessionmaker(
             self._engine,
-            AsyncSession,
+            class_=AsyncSession,
+            # Don't unload database entity data on commit. We don't want to issue new SQL queries to
+            # the database if we access a column that has already been committed. This is
+            # particularly true because we're using async sessions. Accessing a non-loaded column on
+            # an async session entity results in an error because the the underlying data fetch is
+            # asyncronous but never gets awaited. Let's just keep the data around to make sure that
+            # doesn't happen.
             expire_on_commit=False,
         )
 
@@ -73,7 +79,7 @@ class Database:
         return commands
 
     def session(self) -> AsyncSession:
-        return self._sessionmaker()
+        return self._create_session()
 
     def connect(self) -> AsyncConnection:
         return self._engine.connect()
