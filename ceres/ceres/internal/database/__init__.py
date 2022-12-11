@@ -26,9 +26,9 @@ _T = TypeVar("_T")
 
 @final
 class Database:
-    def __init__(self, config: DatabaseConfig) -> None:
-        self._config = config
-        self._adapter = _create_adapter(config)
+    def __init__(self, config: DatabaseConfig | None = None) -> None:
+        self._config = config or SQLiteDatabaseConfig()
+        self._adapter = _create_adapter(self._config)
         self._engine = self._adapter.create_engine()
         self._create_session = async_sessionmaker(
             self._engine,

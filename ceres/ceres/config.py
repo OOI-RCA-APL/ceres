@@ -126,7 +126,7 @@ class RuntimeConfig(ConfigObject):
 
 class Config(ConfigObject):
     server: ServerConfig | None = None
-    database: DatabaseConfig = Field(discriminator="kind")
+    database: DatabaseConfig = Field(default_factory=SQLiteDatabaseConfig, discriminator="kind")
     runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
     units: Sequence[UnitConfig] = Field(default_factory=list)
 
