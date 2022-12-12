@@ -182,7 +182,7 @@ class EntityManager:
             limit=limit,
         )
 
-        return [Alert.create_from(entity) for entity in entities]
+        return [Alert.from_orm(entity) for entity in entities]
 
     async def get_messages(
         self,
@@ -198,7 +198,7 @@ class EntityManager:
             limit=limit,
         )
 
-        return [Message.create_from(entity) for entity in entities]
+        return [Message.from_orm(entity) for entity in entities]
 
     async def _get_entities(
         self,
