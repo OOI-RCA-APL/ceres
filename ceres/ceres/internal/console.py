@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 @final
 class Console(StaticFiles):
     def __init__(self) -> None:
-        directory = Path(__file__).parent / "../../static/console"
+        directory = Path(__file__).parent / "../static/console"
         directory = directory.resolve()
         directory.mkdir(mode=755, parents=True, exist_ok=True)
         super().__init__(directory=directory, html=True)

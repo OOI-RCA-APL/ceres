@@ -64,7 +64,7 @@ const BaseDatabaseConfig = Zod.object({
 export type SQLiteDatabaseConfig = Zod.infer<typeof SQLiteDatabaseConfigModel>
 export const SQLiteDatabaseConfigModel = BaseDatabaseConfig.extend({
   kind: Zod.literal('sqlite'),
-  path: Zod.string(),
+  path: Zod.string().nullable().default(null),
 })
 
 export type PostgresDatabaseConfig = Zod.infer<typeof PostgresDatabaseConfigModel>

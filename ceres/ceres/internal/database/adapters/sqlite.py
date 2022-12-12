@@ -15,11 +15,11 @@ from ..adapter import DatabaseAdapter
 @final
 class SQLiteDatabaseAdapter(DatabaseAdapter[SQLiteDatabaseConfig]):
     def get_engine_url(self) -> str:
-        # If a path is provided, create an on-disk database.
+        # If a path is provided, create an database at the provided path.
         if self.config.path:
             return f"sqlite+aiosqlite:///{self.config.path.resolve()}"
 
-        # Otherwise create a named temporary database.
+        # Otherwise create a temporary on-disk database.
         return f"sqlite+aiosqlite:///{self._get_temporary_path()}"
 
     def __del__(self) -> None:
