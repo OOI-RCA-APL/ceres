@@ -189,7 +189,7 @@ class Unit(UnitRemoteProtocol, Tasklet):
                 timestamp=alert.timestamp,
                 level=alert.level,
                 code=alert.code,
-                info=alert.info,
+                info=dict(alert.info),
             )
         )
 

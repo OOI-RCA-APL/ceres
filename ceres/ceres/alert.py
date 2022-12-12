@@ -1,6 +1,6 @@
 from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import Any, Mapping
 from uuid import UUID, uuid4
 
 from pydantic import Field
@@ -21,4 +21,4 @@ class Alert(ImmutableDataObject):
     timestamp: datetime = Field(default_factory=utc)
     level: AlertLevel
     code: str
-    info: dict[str, Any] = Field(default_factory=dict)
+    info: Mapping[str, Any] = Field(default_factory=dict)
