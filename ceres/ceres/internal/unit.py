@@ -1,6 +1,7 @@
 import asyncio
 import threading
 import traceback
+from asyncio import Queue as AsyncQueue
 from dataclasses import dataclass, field
 from logging import Logger
 from multiprocessing.managers import SyncManager
@@ -30,7 +31,7 @@ from .database import Database
 from .database.buffer import EntityWriteBuffer
 from .database.entity import AlertEntity, MessageEntity
 from .tasklet import Tasklet
-from .utilities import QueueLike, get_or_cancel, setup_event_loop, spawn, strify
+from .utilities import QueueLike, ensure_event_loop, get_or_cancel, spawn, strify
 
 
 @dataclass(kw_only=True, frozen=True)
@@ -40,7 +41,6 @@ class UnitContext:
     root_config: Config
     unit_config: UnitConfig
     database: Database | None = None
-    loop: asyncio.AbstractEventLoop | None = None
 
     def __post_init__(self) -> None:
         assert self.root_config.get_unit(self.address)
@@ -101,7 +101,7 @@ class Unit(UnitRemoteProtocol, Tasklet):
     def __init__(self, context: UnitContext) -> None:
         self._context = context
         self._database = context.database or Database(self._context.root_config.database)
-        self._loop = context.loop or setup_event_loop()
+        self._loop = ensure_event_loop()
         self._component_handles: dict[str, ComponentHandle] = {}
         self._subscription_feeds: dict[UUID, SubscriptionFeed] = {}
         self._message_write_buffer = EntityWriteBuffer(
@@ -323,14 +323,17 @@ class Unit(UnitRemoteProtocol, Tasklet):
 
     async def __stop__(self) -> None:
         async def stop() -> None:
-            for component in reversed(self.components.values()):
-                self.logger.info(f"Stopping component '{component.address}'...")
-                await component.stop()
-            for feed in self._subscription_feeds.values():
-                feed.task.cancel()
-            self._subscription_feeds.clear()
+            try:
+                for component in reversed(self.components.values()):
+                    self.logger.info(f"Stopping component '{component.address}'...")
+                    await component.stop()
 
-            await self._database.dispose()
+                for feed in self._subscription_feeds.values():
+                    feed.task.cancel()
+                self._subscription_feeds.clear()
+            finally:
+                if self._context.database is None:
+                    await self._database.dispose()
 
         await asyncio.shield(asyncio.create_task(stop()))
 
@@ -508,8 +511,6 @@ class UnitHandle(Tasklet):
                 queue = cast(Any, self._process).Queue()
             case ConcurrencyKind.THREAD:
                 queue = cast(Any, ThreadSafeQueue())
-            case ConcurrencyKind.ASYNC:
-                queue = cast(Any, ThreadSafeQueue())
 
         subscriber = Subscriber(queue=queue)
 
@@ -550,7 +551,7 @@ class UnitHandle(Tasklet):
 
         subscription = Subscription(
             id=subscriber.subscription_id,
-            queue=asyncio.Queue(),
+            queue=AsyncQueue(),
             task=task,
             cancelled=cancelled,
         )

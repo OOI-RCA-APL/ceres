@@ -14,7 +14,7 @@ from ...exceptions import StartupException
 from ...result import Ok
 from .. import logs
 from ..config import load_config
-from ..utilities import setup_event_loop, strify, syncify, temporary_signal_handler
+from ..utilities import ensure_event_loop, strify, syncify, temporary_signal_handler
 from .exceptions import CLIInvalidConfigException, CLIStartupException
 from .shared import AsyncTyper, ConfigOption, ConfigPathOption
 from .subcommands.database import database
@@ -65,7 +65,7 @@ async def check(*, path: Path = ConfigPathOption()) -> None:
 
 @main.callback()
 def setup() -> None:
-    setup_event_loop()
+    ensure_event_loop()
     logs.setup()
 
 

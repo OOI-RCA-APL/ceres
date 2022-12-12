@@ -84,7 +84,6 @@ DatabaseConfig = SQLiteDatabaseConfig | PostgresDatabaseConfig
 
 
 class ConcurrencyKind(str, Enum):
-    ASYNC = "async"
     THREAD = "thread"
     PROCESS = "process"
 
@@ -121,7 +120,7 @@ class UnitConfig(ConfigObject):
 
 
 class RuntimeConfig(ConfigObject):
-    concurrency: ConcurrencyKind = ConcurrencyKind.ASYNC
+    concurrency: ConcurrencyKind = ConcurrencyKind.THREAD
 
 
 class Config(ConfigObject):
@@ -140,11 +139,12 @@ class Config(ConfigObject):
         units = cast(Sequence[UnitConfig], values["units"])
 
         if isinstance(database, SQLiteDatabaseConfig) and database.path is None:
-            if runtime.concurrency != ConcurrencyKind.ASYNC or any(
-                (unit.concurrency or runtime.concurrency) != ConcurrencyKind.ASYNC for unit in units
+            if runtime.concurrency == ConcurrencyKind.PROCESS or any(
+                (unit.concurrency or runtime.concurrency) == ConcurrencyKind.PROCESS
+                for unit in units
             ):
                 raise ValueError(
-                    "in-memory SQLite database can only be used with 'async' concurrency (the default)"
+                    "a temporary SQLite database cannot be used with 'process' based concurrency"
                 )
 
         return values

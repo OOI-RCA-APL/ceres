@@ -2,7 +2,7 @@ import asyncio
 import signal
 import sys
 import traceback
-from asyncio import FIRST_COMPLETED, Event, get_running_loop
+from asyncio import FIRST_COMPLETED, Event
 from enum import Enum
 from logging import Logger
 from pathlib import Path
@@ -372,13 +372,24 @@ class Engine(Tasklet):
                 if unit_config := unit_configs.get(action.address):
                     id = await self._database.entities.get_address_id(action.address)
                     concurrency = unit_config.concurrency or self._config.runtime.concurrency
+
+                    match concurrency:
+                        case ConcurrencyKind.THREAD:
+                            # If the unit will be running in a thread, create a clone so it uses a
+                            # separate event loop but the underlying syncronous SQLAlchemy engine is
+                            # shared.
+                            database = Database(self._database)
+                        case ConcurrencyKind.PROCESS:
+                            # If the unit will be running in a process, let it create its own
+                            # database client from the same configuration.
+                            database = None
+
                     context = UnitContext(
                         id=id,
                         address=action.address,
                         root_config=self._config,
                         unit_config=unit_config,
-                        database=self._database if concurrency == ConcurrencyKind.ASYNC else None,
-                        loop=get_running_loop() if concurrency == ConcurrencyKind.ASYNC else None,
+                        database=database,
                     )
 
                     unit_handle = UnitHandle(context)

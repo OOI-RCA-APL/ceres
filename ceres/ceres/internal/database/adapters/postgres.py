@@ -17,5 +17,5 @@ class PostgresDatabaseAdapter(DatabaseAdapter[PostgresDatabaseConfig]):
         return {
             "pool_pre_ping": True,  # Check to see if a connection has closed before use.
             "pool_recycle": 60 * 5,  # Drop unused connections after 5 minutes.
-            **(self.config.engine or {}),
+            **self.config.engine,
         }

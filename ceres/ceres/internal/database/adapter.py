@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import Any, Generic, TypeVar
+from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
@@ -9,8 +10,17 @@ _ConfigT = TypeVar("_ConfigT", bound=DatabaseConfig, covariant=True)
 
 
 class DatabaseAdapter(Generic[_ConfigT], ABC):
-    def __init__(self, config: _ConfigT) -> None:
-        self.config = config
+    def __init__(self, id: UUID, config: _ConfigT) -> None:
+        self._id = id
+        self._config = config
+
+    @property
+    def id(self) -> UUID:
+        return self._id
+
+    @property
+    def config(self) -> _ConfigT:
+        return self._config
 
     @abstractmethod
     def get_engine_url(cls) -> str:

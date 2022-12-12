@@ -57,7 +57,7 @@ def syncify(function: Callable[_P, Awaitable[_T] | _T]) -> Callable[_P, _T]:
 
     @wraps(function)
     def wrapper(*args: _P.args, **kwargs: _P.kwargs) -> Any:
-        return setup_event_loop().run_until_complete(function(*args, **kwargs))
+        return ensure_event_loop().run_until_complete(function(*args, **kwargs))
 
     return cast(Callable[_P, _T], wrapper)
 
@@ -342,7 +342,7 @@ async def sleep_forever() -> None:
         await asyncio.sleep(timedelta(hours=1).total_seconds())
 
 
-def setup_event_loop() -> AbstractEventLoop:
+def ensure_event_loop() -> AbstractEventLoop:
     try:
         return asyncio.get_running_loop()
     except RuntimeError:

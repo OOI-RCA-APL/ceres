@@ -1,6 +1,7 @@
 import re
 from textwrap import dedent
 from typing import Any, Callable, Iterable, TypeVar, cast, final
+from uuid import UUID, uuid4
 
 from sqlalchemy import ClauseElement, Connection, Table, inspect, text
 from sqlalchemy.ext.asyncio import (
@@ -11,6 +12,7 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.schema import CreateIndex, CreateTable
 from sqlalchemy.sql.elements import TextClause
+from typing_extensions import Self
 
 from ...config import (
     DatabaseConfig,
@@ -26,10 +28,18 @@ _T = TypeVar("_T")
 
 @final
 class Database:
-    def __init__(self, config: DatabaseConfig | None = None) -> None:
-        self._config = config or SQLiteDatabaseConfig()
-        self._adapter = _create_adapter(self._config)
-        self._engine = self._adapter.create_engine()
+    def __init__(self, /, source: DatabaseConfig | Self | None = None) -> None:
+        if source is None or isinstance(source, DatabaseConfig):
+            self._id = uuid4()
+            self._config = source or SQLiteDatabaseConfig()
+            self._adapter = _create_adapter(self._id, self._config)
+            self._engine = self._adapter.create_engine()
+        else:
+            self._id = source.id
+            self._config = source.config
+            self._adapter = source._adapter
+            self._engine = AsyncEngine(source._engine.sync_engine)
+
         self._create_session = async_sessionmaker(
             self._engine,
             class_=AsyncSession,
@@ -41,6 +51,14 @@ class Database:
             # doesn't happen.
             expire_on_commit=False,
         )
+
+    @property
+    def id(self) -> UUID:
+        return self._id
+
+    @property
+    def config(self) -> DatabaseConfig:
+        return self._config
 
     @property
     def kind(self) -> DatabaseKind:
@@ -121,13 +139,13 @@ class Database:
             return await connection.run_sync(callback)
 
 
-def _create_adapter(config: DatabaseConfig) -> DatabaseAdapter[DatabaseConfig]:
+def _create_adapter(id: UUID, config: DatabaseConfig) -> DatabaseAdapter[DatabaseConfig]:
     match config:
         case SQLiteDatabaseConfig():
             from .adapters.sqlite import SQLiteDatabaseAdapter
 
-            return SQLiteDatabaseAdapter(config)
+            return SQLiteDatabaseAdapter(id, config)
         case PostgresDatabaseConfig():
             from .adapters.postgres import PostgresDatabaseAdapter
 
-            return PostgresDatabaseAdapter(config)
+            return PostgresDatabaseAdapter(id, config)
