@@ -426,12 +426,12 @@ else:
 
     def lenient_isinstance(obj, cls):
         try:
-            return isinstance(obj, cls)  # type: ignore
+            return isinstance(obj, cls)
         except TypeError:
             return False
 
     def lenient_issubclass(obj, cls):
         try:
-            return isinstance(obj, type) and issubclass(obj, cls)  # type: ignore
+            return isinstance(obj, type) and issubclass(obj, cls)
         except TypeError:
             return False

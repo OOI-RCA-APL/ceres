@@ -88,7 +88,7 @@ class Database:
         def get_table_ddl(table: Table) -> Iterable[str]:
             yield compile(CreateTable(table, if_not_exists=True))
             for index in sorted(table.indexes, key=lambda index: str(index.name)):
-                yield compile(CreateIndex(index, if_not_exists=True))  # type: ignore
+                yield compile(CreateIndex(index, if_not_exists=True))
 
         commands: list[str] = []
         for table in Entity.metadata.tables.values():

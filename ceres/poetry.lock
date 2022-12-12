@@ -197,11 +197,11 @@ python-versions = "*"
 
 [[package]]
 name = "isort"
-version = "5.10.1"
+version = "5.11.0"
 description = "A Python utility / library to sort Python imports."
 category = "dev"
 optional = false
-python-versions = ">=3.6.1,<4.0"
+python-versions = ">=3.7.0"
 
 [package.extras]
 colors = ["colorama (>=0.4.3,<0.5.0)"]
@@ -337,14 +337,6 @@ nodeenv = ">=1.6.0"
 [package.extras]
 all = ["twine (>=3.4.1)"]
 dev = ["twine (>=3.4.1)"]
-
-[[package]]
-name = "pysqlite3-binary"
-version = "0.4.7.post8"
-description = "DB-API 2.0 interface for Sqlite 3.x"
-category = "main"
-optional = false
-python-versions = "*"
 
 [[package]]
 name = "pytest"
@@ -632,7 +624,7 @@ uvloop = ["uvloop"]
 [metadata]
 lock-version = "1.1"
 python-versions = "^3.10"
-content-hash = "cfb0516f3eb7e1d0a19c5a79daa9e817442ff29c447e786601e0cca33e65cac9"
+content-hash = "86068c625f75375728710238c86ed0c79cc10e600d5103f1172d9a11957cee36"
 
 [metadata.files]
 aiosmtplib = [
@@ -761,8 +753,8 @@ iniconfig = [
     {file = "iniconfig-1.1.1.tar.gz", hash = "sha256:bc3af051d7d14b2ee5ef9969666def0cd1a000e121eaea580d4a313df4b37f32"},
 ]
 isort = [
-    {file = "isort-5.10.1-py3-none-any.whl", hash = "sha256:6f62d78e2f89b4500b080fe3a81690850cd254227f27f75c3a0c491a1f351ba7"},
-    {file = "isort-5.10.1.tar.gz", hash = "sha256:e8443a5e7a020e9d7f97f1d7d9cd17c88bcb3bc7e218bf9cf5095fe550be2951"},
+    {file = "isort-5.11.0-py3-none-any.whl", hash = "sha256:1b8631908ecc1b7108801801e510c4bf908962b77bd44882a3873566542f7255"},
+    {file = "isort-5.11.0.tar.gz", hash = "sha256:7aa325a6cbbc086cb74db2e9cc838a8089f8a6e1da26780d8d6d6b24e37f4e5f"},
 ]
 mypy-extensions = [
     {file = "mypy_extensions-0.4.3-py2.py3-none-any.whl", hash = "sha256:090fedd75945a69ae91ce1303b5824f428daf5a028d2f6ab8a299250a846f15d"},
@@ -893,14 +885,6 @@ pygments = [
 pyright = [
     {file = "pyright-1.1.283-py3-none-any.whl", hash = "sha256:d5b14bb50ccbfb7769e09a611960665021816ea1b0543e0ffb8c341388c73710"},
     {file = "pyright-1.1.283.tar.gz", hash = "sha256:57dcc7abf0b764d5f587a80faf20186f5666adffe5f34afa10d471e96bbd9509"},
-]
-pysqlite3-binary = [
-    {file = "pysqlite3_binary-0.4.7.post8-cp310-cp310-manylinux_2_24_x86_64.whl", hash = "sha256:7e156b9ccd4c985f633f32a2340a6a0b68c20ba3704b1bf4ea080be4ee0f7f9e"},
-    {file = "pysqlite3_binary-0.4.7.post8-cp311-cp311-manylinux_2_24_x86_64.whl", hash = "sha256:f6cf55e8aa5cbb99882a87b86414dca8db139a1ce933623047770c67a54d7b24"},
-    {file = "pysqlite3_binary-0.4.7.post8-cp36-cp36m-manylinux_2_24_x86_64.whl", hash = "sha256:22881c41ec25393cebaa856b4a152ad811348733bd15c15fa830985de912eb08"},
-    {file = "pysqlite3_binary-0.4.7.post8-cp37-cp37m-manylinux_2_24_x86_64.whl", hash = "sha256:07ed939c0bd13429cc02459d4eb1fd635aa2a29b9d7e323c619757122a11956d"},
-    {file = "pysqlite3_binary-0.4.7.post8-cp38-cp38-manylinux_2_24_x86_64.whl", hash = "sha256:2a54e58e033b400753acb40c748a7b1bbaecfb477b6da72108d30205ae6613c0"},
-    {file = "pysqlite3_binary-0.4.7.post8-cp39-cp39-manylinux_2_24_x86_64.whl", hash = "sha256:aa07de9276caa37a6ba57ed946d631c6b501e7080da6e3ac253f71012868ed39"},
 ]
 pytest = [
     {file = "pytest-7.2.0-py3-none-any.whl", hash = "sha256:892f933d339f068883b6fd5a459f03d85bfcb355e4981e146d2c7616c21fef71"},
