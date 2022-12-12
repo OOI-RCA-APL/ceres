@@ -1,7 +1,7 @@
 import os
 from functools import wraps
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ParamSpec, Sequence, TypeVar
+from typing import TYPE_CHECKING, Any, Sequence
 
 import rich
 from typer import Option, Typer
@@ -112,7 +112,3 @@ def get_yes_no(prompt: str, default: bool | None = None) -> bool:
             return True
         if text in ("no", "n"):
             return False
-
-
-_P = ParamSpec("_P")
-_T = TypeVar("_T")
