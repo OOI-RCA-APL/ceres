@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import timedelta
 from enum import Enum
-from typing import Any
+from typing import Any, AsyncIterable
 
 from pydantic import validator
 
@@ -19,6 +19,7 @@ from .events import (
 from .exceptions import ConnectionLostException
 from .internal.utilities import validate_positive_timedelta
 from .message import Message, MessageDirection
+from .procedure import query, subscription
 
 
 class ConnectionReconnect(ImmutableDataObject):
@@ -66,8 +67,6 @@ class ConnectionState(str, Enum):
 @dataclass(kw_only=True)
 class ConnectionInternal:
     state: ConnectionState
-    last_message_sent: Message | None
-    last_message_received: Message | None
     reconnect: _ReconnectScheduler
 
 
@@ -81,8 +80,6 @@ class Connection(Component, ABC):
         super().__post_init__()
         self.__connection_internal__ = ConnectionInternal(
             state=ConnectionState.DISCONNECTED,
-            last_message_sent=None,
-            last_message_received=None,
             reconnect=_ReconnectScheduler(self.parameters.reconnect),
         )
 
@@ -98,14 +95,6 @@ class Connection(Component, ABC):
     @property
     def connected(self) -> bool:
         return self.state == ConnectionState.CONNECTED
-
-    @property
-    def last_message_sent(self) -> Message | None:
-        return self.__connection_internal__.last_message_sent
-
-    @property
-    def last_message_received(self) -> Message | None:
-        return self.__connection_internal__.last_message_received
 
     @abstractmethod
     async def try_connect(self) -> bool:
@@ -164,7 +153,6 @@ class Connection(Component, ABC):
         self.logger.info(f"Sent: {jsonify(message.content)}")
 
         self.emit_event(MessageSentEvent(message=message))
-        self.__connection_internal__.last_message_sent = message
 
         return message
 
@@ -184,7 +172,6 @@ class Connection(Component, ABC):
         self.logger.info(f"Received: {jsonify(message.content)}")
         self.emit_event(MessageReceivedEvent(message=message))
 
-        self.__connection_internal__.last_message_received = message
         return message
 
     async def disconnect(self) -> None:
@@ -231,3 +218,14 @@ class Connection(Component, ABC):
     async def __stop__(self) -> None:
         await super().__stop__()
         await self.try_disconnect()
+
+    @query("connection-state")
+    async def get_connection_state(self) -> ConnectionState:
+        return self.state
+
+    @subscription("connection-state")
+    async def subscribe_connection_state(self) -> AsyncIterable[ConnectionState]:
+        yield await self.get_connection_state()
+        async for event in self.event_stream:
+            if isinstance(event, ConnectedEvent | DisconnectedEvent):
+                yield self.state

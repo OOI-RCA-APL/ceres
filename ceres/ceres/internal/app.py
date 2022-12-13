@@ -15,6 +15,7 @@ from fastapi import (
     WebSocketDisconnect,
 )
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import Json, ValidationError, parse_obj_as
 from starlette.requests import HTTPConnection
 from starlette.status import HTTP_400_BAD_REQUEST
 from websockets.exceptions import ConnectionClosed
@@ -273,6 +274,13 @@ async def run_job(
     return await _call(engine, unit, component, CallableProcedureKind.JOB, job, input)
 
 
+def _use_input(input: Json[Any] | None = None) -> Mapping[str, object]:
+    try:
+        return parse_obj_as(Mapping[str, object], input)
+    except ValidationError:
+        raise HTTPException(403, "Input must be unspecified, null or a valid JSON object")
+
+
 async def _subscribe(
     engine: Engine,
     socket: WebSocket,
@@ -280,10 +288,17 @@ async def _subscribe(
     component: NameStr,
     kind: SubscribableProcedureKind,
     procedure: NameStr,
-    input: Mapping[str, object] | None = None,
+    input: Json[Any],
 ) -> None:
     await socket.accept()
     address = ComponentAddress(unit, component)
+
+    if not isinstance(input, Mapping | None):
+        await socket.close(
+            code=1008,
+            reason="'input' query parameter must be unspecified, null or a valid JSON object",
+        )
+        return
 
     match await engine.subscribe(address, kind, procedure, input):
         case Ok(subscription):
@@ -317,7 +332,7 @@ async def run_subscription(
     unit: NameStr,
     component: NameStr,
     subscription: NameStr,
-    input: Mapping[str, object] | None = None,
+    input: Json[Any] = Query(None),
     engine: Engine = Depends(use_engine),
 ) -> None:
     await _subscribe(
@@ -337,7 +352,7 @@ async def run_display(
     unit: NameStr,
     component: NameStr,
     display: NameStr,
-    input: Mapping[str, object] | None = None,
+    input: Json[Any] = Query(None),
     engine: Engine = Depends(use_engine),
 ) -> None:
     await _subscribe(

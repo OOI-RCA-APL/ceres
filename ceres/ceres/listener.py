@@ -1,5 +1,4 @@
-from types import UnionType
-from typing import Any, Awaitable, Callable, TypeVar, overload
+from typing import Any, Awaitable, Callable, Sequence, TypeVar
 
 from .address import LocalComponentAddress
 from .events import Event
@@ -7,47 +6,28 @@ from .internal.binding import Binding, add_binding
 
 
 class ListenerBinding(Binding):
-    address: LocalComponentAddress
-    event: type | UnionType
+    sources: Sequence[LocalComponentAddress]
+    event: type[Event]
     function: str
 
 
 _EventT = TypeVar("_EventT", bound=Event)
+_Void = None | Awaitable[None]
 
 
-@overload
-def listen(
-    source: str,
+def on(
     event: type[_EventT],
-) -> Callable[
-    [Callable[[Any, _EventT], None | Awaitable[None]]], Callable[[Any, _EventT], Awaitable[None]]
-]:
-    ...
+    sources: str | Sequence[str] = "self",
+    /,
+) -> Callable[[Callable[[Any, _EventT], _Void]], Callable[[Any, _EventT], _Void]]:
+    if isinstance(sources, str):
+        sources = [sources]
 
-
-@overload
-def listen(
-    source: str,
-    event: UnionType,
-) -> Callable[
-    [Callable[[Any, Event], None | Awaitable[None]]], Callable[[Any, Event], Awaitable[None]]
-]:
-    ...
-
-
-def listen(
-    source: str,
-    event: type[_EventT] | UnionType,
-) -> Callable[
-    [Callable[[Any, _EventT], None | Awaitable[None]]], Callable[[Any, _EventT], Awaitable[None]]
-] | Callable[
-    [Callable[[Any, Event], None | Awaitable[None]]], Callable[[Any, Event], Awaitable[None]]
-]:
-    def inner(function: Callable[[Any, Event], None | Awaitable[None]]) -> Any:
+    def inner(function: Callable[[Any, _EventT], _Void]) -> Any:
         add_binding(
             function,
             ListenerBinding(
-                address=LocalComponentAddress(source),
+                sources=[LocalComponentAddress(source) for source in sources],
                 event=event,
                 function=function.__name__,
             ),

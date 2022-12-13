@@ -6,6 +6,7 @@ from inspect import Parameter
 from typing import (
     Any,
     AsyncIterable,
+    Awaitable,
     Callable,
     Literal,
     Mapping,
@@ -171,7 +172,7 @@ def _validate_procedure(
 
 _CallableProcedureFunctionT = TypeVar(
     "_CallableProcedureFunctionT",
-    bound=Callable[[Any], Any] | Callable[[Any, Any], Any],
+    bound=Callable[[Any], Awaitable[Any]] | Callable[[Any, Any], Awaitable[Any]],
 )
 
 

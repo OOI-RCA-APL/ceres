@@ -273,26 +273,6 @@ def issubtype(subtype: type | UnionType, base: type | UnionType) -> bool:
     return False
 
 
-@overload
-def loose_isinstance(instance: object, type: type[_T]) -> TypeGuard[_T]:
-    ...
-
-
-@overload
-def loose_isinstance(instance: object, type: UnionType) -> bool:
-    ...
-
-
-def loose_isinstance(
-    instance: object,
-    type: type[_T] | UnionType,
-) -> TypeGuard[_T] | bool:
-    try:
-        return isinstance(instance, type)
-    except Exception:
-        return False
-
-
 def object_has_field(obj: Any, name: str, type: Any = None) -> bool:
     if dataclasses.is_dataclass(obj):
         return any(

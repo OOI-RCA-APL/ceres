@@ -7,6 +7,7 @@ from types import MappingProxyType
 from typing import (
     Any,
     AsyncIterable,
+    FrozenSet,
     Mapping,
     Sequence,
     TypeVar,
@@ -45,7 +46,8 @@ from .internal.utilities import (
     awaitify,
     cached,
     get_type_annotations,
-    loose_isinstance,
+    lenient_isinstance,
+    lenient_issubclass,
     object_has_field,
     pre_validate_arguments,
 )
@@ -60,6 +62,7 @@ from .procedure import (
     QueryBinding,
     SubscribableProcedureKind,
     SubscriptionBinding,
+    subscription,
 )
 from .result import Fail, Ok, Result
 from .scheduler import Scheduler
@@ -123,12 +126,16 @@ class Component(ValidatedDataclass, Tasklet):
                 f"signature of {__init__} must be compatible with {inspect.signature(Component.__init__)}, got {signature}"
             )
 
-        if isinstance(references_hint, type) and issubclass(references_hint, Component.References):
+        if lenient_issubclass(references_hint, Component.References):
             for binding in cls.get_listener_bindings():
-                if not object_has_field(references_hint, binding.address.name):
-                    raise ComponentClassInvalidException(
-                        f"event listener {binding.function} refers to component '{binding.address.name}' which is not defined in {references_hint.__init__} with signature {inspect.signature(references_hint.__init__)}"
-                    )
+                for source in binding.sources:
+                    if source.name == "self":
+                        continue
+
+                    if not object_has_field(references_hint, source.name):
+                        raise ComponentClassInvalidException(
+                            f"event listener {binding.function} refers to component '{source.name}' which is not defined as an attribute in {references_hint}"
+                        )
 
         return cls
 
@@ -251,6 +258,26 @@ class Component(ValidatedDataclass, Tasklet):
     def event_stream(self) -> StreamView[Event]:
         return self.__component_internal__.outgoing_event_stream.view()
 
+    class SubscribeEventsInput(ImmutableDataObject):
+        kinds: str | FrozenSet[str] | None = None
+
+    @subscription("events")
+    async def subscribe_events(
+        self,
+        input: SubscribeEventsInput = SubscribeEventsInput(),
+    ) -> AsyncIterable[Event]:
+        match input.kinds:
+            case None:
+                kinds = None
+            case str():
+                kinds = {input.kinds}
+            case _:
+                kinds = input.kinds
+
+        async for event in self.event_stream:
+            if kinds is None or event.kind in kinds:
+                yield event
+
     async def _invoke(
         self,
         kind: "ProcedureKind",
@@ -301,6 +328,9 @@ class Component(ValidatedDataclass, Tasklet):
         if "component_id" not in event.__fields_set__ or event.component_id == UUID(int=0):
             object.__setattr__(event, "component_id", self.id)
 
+        # Immediately add the event to the incoming event stream so "self" event listeners work.
+        self.__component_internal__.incoming_event_stream.put(event)
+        # Add the event to the outgoing event stream.
         self.__component_internal__.outgoing_event_stream.put(event)
         return event
 
@@ -316,15 +346,16 @@ class Component(ValidatedDataclass, Tasklet):
             case AlertLevel.ERROR:
                 log_level = ERROR
 
-        self.logger.log(
-            log_level,
-            f"ALERT({alert.code}{' ' + jsonify(alert.info) if alert.info else ''})",
-        )
-
         self.emit_event(AlertEmittedEvent(alert=alert))
+        self.logger.log(log_level, f"Alert: {jsonify(alert)}")
         return alert
 
     def handle_event(self, event: Event) -> None:
+        # If the event comes from this component, ignore it. Events from "self" are immediately
+        # added to the incoming event stream in "emit_event".
+        if self.context.id == event.component_id:
+            return
+
         self.__component_internal__.incoming_event_stream.put(event)
 
     async def __run__(self) -> None:
@@ -362,24 +393,30 @@ class Component(ValidatedDataclass, Tasklet):
 
     async def _process_incoming_event(self, event: Event) -> None:
         for binding in self.get_listener_bindings():
-            if not loose_isinstance(event, binding.event):
-                continue
-            target = getattr(self.references, binding.address.name, None)
-            if not isinstance(target, Component):
-                continue
-            if target.context.id != event.component_id:
+            if not lenient_isinstance(event, binding.event):
                 continue
 
-            if method := getattr(self, binding.function, None):
-                try:
-                    if len(inspect.signature(method).parameters) == 0:
-                        await awaitify(method())
-                    else:
-                        await awaitify(method(event))
-                except Exception:
-                    self.logger.error(
-                        f"An exception occurred while processing event {event}: {traceback.format_exc()}"
-                    )
+            for source in binding.sources:
+                if source.name == "self":
+                    target = self
+                else:
+                    target = getattr(self.references, source.name, None)
+
+                if not isinstance(target, Component):
+                    continue
+                if target.context.id != event.component_id:
+                    continue
+
+                if method := getattr(self, binding.function, None):
+                    try:
+                        if len(inspect.signature(method).parameters) == 0:
+                            await awaitify(method())
+                        else:
+                            await awaitify(method(event))
+                    except Exception:
+                        self.logger.error(
+                            f"An exception occurred while processing event {event}: {traceback.format_exc()}"
+                        )
 
     async def __stop__(self) -> None:
         self.scheduler.stop()
