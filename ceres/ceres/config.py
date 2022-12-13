@@ -134,9 +134,12 @@ class Config(ConfigObject):
 
     @root_validator
     def _validate_root(cls, values: Mapping[str, object]) -> Mapping[str, object]:
-        database = cast(DatabaseConfig, values["database"])
-        runtime = cast(RuntimeConfig, values["runtime"])
-        units = cast(Sequence[UnitConfig], values["units"])
+        database = cast(DatabaseConfig | None, values.get("database"))
+        runtime = cast(RuntimeConfig | None, values.get("runtime"))
+        units = cast(Sequence[UnitConfig] | None, values.get("units"))
+
+        if database is None or runtime is None or units is None:
+            return values
 
         if isinstance(database, SQLiteDatabaseConfig) and database.path is None:
             if runtime.concurrency == ConcurrencyKind.PROCESS or any(

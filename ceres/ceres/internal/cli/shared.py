@@ -43,6 +43,7 @@ def get_config_path(config_path: Path | None) -> Path:
         possibilities = [
             "ceres.yaml",
             "ceres.yml",
+            "ceres.json",
         ]
 
         for possibility in possibilities:

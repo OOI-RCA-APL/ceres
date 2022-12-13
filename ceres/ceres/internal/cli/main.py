@@ -6,8 +6,8 @@ import anyio
 import rich
 from anyio.abc import TaskGroup
 from typer import Option
+from watchfiles import DefaultFilter
 
-from ...config import Config
 from ...data import jsonify
 from ...engine import Engine
 from ...exceptions import StartupException
@@ -16,7 +16,7 @@ from .. import logs
 from ..config import load_config
 from ..utilities import ensure_event_loop, strify, syncify, temporary_signal_handler
 from .exceptions import CLIInvalidConfigException, CLIStartupException
-from .shared import AsyncTyper, ConfigOption, ConfigPathOption
+from .shared import AsyncTyper, ConfigPathOption, get_config
 from .subcommands.database import database
 
 main = AsyncTyper(
@@ -31,7 +31,7 @@ main.add_typer(database)
 @main.command()
 async def run(
     *,
-    config: Config = ConfigOption(checks=[]),
+    config_path: Path = ConfigPathOption(),
     watch: bool = Option(
         False,
         help="Automatically restart the application on code changes.",
@@ -42,19 +42,19 @@ async def run(
     """
     try:
         if watch:
-            await _run_watch(config)
+            await _run_watch(config_path=config_path)
         else:
-            await Engine(config).run()
+            await Engine(await get_config(config_path, checks=[])).run()
     except StartupException as exception:
         raise CLIStartupException(f"Engine startup failed. {exception.message}")
 
 
 @main.command()
-async def check(*, path: Path = ConfigPathOption()) -> None:
+async def check(*, config_path: Path = ConfigPathOption()) -> None:
     """
     Check project configuration for correctness.
     """
-    match await load_config(path, logger=rich.print):
+    match await load_config(config_path, logger=rich.print):
         case Ok():
             rich.print("All checks passed.")
         case fail:
@@ -69,11 +69,11 @@ def setup() -> None:
     logs.setup()
 
 
-def _run_sync(*, config: Config, watch: bool = False) -> None:
-    syncify(run)(config=config, watch=watch)
+def _run_sync(*, config_path: Path, watch: bool = False) -> None:
+    syncify(run)(config_path=config_path, watch=watch)
 
 
-async def _run_watch(config: Config) -> None:
+async def _run_watch(*, config_path: Path) -> None:
     async def main() -> None:
         from watchfiles import Change, PythonFilter, arun_process
 
@@ -88,15 +88,20 @@ async def _run_watch(config: Config) -> None:
             rich.print(f"Restarting, watch mode detected: {strify(info)}")
 
         await arun_process(
+            # Watch for changes in the project directory.
+            config_path.parent,
             # Watch for changes in "ceres" itself.
             Path(ceres.__file__).parent,
-            # Watch for changes in the project directory.
-            *([Path(config.path).parent] if config.path else []),
             target=_run_sync,
-            kwargs={"config": config, "watch": False},
+            kwargs={
+                "config_path": config_path,
+                "watch": False,
+            },
             watch_filter=PythonFilter(
                 # Ignore changes to this module in particular.
                 ignore_paths=[__file__],
+                # Watch for changes in the configuration file.
+                extra_extensions=[str(config_path)],
             ),
             callback=callback,
         )
