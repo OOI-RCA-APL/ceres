@@ -1,12 +1,11 @@
 import signal
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 import anyio
 import rich
 from anyio.abc import TaskGroup
 from typer import Option
-from watchfiles import DefaultFilter
 
 from ...data import jsonify
 from ...engine import Engine
@@ -14,7 +13,13 @@ from ...exceptions import StartupException
 from ...result import Ok
 from .. import logs
 from ..config import load_config
-from ..utilities import ensure_event_loop, strify, syncify, temporary_signal_handler
+from ..utilities import (
+    ensure_event_loop,
+    spawn,
+    strify,
+    syncify,
+    temporary_signal_handler,
+)
 from .exceptions import CLIInvalidConfigException, CLIStartupException
 from .shared import AsyncTyper, ConfigPathOption, get_config
 from .subcommands.database import database
@@ -75,36 +80,57 @@ def _run_sync(*, config_path: Path, watch: bool = False) -> None:
 
 async def _run_watch(*, config_path: Path) -> None:
     async def main() -> None:
-        from watchfiles import Change, PythonFilter, arun_process
+        from watchfiles import PythonFilter, awatch
+        from watchfiles.run import CombinedProcess, start_process
 
         import ceres
 
-        async def callback(changes: Iterable[tuple[Change, str]]) -> None:
-            info = sorted(
-                [(path, change._name_) for (change, path) in changes],
-                key=lambda current: current[0],
-            )
-
-            rich.print(f"Restarting, watch mode detected: {strify(info)}")
-
-        await arun_process(
-            # Watch for changes in the project directory.
-            config_path.parent,
-            # Watch for changes in "ceres" itself.
-            Path(ceres.__file__).parent,
-            target=_run_sync,
-            kwargs={
+        async def start() -> CombinedProcess:
+            target = _run_sync
+            kwargs = {
                 "config_path": config_path,
                 "watch": False,
-            },
-            watch_filter=PythonFilter(
-                # Ignore changes to this module in particular.
-                ignore_paths=[__file__],
-                # Watch for changes in the configuration file.
-                extra_extensions=[str(config_path)],
-            ),
-            callback=callback,
-        )
+            }
+
+            return await spawn(start_process, target, "function", (), kwargs)
+
+        # Start the initial process.
+        process = await start()
+
+        try:
+            async for changes in awatch(
+                # Watch for changes in the project directory.
+                config_path.parent,
+                # Watch for changes in "ceres" itself.
+                Path(ceres.__file__).parent,
+                watch_filter=PythonFilter(
+                    # Ignore changes to this module in particular.
+                    ignore_paths=[__file__],
+                    # Watch for changes in the configuration file.
+                    extra_extensions=[str(config_path)],
+                ),
+            ):
+                info = sorted(
+                    [(path, change._name_) for (change, path) in changes],
+                    key=lambda current: current[0],
+                )
+
+                # Indicate a restart and show changed files.
+                rich.print(f"Restarting, watch mode detected: {strify(info)}")
+
+                # Stop the running process if necessary.
+                if process.is_alive():
+                    await spawn(process.stop, 15, 5)
+
+                # Start a new process.
+                process = await start()
+        finally:
+            try:
+                # Ensure the last process started is stopped.
+                if process.is_alive():
+                    await spawn(process.stop, 15, 5)
+            except Exception:
+                pass
 
     group: TaskGroup | None = None
 
