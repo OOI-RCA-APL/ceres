@@ -15,7 +15,7 @@ from fastapi import (
     WebSocketDisconnect,
 )
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import Json, ValidationError, parse_obj_as
+from pydantic import Json
 from starlette.requests import HTTPConnection
 from starlette.status import HTTP_400_BAD_REQUEST
 from websockets.exceptions import ConnectionClosed
@@ -272,13 +272,6 @@ async def run_job(
     engine: Engine = Depends(use_engine),
 ) -> Result[object | None, ProcedureError]:
     return await _call(engine, unit, component, CallableProcedureKind.JOB, job, input)
-
-
-def _use_input(input: Json[Any] | None = None) -> Mapping[str, object]:
-    try:
-        return parse_obj_as(Mapping[str, object], input)
-    except ValidationError:
-        raise HTTPException(403, "Input must be unspecified, null or a valid JSON object")
 
 
 async def _subscribe(
