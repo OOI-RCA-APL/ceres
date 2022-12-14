@@ -24,6 +24,10 @@ class ComponentAddress(ValidatedDataclass, kw_only=False, frozen=True):
     def __str__(self) -> str:
         return f"@{self.unit}.{self.name}"
 
+    @property
+    def component(self) -> str:
+        return self.name
+
 
 AddressKind = Literal["unit", "component"]
 Address = UnitAddress | ComponentAddress
