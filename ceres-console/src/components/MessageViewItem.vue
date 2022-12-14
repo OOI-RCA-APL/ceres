@@ -1,18 +1,18 @@
 <template>
   <div class="items-center no-wrap q-px-md row">
-    <div class="justify-center q-mr-sm self-timestamp text-no-wrap">
-      {{ moment.utc(message.timestamp).format('YYYY/MM/DD HH:mm:ss.SSS') }}
-    </div>
-    <div class="justify-center q-mr-sm">
-      <q-chip class="self-direction" :color="directionColor" dense>
-        <span class="full-width justify-center row text-no-wrap">
+    <span class="justify-center q-mr-sm self-timestamp text-no-wrap" style="display: inline-block">
+      {{ moment.utc(message.timestamp).format('YYYY-MM-DD HH:mm:ss.SSS') }}
+    </span>
+    <span class="justify-center q-mr-sm" style="display: inline-block">
+      <q-chip class="self-direction" :color="directionColor" dense style="display: inline-block">
+        <span class="full-width justify-center row text-black text-no-wrap">
           {{ message.direction.toUpperCase() }}
         </span>
       </q-chip>
-    </div>
-    <div class="self-content text-no-wrap">
+    </span>
+    <span class="self-content text-no-wrap" style="display: inline-block">
       {{ message.content }}
-    </div>
+    </span>
   </div>
 </template>
 
@@ -44,18 +44,17 @@ const directionColor = $computed(() => {
 
 <style lang="scss" scoped>
 .self-direction {
-  min-width: 60px;
-  padding: none;
-  font-size: 11px;
+  min-width: 50px;
+  font-size: 9px;
 }
 
 .self-timestamp {
-  font-size: 13px;
+  font-size: 11px;
   font-family: 'Roboto Mono', monospace;
 }
 
 .self-content {
-  font-size: 13px;
+  font-size: 11px;
   font-family: 'Roboto Mono', monospace;
 }
 </style>

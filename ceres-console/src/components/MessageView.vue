@@ -88,10 +88,8 @@ async function loadPreviousMessages() {
     const previous = await getMessages({
       component_id: info.id,
       before: earliestMessageTimestamp == null ? undefined : earliestMessageTimestamp,
-      limit: 50,
+      limit: 200,
     })
-
-    console.log(JSON.stringify(previous))
 
     if (previous.length === 0) {
       isMessageScrollbackExhausted = true
@@ -166,11 +164,11 @@ onMounted(() => {
 }
 
 .self-message:first-child {
-  padding-top: 8px;
+  padding-top: 4px;
 }
 
 .self-message:last-child {
-  padding-bottom: 8px;
+  padding-bottom: 4px;
 }
 </style>
 
@@ -181,9 +179,9 @@ onMounted(() => {
 }
 
 .message-view-search-input {
-  left: 0;
+  left: 12px;
   position: absolute;
-  top: -12px;
+  top: -14px;
   width: 100%;
 }
 </style>

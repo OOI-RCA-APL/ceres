@@ -1,6 +1,6 @@
 <template>
   <q-card bordered flat>
-    <div class="items-center no-wrap q-px-md q-py-sm row">
+    <div class="items-center no-wrap q-px-md q-py-xs row">
       <template v-if="to">
         <router-link class="wrapper-link" :to="to">
           <common-text class="text-capitalize text-no-wrap" variant="title2">

@@ -48,19 +48,22 @@ else:
     Engine = "Engine"
 
 
-class UnitInfo(ImmutableDataObject):
-    id: UUID
-    config: UnitConfig
-
-
 class ComponentInfo(ImmutableDataObject):
     id: UUID
+    name: str
     config: ComponentConfig
     queries: Sequence[QueryBinding]
     actions: Sequence[ActionBinding]
     jobs: Sequence[JobBinding]
     subscriptions: Sequence[SubscriptionBinding]
     displays: Sequence[DisplayBinding]
+
+
+class UnitInfo(ImmutableDataObject):
+    id: UUID
+    name: str
+    config: UnitConfig
+    components: Sequence[ComponentInfo]
 
 
 api = APIRouter()
@@ -186,8 +189,25 @@ async def get_unit_info(
     config = engine.config.get_unit(address)
     if config is None:
         raise HTTPException(404)
+
+    components = []
+    for component in config.components:
+        components.append(
+            await get_component_info(
+                unit,
+                component.name,
+                engine,
+                entities,
+            )
+        )
+
     id = await entities.get_address_id(address)
-    return UnitInfo(id=id, config=config)
+    return UnitInfo(
+        id=id,
+        name=address.name,
+        config=config,
+        components=components,
+    )
 
 
 @api.get(
@@ -206,9 +226,11 @@ async def get_component_info(
     component_cls = engine.config.get_component_cls(address)
     if component_config is None or component_cls is None:
         raise HTTPException(404)
+
     id = await entities.get_address_id(address)
     return ComponentInfo(
         id=id,
+        name=address.name,
         config=component_config,
         queries=list(component_cls.get_query_bindings().values()),
         actions=list(component_cls.get_action_bindings().values()),
