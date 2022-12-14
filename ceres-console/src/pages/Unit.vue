@@ -9,36 +9,39 @@
     </div>
     <div v-else-if="unit && name">
       <div class="relative-position row">
-        <div class="q-px-md q-py-sm text-grey-8">Connections</div>
+        <div class="q-px-md q-py-sm text-grey-8" style="min-width: 120px">Connections</div>
+        <q-separator vertical />
         <q-btn
           v-for="connection in connections"
           :key="connection.name"
           :class="[
             'q-px-md',
-            selectedConnectionNames.includes(connection.name) ? 'text-primary' : '',
+            state.selectedConnectionNames.includes(connection.name) ? 'text-primary' : '',
           ]"
           dense
           flat
           :icon="
-            selectedConnectionNames.includes(connection.name) ? 'arrow_drop_up' : 'arrow_drop_down'
+            state.selectedConnectionNames.includes(connection.name)
+              ? 'arrow_drop_up'
+              : 'arrow_drop_down'
           "
           no-caps
           square
           :style="{ fontWeight: '400' }"
           @click="
-            selectedConnectionNames = selectedConnectionNames.includes(connection.name)
-              ? selectedConnectionNames.filter((current) => current !== connection.name)
-              : [...selectedConnectionNames, connection.name]
+            state.selectedConnectionNames = state.selectedConnectionNames.includes(connection.name)
+              ? state.selectedConnectionNames.filter((current) => current !== connection.name)
+              : [...state.selectedConnectionNames, connection.name]
           "
         >
           {{ `@${name}.${connection.name}` }}
         </q-btn>
       </div>
-      <template v-if="selectedConnectionNames.length">
+      <template v-if="state.selectedConnectionNames.length">
         <q-separator />
         <div class="row">
           <q-tab-panel
-            v-for="selectedConnectionName in selectedConnectionNames"
+            v-for="selectedConnectionName in state.selectedConnectionNames"
             :key="selectedConnectionName"
             class="col q-pa-sm"
             :name="selectedConnectionName"
@@ -52,7 +55,58 @@
           </q-tab-panel>
         </div>
       </template>
-      <div class="q-pa-md">
+      <q-separator />
+      <div class="relative-position row">
+        <div class="q-px-md q-py-sm text-grey-8" style="min-width: 120px">Drivers</div>
+        <q-separator vertical />
+        <q-btn
+          v-for="driver in drivers"
+          :key="driver.name"
+          :class="[
+            'q-px-md',
+            state.selectedDriverNames.includes(driver.name) ? 'text-primary' : '',
+          ]"
+          dense
+          flat
+          :icon="
+            state.selectedDriverNames.includes(driver.name) ? 'arrow_drop_up' : 'arrow_drop_down'
+          "
+          no-caps
+          square
+          :style="{ fontWeight: '400' }"
+          @click="
+            state.selectedDriverNames = state.selectedDriverNames.includes(driver.name)
+              ? state.selectedDriverNames.filter((current) => current !== driver.name)
+              : [...state.selectedDriverNames, driver.name]
+          "
+        >
+          {{ `@${name}.${driver.name}` }}
+        </q-btn>
+      </div>
+      <template v-if="state.selectedDriverNames.length">
+        <q-separator />
+        <div class="row">
+          <q-tab-panel
+            v-for="driver in drivers.filter((driver) =>
+              state.selectedDriverNames.includes(driver.name)
+            )"
+            :key="driver.name"
+            class="col q-pa-sm"
+            :name="driver.name"
+          >
+            <display
+              v-for="display in driver.displays"
+              :key="display.name"
+              class="q-mb-sm"
+              :component-name="driver.name"
+              :display-name="display.name"
+              :unit-name="name"
+            />
+          </q-tab-panel>
+        </div>
+      </template>
+      <q-separator />
+      <div class="q-mt-lg q-pa-md">
         <q-markup-table v-if="components.length" bordered dense flat separator="vertical">
           <thead>
             <q-tr no-hover>
@@ -76,10 +130,14 @@
 
 <script lang="ts" setup>
 import { getUnit } from '@/api/queries'
+import Display from '@/components/Display.vue'
 import FullPage from '@/components/FullPage.vue'
 import MessageView from '@/components/MessageView.vue'
 import UnitControls from '@/components/UnitControls.vue'
+import { usePersisted } from '@/persistence'
+import { computed } from 'vue'
 import { useQuery } from 'vue-query'
+import Zod from 'zod'
 
 const { name = null } = defineProps<{
   name?: string | null
@@ -106,8 +164,21 @@ const components = $computed(() => unit?.components ?? [])
 const connections = $computed(() =>
   components.filter((component) => component.config.roles.includes('connection'))
 )
+const drivers = $computed(() => components.filter((component) => component.displays.length))
 
-let selectedConnectionNames = $ref<string[]>(connections.length ? [connections[0].config.name] : [])
+const StateSchema = Zod.object({
+  selectedConnectionNames: Zod.array(Zod.string()).default(() =>
+    connections.length ? [connections[0].name] : []
+  ),
+  selectedDriverNames: Zod.array(Zod.string()).default(() =>
+    drivers.length ? [drivers[0].name] : []
+  ),
+})
+
+const state = usePersisted({
+  schema: StateSchema,
+  methods: computed(() => [{ type: 'local-storage', key: `unit:${name}` }]),
+})
 </script>
 
 <style lang="scss" scoped>

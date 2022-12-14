@@ -1,6 +1,7 @@
 import _ from 'lodash'
 import { debounce, LocalStorage } from 'quasar'
-import { isReactive, onMounted, reactive, watch } from 'vue'
+import { computed, isReactive, isRef, onMounted, reactive, watch } from 'vue'
+import { MaybeRef } from 'vue-query/lib/vue/types'
 import { Router, useRouter } from 'vue-router'
 import Zod, { ZodArray, ZodBoolean, ZodNativeEnum, ZodNumber, ZodObject } from 'zod'
 
@@ -30,7 +31,7 @@ export type PersistenceMethod<TData extends Mapping> =
 export type UsePersistedOptions<TData extends BaseData<TSchema>, TSchema extends BaseSchema> = {
   data?: TData
   schema: TSchema
-  methods: PersistenceMethod<TData>[]
+  methods: MaybeRef<PersistenceMethod<TData>[]>
 }
 
 export function usePersisted<TData extends BaseData<TSchema>, TSchema extends BaseSchema>(
@@ -39,14 +40,14 @@ export function usePersisted<TData extends BaseData<TSchema>, TSchema extends Ba
   const router = useRouter()
 
   const schema = options.schema
-  const methods = options.methods
+  const methods = computed(() => (isRef(options.methods) ? options.methods.value : options.methods))
   let data = (options.data ?? schema.parse({})) as TData
   if (!isReactive(data)) {
     data = reactive(data)
   }
 
-  onMounted(() => {
-    for (const method of methods) {
+  function read() {
+    for (const method of methods.value) {
       let loaded: Partial<TData> | null = null
       if (method.type === 'local-storage') {
         loaded = readFromStorage(method.key, schema)
@@ -60,10 +61,10 @@ export function usePersisted<TData extends BaseData<TSchema>, TSchema extends Ba
         load(data, loaded, method)
       }
     }
-  })
+  }
 
   async function write() {
-    for (const method of methods) {
+    for (const method of methods.value) {
       if (method.type === 'local-storage') {
         writeToStorage(method, data)
       } else if (method.type === 'url') {
@@ -72,12 +73,16 @@ export function usePersisted<TData extends BaseData<TSchema>, TSchema extends Ba
     }
   }
 
+  onMounted(() => {
+    read()
+    write()
+  })
+
   watch(
     [data],
     debounce(() => {
       void write()
-    }, 250),
-    { immediate: true }
+    }, 250)
   )
 
   return data
