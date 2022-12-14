@@ -20,10 +20,10 @@
         />
       </q-toolbar>
     </q-header>
-    <q-drawer v-model="state.isDrawerOpen" behavior="mobile" bordered :width="200">
+    <q-drawer v-model="state.isDrawerOpen" bordered :width="200">
       <q-scroll-area class="fit">
         <q-list>
-          <q-item clickable to="/">
+          <q-item :active="route.fullPath === '/'" clickable to="/">
             <q-item-section avatar>
               <q-icon :name="icons.dashboard" />
             </q-item-section>

@@ -1,9 +1,10 @@
 import _ from 'lodash'
-import { debounce, LocalStorage } from 'quasar'
-import { computed, isReactive, isRef, onMounted, reactive, watch } from 'vue'
-import { MaybeRef } from 'vue-query/lib/vue/types'
+import { LocalStorage } from 'quasar'
+import { computed, isReactive, isRef, onMounted, reactive, Ref, watch } from 'vue'
 import { Router, useRouter } from 'vue-router'
 import Zod, { ZodArray, ZodBoolean, ZodNativeEnum, ZodNumber, ZodObject } from 'zod'
+
+type MaybeRef<T> = Ref<T> | T
 
 type Mapping = Record<string, any>
 export type BaseSchema = ZodObject<any>
@@ -14,19 +15,18 @@ type BasePersistenceMethod<TData extends Mapping> = {
   exclude?: (keyof TData)[]
 }
 
-export type StoragePersistenceMethod<TData extends Mapping> = {
+export type LocalStoragePersistenceMethod<TData extends Mapping> = {
   type: 'local-storage'
   key: string
 } & BasePersistenceMethod<TData>
 
 export type URLPersistenceMethod<TData extends Mapping> = {
   type: 'url'
-  history?: boolean
 } & BasePersistenceMethod<TData>
 
 export type PersistenceMethod<TData extends Mapping> =
+  | LocalStoragePersistenceMethod<TData>
   | URLPersistenceMethod<TData>
-  | StoragePersistenceMethod<TData>
 
 export type UsePersistedOptions<TData extends BaseData<TSchema>, TSchema extends BaseSchema> = {
   data?: TData
@@ -37,10 +37,10 @@ export type UsePersistedOptions<TData extends BaseData<TSchema>, TSchema extends
 export function usePersisted<TData extends BaseData<TSchema>, TSchema extends BaseSchema>(
   options: UsePersistedOptions<TData, TSchema>
 ): TData {
-  const router = useRouter()
-
   const schema = options.schema
   const methods = computed(() => (isRef(options.methods) ? options.methods.value : options.methods))
+  const router = useRouter()
+
   let data = (options.data ?? schema.parse({})) as TData
   if (!isReactive(data)) {
     data = reactive(data)
@@ -63,12 +63,12 @@ export function usePersisted<TData extends BaseData<TSchema>, TSchema extends Ba
     }
   }
 
-  async function write() {
+  function write() {
     for (const method of methods.value) {
       if (method.type === 'local-storage') {
         writeToStorage(method, data)
       } else if (method.type === 'url') {
-        await writeToUrl(method, data, schema, router)
+        writeToUrl(method, data, schema, router)
       }
     }
   }
@@ -78,12 +78,9 @@ export function usePersisted<TData extends BaseData<TSchema>, TSchema extends Ba
     write()
   })
 
-  watch(
-    [data],
-    debounce(() => {
-      void write()
-    }, 250)
-  )
+  watch(data, () => {
+    write()
+  })
 
   return data
 }
@@ -117,7 +114,7 @@ function readFromStorage<TData extends BaseData<TSchema>, TSchema extends BaseSc
 }
 
 function writeToStorage<TData extends BaseData<TSchema>, TSchema extends BaseSchema>(
-  method: StoragePersistenceMethod<TData>,
+  method: LocalStoragePersistenceMethod<TData>,
   data: TData
 ) {
   LocalStorage.set(method.key, _.pick(data, getFields(data, method)))
@@ -164,7 +161,7 @@ function readFromUrl<TData extends BaseData<TSchema>, TSchema extends BaseSchema
   }
 }
 
-async function writeToUrl<TData extends BaseData<TSchema>, TSchema extends BaseSchema>(
+function writeToUrl<TData extends BaseData<TSchema>, TSchema extends BaseSchema>(
   method: URLPersistenceMethod<TData>,
   data: TData,
   schema: TSchema,
@@ -195,10 +192,7 @@ async function writeToUrl<TData extends BaseData<TSchema>, TSchema extends BaseS
 
     if (isArrayFieldOfType(schema, field, ZodNativeEnum)) {
       if (_.isArrayLike(value) && value.length > 0) {
-        search.set(
-          key,
-          (value as any[]).map((value) => value.replace(/_/g, '-').toLowerCase()).join(',')
-        )
+        search.set(key, value.map((value: any) => value.replace(/_/g, '-').toLowerCase()).join(','))
       }
 
       continue
@@ -206,22 +200,19 @@ async function writeToUrl<TData extends BaseData<TSchema>, TSchema extends BaseS
 
     if (isFieldOfType(schema, field, ZodArray)) {
       if (_.isArrayLike(value) && value.length > 0) {
-        search.set(key, (value as any[]).join(','))
+        search.set(key, value.join(','))
       }
 
       continue
     }
 
-    search.set(key, value as string)
+    search.set(key, value)
   }
 
   const params = url.searchParams.toString()
   const serialized = `${url.pathname}${params ? '?' + params : ''}`.replace(/%2C/g, ',')
-  if (method.history == null || method.history) {
-    await router.replace(serialized)
-  } else {
-    history.replaceState(history.state, '', serialized)
-  }
+
+  void router.replace(serialized)
 }
 
 function isFieldOfType(schema: BaseSchema, field: string, type: any): boolean {

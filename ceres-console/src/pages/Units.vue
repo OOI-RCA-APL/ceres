@@ -7,12 +7,13 @@
             <common-text class="q-ml-md q-py-sm" variant="title2">Units</common-text>
             <q-separator />
           </div>
-          <q-list class="col-grow overflow-auto q-pt-xs scroll" dense>
+          <q-list class="col-grow overflow-auto scroll">
             <q-item
               v-for="unit in config.data.units"
               :key="unit.name"
               clickable
               dense
+              style="min-height: 38px"
               :to="`/units/${unit.name}`"
             >
               <q-item-section>
