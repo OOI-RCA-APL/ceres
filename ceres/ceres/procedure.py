@@ -85,6 +85,7 @@ class SubscriptionBinding(BaseProcedureBinding):
 
 class DisplayBinding(BaseProcedureBinding):
     kind: Literal[ProcedureKind.DISPLAY] = ProcedureKind.DISPLAY
+    group: str | None
 
 
 ProcedureBinding = QueryBinding | ActionBinding | JobBinding | SubscriptionBinding | DisplayBinding
@@ -272,6 +273,7 @@ def display(
     name: str,
     *,
     dedupe: bool = True,
+    group: str | None = None,
 ) -> Callable[[_SubscribableProcedureFunctionT], _SubscribableProcedureFunctionT]:
     def bind(function: _SubscribableProcedureFunctionT) -> _SubscribableProcedureFunctionT:
         schemas = _validate_procedure(function, ProcedureKind.SUBSCRIPTION)
@@ -281,6 +283,7 @@ def display(
                 name=name,
                 function=function.__name__,
                 schemas=schemas,
+                group=group,
             ),
         )
 

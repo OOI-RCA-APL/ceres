@@ -1,5 +1,5 @@
 <template>
-  <q-markup-table bordered dense flat separator="cell">
+  <q-markup-table :key="resizes" bordered dense flat separator="cell">
     <thead>
       <q-tr no-hover>
         <q-th>{{ capitalCase(displayName) }}</q-th>
@@ -27,6 +27,8 @@
 import { useDisplayStream } from '@/api/queries'
 import { DisplayInfo } from '@/display'
 import { capitalCase } from 'change-case'
+import { debounce } from 'quasar'
+import { watchEffect } from 'vue'
 import GuageDisplay from './displays/GuageDisplay.vue'
 import IndicatorDisplay from './displays/IndicatorDisplay.vue'
 import NumberDisplay from './displays/NumberDisplay.vue'
@@ -39,8 +41,20 @@ const { unitName, componentName, displayName } = defineProps<{
 }>()
 
 let info: DisplayInfo | null = $ref(null)
+let resizes = $ref(0)
 
 useDisplayStream(unitName, componentName, displayName, (current) => {
   info = current
+})
+
+watchEffect((onCleanup) => {
+  const onResize = debounce(() => {
+    resizes += 1
+  }, 100)
+
+  window.addEventListener('resize', onResize)
+  onCleanup(() => {
+    window.removeEventListener('resize', onResize)
+  })
 })
 </script>

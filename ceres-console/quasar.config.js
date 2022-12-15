@@ -86,6 +86,7 @@ module.exports = configure((context) => {
     framework: {
       config: {},
       plugins: ['Dark', 'Dialog', 'LocalStorage', 'Meta', 'Notify'],
+      cssAddon: true,
     },
 
     // https://v2.quasar.dev/options/animations

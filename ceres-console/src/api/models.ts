@@ -109,6 +109,7 @@ export const DisplayBindingModel = Zod.object({
   kind: Zod.literal('display'),
   name: Zod.string(),
   function: Zod.string(),
+  group: Zod.string().nullable().default(null),
 })
 
 export type ComponentInfo = Zod.infer<typeof ComponentInfoModel>

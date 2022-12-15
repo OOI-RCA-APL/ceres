@@ -48,13 +48,22 @@ def get_bindings(component_cls: type, binding_cls: type[_BindingT]) -> Sequence[
 
 
 def _get_functions(component_cls: type) -> Sequence[FunctionType]:
-    functions: list[FunctionType] = []
+    functions: dict[str, FunctionType] = {}
 
-    for name in dir(component_cls):
-        if (member := getattr(component_cls, name, None)) is None:
-            continue
-        if not inspect.isfunction(member):
-            continue
-        functions.append(member)
+    for cls in reversed(component_cls.__mro__):
+        for name in vars(cls):
+            if name in functions:
+                continue
 
-    return functions
+            try:
+                if (member := getattr(component_cls, name, None)) is None:
+                    continue
+            except Exception:
+                continue
+
+            if not inspect.isfunction(member):
+                continue
+
+            functions[name] = member
+
+    return list(functions.values())

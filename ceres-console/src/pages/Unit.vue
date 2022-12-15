@@ -94,14 +94,33 @@
             class="col q-pa-sm"
             :name="driver.name"
           >
-            <display
-              v-for="display in driver.displays"
+            <div
+              v-for="(displays, group) in getDisplayGroups(driver)"
+              :key="group"
+              class="col q-gutter-xs q-mb-sm row-sm"
+            >
+              <display
+                v-for="display in displays"
+                :key="display.name"
+                class="col"
+                :component-name="driver.name"
+                :display-name="display.name"
+                :unit-name="name"
+              />
+            </div>
+            <div
+              v-for="display in driver.displays.filter((display) => display.group == null)"
               :key="display.name"
-              class="q-mb-sm"
-              :component-name="driver.name"
-              :display-name="display.name"
-              :unit-name="name"
-            />
+              class="col q-gutter-xs q-mb-sm row"
+            >
+              <display
+                :key="display.name"
+                class="col"
+                :component-name="driver.name"
+                :display-name="display.name"
+                :unit-name="name"
+              />
+            </div>
           </q-tab-panel>
         </div>
       </template>
@@ -129,6 +148,7 @@
 </template>
 
 <script lang="ts" setup>
+import { ComponentInfo, DisplayBinding } from '@/api/models'
 import { getUnit } from '@/api/queries'
 import Display from '@/components/Display.vue'
 import FullPage from '@/components/FullPage.vue'
@@ -179,6 +199,28 @@ const state = usePersisted({
   schema: StateSchema,
   methods: computed(() => [{ type: 'local-storage', key: `unit:${name}` }]),
 })
+
+function getDisplayGroups(driver: ComponentInfo) {
+  const groups: Record<string, DisplayBinding[]> = {}
+  for (const display of driver.displays) {
+    if (display.group == null) {
+      continue
+    }
+    if (!(display.group in groups)) {
+      groups[display.group] = []
+    }
+
+    groups[display.group].push(display)
+  }
+
+  const defaultGroup = groups['default']
+  delete groups['default']
+  if (defaultGroup != null) {
+    groups['default'] = defaultGroup
+  }
+
+  return groups
+}
 </script>
 
 <style lang="scss" scoped>

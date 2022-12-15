@@ -64,6 +64,7 @@ const options = $computed(
 <style lang="scss" scoped>
 .self-chart {
   height: 48px;
-  max-width: 180px;
+  // max-width: 180px;
+  // min-width: 100px;
 }
 </style>

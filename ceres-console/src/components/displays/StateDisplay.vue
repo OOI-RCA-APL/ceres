@@ -14,14 +14,12 @@
   />
   <q-chip
     v-else
-    class="text-uppercase"
-    :color="selected?.color"
     :icon="selected?.icon ?? undefined"
-    :label="selected?.value"
+    :label="selected?.label"
     :ripple="false"
-    size="lg"
     square
     :stack="info.vertical_icons"
+    :style="{ backgroundColor: selected?.color ?? 'transparent' }"
     text-color="white"
   >
     <q-menu
@@ -47,12 +45,15 @@
             separator="cell"
           >
             <tbody>
-              <q-tr v-for="option in info.options" v-bind:key="option.value">
+              <q-tr
+                v-for="option in info.options"
+                v-bind:key="String(option.value) + typeof option.value"
+              >
                 <q-th class="text-capitalize text-center">
                   <q-chip
                     :color="option.color ?? 'primary'"
                     :icon="option.icon ?? undefined"
-                    :label="option.value"
+                    :label="option.label"
                     :ripple="false"
                     size="sm"
                     square

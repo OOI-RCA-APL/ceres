@@ -1,5 +1,8 @@
 import Zod from 'zod'
 
+export type AtomicValue = Zod.infer<typeof AtomicValueModel>
+export const AtomicValueModel = Zod.union([Zod.boolean(), Zod.number(), Zod.string()])
+
 export type ColorStop = Zod.infer<typeof ColorStopModel>
 export const ColorStopModel = Zod.object({
   value: Zod.number(),
@@ -14,7 +17,8 @@ export const RangeModel = Zod.object({
 
 export type State = Zod.infer<typeof StateModel>
 export const StateModel = Zod.object({
-  value: Zod.union([Zod.string(), Zod.number()]),
+  value: AtomicValueModel,
+  label: Zod.string(),
   color: Zod.string(),
   icon: Zod.string().nullable().default(null),
   description: Zod.string().nullable().default(null),
@@ -42,7 +46,7 @@ export const NumberDisplayInfoModel = BaseDisplayInfoModel.extend({
 export type StateDisplayInfo = Zod.infer<typeof StateDisplayInfoModel>
 export const StateDisplayInfoModel = BaseDisplayInfoModel.extend({
   kind: Zod.literal('state'),
-  value: Zod.union([Zod.string(), Zod.number()]),
+  value: AtomicValueModel,
   options: Zod.array(StateModel),
   show_options: Zod.boolean(),
   vertical_icons: Zod.boolean(),

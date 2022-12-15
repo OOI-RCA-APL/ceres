@@ -17,10 +17,11 @@ class RangeInfo(ImmutableDataObject):
 
 
 class StateInfo(ImmutableDataObject):
-    value: str | float
+    value: bool | int | float | str
+    label: str
     color: Color
-    icon: str
-    description: str | None
+    icon: str | None = None
+    description: str | None = None
 
 
 class DisplayKind(str, Enum):
@@ -43,7 +44,7 @@ class NumberDisplay(ImmutableDataObject):
 
 class StateDisplay(ImmutableDataObject):
     kind: Literal[DisplayKind.STATE] = DisplayKind.STATE
-    value: str | float
+    value: bool | int | float | str
     options: Sequence[StateInfo]
     show_options: bool = False
     vertical_icons: bool = False
