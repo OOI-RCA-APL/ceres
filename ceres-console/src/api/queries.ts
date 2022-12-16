@@ -146,7 +146,7 @@ function useStream<TModel extends ZodTypeAny>(
   model: TModel,
   onMessage: (message: Zod.infer<TModel>) => unknown
 ) {
-  watchEffect((onCleanup) => {
+  function createSocket(onDisconnect: () => unknown) {
     const socket = new WebSocket(url)
     socket.addEventListener('open', () => {
       console.log(`connected to '${url}'`)
@@ -177,7 +177,24 @@ function useStream<TModel extends ZodTypeAny>(
 
     socket.addEventListener('close', () => {
       console.log(`disconnected from '${url}'`)
+      onDisconnect()
     })
+
+    return socket
+  }
+  watchEffect((onCleanup) => {
+    let mounted = true
+
+    function onDisconnect() {
+      socket.close()
+      setTimeout(() => {
+        if (mounted) {
+          socket = createSocket(onDisconnect)
+        }
+      }, 250)
+    }
+
+    let socket = createSocket(onDisconnect)
 
     function onUnload() {
       if (socket.readyState == WebSocket.OPEN) {
@@ -188,6 +205,7 @@ function useStream<TModel extends ZodTypeAny>(
     window.addEventListener('unload', onUnload)
 
     onCleanup(() => {
+      mounted = false
       window.removeEventListener('unload', onUnload)
       socket.close()
     })

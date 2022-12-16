@@ -241,8 +241,13 @@ class Unit(UnitRemoteProtocol, Tasklet):
                     return fail
 
             async def enqueue() -> None:
-                async for value in values:
-                    subscriber.queue.put_nowait(value)
+                try:
+                    async for value in values:
+                        subscriber.queue.put_nowait(value)
+                except Exception:
+                    self.logger.error(
+                        f"An exception occurred in subscription: {traceback.format_exc()}"
+                    )
 
             return Ok(SubscriptionFeed(task=asyncio.create_task(enqueue())))
 

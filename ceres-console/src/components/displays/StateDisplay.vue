@@ -1,30 +1,20 @@
 <template>
-  <q-btn-toggle
-    v-if="info.show_options"
-    v-model="info.value"
-    class="no-pointer-events"
-    color="grey-5"
-    :options="options as any"
-    readonly
-    :ripple="false"
-    size="md"
-    :stack="info.vertical_icons"
-    text-color="grey-4"
-    :toggle-color="selected?.color"
-  />
   <q-chip
-    v-else
-    :icon="selected?.icon ?? undefined"
-    :label="selected?.label"
-    :ripple="false"
-    square
-    :stack="info.vertical_icons"
-    :style="{ backgroundColor: selected?.color ?? 'transparent' }"
-    text-color="white"
+    class="cursor-pointer q-px-md q-py-xs"
+    :icon="icon"
+    :style="{
+      backgroundColor: color,
+      borderWidth: '1px',
+      borderStyle: 'solid',
+      borderColor: borderColor,
+      borderRadius: '2px',
+    }"
   >
+    <common-text :style="{ color: textColor }" variant="title2">{{ label }}</common-text>
     <q-menu
       anchor="bottom middle"
       no-refocus
+      :offset="[0, 8]"
       self="top middle"
       transition-duration="200"
       transition-hide="flip"
@@ -37,13 +27,7 @@
             <span class="text-faded">Possible States</span>
             <q-space />
           </div>
-          <q-markup-table
-            bordered
-            class="activity-status-indicator-table"
-            dense
-            flat
-            separator="cell"
-          >
+          <q-markup-table bordered class="self-options-table" dense flat separator="cell">
             <tbody>
               <q-tr
                 v-for="option in info.options"
@@ -51,17 +35,22 @@
               >
                 <q-th class="text-capitalize text-center">
                   <q-chip
-                    :color="option.color ?? 'primary'"
                     :icon="option.icon ?? undefined"
                     :label="option.label"
                     :ripple="false"
                     size="sm"
-                    square
-                    text-color="white"
+                    :style="{
+                      backgroundColor: option.color ?? 'transparent',
+                      borderWidth: '1px',
+                      color: textColor,
+                      borderColor: borderColor,
+                      borderStyle: 'solid',
+                      fontWeight: 300,
+                    }"
                   />
                 </q-th>
                 <q-td class="text-left">
-                  {{ option.description ? option.description : 'No description available.' }}
+                  {{ option.description ?? 'No description available.' }}
                 </q-td>
               </q-tr>
             </tbody>
@@ -73,30 +62,26 @@
 </template>
 
 <script lang="ts" setup>
+import CommonText from '@/components/CommonText.vue'
 import { StateDisplayInfo } from '@/display'
+import { useQuasar } from 'quasar'
 
 const { info } = defineProps<{
   info: StateDisplayInfo
 }>()
 
-const selected = $computed(() => info.options.find((state) => state.value === info.value))
-const options = $computed(() =>
-  info.options.map((state) => ({
-    label: state.value as string,
-    value: state.value,
-    icon: state.icon,
-  }))
-)
+const quasar = useQuasar()
+
+const selected = $computed(() => info.options.find((state) => state.value === info.value ?? null))
+const icon = $computed(() => selected?.icon ?? undefined)
+const color = $computed(() => selected?.color ?? undefined)
+const label = $computed(() => selected?.label ?? '')
+const textColor = 'white'
+const borderColor = $computed(() => (quasar.dark.isActive ? 'white' : 'black'))
 </script>
 
 <style lang="scss" scoped>
-.self-state-box {
-  box-shadow: inset 0px 0px 2px black;
-}
-</style>
-
-<style lang="scss">
-.activity-status-indicator-table th {
-  padding-left: 8px !important ;
+.self-options-table th {
+  padding-left: 8px !important;
 }
 </style>

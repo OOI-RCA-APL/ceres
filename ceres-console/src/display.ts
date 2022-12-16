@@ -24,23 +24,15 @@ export const StateModel = Zod.object({
   description: Zod.string().nullable().default(null),
 })
 
-export type IndicatorColor = Zod.infer<typeof IndicatorColorModel>
-export const IndicatorColorModel = Zod.enum(['red', 'yellow', 'orange', 'blue', 'green'])
-
-export type IndicatorSize = Zod.infer<typeof IndicatorSizeModel>
-export const IndicatorSizeModel = Zod.enum(['xxs', 'xs', 'sm', 'md', 'lg', 'xl', 'xxl'])
-
 export type BaseDisplayInfo = Zod.infer<typeof BaseDisplayInfoModel>
 export const BaseDisplayInfoModel = Zod.object({})
 
-export type NumberDisplayInfo = Zod.infer<typeof NumberDisplayInfoModel>
-export const NumberDisplayInfoModel = BaseDisplayInfoModel.extend({
-  kind: Zod.literal('number'),
-  value: Zod.number(),
+export type ValueDisplayInfo = Zod.infer<typeof ValueDisplayInfoModel>
+export const ValueDisplayInfoModel = BaseDisplayInfoModel.extend({
+  kind: Zod.literal('value'),
+  value: AtomicValueModel,
   unit: Zod.string().nullable().default(null),
-  color: Zod.union([Zod.array(ColorStopModel), Zod.string()])
-    .nullable()
-    .default(null),
+  color: Zod.string().nullable().default(null),
 })
 
 export type StateDisplayInfo = Zod.infer<typeof StateDisplayInfoModel>
@@ -48,22 +40,10 @@ export const StateDisplayInfoModel = BaseDisplayInfoModel.extend({
   kind: Zod.literal('state'),
   value: AtomicValueModel,
   options: Zod.array(StateModel),
-  show_options: Zod.boolean(),
-  vertical_icons: Zod.boolean(),
 })
 
-export type IndicatorDisplayInfo = Zod.infer<typeof IndicatorDisplayInfoModel>
-export const IndicatorDisplayInfoModel = BaseDisplayInfoModel.extend({
-  kind: Zod.literal('indicator'),
-  label: Zod.string(),
-  value: Zod.boolean(),
-  color: IndicatorColorModel,
-  size: IndicatorSizeModel.nullable().default(null),
-  reversed: Zod.boolean().default(false),
-})
-
-export type GuageDisplayInfo = Zod.infer<typeof GuageDisplayInfoModel>
-export const GuageDisplayInfoModel = BaseDisplayInfoModel.extend({
+export type GaugeDisplayInfo = Zod.infer<typeof GaugeDisplayInfoModel>
+export const GaugeDisplayInfoModel = BaseDisplayInfoModel.extend({
   kind: Zod.literal('gauge'),
   value: Zod.number(),
   unit: Zod.string().nullable().default(null),
@@ -73,12 +53,19 @@ export const GuageDisplayInfoModel = BaseDisplayInfoModel.extend({
     .default(null),
 })
 
+export type ChartDisplayInfo = Zod.infer<typeof ChartDisplayInfoModel>
+export const ChartDisplayInfoModel = BaseDisplayInfoModel.extend({
+  kind: Zod.literal('chart'),
+  value: Zod.record(Zod.string(), Zod.any()),
+  height: Zod.number(),
+})
+
 export type DisplayInfo = Zod.infer<typeof DisplayInfoModel>
 export const DisplayInfoModel = Zod.discriminatedUnion('kind', [
-  NumberDisplayInfoModel,
+  ValueDisplayInfoModel,
   StateDisplayInfoModel,
-  IndicatorDisplayInfoModel,
-  GuageDisplayInfoModel,
+  GaugeDisplayInfoModel,
+  ChartDisplayInfoModel,
 ])
 
 export function createColorStops(

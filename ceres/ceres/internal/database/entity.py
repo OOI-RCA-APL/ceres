@@ -172,7 +172,7 @@ class EntityManager:
         self,
         *,
         where: Callable[[type[AlertEntity]], _WhereT] | None = None,
-        order_by: Callable[[type[AlertEntity]], _OrderByT] | None = None,
+        order_by: Callable[[type[AlertEntity]], _OrderByT] | None = lambda alert: alert.timestamp,
         limit: int | None = None,
     ) -> list[Alert]:
         entities = await self._get_entities(
@@ -188,7 +188,8 @@ class EntityManager:
         self,
         *,
         where: Callable[[type[MessageEntity]], _WhereT] | None = None,
-        order_by: Callable[[type[MessageEntity]], _OrderByT] | None = None,
+        order_by: Callable[[type[MessageEntity]], _OrderByT]
+        | None = lambda message: message.timestamp,
         limit: int | None = None,
     ) -> list[Message]:
         entities = await self._get_entities(

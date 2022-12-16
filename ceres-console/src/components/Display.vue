@@ -1,21 +1,28 @@
 <template>
-  <q-markup-table :key="resizes" bordered dense flat separator="cell">
-    <thead>
+  <q-markup-table
+    :key="resizes"
+    bordered
+    :class="[$q.dark.isActive ? 'self-table-dark' : undefined, 'full-height']"
+    dense
+    flat
+    separator="cell"
+  >
+    <thead :class="$q.dark.isActive ? 'self-header-dark' : undefined">
       <q-tr no-hover>
         <q-th>{{ capitalCase(displayName) }}</q-th>
       </q-tr>
     </thead>
-    <tbody :style="$q.dark.isActive ? 'background-color: #131313' : ''">
+    <tbody>
       <q-tr no-hover>
         <q-td>
-          <div :key="JSON.stringify(info)" class="justify-center row">
+          <div class="items-center justify-center row">
             <template v-if="info">
-              <guage-display v-if="info.kind === 'gauge'" :info="info" />
-              <number-display v-else-if="info.kind === 'number'" :info="info" />
-              <indicator-display v-else-if="info.kind === 'indicator'" :info="info" />
+              <value-display v-if="info.kind === 'value'" :info="info" />
               <state-display v-else-if="info.kind === 'state'" :info="info" />
+              <gauge-display v-else-if="info.kind === 'gauge'" :info="info" />
+              <chart-display v-else-if="info.kind === 'chart'" :info="info" />
             </template>
-            <template v-else> Loading... </template>
+            <template v-else><q-spinner /></template>
           </div>
         </q-td>
       </q-tr>
@@ -27,12 +34,12 @@
 import { useDisplayStream } from '@/api/queries'
 import { DisplayInfo } from '@/display'
 import { capitalCase } from 'change-case'
-import { debounce } from 'quasar'
+import { debounce, QMarkupTable, QTd, QTh, QTr } from 'quasar'
 import { watchEffect } from 'vue'
-import GuageDisplay from './displays/GuageDisplay.vue'
-import IndicatorDisplay from './displays/IndicatorDisplay.vue'
-import NumberDisplay from './displays/NumberDisplay.vue'
+import ChartDisplay from './displays/ChartDisplay.vue'
+import GaugeDisplay from './displays/GaugeDisplay.vue'
 import StateDisplay from './displays/StateDisplay.vue'
+import ValueDisplay from './displays/ValueDisplay.vue'
 
 const { unitName, componentName, displayName } = defineProps<{
   unitName: string
@@ -58,3 +65,13 @@ watchEffect((onCleanup) => {
   })
 })
 </script>
+
+<style lang="scss" scoped>
+.self-table-dark {
+  background-color: #131313;
+}
+
+.self-header-dark {
+  background-color: #1d1d1d;
+}
+</style>
