@@ -12,7 +12,6 @@ from typing import Any, AsyncIterable, Mapping, Protocol, cast, final
 from uuid import UUID, uuid4
 
 from ..address import ComponentAddress, LocalComponentAddress, UnitAddress
-from ..alert import Alert
 from ..component import CallableProcedureKind, SubscribableProcedureKind
 from ..config import ConcurrencyKind, Config, UnitConfig
 from ..data import jsonify
@@ -22,16 +21,19 @@ from ..errors import (
     ProcedureError,
     ProcedureExceptionError,
 )
-from ..events import AlertEmittedEvent, Event, MessageReceivedEvent, MessageSentEvent
-from ..message import Message, MessageDirection
 from ..result import Fail, Ok, Result
 from . import logs
 from .component import ComponentHandle, ComponentHandleContext
 from .database import Database
-from .database.buffer import EntityWriteBuffer
-from .database.entity import AlertEntity, MessageEntity
 from .tasklet import Tasklet
-from .utilities import QueueLike, ensure_event_loop, get_or_cancel, spawn, strify
+from .utilities import (
+    QueueLike,
+    ensure_event_loop,
+    get_or_cancel,
+    sleep_forever,
+    spawn,
+    strify,
+)
 
 
 @dataclass(kw_only=True, frozen=True)
@@ -104,18 +106,6 @@ class Unit(UnitRemoteProtocol, Tasklet):
         self._loop = ensure_event_loop()
         self._component_handles: dict[str, ComponentHandle] = {}
         self._subscription_feeds: dict[UUID, SubscriptionFeed] = {}
-        self._message_write_buffer = EntityWriteBuffer(
-            MessageEntity,
-            2500,
-            self._database,
-            self.logger,
-        )
-        self._alert_write_buffer = EntityWriteBuffer(
-            AlertEntity,
-            2500,
-            self._database,
-            self.logger,
-        )
 
     @property
     def id(self) -> UUID:
@@ -149,49 +139,6 @@ class Unit(UnitRemoteProtocol, Tasklet):
 
     def get_component_handle(self, address: LocalComponentAddress) -> ComponentHandle | None:
         return self._component_handles.get(address if isinstance(address, str) else address.name)
-
-    async def dispatch_event(self, event: Event) -> None:
-        for component in self.components.values():
-            if not component.instance:
-                continue
-
-            try:
-                component.instance.handle_event(event)
-            except Exception:
-                self.logger.error(
-                    f"{component.address} raised exception while handling event {event}: {traceback.format_exc()}"
-                )
-
-        match event:
-            case MessageSentEvent() | MessageReceivedEvent():
-                await self._handle_message(event.message)
-            case AlertEmittedEvent():
-                await self._handle_alert(event.alert)
-            case _:
-                pass
-
-    async def _handle_message(self, message: Message) -> None:
-        await self._message_write_buffer.add(
-            MessageEntity(
-                id=message.id,
-                component_id=message.component_id,
-                timestamp=message.timestamp,
-                direction=MessageDirection.RECEIVE,
-                content=message.content,
-            )
-        )
-
-    async def _handle_alert(self, alert: Alert) -> None:
-        await self._alert_write_buffer.add(
-            AlertEntity(
-                id=alert.id,
-                component_id=alert.component_id,
-                timestamp=alert.timestamp,
-                level=alert.level,
-                code=alert.code,
-                info=dict(alert.info),
-            )
-        )
 
     def remote_run(self) -> None | BaseException:
         try:
@@ -309,22 +256,7 @@ class Unit(UnitRemoteProtocol, Tasklet):
                 on_completed=self._on_component_completed,
             )
 
-        await asyncio.gather(
-            self._process_message_buffer(),
-            self._process_alert_buffer(),
-        )
-
-    async def _process_message_buffer(self) -> None:
-        while True:
-            await asyncio.sleep(0.1)
-            if not self._message_write_buffer.flushing:
-                await self._message_write_buffer.flush()
-
-    async def _process_alert_buffer(self) -> None:
-        while True:
-            await asyncio.sleep(0.1)
-            if not self._alert_write_buffer.flushing:
-                await self._alert_write_buffer.flush()
+        await sleep_forever()
 
     async def __stop__(self) -> None:
         async def stop() -> None:

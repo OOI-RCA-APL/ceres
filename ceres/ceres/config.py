@@ -29,7 +29,7 @@ class ComponentRoleKind(str, Enum):
 class ComponentConfig(ConfigObject):
     name: NameStr
     roles: Sequence[ComponentRoleKind] = Field(default_factory=list)
-    component: Union[str, type[Component], Component]
+    component: Union[str, type[Component]]
     parameters: Mapping[NameStr, Any] = Field(default_factory=dict)
     references: Mapping[NameStr, NameStr] = Field(default_factory=dict)
 

@@ -1,6 +1,6 @@
 import inspect
 from types import FunctionType
-from typing import Callable, Iterable, Sequence, TypeVar
+from typing import Callable, Iterable, Sequence, TypeVar, cast
 
 from ..data import ImmutableDataObject
 
@@ -50,7 +50,7 @@ def get_bindings(component_cls: type, binding_cls: type[_BindingT]) -> Sequence[
 def _get_functions(component_cls: type) -> Sequence[FunctionType]:
     functions: dict[str, FunctionType] = {}
 
-    for cls in reversed(component_cls.__mro__):
+    for cls in reversed(cast(Sequence[type], component_cls.__mro__)):
         for name in vars(cls):
             if name in functions:
                 continue

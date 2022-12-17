@@ -11,7 +11,7 @@ from pydantic import ValidationError
 from yaml import MarkedYAMLError, YAMLError
 
 from ..address import ComponentAddress
-from ..component import Component
+from ..component import CompleteContext, Component
 from ..config import Config, UnitConfig
 from ..datetime import utc
 from ..errors import (
@@ -162,14 +162,13 @@ async def _check_components(
                 log(f"Checking component '{address}'...")
                 match load_component(
                     component_config,
-                    Component.CompleteContext(
+                    CompleteContext(
                         id=uuid4(),
                         address=address,
                         root_config=config,
                         unit_config=unit_config,
                         component_config=component_config,
                         database=database,
-                        entities=database.entities,
                     ),
                     components,
                 ):

@@ -1,6 +1,8 @@
 import asyncio
 import dataclasses
 import inspect
+import math
+import random
 import re
 import signal
 from asyncio import AbstractEventLoop
@@ -319,7 +321,7 @@ def validate_crontab(value: str) -> str:
 
 async def sleep_forever() -> None:
     while True:
-        await asyncio.sleep(timedelta(hours=1).total_seconds())
+        await asyncio.sleep(math.inf)
 
 
 def ensure_event_loop() -> AbstractEventLoop:
@@ -415,3 +417,7 @@ else:
             return isinstance(obj, type) and issubclass(obj, cls)
         except TypeError:
             return False
+
+
+def randstr(characters: str, length: int) -> str:
+    return "".join(random.choice(characters) for _ in range(length))

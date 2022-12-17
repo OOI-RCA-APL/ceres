@@ -1,8 +1,10 @@
+import asyncio
 import inspect
 import traceback
-from dataclasses import dataclass, field
+from dataclasses import field
 from inspect import Parameter
 from logging import ERROR, INFO, WARNING, Logger
+from string import ascii_lowercase
 from types import MappingProxyType
 from typing import (
     Any,
@@ -35,12 +37,13 @@ from .errors import (
     ProcedureExceptionError,
     ProcedureInvalidInputError,
 )
-from .events import AlertEmittedEvent, Event
+from .events import AlertEmittedEvent, Event, MessageReceivedEvent, MessageSentEvent
 from .exceptions import ComponentClassInvalidException
 from .internal import logs
 from .internal.binding import get_bindings
 from .internal.database import Database
-from .internal.database.entity import EntityManager
+from .internal.database.buffer import EntityWriteBuffer
+from .internal.database.entity import AlertEntity, MessageEntity
 from .internal.tasklet import Tasklet
 from .internal.utilities import (
     awaitify,
@@ -50,8 +53,10 @@ from .internal.utilities import (
     lenient_issubclass,
     object_has_field,
     pre_validate_arguments,
+    randstr,
 )
 from .listener import ListenerBinding
+from .message import MessageDirection
 from .procedure import (
     ActionBinding,
     BaseProcedureBinding,
@@ -68,14 +73,6 @@ from .result import Fail, Ok, Result
 from .scheduler import Scheduler
 from .stream import Stream, StreamView
 from .validation import ValidationProblem
-
-
-@dataclass(kw_only=True)
-class ComponentInternal:
-    incoming_event_stream: Stream[Event] = field(default_factory=Stream)
-    outgoing_event_stream: Stream[Event] = field(default_factory=Stream)
-    scheduler: Scheduler = field(default_factory=Scheduler)
-
 
 _ComponentT = TypeVar("_ComponentT", bound="Component")
 _EventT = TypeVar("_EventT", bound=Event)
@@ -144,7 +141,13 @@ class Component(ValidatedDataclass, Tasklet):
 
     class Context(ImmutableDataObject):
         id: UUID = Field(default_factory=uuid4)
-        address: ComponentAddress
+        address: ComponentAddress = Field(
+            default_factory=lambda: ComponentAddress(
+                unit=randstr(ascii_lowercase, 8),
+                name=randstr(ascii_lowercase, 8),
+            )
+        )
+        database: Database = Field(default_factory=Database)
 
         def __init_subclass__(cls) -> None:
             if cls.__module__ == __name__:
@@ -153,7 +156,7 @@ class Component(ValidatedDataclass, Tasklet):
             extra: list[tuple[str, Any]] = []
 
             for current in cls.__fields__.values():
-                if not object_has_field(Component.CompleteContext, current.name, current.type_):
+                if not object_has_field(CompleteContext, current.name, current.type_):
                     extra.append((current.name, current.type_))
 
             if extra:
@@ -162,21 +165,30 @@ class Component(ValidatedDataclass, Tasklet):
     class References(ImmutableDataObject):
         pass
 
-    parameters: Parameters = Field(default_factory=Parameters)
-    context: Context
-    references: References = Field(default_factory=References)
-
-    class CompleteContext(Context):
-        id: UUID
-        address: ComponentAddress
-        root_config: Config
-        unit_config: UnitConfig
-        component_config: ComponentConfig
-        database: Database
-        entities: EntityManager
+    parameters: Parameters = field(default_factory=Parameters)
+    context: Context = field(default_factory=Context)
+    references: References = field(default_factory=References)
 
     def __post_init__(self) -> None:
-        self.__component_internal__ = ComponentInternal()
+        self.__incoming_event_stream: Stream[Event] = Stream()
+        self.__outgoing_event_stream: Stream[Event] = Stream()
+        self.__scheduler = Scheduler()
+        self.__message_write_buffer: EntityWriteBuffer[MessageEntity]
+        self.__alert_write_buffer: EntityWriteBuffer[AlertEntity]
+
+    def __post_init_post_parse__(self) -> None:
+        self.__message_write_buffer = EntityWriteBuffer(
+            MessageEntity,
+            2500,
+            self.context.database,
+            self.logger,
+        )
+        self.__alert_write_buffer = EntityWriteBuffer(
+            AlertEntity,
+            2500,
+            self.context.database,
+            self.logger,
+        )
 
     @final
     @classmethod
@@ -248,7 +260,7 @@ class Component(ValidatedDataclass, Tasklet):
 
     @property
     def scheduler(self) -> Scheduler:
-        return self.__component_internal__.scheduler
+        return self.__scheduler
 
     @property
     def logger(self) -> Logger:
@@ -256,7 +268,7 @@ class Component(ValidatedDataclass, Tasklet):
 
     @property
     def event_stream(self) -> StreamView[Event]:
-        return self.__component_internal__.outgoing_event_stream.view()
+        return self.__outgoing_event_stream.view()
 
     class SubscribeEventsInput(ImmutableDataObject):
         kinds: str | FrozenSet[str] | None = None
@@ -329,9 +341,10 @@ class Component(ValidatedDataclass, Tasklet):
             object.__setattr__(event, "component_id", self.id)
 
         # Immediately add the event to the incoming event stream so "self" event listeners work.
-        self.__component_internal__.incoming_event_stream.put(event)
+        self.__incoming_event_stream.put(event)
         # Add the event to the outgoing event stream.
-        self.__component_internal__.outgoing_event_stream.put(event)
+        self.__outgoing_event_stream.put(event)
+
         return event
 
     def emit_alert(self, alert: Alert) -> Alert:
@@ -356,10 +369,10 @@ class Component(ValidatedDataclass, Tasklet):
         if self.context.id == event.component_id:
             return
 
-        self.__component_internal__.incoming_event_stream.put(event)
+        self.__incoming_event_stream.put(event)
 
     async def __run__(self) -> None:
-        self.scheduler.start()
+        self.__scheduler.start()
 
         for job in self.get_job_bindings().values():
             if job.default_schedule is None:
@@ -385,13 +398,57 @@ class Component(ValidatedDataclass, Tasklet):
             self.logger.info(f"Scheduling job '{job.name}' as: {job.default_schedule}")
             self.scheduler.add_job(execute, job.default_schedule, name=job.name)
 
-        await self._process_incoming_events()
+        await asyncio.gather(
+            self._process_reference_events(),
+            self._process_incoming_events(),
+            self._process_message_buffer(),
+            self._process_alert_buffer(),
+        )
+
+    async def _process_reference_events(self) -> None:
+        components: list[Component] = []
+
+        for component in self.references.__fields__.values():
+            if isinstance(component, Component):
+                components.append(component)
+
+        async def get_events(component: Component) -> None:
+            async for event in component.event_stream:
+                self.__incoming_event_stream.put(event)
+
+        await asyncio.gather(*(get_events(component) for component in components))
 
     async def _process_incoming_events(self) -> None:
-        async for event in self.__component_internal__.incoming_event_stream:
+        async for event in self.__incoming_event_stream:
             await self._process_incoming_event(event)
 
     async def _process_incoming_event(self, event: Event) -> None:
+        if event.component_id == self.context.id:
+            match event:
+                case MessageSentEvent() | MessageReceivedEvent():
+                    await self.__message_write_buffer.add(
+                        MessageEntity(
+                            id=event.message.id,
+                            component_id=event.message.component_id,
+                            timestamp=event.message.timestamp,
+                            direction=MessageDirection.RECEIVE,
+                            content=event.message.content,
+                        )
+                    )
+                case AlertEmittedEvent():
+                    await self.__alert_write_buffer.add(
+                        AlertEntity(
+                            id=event.alert.id,
+                            component_id=event.alert.component_id,
+                            timestamp=event.alert.timestamp,
+                            level=event.alert.level,
+                            code=event.alert.code,
+                            info=dict(event.alert.info),
+                        )
+                    )
+                case _:
+                    pass
+
         for binding in self.get_listener_bindings():
             if not lenient_isinstance(event, binding.event):
                 continue
@@ -418,8 +475,33 @@ class Component(ValidatedDataclass, Tasklet):
                             f"An exception occurred while processing event {event}: {traceback.format_exc()}"
                         )
 
+    async def _process_message_buffer(self) -> None:
+        while True:
+            await asyncio.sleep(0.1)
+            if not self.__message_write_buffer.flushing:
+                await self.__message_write_buffer.flush()
+
+    async def _process_alert_buffer(self) -> None:
+        while True:
+            await asyncio.sleep(0.1)
+            if not self.__alert_write_buffer.flushing:
+                await self.__alert_write_buffer.flush()
+
     async def __stop__(self) -> None:
-        self.scheduler.stop()
+        self.__scheduler.stop()
+        await asyncio.gather(
+            self.__message_write_buffer.flush(),
+            self.__message_write_buffer.flush(),
+        )
+
+
+class CompleteContext(Component.Context):
+    id: UUID
+    address: ComponentAddress
+    root_config: Config
+    unit_config: UnitConfig
+    component_config: ComponentConfig
+    database: Database
 
 
 @cached

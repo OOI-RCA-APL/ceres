@@ -1,4 +1,3 @@
-import asyncio
 import importlib
 import traceback
 from dataclasses import dataclass
@@ -10,7 +9,7 @@ from uuid import UUID
 from pydantic import ValidationError, parse_obj_as, validate_arguments
 
 from ..address import ComponentAddress
-from ..component import Component
+from ..component import CompleteContext, Component
 from ..config import ComponentConfig, ComponentRoleKind, Config, UnitConfig
 from ..connection import Connection
 from ..errors import (
@@ -92,55 +91,9 @@ def load_component_cls(config: ComponentConfig) -> Result[type[Component], Compo
     return Ok(cls)
 
 
-@cached
-def _get_reference_mapping(
-    references: Component.References | type[Component.References],
-) -> Mapping[str, type["Component"]]:
-    mapping: dict[str, type[Component]] = {}
-    annotations = get_type_annotations(references)
-
-    for name, annotation in annotations.items():
-        if isinstance(annotation, type) and issubclass(annotation, Component):
-            mapping[name] = annotation
-
-    return MappingProxyType(mapping)
-
-
-def _get_component_role_cls(role: ComponentRoleKind) -> type[Component]:
-    match role:
-        case ComponentRoleKind.CONNECTION:
-            return Connection
-
-    raise ValueError(role)
-
-
-def _get_required_component_base_classes(
-    roles: Sequence[ComponentRoleKind],
-) -> tuple[type[Component], ...]:
-    classes = [Component]
-
-    for role in roles:
-        cls = _get_component_role_cls(role)
-        if cls not in classes:
-            classes.append(cls)
-
-    return tuple(classes)
-
-
-def _get_missing_component_base_classes(
-    component: type[Component] | Component,
-    roles: Sequence[ComponentRoleKind],
-) -> Sequence[type[Component]]:
-    if not isinstance(component, type):
-        component = type(component)
-
-    bases = _get_required_component_base_classes(roles)
-    return [base for base in bases if not lenient_issubclass(component, base)]
-
-
 def load_component(
     config: ComponentConfig,
-    context: Component.CompleteContext,
+    context: CompleteContext,
     siblings: Mapping[str, Component],
 ) -> Result[Component, ComponentError]:
     if not isinstance(config.component, str | type):
@@ -285,23 +238,7 @@ class ComponentHandle(Tasklet):
         if self.instance is None:
             return
 
-        await asyncio.gather(
-            self._process_component(),
-            self._process_events(),
-        )
-
-    async def _process_component(self) -> None:
-        if self.instance is None:
-            return
-
         await self.instance.run()
-
-    async def _process_events(self) -> None:
-        if self.instance is None:
-            return
-
-        async for event in self.instance.event_stream:
-            await self._context.unit.dispatch_event(event)
 
     async def __stop__(self) -> None:
         if self.instance is None:
@@ -315,14 +252,13 @@ class ComponentHandle(Tasklet):
 
         match load_component(
             self.config,
-            Component.CompleteContext(
+            CompleteContext(
                 id=self.id,
                 address=self.address,
                 root_config=self._context.root_config,
                 unit_config=self._context.unit_config,
                 component_config=self.config,
                 database=self._context.unit.database,
-                entities=self._context.unit.database.entities,
             ),
             {
                 name: component.instance
@@ -335,3 +271,49 @@ class ComponentHandle(Tasklet):
                 return Ok(instance)
             case fail:
                 return fail
+
+
+@cached
+def _get_reference_mapping(
+    references: Component.References | type[Component.References],
+) -> Mapping[str, type["Component"]]:
+    mapping: dict[str, type[Component]] = {}
+    annotations = get_type_annotations(references)
+
+    for name, annotation in annotations.items():
+        if isinstance(annotation, type) and issubclass(annotation, Component):
+            mapping[name] = annotation
+
+    return MappingProxyType(mapping)
+
+
+def _get_component_role_cls(role: ComponentRoleKind) -> type[Component]:
+    match role:
+        case ComponentRoleKind.CONNECTION:
+            return Connection
+
+    raise ValueError(role)
+
+
+def _get_required_component_base_classes(
+    roles: Sequence[ComponentRoleKind],
+) -> tuple[type[Component], ...]:
+    classes = [Component]
+
+    for role in roles:
+        cls = _get_component_role_cls(role)
+        if cls not in classes:
+            classes.append(cls)
+
+    return tuple(classes)
+
+
+def _get_missing_component_base_classes(
+    component: type[Component] | Component,
+    roles: Sequence[ComponentRoleKind],
+) -> Sequence[type[Component]]:
+    if not isinstance(component, type):
+        component = type(component)
+
+    bases = _get_required_component_base_classes(roles)
+    return [base for base in bases if not lenient_issubclass(component, base)]
