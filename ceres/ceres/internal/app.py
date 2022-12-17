@@ -20,7 +20,7 @@ from starlette.requests import HTTPConnection
 from starlette.status import HTTP_400_BAD_REQUEST
 from websockets.exceptions import ConnectionClosed
 
-from ..address import ComponentAddress, UnitAddress
+from ..address import GlobalComponentAddress, UnitAddress, caddr
 from ..alert import Alert
 from ..config import ComponentConfig, Config, UnitConfig
 from ..data import ImmutableDataObject, jsonify
@@ -221,7 +221,7 @@ async def get_component_info(
     engine: Engine = Depends(use_engine),
     entities: EntityManager = Depends(use_entities),
 ) -> ComponentInfo:
-    address = ComponentAddress(unit, component)
+    address = caddr(unit, component)
     component_config = engine.config.get_component(address)
     component_cls = engine.config.get_component_cls(address)
     if component_config is None or component_cls is None:
@@ -248,7 +248,7 @@ async def _call(
     procedure: NameStr,
     input: Mapping[str, object] | None,
 ) -> Result[object | None, ProcedureError]:
-    return await engine.call(ComponentAddress(unit, component), kind, procedure, input)
+    return await engine.call(GlobalComponentAddress(unit, component), kind, procedure, input)
 
 
 @api.post(
@@ -306,7 +306,7 @@ async def _subscribe(
     input: Json[Any],
 ) -> None:
     await socket.accept()
-    address = ComponentAddress(unit, component)
+    address = caddr(unit, component)
 
     if not isinstance(input, Mapping | None):
         await socket.close(

@@ -9,7 +9,7 @@ from pathlib import Path
 from queue import Empty, Queue
 from typing import Any, final
 
-from .address import ComponentAddress, LocalComponentAddress, UnitAddress
+from .address import GlobalComponentAddress, UnitAddress, caddr
 from .alert import Alert
 from .config import ConcurrencyKind, Config, UnitConfig
 from .data import ImmutableDataObject, jsonify
@@ -236,7 +236,7 @@ class Engine(Tasklet):
 
     async def call(
         self,
-        address: ComponentAddress,
+        address: GlobalComponentAddress,
         kind: CallableProcedureKind,
         procedure: str,
         input: object | None = None,
@@ -245,7 +245,7 @@ class Engine(Tasklet):
             raise ValueError(f"unit at {address} does not exist")
 
         return await unit_handle.call(
-            LocalComponentAddress(address.name),
+            caddr(address.component),
             kind,
             procedure,
             input,
@@ -253,7 +253,7 @@ class Engine(Tasklet):
 
     async def subscribe(
         self,
-        address: ComponentAddress,
+        address: GlobalComponentAddress,
         kind: SubscribableProcedureKind,
         procedure: str,
         input: object | None = None,
@@ -262,13 +262,15 @@ class Engine(Tasklet):
             return Fail(ProcedureUnitDoesNotExistError())
 
         return await unit_handle.subscribe(
-            LocalComponentAddress(address.name),
+            caddr(address.name),
             kind,
             procedure,
             input,
         )
 
-    async def unsubscribe(self, address: ComponentAddress, subscription: Subscription) -> None:
+    async def unsubscribe(
+        self, address: GlobalComponentAddress, subscription: Subscription
+    ) -> None:
         if (unit_handle := self._unit_handles.get(UnitAddress(address.unit))) is None:
             return
 

@@ -22,7 +22,7 @@ from uuid import UUID, uuid4
 from pydantic import Field, ValidationError, validate_arguments
 from typing_extensions import dataclass_transform
 
-from .address import ComponentAddress
+from .address import ComponentAddress, caddr
 from .alert import Alert, AlertLevel
 from .config import ComponentConfig, Config, UnitConfig
 from .data import (
@@ -142,10 +142,7 @@ class Component(ValidatedDataclass, Tasklet):
     class Context(ImmutableDataObject):
         id: UUID = Field(default_factory=uuid4)
         address: ComponentAddress = Field(
-            default_factory=lambda: ComponentAddress(
-                unit=randstr(ascii_lowercase, 8),
-                name=randstr(ascii_lowercase, 8),
-            )
+            default_factory=lambda: caddr(randstr(ascii_lowercase, 8))
         )
         database: Database = Field(default_factory=Database)
 

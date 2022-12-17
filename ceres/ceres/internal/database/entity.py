@@ -29,7 +29,7 @@ from sqlalchemy.orm import (
 )
 from sqlalchemy.sql.roles import ExpressionElementRole
 
-from ...address import Address, ComponentAddress, UnitAddress
+from ...address import Address, GlobalComponentAddress, UnitAddress
 from ...alert import Alert, AlertLevel
 from ...message import Message, MessageDirection
 from ..utilities import snakecase
@@ -165,7 +165,7 @@ class EntityManager:
             match address:
                 case UnitAddress():
                     return (await self._get_unit(session, address)).id
-                case ComponentAddress():
+                case GlobalComponentAddress():
                     return (await self._get_component(session, address)).id
 
     async def get_alerts(
@@ -240,7 +240,7 @@ class EntityManager:
     async def _get_component(
         self,
         session: AsyncSession,
-        address: ComponentAddress,
+        address: GlobalComponentAddress,
     ) -> ComponentEntity:
         unit_id = (await self._get_unit(session, UnitAddress(address.unit))).id
 

@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping, Sequence, Uni
 from pydantic import Field, SecretStr, parse_obj_as, root_validator, validator
 from typing_extensions import Self
 
-from .address import ComponentAddress, UnitAddress
+from .address import GlobalComponentAddress, UnitAddress
 from .data import ImmutableDataObject
 from .internal.utilities import NameStr, validate_positive_timedelta
 from .result import Ok
@@ -130,7 +130,7 @@ class Config(ConfigObject):
     units: Sequence[UnitConfig] = Field(default_factory=list)
 
     _path: Path | None = None
-    _component_config_cache: dict[ComponentAddress, ComponentConfig] = {}
+    _component_config_cache: dict[GlobalComponentAddress, ComponentConfig] = {}
 
     @root_validator
     def _validate_root(cls, values: Mapping[str, object]) -> Mapping[str, object]:
@@ -179,7 +179,7 @@ class Config(ConfigObject):
 
         return next((unit for unit in self.units if unit.name == name), None)
 
-    def get_component(self, address: ComponentAddress) -> ComponentConfig | None:
+    def get_component(self, address: GlobalComponentAddress) -> ComponentConfig | None:
         if address in self._component_config_cache:
             return self._component_config_cache[address]
 
@@ -195,7 +195,7 @@ class Config(ConfigObject):
 
         return component
 
-    def get_component_cls(self, address: ComponentAddress) -> type[Component] | None:
+    def get_component_cls(self, address: GlobalComponentAddress) -> type[Component] | None:
         config = self.get_component(address)
         if config is None:
             return None

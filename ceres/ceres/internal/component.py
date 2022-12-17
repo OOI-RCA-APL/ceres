@@ -8,7 +8,7 @@ from uuid import UUID
 
 from pydantic import ValidationError, parse_obj_as, validate_arguments
 
-from ..address import ComponentAddress
+from ..address import GlobalComponentAddress
 from ..component import CompleteContext, Component
 from ..config import ComponentConfig, ComponentRoleKind, Config, UnitConfig
 from ..connection import Connection
@@ -196,7 +196,7 @@ def load_component(
 @dataclass(kw_only=True, frozen=True)
 class ComponentHandleContext:
     id: UUID
-    address: ComponentAddress
+    address: GlobalComponentAddress
     root_config: Config
     unit_config: UnitConfig
     component_config: ComponentConfig
@@ -219,7 +219,7 @@ class ComponentHandle(Tasklet):
         return self._context.id
 
     @property
-    def address(self) -> ComponentAddress:
+    def address(self) -> GlobalComponentAddress:
         return self._context.address
 
     @property

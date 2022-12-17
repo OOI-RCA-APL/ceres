@@ -10,7 +10,7 @@ import yaml
 from pydantic import ValidationError
 from yaml import MarkedYAMLError, YAMLError
 
-from ..address import ComponentAddress
+from ..address import caddr
 from ..component import CompleteContext, Component
 from ..config import Config, UnitConfig
 from ..datetime import utc
@@ -157,8 +157,7 @@ async def _check_components(
             database = Database(config.database)
 
             for component_config in unit_config.components:
-
-                address = ComponentAddress(unit_config.name, component_config.name)
+                address = caddr(unit_config.name, component_config.name)
                 log(f"Checking component '{address}'...")
                 match load_component(
                     component_config,

@@ -11,7 +11,7 @@ from types import MappingProxyType
 from typing import Any, AsyncIterable, Mapping, Protocol, cast, final
 from uuid import UUID, uuid4
 
-from ..address import ComponentAddress, LocalComponentAddress, UnitAddress
+from ..address import LocalComponentAddress, UnitAddress, caddr
 from ..component import CallableProcedureKind, SubscribableProcedureKind
 from ..config import ConcurrencyKind, Config, UnitConfig
 from ..data import jsonify
@@ -276,7 +276,7 @@ class Unit(UnitRemoteProtocol, Tasklet):
 
     async def _load_components(self) -> None:
         for component_config in self.config.components:
-            address = ComponentAddress(self.address.name, component_config.name)
+            address = caddr(self.address.name, component_config.name)
 
             if component_config.name in self._component_handles:
                 continue
