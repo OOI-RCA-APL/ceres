@@ -33,26 +33,26 @@ class ConnectionReconnect(ImmutableDataObject):
 
 class _ReconnectScheduler:
     def __init__(self, config: ConnectionReconnect) -> None:
-        self._initial_interval = config.interval
-        self._current_interval = config.interval
-        self._max_interval = config.max_interval
+        self.__initial_interval = config.interval
+        self.__current_interval = config.interval
+        self.__max_interval = config.max_interval
 
         if config.backoff is not None:
-            self._backoff: float = config.backoff
+            self.__backoff: float = config.backoff
         else:
-            self._backoff = 1
+            self.__backoff = 1
 
-        self._retries = 0
+        self.__retries = 0
 
     def reset(self) -> None:
-        self._retries = 0
+        self.__retries = 0
 
     def next(self) -> timedelta:
-        interval = self._current_interval * self._backoff
-        if self._max_interval is not None and interval > self._max_interval:
-            interval = self._max_interval
-        self._current_interval = interval
-        self._retries += 1
+        interval = self.__current_interval * self.__backoff
+        if self.__max_interval is not None and interval > self.__max_interval:
+            interval = self.__max_interval
+        self.__current_interval = interval
+        self.__retries += 1
 
         return interval
 
@@ -180,10 +180,10 @@ class Connection(Component, ABC):
     async def __run__(self) -> None:
         await asyncio.gather(
             super().__run__(),
-            self._process_update(),
+            self.__process_update(),
         )
 
-    async def _process_update(self) -> None:
+    async def __process_update(self) -> None:
         while True:
             self.__reconnect.reset()
 

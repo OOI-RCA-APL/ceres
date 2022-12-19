@@ -149,7 +149,7 @@ class Engine(Tasklet):
             while not exiting.is_set():
                 if started:
                     await self.__reloading.wait()
-                    await self._reload()
+                    await self.__reload()
 
                 def handle_exit_signal(*args: Any, **kwargs: Any) -> None:
                     exiting.set()
@@ -162,7 +162,7 @@ class Engine(Tasklet):
                     self.__reloading.clear()
 
                     tasks = [
-                        asyncio.create_task(self._process(), name="process"),
+                        asyncio.create_task(self.__process(), name="process"),
                         asyncio.create_task(self.__reloading.wait(), name="reload-wait"),
                         asyncio.create_task(exiting.wait(), name="exit-wait"),
                     ]
@@ -178,19 +178,19 @@ class Engine(Tasklet):
             self.logger.info("Exit signal received, stopping...")
             raise
 
-    async def _process(self) -> None:
+    async def __process(self) -> None:
         while True:
             try:
                 await asyncio.gather(
-                    self._process_messages(),
-                    self._process_alerts(),
+                    self.__process_messages(),
+                    self.__process_alerts(),
                 )
             except Exception:
                 self.logger.error(
                     f"An exception occurred in engine process: {traceback.format_exc()}"
                 )
 
-    async def _process_messages(self) -> None:
+    async def __process_messages(self) -> None:
         cursor = utc()
 
         while True:
@@ -208,7 +208,7 @@ class Engine(Tasklet):
 
             cursor = messages[0].timestamp
 
-    async def _process_alerts(self) -> None:
+    async def __process_alerts(self) -> None:
         cursor = utc()
 
         while True:
@@ -278,7 +278,7 @@ class Engine(Tasklet):
 
         await unit_handle.unsubscribe(subscription)
 
-    async def _reload(self) -> None:
+    async def __reload(self) -> None:
         self.logger.info("Reloading...")
         config_previous = self.__config
 
@@ -295,7 +295,7 @@ class Engine(Tasklet):
         if self.__config.server != config_previous.server:
             self.logger.info("Server configuration modified, reloading server...")
             try:
-                await self._reload_server()
+                await self.__reload_server()
             except Exception:
                 self.logger.error(
                     f"An issue occurred while reloading the server: {traceback.format_exc()}"
@@ -340,7 +340,7 @@ class Engine(Tasklet):
         self.logger.info("Stopping server...")
         await self.__server.stop()
 
-    async def _reload_server(self) -> None:
+    async def __reload_server(self) -> None:
         await self.__stop_server()
         await self.__start_server()
 

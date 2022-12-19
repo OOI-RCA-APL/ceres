@@ -8,38 +8,38 @@ from .exceptions import ParseException
 
 class Parser:
     def __init__(self, data: bytes) -> None:
-        self._data = data
-        self._index = 0
-        self._remaining: bytes | None = data
+        self.__data = data
+        self.__index = 0
+        self.__remaining: bytes | None = data
 
     @property
     def data(self) -> bytes:
-        return self._data
+        return self.__data
 
     @property
     def index(self) -> int:
-        return self._index
+        return self.__index
 
     @index.setter
     def index(self, value: int) -> None:
         value = max(value, 0)
         value = min(value, len(self.data))
-        if value == self._index:
+        if value == self.__index:
             return
 
-        self._index = value
-        self._remaining = None
+        self.__index = value
+        self.__remaining = None
 
     @property
     def remaining(self) -> bytes:
-        if self._remaining is None:
-            self._remaining = self._data[self.index :]
+        if self.__remaining is None:
+            self.__remaining = self.__data[self.index :]
 
-        return self._remaining
+        return self.__remaining
 
     def peek(self, offset: int = 0, length: int = 1) -> bytes | None:
         start = self.index + offset
-        result = self._data[start : start + length]
+        result = self.__data[start : start + length]
         if result == b"":
             return None
 
@@ -87,7 +87,7 @@ class Parser:
 
         if match := regex.match(self.remaining, 0):
             group = match.group()
-            self._index += len(group)
+            self.__index += len(group)
             return group
 
         return None

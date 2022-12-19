@@ -248,12 +248,12 @@ class Unit(UnitRemoteProtocol, Tasklet):
         return await component.instance.subscribe(kind, procedure, input)
 
     async def __run__(self) -> None:
-        await self._load_components()
+        await self.__load_components()
 
         for component in self.components.values():
             component.start(
-                on_exception=self._on_component_exception,
-                on_completed=self._on_component_completed,
+                on_exception=self.__on_component_exception,
+                on_completed=self.__on_component_completed,
             )
 
         await sleep_forever()
@@ -274,7 +274,7 @@ class Unit(UnitRemoteProtocol, Tasklet):
 
         await asyncio.shield(asyncio.create_task(stop()))
 
-    async def _load_components(self) -> None:
+    async def __load_components(self) -> None:
         for component_config in self.config.components:
             address = caddr(self.address.name, component_config.name)
 
@@ -305,12 +305,12 @@ class Unit(UnitRemoteProtocol, Tasklet):
                         f"Failed to load component '{component_handle.address}'. Error: {jsonify(error, indent=2)}"
                     )
 
-    def _on_component_exception(self, handle: ComponentHandle, exception: BaseException) -> None:
+    def __on_component_exception(self, handle: ComponentHandle, exception: BaseException) -> None:
         self.logger.error(
             f"Exception occurred in component '{handle.address}': {traceback.format_exception(exception)}"
         )
 
-    def _on_component_completed(self, handle: ComponentHandle) -> None:
+    def __on_component_completed(self, handle: ComponentHandle) -> None:
         self.logger.info(f"Component '{handle.address}' stopped.")
 
 

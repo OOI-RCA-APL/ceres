@@ -28,20 +28,32 @@ _T = TypeVar("_T")
 
 @final
 class Database:
+    @classmethod
+    def __create_adapter(cls, id: UUID, config: DatabaseConfig) -> DatabaseAdapter[DatabaseConfig]:
+        match config:
+            case SQLiteDatabaseConfig():
+                from .adapters.sqlite import SQLiteDatabaseAdapter
+
+                return SQLiteDatabaseAdapter(id, config)
+            case PostgresDatabaseConfig():
+                from .adapters.postgres import PostgresDatabaseAdapter
+
+                return PostgresDatabaseAdapter(id, config)
+
     def __init__(self, /, source: DatabaseConfig | Self | None = None) -> None:
         if source is None or isinstance(source, DatabaseConfig):
-            self._id = uuid4()
-            self._config = source or SQLiteDatabaseConfig()
-            self._adapter = _create_adapter(self._id, self._config)
-            self._engine = self._adapter.create_engine()
+            self.__id = uuid4()
+            self.__config = source or SQLiteDatabaseConfig()
+            self.__adapter = self.__create_adapter(self.__id, self.__config)
+            self.__engine = self.__adapter.create_engine()
         else:
-            self._id = source.id
-            self._config = source.config
-            self._adapter = source._adapter
-            self._engine = AsyncEngine(source._engine.sync_engine)
+            self.__id = source.id
+            self.__config = source.config
+            self.__adapter = source.__adapter
+            self.__engine = AsyncEngine(source.__engine.sync_engine)
 
-        self._create_session = async_sessionmaker(
-            self._engine,
+        self.__create_session = async_sessionmaker(
+            self.__engine,
             class_=AsyncSession,
             # Don't unload database entity data on commit. We don't want to issue new SQL queries to
             # the database if we access a column that has already been committed. This is
@@ -54,19 +66,19 @@ class Database:
 
     @property
     def id(self) -> UUID:
-        return self._id
+        return self.__id
 
     @property
     def config(self) -> DatabaseConfig:
-        return self._config
+        return self.__config
 
     @property
     def kind(self) -> DatabaseKind:
-        return self._config.kind
+        return self.__config.kind
 
     @property
     def adapter(self) -> DatabaseAdapter[DatabaseConfig]:
-        return self._adapter
+        return self.__adapter
 
     @property
     def entities(self) -> EntityManager:
@@ -74,7 +86,7 @@ class Database:
 
     @property
     def engine(self) -> AsyncEngine:
-        return self._engine
+        return self.__engine
 
     @property
     def ddl(self) -> list[str]:
@@ -82,7 +94,7 @@ class Database:
             return re.sub(
                 r"[\n\r]+\t",
                 "\n    ",
-                dedent(str(element.compile(self._engine.sync_engine)).strip()),
+                dedent(str(element.compile(self.__engine.sync_engine)).strip()),
             )
 
         def get_table_ddl(table: Table) -> Iterable[str]:
@@ -97,16 +109,16 @@ class Database:
         return commands
 
     def session(self) -> AsyncSession:
-        return self._create_session()
+        return self.__create_session()
 
     def connect(self) -> AsyncConnection:
-        return self._engine.connect()
+        return self.__engine.connect()
 
     def begin(self) -> AsyncConnection:
-        return cast(AsyncConnection, self._engine.begin())
+        return cast(AsyncConnection, self.__engine.begin())
 
     async def dispose(self) -> None:
-        await self._engine.dispose()
+        await self.__engine.dispose()
 
     def compile(
         self,
@@ -116,7 +128,7 @@ class Database:
         return str(
             text(dedent(command).strip())
             .bindparams(**parameters)
-            .compile(self._engine.sync_engine, compile_kwargs={"literal_binds": True})
+            .compile(self.__engine.sync_engine, compile_kwargs={"literal_binds": True})
         )
 
     def sql(
@@ -132,20 +144,8 @@ class Database:
                 await connection.execute(text(statement))
 
     async def tables(self) -> list[str]:
-        return await self._run_sync(lambda connection: inspect(connection).get_table_names())
+        return await self.__run_sync(lambda connection: inspect(connection).get_table_names())
 
-    async def _run_sync(self, callback: Callable[[Connection], _T]) -> _T:
+    async def __run_sync(self, callback: Callable[[Connection], _T]) -> _T:
         async with self.connect() as connection:
             return await connection.run_sync(callback)
-
-
-def _create_adapter(id: UUID, config: DatabaseConfig) -> DatabaseAdapter[DatabaseConfig]:
-    match config:
-        case SQLiteDatabaseConfig():
-            from .adapters.sqlite import SQLiteDatabaseAdapter
-
-            return SQLiteDatabaseAdapter(id, config)
-        case PostgresDatabaseConfig():
-            from .adapters.postgres import PostgresDatabaseAdapter
-
-            return PostgresDatabaseAdapter(id, config)

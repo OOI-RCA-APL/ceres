@@ -158,10 +158,10 @@ _OrderByT = TypeVar("_OrderByT", bound=ColumnElement[Any] | ExpressionElementRol
 @final
 class EntityManager:
     def __init__(self, database: Database) -> None:
-        self._database = database
+        self.__database = database
 
     async def get_address_id(self, address: Address) -> UUID:
-        async with self._database.session() as session:
+        async with self.__database.session() as session:
             match address:
                 case UnitAddress():
                     return (await self.__get_unit(session, address)).id
@@ -217,7 +217,7 @@ class EntityManager:
         if limit is not None:
             query = query.limit(limit)
 
-        async with self._database.session() as session:
+        async with self.__database.session() as session:
             return list(await session.scalars(query))
 
     async def __get_unit(
