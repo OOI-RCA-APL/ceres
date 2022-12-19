@@ -33,6 +33,7 @@ from typing import (
     overload,
     runtime_checkable,
 )
+from uuid import UUID
 
 import anyio
 import rich
@@ -421,3 +422,6 @@ else:
 
 def randstr(characters: str, length: int) -> str:
     return "".join(random.choice(characters) for _ in range(length))
+
+
+UNSET_UUID = UUID(int=0)

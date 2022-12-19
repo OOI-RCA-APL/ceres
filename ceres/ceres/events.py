@@ -9,12 +9,13 @@ from pydantic import Field
 from .alert import Alert
 from .data import ImmutableDataObject
 from .datetime import utc
+from .internal.utilities import UNSET_UUID
 from .message import Message
 
 
 class Event(ImmutableDataObject, ABC):
     id: UUID = Field(default_factory=uuid4)
-    component_id: UUID = UUID(int=0)
+    component_id: UUID = UNSET_UUID
     timestamp: datetime = Field(default_factory=utc)
     kind: str
 

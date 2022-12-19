@@ -31,7 +31,7 @@ class SQLiteDatabaseAdapter(DatabaseAdapter[SQLiteDatabaseConfig]):
                 try:
                     path.unlink(missing_ok=True)
                 except Exception:
-                    pass
+                    traceback.print_exc()
         except Exception:
             traceback.print_exc()
 

@@ -21,6 +21,7 @@ from typing import (
     get_type_hints,
 )
 from uuid import UUID, uuid4
+from weakref import WeakValueDictionary
 
 from pydantic import Field, ValidationError, validate_arguments
 from typing_extensions import dataclass_transform
@@ -49,6 +50,7 @@ from .internal.database.buffer import WriteBuffer
 from .internal.database.entity import AlertEntity, MessageEntity
 from .internal.tasklet import Tasklet
 from .internal.utilities import (
+    UNSET_UUID,
     awaitify,
     cached,
     get_type_annotations,
@@ -74,7 +76,7 @@ from .procedure import (
 )
 from .result import Fail, Ok, Result
 from .scheduler import Scheduler
-from .stream import Stream, StreamReader, StreamView
+from .stream import Stream, StreamView
 from .validation import ValidationProblem
 
 _ComponentT = TypeVar("_ComponentT", bound="Component")
@@ -139,6 +141,65 @@ class Component(ValidatedDataclass, Tasklet):
 
         return cls
 
+    @final
+    class __EventProcessor:
+        __slots__ = (
+            "__binding",
+            "__handler",
+            "__handler_arity",
+            "__logger",
+            "__queue",
+        )
+
+        def __init__(
+            self,
+            *,
+            binding: ListenerBinding,
+            handler: Callable[[Event], None | Awaitable[None]]
+            | Callable[[], None | Awaitable[None]],
+            logger: Logger,
+        ) -> None:
+            self.__binding = binding
+            self.__handler = handler
+            self.__handler_arity = len(inspect.signature(self.__handler).parameters)
+            self.__logger = logger
+            self.__queue: AsyncQueue[Event] = AsyncQueue()
+
+        @property
+        def binding(self) -> ListenerBinding:
+            return self.__binding
+
+        @property
+        def idle(self) -> bool:
+            return self.__queue._finished.is_set()  # type: ignore
+
+        def put(self, event: Event) -> None:
+            self.__queue.put_nowait(event)
+
+        def clear(self) -> None:
+            while not self.__queue.empty():
+                self.__queue.get_nowait()
+                self.__queue.task_done()
+
+        async def run(self) -> None:
+            while True:
+                event = await self.__queue.get()
+
+                try:
+                    if self.__handler_arity == 0:
+                        await awaitify(self.__handler())  # type: ignore
+                    else:
+                        await awaitify(self.__handler(event))  # type: ignore
+                except Exception:
+                    self.__logger.error(
+                        f"An exception occurred while processing event {event}: {traceback.format_exc()}"
+                    )
+                finally:
+                    self.__queue.task_done()
+
+        async def join(self) -> None:
+            await self.__queue.join()
+
     class Parameters(ImmutableDataObject):
         pass
 
@@ -170,10 +231,11 @@ class Component(ValidatedDataclass, Tasklet):
     references: References = field(default_factory=References)
 
     def __post_init__(self) -> None:
-        self.__outgoing_events: Stream[Event] = Stream()
+        self.__events: Stream[Event] = Stream()
         self.__scheduler = Scheduler()
         self.__message_write_buffer: WriteBuffer[MessageEntity]
         self.__alert_write_buffer: WriteBuffer[AlertEntity]
+        self.__referencers: WeakValueDictionary[UUID, Component] = WeakValueDictionary()
 
     def __post_init_post_parse__(self) -> None:
         self.__message_write_buffer = WriteBuffer(
@@ -186,17 +248,18 @@ class Component(ValidatedDataclass, Tasklet):
             self.context.database,
             self.logger,
         )
-        self.__event_readers: list[StreamReader[Event]] = [
-            component.events.read() for component in self.references.dict().values()
-        ]
         self.__event_processors = [
-            _EventProcessor(
+            self.__EventProcessor(
                 binding=binding,
                 handler=getattr(self, binding.function),
                 logger=self.logger,
             )
             for binding in self.get_listener_bindings()
         ]
+
+        for component in self.references.dict().values():
+            if isinstance(component, Component):
+                component.__add_referencer(self)
 
     @final
     @classmethod
@@ -280,7 +343,7 @@ class Component(ValidatedDataclass, Tasklet):
 
     @property
     def events(self) -> StreamView[Event]:
-        return self.__outgoing_events.view()
+        return self.__events.view()
 
     @property
     def __has_exclusive_temporary_database(self) -> bool:
@@ -289,8 +352,7 @@ class Component(ValidatedDataclass, Tasklet):
     @property
     def settled(self) -> bool:
         return not self.running or (
-            all(len(reader) == 0 for reader in self.__event_readers)
-            and all(processor.idle for processor in self.__event_processors)
+            all(processor.idle for processor in self.__event_processors)
             and len(self.__message_write_buffer) == 0
             and len(self.__alert_write_buffer) == 0
         )
@@ -298,11 +360,154 @@ class Component(ValidatedDataclass, Tasklet):
     async def settle(self) -> None:
         while not self.settled:
             await asyncio.gather(
-                *(reader.join() for reader in self.__event_readers),
                 *(processor.join() for processor in self.__event_processors),
                 self.__message_write_buffer.join(),
                 self.__alert_write_buffer.join(),
             )
+
+    def __add_referencer(self, referencer: "Component") -> None:
+        assert referencer is not self
+        self.__referencers[referencer.id] = referencer
+
+    def __set_emitted_event_component_id(self, event: Event) -> None:
+        if event.component_id == UNSET_UUID:
+            object.__setattr__(event, "component_id", self.id)
+
+        if isinstance(event, AlertEmittedEvent):
+            self.__set_emitted_alert_component_id(event.alert)
+
+    def __set_emitted_alert_component_id(self, alert: Alert) -> None:
+        if alert.component_id == UNSET_UUID:
+            object.__setattr__(alert, "component_id", self.id)
+
+    def emit_event(self, event: _EventT) -> _EventT:
+        self.__set_emitted_event_component_id(event)
+        # Handle "self" events.
+        self.handle_event(event)
+        # Send the event to all components have a reference to this one.
+        for referencer in self.__referencers.values():
+            referencer.handle_event(event)
+        # Add the event to the outgoing event stream.
+        self.__events.put(event)
+
+        match event:
+            case MessageSentEvent() | MessageReceivedEvent():
+                self.__message_write_buffer.add(
+                    MessageEntity(
+                        id=event.message.id,
+                        component_id=event.message.component_id,
+                        timestamp=event.message.timestamp,
+                        direction=MessageDirection.RECEIVE,
+                        content=event.message.content,
+                    )
+                )
+            case AlertEmittedEvent():
+                self.__alert_write_buffer.add(
+                    AlertEntity(
+                        id=event.alert.id,
+                        component_id=event.alert.component_id,
+                        timestamp=event.alert.timestamp,
+                        level=event.alert.level,
+                        code=event.alert.code,
+                        info=dict(event.alert.info),
+                    )
+                )
+            case _:
+                pass
+
+        return event
+
+    def handle_event(self, event: Event) -> None:
+        if not self.running or self.stopping:
+            return
+
+        for processor in self.__event_processors:
+            if not lenient_isinstance(event, processor.binding.event_cls):
+                continue
+
+            for source in processor.binding.sources:
+                if source == "self":
+                    component = self
+                else:
+                    component = getattr(self.references, source, None)
+
+                if component is not None and component.id == event.component_id:
+                    processor.put(event)
+                    break
+
+    def emit_alert(self, alert: Alert) -> Alert:
+        self.__set_emitted_alert_component_id(alert)
+
+        match alert.level:
+            case AlertLevel.INFO:
+                log_level = INFO
+            case AlertLevel.WARNING:
+                log_level = WARNING
+            case AlertLevel.ERROR:
+                log_level = ERROR
+
+        self.emit_event(AlertEmittedEvent(alert=alert))
+        self.logger.log(log_level, f"Alert: {jsonify(alert)}")
+        return alert
+
+    async def __run__(self) -> None:
+        if self.__has_exclusive_temporary_database:
+            await self.database.init()
+
+        self.__scheduler.start()
+
+        for job in self.get_job_bindings().values():
+            if job.default_schedule is None:
+                continue
+
+            if (method := getattr(self, job.function, None)) is None:
+                continue
+
+            async def run_job() -> None:
+                if method is None:
+                    return
+
+                try:
+                    if job.default_input is ...:
+                        await awaitify(method())
+                    else:
+                        await awaitify(method(job.default_input))
+                except Exception:
+                    self.logger.error(
+                        f"An exception occurred while running job '{job.name}': {traceback.format_exc()}"
+                    )
+
+            self.logger.info(f"Scheduling job '{job.name}' as: {job.default_schedule}")
+            self.scheduler.add_job(run_job, job.default_schedule, name=job.name)
+
+        await asyncio.gather(
+            self.__process_event_processors(),
+            self.__process_message_buffer(),
+            self.__process_alert_buffer(),
+        )
+
+    async def __process_event_processors(self) -> None:
+        await asyncio.gather(*(processor.run() for processor in self.__event_processors))
+
+    async def __process_message_buffer(self) -> None:
+        while True:
+            if not self.__message_write_buffer.flushing:
+                await self.__message_write_buffer.flush()
+            await asyncio.sleep(0.1)
+
+    async def __process_alert_buffer(self) -> None:
+        while True:
+            if not self.__alert_write_buffer.flushing:
+                await self.__alert_write_buffer.flush()
+            await asyncio.sleep(0.1)
+
+    async def __stop__(self) -> None:
+        self.__scheduler.stop()
+        self.__scheduler = Scheduler()
+        await asyncio.gather(
+            self.__message_write_buffer.flush(),
+            self.__alert_write_buffer.flush(),
+        )
 
     class SubscribeEventsInput(ImmutableDataObject):
         kinds: str | FrozenSet[str] | None = None
@@ -370,140 +575,6 @@ class Component(ValidatedDataclass, Tasklet):
             await self._invoke(kind.upcast(), procedure, input),
         )
 
-    def emit_event(self, event: _EventT) -> _EventT:
-        if "component_id" not in event.__fields_set__ or event.component_id == UUID(int=0):
-            object.__setattr__(event, "component_id", self.id)
-
-        # Handle "self" events.
-        self.handle_event(event)
-        # Add the event to the outgoing event stream.
-        self.__outgoing_events.put(event)
-
-        match event:
-            case MessageSentEvent() | MessageReceivedEvent():
-                self.__message_write_buffer.add(
-                    MessageEntity(
-                        id=event.message.id,
-                        component_id=event.message.component_id,
-                        timestamp=event.message.timestamp,
-                        direction=MessageDirection.RECEIVE,
-                        content=event.message.content,
-                    )
-                )
-            case AlertEmittedEvent():
-                self.__alert_write_buffer.add(
-                    AlertEntity(
-                        id=event.alert.id,
-                        component_id=event.alert.component_id,
-                        timestamp=event.alert.timestamp,
-                        level=event.alert.level,
-                        code=event.alert.code,
-                        info=dict(event.alert.info),
-                    )
-                )
-            case _:
-                pass
-
-        return event
-
-    def handle_event(self, event: Event) -> None:
-        for processor in self.__event_processors:
-            if not lenient_isinstance(event, processor.binding.event_cls):
-                continue
-
-            for source in processor.binding.sources:
-                if source == "self":
-                    component = self
-                else:
-                    component = getattr(self.references, source, None)
-
-                if component is not None and component.id == event.component_id:
-                    processor.put(event)
-                    break
-
-    def emit_alert(self, alert: Alert) -> Alert:
-        if "component_id" not in alert.__fields_set__ or alert.component_id == UUID(int=0):
-            object.__setattr__(alert, "component_id", self.id)
-
-        match alert.level:
-            case AlertLevel.INFO:
-                log_level = INFO
-            case AlertLevel.WARNING:
-                log_level = WARNING
-            case AlertLevel.ERROR:
-                log_level = ERROR
-
-        self.emit_event(AlertEmittedEvent(alert=alert))
-        self.logger.log(log_level, f"Alert: {jsonify(alert)}")
-        return alert
-
-    async def __run__(self) -> None:
-        if self.__has_exclusive_temporary_database:
-            await self.database.init()
-
-        self.__scheduler.start()
-
-        for job in self.get_job_bindings().values():
-            if job.default_schedule is None:
-                continue
-
-            if (method := getattr(self, job.function, None)) is None:
-                continue
-
-            async def run_job() -> None:
-                if method is None:
-                    return
-
-                try:
-                    if job.default_input is ...:
-                        await awaitify(method())
-                    else:
-                        await awaitify(method(job.default_input))
-                except Exception:
-                    self.logger.error(
-                        f"An exception occurred while running job '{job.name}': {traceback.format_exc()}"
-                    )
-
-            self.logger.info(f"Scheduling job '{job.name}' as: {job.default_schedule}")
-            self.scheduler.add_job(run_job, job.default_schedule, name=job.name)
-
-        await asyncio.gather(
-            self.__process_event_readers(),
-            self.__process_event_processors(),
-            self.__process_message_buffer(),
-            self.__process_alert_buffer(),
-        )
-
-    async def __process_event_readers(self) -> None:
-        async def process(reader: StreamReader[Event]) -> None:
-            async for event in reader:
-                self.handle_event(event)
-
-        await asyncio.gather(*(process(reader) for reader in self.__event_readers))
-
-    async def __process_event_processors(self) -> None:
-        await asyncio.gather(*(processor.run() for processor in self.__event_processors))
-
-    async def __process_message_buffer(self) -> None:
-        while True:
-            if not self.__message_write_buffer.flushing:
-                await self.__message_write_buffer.flush()
-            await asyncio.sleep(0.1)
-
-    async def __process_alert_buffer(self) -> None:
-        while True:
-            if not self.__alert_write_buffer.flushing:
-                await self.__alert_write_buffer.flush()
-            await asyncio.sleep(0.1)
-
-    async def __stop__(self) -> None:
-        self.__scheduler.stop()
-        self.__scheduler = Scheduler()
-        await asyncio.gather(
-            self.__message_write_buffer.flush(),
-            self.__alert_write_buffer.flush(),
-        )
-
 
 class CompleteContext(Component.Context):
     id: UUID
@@ -530,57 +601,3 @@ def _get_procedure_bindings(
     return MappingProxyType(
         {binding.name: binding for binding in get_bindings(component_cls, binding_cls)}
     )
-
-
-@final
-class _EventProcessor:
-    __slots__ = (
-        "__binding",
-        "__handler",
-        "__handler_arity",
-        "__logger",
-        "__queue",
-    )
-
-    def __init__(
-        self,
-        *,
-        binding: ListenerBinding,
-        handler: Callable[[Event], None | Awaitable[None]] | Callable[[], None | Awaitable[None]],
-        logger: Logger,
-    ) -> None:
-        self.__binding = binding
-        self.__handler = handler
-        self.__handler_arity = len(inspect.signature(self.__handler).parameters)
-        self.__logger = logger
-        self.__queue: AsyncQueue[Event] = AsyncQueue()
-
-    @property
-    def binding(self) -> ListenerBinding:
-        return self.__binding
-
-    @property
-    def idle(self) -> bool:
-        return self.__queue._finished.is_set()  # type: ignore
-
-    def put(self, event: Event) -> None:
-        self.__queue.put_nowait(event)
-
-    async def run(self) -> None:
-        while True:
-            event = await self.__queue.get()
-
-            try:
-                if self.__handler_arity == 0:
-                    await awaitify(self.__handler())  # type: ignore
-                else:
-                    await awaitify(self.__handler(event))  # type: ignore
-            except Exception:
-                self.__logger.error(
-                    f"An exception occurred while processing event {event}: {traceback.format_exc()}"
-                )
-            finally:
-                self.__queue.task_done()
-
-    async def join(self) -> None:
-        await self.__queue.join()

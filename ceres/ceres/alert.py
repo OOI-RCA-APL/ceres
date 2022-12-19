@@ -7,6 +7,7 @@ from pydantic import Field
 
 from .data import ImmutableDataObject
 from .datetime import utc
+from .internal.utilities import UNSET_UUID
 
 
 class AlertLevel(str, Enum):
@@ -17,7 +18,7 @@ class AlertLevel(str, Enum):
 
 class Alert(ImmutableDataObject):
     id: UUID = Field(default_factory=uuid4)
-    component_id: UUID = UUID(int=0)
+    component_id: UUID = UNSET_UUID
     timestamp: datetime = Field(default_factory=utc)
     level: AlertLevel
     code: str
