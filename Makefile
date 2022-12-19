@@ -14,3 +14,6 @@ format:
 	cd ./ceres-console && make format
 test:
 	cd ./ceres && make test
+clean:
+	cd ./ceres && make clean
+	cd ./ceres-console && make clean
