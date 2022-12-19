@@ -53,19 +53,19 @@ class UnitSyncAction(ImmutableDataObject):
 @final
 class Engine(Tasklet):
     def __init__(self, config: Config) -> None:
-        self._config = config
-        self._config_queue: Queue[Config] = Queue()
+        self.__config = config
+        self.__config_queue: Queue[Config] = Queue()
 
-        if self._config.server:
-            self._server = Server(App(self), self._config.server)
+        if self.__config.server:
+            self.__server = Server(App(self), self.__config.server)
         else:
-            self._server = None
+            self.__server = None
 
-        self._database = Database(self._config.database)
-        self._unit_handles: dict[UnitAddress, UnitHandle] = {}
-        self._reloading = Event()
-        self._message_stream: Stream[Message] = Stream()
-        self._alert_stream: Stream[Alert] = Stream()
+        self.__database = Database(self.__config.database)
+        self.__unit_handles: dict[UnitAddress, UnitHandle] = {}
+        self.__reloading = Event()
+        self.__message_stream: Stream[Message] = Stream()
+        self.__alert_stream: Stream[Alert] = Stream()
 
     @property
     def logger(self) -> Logger:
@@ -73,33 +73,33 @@ class Engine(Tasklet):
 
     @property
     def config_path(self) -> Path | None:
-        return self._config.path
+        return self.__config.path
 
     @property
     def config_directory(self) -> Path | None:
-        if self._config.path:
-            return self._config.path.parent
+        if self.__config.path:
+            return self.__config.path.parent
 
         return None
 
     @property
     def config(self) -> Config:
-        return self._config
+        return self.__config
 
     @property
     def database(self) -> Database:
-        return self._database
+        return self.__database
 
     @property
     def message_stream(self) -> StreamView[Message]:
-        return self._message_stream.view()
+        return self.__message_stream.view()
 
     @property
     def alert_stream(self) -> StreamView[Alert]:
-        return self._alert_stream.view()
+        return self.__alert_stream.view()
 
     async def reload(self) -> Result[Config, ReloadError]:
-        if self._reloading.is_set():
+        if self.__reloading.is_set():
             return Fail(ReloadAlreadyActiveError())
 
         source: Path | Config
@@ -109,20 +109,20 @@ class Engine(Tasklet):
             source = self.config_path
         else:
             self.logger.info("No configuration path is set. Reloading current configuration...")
-            source = self._config
+            source = self.__config
 
         match await load_config(source, logger=self.logger):
             case Ok(config):
                 self.logger.info("Queueing reload...")
-                self._reloading.set()
-                self._config_queue.put(config)
+                self.__reloading.set()
+                self.__config_queue.put(config)
                 return Ok(config)
             case Fail(errors):
                 self.logger.error("Reload failed, found errors in configuration.")
                 return Fail(ReloadConfigInvalidError(errors=errors))
 
     async def __run__(self) -> None:
-        match await load_config(self._config, logger=self.logger):
+        match await load_config(self.__config, logger=self.logger):
             case Ok():
                 pass
             case Fail() as fail:
@@ -130,10 +130,10 @@ class Engine(Tasklet):
                     f"initial configuration check failed: {jsonify(fail, indent=2)}"
                 )
 
-        if not await self._database.tables():
+        if not await self.__database.tables():
             self.logger.info("Database appears empty, initializing database...")
             try:
-                await self._database.init()
+                await self.__database.init()
                 self.logger.info("Database initialized successfully.")
             except Exception as exception:
                 self.logger.error("Database initialization failed.")
@@ -148,22 +148,22 @@ class Engine(Tasklet):
 
             while not exiting.is_set():
                 if started:
-                    await self._reloading.wait()
+                    await self.__reloading.wait()
                     await self._reload()
 
                 def handle_exit_signal(*args: Any, **kwargs: Any) -> None:
                     exiting.set()
 
                 with temporary_signal_handler([signal.SIGINT, signal.SIGTERM], handle_exit_signal):
-                    await self._sync_units()
-                    await self._start_server()
+                    await self.__sync_units()
+                    await self.__start_server()
 
                     started = True
-                    self._reloading.clear()
+                    self.__reloading.clear()
 
                     tasks = [
                         asyncio.create_task(self._process(), name="process"),
-                        asyncio.create_task(self._reloading.wait(), name="reload-wait"),
+                        asyncio.create_task(self.__reloading.wait(), name="reload-wait"),
                         asyncio.create_task(exiting.wait(), name="exit-wait"),
                     ]
 
@@ -204,7 +204,7 @@ class Engine(Tasklet):
                 continue
 
             for message in reversed(messages):
-                self._message_stream.put(message)
+                self.__message_stream.put(message)
 
             cursor = messages[0].timestamp
 
@@ -222,15 +222,15 @@ class Engine(Tasklet):
                 continue
 
             for alert in reversed(alerts):
-                self._alert_stream.put(alert)
+                self.__alert_stream.put(alert)
 
             cursor = alerts[0].timestamp
 
     async def __stop__(self) -> None:
         async def stop() -> None:
-            await self._stop_server()
-            await self._stop_units()
-            await self._database.dispose()
+            await self.__stop_server()
+            await self.__stop_units()
+            await self.__database.dispose()
 
         await asyncio.shield(asyncio.create_task(stop()))
 
@@ -241,7 +241,7 @@ class Engine(Tasklet):
         procedure: str,
         input: object | None = None,
     ) -> Result[object | None, ProcedureError]:
-        if (unit_handle := self._unit_handles.get(UnitAddress(address.unit))) is None:
+        if (unit_handle := self.__unit_handles.get(UnitAddress(address.unit))) is None:
             raise ValueError(f"unit at {address} does not exist")
 
         return await unit_handle.call(
@@ -258,7 +258,7 @@ class Engine(Tasklet):
         procedure: str,
         input: object | None = None,
     ) -> Result[Subscription, ProcedureError]:
-        if (unit_handle := self._unit_handles.get(UnitAddress(address.unit))) is None:
+        if (unit_handle := self.__unit_handles.get(UnitAddress(address.unit))) is None:
             return Fail(ProcedureUnitDoesNotExistError())
 
         return await unit_handle.subscribe(
@@ -269,28 +269,30 @@ class Engine(Tasklet):
         )
 
     async def unsubscribe(
-        self, address: GlobalComponentAddress, subscription: Subscription
+        self,
+        address: GlobalComponentAddress,
+        subscription: Subscription,
     ) -> None:
-        if (unit_handle := self._unit_handles.get(UnitAddress(address.unit))) is None:
+        if (unit_handle := self.__unit_handles.get(UnitAddress(address.unit))) is None:
             return
 
         await unit_handle.unsubscribe(subscription)
 
     async def _reload(self) -> None:
         self.logger.info("Reloading...")
-        config_previous = self._config
+        config_previous = self.__config
 
         try:
-            self._config = self._config_queue.get_nowait()
+            self.__config = self.__config_queue.get_nowait()
         except Empty:
             self.logger.warning("No new configuration was found, ignoring reload.")
             return
 
-        if self._config == config_previous:
+        if self.__config == config_previous:
             self.logger.info("Configuration was not modified. Nothing to reload.")
             return
 
-        if self._config.server != config_previous.server:
+        if self.__config.server != config_previous.server:
             self.logger.info("Server configuration modified, reloading server...")
             try:
                 await self._reload_server()
@@ -299,21 +301,21 @@ class Engine(Tasklet):
                     f"An issue occurred while reloading the server: {traceback.format_exc()}"
                 )
 
-        if self._config.database != config_previous.database:
+        if self.__config.database != config_previous.database:
             self.logger.info("Database configuration modified, reloading all units and database...")
             try:
-                await self._stop_units()
-                await self._database.dispose()
-                self._database = Database(self._config.database)
+                await self.__stop_units()
+                await self.__database.dispose()
+                self.__database = Database(self.__config.database)
             except Exception:
                 self.logger.error(
                     f"An issue occurred while reloading units and database: {traceback.format_exc()}"
                 )
 
-        if self._get_unit_sync_actions():
+        if self.__get_unit_sync_actions():
             self.logger.info("Syncing units...")
             try:
-                await self._sync_units()
+                await self.__sync_units()
             except Exception:
                 self.logger.error(
                     f"An issue occurred while syncing units: {traceback.format_exc()}"
@@ -321,42 +323,42 @@ class Engine(Tasklet):
 
         self.logger.info("Reload completed.")
 
-    async def _start_server(self) -> None:
-        if not self._server or self._server.running:
+    async def __start_server(self) -> None:
+        if not self.__server or self.__server.running:
             return
 
         self.logger.info("Starting server...")
-        self._server.start(
-            on_completed=self._on_server_completed,
-            on_exception=self._on_server_exception,
+        self.__server.start(
+            on_completed=self.__on_server_completed,
+            on_exception=self.__on_server_exception,
         )
 
-    async def _stop_server(self) -> None:
-        if not self._server or not self._server.running:
+    async def __stop_server(self) -> None:
+        if not self.__server or not self.__server.running:
             return
 
         self.logger.info("Stopping server...")
-        await self._server.stop()
+        await self.__server.stop()
 
     async def _reload_server(self) -> None:
-        await self._stop_server()
-        await self._start_server()
+        await self.__stop_server()
+        await self.__start_server()
 
-    async def _sync_units(self) -> None:
+    async def __sync_units(self) -> None:
         unit_configs: dict[UnitAddress, UnitConfig] = {
-            UnitAddress(current.name): current for current in self._config.units
+            UnitAddress(current.name): current for current in self.__config.units
         }
 
-        actions = self._get_unit_sync_actions()
+        actions = self.__get_unit_sync_actions()
 
         for action in actions:
-            unit_handle = self._unit_handles.get(action.address)
+            unit_handle = self.__unit_handles.get(action.address)
 
             if action.kind == UnitSyncActionKind.REMOVE:
                 if unit_handle:
                     self.logger.info(f"Removing unit '{action.address}'...")
                     await unit_handle.stop()
-                    self._unit_handles.pop(unit_handle.address, None)
+                    self.__unit_handles.pop(unit_handle.address, None)
             else:
                 if action.kind == UnitSyncActionKind.START:
                     if unit_handle and unit_handle.running:
@@ -369,18 +371,18 @@ class Engine(Tasklet):
 
                     self.logger.info(f"Reloading unit '{action.address}'...")
                     await unit_handle.stop()
-                    self._unit_handles.pop(unit_handle.address, None)
+                    self.__unit_handles.pop(unit_handle.address, None)
 
                 if unit_config := unit_configs.get(action.address):
-                    id = await self._database.entities.get_address_id(action.address)
-                    concurrency = unit_config.concurrency or self._config.runtime.concurrency
+                    id = await self.__database.entities.get_address_id(action.address)
+                    concurrency = unit_config.concurrency or self.__config.runtime.concurrency
 
                     match concurrency:
                         case ConcurrencyKind.THREAD:
                             # If the unit will be running in a thread, create a clone so it uses a
                             # separate event loop but the underlying syncronous SQLAlchemy engine is
                             # shared.
-                            database = Database(self._database)
+                            database = Database(self.__database)
                         case ConcurrencyKind.PROCESS:
                             # If the unit will be running in a process, let it create its own
                             # database client from the same configuration.
@@ -389,32 +391,33 @@ class Engine(Tasklet):
                     context = UnitContext(
                         id=id,
                         address=action.address,
-                        root_config=self._config,
+                        root_config=self.__config,
                         unit_config=unit_config,
                         database=database,
                     )
 
                     unit_handle = UnitHandle(context)
-                    self._unit_handles[action.address] = unit_handle
+                    self.__unit_handles[action.address] = unit_handle
                     unit_handle.start(
-                        on_completed=self._on_unit_completed,
-                        on_exception=self._on_unit_exception,
+                        on_completed=self.__on_unit_completed,
+                        on_exception=self.__on_unit_exception,
                     )
 
         started = [
             action
             for action in actions
-            if action.kind == UnitSyncActionKind.START and action.address in self._unit_handles
+            if action.kind == UnitSyncActionKind.START and action.address in self.__unit_handles
         ]
         reloaded = [
             action
             for action in actions
-            if action.kind == UnitSyncActionKind.RELOAD and action.address in self._unit_handles
+            if action.kind == UnitSyncActionKind.RELOAD and action.address in self.__unit_handles
         ]
         removed = [
             action
             for action in actions
-            if action.kind == UnitSyncActionKind.REMOVE and action.address not in self._unit_handles
+            if action.kind == UnitSyncActionKind.REMOVE
+            and action.address not in self.__unit_handles
         ]
 
         if started:
@@ -424,8 +427,8 @@ class Engine(Tasklet):
         if removed:
             self.logger.info(f"{len(removed)} unit(s) removed.")
 
-    async def _stop_units(self) -> None:
-        if not self._unit_handles:
+    async def __stop_units(self) -> None:
+        if not self.__unit_handles:
             return
 
         self.logger.info("Stopping all units...")
@@ -435,18 +438,18 @@ class Engine(Tasklet):
                 self.logger.info(f"Stopping unit '{unit_handle.address}'...")
                 await unit_handle.stop()
 
-            self._unit_handles.pop(unit_handle.address, None)
+            self.__unit_handles.pop(unit_handle.address, None)
 
-        await asyncio.gather(*(stop(unit) for unit in self._unit_handles.values()))
+        await asyncio.gather(*(stop(unit) for unit in self.__unit_handles.values()))
 
         self.logger.info("All units were stopped successfully.")
 
-    def _get_unit_sync_actions(self) -> list[UnitSyncAction]:
+    def __get_unit_sync_actions(self) -> list[UnitSyncAction]:
         configs: dict[UnitAddress, UnitConfig] = {
-            UnitAddress(current.name): current for current in self._config.units
+            UnitAddress(current.name): current for current in self.__config.units
         }
         units: dict[UnitAddress, UnitHandle] = {
-            current.address: current for current in self._unit_handles.values()
+            current.address: current for current in self.__unit_handles.values()
         }
 
         actions: list[UnitSyncAction] = []
@@ -461,26 +464,26 @@ class Engine(Tasklet):
             elif unit_handle.config != unit_config:
                 actions.append(UnitSyncAction(address=unit_address, kind=UnitSyncActionKind.RELOAD))
 
-        for unit_address, unit_handle in self._unit_handles.items():
+        for unit_address, unit_handle in self.__unit_handles.items():
             if unit_address not in configs:
                 actions.append(UnitSyncAction(address=unit_address, kind=UnitSyncActionKind.REMOVE))
 
         return actions
 
-    def _on_server_completed(self, server: Server) -> None:
+    def __on_server_completed(self, server: Server) -> None:
         self.logger.info(f"Server stopped.")
 
-    def _on_server_exception(self, server: Server, exception: BaseException) -> None:
+    def __on_server_exception(self, server: Server, exception: BaseException) -> None:
         self.logger.error(
             f"An exception occurred in server: {traceback.format_exception(exception)}"
         )
 
-    def _on_unit_completed(self, unit_handle: UnitHandle) -> None:
+    def __on_unit_completed(self, unit_handle: UnitHandle) -> None:
         self.logger.info(f"Unit '{unit_handle.address}' stopped.")
-        self._unit_handles.pop(unit_handle.address, None)
+        self.__unit_handles.pop(unit_handle.address, None)
 
-    def _on_unit_exception(self, unit_handle: UnitHandle, exception: BaseException) -> None:
+    def __on_unit_exception(self, unit_handle: UnitHandle, exception: BaseException) -> None:
         self.logger.error(
             f"An exception occurred in unit '{unit_handle.address}': {traceback.format_exception(exception)}"
         )
-        self._unit_handles.pop(unit_handle.address, None)
+        self.__unit_handles.pop(unit_handle.address, None)

@@ -20,20 +20,20 @@ else:
 @final
 class Server(Tasklet):
     def __init__(self, app: ASGIApp, config: ServerConfig) -> None:
-        self._app = app
-        self._config = config
-        self._uvicorn: Uvicorn | None = None
+        self.__app = app
+        self.__config = config
+        self.__uvicorn: Uvicorn | None = None
 
     @property
     def app(self) -> ASGIApp:
-        return self._app
+        return self.__app
 
     @property
     def config(self) -> ServerConfig:
-        return self._config
+        return self.__config
 
     async def __run__(self) -> None:
-        self._uvicorn = Uvicorn(
+        self.__uvicorn = Uvicorn(
             UvicornConfig(
                 app=self.app,
                 port=self.config.port,
@@ -41,12 +41,12 @@ class Server(Tasklet):
             )
         )
 
-        await self._uvicorn.serve()
+        await self.__uvicorn.serve()
 
     async def __stop__(self) -> None:
-        if self._uvicorn is not None:
-            await self._uvicorn.shutdown()
-            self._uvicorn = None
+        if self.__uvicorn is not None:
+            await self.__uvicorn.shutdown()
+            self.__uvicorn = None
 
 
 class Uvicorn(BaseUvicorn):

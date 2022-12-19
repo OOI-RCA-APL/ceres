@@ -1,13 +1,12 @@
 from typing import Any, Awaitable, Callable, Sequence, TypeVar
 
-from .address import LocalComponentAddress
 from .events import Event
 from .internal.binding import Binding, add_binding
 
 
 class ListenerBinding(Binding):
-    sources: Sequence[LocalComponentAddress]
-    event: type[Event]
+    sources: Sequence[str]
+    event_cls: type[Event]
     function: str
 
 
@@ -27,8 +26,8 @@ def on(
         add_binding(
             function,
             ListenerBinding(
-                sources=[LocalComponentAddress(source) for source in sources],
-                event=event,
+                sources=sources,
+                event_cls=event,
                 function=function.__name__,
             ),
         )

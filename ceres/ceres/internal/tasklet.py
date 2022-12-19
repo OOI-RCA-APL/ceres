@@ -1,6 +1,8 @@
 import asyncio
 from abc import ABC, abstractmethod
-from asyncio import FIRST_COMPLETED, Event, Task
+from asyncio import FIRST_COMPLETED
+from asyncio import Event as AsyncEvent
+from asyncio import Task
 from dataclasses import dataclass, field
 from typing import Any, Callable, cast
 
@@ -9,13 +11,13 @@ from typing_extensions import Self
 
 @dataclass
 class TaskletInternal:
-    task: Task[Any] | None = None
-    stopping: Event = field(default_factory=Event)
-    stopped: Event = field(default_factory=Event)
+    task: Task[None] | None = None
+    stopping: AsyncEvent = field(default_factory=AsyncEvent)
+    stopped: AsyncEvent = field(default_factory=AsyncEvent)
     exception: BaseException | None = None
 
 
-_TASKLET_INTERNAL_ATTRIBUTE_NAME = "__tasklet_internal__"
+_INTERNAL_ATTRIBUTE_NAME = "__tasklet__"
 
 
 class Tasklet(ABC):
@@ -37,11 +39,11 @@ class Tasklet(ABC):
 
     @property
     def __tasklet__(self) -> TaskletInternal:
-        if internal := self.__dict__.get(_TASKLET_INTERNAL_ATTRIBUTE_NAME):
+        if internal := self.__dict__.get(_INTERNAL_ATTRIBUTE_NAME):
             return cast(TaskletInternal, internal)
 
         internal = TaskletInternal()
-        self.__dict__[_TASKLET_INTERNAL_ATTRIBUTE_NAME] = internal
+        self.__dict__[_INTERNAL_ATTRIBUTE_NAME] = internal
         return internal
 
     def start(

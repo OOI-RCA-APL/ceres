@@ -101,51 +101,51 @@ class UnitRemoteProtocol(Protocol):
 @final
 class Unit(UnitRemoteProtocol, Tasklet):
     def __init__(self, context: UnitContext) -> None:
-        self._context = context
-        self._database = context.database or Database(self._context.root_config.database)
-        self._loop = ensure_event_loop()
-        self._component_handles: dict[str, ComponentHandle] = {}
-        self._subscription_feeds: dict[UUID, SubscriptionFeed] = {}
+        self.__context = context
+        self.__database = context.database or Database(self.__context.root_config.database)
+        self.__loop = ensure_event_loop()
+        self.__component_handles: dict[str, ComponentHandle] = {}
+        self.__subscription_feeds: dict[UUID, SubscriptionFeed] = {}
 
     @property
     def id(self) -> UUID:
-        return self._context.id
+        return self.__context.id
 
     @property
     def address(self) -> UnitAddress:
-        return self._context.address
+        return self.__context.address
 
     @property
     def config(self) -> UnitConfig:
-        return self._context.unit_config
+        return self.__context.unit_config
 
     @property
     def database(self) -> Database:
-        return self._database
+        return self.__database
 
     @property
     def concurrency(self) -> ConcurrencyKind:
         return (
-            self._context.unit_config.concurrency or self._context.root_config.runtime.concurrency
+            self.__context.unit_config.concurrency or self.__context.root_config.runtime.concurrency
         )
 
     @property
     def logger(self) -> Logger:
-        return logs.get(str(self._context.address))
+        return logs.get(str(self.__context.address))
 
     @property
     def components(self) -> Mapping[str, ComponentHandle]:
-        return MappingProxyType(self._component_handles)
+        return MappingProxyType(self.__component_handles)
 
     def get_component_handle(self, address: LocalComponentAddress) -> ComponentHandle | None:
-        return self._component_handles.get(address if isinstance(address, str) else address.name)
+        return self.__component_handles.get(address if isinstance(address, str) else address.name)
 
     def remote_run(self) -> None | BaseException:
         try:
-            if self._loop.is_running():
-                asyncio.run_coroutine_threadsafe(self.run(), self._loop).exception()
+            if self.__loop.is_running():
+                asyncio.run_coroutine_threadsafe(self.run(), self.__loop).exception()
             else:
-                self._loop.run_until_complete(self.run())
+                self.__loop.run_until_complete(self.run())
         except BaseException as exception:
             self.logger.error(f"An exception occurred while running: {traceback.format_exc()}")
             return exception
@@ -153,7 +153,7 @@ class Unit(UnitRemoteProtocol, Tasklet):
         return None
 
     def remote_stop(self) -> None | BaseException:
-        return asyncio.run_coroutine_threadsafe(self.stop(), self._loop).exception()
+        return asyncio.run_coroutine_threadsafe(self.stop(), self.__loop).exception()
 
     def remote_call(
         self,
@@ -164,7 +164,7 @@ class Unit(UnitRemoteProtocol, Tasklet):
     ) -> Result[object | None, ProcedureError] | BaseException:
         future = asyncio.run_coroutine_threadsafe(
             self.call(address, kind, procedure, input),
-            self._loop,
+            self.__loop,
         )
 
         try:
@@ -198,7 +198,7 @@ class Unit(UnitRemoteProtocol, Tasklet):
 
             return Ok(SubscriptionFeed(task=asyncio.create_task(enqueue())))
 
-        future = asyncio.run_coroutine_threadsafe(subscribe(), self._loop)
+        future = asyncio.run_coroutine_threadsafe(subscribe(), self.__loop)
 
         try:
             match future.result():
@@ -209,12 +209,12 @@ class Unit(UnitRemoteProtocol, Tasklet):
         except BaseException as exception:
             return exception
 
-        self._subscription_feeds[subscriber.subscription_id] = feed
+        self.__subscription_feeds[subscriber.subscription_id] = feed
         return Ok(None)
 
     def remote_unsubscribe(self, subscriber_id: UUID) -> None:
         try:
-            if (subscription := self._subscription_feeds.pop(subscriber_id, None)) is not None:
+            if (subscription := self.__subscription_feeds.pop(subscriber_id, None)) is not None:
                 subscription.task.cancel()
         except Exception:
             traceback.print_exc()
@@ -265,12 +265,12 @@ class Unit(UnitRemoteProtocol, Tasklet):
                     self.logger.info(f"Stopping component '{component.address}'...")
                     await component.stop()
 
-                for feed in self._subscription_feeds.values():
+                for feed in self.__subscription_feeds.values():
                     feed.task.cancel()
-                self._subscription_feeds.clear()
+                self.__subscription_feeds.clear()
             finally:
-                if self._context.database is None:
-                    await self._database.dispose()
+                if self.__context.database is None:
+                    await self.__database.dispose()
 
         await asyncio.shield(asyncio.create_task(stop()))
 
@@ -278,23 +278,23 @@ class Unit(UnitRemoteProtocol, Tasklet):
         for component_config in self.config.components:
             address = caddr(self.address.name, component_config.name)
 
-            if component_config.name in self._component_handles:
+            if component_config.name in self.__component_handles:
                 continue
 
-            id = await self._database.entities.get_address_id(address)
+            id = await self.__database.entities.get_address_id(address)
 
-            self._component_handles[component_config.name] = ComponentHandle(
+            self.__component_handles[component_config.name] = ComponentHandle(
                 ComponentHandleContext(
                     id=id,
                     address=address,
-                    root_config=self._context.root_config,
+                    root_config=self.__context.root_config,
                     unit_config=self.config,
                     component_config=component_config,
                     unit=self,
                 )
             )
 
-        for component_handle in self._component_handles.values():
+        for component_handle in self.__component_handles.values():
             match await component_handle.load():
                 case Ok():
                     self.logger.info(
@@ -314,6 +314,7 @@ class Unit(UnitRemoteProtocol, Tasklet):
         self.logger.info(f"Component '{handle.address}' stopped.")
 
 
+@final
 class UnitProcess(SyncManager):
     pass
 
@@ -321,30 +322,31 @@ class UnitProcess(SyncManager):
 UnitProcess.register("Unit", Unit)
 
 
+@final
 class UnitHandle(Tasklet):
     def __init__(self, context: UnitContext) -> None:
-        self._context = context
-        self._process: UnitProcess | None = None
-        self._instance: UnitRemoteProtocol | None = None
-        self._lock = Lock()
+        self.__context = context
+        self.__process: UnitProcess | None = None
+        self.__instance: UnitRemoteProtocol | None = None
+        self.__lock = Lock()
 
     @property
     def id(self) -> UUID:
-        return self._context.id
+        return self.__context.id
 
     @property
     def address(self) -> UnitAddress:
-        return self._context.address
+        return self.__context.address
 
     @property
     def config(self) -> UnitConfig:
         return next(
-            unit for unit in self._context.root_config.units if unit.name == self.address.name
+            unit for unit in self.__context.root_config.units if unit.name == self.address.name
         )
 
     @property
     def instance(self) -> UnitRemoteProtocol | None:
-        return self._instance
+        return self.__instance
 
     @property
     def logger(self) -> Logger:
@@ -353,23 +355,23 @@ class UnitHandle(Tasklet):
     @property
     def concurrency(self) -> ConcurrencyKind:
         return (
-            self._context.unit_config.concurrency or self._context.root_config.runtime.concurrency
+            self.__context.unit_config.concurrency or self.__context.root_config.runtime.concurrency
         )
 
     async def __run__(self) -> None:
         def execute() -> None:
-            with self._lock:
+            with self.__lock:
                 if self.concurrency == ConcurrencyKind.PROCESS:
-                    self._process = UnitProcess()
-                    self._process.start()
-                    self._instance = cast(
-                        UnitRemoteProtocol, cast(Any, self._process).Unit(self._context)
+                    self.__process = UnitProcess()
+                    self.__process.start()
+                    self.__instance = cast(
+                        UnitRemoteProtocol, cast(Any, self.__process).Unit(self.__context)
                     )
                 else:
-                    self._instance = Unit(self._context)
+                    self.__instance = Unit(self.__context)
 
             try:
-                result = self._instance.remote_run()
+                result = self.__instance.remote_run()
             except EOFError:
                 result = None
 
@@ -382,19 +384,19 @@ class UnitHandle(Tasklet):
 
     async def __stop__(self) -> None:
         def execute() -> None:
-            with self._lock:
-                if self._instance:
+            with self.__lock:
+                if self.__instance:
                     try:
-                        result = self._instance.remote_stop()
+                        result = self.__instance.remote_stop()
                     except EOFError:
                         result = None
                     finally:
-                        self._instance = None
+                        self.__instance = None
                 else:
                     result = None
 
-                if self._process:
-                    self._process.shutdown()
+                if self.__process:
+                    self.__process.shutdown()
 
             if isinstance(result, BaseException):
                 self.logger.error(
@@ -437,7 +439,7 @@ class UnitHandle(Tasklet):
         input: object | None = None,
     ) -> Result[Subscription, ProcedureError]:
         if self.instance is None or (
-            self.concurrency == ConcurrencyKind.PROCESS and self._process is None
+            self.concurrency == ConcurrencyKind.PROCESS and self.__process is None
         ):
             return Fail(ProcedureComponentNotLoadedError())
 
@@ -445,7 +447,7 @@ class UnitHandle(Tasklet):
 
         match self.concurrency:
             case ConcurrencyKind.PROCESS:
-                queue = cast(Any, self._process).Queue()
+                queue = cast(Any, self.__process).Queue()
             case ConcurrencyKind.THREAD:
                 queue = cast(Any, ThreadSafeQueue())
 

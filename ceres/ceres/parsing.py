@@ -7,14 +7,14 @@ from .exceptions import ParseException
 
 
 class Parser:
-    def __init__(self, content: bytes) -> None:
-        self._characters = content
+    def __init__(self, data: bytes) -> None:
+        self._data = data
         self._index = 0
-        self._remaining: bytes | None = content
+        self._remaining: bytes | None = data
 
     @property
-    def characters(self) -> bytes:
-        return self._characters
+    def data(self) -> bytes:
+        return self._data
 
     @property
     def index(self) -> int:
@@ -23,7 +23,7 @@ class Parser:
     @index.setter
     def index(self, value: int) -> None:
         value = max(value, 0)
-        value = min(value, len(self.characters))
+        value = min(value, len(self.data))
         if value == self._index:
             return
 
@@ -33,13 +33,13 @@ class Parser:
     @property
     def remaining(self) -> bytes:
         if self._remaining is None:
-            self._remaining = self._characters[self.index :]
+            self._remaining = self._data[self.index :]
 
         return self._remaining
 
     def peek(self, offset: int = 0, length: int = 1) -> bytes | None:
         start = self.index + offset
-        result = self._characters[start : start + length]
+        result = self._data[start : start + length]
         if result == b"":
             return None
 

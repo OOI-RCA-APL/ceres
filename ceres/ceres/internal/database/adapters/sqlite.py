@@ -20,10 +20,10 @@ class SQLiteDatabaseAdapter(DatabaseAdapter[SQLiteDatabaseConfig]):
             return f"sqlite+aiosqlite:///{self.config.path.resolve()}"
 
         # Otherwise create a temporary on-disk database.
-        return f"sqlite+aiosqlite:///{self._get_temporary_path()}"
+        return f"sqlite+aiosqlite:///{self.__get_temporary_path()}"
 
     def __del__(self) -> None:
-        if self.config.path or not self._get_temporary_path().exists():
+        if self.config.path or not self.__get_temporary_path().exists():
             return
 
         try:
@@ -63,5 +63,5 @@ class SQLiteDatabaseAdapter(DatabaseAdapter[SQLiteDatabaseConfig]):
 
         return engine
 
-    def _get_temporary_path(self) -> Path:
+    def __get_temporary_path(self) -> Path:
         return Path(gettempdir()) / f"ceres-{self.id}.sqlite"

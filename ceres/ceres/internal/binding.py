@@ -4,7 +4,7 @@ from typing import Callable, Iterable, Sequence, TypeVar, cast
 
 from ..data import ImmutableDataObject
 
-BINDINGS_ATTRIBUTE = "__bindings__"
+_BINDINGS_ATTRIBUTE = "__bindings__"
 
 
 class Binding(ImmutableDataObject):
@@ -18,7 +18,7 @@ def add_binding(function: Callable[..., object], binding: Binding) -> None:
     while hasattr(function, "__wrapped__"):
         function = function.__wrapped__  # type: ignore
 
-    bindings: Sequence[Binding] | None = getattr(function, BINDINGS_ATTRIBUTE, None)
+    bindings: Sequence[Binding] | None = getattr(function, _BINDINGS_ATTRIBUTE, None)
 
     if not isinstance(bindings, Sequence):
         bindings = ()
@@ -28,7 +28,7 @@ def add_binding(function: Callable[..., object], binding: Binding) -> None:
     else:
         bindings = [*bindings, binding]
 
-    setattr(function, BINDINGS_ATTRIBUTE, bindings)
+    setattr(function, _BINDINGS_ATTRIBUTE, bindings)
 
 
 def get_bindings(component_cls: type, binding_cls: type[_BindingT]) -> Sequence[_BindingT]:
@@ -38,7 +38,7 @@ def get_bindings(component_cls: type, binding_cls: type[_BindingT]) -> Sequence[
         while hasattr(function, "__wrapped__"):
             function = function.__wrapped__  # type: ignore
 
-        if values := getattr(function, BINDINGS_ATTRIBUTE, None):
+        if values := getattr(function, _BINDINGS_ATTRIBUTE, None):
             if isinstance(values, Iterable):
                 for value in values:
                     if isinstance(value, binding_cls):

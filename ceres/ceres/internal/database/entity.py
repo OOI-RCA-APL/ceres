@@ -164,9 +164,9 @@ class EntityManager:
         async with self._database.session() as session:
             match address:
                 case UnitAddress():
-                    return (await self._get_unit(session, address)).id
+                    return (await self.__get_unit(session, address)).id
                 case GlobalComponentAddress():
-                    return (await self._get_component(session, address)).id
+                    return (await self.__get_component(session, address)).id
 
     async def get_alerts(
         self,
@@ -175,7 +175,7 @@ class EntityManager:
         order_by: Callable[[type[AlertEntity]], _OrderByT] | None = lambda alert: alert.timestamp,
         limit: int | None = None,
     ) -> list[Alert]:
-        entities = await self._get_entities(
+        entities = await self.__get_entities(
             AlertEntity,
             where=where,
             order_by=order_by,
@@ -192,7 +192,7 @@ class EntityManager:
         | None = lambda message: message.timestamp,
         limit: int | None = None,
     ) -> list[Message]:
-        entities = await self._get_entities(
+        entities = await self.__get_entities(
             MessageEntity,
             where=where,
             order_by=order_by,
@@ -201,7 +201,7 @@ class EntityManager:
 
         return [Message.from_orm(entity) for entity in entities]
 
-    async def _get_entities(
+    async def __get_entities(
         self,
         cls: type[_EntityT],
         *,
@@ -220,7 +220,7 @@ class EntityManager:
         async with self._database.session() as session:
             return list(await session.scalars(query))
 
-    async def _get_unit(
+    async def __get_unit(
         self,
         session: AsyncSession,
         address: UnitAddress,
@@ -237,12 +237,12 @@ class EntityManager:
 
         return unit
 
-    async def _get_component(
+    async def __get_component(
         self,
         session: AsyncSession,
         address: GlobalComponentAddress,
     ) -> ComponentEntity:
-        unit_id = (await self._get_unit(session, UnitAddress(address.unit))).id
+        unit_id = (await self.__get_unit(session, UnitAddress(address.unit))).id
 
         if not (
             component := await (

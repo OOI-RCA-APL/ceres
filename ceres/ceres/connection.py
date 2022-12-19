@@ -216,6 +216,6 @@ class Connection(Component, ABC):
     @subscription("connection-state")
     async def subscribe_connection_state(self) -> AsyncIterable[ConnectionState]:
         yield await self.get_connection_state()
-        async for event in self.event_stream:
+        async for event in self.events:
             if isinstance(event, ConnectedEvent | DisconnectedEvent):
                 yield self.__state

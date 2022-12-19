@@ -11,16 +11,16 @@ _ConfigT = TypeVar("_ConfigT", bound=DatabaseConfig, covariant=True)
 
 class DatabaseAdapter(Generic[_ConfigT], ABC):
     def __init__(self, id: UUID, config: _ConfigT) -> None:
-        self._id = id
-        self._config = config
+        self.__id = id
+        self.__config = config
 
     @property
     def id(self) -> UUID:
-        return self._id
+        return self.__id
 
     @property
     def config(self) -> _ConfigT:
-        return self._config
+        return self.__config
 
     @abstractmethod
     def get_engine_url(cls) -> str:

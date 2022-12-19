@@ -129,8 +129,8 @@ class Config(ConfigObject):
     runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
     units: Sequence[UnitConfig] = Field(default_factory=list)
 
-    _path: Path | None = None
-    _component_config_cache: dict[GlobalComponentAddress, ComponentConfig] = {}
+    __path: Path | None = None
+    __component_config_cache: dict[GlobalComponentAddress, ComponentConfig] = {}
 
     @root_validator
     def _validate_root(cls, values: Mapping[str, object]) -> Mapping[str, object]:
@@ -161,7 +161,7 @@ class Config(ConfigObject):
 
     @property
     def path(self) -> Path | None:
-        return self._path
+        return self.__path
 
     @validator("units")
     def _validate_units(cls, units: Sequence[UnitConfig]) -> Sequence[UnitConfig]:
@@ -180,8 +180,8 @@ class Config(ConfigObject):
         return next((unit for unit in self.units if unit.name == name), None)
 
     def get_component(self, address: GlobalComponentAddress) -> ComponentConfig | None:
-        if address in self._component_config_cache:
-            return self._component_config_cache[address]
+        if address in self.__component_config_cache:
+            return self.__component_config_cache[address]
 
         component: ComponentConfig | None = None
 
@@ -191,7 +191,7 @@ class Config(ConfigObject):
             )
 
         if component:
-            self._component_config_cache[address] = component
+            self.__component_config_cache[address] = component
 
         return component
 

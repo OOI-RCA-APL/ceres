@@ -211,28 +211,28 @@ class ComponentHandleContext:
 @final
 class ComponentHandle(Tasklet):
     def __init__(self, context: ComponentHandleContext) -> None:
-        self._context = context
-        self._instance: Component | None = None
+        self.__context = context
+        self.__instance: Component | None = None
 
     @property
     def id(self) -> UUID:
-        return self._context.id
+        return self.__context.id
 
     @property
     def address(self) -> GlobalComponentAddress:
-        return self._context.address
+        return self.__context.address
 
     @property
     def config(self) -> ComponentConfig:
-        return self._context.component_config
+        return self.__context.component_config
 
     @property
     def instance(self) -> Component | None:
-        return self._instance
+        return self.__instance
 
     @property
     def logger(self) -> Logger:
-        return logs.get(str(self._context.address))
+        return logs.get(str(self.__context.address))
 
     async def __run__(self) -> None:
         if self.instance is None:
@@ -255,19 +255,19 @@ class ComponentHandle(Tasklet):
             CompleteContext(
                 id=self.id,
                 address=self.address,
-                root_config=self._context.root_config,
-                unit_config=self._context.unit_config,
+                root_config=self.__context.root_config,
+                unit_config=self.__context.unit_config,
                 component_config=self.config,
-                database=self._context.unit.database,
+                database=self.__context.unit.database,
             ),
             {
                 name: component.instance
-                for name, component in self._context.unit.components.items()
+                for name, component in self.__context.unit.components.items()
                 if component.instance
             },
         ):
             case Ok(instance):
-                self._instance = instance
+                self.__instance = instance
                 return Ok(instance)
             case fail:
                 return fail
