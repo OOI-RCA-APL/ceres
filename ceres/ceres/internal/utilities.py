@@ -425,3 +425,16 @@ def randstr(characters: str, length: int) -> str:
 
 
 UNSET_UUID = UUID(int=0)
+
+
+def get_member_name(callable: Callable[..., Any]) -> str:
+    original = callable.__name__
+
+    if callable.__name__.startswith("__") and not callable.__name__.endswith("__"):
+        tokens = callable.__qualname__.split(".")
+        if len(tokens) < 2:
+            return original
+
+        return f"_{tokens[-2]}{original}"
+
+    return original

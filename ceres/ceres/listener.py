@@ -2,6 +2,7 @@ from typing import Any, Awaitable, Callable, Sequence, TypeVar
 
 from .events import Event
 from .internal.binding import Binding, add_binding
+from .internal.utilities import get_member_name
 
 
 class ListenerBinding(Binding):
@@ -28,7 +29,7 @@ def on(
             ListenerBinding(
                 sources=sources,
                 event_cls=event,
-                function=function.__name__,
+                function=get_member_name(function),
             ),
         )
 

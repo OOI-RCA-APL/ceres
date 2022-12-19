@@ -1,5 +1,4 @@
 import inspect
-import traceback
 from enum import Enum
 from functools import wraps
 from inspect import Parameter
@@ -15,10 +14,11 @@ from typing import (
 )
 
 from pydantic import schema_of
+from pydantic.typing import get_args
 
 from .data import ImmutableDataObject
 from .internal.binding import Binding, add_binding
-from .internal.utilities import strify
+from .internal.utilities import get_member_name, strify
 from .schedule import Schedule
 
 
@@ -153,9 +153,8 @@ def _validate_procedure(
             raise error
 
         try:
-            output_hint = output_hint.__args__[0]  # type: ignore
+            output_hint = get_args(output_hint)[0]
         except Exception:
-            traceback.print_exc()
             raise error
 
     try:
@@ -201,7 +200,7 @@ def action(name: str) -> Callable[[_CallableProcedureFunctionT], _CallableProced
             function,
             ActionBinding(
                 name=name,
-                function=function.__name__,
+                function=get_member_name(function),
                 schemas=schemas,
             ),
         )
@@ -227,7 +226,7 @@ def job(
             function,
             JobBinding(
                 name=name,
-                function=function.__name__,
+                function=get_member_name(function),
                 schemas=schemas,
                 default_schedule=default_schedule,
                 default_input=default_input,
@@ -256,7 +255,7 @@ def subscription(
             function,
             SubscriptionBinding(
                 name=name,
-                function=function.__name__,
+                function=get_member_name(function),
                 schemas=schemas,
             ),
         )
@@ -281,7 +280,7 @@ def display(
             function,
             DisplayBinding(
                 name=name,
-                function=function.__name__,
+                function=get_member_name(function),
                 schemas=schemas,
                 group=group,
             ),
