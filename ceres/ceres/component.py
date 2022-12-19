@@ -186,10 +186,9 @@ class Component(ValidatedDataclass, Tasklet):
                 event = await self.__queue.get()
 
                 try:
-                    if self.__handler_arity == 0:
-                        await awaitify(self.__handler())  # type: ignore
-                    else:
-                        await awaitify(self.__handler(event))  # type: ignore
+                    result = self.__handler(*[event][: self.__handler_arity])
+                    if inspect.iscoroutine(result):
+                        await result
                 except Exception:
                     self.__logger.error(
                         f"An exception occurred while processing event {event}: {traceback.format_exc()}"
@@ -529,7 +528,7 @@ class Component(ValidatedDataclass, Tasklet):
             if kinds is None or event.kind in kinds:
                 yield event
 
-    async def _invoke(
+    async def __invoke(
         self,
         kind: "ProcedureKind",
         procedure: str,
@@ -562,7 +561,7 @@ class Component(ValidatedDataclass, Tasklet):
         procedure: str,
         input: object | None = None,
     ) -> Result[object | None, ProcedureError]:
-        return await self._invoke(kind.upcast(), procedure, input)
+        return await self.__invoke(kind.upcast(), procedure, input)
 
     async def subscribe(
         self,
@@ -572,7 +571,7 @@ class Component(ValidatedDataclass, Tasklet):
     ) -> Result[AsyncIterable[object | None], ProcedureError]:
         return cast(
             Result[AsyncIterable[object | None], ProcedureError],
-            await self._invoke(kind.upcast(), procedure, input),
+            await self.__invoke(kind.upcast(), procedure, input),
         )
 
 
