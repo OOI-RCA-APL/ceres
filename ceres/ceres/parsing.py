@@ -7,6 +7,10 @@ from .exceptions import ParseException
 
 
 class Parser:
+    @classmethod
+    def _get_regex(cls, pattern: bytes) -> Pattern[bytes]:
+        return _get_cached_regex(pattern)
+
     def __init__(self, data: bytes) -> None:
         self.__data = data
         self.__index = 0
@@ -81,7 +85,7 @@ class Parser:
 
     def try_eat_pattern(self, pattern: bytes) -> bytes | None:
         try:
-            regex = _get_regex(pattern)
+            regex = self._get_regex(pattern)
         except re.error:
             raise ValueError(f"invalid regular expression {repr(pattern)}")
 
@@ -123,16 +127,16 @@ class Parser:
         raise ParseException(f"expected floating-point number, got {repr(self.remaining)}")
 
     def try_eat_space(self) -> bytes | None:
-        result = b""
+        result: list[bytes] = []
 
         while (current := self.peek()) and current.isspace():
             self.next()
-            result += current
+            result.append(current)
 
         if not result:
             return None
 
-        return result
+        return b"".join(result)
 
     def eat_space(self) -> bytes:
         if (result := self.try_eat_space()) is not None:
@@ -142,5 +146,5 @@ class Parser:
 
 
 @lru_cache(maxsize=5000, typed=True)
-def _get_regex(pattern: bytes) -> Pattern[bytes]:
+def _get_cached_regex(pattern: bytes) -> Pattern[bytes]:
     return re.compile(pattern)
