@@ -24,6 +24,8 @@ from ..address import GlobalComponentAddress, UnitAddress, caddr
 from ..alert import Alert
 from ..config import ComponentConfig, Config, UnitConfig
 from ..data import ImmutableDataObject, jsonify
+from ..database import Database
+from ..database.entity import EntityManager
 from ..errors import ProcedureError, ReloadError
 from ..message import Message
 from ..procedure import (
@@ -38,8 +40,6 @@ from ..procedure import (
 from ..result import Fail, Ok, Result
 from . import logs
 from .console import Console
-from .database import Database
-from .database.entity import EntityManager
 from .utilities import NameStr
 
 if TYPE_CHECKING:

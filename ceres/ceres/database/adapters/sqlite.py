@@ -8,7 +8,7 @@ from sqlalchemy import NullPool, event
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from ....config import SQLiteDatabaseConfig
+from ...config import SQLiteDatabaseConfig
 from ..adapter import DatabaseAdapter
 
 

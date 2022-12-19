@@ -13,6 +13,7 @@ from yaml import MarkedYAMLError, YAMLError
 from ..address import caddr
 from ..component import CompleteContext, Component
 from ..config import Config, UnitConfig
+from ..database import Database
 from ..datetime import utc
 from ..errors import (
     ConfigComponentError,
@@ -26,7 +27,6 @@ from ..errors import (
 )
 from ..result import Fail, Ok, Result
 from .component import load_component
-from .database import Database
 from .utilities import show_td
 
 

@@ -13,6 +13,7 @@ from .address import GlobalComponentAddress, UnitAddress, caddr
 from .alert import Alert
 from .config import ConcurrencyKind, Config, UnitConfig
 from .data import ImmutableDataObject, jsonify
+from .database import Database
 from .datetime import utc
 from .errors import (
     ProcedureError,
@@ -28,7 +29,6 @@ from .exceptions import (
 from .internal import logs
 from .internal.app import App
 from .internal.config import load_config
-from .internal.database import Database
 from .internal.server import Server
 from .internal.tasklet import Tasklet
 from .internal.unit import Subscription, UnitContext, UnitHandle

@@ -1,6 +1,6 @@
 from typing import Any, final
 
-from ....config import PostgresDatabaseConfig
+from ...config import PostgresDatabaseConfig
 from ..adapter import DatabaseAdapter
 
 

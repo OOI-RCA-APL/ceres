@@ -2,8 +2,8 @@ from dataclasses import field
 
 from ceres.alert import Alert, AlertLevel
 from ceres.component import Component
+from ceres.database import Database
 from ceres.events import Event
-from ceres.internal.database import Database
 from ceres.listener import on
 
 

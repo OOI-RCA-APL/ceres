@@ -22,7 +22,7 @@ class Server(Tasklet):
     def __init__(self, app: ASGIApp, config: ServerConfig) -> None:
         self.__app = app
         self.__config = config
-        self.__uvicorn: Uvicorn | None = None
+        self.__uvicorn: _Uvicorn | None = None
 
     @property
     def app(self) -> ASGIApp:
@@ -33,7 +33,7 @@ class Server(Tasklet):
         return self.__config
 
     async def __run__(self) -> None:
-        self.__uvicorn = Uvicorn(
+        self.__uvicorn = _Uvicorn(
             UvicornConfig(
                 app=self.app,
                 port=self.config.port,
@@ -49,7 +49,7 @@ class Server(Tasklet):
             self.__uvicorn = None
 
 
-class Uvicorn(BaseUvicorn):
+class _Uvicorn(BaseUvicorn):
     async def serve(self, sockets: Any = None) -> None:
         logs.setup()
         await super().serve(sockets)

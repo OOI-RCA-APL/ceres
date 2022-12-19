@@ -35,6 +35,8 @@ from .data import (
     ValidatedDataclass,
     jsonify,
 )
+from .database import Database
+from .database.entity import AlertEntity, MessageEntity
 from .errors import (
     ProcedureDoesNotExistError,
     ProcedureError,
@@ -45,9 +47,7 @@ from .events import AlertEmittedEvent, Event, MessageReceivedEvent, MessageSentE
 from .exceptions import ComponentClassInvalidException
 from .internal import logs
 from .internal.binding import get_bindings
-from .internal.database import Database
 from .internal.database.buffer import WriteBuffer
-from .internal.database.entity import AlertEntity, MessageEntity
 from .internal.tasklet import Tasklet
 from .internal.utilities import (
     UNSET_UUID,

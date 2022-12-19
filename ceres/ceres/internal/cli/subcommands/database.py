@@ -1,7 +1,7 @@
 import rich
 
 from ....config import Config
-from ...database import Database
+from ....database import Database
 from ..exceptions import CLIDatabaseUnreachableException
 from ..shared import AsyncTyper, ConfigOption, get_yes_no
 

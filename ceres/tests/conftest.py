@@ -1,6 +1,6 @@
 import pytest
 
-from ceres.internal.database import Database
+from ceres.database import Database
 
 
 @pytest.fixture(scope="function")

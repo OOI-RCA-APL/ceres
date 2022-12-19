@@ -29,10 +29,10 @@ from sqlalchemy.orm import (
 )
 from sqlalchemy.sql.roles import ExpressionElementRole
 
-from ...address import Address, GlobalComponentAddress, UnitAddress
-from ...alert import Alert, AlertLevel
-from ...message import Message, MessageDirection
-from ..utilities import snakecase
+from ..address import Address, GlobalComponentAddress, UnitAddress
+from ..alert import Alert, AlertLevel
+from ..internal.utilities import snakecase
+from ..message import Message, MessageDirection
 
 if TYPE_CHECKING:
     from . import Database

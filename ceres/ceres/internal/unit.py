@@ -15,6 +15,7 @@ from ..address import LocalComponentAddress, UnitAddress, caddr
 from ..component import CallableProcedureKind, SubscribableProcedureKind
 from ..config import ConcurrencyKind, Config, UnitConfig
 from ..data import jsonify
+from ..database import Database
 from ..errors import (
     ProcedureComponentNotLoadedError,
     ProcedureDoesNotExistError,
@@ -24,7 +25,6 @@ from ..errors import (
 from ..result import Fail, Ok, Result
 from . import logs
 from .component import ComponentHandle, ComponentHandleContext
-from .database import Database
 from .tasklet import Tasklet
 from .utilities import (
     QueueLike,

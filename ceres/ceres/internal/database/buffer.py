@@ -4,8 +4,8 @@ from logging import Logger
 from typing import Generic, TypeVar, final
 
 from ...config import DatabaseKind
-from . import Database
-from .entity import Entity
+from ...database import Database
+from ...database.entity import Entity
 
 _EntityT = TypeVar("_EntityT", bound=Entity)
 

@@ -4,7 +4,7 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
-from ...config import DatabaseConfig
+from ..config import DatabaseConfig
 
 _ConfigT = TypeVar("_ConfigT", bound=DatabaseConfig, covariant=True)
 

@@ -338,7 +338,7 @@ def ensure_event_loop() -> AbstractEventLoop:
             pass
 
         try:
-            return asyncio.get_event_loop()
+            return asyncio.get_running_loop()
         except Exception:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
