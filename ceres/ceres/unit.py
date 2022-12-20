@@ -16,14 +16,11 @@ from .errors import (
     ProcedureDoesNotExistError,
     ProcedureError,
 )
-from .result import Fail, Ok, Result
 from .internal import logs
 from .internal.component import ComponentHandle, ComponentHandleContext
 from .internal.tasklet import Tasklet
-from .internal.utilities import (
-    sleep_forever,
-    strify,
-)
+from .internal.utilities import sleep_forever, strify
+from .result import Fail, Ok, Result
 
 
 @dataclass(kw_only=True, frozen=True)

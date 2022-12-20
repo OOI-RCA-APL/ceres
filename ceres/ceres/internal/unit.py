@@ -5,8 +5,10 @@ from asyncio import Queue as AsyncQueue
 from asyncio import Task
 from logging import Logger
 from multiprocessing.managers import SyncManager
-from queue import Empty, Queue
-from typing import Any, AsyncIterator, cast, final
+from multiprocessing.queues import Queue as ProcessQueue
+from queue import Empty
+from queue import Queue as ThreadQueue
+from typing import Any, TypeAlias, cast, final
 from uuid import UUID, uuid4
 
 from ..address import LocalComponentAddress, UnitAddress
@@ -18,39 +20,14 @@ from ..errors import (
 )
 from ..procedure import CallableProcedureKind, SubscribableProcedureKind
 from ..result import Fail, Ok, Result
+from ..subscription import Subscription
 from ..unit import Unit, UnitContext
 from . import logs
+from .subscription import QueueSubscription
 from .tasklet import Tasklet
-from .utilities import QueueLike, ensure_event_loop, spawn, strify
+from .utilities import ensure_event_loop, spawn, strify
 
-SubscriptionIntermediateQueue = QueueLike[object]
-SubscriptionResultsQueue = AsyncQueue[object]
-
-
-class Subscription(AsyncIterator[object]):
-    def __init__(
-        self,
-        *,
-        id: UUID,
-        queue: SubscriptionResultsQueue,
-    ) -> None:
-        self.__id = id
-        self.__queue = queue
-
-    @property
-    def id(self) -> UUID:
-        return self.__id
-
-    def __aiter__(self) -> AsyncIterator[object]:
-        return self
-
-    async def __anext__(self) -> object:
-        return await self.get()
-
-    async def get(self) -> object:
-        value = await self.__queue.get()
-        self.__queue.task_done()
-        return value
+RemoteQueue: TypeAlias = "ProcessQueue[object] | ThreadQueue[object]"
 
 
 class UnitProxy:
@@ -102,7 +79,7 @@ class UnitProxy:
 
     def subscribe(
         self,
-        queue: SubscriptionIntermediateQueue,
+        queue: RemoteQueue,
         address: LocalComponentAddress,
         kind: SubscribableProcedureKind,
         procedure: str,
@@ -279,9 +256,9 @@ class UnitHandle(Tasklet):
 
         match self.concurrency:
             case ConcurrencyKind.PROCESS:
-                intermediate: SubscriptionIntermediateQueue = cast(Any, self.__process).Queue()
+                intermediate: RemoteQueue = cast(Any, self.__process).Queue()
             case ConcurrencyKind.THREAD:
-                intermediate = cast(Any, Queue())
+                intermediate = ThreadQueue()
 
         def subscribe() -> Result[UUID, ProcedureError]:
             try:
@@ -324,7 +301,7 @@ class UnitHandle(Tasklet):
         task = asyncio.create_task(bridge())
 
         self.__subscription_tasks[id] = task
-        subscription = Subscription(id=id, queue=results)
+        subscription = QueueSubscription(id=id, queue=results)
 
         self.logger.info(f"Subscribed: {subscription.id}")
         return Ok(subscription)

@@ -16,7 +16,6 @@ from typing import (
     Awaitable,
     Callable,
     ClassVar,
-    Generic,
     Iterable,
     Iterator,
     Literal,
@@ -379,15 +378,6 @@ async def spawn(function: Callable[_P, _T], *args: _P.args, **kwargs: _P.kwargs)
         cancellable=True,
         limiter=CapacityLimiter(4096),
     )
-
-
-@runtime_checkable
-class QueueLike(Protocol, Generic[_T]):
-    def get(self, *, timeout: float | None = None) -> _T:
-        ...
-
-    def put_nowait(self, value: _T) -> _T:
-        ...
 
 
 if TYPE_CHECKING:

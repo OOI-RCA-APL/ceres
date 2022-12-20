@@ -9,8 +9,6 @@ from pathlib import Path
 from queue import Empty, Queue
 from typing import Any, final
 
-from .internal.unit import Subscription, UnitHandle
-
 from .address import GlobalComponentAddress, UnitAddress, caddr
 from .alert import Alert
 from .config import ConcurrencyKind, Config, UnitConfig
@@ -33,14 +31,13 @@ from .internal.app import App
 from .internal.config import load_config
 from .internal.server import Server
 from .internal.tasklet import Tasklet
-from .unit import UnitContext
-from .internal.utilities import (
-    temporary_signal_handler,
-)
+from .internal.unit import Subscription, UnitHandle
+from .internal.utilities import temporary_signal_handler
 from .message import Message
 from .procedure import CallableProcedureKind, SubscribableProcedureKind
 from .result import Fail, Ok, Result
 from .stream import Stream, StreamView
+from .unit import UnitContext
 
 
 class UnitSyncActionKind(str, Enum):
