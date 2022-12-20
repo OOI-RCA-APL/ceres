@@ -25,12 +25,12 @@ export async function getConfig(): Promise<Config> {
   return await get('/api/config', ConfigModel)
 }
 
-export async function getUnit(name: string): Promise<UnitInfo> {
-  return await get(`/api/units/${name}`, UnitInfoModel)
+export async function getUnit(name: string): Promise<UnitInfo | null> {
+  return await getOrNull(`/api/units/${name}`, UnitInfoModel)
 }
 
-export async function getComponent(unit: string, name: string): Promise<ComponentInfo> {
-  return await get(`/api/units/${unit}/components/${name}`, ComponentInfoModel)
+export async function getComponent(unit: string, name: string): Promise<ComponentInfo | null> {
+  return await getOrNull(`/api/units/${unit}/components/${name}`, ComponentInfoModel)
 }
 
 export async function getMessages({
@@ -106,6 +106,19 @@ async function get<TModel extends ZodTypeAny>(
   model: TModel
 ): Promise<Zod.infer<TModel>> {
   const response = await fetch(url)
+  const json = await response.json()
+  return await model.parseAsync(json)
+}
+
+async function getOrNull<TModel extends ZodTypeAny>(
+  url: string | URL,
+  model: TModel
+): Promise<Zod.infer<TModel> | null> {
+  const response = await fetch(url)
+  if (response.status >= 400) {
+    return null
+  }
+
   const json = await response.json()
   return await model.parseAsync(json)
 }

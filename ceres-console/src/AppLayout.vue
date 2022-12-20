@@ -31,14 +31,27 @@
               <q-item-label>Dashboard</q-item-label>
             </q-item-section>
           </q-item>
-          <q-item clickable to="/units">
-            <q-item-section avatar>
-              <q-icon :name="icons.units" />
-            </q-item-section>
-            <q-item-section avatar>
-              <q-item-label>Units</q-item-label>
-            </q-item-section>
-          </q-item>
+          <q-expansion-item
+            v-model="state.isUnitsSectionExpanded"
+            :icon="icons.units"
+            label="Units"
+          >
+            <q-item
+              v-for="unit in config.data.units"
+              :key="unit.name"
+              clickable
+              dense
+              style="min-height: 38px"
+              :to="`/units/${unit.name}`"
+            >
+              <q-item-section avatar>
+                <q-icon :name="icons.unit" size="12px" style="margin-left: 6px" />
+              </q-item-section>
+              <q-item-section>
+                <q-item-label class="text-no-wrap">@{{ unit.name }}</q-item-label>
+              </q-item-section>
+            </q-item>
+          </q-expansion-item>
         </q-list>
       </q-scroll-area>
     </q-drawer>
@@ -69,6 +82,7 @@ import constants from './constants'
 import icons from './icons'
 import { usePersisted } from './persistence'
 
+import { useConfig } from '@/api/queries'
 const route = useRoute()
 const router = useRouter()
 const quasar = useQuasar()
@@ -76,6 +90,7 @@ const quasar = useQuasar()
 const StateSchema = Zod.object({
   isDrawerOpen: Zod.boolean().default(false),
   isDarkModeEnabled: Zod.boolean().default(false),
+  isUnitsSectionExpanded: Zod.boolean().default(true),
 })
 
 const state = usePersisted({
@@ -86,6 +101,7 @@ const state = usePersisted({
 watchEffect(() => {
   quasar.dark.set(state.isDarkModeEnabled)
 })
+const config = useConfig()
 </script>
 
 <style lang="scss" scoped>

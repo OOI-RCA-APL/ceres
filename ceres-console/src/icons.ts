@@ -2,7 +2,7 @@ const icons = {
   add: 'add',
   close: 'close',
   darkMode: 'dark_mode',
-  dashboard: 'dashboard',
+  dashboard: 'home',
   delete: 'delete',
   help: 'help',
   job: 'build',
@@ -11,7 +11,8 @@ const icons = {
   script: 'code',
   search: 'search',
   send: 'send',
-  units: 'dataset',
+  units: 'workspaces',
+  unit: 'fiber_manual_record',
   user: 'person',
 } as const
 
