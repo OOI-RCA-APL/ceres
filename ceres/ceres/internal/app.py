@@ -326,8 +326,8 @@ async def _subscribe(
             return
 
     async def write() -> None:
-        while True:
-            await socket.send_text(jsonify(await subscription.queue.get()))
+        async for value in subscription:
+            await socket.send_text(jsonify(value))
 
     write_task = asyncio.create_task(write(), name="write")
 

@@ -9,6 +9,8 @@ from pathlib import Path
 from queue import Empty, Queue
 from typing import Any, final
 
+from .internal.unit import Subscription, UnitHandle
+
 from .address import GlobalComponentAddress, UnitAddress, caddr
 from .alert import Alert
 from .config import ConcurrencyKind, Config, UnitConfig
@@ -31,8 +33,10 @@ from .internal.app import App
 from .internal.config import load_config
 from .internal.server import Server
 from .internal.tasklet import Tasklet
-from .internal.unit import Subscription, UnitContext, UnitHandle
-from .internal.utilities import temporary_signal_handler
+from .unit import UnitContext
+from .internal.utilities import (
+    temporary_signal_handler,
+)
 from .message import Message
 from .procedure import CallableProcedureKind, SubscribableProcedureKind
 from .result import Fail, Ok, Result
@@ -434,7 +438,7 @@ class Engine(Tasklet):
         self.logger.info("Stopping all units...")
 
         async def stop(unit_handle: UnitHandle) -> None:
-            if unit_handle.instance:
+            if unit_handle.running:
                 self.logger.info(f"Stopping unit '{unit_handle.address}'...")
                 await unit_handle.stop()
 

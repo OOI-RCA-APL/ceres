@@ -35,7 +35,7 @@ from .utilities import (
 )
 
 if TYPE_CHECKING:
-    from .unit import Unit
+    from ..unit import Unit
 else:
     Unit = "Unit"
 

@@ -2,160 +2,88 @@ import asyncio
 import threading
 import traceback
 from asyncio import Queue as AsyncQueue
-from dataclasses import dataclass, field
+from asyncio import Task
 from logging import Logger
 from multiprocessing.managers import SyncManager
-from queue import Queue as ThreadSafeQueue
-from threading import Lock
-from types import MappingProxyType
-from typing import Any, AsyncIterable, Mapping, Protocol, cast, final
+from queue import Empty, Queue
+from typing import Any, AsyncIterator, cast, final
 from uuid import UUID, uuid4
 
-from ..address import LocalComponentAddress, UnitAddress, caddr
-from ..component import CallableProcedureKind, SubscribableProcedureKind
-from ..config import ConcurrencyKind, Config, UnitConfig
-from ..data import jsonify
-from ..database import Database
+from ..address import LocalComponentAddress, UnitAddress
+from ..config import ConcurrencyKind, UnitConfig
 from ..errors import (
     ProcedureComponentNotLoadedError,
-    ProcedureDoesNotExistError,
     ProcedureError,
     ProcedureExceptionError,
 )
+from ..procedure import CallableProcedureKind, SubscribableProcedureKind
 from ..result import Fail, Ok, Result
+from ..unit import Unit, UnitContext
 from . import logs
-from .component import ComponentHandle, ComponentHandleContext
 from .tasklet import Tasklet
-from .utilities import (
-    QueueLike,
-    ensure_event_loop,
-    get_or_cancel,
-    sleep_forever,
-    spawn,
-    strify,
-)
+from .utilities import QueueLike, ensure_event_loop, spawn, strify
+
+SubscriptionIntermediateQueue = QueueLike[object]
+SubscriptionResultsQueue = AsyncQueue[object]
 
 
-@dataclass(kw_only=True, frozen=True)
-class UnitContext:
-    id: UUID
-    address: UnitAddress
-    root_config: Config
-    unit_config: UnitConfig
-    database: Database | None = None
-
-    def __post_init__(self) -> None:
-        assert self.root_config.get_unit(self.address)
-        assert self.unit_config in self.root_config.units
-
-
-@dataclass(kw_only=True, frozen=True)
-class Subscriber:
-    subscription_id: UUID = field(default_factory=uuid4)
-    queue: QueueLike[object | None]
-
-
-@dataclass(kw_only=True, frozen=True)
-class Subscription:
-    id: UUID
-    queue: asyncio.Queue[object | None]
-    task: asyncio.Task[object]
-    cancelled: threading.Event
-
-
-@dataclass(kw_only=True, frozen=True)
-class SubscriptionFeed:
-    task: asyncio.Task[None]
-
-
-class UnitRemoteProtocol(Protocol):
-    def remote_run(self) -> None | BaseException:
-        ...
-
-    def remote_stop(self) -> None | BaseException:
-        ...
-
-    def remote_call(
+class Subscription(AsyncIterator[object]):
+    def __init__(
         self,
-        address: LocalComponentAddress,
-        kind: CallableProcedureKind,
-        procedure: str,
-        input: object | None = None,
-    ) -> Result[object | None, ProcedureError] | BaseException:
-        ...
-
-    def remote_subscribe(
-        self,
-        subscriber: Subscriber,
-        address: LocalComponentAddress,
-        kind: SubscribableProcedureKind,
-        procedure: str,
-        input: object | None = None,
-    ) -> Result[None, ProcedureError] | BaseException:
-        ...
-
-    def remote_unsubscribe(self, subscriber_id: UUID) -> None:
-        ...
-
-
-@final
-class Unit(UnitRemoteProtocol, Tasklet):
-    def __init__(self, context: UnitContext) -> None:
-        self.__context = context
-        self.__database = context.database or Database(self.__context.root_config.database)
-        self.__loop = ensure_event_loop()
-        self.__component_handles: dict[str, ComponentHandle] = {}
-        self.__subscription_feeds: dict[UUID, SubscriptionFeed] = {}
+        *,
+        id: UUID,
+        queue: SubscriptionResultsQueue,
+    ) -> None:
+        self.__id = id
+        self.__queue = queue
 
     @property
     def id(self) -> UUID:
-        return self.__context.id
+        return self.__id
 
-    @property
-    def address(self) -> UnitAddress:
-        return self.__context.address
+    def __aiter__(self) -> AsyncIterator[object]:
+        return self
 
-    @property
-    def config(self) -> UnitConfig:
-        return self.__context.unit_config
+    async def __anext__(self) -> object:
+        return await self.get()
 
-    @property
-    def database(self) -> Database:
-        return self.__database
+    async def get(self) -> object:
+        value = await self.__queue.get()
+        self.__queue.task_done()
+        return value
 
-    @property
-    def concurrency(self) -> ConcurrencyKind:
-        return (
-            self.__context.unit_config.concurrency or self.__context.root_config.runtime.concurrency
-        )
+
+class UnitProxy:
+    def __init__(self, context: UnitContext) -> None:
+        self.__context = context
+        self.__unit = Unit(context)
+        self.__loop = ensure_event_loop()
+        self.__subscription_tasks: dict[UUID, Task[None]] = {}
 
     @property
     def logger(self) -> Logger:
         return logs.get(str(self.__context.address))
 
-    @property
-    def components(self) -> Mapping[str, ComponentHandle]:
-        return MappingProxyType(self.__component_handles)
-
-    def get_component_handle(self, address: LocalComponentAddress) -> ComponentHandle | None:
-        return self.__component_handles.get(address if isinstance(address, str) else address.name)
-
-    def remote_run(self) -> None | BaseException:
+    def run(self) -> None | BaseException:
         try:
             if self.__loop.is_running():
-                asyncio.run_coroutine_threadsafe(self.run(), self.__loop).exception()
+                asyncio.run_coroutine_threadsafe(self.__unit.run(), self.__loop).exception()
             else:
-                self.__loop.run_until_complete(self.run())
+                self.__loop.run_until_complete(self.__unit.run())
         except BaseException as exception:
             self.logger.error(f"An exception occurred while running: {traceback.format_exc()}")
             return exception
 
         return None
 
-    def remote_stop(self) -> None | BaseException:
-        return asyncio.run_coroutine_threadsafe(self.stop(), self.__loop).exception()
+    def stop(self) -> None | BaseException:
+        for task in self.__subscription_tasks.values():
+            task.cancel()
 
-    def remote_call(
+        self.__subscription_tasks.clear()
+        return asyncio.run_coroutine_threadsafe(self.__unit.stop(), self.__loop).exception()
+
+    def call(
         self,
         address: LocalComponentAddress,
         kind: CallableProcedureKind,
@@ -163,7 +91,7 @@ class Unit(UnitRemoteProtocol, Tasklet):
         input: object | None = None,
     ) -> Result[object | None, ProcedureError] | BaseException:
         future = asyncio.run_coroutine_threadsafe(
-            self.call(address, kind, procedure, input),
+            self.__unit.call(address, kind, procedure, input),
             self.__loop,
         )
 
@@ -172,16 +100,16 @@ class Unit(UnitRemoteProtocol, Tasklet):
         except BaseException as exception:
             return exception
 
-    def remote_subscribe(
+    def subscribe(
         self,
-        subscriber: Subscriber,
+        queue: SubscriptionIntermediateQueue,
         address: LocalComponentAddress,
         kind: SubscribableProcedureKind,
         procedure: str,
         input: object | None = None,
-    ) -> Result[None, ProcedureError] | BaseException:
-        async def subscribe() -> Result[SubscriptionFeed, ProcedureError]:
-            match await self.subscribe(address, kind, procedure, input):
+    ) -> Result[UUID, ProcedureError] | BaseException:
+        async def subscribe() -> Result[Task[None], ProcedureError]:
+            match await self.__unit.subscribe(address, kind, procedure, input):
                 case Ok(values):
                     pass
                 case Fail() as fail:
@@ -190,128 +118,35 @@ class Unit(UnitRemoteProtocol, Tasklet):
             async def enqueue() -> None:
                 try:
                     async for value in values:
-                        subscriber.queue.put_nowait(value)
+                        queue.put_nowait(value)
                 except Exception:
                     self.logger.error(
                         f"An exception occurred in subscription: {traceback.format_exc()}"
                     )
 
-            return Ok(SubscriptionFeed(task=asyncio.create_task(enqueue())))
+            return Ok(asyncio.create_task(enqueue()))
 
         future = asyncio.run_coroutine_threadsafe(subscribe(), self.__loop)
 
         try:
             match future.result():
-                case Ok(feed):
+                case Ok(task):
                     pass
                 case Fail() as fail:
                     return fail
         except BaseException as exception:
             return exception
 
-        self.__subscription_feeds[subscriber.subscription_id] = feed
-        return Ok(None)
+        subscription_id = uuid4()
+        self.__subscription_tasks[subscription_id] = task
+        return Ok(subscription_id)
 
-    def remote_unsubscribe(self, subscriber_id: UUID) -> None:
+    def unsubscribe(self, subscription_id: UUID) -> None | BaseException:
         try:
-            if (subscription := self.__subscription_feeds.pop(subscriber_id, None)) is not None:
-                subscription.task.cancel()
-        except Exception:
-            traceback.print_exc()
-
-    async def call(
-        self,
-        address: LocalComponentAddress,
-        kind: CallableProcedureKind,
-        procedure: str,
-        input: object | None = None,
-    ) -> Result[object | None, ProcedureError]:
-        if (component := self.get_component_handle(address)) is None:
-            return Fail(ProcedureDoesNotExistError())
-        if component.instance is None:
-            return Fail(ProcedureComponentNotLoadedError())
-
-        return await component.instance.call(kind, procedure, input)
-
-    async def subscribe(
-        self,
-        address: LocalComponentAddress,
-        kind: SubscribableProcedureKind,
-        procedure: str,
-        input: object | None = None,
-    ) -> Result[AsyncIterable[object | None], ProcedureError]:
-        if (component := self.get_component_handle(address)) is None:
-            return Fail(ProcedureDoesNotExistError())
-        if component.instance is None:
-            return Fail(ProcedureComponentNotLoadedError())
-
-        return await component.instance.subscribe(kind, procedure, input)
-
-    async def __run__(self) -> None:
-        await self.__load_components()
-
-        for component in self.components.values():
-            component.start(
-                on_exception=self.__on_component_exception,
-                on_completed=self.__on_component_completed,
-            )
-
-        await sleep_forever()
-
-    async def __stop__(self) -> None:
-        async def stop() -> None:
-            try:
-                for component in reversed(self.components.values()):
-                    self.logger.info(f"Stopping component '{component.address}'...")
-                    await component.stop()
-
-                for feed in self.__subscription_feeds.values():
-                    feed.task.cancel()
-                self.__subscription_feeds.clear()
-            finally:
-                if self.__context.database is None:
-                    await self.__database.dispose()
-
-        await asyncio.shield(asyncio.create_task(stop()))
-
-    async def __load_components(self) -> None:
-        for component_config in self.config.components:
-            address = caddr(self.address.name, component_config.name)
-
-            if component_config.name in self.__component_handles:
-                continue
-
-            id = await self.__database.entities.get_address_id(address)
-
-            self.__component_handles[component_config.name] = ComponentHandle(
-                ComponentHandleContext(
-                    id=id,
-                    address=address,
-                    root_config=self.__context.root_config,
-                    unit_config=self.config,
-                    component_config=component_config,
-                    unit=self,
-                )
-            )
-
-        for component_handle in self.__component_handles.values():
-            match await component_handle.load():
-                case Ok():
-                    self.logger.info(
-                        f"Loaded '{component_handle.address}' as {strify(type(component_handle.instance))} with id '{component_handle.id}'."
-                    )
-                case Fail(error):
-                    self.logger.error(
-                        f"Failed to load component '{component_handle.address}'. Error: {jsonify(error, indent=2)}"
-                    )
-
-    def __on_component_exception(self, handle: ComponentHandle, exception: BaseException) -> None:
-        self.logger.error(
-            f"Exception occurred in component '{handle.address}': {traceback.format_exception(exception)}"
-        )
-
-    def __on_component_completed(self, handle: ComponentHandle) -> None:
-        self.logger.info(f"Component '{handle.address}' stopped.")
+            if (task := self.__subscription_tasks.pop(subscription_id, None)) is not None:
+                task.cancel()
+        except BaseException as exception:
+            return exception
 
 
 @final
@@ -319,7 +154,7 @@ class UnitProcess(SyncManager):
     pass
 
 
-UnitProcess.register("Unit", Unit)
+UnitProcess.register("UnitProxy", UnitProxy)
 
 
 @final
@@ -327,8 +162,9 @@ class UnitHandle(Tasklet):
     def __init__(self, context: UnitContext) -> None:
         self.__context = context
         self.__process: UnitProcess | None = None
-        self.__instance: UnitRemoteProtocol | None = None
-        self.__lock = Lock()
+        self.__proxy: UnitProxy | None = None
+        self.__lock = threading.Lock()
+        self.__subscription_tasks: dict[UUID, Task[object]] = {}
 
     @property
     def id(self) -> UUID:
@@ -345,10 +181,6 @@ class UnitHandle(Tasklet):
         )
 
     @property
-    def instance(self) -> UnitRemoteProtocol | None:
-        return self.__instance
-
-    @property
     def logger(self) -> Logger:
         return logs.get(str(self.address))
 
@@ -359,19 +191,19 @@ class UnitHandle(Tasklet):
         )
 
     async def __run__(self) -> None:
-        def execute() -> None:
+        def thread() -> None:
             with self.__lock:
                 if self.concurrency == ConcurrencyKind.PROCESS:
                     self.__process = UnitProcess()
                     self.__process.start()
-                    self.__instance = cast(
-                        UnitRemoteProtocol, cast(Any, self.__process).Unit(self.__context)
+                    self.__proxy = cast(
+                        UnitProxy, cast(Any, self.__process).UnitProxy(self.__context)
                     )
                 else:
-                    self.__instance = Unit(self.__context)
+                    self.__proxy = UnitProxy(self.__context)
 
             try:
-                result = self.__instance.remote_run()
+                result = self.__proxy.run()
             except EOFError:
                 result = None
 
@@ -380,18 +212,18 @@ class UnitHandle(Tasklet):
                     f"Exception occurred while running unit '{self.address}': {strify(traceback.format_exception(result))}"
                 )
 
-        await spawn(execute)
+        await spawn(thread)
 
     async def __stop__(self) -> None:
-        def execute() -> None:
+        def thread() -> None:
             with self.__lock:
-                if self.__instance:
+                if self.__proxy:
                     try:
-                        result = self.__instance.remote_stop()
+                        result = self.__proxy.stop()
                     except EOFError:
                         result = None
                     finally:
-                        self.__instance = None
+                        self.__proxy = None
                 else:
                     result = None
 
@@ -403,7 +235,7 @@ class UnitHandle(Tasklet):
                     f"Exception occurred while stopping unit '{self.address}': {strify(result)}"
                 )
 
-        await spawn(execute)
+        await spawn(thread)
 
     async def call(
         self,
@@ -412,12 +244,12 @@ class UnitHandle(Tasklet):
         procedure: str,
         input: object | None = None,
     ) -> Result[object | None, ProcedureError]:
-        def execute() -> Result[object | None, ProcedureError]:
-            if self.instance is None:
+        def thread() -> Result[object | None, ProcedureError]:
+            if self.__proxy is None:
                 return Fail(ProcedureComponentNotLoadedError())
 
             try:
-                result = self.instance.remote_call(address, kind, procedure, input)
+                result = self.__proxy.call(address, kind, procedure, input)
             except EOFError:
                 return Fail(ProcedureComponentNotLoadedError())
 
@@ -429,7 +261,7 @@ class UnitHandle(Tasklet):
 
             return result
 
-        return await spawn(execute)
+        return await spawn(thread)
 
     async def subscribe(
         self,
@@ -438,24 +270,22 @@ class UnitHandle(Tasklet):
         procedure: str,
         input: object | None = None,
     ) -> Result[Subscription, ProcedureError]:
-        if self.instance is None or (
+        if self.__proxy is None or (
             self.concurrency == ConcurrencyKind.PROCESS and self.__process is None
         ):
             return Fail(ProcedureComponentNotLoadedError())
 
-        instance = self.instance
+        proxy = self.__proxy
 
         match self.concurrency:
             case ConcurrencyKind.PROCESS:
-                queue = cast(Any, self.__process).Queue()
+                intermediate: SubscriptionIntermediateQueue = cast(Any, self.__process).Queue()
             case ConcurrencyKind.THREAD:
-                queue = cast(Any, ThreadSafeQueue())
+                intermediate = cast(Any, Queue())
 
-        subscriber = Subscriber(queue=queue)
-
-        def subscribe() -> Result[None, ProcedureError]:
+        def subscribe() -> Result[UUID, ProcedureError]:
             try:
-                result = instance.remote_subscribe(subscriber, address, kind, procedure, input)
+                result = proxy.subscribe(intermediate, address, kind, procedure, input)
             except EOFError:
                 return Fail(ProcedureComponentNotLoadedError())
             except Exception:
@@ -470,41 +300,42 @@ class UnitHandle(Tasklet):
             return result
 
         match await spawn(subscribe):
-            case Ok():
+            case Ok(id):
                 pass
             case Fail() as fail:
                 return fail
 
-        cancelled = threading.Event()
+        results = AsyncQueue()
 
-        async def dequeue() -> None:
-            def get() -> object | None:
-                return get_or_cancel(subscriber.queue, cancelled)
+        async def bridge() -> None:
+            def get() -> object:
+                # TODO: Find a way to do this without polling.
+                while not task.done():
+                    try:
+                        return intermediate.get(timeout=1)
+                    except Empty:
+                        pass
 
             while True:
                 await asyncio.sleep(0)
                 value = await spawn(get)
-                subscription.queue.put_nowait(value)
+                results.put_nowait(value)
 
-        task = asyncio.create_task(dequeue())
+        task = asyncio.create_task(bridge())
 
-        subscription = Subscription(
-            id=subscriber.subscription_id,
-            queue=AsyncQueue(),
-            task=task,
-            cancelled=cancelled,
-        )
+        self.__subscription_tasks[id] = task
+        subscription = Subscription(id=id, queue=results)
 
         self.logger.info(f"Subscribed: {subscription.id}")
         return Ok(subscription)
 
     async def unsubscribe(self, subscription: Subscription) -> None:
-        if not self.instance:
+        task = self.__subscription_tasks.get(subscription.id)
+        if task is not None:
+            task.cancel()
+
+        if not self.__proxy:
             return
 
-        try:
-            await spawn(self.instance.remote_unsubscribe, subscription.id)
-            self.logger.info(f"Unsubscribed: {subscription.id}")
-        finally:
-            subscription.task.cancel()
-            subscription.cancelled.set()
+        await spawn(self.__proxy.unsubscribe, subscription.id)
+        self.logger.info(f"Unsubscribed: {subscription.id}")
