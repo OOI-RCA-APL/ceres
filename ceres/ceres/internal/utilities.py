@@ -416,3 +416,12 @@ def get_member_name(callable: Callable[..., Any]) -> str:
         return f"_{tokens[-2]}{original}"
 
     return original
+
+
+def set_current_process_name(name: str) -> None:
+    try:
+        from setproctitle import setproctitle
+
+        setproctitle(name)
+    except Exception:
+        pass

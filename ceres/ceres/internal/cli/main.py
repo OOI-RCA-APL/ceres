@@ -15,6 +15,7 @@ from .. import logs
 from ..config import load_config
 from ..utilities import (
     ensure_event_loop,
+    set_current_process_name,
     spawn,
     strify,
     syncify,
@@ -43,12 +44,14 @@ async def run(
     ),
 ) -> None:
     """
-    Start the Ceres as a foreground process.
+    Start Ceres as a foreground process.
     """
     try:
         if watch:
+            set_current_process_name("ceres-watch")
             await _run_watch(config_path=config_path)
         else:
+            set_current_process_name("ceres")
             await Engine(await get_config(config_path, checks=[])).run()
     except StartupException as exception:
         raise CLIStartupException(f"Engine startup failed. {exception.message}")

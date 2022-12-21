@@ -25,7 +25,7 @@ from ..unit import Unit, UnitContext
 from . import logs
 from .subscription import QueueSubscription
 from .tasklet import Tasklet
-from .utilities import ensure_event_loop, spawn, strify
+from .utilities import ensure_event_loop, set_current_process_name, spawn, strify
 
 RemoteQueue: TypeAlias = "ProcessQueue[object] | ThreadQueue[object]"
 
@@ -36,6 +36,8 @@ class UnitProxy:
         self.__unit = Unit(context)
         self.__loop = ensure_event_loop()
         self.__subscription_tasks: dict[UUID, Task[None]] = {}
+        if self.__unit.concurrency == ConcurrencyKind.PROCESS:
+            set_current_process_name(f"ceres-unit{self.__unit.address}")
 
     @property
     def logger(self) -> Logger:
