@@ -31,14 +31,14 @@
 </template>
 
 <script lang="ts" setup>
-import { Message } from '@/api/models'
+import { ComponentInfo, Message } from '@/api/models'
 import { getComponent, getMessages, useMessageStream } from '@/api/queries'
 import CommandInput from '@/components/CommandInput.vue'
 import MessageViewItem from '@/components/MessageViewItem.vue'
 import SectionCard from '@/components/SectionCard.vue'
 import moment from 'moment'
 import { QScrollArea } from 'quasar'
-import { nextTick, onMounted } from 'vue'
+import { computed, nextTick, onMounted, watch } from 'vue'
 
 const {
   title,
@@ -52,6 +52,22 @@ const {
   componentName: string
 }>()
 
+const info = (await getComponent(unitName, componentName)) as ComponentInfo
+if (info == null) {
+  throw new Error('Component not found')
+}
+
+let search = $ref('')
+let container = $shallowRef<QScrollArea | null>(null)
+let messages = $ref<Message[]>([])
+
+const earliestMessageTimestamp = $computed(() => messages[0]?.timestamp ?? null)
+
+let isExhausted = $ref(false)
+let isDoingInitialLoad = $ref(true)
+let isLoadingPreviousMessages = $ref(false)
+let isLoadingCurrentMessages = $ref(false)
+
 type ScrollInfo = {
   verticalPosition: number
   verticalPercentage: number
@@ -59,59 +75,119 @@ type ScrollInfo = {
   verticalContainerSize: number
 }
 
-const info = await getComponent(unitName, componentName)
+let currentScroll: ScrollInfo | null = $ref(null)
 
-let search = $ref('')
-let container = $shallowRef<QScrollArea | null>(null)
-let messages = $ref<Message[]>([])
+async function onScroll(scroll: ScrollInfo) {
+  currentScroll = scroll
 
-let earliestMessageTimestamp = $ref<string | null>(null)
-let isMessageScrollbackExhausted = $ref(false)
-let isLoadingPreviousMessages = $ref(false)
-
-let scroll = $ref(null as ScrollInfo | null)
-
-async function onScroll(info: ScrollInfo) {
-  scroll = info
-  if (isAtTop && !isLoadingPreviousMessages && !isMessageScrollbackExhausted) {
-    await loadPreviousMessages()
+  if (!isNearTop) {
+    return
   }
-}
 
-const isAtTop = $computed(() => scroll != null && scroll.verticalPercentage == 0)
-const isAtBottom = $computed(() => scroll != null && scroll.verticalPercentage >= 0.975)
-
-async function loadPreviousMessages() {
-  isLoadingPreviousMessages = true
+  if (
+    isExhausted ||
+    isDoingInitialLoad ||
+    isLoadingCurrentMessages ||
+    isLoadingPreviousMessages ||
+    !isNearTop
+  ) {
+    return
+  }
 
   try {
-    const previous = await getMessages({
-      component_id: info.id,
-      before: earliestMessageTimestamp == null ? undefined : earliestMessageTimestamp,
-      limit: 200,
-    })
-
-    if (previous.length === 0) {
-      isMessageScrollbackExhausted = true
-    }
-
-    messages = [...previous, ...messages]
+    isLoadingPreviousMessages = true
+    await loadPreviousMessages()
   } finally {
     isLoadingPreviousMessages = false
-    if (messages.length) {
-      earliestMessageTimestamp = messages[0].timestamp
-    }
   }
 }
 
-useMessageStream(info.id, (message) => {
+const isNearTop = $computed(() => {
+  if (currentScroll == null) {
+    return false
+  }
+
+  return currentScroll.verticalPercentage < 0.2
+})
+
+const isAtBottom = $computed(() => {
+  if (currentScroll == null) {
+    return true
+  }
+
+  return currentScroll.verticalPercentage >= 0.995
+})
+
+async function delay(milliseconds = 0) {
+  return await new Promise((resolve) => setTimeout(resolve, milliseconds))
+}
+
+async function prependMessages(prepended: Message[]) {
+  const previousScrollHeight = currentScroll?.verticalSize
+  const previousScrollPosition = currentScroll?.verticalPosition
+
+  messages = [...prepended, ...messages]
+
+  await delay(15)
+  await nextTick()
+  if (container == null || previousScrollHeight == null || previousScrollPosition == null) {
+    return
+  }
+
+  const diff = container.getScroll().verticalSize - previousScrollHeight
+  container.setScrollPosition('vertical', previousScrollPosition + diff)
+  await delay()
+  await nextTick()
+}
+
+async function appendMessages(appended: Message[]) {
+  const isSticky = isAtBottom
+  messages = [...messages, ...appended]
+
+  await delay()
+  await nextTick()
+
+  if (isSticky) {
+    scrollToBottom()
+  }
+}
+
+async function loadPreviousMessages() {
+  const results = await getMessages({
+    component_id: info.id,
+    search,
+    before: earliestMessageTimestamp == null ? undefined : earliestMessageTimestamp,
+    limit: 100,
+  })
+
+  isExhausted = results.length === 0
+  await prependMessages(results)
+}
+
+async function loadCurrentMessages() {
+  console.log('current')
+
+  const results = await getMessages({
+    component_id: info.id,
+    search,
+    limit: 100,
+  })
+
+  isExhausted = results.length === 0
+  messages = []
+  await appendMessages(results)
+  scrollToBottom()
+  await delay(15)
+  await nextTick()
+  scrollToBottom()
+}
+
+useMessageStream({ component_id: info.id, search }, async (message) => {
   messages.push(message)
   if (isAtBottom) {
-    setTimeout(() => {
-      nextTick(() => {
-        scrollToBottom()
-      })
-    })
+    await delay()
+    await nextTick()
+    scrollToBottom()
   }
 })
 
@@ -125,29 +201,52 @@ const matched = $computed(() =>
 )
 
 function scrollToBottom() {
-  if (container != null && scroll != null) {
+  if (container != null) {
     container.setScrollPosition('vertical', container.getScroll().verticalSize)
   }
 }
 
-function onSend(command: string) {
+async function onSend(command: string) {
   console.log('sending: ' + command)
-  setTimeout(() => {
-    nextTick(() => {
-      scrollToBottom()
-    })
+  await delay()
+  await nextTick()
+  scrollToBottom()
+}
+
+try {
+  try {
+    isDoingInitialLoad = true
+    isLoadingCurrentMessages = true
+    await loadCurrentMessages()
+  } finally {
+    isLoadingCurrentMessages = false
+  }
+} finally {
+  void delay(1000).then(() => {
+    isDoingInitialLoad = false
   })
 }
 
-await loadPreviousMessages()
-onMounted(() => {
+watch([computed(() => search)], async () => {
+  if (isDoingInitialLoad) {
+    return
+  }
+
+  try {
+    isLoadingCurrentMessages = true
+    await loadCurrentMessages()
+  } finally {
+    isLoadingCurrentMessages = false
+  }
+})
+
+onMounted(async () => {
   const interval = setInterval(() => {
     scrollToBottom()
   }, 100)
 
-  setTimeout(() => {
-    clearInterval(interval)
-  }, 1000)
+  await delay(1000)
+  clearInterval(interval)
 })
 </script>
 

@@ -27,7 +27,7 @@ from ..data import ImmutableDataObject, jsonify
 from ..database import Database
 from ..database.entity import EntityManager
 from ..errors import ProcedureError, ReloadError
-from ..message import Message
+from ..message import Message, MessageDirection
 from ..procedure import (
     ActionBinding,
     CallableProcedureKind,
@@ -40,7 +40,7 @@ from ..procedure import (
 from ..result import Fail, Ok, Result
 from . import logs
 from .console import Console
-from .utilities import NameStr
+from .utilities import NameStr, escape_like_expression
 
 if TYPE_CHECKING:
     from ..engine import Engine
@@ -103,8 +103,10 @@ async def reload(
 @api.get("/messages", response_model=list[Message], tags=["data"])
 async def get_messages(
     component_id: UUID | None = None,
+    search: bytes | None = None,
     before: datetime | None = None,
     after: datetime | None = None,
+    direction: MessageDirection | None = None,
     limit: int = Query(default=100, ge=0, le=100),
     entities: EntityManager = Depends(use_entities),
 ) -> list[Message]:
@@ -114,6 +116,11 @@ async def get_messages(
                 where=lambda message: (
                     (message.component_id == component_id) | (component_id is None)
                 )
+                & (
+                    search is None
+                    or message.content.ilike(b"%" + escape_like_expression(search) + b"%")
+                )
+                & (direction is None or message.direction == direction)
                 & (before is None or message.timestamp < before)
                 & (after is None or message.timestamp > after),
                 order_by=lambda message: message.timestamp.desc(),
@@ -148,6 +155,7 @@ async def get_alerts(
 async def message_stream(
     socket: WebSocket,
     component_id: UUID | None = None,
+    search: bytes | None = None,
     engine: Engine = Depends(use_engine),
 ) -> None:
     try:
@@ -156,6 +164,11 @@ async def message_stream(
         async for message in engine.message_stream:
             if component_id is not None and message.component_id != component_id:
                 continue
+
+            if search is not None:
+                if search not in message.content:
+                    continue
+
             await socket.send_text(jsonify(message))
     except (WebSocketDisconnect, ConnectionClosed):
         pass

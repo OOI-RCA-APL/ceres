@@ -425,3 +425,7 @@ def set_current_process_name(name: str) -> None:
         setproctitle(name)
     except Exception:
         pass
+
+
+def escape_like_expression(search: bytes) -> bytes:
+    return search.replace(b"%", b"%%").replace(b"_", b"__")

@@ -35,16 +35,18 @@ export async function getComponent(unit: string, name: string): Promise<Componen
 
 export async function getMessages({
   component_id,
+  search,
   before,
   after,
 }: {
   component_id?: string
+  search?: string
   before?: string
   after?: string
   limit?: number
 }): Promise<Message[]> {
   return await get(
-    `/api/messages` + createQueryParams({ component_id, before, after }),
+    `/api/messages${createQueryParams({ component_id, search, before, after })}`,
     Zod.array(MessageModel)
   )
 }
@@ -61,11 +63,17 @@ function getWebSocketURI(relative: string) {
 }
 
 export function useMessageStream<TModel extends ZodTypeAny>(
-  componentId: string,
+  {
+    component_id,
+    search,
+  }: {
+    component_id?: string
+    search?: string
+  },
   onMessage: (message: Zod.infer<TModel>) => unknown
 ) {
   useStream(
-    getWebSocketURI(`/api/message-stream?component_id=${encodeURIComponent(componentId)}`),
+    getWebSocketURI(`/api/message-stream${createQueryParams({ component_id, search })}`),
     // `ws://localhost:9000/api/message-stream?component_id=${encodeURIComponent(componentId)}`,
     // eslint-disable-next-line @typescript-eslint/ban-ts-comment
     // @ts-ignore
@@ -174,7 +182,7 @@ function useStream<TModel extends ZodTypeAny>(
         return
       }
 
-      console.log(`message on '${url}': '${JSON.stringify(event.data)}'`)
+      // console.log(`message on '${url}': '${JSON.stringify(event.data)}'`)
 
       const result = model.safeParse(data)
       if (result.success) {
