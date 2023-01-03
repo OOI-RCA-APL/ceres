@@ -289,12 +289,12 @@ def object_has_field(obj: Any, name: str, type: Any = None) -> bool:
 
 
 @overload
-def validate_positive_timedelta(value: Any, *, nullable: Literal[False] = ...) -> timedelta:
+def validate_positive_timedelta(value: Any, *, nullable: Literal[False] = False) -> timedelta:
     ...
 
 
 @overload
-def validate_positive_timedelta(value: Any, *, nullable: Literal[True] = ...) -> timedelta | None:
+def validate_positive_timedelta(value: Any, *, nullable: Literal[True]) -> timedelta | None:
     ...
 
 
