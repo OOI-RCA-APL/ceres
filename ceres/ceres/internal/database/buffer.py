@@ -1,78 +1,81 @@
 import traceback
+from asyncio import Event as AsyncEvent
 from logging import Logger
-from typing import Generic, TypeVar
+from typing import Generic, TypeVar, final
 
 from ...config import DatabaseKind
-from .entity import Entity
-from .manager import DatabaseManager
+from ...database import Database
+from ...database.entity import Entity
 
 _EntityT = TypeVar("_EntityT", bound=Entity)
 
 
-class EntityBuffer(Generic[_EntityT]):
+@final
+class WriteBuffer(Generic[_EntityT]):
     def __init__(
         self,
         cls: type[_EntityT],
-        max_size: int,
-        database: DatabaseManager,
+        database: Database,
         logger: Logger | None = None,  # TODO: Remove this.
     ) -> None:
-        self._cls = cls
-        self._max_size = max_size
-        self._database = database
-        self._entities: list[_EntityT] = []
-        self._flushing = False
-        self._logger = logger
+        self.__cls = cls
+        self.__database = database
+        self.__entities: list[_EntityT] = []
+        self.__flushing = False
+        self.__empty_event = AsyncEvent()
+        self.__empty_event.set()
+        self.__logger = logger
+
+    def __len__(self) -> int:
+        return len(self.__entities)
 
     @property
     def cls(self) -> type[_EntityT]:
-        return self._cls
-
-    @property
-    def size(self) -> int:
-        return len(self._entities)
-
-    @property
-    def max_size(self) -> int:
-        return self._max_size
+        return self.__cls
 
     @property
     def flushing(self) -> bool:
-        return self._flushing
+        return self.__flushing
 
-    async def add(self, entity: _EntityT) -> None:
-        self._entities.append(entity)
-        if len(self._entities) >= self._max_size:
-            await self.flush()
+    def add(self, entity: _EntityT) -> None:
+        self.__entities.append(entity)
+        self.__empty_event.clear()
 
     async def flush(self) -> None:
-        if self._flushing or not self._entities:
+        if self.__flushing or not self.__entities:
             return
-        if not self._entities:
+        if not self.__entities:
             return
 
-        self._flushing = True
+        self.__flushing = True
 
-        entities = self._entities
-        self._entities = []
+        entities = self.__entities
+        self.__entities = []
 
         try:
-            async with self._database.session() as session:
-                match self._database.kind:
+            async with self.__database.session() as session:
+                match self.__database.kind:
                     case DatabaseKind.SQLITE:
                         from sqlalchemy.dialects.sqlite import insert
                     case DatabaseKind.POSTGRES:
                         from sqlalchemy.dialects.postgresql import insert
 
                 await session.execute(
-                    insert(self._cls)
+                    insert(self.__cls)
                     .values([entity.values() for entity in entities])
                     .on_conflict_do_nothing()  # TODO: Warn when there is a conflict.
                 )
                 await session.commit()
         except Exception:
-            self._entities = [*entities, *self._entities]
-            if self._logger:
-                self._logger.error(f"An exception occurred when flushing: {traceback.format_exc()}")
+            self.__entities = [*entities, *self.__entities]
+            if self.__logger:
+                self.__logger.error(
+                    f"An exception occurred when flushing: {traceback.format_exc()}"
+                )
         finally:
-            self._flushing = False
+            self.__flushing = False
+            if not self.__entities:
+                self.__empty_event.set()
+
+    async def join(self) -> None:
+        await self.__empty_event.wait()

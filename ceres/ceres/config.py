@@ -2,33 +2,43 @@ import itertools
 from datetime import timedelta
 from enum import Enum
 from pathlib import Path
-from typing import Any, Iterable, Literal, Mapping, Sequence
+from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping, Sequence, Union, cast
 
-from pydantic import Field, PrivateAttr, SecretStr, parse_obj_as, validator
+from pydantic import Field, SecretStr, parse_obj_as, root_validator, validator
 from typing_extensions import Self
 
-from .address import ComponentAddress, UnitAddress
+from .address import GlobalComponentAddress, UnitAddress
 from .data import ImmutableDataObject
-from .internal.utilities import EmailStr, NameStr, validate_positive_timedelta
+from .internal.utilities import NameStr, validate_positive_timedelta
+from .result import Ok
+
+if TYPE_CHECKING:
+    from .component import Component
+else:
+    Component = "Component"
 
 
 class ConfigObject(ImmutableDataObject):
     pass
 
 
+class ComponentRoleKind(str, Enum):
+    CONNECTION = "connection"
+
+
 class ComponentConfig(ConfigObject):
-    kind: Literal["connection", "driver", "notifier"]
     name: NameStr
-    component: str | object
-    parameters: Mapping[str, Any] = Field(default_factory=dict)
+    roles: Sequence[ComponentRoleKind] = Field(default_factory=list)
+    component: Union[str, type[Component]]
+    parameters: Mapping[NameStr, Any] = Field(default_factory=dict)
     references: Mapping[NameStr, NameStr] = Field(default_factory=dict)
 
     @validator("references", pre=True)
-    def _validate_references(cls, value: object) -> Any:
+    def _validate_references(cls, value: object) -> object:
         if not isinstance(value, Mapping) and isinstance(value, Iterable):
-            return {key: key for key in value}  # type: ignore
+            return {key: key for key in value}
 
-        return value  # type: ignore
+        return value
 
 
 class ServerConfig(ConfigObject):
@@ -52,13 +62,13 @@ class DatabaseRetryConfig(ConfigObject):
 
 class BaseDatabaseConfig(ConfigObject):
     kind: DatabaseKind
-    engine: Mapping[str, Any] | None = None
+    engine: Mapping[str, Any] = Field(default_factory=dict)
     retry: DatabaseRetryConfig = DatabaseRetryConfig()
 
 
 class SQLiteDatabaseConfig(BaseDatabaseConfig):
     kind: Literal[DatabaseKind.SQLITE] = DatabaseKind.SQLITE
-    path: Path
+    path: Path | None = None
 
 
 class PostgresDatabaseConfig(BaseDatabaseConfig):
@@ -73,9 +83,15 @@ class PostgresDatabaseConfig(BaseDatabaseConfig):
 DatabaseConfig = SQLiteDatabaseConfig | PostgresDatabaseConfig
 
 
+class ConcurrencyKind(str, Enum):
+    THREAD = "thread"
+    PROCESS = "process"
+
+
 class UnitConfig(ConfigObject):
     name: NameStr
     components: Sequence[ComponentConfig] = Field(default_factory=list)
+    concurrency: ConcurrencyKind | None = None
 
     @validator("components")
     def _validate_components(
@@ -103,32 +119,49 @@ class UnitConfig(ConfigObject):
         return components
 
 
-class UserConfig(ConfigObject):
-    username: NameStr
-    email: EmailStr
-    meta: Mapping[str, Any] = Field(default_factory=dict)
+class RuntimeConfig(ConfigObject):
+    concurrency: ConcurrencyKind = ConcurrencyKind.THREAD
 
 
 class Config(ConfigObject):
-    server: ServerConfig
-    database: DatabaseConfig = Field(discriminator="kind")
-    users: Sequence[UserConfig] = Field(default_factory=list)
+    server: ServerConfig | None = None
+    database: DatabaseConfig = Field(default_factory=SQLiteDatabaseConfig, discriminator="kind")
+    runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
     units: Sequence[UnitConfig] = Field(default_factory=list)
 
-    _path: Path | None = PrivateAttr(None)
-    _component_config_cache: dict[ComponentAddress, ComponentConfig] = PrivateAttr(
-        default_factory=dict
-    )
+    __path: Path | None = None
+    __component_config_cache: dict[GlobalComponentAddress, ComponentConfig] = {}
+
+    @root_validator
+    def _validate_root(cls, values: Mapping[str, object]) -> Mapping[str, object]:
+        database = cast(DatabaseConfig | None, values.get("database"))
+        runtime = cast(RuntimeConfig | None, values.get("runtime"))
+        units = cast(Sequence[UnitConfig] | None, values.get("units"))
+
+        if database is None or runtime is None or units is None:
+            return values
+
+        if isinstance(database, SQLiteDatabaseConfig) and database.path is None:
+            if runtime.concurrency == ConcurrencyKind.PROCESS or any(
+                (unit.concurrency or runtime.concurrency) == ConcurrencyKind.PROCESS
+                for unit in units
+            ):
+                raise ValueError(
+                    "a temporary SQLite database cannot be used with 'process' based concurrency"
+                )
+
+        return values
 
     @classmethod
     def from_data(cls, data: Any, path: Path | None = None) -> Self:
         instance = parse_obj_as(cls, data)
-        cls._path = path
+        object.__setattr__(instance, "_path", path)
+        object.__setattr__(instance, "_component_config_cache", {})
         return instance
 
     @property
     def path(self) -> Path | None:
-        return self._path
+        return self.__path
 
     @validator("units")
     def _validate_units(cls, units: Sequence[UnitConfig]) -> Sequence[UnitConfig]:
@@ -140,13 +173,15 @@ class Config(ConfigObject):
 
     def get_unit(self, address: str | UnitAddress) -> UnitConfig | None:
         if isinstance(address, UnitAddress):
-            address = address.name
+            name = address.name
+        else:
+            name = address
 
-        return next(unit for unit in self.units if unit.name == address)
+        return next((unit for unit in self.units if unit.name == name), None)
 
-    def get_component(self, address: ComponentAddress) -> ComponentConfig | None:
-        if address in self._component_config_cache:
-            return self._component_config_cache[address]
+    def get_component(self, address: GlobalComponentAddress) -> ComponentConfig | None:
+        if address in self.__component_config_cache:
+            return self.__component_config_cache[address]
 
         component: ComponentConfig | None = None
 
@@ -156,6 +191,24 @@ class Config(ConfigObject):
             )
 
         if component:
-            self._component_config_cache[address] = component
+            self.__component_config_cache[address] = component
 
         return component
+
+    def get_component_cls(self, address: GlobalComponentAddress) -> type[Component] | None:
+        config = self.get_component(address)
+        if config is None:
+            return None
+
+        from .internal.component import load_component_cls
+
+        match load_component_cls(config):
+            case Ok(cls):
+                return cls
+            case _:
+                return None
+
+
+from .component import Component
+
+ComponentConfig.update_forward_refs()

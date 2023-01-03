@@ -3,19 +3,18 @@ import traceback
 from enum import Enum
 from logging import Logger
 from pathlib import Path
-from typing import Any, Callable, Iterable, Sequence
+from typing import Callable, Iterable, Sequence
 from uuid import uuid4
 
 import yaml
 from pydantic import ValidationError
 from yaml import MarkedYAMLError, YAMLError
 
-from ..address import ComponentAddress
-from ..component import Component
+from ..address import caddr
+from ..component import CompleteContext, Component
 from ..config import Config, UnitConfig
-from ..connection import Connection
+from ..database import Database
 from ..datetime import utc
-from ..driver import Driver
 from ..errors import (
     ConfigComponentError,
     ConfigDatabaseError,
@@ -26,11 +25,9 @@ from ..errors import (
     ConfigValidationError,
     ValidationProblem,
 )
-from ..notifier import Notifier
 from ..result import Fail, Ok, Result
 from .component import load_component
-from .database.manager import DatabaseManager
-from .utilities import show_td, unreachable
+from .utilities import show_td
 
 
 class ConfigCheckKind(str, Enum):
@@ -43,12 +40,12 @@ class ConfigCheckKind(str, Enum):
 
 
 async def load_config(
-    config: Path | dict[str, Any] | Config,
+    config: Path | dict[str, object] | Config,
     *,
     checks: Sequence[ConfigCheckKind] = ConfigCheckKind.all(),
-    logger: Logger | Callable[[Any], None] = lambda message: None,
+    logger: Logger | Callable[[object], None] = lambda message: None,
 ) -> Result[Config, list[ConfigError]]:
-    def log(message: Any) -> None:
+    def log(message: object) -> None:
         if isinstance(logger, Logger):
             logger.info(message)
         else:
@@ -109,7 +106,7 @@ async def load_config(
 
 async def _check_database(
     config: Config,
-    log: Callable[[Any], None],
+    log: Callable[[object], None],
 ) -> list[ConfigDatabaseError]:
     log("Checking database configuration...")
 
@@ -118,13 +115,13 @@ async def _check_database(
     interval = config.database.retry.interval
 
     while True:
-        database = DatabaseManager(config.database)
+        database = Database(config.database)
 
         try:
             async with database.connect():
                 log("Connected to database successfully.")
                 return []
-        except Exception:
+        except Exception as exception:
             elapsed = utc() - start
 
             if elapsed > timeout:
@@ -138,7 +135,7 @@ async def _check_database(
                 ]
 
             log(
-                f"Failed to connect to database, {show_td(elapsed)} of {show_td(timeout)} timeout elapsed, retrying in {show_td(interval)}..."
+                f"Failed to connect to database, {exception}, {show_td(elapsed)} of {show_td(timeout)} timeout elapsed, retrying in {show_td(interval)}..."
             )
             await database.dispose()
             await asyncio.sleep(interval.total_seconds())
@@ -149,7 +146,7 @@ async def _check_database(
 
 async def _check_components(
     config: Config,
-    log: Callable[[Any], None],
+    log: Callable[[object], None],
 ) -> list[ConfigComponentError]:
     log("Checking component configurations...")
 
@@ -157,32 +154,20 @@ async def _check_components(
         components: dict[str, Component] = {}
 
         def check_components() -> Iterable[ConfigComponentError]:
-            database = DatabaseManager(config.database)
+            database = Database(config.database)
 
             for component_config in unit_config.components:
-                match component_config.kind:
-                    case "connection":
-                        cls: type[Component] = Connection
-                    case "driver":
-                        cls = Driver
-                    case "notifier":
-                        cls = Notifier
-                    case _:
-                        unreachable()
-
-                address = ComponentAddress(unit_config.name, component_config.name)
+                address = caddr(unit_config.name, component_config.name)
                 log(f"Checking component '{address}'...")
                 match load_component(
-                    cls,
                     component_config,
-                    Component.CompleteContext(
+                    CompleteContext(
                         id=uuid4(),
                         address=address,
                         root_config=config,
                         unit_config=unit_config,
                         component_config=component_config,
                         database=database,
-                        entities=database.entities,
                     ),
                     components,
                 ):

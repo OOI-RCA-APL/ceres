@@ -69,7 +69,7 @@ def setup(config: LogConfig | None = None) -> None:
         logger.setLevel(__state.config.level)
         logger.propagate = False
 
-    for name in __state.loggers.keys():
+    for name in list(__state.loggers.keys()):
         setup_logger(name, default_handler)
 
     setup_logger("uvicorn", server_handler)

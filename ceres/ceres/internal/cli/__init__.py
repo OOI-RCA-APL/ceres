@@ -1,7 +1,5 @@
-from ..utilities import setup_event_loop
-from .root import root
+from .main import main as cli  # type: ignore
 
 
 def main() -> None:
-    setup_event_loop()
-    root()  # type: ignore
+    cli()

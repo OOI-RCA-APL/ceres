@@ -1,8 +1,8 @@
-from __future__ import annotations
-
 import asyncio
 import dataclasses
 import inspect
+import math
+import random
 import re
 import signal
 from asyncio import AbstractEventLoop
@@ -20,7 +20,6 @@ from typing import (
     Iterator,
     Literal,
     Mapping,
-    NoReturn,
     ParamSpec,
     Protocol,
     Sequence,
@@ -31,13 +30,14 @@ from typing import (
     overload,
     runtime_checkable,
 )
+from uuid import UUID
 
+import anyio
+import rich
+from anyio import CapacityLimiter
 from apscheduler.triggers.cron import CronTrigger
 from pydantic import BaseModel, ConstrainedStr, parse_obj_as
 from pydantic.decorator import ValidatedFunction
-from pydantic.utils import lenient_issubclass
-
-_T = TypeVar("_T")
 
 
 def strify(value: object) -> str:
@@ -48,12 +48,16 @@ def strify(value: object) -> str:
 
 
 _P = ParamSpec("_P")
+_T = TypeVar("_T")
 
 
-def syncify(function: Callable[_P, Awaitable[_T]]) -> Callable[_P, _T]:
+def syncify(function: Callable[_P, Awaitable[_T] | _T]) -> Callable[_P, _T]:
+    if not inspect.iscoroutinefunction(function):
+        return cast(Callable[_P, _T], function)
+
     @wraps(function)
-    def wrapper(*args: list[Any], **kwargs: dict[str, Any]) -> Any:
-        return setup_event_loop().run_until_complete(function(*args, **kwargs))  # type: ignore
+    def wrapper(*args: _P.args, **kwargs: _P.kwargs) -> Any:
+        return ensure_event_loop().run_until_complete(function(*args, **kwargs))
 
     return cast(Callable[_P, _T], wrapper)
 
@@ -112,12 +116,6 @@ def is_pydantic_dataclass(obj: object) -> TypeGuard[PydanticDataclassLike]:
     return dataclasses.is_dataclass(obj) and hasattr(obj, "__pydantic_model__")
 
 
-def is_json_object_type(
-    type_: type,
-) -> TypeGuard[DataclassLike | BaseModel | Mapping[Any, Any]]:
-    return dataclasses.is_dataclass(type_) or (lenient_issubclass(type_, (BaseModel, Mapping)))
-
-
 class ValidateByType:
     @classmethod
     def __get_validators__(cls) -> Iterable[Any]:
@@ -142,15 +140,6 @@ _FunctionT = TypeVar("_FunctionT", bound=Callable[..., Any])
 
 def cached(function: _FunctionT) -> _FunctionT:
     return cast(_FunctionT, cache(function))
-
-
-class UnreachableException(Exception):
-    def __init__(self) -> None:
-        self.message = "Unexpected code was reached. This is a bug."
-
-
-def unreachable() -> NoReturn:
-    raise UnreachableException()
 
 
 def snakecase(text: str) -> str:
@@ -284,26 +273,6 @@ def issubtype(subtype: type | UnionType, base: type | UnionType) -> bool:
     return False
 
 
-@overload
-def loose_isinstance(instance: object, type: type[_T]) -> TypeGuard[_T]:
-    ...
-
-
-@overload
-def loose_isinstance(instance: object, type: UnionType) -> bool:
-    ...
-
-
-def loose_isinstance(
-    instance: object,
-    type: type[_T] | UnionType,
-) -> TypeGuard[_T] | bool:
-    try:
-        return isinstance(instance, type)
-    except Exception:
-        return False
-
-
 def object_has_field(obj: Any, name: str, type: Any = None) -> bool:
     if dataclasses.is_dataclass(obj):
         return any(
@@ -320,12 +289,12 @@ def object_has_field(obj: Any, name: str, type: Any = None) -> bool:
 
 
 @overload
-def validate_positive_timedelta(value: Any, *, nullable: Literal[False] = ...) -> timedelta:
+def validate_positive_timedelta(value: Any, *, nullable: Literal[False] = False) -> timedelta:
     ...
 
 
 @overload
-def validate_positive_timedelta(value: Any, *, nullable: Literal[True] = ...) -> timedelta | None:
+def validate_positive_timedelta(value: Any, *, nullable: Literal[True]) -> timedelta | None:
     ...
 
 
@@ -350,10 +319,10 @@ def validate_crontab(value: str) -> str:
 
 async def sleep_forever() -> None:
     while True:
-        await asyncio.sleep(timedelta(hours=1).total_seconds())
+        await asyncio.sleep(math.inf)
 
 
-def setup_event_loop() -> AbstractEventLoop:
+def ensure_event_loop() -> AbstractEventLoop:
     try:
         return asyncio.get_running_loop()
     except RuntimeError:
@@ -366,27 +335,11 @@ def setup_event_loop() -> AbstractEventLoop:
             pass
 
         try:
-            return asyncio.get_event_loop()
+            return asyncio.get_running_loop()
         except Exception:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             return loop
-
-
-def get_bindings(cls: type[Any], attribute: str, type: type[_T]) -> list[_T]:
-    output: list[_T] = []
-
-    for _, function in inspect.getmembers(cls):
-        if not inspect.isfunction(function):
-            continue
-
-        if values := getattr(function, attribute, None):
-            if isinstance(values, Iterable):
-                for value in values:
-                    if isinstance(value, type):
-                        output.append(value)
-
-    return output
 
 
 @contextmanager
@@ -410,3 +363,69 @@ def pre_validate_arguments(
     **kwargs: _P.kwargs,
 ) -> BaseModel:
     return ValidatedFunction(function, None).init_model_instance(*args, **kwargs)
+
+
+def dbg(value: _T) -> _T:
+    rich.print(value)
+    return value
+
+
+async def spawn(function: Callable[_P, _T], *args: _P.args, **kwargs: _P.kwargs) -> _T:
+    assert not kwargs
+    return await anyio.to_thread.run_sync(
+        function,
+        *args,
+        cancellable=True,
+        limiter=CapacityLimiter(4096),
+    )
+
+
+if TYPE_CHECKING:
+    from builtins import isinstance as lenient_isinstance  # type: ignore
+    from builtins import issubclass as lenient_issubclass  # type: ignore
+else:
+
+    def lenient_isinstance(obj, cls):
+        try:
+            return isinstance(obj, cls)
+        except TypeError:
+            return False
+
+    def lenient_issubclass(obj, cls):
+        try:
+            return isinstance(obj, type) and issubclass(obj, cls)
+        except TypeError:
+            return False
+
+
+def randstr(characters: str, length: int) -> str:
+    return "".join(random.choice(characters) for _ in range(length))
+
+
+UNSET_UUID = UUID(int=0)
+
+
+def get_member_name(callable: Callable[..., Any]) -> str:
+    original = callable.__name__
+
+    if callable.__name__.startswith("__") and not callable.__name__.endswith("__"):
+        tokens = callable.__qualname__.split(".")
+        if len(tokens) < 2:
+            return original
+
+        return f"_{tokens[-2]}{original}"
+
+    return original
+
+
+def set_current_process_name(name: str) -> None:
+    try:
+        from setproctitle import setproctitle
+
+        setproctitle(name)
+    except Exception:
+        pass
+
+
+def escape_like_expression(search: bytes) -> bytes:
+    return search.replace(b"%", b"%%").replace(b"_", b"__")

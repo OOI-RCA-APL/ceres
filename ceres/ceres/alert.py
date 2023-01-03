@@ -1,17 +1,13 @@
 from datetime import datetime
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Literal, Protocol, Union, runtime_checkable
+from typing import Any, Mapping
 from uuid import UUID, uuid4
 
 from pydantic import Field
-from typing_extensions import Self
 
 from .data import ImmutableDataObject
-
-if TYPE_CHECKING:
-    from .internal.database.entity import AlertEntity
-
-RawAlertLevel = Literal["info", "warning", "error"]
+from .datetime import utc
+from .internal.utilities import UNSET_UUID
 
 
 class AlertLevel(str, Enum):
@@ -19,53 +15,11 @@ class AlertLevel(str, Enum):
     WARNING = "warning"
     ERROR = "error"
 
-    @classmethod
-    def create_from(cls, raw: Self | RawAlertLevel) -> Self:
-        return cls(raw)
-
-
-@runtime_checkable
-class AlertLike(Protocol):
-    @property
-    def id(self) -> UUID:
-        ...
-
-    @property
-    def origin_id(self) -> UUID:
-        ...
-
-    @property
-    def timestamp(self) -> datetime:
-        ...
-
-    @property
-    def kind(self) -> str:
-        ...
-
-    @property
-    def level(self) -> AlertLevel:
-        ...
-
-    @property
-    def info(self) -> dict[str, Any]:
-        ...
-
 
 class Alert(ImmutableDataObject):
     id: UUID = Field(default_factory=uuid4)
-    origin_id: UUID
-    timestamp: datetime
+    component_id: UUID = UNSET_UUID
+    timestamp: datetime = Field(default_factory=utc)
     level: AlertLevel
-    kind: str
-    info: dict[str, Any] = Field(default_factory=dict)
-
-    @classmethod
-    def create_from(cls, other: Union[AlertLike, "AlertEntity"]) -> Self:
-        return cls(
-            id=other.id,
-            origin_id=other.origin_id,
-            timestamp=other.timestamp,
-            level=other.level,
-            kind=other.kind,
-            info=other.info,
-        )
+    code: str
+    info: Mapping[str, Any] = Field(default_factory=dict)

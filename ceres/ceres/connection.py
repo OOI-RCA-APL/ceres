@@ -1,12 +1,12 @@
 import asyncio
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
 from datetime import timedelta
 from enum import Enum
-from typing import Any
+from typing import Any, AsyncIterable
 
 from pydantic import validator
 
+from .alert import Alert, AlertLevel
 from .component import Component
 from .data import ImmutableDataObject, jsonify
 from .events import (
@@ -18,6 +18,7 @@ from .events import (
 from .exceptions import ConnectionLostException
 from .internal.utilities import validate_positive_timedelta
 from .message import Message, MessageDirection
+from .procedure import query, subscription
 
 
 class ConnectionReconnect(ImmutableDataObject):
@@ -32,26 +33,26 @@ class ConnectionReconnect(ImmutableDataObject):
 
 class _ReconnectScheduler:
     def __init__(self, config: ConnectionReconnect) -> None:
-        self._initial_interval = config.interval
-        self._current_interval = config.interval
-        self._max_interval = config.max_interval
+        self.__initial_interval = config.interval
+        self.__current_interval = config.interval
+        self.__max_interval = config.max_interval
 
         if config.backoff is not None:
-            self._backoff: float = config.backoff
+            self.__backoff: float = config.backoff
         else:
-            self._backoff = 1
+            self.__backoff = 1
 
-        self._retries = 0
+        self.__retries = 0
 
     def reset(self) -> None:
-        self._retries = 0
+        self.__retries = 0
 
     def next(self) -> timedelta:
-        interval = self._current_interval * self._backoff
-        if self._max_interval is not None and interval > self._max_interval:
-            interval = self._max_interval
-        self._current_interval = interval
-        self._retries += 1
+        interval = self.__current_interval * self.__backoff
+        if self.__max_interval is not None and interval > self.__max_interval:
+            interval = self.__max_interval
+        self.__current_interval = interval
+        self.__retries += 1
 
         return interval
 
@@ -62,14 +63,6 @@ class ConnectionState(str, Enum):
     CONNECTED = "connected"
 
 
-@dataclass(kw_only=True)
-class ConnectionInternal:
-    state: ConnectionState
-    last_message_sent: Message | None
-    last_message_received: Message | None
-    reconnect: _ReconnectScheduler
-
-
 class Connection(Component, ABC):
     class Parameters(Component.Parameters):
         reconnect: ConnectionReconnect
@@ -78,28 +71,21 @@ class Connection(Component, ABC):
 
     def __post_init__(self) -> None:
         super().__post_init__()
-        self.__connection_internal__ = ConnectionInternal(
-            state=ConnectionState.DISCONNECTED,
-            last_message_sent=None,
-            last_message_received=None,
-            reconnect=_ReconnectScheduler(self.parameters.reconnect),
-        )
+        self.__state = ConnectionState.DISCONNECTED
+        self.__reconnect = _ReconnectScheduler(self.parameters.reconnect)
+
+    @property
+    @abstractmethod
+    def target(self) -> str:
+        ...
 
     @property
     def state(self) -> ConnectionState:
-        return self.__connection_internal__.state
+        return self.__state
 
     @property
     def connected(self) -> bool:
-        return self.state == ConnectionState.CONNECTED
-
-    @property
-    def last_message_sent(self) -> Message | None:
-        return self.__connection_internal__.last_message_sent
-
-    @property
-    def last_message_received(self) -> Message | None:
-        return self.__connection_internal__.last_message_received
+        return self.__state == ConnectionState.CONNECTED
 
     @abstractmethod
     async def try_connect(self) -> bool:
@@ -118,12 +104,11 @@ class Connection(Component, ABC):
         ...
 
     async def connect(self) -> bool:
-        if self.state == ConnectionState.CONNECTED:
+        if self.__state == ConnectionState.CONNECTED:
             return True
 
         self.logger.info("Connecting...")
-
-        self.__connection_internal__.state = ConnectionState.CONNECTING
+        self.__state = ConnectionState.CONNECTING
 
         try:
             connected = await self.try_connect()
@@ -133,11 +118,11 @@ class Connection(Component, ABC):
                 self.logger.error(error)
 
         if connected:
-            self.__connection_internal__.state = ConnectionState.CONNECTED
-            self.emit_event(ConnectedEvent(address=self.address))
+            self.__state = ConnectionState.CONNECTED
+            self.emit_event(ConnectedEvent())
             self.logger.info("Connected successfully.")
         else:
-            self.__connection_internal__.state = ConnectionState.DISCONNECTED
+            self.__state = ConnectionState.DISCONNECTED
             self.logger.error("Failed to connect.")
 
         return self.connected
@@ -150,21 +135,14 @@ class Connection(Component, ABC):
             raise
 
         message = Message(
-            connection_id=self.context.id,
+            component_id=self.context.id,
             direction=MessageDirection.SEND,
             content=data,
         )
 
         self.logger.info(f"Sent: {jsonify(message.content)}")
 
-        self.emit_event(
-            MessageSentEvent(
-                address=self.address,
-                message=message,
-            )
-        )
-
-        self.__connection_internal__.last_message_sent = message
+        self.emit_event(MessageSentEvent(message=message))
 
         return message
 
@@ -176,25 +154,18 @@ class Connection(Component, ABC):
             raise
 
         message = Message(
-            connection_id=self.context.id,
+            component_id=self.context.id,
             direction=MessageDirection.RECEIVE,
             content=data,
         )
 
         self.logger.info(f"Received: {jsonify(message.content)}")
+        self.emit_event(MessageReceivedEvent(message=message))
 
-        self.emit_event(
-            MessageReceivedEvent(
-                address=self.address,
-                message=message,
-            )
-        )
-
-        self.__connection_internal__.last_message_received = message
         return message
 
     async def disconnect(self) -> None:
-        if self.state == ConnectionState.DISCONNECTED:
+        if self.__state == ConnectionState.DISCONNECTED:
             return
 
         self.logger.info("Disconnecting...")
@@ -202,23 +173,28 @@ class Connection(Component, ABC):
         try:
             await self.try_disconnect()
         finally:
-            self.__connection_internal__.state = ConnectionState.DISCONNECTED
-            self.emit_event(DisconnectedEvent(address=self.address))
+            self.__state = ConnectionState.DISCONNECTED
+            self.emit_event(DisconnectedEvent())
             self.logger.info("Disconnected.")
 
     async def __run__(self) -> None:
         await asyncio.gather(
             super().__run__(),
-            self._process_update(),
+            self.__process_update(),
         )
 
-    async def _process_update(self) -> None:
+    async def __process_update(self) -> None:
         while True:
-            self.__connection_internal__.reconnect.reset()
+            self.__reconnect.reset()
 
             while not await self.connect():
-                self.emit_alert("error", "connection-attempt-failed")
-                seconds = self.__connection_internal__.reconnect.next().total_seconds()
+                self.emit_alert(
+                    Alert(
+                        level=AlertLevel.ERROR,
+                        code="connection-attempt-failed",
+                    )
+                )
+                seconds = self.__reconnect.next().total_seconds()
                 self.logger.info(f"Reconnecting in {seconds:g} seconds...")
                 await asyncio.sleep(seconds)
 
@@ -232,3 +208,14 @@ class Connection(Component, ABC):
     async def __stop__(self) -> None:
         await super().__stop__()
         await self.try_disconnect()
+
+    @query("connection-state")
+    async def get_connection_state(self) -> ConnectionState:
+        return self.__state
+
+    @subscription("connection-state")
+    async def subscribe_connection_state(self) -> AsyncIterable[ConnectionState]:
+        yield await self.get_connection_state()
+        async for event in self.events:
+            if isinstance(event, ConnectedEvent | DisconnectedEvent):
+                yield self.__state

@@ -1,12 +1,30 @@
-from typing import Any, Generic, Literal, TypeVar
+from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar
 
 from .data import ImmutableDataObject
 
-_ValueT = TypeVar("_ValueT")
-_ErrorT = TypeVar("_ErrorT")
+_ValueT = TypeVar("_ValueT", covariant=True)
+_ErrorT = TypeVar("_ErrorT", covariant=True)
 
 
-class Ok(ImmutableDataObject, Generic[_ValueT]):
+class __Result:
+    """
+    This is a workaround for https://github.com/pydantic/pydantic/issues/1194. This can probably be
+    removed once Pydantic 2.0 comes out and "GenericModel" is no longer needed.
+    """
+
+    def __class_getitem__(
+        cls,
+        /,
+        params: tuple[type[_ValueT], type[_ErrorT]],
+    ) -> "Ok[_ValueT] | Fail[_ErrorT]":
+        return Ok[params[0]] | Fail[params[1]]  # type: ignore
+
+
+__Result.__name__ = "Result"
+__Result.__qualname__ = __Result.__qualname__.replace("__Result", "Result")
+
+
+class Ok(ImmutableDataObject, Generic[_ValueT], __Result):
     ok: Literal[True] = True
     value: _ValueT
 
@@ -22,7 +40,7 @@ class Ok(ImmutableDataObject, Generic[_ValueT]):
         return True
 
 
-class Fail(ImmutableDataObject, Generic[_ErrorT]):
+class Fail(ImmutableDataObject, Generic[_ErrorT], __Result):
     ok: Literal[False] = False
     error: _ErrorT
 
@@ -38,4 +56,7 @@ class Fail(ImmutableDataObject, Generic[_ErrorT]):
         return False
 
 
-Result = Ok[_ValueT] | Fail[_ErrorT]
+if TYPE_CHECKING:
+    Result = Ok[_ValueT] | Fail[_ErrorT]
+else:
+    Result = __Result

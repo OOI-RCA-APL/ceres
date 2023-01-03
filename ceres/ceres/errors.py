@@ -1,27 +1,9 @@
 from enum import Enum
-from typing import Literal
+from typing import Literal, Sequence
 
-from pydantic import ValidationError
-
-from .address import ComponentAddress
+from .address import GlobalComponentAddress
 from .data import DataObject, ImmutableDataObject
-
-
-class ValidationProblem(ImmutableDataObject):
-    location: list[str | int]
-    message: str
-    kind: str
-
-    @classmethod
-    def extract(cls, error: ValidationError) -> list["ValidationProblem"]:
-        return [
-            ValidationProblem(
-                location=list(error["loc"]),
-                message=error["msg"],
-                kind=error["type"],
-            )
-            for error in error.errors()
-        ]
+from .validation import ValidationProblem
 
 
 class Error(ImmutableDataObject):
@@ -62,7 +44,7 @@ class ComponentClassInvalidError(BaseComponentError):
 
 class ComponentParametersInvalidError(BaseComponentError):
     kind: Literal[ComponentErrorKind.PARAMETERS_INVALID] = ComponentErrorKind.PARAMETERS_INVALID
-    problems: list[ValidationProblem]
+    problems: Sequence[ValidationProblem]
 
 
 class ComponentInitExceptionError(BaseComponentError):
@@ -116,7 +98,7 @@ class ConfigParseError(BaseConfigError):
 
 class ConfigValidationError(BaseConfigError):
     kind: Literal[ConfigErrorKind.VALIDATION_ERROR] = ConfigErrorKind.VALIDATION_ERROR
-    problems: list[ValidationProblem]
+    problems: Sequence[ValidationProblem]
 
 
 class ConfigDatabaseError(BaseConfigError):
@@ -127,7 +109,7 @@ class ConfigDatabaseError(BaseConfigError):
 
 class ConfigComponentError(BaseConfigError):
     kind: Literal[ConfigErrorKind.COMPONENT_ERROR] = ConfigErrorKind.COMPONENT_ERROR
-    component: ComponentAddress
+    component: GlobalComponentAddress
     error: ComponentError
 
 
@@ -151,7 +133,7 @@ class BaseReloadError(Error):
 
 class ReloadConfigInvalidError(BaseReloadError):
     kind: Literal[ReloadErrorKind.CONFIG_INVALID] = ReloadErrorKind.CONFIG_INVALID
-    errors: list[ConfigError]
+    errors: Sequence[ConfigError]
 
 
 class ReloadAlreadyActiveError(BaseReloadError):
@@ -162,15 +144,21 @@ ReloadError = ReloadConfigInvalidError | ReloadAlreadyActiveError
 
 
 class ProcedureErrorKind(str, Enum):
-    COMPONENT_DOES_NOT_EXIST = "component-does-not-exist"
-    COMPONENT_NOT_LOADED = "component-not-loaded"
-    DOES_NOT_EXIST = "does-not-exist"
-    INVALID_INPUT = "invalid-input"
-    EXCEPTION = "exception"
+    UNIT_DOES_NOT_EXIST = "procedure-unit-does-not-exist"
+    COMPONENT_DOES_NOT_EXIST = "procedure-component-does-not-exist"
+    COMPONENT_NOT_LOADED = "procedure-component-not-loaded"
+    DOES_NOT_EXIST = "procedure-does-not-exist"
+    INVALID_INPUT = "procedure-invalid-input"
+    CANCELLED = "procedure-cancelled"
+    EXCEPTION = "procedure-exception"
 
 
 class BaseProcedureError(Error):
     kind: ProcedureErrorKind
+
+
+class ProcedureUnitDoesNotExistError(BaseProcedureError):
+    kind: Literal[ProcedureErrorKind.UNIT_DOES_NOT_EXIST] = ProcedureErrorKind.UNIT_DOES_NOT_EXIST
 
 
 class ProcedureComponentDoesNotExistError(BaseProcedureError):
@@ -189,18 +177,25 @@ class ProcedureDoesNotExistError(BaseProcedureError):
 
 class ProcedureInvalidInputError(BaseProcedureError):
     kind: Literal[ProcedureErrorKind.INVALID_INPUT] = ProcedureErrorKind.INVALID_INPUT
-    problems: list[ValidationProblem]
+    problems: Sequence[ValidationProblem]
+
+
+class ProcedureCancelledError(BaseProcedureError):
+    kind: Literal[ProcedureErrorKind.CANCELLED] = ProcedureErrorKind.CANCELLED
 
 
 class ProcedureExceptionError(BaseProcedureError):
     kind: Literal[ProcedureErrorKind.EXCEPTION] = ProcedureErrorKind.EXCEPTION
-    exception: str
+    traceback: Sequence[str]
 
 
 ProcedureError = (
-    ProcedureComponentDoesNotExistError
+    ProcedureUnitDoesNotExistError
+    | ProcedureUnitDoesNotExistError
+    | ProcedureComponentDoesNotExistError
     | ProcedureDoesNotExistError
     | ProcedureComponentNotLoadedError
     | ProcedureInvalidInputError
+    | ProcedureCancelledError
     | ProcedureExceptionError
 )

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import json
 from abc import ABC
 from types import MappingProxyType
@@ -36,6 +34,9 @@ class DataObject(GenericModel, ABC):
         arbitrary_types_allowed = True
         orm_mode = True
         validate_assignment = True
+
+    def __str__(self) -> str:
+        return super().__repr__()
 
 
 class ImmutableDataObject(DataObject, ABC):

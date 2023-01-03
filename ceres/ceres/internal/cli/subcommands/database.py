@@ -1,15 +1,23 @@
 import rich
-from typer import Typer
 
 from ....config import Config
-from ...database.manager import DatabaseManager
-from ...utilities import syncify
-from ..common import ConfigOption, get_yes_no
+from ....database import Database
 from ..exceptions import CLIDatabaseUnreachableException
+from ..shared import AsyncTyper, ConfigOption, get_yes_no
+
+database = AsyncTyper(
+    name="database",
+    no_args_is_help=True,
+    help="Manage the project database.",
+)
 
 
-async def init(config: Config = ConfigOption(checks=[])) -> None:
-    database = DatabaseManager(config.database)
+@database.command()
+async def init(*, config: Config = ConfigOption(checks=[])) -> None:
+    """
+    Create all required tables in the project database.
+    """
+    database = Database(config.database)
 
     try:
         async with database.connect():
@@ -18,7 +26,7 @@ async def init(config: Config = ConfigOption(checks=[])) -> None:
         raise CLIDatabaseUnreachableException("Failed to connect to database.")
 
     print("<PENDING>")
-    await schema(config)
+    await schema(config=config)
     print("</PENDING>")
 
     if await database.tables():
@@ -34,15 +42,12 @@ async def init(config: Config = ConfigOption(checks=[])) -> None:
     await database.dispose()
 
 
-async def schema(config: Config = ConfigOption(checks=[])) -> None:
-    database = DatabaseManager(config.database)
+@database.command()
+async def schema(*, config: Config = ConfigOption(checks=[])) -> None:
+    """
+    Show DDL commands used to create required tables in the project database.
+    """
+    database = Database(config.database)
 
     for statement in database.ddl:
         rich.print(f"{statement};")
-
-
-database = Typer(no_args_is_help=True)
-database.command(help="Create all required tables in the project database.")(syncify(init))
-database.command(help="Show DDL commands used to create required tables in the project database.")(
-    syncify(schema)
-)

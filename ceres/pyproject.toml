@@ -3,7 +3,7 @@ name = "ceres"
 version = "0.1.0"
 description = ""
 authors = ["Jake Ploskey <jploskey@uw.edu>"]
-packages = [{ include = "ceres" }]
+include = ["./ceres/**/*.py", "./ceres/static/**/*", "./ceres/py.typed"]
 
 [tool.poetry.dependencies]
 python = "^3.10"
@@ -12,9 +12,12 @@ apscheduler = "^3.9.0"
 fastapi = ">=0.78.0"
 pydantic = "^1.10.0"
 pyyaml = "^6.0.0"
+setproctitle = "^1.0.0"
 sqlalchemy = "^2.0.0b3"
 typer = { version = ">=0.6.0", extras = ["all"] }
 uvicorn = ">=0.14.0"
+watchfiles = ">=0.10.0"
+websockets = "^10.0.0"
 
 aiosqlite = { version = ">=0.17.0", optional = true }
 psycopg = { version = "^3.1.0", extras = ["binary"], optional = true }

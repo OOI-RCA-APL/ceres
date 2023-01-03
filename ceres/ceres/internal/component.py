@@ -1,20 +1,17 @@
-import asyncio
 import importlib
 import traceback
-from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from logging import Logger
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Generic, Mapping, TypeVar, cast
+from typing import TYPE_CHECKING, Any, Mapping, Sequence, TypeVar, cast, final
 from uuid import UUID
 
 from pydantic import ValidationError, parse_obj_as, validate_arguments
 
-from ..address import ComponentAddress
-from ..component import Component
-from ..config import ComponentConfig, Config, UnitConfig
+from ..address import GlobalComponentAddress
+from ..component import CompleteContext, Component
+from ..config import ComponentConfig, ComponentRoleKind, Config, UnitConfig
 from ..connection import Connection
-from ..driver import Driver
 from ..errors import (
     ComponentClassInvalidError,
     ComponentClassNotFoundError,
@@ -26,31 +23,33 @@ from ..errors import (
     ComponentReferenceInvalidError,
     ValidationProblem,
 )
-from ..notifier import Notifier
 from ..result import Fail, Ok, Result
 from . import logs
 from .tasklet import Tasklet
-from .utilities import cached, get_type_annotations, object_has_field, strify
+from .utilities import (
+    cached,
+    get_type_annotations,
+    lenient_issubclass,
+    object_has_field,
+    strify,
+)
 
 if TYPE_CHECKING:
-    from .unit import Unit
+    from ..unit import Unit
+else:
+    Unit = "Unit"
 
-LoadedComponentT = TypeVar("LoadedComponentT", bound=Component)
+_ComponentT = TypeVar("_ComponentT", bound=Component)
 
 
-def load_component_cls(
-    supercls: type[LoadedComponentT],
-    config: ComponentConfig,
-) -> Result[type[LoadedComponentT], ComponentError]:
+def load_component_cls(config: ComponentConfig) -> Result[type[Component], ComponentError]:
     if not isinstance(config.component, str):
-        if not isinstance(config.component, supercls):
-            return Fail(
-                ComponentClassInvalidError(
-                    message=f"component passed in configuration must be an instance of {strify(supercls)}, got {strify(config.component)}"
-                )
+        missing = _get_missing_component_base_classes(config.component, config.roles)
+        return Fail(
+            ComponentClassInvalidError(
+                message=f"component passed in configuration must be a subclass or instance of {strify(missing)}, got {strify(config.component)}"
             )
-
-        return Ok(type(config.component))
+        )
 
     last_dot_index = config.component.rindex(".")
     cls_module_path = config.component[:last_dot_index]
@@ -73,7 +72,7 @@ def load_component_cls(
             )
         )
 
-    cls: type[LoadedComponentT] = getattr(module, cls_name, None)  # type: ignore
+    cls: type[_ComponentT] = getattr(module, cls_name, None)  # type: ignore
     if cls is None:
         return Fail(
             ComponentClassNotFoundError(
@@ -81,44 +80,34 @@ def load_component_cls(
             )
         )
 
-    if not issubclass(cls, supercls):
+    missing = _get_missing_component_base_classes(cls, config.roles)
+    if missing:
         return Fail(
             ComponentClassInvalidError(
-                message=f"component {strify(cls)} must be subclass of {strify(supercls)}"
+                message=f"component {strify(cls)} must be subclass of {strify(missing)}"
             )
         )
 
     return Ok(cls)
 
 
-@cached
-def _get_reference_mapping(
-    references: Component.References | type[Component.References],
-) -> Mapping[str, type["Component"]]:
-    mapping: dict[str, type[Component]] = {}
-    annotations = get_type_annotations(references)
-
-    for name, annotation in annotations.items():
-        if isinstance(annotation, type) and issubclass(annotation, Component):
-            mapping[name] = annotation
-
-    return MappingProxyType(mapping)
-
-
 def load_component(
-    supercls: type[LoadedComponentT],
     config: ComponentConfig,
-    context: Component.CompleteContext,
+    context: CompleteContext,
     siblings: Mapping[str, Component],
-) -> Result[LoadedComponentT, ComponentError]:
-    match load_component_cls(supercls, config):
+) -> Result[Component, ComponentError]:
+    if not isinstance(config.component, str | type):
+        if not _get_missing_component_base_classes(type(config.component), config.roles):
+            return Ok(config.component)
+
+    match load_component_cls(config):
         case Ok(cls):
             pass
         case Fail(error):
             return Fail(error)
 
     if not isinstance(config.component, str):
-        return Ok(cast(LoadedComponentT, config.component))
+        return Ok(cast(_ComponentT, config.component))
 
     parameters_type = cls.get_parameters_type()
     context_type = cls.get_context_type()
@@ -207,11 +196,11 @@ def load_component(
 @dataclass(kw_only=True, frozen=True)
 class ComponentHandleContext:
     id: UUID
-    address: ComponentAddress
+    address: GlobalComponentAddress
     root_config: Config
     unit_config: UnitConfig
     component_config: ComponentConfig
-    unit: "Unit"
+    unit: Unit
 
     def __post_init__(self) -> None:
         assert self.root_config.get_component(self.address)
@@ -219,60 +208,37 @@ class ComponentHandleContext:
         assert self.component_config in self.unit_config.components
 
 
-ComponentT = TypeVar("ComponentT", bound=Component, covariant=True)
-
-
-class ComponentHandle(Generic[ComponentT], Tasklet, ABC):
+@final
+class ComponentHandle(Tasklet):
     def __init__(self, context: ComponentHandleContext) -> None:
-        self._context = context
-        self._instance: ComponentT | None = None
-
-    @classmethod
-    @abstractmethod
-    def get_component_type(cls) -> type[ComponentT]:
-        ...
+        self.__context = context
+        self.__instance: Component | None = None
 
     @property
     def id(self) -> UUID:
-        return self._context.id
+        return self.__context.id
 
     @property
-    def address(self) -> ComponentAddress:
-        return self._context.address
+    def address(self) -> GlobalComponentAddress:
+        return self.__context.address
 
     @property
     def config(self) -> ComponentConfig:
-        return self._context.component_config
+        return self.__context.component_config
 
     @property
-    def instance(self) -> ComponentT | None:
-        return self._instance
+    def instance(self) -> Component | None:
+        return self.__instance
 
     @property
     def logger(self) -> Logger:
-        return logs.get(str(self._context.address))
+        return logs.get(str(self.__context.address))
 
     async def __run__(self) -> None:
         if self.instance is None:
             return
 
-        await asyncio.gather(
-            self._process_component(),
-            self._process_events(),
-        )
-
-    async def _process_component(self) -> None:
-        if self.instance is None:
-            return
-
         await self.instance.run()
-
-    async def _process_events(self) -> None:
-        if self.instance is None:
-            return
-
-        async for event in self.instance.event_stream:
-            await self._context.unit.dispatch_event(event)
 
     async def __stop__(self) -> None:
         if self.instance is None:
@@ -280,48 +246,74 @@ class ComponentHandle(Generic[ComponentT], Tasklet, ABC):
 
         await self.instance.stop()
 
-    async def load(self) -> Result[ComponentT, ComponentError]:
+    async def load(self) -> Result[Component, ComponentError]:
         if self.instance is not None:
             return Ok(self.instance)
 
         match load_component(
-            self.get_component_type(),
             self.config,
-            Component.CompleteContext(
+            CompleteContext(
                 id=self.id,
                 address=self.address,
-                root_config=self._context.root_config,
-                unit_config=self._context.unit_config,
+                root_config=self.__context.root_config,
+                unit_config=self.__context.unit_config,
                 component_config=self.config,
-                database=self._context.unit.database,
-                entities=self._context.unit.database.entities,
+                database=self.__context.unit.database,
             ),
             {
                 name: component.instance
-                for name, component in self._context.unit.components.items()
+                for name, component in self.__context.unit.components.items()
                 if component.instance
             },
         ):
             case Ok(instance):
-                self._instance = instance
+                self.__instance = instance
                 return Ok(instance)
             case fail:
                 return fail
 
 
-class ConnectionHandle(ComponentHandle[Connection]):
-    @classmethod
-    def get_component_type(cls) -> type[Connection]:
-        return Connection
+@cached
+def _get_reference_mapping(
+    references: Component.References | type[Component.References],
+) -> Mapping[str, type["Component"]]:
+    mapping: dict[str, type[Component]] = {}
+    annotations = get_type_annotations(references)
+
+    for name, annotation in annotations.items():
+        if isinstance(annotation, type) and issubclass(annotation, Component):
+            mapping[name] = annotation
+
+    return MappingProxyType(mapping)
 
 
-class DriverHandle(ComponentHandle[Driver]):
-    @classmethod
-    def get_component_type(cls) -> type[Driver]:
-        return Driver
+def _get_component_role_cls(role: ComponentRoleKind) -> type[Component]:
+    match role:
+        case ComponentRoleKind.CONNECTION:
+            return Connection
+
+    raise ValueError(role)
 
 
-class NotifierHandle(ComponentHandle[Notifier]):
-    @classmethod
-    def get_component_type(cls) -> type[Notifier]:
-        return Notifier
+def _get_required_component_base_classes(
+    roles: Sequence[ComponentRoleKind],
+) -> tuple[type[Component], ...]:
+    classes = [Component]
+
+    for role in roles:
+        cls = _get_component_role_cls(role)
+        if cls not in classes:
+            classes.append(cls)
+
+    return tuple(classes)
+
+
+def _get_missing_component_base_classes(
+    component: type[Component] | Component,
+    roles: Sequence[ComponentRoleKind],
+) -> Sequence[type[Component]]:
+    if not isinstance(component, type):
+        component = type(component)
+
+    bases = _get_required_component_base_classes(roles)
+    return [base for base in bases if not lenient_issubclass(component, base)]

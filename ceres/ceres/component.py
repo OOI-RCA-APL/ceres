@@ -1,71 +1,83 @@
+import asyncio
 import inspect
 import traceback
-from dataclasses import dataclass, field
-from enum import Enum
+from asyncio import Queue as AsyncQueue
+from dataclasses import field
 from inspect import Parameter
-from logging import Logger
-from types import MappingProxyType, UnionType
+from logging import ERROR, INFO, WARNING, Logger
+from string import ascii_lowercase
+from types import MappingProxyType
 from typing import (
     Any,
+    AsyncIterable,
     Awaitable,
     Callable,
-    Literal,
+    FrozenSet,
     Mapping,
     Sequence,
     TypeVar,
+    cast,
+    final,
     get_type_hints,
-    overload,
 )
 from uuid import UUID, uuid4
+from weakref import WeakValueDictionary
 
 from pydantic import Field, ValidationError, validate_arguments
 from typing_extensions import dataclass_transform
 
-from .address import ComponentAddress, LocalComponentAddress
-from .alert import Alert, AlertLevel, RawAlertLevel
+from .address import ComponentAddress, caddr
+from .alert import Alert, AlertLevel
 from .config import ComponentConfig, Config, UnitConfig
 from .data import (
     VALIDATED_DATACLASS_FIELD_SPECIFIERS,
     ImmutableDataObject,
     ValidatedDataclass,
+    jsonify,
 )
-from .datetime import utc
+from .database import Database
+from .database.entity import AlertEntity, MessageEntity
 from .errors import (
     ProcedureDoesNotExistError,
     ProcedureError,
     ProcedureExceptionError,
     ProcedureInvalidInputError,
-    ValidationProblem,
 )
-from .events import AlertEmittedEvent, Event
+from .events import AlertEmittedEvent, Event, MessageReceivedEvent, MessageSentEvent
 from .exceptions import ComponentClassInvalidException
 from .internal import logs
-from .internal.database.entity import EntityManager
-from .internal.database.manager import DatabaseManager
+from .internal.binding import get_bindings
+from .internal.database.buffer import WriteBuffer
 from .internal.tasklet import Tasklet
 from .internal.utilities import (
+    UNSET_UUID,
     awaitify,
     cached,
-    get_bindings,
     get_type_annotations,
-    is_json_object_type,
-    loose_isinstance,
+    lenient_isinstance,
+    lenient_issubclass,
     object_has_field,
     pre_validate_arguments,
-    strify,
+    randstr,
+)
+from .listener import ListenerBinding
+from .message import MessageDirection
+from .procedure import (
+    ActionBinding,
+    BaseProcedureBinding,
+    CallableProcedureKind,
+    DisplayBinding,
+    JobBinding,
+    ProcedureKind,
+    QueryBinding,
+    SubscribableProcedureKind,
+    SubscriptionBinding,
+    subscription,
 )
 from .result import Fail, Ok, Result
-from .schedule import Schedule
 from .scheduler import Scheduler
 from .stream import Stream, StreamView
-
-
-@dataclass(kw_only=True)
-class ComponentInternal:
-    incoming_event_stream: Stream[Event] = field(default_factory=Stream)
-    outgoing_event_stream: Stream[Event] = field(default_factory=Stream)
-    scheduler: Scheduler = field(default_factory=Scheduler)
-
+from .validation import ValidationProblem
 
 _ComponentT = TypeVar("_ComponentT", bound="Component")
 _EventT = TypeVar("_EventT", bound=Event)
@@ -116,21 +128,86 @@ class Component(ValidatedDataclass, Tasklet):
                 f"signature of {__init__} must be compatible with {inspect.signature(Component.__init__)}, got {signature}"
             )
 
-        if isinstance(references_hint, type) and issubclass(references_hint, Component.References):
+        if lenient_issubclass(references_hint, Component.References):
             for binding in cls.get_listener_bindings():
-                if not object_has_field(references_hint, binding.address.name):
-                    raise ComponentClassInvalidException(
-                        f"event listener {binding.function} refers to component '{binding.address.name}' which is not defined in {references_hint.__init__} with signature {inspect.signature(references_hint.__init__)}"
-                    )
+                for source in binding.sources:
+                    if source == "self":
+                        continue
+
+                    if not object_has_field(references_hint, source):
+                        raise ComponentClassInvalidException(
+                            f"event listener {binding.function} refers to component '{source}' which is not defined as an attribute in {references_hint}"
+                        )
 
         return cls
+
+    @final
+    class __EventProcessor:
+        __slots__ = (
+            "__binding",
+            "__handler",
+            "__handler_arity",
+            "__logger",
+            "__queue",
+        )
+
+        def __init__(
+            self,
+            *,
+            binding: ListenerBinding,
+            handler: Callable[[Event], None | Awaitable[None]]
+            | Callable[[], None | Awaitable[None]],
+            logger: Logger,
+        ) -> None:
+            self.__binding = binding
+            self.__handler = handler
+            self.__handler_arity = len(inspect.signature(self.__handler).parameters)
+            self.__logger = logger
+            self.__queue: AsyncQueue[Event] = AsyncQueue()
+
+        @property
+        def binding(self) -> ListenerBinding:
+            return self.__binding
+
+        @property
+        def idle(self) -> bool:
+            return self.__queue._finished.is_set()  # type: ignore
+
+        def put(self, event: Event) -> None:
+            self.__queue.put_nowait(event)
+
+        def clear(self) -> None:
+            while not self.__queue.empty():
+                self.__queue.get_nowait()
+                self.__queue.task_done()
+
+        async def run(self) -> None:
+            while True:
+                event = await self.__queue.get()
+
+                try:
+                    result = self.__handler(*[event][: self.__handler_arity])
+                    if inspect.iscoroutine(result):
+                        await result
+                except Exception:
+                    self.__logger.error(
+                        f"An exception occurred while processing event {event}: {traceback.format_exc()}"
+                    )
+                finally:
+                    self.__queue.task_done()
+
+        async def join(self) -> None:
+            await self.__queue.join()
 
     class Parameters(ImmutableDataObject):
         pass
 
     class Context(ImmutableDataObject):
         id: UUID = Field(default_factory=uuid4)
-        address: ComponentAddress
+        address: ComponentAddress = Field(
+            default_factory=lambda: caddr(randstr(ascii_lowercase, 8))
+        )
+        database: Database = Field(default_factory=Database)
 
         def __init_subclass__(cls) -> None:
             if cls.__module__ == __name__:
@@ -139,7 +216,7 @@ class Component(ValidatedDataclass, Tasklet):
             extra: list[tuple[str, Any]] = []
 
             for current in cls.__fields__.values():
-                if not object_has_field(Component.CompleteContext, current.name, current.type_):
+                if not object_has_field(CompleteContext, current.name, current.type_):
                     extra.append((current.name, current.type_))
 
             if extra:
@@ -148,52 +225,89 @@ class Component(ValidatedDataclass, Tasklet):
     class References(ImmutableDataObject):
         pass
 
-    parameters: Parameters = Field(default_factory=Parameters)
-    context: Context
-    references: References = Field(default_factory=References)
-
-    class CompleteContext(Context):
-        id: UUID
-        address: ComponentAddress
-        root_config: Config
-        unit_config: UnitConfig
-        component_config: ComponentConfig
-        database: DatabaseManager
-        entities: EntityManager
+    parameters: Parameters = field(default_factory=Parameters)
+    context: Context = field(default_factory=Context)
+    references: References = field(default_factory=References)
 
     def __post_init__(self) -> None:
-        self.__component_internal__ = ComponentInternal()
+        self.__events: Stream[Event] = Stream()
+        self.__scheduler = Scheduler()
+        self.__message_write_buffer: WriteBuffer[MessageEntity]
+        self.__alert_write_buffer: WriteBuffer[AlertEntity]
+        self.__referencers: WeakValueDictionary[UUID, Component] = WeakValueDictionary()
 
+    def __post_init_post_parse__(self) -> None:
+        self.__message_write_buffer = WriteBuffer(
+            MessageEntity,
+            self.context.database,
+            self.logger,
+        )
+        self.__alert_write_buffer = WriteBuffer(
+            AlertEntity,
+            self.context.database,
+            self.logger,
+        )
+        self.__event_processors = [
+            self.__EventProcessor(
+                binding=binding,
+                handler=getattr(self, binding.function),
+                logger=self.logger,
+            )
+            for binding in self.get_listener_bindings()
+        ]
+
+        for component in self.references.dict().values():
+            if isinstance(component, Component):
+                component.__add_referencer(self)
+
+    @final
     @classmethod
     def get_parameters_type(cls) -> type[Parameters]:
         return get_type_annotations(cls)["parameters"]  # type: ignore
 
+    @final
     @classmethod
     def get_context_type(cls) -> type[Context]:
         return get_type_annotations(cls)["context"]  # type: ignore
 
+    @final
     @classmethod
     def get_references_type(cls) -> type[References]:
         return get_type_annotations(cls)["references"]  # type: ignore
 
+    @final
     @classmethod
-    def get_listener_bindings(cls) -> Sequence["ListenerBinding"]:
+    def get_listener_bindings(cls) -> Sequence[ListenerBinding]:
         return _get_listener_bindings(cls)
 
+    @final
     @classmethod
-    def get_query_bindings(cls) -> Mapping[str, "QueryBinding"]:
-        return _get_query_bindings(cls)
+    def get_query_bindings(cls) -> Mapping[str, QueryBinding]:
+        return _get_procedure_bindings(cls, QueryBinding)
 
+    @final
     @classmethod
-    def get_action_bindings(cls) -> Mapping[str, "ActionBinding"]:
-        return _get_action_bindings(cls)
+    def get_action_bindings(cls) -> Mapping[str, ActionBinding]:
+        return _get_procedure_bindings(cls, ActionBinding)
 
+    @final
     @classmethod
-    def get_job_bindings(cls) -> Mapping[str, "JobBinding"]:
-        return _get_job_bindings(cls)
+    def get_job_bindings(cls) -> Mapping[str, JobBinding]:
+        return _get_procedure_bindings(cls, JobBinding)
 
+    @final
     @classmethod
-    def get_procedure_bindings(cls, kind: "ProcedureKind") -> Mapping[str, "ProcedureBinding"]:
+    def get_subscription_bindings(cls) -> Mapping[str, SubscriptionBinding]:
+        return _get_procedure_bindings(cls, SubscriptionBinding)
+
+    @final
+    @classmethod
+    def get_display_bindings(cls) -> Mapping[str, DisplayBinding]:
+        return _get_procedure_bindings(cls, DisplayBinding)
+
+    @final
+    @classmethod
+    def get_procedure_bindings(cls, kind: "ProcedureKind") -> Mapping[str, BaseProcedureBinding]:
         match kind:
             case ProcedureKind.QUERY:
                 return cls.get_query_bindings()
@@ -201,6 +315,10 @@ class Component(ValidatedDataclass, Tasklet):
                 return cls.get_action_bindings()
             case ProcedureKind.JOB:
                 return cls.get_job_bindings()
+            case ProcedureKind.SUBSCRIPTION:
+                return cls.get_subscription_bindings()
+            case ProcedureKind.DISPLAY:
+                return cls.get_display_bindings()
 
     @property
     def id(self) -> UUID:
@@ -211,18 +329,206 @@ class Component(ValidatedDataclass, Tasklet):
         return self.context.address
 
     @property
+    def database(self) -> Database:
+        return self.context.database
+
+    @property
     def scheduler(self) -> Scheduler:
-        return self.__component_internal__.scheduler
+        return self.__scheduler
 
     @property
     def logger(self) -> Logger:
-        return logs.get(str(self.context.address))
+        return logs.get(str(self.address))
 
     @property
-    def event_stream(self) -> StreamView[Event]:
-        return self.__component_internal__.outgoing_event_stream.view()
+    def events(self) -> StreamView[Event]:
+        return self.__events.view()
 
-    async def call(
+    @property
+    def __has_exclusive_temporary_database(self) -> bool:
+        return "database" not in self.context.__fields_set__
+
+    @property
+    def settled(self) -> bool:
+        return not self.running or (
+            all(processor.idle for processor in self.__event_processors)
+            and len(self.__message_write_buffer) == 0
+            and len(self.__alert_write_buffer) == 0
+        )
+
+    async def settle(self) -> None:
+        while not self.settled:
+            await asyncio.gather(
+                *(processor.join() for processor in self.__event_processors),
+                self.__message_write_buffer.join(),
+                self.__alert_write_buffer.join(),
+            )
+
+    def __add_referencer(self, referencer: "Component") -> None:
+        assert referencer is not self
+        self.__referencers[referencer.id] = referencer
+
+    def __set_emitted_event_component_id(self, event: Event) -> None:
+        if event.component_id == UNSET_UUID:
+            object.__setattr__(event, "component_id", self.id)
+
+        if isinstance(event, AlertEmittedEvent):
+            self.__set_emitted_alert_component_id(event.alert)
+
+    def __set_emitted_alert_component_id(self, alert: Alert) -> None:
+        if alert.component_id == UNSET_UUID:
+            object.__setattr__(alert, "component_id", self.id)
+
+    def emit_event(self, event: _EventT) -> _EventT:
+        self.__set_emitted_event_component_id(event)
+        # Handle "self" events.
+        self.handle_event(event)
+        # Send the event to all components have a reference to this one.
+        for referencer in self.__referencers.values():
+            referencer.handle_event(event)
+        # Add the event to the outgoing event stream.
+        self.__events.put(event)
+
+        match event:
+            case MessageSentEvent() | MessageReceivedEvent():
+                self.__message_write_buffer.add(
+                    MessageEntity(
+                        id=event.message.id,
+                        component_id=event.message.component_id,
+                        timestamp=event.message.timestamp,
+                        direction=MessageDirection.RECEIVE,
+                        content=event.message.content,
+                    )
+                )
+            case AlertEmittedEvent():
+                self.__alert_write_buffer.add(
+                    AlertEntity(
+                        id=event.alert.id,
+                        component_id=event.alert.component_id,
+                        timestamp=event.alert.timestamp,
+                        level=event.alert.level,
+                        code=event.alert.code,
+                        info=dict(event.alert.info),
+                    )
+                )
+            case _:
+                pass
+
+        return event
+
+    def handle_event(self, event: Event) -> None:
+        if not self.running or self.stopping:
+            return
+
+        for processor in self.__event_processors:
+            if not lenient_isinstance(event, processor.binding.event_cls):
+                continue
+
+            for source in processor.binding.sources:
+                if source == "self":
+                    component = self
+                else:
+                    component = getattr(self.references, source, None)
+
+                if component is not None and component.id == event.component_id:
+                    processor.put(event)
+                    break
+
+    def emit_alert(self, alert: Alert) -> Alert:
+        self.__set_emitted_alert_component_id(alert)
+
+        match alert.level:
+            case AlertLevel.INFO:
+                log_level = INFO
+            case AlertLevel.WARNING:
+                log_level = WARNING
+            case AlertLevel.ERROR:
+                log_level = ERROR
+
+        self.emit_event(AlertEmittedEvent(alert=alert))
+        self.logger.log(log_level, f"Alert: {jsonify(alert)}")
+        return alert
+
+    async def __run__(self) -> None:
+        if self.__has_exclusive_temporary_database:
+            await self.database.init()
+
+        self.__scheduler.start()
+
+        for job in self.get_job_bindings().values():
+            if job.default_schedule is None:
+                continue
+
+            if (method := getattr(self, job.function, None)) is None:
+                continue
+
+            async def run_job() -> None:
+                if method is None:
+                    return
+
+                try:
+                    if job.default_input is ...:
+                        await awaitify(method())
+                    else:
+                        await awaitify(method(job.default_input))
+                except Exception:
+                    self.logger.error(
+                        f"An exception occurred while running job '{job.name}': {traceback.format_exc()}"
+                    )
+
+            self.logger.info(f"Scheduling job '{job.name}' as: {job.default_schedule}")
+            self.scheduler.add_job(run_job, job.default_schedule, name=job.name)
+
+        await asyncio.gather(
+            self.__process_event_processors(),
+            self.__process_message_buffer(),
+            self.__process_alert_buffer(),
+        )
+
+    async def __process_event_processors(self) -> None:
+        await asyncio.gather(*(processor.run() for processor in self.__event_processors))
+
+    async def __process_message_buffer(self) -> None:
+        while True:
+            if not self.__message_write_buffer.flushing:
+                await self.__message_write_buffer.flush()
+            await asyncio.sleep(0.1)
+
+    async def __process_alert_buffer(self) -> None:
+        while True:
+            if not self.__alert_write_buffer.flushing:
+                await self.__alert_write_buffer.flush()
+            await asyncio.sleep(0.1)
+
+    async def __stop__(self) -> None:
+        self.__scheduler.stop()
+        self.__scheduler = Scheduler()
+        await asyncio.gather(
+            self.__message_write_buffer.flush(),
+            self.__alert_write_buffer.flush(),
+        )
+
+    class SubscribeEventsInput(ImmutableDataObject):
+        kinds: str | FrozenSet[str] | None = None
+
+    @subscription("events")
+    async def subscribe_events(
+        self,
+        input: SubscribeEventsInput = SubscribeEventsInput(),
+    ) -> AsyncIterable[Event]:
+        match input.kinds:
+            case None:
+                kinds = None
+            case str():
+                kinds = {input.kinds}
+            case _:
+                kinds = input.kinds
+
+        async for event in self.events:
+            if kinds is None or event.kind in kinds:
+                yield event
+
+    async def __invoke(
         self,
         kind: "ProcedureKind",
         procedure: str,
@@ -247,321 +553,50 @@ class Component(ValidatedDataclass, Tasklet):
         try:
             return Ok(await awaitify(validate_arguments(method)(*arguments)))
         except Exception:
-            return Fail(ProcedureExceptionError(exception=traceback.format_exc()))
+            return Fail(ProcedureExceptionError(traceback=traceback.format_exc()))
 
-    def emit_event(self, event: _EventT) -> _EventT:
-        self.__component_internal__.outgoing_event_stream.put(event)
-        return event
-
-    def emit_alert(
+    async def call(
         self,
-        level: AlertLevel | RawAlertLevel,
-        kind: str,
-        info: dict[str, Any] | None = None,
-    ) -> Alert:
-        alert = Alert(
-            origin_id=self.context.id,
-            timestamp=utc(),
-            level=AlertLevel.create_from(level),
-            kind=kind,
-            info=info or {},
+        kind: CallableProcedureKind,
+        procedure: str,
+        input: object | None = None,
+    ) -> Result[object | None, ProcedureError]:
+        return await self.__invoke(kind.upcast(), procedure, input)
+
+    async def subscribe(
+        self,
+        kind: SubscribableProcedureKind,
+        procedure: str,
+        input: object | None = None,
+    ) -> Result[AsyncIterable[object | None], ProcedureError]:
+        return cast(
+            Result[AsyncIterable[object | None], ProcedureError],
+            await self.__invoke(kind.upcast(), procedure, input),
         )
 
-        self.emit_event(
-            AlertEmittedEvent(
-                address=self.address,
-                alert=alert,
-            )
-        )
 
-        return alert
-
-    def handle_event(self, event: Event) -> None:
-        self.__component_internal__.incoming_event_stream.put(event)
-
-    async def __run__(self) -> None:
-        self.scheduler.start()
-
-        for job in self.get_job_bindings().values():
-            if job.default_schedule is None:
-                continue
-
-            if (method := getattr(self, job.function, None)) is None:
-                continue
-
-            async def execute() -> None:
-                if method is None:
-                    return
-
-                try:
-                    if job.default_input is ...:
-                        await awaitify(method())
-                    else:
-                        await awaitify(method(job.default_input))
-                except Exception:
-                    self.logger.error(
-                        f"An exception occurred while running job '{job.name}': {traceback.format_exc()}"
-                    )
-
-            self.logger.info(f"Scheduling job '{job.name}' as: {job.default_schedule}")
-            self.scheduler.add_job(execute, job.default_schedule, name=job.name)
-
-        await self._process_incoming_events()
-
-    async def _process_incoming_events(self) -> None:
-        async for event in self.__component_internal__.incoming_event_stream:
-            await self._process_incoming_event(event)
-
-    async def _process_incoming_event(self, event: Event) -> None:
-        for binding in self.get_listener_bindings():
-            if not loose_isinstance(event, binding.event):
-                continue
-            target = getattr(self.references, binding.address.name, None)
-            if not isinstance(target, Component):
-                continue
-            if target.context.address != event.address:
-                continue
-
-            if method := getattr(self, binding.function, None):
-                try:
-                    if len(inspect.signature(method).parameters) == 0:
-                        await awaitify(method())
-                    else:
-                        await awaitify(method(event))
-                except Exception:
-                    self.logger.error(
-                        f"An exception occurred while processing event {event}: {traceback.format_exc()}"
-                    )
-
-    async def __stop__(self) -> None:
-        self.scheduler.stop()
-
-
-_T = TypeVar("_T")
-
-
-def _bind(function: Callable[..., Any], attribute: str, binding: _T) -> tuple[_T, ...]:
-    bindings: Sequence[_T] | None = getattr(function, attribute, None)
-
-    if not isinstance(bindings, Sequence):
-        bindings = ()
-
-    bindings = (*bindings, binding)
-    setattr(function, attribute, bindings)
-
-    return bindings
-
-
-LISTENER_BINDINGS_ATTRIBUTE = "__listener_bindings__"
-
-
-class ListenerBinding(ImmutableDataObject):
-    address: LocalComponentAddress
-    event: type | UnionType
-    function: str
-
-
-@overload
-def listen(
-    source: str,
-    event: type[_EventT],
-) -> Callable[
-    [Callable[[Any, _EventT], None | Awaitable[None]]], Callable[[Any, _EventT], Awaitable[None]]
-]:
-    ...
-
-
-@overload
-def listen(
-    source: str,
-    event: UnionType,
-) -> Callable[
-    [Callable[[Any, Event], None | Awaitable[None]]], Callable[[Any, Event], Awaitable[None]]
-]:
-    ...
-
-
-def listen(
-    source: str,
-    event: type[_EventT] | UnionType,
-) -> Callable[
-    [Callable[[Any, _EventT], None | Awaitable[None]]], Callable[[Any, _EventT], Awaitable[None]]
-] | Callable[
-    [Callable[[Any, Event], None | Awaitable[None]]], Callable[[Any, Event], Awaitable[None]]
-]:
-    def inner(function: Callable[[Any, Event], None | Awaitable[None]]) -> Any:
-        _bind(
-            function,
-            LISTENER_BINDINGS_ATTRIBUTE,
-            ListenerBinding(
-                address=LocalComponentAddress(source),
-                event=event,
-                function=function.__name__,
-            ),
-        )
-
-        return function
-
-    return inner
-
-
-PROCEDURE_BINDINGS_ATTRIBUTE = "__procedure_bindings__"
-
-
-class ProcedureKind(str, Enum):
-    QUERY = "query"
-    ACTION = "action"
-    JOB = "job"
-
-
-class BaseProcedureBinding(ImmutableDataObject):
-    kind: ProcedureKind
-    name: str
-    function: str
-
-
-class QueryBinding(BaseProcedureBinding):
-    kind: Literal[ProcedureKind.QUERY] = ProcedureKind.QUERY
-
-
-class ActionBinding(BaseProcedureBinding):
-    kind: Literal[ProcedureKind.ACTION] = ProcedureKind.ACTION
-
-
-class JobBinding(BaseProcedureBinding):
-    kind: Literal[ProcedureKind.JOB] = ProcedureKind.JOB
-    default_schedule: Schedule | None = None
-    default_input: object | None = None
-
-
-ProcedureBinding = QueryBinding | ActionBinding | JobBinding
-
-
-def _bind_procedure(
-    function: Callable[..., Any],
-    name: str,
-    binding: ProcedureBinding,
-) -> None:
-    parameters = [*inspect.signature(function).parameters.values()]
-    if len(parameters) not in (1, 2) or any(
-        parameter.kind not in (Parameter.POSITIONAL_OR_KEYWORD, Parameter.POSITIONAL_ONLY)
-        for parameter in parameters
-    ):
-        raise ValueError(
-            f"{binding.kind} {strify(function)} have exactly one or two positional parameters, 'self', and optionally, an input parameter"
-        )
-
-    if len(parameters) > 1:
-        input_parameter = parameters[1]
-        input_parameter_hint = get_type_hints(function)[input_parameter.name]
-
-        if not is_json_object_type(input_parameter_hint):
-            raise ValueError(
-                f"second positional parameter '{input_parameter.name}' of {binding.kind} {strify(function)} must be parseable as a JSON object"
-            )
-
-    _bind(
-        function,
-        PROCEDURE_BINDINGS_ATTRIBUTE,
-        QueryBinding(
-            name=name,
-            function=function.__name__,
-        ),
-    )
-
-
-_FunctionT = TypeVar("_FunctionT", bound=Callable[..., Any])
-
-
-def query(name: str) -> Callable[[_FunctionT], _FunctionT]:
-    def bind(function: _FunctionT) -> _FunctionT:
-        _bind_procedure(
-            function,
-            name,
-            QueryBinding(
-                name=name,
-                function=function.__name__,
-            ),
-        )
-
-        return function
-
-    return bind
-
-
-def action(name: str) -> Callable[[_FunctionT], _FunctionT]:
-    def bind(function: _FunctionT) -> _FunctionT:
-        _bind_procedure(
-            function,
-            name,
-            ActionBinding(
-                name=name,
-                function=function.__name__,
-            ),
-        )
-
-        return function
-
-    return bind
-
-
-def job(
-    name: str,
-    *,
-    default_schedule: Schedule | None = None,
-    default_input: object | None = None,
-) -> Callable[[_FunctionT], _FunctionT]:
-    def bind(function: _FunctionT) -> _FunctionT:
-        parameters = inspect.signature(function).parameters
-        if len(parameters) == 1 and default_input is not None:
-            raise ValueError("job does not take any input, but a default input has been specified")
-
-        _bind_procedure(
-            function,
-            name,
-            JobBinding(
-                name=name,
-                function=function.__name__,
-                default_schedule=default_schedule,
-                default_input=default_input,
-            ),
-        )
-
-        return function
-
-    return bind
+class CompleteContext(Component.Context):
+    id: UUID
+    address: ComponentAddress
+    root_config: Config
+    unit_config: UnitConfig
+    component_config: ComponentConfig
+    database: Database
 
 
 @cached
-def _get_listener_bindings(cls: type[_ComponentT]) -> Sequence[ListenerBinding]:
-    return tuple(get_bindings(cls, LISTENER_BINDINGS_ATTRIBUTE, ListenerBinding))
+def _get_listener_bindings(component_cls: type[Component]) -> Sequence[ListenerBinding]:
+    return tuple(get_bindings(component_cls, ListenerBinding))
+
+
+_ProcedureBindingT = TypeVar("_ProcedureBindingT", bound=BaseProcedureBinding)
 
 
 @cached
-def _get_query_bindings(cls: type[_ComponentT]) -> Mapping[str, QueryBinding]:
+def _get_procedure_bindings(
+    component_cls: type[_ComponentT],
+    binding_cls: type[_ProcedureBindingT],
+) -> Mapping[str, _ProcedureBindingT]:
     return MappingProxyType(
-        {
-            binding.name: binding
-            for binding in get_bindings(cls, PROCEDURE_BINDINGS_ATTRIBUTE, QueryBinding)
-        }
-    )
-
-
-@cached
-def _get_action_bindings(cls: type[_ComponentT]) -> Mapping[str, ActionBinding]:
-    return MappingProxyType(
-        {
-            binding.name: binding
-            for binding in get_bindings(cls, PROCEDURE_BINDINGS_ATTRIBUTE, ActionBinding)
-        }
-    )
-
-
-@cached
-def _get_job_bindings(cls: type[_ComponentT]) -> Mapping[str, JobBinding]:
-    return MappingProxyType(
-        {
-            binding.name: binding
-            for binding in get_bindings(cls, PROCEDURE_BINDINGS_ATTRIBUTE, JobBinding)
-        }
+        {binding.name: binding for binding in get_bindings(component_cls, binding_cls)}
     )

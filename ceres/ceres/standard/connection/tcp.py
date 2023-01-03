@@ -2,6 +2,7 @@ import asyncio
 from asyncio import StreamReader, StreamWriter
 from dataclasses import dataclass
 from datetime import timedelta
+from typing import final
 
 from ...connection import Connection
 from ...exceptions import ConnectionInactiveException, ConnectionLostException
@@ -13,6 +14,7 @@ class _Stream:
     writer: StreamWriter
 
 
+@final
 class TCPConnection(Connection):
     class Parameters(Connection.Parameters):
         host: str
@@ -24,10 +26,14 @@ class TCPConnection(Connection):
 
     def __post_init__(self) -> None:
         super().__post_init__()
-        self._stream: _Stream | None = None
+        self.__stream: _Stream | None = None
+
+    @property
+    def target(self) -> str:
+        return f"{self.parameters.host}:{self.parameters.port}"
 
     async def try_connect(self) -> bool:
-        if self._stream:
+        if self.__stream:
             return True
 
         reader, writer = await asyncio.wait_for(
@@ -38,7 +44,7 @@ class TCPConnection(Connection):
             self.parameters.timeout.total_seconds(),
         )
 
-        self._stream = _Stream(
+        self.__stream = _Stream(
             reader=reader,
             writer=writer,
         )
@@ -46,35 +52,35 @@ class TCPConnection(Connection):
         return True
 
     async def try_disconnect(self) -> None:
-        if not self._stream:
+        if not self.__stream:
             return
 
         try:
-            self._stream.writer.close()
+            self.__stream.writer.close()
         except Exception as exception:
             if error := str(exception).strip():
                 self.logger.error(error)
 
-        self._stream = None
+        self.__stream = None
 
     async def send_data(self, data: bytes) -> None:
-        if not self._stream:
+        if not self.__stream:
             raise ConnectionInactiveException("connection is not active")
 
         if not data.endswith(self.parameters.separator):
             data += self.parameters.separator
 
         try:
-            self._stream.writer.write(data)
-            await self._stream.writer.drain()
+            self.__stream.writer.write(data)
+            await self.__stream.writer.drain()
         except Exception:
             raise ConnectionLostException("connection was lost")
 
     async def receive_data(self) -> bytes:
-        if not self._stream:
+        if not self.__stream:
             raise ConnectionInactiveException("connection is not active")
 
         try:
-            return await self._stream.reader.readuntil(self.parameters.separator)
+            return await self.__stream.reader.readuntil(self.parameters.separator)
         except Exception:
             raise ConnectionLostException("connection was lost")

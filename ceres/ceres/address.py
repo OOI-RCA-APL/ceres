@@ -1,5 +1,5 @@
 from dataclasses import field
-from typing import Literal, overload
+from typing import Literal, TypeAlias, overload
 
 from .data import ValidatedDataclass
 
@@ -16,7 +16,7 @@ class UnitAddress(ValidatedDataclass, kw_only=False, frozen=True):
         return self.name
 
 
-class ComponentAddress(ValidatedDataclass, kw_only=False, frozen=True):
+class GlobalComponentAddress(ValidatedDataclass, kw_only=False, frozen=True):
     unit: str
     name: str
     kind: Literal["component"] = field(default="component")
@@ -24,9 +24,13 @@ class ComponentAddress(ValidatedDataclass, kw_only=False, frozen=True):
     def __str__(self) -> str:
         return f"@{self.unit}.{self.name}"
 
+    @property
+    def component(self) -> str:
+        return self.name
 
-AddressKind = Literal["unit", "component"]
-Address = UnitAddress | ComponentAddress
+
+AddressKind: TypeAlias = Literal["unit", "component"]
+Address: TypeAlias = UnitAddress | GlobalComponentAddress
 
 
 class LocalUnitAddress(ValidatedDataclass, kw_only=False, frozen=True):
@@ -44,44 +48,28 @@ class LocalComponentAddress(ValidatedDataclass, kw_only=False, frozen=True):
         return f".{self.name}"
 
 
-LocalAddress = LocalUnitAddress | LocalComponentAddress
+LocalAddress: TypeAlias = LocalUnitAddress | LocalComponentAddress
 
 
 @overload
-def create_address(kind: Literal["unit"], unit: str) -> UnitAddress:
+def caddr(unit_or_component: str, component: str, /) -> GlobalComponentAddress:
     ...
 
 
 @overload
-def create_address(kind: Literal["component"], unit: str, name: str) -> ComponentAddress:
+def caddr(unit_or_component: str, component: None = None, /) -> LocalComponentAddress:
     ...
 
 
-def create_address(kind: AddressKind, unit: str, name: str = "") -> Address:
-    match kind:
-        case "unit":
-            return UnitAddress(unit)
-        case "component":
-            return ComponentAddress(unit, name)
+def caddr(
+    unit_or_component: str,
+    component: str | None = None,
+    /,
+) -> GlobalComponentAddress | LocalComponentAddress:
+    if component is None:
+        return LocalComponentAddress(unit_or_component)
 
-    raise ValueError(kind)
-
-
-@overload
-def create_local_address(kind: Literal["unit"]) -> LocalUnitAddress:
-    ...
+    return GlobalComponentAddress(unit_or_component, component)
 
 
-@overload
-def create_local_address(kind: Literal["component"], name: str) -> LocalComponentAddress:
-    ...
-
-
-def create_local_address(kind: AddressKind, name: str = "") -> LocalAddress:
-    match kind:
-        case "unit":
-            return LocalUnitAddress()
-        case "component":
-            return LocalComponentAddress(name)
-
-    raise ValueError(kind)
+ComponentAddress: TypeAlias = GlobalComponentAddress | LocalComponentAddress
