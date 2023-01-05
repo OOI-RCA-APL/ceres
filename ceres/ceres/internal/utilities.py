@@ -9,7 +9,7 @@ from asyncio import AbstractEventLoop
 from contextlib import contextmanager
 from datetime import timedelta
 from functools import cache, wraps
-from types import MappingProxyType, UnionType
+from types import MappingProxyType, NoneType, UnionType
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -243,49 +243,59 @@ def decode_td(value: str | timedelta | int | float | Any) -> timedelta:
     raise get_exception()
 
 
+NAME_REGEX = re.compile(r"^[a-zA-Z_\-][a-zA-Z0-9_\-]*$")
+EMAIL_REGEX = re.compile(r"^.+@.+$")
+
 if TYPE_CHECKING:
     NameStr = str
     EmailStr = str
-    NonEmptyStr = str
 else:
 
     class NameStr(ConstrainedStr):
-        regex = re.compile(r"[a-zA-Z\-\_][a-zA-Z0-9\-\_]*")
+        regex = NAME_REGEX
 
     class EmailStr(ConstrainedStr):
-        regex = re.compile(r".+@.+")
-
-    class NonEmptyStr(ConstrainedStr):
-        regex = re.compile(r".+")
+        regex = EMAIL_REGEX
 
 
-def issubtype(subtype: type | UnionType, base: type | UnionType) -> bool:
+def is_subtype(subtype: type | UnionType, base: type | UnionType) -> bool:
     try:
         if subtype is base:
             return True
         if isinstance(subtype, type) and isinstance(base, type | UnionType):
             return issubclass(subtype, base)
         if isinstance(subtype, UnionType):
-            return all(issubtype(arg, base) for arg in subtype.__args__)
+            return all(is_subtype(arg, base) for arg in subtype.__args__)
     except Exception:
         pass
 
     return False
 
 
-def object_has_field(obj: Any, name: str, type: Any = None) -> bool:
+def is_optional(type_: type | UnionType) -> bool:
+    return is_subtype(NoneType, type_)
+
+
+def has_field(obj: Any, name: NameStr, type: Any = None) -> bool:
+    name = name.replace("-", "_")
+
     if dataclasses.is_dataclass(obj):
         return any(
-            field.name == name and (type is None or issubtype(field.type, type))
+            field.name == name and (type is None or is_subtype(field.type, type))
             for field in dataclasses.fields(obj)
         )
     if isinstance(obj, BaseModel) or issubclass(obj, BaseModel):
         return any(
-            field.name == name and (type is None or issubtype(field.type_, type))
+            field.name == name and (type is None or is_subtype(field.type_, type))
             for field in obj.__fields__.values()
         )
 
     return False
+
+
+def get_field_value(obj: Any, name: NameStr) -> Any:
+    name = name.replace("-", "_")
+    return getattr(obj, name, None)
 
 
 @overload

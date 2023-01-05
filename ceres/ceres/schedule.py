@@ -43,12 +43,17 @@ class IntervalSchedule(BaseSchedule):
     kind: Literal[ScheduleKind.INTERVAL] = ScheduleKind.INTERVAL
     interval: timedelta
 
-    def __init__(self, interval: timedelta) -> None:
+    def __init__(self, interval: timedelta, **kwargs: object) -> None:
         super().__init__(interval=interval)  # type: ignore
 
     @validator("interval", pre=True)
-    def _validate_timedeltas(cls, value: Any, **kwargs: object) -> timedelta:
-        return validate_positive_timedelta(value)
+    def _validate_interval(cls, value: Any) -> timedelta:
+        interval = validate_positive_timedelta(value)
+
+        if interval.microseconds != 0:
+            raise ValueError("sub-second interval resolution is not allowed")
+
+        return interval
 
 
 class AndSchedule(BaseSchedule):

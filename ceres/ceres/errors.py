@@ -31,7 +31,7 @@ class ComponentModuleNotFoundError(BaseComponentError):
 
 class ComponentModuleExceptionError(BaseComponentError):
     kind: Literal[ComponentErrorKind.MODULE_EXCEPTION] = ComponentErrorKind.MODULE_EXCEPTION
-    traceback: str
+    traceback: Sequence[str]
 
 
 class ComponentClassNotFoundError(BaseComponentError):
@@ -49,7 +49,7 @@ class ComponentParametersInvalidError(BaseComponentError):
 
 class ComponentInitExceptionError(BaseComponentError):
     kind: Literal[ComponentErrorKind.INIT_EXCEPTION] = ComponentErrorKind.INIT_EXCEPTION
-    traceback: str
+    traceback: Sequence[str]
 
 
 class ComponentReferenceInvalidError(BaseComponentError):

@@ -28,9 +28,10 @@ from . import logs
 from .tasklet import Tasklet
 from .utilities import (
     cached,
+    get_field_value,
     get_type_annotations,
+    has_field,
     lenient_issubclass,
-    object_has_field,
     strify,
 )
 
@@ -68,7 +69,7 @@ def load_component_cls(config: ComponentConfig) -> Result[type[Component], Compo
         return Fail(
             ComponentModuleExceptionError(
                 message=f"component module '{cls_module_path}' raised an exception during import",
-                traceback=traceback.format_exc(),
+                traceback=traceback.format_exception(exception),
             )
         )
 
@@ -127,15 +128,15 @@ def load_component(
         context_kwargs: dict[str, Any] = {}
 
         for field in context.__fields__.values():
-            if object_has_field(context_type, field.name):
-                context_kwargs[field.name] = getattr(context, field.name)
+            if has_field(context_type, field.name):
+                context_kwargs[field.name] = get_field_value(context, field.name)
 
         applied_context = context_type(**context_kwargs)
-    except Exception:
+    except Exception as exception:
         return Fail(
             ComponentInitExceptionError(
                 message=f"exception raised when creating {strify(context_type)} for {strify(cls)}",
-                traceback=traceback.format_exc(),
+                traceback=traceback.format_exception(exception),
             )
         )
 
@@ -168,25 +169,28 @@ def load_component(
             references_kwargs[component_alias] = sibling
 
         applied_references = references_type(**references_kwargs)
-    except Exception:
+    except Exception as exception:
         return Fail(
             ComponentInitExceptionError(
                 message=f"exception raised when creating {strify(references_type)} for {strify(cls)}",
-                traceback=traceback.format_exc(),
+                traceback=traceback.format_exception(exception),
             )
         )
+
+    applied_jobs = config.jobs
 
     try:
         instance = validate_arguments(cls)(
             parameters=applied_parameters,
             context=applied_context,
             references=applied_references,
+            jobs=applied_jobs,
         )
-    except Exception:
+    except Exception as exception:
         return Fail(
             ComponentInitExceptionError(
                 message=f"exception raised when calling __init__() for {strify(cls)}",
-                traceback=traceback.format_exc(),
+                traceback=traceback.format_exception(exception),
             )
         )
 

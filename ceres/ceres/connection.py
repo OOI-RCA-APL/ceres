@@ -45,6 +45,7 @@ class _ReconnectScheduler:
         self.__retries = 0
 
     def reset(self) -> None:
+        self.__current_interval = self.__initial_interval
         self.__retries = 0
 
     def next(self) -> timedelta:

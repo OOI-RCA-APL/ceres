@@ -23,12 +23,12 @@ from typing import (
 from uuid import UUID, uuid4
 from weakref import WeakValueDictionary
 
-from pydantic import Field, ValidationError, validate_arguments
+from pydantic import Field, ValidationError, validate_arguments, validator
 from typing_extensions import dataclass_transform
 
 from .address import ComponentAddress, caddr
 from .alert import Alert, AlertLevel
-from .config import ComponentConfig, Config, UnitConfig
+from .config import ComponentConfig, Config, JobConfig, UnitConfig
 from .data import (
     VALIDATED_DATACLASS_FIELD_SPECIFIERS,
     ImmutableDataObject,
@@ -51,14 +51,17 @@ from .internal.database.buffer import WriteBuffer
 from .internal.tasklet import Tasklet
 from .internal.utilities import (
     UNSET_UUID,
+    NameStr,
     awaitify,
     cached,
+    get_field_value,
     get_type_annotations,
+    has_field,
     lenient_isinstance,
     lenient_issubclass,
-    object_has_field,
     pre_validate_arguments,
     randstr,
+    strify,
 )
 from .listener import ListenerBinding
 from .message import MessageDirection
@@ -112,7 +115,7 @@ class Component(ValidatedDataclass, Tasklet):
                     parameter.kind == Parameter.KEYWORD_ONLY
                     and (
                         parameter.name in ("parameters", "context", "references")
-                        or parameter.default != Parameter.empty
+                        or parameter.default is not Parameter.empty
                     )
                 )
                 for i, parameter in enumerate(signature.parameters.values())
@@ -134,7 +137,7 @@ class Component(ValidatedDataclass, Tasklet):
                     if source == "self":
                         continue
 
-                    if not object_has_field(references_hint, source):
+                    if not has_field(references_hint, source):
                         raise ComponentClassInvalidException(
                             f"event listener {binding.function} refers to component '{source}' which is not defined as an attribute in {references_hint}"
                         )
@@ -216,7 +219,7 @@ class Component(ValidatedDataclass, Tasklet):
             extra: list[tuple[str, Any]] = []
 
             for current in cls.__fields__.values():
-                if not object_has_field(CompleteContext, current.name, current.type_):
+                if not has_field(CompleteContext, current.name, current.type_):
                     extra.append((current.name, current.type_))
 
             if extra:
@@ -228,6 +231,7 @@ class Component(ValidatedDataclass, Tasklet):
     parameters: Parameters = field(default_factory=Parameters)
     context: Context = field(default_factory=Context)
     references: References = field(default_factory=References)
+    jobs: Mapping[NameStr, JobConfig] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self.__events: Stream[Event] = Stream()
@@ -259,6 +263,27 @@ class Component(ValidatedDataclass, Tasklet):
         for component in self.references.dict().values():
             if isinstance(component, Component):
                 component.__add_referencer(self)
+
+    @validator("jobs")
+    def _validate_jobs(cls, jobs: Mapping[NameStr, JobConfig]) -> Mapping[NameStr, JobConfig]:
+        for job_name in jobs.keys():
+            if job_name not in cls.get_job_bindings():
+                defined = sorted(cls.get_job_bindings().keys())
+                raise ValueError(
+                    f"{strify(cls)} has no job named '{job_name}', defined jobs are {defined}"
+                )
+
+        for job in cls.get_job_bindings().values():
+            job_config = jobs.get(job.name)
+            if job_config is None or job_config.input is None:
+                if job.input is not None and job.input.required:
+                    raise ValueError(
+                        f"missing required input for job '{job.name}', set 'jobs.{job.name}.input' to a non-none value"
+                    )
+
+                # TODO: Validate job input is correct type.
+
+        return jobs
 
     @final
     @classmethod
@@ -426,9 +451,9 @@ class Component(ValidatedDataclass, Tasklet):
 
             for source in processor.binding.sources:
                 if source == "self":
-                    component = self
+                    component: Component = self
                 else:
-                    component = getattr(self.references, source, None)
+                    component = get_field_value(self.references, source)
 
                 if component is not None and component.id == event.component_id:
                     processor.put(event)
@@ -449,35 +474,47 @@ class Component(ValidatedDataclass, Tasklet):
         self.logger.log(log_level, f"Alert: {jsonify(alert)}")
         return alert
 
+    def __start_scheduler(self) -> None:
+        self.__scheduler.start()
+
+        for job in self.get_job_bindings().values():
+            job_config = self.jobs.get(job.name)
+
+            if job_config is not None and job_config.input is not None:
+                input = job_config.input
+            else:
+                if job.input is not None:
+                    input = job.input.default
+                else:
+                    input = None
+
+            if job_config is not None and job_config.schedule is not None:
+                schedule = job_config.schedule
+            else:
+                schedule = job.default_schedule
+
+            if schedule is None:
+                continue
+
+            async def run_job() -> None:
+                self.logger.info(f"Running job '{job.name}'...")
+                match await self.call(CallableProcedureKind.JOB, job.name, input):
+                    case Ok():
+                        self.logger.info(f"Job '{job.name}' finished.")
+                        pass
+                    case Fail(error):
+                        self.logger.error(
+                            f"An error occurred while running job '{job.name}': {strify(error)}"
+                        )
+
+            self.logger.info(f"Scheduling job '{job.name}' on {schedule}.")
+            self.scheduler.add_job(run_job, schedule, name=job.name)
+
     async def __run__(self) -> None:
         if self.__has_exclusive_temporary_database:
             await self.database.init()
 
-        self.__scheduler.start()
-
-        for job in self.get_job_bindings().values():
-            if job.default_schedule is None:
-                continue
-
-            if (method := getattr(self, job.function, None)) is None:
-                continue
-
-            async def run_job() -> None:
-                if method is None:
-                    return
-
-                try:
-                    if job.default_input is ...:
-                        await awaitify(method())
-                    else:
-                        await awaitify(method(job.default_input))
-                except Exception:
-                    self.logger.error(
-                        f"An exception occurred while running job '{job.name}': {traceback.format_exc()}"
-                    )
-
-            self.logger.info(f"Scheduling job '{job.name}' as: {job.default_schedule}")
-            self.scheduler.add_job(run_job, job.default_schedule, name=job.name)
+        self.__start_scheduler()
 
         await asyncio.gather(
             self.__process_event_processors(),

@@ -5,7 +5,7 @@ from typing import Any, Callable, cast
 
 import pydantic
 import pydantic.generics
-from pydantic import BaseConfig, ConfigDict, Field
+from pydantic import BaseConfig, ConfigDict, Extra, Field
 from pydantic.fields import FieldInfo
 from pydantic.fields import FieldInfo as FieldInfo
 from pydantic.generics import GenericModel
@@ -34,6 +34,7 @@ class DataObject(GenericModel, ABC):
         arbitrary_types_allowed = True
         orm_mode = True
         validate_assignment = True
+        extra = Extra.forbid
 
     def __str__(self) -> str:
         return super().__repr__()

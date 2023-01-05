@@ -13,12 +13,12 @@ from typing import (
     get_type_hints,
 )
 
-from pydantic import schema_of
+from pydantic import schema_of, validate_arguments
 from pydantic.typing import get_args
 
 from .data import ImmutableDataObject
 from .internal.binding import Binding, add_binding
-from .internal.utilities import get_member_name, strify
+from .internal.utilities import NameStr, get_member_name, is_optional, strify
 from .schedule import Schedule
 
 
@@ -58,11 +58,22 @@ class ProcedureSchemas(ImmutableDataObject):
     output: Mapping[str, Any]
 
 
+class ProcedureInputInfo(ImmutableDataObject):
+    json_schema: Mapping[str, Any]
+    required: bool
+    default: object | None
+
+
+class ProcedureOutputInfo(ImmutableDataObject):
+    json_schema: Mapping[str, Any]
+
+
 class BaseProcedureBinding(Binding):
     kind: ProcedureKind
     name: str
     function: str
-    schemas: ProcedureSchemas
+    input: ProcedureInputInfo | None
+    output: ProcedureOutputInfo
 
 
 class QueryBinding(BaseProcedureBinding):
@@ -76,7 +87,6 @@ class ActionBinding(BaseProcedureBinding):
 class JobBinding(BaseProcedureBinding):
     kind: Literal[ProcedureKind.JOB] = ProcedureKind.JOB
     default_schedule: Schedule | None = None
-    default_input: object | None = None
 
 
 class SubscriptionBinding(BaseProcedureBinding):
@@ -109,10 +119,15 @@ def _get_schema(hint: Any) -> Mapping[str, Any]:
     return schema
 
 
+class _ValidatedProcedureInfo(ImmutableDataObject):
+    input: ProcedureInputInfo | None
+    output: ProcedureOutputInfo
+
+
 def _validate_procedure(
     function: Callable[..., Any],
     kind: ProcedureKind,
-) -> ProcedureSchemas:
+) -> _ValidatedProcedureInfo:
     signature = inspect.signature(function)
     parameters = [*signature.parameters.values()]
     if len(parameters) not in (1, 2) or any(
@@ -125,9 +140,11 @@ def _validate_procedure(
 
     hints = get_type_hints(function)
 
-    if len(parameters) == 1:
-        input_schema: Mapping[str, Any] | None = None
+    if len(parameters) < 2:
+        input_info: ProcedureInputInfo | None = None
     else:
+        input_json_schema: Mapping[str, Any] | None = None
+
         input_parameter = parameters[1]
         if input_parameter.name not in hints:
             raise ValueError(
@@ -135,12 +152,27 @@ def _validate_procedure(
             )
 
         input_hint = hints[input_parameter.name]
+
         try:
-            input_schema = _get_schema(input_hint)
+            input_json_schema = _get_schema(input_hint)
         except Exception:
             raise ValueError(
                 f"second positional parameter '{input_parameter.name}' of {kind} {strify(function)} must be parseable as a JSON object"
             )
+
+        if input_parameter.default is Parameter.empty:
+            input_required = not is_optional(input_hint)
+            input_default: object | None = None
+        else:
+            input_required = False
+            # TODO: Check that the default input is valid.
+            input_default = input_parameter.default
+
+        input_info = ProcedureInputInfo(
+            json_schema=input_json_schema,
+            required=input_required,
+            default=input_default,
+        )
 
     if "return" not in hints:
         raise ValueError(f"return type of {kind} {strify(function)} must be specified")
@@ -158,15 +190,19 @@ def _validate_procedure(
             raise error
 
     try:
-        output_schema = _get_schema(output_hint)
+        output_json_schema = _get_schema(output_hint)
     except Exception:
         raise ValueError(
             f"return type of {kind} {strify(function)} must be serializable as a JSON object"
         )
 
-    return ProcedureSchemas(
-        input=input_schema,
-        output=output_schema,
+    output_info = ProcedureOutputInfo(
+        json_schema=output_json_schema,
+    )
+
+    return _ValidatedProcedureInfo(
+        input=input_info,
+        output=output_info,
     )
 
 
@@ -176,15 +212,17 @@ _CallableProcedureFunctionT = TypeVar(
 )
 
 
-def query(name: str) -> Callable[[_CallableProcedureFunctionT], _CallableProcedureFunctionT]:
+@validate_arguments
+def query(name: NameStr) -> Callable[[_CallableProcedureFunctionT], _CallableProcedureFunctionT]:
     def bind(function: _CallableProcedureFunctionT) -> _CallableProcedureFunctionT:
-        schemas = _validate_procedure(function, ProcedureKind.QUERY)
+        validated = _validate_procedure(function, ProcedureKind.QUERY)
         add_binding(
             function,
             QueryBinding(
                 name=name,
                 function=function.__name__,
-                schemas=schemas,
+                input=validated.input,
+                output=validated.output,
             ),
         )
 
@@ -193,15 +231,17 @@ def query(name: str) -> Callable[[_CallableProcedureFunctionT], _CallableProcedu
     return bind
 
 
-def action(name: str) -> Callable[[_CallableProcedureFunctionT], _CallableProcedureFunctionT]:
+@validate_arguments
+def action(name: NameStr) -> Callable[[_CallableProcedureFunctionT], _CallableProcedureFunctionT]:
     def bind(function: _CallableProcedureFunctionT) -> _CallableProcedureFunctionT:
-        schemas = _validate_procedure(function, ProcedureKind.ACTION)
+        validated = _validate_procedure(function, ProcedureKind.ACTION)
         add_binding(
             function,
             ActionBinding(
                 name=name,
                 function=get_member_name(function),
-                schemas=schemas,
+                input=validated.input,
+                output=validated.output,
             ),
         )
 
@@ -210,26 +250,22 @@ def action(name: str) -> Callable[[_CallableProcedureFunctionT], _CallableProced
     return bind
 
 
+@validate_arguments
 def job(
-    name: str,
+    name: NameStr,
     *,
     default_schedule: Schedule | None = None,
-    default_input: object | None = None,
 ) -> Callable[[_CallableProcedureFunctionT], _CallableProcedureFunctionT]:
     def bind(function: _CallableProcedureFunctionT) -> _CallableProcedureFunctionT:
-        parameters = inspect.signature(function).parameters
-        if len(parameters) == 1 and default_input is not None:
-            raise ValueError("job does not take any input, but a default input has been specified")
-
-        schemas = _validate_procedure(function, ProcedureKind.JOB)
+        validated = _validate_procedure(function, ProcedureKind.JOB)
         add_binding(
             function,
             JobBinding(
                 name=name,
                 function=get_member_name(function),
-                schemas=schemas,
+                input=validated.input,
+                output=validated.output,
                 default_schedule=default_schedule,
-                default_input=default_input,
             ),
         )
 
@@ -244,19 +280,21 @@ _SubscribableProcedureFunctionT = TypeVar(
 )
 
 
+@validate_arguments
 def subscription(
-    name: str,
+    name: NameStr,
     *,
     dedupe: bool = False,
 ) -> Callable[[_SubscribableProcedureFunctionT], _SubscribableProcedureFunctionT]:
     def bind(function: _SubscribableProcedureFunctionT) -> _SubscribableProcedureFunctionT:
-        schemas = _validate_procedure(function, ProcedureKind.SUBSCRIPTION)
+        validated = _validate_procedure(function, ProcedureKind.SUBSCRIPTION)
         add_binding(
             function,
             SubscriptionBinding(
                 name=name,
                 function=get_member_name(function),
-                schemas=schemas,
+                input=validated.input,
+                output=validated.output,
             ),
         )
 
@@ -268,20 +306,22 @@ def subscription(
     return bind
 
 
+@validate_arguments
 def display(
-    name: str,
+    name: NameStr,
     *,
     dedupe: bool = True,
     group: str | None = None,
 ) -> Callable[[_SubscribableProcedureFunctionT], _SubscribableProcedureFunctionT]:
     def bind(function: _SubscribableProcedureFunctionT) -> _SubscribableProcedureFunctionT:
-        schemas = _validate_procedure(function, ProcedureKind.SUBSCRIPTION)
+        validated = _validate_procedure(function, ProcedureKind.SUBSCRIPTION)
         add_binding(
             function,
             DisplayBinding(
                 name=name,
                 function=get_member_name(function),
-                schemas=schemas,
+                input=validated.input,
+                output=validated.output,
                 group=group,
             ),
         )

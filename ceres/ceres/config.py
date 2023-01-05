@@ -11,6 +11,7 @@ from .address import GlobalComponentAddress, UnitAddress
 from .data import ImmutableDataObject
 from .internal.utilities import NameStr, validate_positive_timedelta
 from .result import Ok
+from .schedule import Schedule
 
 if TYPE_CHECKING:
     from .component import Component
@@ -26,12 +27,19 @@ class ComponentRoleKind(str, Enum):
     CONNECTION = "connection"
 
 
+class JobConfig(ConfigObject):
+    input: Any = None
+    schedule: Schedule | None = Field(default=None, discriminator="kind")
+    enabled: bool = True
+
+
 class ComponentConfig(ConfigObject):
     name: NameStr
     roles: Sequence[ComponentRoleKind] = Field(default_factory=list)
     component: Union[str, type[Component]]
     parameters: Mapping[NameStr, Any] = Field(default_factory=dict)
     references: Mapping[NameStr, NameStr] = Field(default_factory=dict)
+    jobs: Mapping[NameStr, JobConfig] = Field(default_factory=dict)
 
     @validator("references", pre=True)
     def _validate_references(cls, value: object) -> object:
