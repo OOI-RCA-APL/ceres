@@ -7,7 +7,7 @@ from apscheduler.triggers.combining import AndTrigger, OrTrigger
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
-from .schedule import AndSchedule, CronSchedule, IntervalSchedule, OrSchedule, Schedule
+from ..schedule import AndSchedule, CronSchedule, IntervalSchedule, OrSchedule, Schedule
 
 warnings.filterwarnings(
     action="ignore",

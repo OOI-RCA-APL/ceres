@@ -9,7 +9,7 @@ from typer import Option
 
 from ...data import jsonify
 from ...engine import Engine
-from ...exceptions import StartupException
+from ...exceptions import EngineException
 from ...result import Ok
 from .. import logs
 from ..config import load_config
@@ -53,7 +53,7 @@ async def run(
         else:
             set_current_process_name("ceres")
             await Engine(await get_config(config_path, checks=[])).run()
-    except StartupException as exception:
+    except EngineException as exception:
         raise CLIStartupException(f"Engine startup failed. {exception.message}")
 
 

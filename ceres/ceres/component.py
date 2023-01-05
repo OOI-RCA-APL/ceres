@@ -48,6 +48,7 @@ from .exceptions import ComponentClassInvalidException
 from .internal import logs
 from .internal.binding import get_bindings
 from .internal.database.buffer import WriteBuffer
+from .internal.scheduler import Scheduler
 from .internal.tasklet import Tasklet
 from .internal.utilities import (
     UNSET_UUID,
@@ -78,7 +79,6 @@ from .procedure import (
     subscription,
 )
 from .result import Fail, Ok, Result
-from .scheduler import Scheduler
 from .stream import Stream, StreamView
 from .validation import ValidationProblem
 

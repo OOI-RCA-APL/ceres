@@ -22,10 +22,7 @@ from .errors import (
     ReloadConfigInvalidError,
     ReloadError,
 )
-from .exceptions import (
-    StartupConfigCheckFailedException,
-    StartupDatabaseInitFailedException,
-)
+from .exceptions import EngineConfigCheckFailedException, EngineDatabaseInitException
 from .internal import logs
 from .internal.app import App
 from .internal.config import load_config
@@ -127,7 +124,7 @@ class Engine(Tasklet):
             case Ok():
                 pass
             case Fail() as fail:
-                raise StartupConfigCheckFailedException(
+                raise EngineConfigCheckFailedException(
                     f"initial configuration check failed: {jsonify(fail, indent=2)}"
                 )
 
@@ -138,7 +135,7 @@ class Engine(Tasklet):
                 self.logger.info("Database initialized successfully.")
             except Exception as exception:
                 self.logger.error("Database initialization failed.")
-                raise StartupDatabaseInitFailedException(str(exception))
+                raise EngineDatabaseInitException(str(exception))
 
         try:
             if self.config_directory and str(self.config_directory) not in sys.path:

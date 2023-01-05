@@ -4,15 +4,15 @@ class CeresException(Exception):
         self.message = message
 
 
-class StartupException(CeresException):
+class EngineException(CeresException):
     pass
 
 
-class StartupConfigCheckFailedException(StartupException):
+class EngineConfigCheckFailedException(EngineException):
     pass
 
 
-class StartupDatabaseInitFailedException(StartupException):
+class EngineDatabaseInitException(EngineException):
     pass
 
 
@@ -21,10 +21,6 @@ class ComponentException(CeresException):
 
 
 class ComponentClassInvalidException(CeresException):
-    pass
-
-
-class ComponentNotLoadedException(CeresException):
     pass
 
 
@@ -37,10 +33,6 @@ class ConnectionInactiveException(ConnectionException):
 
 
 class ConnectionLostException(ConnectionException):
-    pass
-
-
-class ConnectionDecodeException(ConnectionException):
     pass
 
 
