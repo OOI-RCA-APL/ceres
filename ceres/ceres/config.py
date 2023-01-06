@@ -131,14 +131,19 @@ class RuntimeConfig(ConfigObject):
     concurrency: ConcurrencyKind = ConcurrencyKind.THREAD
 
 
+class PathsConfig(ConfigObject):
+    data: Path = Field(default=Path("./data"))
+
+
 class Config(ConfigObject):
     server: ServerConfig | None = None
     database: DatabaseConfig = Field(default_factory=SQLiteDatabaseConfig, discriminator="kind")
+    paths: PathsConfig = Field(default_factory=PathsConfig)
     runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
     units: Sequence[UnitConfig] = Field(default_factory=list)
 
-    __path: Path | None = None
-    __component_config_cache: dict[GlobalComponentAddress, ComponentConfig] = {}
+    _path: Path | None = None
+    _component_config_cache: dict[GlobalComponentAddress, ComponentConfig] = {}
 
     @root_validator
     def _validate_root(cls, values: Mapping[str, object]) -> Mapping[str, object]:
@@ -169,7 +174,7 @@ class Config(ConfigObject):
 
     @property
     def path(self) -> Path | None:
-        return self.__path
+        return self._path
 
     @validator("units")
     def _validate_units(cls, units: Sequence[UnitConfig]) -> Sequence[UnitConfig]:
@@ -188,8 +193,8 @@ class Config(ConfigObject):
         return next((unit for unit in self.units if unit.name == name), None)
 
     def get_component(self, address: GlobalComponentAddress) -> ComponentConfig | None:
-        if address in self.__component_config_cache:
-            return self.__component_config_cache[address]
+        if address in self._component_config_cache:
+            return self._component_config_cache[address]
 
         component: ComponentConfig | None = None
 
@@ -199,7 +204,7 @@ class Config(ConfigObject):
             )
 
         if component:
-            self.__component_config_cache[address] = component
+            self._component_config_cache[address] = component
 
         return component
 

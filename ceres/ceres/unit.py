@@ -11,6 +11,7 @@ from .component import CallableProcedureKind, SubscribableProcedureKind
 from .config import ConcurrencyKind, Config, UnitConfig
 from .data import jsonify
 from .database import Database
+from .directory import Directory
 from .errors import (
     ProcedureComponentNotLoadedError,
     ProcedureDoesNotExistError,
@@ -41,6 +42,16 @@ class Unit(Tasklet):
     def __init__(self, context: UnitContext) -> None:
         self.__context = context
         self.__database = context.database or Database(self.__context.root_config.database)
+        self.__directory = Directory(
+            (
+                context.root_config.path.parent
+                / context.root_config.paths.data
+                / "units"
+                / self.address.name
+            )
+            if context.root_config.path is not None
+            else None
+        )
         self.__component_handles: dict[str, ComponentHandle] = {}
 
     @property
@@ -58,6 +69,10 @@ class Unit(Tasklet):
     @property
     def database(self) -> Database:
         return self.__database
+
+    @property
+    def directory(self) -> Directory:
+        return self.__directory
 
     @property
     def concurrency(self) -> ConcurrencyKind:

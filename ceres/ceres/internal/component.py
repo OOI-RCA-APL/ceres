@@ -263,6 +263,7 @@ class ComponentHandle(Tasklet):
                 unit_config=self.__context.unit_config,
                 component_config=self.config,
                 database=self.__context.unit.database,
+                directory=self.__context.unit.directory,
             ),
             {
                 name: component.instance

@@ -37,6 +37,7 @@ from .data import (
 )
 from .database import Database
 from .database.entity import AlertEntity, MessageEntity
+from .directory import Directory
 from .errors import (
     ProcedureDoesNotExistError,
     ProcedureError,
@@ -211,6 +212,7 @@ class Component(ValidatedDataclass, Tasklet):
             default_factory=lambda: caddr(randstr(ascii_lowercase, 8))
         )
         database: Database = Field(default_factory=Database)
+        directory: Directory = Field(default_factory=Directory)
 
         def __init_subclass__(cls) -> None:
             if cls.__module__ == __name__:
@@ -356,6 +358,10 @@ class Component(ValidatedDataclass, Tasklet):
     @property
     def database(self) -> Database:
         return self.context.database
+
+    @property
+    def directory(self) -> Directory:
+        return self.context.directory
 
     @property
     def scheduler(self) -> Scheduler:
@@ -619,6 +625,7 @@ class CompleteContext(Component.Context):
     unit_config: UnitConfig
     component_config: ComponentConfig
     database: Database
+    directory: Directory
 
 
 @cached

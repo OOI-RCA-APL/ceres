@@ -15,6 +15,7 @@ from ..component import CompleteContext, Component
 from ..config import Config, UnitConfig
 from ..database import Database
 from ..datetime import utc
+from ..directory import Directory
 from ..errors import (
     ConfigComponentError,
     ConfigDatabaseError,
@@ -155,6 +156,7 @@ async def _check_components(
 
         def check_components() -> Iterable[ConfigComponentError]:
             database = Database(config.database)
+            directory = Directory()
 
             for component_config in unit_config.components:
                 address = caddr(unit_config.name, component_config.name)
@@ -168,6 +170,7 @@ async def _check_components(
                         unit_config=unit_config,
                         component_config=component_config,
                         database=database,
+                        directory=directory,
                     ),
                     components,
                 ):
