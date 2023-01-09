@@ -1,44 +1,31 @@
-import AppLayout from '@/AppLayout.vue'
-import Component from '@/pages/Component.vue'
-import Dashboard from '@/pages/Dashboard.vue'
-import Unit from '@/pages/Unit.vue'
-import Units from '@/pages/Units.vue'
 import { RouteRecordRaw } from 'vue-router'
 
 const routes: RouteRecordRaw[] = [
   {
     path: '',
-    component: AppLayout,
+    component: () => import('@/AppLayout.vue'),
     children: [
       {
         path: '',
-        component: Dashboard,
+        component: () => import('@/pages/Dashboard.vue'),
       },
       {
         path: '/units',
-        component: Units,
+        component: () => import('@/pages/Units.vue'),
         children: [
           {
-            path: ':unitName/components/:componentName',
-            component: Component,
-            props: (route) => ({
-              unitName: route.params.unitName,
-              componentName: route.params.componentName,
-            }),
-          },
-          {
             path: ':name?',
-            component: Unit,
+            component: () => import('@/pages/Unit.vue'),
             props: (route) => ({
               name: parseStringOrNull(route.params.name),
             }),
           },
         ],
       },
-      // {
-      //   path: '/:catchAll(.*)*',
-      //   redirect: '/units',
-      // },
+      {
+        path: '/:catchAll(.*)*',
+        redirect: '/units',
+      },
     ],
   },
 ]

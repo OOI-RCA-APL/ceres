@@ -428,6 +428,20 @@ def get_member_name(callable: Callable[..., Any]) -> str:
     return original
 
 
+def setattr_internal(cls: type[_T], instance: _T, name: str, value: object) -> None:
+    if name.startswith("__") and not name.endswith("__"):
+        name = f"_{cls.__name__}{name}"
+
+    object.__setattr__(instance, name, value)
+
+
+def getattr_internal(cls: type[_T], instance: _T, name: str, value: object) -> None:
+    if name.startswith("__") and not name.endswith("__"):
+        name = f"_{cls.__name__}{name}"
+
+    object.__setattr__(instance, name, value)
+
+
 def set_current_process_name(name: str) -> None:
     try:
         from setproctitle import setproctitle

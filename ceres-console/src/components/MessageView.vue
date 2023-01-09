@@ -12,8 +12,8 @@
     </template>
     <q-scroll-area ref="container" :class="containerClass" @scroll="onScroll">
       <message-view-item
-        v-for="(message, i) in matched"
-        :key="i"
+        v-for="message in messages"
+        :key="message.id"
         class="self-message"
         :message="message"
       />
@@ -36,7 +36,6 @@ import { getComponent, getMessages, useMessageStream } from '@/api/queries'
 import CommandInput from '@/components/CommandInput.vue'
 import MessageViewItem from '@/components/MessageViewItem.vue'
 import SectionCard from '@/components/SectionCard.vue'
-import moment from 'moment'
 import { QScrollArea } from 'quasar'
 import { computed, nextTick, onMounted, watch } from 'vue'
 
@@ -165,8 +164,6 @@ async function loadPreviousMessages() {
 }
 
 async function loadCurrentMessages() {
-  console.log('current')
-
   const results = await getMessages({
     component_id: info.id,
     search,
@@ -180,25 +177,20 @@ async function loadCurrentMessages() {
   await delay(15)
   await nextTick()
   scrollToBottom()
+  console.log(results)
 }
 
-useMessageStream({ component_id: info.id, search }, async (message) => {
-  messages.push(message)
+useMessageStream({ component_id: info.id, search }, async (message: Message) => {
+  if (search == null || message.content.includes(search)) {
+    messages.push(message)
+  }
+
   if (isAtBottom) {
     await delay()
     await nextTick()
     scrollToBottom()
   }
 })
-
-const matched = $computed(() =>
-  messages.filter(
-    (message) =>
-      message.content.toLowerCase().includes(search.toLowerCase()) ||
-      message.direction.toLowerCase().includes(search.toLowerCase()) ||
-      moment.utc(message.timestamp).format('YYYY/MM/DD HH:mm:ss.SSS').includes(search.toLowerCase())
-  )
-)
 
 function scrollToBottom() {
   if (container != null) {

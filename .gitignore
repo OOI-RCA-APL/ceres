@@ -1,7 +1,6 @@
 # Project
 .env
 /playground/
-static/
 
 # Python
 __pycache__/

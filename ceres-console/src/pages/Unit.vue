@@ -48,7 +48,7 @@
           >
             <message-view
               :component-name="selectedConnectionName"
-              container-class="component-page-message-view-container"
+              container-class="unit-page-message-view-container"
               title="Messages"
               :unit-name="name"
             />
@@ -226,5 +226,11 @@ function getDisplayGroups(driver: ComponentInfo) {
 <style lang="scss" scoped>
 .self-name-column {
   max-width: 50px;
+}
+</style>
+
+<style lang="scss">
+.unit-page-message-view-container {
+  height: 400px;
 }
 </style>

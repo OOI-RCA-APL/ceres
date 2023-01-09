@@ -33,7 +33,7 @@ module.exports = configure((context) => {
     },
 
     // https://v2.quasar.dev/quasar-cli-vite/boot-files
-    boot: ['boot'],
+    boot: ['pinia', 'vue-echarts', 'vue-query'],
 
     // https://v2.quasar.dev/quasar-cli-vite/quasar-config-js#css
     css: ['app.scss'],
