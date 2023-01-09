@@ -1,31 +1,34 @@
+from os import PathLike
 from pathlib import Path, PurePath
 from typing import IO, Any, Literal
 from uuid import UUID, uuid4
 
 from fs.base import FS
 from fs.osfs import OSFS
-from fs.subfs import SubFS
 from fs.tempfs import TempFS
 from typing_extensions import Self
 
 OpenMode = Literal["r", "r+", "w", "w+", "a", "a+"]
 
 
-class Directory:
+class Directory(PathLike[str]):
     def __init__(
         self,
         path: PurePath | str | None = None,
         parent: Self | None = None,
     ) -> None:
-        self.__id = uuid4()
-        self.__path = Path(path).absolute() if path is not None else None
-        if self.__path is not None:
-            print(self.__path)
-            self.__path.mkdir(parents=True, exist_ok=True)
-
+        if path is not None:
+            path = Path(path)
         if parent is not None:
-            self.__fs: FS = SubFS(parent.__fs, str(path) if path is not None else ".")
-        elif path is not None:
+            path = parent.path / (Path(path) if path is not None else "")
+        if path is not None:
+            path = path.absolute()
+            path.mkdir(parents=True, exist_ok=True)
+
+        self.__id = uuid4()
+        self.__parent = parent
+
+        if path is not None:
             self.__fs = OSFS(str(path))
         else:
             self.__fs = TempFS()
@@ -35,12 +38,15 @@ class Directory:
         return self.__id
 
     @property
-    def path(self) -> Path | None:
-        return self.__path
+    def path(self) -> Path:
+        return Path(self.__fs.root_path)
 
     @property
     def fs(self) -> FS:
         return self.__fs
+
+    def __fspath__(self) -> str:
+        return str(self.path)
 
     def open(
         self,
@@ -50,8 +56,14 @@ class Directory:
         encoding: str | None = None,
         errors: str | None = None,
         newline: str = "",
+        mkdirs: bool = True,
         **kwargs: Any,
     ) -> IO[str]:
+        if mkdirs:
+            parent = str(Path(path).parent)
+            if not self.__fs.exists(parent):
+                self.__fs.makedirs(parent)
+
         path = str(path)
         return self.__fs.open(
             path=path,
@@ -68,10 +80,16 @@ class Directory:
         path: PurePath | str,
         mode: OpenMode = "r",
         buffering: int = -1,
+        mkdirs: bool = True,
         **kwargs: Any,
-    ) -> IO[str]:
+    ) -> IO[bytes]:
+        if mkdirs:
+            parent = str(Path(path).parent)
+            if not self.__fs.exists(parent):
+                self.__fs.makedirs(parent)
+
         path = str(path)
-        return self.__fs.open(
+        return self.__fs.openbin(
             path=path,
             mode=mode,
             buffering=buffering,
@@ -104,9 +122,12 @@ class Directory:
         path = str(path)
         return self.__fs.islink(path)
 
-    def is_dir_empty(self, path: PurePath | str) -> bool:
+    def is_empty(self, path: PurePath | str) -> bool:
         path = str(path)
-        return self.__fs.isempty(path)
+        if self.__fs.isdir(path):
+            return self.__fs.isempty(path)
+
+        return self.__fs.getsize(path) == 0
 
     def touch(self, path: PurePath | str) -> None:
         path = str(path)
@@ -140,5 +161,6 @@ class Directory:
         path = str(path)
         return self.__fs.listdir(path)
 
-    def children(self, path: PurePath | str = ".") -> list[Self]:
-        return [Directory(name, self) for name in self.ls(path)]
+    def subdir(self, path: PurePath | str) -> Self:
+        path = str(path)
+        return type(self)(path, self)

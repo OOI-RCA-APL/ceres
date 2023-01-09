@@ -9,7 +9,7 @@ from uuid import UUID
 from .address import LocalComponentAddress, UnitAddress, caddr
 from .component import CallableProcedureKind, SubscribableProcedureKind
 from .config import ConcurrencyKind, Config, UnitConfig
-from .data import jsonify
+from .data import ImmutableDataObject, jsonify
 from .database import Database
 from .directory import Directory
 from .errors import (
@@ -22,6 +22,11 @@ from .internal.component import ComponentHandle, ComponentHandleContext
 from .internal.tasklet import Tasklet
 from .internal.utilities import sleep_forever, strify
 from .result import Fail, Ok, Result
+
+
+class UnitPaths(ImmutableDataObject):
+    local: Directory
+    data: Directory
 
 
 @dataclass(kw_only=True, frozen=True)
@@ -42,16 +47,22 @@ class Unit(Tasklet):
     def __init__(self, context: UnitContext) -> None:
         self.__context = context
         self.__database = context.database or Database(self.__context.root_config.database)
-        self.__directory = Directory(
-            (
-                context.root_config.path.parent
-                / context.root_config.paths.data
-                / "units"
-                / self.address.name
-            )
+
+        local_path = Directory(
+            (context.root_config.path.parent / context.root_config.paths.local / self.address.name)
             if context.root_config.path is not None
             else None
         )
+        data_path = Directory(
+            (context.root_config.path.parent / context.root_config.paths.data / self.address.name)
+            if context.root_config.path is not None
+            else None
+        )
+        self.__paths = UnitPaths(
+            local=local_path,
+            data=data_path,
+        )
+
         self.__component_handles: dict[str, ComponentHandle] = {}
 
     @property
@@ -63,6 +74,10 @@ class Unit(Tasklet):
         return self.__context.address
 
     @property
+    def root_config(self) -> Config:
+        return self.__context.root_config
+
+    @property
     def config(self) -> UnitConfig:
         return self.__context.unit_config
 
@@ -71,8 +86,8 @@ class Unit(Tasklet):
         return self.__database
 
     @property
-    def directory(self) -> Directory:
-        return self.__directory
+    def paths(self) -> UnitPaths:
+        return self.__paths
 
     @property
     def concurrency(self) -> ConcurrencyKind:

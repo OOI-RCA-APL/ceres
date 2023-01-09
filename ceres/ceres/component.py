@@ -87,6 +87,12 @@ _ComponentT = TypeVar("_ComponentT", bound="Component")
 _EventT = TypeVar("_EventT", bound=Event)
 
 
+class ComponentPaths(ImmutableDataObject):
+    unit: Directory = Field(default_factory=Directory)
+    component: Directory = Field(default_factory=Directory)
+    data: Directory = Field(default_factory=Directory)
+
+
 @dataclass_transform(
     kw_only_default=True,
     field_specifiers=VALIDATED_DATACLASS_FIELD_SPECIFIERS,
@@ -212,7 +218,7 @@ class Component(ValidatedDataclass, Tasklet):
             default_factory=lambda: caddr(randstr(ascii_lowercase, 8))
         )
         database: Database = Field(default_factory=Database)
-        directory: Directory = Field(default_factory=Directory)
+        paths: ComponentPaths = Field(default_factory=ComponentPaths)
 
         def __init_subclass__(cls) -> None:
             if cls.__module__ == __name__:
@@ -360,8 +366,8 @@ class Component(ValidatedDataclass, Tasklet):
         return self.context.database
 
     @property
-    def directory(self) -> Directory:
-        return self.context.directory
+    def paths(self) -> ComponentPaths:
+        return self.context.paths
 
     @property
     def scheduler(self) -> Scheduler:
@@ -625,7 +631,7 @@ class CompleteContext(Component.Context):
     unit_config: UnitConfig
     component_config: ComponentConfig
     database: Database
-    directory: Directory
+    paths: ComponentPaths
 
 
 @cached

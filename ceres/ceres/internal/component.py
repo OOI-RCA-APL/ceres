@@ -2,6 +2,7 @@ import importlib
 import traceback
 from dataclasses import dataclass
 from logging import Logger
+from pathlib import Path
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Mapping, Sequence, TypeVar, cast, final
 from uuid import UUID
@@ -9,7 +10,7 @@ from uuid import UUID
 from pydantic import ValidationError, parse_obj_as, validate_arguments
 
 from ..address import GlobalComponentAddress
-from ..component import CompleteContext, Component
+from ..component import CompleteContext, Component, ComponentPaths
 from ..config import ComponentConfig, ComponentRoleKind, Config, UnitConfig
 from ..connection import Connection
 from ..errors import (
@@ -263,7 +264,13 @@ class ComponentHandle(Tasklet):
                 unit_config=self.__context.unit_config,
                 component_config=self.config,
                 database=self.__context.unit.database,
-                directory=self.__context.unit.directory,
+                paths=ComponentPaths(
+                    unit=self.__context.unit.paths.local,
+                    component=self.__context.unit.paths.local.subdir(
+                        Path("components") / self.config.name
+                    ),
+                    data=self.__context.unit.paths.data,
+                ),
             ),
             {
                 name: component.instance

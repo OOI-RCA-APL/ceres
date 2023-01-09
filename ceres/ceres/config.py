@@ -133,6 +133,7 @@ class RuntimeConfig(ConfigObject):
 
 class PathsConfig(ConfigObject):
     data: Path = Field(default=Path("./data"))
+    local: Path = Field(default=Path("./local"))
 
 
 class Config(ConfigObject):
