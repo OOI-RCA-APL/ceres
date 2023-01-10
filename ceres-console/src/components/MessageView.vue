@@ -184,7 +184,7 @@ async function loadCurrentMessages() {
   const results = await getMessages({
     component_id: info.id,
     search: search === '' ? undefined : search,
-    limit: 250,
+    limit: 100,
   })
 
   isExhausted = results.length === 0
