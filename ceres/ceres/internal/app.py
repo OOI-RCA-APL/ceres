@@ -82,12 +82,12 @@ def use_entities(connection: HTTPConnection) -> EntityManager:
     return use_database(connection).entities
 
 
-@api.get("/config", response_model=Config, tags=["engine"])
+@api.get("/config", tags=["engine"])
 async def get_config(engine: Engine = Depends(use_engine)) -> Config:
     return engine.config
 
 
-@api.post("/reload", response_model=Result[Config, ReloadError], tags=["engine"])
+@api.post("/reload", tags=["engine"])
 async def reload(
     response: Response,
     engine: Engine = Depends(use_engine),
@@ -100,7 +100,7 @@ async def reload(
             return Fail(error)
 
 
-@api.get("/messages", response_model=list[Message], tags=["data"])
+@api.get("/messages", tags=["data"])
 async def get_messages(
     component_id: UUID | None = None,
     search: bytes | None = None,
@@ -130,7 +130,7 @@ async def get_messages(
     )
 
 
-@api.get("/alerts", response_model=list[Alert], tags=["data"])
+@api.get("/alerts", tags=["data"])
 async def get_alerts(
     component_id: UUID | None = None,
     before: datetime | None = None,
@@ -192,7 +192,7 @@ async def alert_stream(
         pass
 
 
-@api.get("/units/{unit}", response_model=UnitInfo, tags=["units"])
+@api.get("/units/{unit}", tags=["units"])
 async def get_unit_info(
     unit: NameStr,
     engine: Engine = Depends(use_engine),
@@ -223,11 +223,7 @@ async def get_unit_info(
     )
 
 
-@api.get(
-    "/units/{unit}/components/{component}",
-    response_model=ComponentInfo,
-    tags=["components"],
-)
+@api.get("/units/{unit}/components/{component}", tags=["components"])
 async def get_component_info(
     unit: NameStr,
     component: NameStr,
@@ -264,48 +260,36 @@ async def _call(
     return await engine.call(GlobalComponentAddress(unit, component), kind, procedure, input)
 
 
-@api.post(
-    "/units/{unit}/components/{component}/queries/{query}",
-    response_model=Result[Any | None, ProcedureError],
-    tags=["procedures"],
-)
+@api.post("/units/{unit}/components/{component}/queries/{query}", tags=["procedures"])
 async def run_query(
     unit: NameStr,
     component: NameStr,
     query: NameStr,
     input: Mapping[str, object] | None = None,
     engine: Engine = Depends(use_engine),
-) -> Result[object | None, ProcedureError]:
+) -> Result[Any | None, ProcedureError]:
     return await _call(engine, unit, component, CallableProcedureKind.QUERY, query, input)
 
 
-@api.post(
-    "/units/{unit}/components/{component}/actions/{action}",
-    response_model=Result[Any | None, ProcedureError],
-    tags=["procedures"],
-)
+@api.post("/units/{unit}/components/{component}/actions/{action}", tags=["procedures"])
 async def run_action(
     unit: NameStr,
     component: NameStr,
     action: NameStr,
     input: Mapping[str, object] | None = None,
     engine: Engine = Depends(use_engine),
-) -> Result[object | None, ProcedureError]:
+) -> Result[Any | None, ProcedureError]:
     return await _call(engine, unit, component, CallableProcedureKind.ACTION, action, input)
 
 
-@api.post(
-    "/units/{unit}/components/{component}/jobs/{job}",
-    response_model=Result[Any | None, ProcedureError],
-    tags=["procedures"],
-)
+@api.post("/units/{unit}/components/{component}/jobs/{job}", tags=["procedures"])
 async def run_job(
     unit: NameStr,
     component: NameStr,
     job: NameStr,
     input: Mapping[str, object] | None = None,
     engine: Engine = Depends(use_engine),
-) -> Result[object | None, ProcedureError]:
+) -> Result[Any | None, ProcedureError]:
     return await _call(engine, unit, component, CallableProcedureKind.JOB, job, input)
 
 
