@@ -135,9 +135,7 @@
           </thead>
           <tbody>
             <q-tr v-for="component in components" :key="component.name" no-hover>
-              <router-link class="text-link" :to="`/units/${name}/components/${component.name}`">
-                <q-td class="self-name-column">@{{ name }}.{{ component.name }}</q-td>
-              </router-link>
+              <q-td class="self-name-column">@{{ name }}.{{ component.name }}</q-td>
               <q-td class="text-capitalize">Yes</q-td>
             </q-tr>
           </tbody>
