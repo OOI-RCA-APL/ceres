@@ -107,7 +107,7 @@ async def get_messages(
     before: datetime | None = None,
     after: datetime | None = None,
     direction: MessageDirection | None = None,
-    limit: int = Query(default=100, ge=0, le=100),
+    limit: int = Query(default=100, ge=0, le=500),
     entities: EntityManager = Depends(use_entities),
 ) -> list[Message]:
     return list(
@@ -135,7 +135,7 @@ async def get_alerts(
     component_id: UUID | None = None,
     before: datetime | None = None,
     after: datetime | None = None,
-    limit: int = Query(default=100, ge=0, le=100),
+    limit: int = Query(default=100, ge=0, le=500),
     entities: EntityManager = Depends(use_entities),
 ) -> list[Alert]:
     return list(

@@ -1,7 +1,8 @@
 import { DisplayInfoModel } from '@/display'
 import { defineStore } from 'pinia'
-import { watchEffect } from 'vue'
+import { computed, isRef, ref, watchEffect } from 'vue'
 import { useQuery } from 'vue-query'
+import { MaybeRef } from 'vue-query/lib/vue/types'
 import Zod, { ZodTypeAny } from 'zod'
 import {
   ComponentInfo,
@@ -33,22 +34,14 @@ export async function getComponent(unit: string, name: string): Promise<Componen
   return await getOrNull(`/api/units/${unit}/components/${name}`, ComponentInfoModel)
 }
 
-export async function getMessages({
-  component_id,
-  search,
-  before,
-  after,
-}: {
+export async function getMessages(params: {
   component_id?: string
   search?: string
   before?: string
   after?: string
   limit?: number
 }): Promise<Message[]> {
-  return await get(
-    `/api/messages${createQueryParams({ component_id, search, before, after })}`,
-    Zod.array(MessageModel)
-  )
+  return await get(`/api/messages${createQueryParams(params)}`, Zod.array(MessageModel))
 }
 
 function getWebSocketURI(relative: string) {
@@ -63,17 +56,18 @@ function getWebSocketURI(relative: string) {
 }
 
 export function useMessageStream<TModel extends ZodTypeAny>(
-  {
-    component_id,
-    search,
-  }: {
+  params: MaybeRef<{
     component_id?: string
     search?: string
-  },
+  }>,
   onMessage: (message: Zod.infer<TModel>) => unknown
 ) {
   useStream(
-    getWebSocketURI(`/api/message-stream${createQueryParams({ component_id, search })}`),
+    computed(() =>
+      getWebSocketURI(
+        `/api/message-stream${createQueryParams(isRef(params) ? params.value : params)}`
+      )
+    ),
     // `ws://localhost:9000/api/message-stream?component_id=${encodeURIComponent(componentId)}`,
     // eslint-disable-next-line @typescript-eslint/ban-ts-comment
     // @ts-ignore
@@ -163,12 +157,13 @@ function createQueryParams(values: Record<string, string | number | null | undef
 }
 
 function useStream<TModel extends ZodTypeAny>(
-  url: string | URL,
+  url: MaybeRef<string | URL>,
   model: TModel,
   onMessage: (message: Zod.infer<TModel>) => unknown
 ) {
-  function createSocket(onDisconnect: () => unknown) {
-    const socket = new WebSocket(url)
+  const urlRef = isRef(url) ? url : ref(url)
+  function createSocket(url: string | URL, onDisconnect: () => unknown) {
+    const socket = new WebSocket(urlRef.value)
     socket.addEventListener('open', () => {
       console.log(`connected to '${url}'`)
     })
@@ -210,12 +205,12 @@ function useStream<TModel extends ZodTypeAny>(
       socket.close()
       setTimeout(() => {
         if (mounted) {
-          socket = createSocket(onDisconnect)
+          socket = createSocket(urlRef.value, onDisconnect)
         }
       }, 250)
     }
 
-    let socket = createSocket(onDisconnect)
+    let socket = createSocket(urlRef.value, onDisconnect)
 
     function onUnload() {
       if (socket.readyState == WebSocket.OPEN) {

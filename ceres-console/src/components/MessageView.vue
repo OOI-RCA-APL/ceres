@@ -10,14 +10,16 @@
         </q-input>
       </div>
     </template>
-    <q-scroll-area ref="container" :class="containerClass" @scroll="onScroll">
-      <message-view-item
-        v-for="message in messages"
-        :key="message.id"
-        class="self-message"
-        :message="message"
-      />
-    </q-scroll-area>
+    <q-virtual-scroll
+      ref="scroll"
+      v-slot="{ item: message }"
+      :class="containerClass"
+      :items="messages"
+      :virtual-scroll-item-size="messageHeight"
+      :virtual-scroll-slice-size="250"
+    >
+      <message-view-item :key="message.id" :message="message" />
+    </q-virtual-scroll>
     <q-separator class="q-mb-sm" />
     <div class="q-px-sm">
       <command-input
@@ -36,8 +38,8 @@ import { getComponent, getMessages, useMessageStream } from '@/api/queries'
 import CommandInput from '@/components/CommandInput.vue'
 import MessageViewItem from '@/components/MessageViewItem.vue'
 import SectionCard from '@/components/SectionCard.vue'
-import { QScrollArea } from 'quasar'
-import { computed, nextTick, onMounted, watch } from 'vue'
+import { QVirtualScroll } from 'quasar'
+import { computed, nextTick, onMounted, watch, watchEffect } from 'vue'
 
 const {
   title,
@@ -56,8 +58,18 @@ if (info == null) {
   throw new Error('Component not found')
 }
 
+const messageHeight = 21.5
+
 let search = $ref('')
-let container = $shallowRef<QScrollArea | null>(null)
+let scroll = $shallowRef<QVirtualScroll | null>(null)
+let container = $computed(() => {
+  if (scroll == null) {
+    return null
+  }
+
+  return scroll.$el as HTMLDivElement
+})
+
 let messages = $ref<Message[]>([])
 
 const earliestMessageTimestamp = $computed(() => messages[0]?.timestamp ?? null)
@@ -67,29 +79,28 @@ let isDoingInitialLoad = $ref(true)
 let isLoadingPreviousMessages = $ref(false)
 let isLoadingCurrentMessages = $ref(false)
 
-type ScrollInfo = {
-  verticalPosition: number
-  verticalPercentage: number
-  verticalSize: number
-  verticalContainerSize: number
+let containerInfo = $ref({
+  scrollHeight: 0,
+  scrollTop: 0,
+  clientHeight: 0,
+})
+
+function updateContainerInfo() {
+  if (container != null) {
+    containerInfo.scrollHeight = container.scrollHeight
+    containerInfo.scrollTop = container.scrollTop
+    containerInfo.clientHeight = container.clientHeight
+  }
 }
 
-let currentScroll: ScrollInfo | null = $ref(null)
+async function onScroll() {
+  updateContainerInfo()
 
-async function onScroll(scroll: ScrollInfo) {
-  currentScroll = scroll
-
-  if (!isNearTop) {
+  if (!isNearTop()) {
     return
   }
 
-  if (
-    isExhausted ||
-    isDoingInitialLoad ||
-    isLoadingCurrentMessages ||
-    isLoadingPreviousMessages ||
-    !isNearTop
-  ) {
+  if (isExhausted || isDoingInitialLoad || isLoadingCurrentMessages || isLoadingPreviousMessages) {
     return
   }
 
@@ -101,60 +112,66 @@ async function onScroll(scroll: ScrollInfo) {
   }
 }
 
-const isNearTop = $computed(() => {
-  if (currentScroll == null) {
+watchEffect((onCleanup) => {
+  const element = container
+  element?.addEventListener('scroll', onScroll)
+  void onScroll()
+  onCleanup(() => {
+    element?.removeEventListener('scroll', onScroll)
+  })
+})
+
+function isNearTop() {
+  if (container == null) {
     return false
   }
 
-  return currentScroll.verticalPercentage < 0.2
-})
+  return containerInfo.scrollTop < 20 * messageHeight
+}
 
-const isAtBottom = $computed(() => {
-  if (currentScroll == null) {
+function isAtBottom() {
+  if (container == null) {
     return true
   }
 
-  return currentScroll.verticalPercentage >= 0.995
-})
+  return containerInfo.scrollTop + containerInfo.clientHeight >= containerInfo.scrollHeight - 2
+}
 
 async function delay(milliseconds = 0) {
   return await new Promise((resolve) => setTimeout(resolve, milliseconds))
 }
 
 async function prependMessages(prepended: Message[]) {
-  const previousScrollHeight = currentScroll?.verticalSize
-  const previousScrollPosition = currentScroll?.verticalPosition
-
-  messages = [...prepended, ...messages]
+  messages = Object.freeze([...prepended, ...messages]) as Message[]
+  scroll?.refresh(prepended.length)
 
   await delay(15)
   await nextTick()
-  if (container == null || previousScrollHeight == null || previousScrollPosition == null) {
-    return
-  }
-
-  const diff = container.getScroll().verticalSize - previousScrollHeight
-  container.setScrollPosition('vertical', previousScrollPosition + diff)
   await delay()
   await nextTick()
 }
 
 async function appendMessages(appended: Message[]) {
-  const isSticky = isAtBottom
-  messages = [...messages, ...appended]
+  const follow = isAtBottom()
+  messages = Object.freeze([...messages, ...appended]) as Message[]
+  if (follow) {
+    scroll?.refresh(messages.length)
+  }
 
+  await delay(50)
+  await nextTick()
   await delay()
   await nextTick()
 
-  if (isSticky) {
-    scrollToBottom()
+  if (follow) {
+    scroll?.scrollTo(messages.length, 'end-force')
   }
 }
 
 async function loadPreviousMessages() {
   const results = await getMessages({
     component_id: info.id,
-    search,
+    search: search === '' ? undefined : search,
     before: earliestMessageTimestamp == null ? undefined : earliestMessageTimestamp,
     limit: 100,
   })
@@ -166,35 +183,28 @@ async function loadPreviousMessages() {
 async function loadCurrentMessages() {
   const results = await getMessages({
     component_id: info.id,
-    search,
-    limit: 100,
+    search: search === '' ? undefined : search,
+    limit: 250,
   })
 
   isExhausted = results.length === 0
   messages = []
   await appendMessages(results)
-  scrollToBottom()
-  await delay(15)
-  await nextTick()
-  scrollToBottom()
-  console.log(results)
 }
 
-useMessageStream({ component_id: info.id, search }, async (message: Message) => {
-  if (search == null || message.content.includes(search)) {
-    messages.push(message)
+useMessageStream(
+  computed(() => ({
+    component_id: info.id,
+    search: search === '' ? undefined : search,
+  })),
+  async (message: Message) => {
+    await appendMessages([message])
   }
-
-  if (isAtBottom) {
-    await delay()
-    await nextTick()
-    scrollToBottom()
-  }
-})
+)
 
 function scrollToBottom() {
-  if (container != null) {
-    container.setScrollPosition('vertical', container.getScroll().verticalSize)
+  if (scroll != null) {
+    scroll.scrollTo(messages.length)
   }
 }
 
@@ -227,6 +237,7 @@ watch([computed(() => search)], async () => {
   try {
     isLoadingCurrentMessages = true
     await loadCurrentMessages()
+    scrollToBottom()
   } finally {
     isLoadingCurrentMessages = false
   }
@@ -252,14 +263,6 @@ onMounted(async () => {
   .self-search-input-container {
     max-width: 280px;
   }
-}
-
-.self-message:first-child {
-  padding-top: 4px;
-}
-
-.self-message:last-child {
-  padding-bottom: 4px;
 }
 </style>
 
