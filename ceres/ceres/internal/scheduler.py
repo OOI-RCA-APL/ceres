@@ -1,4 +1,5 @@
 import warnings
+from datetime import timezone
 from typing import Any, Callable, final
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -19,7 +20,7 @@ warnings.filterwarnings(
 @final
 class Scheduler:
     def __init__(self) -> None:
-        self.__inner = AsyncIOScheduler()
+        self.__inner = AsyncIOScheduler(timezone=timezone.utc)
 
     def start(self) -> None:
         if not self.__inner.running:
