@@ -5,6 +5,8 @@ from .data import ImmutableDataObject
 _ValueT = TypeVar("_ValueT", covariant=True)
 _ErrorT = TypeVar("_ErrorT", covariant=True)
 
+_class_getitem_cache: dict[tuple[Any, ...], Any] = {}
+
 
 class __Result:
     """
@@ -17,7 +19,11 @@ class __Result:
         /,
         params: tuple[type[_ValueT], type[_ErrorT]],
     ) -> "Ok[_ValueT] | Fail[_ErrorT]":
-        return Ok[params[0]] | Fail[params[1]]  # type: ignore
+        if params in _class_getitem_cache:
+            return _class_getitem_cache[params]
+        value = Ok[params[0]] | Fail[params[1]]  # type: ignore
+        _class_getitem_cache[params] = value
+        return value  # type: ignore
 
 
 __Result.__name__ = "Result"
