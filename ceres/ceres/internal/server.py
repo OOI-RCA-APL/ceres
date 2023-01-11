@@ -38,6 +38,7 @@ class Server(Tasklet):
                 app=self.app,
                 port=self.config.port,
                 loop="none",
+                lifespan="off",
             )
         )
 
