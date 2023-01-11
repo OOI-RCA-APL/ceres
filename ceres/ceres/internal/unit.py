@@ -36,14 +36,15 @@ class UnitProxy:
         self.__unit = Unit(context)
         self.__loop = ensure_event_loop()
         self.__subscription_tasks: dict[UUID, Task[None]] = {}
-        if self.__unit.concurrency == ConcurrencyKind.PROCESS:
-            set_current_process_name(f"ceres-unit{self.__unit.address}")
+        self.__sync_process_name()
 
     @property
     def logger(self) -> Logger:
         return logs.get(str(self.__context.address))
 
     def run(self) -> None | BaseException:
+        self.__sync_process_name()
+
         try:
             if self.__loop.is_running():
                 asyncio.run_coroutine_threadsafe(self.__unit.run(), self.__loop).exception()
@@ -126,6 +127,10 @@ class UnitProxy:
                 task.cancel()
         except BaseException as exception:
             return exception
+
+    def __sync_process_name(self) -> None:
+        if self.__unit.concurrency == ConcurrencyKind.PROCESS:
+            set_current_process_name(f"ceres-unit{self.__unit.address}")
 
 
 @final
