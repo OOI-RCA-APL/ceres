@@ -1,13 +1,11 @@
 import asyncio
-import signal
-import sys
 import traceback
 from asyncio import FIRST_COMPLETED, Event
 from enum import Enum
 from logging import Logger
 from pathlib import Path
 from queue import Empty, Queue
-from typing import Any, final
+from typing import final
 
 from .address import GlobalComponentAddress, UnitAddress, caddr
 from .alert import Alert
@@ -29,7 +27,6 @@ from .internal.config import load_config
 from .internal.server import Server
 from .internal.tasklet import Tasklet
 from .internal.unit import Subscription, UnitHandle
-from .internal.utilities import temporary_signal_handler
 from .message import Message
 from .procedure import CallableProcedureKind, SubscribableProcedureKind
 from .result import Fail, Ok, Result
@@ -137,44 +134,33 @@ class Engine(Tasklet):
                 self.logger.error("Database initialization failed.")
                 raise EngineDatabaseInitException(str(exception))
 
-        try:
-            if self.config_directory and str(self.config_directory) not in sys.path:
-                sys.path.append(str(self.config_directory))
+        started = False
 
-            exiting = Event()
-            started = False
+        while True:
+            if started:
+                await self.__reloading.wait()
+                await self.__reload()
 
-            while not exiting.is_set():
-                if started:
-                    await self.__reloading.wait()
-                    await self.__reload()
+            await self.__sync_units()
+            await self.__start_server()
 
-                def handle_exit_signal(*args: Any, **kwargs: Any) -> None:
-                    exiting.set()
+            started = True
+            self.__reloading.clear()
 
-                with temporary_signal_handler([signal.SIGINT, signal.SIGTERM], handle_exit_signal):
-                    await self.__sync_units()
-                    await self.__start_server()
+            tasks = [
+                asyncio.create_task(self.__process(), name="process"),
+                asyncio.create_task(self.__reloading.wait(), name="reload-wait"),
+                asyncio.create_task(self.wait_until_stopping(), name="wait-until-stopping"),
+            ]
 
-                    started = True
-                    self.__reloading.clear()
-
-                    tasks = [
-                        asyncio.create_task(self.__process(), name="process"),
-                        asyncio.create_task(self.__reloading.wait(), name="reload-wait"),
-                        asyncio.create_task(exiting.wait(), name="exit-wait"),
-                    ]
-
-                    try:
-                        await asyncio.wait(tasks, return_when=FIRST_COMPLETED)
-                    finally:
-                        for task in tasks:
-                            task.cancel()
-
-            self.logger.info("Exit signal received, stopping...")
-        except KeyboardInterrupt:
-            self.logger.info("Exit signal received, stopping...")
-            raise
+            try:
+                await asyncio.wait(tasks, return_when=FIRST_COMPLETED)
+            finally:
+                for task in tasks:
+                    task.cancel()
+                if self.stopping:
+                    self.logger.info("Exit signal received, stopping...")
+                    break
 
     async def __process(self) -> None:
         while True:

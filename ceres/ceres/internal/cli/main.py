@@ -1,4 +1,7 @@
+import asyncio
 import signal
+from asyncio import FIRST_COMPLETED
+from asyncio import Event as AsyncEvent
 from pathlib import Path
 from typing import Any
 
@@ -52,7 +55,32 @@ async def run(
             await _run_watch(config_path=config_path)
         else:
             set_current_process_name("ceres")
-            await Engine(await get_config(config_path, checks=[])).run()
+            engine = Engine(await get_config(config_path, checks=[]))
+            exiting = AsyncEvent()
+
+            async def main() -> None:
+                task_run = asyncio.create_task(engine.run())
+                task_wait_until_exiting = asyncio.create_task(exiting.wait())
+
+                await asyncio.wait(
+                    [
+                        task_run,
+                        task_wait_until_exiting,
+                    ],
+                    return_when=FIRST_COMPLETED,
+                )
+
+                if not task_run.done():
+                    await engine.stop()
+
+                task_run.cancel()
+                task_wait_until_exiting.cancel()
+
+            def handle_exit_signal(*args: Any, **kwargs: Any) -> None:
+                exiting.set()
+
+            with temporary_signal_handler([signal.SIGINT, signal.SIGTERM], handle_exit_signal):
+                await main()
     except EngineException as exception:
         raise CLIStartupException(f"Engine startup failed. {exception.message}")
 

@@ -206,7 +206,7 @@ class Component(ValidatedDataclass, Tasklet):
                 finally:
                     self.__queue.task_done()
 
-        async def join(self) -> None:
+        async def wait_until_empty(self) -> None:
             await self.__queue.join()
 
     class Parameters(ImmutableDataObject):
@@ -396,9 +396,9 @@ class Component(ValidatedDataclass, Tasklet):
     async def settle(self) -> None:
         while not self.settled:
             await asyncio.gather(
-                *(processor.join() for processor in self.__event_processors),
-                self.__message_write_buffer.join(),
-                self.__alert_write_buffer.join(),
+                *(processor.wait_until_empty() for processor in self.__event_processors),
+                self.__message_write_buffer.wait_until_empty(),
+                self.__alert_write_buffer.wait_until_empty(),
             )
 
     def __add_referencer(self, referencer: "Component") -> None:

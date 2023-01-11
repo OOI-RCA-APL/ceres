@@ -332,6 +332,13 @@ async def sleep_forever() -> None:
         await asyncio.sleep(math.inf)
 
 
+def get_event_loop_or_none() -> AbstractEventLoop | None:
+    try:
+        return asyncio.get_running_loop()
+    except RuntimeError:
+        return None
+
+
 def ensure_event_loop() -> AbstractEventLoop:
     try:
         return asyncio.get_running_loop()
@@ -354,11 +361,17 @@ def ensure_event_loop() -> AbstractEventLoop:
 
 @contextmanager
 def temporary_signal_handler(signums: Sequence[int], handler: Callable[..., Any]) -> Iterator[None]:
+    loop = get_event_loop_or_none()
     originals: dict[int, Any] = {}
+
     for signum in signums:
         if original := signal.getsignal(signum):
             originals[signum] = original
-        signal.signal(signum, handler)
+
+        if loop is not None:
+            loop.add_signal_handler(signum, handler)
+        else:
+            signal.signal(signum, handler)
 
     try:
         yield

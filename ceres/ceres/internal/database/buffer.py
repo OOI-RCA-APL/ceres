@@ -77,5 +77,5 @@ class WriteBuffer(Generic[_EntityT]):
             if not self.__entities:
                 self.__empty_event.set()
 
-    async def join(self) -> None:
+    async def wait_until_empty(self) -> None:
         await self.__empty_event.wait()
