@@ -46,13 +46,19 @@ export async function getMessages(params: {
 
 function getWebSocketURI(relative: string) {
   const protocol = window.location.protocol.startsWith('https') ? 'wss' : 'ws'
-  const port =
-    process.env.NODE_ENV === 'production'
-      ? window.location.port
-      : process.env.DEVELOPMENT_CERES_API_PORT
+  const hostname = window.location.hostname
+  let port: string
+  if (process.env.NODE_ENV === 'production') {
+    if (window.location.port !== '') {
+      port = ':' + window.location.port
+    } else {
+      port = ''
+    }
+  } else {
+    port = ':' + process.env.DEVELOPMENT_CERES_API_PORT ?? ''
+  }
 
-  const host = window.location.host.slice(0, window.location.host.indexOf(':'))
-  return `${protocol}://${host}:${port}${relative}`
+  return `${protocol}://${hostname}${port}${relative}`
 }
 
 export function useMessageStream<TModel extends ZodTypeAny>(
