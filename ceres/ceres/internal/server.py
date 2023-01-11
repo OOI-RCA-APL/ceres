@@ -52,7 +52,13 @@ class Server(Tasklet):
 class _Uvicorn(BaseUvicorn):
     async def serve(self, sockets: Any = None) -> None:
         logs.setup()
-        await super().serve(sockets)
+        try:
+            await super().serve(sockets)
+        except SystemExit:
+            # TODO: This occurs when the server's port couldn't be opened. We should probably try to
+            # reconnect when this happens. For now, Uvicorn logs the error which should help
+            # diagnose the problem.
+            pass
 
     def install_signal_handlers(self) -> None:
         # Don't install anything, this will be handled externally.
