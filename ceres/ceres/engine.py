@@ -1,18 +1,18 @@
 import asyncio
 import traceback
-from asyncio import FIRST_COMPLETED, Event
+from asyncio import FIRST_COMPLETED, Event as AsyncEvent
 from enum import Enum
 from logging import Logger
 from pathlib import Path
 from queue import Empty, Queue
 from typing import AsyncIterable, final
 
+from .events import Event
+
 from .address import GlobalComponentAddress, UnitAddress, caddr
-from .alert import Alert
 from .config import Config, UnitConfig
 from .data import ImmutableDataObject, jsonify
 from .database import Database
-from .datetime import utc
 from .errors import (
     ProcedureError,
     ProcedureUnitDoesNotExistError,
@@ -26,10 +26,9 @@ from .internal.app import App
 from .internal.config import load_config
 from .internal.server import Server
 from .internal.tasklet import Tasklet
-from .message import Message
 from .procedure import CallableProcedureKind, SubscribableProcedureKind
 from .result import Fail, Ok, Result
-from .stream import Stream, StreamView
+from .stream import Stream
 from .unit import Unit, UnitContext
 
 
@@ -57,9 +56,8 @@ class Engine(Tasklet):
 
         self.__database = Database(self.__config.database)
         self.__units: dict[UnitAddress, Unit] = {}
-        self.__reloading = Event()
-        self.__message_stream: Stream[Message] = Stream()
-        self.__alert_stream: Stream[Alert] = Stream()
+        self.__events: Stream[Event] = Stream()
+        self.__reloading = AsyncEvent()
 
     @property
     def logger(self) -> Logger:
@@ -85,12 +83,8 @@ class Engine(Tasklet):
         return self.__database
 
     @property
-    def message_stream(self) -> StreamView[Message]:
-        return self.__message_stream.view()
-
-    @property
-    def alert_stream(self) -> StreamView[Alert]:
-        return self.__alert_stream.view()
+    def events(self) -> AsyncIterable[Event]:
+        return self.__events.view()
 
     async def reload(self) -> Result[Config, ReloadError]:
         if self.__reloading.is_set():
@@ -147,7 +141,6 @@ class Engine(Tasklet):
             self.__reloading.clear()
 
             tasks = [
-                asyncio.create_task(self.__process(), name="process"),
                 asyncio.create_task(self.__reloading.wait(), name="reload-wait"),
                 asyncio.create_task(self.wait_until_stopping(), name="wait-until-stopping"),
             ]
@@ -160,52 +153,6 @@ class Engine(Tasklet):
                 if self.stopping:
                     self.logger.info("Exit signal received, stopping...")
                     break
-
-    async def __process(self) -> None:
-        while True:
-            try:
-                await asyncio.gather(
-                    self.__process_messages(),
-                    self.__process_alerts(),
-                )
-            except Exception:
-                self.logger.error(
-                    f"An exception occurred in engine process: {traceback.format_exc()}"
-                )
-
-    async def __process_messages(self) -> None:
-        cursor = utc()
-
-        while True:
-            await asyncio.sleep(0.1)
-            messages = await self.database.entities.get_messages(
-                where=lambda message: message.timestamp > cursor,
-                order_by=lambda message: message.timestamp.desc(),
-            )
-
-            if not messages:
-                continue
-
-            cursor = messages[0].timestamp
-            for message in reversed(messages):
-                self.__message_stream.put(message)
-
-    async def __process_alerts(self) -> None:
-        cursor = utc()
-
-        while True:
-            await asyncio.sleep(0.1)
-            alerts = await self.database.entities.get_alerts(
-                where=lambda message: message.timestamp > cursor,
-                order_by=lambda message: message.timestamp.desc(),
-            )
-
-            if not alerts:
-                continue
-
-            cursor = alerts[0].timestamp
-            for alert in reversed(alerts):
-                self.__alert_stream.put(alert)
 
     async def __stop__(self) -> None:
         async def stop() -> None:
@@ -353,6 +300,7 @@ class Engine(Tasklet):
                         root_config=self.__config,
                         unit_config=unit_config,
                         database=self.__database,
+                        forward=(self.__events,),
                     )
 
                     unit = Unit(context)

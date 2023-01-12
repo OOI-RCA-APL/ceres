@@ -3,7 +3,7 @@ import traceback
 from dataclasses import dataclass
 from logging import Logger
 from types import MappingProxyType
-from typing import AsyncIterable, Mapping, final
+from typing import AsyncIterable, Mapping, Sequence, final
 from uuid import UUID
 
 from .address import LocalComponentAddress, UnitAddress, caddr
@@ -17,11 +17,13 @@ from .errors import (
     ProcedureDoesNotExistError,
     ProcedureError,
 )
+from .events import Event
 from .internal import logs
 from .internal.component import ComponentHandle, ComponentHandleContext
 from .internal.tasklet import Tasklet
 from .internal.utilities import sleep_forever, strify
 from .result import Fail, Ok, Result
+from .stream import Stream, StreamView
 
 
 class UnitPaths(ImmutableDataObject):
@@ -35,7 +37,8 @@ class UnitContext:
     address: UnitAddress
     root_config: Config
     unit_config: UnitConfig
-    database: Database | None = None
+    database: Database
+    forward: Sequence[Stream[Event]]
 
     def __post_init__(self) -> None:
         assert self.root_config.get_unit(self.address)
@@ -46,7 +49,8 @@ class UnitContext:
 class Unit(Tasklet):
     def __init__(self, context: UnitContext) -> None:
         self.__context = context
-        self.__database = context.database or Database(self.__context.root_config.database)
+        self.__database = context.database
+        self.__events: Stream[Event] = Stream()
 
         local_path = Directory(
             (context.root_config.path.parent / context.root_config.paths.local / self.address.name)
@@ -96,6 +100,10 @@ class Unit(Tasklet):
     @property
     def components(self) -> Mapping[str, ComponentHandle]:
         return MappingProxyType(self.__component_handles)
+
+    @property
+    def events(self) -> StreamView[Event]:
+        return self.__events.view()
 
     def get_component_handle(self, address: LocalComponentAddress) -> ComponentHandle | None:
         return self.__component_handles.get(address if isinstance(address, str) else address.name)
@@ -169,6 +177,7 @@ class Unit(Tasklet):
                     unit_config=self.config,
                     component_config=component_config,
                     unit=self,
+                    forward=[*self.__context.forward, self.__events],
                 )
             )
 

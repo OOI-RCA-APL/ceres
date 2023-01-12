@@ -27,6 +27,7 @@ from ..data import ImmutableDataObject, jsonify
 from ..database import Database
 from ..database.entity import EntityManager
 from ..errors import ProcedureError, ReloadError
+from ..events import AlertEmittedEvent, MessageReceivedEvent, MessageSentEvent
 from ..message import Message, MessageDirection
 from ..procedure import (
     ActionBinding,
@@ -161,15 +162,17 @@ async def message_stream(
     try:
         await socket.accept()
 
-        async for message in engine.message_stream:
-            if component_id is not None and message.component_id != component_id:
+        async for event in engine.events:
+            if not isinstance(event, (MessageSentEvent, MessageReceivedEvent)):
+                continue
+            if component_id is not None and event.message.component_id != component_id:
                 continue
 
             if search is not None:
-                if search not in message.content:
+                if search not in event.message.content:
                     continue
 
-            await socket.send_text(jsonify(message))
+            await socket.send_text(jsonify(event.message))
     except (WebSocketDisconnect, ConnectionClosed):
         pass
 
@@ -183,11 +186,13 @@ async def alert_stream(
     try:
         await socket.accept()
 
-        async for alert in engine.alert_stream:
-            if component_id is not None and alert.component_id != component_id:
+        async for event in engine.events:
+            if not isinstance(event, AlertEmittedEvent):
+                continue
+            if component_id is not None and event.alert.component_id != component_id:
                 continue
 
-            await socket.send_text(jsonify(alert))
+            await socket.send_text(jsonify(event.alert))
     except (WebSocketDisconnect, ConnectionClosed):
         pass
 

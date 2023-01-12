@@ -1,3 +1,4 @@
+import asyncio
 import importlib
 import traceback
 from dataclasses import dataclass
@@ -24,7 +25,9 @@ from ..errors import (
     ComponentReferenceInvalidError,
     ValidationProblem,
 )
+from ..events import Event
 from ..result import Fail, Ok, Result
+from ..stream import Stream
 from . import logs
 from .tasklet import Tasklet
 from .utilities import (
@@ -206,6 +209,7 @@ class ComponentHandleContext:
     unit_config: UnitConfig
     component_config: ComponentConfig
     unit: Unit
+    forward: Sequence[Stream[Event]]
 
     def __post_init__(self) -> None:
         assert self.root_config.get_component(self.address)
@@ -243,7 +247,18 @@ class ComponentHandle(Tasklet):
         if self.instance is None:
             return
 
-        await self.instance.run()
+        await asyncio.gather(
+            self.instance.run(),
+            self.__process_events(),
+        )
+
+    async def __process_events(self) -> None:
+        if self.instance is None:
+            return
+
+        async for event in self.instance.events:
+            for stream in self.__context.forward:
+                stream.put(event)
 
     async def __stop__(self) -> None:
         if self.instance is None:
