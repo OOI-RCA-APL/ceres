@@ -1,6 +1,6 @@
 import _ from 'lodash'
 import { LocalStorage } from 'quasar'
-import { computed, isReactive, isRef, onMounted, reactive, Ref, watch } from 'vue'
+import { computed, isReactive, isRef, reactive, Ref, watch } from 'vue'
 import { Router, useRouter } from 'vue-router'
 import Zod, { ZodArray, ZodBoolean, ZodNativeEnum, ZodNumber, ZodObject } from 'zod'
 
@@ -73,10 +73,8 @@ export function usePersisted<TData extends BaseData<TSchema>, TSchema extends Ba
     }
   }
 
-  onMounted(() => {
-    read()
-    write()
-  })
+  read()
+  write()
 
   watch(data, () => {
     write()
