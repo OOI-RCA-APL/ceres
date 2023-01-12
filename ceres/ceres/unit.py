@@ -8,7 +8,7 @@ from uuid import UUID
 
 from .address import LocalComponentAddress, UnitAddress, caddr
 from .component import CallableProcedureKind, SubscribableProcedureKind
-from .config import ConcurrencyKind, Config, UnitConfig
+from .config import Config, UnitConfig
 from .data import ImmutableDataObject, jsonify
 from .database import Database
 from .directory import Directory
@@ -88,12 +88,6 @@ class Unit(Tasklet):
     @property
     def paths(self) -> UnitPaths:
         return self.__paths
-
-    @property
-    def concurrency(self) -> ConcurrencyKind:
-        return (
-            self.__context.unit_config.concurrency or self.__context.root_config.runtime.concurrency
-        )
 
     @property
     def logger(self) -> Logger:

@@ -5,11 +5,11 @@ from enum import Enum
 from logging import Logger
 from pathlib import Path
 from queue import Empty, Queue
-from typing import final
+from typing import AsyncIterable, final
 
 from .address import GlobalComponentAddress, UnitAddress, caddr
 from .alert import Alert
-from .config import ConcurrencyKind, Config, UnitConfig
+from .config import Config, UnitConfig
 from .data import ImmutableDataObject, jsonify
 from .database import Database
 from .datetime import utc
@@ -26,12 +26,11 @@ from .internal.app import App
 from .internal.config import load_config
 from .internal.server import Server
 from .internal.tasklet import Tasklet
-from .internal.unit import Subscription, UnitHandle
 from .message import Message
 from .procedure import CallableProcedureKind, SubscribableProcedureKind
 from .result import Fail, Ok, Result
 from .stream import Stream, StreamView
-from .unit import UnitContext
+from .unit import Unit, UnitContext
 
 
 class UnitSyncActionKind(str, Enum):
@@ -57,7 +56,7 @@ class Engine(Tasklet):
             self.__server = None
 
         self.__database = Database(self.__config.database)
-        self.__unit_handles: dict[UnitAddress, UnitHandle] = {}
+        self.__units: dict[UnitAddress, Unit] = {}
         self.__reloading = Event()
         self.__message_stream: Stream[Message] = Stream()
         self.__alert_stream: Stream[Alert] = Stream()
@@ -187,10 +186,9 @@ class Engine(Tasklet):
             if not messages:
                 continue
 
+            cursor = messages[0].timestamp
             for message in reversed(messages):
                 self.__message_stream.put(message)
-
-            cursor = messages[0].timestamp
 
     async def __process_alerts(self) -> None:
         cursor = utc()
@@ -205,10 +203,9 @@ class Engine(Tasklet):
             if not alerts:
                 continue
 
+            cursor = alerts[0].timestamp
             for alert in reversed(alerts):
                 self.__alert_stream.put(alert)
-
-            cursor = alerts[0].timestamp
 
     async def __stop__(self) -> None:
         async def stop() -> None:
@@ -225,10 +222,10 @@ class Engine(Tasklet):
         procedure: str,
         input: object | None = None,
     ) -> Result[object | None, ProcedureError]:
-        if (unit_handle := self.__unit_handles.get(UnitAddress(address.unit))) is None:
+        if (unit := self.__units.get(UnitAddress(address.unit))) is None:
             raise ValueError(f"unit at {address} does not exist")
 
-        return await unit_handle.call(
+        return await unit.call(
             caddr(address.component),
             kind,
             procedure,
@@ -241,26 +238,16 @@ class Engine(Tasklet):
         kind: SubscribableProcedureKind,
         procedure: str,
         input: object | None = None,
-    ) -> Result[Subscription, ProcedureError]:
-        if (unit_handle := self.__unit_handles.get(UnitAddress(address.unit))) is None:
+    ) -> Result[AsyncIterable[object], ProcedureError]:
+        if (unit := self.__units.get(UnitAddress(address.unit))) is None:
             return Fail(ProcedureUnitDoesNotExistError())
 
-        return await unit_handle.subscribe(
+        return await unit.subscribe(
             caddr(address.name),
             kind,
             procedure,
             input,
         )
-
-    async def unsubscribe(
-        self,
-        address: GlobalComponentAddress,
-        subscription: Subscription,
-    ) -> None:
-        if (unit_handle := self.__unit_handles.get(UnitAddress(address.unit))) is None:
-            return
-
-        await unit_handle.unsubscribe(subscription)
 
     async def __reload(self) -> None:
         self.logger.info("Reloading...")
@@ -336,53 +323,41 @@ class Engine(Tasklet):
         actions = self.__get_unit_sync_actions()
 
         for action in actions:
-            unit_handle = self.__unit_handles.get(action.address)
+            unit = self.__units.get(action.address)
 
             if action.kind == UnitSyncActionKind.REMOVE:
-                if unit_handle:
+                if unit:
                     self.logger.info(f"Removing unit '{action.address}'...")
-                    await unit_handle.stop()
-                    self.__unit_handles.pop(unit_handle.address, None)
+                    await unit.stop()
+                    self.__units.pop(unit.address, None)
             else:
                 if action.kind == UnitSyncActionKind.START:
-                    if unit_handle and unit_handle.running:
+                    if unit and unit.running:
                         continue
 
                     self.logger.info(f"Starting unit '{action.address}'...")
                 elif action.kind == UnitSyncActionKind.RELOAD:
-                    if not unit_handle:
+                    if not unit:
                         continue
 
                     self.logger.info(f"Reloading unit '{action.address}'...")
-                    await unit_handle.stop()
-                    self.__unit_handles.pop(unit_handle.address, None)
+                    await unit.stop()
+                    self.__units.pop(unit.address, None)
 
                 if unit_config := unit_configs.get(action.address):
                     id = await self.__database.entities.get_address_id(action.address)
-                    concurrency = unit_config.concurrency or self.__config.runtime.concurrency
-
-                    match concurrency:
-                        case ConcurrencyKind.THREAD:
-                            # If the unit will be running in a thread, create a clone so it uses a
-                            # separate event loop but the underlying syncronous SQLAlchemy engine is
-                            # shared.
-                            database = Database(self.__database)
-                        case ConcurrencyKind.PROCESS:
-                            # If the unit will be running in a process, let it create its own
-                            # database client from the same configuration.
-                            database = None
 
                     context = UnitContext(
                         id=id,
                         address=action.address,
                         root_config=self.__config,
                         unit_config=unit_config,
-                        database=database,
+                        database=self.__database,
                     )
 
-                    unit_handle = UnitHandle(context)
-                    self.__unit_handles[action.address] = unit_handle
-                    unit_handle.start(
+                    unit = Unit(context)
+                    self.__units[action.address] = unit
+                    unit.start(
                         on_completed=self.__on_unit_completed,
                         on_exception=self.__on_unit_exception,
                     )
@@ -390,18 +365,17 @@ class Engine(Tasklet):
         started = [
             action
             for action in actions
-            if action.kind == UnitSyncActionKind.START and action.address in self.__unit_handles
+            if action.kind == UnitSyncActionKind.START and action.address in self.__units
         ]
         reloaded = [
             action
             for action in actions
-            if action.kind == UnitSyncActionKind.RELOAD and action.address in self.__unit_handles
+            if action.kind == UnitSyncActionKind.RELOAD and action.address in self.__units
         ]
         removed = [
             action
             for action in actions
-            if action.kind == UnitSyncActionKind.REMOVE
-            and action.address not in self.__unit_handles
+            if action.kind == UnitSyncActionKind.REMOVE and action.address not in self.__units
         ]
 
         if started:
@@ -412,19 +386,19 @@ class Engine(Tasklet):
             self.logger.info(f"{len(removed)} unit(s) removed.")
 
     async def __stop_units(self) -> None:
-        if not self.__unit_handles:
+        if not self.__units:
             return
 
         self.logger.info("Stopping all units...")
 
-        async def stop(unit_handle: UnitHandle) -> None:
-            if unit_handle.running:
-                self.logger.info(f"Stopping unit '{unit_handle.address}'...")
-                await unit_handle.stop()
+        async def stop(unit: Unit) -> None:
+            if unit.running:
+                self.logger.info(f"Stopping unit '{unit.address}'...")
+                await unit.stop()
 
-            self.__unit_handles.pop(unit_handle.address, None)
+            self.__units.pop(unit.address, None)
 
-        await asyncio.gather(*(stop(unit) for unit in self.__unit_handles.values()))
+        await asyncio.gather(*(stop(unit) for unit in self.__units.values()))
 
         self.logger.info("All units were stopped successfully.")
 
@@ -432,23 +406,20 @@ class Engine(Tasklet):
         configs: dict[UnitAddress, UnitConfig] = {
             UnitAddress(current.name): current for current in self.__config.units
         }
-        units: dict[UnitAddress, UnitHandle] = {
-            current.address: current for current in self.__unit_handles.values()
-        }
 
         actions: list[UnitSyncAction] = []
 
         for unit_address, unit_config in configs.items():
-            unit_handle = units.get(unit_address)
-            if unit_handle and unit_handle.running and unit_handle.config == unit_config:
+            unit = self.__units.get(unit_address)
+            if unit and unit.running and unit.config == unit_config:
                 continue
 
-            if not unit_handle or not unit_handle.running:
+            if not unit or not unit.running:
                 actions.append(UnitSyncAction(address=unit_address, kind=UnitSyncActionKind.START))
-            elif unit_handle.config != unit_config:
+            elif unit.config != unit_config:
                 actions.append(UnitSyncAction(address=unit_address, kind=UnitSyncActionKind.RELOAD))
 
-        for unit_address, unit_handle in self.__unit_handles.items():
+        for unit_address, unit in self.__units.items():
             if unit_address not in configs:
                 actions.append(UnitSyncAction(address=unit_address, kind=UnitSyncActionKind.REMOVE))
 
@@ -462,12 +433,12 @@ class Engine(Tasklet):
             f"An exception occurred in server: {traceback.format_exception(exception)}"
         )
 
-    def __on_unit_completed(self, unit_handle: UnitHandle) -> None:
-        self.logger.info(f"Unit '{unit_handle.address}' stopped.")
-        self.__unit_handles.pop(unit_handle.address, None)
+    def __on_unit_completed(self, unit: Unit) -> None:
+        self.logger.info(f"Unit '{unit.address}' stopped.")
+        self.__units.pop(unit.address, None)
 
-    def __on_unit_exception(self, unit_handle: UnitHandle, exception: BaseException) -> None:
+    def __on_unit_exception(self, unit: Unit, exception: BaseException) -> None:
         self.logger.error(
-            f"An exception occurred in unit '{unit_handle.address}': {traceback.format_exception(exception)}"
+            f"An exception occurred in unit '{unit.address}': {traceback.format_exception(exception)}"
         )
-        self.__unit_handles.pop(unit_handle.address, None)
+        self.__units.pop(unit.address, None)

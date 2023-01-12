@@ -313,7 +313,7 @@ async def _subscribe(
         return
 
     match await engine.subscribe(address, kind, procedure, input):
-        case Ok(subscription):
+        case Ok(values):
             pass
         case Fail() as fail:
             await socket.close(
@@ -323,7 +323,7 @@ async def _subscribe(
             return
 
     async def write() -> None:
-        async for value in subscription:
+        async for value in values:
             await socket.send_text(jsonify(value))
 
     write_task = asyncio.create_task(write(), name="write")
@@ -335,7 +335,6 @@ async def _subscribe(
         pass
     finally:
         write_task.cancel()
-        await engine.unsubscribe(address, subscription)
 
 
 @api.websocket("/units/{unit}/components/{component}/subscriptions/{subscription}")

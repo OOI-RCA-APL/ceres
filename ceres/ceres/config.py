@@ -2,9 +2,9 @@ import itertools
 from datetime import timedelta
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping, Sequence, Union, cast
+from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping, Sequence, Union
 
-from pydantic import Field, SecretStr, parse_obj_as, root_validator, validator
+from pydantic import Field, SecretStr, parse_obj_as, validator
 from typing_extensions import Self
 
 from .address import GlobalComponentAddress, UnitAddress
@@ -91,15 +91,9 @@ class PostgresDatabaseConfig(BaseDatabaseConfig):
 DatabaseConfig = SQLiteDatabaseConfig | PostgresDatabaseConfig
 
 
-class ConcurrencyKind(str, Enum):
-    THREAD = "thread"
-    PROCESS = "process"
-
-
 class UnitConfig(ConfigObject):
     name: NameStr
     components: Sequence[ComponentConfig] = Field(default_factory=list)
-    concurrency: ConcurrencyKind | None = None
 
     @validator("components")
     def _validate_components(
@@ -127,10 +121,6 @@ class UnitConfig(ConfigObject):
         return components
 
 
-class RuntimeConfig(ConfigObject):
-    concurrency: ConcurrencyKind = ConcurrencyKind.THREAD
-
-
 class PathsConfig(ConfigObject):
     data: Path = Field(default=Path("./data"))
     local: Path = Field(default=Path("./local"))
@@ -143,31 +133,10 @@ class Config(ConfigObject):
     server: ServerConfig | None = None
     database: DatabaseConfig = Field(default_factory=SQLiteDatabaseConfig, discriminator="kind")
     paths: PathsConfig = Field(default_factory=PathsConfig)
-    runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
     units: Sequence[UnitConfig] = Field(default_factory=list)
 
     __path: Path | None = None
     __component_config_cache: dict[GlobalComponentAddress, ComponentConfig] = {}
-
-    @root_validator
-    def _validate_root(cls, values: Mapping[str, object]) -> Mapping[str, object]:
-        database = cast(DatabaseConfig | None, values.get("database"))
-        runtime = cast(RuntimeConfig | None, values.get("runtime"))
-        units = cast(Sequence[UnitConfig] | None, values.get("units"))
-
-        if database is None or runtime is None or units is None:
-            return values
-
-        if isinstance(database, SQLiteDatabaseConfig) and database.path is None:
-            if runtime.concurrency == ConcurrencyKind.PROCESS or any(
-                (unit.concurrency or runtime.concurrency) == ConcurrencyKind.PROCESS
-                for unit in units
-            ):
-                raise ValueError(
-                    "a temporary SQLite database cannot be used with 'process' based concurrency"
-                )
-
-        return values
 
     @classmethod
     def from_data(cls, data: Any, path: Path | None = None) -> Self:

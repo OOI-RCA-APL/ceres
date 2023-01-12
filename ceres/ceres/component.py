@@ -244,8 +244,6 @@ class Component(ValidatedDataclass, Tasklet):
     def __post_init__(self) -> None:
         self.__events: Stream[Event] = Stream()
         self.__scheduler = Scheduler()
-        self.__message_write_buffer: WriteBuffer[MessageEntity]
-        self.__alert_write_buffer: WriteBuffer[AlertEntity]
         self.__referencers: WeakValueDictionary[UUID, Component] = WeakValueDictionary()
 
     def __post_init_post_parse__(self) -> None:

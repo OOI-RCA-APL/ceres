@@ -70,11 +70,15 @@ async def run(
                     return_when=FIRST_COMPLETED,
                 )
 
-                if not task_run.done():
-                    await engine.stop()
-
-                task_run.cancel()
-                task_wait_until_exiting.cancel()
+                try:
+                    if task_run.done():
+                        if not task_run.cancelled():
+                            task_run.result()
+                    else:
+                        await engine.stop()
+                finally:
+                    task_run.cancel()
+                    task_wait_until_exiting.cancel()
 
             def handle_exit_signal(*args: Any, **kwargs: Any) -> None:
                 exiting.set()
