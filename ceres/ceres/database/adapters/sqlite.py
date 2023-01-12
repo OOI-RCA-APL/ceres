@@ -4,7 +4,7 @@ from sqlite3 import Connection as SQLiteConnection
 from tempfile import gettempdir
 from typing import Any, final
 
-from sqlalchemy import NullPool, event
+from sqlalchemy import QueuePool, event
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import AsyncEngine
 
@@ -37,7 +37,9 @@ class SQLiteDatabaseAdapter(DatabaseAdapter[SQLiteDatabaseConfig]):
 
     def get_engine_config(self) -> dict[str, Any]:
         return {
-            "poolclass": NullPool,
+            "poolclass": QueuePool,
+            "pool_size": 10,
+            "max_overflow": -1,
             **self.config.engine,
         }
 
