@@ -1,5 +1,7 @@
 from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar
 
+from pydantic.generics import GenericModel
+
 from .data import ImmutableDataObject
 
 _ValueT = TypeVar("_ValueT", covariant=True)
@@ -30,7 +32,7 @@ __Result.__name__ = "Result"
 __Result.__qualname__ = __Result.__qualname__.replace("__Result", "Result")
 
 
-class Ok(ImmutableDataObject, Generic[_ValueT], __Result):
+class Ok(ImmutableDataObject, GenericModel, Generic[_ValueT], __Result):
     ok: Literal[True] = True
     value: _ValueT
 
@@ -46,7 +48,7 @@ class Ok(ImmutableDataObject, Generic[_ValueT], __Result):
         return True
 
 
-class Fail(ImmutableDataObject, Generic[_ErrorT], __Result):
+class Fail(ImmutableDataObject, GenericModel, Generic[_ErrorT], __Result):
     ok: Literal[False] = False
     error: _ErrorT
 

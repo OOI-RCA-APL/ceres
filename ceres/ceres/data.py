@@ -5,10 +5,9 @@ from typing import Any, Callable, cast
 
 import pydantic
 import pydantic.generics
-from pydantic import BaseConfig, ConfigDict, Extra, Field
+from pydantic import BaseConfig, BaseModel, ConfigDict, Extra, Field
 from pydantic.fields import FieldInfo
 from pydantic.fields import FieldInfo as FieldInfo
-from pydantic.generics import GenericModel
 from pydantic.json import pydantic_encoder
 from typing_extensions import dataclass_transform
 
@@ -29,7 +28,7 @@ def simplify(obj: object) -> Any:
     return json.loads(jsonify(obj))
 
 
-class DataObject(GenericModel, ABC):
+class DataObject(BaseModel, ABC):
     class Config(BaseConfig):
         arbitrary_types_allowed = True
         orm_mode = True
