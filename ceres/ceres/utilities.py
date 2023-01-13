@@ -11,5 +11,5 @@ async def spawn(function: Callable[_P, _T], *args: _P.args, **kwargs: _P.kwargs)
     def run() -> _T:
         return function(*args, **kwargs)
 
-    executor = ThreadPoolExecutor()
-    return await ensure_event_loop().run_in_executor(executor, run)
+    with ThreadPoolExecutor() as executor:
+        return await ensure_event_loop().run_in_executor(executor, run)
