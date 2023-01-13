@@ -14,12 +14,12 @@ from ...data import jsonify
 from ...engine import Engine
 from ...exceptions import EngineException
 from ...result import Ok
+from ...utilities import spawn
 from .. import logs
 from ..config import load_config
 from ..utilities import (
     ensure_event_loop,
     set_current_process_name,
-    spawn,
     strify,
     syncify,
     temporary_signal_handler,

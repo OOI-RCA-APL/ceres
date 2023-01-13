@@ -32,9 +32,7 @@ from typing import (
 )
 from uuid import UUID
 
-import anyio
 import rich
-from anyio import CapacityLimiter
 from apscheduler.triggers.cron import CronTrigger
 from pydantic import BaseModel, ConstrainedStr, parse_obj_as
 from pydantic.decorator import ValidatedFunction
@@ -391,16 +389,6 @@ def pre_validate_arguments(
 def dbg(value: _T) -> _T:
     rich.print(value)
     return value
-
-
-async def spawn(function: Callable[_P, _T], *args: _P.args, **kwargs: _P.kwargs) -> _T:
-    assert not kwargs
-    return await anyio.to_thread.run_sync(
-        function,
-        *args,
-        cancellable=True,
-        limiter=CapacityLimiter(4096),
-    )
 
 
 if TYPE_CHECKING:
