@@ -1,13 +1,12 @@
 import asyncio
 import traceback
-from asyncio import FIRST_COMPLETED, Event as AsyncEvent
+from asyncio import FIRST_COMPLETED
+from asyncio import Event as AsyncEvent
 from enum import Enum
 from logging import Logger
 from pathlib import Path
 from queue import Empty, Queue
 from typing import AsyncIterable, final
-
-from .events import Event
 
 from .address import GlobalComponentAddress, UnitAddress, caddr
 from .config import Config, UnitConfig
@@ -20,6 +19,7 @@ from .errors import (
     ReloadConfigInvalidError,
     ReloadError,
 )
+from .events import Event
 from .exceptions import EngineConfigCheckFailedException, EngineDatabaseInitException
 from .internal import logs
 from .internal.app import App
