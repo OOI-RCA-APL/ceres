@@ -80,6 +80,7 @@ from .procedure import (
     subscription,
 )
 from .result import Fail, Ok, Result
+from .routine import RoutineBinding, routine
 from .stream import Stream
 from .validation import ValidationProblem
 
@@ -313,6 +314,11 @@ class Component(ValidatedDataclass, Tasklet):
 
     @final
     @classmethod
+    def get_routine_bindings(cls) -> Sequence[RoutineBinding]:
+        return _get_routine_bindings(cls)
+
+    @final
+    @classmethod
     def get_query_bindings(cls) -> Mapping[str, QueryBinding]:
         return _get_procedure_bindings(cls, QueryBinding)
 
@@ -526,22 +532,29 @@ class Component(ValidatedDataclass, Tasklet):
 
         self.__start_scheduler()
 
-        await asyncio.gather(
-            self.__process_event_processors(),
-            self.__process_message_buffer(),
-            self.__process_alert_buffer(),
-        )
+        routines: list[Callable[[], Awaitable[None]]] = []
+        for routine_binding in self.get_routine_bindings():
+            routine = getattr(self, routine_binding.function, None)
+            if routine is None:
+                continue
 
-    async def __process_event_processors(self) -> None:
+            routines.append(routine)
+
+        await asyncio.gather(*(method() for method in routines))
+
+    @routine
+    async def __run_event_processors(self) -> None:
         await asyncio.gather(*(processor.run() for processor in self.__event_processors))
 
-    async def __process_message_buffer(self) -> None:
+    @routine
+    async def __flush_message_buffer(self) -> None:
         while True:
             if not self.__message_write_buffer.flushing:
                 await self.__message_write_buffer.flush()
             await asyncio.sleep(0.1)
 
-    async def __process_alert_buffer(self) -> None:
+    @routine
+    async def __flush_alert_buffer(self) -> None:
         while True:
             if not self.__alert_write_buffer.flushing:
                 await self.__alert_write_buffer.flush()
@@ -635,6 +648,11 @@ class CompleteContext(Component.Context):
 @cached
 def _get_listener_bindings(component_cls: type[Component]) -> Sequence[ListenerBinding]:
     return tuple(get_bindings(component_cls, ListenerBinding))
+
+
+@cached
+def _get_routine_bindings(component_cls: type[Component]) -> Sequence[RoutineBinding]:
+    return tuple(get_bindings(component_cls, RoutineBinding))
 
 
 _ProcedureBindingT = TypeVar("_ProcedureBindingT", bound=BaseProcedureBinding)

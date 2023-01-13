@@ -6,6 +6,8 @@ from typing import Any, AsyncIterable
 
 from pydantic import validator
 
+from ceres.routine import routine
+
 from .alert import Alert, AlertLevel
 from .component import Component
 from .data import ImmutableDataObject, jsonify
@@ -178,13 +180,8 @@ class Connection(Component, ABC):
             self.emit_event(DisconnectedEvent())
             self.logger.info("Disconnected.")
 
-    async def __run__(self) -> None:
-        await asyncio.gather(
-            super().__run__(),
-            self.__process_update(),
-        )
-
-    async def __process_update(self) -> None:
+    @routine
+    async def __update(self) -> None:
         while True:
             self.__reconnect.reset()
 
