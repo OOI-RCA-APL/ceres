@@ -8,7 +8,6 @@ from pydantic import validator
 
 from ceres.routine import routine
 
-from .alert import Alert, AlertLevel
 from .component import Component
 from .data import ImmutableDataObject, jsonify
 from .events import (
@@ -186,12 +185,7 @@ class Connection(Component, ABC):
             self.__reconnect.reset()
 
             while not await self.connect():
-                self.emit_alert(
-                    Alert(
-                        level=AlertLevel.ERROR,
-                        code="connection-attempt-failed",
-                    )
-                )
+                self.logger.info("Failed to connect.")
                 seconds = self.__reconnect.next().total_seconds()
                 self.logger.info(f"Reconnecting in {seconds:g} seconds...")
                 await asyncio.sleep(seconds)
