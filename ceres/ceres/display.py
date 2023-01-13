@@ -5,7 +5,7 @@ from pydantic.color import Color as Color
 
 from .data import ImmutableDataObject
 
-AtomicValue: TypeAlias = bool | float | str
+AtomicValue: TypeAlias = str | int | float | bool
 
 
 class DisplayKind(str, Enum):
