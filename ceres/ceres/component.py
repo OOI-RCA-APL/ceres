@@ -16,7 +16,6 @@ from typing import (
     Mapping,
     Sequence,
     TypeVar,
-    cast,
     final,
     get_type_hints,
 )
@@ -629,10 +628,25 @@ class Component(ValidatedDataclass, Tasklet):
         procedure: str,
         input: object | None = None,
     ) -> Result[AsyncIterable[object | None], ProcedureError]:
-        return cast(
-            Result[AsyncIterable[object | None], ProcedureError],
-            await self.__invoke(kind.upcast(), procedure, input),
-        )
+        values: AsyncIterable[object | None]
+
+        match await self.__invoke(kind.upcast(), procedure, input):
+            case Ok(values):  # type: ignore
+                pass
+            case fail:
+                return fail
+
+        async def iterate() -> AsyncIterable[object | None]:
+            try:
+                async for value in values:
+                    yield value
+            except Exception:
+                self.logger.error(
+                    f"An exception occurred in {kind.value} '{procedure}': {traceback.format_exc()}"
+                )
+                raise
+
+        return Ok(iterate())
 
 
 class CompleteContext(Component.Context):

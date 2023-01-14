@@ -14,6 +14,7 @@ from sqlalchemy import (
     Index,
     LargeBinary,
     PrimaryKeyConstraint,
+    Result,
     Text,
     Uuid,
     select,
@@ -168,22 +169,6 @@ class EntityManager:
                 case GlobalComponentAddress():
                     return (await self.__get_component(session, address)).id
 
-    async def get_alerts(
-        self,
-        *,
-        where: Callable[[type[AlertEntity]], _WhereT] | None = None,
-        order_by: Callable[[type[AlertEntity]], _OrderByT] | None = lambda alert: alert.timestamp,
-        limit: int | None = None,
-    ) -> list[Alert]:
-        entities = await self.__get_entities(
-            AlertEntity,
-            where=where,
-            order_by=order_by,
-            limit=limit,
-        )
-
-        return [Alert.from_orm(entity) for entity in entities]
-
     async def get_messages(
         self,
         *,
@@ -192,33 +177,49 @@ class EntityManager:
         | None = lambda message: message.timestamp,
         limit: int | None = None,
     ) -> list[Message]:
-        entities = await self.__get_entities(
+        rows = await self.__get_entity_rows(
             MessageEntity,
             where=where,
             order_by=order_by,
             limit=limit,
         )
 
-        return [Message.from_orm(entity) for entity in entities]
+        return [Message.construct(**row._asdict()) for row in rows]  # type: ignore
 
-    async def __get_entities(
+    async def get_alerts(
+        self,
+        *,
+        where: Callable[[type[AlertEntity]], _WhereT] | None = None,
+        order_by: Callable[[type[AlertEntity]], _OrderByT] | None = lambda alert: alert.timestamp,
+        limit: int | None = None,
+    ) -> list[Alert]:
+        rows = await self.__get_entity_rows(
+            AlertEntity,
+            where=where,
+            order_by=order_by,
+            limit=limit,
+        )
+
+        return [Alert.construct(**row._asdict()) for row in rows]  # type: ignore
+
+    async def __get_entity_rows(
         self,
         cls: type[_EntityT],
         *,
         where: Callable[[type[_EntityT]], _WhereT] | None = None,
         order_by: Callable[[type[_EntityT]], _OrderByT] | None = None,
         limit: int | None = None,
-    ) -> list[_EntityT]:
-        query = select(cls)
+    ) -> Result[Any]:
+        query = select(*cls.__table__.columns)
         if where is not None:
-            query = select(cls).where(where(cls))
+            query = query.where(where(cls))
         if order_by is not None:
             query = query.order_by(order_by(cls))
         if limit is not None:
             query = query.limit(limit)
 
         async with self.__database.session() as session:
-            return list(await session.scalars(query))
+            return await session.execute(query)
 
     async def __get_unit(
         self,

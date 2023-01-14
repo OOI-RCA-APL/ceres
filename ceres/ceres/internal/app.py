@@ -41,7 +41,7 @@ from ..procedure import (
 from ..result import Fail, Ok, Result
 from . import logs
 from .console import Console
-from .utilities import NameStr, escape_like_expression
+from .utilities import NameStr, escape_like_expression, strify
 
 if TYPE_CHECKING:
     from ..engine import Engine
@@ -322,24 +322,42 @@ async def _subscribe(
             pass
         case Fail() as fail:
             await socket.close(
-                code=1008,
+                code=1008,  # Set code for policy violation.
                 reason=jsonify(fail),
             )
             return
 
-    async def write() -> None:
-        async for value in values:
-            await socket.send_text(jsonify(value))
+    async def read() -> None:
+        try:
+            while True:
+                await socket.receive_text()
+        except Exception:
+            pass
+        finally:
+            task_write.cancel()
 
-    write_task = asyncio.create_task(write(), name="write")
+    async def write() -> None:
+        try:
+            async for value in values:
+                await socket.send_text(jsonify(value))
+        except Exception as exception:
+            try:
+                await socket.close(
+                    code=1011,  # Set code for internal error.
+                    reason=jsonify(strify(exception)[0:100]),
+                )
+            except Exception:
+                pass
+        finally:
+            task_read.cancel()
+
+    task_read = asyncio.create_task(read(), name="read")
+    task_write = asyncio.create_task(write(), name="write")
 
     try:
-        while True:
-            await socket.receive_text()
-    except (WebSocketDisconnect, ConnectionClosed, CancelledError):
+        await asyncio.gather(task_read, task_write)
+    except CancelledError:
         pass
-    finally:
-        write_task.cancel()
 
 
 @api.websocket("/units/{unit}/components/{component}/subscriptions/{subscription}")
