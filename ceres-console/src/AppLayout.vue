@@ -3,57 +3,65 @@
     <q-header class="bg-primary shadow-none">
       <q-toolbar class="no-wrap">
         <q-btn
-          class="q-px-sm"
+          dense
           flat
-          :icon="icons.menu"
+          round
+          style="margin-left: -2px; margin-right: 14px"
           @click="state.isDrawerOpen = !state.isDrawerOpen"
-        />
+        >
+          <q-img src="./assets/img/logo.png" width="35px" />
+        </q-btn>
         <q-toolbar-title class="cursor-pointer" @click="router.push('/')">
           <common-text variant="title1">{{ constants.appName }}</common-text>
         </q-toolbar-title>
-        <q-btn
-          class="q-px-sm"
-          dense
-          flat
-          :icon="state.isDarkModeEnabled ? icons.darkMode : icons.lightMode"
-          @click="state.isDarkModeEnabled = !state.isDarkModeEnabled"
-        />
       </q-toolbar>
     </q-header>
     <q-drawer v-model="state.isDrawerOpen" bordered :width="200">
-      <q-scroll-area class="fit">
-        <q-list>
-          <q-item :active="route.fullPath === '/'" clickable to="/">
-            <q-item-section avatar>
-              <q-icon :name="icons.dashboard" />
-            </q-item-section>
-            <q-item-section avatar>
-              <q-item-label>Dashboard</q-item-label>
-            </q-item-section>
-          </q-item>
-          <q-expansion-item
-            v-model="state.isUnitsSectionExpanded"
-            :icon="icons.units"
-            label="Units"
-          >
-            <q-item
-              v-for="unit in config.data.units"
-              :key="unit.name"
-              clickable
-              dense
-              style="min-height: 38px"
-              :to="`/units/${unit.name}`"
-            >
+      <div class="column fit">
+        <q-scroll-area class="col-grow">
+          <q-list>
+            <q-item :active="route.fullPath === '/'" clickable to="/">
               <q-item-section avatar>
-                <q-icon :name="icons.unit" size="12px" style="margin-left: 6px" />
+                <q-icon :name="icons.dashboard" />
               </q-item-section>
-              <q-item-section>
-                <q-item-label class="text-no-wrap">@{{ unit.name }}</q-item-label>
+              <q-item-section avatar>
+                <q-item-label>Dashboard</q-item-label>
               </q-item-section>
             </q-item>
-          </q-expansion-item>
+            <q-expansion-item
+              v-model="state.isUnitsSectionExpanded"
+              :icon="icons.units"
+              label="Units"
+            >
+              <q-item
+                v-for="unit in config.data.units"
+                :key="unit.name"
+                clickable
+                dense
+                style="min-height: 38px"
+                :to="`/units/${unit.name}`"
+              >
+                <q-item-section avatar>
+                  <q-icon :name="icons.unit" size="12px" style="margin-left: 6px" />
+                </q-item-section>
+                <q-item-section>
+                  <q-item-label class="text-no-wrap">@{{ unit.name }}</q-item-label>
+                </q-item-section>
+              </q-item>
+            </q-expansion-item>
+          </q-list>
+        </q-scroll-area>
+        <q-list>
+          <q-item clickable @click="state.isDarkModeEnabled = !state.isDarkModeEnabled">
+            <q-item-section avatar>
+              <q-icon :name="state.isDarkModeEnabled ? icons.darkMode : icons.lightMode" />
+            </q-item-section>
+            <q-item-section avatar>
+              <q-item-label>{{ state.isDarkModeEnabled ? 'Dark' : 'Light' }}</q-item-label>
+            </q-item-section>
+          </q-item>
         </q-list>
-      </q-scroll-area>
+      </div>
     </q-drawer>
     <q-page-container :key="route.path">
       <app-boundary>

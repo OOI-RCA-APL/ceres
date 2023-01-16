@@ -2,7 +2,7 @@ const icons = {
   add: 'add',
   close: 'close',
   darkMode: 'dark_mode',
-  dashboard: 'home',
+  dashboard: 'space_dashboard',
   delete: 'delete',
   help: 'help',
   job: 'build',
