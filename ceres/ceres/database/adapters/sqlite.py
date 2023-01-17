@@ -38,8 +38,8 @@ class SQLiteDatabaseAdapter(DatabaseAdapter[SQLiteDatabaseConfig]):
     def get_engine_config(self) -> dict[str, Any]:
         return {
             "poolclass": QueuePool,
-            "pool_size": 10,
-            "max_overflow": -1,
+            "pool_size": 1,
+            "max_overflow": 0,
             **self.config.engine,
         }
 
@@ -62,6 +62,10 @@ class SQLiteDatabaseAdapter(DatabaseAdapter[SQLiteDatabaseConfig]):
             # Emit our own "BEGIN" statement.
             # https://docs.sqlalchemy.org/en/latest/dialects/sqlite.html#serializable-isolation-savepoints-transactional-ddl
             connection.exec_driver_sql("BEGIN")
+
+        @event.listens_for(engine.sync_engine, "checkin")
+        def checkin(connection: SQLiteConnection, *args: Any) -> None:
+            connection.execute("PRAGMA shrink_memory")
 
         return engine
 

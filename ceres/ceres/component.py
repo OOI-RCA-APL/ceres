@@ -62,6 +62,7 @@ from .internal.utilities import (
     lenient_issubclass,
     pre_validate_arguments,
     randstr,
+    sleep_forever,
     strify,
 )
 from .listener import ListenerBinding
@@ -539,7 +540,10 @@ class Component(ValidatedDataclass, Tasklet):
 
             routines.append(routine)
 
-        await asyncio.gather(*(method() for method in routines))
+        await asyncio.gather(
+            sleep_forever(),
+            *(method() for method in routines),
+        )
 
     @routine
     async def __run_event_processors(self) -> None:

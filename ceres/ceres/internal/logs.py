@@ -49,7 +49,7 @@ def setup(config: LogConfig | None = None) -> None:
         use_colors=False,
     )
 
-    def create_handler(formatter: Formatter) -> RichHandler:
+    def create_handler(formatter: Formatter) -> Handler:
         handler = RichHandler(
             show_level=False,
             show_path=False,
@@ -64,6 +64,8 @@ def setup(config: LogConfig | None = None) -> None:
 
     def setup_logger(name: str, handler: Handler) -> None:
         logger = logging.getLogger(name)
+        for handler in logger.handlers:
+            handler.close()
         logger.handlers = []
         logger.addHandler(handler)
         logger.setLevel(__state.config.level)
