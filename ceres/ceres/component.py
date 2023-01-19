@@ -81,7 +81,7 @@ from .procedure import (
 )
 from .result import Fail, Ok, Result
 from .routine import RoutineBinding, routine
-from .stream import Stream
+from .stream import Stream, StreamView
 from .validation import ValidationProblem
 
 _ComponentT = TypeVar("_ComponentT", bound="Component")
@@ -382,7 +382,7 @@ class Component(ValidatedDataclass, Tasklet):
         return logs.get(str(self.address))
 
     @property
-    def events(self) -> AsyncIterable[Event]:
+    def events(self) -> StreamView[Event]:
         return self.__events.view()
 
     @property

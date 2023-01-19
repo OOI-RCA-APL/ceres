@@ -109,7 +109,7 @@ class Connection(Component, ABC):
         if self.__state == ConnectionState.CONNECTED:
             return True
 
-        self.logger.info("Connecting...")
+        self.logger.info(f"Connecting to '{self.target}'...")
         self.__state = ConnectionState.CONNECTING
 
         try:
@@ -143,7 +143,6 @@ class Connection(Component, ABC):
         )
 
         self.logger.info(f"Sent: {jsonify(message.content)}")
-
         self.emit_event(MessageSentEvent(message=message))
 
         return message
@@ -185,7 +184,6 @@ class Connection(Component, ABC):
             self.__reconnect.reset()
 
             while not await self.connect():
-                self.logger.info("Failed to connect.")
                 seconds = self.__reconnect.next().total_seconds()
                 self.logger.info(f"Reconnecting in {seconds:g} seconds...")
                 await asyncio.sleep(seconds)
