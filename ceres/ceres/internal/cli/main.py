@@ -7,9 +7,11 @@ from typing import Any
 
 import anyio
 import rich
+from aiohttp import ClientError, ClientSession
 from anyio.abc import TaskGroup
 from typer import Option
 
+from ...config import Config
 from ...data import jsonify
 from ...engine import Engine
 from ...exceptions import EngineException
@@ -24,8 +26,13 @@ from ..utilities import (
     syncify,
     temporary_signal_handler,
 )
-from .exceptions import CLIInvalidConfigException, CLIStartupException
-from .shared import AsyncTyper, ConfigPathOption, get_config
+from .exceptions import (
+    CLIEngineNotRunningException,
+    CLIInvalidConfigException,
+    CLIServerNotEnabledException,
+    CLIStartupException,
+)
+from .shared import AsyncTyper, ConfigOption, ConfigPathOption, get_config
 from .subcommands.database import database
 
 main = AsyncTyper(
@@ -47,7 +54,7 @@ async def run(
     ),
 ) -> None:
     """
-    Start Ceres as a foreground process.
+    Start the engine as a foreground process.
     """
     try:
         if watch:
@@ -101,6 +108,20 @@ async def check(*, config_path: Path = ConfigPathOption()) -> None:
             raise CLIInvalidConfigException(
                 f"Failed to load configuration. {jsonify(fail, indent=2)}"
             )
+
+
+@main.command()
+async def reload(*, config: Config = ConfigOption(checks=[])) -> None:
+    """
+    Apply configuration changes while the engine is running.
+    """
+    if config.server is None or not config.server.enable:
+        raise CLIServerNotEnabledException("Engine server is not enabled.")
+    try:
+        async with ClientSession(base_url=f"http://0.0.0.0:{config.server.port}") as client:
+            await client.post("/api/reload")
+    except ClientError:
+        raise CLIEngineNotRunningException("Engine is not running or not accessible at the moment.")
 
 
 @main.callback()

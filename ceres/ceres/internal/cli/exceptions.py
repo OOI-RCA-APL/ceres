@@ -15,3 +15,11 @@ class CLICheckFailedException(CLIException):
 
 class CLIStartupException(CLIException):
     exit_code = 4
+
+
+class CLIServerNotEnabledException(CLIException):
+    exit_code = 5
+
+
+class CLIEngineNotRunningException(CLIException):
+    exit_code = 6
