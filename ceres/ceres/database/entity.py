@@ -30,7 +30,7 @@ from sqlalchemy.orm import (
 )
 from sqlalchemy.sql.roles import ExpressionElementRole
 
-from ..address import Address, GlobalComponentAddress, UnitAddress
+from ..address import Address, GlobalComponentAddress, UnitAddress, caddr, uaddr
 from ..alert import Alert, AlertLevel
 from ..internal.utilities import snakecase
 from ..message import Message, MessageDirection
@@ -77,6 +77,10 @@ class UnitEntity(Entity):
     id: Mapped[UUID] = mapped_column(Uuid)
     name: Mapped[str] = mapped_column(Text)
 
+    @property
+    def address(self) -> UnitAddress:
+        return uaddr(self.name)
+
     __table_args__ = (
         PrimaryKeyConstraint("id", name=f"pk_{__tablename__}"),
         Index(f"uq_{__tablename__}__name", "name", unique=True),
@@ -84,7 +88,11 @@ class UnitEntity(Entity):
 
     @declared_attr
     def components(cls) -> Mapped[list["ComponentEntity"]]:
-        return relationship("ComponentEntity", back_populates="unit")
+        return relationship(
+            "ComponentEntity",
+            back_populates="unit",
+            order_by="ComponentEntity.name",
+        )
 
 
 @final
@@ -98,9 +106,17 @@ class ComponentEntity(Entity):
 
     name: Mapped[str] = mapped_column(Text)
 
+    @property
+    def address(self) -> GlobalComponentAddress:
+        return caddr(self.unit.name, self.name)
+
     @declared_attr
     def unit(cls) -> Mapped[UnitEntity]:
-        return relationship(UnitEntity, back_populates="components")
+        return relationship(
+            UnitEntity,
+            back_populates="components",
+            lazy="joined",
+        )
 
     __table_args__ = (
         PrimaryKeyConstraint("id", name=f"pk_{__tablename__}"),
@@ -121,6 +137,10 @@ class MessageEntity(Entity):
     direction: Mapped[MessageDirection] = mapped_column(_TypedEnum(MessageDirection))
     content: Mapped[bytes] = mapped_column(LargeBinary)
 
+    @declared_attr
+    def component(cls) -> Mapped[ComponentEntity]:
+        return relationship(ComponentEntity)
+
     __table_args__ = (
         PrimaryKeyConstraint("id", name=f"pk_{__tablename__}"),
         _TypedEnumConstraint("direction", MessageDirection, name=f"ck_{__tablename__}__direction"),
@@ -135,11 +155,18 @@ class AlertEntity(Entity):
     __tablename__ = "alerts"
 
     id: Mapped[UUID] = mapped_column(Uuid)
-    component_id: Mapped[UUID] = mapped_column(Uuid)
+    component_id: Mapped[UUID] = mapped_column(
+        Uuid,
+        ForeignKey(ComponentEntity.id, name=f"fk_{__tablename__}__component_id__components"),
+    )
     timestamp: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))
     level: Mapped[AlertLevel] = mapped_column(_TypedEnum(AlertLevel))
     code: Mapped[str] = mapped_column(Text)
     info: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+
+    @declared_attr
+    def component(cls) -> Mapped[ComponentEntity]:
+        return relationship(ComponentEntity)
 
     __table_args__ = (
         PrimaryKeyConstraint("id", name=f"pk_{__tablename__}"),
@@ -152,8 +179,8 @@ class AlertEntity(Entity):
 
 
 _EntityT = TypeVar("_EntityT", bound=Entity)
-_WhereT = TypeVar("_WhereT", bound=ColumnElement[bool] | ExpressionElementRole[bool])
-_OrderByT = TypeVar("_OrderByT", bound=ColumnElement[Any] | ExpressionElementRole[Any])
+WhereExpression = ColumnElement[bool] | ExpressionElementRole[bool]
+OrderByExpression = ColumnElement[Any] | ExpressionElementRole[Any]
 
 
 @final
@@ -172,8 +199,8 @@ class EntityManager:
     async def get_messages(
         self,
         *,
-        where: Callable[[type[MessageEntity]], _WhereT] | None = None,
-        order_by: Callable[[type[MessageEntity]], _OrderByT]
+        where: Callable[[type[MessageEntity]], WhereExpression] | None = None,
+        order_by: Callable[[type[MessageEntity]], OrderByExpression]
         | None = lambda message: message.timestamp,
         limit: int | None = None,
     ) -> list[Message]:
@@ -189,8 +216,9 @@ class EntityManager:
     async def get_alerts(
         self,
         *,
-        where: Callable[[type[AlertEntity]], _WhereT] | None = None,
-        order_by: Callable[[type[AlertEntity]], _OrderByT] | None = lambda alert: alert.timestamp,
+        where: Callable[[type[AlertEntity]], WhereExpression] | None = None,
+        order_by: Callable[[type[AlertEntity]], OrderByExpression]
+        | None = lambda alert: alert.timestamp,
         limit: int | None = None,
     ) -> list[Alert]:
         rows = await self.__get_entity_rows(
@@ -206,8 +234,8 @@ class EntityManager:
         self,
         cls: type[_EntityT],
         *,
-        where: Callable[[type[_EntityT]], _WhereT] | None = None,
-        order_by: Callable[[type[_EntityT]], _OrderByT] | None = None,
+        where: Callable[[type[_EntityT]], WhereExpression] | None = None,
+        order_by: Callable[[type[_EntityT]], OrderByExpression] | None = None,
         limit: int | None = None,
     ) -> Result[Any]:
         query = select(*cls.__table__.columns)

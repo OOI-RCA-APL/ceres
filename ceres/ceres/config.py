@@ -2,7 +2,7 @@ import itertools
 from datetime import timedelta
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping, Sequence, Union
+from typing import TYPE_CHECKING, Any, Literal, Mapping, Sequence, Union
 
 from pydantic import Field, SecretStr, parse_obj_as, validator
 from typing_extensions import Self
@@ -38,15 +38,8 @@ class ComponentConfig(ConfigObject):
     roles: Sequence[ComponentRoleKind] = Field(default_factory=list)
     component: Union[str, type[Component]]
     parameters: Mapping[NameStr, Any] = Field(default_factory=dict)
-    references: Mapping[NameStr, NameStr] = Field(default_factory=dict)
+    references: Mapping[NameStr, NameStr | Sequence[NameStr]] = Field(default_factory=dict)
     jobs: Mapping[NameStr, JobConfig] = Field(default_factory=dict)
-
-    @validator("references", pre=True)
-    def _validate_references(cls, value: object) -> object:
-        if not isinstance(value, Mapping) and isinstance(value, Iterable):
-            return {key: key for key in value}
-
-        return value
 
 
 class ServerConfig(ConfigObject):

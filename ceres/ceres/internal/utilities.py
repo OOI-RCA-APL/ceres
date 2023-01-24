@@ -379,11 +379,11 @@ def temporary_signal_handler(signums: Sequence[int], handler: Callable[..., Any]
 
 
 def pre_validate_arguments(
-    function: Callable[_P, Any],
+    callable: Callable[_P, Any],
     *args: _P.args,
     **kwargs: _P.kwargs,
 ) -> BaseModel:
-    return ValidatedFunction(function, None).init_model_instance(*args, **kwargs)
+    return ValidatedFunction(callable, None).init_model_instance(*args, **kwargs)
 
 
 def dbg(value: _T) -> _T:

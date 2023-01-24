@@ -74,6 +74,10 @@ class Unit(Tasklet):
         return self.__context.id
 
     @property
+    def name(self) -> str:
+        return self.__context.address.name
+
+    @property
     def address(self) -> UnitAddress:
         return self.__context.address
 

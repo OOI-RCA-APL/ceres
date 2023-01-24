@@ -16,6 +16,10 @@ class UnitAddress(ValidatedDataclass, kw_only=False, frozen=True):
         return self.name
 
 
+def uaddr(unit: str) -> UnitAddress:
+    return UnitAddress(unit)
+
+
 class GlobalComponentAddress(ValidatedDataclass, kw_only=False, frozen=True):
     unit: str
     name: str
@@ -33,22 +37,12 @@ AddressKind: TypeAlias = Literal["unit", "component"]
 Address: TypeAlias = UnitAddress | GlobalComponentAddress
 
 
-class LocalUnitAddress(ValidatedDataclass, kw_only=False, frozen=True):
-    kind: Literal["unit"] = field(default="unit")
-
-    def __str__(self) -> str:
-        return "."
-
-
 class LocalComponentAddress(ValidatedDataclass, kw_only=False, frozen=True):
     name: str
     kind: Literal["component"] = field(default="component")
 
     def __str__(self) -> str:
         return f".{self.name}"
-
-
-LocalAddress: TypeAlias = LocalUnitAddress | LocalComponentAddress
 
 
 @overload

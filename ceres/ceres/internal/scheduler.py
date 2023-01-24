@@ -44,7 +44,7 @@ class Scheduler:
             id=name,
         )
 
-    def remove_job(self, name: str | Callable[[], None]) -> None:
+    def remove_job(self, name: str | Callable[[], Any]) -> None:
         if not isinstance(name, str):
             name = name.__name__
 

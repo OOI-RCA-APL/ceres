@@ -55,7 +55,6 @@ from .internal.utilities import (
     NameStr,
     awaitify,
     cached,
-    get_field_value,
     get_type_annotations,
     has_field,
     lenient_isinstance,
@@ -81,6 +80,7 @@ from .procedure import (
 )
 from .result import Fail, Ok, Result
 from .routine import RoutineBinding, routine
+from .schedule import Schedule
 from .stream import Stream, StreamView
 from .validation import ValidationProblem
 
@@ -235,7 +235,24 @@ class Component(ValidatedDataclass, Tasklet):
                 raise ValueError(f"invalid context class, cannot provide fields: {extra}")
 
     class References(ImmutableDataObject):
-        pass
+        def get_components(self, alias: str | None = None) -> Sequence["Component"]:
+            components = []
+
+            if alias is None:
+                for alias in self.dict().keys():
+                    components.extend(self.get_components(alias))
+
+                return components
+
+            reference = getattr(self, alias, None)
+            if isinstance(reference, Component):
+                components.append(reference)
+            elif isinstance(reference, Sequence):
+                for component in reference:
+                    if isinstance(component, Component):
+                        components.append(component)
+
+            return components
 
     parameters: Parameters = field(default_factory=Parameters)
     context: Context = field(default_factory=Context)
@@ -267,9 +284,8 @@ class Component(ValidatedDataclass, Tasklet):
             for binding in self.get_listener_bindings()
         ]
 
-        for component in self.references.dict().values():
-            if isinstance(component, Component):
-                component.__add_referencer(self)
+        for component in self.references.get_components():
+            component.__add_referencer(self)
 
     @validator("jobs")
     def _validate_jobs(cls, jobs: Mapping[NameStr, JobConfig]) -> Mapping[NameStr, JobConfig]:
@@ -360,6 +376,10 @@ class Component(ValidatedDataclass, Tasklet):
     @property
     def id(self) -> UUID:
         return self.context.id
+
+    @property
+    def name(self) -> str:
+        return self.context.address.name
 
     @property
     def address(self) -> ComponentAddress:
@@ -465,13 +485,11 @@ class Component(ValidatedDataclass, Tasklet):
             if not lenient_isinstance(event, processor.binding.event_cls):
                 continue
 
-            for source in processor.binding.sources:
-                if source == "self":
-                    component: Component = self
-                else:
-                    component = get_field_value(self.references, source)
-
-                if component is not None and component.id == event.component_id:
+            for alias in processor.binding.sources:
+                if (alias == "self" and self.id == event.component_id) or any(
+                    component.id == event.component_id
+                    for component in self.references.get_components(alias)
+                ):
                     processor.put(event)
                     break
 
@@ -489,6 +507,17 @@ class Component(ValidatedDataclass, Tasklet):
         self.emit_event(AlertEmittedEvent(alert=alert))
         self.logger.log(log_level, f"Alert: {jsonify(alert)}")
         return alert
+
+    def add_job(
+        self,
+        function: Callable[[], Any],
+        schedule: Schedule,
+        name: str | None = None,
+    ) -> None:
+        self.__scheduler.add_job(function, schedule, name=name)
+
+    def remove_job(self, name: str | Callable[[], Any]) -> None:
+        self.__scheduler.remove_job(name)
 
     def __start_scheduler(self) -> None:
         self.__scheduler.start()
@@ -532,18 +561,22 @@ class Component(ValidatedDataclass, Tasklet):
 
         self.__start_scheduler()
 
-        routines: list[Callable[[], Awaitable[None]]] = []
-        for routine_binding in self.get_routine_bindings():
-            routine = getattr(self, routine_binding.function, None)
-            if routine is None:
-                continue
-
-            routines.append(routine)
-
         await asyncio.gather(
             sleep_forever(),
-            *(method() for method in routines),
+            *(self.__process_routine(binding) for binding in self.get_routine_bindings()),
         )
+
+    async def __process_routine(self, binding: RoutineBinding) -> None:
+        routine = getattr(self, binding.function, None)
+        if routine is None:
+            return
+
+        try:
+            await routine()
+        except Exception:
+            self.logger.error(
+                f"An exception occurred while running routine '{strify(binding.function)}': {strify(traceback.format_exc())}"
+            )
 
     @routine
     async def __run_event_processors(self) -> None:

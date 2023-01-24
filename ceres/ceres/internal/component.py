@@ -1,11 +1,22 @@
 import asyncio
+import collections.abc
 import importlib
 import traceback
 from dataclasses import dataclass
 from logging import Logger
 from pathlib import Path
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Mapping, Sequence, TypeVar, cast, final
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Mapping,
+    Sequence,
+    TypeVar,
+    cast,
+    final,
+    get_args,
+    get_origin,
+)
 from uuid import UUID
 
 from pydantic import ValidationError, parse_obj_as, validate_arguments
@@ -30,14 +41,7 @@ from ..result import Fail, Ok, Result
 from ..stream import Stream
 from . import logs
 from .tasklet import Tasklet
-from .utilities import (
-    cached,
-    get_field_value,
-    get_type_annotations,
-    has_field,
-    lenient_issubclass,
-    strify,
-)
+from .utilities import cached, get_field_value, has_field, lenient_issubclass, strify
 
 if TYPE_CHECKING:
     from ..unit import Unit
@@ -148,29 +152,46 @@ def load_component(
         references_kwargs: dict[str, Any] = {}
         reference_mapping = _get_reference_mapping(references_type)
 
-        for component_alias, component_type in reference_mapping.items():
-            if not (name := config.references.get(component_alias)):
+        for alias, reference_definition in reference_mapping.items():
+            if (names := config.references.get(alias)) is None and reference_definition.required:
                 return Fail(
                     ComponentReferenceInvalidError(
-                        message=f"reference '{component_alias}' of type {strify(component_type)} is specified by {strify(references_type)}, but is missing from the component's references configuration",
+                        message=f"reference '{alias}' of type {strify(reference_definition.cls)} is required by {strify(references_type)}, but is missing from the component's references configuration",
                     )
                 )
 
-            if not (sibling := siblings.get(name)):
-                return Fail(
-                    ComponentReferenceInvalidError(
-                        message=f"reference to component '{name}' of type {strify(component_type)} is specified by {strify(references_type)}, but it hasn't loaded yet or failed to load"
-                    )
-                )
+            if names is None:
+                names = []
+            elif isinstance(names, str):
+                names = [names]
 
-            if not isinstance(sibling, component_type):
-                return Fail(
-                    ComponentReferenceInvalidError(
-                        message=f"reference to component '{name}' is specified by {strify(references_type)} but component '{name}' is an instance of {strify(type(sibling))}, not {strify(component_type)}"
-                    )
-                )
+            referenced_components: list[Component] = []
 
-            references_kwargs[component_alias] = sibling
+            for name in names:
+                if not (referenced_component := siblings.get(name)):
+                    return Fail(
+                        ComponentReferenceInvalidError(
+                            message=f"reference to component '{name}' of type {strify(reference_definition)} is specified by {strify(references_type)}, but it hasn't loaded yet or failed to load"
+                        )
+                    )
+
+                if not isinstance(referenced_component, reference_definition.cls):
+                    return Fail(
+                        ComponentReferenceInvalidError(
+                            message=f"reference to component '{name}' is specified by {strify(references_type)} but component '{name}' is an instance of {strify(type(referenced_component))}, not {strify(reference_definition)}"
+                        )
+                    )
+
+                referenced_components.append(referenced_component)
+
+            if reference_definition.multiple:
+                applied_reference = referenced_components
+            elif len(referenced_components) == 0:
+                applied_reference = None
+            else:
+                applied_reference = referenced_components[0]
+
+            references_kwargs[alias] = applied_reference
 
         applied_references = references_type(**references_kwargs)
     except Exception as exception:
@@ -300,16 +321,33 @@ class ComponentHandle(Tasklet):
                 return fail
 
 
+@dataclass(kw_only=True, frozen=True)
+class _ReferenceDefinition:
+    cls: type[Component]
+    required: bool
+    multiple: bool
+
+
 @cached
 def _get_reference_mapping(
     references: Component.References | type[Component.References],
-) -> Mapping[str, type["Component"]]:
-    mapping: dict[str, type[Component]] = {}
-    annotations = get_type_annotations(references)
+) -> Mapping[str, _ReferenceDefinition]:
+    mapping: dict[str, _ReferenceDefinition] = {}
 
-    for name, annotation in annotations.items():
-        if isinstance(annotation, type) and issubclass(annotation, Component):
-            mapping[name] = annotation
+    for field in references.__fields__.values():
+        annotation = field.annotation
+        if get_origin(annotation) in (collections.abc.Sequence, Sequence, list, tuple, set):
+            mapping[field.name] = _ReferenceDefinition(
+                cls=get_args(annotation)[0],
+                multiple=True,
+                required=field.required == True,
+            )
+        else:
+            mapping[field.name] = _ReferenceDefinition(
+                cls=annotation,  # type: ignore
+                multiple=False,
+                required=field.required == True,
+            )
 
     return MappingProxyType(mapping)
 
