@@ -1,0 +1,49 @@
+<html>
+
+<head>
+  {% include "html-email-style.jinja" %}
+</head>
+
+<body>
+  <h1>{{ dispatch.subject }}</h1>
+  {% if dispatch.description and dispatch.description.strip() %}
+  <div>
+    {{ markdown(dispatch.description) }}
+  </div>
+  {% endif %}
+  <hr />
+  <div>
+    {% for level, in_level in index.items() %}
+    <div>
+      <h2><b>{{ level.value.title() }}</b> ({{ size_of(in_level) }})</h2>
+      <div>
+        {% for address, in_address in in_level.items() %}
+        <div>
+          <p><b>{{ str(address) }}</b> ({{ size_of(in_address) }})</p>
+          {% for code, in_code in in_address.items() %}
+          <table style="margin-bottom: 4px">
+            <tr>
+              <th>Code</th>
+              <th>Count</th>
+            </tr>
+            <tr>
+              <td>{{ code }}</td>
+              <td>{{ size_of(in_code) }}</td>
+            </tr>
+          </table>
+          {% endfor %}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  <hr />
+  {% if dispatch.signature and dispatch.signature.strip() %}
+  <div>
+    {{ markdown(dispatch.signature) }}
+  </div>
+  {% endif %}
+</body>
+
+</html>

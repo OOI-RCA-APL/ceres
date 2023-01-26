@@ -8,7 +8,7 @@ from ...schedule import Schedule
 
 
 class ScheduledDispatch(Dispatch):
-    schedule: Schedule
+    schedule: Schedule = Field(discriminator="kind")
 
 
 class ScheduledDispatcher(Dispatcher):

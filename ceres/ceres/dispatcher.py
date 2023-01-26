@@ -32,13 +32,15 @@ class DispatchFilter(ImmutableDataObject):
 
 class Dispatch(ImmutableDataObject):
     subject: str
+    description: str | None = None
+    signature: str | None = None
     alerts: DispatchFilter
     recipients: Sequence[str]
 
 
 class DispatchWriter:
     @abstractmethod
-    def write(
+    async def write(
         self,
         dispatch: Dispatch,
         alerts: Mapping[GlobalComponentAddress, Sequence[Alert]],
@@ -97,7 +99,7 @@ class Dispatcher(Component):
             return
 
         try:
-            notification = self.parameters.writer.write(dispatch, alerts)
+            notification = await self.parameters.writer.write(dispatch, alerts)
             self.logger.info(
                 f"Sending notification '{notification.subject}' to {len(dispatch.recipients)} recipients referring to {sum(len(group) for _, group in alerts.items())} alerts..."
             )

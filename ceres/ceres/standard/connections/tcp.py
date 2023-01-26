@@ -32,7 +32,7 @@ class TCPDisconnectVerifyKind(str, Enum):
 
 
 class TCPDisconnectVerify(ImmutableDataObject):
-    kind: Literal[TCPDisconnectVerifyKind.RECONNECT]
+    kind: Literal[TCPDisconnectVerifyKind.RECONNECT] = TCPDisconnectVerifyKind.RECONNECT
     interval: timedelta = timedelta(seconds=5)
     count: int = Field(ge=1)
 
@@ -196,6 +196,8 @@ class TCPConnection(Connection):
                             except Exception:
                                 self.logger.warning(f"Failed to create a second connection.")
                                 continue
+                        case _:
+                            pass
 
                 if disconnected:
                     self.logger.error("Disconnect verified.")
