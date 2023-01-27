@@ -1,69 +1,52 @@
-from dataclasses import field
-from typing import Literal, TypeAlias, overload
+import re
+from re import Pattern
+from typing import Any, final
 
-from .data import ValidatedDataclass
+from typing_extensions import Self
+
+from .types import NAME_REGEX, Name
 
 
-class UnitAddress(ValidatedDataclass, kw_only=False, frozen=True):
-    name: str
-    kind: Literal["unit"] = field(default="unit", init=False)
+class _RegexStr(str):
+    regex: Pattern[str] = re.compile(r".+")
 
-    def __str__(self) -> str:
-        return f"@{self.name}"
+    @classmethod
+    def __get_validators__(cls) -> Any:
+        yield cls.validate
+
+    def __new__(cls, obj: str, /) -> Self:
+        if isinstance(obj, cls):
+            return obj
+
+        return str.__new__(cls, cls.validate(obj))
+
+    @classmethod
+    def validate(cls, value: str) -> Self:
+        if isinstance(value, cls):
+            return value
+
+        if cls.regex.match(value) is None:
+            raise ValueError(f"must match regex {cls.regex.pattern}")
+
+        return str.__new__(cls, value)
+
+
+@final
+class ComponentAddress(_RegexStr):
+    regex = re.compile(rf"^{NAME_REGEX.pattern[1:-1]}\.{NAME_REGEX.pattern[1:-1]}$")
+
+    @classmethod
+    def create(cls, unit: str, component: str, /) -> Self:
+        return cls(f"{unit}.{component}")
 
     @property
-    def unit(self) -> str:
-        return self.name
-
-
-def uaddr(unit: str) -> UnitAddress:
-    return UnitAddress(unit)
-
-
-class GlobalComponentAddress(ValidatedDataclass, kw_only=False, frozen=True):
-    unit: str
-    name: str
-    kind: Literal["component"] = field(default="component")
-
-    def __str__(self) -> str:
-        return f"@{self.unit}.{self.name}"
+    def unit(self) -> Name:
+        return self[: self.index(".")]
 
     @property
-    def component(self) -> str:
-        return self.name
+    def component(self) -> Name:
+        return self[self.index(".") + 1 :]
 
-
-AddressKind: TypeAlias = Literal["unit", "component"]
-Address: TypeAlias = UnitAddress | GlobalComponentAddress
-
-
-class LocalComponentAddress(ValidatedDataclass, kw_only=False, frozen=True):
-    name: str
-    kind: Literal["component"] = field(default="component")
-
-    def __str__(self) -> str:
-        return f".{self.name}"
-
-
-@overload
-def caddr(unit_or_component: str, component: str, /) -> GlobalComponentAddress:
-    ...
-
-
-@overload
-def caddr(unit_or_component: str, component: None = None, /) -> LocalComponentAddress:
-    ...
-
-
-def caddr(
-    unit_or_component: str,
-    component: str | None = None,
-    /,
-) -> GlobalComponentAddress | LocalComponentAddress:
-    if component is None:
-        return LocalComponentAddress(unit_or_component)
-
-    return GlobalComponentAddress(unit_or_component, component)
-
-
-ComponentAddress: TypeAlias = GlobalComponentAddress | LocalComponentAddress
+    @property
+    def name(self) -> Name:
+        return self.component

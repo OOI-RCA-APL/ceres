@@ -20,7 +20,7 @@ from starlette.requests import HTTPConnection
 from starlette.status import HTTP_400_BAD_REQUEST
 from websockets.exceptions import ConnectionClosed
 
-from ..address import GlobalComponentAddress, UnitAddress, caddr
+from ..address import ComponentAddress
 from ..alert import Alert
 from ..config import ComponentConfig, Config, UnitConfig
 from ..data import ImmutableDataObject, jsonify
@@ -41,7 +41,7 @@ from ..procedure import (
 from ..result import Fail, Ok, Result
 from . import logs
 from .console import Console
-from .utilities import NameStr, escape_like_expression, strify
+from .utilities import Name, escape_like_expression, strify
 
 if TYPE_CHECKING:
     from ..engine import Engine
@@ -61,7 +61,6 @@ class ComponentInfo(ImmutableDataObject):
 
 
 class UnitInfo(ImmutableDataObject):
-    id: UUID
     name: str
     config: UnitConfig
     components: Sequence[ComponentInfo]
@@ -199,12 +198,11 @@ async def alert_stream(
 
 @api.get("/units/{unit}", tags=["units"])
 async def get_unit_info(
-    unit: NameStr,
+    unit: Name,
     engine: Engine = Depends(use_engine),
     entities: EntityManager = Depends(use_entities),
 ) -> UnitInfo:
-    address = UnitAddress(unit)
-    config = engine.config.get_unit(address)
+    config = engine.config.get_unit(unit)
     if config is None:
         raise HTTPException(404)
 
@@ -219,10 +217,8 @@ async def get_unit_info(
             )
         )
 
-    id = await entities.get_address_id(address)
     return UnitInfo(
-        id=id,
-        name=address.name,
+        name=config.name,
         config=config,
         components=components,
     )
@@ -230,18 +226,18 @@ async def get_unit_info(
 
 @api.get("/units/{unit}/components/{component}", tags=["components"])
 async def get_component_info(
-    unit: NameStr,
-    component: NameStr,
+    unit: Name,
+    component: Name,
     engine: Engine = Depends(use_engine),
     entities: EntityManager = Depends(use_entities),
 ) -> ComponentInfo:
-    address = caddr(unit, component)
+    address = ComponentAddress.create(unit, component)
     component_config = engine.config.get_component(address)
     component_cls = engine.config.get_component_cls(address)
     if component_config is None or component_cls is None:
         raise HTTPException(404)
 
-    id = await entities.get_address_id(address)
+    id = await entities.get_component_id(address)
     return ComponentInfo(
         id=id,
         name=address.name,
@@ -256,20 +252,20 @@ async def get_component_info(
 
 async def _call(
     engine: Engine,
-    unit: NameStr,
-    component: NameStr,
+    unit: Name,
+    component: Name,
     kind: CallableProcedureKind,
-    procedure: NameStr,
+    procedure: Name,
     input: Mapping[str, object] | None,
 ) -> Result[object | None, ProcedureError]:
-    return await engine.call(GlobalComponentAddress(unit, component), kind, procedure, input)
+    return await engine.call(ComponentAddress.create(unit, component), kind, procedure, input)
 
 
 @api.post("/units/{unit}/components/{component}/queries/{query}", tags=["procedures"])
 async def run_query(
-    unit: NameStr,
-    component: NameStr,
-    query: NameStr,
+    unit: Name,
+    component: Name,
+    query: Name,
     input: Mapping[str, object] | None = None,
     engine: Engine = Depends(use_engine),
 ) -> Result[Any | None, ProcedureError]:
@@ -278,9 +274,9 @@ async def run_query(
 
 @api.post("/units/{unit}/components/{component}/actions/{action}", tags=["procedures"])
 async def run_action(
-    unit: NameStr,
-    component: NameStr,
-    action: NameStr,
+    unit: Name,
+    component: Name,
+    action: Name,
     input: Mapping[str, object] | None = None,
     engine: Engine = Depends(use_engine),
 ) -> Result[Any | None, ProcedureError]:
@@ -289,9 +285,9 @@ async def run_action(
 
 @api.post("/units/{unit}/components/{component}/jobs/{job}", tags=["procedures"])
 async def run_job(
-    unit: NameStr,
-    component: NameStr,
-    job: NameStr,
+    unit: Name,
+    component: Name,
+    job: Name,
     input: Mapping[str, object] | None = None,
     engine: Engine = Depends(use_engine),
 ) -> Result[Any | None, ProcedureError]:
@@ -301,14 +297,14 @@ async def run_job(
 async def _subscribe(
     engine: Engine,
     socket: WebSocket,
-    unit: NameStr,
-    component: NameStr,
+    unit: Name,
+    component: Name,
     kind: SubscribableProcedureKind,
-    procedure: NameStr,
+    procedure: Name,
     input: Json[Any],
 ) -> None:
     await socket.accept()
-    address = caddr(unit, component)
+    address = ComponentAddress.create(unit, component)
 
     if not isinstance(input, Mapping | None):
         await socket.close(
@@ -363,9 +359,9 @@ async def _subscribe(
 @api.websocket("/units/{unit}/components/{component}/subscriptions/{subscription}")
 async def run_subscription(
     socket: WebSocket,
-    unit: NameStr,
-    component: NameStr,
-    subscription: NameStr,
+    unit: Name,
+    component: Name,
+    subscription: Name,
     input: Json[Any] = Query(None),
     engine: Engine = Depends(use_engine),
 ) -> None:
@@ -383,9 +379,9 @@ async def run_subscription(
 @api.websocket("/units/{unit}/components/{component}/displays/{display}")
 async def run_display(
     socket: WebSocket,
-    unit: NameStr,
-    component: NameStr,
-    display: NameStr,
+    unit: Name,
+    component: Name,
+    display: Name,
     input: Json[Any] = Query(None),
     engine: Engine = Depends(use_engine),
 ) -> None:

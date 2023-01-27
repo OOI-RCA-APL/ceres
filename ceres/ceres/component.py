@@ -25,7 +25,7 @@ from weakref import WeakValueDictionary
 from pydantic import Field, ValidationError, validate_arguments, validator
 from typing_extensions import dataclass_transform
 
-from .address import ComponentAddress, caddr
+from .address import ComponentAddress
 from .alert import Alert, AlertLevel
 from .config import ComponentConfig, Config, JobConfig, UnitConfig
 from .data import (
@@ -52,7 +52,6 @@ from .internal.scheduler import Scheduler
 from .internal.tasklet import Tasklet
 from .internal.utilities import (
     UNSET_UUID,
-    NameStr,
     awaitify,
     cached,
     get_type_annotations,
@@ -82,6 +81,7 @@ from .result import Fail, Ok, Result
 from .routine import RoutineBinding, routine
 from .schedule import Schedule
 from .stream import Stream, StreamView
+from .types import Name
 from .validation import ValidationProblem
 
 _ComponentT = TypeVar("_ComponentT", bound="Component")
@@ -208,6 +208,9 @@ class Component(ValidatedDataclass, Tasklet):
                     self.__queue.task_done()
 
         async def wait_until_empty(self) -> None:
+            if self.__queue.empty():
+                return
+
             await self.__queue.join()
 
     class Parameters(ImmutableDataObject):
@@ -216,7 +219,7 @@ class Component(ValidatedDataclass, Tasklet):
     class Context(ImmutableDataObject):
         id: UUID = Field(default_factory=uuid4)
         address: ComponentAddress = Field(
-            default_factory=lambda: caddr(randstr(ascii_lowercase, 8))
+            default_factory=lambda: ComponentAddress.create("default", randstr(ascii_lowercase, 8))
         )
         database: Database = Field(default_factory=Database)
         paths: ComponentPaths = Field(default_factory=ComponentPaths)
@@ -257,7 +260,7 @@ class Component(ValidatedDataclass, Tasklet):
     parameters: Parameters = field(default_factory=Parameters)
     context: Context = field(default_factory=Context)
     references: References = field(default_factory=References)
-    jobs: Mapping[NameStr, JobConfig] = field(default_factory=dict)
+    jobs: Mapping[Name, JobConfig] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self.__events: Stream[Event] = Stream()
@@ -288,7 +291,7 @@ class Component(ValidatedDataclass, Tasklet):
             component.__add_referencer(self)
 
     @validator("jobs")
-    def _validate_jobs(cls, jobs: Mapping[NameStr, JobConfig]) -> Mapping[NameStr, JobConfig]:
+    def _validate_jobs(cls, jobs: Mapping[Name, JobConfig]) -> Mapping[Name, JobConfig]:
         for job_name in jobs.keys():
             if job_name not in cls.get_job_bindings():
                 defined = sorted(cls.get_job_bindings().keys())
@@ -558,6 +561,7 @@ class Component(ValidatedDataclass, Tasklet):
     async def __run__(self) -> None:
         if self.__has_exclusive_temporary_database:
             await self.database.init()
+            await self.database.entities.get_component_id(self.address, self.context.id)
 
         self.__start_scheduler()
 

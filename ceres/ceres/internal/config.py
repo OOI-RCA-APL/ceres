@@ -10,7 +10,7 @@ import yaml
 from pydantic import ValidationError
 from yaml import MarkedYAMLError, YAMLError
 
-from ..address import caddr
+from ..address import ComponentAddress
 from ..component import CompleteContext, Component, ComponentPaths
 from ..config import Config, UnitConfig
 from ..database import Database
@@ -26,6 +26,7 @@ from ..errors import (
     ValidationProblem,
 )
 from ..result import Fail, Ok, Result
+from ..types import Name
 from .component import load_component
 from .utilities import show_td
 
@@ -154,11 +155,11 @@ async def _check_components(
     paths = ComponentPaths()
 
     def check_unit_config(unit_config: UnitConfig) -> Iterable[ConfigComponentError]:
-        components: dict[str, Component] = {}
+        components: dict[Name, Component] = {}
 
         def check_components() -> Iterable[ConfigComponentError]:
             for component_config in unit_config.components:
-                address = caddr(unit_config.name, component_config.name)
+                address = ComponentAddress.create(unit_config.name, component_config.name)
                 log(f"Checking component '{address}'...")
                 match load_component(
                     component_config,

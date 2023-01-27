@@ -4,7 +4,7 @@ from typing import Any, Mapping, Sequence
 
 from ceres.standard.templates import templates
 
-from ....address import GlobalComponentAddress
+from ....address import ComponentAddress
 from ....alert import Alert, AlertLevel
 from ....data import ImmutableDataObject, jsonify
 from ....dispatcher import Dispatch, DispatchWriter
@@ -13,11 +13,11 @@ from ...markdown import markdown
 
 
 class _AddressedAlert(ImmutableDataObject):
-    address: GlobalComponentAddress
+    address: ComponentAddress
     alert: Alert
 
 
-AlertIndex = dict[AlertLevel, dict[GlobalComponentAddress, dict[str, dict[str, list[Alert]]]]]
+AlertIndex = dict[AlertLevel, dict[ComponentAddress, dict[str, dict[str, list[Alert]]]]]
 
 
 def _size_of(index: dict[str, Any] | list[Any]) -> int:
@@ -43,7 +43,7 @@ class HTMLDispatchWriter(DispatchWriter):
     async def write(
         self,
         dispatch: Dispatch,
-        alerts: Mapping[GlobalComponentAddress, Sequence[Alert]],
+        alerts: Mapping[ComponentAddress, Sequence[Alert]],
     ) -> Notification:
         addressed: list[_AddressedAlert] = []
         for address, group in alerts.items():

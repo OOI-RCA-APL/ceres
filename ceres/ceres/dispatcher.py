@@ -8,7 +8,7 @@ from pydantic import Field, validator
 from sqlalchemy import select
 from sqlalchemy.orm import joinedload
 
-from .address import GlobalComponentAddress
+from .address import ComponentAddress
 from .alert import Alert, AlertLevel
 from .component import Component
 from .data import ImmutableDataObject
@@ -43,7 +43,7 @@ class DispatchWriter:
     async def write(
         self,
         dispatch: Dispatch,
-        alerts: Mapping[GlobalComponentAddress, Sequence[Alert]],
+        alerts: Mapping[ComponentAddress, Sequence[Alert]],
     ) -> Notification:
         ...
 
@@ -62,8 +62,8 @@ class Dispatcher(Component):
     async def _get_notification_alerts(
         self,
         filter: DispatchFilter,
-    ) -> Mapping[GlobalComponentAddress, Sequence[Alert]]:
-        mapping: defaultdict[GlobalComponentAddress, list[Alert]] = defaultdict(list)
+    ) -> Mapping[ComponentAddress, Sequence[Alert]]:
+        mapping: defaultdict[ComponentAddress, list[Alert]] = defaultdict(list)
 
         async with self.database.session() as session:
             query = (

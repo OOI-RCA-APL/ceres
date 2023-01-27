@@ -60,6 +60,7 @@ class WriteBuffer(Generic[_EntityT]):
                     case DatabaseKind.POSTGRES:
                         from sqlalchemy.dialects.postgresql import insert
 
+                # TODO: Don't discard all buffered entities when a single entity insert fails.
                 await session.execute(
                     insert(self.__cls)
                     .values([entity.values() for entity in entities])
@@ -67,7 +68,6 @@ class WriteBuffer(Generic[_EntityT]):
                 )
                 await session.commit()
         except Exception:
-            self.__entities = [*entities, *self.__entities]
             if self.__logger:
                 self.__logger.error(
                     f"An exception occurred when flushing: {traceback.format_exc()}"

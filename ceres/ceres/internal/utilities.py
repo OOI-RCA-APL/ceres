@@ -34,8 +34,10 @@ from uuid import UUID
 
 import rich
 from apscheduler.triggers.cron import CronTrigger
-from pydantic import BaseModel, ConstrainedStr, parse_obj_as
+from pydantic import BaseModel, parse_obj_as
 from pydantic.decorator import ValidatedFunction
+
+from ..types import Name
 
 
 def strify(value: object) -> str:
@@ -241,21 +243,6 @@ def decode_td(value: str | timedelta | int | float | Any) -> timedelta:
     raise get_exception()
 
 
-NAME_REGEX = re.compile(r"^[a-zA-Z_\-][a-zA-Z0-9_\-]*$")
-EMAIL_REGEX = re.compile(r"^.+@.+$")
-
-if TYPE_CHECKING:
-    NameStr = str
-    EmailStr = str
-else:
-
-    class NameStr(ConstrainedStr):
-        regex = NAME_REGEX
-
-    class EmailStr(ConstrainedStr):
-        regex = EMAIL_REGEX
-
-
 def is_subtype(subtype: type | UnionType, base: type | UnionType) -> bool:
     try:
         if subtype is base:
@@ -274,7 +261,7 @@ def is_optional(type_: type | UnionType) -> bool:
     return is_subtype(NoneType, type_)
 
 
-def has_field(obj: Any, name: NameStr, type: Any = None) -> bool:
+def has_field(obj: Any, name: Name, type: Any = None) -> bool:
     name = name.replace("-", "_")
 
     if dataclasses.is_dataclass(obj):
@@ -291,7 +278,7 @@ def has_field(obj: Any, name: NameStr, type: Any = None) -> bool:
     return False
 
 
-def get_field_value(obj: Any, name: NameStr) -> Any:
+def get_field_value(obj: Any, name: Name) -> Any:
     name = name.replace("-", "_")
     return getattr(obj, name, None)
 

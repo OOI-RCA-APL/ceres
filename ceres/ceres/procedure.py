@@ -18,7 +18,7 @@ from pydantic.typing import get_args
 
 from .data import ImmutableDataObject
 from .internal.binding import Binding, add_binding
-from .internal.utilities import NameStr, get_member_name, is_optional, strify
+from .internal.utilities import Name, get_member_name, is_optional, strify
 from .schedule import Schedule
 
 
@@ -213,7 +213,7 @@ _CallableProcedureFunctionT = TypeVar(
 
 
 @validate_arguments
-def query(name: NameStr) -> Callable[[_CallableProcedureFunctionT], _CallableProcedureFunctionT]:
+def query(name: Name) -> Callable[[_CallableProcedureFunctionT], _CallableProcedureFunctionT]:
     def bind(function: _CallableProcedureFunctionT) -> _CallableProcedureFunctionT:
         validated = _validate_procedure(function, ProcedureKind.QUERY)
         add_binding(
@@ -232,7 +232,7 @@ def query(name: NameStr) -> Callable[[_CallableProcedureFunctionT], _CallablePro
 
 
 @validate_arguments
-def action(name: NameStr) -> Callable[[_CallableProcedureFunctionT], _CallableProcedureFunctionT]:
+def action(name: Name) -> Callable[[_CallableProcedureFunctionT], _CallableProcedureFunctionT]:
     def bind(function: _CallableProcedureFunctionT) -> _CallableProcedureFunctionT:
         validated = _validate_procedure(function, ProcedureKind.ACTION)
         add_binding(
@@ -252,7 +252,7 @@ def action(name: NameStr) -> Callable[[_CallableProcedureFunctionT], _CallablePr
 
 @validate_arguments
 def job(
-    name: NameStr,
+    name: Name,
     *,
     default_schedule: Schedule | None = None,
 ) -> Callable[[_CallableProcedureFunctionT], _CallableProcedureFunctionT]:
@@ -282,7 +282,7 @@ _SubscribableProcedureFunctionT = TypeVar(
 
 @validate_arguments
 def subscription(
-    name: NameStr,
+    name: Name,
     *,
     dedupe: bool = False,
 ) -> Callable[[_SubscribableProcedureFunctionT], _SubscribableProcedureFunctionT]:
@@ -308,7 +308,7 @@ def subscription(
 
 @validate_arguments
 def display(
-    name: NameStr,
+    name: Name,
     *,
     dedupe: bool = True,
     group: str | None = None,

@@ -9,6 +9,7 @@ from sqlalchemy import (
     TIMESTAMP,
     CheckConstraint,
     ColumnElement,
+    Dialect,
     Enum,
     ForeignKey,
     Index,
@@ -16,10 +17,10 @@ from sqlalchemy import (
     PrimaryKeyConstraint,
     Result,
     Text,
+    TypeDecorator,
     Uuid,
     select,
 )
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import (
     DeclarativeBase,
     Mapped,
@@ -29,8 +30,9 @@ from sqlalchemy.orm import (
     relationship,
 )
 from sqlalchemy.sql.roles import ExpressionElementRole
+from typing_extensions import Self
 
-from ..address import Address, GlobalComponentAddress, UnitAddress, caddr, uaddr
+from ..address import ComponentAddress
 from ..alert import Alert, AlertLevel
 from ..internal.utilities import snakecase
 from ..message import Message, MessageDirection
@@ -60,6 +62,34 @@ def _TypedEnumConstraint(column: str, cls: type[BaseEnum], name: str) -> CheckCo
     )
 
 
+class ComponentAddressMapper(TypeDecorator[ComponentAddress]):
+    impl = Text
+    cache_ok = False
+
+    def process_bind_param(
+        self,
+        value: ComponentAddress | None,
+        dialect: Dialect,
+    ) -> str | None:
+        if value is None:
+            return None
+
+        return str(value)
+
+    def process_result_value(
+        self,
+        value: ComponentAddress | None,
+        dialect: Dialect,
+    ) -> ComponentAddress | None:
+        if value is None:
+            return None
+
+        return ComponentAddress(value)
+
+    def copy(self, **kwargs: Any) -> Self:
+        return type(self)(**kwargs)
+
+
 class Entity(MappedAsDataclass, DeclarativeBase):
     __abstract__ = True
     __mapper_args__ = {
@@ -71,56 +101,14 @@ class Entity(MappedAsDataclass, DeclarativeBase):
 
 
 @final
-class UnitEntity(Entity):
-    __tablename__ = "units"
-
-    id: Mapped[UUID] = mapped_column(Uuid)
-    name: Mapped[str] = mapped_column(Text)
-
-    @property
-    def address(self) -> UnitAddress:
-        return uaddr(self.name)
-
-    __table_args__ = (
-        PrimaryKeyConstraint("id", name=f"pk_{__tablename__}"),
-        Index(f"uq_{__tablename__}__name", "name", unique=True),
-    )
-
-    @declared_attr
-    def components(cls) -> Mapped[list["ComponentEntity"]]:
-        return relationship(
-            "ComponentEntity",
-            back_populates="unit",
-            order_by="ComponentEntity.name",
-        )
-
-
-@final
 class ComponentEntity(Entity):
     __tablename__ = "components"
     id: Mapped[UUID] = mapped_column(Uuid)
-    unit_id: Mapped[UUID] = mapped_column(
-        Uuid,
-        ForeignKey(UnitEntity.id, name=f"fk_{__tablename__}__unit_id__units"),
-    )
-
-    name: Mapped[str] = mapped_column(Text)
-
-    @property
-    def address(self) -> GlobalComponentAddress:
-        return caddr(self.unit.name, self.name)
-
-    @declared_attr
-    def unit(cls) -> Mapped[UnitEntity]:
-        return relationship(
-            UnitEntity,
-            back_populates="components",
-            lazy="joined",
-        )
+    address: Mapped[ComponentAddress] = mapped_column(ComponentAddressMapper)
 
     __table_args__ = (
         PrimaryKeyConstraint("id", name=f"pk_{__tablename__}"),
-        Index(f"uq_{__tablename__}__unit_id__name", "unit_id", "name", unique=True),
+        Index(f"uq_{__tablename__}__address", "address", unique=True),
     )
 
 
@@ -188,13 +176,27 @@ class EntityManager:
     def __init__(self, database: Database) -> None:
         self.__database = database
 
-    async def get_address_id(self, address: Address) -> UUID:
+    async def get_component_id(
+        self,
+        address: ComponentAddress,
+        default: UUID | None = None,
+    ) -> UUID:
         async with self.__database.session() as session:
-            match address:
-                case UnitAddress():
-                    return (await self.__get_unit(session, address)).id
-                case GlobalComponentAddress():
-                    return (await self.__get_component(session, address)).id
+            if not (
+                component := await (
+                    session.scalar(
+                        select(ComponentEntity).where(ComponentEntity.address == address)
+                    )
+                )
+            ):
+                component = ComponentEntity(
+                    id=default or uuid4(),
+                    address=address,
+                )
+                session.add(component)
+                await session.commit()
+
+            return component.id
 
     async def get_messages(
         self,
@@ -248,47 +250,3 @@ class EntityManager:
 
         async with self.__database.session() as session:
             return await session.execute(query)
-
-    async def __get_unit(
-        self,
-        session: AsyncSession,
-        address: UnitAddress,
-    ) -> UnitEntity:
-        if not (
-            unit := await session.scalar(select(UnitEntity).where(UnitEntity.name == address.name))
-        ):
-            unit = UnitEntity(
-                id=uuid4(),
-                name=address.name,
-            )
-            session.add(unit)
-            await session.commit()
-
-        return unit
-
-    async def __get_component(
-        self,
-        session: AsyncSession,
-        address: GlobalComponentAddress,
-    ) -> ComponentEntity:
-        unit_id = (await self.__get_unit(session, UnitAddress(address.unit))).id
-
-        if not (
-            component := await (
-                session.scalar(
-                    select(ComponentEntity).where(
-                        (ComponentEntity.unit_id == unit_id)
-                        & (ComponentEntity.name == address.name)
-                    )
-                )
-            )
-        ):
-            component = ComponentEntity(
-                id=uuid4(),
-                unit_id=unit_id,
-                name=address.name,
-            )
-            session.add(component)
-            await session.commit()
-
-        return component

@@ -122,7 +122,6 @@ export const ComponentInfoModel = Zod.object({
 
 export type UnitInfo = Zod.infer<typeof UnitInfoModel>
 export const UnitInfoModel = Zod.object({
-  id: Zod.string(),
   name: Zod.string(),
   config: UnitConfigModel,
   components: Zod.array(ComponentInfoModel),

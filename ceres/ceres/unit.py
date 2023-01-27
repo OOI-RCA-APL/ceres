@@ -4,9 +4,8 @@ from dataclasses import dataclass
 from logging import Logger
 from types import MappingProxyType
 from typing import AsyncIterable, Mapping, Sequence, final
-from uuid import UUID
 
-from .address import LocalComponentAddress, UnitAddress, caddr
+from .address import ComponentAddress
 from .component import CallableProcedureKind, SubscribableProcedureKind
 from .config import Config, UnitConfig
 from .data import ImmutableDataObject, jsonify
@@ -24,6 +23,7 @@ from .internal.tasklet import Tasklet
 from .internal.utilities import sleep_forever, strify
 from .result import Fail, Ok, Result
 from .stream import Stream, StreamView
+from .types import Name
 
 
 class UnitPaths(ImmutableDataObject):
@@ -33,15 +33,14 @@ class UnitPaths(ImmutableDataObject):
 
 @dataclass(kw_only=True, frozen=True)
 class UnitContext:
-    id: UUID
-    address: UnitAddress
+    name: Name
     root_config: Config
     unit_config: UnitConfig
     database: Database
     forward: Sequence[Stream[Event]]
 
     def __post_init__(self) -> None:
-        assert self.root_config.get_unit(self.address)
+        assert self.root_config.get_unit(self.name)
         assert self.unit_config in self.root_config.units
 
 
@@ -53,12 +52,12 @@ class Unit(Tasklet):
         self.__events: Stream[Event] = Stream()
 
         local_path = Directory(
-            (context.root_config.path.parent / context.root_config.paths.local / self.address.name)
+            (context.root_config.path.parent / context.root_config.paths.local / self.name)
             if context.root_config.path is not None
             else None
         )
         data_path = Directory(
-            (context.root_config.path.parent / context.root_config.paths.data / self.address.name)
+            (context.root_config.path.parent / context.root_config.paths.data / self.name)
             if context.root_config.path is not None
             else None
         )
@@ -67,19 +66,11 @@ class Unit(Tasklet):
             data=data_path,
         )
 
-        self.__component_handles: dict[str, ComponentHandle] = {}
+        self.__component_handles: dict[Name, ComponentHandle] = {}
 
     @property
-    def id(self) -> UUID:
-        return self.__context.id
-
-    @property
-    def name(self) -> str:
-        return self.__context.address.name
-
-    @property
-    def address(self) -> UnitAddress:
-        return self.__context.address
+    def name(self) -> Name:
+        return self.__context.name
 
     @property
     def root_config(self) -> Config:
@@ -99,46 +90,46 @@ class Unit(Tasklet):
 
     @property
     def logger(self) -> Logger:
-        return logs.get(str(self.__context.address))
+        return logs.get(str(self.__context.name))
 
     @property
-    def components(self) -> Mapping[str, ComponentHandle]:
+    def components(self) -> Mapping[Name, ComponentHandle]:
         return MappingProxyType(self.__component_handles)
 
     @property
     def events(self) -> StreamView[Event]:
         return self.__events.view()
 
-    def get_component_handle(self, address: LocalComponentAddress) -> ComponentHandle | None:
-        return self.__component_handles.get(address if isinstance(address, str) else address.name)
+    def get_component_handle(self, name: Name) -> ComponentHandle | None:
+        return self.__component_handles.get(name)
 
     async def call(
         self,
-        address: LocalComponentAddress,
+        component: Name,
         kind: CallableProcedureKind,
         procedure: str,
         input: object | None = None,
     ) -> Result[object | None, ProcedureError]:
-        if (component := self.get_component_handle(address)) is None:
+        if (handle := self.get_component_handle(component)) is None:
             return Fail(ProcedureDoesNotExistError())
-        if component.instance is None:
+        if handle.instance is None:
             return Fail(ProcedureComponentNotLoadedError())
 
-        return await component.instance.call(kind, procedure, input)
+        return await handle.instance.call(kind, procedure, input)
 
     async def subscribe(
         self,
-        address: LocalComponentAddress,
+        component: Name,
         kind: SubscribableProcedureKind,
         procedure: str,
         input: object | None = None,
     ) -> Result[AsyncIterable[object | None], ProcedureError]:
-        if (component := self.get_component_handle(address)) is None:
+        if (handle := self.get_component_handle(component)) is None:
             return Fail(ProcedureDoesNotExistError())
-        if component.instance is None:
+        if handle.instance is None:
             return Fail(ProcedureComponentNotLoadedError())
 
-        return await component.instance.subscribe(kind, procedure, input)
+        return await handle.instance.subscribe(kind, procedure, input)
 
     async def __run__(self) -> None:
         await self.__load_components()
@@ -166,12 +157,12 @@ class Unit(Tasklet):
 
     async def __load_components(self) -> None:
         for component_config in self.config.components:
-            address = caddr(self.address.name, component_config.name)
+            address = ComponentAddress.create(self.name, component_config.name)
 
             if component_config.name in self.__component_handles:
                 continue
 
-            id = await self.__database.entities.get_address_id(address)
+            id = await self.__database.entities.get_component_id(address)
 
             self.__component_handles[component_config.name] = ComponentHandle(
                 ComponentHandleContext(

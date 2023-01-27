@@ -7,11 +7,12 @@ from typing import TYPE_CHECKING, Any, Literal, Mapping, Sequence, Union
 from pydantic import Field, SecretStr, parse_obj_as, validator
 from typing_extensions import Self
 
-from .address import GlobalComponentAddress, UnitAddress
+from .address import ComponentAddress
 from .data import ImmutableDataObject
-from .internal.utilities import NameStr, setattr_internal, validate_positive_timedelta
+from .internal.utilities import setattr_internal, validate_positive_timedelta
 from .result import Ok
 from .schedule import Schedule
+from .types import Name
 
 if TYPE_CHECKING:
     from .component import Component
@@ -34,12 +35,12 @@ class JobConfig(ConfigObject):
 
 
 class ComponentConfig(ConfigObject):
-    name: NameStr
+    name: Name
     roles: Sequence[ComponentRoleKind] = Field(default_factory=list)
     component: Union[str, type[Component]]
-    parameters: Mapping[NameStr, Any] = Field(default_factory=dict)
-    references: Mapping[NameStr, NameStr | Sequence[NameStr]] = Field(default_factory=dict)
-    jobs: Mapping[NameStr, JobConfig] = Field(default_factory=dict)
+    parameters: Mapping[Name, Any] = Field(default_factory=dict)
+    references: Mapping[Name, Name | Sequence[Name]] = Field(default_factory=dict)
+    jobs: Mapping[Name, JobConfig] = Field(default_factory=dict)
 
 
 class ServerConfig(ConfigObject):
@@ -85,7 +86,7 @@ DatabaseConfig = SQLiteDatabaseConfig | PostgresDatabaseConfig
 
 
 class UnitConfig(ConfigObject):
-    name: NameStr
+    name: Name
     components: Sequence[ComponentConfig] = Field(default_factory=list)
 
     @validator("components")
@@ -129,7 +130,7 @@ class Config(ConfigObject):
     units: Sequence[UnitConfig] = Field(default_factory=list)
 
     __path: Path | None = None
-    __component_config_cache: dict[GlobalComponentAddress, ComponentConfig] = {}
+    __component_config_cache: dict[ComponentAddress, ComponentConfig] = {}
 
     @classmethod
     def from_data(cls, data: Any, path: Path | None = None) -> Self:
@@ -150,15 +151,10 @@ class Config(ConfigObject):
 
         return units
 
-    def get_unit(self, address: str | UnitAddress) -> UnitConfig | None:
-        if isinstance(address, UnitAddress):
-            name = address.name
-        else:
-            name = address
-
+    def get_unit(self, name: Name) -> UnitConfig | None:
         return next((unit for unit in self.units if unit.name == name), None)
 
-    def get_component(self, address: GlobalComponentAddress) -> ComponentConfig | None:
+    def get_component(self, address: ComponentAddress) -> ComponentConfig | None:
         if address in self.__component_config_cache:
             return self.__component_config_cache[address]
 
@@ -174,7 +170,7 @@ class Config(ConfigObject):
 
         return component
 
-    def get_component_cls(self, address: GlobalComponentAddress) -> type[Component] | None:
+    def get_component_cls(self, address: ComponentAddress) -> type[Component] | None:
         config = self.get_component(address)
         if config is None:
             return None

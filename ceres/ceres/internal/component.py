@@ -21,7 +21,7 @@ from uuid import UUID
 
 from pydantic import ValidationError, parse_obj_as, validate_arguments
 
-from ..address import GlobalComponentAddress
+from ..address import ComponentAddress
 from ..component import CompleteContext, Component, ComponentPaths
 from ..config import ComponentConfig, ComponentRoleKind, Config, UnitConfig
 from ..connection import Connection
@@ -39,6 +39,7 @@ from ..errors import (
 from ..events import Event
 from ..result import Fail, Ok, Result
 from ..stream import Stream
+from ..types import Name
 from . import logs
 from .tasklet import Tasklet
 from .utilities import cached, get_field_value, has_field, lenient_issubclass, strify
@@ -103,7 +104,7 @@ def load_component_cls(config: ComponentConfig) -> Result[type[Component], Compo
 def load_component(
     config: ComponentConfig,
     context: CompleteContext,
-    siblings: Mapping[str, Component],
+    siblings: Mapping[Name, Component],
 ) -> Result[Component, ComponentError]:
     if not isinstance(config.component, str | type):
         if not _get_missing_component_base_classes(type(config.component), config.roles):
@@ -153,32 +154,34 @@ def load_component(
         reference_mapping = _get_reference_mapping(references_type)
 
         for alias, reference_definition in reference_mapping.items():
-            if (names := config.references.get(alias)) is None and reference_definition.required:
+            if (
+                component_names := config.references.get(alias)
+            ) is None and reference_definition.required:
                 return Fail(
                     ComponentReferenceInvalidError(
                         message=f"reference '{alias}' of type {strify(reference_definition.cls)} is required by {strify(references_type)}, but is missing from the component's references configuration",
                     )
                 )
 
-            if names is None:
-                names = []
-            elif isinstance(names, str):
-                names = [names]
+            if component_names is None:
+                component_names = []
+            elif isinstance(component_names, str):
+                component_names = [component_names]
 
             referenced_components: list[Component] = []
 
-            for name in names:
-                if not (referenced_component := siblings.get(name)):
+            for component_name in component_names:
+                if not (referenced_component := siblings.get(component_name)):
                     return Fail(
                         ComponentReferenceInvalidError(
-                            message=f"reference to component '{name}' of type {strify(reference_definition)} is specified by {strify(references_type)}, but it hasn't loaded yet or failed to load"
+                            message=f"reference to component '{component_name}' of type {strify(reference_definition.cls)} is specified by {strify(references_type)}, but it hasn't loaded yet or failed to load"
                         )
                     )
 
                 if not isinstance(referenced_component, reference_definition.cls):
                     return Fail(
                         ComponentReferenceInvalidError(
-                            message=f"reference to component '{name}' is specified by {strify(references_type)} but component '{name}' is an instance of {strify(type(referenced_component))}, not {strify(reference_definition)}"
+                            message=f"reference to component '{component_name}' is specified by {strify(references_type)} but component '{component_name}' is an instance of {strify(type(referenced_component))}, not {strify(reference_definition.cls)}"
                         )
                     )
 
@@ -225,7 +228,7 @@ def load_component(
 @dataclass(kw_only=True, frozen=True)
 class ComponentHandleContext:
     id: UUID
-    address: GlobalComponentAddress
+    address: ComponentAddress
     root_config: Config
     unit_config: UnitConfig
     component_config: ComponentConfig
@@ -249,7 +252,7 @@ class ComponentHandle(Tasklet):
         return self.__context.id
 
     @property
-    def address(self) -> GlobalComponentAddress:
+    def address(self) -> ComponentAddress:
         return self.__context.address
 
     @property

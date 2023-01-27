@@ -8,7 +8,7 @@ from pathlib import Path
 from queue import Empty, Queue
 from typing import AsyncIterable, final
 
-from .address import GlobalComponentAddress, UnitAddress, caddr
+from .address import ComponentAddress
 from .config import Config, UnitConfig
 from .data import ImmutableDataObject, jsonify
 from .database import Database
@@ -29,6 +29,7 @@ from .internal.tasklet import Tasklet
 from .procedure import CallableProcedureKind, SubscribableProcedureKind
 from .result import Fail, Ok, Result
 from .stream import Stream
+from .types import Name
 from .unit import Unit, UnitContext
 
 
@@ -40,7 +41,7 @@ class UnitSyncActionKind(str, Enum):
 
 class UnitSyncAction(ImmutableDataObject):
     kind: UnitSyncActionKind
-    address: UnitAddress
+    unit: Name
 
 
 @final
@@ -55,7 +56,7 @@ class Engine(Tasklet):
             self.__server = None
 
         self.__database = Database(self.__config.database)
-        self.__units: dict[UnitAddress, Unit] = {}
+        self.__units: dict[Name, Unit] = {}
         self.__events: Stream[Event] = Stream()
         self.__reloading = AsyncEvent()
 
@@ -164,16 +165,16 @@ class Engine(Tasklet):
 
     async def call(
         self,
-        address: GlobalComponentAddress,
+        component: ComponentAddress,
         kind: CallableProcedureKind,
         procedure: str,
         input: object | None = None,
     ) -> Result[object | None, ProcedureError]:
-        if (unit := self.__units.get(UnitAddress(address.unit))) is None:
-            raise ValueError(f"unit at {address} does not exist")
+        if (unit := self.__units.get(component.unit)) is None:
+            raise ValueError(f"unit at {component} does not exist")
 
         return await unit.call(
-            caddr(address.component),
+            component.name,
             kind,
             procedure,
             input,
@@ -181,16 +182,16 @@ class Engine(Tasklet):
 
     async def subscribe(
         self,
-        address: GlobalComponentAddress,
+        component: ComponentAddress,
         kind: SubscribableProcedureKind,
         procedure: str,
         input: object | None = None,
     ) -> Result[AsyncIterable[object], ProcedureError]:
-        if (unit := self.__units.get(UnitAddress(address.unit))) is None:
+        if (unit := self.__units.get(component.unit)) is None:
             return Fail(ProcedureUnitDoesNotExistError())
 
         return await unit.subscribe(
-            caddr(address.name),
+            component.name,
             kind,
             procedure,
             input,
@@ -263,40 +264,35 @@ class Engine(Tasklet):
         await self.__start_server()
 
     async def __sync_units(self) -> None:
-        unit_configs: dict[UnitAddress, UnitConfig] = {
-            UnitAddress(current.name): current for current in self.__config.units
-        }
+        configs: dict[Name, UnitConfig] = {current.name: current for current in self.__config.units}
 
         actions = self.__get_unit_sync_actions()
 
         for action in actions:
-            unit = self.__units.get(action.address)
+            unit = self.__units.get(action.unit)
 
             if action.kind == UnitSyncActionKind.REMOVE:
                 if unit:
-                    self.logger.info(f"Removing unit '{action.address}'...")
+                    self.logger.info(f"Removing unit '{action.unit}'...")
                     await unit.stop()
-                    self.__units.pop(unit.address, None)
+                    self.__units.pop(unit.name, None)
             else:
                 if action.kind == UnitSyncActionKind.START:
                     if unit and unit.running:
                         continue
 
-                    self.logger.info(f"Starting unit '{action.address}'...")
+                    self.logger.info(f"Starting unit '{action.unit}'...")
                 elif action.kind == UnitSyncActionKind.RELOAD:
                     if not unit:
                         continue
 
-                    self.logger.info(f"Reloading unit '{action.address}'...")
+                    self.logger.info(f"Reloading unit '{action.unit}'...")
                     await unit.stop()
-                    self.__units.pop(unit.address, None)
+                    self.__units.pop(unit.name, None)
 
-                if unit_config := unit_configs.get(action.address):
-                    id = await self.__database.entities.get_address_id(action.address)
-
+                if unit_config := configs.get(action.unit):
                     context = UnitContext(
-                        id=id,
-                        address=action.address,
+                        name=action.unit,
                         root_config=self.__config,
                         unit_config=unit_config,
                         database=self.__database,
@@ -304,7 +300,7 @@ class Engine(Tasklet):
                     )
 
                     unit = Unit(context)
-                    self.__units[action.address] = unit
+                    self.__units[action.unit] = unit
                     unit.start(
                         on_completed=self.__on_unit_completed,
                         on_exception=self.__on_unit_exception,
@@ -313,17 +309,17 @@ class Engine(Tasklet):
         started = [
             action
             for action in actions
-            if action.kind == UnitSyncActionKind.START and action.address in self.__units
+            if action.kind == UnitSyncActionKind.START and action.unit in self.__units
         ]
         reloaded = [
             action
             for action in actions
-            if action.kind == UnitSyncActionKind.RELOAD and action.address in self.__units
+            if action.kind == UnitSyncActionKind.RELOAD and action.unit in self.__units
         ]
         removed = [
             action
             for action in actions
-            if action.kind == UnitSyncActionKind.REMOVE and action.address not in self.__units
+            if action.kind == UnitSyncActionKind.REMOVE and action.unit not in self.__units
         ]
 
         if started:
@@ -341,35 +337,33 @@ class Engine(Tasklet):
 
         async def stop(unit: Unit) -> None:
             if unit.running:
-                self.logger.info(f"Stopping unit '{unit.address}'...")
+                self.logger.info(f"Stopping unit '{unit.name}'...")
                 await unit.stop()
 
-            self.__units.pop(unit.address, None)
+            self.__units.pop(unit.name, None)
 
         await asyncio.gather(*(stop(unit) for unit in self.__units.values()))
 
         self.logger.info("All units were stopped successfully.")
 
     def __get_unit_sync_actions(self) -> list[UnitSyncAction]:
-        configs: dict[UnitAddress, UnitConfig] = {
-            UnitAddress(current.name): current for current in self.__config.units
-        }
+        configs: dict[Name, UnitConfig] = {current.name: current for current in self.__config.units}
 
         actions: list[UnitSyncAction] = []
 
-        for unit_address, unit_config in configs.items():
-            unit = self.__units.get(unit_address)
-            if unit and unit.running and unit.config == unit_config:
+        for name, config in configs.items():
+            unit = self.__units.get(name)
+            if unit and unit.running and unit.config == config:
                 continue
 
             if not unit or not unit.running:
-                actions.append(UnitSyncAction(address=unit_address, kind=UnitSyncActionKind.START))
-            elif unit.config != unit_config:
-                actions.append(UnitSyncAction(address=unit_address, kind=UnitSyncActionKind.RELOAD))
+                actions.append(UnitSyncAction(kind=UnitSyncActionKind.START, unit=name))
+            elif unit.config != config:
+                actions.append(UnitSyncAction(kind=UnitSyncActionKind.RELOAD, unit=name))
 
-        for unit_address, unit in self.__units.items():
-            if unit_address not in configs:
-                actions.append(UnitSyncAction(address=unit_address, kind=UnitSyncActionKind.REMOVE))
+        for name, unit in self.__units.items():
+            if name not in configs:
+                actions.append(UnitSyncAction(kind=UnitSyncActionKind.REMOVE, unit=name))
 
         return actions
 
@@ -382,11 +376,11 @@ class Engine(Tasklet):
         )
 
     def __on_unit_completed(self, unit: Unit) -> None:
-        self.logger.info(f"Unit '{unit.address}' stopped.")
-        self.__units.pop(unit.address, None)
+        self.logger.info(f"Unit '{unit.name}' stopped.")
+        self.__units.pop(unit.name, None)
 
     def __on_unit_exception(self, unit: Unit, exception: BaseException) -> None:
         self.logger.error(
-            f"An exception occurred in unit '{unit.address}': {traceback.format_exception(exception)}"
+            f"An exception occurred in unit '{unit.name}': {traceback.format_exception(exception)}"
         )
-        self.__units.pop(unit.address, None)
+        self.__units.pop(unit.name, None)
