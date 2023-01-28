@@ -435,5 +435,16 @@ def set_current_process_name(name: str) -> None:
         pass
 
 
-def escape_like_expression(search: bytes) -> bytes:
-    return search.replace(b"%", b"%%").replace(b"_", b"__")
+@overload
+def escape_like_expression(text: str) -> str:
+    ...
+
+@overload
+def escape_like_expression(text: bytes) -> bytes:
+    ...
+
+def escape_like_expression(text: str | bytes) -> str | bytes:
+    if isinstance(text, str):
+        return text.replace("%", "%%").replace("_", "__")
+
+    return text.replace(b"%", b"%%").replace(b"_", b"__")

@@ -105,32 +105,34 @@ async def reload(
 @api.get("/messages", tags=["data"])
 async def get_messages(
     address: ComponentAddress | None = None,
-    search: bytes | None = None,
+    search: str | None = None,
     before: datetime | None = None,
     after: datetime | None = None,
     direction: MessageDirection | None = None,
     limit: int = Query(default=100, ge=0, le=500),
     entities: EntityManager = Depends(use_entities),
 ) -> list[Message]:
-    like_search = escape_like_expression(search) if search is not None else None
-    like = b"%" + like_search + b"%" if like_search is not None else None
+    pattern = "%" + escape_like_expression(search) + "%" if search is not None else None
+
     return list(
         reversed(
             await entities.get_messages(
                 where=lambda message: ((ComponentEntity.address == address) | (address is None))
                 & (
-                    like is None
+                    pattern is None
                     or (
                         (
                             message.timestamp
                             if entities.database.kind == DatabaseKind.SQLITE
                             else func.to_char(message.timestamp, "YYYY-MM-DD HH24:MI:SS.MS")
-                        ).ilike(like.decode("utf-8"))
-                        | message.direction.ilike(like.decode("utf-8"))
+                        ).ilike(pattern)
+                        | message.direction.ilike(pattern)
                         | (
-                            message.content.ilike(like)
+                            message.content.ilike(pattern.encode("utf-8"))
                             if entities.database.kind == DatabaseKind.SQLITE
-                            else func.encode(message.content, "escape").ilike(like.decode("utf-8"))
+                            else func.encode(message.content, "escape").ilike(
+                                pattern.encode("utf-8").decode("unicode-escape")
+                            )
                         )
                     )
                 )
