@@ -166,6 +166,10 @@ class EntityManager:
     def __init__(self, database: Database) -> None:
         self.__database = database
 
+    @property
+    def database(self) -> Database:
+        return self.__database
+
     async def get_component_id(
         self,
         address: ComponentAddress,

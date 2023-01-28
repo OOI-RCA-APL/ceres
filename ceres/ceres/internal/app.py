@@ -16,16 +16,17 @@ from fastapi import (
 )
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import Json
+from sqlalchemy import func
 from starlette.requests import HTTPConnection
 from starlette.status import HTTP_400_BAD_REQUEST
 from websockets.exceptions import ConnectionClosed
 
 from ..address import ComponentAddress
 from ..alert import Alert
-from ..config import ComponentConfig, Config, UnitConfig
+from ..config import ComponentConfig, Config, DatabaseKind, UnitConfig
 from ..data import ImmutableDataObject, jsonify
 from ..database import Database
-from ..database.entity import EntityManager
+from ..database.entity import ComponentEntity, EntityManager
 from ..errors import ProcedureError, ReloadError
 from ..events import AlertEmittedEvent, MessageReceivedEvent, MessageSentEvent
 from ..message import Message, MessageDirection
@@ -111,13 +112,27 @@ async def get_messages(
     limit: int = Query(default=100, ge=0, le=500),
     entities: EntityManager = Depends(use_entities),
 ) -> list[Message]:
+    like_search = escape_like_expression(search) if search is not None else None
+    like = b"%" + like_search + b"%" if like_search is not None else None
     return list(
         reversed(
             await entities.get_messages(
-                where=lambda message: ((message.source == address) | (address is None))
+                where=lambda message: ((ComponentEntity.address == address) | (address is None))
                 & (
-                    search is None
-                    or message.content.ilike(b"%" + escape_like_expression(search) + b"%")
+                    like is None
+                    or (
+                        (
+                            message.timestamp
+                            if entities.database.kind == DatabaseKind.SQLITE
+                            else func.to_char(message.timestamp, "YYYY-MM-DD HH24:MI:SS.MS")
+                        ).ilike(like.decode("utf-8"))
+                        | message.direction.ilike(like.decode("utf-8"))
+                        | (
+                            message.content.ilike(like)
+                            if entities.database.kind == DatabaseKind.SQLITE
+                            else func.encode(message.content, "escape").ilike(like.decode("utf-8"))
+                        )
+                    )
                 )
                 & (direction is None or message.direction == direction)
                 & (before is None or message.timestamp < before)
@@ -140,7 +155,7 @@ async def get_alerts(
     return list(
         reversed(
             await entities.get_alerts(
-                where=lambda alert: ((alert.source == address) | (address is None))
+                where=lambda alert: ((ComponentEntity.address == address) | (address is None))
                 & (before is None or alert.timestamp < before)
                 & (after is None or alert.timestamp > after),
                 order_by=lambda alert: alert.timestamp,
@@ -157,6 +172,9 @@ async def message_stream(
     search: bytes | None = None,
     engine: Engine = Depends(use_engine),
 ) -> None:
+    if search:
+        search = search.lower()
+
     try:
         await socket.accept()
 
@@ -166,7 +184,11 @@ async def message_stream(
             if address is not None and event.message.source != address:
                 continue
             if search is not None:
-                if search not in event.message.content:
+                if (
+                    search not in event.message.timestamp.isoformat(" ").encode()
+                    and search not in event.message.direction.encode()
+                    and search not in event.message.content.lower()
+                ):
                     continue
 
             await socket.send_text(jsonify(event.message))
