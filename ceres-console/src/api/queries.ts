@@ -35,7 +35,7 @@ export async function getComponent(unit: string, name: string): Promise<Componen
 }
 
 export async function getMessages(params: {
-  component_id?: string
+  address?: string
   search?: string
   before?: string
   after?: string
@@ -63,7 +63,7 @@ function getWebSocketURI(relative: string) {
 
 export function useMessageStream<TModel extends ZodTypeAny>(
   params: MaybeRef<{
-    component_id?: string
+    address?: string
     search?: string
   }>,
   onMessage: (message: Zod.infer<TModel>) => unknown
@@ -74,7 +74,6 @@ export function useMessageStream<TModel extends ZodTypeAny>(
         `/api/message-stream${createQueryParams(isRef(params) ? params.value : params)}`
       )
     ),
-    // `ws://localhost:9000/api/message-stream?component_id=${encodeURIComponent(componentId)}`,
     // eslint-disable-next-line @typescript-eslint/ban-ts-comment
     // @ts-ignore
     MessageModel,

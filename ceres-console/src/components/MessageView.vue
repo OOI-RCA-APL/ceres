@@ -170,7 +170,7 @@ async function appendMessages(appended: Message[]) {
 
 async function loadPreviousMessages() {
   const results = await getMessages({
-    component_id: info.id,
+    address: info.address,
     search: search === '' ? undefined : search,
     before: earliestMessageTimestamp == null ? undefined : earliestMessageTimestamp,
     limit: 100,
@@ -182,7 +182,7 @@ async function loadPreviousMessages() {
 
 async function loadCurrentMessages() {
   const results = await getMessages({
-    component_id: info.id,
+    address: info.address,
     search: search === '' ? undefined : search,
     limit: 100,
   })
@@ -194,7 +194,7 @@ async function loadCurrentMessages() {
 
 useMessageStream(
   computed(() => ({
-    component_id: info.id,
+    component: info.address,
     search: search === '' ? undefined : search,
   })),
   async (message: Message) => {

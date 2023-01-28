@@ -137,7 +137,7 @@ class Connection(Component, ABC):
             raise
 
         message = Message(
-            component_id=self.id,
+            source=self.address,
             direction=MessageDirection.SEND,
             content=data,
         )
@@ -155,7 +155,7 @@ class Connection(Component, ABC):
             raise
 
         message = Message(
-            component_id=self.id,
+            source=self.address,
             direction=MessageDirection.RECEIVE,
             content=data,
         )

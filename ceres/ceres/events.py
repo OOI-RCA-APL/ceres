@@ -1,21 +1,21 @@
 from abc import ABC
 from datetime import datetime
 from enum import Enum
-from typing import Literal, final
+from typing import Literal, cast, final
 from uuid import UUID, uuid4
 
 from pydantic import Field
 
+from .address import ComponentAddress
 from .alert import Alert
 from .data import ImmutableDataObject
 from .datetime import utc
-from .internal.utilities import UNSET_UUID
 from .message import Message
 
 
 class Event(ImmutableDataObject, ABC):
     id: UUID = Field(default_factory=uuid4)
-    component_id: UUID = UNSET_UUID
+    source: ComponentAddress = cast(ComponentAddress, None)
     timestamp: datetime = Field(default_factory=utc)
     kind: str
 

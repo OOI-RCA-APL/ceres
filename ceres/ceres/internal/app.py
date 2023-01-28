@@ -51,7 +51,8 @@ else:
 
 class ComponentInfo(ImmutableDataObject):
     id: UUID
-    name: str
+    name: Name
+    address: ComponentAddress
     config: ComponentConfig
     queries: Sequence[QueryBinding]
     actions: Sequence[ActionBinding]
@@ -102,7 +103,7 @@ async def reload(
 
 @api.get("/messages", tags=["data"])
 async def get_messages(
-    component_id: UUID | None = None,
+    address: ComponentAddress | None = None,
     search: bytes | None = None,
     before: datetime | None = None,
     after: datetime | None = None,
@@ -113,9 +114,7 @@ async def get_messages(
     return list(
         reversed(
             await entities.get_messages(
-                where=lambda message: (
-                    (message.component_id == component_id) | (component_id is None)
-                )
+                where=lambda message: ((message.source == address) | (address is None))
                 & (
                     search is None
                     or message.content.ilike(b"%" + escape_like_expression(search) + b"%")
@@ -132,7 +131,7 @@ async def get_messages(
 
 @api.get("/alerts", tags=["data"])
 async def get_alerts(
-    component_id: UUID | None = None,
+    address: ComponentAddress | None = None,
     before: datetime | None = None,
     after: datetime | None = None,
     limit: int = Query(default=100, ge=0, le=500),
@@ -141,7 +140,7 @@ async def get_alerts(
     return list(
         reversed(
             await entities.get_alerts(
-                where=lambda alert: ((alert.component_id == component_id) | (component_id is None))
+                where=lambda alert: ((alert.source == address) | (address is None))
                 & (before is None or alert.timestamp < before)
                 & (after is None or alert.timestamp > after),
                 order_by=lambda alert: alert.timestamp,
@@ -154,7 +153,7 @@ async def get_alerts(
 @api.websocket("/message-stream")
 async def message_stream(
     socket: WebSocket,
-    component_id: UUID | None = None,
+    address: ComponentAddress | None = None,
     search: bytes | None = None,
     engine: Engine = Depends(use_engine),
 ) -> None:
@@ -164,9 +163,8 @@ async def message_stream(
         async for event in engine.events:
             if not isinstance(event, (MessageSentEvent, MessageReceivedEvent)):
                 continue
-            if component_id is not None and event.message.component_id != component_id:
+            if address is not None and event.message.source != address:
                 continue
-
             if search is not None:
                 if search not in event.message.content:
                     continue
@@ -179,7 +177,7 @@ async def message_stream(
 @api.websocket("/alert-stream")
 async def alert_stream(
     socket: WebSocket,
-    component_id: UUID | None = None,
+    address: ComponentAddress | None = None,
     engine: Engine = Depends(use_engine),
 ) -> None:
     try:
@@ -188,7 +186,7 @@ async def alert_stream(
         async for event in engine.events:
             if not isinstance(event, AlertEmittedEvent):
                 continue
-            if component_id is not None and event.alert.component_id != component_id:
+            if address is not None and event.alert.source != address:
                 continue
 
             await socket.send_text(jsonify(event.alert))
@@ -241,6 +239,7 @@ async def get_component_info(
     return ComponentInfo(
         id=id,
         name=address.name,
+        address=address,
         config=component_config,
         queries=list(component_cls.get_query_bindings().values()),
         actions=list(component_cls.get_action_bindings().values()),

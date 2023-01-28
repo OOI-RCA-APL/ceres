@@ -1,4 +1,3 @@
-import dataclasses
 from datetime import datetime
 from enum import Enum as BaseEnum
 from typing import TYPE_CHECKING, Any, Callable, TypeVar, final
@@ -15,20 +14,13 @@ from sqlalchemy import (
     Index,
     LargeBinary,
     PrimaryKeyConstraint,
-    Result,
     Text,
     TypeDecorator,
     Uuid,
     select,
 )
-from sqlalchemy.orm import (
-    DeclarativeBase,
-    Mapped,
-    MappedAsDataclass,
-    declared_attr,
-    mapped_column,
-    relationship,
-)
+from sqlalchemy.ext.associationproxy import AssociationProxy, association_proxy
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.sql.roles import ExpressionElementRole
 from typing_extensions import Self
 
@@ -90,14 +82,14 @@ class ComponentAddressMapper(TypeDecorator[ComponentAddress]):
         return type(self)(**kwargs)
 
 
-class Entity(MappedAsDataclass, DeclarativeBase):
+class Entity(DeclarativeBase):
     __abstract__ = True
     __mapper_args__ = {
         "eager_defaults": True,
     }
 
     def values(self) -> dict[str, Any]:
-        return dataclasses.asdict(self)
+        return {name: getattr(self, name) for name in self.__table__.columns.keys()}
 
 
 @final
@@ -125,9 +117,8 @@ class MessageEntity(Entity):
     direction: Mapped[MessageDirection] = mapped_column(_TypedEnum(MessageDirection))
     content: Mapped[bytes] = mapped_column(LargeBinary)
 
-    @declared_attr
-    def component(cls) -> Mapped[ComponentEntity]:
-        return relationship(ComponentEntity)
+    component: Mapped[ComponentEntity] = relationship(ComponentEntity, lazy="joined")
+    source: AssociationProxy[ComponentAddress] = association_proxy("component", "address")
 
     __table_args__ = (
         PrimaryKeyConstraint("id", name=f"pk_{__tablename__}"),
@@ -152,9 +143,8 @@ class AlertEntity(Entity):
     code: Mapped[str] = mapped_column(Text)
     info: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
 
-    @declared_attr
-    def component(cls) -> Mapped[ComponentEntity]:
-        return relationship(ComponentEntity)
+    component = relationship(ComponentEntity, lazy="joined")
+    source: AssociationProxy[ComponentAddress] = association_proxy("component", "address")
 
     __table_args__ = (
         PrimaryKeyConstraint("id", name=f"pk_{__tablename__}"),
@@ -206,12 +196,23 @@ class EntityManager:
         | None = lambda message: message.timestamp,
         limit: int | None = None,
     ) -> list[Message]:
-        rows = await self.__get_entity_rows(
-            MessageEntity,
-            where=where,
-            order_by=order_by,
-            limit=limit,
-        )
+        query = select(
+            MessageEntity.id,
+            ComponentEntity.address.label("source"),
+            MessageEntity.timestamp,
+            MessageEntity.direction,
+            MessageEntity.content,
+        ).join(ComponentEntity)
+
+        if where is not None:
+            query = query.where(where(MessageEntity))
+        if order_by is not None:
+            query = query.order_by(order_by(MessageEntity))
+        if limit is not None:
+            query = query.limit(limit)
+
+        async with self.__database.session() as session:
+            rows = await session.execute(query)
 
         return [Message.construct(**row._asdict()) for row in rows]  # type: ignore
 
@@ -223,30 +224,23 @@ class EntityManager:
         | None = lambda alert: alert.timestamp,
         limit: int | None = None,
     ) -> list[Alert]:
-        rows = await self.__get_entity_rows(
-            AlertEntity,
-            where=where,
-            order_by=order_by,
-            limit=limit,
-        )
+        query = select(
+            AlertEntity.id,
+            ComponentEntity.address.label("source"),
+            AlertEntity.timestamp,
+            AlertEntity.level,
+            AlertEntity.code,
+            AlertEntity.info,
+        ).join(ComponentEntity)
 
-        return [Alert.construct(**row._asdict()) for row in rows]  # type: ignore
-
-    async def __get_entity_rows(
-        self,
-        cls: type[_EntityT],
-        *,
-        where: Callable[[type[_EntityT]], WhereExpression] | None = None,
-        order_by: Callable[[type[_EntityT]], OrderByExpression] | None = None,
-        limit: int | None = None,
-    ) -> Result[Any]:
-        query = select(*cls.__table__.columns)
         if where is not None:
-            query = query.where(where(cls))
+            query = query.where(where(AlertEntity))
         if order_by is not None:
-            query = query.order_by(order_by(cls))
+            query = query.order_by(order_by(AlertEntity))
         if limit is not None:
             query = query.limit(limit)
 
         async with self.__database.session() as session:
-            return await session.execute(query)
+            rows = await session.execute(query)
+
+        return [Alert.construct(**row._asdict()) for row in rows]  # type: ignore

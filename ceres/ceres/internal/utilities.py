@@ -30,7 +30,6 @@ from typing import (
     overload,
     runtime_checkable,
 )
-from uuid import UUID
 
 import rich
 from apscheduler.triggers.cron import CronTrigger
@@ -398,9 +397,6 @@ else:
 
 def randstr(characters: str, length: int) -> str:
     return "".join(random.choice(characters) for _ in range(length))
-
-
-UNSET_UUID = UUID(int=0)
 
 
 def get_member_name(callable: Callable[..., Any]) -> str:

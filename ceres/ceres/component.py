@@ -51,7 +51,6 @@ from .internal.database.buffer import WriteBuffer
 from .internal.scheduler import Scheduler
 from .internal.tasklet import Tasklet
 from .internal.utilities import (
-    UNSET_UUID,
     awaitify,
     cached,
     get_type_annotations,
@@ -432,19 +431,19 @@ class Component(ValidatedDataclass, Tasklet):
         assert referencer is not self
         self.__referencers[referencer.id] = referencer
 
-    def __set_emitted_event_component_id(self, event: Event) -> None:
-        if event.component_id == UNSET_UUID:
-            object.__setattr__(event, "component_id", self.id)
+    def __set_emitted_event_source(self, event: Event) -> None:
+        if event.source is None:
+            object.__setattr__(event, "source", self.address)
 
         if isinstance(event, AlertEmittedEvent):
-            self.__set_emitted_alert_component_id(event.alert)
+            self.__set_emitted_alert_source(event.alert)
 
-    def __set_emitted_alert_component_id(self, alert: Alert) -> None:
-        if alert.component_id == UNSET_UUID:
-            object.__setattr__(alert, "component_id", self.id)
+    def __set_emitted_alert_source(self, alert: Alert) -> None:
+        if alert.source is None:
+            object.__setattr__(alert, "source", self.address)
 
     def emit_event(self, event: _EventT) -> _EventT:
-        self.__set_emitted_event_component_id(event)
+        self.__set_emitted_event_source(event)
         # Handle "self" events.
         self.handle_event(event)
         # Send the event to all components have a reference to this one.
@@ -458,7 +457,7 @@ class Component(ValidatedDataclass, Tasklet):
                 self.__message_write_buffer.add(
                     MessageEntity(
                         id=event.message.id,
-                        component_id=event.message.component_id,
+                        component_id=self.context.id, # TODO: Actually use the passed ID.
                         timestamp=event.message.timestamp,
                         direction=MessageDirection.RECEIVE,
                         content=event.message.content,
@@ -468,7 +467,7 @@ class Component(ValidatedDataclass, Tasklet):
                 self.__alert_write_buffer.add(
                     AlertEntity(
                         id=event.alert.id,
-                        component_id=event.alert.component_id,
+                        component_id=self.context.id,# TODO: Actually use the passed ID.
                         timestamp=event.alert.timestamp,
                         level=event.alert.level,
                         code=event.alert.code,
@@ -489,15 +488,15 @@ class Component(ValidatedDataclass, Tasklet):
                 continue
 
             for alias in processor.binding.sources:
-                if (alias == "self" and self.id == event.component_id) or any(
-                    component.id == event.component_id
+                if (alias == "self" and self.address == event.source) or any(
+                    component.address == event.source
                     for component in self.references.get_components(alias)
                 ):
                     processor.put(event)
                     break
 
     def emit_alert(self, alert: Alert) -> Alert:
-        self.__set_emitted_alert_component_id(alert)
+        self.__set_emitted_alert_source(alert)
 
         match alert.level:
             case AlertLevel.INFO:

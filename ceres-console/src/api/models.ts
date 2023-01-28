@@ -10,7 +10,7 @@ export const MessageDirectionModel = Zod.enum(['send', 'receive'])
 export type Message = Zod.infer<typeof MessageModel>
 export const MessageModel = Zod.object({
   id: Zod.string(),
-  component_id: Zod.string(),
+  source: Zod.string(),
   timestamp: Zod.string(),
   direction: MessageDirectionModel,
   content: Zod.string(),
@@ -22,7 +22,7 @@ export const AlertLevelModel = Zod.enum(['info', 'warning', 'error'])
 export type Alert = Zod.infer<typeof AlertModel>
 export const AlertModel = Zod.object({
   id: Zod.string(),
-  component_id: Zod.string(),
+  source: Zod.string(),
   timestamp: Zod.string(),
   level: AlertLevelModel,
   kind: Zod.string(),
@@ -116,6 +116,7 @@ export type ComponentInfo = Zod.infer<typeof ComponentInfoModel>
 export const ComponentInfoModel = Zod.object({
   id: Zod.string(),
   name: Zod.string(),
+  address: Zod.string(),
   config: ComponentConfigModel,
   displays: Zod.array(DisplayBindingModel),
 })
