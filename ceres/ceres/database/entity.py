@@ -1,7 +1,7 @@
 from datetime import datetime
 from enum import Enum as BaseEnum
-from typing import TYPE_CHECKING, Any, Callable, TypeVar, final
-from uuid import UUID, uuid4
+from typing import Any, TypeVar, final
+from uuid import UUID
 
 from sqlalchemy import (
     JSON,
@@ -17,7 +17,6 @@ from sqlalchemy import (
     Text,
     TypeDecorator,
     Uuid,
-    select,
 )
 from sqlalchemy.ext.associationproxy import AssociationProxy, association_proxy
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -25,14 +24,9 @@ from sqlalchemy.sql.roles import ExpressionElementRole
 from typing_extensions import Self
 
 from ..address import ComponentAddress
-from ..alert import Alert, AlertLevel
+from ..alert import AlertLevel
 from ..internal.utilities import snakecase
-from ..message import Message, MessageDirection
-
-if TYPE_CHECKING:
-    from . import Database
-else:
-    Database = "DatabaseManager"
+from ..message import MessageDirection
 
 
 def _TypedEnum(cls: type[BaseEnum]) -> Enum:
@@ -159,92 +153,3 @@ class AlertEntity(Entity):
 _EntityT = TypeVar("_EntityT", bound=Entity)
 WhereExpression = ColumnElement[bool] | ExpressionElementRole[bool]
 OrderByExpression = ColumnElement[Any] | ExpressionElementRole[Any]
-
-
-@final
-class EntityManager:
-    def __init__(self, database: Database) -> None:
-        self.__database = database
-
-    @property
-    def database(self) -> Database:
-        return self.__database
-
-    async def get_component_id(
-        self,
-        address: ComponentAddress,
-        default: UUID | None = None,
-    ) -> UUID:
-        async with self.__database.session() as session:
-            if not (
-                component := await (
-                    session.scalar(
-                        select(ComponentEntity).where(ComponentEntity.address == address)
-                    )
-                )
-            ):
-                component = ComponentEntity(
-                    id=default or uuid4(),
-                    address=address,
-                )
-                session.add(component)
-                await session.commit()
-
-            return component.id
-
-    async def get_messages(
-        self,
-        *,
-        where: Callable[[type[MessageEntity]], WhereExpression] | None = None,
-        order_by: Callable[[type[MessageEntity]], OrderByExpression]
-        | None = lambda message: message.timestamp,
-        limit: int | None = None,
-    ) -> list[Message]:
-        query = select(
-            MessageEntity.id,
-            ComponentEntity.address.label("source"),
-            MessageEntity.timestamp,
-            MessageEntity.direction,
-            MessageEntity.content,
-        ).join(ComponentEntity)
-
-        if where is not None:
-            query = query.where(where(MessageEntity))
-        if order_by is not None:
-            query = query.order_by(order_by(MessageEntity))
-        if limit is not None:
-            query = query.limit(limit)
-
-        async with self.__database.session() as session:
-            rows = await session.execute(query)
-
-        return [Message.construct(**row._asdict()) for row in rows]  # type: ignore
-
-    async def get_alerts(
-        self,
-        *,
-        where: Callable[[type[AlertEntity]], WhereExpression] | None = None,
-        order_by: Callable[[type[AlertEntity]], OrderByExpression]
-        | None = lambda alert: alert.timestamp,
-        limit: int | None = None,
-    ) -> list[Alert]:
-        query = select(
-            AlertEntity.id,
-            ComponentEntity.address.label("source"),
-            AlertEntity.timestamp,
-            AlertEntity.level,
-            AlertEntity.code,
-            AlertEntity.info,
-        ).join(ComponentEntity)
-
-        if where is not None:
-            query = query.where(where(AlertEntity))
-        if order_by is not None:
-            query = query.order_by(order_by(AlertEntity))
-        if limit is not None:
-            query = query.limit(limit)
-
-        async with self.__database.session() as session:
-            rows = await session.execute(query)
-
-        return [Alert.construct(**row._asdict()) for row in rows]  # type: ignore

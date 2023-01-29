@@ -15,6 +15,7 @@ from ..component import CompleteContext, Component, ComponentPaths
 from ..config import Config, UnitConfig
 from ..database import Database
 from ..datetime import utc
+from ..environment import Environment
 from ..errors import (
     ConfigComponentError,
     ConfigDatabaseError,
@@ -151,7 +152,7 @@ async def _check_components(
 ) -> list[ConfigComponentError]:
     log("Checking component configurations...")
 
-    database = Database(config.database)
+    environment = Environment(Database(config.database))
     paths = ComponentPaths()
 
     def check_unit_config(unit_config: UnitConfig) -> Iterable[ConfigComponentError]:
@@ -169,7 +170,7 @@ async def _check_components(
                         root_config=config,
                         unit_config=unit_config,
                         component_config=component_config,
-                        database=database,
+                        environment=environment,
                         paths=paths,
                     ),
                     components,

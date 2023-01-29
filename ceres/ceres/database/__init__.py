@@ -21,7 +21,7 @@ from ..config import (
     SQLiteDatabaseConfig,
 )
 from .adapter import DatabaseAdapter
-from .entity import Entity, EntityManager
+from .entity import Entity
 
 _T = TypeVar("_T")
 
@@ -79,10 +79,6 @@ class Database:
     @property
     def adapter(self) -> DatabaseAdapter[DatabaseConfig]:
         return self.__adapter
-
-    @property
-    def entities(self) -> EntityManager:
-        return EntityManager(self)
 
     @property
     def engine(self) -> AsyncEngine:

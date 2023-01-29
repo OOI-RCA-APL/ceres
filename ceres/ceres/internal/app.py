@@ -16,17 +16,21 @@ from fastapi import (
 )
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import Json
-from sqlalchemy import func
 from starlette.requests import HTTPConnection
 from starlette.status import HTTP_400_BAD_REQUEST
 from websockets.exceptions import ConnectionClosed
 
 from ..address import ComponentAddress
 from ..alert import Alert
-from ..config import ComponentConfig, Config, DatabaseKind, UnitConfig
+from ..config import ComponentConfig, Config, UnitConfig
 from ..data import ImmutableDataObject, jsonify
-from ..database import Database
-from ..database.entity import ComponentEntity, EntityManager
+from ..environment import (
+    AlertOrder,
+    AlertQuery,
+    Environment,
+    MessageOrder,
+    MessageQuery,
+)
 from ..errors import ProcedureError, ReloadError
 from ..events import AlertEmittedEvent, MessageReceivedEvent, MessageSentEvent
 from ..message import Message, MessageDirection
@@ -42,7 +46,7 @@ from ..procedure import (
 from ..result import Fail, Ok, Result
 from . import logs
 from .console import Console
-from .utilities import Name, escape_like_expression, strify
+from .utilities import Name, strify
 
 if TYPE_CHECKING:
     from ..engine import Engine
@@ -76,12 +80,8 @@ def use_engine(connection: HTTPConnection) -> Engine:
     return connection.app.engine
 
 
-def use_database(connection: HTTPConnection) -> Database:
-    return use_engine(connection).database
-
-
-def use_entities(connection: HTTPConnection) -> EntityManager:
-    return use_database(connection).entities
+def use_environment(connection: HTTPConnection) -> Environment:
+    return use_engine(connection).environment
 
 
 @api.get("/config", tags=["engine"])
@@ -106,41 +106,24 @@ async def reload(
 async def get_messages(
     address: ComponentAddress | None = None,
     search: str | None = None,
-    before: datetime | None = None,
     after: datetime | None = None,
+    before: datetime | None = None,
     direction: MessageDirection | None = None,
     limit: int = Query(default=100, ge=0, le=500),
-    entities: EntityManager = Depends(use_entities),
+    environment: Environment = Depends(use_environment),
 ) -> list[Message]:
-    pattern = "%" + escape_like_expression(search) + "%" if search is not None else None
-
     return list(
         reversed(
-            await entities.get_messages(
-                where=lambda message: ((ComponentEntity.address == address) | (address is None))
-                & (
-                    pattern is None
-                    or (
-                        (
-                            message.timestamp
-                            if entities.database.kind == DatabaseKind.SQLITE
-                            else func.to_char(message.timestamp, "YYYY-MM-DD HH24:MI:SS.MS")
-                        ).ilike(pattern)
-                        | message.direction.ilike(pattern)
-                        | (
-                            message.content.ilike(pattern.encode("utf-8"))
-                            if entities.database.kind == DatabaseKind.SQLITE
-                            else func.encode(message.content, "escape").ilike(
-                                pattern.encode("utf-8").decode("unicode-escape")
-                            )
-                        )
-                    )
+            await environment.get_messages(
+                MessageQuery(
+                    source=address,
+                    search=search,
+                    after=after,
+                    before=before,
+                    direction=direction,
+                    limit=limit,
+                    order=MessageOrder.NEW_TO_OLD,
                 )
-                & (direction is None or message.direction == direction)
-                & (before is None or message.timestamp < before)
-                & (after is None or message.timestamp > after),
-                order_by=lambda message: message.timestamp.desc(),
-                limit=limit,
             )
         )
     )
@@ -149,19 +132,21 @@ async def get_messages(
 @api.get("/alerts", tags=["data"])
 async def get_alerts(
     address: ComponentAddress | None = None,
-    before: datetime | None = None,
     after: datetime | None = None,
+    before: datetime | None = None,
     limit: int = Query(default=100, ge=0, le=500),
-    entities: EntityManager = Depends(use_entities),
+    environment: Environment = Depends(use_environment),
 ) -> list[Alert]:
     return list(
         reversed(
-            await entities.get_alerts(
-                where=lambda alert: ((ComponentEntity.address == address) | (address is None))
-                & (before is None or alert.timestamp < before)
-                & (after is None or alert.timestamp > after),
-                order_by=lambda alert: alert.timestamp,
-                limit=limit,
+            await environment.get_alerts(
+                AlertQuery(
+                    source=address,
+                    after=after,
+                    before=before,
+                    limit=limit,
+                    order=AlertOrder.NEW_TO_OLD,
+                )
             )
         )
     )
@@ -222,7 +207,7 @@ async def alert_stream(
 async def get_unit_info(
     unit: Name,
     engine: Engine = Depends(use_engine),
-    entities: EntityManager = Depends(use_entities),
+    environment: Environment = Depends(use_environment),
 ) -> UnitInfo:
     config = engine.config.get_unit(unit)
     if config is None:
@@ -235,7 +220,7 @@ async def get_unit_info(
                 unit,
                 component.name,
                 engine,
-                entities,
+                environment,
             )
         )
 
@@ -251,7 +236,7 @@ async def get_component_info(
     unit: Name,
     component: Name,
     engine: Engine = Depends(use_engine),
-    entities: EntityManager = Depends(use_entities),
+    environment: Environment = Depends(use_environment),
 ) -> ComponentInfo:
     address = ComponentAddress.create(unit, component)
     component_config = engine.config.get_component(address)
@@ -259,7 +244,7 @@ async def get_component_info(
     if component_config is None or component_cls is None:
         raise HTTPException(404)
 
-    id = await entities.get_component_id(address)
+    id = await environment.get_component_id(address)
     return ComponentInfo(
         id=id,
         name=address.name,

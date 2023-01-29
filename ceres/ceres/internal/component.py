@@ -302,7 +302,7 @@ class ComponentHandle(Tasklet):
                 root_config=self.__context.root_config,
                 unit_config=self.__context.unit_config,
                 component_config=self.config,
-                database=self.__context.unit.database,
+                environment=self.__context.unit.environment,
                 paths=ComponentPaths(
                     unit=self.__context.unit.paths.local,
                     component=self.__context.unit.paths.local.subdir(

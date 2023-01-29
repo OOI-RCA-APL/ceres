@@ -439,9 +439,11 @@ def set_current_process_name(name: str) -> None:
 def escape_like_expression(text: str) -> str:
     ...
 
+
 @overload
 def escape_like_expression(text: bytes) -> bytes:
     ...
+
 
 def escape_like_expression(text: str | bytes) -> str | bytes:
     if isinstance(text, str):

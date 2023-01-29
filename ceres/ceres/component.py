@@ -34,9 +34,9 @@ from .data import (
     ValidatedDataclass,
     jsonify,
 )
-from .database import Database
 from .database.entity import AlertEntity, MessageEntity
 from .directory import Directory
+from .environment import Environment
 from .errors import (
     ProcedureDoesNotExistError,
     ProcedureError,
@@ -220,7 +220,7 @@ class Component(ValidatedDataclass, Tasklet):
         address: ComponentAddress = Field(
             default_factory=lambda: ComponentAddress.create("default", randstr(ascii_lowercase, 8))
         )
-        database: Database = Field(default_factory=Database)
+        environment: Environment = Field(default_factory=Environment)
         paths: ComponentPaths = Field(default_factory=ComponentPaths)
 
         def __init_subclass__(cls) -> None:
@@ -269,12 +269,12 @@ class Component(ValidatedDataclass, Tasklet):
     def __post_init_post_parse__(self) -> None:
         self.__message_write_buffer = WriteBuffer(
             MessageEntity,
-            self.context.database,
+            self.context.environment.database,
             self.logger,
         )
         self.__alert_write_buffer = WriteBuffer(
             AlertEntity,
-            self.context.database,
+            self.context.environment.database,
             self.logger,
         )
         self.__event_processors = [
@@ -388,8 +388,8 @@ class Component(ValidatedDataclass, Tasklet):
         return self.context.address
 
     @property
-    def database(self) -> Database:
-        return self.context.database
+    def environment(self) -> Environment:
+        return self.context.environment
 
     @property
     def paths(self) -> ComponentPaths:
@@ -408,8 +408,8 @@ class Component(ValidatedDataclass, Tasklet):
         return self.__events.view()
 
     @property
-    def __has_exclusive_temporary_database(self) -> bool:
-        return "database" not in self.context.__fields_set__
+    def __has_exclusive_temporary_environment(self) -> bool:
+        return "environment" not in self.context.__fields_set__
 
     @property
     def settled(self) -> bool:
@@ -457,7 +457,7 @@ class Component(ValidatedDataclass, Tasklet):
                 self.__message_write_buffer.add(
                     MessageEntity(
                         id=event.message.id,
-                        component_id=self.context.id, # TODO: Actually use the passed ID.
+                        component_id=self.context.id,  # TODO: Actually use the passed ID.
                         timestamp=event.message.timestamp,
                         direction=MessageDirection.RECEIVE,
                         content=event.message.content,
@@ -467,7 +467,7 @@ class Component(ValidatedDataclass, Tasklet):
                 self.__alert_write_buffer.add(
                     AlertEntity(
                         id=event.alert.id,
-                        component_id=self.context.id,# TODO: Actually use the passed ID.
+                        component_id=self.context.id,  # TODO: Actually use the passed ID.
                         timestamp=event.alert.timestamp,
                         level=event.alert.level,
                         code=event.alert.code,
@@ -558,9 +558,11 @@ class Component(ValidatedDataclass, Tasklet):
             self.scheduler.add_job(run_job, schedule, name=job.name)
 
     async def __run__(self) -> None:
-        if self.__has_exclusive_temporary_database:
-            await self.database.init()
-            await self.database.entities.get_component_id(self.address, self.context.id)
+        print("run")
+        if self.__has_exclusive_temporary_environment:
+            print("ex")
+            await self.environment.database.init()
+            await self.environment.get_component_id(self.address, self.context.id)
 
         self.__start_scheduler()
 
@@ -606,6 +608,8 @@ class Component(ValidatedDataclass, Tasklet):
             self.__message_write_buffer.flush(),
             self.__alert_write_buffer.flush(),
         )
+        if self.__has_exclusive_temporary_environment:
+            await self.environment.database.dispose()
 
     class SubscribeEventsInput(ImmutableDataObject):
         kinds: str | FrozenSet[str] | None = None
@@ -695,7 +699,7 @@ class CompleteContext(Component.Context):
     root_config: Config
     unit_config: UnitConfig
     component_config: ComponentConfig
-    database: Database
+    environment: Environment
     paths: ComponentPaths
 
 

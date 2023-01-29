@@ -15,11 +15,11 @@
   <div>
     {% for level, in_level in index.items() %}
     <div>
-      <h2><b>{{ level.value.title() }}</b> ({{ size_of(in_level) }})</h2>
+      <h2><b>{{ level.title() }}</b> ({{ get_size(in_level) }})</h2>
       <div>
         {% for address, in_address in in_level.items() %}
         <div>
-          <p><b>{{ str(address) }}</b> ({{ size_of(in_address) }})</p>
+          <p><b>{{ str(address) }}</b> ({{ get_size(in_address) }})</p>
           {% for code, in_code in in_address.items() %}
           <table style="margin-bottom: 4px">
             <tr>
@@ -28,7 +28,7 @@
             </tr>
             <tr>
               <td>{{ code }}</td>
-              <td>{{ size_of(in_code) }}</td>
+              <td>{{ get_size(in_code) }}</td>
             </tr>
           </table>
           {% endfor %}

@@ -12,6 +12,7 @@ from .address import ComponentAddress
 from .config import Config, UnitConfig
 from .data import ImmutableDataObject, jsonify
 from .database import Database
+from .environment import Environment
 from .errors import (
     ProcedureError,
     ProcedureUnitDoesNotExistError,
@@ -55,7 +56,7 @@ class Engine(Tasklet):
         else:
             self.__server = None
 
-        self.__database = Database(self.__config.database)
+        self.__environment = Environment(Database(self.__config.database))
         self.__units: dict[Name, Unit] = {}
         self.__events: Stream[Event] = Stream()
         self.__reloading = AsyncEvent()
@@ -80,8 +81,8 @@ class Engine(Tasklet):
         return self.__config
 
     @property
-    def database(self) -> Database:
-        return self.__database
+    def environment(self) -> Environment:
+        return self.__environment
 
     @property
     def events(self) -> AsyncIterable[Event]:
@@ -119,10 +120,10 @@ class Engine(Tasklet):
                     f"initial configuration check failed: {jsonify(fail, indent=2)}"
                 )
 
-        if not await self.__database.tables():
+        if not await self.__environment.database.tables():
             self.logger.info("Database appears empty, initializing database...")
             try:
-                await self.__database.init()
+                await self.__environment.database.init()
                 self.logger.info("Database initialized successfully.")
             except Exception as exception:
                 self.logger.error("Database initialization failed.")
@@ -159,7 +160,7 @@ class Engine(Tasklet):
         async def stop() -> None:
             await self.__stop_server()
             await self.__stop_units()
-            await self.__database.dispose()
+            await self.__environment.database.dispose()
 
         await asyncio.shield(asyncio.create_task(stop()))
 
@@ -295,7 +296,7 @@ class Engine(Tasklet):
                         name=action.unit,
                         root_config=self.__config,
                         unit_config=unit_config,
-                        database=self.__database,
+                        environment=self.__environment,
                         forward=(self.__events,),
                     )
 

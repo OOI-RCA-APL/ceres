@@ -2,12 +2,12 @@ from dataclasses import field
 
 from ceres.alert import Alert, AlertLevel
 from ceres.component import Component
-from ceres.database import Database
+from ceres.environment import Environment
 from ceres.events import Event
 from ceres.listener import on
 
 
-async def test_event_listeners(database: Database) -> None:
+async def test_event_listeners() -> None:
     class EmitterEvent(Event):
         kind: str = "emitter-event"
         value: int
@@ -36,11 +36,12 @@ async def test_event_listeners(database: Database) -> None:
         def _on_self_event(self, event: SelfEvent) -> None:
             self.received_self_events.append(event)
 
+    environment = Environment()
     emitter = Emitter(
-        context=Emitter.Context(database=database),
+        context=Emitter.Context(environment=environment),
     )
     receiver = Receiver(
-        context=Receiver.Context(database=database),
+        context=Receiver.Context(environment=environment),
         references=Receiver.References(emitter=emitter),
     )
 
@@ -53,6 +54,7 @@ async def test_event_listeners(database: Database) -> None:
     receiver.emit_event(SelfEvent(value=1))
 
     await receiver.settle()
+    await emitter.settle()
     assert [(type(event), event.value) for event in receiver.received_emitter_events] == [
         (EmitterEvent, 0),
         (EmitterEvent, 1),
@@ -86,5 +88,5 @@ async def test_component_alerts() -> None:
     )
 
     await component.settle()
-    assert len(await component.database.entities.get_alerts()) == 2
+    assert len(await component.environment.get_alerts()) == 2
     await component.stop()

@@ -9,8 +9,8 @@ from .address import ComponentAddress
 from .component import CallableProcedureKind, SubscribableProcedureKind
 from .config import Config, UnitConfig
 from .data import ImmutableDataObject, jsonify
-from .database import Database
 from .directory import Directory
+from .environment import Environment
 from .errors import (
     ProcedureComponentNotLoadedError,
     ProcedureDoesNotExistError,
@@ -36,7 +36,7 @@ class UnitContext:
     name: Name
     root_config: Config
     unit_config: UnitConfig
-    database: Database
+    environment: Environment
     forward: Sequence[Stream[Event]]
 
     def __post_init__(self) -> None:
@@ -48,7 +48,7 @@ class UnitContext:
 class Unit(Tasklet):
     def __init__(self, context: UnitContext) -> None:
         self.__context = context
-        self.__database = context.database
+        self.__environment = context.environment
         self.__events: Stream[Event] = Stream()
 
         local_path = Directory(
@@ -81,8 +81,8 @@ class Unit(Tasklet):
         return self.__context.unit_config
 
     @property
-    def database(self) -> Database:
-        return self.__database
+    def environment(self) -> Environment:
+        return self.__environment
 
     @property
     def paths(self) -> UnitPaths:
@@ -150,8 +150,8 @@ class Unit(Tasklet):
                     await component.stop()
 
             finally:
-                if self.__context.database is None:
-                    await self.__database.dispose()
+                if self.__context.environment is None:
+                    await self.__environment.database.dispose()
 
         await asyncio.shield(asyncio.create_task(stop()))
 
@@ -162,7 +162,7 @@ class Unit(Tasklet):
             if component_config.name in self.__component_handles:
                 continue
 
-            id = await self.__database.entities.get_component_id(address)
+            id = await self.__environment.get_component_id(address)
 
             self.__component_handles[component_config.name] = ComponentHandle(
                 ComponentHandleContext(
