@@ -6,12 +6,13 @@ from enum import Enum
 from logging import Logger
 from pathlib import Path
 from queue import Empty, Queue
-from typing import AsyncIterable, final
+from typing import AsyncIterable, Sequence, final
 
 from .address import ComponentAddress
 from .config import Config, UnitConfig
 from .data import ImmutableDataObject, jsonify
 from .database import Database
+from .directory import Directory
 from .environment import Environment
 from .errors import (
     ProcedureError,
@@ -31,7 +32,7 @@ from .procedure import CallableProcedureKind, SubscribableProcedureKind
 from .result import Fail, Ok, Result
 from .stream import Stream
 from .types import Name
-from .unit import Unit, UnitContext
+from .unit import Unit, UnitPaths
 
 
 class UnitSyncActionKind(str, Enum):
@@ -56,7 +57,10 @@ class Engine(Tasklet):
         else:
             self.__server = None
 
-        self.__environment = Environment(Database(self.__config.database))
+        self.__environment = Environment(
+            database=Database(self.__config.database),
+        )
+
         self.__units: dict[Name, Unit] = {}
         self.__events: Stream[Event] = Stream()
         self.__reloading = AsyncEvent()
@@ -64,17 +68,6 @@ class Engine(Tasklet):
     @property
     def logger(self) -> Logger:
         return logs.get("engine")
-
-    @property
-    def config_path(self) -> Path | None:
-        return self.__config.path
-
-    @property
-    def config_directory(self) -> Path | None:
-        if self.__config.path:
-            return self.__config.path.parent
-
-        return None
 
     @property
     def config(self) -> Config:
@@ -88,15 +81,34 @@ class Engine(Tasklet):
     def events(self) -> AsyncIterable[Event]:
         return self.__events.view()
 
+    @property
+    def units(self) -> Sequence[Unit]:
+        return list(self.__units.values())
+
+    def emit_event(self, event: Event) -> None:
+        self.__events.put(event)
+
+    def get_unit(self, name: Name) -> Unit | None:
+        return self.__units.get(name)
+
+    def __attach_unit(self, unit: Unit) -> None:
+        self.__units[unit.name] = unit
+        unit.attach_to_engine(self)
+
+    def __detach_unit(self, unit: Unit) -> None:
+        self.__units.pop(unit.name, None)
+        if unit.engine is self:
+            unit.detach_from_engine()
+
     async def reload(self) -> Result[Config, ReloadError]:
         if self.__reloading.is_set():
             return Fail(ReloadAlreadyActiveError())
 
         source: Path | Config
 
-        if self.config_path:
-            self.logger.info(f"Reloading configuration from '{self.config_path}'...")
-            source = self.config_path
+        if self.__config.path:
+            self.logger.info(f"Reloading configuration from '{self.__config.path}'...")
+            source = self.__config.path
         else:
             self.logger.info("No configuration path is set. Reloading current configuration...")
             source = self.__config
@@ -171,7 +183,7 @@ class Engine(Tasklet):
         procedure: str,
         input: object | None = None,
     ) -> Result[object | None, ProcedureError]:
-        if (unit := self.__units.get(component.unit)) is None:
+        if (unit := self.get_unit(component.unit)) is None:
             raise ValueError(f"unit at {component} does not exist")
 
         return await unit.call(
@@ -276,7 +288,7 @@ class Engine(Tasklet):
                 if unit:
                     self.logger.info(f"Removing unit '{action.unit}'...")
                     await unit.stop()
-                    self.__units.pop(unit.name, None)
+                    self.__detach_unit(unit)
             else:
                 if action.kind == UnitSyncActionKind.START:
                     if unit and unit.running:
@@ -289,19 +301,31 @@ class Engine(Tasklet):
 
                     self.logger.info(f"Reloading unit '{action.unit}'...")
                     await unit.stop()
-                    self.__units.pop(unit.name, None)
+                    self.__detach_unit(unit)
 
-                if unit_config := configs.get(action.unit):
-                    context = UnitContext(
-                        name=action.unit,
-                        root_config=self.__config,
-                        unit_config=unit_config,
+                if config := configs.get(action.unit):
+                    if self.config.path is None:
+                        paths = UnitPaths(
+                            local=Directory(),
+                            data=Directory(),
+                        )
+                    else:
+                        paths = UnitPaths(
+                            local=Directory(
+                                self.config.path.parent / self.config.paths.local / config.name
+                            ),
+                            data=Directory(
+                                self.config.path.parent / self.config.paths.data / config.name
+                            ),
+                        )
+
+                    unit = Unit(
+                        config=config,
                         environment=self.__environment,
-                        forward=(self.__events,),
+                        paths=paths,
                     )
 
-                    unit = Unit(context)
-                    self.__units[action.unit] = unit
+                    self.__attach_unit(unit)
                     unit.start(
                         on_completed=self.__on_unit_completed,
                         on_exception=self.__on_unit_exception,
@@ -341,9 +365,9 @@ class Engine(Tasklet):
                 self.logger.info(f"Stopping unit '{unit.name}'...")
                 await unit.stop()
 
-            self.__units.pop(unit.name, None)
+            self.__detach_unit(unit)
 
-        await asyncio.gather(*(stop(unit) for unit in self.__units.values()))
+        await asyncio.gather(*(stop(unit) for unit in self.units))
 
         self.logger.info("All units were stopped successfully.")
 
@@ -353,7 +377,7 @@ class Engine(Tasklet):
         actions: list[UnitSyncAction] = []
 
         for name, config in configs.items():
-            unit = self.__units.get(name)
+            unit = self.get_unit(name)
             if unit and unit.running and unit.config == config:
                 continue
 
@@ -378,10 +402,10 @@ class Engine(Tasklet):
 
     def __on_unit_completed(self, unit: Unit) -> None:
         self.logger.info(f"Unit '{unit.name}' stopped.")
-        self.__units.pop(unit.name, None)
+        self.__detach_unit(unit)
 
     def __on_unit_exception(self, unit: Unit, exception: BaseException) -> None:
         self.logger.error(
             f"An exception occurred in unit '{unit.name}': {traceback.format_exception(exception)}"
         )
-        self.__units.pop(unit.name, None)
+        self.__detach_unit(unit)

@@ -38,10 +38,10 @@ async def test_event_listeners() -> None:
 
     environment = Environment()
     emitter = Emitter(
-        context=Emitter.Context(environment=environment),
+        environment=environment,
     )
     receiver = Receiver(
-        context=Receiver.Context(environment=environment),
+        environment=environment,
         references=Receiver.References(emitter=emitter),
     )
 

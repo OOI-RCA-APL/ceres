@@ -1,30 +1,18 @@
-import asyncio
 import collections.abc
 import importlib
 import traceback
 from dataclasses import dataclass
-from logging import Logger
-from pathlib import Path
 from types import MappingProxyType
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Mapping,
-    Sequence,
-    TypeVar,
-    cast,
-    final,
-    get_args,
-    get_origin,
-)
+from typing import Any, Mapping, Sequence, TypeVar, cast, get_args, get_origin
 from uuid import UUID
 
-from pydantic import ValidationError, parse_obj_as, validate_arguments
+from pydantic import ValidationError, parse_obj_as
 
 from ..address import ComponentAddress
-from ..component import CompleteContext, Component, ComponentPaths
-from ..config import ComponentConfig, ComponentRoleKind, Config, UnitConfig
+from ..component import Component, ComponentPaths
+from ..config import ComponentConfig, ComponentRoleKind
 from ..connection import Connection
+from ..environment import Environment
 from ..errors import (
     ComponentClassInvalidError,
     ComponentClassNotFoundError,
@@ -36,18 +24,9 @@ from ..errors import (
     ComponentReferenceInvalidError,
     ValidationProblem,
 )
-from ..events import Event
 from ..result import Fail, Ok, Result
-from ..stream import Stream
 from ..types import Name
-from . import logs
-from .tasklet import Tasklet
-from .utilities import cached, get_field_value, has_field, lenient_issubclass, strify
-
-if TYPE_CHECKING:
-    from ..unit import Unit
-else:
-    Unit = "Unit"
+from .utilities import cached, lenient_issubclass, strify
 
 _ComponentT = TypeVar("_ComponentT", bound=Component)
 
@@ -103,7 +82,11 @@ def load_component_cls(config: ComponentConfig) -> Result[type[Component], Compo
 
 def load_component(
     config: ComponentConfig,
-    context: CompleteContext,
+    *,
+    id: UUID,
+    address: ComponentAddress,
+    environment: Environment,
+    paths: ComponentPaths,
     siblings: Mapping[Name, Component],
 ) -> Result[Component, ComponentError]:
     if not isinstance(config.component, str | type):
@@ -120,7 +103,6 @@ def load_component(
         return Ok(cast(_ComponentT, config.component))
 
     parameters_type = cls.get_parameters_type()
-    context_type = cls.get_context_type()
     references_type = cls.get_references_type()
 
     try:
@@ -130,22 +112,6 @@ def load_component(
             ComponentParametersInvalidError(
                 message=f"invalid parameters for {strify(cls)}",
                 problems=ValidationProblem.extract(error),
-            )
-        )
-
-    try:
-        context_kwargs: dict[str, Any] = {}
-
-        for field in context.__fields__.values():
-            if has_field(context_type, field.name):
-                context_kwargs[field.name] = get_field_value(context, field.name)
-
-        applied_context = context_type(**context_kwargs)
-    except Exception as exception:
-        return Fail(
-            ComponentInitExceptionError(
-                message=f"exception raised when creating {strify(context_type)} for {strify(cls)}",
-                traceback=traceback.format_exception(exception),
             )
         )
 
@@ -208,9 +174,12 @@ def load_component(
     applied_jobs = config.jobs
 
     try:
-        instance = validate_arguments(cls)(
+        instance = cls(
+            id=id,
+            address=address,
+            environment=environment,
+            paths=paths,
             parameters=applied_parameters,
-            context=applied_context,
             references=applied_references,
             jobs=applied_jobs,
         )
@@ -223,105 +192,6 @@ def load_component(
         )
 
     return Ok(instance)
-
-
-@dataclass(kw_only=True, frozen=True)
-class ComponentHandleContext:
-    id: UUID
-    address: ComponentAddress
-    root_config: Config
-    unit_config: UnitConfig
-    component_config: ComponentConfig
-    unit: Unit
-    forward: Sequence[Stream[Event]]
-
-    def __post_init__(self) -> None:
-        assert self.root_config.get_component(self.address)
-        assert self.unit_config in self.root_config.units
-        assert self.component_config in self.unit_config.components
-
-
-@final
-class ComponentHandle(Tasklet):
-    def __init__(self, context: ComponentHandleContext) -> None:
-        self.__context = context
-        self.__instance: Component | None = None
-
-    @property
-    def id(self) -> UUID:
-        return self.__context.id
-
-    @property
-    def address(self) -> ComponentAddress:
-        return self.__context.address
-
-    @property
-    def config(self) -> ComponentConfig:
-        return self.__context.component_config
-
-    @property
-    def instance(self) -> Component | None:
-        return self.__instance
-
-    @property
-    def logger(self) -> Logger:
-        return logs.get(str(self.__context.address))
-
-    async def __run__(self) -> None:
-        if self.instance is None:
-            return
-
-        await asyncio.gather(
-            self.instance.run(),
-            self.__process_events(),
-        )
-
-    async def __process_events(self) -> None:
-        if self.instance is None:
-            return
-
-        async for event in self.instance.events:
-            for stream in self.__context.forward:
-                stream.put(event)
-
-    async def __stop__(self) -> None:
-        if self.instance is None:
-            return
-
-        await self.instance.stop()
-
-    async def load(self) -> Result[Component, ComponentError]:
-        if self.instance is not None:
-            return Ok(self.instance)
-
-        match load_component(
-            self.config,
-            CompleteContext(
-                id=self.id,
-                address=self.address,
-                root_config=self.__context.root_config,
-                unit_config=self.__context.unit_config,
-                component_config=self.config,
-                environment=self.__context.unit.environment,
-                paths=ComponentPaths(
-                    unit=self.__context.unit.paths.local,
-                    component=self.__context.unit.paths.local.subdir(
-                        Path("components") / self.config.name
-                    ),
-                    data=self.__context.unit.paths.data,
-                ),
-            ),
-            {
-                name: component.instance
-                for name, component in self.__context.unit.components.items()
-                if component.instance
-            },
-        ):
-            case Ok(instance):
-                self.__instance = instance
-                return Ok(instance)
-            case fail:
-                return fail
 
 
 @dataclass(kw_only=True, frozen=True)

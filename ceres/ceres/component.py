@@ -1,4 +1,5 @@
 import asyncio
+import dataclasses
 import inspect
 import traceback
 from asyncio import Queue as AsyncQueue
@@ -8,6 +9,7 @@ from logging import ERROR, INFO, WARNING, Logger
 from string import ascii_lowercase
 from types import MappingProxyType
 from typing import (
+    TYPE_CHECKING,
     Any,
     AsyncIterable,
     Awaitable,
@@ -20,14 +22,14 @@ from typing import (
     get_type_hints,
 )
 from uuid import UUID, uuid4
-from weakref import WeakValueDictionary
+from weakref import WeakValueDictionary, ref
 
 from pydantic import Field, ValidationError, validate_arguments, validator
 from typing_extensions import dataclass_transform
 
 from .address import ComponentAddress
 from .alert import Alert, AlertLevel
-from .config import ComponentConfig, Config, JobConfig, UnitConfig
+from .config import JobConfig
 from .data import (
     VALIDATED_DATACLASS_FIELD_SPECIFIERS,
     ImmutableDataObject,
@@ -83,6 +85,13 @@ from .stream import Stream, StreamView
 from .types import Name
 from .validation import ValidationProblem
 
+if TYPE_CHECKING:
+    from .engine import Engine
+    from .unit import Unit
+else:
+    Engine = "Engine"
+    Unit = "Unit"
+
 _ComponentT = TypeVar("_ComponentT", bound="Component")
 _EventT = TypeVar("_EventT", bound=Event)
 
@@ -112,8 +121,8 @@ class Component(ValidatedDataclass, Tasklet):
             return isinstance(cls, type) and isinstance(subcls, type) and issubclass(subcls, cls)
 
         parameters_hint = hints.get("parameters")
-        context_hint = hints.get("context")
         references_hint = hints.get("references")
+        component_field_names = {field.name for field in dataclasses.fields(Component)}
 
         if (
             not all(
@@ -121,17 +130,15 @@ class Component(ValidatedDataclass, Tasklet):
                 or (
                     parameter.kind == Parameter.KEYWORD_ONLY
                     and (
-                        parameter.name in ("parameters", "context", "references")
+                        parameter.name in component_field_names
                         or parameter.default is not Parameter.empty
                     )
                 )
                 for i, parameter in enumerate(signature.parameters.values())
             )
-            or not parameters_hint
-            or not context_hint
-            or not references_hint
+            or parameters_hint is None
+            or references_hint is None
             or not is_subclass_or_typevar(parameters_hint, Component.Parameters)
-            or not is_subclass_or_typevar(context_hint, Component.Context)
             or not is_subclass_or_typevar(references_hint, Component.References)
         ):
             raise ComponentClassInvalidException(
@@ -215,27 +222,6 @@ class Component(ValidatedDataclass, Tasklet):
     class Parameters(ImmutableDataObject):
         pass
 
-    class Context(ImmutableDataObject):
-        id: UUID = Field(default_factory=uuid4)
-        address: ComponentAddress = Field(
-            default_factory=lambda: ComponentAddress.create("default", randstr(ascii_lowercase, 8))
-        )
-        environment: Environment = Field(default_factory=Environment)
-        paths: ComponentPaths = Field(default_factory=ComponentPaths)
-
-        def __init_subclass__(cls) -> None:
-            if cls.__module__ == __name__:
-                return
-
-            extra: list[tuple[str, Any]] = []
-
-            for current in cls.__fields__.values():
-                if not has_field(CompleteContext, current.name, current.type_):
-                    extra.append((current.name, current.type_))
-
-            if extra:
-                raise ValueError(f"invalid context class, cannot provide fields: {extra}")
-
     class References(ImmutableDataObject):
         def get_components(self, alias: str | None = None) -> Sequence["Component"]:
             components = []
@@ -256,25 +242,40 @@ class Component(ValidatedDataclass, Tasklet):
 
             return components
 
+    id: UUID = field(default_factory=uuid4)
+    address: ComponentAddress = field(
+        default_factory=lambda: ComponentAddress.create("default", randstr(ascii_lowercase, 8))
+    )
+    if TYPE_CHECKING:
+        environment: Environment = field(default_factory=Environment)
+    else:
+        environment: Environment | None = field(default_factory=None)
+
+    paths: ComponentPaths = field(default_factory=ComponentPaths)
+
     parameters: Parameters = field(default_factory=Parameters)
-    context: Context = field(default_factory=Context)
     references: References = field(default_factory=References)
     jobs: Mapping[Name, JobConfig] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        self.__unit: ref[Unit] | None = None
         self.__events: Stream[Event] = Stream()
         self.__scheduler = Scheduler()
         self.__referencers: WeakValueDictionary[UUID, Component] = WeakValueDictionary()
 
     def __post_init_post_parse__(self) -> None:
+        self.__has_exclusive_temporary_environment = self.environment is None
+        if self.__has_exclusive_temporary_environment:
+            self.environment = Environment()
+
         self.__message_write_buffer = WriteBuffer(
             MessageEntity,
-            self.context.environment.database,
+            self.environment.database,
             self.logger,
         )
         self.__alert_write_buffer = WriteBuffer(
             AlertEntity,
-            self.context.environment.database,
+            self.environment.database,
             self.logger,
         )
         self.__event_processors = [
@@ -314,11 +315,6 @@ class Component(ValidatedDataclass, Tasklet):
     @classmethod
     def get_parameters_type(cls) -> type[Parameters]:
         return get_type_annotations(cls)["parameters"]  # type: ignore
-
-    @final
-    @classmethod
-    def get_context_type(cls) -> type[Context]:
-        return get_type_annotations(cls)["context"]  # type: ignore
 
     @final
     @classmethod
@@ -376,24 +372,22 @@ class Component(ValidatedDataclass, Tasklet):
                 return cls.get_display_bindings()
 
     @property
-    def id(self) -> UUID:
-        return self.context.id
-
-    @property
     def name(self) -> str:
-        return self.context.address.name
+        return self.address.name
 
     @property
-    def address(self) -> ComponentAddress:
-        return self.context.address
+    def engine(self) -> "Engine | None":
+        if self.unit is None:
+            return None
+
+        return self.unit.engine
 
     @property
-    def environment(self) -> Environment:
-        return self.context.environment
+    def unit(self) -> "Unit | None":
+        if self.__unit is None:
+            return None
 
-    @property
-    def paths(self) -> ComponentPaths:
-        return self.context.paths
+        return self.__unit()
 
     @property
     def scheduler(self) -> Scheduler:
@@ -406,10 +400,6 @@ class Component(ValidatedDataclass, Tasklet):
     @property
     def events(self) -> StreamView[Event]:
         return self.__events.view()
-
-    @property
-    def __has_exclusive_temporary_environment(self) -> bool:
-        return "environment" not in self.context.__fields_set__
 
     @property
     def settled(self) -> bool:
@@ -442,6 +432,15 @@ class Component(ValidatedDataclass, Tasklet):
         if alert.source is None:
             object.__setattr__(alert, "source", self.address)
 
+    def attach_to_unit(self, unit: Unit) -> None:
+        if unit.get_component(self.name) is not self:
+            raise ValueError("attached unit does not contain this component")
+
+        self.__unit = ref(unit)
+
+    def detach_from_unit(self) -> None:
+        self.__unit = None
+
     def emit_event(self, event: _EventT) -> _EventT:
         self.__set_emitted_event_source(event)
         # Handle "self" events.
@@ -451,13 +450,16 @@ class Component(ValidatedDataclass, Tasklet):
             referencer.handle_event(event)
         # Add the event to the outgoing event stream.
         self.__events.put(event)
+        # Pass the event up to the containing unit if it exists.
+        if self.unit is not None:
+            self.unit.emit_event(event)
 
         match event:
             case MessageSentEvent() | MessageReceivedEvent():
                 self.__message_write_buffer.add(
                     MessageEntity(
                         id=event.message.id,
-                        component_id=self.context.id,  # TODO: Actually use the passed ID.
+                        component_id=self.id,  # TODO: Actually use the passed ID.
                         timestamp=event.message.timestamp,
                         direction=MessageDirection.RECEIVE,
                         content=event.message.content,
@@ -467,7 +469,7 @@ class Component(ValidatedDataclass, Tasklet):
                 self.__alert_write_buffer.add(
                     AlertEntity(
                         id=event.alert.id,
-                        component_id=self.context.id,  # TODO: Actually use the passed ID.
+                        component_id=self.id,  # TODO: Actually use the passed ID.
                         timestamp=event.alert.timestamp,
                         level=event.alert.level,
                         code=event.alert.code,
@@ -558,11 +560,9 @@ class Component(ValidatedDataclass, Tasklet):
             self.scheduler.add_job(run_job, schedule, name=job.name)
 
     async def __run__(self) -> None:
-        print("run")
         if self.__has_exclusive_temporary_environment:
-            print("ex")
             await self.environment.database.init()
-            await self.environment.get_component_id(self.address, self.context.id)
+            await self.environment.get_component_id(self.address, self.id)
 
         self.__start_scheduler()
 
@@ -691,16 +691,6 @@ class Component(ValidatedDataclass, Tasklet):
                 raise
 
         return Ok(iterate())
-
-
-class CompleteContext(Component.Context):
-    id: UUID
-    address: ComponentAddress
-    root_config: Config
-    unit_config: UnitConfig
-    component_config: ComponentConfig
-    environment: Environment
-    paths: ComponentPaths
 
 
 @cached

@@ -11,7 +11,7 @@ from pydantic import ValidationError
 from yaml import MarkedYAMLError, YAMLError
 
 from ..address import ComponentAddress
-from ..component import CompleteContext, Component, ComponentPaths
+from ..component import Component, ComponentPaths
 from ..config import Config, UnitConfig
 from ..database import Database
 from ..datetime import utc
@@ -152,7 +152,7 @@ async def _check_components(
 ) -> list[ConfigComponentError]:
     log("Checking component configurations...")
 
-    environment = Environment(Database(config.database))
+    environment = Environment(database=Database(config.database))
     paths = ComponentPaths()
 
     def check_unit_config(unit_config: UnitConfig) -> Iterable[ConfigComponentError]:
@@ -164,16 +164,11 @@ async def _check_components(
                 log(f"Checking component '{address}'...")
                 match load_component(
                     component_config,
-                    CompleteContext(
-                        id=uuid4(),
-                        address=address,
-                        root_config=config,
-                        unit_config=unit_config,
-                        component_config=component_config,
-                        environment=environment,
-                        paths=paths,
-                    ),
-                    components,
+                    id=uuid4(),
+                    address=address,
+                    environment=environment,
+                    paths=paths,
+                    siblings=components,
                 ):
                     case Ok(component):
                         components[component_config.name] = component

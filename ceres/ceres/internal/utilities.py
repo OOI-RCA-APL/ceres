@@ -35,6 +35,7 @@ import rich
 from apscheduler.triggers.cron import CronTrigger
 from pydantic import BaseModel, parse_obj_as
 from pydantic.decorator import ValidatedFunction
+from typing_extensions import Self
 
 from ..types import Name
 
@@ -113,20 +114,6 @@ def is_dataclass(obj: object) -> TypeGuard[DataclassLike]:
 
 def is_pydantic_dataclass(obj: object) -> TypeGuard[PydanticDataclassLike]:
     return dataclasses.is_dataclass(obj) and hasattr(obj, "__pydantic_model__")
-
-
-class ValidateByType:
-    @classmethod
-    def __get_validators__(cls) -> Iterable[Any]:
-        if hasattr(super(), "__get_validators__"):
-            yield from super().__get_validators__()  # type: ignore
-
-        def validate_type(value: Any) -> Any:
-            if not isinstance(value, cls):
-                raise ValueError(f"must be an instance of {cls}")
-            return value
-
-        yield validate_type
 
 
 def unwrap(value: _T | None) -> _T:
@@ -450,3 +437,18 @@ def escape_like_expression(text: str | bytes) -> str | bytes:
         return text.replace("%", "%%").replace("_", "__")
 
     return text.replace(b"%", b"%%").replace(b"_", b"__")
+
+
+class ValidateByType:
+    @classmethod
+    def __get_validators__(cls) -> Iterable[Callable[[Any], Self]]:
+        if hasattr(super(), "__get_validators__"):
+            yield from super().__get_validators__()  # type: ignore
+        yield cls.__validate
+
+    @classmethod
+    def __validate(cls, value: Any) -> Self:
+        if not isinstance(value, cls):
+            raise ValueError(f"must be an instance of {strify(cls)}, got {strify(type(value))}")
+
+        return value

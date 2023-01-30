@@ -16,7 +16,11 @@ from .data import ImmutableDataObject
 from .database import Database
 from .database.entity import AlertEntity, ComponentEntity, MessageEntity
 from .datetime import utc
-from .internal.utilities import escape_like_expression, validate_positive_timedelta
+from .internal.utilities import (
+    ValidateByType,
+    escape_like_expression,
+    validate_positive_timedelta,
+)
 from .message import Message, MessageDirection
 
 WhereExpression = ColumnElement[bool] | ExpressionElementRole[bool]
@@ -69,8 +73,12 @@ class AlertQuery(ImmutableDataObject):
         return validate_positive_timedelta(value)
 
 
-class Environment:
-    def __init__(self, database: Database | None = None) -> None:
+class Environment(ValidateByType):
+    def __init__(
+        self,
+        *,
+        database: Database | None = None,
+    ) -> None:
         if database is None:
             database = Database()
 

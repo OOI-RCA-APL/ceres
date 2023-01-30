@@ -1,29 +1,35 @@
 import asyncio
 import traceback
-from dataclasses import dataclass
 from logging import Logger
-from types import MappingProxyType
-from typing import AsyncIterable, Mapping, Sequence, final
+from pathlib import Path
+from typing import TYPE_CHECKING, AsyncIterable, Sequence, final
+from weakref import ref
 
 from .address import ComponentAddress
-from .component import CallableProcedureKind, SubscribableProcedureKind
-from .config import Config, UnitConfig
+from .component import (
+    CallableProcedureKind,
+    Component,
+    ComponentPaths,
+    SubscribableProcedureKind,
+)
+from .config import UnitConfig
 from .data import ImmutableDataObject, jsonify
 from .directory import Directory
 from .environment import Environment
-from .errors import (
-    ProcedureComponentNotLoadedError,
-    ProcedureDoesNotExistError,
-    ProcedureError,
-)
+from .errors import ProcedureComponentNotLoadedError, ProcedureError
 from .events import Event
 from .internal import logs
-from .internal.component import ComponentHandle, ComponentHandleContext
+from .internal.component import load_component
 from .internal.tasklet import Tasklet
 from .internal.utilities import sleep_forever, strify
 from .result import Fail, Ok, Result
 from .stream import Stream, StreamView
 from .types import Name
+
+if TYPE_CHECKING:
+    from .engine import Engine
+else:
+    Engine = "Engine"
 
 
 class UnitPaths(ImmutableDataObject):
@@ -31,58 +37,54 @@ class UnitPaths(ImmutableDataObject):
     data: Directory
 
 
-@dataclass(kw_only=True, frozen=True)
-class UnitContext:
-    name: Name
-    root_config: Config
-    unit_config: UnitConfig
-    environment: Environment
-    forward: Sequence[Stream[Event]]
-
-    def __post_init__(self) -> None:
-        assert self.root_config.get_unit(self.name)
-        assert self.unit_config in self.root_config.units
-
-
 @final
 class Unit(Tasklet):
-    def __init__(self, context: UnitContext) -> None:
-        self.__context = context
-        self.__environment = context.environment
+    def __init__(
+        self,
+        *,
+        config: UnitConfig,
+        environment: Environment | None = None,
+        paths: UnitPaths | None = None,
+    ) -> None:
+        self.__config = config
+
+        if environment is not None:
+            self.__environment = environment
+            self.__has_exclusive_temporary_environment = False
+        else:
+            self.__environment = Environment()
+            self.__has_exclusive_temporary_environment = True
+
+        if paths is not None:
+            self.__paths = paths
+        else:
+            self.__paths = UnitPaths(
+                local=Directory(),
+                data=Directory(),
+            )
+
+        self.__engine: ref[Engine] | None = None
         self.__events: Stream[Event] = Stream()
-
-        local_path = Directory(
-            (context.root_config.path.parent / context.root_config.paths.local / self.name)
-            if context.root_config.path is not None
-            else None
-        )
-        data_path = Directory(
-            (context.root_config.path.parent / context.root_config.paths.data / self.name)
-            if context.root_config.path is not None
-            else None
-        )
-        self.__paths = UnitPaths(
-            local=local_path,
-            data=data_path,
-        )
-
-        self.__component_handles: dict[Name, ComponentHandle] = {}
+        self.__components: dict[Name, Component] = {}
 
     @property
     def name(self) -> Name:
-        return self.__context.name
-
-    @property
-    def root_config(self) -> Config:
-        return self.__context.root_config
+        return self.__config.name
 
     @property
     def config(self) -> UnitConfig:
-        return self.__context.unit_config
+        return self.__config
 
     @property
     def environment(self) -> Environment:
         return self.__environment
+
+    @property
+    def engine(self) -> "Engine | None":
+        if self.__engine is None:
+            return None
+
+        return self.__engine()
 
     @property
     def paths(self) -> UnitPaths:
@@ -90,18 +92,41 @@ class Unit(Tasklet):
 
     @property
     def logger(self) -> Logger:
-        return logs.get(str(self.__context.name))
-
-    @property
-    def components(self) -> Mapping[Name, ComponentHandle]:
-        return MappingProxyType(self.__component_handles)
+        return logs.get(str(self.name))
 
     @property
     def events(self) -> StreamView[Event]:
         return self.__events.view()
 
-    def get_component_handle(self, name: Name) -> ComponentHandle | None:
-        return self.__component_handles.get(name)
+    @property
+    def components(self) -> Sequence[Component]:
+        return list(self.__components.values())
+
+    def emit_event(self, event: Event) -> None:
+        self.__events.put(event)
+        if self.engine is not None:
+            self.engine.emit_event(event)
+
+    def attach_to_engine(self, engine: Engine) -> None:
+        if engine.get_unit(self.name) is not self:
+            raise ValueError("attached engine does not contain this unit")
+
+        self.__engine = ref(engine)
+
+    def detach_from_engine(self) -> None:
+        self.__engine = None
+
+    def __attach_component(self, component: Component) -> None:
+        self.__components[component.name] = component
+        component.attach_to_unit(self)
+
+    def __detach_component(self, component: Component) -> None:
+        self.__components.pop(component.name, None)
+        if component.unit is self:
+            component.detach_from_unit()
+
+    def get_component(self, name: Name) -> Component | None:
+        return self.__components.get(name)
 
     async def call(
         self,
@@ -110,12 +135,11 @@ class Unit(Tasklet):
         procedure: str,
         input: object | None = None,
     ) -> Result[object | None, ProcedureError]:
-        if (handle := self.get_component_handle(component)) is None:
-            return Fail(ProcedureDoesNotExistError())
-        if handle.instance is None:
+        instance = self.get_component(component)
+        if instance is None:
             return Fail(ProcedureComponentNotLoadedError())
 
-        return await handle.instance.call(kind, procedure, input)
+        return await instance.call(kind, procedure, input)
 
     async def subscribe(
         self,
@@ -124,17 +148,16 @@ class Unit(Tasklet):
         procedure: str,
         input: object | None = None,
     ) -> Result[AsyncIterable[object | None], ProcedureError]:
-        if (handle := self.get_component_handle(component)) is None:
-            return Fail(ProcedureDoesNotExistError())
-        if handle.instance is None:
+        instance = self.get_component(component)
+        if instance is None:
             return Fail(ProcedureComponentNotLoadedError())
 
-        return await handle.instance.subscribe(kind, procedure, input)
+        return await instance.subscribe(kind, procedure, input)
 
     async def __run__(self) -> None:
         await self.__load_components()
 
-        for component in self.components.values():
+        for component in self.components:
             component.start(
                 on_exception=self.__on_component_exception,
                 on_completed=self.__on_component_completed,
@@ -145,52 +168,51 @@ class Unit(Tasklet):
     async def __stop__(self) -> None:
         async def stop() -> None:
             try:
-                for component in reversed(self.components.values()):
+                for component in reversed(self.components):
                     self.logger.info(f"Stopping component '{component.address}'...")
                     await component.stop()
 
             finally:
-                if self.__context.environment is None:
-                    await self.__environment.database.dispose()
+                if self.__has_exclusive_temporary_environment:
+                    await self.environment.database.dispose()
 
         await asyncio.shield(asyncio.create_task(stop()))
 
     async def __load_components(self) -> None:
-        for component_config in self.config.components:
-            address = ComponentAddress.create(self.name, component_config.name)
-
-            if component_config.name in self.__component_handles:
+        for config in self.config.components:
+            if self.get_component(config.name) is not None:
                 continue
 
+            address = ComponentAddress.create(self.name, config.name)
             id = await self.__environment.get_component_id(address)
-
-            self.__component_handles[component_config.name] = ComponentHandle(
-                ComponentHandleContext(
-                    id=id,
-                    address=address,
-                    root_config=self.__context.root_config,
-                    unit_config=self.config,
-                    component_config=component_config,
-                    unit=self,
-                    forward=[*self.__context.forward, self.__events],
-                )
-            )
-
-        for component_handle in self.__component_handles.values():
-            match await component_handle.load():
-                case Ok():
+            match load_component(
+                config,
+                id=id,
+                address=address,
+                environment=self.environment,
+                paths=ComponentPaths(
+                    unit=self.paths.local,
+                    component=self.paths.local.subdir(Path("components") / self.config.name),
+                    data=self.paths.data,
+                ),
+                siblings=self.__components,
+            ):
+                case Ok(component):
+                    self.__attach_component(component)
                     self.logger.info(
-                        f"Loaded '{component_handle.address}' as {strify(type(component_handle.instance))} with id '{component_handle.id}'."
+                        f"Loaded '{component.address}' as {strify(type(component))} with id '{component.id}'."
                     )
                 case Fail(error):
                     self.logger.error(
-                        f"Failed to load component '{component_handle.address}'. Error: {jsonify(error, indent=2)}"
+                        f"Failed to load component '{address}'. Error: {jsonify(error, indent=2)}"
                     )
 
-    def __on_component_exception(self, handle: ComponentHandle, exception: BaseException) -> None:
+    def __on_component_exception(self, component: Component, exception: BaseException) -> None:
         self.logger.error(
-            f"Exception occurred in component '{handle.address}': {traceback.format_exception(exception)}"
+            f"Exception occurred in component '{component.address}': {traceback.format_exception(exception)}"
         )
+        self.__detach_component(component)
 
-    def __on_component_completed(self, handle: ComponentHandle) -> None:
-        self.logger.info(f"Component '{handle.address}' stopped.")
+    def __on_component_completed(self, component: Component) -> None:
+        self.logger.info(f"Component '{component.address}' stopped.")
+        self.__detach_component(component)
