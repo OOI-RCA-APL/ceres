@@ -45,7 +45,6 @@ const directionColor = $computed(() => {
   align-items: center;
   flex-wrap: nowrap;
   justify-items: center;
-  padding-left: 8px;
   white-space: nowrap;
 }
 

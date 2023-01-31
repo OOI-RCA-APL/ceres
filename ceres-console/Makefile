@@ -1,7 +1,7 @@
 build: install
 	npm run build
-run:
-	npm run run
+dev:
+	npm run dev
 install:
 	npm install
 update:

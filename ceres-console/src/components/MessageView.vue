@@ -13,7 +13,7 @@
     <q-virtual-scroll
       ref="scroll"
       v-slot="{ item: message }"
-      :class="containerClass"
+      :class="['self-message-container message-view-message-container', containerClass]"
       :items="messages"
       :virtual-scroll-item-size="messageHeight"
       :virtual-scroll-slice-size="250"
@@ -254,6 +254,11 @@ onMounted(async () => {
 </script>
 
 <style lang="scss" scoped>
+.self-message-container {
+  overscroll-behavior: contain;
+  padding: 0 8px;
+}
+
 .self-search-input-container {
   min-width: 60px;
   position: relative;
@@ -277,5 +282,9 @@ onMounted(async () => {
   position: absolute;
   top: -14px;
   width: 100%;
+}
+
+.message-view-message-container .q-virtual-scroll__content {
+  contain: none !important;
 }
 </style>

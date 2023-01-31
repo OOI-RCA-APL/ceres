@@ -7,7 +7,7 @@
   "private": true,
   "scripts": {
     "build": "quasar build",
-    "run": "quasar dev",
+    "dev": "quasar dev",
     "lint": "eslint --ext .js,.ts,.vue . && prettier --ignore-path .gitignore --check .",
     "format": "eslint --ext .js,.ts,.vue --fix . && prettier --ignore-path .gitignore --write ."
   },
