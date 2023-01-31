@@ -6,7 +6,7 @@ from types import MappingProxyType
 from typing import Any, Mapping, Sequence, TypeVar, cast, get_args, get_origin
 from uuid import UUID
 
-from pydantic import ValidationError, parse_obj_as
+from pydantic import ValidationError, parse_obj_as, validate_arguments
 
 from ..address import ComponentAddress
 from ..component import Component, ComponentPaths
@@ -174,7 +174,7 @@ def load_component(
     applied_jobs = config.jobs
 
     try:
-        instance = cls(
+        instance = validate_arguments(cls)(
             id=id,
             address=address,
             environment=environment,
