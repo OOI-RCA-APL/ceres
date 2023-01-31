@@ -12,6 +12,7 @@ from .component import Component
 from .data import ImmutableDataObject, jsonify
 from .events import (
     ConnectedEvent,
+    ConnectFailedEvent,
     DisconnectedEvent,
     MessageReceivedEvent,
     MessageSentEvent,
@@ -125,6 +126,7 @@ class Connection(Component, ABC):
             self.logger.info("Connected successfully.")
         else:
             self.__state = ConnectionState.DISCONNECTED
+            self.emit_event(ConnectFailedEvent())
             self.logger.error("Failed to connect.")
 
         return self.connected
