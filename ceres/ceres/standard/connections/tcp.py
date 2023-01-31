@@ -11,7 +11,7 @@ from pydantic import Field, validator
 
 from ...connection import Connection
 from ...data import ImmutableDataObject
-from ...events import MessageReceivedEvent
+from ...events import ConnectionLostEvent, MessageReceivedEvent
 from ...exceptions import ConnectionInactiveException, ConnectionLostException
 from ...internal.utilities import (
     ensure_event_loop,
@@ -204,6 +204,7 @@ class TCPConnection(Connection):
 
             if disconnected:
                 try:
+                    self.emit_event(ConnectionLostEvent())
                     await self.disconnect()
                 except Exception:
                     pass

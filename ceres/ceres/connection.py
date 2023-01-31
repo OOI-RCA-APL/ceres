@@ -13,6 +13,7 @@ from .data import ImmutableDataObject, jsonify
 from .events import (
     ConnectedEvent,
     ConnectFailedEvent,
+    ConnectionLostEvent,
     DisconnectedEvent,
     MessageReceivedEvent,
     MessageSentEvent,
@@ -135,6 +136,7 @@ class Connection(Component, ABC):
         try:
             await self.send_data(data)
         except ConnectionLostException:
+            self.emit_event(ConnectionLostEvent())
             await self.disconnect()
             raise
 
@@ -153,6 +155,7 @@ class Connection(Component, ABC):
         try:
             data = await self.receive_data()
         except ConnectionLostException:
+            self.emit_event(ConnectionLostEvent())
             await self.disconnect()
             raise
 

@@ -23,6 +23,7 @@ class Event(ImmutableDataObject, ABC):
 class StandardEventKind(str, Enum):
     CONNECTED = "connected"
     DISCONNECTED = "disconnected"
+    CONNECTION_LOST = "connection-lost"
     CONNECT_FAILED = "connect-failed"
     MESSAGE_SENT = "message-sent"
     MESSAGE_RECEIVED = "message-received"
@@ -41,6 +42,11 @@ class ConnectedEvent(BaseStandardEvent):
 @final
 class DisconnectedEvent(BaseStandardEvent):
     kind: Literal[StandardEventKind.DISCONNECTED] = StandardEventKind.DISCONNECTED
+
+
+@final
+class ConnectionLostEvent(BaseStandardEvent):
+    kind: Literal[StandardEventKind.CONNECTION_LOST] = StandardEventKind.CONNECTION_LOST
 
 
 @final
