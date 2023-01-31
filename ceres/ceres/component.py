@@ -249,7 +249,7 @@ class Component(ValidatedDataclass, Tasklet):
     if TYPE_CHECKING:
         environment: Environment = field(default_factory=Environment)
     else:
-        environment: Environment | None = field(default_factory=None)
+        environment: Environment | None = field(default=None)
 
     paths: ComponentPaths = field(default_factory=ComponentPaths)
 
