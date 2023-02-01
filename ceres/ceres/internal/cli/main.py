@@ -16,7 +16,7 @@ from ...data import jsonify
 from ...engine import Engine
 from ...exceptions import EngineException
 from ...result import Ok
-from ...utilities import spawn
+from ...threading import spawn
 from .. import logs
 from ..config import load_config
 from ..utilities import (

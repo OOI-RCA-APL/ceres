@@ -50,5 +50,5 @@ from .schedule import ScheduleKind as ScheduleKind
 from .stream import Stream as Stream
 from .stream import StreamReader as StreamReader
 from .stream import StreamView as StreamView
+from .threading import spawn as spawn
 from .unit import Unit as Unit
-from .utilities import spawn as spawn
