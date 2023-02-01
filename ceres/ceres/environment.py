@@ -65,7 +65,7 @@ class AlertQuery(ImmutableDataObject):
     codes: Sequence[str] | None = None
     code_regex: str | Pattern[str] | None = None
 
-    order: AlertOrder = AlertOrder.OLD_TO_NEW
+    order: AlertOrder | None = None
     limit: int | None = None
 
     @validator("within", pre=True)

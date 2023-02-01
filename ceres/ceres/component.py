@@ -5,7 +5,7 @@ import traceback
 from asyncio import Queue as AsyncQueue
 from dataclasses import field
 from inspect import Parameter
-from logging import ERROR, INFO, WARNING, Logger
+from logging import CRITICAL, DEBUG, ERROR, INFO, WARNING, Logger
 from string import ascii_lowercase
 from types import MappingProxyType
 from typing import (
@@ -501,12 +501,16 @@ class Component(ValidatedDataclass, Tasklet):
         self.__set_emitted_alert_source(alert)
 
         match alert.level:
+            case AlertLevel.DEBUG:
+                log_level = DEBUG
             case AlertLevel.INFO:
                 log_level = INFO
             case AlertLevel.WARNING:
                 log_level = WARNING
             case AlertLevel.ERROR:
                 log_level = ERROR
+            case AlertLevel.CRITICAL:
+                log_level = CRITICAL
 
         self.emit_event(AlertEmittedEvent(alert=alert))
         self.logger.log(log_level, f"Alert: {jsonify(alert)}")

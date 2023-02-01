@@ -1,6 +1,7 @@
 from collections import defaultdict
+from datetime import datetime
 from itertools import groupby
-from typing import Any, Sequence, final
+from typing import Any, Iterable, Sequence, final
 
 from ....address import ComponentAddress
 from ....alert import Alert, AlertLevel
@@ -36,7 +37,10 @@ class HTMLDispatchWriter(DispatchWriter):
 
             return count
 
-        Index = dict[AlertLevel, dict[ComponentAddress, dict[str, dict[str, list[Alert]]]]]
+        def get_latest_alert_timestamp(alerts: Iterable[Alert]) -> datetime:
+            return max([alert.timestamp for alert in alerts])
+
+        Index = dict[AlertLevel, dict[tuple[ComponentAddress, str, str], list[Alert]]]
 
         def create_index() -> Index:
             return defaultdict(create_index)  # type: ignore
@@ -50,22 +54,24 @@ class HTMLDispatchWriter(DispatchWriter):
             ),
             key=lambda alert: alert.level,
         ):
-            for source, by_source in groupby(by_level, lambda alert: alert.source):
-                for code, by_code in groupby(by_source, lambda alert: alert.code):
-                    for info, by_info in groupby(by_code, lambda alert: jsonify(alert.info)):
-                        listing = index[level][source][code]
-                        if info not in listing:
-                            listing[info] = []
+            for key, by_key in groupby(
+                sorted(by_level, key=lambda alert: -alert.timestamp.timestamp()),
+                lambda alert: (alert.source, alert.code, jsonify(alert.info)),
+            ):
+                group = index[level]
+                if key not in group:
+                    group[key] = []
 
-                        listing[info].extend(by_info)
+                group[key].extend(by_key)
+                group[key].sort(key=lambda alert: -alert.timestamp.timestamp())
 
         template = templates.get_template("html-email-dispatch.jinja")
         content = template.render(
             dispatch=dispatch,
             index=index,
-            get_size=get_size,
-            str=str,
             markdown=markdown,
+            get_size=get_size,
+            get_latest_alert_timestamp=get_latest_alert_timestamp,
         )
 
         return Notification(

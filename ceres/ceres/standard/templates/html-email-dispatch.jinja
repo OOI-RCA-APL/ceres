@@ -16,30 +16,31 @@
     {% for level, in_level in index.items() %}
     <div>
       <h2><b>{{ level.title() }}</b> ({{ get_size(in_level) }})</h2>
-      <div>
-        {% for address, in_address in in_level.items() %}
-        <div>
-          <p><b>{{ str(address) }}</b> ({{ get_size(in_address) }})</p>
-          {% for code, in_code in in_address.items() %}
-          <table style="margin-bottom: 4px">
-            <tr>
-              <th>Code</th>
-              <th>Count</th>
-            </tr>
-            <tr>
-              <td>{{ code }}</td>
-              <td>{{ get_size(in_code) }}</td>
-            </tr>
-          </table>
-          {% endfor %}
-        </div>
+      <table style="margin-bottom: 4px">
+        <tr>
+          <th>Source</th>
+          <th>Code</th>
+          <th>Info</th>
+          <th>Count</th>
+          <th>Latest (UTC)</th>
+        </tr>
+        {% for (source, code, info), alerts in in_level.items() %}
+        <tr>
+          <td>{{ source }}</td>
+          <td>{{ code }}</td>
+          <td>
+            <pre>{{ info }}</pre>
+          </td>
+          <td>{{ get_size(alerts) }}</td>
+          <td>{{ get_latest_alert_timestamp(alerts).strftime("%Y-%m-%d %H:%M:%S") }}</td>
+        </tr>
         {% endfor %}
-      </div>
+      </table>
     </div>
     {% endfor %}
   </div>
-  <hr />
   {% if dispatch.signature and dispatch.signature.strip() %}
+  <hr />
   <div>
     {{ markdown(dispatch.signature) }}
   </div>

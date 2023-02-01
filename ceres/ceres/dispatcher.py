@@ -7,7 +7,7 @@ from pydantic import Field
 from .alert import Alert
 from .component import Component
 from .data import ImmutableDataObject
-from .environment import AlertQuery
+from .environment import AlertOrder, AlertQuery
 from .loaded import Loaded
 from .notifier import Notification, Notifier
 
@@ -42,8 +42,14 @@ class Dispatcher(Component):
     references: References
 
     async def dispatch(self, dispatch: Dispatch) -> None:
+        filter = dispatch.alerts
+        if filter.order is None:
+            filter = filter.copy(update={"order": AlertOrder.NEW_TO_OLD})
+        if filter.limit is None:  # TODO: Limit per component/code combination.
+            filter = filter.copy(update={"limit": 1000})
+
         try:
-            alerts = await self.environment.get_alerts(dispatch.alerts)
+            alerts = await self.environment.get_alerts(filter)
         except Exception:
             self.logger.error(
                 f"An exception occurred while reading alerts for dispatch '{dispatch.subject}': {traceback.format_exc()}"
@@ -51,6 +57,9 @@ class Dispatcher(Component):
             return
 
         if not alerts:
+            self.logger.info(
+                "An no alerts were found that match the current filter. No notification will be sent."
+            )
             return
 
         try:
