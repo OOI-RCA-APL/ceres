@@ -6,7 +6,7 @@ from pydantic import Field
 
 from .component import Component
 from .data import ImmutableDataObject
-from .datetime import utc
+from .timing import utc
 
 
 class Notification(ImmutableDataObject):

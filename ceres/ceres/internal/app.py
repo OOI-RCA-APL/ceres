@@ -23,7 +23,7 @@ from websockets.exceptions import ConnectionClosed
 from ..address import ComponentAddress
 from ..alert import Alert
 from ..config import ComponentConfig, Config, UnitConfig
-from ..data import ImmutableDataObject, jsonify
+from ..data import ImmutableDataObject, Name, jsonify
 from ..environment import (
     AlertOrder,
     AlertQuery,
@@ -46,7 +46,7 @@ from ..procedure import (
 from ..result import Fail, Ok, Result
 from . import logs
 from .console import Console
-from .utilities import Name, strify
+from .utilities import strify
 
 if TYPE_CHECKING:
     from ..engine import Engine

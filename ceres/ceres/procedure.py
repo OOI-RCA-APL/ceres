@@ -16,9 +16,9 @@ from typing import (
 from pydantic import schema_of, validate_arguments
 from pydantic.typing import get_args
 
-from .data import ImmutableDataObject
+from .data import ImmutableDataObject, Name
 from .internal.binding import Binding, add_binding
-from .internal.utilities import Name, get_member_name, is_optional, strify
+from .internal.utilities import get_member_name, is_optional, strify
 from .schedule import Schedule
 
 

@@ -34,7 +34,7 @@ def _load_object_cls(
             f"component module '{cls_module_path}' raised an exception during import: {traceback.format_exc()}",
         )
 
-    cls: type = getattr(module, cls_name, None)  # type: ignore
+    cls = getattr(module, cls_name, None)
     if cls is None:
         raise ValueError(f"module {module} does not contain class {cls_name}")
     if not isinstance(cls, type):

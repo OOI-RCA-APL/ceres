@@ -9,8 +9,8 @@ from pydantic import Field
 from .address import ComponentAddress
 from .alert import Alert
 from .data import ImmutableDataObject
-from .datetime import utc
 from .message import Message
+from .timing import utc
 
 
 class Event(ImmutableDataObject, ABC):

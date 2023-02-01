@@ -1,10 +1,9 @@
-from datetime import datetime, timedelta
+from datetime import datetime
 from enum import Enum
 from re import Pattern
 from typing import Any, Callable, Sequence
 from uuid import UUID, uuid4
 
-from pydantic import validator
 from sqlalchemy import BinaryExpression, ColumnElement, func, select
 from sqlalchemy.orm import InstrumentedAttribute
 from sqlalchemy.sql.roles import ExpressionElementRole
@@ -12,16 +11,12 @@ from sqlalchemy.sql.roles import ExpressionElementRole
 from .address import ComponentAddress
 from .alert import Alert, AlertLevel
 from .config import DatabaseKind
-from .data import ImmutableDataObject
+from .data import ImmutableDataObject, PositiveDuration
 from .database import Database
 from .database.entity import AlertEntity, ComponentEntity, MessageEntity
-from .datetime import utc
-from .internal.utilities import (
-    ValidateByType,
-    escape_like_expression,
-    validate_positive_timedelta,
-)
+from .internal.utilities import ValidateByType, escape_like_expression
 from .message import Message, MessageDirection
+from .timing import utc
 
 WhereExpression = ColumnElement[bool] | ExpressionElementRole[bool]
 OrderByExpression = ColumnElement[Any] | ExpressionElementRole[Any]
@@ -36,7 +31,7 @@ class MessageQuery(ImmutableDataObject):
     source: ComponentAddress | Sequence[ComponentAddress] | None = None
     search: str | None = None
     search_case_sensitive: bool = False
-    within: timedelta | None = None
+    within: PositiveDuration | None = None
     after: datetime | None = None
     before: datetime | None = None
     direction: MessageDirection | None = None
@@ -46,10 +41,6 @@ class MessageQuery(ImmutableDataObject):
     order: MessageOrder | None = None
     limit: int | None = None
 
-    @validator("within", pre=True)
-    def _validate_within(cls, value: Any) -> timedelta:
-        return validate_positive_timedelta(value)
-
 
 class AlertOrder(str, Enum):
     OLD_TO_NEW = "old-to-new"
@@ -58,7 +49,7 @@ class AlertOrder(str, Enum):
 
 class AlertQuery(ImmutableDataObject):
     source: ComponentAddress | Sequence[ComponentAddress] | None = None
-    within: timedelta | None = None
+    within: PositiveDuration | None = None
     after: datetime | None = None
     before: datetime | None = None
     levels: Sequence[AlertLevel] | None = None
@@ -67,10 +58,6 @@ class AlertQuery(ImmutableDataObject):
 
     order: AlertOrder | None = None
     limit: int | None = None
-
-    @validator("within", pre=True)
-    def _validate_within(cls, value: Any) -> timedelta:
-        return validate_positive_timedelta(value)
 
 
 class Environment(ValidateByType):
@@ -238,8 +225,7 @@ class Environment(ValidateByType):
                 statement = statement.where(AlertEntity.code.regexp_match(query.code_regex))
 
             if query.order is not None:
-                order = query.order if query.order is not None else AlertOrder.OLD_TO_NEW
-                match order:
+                match query.order:
                     case AlertOrder.OLD_TO_NEW:
                         statement = statement.order_by(AlertEntity.timestamp)
                     case AlertOrder.NEW_TO_OLD:

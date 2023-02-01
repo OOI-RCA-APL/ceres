@@ -18,7 +18,6 @@ from typing import (
     ClassVar,
     Iterable,
     Iterator,
-    Literal,
     Mapping,
     ParamSpec,
     Protocol,
@@ -32,12 +31,9 @@ from typing import (
 )
 
 import rich
-from apscheduler.triggers.cron import CronTrigger
 from pydantic import BaseModel, parse_obj_as
 from pydantic.decorator import ValidatedFunction
 from typing_extensions import Self
-
-from ..types import Name
 
 
 def strify(value: object) -> str:
@@ -247,7 +243,7 @@ def is_optional(type_: type | UnionType) -> bool:
     return is_subtype(NoneType, type_)
 
 
-def has_field(obj: Any, name: Name, type: Any = None) -> bool:
+def has_field(obj: Any, name: str, type: Any = None) -> bool:
     name = name.replace("-", "_")
 
     if dataclasses.is_dataclass(obj):
@@ -264,38 +260,9 @@ def has_field(obj: Any, name: Name, type: Any = None) -> bool:
     return False
 
 
-def get_field_value(obj: Any, name: Name) -> Any:
+def get_field_value(obj: Any, name: str) -> Any:
     name = name.replace("-", "_")
     return getattr(obj, name, None)
-
-
-@overload
-def validate_positive_timedelta(value: Any, *, nullable: Literal[False] = False) -> timedelta:
-    ...
-
-
-@overload
-def validate_positive_timedelta(value: Any, *, nullable: Literal[True]) -> timedelta | None:
-    ...
-
-
-def validate_positive_timedelta(value: Any, *, nullable: bool = False) -> timedelta | None:
-    if nullable and value is None:
-        return None
-
-    if (decoded := decode_td(value)) <= timedelta():
-        raise ValueError("must be greater than zero")
-
-    return decoded
-
-
-def validate_crontab(value: str) -> str:
-    try:
-        CronTrigger.from_crontab(value)
-    except Exception:
-        raise ValueError("invalid crontab expression")
-
-    return value
 
 
 async def sleep_forever() -> None:

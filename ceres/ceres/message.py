@@ -6,7 +6,7 @@ from pydantic import Field
 
 from .address import ComponentAddress
 from .data import ImmutableDataObject
-from .datetime import utc
+from .timing import utc
 
 
 class MessageDirection(str, Enum):

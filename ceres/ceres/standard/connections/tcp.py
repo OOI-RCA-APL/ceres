@@ -5,19 +5,15 @@ from asyncio import StreamReader, StreamWriter
 from dataclasses import dataclass
 from datetime import timedelta
 from enum import Enum
-from typing import Any, Literal, final
+from typing import Literal, final
 
 from pydantic import Field, validator
 
 from ...connection import Connection
-from ...data import ImmutableDataObject
+from ...data import ImmutableDataObject, PositiveDuration
 from ...events import ConnectionLostEvent, MessageReceivedEvent
 from ...exceptions import ConnectionInactiveException, ConnectionLostException
-from ...internal.utilities import (
-    ensure_event_loop,
-    show_td,
-    validate_positive_timedelta,
-)
+from ...internal.utilities import ensure_event_loop, show_td
 from ...routine import routine
 
 
@@ -33,36 +29,26 @@ class TCPDisconnectVerifyKind(str, Enum):
 
 class TCPDisconnectVerify(ImmutableDataObject):
     kind: Literal[TCPDisconnectVerifyKind.RECONNECT] = TCPDisconnectVerifyKind.RECONNECT
-    interval: timedelta = timedelta(seconds=5)
+    interval: PositiveDuration = timedelta(seconds=5)
     count: int = Field(ge=1)
-
-    @validator("interval", pre=True)
-    def _validate_interval(cls, value: Any) -> timedelta:
-        return validate_positive_timedelta(value)
 
 
 class TCPDisconnect(ImmutableDataObject):
-    idle: timedelta
+    idle: PositiveDuration
     verify: TCPDisconnectVerify | None = None
-
-    @validator("idle", pre=True)
-    def _validate_idle(cls, value: Any) -> timedelta:
-        return validate_positive_timedelta(value)
 
 
 class TCPKeepAlive(ImmutableDataObject):
-    idle: timedelta
-    interval: timedelta
+    idle: PositiveDuration
+    interval: PositiveDuration
     count: int = Field(ge=1)
 
-    @validator("idle", "interval", pre=True)
-    def _validate_timedeltas(cls, value: Any) -> timedelta:
-        interval = validate_positive_timedelta(value)
-
-        if interval.microseconds != 0:
+    @validator("idle", "interval")
+    def _validate_timedeltas(cls, value: timedelta) -> timedelta:
+        if value.microseconds != 0:
             raise ValueError("sub-second interval resolution is not allowed")
 
-        return interval
+        return value
 
 
 @final
@@ -70,7 +56,7 @@ class TCPConnection(Connection):
     class Parameters(Connection.Parameters):
         host: str
         port: int
-        timeout: timedelta = timedelta(seconds=5)
+        timeout: PositiveDuration = timedelta(seconds=5)
         separator: bytes = b"\r\n"
         disconnect: TCPDisconnect | None = None
         keep_alive: TCPKeepAlive | None = None

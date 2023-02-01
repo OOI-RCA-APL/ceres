@@ -1,17 +1,19 @@
 import json
+import re
 from abc import ABC
+from datetime import timedelta
 from types import MappingProxyType
-from typing import Any, Callable, cast
+from typing import TYPE_CHECKING, Any, Callable, Iterable, cast
 
 import pydantic
 import pydantic.generics
-from pydantic import BaseConfig, BaseModel, ConfigDict, Extra, Field
+from pydantic import BaseConfig, BaseModel, ConfigDict, ConstrainedStr, Extra, Field
 from pydantic.fields import FieldInfo
 from pydantic.fields import FieldInfo as FieldInfo
 from pydantic.json import pydantic_encoder
 from typing_extensions import dataclass_transform
 
-from .internal.utilities import dictify, is_pydantic_dataclass
+from .internal.utilities import decode_td, dictify, is_pydantic_dataclass
 
 
 def jsonify(obj: object, **kwargs: Any) -> str:
@@ -106,3 +108,65 @@ class ValidatedDataclass(ABC):
             validate_on_init=validate_on_init,
             kw_only=kw_only,
         )
+
+
+NAME_REGEX = re.compile(r"^[a-zA-Z_\-][a-zA-Z0-9_\-]*$")
+
+
+class _Name(ConstrainedStr):
+    regex = NAME_REGEX
+
+
+class _Duration(timedelta):
+    @classmethod
+    def __get_validators__(cls) -> Iterable[Callable[[Any], timedelta | None]]:
+        yield cls.validate
+
+    @classmethod
+    def validate(cls, value: Any) -> timedelta | None:
+        if value is None:
+            return None
+
+        return decode_td(value)
+
+
+class _PositiveDuration(_Duration):
+    @classmethod
+    def validate(cls, value: Any) -> timedelta | None:
+        duration = super().validate(value)
+        if duration is None:
+            return None
+
+        if duration <= timedelta():
+            raise ValueError("must be greater than zero")
+
+        return duration
+
+
+class _NonNegativeDuration(_Duration):
+    @classmethod
+    def validate(cls, value: Any) -> timedelta | None:
+        duration = super().validate(value)
+        if duration is None:
+            return None
+
+        if duration < timedelta():
+            raise ValueError("must be greater than or equal to zero")
+
+        return duration
+
+
+if TYPE_CHECKING:
+    Name = str
+    Duration = timedelta
+    PositiveDuration = timedelta
+    NonNegativeDuration = timedelta
+else:
+    Name = _Name
+    _Name.__name__ = "Name"
+    Duration = _Duration
+    _Duration.__name__ = "Duration"
+    PositiveDuration = _PositiveDuration
+    _PositiveDuration.__name__ = "PositiveDuration"
+    NonNegativeDuration = _NonNegativeDuration
+    _NonNegativeDuration.__name__ = "NonNegativeDuration"

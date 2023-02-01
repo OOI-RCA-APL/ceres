@@ -10,7 +10,7 @@ from typing import AsyncIterable, Sequence, final
 
 from .address import ComponentAddress
 from .config import Config, UnitConfig
-from .data import ImmutableDataObject, jsonify
+from .data import ImmutableDataObject, Name, jsonify
 from .database import Database
 from .directory import Directory
 from .environment import Environment
@@ -31,7 +31,6 @@ from .internal.tasklet import Tasklet
 from .procedure import CallableProcedureKind, SubscribableProcedureKind
 from .result import Fail, Ok, Result
 from .stream import Stream
-from .types import Name
 from .unit import Unit, UnitPaths
 
 

@@ -8,11 +8,10 @@ from pydantic import Field, SecretStr, parse_obj_as, validator
 from typing_extensions import Self
 
 from .address import ComponentAddress
-from .data import ImmutableDataObject
-from .internal.utilities import setattr_internal, validate_positive_timedelta
+from .data import ImmutableDataObject, Name, PositiveDuration
+from .internal.utilities import setattr_internal
 from .result import Ok
 from .schedule import Schedule
-from .types import Name
 
 if TYPE_CHECKING:
     from .component import Component
@@ -59,12 +58,8 @@ class DatabaseKind(str, Enum):
 
 
 class DatabaseRetryConfig(ConfigObject):
-    timeout: timedelta = timedelta(seconds=15)
-    interval: timedelta = timedelta(seconds=3)
-
-    @validator("timeout", "interval", pre=True)
-    def _validate_timedeltas(cls, value: Any) -> timedelta:
-        return validate_positive_timedelta(value)
+    timeout: PositiveDuration = timedelta(seconds=15)
+    interval: PositiveDuration = timedelta(seconds=3)
 
 
 class BaseDatabaseConfig(ConfigObject):

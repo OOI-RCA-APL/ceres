@@ -33,6 +33,7 @@ from .config import JobConfig
 from .data import (
     VALIDATED_DATACLASS_FIELD_SPECIFIERS,
     ImmutableDataObject,
+    Name,
     ValidatedDataclass,
     jsonify,
 )
@@ -82,7 +83,6 @@ from .result import Fail, Ok, Result
 from .routine import RoutineBinding, routine
 from .schedule import Schedule
 from .stream import Stream, StreamView
-from .types import Name
 from .validation import ValidationProblem
 
 if TYPE_CHECKING:
@@ -264,7 +264,7 @@ class Component(ValidatedDataclass, Tasklet):
         self.__referencers: WeakValueDictionary[UUID, Component] = WeakValueDictionary()
 
     def __post_init_post_parse__(self) -> None:
-        self.__has_exclusive_temporary_environment = self.environment is None
+        self.__has_exclusive_temporary_environment = self.environment is None  # type: ignore
         if self.__has_exclusive_temporary_environment:
             self.environment = Environment()
 
@@ -422,14 +422,14 @@ class Component(ValidatedDataclass, Tasklet):
         self.__referencers[referencer.id] = referencer
 
     def __set_emitted_event_source(self, event: Event) -> None:
-        if event.source is None:
+        if event.source is None:  # type: ignore
             object.__setattr__(event, "source", self.address)
 
         if isinstance(event, AlertEmittedEvent):
             self.__set_emitted_alert_source(event.alert)
 
     def __set_emitted_alert_source(self, alert: Alert) -> None:
-        if alert.source is None:
+        if alert.source is None:  # type: ignore
             object.__setattr__(alert, "source", self.address)
 
     def attach_to_unit(self, unit: Unit) -> None:

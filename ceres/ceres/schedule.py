@@ -1,11 +1,11 @@
 from datetime import timedelta
 from enum import Enum
-from typing import Any, Iterable, Literal, Sequence
+from typing import Iterable, Literal, Sequence
 
+from apscheduler.triggers.cron import CronTrigger
 from pydantic import validator
 
-from .data import ImmutableDataObject
-from .internal.utilities import validate_crontab, validate_positive_timedelta
+from .data import ImmutableDataObject, PositiveDuration
 
 
 class ScheduleKind(str, Enum):
@@ -35,25 +35,28 @@ class CronSchedule(BaseSchedule):
         super().__init__(crontab=crontab)  # type: ignore
 
     @validator("crontab")
-    def _validate_crontab(cls, crontab: str) -> str:
-        return validate_crontab(crontab)
+    def _validate_crontab(cls, value: str) -> str:
+        try:
+            CronTrigger.from_crontab(value)
+        except Exception:
+            raise ValueError("invalid crontab expression")
+
+        return value
 
 
 class IntervalSchedule(BaseSchedule):
     kind: Literal[ScheduleKind.INTERVAL] = ScheduleKind.INTERVAL
-    interval: timedelta
+    interval: PositiveDuration
 
     def __init__(self, interval: timedelta, **kwargs: object) -> None:
         super().__init__(interval=interval)  # type: ignore
 
-    @validator("interval", pre=True)
-    def _validate_interval(cls, value: Any) -> timedelta:
-        interval = validate_positive_timedelta(value)
-
-        if interval.microseconds != 0:
+    @validator("interval")
+    def _validate_interval(cls, value: timedelta) -> timedelta:
+        if value.microseconds != 0:
             raise ValueError("sub-second interval resolution is not allowed")
 
-        return interval
+        return value
 
 
 class AndSchedule(BaseSchedule):

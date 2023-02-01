@@ -2,14 +2,12 @@ import asyncio
 from abc import ABC, abstractmethod
 from datetime import timedelta
 from enum import Enum
-from typing import Any, AsyncIterable
-
-from pydantic import validator
+from typing import AsyncIterable
 
 from ceres.routine import routine
 
 from .component import Component
-from .data import ImmutableDataObject, jsonify
+from .data import ImmutableDataObject, PositiveDuration, jsonify
 from .events import (
     ConnectedEvent,
     ConnectFailedEvent,
@@ -19,19 +17,14 @@ from .events import (
     MessageSentEvent,
 )
 from .exceptions import ConnectionLostException
-from .internal.utilities import validate_positive_timedelta
 from .message import Message, MessageDirection
 from .procedure import query, subscription
 
 
 class ConnectionReconnect(ImmutableDataObject):
-    interval: timedelta = timedelta(seconds=1)
+    interval: PositiveDuration = timedelta(seconds=1)
     backoff: float | None = 2
-    max_interval: timedelta | None = timedelta(seconds=60)
-
-    @validator("interval", "max_interval", pre=True)
-    def _validate_timedeltas(cls, value: Any) -> timedelta:
-        return validate_positive_timedelta(value)
+    max_interval: PositiveDuration | None = timedelta(seconds=60)
 
 
 class _ReconnectScheduler:

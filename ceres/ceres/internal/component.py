@@ -12,6 +12,7 @@ from ..address import ComponentAddress
 from ..component import Component, ComponentPaths
 from ..config import ComponentConfig, ComponentRoleKind
 from ..connection import Connection
+from ..data import Name
 from ..environment import Environment
 from ..errors import (
     ComponentClassInvalidError,
@@ -25,7 +26,6 @@ from ..errors import (
     ValidationProblem,
 )
 from ..result import Fail, Ok, Result
-from ..types import Name
 from .utilities import cached, lenient_issubclass, strify
 
 _ComponentT = TypeVar("_ComponentT", bound=Component)

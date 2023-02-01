@@ -1,8 +1,8 @@
 from asyncio import sleep
 from typing import Awaitable, Callable
 
-from ceres.datetime import utc
 from ceres.internal.utilities import awaitify
+from ceres.timing import utc
 
 
 async def wait_for_condition(

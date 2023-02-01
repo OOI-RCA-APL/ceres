@@ -13,7 +13,7 @@ from .component import (
     SubscribableProcedureKind,
 )
 from .config import UnitConfig
-from .data import ImmutableDataObject, jsonify
+from .data import ImmutableDataObject, Name, jsonify
 from .directory import Directory
 from .environment import Environment
 from .errors import ProcedureComponentNotLoadedError, ProcedureError
@@ -24,7 +24,6 @@ from .internal.tasklet import Tasklet
 from .internal.utilities import sleep_forever, strify
 from .result import Fail, Ok, Result
 from .stream import Stream, StreamView
-from .types import Name
 
 if TYPE_CHECKING:
     from .engine import Engine

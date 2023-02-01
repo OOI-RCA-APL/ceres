@@ -13,7 +13,6 @@ from .data import jsonify as jsonify
 from .data import simplify as simplify
 from .database import Database as Database
 from .database import DatabaseAdapter as DatabaseAdapter
-from .datetime import utc as utc
 from .directory import Directory as Directory
 from .dispatcher import Dispatch as Dispatch
 from .dispatcher import Dispatcher as Dispatcher
@@ -51,4 +50,5 @@ from .stream import Stream as Stream
 from .stream import StreamReader as StreamReader
 from .stream import StreamView as StreamView
 from .threading import spawn as spawn
+from .timing import utc as utc
 from .unit import Unit as Unit

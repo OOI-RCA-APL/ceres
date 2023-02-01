@@ -7,7 +7,7 @@ from pydantic import Field, validator
 
 from .address import ComponentAddress
 from .data import ImmutableDataObject, jsonify
-from .datetime import utc
+from .timing import utc
 
 
 class AlertLevel(str, Enum):

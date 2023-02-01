@@ -13,8 +13,8 @@ from yaml import MarkedYAMLError, YAMLError
 from ..address import ComponentAddress
 from ..component import Component, ComponentPaths
 from ..config import Config, UnitConfig
+from ..data import Name
 from ..database import Database
-from ..datetime import utc
 from ..environment import Environment
 from ..errors import (
     ConfigComponentError,
@@ -27,7 +27,7 @@ from ..errors import (
     ValidationProblem,
 )
 from ..result import Fail, Ok, Result
-from ..types import Name
+from ..timing import utc
 from .component import load_component
 from .utilities import show_td
 
