@@ -75,6 +75,7 @@ def setup(config: LogConfig | None = None) -> None:
         setup_logger(name, default_handler)
 
     setup_logger("uvicorn", server_handler)
+    setup_logger("uvicorn.error", server_handler)
     setup_logger("uvicorn.access", access_handler)
 
 
