@@ -2,7 +2,7 @@ import itertools
 from datetime import timedelta
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, Mapping, Sequence, Union
+from typing import TYPE_CHECKING, Any, Literal, Mapping, Sequence
 
 from pydantic import Field, SecretStr, parse_obj_as, validator
 from typing_extensions import Self
@@ -37,7 +37,12 @@ class JobConfig(ConfigObject):
 class ComponentConfig(ConfigObject):
     name: Name
     roles: Sequence[ComponentRoleKind] = Field(default_factory=list)
-    component: Union[str, type[Component]]
+
+    if TYPE_CHECKING:
+        component: str | type[Component]
+    else:
+        component: str | type
+
     parameters: Mapping[Name, Any] = Field(default_factory=dict)
     references: Mapping[Name, Name | Sequence[Name]] = Field(default_factory=dict)
     jobs: Mapping[Name, JobConfig] = Field(default_factory=dict)
@@ -182,8 +187,3 @@ class Config(ConfigObject):
                 return cls
             case _:
                 return None
-
-
-from .component import Component
-
-ComponentConfig.update_forward_refs()

@@ -9,8 +9,6 @@ from .internal.utilities import lenient_isinstance, lenient_issubclass, strify
 
 _T = TypeVar("_T")
 
-LoadedSource = type[_T] | str
-
 
 def _load_object_cls(
     base: type[_T],
@@ -96,14 +94,14 @@ class Loader(ImmutableDataObject):
 _class_getitem_cache: dict[type, type] = {}
 
 
-class LoadedAlias:
+class _Loaded:
     base: type
 
-    def __class_getitem__(cls, base: type, /) -> "type[LoadedAlias]":
+    def __class_getitem__(cls, base: type, /) -> "type[_Loaded]":
         result = _class_getitem_cache.get(base)
         if result is None:
 
-            class LoadedAliasImpl(LoadedAlias):  # type: ignore
+            class LoadedAliasImpl(_Loaded):  # type: ignore
                 pass
 
             LoadedAliasImpl.base = base
@@ -126,7 +124,9 @@ class LoadedAlias:
         return Loader.parse_obj(value).load(cls.base)
 
 
+_Loaded.__name__ = "Loaded"
+
 if TYPE_CHECKING:
     Loaded = Annotated[_T, ()]
 else:
-    Loaded = LoadedAlias
+    Loaded = _Loaded

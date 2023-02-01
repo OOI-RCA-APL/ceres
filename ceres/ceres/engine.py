@@ -35,14 +35,14 @@ from .types import Name
 from .unit import Unit, UnitPaths
 
 
-class UnitSyncActionKind(str, Enum):
+class _UnitSyncActionKind(str, Enum):
     START = "start"
     RELOAD = "reload"
     REMOVE = "remove"
 
 
-class UnitSyncAction(ImmutableDataObject):
-    kind: UnitSyncActionKind
+class _UnitSyncAction(ImmutableDataObject):
+    kind: _UnitSyncActionKind
     unit: Name
 
 
@@ -284,18 +284,18 @@ class Engine(Tasklet):
         for action in actions:
             unit = self.__units.get(action.unit)
 
-            if action.kind == UnitSyncActionKind.REMOVE:
+            if action.kind == _UnitSyncActionKind.REMOVE:
                 if unit:
                     self.logger.info(f"Removing unit '{action.unit}'...")
                     await unit.stop()
                     self.__detach_unit(unit)
             else:
-                if action.kind == UnitSyncActionKind.START:
+                if action.kind == _UnitSyncActionKind.START:
                     if unit and unit.running:
                         continue
 
                     self.logger.info(f"Starting unit '{action.unit}'...")
-                elif action.kind == UnitSyncActionKind.RELOAD:
+                elif action.kind == _UnitSyncActionKind.RELOAD:
                     if not unit:
                         continue
 
@@ -334,17 +334,17 @@ class Engine(Tasklet):
         started = [
             action
             for action in actions
-            if action.kind == UnitSyncActionKind.START and action.unit in self.__units
+            if action.kind == _UnitSyncActionKind.START and action.unit in self.__units
         ]
         reloaded = [
             action
             for action in actions
-            if action.kind == UnitSyncActionKind.RELOAD and action.unit in self.__units
+            if action.kind == _UnitSyncActionKind.RELOAD and action.unit in self.__units
         ]
         removed = [
             action
             for action in actions
-            if action.kind == UnitSyncActionKind.REMOVE and action.unit not in self.__units
+            if action.kind == _UnitSyncActionKind.REMOVE and action.unit not in self.__units
         ]
 
         if started:
@@ -371,10 +371,10 @@ class Engine(Tasklet):
 
         self.logger.info("All units were stopped successfully.")
 
-    def __get_unit_sync_actions(self) -> list[UnitSyncAction]:
+    def __get_unit_sync_actions(self) -> list[_UnitSyncAction]:
         configs: dict[Name, UnitConfig] = {current.name: current for current in self.__config.units}
 
-        actions: list[UnitSyncAction] = []
+        actions: list[_UnitSyncAction] = []
 
         for name, config in configs.items():
             unit = self.get_unit(name)
@@ -382,13 +382,13 @@ class Engine(Tasklet):
                 continue
 
             if not unit or not unit.running:
-                actions.append(UnitSyncAction(kind=UnitSyncActionKind.START, unit=name))
+                actions.append(_UnitSyncAction(kind=_UnitSyncActionKind.START, unit=name))
             elif unit.config != config:
-                actions.append(UnitSyncAction(kind=UnitSyncActionKind.RELOAD, unit=name))
+                actions.append(_UnitSyncAction(kind=_UnitSyncActionKind.RELOAD, unit=name))
 
         for name, unit in self.__units.items():
             if name not in configs:
-                actions.append(UnitSyncAction(kind=UnitSyncActionKind.REMOVE, unit=name))
+                actions.append(_UnitSyncAction(kind=_UnitSyncActionKind.REMOVE, unit=name))
 
         return actions
 
