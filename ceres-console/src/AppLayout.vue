@@ -5,12 +5,11 @@
         <q-btn
           dense
           flat
+          :icon="icons.menu"
           round
           style="margin-left: -2px; margin-right: 14px"
           @click="state.isDrawerOpen = !state.isDrawerOpen"
-        >
-          <q-img src="./assets/img/logo.png" width="35px" />
-        </q-btn>
+        />
         <q-toolbar-title class="cursor-pointer" @click="router.push('/')">
           <common-text variant="title1">{{ constants.appName }}</common-text>
         </q-toolbar-title>
@@ -83,6 +82,7 @@ import { useQuasar } from 'quasar'
 import { watchEffect } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import Zod from 'zod'
+import { useConfig } from './api/queries'
 import AppBoundary from './AppBoundary.vue'
 import CommonText from './components/CommonText.vue'
 import PageSpinner from './components/PageSpinner.vue'
@@ -90,7 +90,6 @@ import constants from './constants'
 import icons from './icons'
 import { usePersisted } from './persistence'
 
-import { useConfig } from '@/api/queries'
 const route = useRoute()
 const router = useRouter()
 const quasar = useQuasar()

@@ -36,11 +36,6 @@ const emit = defineEmits<{
   (emit: 'send', command: string): void
 }>()
 
-// const config = useConfig()
-
-// const unit = $computed(() => config.getUnit(unitName))
-// const connection = $computed(() => config.getComponent(unitName, connectionName))
-
 const quasar = useQuasar()
 
 const StateSchema = Zod.object({

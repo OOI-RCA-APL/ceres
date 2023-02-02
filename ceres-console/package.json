@@ -8,6 +8,7 @@
   "scripts": {
     "build": "quasar build",
     "dev": "quasar dev",
+    "quasar": "quasar",
     "lint": "eslint --ext .js,.ts,.vue . && prettier --ignore-path .gitignore --check .",
     "format": "eslint --ext .js,.ts,.vue --fix . && prettier --ignore-path .gitignore --write ."
   },

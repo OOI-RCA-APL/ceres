@@ -31,6 +31,7 @@
 
 <script lang="ts" setup>
 import CommonText from './CommonText.vue'
+
 const { padding = false, noBody = false } = defineProps<{
   icon?: string
   padding?: boolean
