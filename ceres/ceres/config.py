@@ -23,10 +23,6 @@ class ConfigObject(ImmutableDataObject):
     pass
 
 
-class ComponentRoleKind(str, Enum):
-    CONNECTION = "connection"
-
-
 class JobConfig(ConfigObject):
     input: Any = None
     schedule: Schedule | None = Field(default=None, discriminator="kind")
@@ -35,7 +31,6 @@ class JobConfig(ConfigObject):
 
 class ComponentConfig(ConfigObject):
     name: Name
-    roles: Sequence[ComponentRoleKind] = Field(default_factory=list)
 
     if TYPE_CHECKING:
         component: str | type[Component]

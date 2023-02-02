@@ -180,7 +180,7 @@ const title = $computed(() => {
 
 const components = $computed(() => unit?.components ?? [])
 const connections = $computed(() =>
-  components.filter((component) => component.config.roles.includes('connection'))
+  components.filter((component) => component.roles.includes('connection'))
 )
 const drivers = $computed(() => components.filter((component) => component.displays.length))
 

@@ -29,12 +29,11 @@ export const AlertModel = Zod.object({
   info: Zod.record(Zod.string(), Zod.unknown()).default(() => ({})),
 })
 
-export type ComponentRoleKind = Zod.infer<typeof ComponentRoleKindModel>
-export const ComponentRoleKindModel = Zod.enum(['connection'])
+export type ComponentRole = Zod.infer<typeof ComponentRoleModel>
+export const ComponentRoleModel = Zod.enum(['connection', 'dispatcher', 'notifier'])
 
 export const ComponentConfigModel = Zod.object({
   name: NameStrModel,
-  roles: Zod.array(ComponentRoleKindModel).default(() => []),
   component: Zod.string(),
   parameters: Zod.record(NameStrModel, Zod.unknown()).default(() => ({})),
   references: Zod.record(NameStrModel, NameStrModel).default(() => ({})),
@@ -118,6 +117,7 @@ export const ComponentInfoModel = Zod.object({
   name: Zod.string(),
   address: Zod.string(),
   config: ComponentConfigModel,
+  roles: Zod.array(ComponentRoleModel),
   displays: Zod.array(DisplayBindingModel),
 })
 

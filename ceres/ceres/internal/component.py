@@ -7,11 +7,11 @@ from typing import Any, Mapping, Sequence, TypeVar, cast, get_args, get_origin
 from uuid import UUID
 
 from pydantic import ValidationError, parse_obj_as, validate_arguments
+from pydantic.utils import lenient_issubclass
 
 from ..address import ComponentAddress
 from ..component import Component, ComponentPaths
-from ..config import ComponentConfig, ComponentRoleKind
-from ..connection import Connection
+from ..config import ComponentConfig
 from ..data import Name
 from ..environment import Environment
 from ..errors import (
@@ -26,19 +26,21 @@ from ..errors import (
     ValidationProblem,
 )
 from ..result import Fail, Ok, Result
-from .utilities import cached, lenient_issubclass, strify
+from .utilities import cached, lenient_isinstance, strify
 
 _ComponentT = TypeVar("_ComponentT", bound=Component)
 
 
 def load_component_cls(config: ComponentConfig) -> Result[type[Component], ComponentError]:
-    if not isinstance(config.component, str):
-        missing = _get_missing_component_base_classes(config.component, config.roles)
-        return Fail(
-            ComponentClassInvalidError(
-                message=f"component passed in configuration must be a subclass or instance of {strify(missing)}, got {strify(config.component)}"
+    if not lenient_isinstance(config.component, str):
+        if not lenient_issubclass(config.component, Component):
+            return Fail(
+                ComponentClassInvalidError(
+                    message=f"component passed in configuration must be a subclass of {Component}, got {strify(config.component)}"
+                )
             )
-        )
+
+        return Ok(config.component)
 
     last_dot_index = config.component.rindex(".")
     cls_module_path = config.component[:last_dot_index]
@@ -69,12 +71,9 @@ def load_component_cls(config: ComponentConfig) -> Result[type[Component], Compo
             )
         )
 
-    missing = _get_missing_component_base_classes(cls, config.roles)
-    if missing:
+    if not lenient_issubclass(cls, Component):
         return Fail(
-            ComponentClassInvalidError(
-                message=f"component {strify(cls)} must be subclass of {strify(missing)}"
-            )
+            ComponentClassInvalidError(message=f"{strify(cls)} must be subclass of {Component}")
         )
 
     return Ok(cls)
@@ -89,10 +88,6 @@ def load_component(
     paths: ComponentPaths,
     siblings: Mapping[Name, Component],
 ) -> Result[Component, ComponentError]:
-    if not isinstance(config.component, str | type):
-        if not _get_missing_component_base_classes(type(config.component), config.roles):
-            return Ok(config.component)
-
     match load_component_cls(config):
         case Ok(cls):
             pass
@@ -223,35 +218,3 @@ def _get_reference_mapping(
             )
 
     return MappingProxyType(mapping)
-
-
-def _get_component_role_cls(role: ComponentRoleKind) -> type[Component]:
-    match role:
-        case ComponentRoleKind.CONNECTION:
-            return Connection
-
-    raise ValueError(role)
-
-
-def _get_required_component_base_classes(
-    roles: Sequence[ComponentRoleKind],
-) -> tuple[type[Component], ...]:
-    classes = [Component]
-
-    for role in roles:
-        cls = _get_component_role_cls(role)
-        if cls not in classes:
-            classes.append(cls)
-
-    return tuple(classes)
-
-
-def _get_missing_component_base_classes(
-    component: type[Component] | Component,
-    roles: Sequence[ComponentRoleKind],
-) -> Sequence[type[Component]]:
-    if not isinstance(component, type):
-        component = type(component)
-
-    bases = _get_required_component_base_classes(roles)
-    return [base for base in bases if not lenient_issubclass(component, base)]

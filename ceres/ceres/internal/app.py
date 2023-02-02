@@ -1,6 +1,7 @@
 import asyncio
 from asyncio import CancelledError
 from datetime import datetime
+from enum import Enum
 from typing import TYPE_CHECKING, Any, Mapping, Sequence, final
 from uuid import UUID
 
@@ -22,6 +23,7 @@ from websockets.exceptions import ConnectionClosed
 
 from ..address import ComponentAddress
 from ..alert import Alert
+from ..component import Component
 from ..config import ComponentConfig, Config, UnitConfig
 from ..data import ImmutableDataObject, Name, jsonify
 from ..environment import (
@@ -54,11 +56,37 @@ else:
     Engine = "Engine"
 
 
+class ComponentRole(str, Enum):
+    CONNECTION = "connection"
+    DISPATCHER = "dispatcher"
+    NOTIFIER = "notifier"
+
+
+def _get_component_roles(component: Component | type[Component]) -> Sequence[ComponentRole]:
+    if not isinstance(component, type):
+        component = type(component)
+
+    from ..connection import Connection
+    from ..dispatcher import Dispatcher
+    from ..notifier import Notifier
+
+    roles: list[ComponentRole] = []
+    if issubclass(component, Connection):
+        roles.append(ComponentRole.CONNECTION)
+    if issubclass(component, Dispatcher):
+        roles.append(ComponentRole.DISPATCHER)
+    if issubclass(component, Notifier):
+        roles.append(ComponentRole.NOTIFIER)
+
+    return roles
+
+
 class ComponentInfo(ImmutableDataObject):
     id: UUID
     name: Name
     address: ComponentAddress
     config: ComponentConfig
+    roles: Sequence[ComponentRole]
     queries: Sequence[QueryBinding]
     actions: Sequence[ActionBinding]
     jobs: Sequence[JobBinding]
@@ -250,6 +278,7 @@ async def get_component_info(
         name=address.name,
         address=address,
         config=component_config,
+        roles=_get_component_roles(component_cls),
         queries=list(component_cls.get_query_bindings().values()),
         actions=list(component_cls.get_action_bindings().values()),
         jobs=list(component_cls.get_job_bindings().values()),
