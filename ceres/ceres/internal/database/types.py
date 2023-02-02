@@ -1,7 +1,9 @@
 from datetime import datetime, timezone
 from enum import Enum as BaseEnum
+from typing import Any
 
 from sqlalchemy import TIMESTAMP, CheckConstraint, Dialect, Enum, Text, TypeDecorator
+from sqlalchemy.sql.operators import OperatorType
 
 from ...address import ComponentAddress
 from ..utilities import snakecase
@@ -57,6 +59,9 @@ class DateTimeMapper(TypeDecorator[datetime]):
 
     def __init__(self) -> None:
         super().__init__(timezone=True)
+
+    def coerce_compared_value(self, op: OperatorType | None, value: Any) -> Any:
+        return self.impl_instance.coerce_compared_value(op, value)
 
     def process_bind_param(self, value: datetime | None, dialect: Dialect) -> datetime | None:
         if value is None:
