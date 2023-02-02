@@ -23,6 +23,7 @@ from .environment import AlertQuery as AlertQuery
 from .environment import Environment as Environment
 from .environment import MessageOrder as MessageOrder
 from .environment import MessageQuery as MessageQuery
+from .environment import Query as Query
 from .events import Event as Event
 from .exceptions import ParseException as ParseException
 from .internal.cli import main as main  # noqa

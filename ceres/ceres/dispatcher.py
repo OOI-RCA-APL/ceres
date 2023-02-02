@@ -42,14 +42,15 @@ class Dispatcher(Component):
     references: References
 
     async def dispatch(self, dispatch: Dispatch) -> None:
-        filter = dispatch.alerts
-        if filter.order is None:
-            filter = filter.copy(update={"order": AlertOrder.NEW_TO_OLD})
-        if filter.limit is None:  # TODO: Limit per component/code combination.
-            filter = filter.copy(update={"limit": 1000})
+        query = dispatch.alerts.with_defaults(
+            AlertQuery(
+                order=AlertOrder.NEW_TO_OLD,
+                limit=1000,
+            )
+        )
 
         try:
-            alerts = await self.environment.get_alerts(filter)
+            alerts = await self.environment.get_alerts(query)
         except Exception:
             self.logger.error(
                 f"An exception occurred while reading alerts for dispatch '{dispatch.subject}': {traceback.format_exc()}"

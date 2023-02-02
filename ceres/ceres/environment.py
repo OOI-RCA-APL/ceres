@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import BinaryExpression, ColumnElement, func, select
 from sqlalchemy.orm import InstrumentedAttribute
 from sqlalchemy.sql.roles import ExpressionElementRole
+from typing_extensions import Self
 
 from .address import ComponentAddress
 from .alert import Alert, AlertLevel
@@ -26,7 +27,24 @@ class MessageOrder(str, Enum):
     NEW_TO_OLD = "new-to-old"
 
 
-class MessageQuery(ImmutableDataObject):
+class Query(ImmutableDataObject):
+    def with_defaults(self, defaults: Self) -> Self:
+        update: dict[str, Any] = {}
+
+        for attribute in self.__fields__.keys():
+            current = getattr(self, attribute, None)
+            if current is not None:
+                continue
+            default = getattr(defaults, attribute, None)
+            if default is None:
+                continue
+
+            update[attribute] = default
+
+        return self.copy(update=update)
+
+
+class MessageQuery(Query):
     source: ComponentAddress | Sequence[ComponentAddress] | None = None
     search: str | None = None
     search_case_sensitive: bool = False
@@ -46,13 +64,13 @@ class AlertOrder(str, Enum):
     NEW_TO_OLD = "new-to-old"
 
 
-class AlertQuery(ImmutableDataObject):
+class AlertQuery(Query):
     source: ComponentAddress | Sequence[ComponentAddress] | None = None
     within: PositiveTimeDelta | None = None
     after: DateTime | None = None
     before: DateTime | None = None
-    levels: Sequence[AlertLevel] | None = None
-    codes: Sequence[str] | None = None
+    level: AlertLevel | Sequence[AlertLevel] | None = None
+    code: str | Sequence[str] | None = None
     code_regex: str | Pattern[str] | None = None
 
     order: AlertOrder | None = None
@@ -216,10 +234,16 @@ class Environment(ValidateByType):
                 statement = statement.where(AlertEntity.timestamp >= query.after)
             if query.before is not None:
                 statement = statement.where(AlertEntity.timestamp < query.before)
-            if query.levels is not None:
-                statement = statement.where(AlertEntity.level.in_(query.levels))
-            if query.codes is not None:
-                statement = statement.where(AlertEntity.code.in_(query.codes))
+            if query.level is not None:
+                if isinstance(query.level, AlertLevel):
+                    statement = statement.where(AlertEntity.level == query.level)
+                else:
+                    statement = statement.where(AlertEntity.level.in_(query.level))
+            if query.code is not None:
+                if isinstance(query.code, str):
+                    statement = statement.where(AlertEntity.code == query.code)
+                else:
+                    statement = statement.where(AlertEntity.code.in_(query.code))
             if query.code_regex is not None:
                 statement = statement.where(AlertEntity.code.regexp_match(query.code_regex))
 
