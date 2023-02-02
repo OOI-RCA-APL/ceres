@@ -14,6 +14,7 @@
           <common-text variant="title1">{{ constants.appName }}</common-text>
         </q-toolbar-title>
       </q-toolbar>
+      <q-separator />
     </q-header>
     <q-drawer v-model="state.isDrawerOpen" bordered :width="200">
       <div class="column fit">
