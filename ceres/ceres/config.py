@@ -33,9 +33,9 @@ class ComponentConfig(ConfigObject):
     name: Name
 
     if TYPE_CHECKING:
-        component: str | type[Component]
+        cls: str | type[Component] = Field(alias="class")
     else:
-        component: str | type
+        cls: str | type = Field(alias="class")
 
     parameters: Mapping[Name, Any] = Field(default_factory=dict)
     references: Mapping[Name, Name | Sequence[Name]] = Field(default_factory=dict)

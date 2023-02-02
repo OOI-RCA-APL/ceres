@@ -32,19 +32,19 @@ _ComponentT = TypeVar("_ComponentT", bound=Component)
 
 
 def load_component_cls(config: ComponentConfig) -> Result[type[Component], ComponentError]:
-    if not lenient_isinstance(config.component, str):
-        if not lenient_issubclass(config.component, Component):
+    if not lenient_isinstance(config.cls, str):
+        if not lenient_issubclass(config.cls, Component):
             return Fail(
                 ComponentClassInvalidError(
-                    message=f"component passed in configuration must be a subclass of {Component}, got {strify(config.component)}"
+                    message=f"component class must be a subclass of {Component}, got {strify(config.cls)}"
                 )
             )
 
-        return Ok(config.component)
+        return Ok(config.cls)
 
-    last_dot_index = config.component.rindex(".")
-    cls_module_path = config.component[:last_dot_index]
-    cls_name = config.component[last_dot_index + 1 :]
+    last_dot_index = config.cls.rindex(".")
+    cls_module_path = config.cls[:last_dot_index]
+    cls_name = config.cls[last_dot_index + 1 :]
 
     try:
         module = importlib.import_module(cls_module_path)
@@ -67,7 +67,7 @@ def load_component_cls(config: ComponentConfig) -> Result[type[Component], Compo
     if cls is None:
         return Fail(
             ComponentClassNotFoundError(
-                message=f"component module {module} does not contain component class {cls_name}"
+                message=f"component module {module} does not contain component class '{cls_name}'"
             )
         )
 
@@ -94,8 +94,8 @@ def load_component(
         case Fail(error):
             return Fail(error)
 
-    if not isinstance(config.component, str):
-        return Ok(cast(_ComponentT, config.component))
+    if not isinstance(config.cls, str):
+        return Ok(cast(_ComponentT, config.cls))
 
     parameters_type = cls.get_parameters_type()
     references_type = cls.get_references_type()

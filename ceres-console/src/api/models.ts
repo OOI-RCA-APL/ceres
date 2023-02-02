@@ -17,7 +17,7 @@ export const MessageModel = Zod.object({
 })
 
 export type AlertLevel = Zod.infer<typeof AlertLevelModel>
-export const AlertLevelModel = Zod.enum(['info', 'warning', 'error'])
+export const AlertLevelModel = Zod.enum(['debug', 'info', 'warning', 'error', 'critical'])
 
 export type Alert = Zod.infer<typeof AlertModel>
 export const AlertModel = Zod.object({
@@ -32,9 +32,10 @@ export const AlertModel = Zod.object({
 export type ComponentRole = Zod.infer<typeof ComponentRoleModel>
 export const ComponentRoleModel = Zod.enum(['connection', 'dispatcher', 'notifier'])
 
+export type ComponentConfig = Zod.infer<typeof ComponentConfigModel>
 export const ComponentConfigModel = Zod.object({
   name: NameStrModel,
-  component: Zod.string(),
+  class: Zod.string(),
   parameters: Zod.record(NameStrModel, Zod.unknown()).default(() => ({})),
   references: Zod.record(NameStrModel, NameStrModel).default(() => ({})),
 })
