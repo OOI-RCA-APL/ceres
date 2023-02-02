@@ -10,7 +10,7 @@ from typing import Literal, final
 from pydantic import Field, validator
 
 from ...connection import Connection
-from ...data import ImmutableDataObject, PositiveDuration
+from ...data import ImmutableDataObject, PositiveTimeDelta
 from ...events import ConnectionLostEvent, MessageReceivedEvent
 from ...exceptions import ConnectionInactiveException, ConnectionLostException
 from ...internal.utilities import ensure_event_loop, show_td
@@ -29,18 +29,18 @@ class TCPDisconnectVerifyKind(str, Enum):
 
 class TCPDisconnectVerify(ImmutableDataObject):
     kind: Literal[TCPDisconnectVerifyKind.RECONNECT] = TCPDisconnectVerifyKind.RECONNECT
-    interval: PositiveDuration = timedelta(seconds=5)
+    interval: PositiveTimeDelta = timedelta(seconds=5)
     count: int = Field(ge=1)
 
 
 class TCPDisconnect(ImmutableDataObject):
-    idle: PositiveDuration
+    idle: PositiveTimeDelta
     verify: TCPDisconnectVerify | None = None
 
 
 class TCPKeepAlive(ImmutableDataObject):
-    idle: PositiveDuration
-    interval: PositiveDuration
+    idle: PositiveTimeDelta
+    interval: PositiveTimeDelta
     count: int = Field(ge=1)
 
     @validator("idle", "interval")
@@ -56,7 +56,7 @@ class TCPConnection(Connection):
     class Parameters(Connection.Parameters):
         host: str
         port: int
-        timeout: PositiveDuration = timedelta(seconds=5)
+        timeout: PositiveTimeDelta = timedelta(seconds=5)
         separator: bytes = b"\r\n"
         disconnect: TCPDisconnect | None = None
         keep_alive: TCPKeepAlive | None = None

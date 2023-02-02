@@ -5,7 +5,7 @@ from typing import Iterable, Literal, Sequence
 from apscheduler.triggers.cron import CronTrigger
 from pydantic import validator
 
-from .data import ImmutableDataObject, PositiveDuration
+from .data import ImmutableDataObject, PositiveTimeDelta
 
 
 class ScheduleKind(str, Enum):
@@ -46,7 +46,7 @@ class CronSchedule(BaseSchedule):
 
 class IntervalSchedule(BaseSchedule):
     kind: Literal[ScheduleKind.INTERVAL] = ScheduleKind.INTERVAL
-    interval: PositiveDuration
+    interval: PositiveTimeDelta
 
     def __init__(self, interval: timedelta, **kwargs: object) -> None:
         super().__init__(interval=interval)  # type: ignore

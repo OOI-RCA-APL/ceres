@@ -8,7 +8,7 @@ from pydantic import Field, SecretStr, parse_obj_as, validator
 from typing_extensions import Self
 
 from .address import ComponentAddress
-from .data import ImmutableDataObject, Name, PositiveDuration
+from .data import ImmutableDataObject, Name, PositiveTimeDelta
 from .internal.utilities import setattr_internal
 from .result import Ok
 from .schedule import Schedule
@@ -53,8 +53,8 @@ class DatabaseKind(str, Enum):
 
 
 class DatabaseRetryConfig(ConfigObject):
-    timeout: PositiveDuration = timedelta(seconds=15)
-    interval: PositiveDuration = timedelta(seconds=3)
+    timeout: PositiveTimeDelta = timedelta(seconds=15)
+    interval: PositiveTimeDelta = timedelta(seconds=3)
 
 
 class BaseDatabaseConfig(ConfigObject):

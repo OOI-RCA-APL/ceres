@@ -7,7 +7,7 @@ from typing import AsyncIterable
 from ceres.routine import routine
 
 from .component import Component
-from .data import ImmutableDataObject, PositiveDuration, jsonify
+from .data import ImmutableDataObject, PositiveTimeDelta, jsonify
 from .events import (
     ConnectedEvent,
     ConnectFailedEvent,
@@ -22,9 +22,9 @@ from .procedure import query, subscription
 
 
 class ConnectionReconnect(ImmutableDataObject):
-    interval: PositiveDuration = timedelta(seconds=1)
+    interval: PositiveTimeDelta = timedelta(seconds=1)
     backoff: float | None = 2
-    max_interval: PositiveDuration | None = timedelta(seconds=60)
+    max_interval: PositiveTimeDelta | None = timedelta(seconds=60)
 
 
 class _ReconnectScheduler:

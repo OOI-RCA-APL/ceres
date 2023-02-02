@@ -1,4 +1,3 @@
-from datetime import datetime
 from enum import Enum
 from re import Pattern
 from typing import Any, Callable, Sequence
@@ -11,7 +10,7 @@ from sqlalchemy.sql.roles import ExpressionElementRole
 from .address import ComponentAddress
 from .alert import Alert, AlertLevel
 from .config import DatabaseKind
-from .data import ImmutableDataObject, PositiveDuration
+from .data import DateTime, ImmutableDataObject, PositiveTimeDelta
 from .database import Database
 from .internal.database.entities import AlertEntity, ComponentEntity, MessageEntity
 from .internal.utilities import ValidateByType, escape_like_expression
@@ -31,9 +30,9 @@ class MessageQuery(ImmutableDataObject):
     source: ComponentAddress | Sequence[ComponentAddress] | None = None
     search: str | None = None
     search_case_sensitive: bool = False
-    within: PositiveDuration | None = None
-    after: datetime | None = None
-    before: datetime | None = None
+    within: PositiveTimeDelta | None = None
+    after: DateTime | None = None
+    before: DateTime | None = None
     direction: MessageDirection | None = None
     prefix: bytes | None = None
     suffix: bytes | None = None
@@ -49,9 +48,9 @@ class AlertOrder(str, Enum):
 
 class AlertQuery(ImmutableDataObject):
     source: ComponentAddress | Sequence[ComponentAddress] | None = None
-    within: PositiveDuration | None = None
-    after: datetime | None = None
-    before: datetime | None = None
+    within: PositiveTimeDelta | None = None
+    after: DateTime | None = None
+    before: DateTime | None = None
     levels: Sequence[AlertLevel] | None = None
     codes: Sequence[str] | None = None
     code_regex: str | Pattern[str] | None = None

@@ -1,13 +1,21 @@
 import json
 import re
 from abc import ABC
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Callable, Iterable, cast
+from typing import TYPE_CHECKING, Any, Callable, cast
 
 import pydantic
 import pydantic.generics
-from pydantic import BaseConfig, BaseModel, ConfigDict, ConstrainedStr, Extra, Field
+from pydantic import (
+    BaseConfig,
+    BaseModel,
+    ConfigDict,
+    ConstrainedStr,
+    Extra,
+    Field,
+    parse_obj_as,
+)
 from pydantic.fields import FieldInfo
 from pydantic.fields import FieldInfo as FieldInfo
 from pydantic.json import pydantic_encoder
@@ -117,9 +125,26 @@ class _Name(ConstrainedStr):
     regex = NAME_REGEX
 
 
-class _Duration(timedelta):
+class _DateTime(datetime):
     @classmethod
-    def __get_validators__(cls) -> Iterable[Callable[[Any], timedelta | None]]:
+    def __get_validators__(cls):
+        yield cls.validate
+
+    @classmethod
+    def validate(cls, value: Any) -> datetime | None:
+        if value is None:
+            return None
+
+        timestamp = parse_obj_as(datetime, value)
+        if timestamp.tzinfo is None:
+            return timestamp.replace(tzinfo=timezone.utc)
+
+        return timestamp.astimezone(timezone.utc)
+
+
+class _TimeDelta(timedelta):
+    @classmethod
+    def __get_validators__(cls):
         yield cls.validate
 
     @classmethod
@@ -130,7 +155,7 @@ class _Duration(timedelta):
         return decode_td(value)
 
 
-class _PositiveDuration(_Duration):
+class _PositiveTimeDelta(_TimeDelta):
     @classmethod
     def validate(cls, value: Any) -> timedelta | None:
         duration = super().validate(value)
@@ -143,7 +168,7 @@ class _PositiveDuration(_Duration):
         return duration
 
 
-class _NonNegativeDuration(_Duration):
+class _NonNegativeTimeDelta(_TimeDelta):
     @classmethod
     def validate(cls, value: Any) -> timedelta | None:
         duration = super().validate(value)
@@ -158,15 +183,18 @@ class _NonNegativeDuration(_Duration):
 
 if TYPE_CHECKING:
     Name = str
-    Duration = timedelta
-    PositiveDuration = timedelta
-    NonNegativeDuration = timedelta
+    DateTime = datetime
+    TimeDelta = timedelta
+    PositiveTimeDelta = timedelta
+    NonNegativeTimeDelta = timedelta
 else:
     Name = _Name
-    _Name.__name__ = "Name"
-    Duration = _Duration
-    _Duration.__name__ = "Duration"
-    PositiveDuration = _PositiveDuration
-    _PositiveDuration.__name__ = "PositiveDuration"
-    NonNegativeDuration = _NonNegativeDuration
-    _NonNegativeDuration.__name__ = "NonNegativeDuration"
+    Name.__name__ = "Name"
+    DateTime = _DateTime
+    DateTime.__name__ = "DateTime"
+    TimeDelta = _TimeDelta
+    TimeDelta.__name__ = "TimeDelta"
+    PositiveTimeDelta = _PositiveTimeDelta
+    PositiveTimeDelta.__name__ = "PositiveTimeDelta"
+    NonNegativeTimeDelta = _NonNegativeTimeDelta
+    NonNegativeTimeDelta.__name__ = "NonNegativeTimeDelta"

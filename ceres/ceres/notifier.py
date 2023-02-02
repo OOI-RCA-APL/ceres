@@ -1,16 +1,15 @@
 from abc import abstractmethod
-from datetime import datetime
 from typing import Sequence
 
 from pydantic import Field
 
 from .component import Component
-from .data import ImmutableDataObject
+from .data import DateTime, ImmutableDataObject
 from .timing import utc
 
 
 class Notification(ImmutableDataObject):
-    timestamp: datetime = Field(default_factory=utc)
+    timestamp: DateTime = Field(default_factory=utc)
     subject: str
     content: str
     content_type: str

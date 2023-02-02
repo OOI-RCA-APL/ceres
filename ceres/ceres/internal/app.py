@@ -1,6 +1,5 @@
 import asyncio
 from asyncio import CancelledError
-from datetime import datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Mapping, Sequence, final
 from uuid import UUID
@@ -25,7 +24,7 @@ from ..address import ComponentAddress
 from ..alert import Alert
 from ..component import Component
 from ..config import ComponentConfig, Config, UnitConfig
-from ..data import ImmutableDataObject, Name, jsonify
+from ..data import DateTime, ImmutableDataObject, Name, jsonify
 from ..environment import (
     AlertOrder,
     AlertQuery,
@@ -134,8 +133,8 @@ async def reload(
 async def get_messages(
     address: ComponentAddress | None = None,
     search: str | None = None,
-    after: datetime | None = None,
-    before: datetime | None = None,
+    after: DateTime | None = None,
+    before: DateTime | None = None,
     direction: MessageDirection | None = None,
     limit: int = Query(default=100, ge=0, le=500),
     environment: Environment = Depends(use_environment),
@@ -160,8 +159,8 @@ async def get_messages(
 @api.get("/alerts", tags=["data"])
 async def get_alerts(
     address: ComponentAddress | None = None,
-    after: datetime | None = None,
-    before: datetime | None = None,
+    after: DateTime | None = None,
+    before: DateTime | None = None,
     limit: int = Query(default=100, ge=0, le=500),
     environment: Environment = Depends(use_environment),
 ) -> list[Alert]:
