@@ -37,7 +37,6 @@ from .data import (
     ValidatedDataclass,
     jsonify,
 )
-from .database.entity import AlertEntity, MessageEntity
 from .directory import Directory
 from .environment import Environment
 from .errors import (
@@ -51,6 +50,7 @@ from .exceptions import ComponentClassInvalidException
 from .internal import logs
 from .internal.binding import get_bindings
 from .internal.database.buffer import WriteBuffer
+from .internal.database.entities import AlertEntity, MessageEntity
 from .internal.scheduler import Scheduler
 from .internal.tasklet import Tasklet
 from .internal.utilities import (

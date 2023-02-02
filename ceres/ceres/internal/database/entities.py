@@ -1,79 +1,25 @@
 from datetime import datetime
-from enum import Enum as BaseEnum
-from typing import Any, TypeVar, final
+from typing import Any, final
 from uuid import UUID
 
 from sqlalchemy import (
     JSON,
-    TIMESTAMP,
-    CheckConstraint,
     ColumnElement,
-    Dialect,
-    Enum,
     ForeignKey,
     Index,
     LargeBinary,
     PrimaryKeyConstraint,
     Text,
-    TypeDecorator,
     Uuid,
 )
 from sqlalchemy.ext.associationproxy import AssociationProxy, association_proxy
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.sql.roles import ExpressionElementRole
-from typing_extensions import Self
 
-from ..address import ComponentAddress
-from ..alert import AlertLevel
-from ..internal.utilities import snakecase
-from ..message import MessageDirection
-
-
-def _TypedEnum(cls: type[BaseEnum]) -> Enum:
-    enum = Enum(
-        *(current.value for current in cls),
-        native_enum=False,
-        create_constraint=False,
-        name=snakecase(cls.__name__),
-    )
-
-    enum.length = None
-    return enum
-
-
-def _TypedEnumConstraint(column: str, cls: type[BaseEnum], name: str) -> CheckConstraint:
-    return CheckConstraint(
-        sqltext=f"{column} in ({', '.join([repr(enum.value) for enum in cls])})",
-        name=name,
-    )
-
-
-class ComponentAddressMapper(TypeDecorator[ComponentAddress]):
-    impl = Text
-    cache_ok = False
-
-    def process_bind_param(
-        self,
-        value: ComponentAddress | None,
-        dialect: Dialect,
-    ) -> str | None:
-        if value is None:
-            return None
-
-        return str(value)
-
-    def process_result_value(
-        self,
-        value: ComponentAddress | None,
-        dialect: Dialect,
-    ) -> ComponentAddress | None:
-        if value is None:
-            return None
-
-        return ComponentAddress(value)
-
-    def copy(self, **kwargs: Any) -> Self:
-        return type(self)(**kwargs)
+from ...address import ComponentAddress
+from ...alert import AlertLevel
+from ...message import MessageDirection
+from .types import ComponentAddressMapper, DateTimeMapper, EnumConstraint, EnumMapper
 
 
 class Entity(DeclarativeBase):
@@ -107,8 +53,8 @@ class MessageEntity(Entity):
         Uuid,
         ForeignKey(ComponentEntity.id, name=f"fk_{__tablename__}__component_id__components"),
     )
-    timestamp: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))
-    direction: Mapped[MessageDirection] = mapped_column(_TypedEnum(MessageDirection))
+    timestamp: Mapped[datetime] = mapped_column(DateTimeMapper)
+    direction: Mapped[MessageDirection] = mapped_column(EnumMapper(MessageDirection))
     content: Mapped[bytes] = mapped_column(LargeBinary)
 
     component: Mapped[ComponentEntity] = relationship(ComponentEntity, lazy="joined")
@@ -116,7 +62,7 @@ class MessageEntity(Entity):
 
     __table_args__ = (
         PrimaryKeyConstraint("id", name=f"pk_{__tablename__}"),
-        _TypedEnumConstraint("direction", MessageDirection, name=f"ck_{__tablename__}__direction"),
+        EnumConstraint("direction", MessageDirection, name=f"ck_{__tablename__}__direction"),
         Index(f"ix_{__tablename__}__component_id", "component_id"),
         Index(f"ix_{__tablename__}__timestamp", "timestamp"),
         Index(f"ix_{__tablename__}__content", "content"),
@@ -132,8 +78,8 @@ class AlertEntity(Entity):
         Uuid,
         ForeignKey(ComponentEntity.id, name=f"fk_{__tablename__}__component_id__components"),
     )
-    timestamp: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))
-    level: Mapped[AlertLevel] = mapped_column(_TypedEnum(AlertLevel))
+    timestamp: Mapped[datetime] = mapped_column(DateTimeMapper)
+    level: Mapped[AlertLevel] = mapped_column(EnumMapper(AlertLevel))
     code: Mapped[str] = mapped_column(Text)
     info: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
 
@@ -142,7 +88,7 @@ class AlertEntity(Entity):
 
     __table_args__ = (
         PrimaryKeyConstraint("id", name=f"pk_{__tablename__}"),
-        _TypedEnumConstraint("level", AlertLevel, name=f"ck_{__tablename__}__level"),
+        EnumConstraint("level", AlertLevel, name=f"ck_{__tablename__}__level"),
         Index(f"ix_{__tablename__}__component_id", "component_id"),
         Index(f"ix_{__tablename__}__timestamp", "timestamp"),
         Index(f"ix_{__tablename__}__level", "level"),
@@ -150,6 +96,5 @@ class AlertEntity(Entity):
     )
 
 
-_EntityT = TypeVar("_EntityT", bound=Entity)
 WhereExpression = ColumnElement[bool] | ExpressionElementRole[bool]
 OrderByExpression = ColumnElement[Any] | ExpressionElementRole[Any]

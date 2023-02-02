@@ -1,0 +1,75 @@
+from datetime import datetime, timezone
+from enum import Enum as BaseEnum
+
+from sqlalchemy import TIMESTAMP, CheckConstraint, Dialect, Enum, Text, TypeDecorator
+
+from ...address import ComponentAddress
+from ..utilities import snakecase
+
+
+def EnumMapper(cls: type[BaseEnum]) -> Enum:
+    enum = Enum(
+        *(current.value for current in cls),
+        native_enum=False,
+        create_constraint=False,
+        name=snakecase(cls.__name__),
+    )
+
+    enum.length = None
+    return enum
+
+
+def EnumConstraint(column: str, cls: type[BaseEnum], name: str) -> CheckConstraint:
+    return CheckConstraint(
+        sqltext=f"{column} in ({', '.join([repr(enum.value) for enum in cls])})",
+        name=name,
+    )
+
+
+class ComponentAddressMapper(TypeDecorator[ComponentAddress]):
+    impl = Text
+    cache_ok = True
+
+    def process_bind_param(
+        self,
+        value: ComponentAddress | None,
+        dialect: Dialect,
+    ) -> str | None:
+        if value is None:
+            return None
+
+        return str(value)
+
+    def process_result_value(
+        self,
+        value: ComponentAddress | None,
+        dialect: Dialect,
+    ) -> ComponentAddress | None:
+        if value is None:
+            return None
+
+        return ComponentAddress(value)
+
+
+class DateTimeMapper(TypeDecorator[datetime]):
+    impl = TIMESTAMP
+    cache_ok = True
+
+    def __init__(self) -> None:
+        super().__init__(timezone=True)
+
+    def process_bind_param(self, value: datetime | None, dialect: Dialect) -> datetime | None:
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+
+        return value.astimezone(timezone.utc)
+
+    def process_result_value(self, value: datetime | None, dialect: Dialect) -> datetime | None:
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+
+        return value.astimezone(timezone.utc)

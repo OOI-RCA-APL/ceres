@@ -5,7 +5,7 @@ from typing import Generic, TypeVar, final
 
 from ...config import DatabaseKind
 from ...database import Database
-from ...database.entity import Entity
+from .entities import Entity
 
 _EntityT = TypeVar("_EntityT", bound=Entity)
 

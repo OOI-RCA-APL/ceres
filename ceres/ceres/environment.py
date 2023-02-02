@@ -13,7 +13,7 @@ from .alert import Alert, AlertLevel
 from .config import DatabaseKind
 from .data import ImmutableDataObject, PositiveDuration
 from .database import Database
-from .database.entity import AlertEntity, ComponentEntity, MessageEntity
+from .internal.database.entities import AlertEntity, ComponentEntity, MessageEntity
 from .internal.utilities import ValidateByType, escape_like_expression
 from .message import Message, MessageDirection
 from .timing import utc

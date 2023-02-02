@@ -20,8 +20,8 @@ from ..config import (
     PostgresDatabaseConfig,
     SQLiteDatabaseConfig,
 )
-from .adapter import DatabaseAdapter
-from .entity import Entity
+from ..internal.database.entities import Entity
+from .adapters import DatabaseAdapter, PostgresDatabaseAdapter, SQLiteDatabaseAdapter
 
 _T = TypeVar("_T")
 
@@ -32,12 +32,8 @@ class Database:
     def __create_adapter(cls, id: UUID, config: DatabaseConfig) -> DatabaseAdapter[DatabaseConfig]:
         match config:
             case SQLiteDatabaseConfig():
-                from .adapters.sqlite import SQLiteDatabaseAdapter
-
                 return SQLiteDatabaseAdapter(id, config)
             case PostgresDatabaseConfig():
-                from .adapters.postgres import PostgresDatabaseAdapter
-
                 return PostgresDatabaseAdapter(id, config)
 
     def __init__(self, /, source: DatabaseConfig | Self | None = None) -> None:
