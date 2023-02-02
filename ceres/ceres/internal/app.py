@@ -15,7 +15,7 @@ from fastapi import (
     WebSocketDisconnect,
 )
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import Json
+from pydantic import Field, Json
 from starlette.requests import HTTPConnection
 from starlette.status import HTTP_400_BAD_REQUEST
 from websockets.exceptions import ConnectionClosed
@@ -24,17 +24,11 @@ from ..address import ComponentAddress
 from ..alert import Alert
 from ..component import Component
 from ..config import ComponentConfig, Config, UnitConfig
-from ..data import DateTime, ImmutableDataObject, Name, jsonify
-from ..environment import (
-    AlertOrder,
-    AlertQuery,
-    Environment,
-    MessageOrder,
-    MessageQuery,
-)
+from ..data import ImmutableDataObject, Name, jsonify
+from ..environment import AlertQuery, Environment, MessageQuery
 from ..errors import ProcedureError, ReloadError
 from ..events import AlertEmittedEvent, MessageReceivedEvent, MessageSentEvent
-from ..message import Message, MessageDirection
+from ..message import Message
 from ..procedure import (
     ActionBinding,
     CallableProcedureKind,
@@ -129,61 +123,35 @@ async def reload(
             return Fail(error)
 
 
+class GetMessagesQueryParameters(MessageQuery):
+    limit: int = Field(default=100, ge=0, le=500)
+
+
 @api.get("/messages", tags=["data"])
 async def get_messages(
-    address: ComponentAddress | None = None,
-    search: str | None = None,
-    after: DateTime | None = None,
-    before: DateTime | None = None,
-    direction: MessageDirection | None = None,
-    limit: int = Query(default=100, ge=0, le=500),
+    query: GetMessagesQueryParameters = Depends(),
     environment: Environment = Depends(use_environment),
 ) -> list[Message]:
-    return list(
-        reversed(
-            await environment.get_messages(
-                MessageQuery(
-                    source=address,
-                    search=search,
-                    after=after,
-                    before=before,
-                    direction=direction,
-                    limit=limit,
-                    order=MessageOrder.NEW_TO_OLD,
-                )
-            )
-        )
-    )
+    return await environment.get_messages(query)
+
+
+class GetAlertsQueryParameters(AlertQuery):
+    limit: int = Field(default=100, ge=0, le=500)
 
 
 @api.get("/alerts", tags=["data"])
 async def get_alerts(
-    address: ComponentAddress | None = None,
-    after: DateTime | None = None,
-    before: DateTime | None = None,
-    limit: int = Query(default=100, ge=0, le=500),
+    query: GetAlertsQueryParameters = Depends(),
     environment: Environment = Depends(use_environment),
 ) -> list[Alert]:
-    return list(
-        reversed(
-            await environment.get_alerts(
-                AlertQuery(
-                    source=address,
-                    after=after,
-                    before=before,
-                    limit=limit,
-                    order=AlertOrder.NEW_TO_OLD,
-                )
-            )
-        )
-    )
+    return await environment.get_alerts(query)
 
 
 @api.websocket("/message-stream")
 async def message_stream(
     socket: WebSocket,
-    address: ComponentAddress | None = None,
-    search: bytes | None = None,
+    source: ComponentAddress | None = None,
+    search: str | None = None,
     engine: Engine = Depends(use_engine),
 ) -> None:
     if search:
@@ -195,13 +163,13 @@ async def message_stream(
         async for event in engine.events:
             if not isinstance(event, (MessageSentEvent, MessageReceivedEvent)):
                 continue
-            if address is not None and event.message.source != address:
+            if source is not None and event.message.source != source:
                 continue
             if search is not None:
                 if (
-                    search not in event.message.timestamp.isoformat(" ").encode()
-                    and search not in event.message.direction.encode()
-                    and search not in event.message.content.lower()
+                    search not in event.message.timestamp.isoformat(" ")
+                    and search not in event.message.direction
+                    and search.encode() not in event.message.content.lower()
                 ):
                     continue
 

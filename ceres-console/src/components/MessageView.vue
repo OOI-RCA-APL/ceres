@@ -170,31 +170,33 @@ async function appendMessages(appended: Message[]) {
 
 async function loadPreviousMessages() {
   const results = await getMessages({
-    address: info.address,
+    source: info.address,
     search: search === '' ? undefined : search,
     before: earliestMessageTimestamp == null ? undefined : earliestMessageTimestamp,
+    order: 'new-to-old',
     limit: 100,
   })
 
   isExhausted = results.length === 0
-  await prependMessages(results)
+  await prependMessages(results.reverse())
 }
 
 async function loadCurrentMessages() {
   const results = await getMessages({
-    address: info.address,
+    source: info.address,
     search: search === '' ? undefined : search,
+    order: 'new-to-old',
     limit: 100,
   })
 
   isExhausted = results.length === 0
   messages = []
-  await appendMessages(results)
+  await appendMessages(results.reverse())
 }
 
 useMessageStream(
   computed(() => ({
-    component: info.address,
+    source: info.address,
     search: search === '' ? undefined : search,
   })),
   async (message: Message) => {

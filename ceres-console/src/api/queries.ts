@@ -35,11 +35,12 @@ export async function getComponent(unit: string, name: string): Promise<Componen
 }
 
 export async function getMessages(params: {
-  address?: string
+  source?: string
   search?: string
   before?: string
   after?: string
   limit?: number
+  order?: 'new-to-old' | 'old-to-new'
 }): Promise<Message[]> {
   return await get(`/api/messages${createQueryParams(params)}`, Zod.array(MessageModel))
 }
@@ -63,7 +64,7 @@ function getWebSocketURI(relative: string) {
 
 export function useMessageStream<TModel extends ZodTypeAny>(
   params: MaybeRef<{
-    address?: string
+    source?: string
     search?: string
   }>,
   onMessage: (message: Zod.infer<TModel>) => unknown
