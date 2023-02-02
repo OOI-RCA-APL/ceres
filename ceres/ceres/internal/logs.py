@@ -36,15 +36,15 @@ def setup(config: LogConfig | None = None) -> None:
     date_format = "%Y-%m-%d %H:%M:%S"
 
     default_formatter = logging.Formatter(
-        "[%(asctime)s.%(msecs)03d] [%(process)s] [%(levelname)s] [%(name)s] %(message)s",
+        "[%(asctime)s.%(msecs)03d] [%(levelname)s] [%(name)s] %(message)s",
         datefmt=date_format,
     )
     server_formatter = logging.Formatter(
-        "[%(asctime)s.%(msecs)03d] [%(process)s] [%(levelname)s] [server] %(message)s",
+        "[%(asctime)s.%(msecs)03d] [%(levelname)s] [server] %(message)s",
         datefmt=date_format,
     )
     access_formatter = uvicorn.logging.AccessFormatter(
-        "[%(asctime)s.%(msecs)03d] [%(process)s] [%(levelname)s] [server] [%(client_addr)s] - %(request_line)s - %(status_code)s",
+        "[%(asctime)s.%(msecs)03d] [%(levelname)s] [server] [%(client_addr)s] - %(request_line)s - %(status_code)s",
         datefmt=date_format,
         use_colors=False,
     )
