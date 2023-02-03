@@ -4,8 +4,6 @@ from datetime import timedelta
 from enum import Enum
 from typing import AsyncIterable
 
-from ceres.routine import routine
-
 from .component import Component
 from .data import ImmutableDataObject, PositiveTimeDelta, jsonify
 from .events import (
@@ -19,6 +17,7 @@ from .events import (
 from .exceptions import ConnectionLostException
 from .message import Message, MessageDirection
 from .procedure import query, subscription
+from .routine import routine
 
 
 class ConnectionReconnect(ImmutableDataObject):
