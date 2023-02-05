@@ -16,7 +16,7 @@ from sqlalchemy.ext.associationproxy import AssociationProxy, association_proxy
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.sql.roles import ExpressionElementRole
 
-from ...address import ComponentAddress
+from ...address import Address
 from ...alert import AlertLevel
 from ...message import MessageDirection
 from .types import ComponentAddressMapper, DateTimeMapper, EnumConstraint, EnumMapper
@@ -36,7 +36,7 @@ class Entity(DeclarativeBase):
 class ComponentEntity(Entity):
     __tablename__ = "components"
     id: Mapped[UUID] = mapped_column(Uuid)
-    address: Mapped[ComponentAddress] = mapped_column(ComponentAddressMapper)
+    address: Mapped[Address] = mapped_column(ComponentAddressMapper)
 
     __table_args__ = (
         PrimaryKeyConstraint("id", name=f"pk_{__tablename__}"),
@@ -58,7 +58,7 @@ class MessageEntity(Entity):
     content: Mapped[bytes] = mapped_column(LargeBinary)
 
     component: Mapped[ComponentEntity] = relationship(ComponentEntity, lazy="joined")
-    source: AssociationProxy[ComponentAddress] = association_proxy("component", "address")
+    source: AssociationProxy[Address] = association_proxy("component", "address")
 
     __table_args__ = (
         PrimaryKeyConstraint("id", name=f"pk_{__tablename__}"),
@@ -84,7 +84,7 @@ class AlertEntity(Entity):
     info: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
 
     component = relationship(ComponentEntity, lazy="joined")
-    source: AssociationProxy[ComponentAddress] = association_proxy("component", "address")
+    source: AssociationProxy[Address] = association_proxy("component", "address")
 
     __table_args__ = (
         PrimaryKeyConstraint("id", name=f"pk_{__tablename__}"),

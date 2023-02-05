@@ -3,7 +3,7 @@ from uuid import UUID, uuid4
 
 from pydantic import Field
 
-from .address import ComponentAddress
+from .address import Address
 from .data import DateTime, ImmutableDataObject
 from .timing import utc
 
@@ -15,7 +15,7 @@ class MessageDirection(str, Enum):
 
 class Message(ImmutableDataObject):
     id: UUID = Field(default_factory=uuid4)
-    source: ComponentAddress
+    source: Address
     timestamp: DateTime = Field(default_factory=utc)
     direction: MessageDirection
     content: bytes

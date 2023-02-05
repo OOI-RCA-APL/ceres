@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, Literal, Mapping, Sequence
 from pydantic import Field, SecretStr, parse_obj_as, validator
 from typing_extensions import Self
 
-from .address import ComponentAddress
+from .address import Address
 from .data import ImmutableDataObject, Name, PositiveTimeDelta
 from .internal.utilities import setattr_internal
 from .result import Ok
@@ -125,7 +125,7 @@ class Config(ConfigObject):
     units: Sequence[UnitConfig] = Field(default_factory=list)
 
     __path: Path | None = None
-    __component_config_cache: dict[ComponentAddress, ComponentConfig] = {}
+    __component_config_cache: dict[Address, ComponentConfig] = {}
 
     @classmethod
     def from_data(cls, data: Any, path: Path | None = None) -> Self:
@@ -149,7 +149,7 @@ class Config(ConfigObject):
     def get_unit(self, name: Name) -> UnitConfig | None:
         return next((unit for unit in self.units if unit.name == name), None)
 
-    def get_component(self, address: ComponentAddress) -> ComponentConfig | None:
+    def get_component(self, address: Address) -> ComponentConfig | None:
         if address in self.__component_config_cache:
             return self.__component_config_cache[address]
 
@@ -165,7 +165,7 @@ class Config(ConfigObject):
 
         return component
 
-    def get_component_cls(self, address: ComponentAddress) -> type[Component] | None:
+    def get_component_cls(self, address: Address) -> type[Component] | None:
         config = self.get_component(address)
         if config is None:
             return None

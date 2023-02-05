@@ -9,7 +9,7 @@ from sqlalchemy.orm import InstrumentedAttribute
 from sqlalchemy.sql.roles import ExpressionElementRole
 from typing_extensions import Self, Unpack
 
-from .address import ComponentAddress
+from .address import Address
 from .alert import Alert, AlertLevel
 from .config import DatabaseKind
 from .data import DateTime, ImmutableDataObject, PositiveTimeDelta
@@ -49,7 +49,7 @@ class Query(ImmutableDataObject):
 
 
 class MessageQueryArgs(TypedDict, total=False):
-    source: ComponentAddress | Sequence[ComponentAddress] | None
+    source: Address | Sequence[Address] | None
     search: str | None
     search_case_sensitive: bool
     within: PositiveTimeDelta | None
@@ -63,7 +63,7 @@ class MessageQueryArgs(TypedDict, total=False):
 
 
 class MessageQuery(Query):
-    source: ComponentAddress | Sequence[ComponentAddress] | None = None
+    source: Address | Sequence[Address] | None = None
     search: str | None = None
     search_case_sensitive: bool = False
     within: PositiveTimeDelta | None = None
@@ -88,7 +88,7 @@ else:
 
 
 class AlertQueryArgs(TypedDict, total=False):
-    source: ComponentAddress | Sequence[ComponentAddress] | None
+    source: Address | Sequence[Address] | None
     within: PositiveTimeDelta | None
     after: DateTime | None
     before: DateTime | None
@@ -100,7 +100,7 @@ class AlertQueryArgs(TypedDict, total=False):
 
 
 class AlertQuery(Query):
-    source: ComponentAddress | Sequence[ComponentAddress] | None = None
+    source: Address | Sequence[Address] | None = None
     within: PositiveTimeDelta | None = None
     after: DateTime | None = None
     before: DateTime | None = None
@@ -128,7 +128,7 @@ class Environment(ValidateByType):
 
     async def get_component_id(
         self,
-        address: ComponentAddress,
+        address: Address,
         default: UUID | None = None,
     ) -> UUID:
         async with self.__database.session() as session:
@@ -169,7 +169,7 @@ class Environment(ValidateByType):
             query = MessageQuery(**kwargs)
 
         if query.source is not None:
-            if isinstance(query.source, ComponentAddress):
+            if isinstance(query.source, Address):
                 statement = statement.where(MessageEntity.source == query.source)
             else:
                 statement = statement.where(MessageEntity.source.in_(query.source))
@@ -265,7 +265,7 @@ class Environment(ValidateByType):
             query = AlertQuery(**kwargs)
 
         if query.source is not None:
-            if isinstance(query.source, ComponentAddress):
+            if isinstance(query.source, Address):
                 statement = statement.where(AlertEntity.source == query.source)
             else:
                 statement = statement.where(AlertEntity.source.in_(query.source))

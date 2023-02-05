@@ -1,14 +1,11 @@
 import warnings
-from datetime import timezone
+from datetime import datetime, timezone
 from typing import Any, Callable, final
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.base import BaseTrigger
-from apscheduler.triggers.combining import AndTrigger, OrTrigger
-from apscheduler.triggers.cron import CronTrigger
-from apscheduler.triggers.interval import IntervalTrigger
 
-from ..schedule import AndSchedule, CronSchedule, IntervalSchedule, OrSchedule, Schedule
+from ..schedule import Schedule, Trigger
 
 warnings.filterwarnings(
     action="ignore",
@@ -51,16 +48,17 @@ class Scheduler:
         self.__inner.remove_job(name)
 
     def __create_trigger(self, schedule: Schedule) -> BaseTrigger:
-        match schedule:
-            case CronSchedule():
-                return CronTrigger.from_crontab(schedule.crontab)
-            case IntervalSchedule():
-                return IntervalTrigger(seconds=int(schedule.interval.total_seconds()))
-            case AndSchedule():
-                return AndTrigger(
-                    [self.__create_trigger(schedule) for schedule in schedule.schedules]
-                )
-            case OrSchedule():
-                return OrTrigger(
-                    [self.__create_trigger(schedule) for schedule in schedule.schedules]
-                )
+        return _TriggerAdapter(schedule.as_trigger())
+
+
+class _TriggerAdapter(BaseTrigger):
+    def __init__(self, inner: Trigger) -> None:
+        super().__init__()
+        self.__inner = inner
+
+    def get_next_fire_time(  # type: ignore
+        self,
+        previous_fire_time: datetime | None,
+        now: datetime,
+    ) -> datetime | None:
+        return self.__inner.next(previous_fire_time, now)

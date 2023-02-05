@@ -9,7 +9,6 @@ from uuid import UUID
 from pydantic import ValidationError, parse_obj_as, validate_arguments
 from pydantic.utils import lenient_issubclass
 
-from ..address import ComponentAddress
 from ..component import Component, ComponentPaths
 from ..config import ComponentConfig
 from ..data import Name
@@ -83,7 +82,7 @@ def load_component(
     config: ComponentConfig,
     *,
     id: UUID,
-    address: ComponentAddress,
+    name: Name,
     environment: Environment,
     paths: ComponentPaths,
     siblings: Mapping[Name, Component],
@@ -171,7 +170,7 @@ def load_component(
     try:
         instance = validate_arguments(cls)(
             id=id,
-            address=address,
+            name=name,
             environment=environment,
             paths=paths,
             parameters=applied_parameters,

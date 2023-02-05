@@ -3,7 +3,7 @@ from datetime import datetime
 from itertools import groupby
 from typing import Any, Iterable, Sequence, final
 
-from ....address import ComponentAddress
+from ....address import Address
 from ....alert import Alert, AlertLevel
 from ....data import jsonify
 from ....dispatcher import Dispatch, DispatchWriter
@@ -40,7 +40,7 @@ class HTMLDispatchWriter(DispatchWriter):
         def get_latest_alert_timestamp(alerts: Iterable[Alert]) -> datetime:
             return max([alert.timestamp for alert in alerts])
 
-        Index = dict[AlertLevel, dict[tuple[ComponentAddress, str, str], list[Alert]]]
+        Index = dict[AlertLevel, dict[tuple[Address, str, str], list[Alert]]]
 
         def create_index() -> Index:
             return defaultdict(create_index)  # type: ignore

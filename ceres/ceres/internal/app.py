@@ -20,7 +20,7 @@ from starlette.requests import HTTPConnection
 from starlette.status import HTTP_400_BAD_REQUEST
 from websockets.exceptions import ConnectionClosed
 
-from ..address import ComponentAddress
+from ..address import Address
 from ..alert import Alert
 from ..component import Component
 from ..config import ComponentConfig, Config, UnitConfig
@@ -77,7 +77,7 @@ def _get_component_roles(component: Component | type[Component]) -> Sequence[Com
 class ComponentInfo(ImmutableDataObject):
     id: UUID
     name: Name
-    address: ComponentAddress
+    address: Address
     config: ComponentConfig
     roles: Sequence[ComponentRole]
     queries: Sequence[QueryBinding]
@@ -150,7 +150,7 @@ async def get_alerts(
 @api.websocket("/message-stream")
 async def message_stream(
     socket: WebSocket,
-    source: ComponentAddress | None = None,
+    source: Address | None = None,
     search: str | None = None,
     engine: Engine = Depends(use_engine),
 ) -> None:
@@ -181,7 +181,7 @@ async def message_stream(
 @api.websocket("/alert-stream")
 async def alert_stream(
     socket: WebSocket,
-    address: ComponentAddress | None = None,
+    address: Address | None = None,
     engine: Engine = Depends(use_engine),
 ) -> None:
     try:
@@ -233,7 +233,7 @@ async def get_component_info(
     engine: Engine = Depends(use_engine),
     environment: Environment = Depends(use_environment),
 ) -> ComponentInfo:
-    address = ComponentAddress.create(unit, component)
+    address = Address.create(unit, component)
     component_config = engine.config.get_component(address)
     component_cls = engine.config.get_component_cls(address)
     if component_config is None or component_cls is None:
@@ -242,7 +242,7 @@ async def get_component_info(
     id = await environment.get_component_id(address)
     return ComponentInfo(
         id=id,
-        name=address.name,
+        name=component,
         address=address,
         config=component_config,
         roles=_get_component_roles(component_cls),
@@ -262,7 +262,7 @@ async def _call(
     procedure: Name,
     input: Mapping[str, object] | None,
 ) -> Result[object | None, ProcedureError]:
-    return await engine.call(ComponentAddress.create(unit, component), kind, procedure, input)
+    return await engine.call(Address.create(unit, component), kind, procedure, input)
 
 
 @api.post("/units/{unit}/components/{component}/queries/{query}", tags=["procedures"])
@@ -308,7 +308,7 @@ async def _subscribe(
     input: Json[Any],
 ) -> None:
     await socket.accept()
-    address = ComponentAddress.create(unit, component)
+    address = Address.create(unit, component)
 
     if not isinstance(input, Mapping | None):
         await socket.close(

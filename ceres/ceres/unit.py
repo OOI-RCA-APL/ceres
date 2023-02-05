@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, AsyncIterable, Sequence, final
 from weakref import ref
 
-from .address import ComponentAddress
+from .address import Address
 from .component import (
     CallableProcedureKind,
     Component,
@@ -182,12 +182,12 @@ class Unit(Tasklet):
             if self.get_component(config.name) is not None:
                 continue
 
-            address = ComponentAddress.create(self.name, config.name)
+            address = Address.create(self.name, config.name)
             id = await self.__environment.get_component_id(address)
             match load_component(
                 config,
                 id=id,
-                address=address,
+                name=config.name,
                 environment=self.environment,
                 paths=ComponentPaths(
                     unit=self.paths.local,

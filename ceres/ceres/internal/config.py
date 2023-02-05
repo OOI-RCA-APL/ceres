@@ -10,7 +10,7 @@ import yaml
 from pydantic import ValidationError
 from yaml import MarkedYAMLError, YAMLError
 
-from ..address import ComponentAddress
+from ..address import Address
 from ..component import Component, ComponentPaths
 from ..config import Config, UnitConfig
 from ..data import Name
@@ -160,12 +160,12 @@ async def _check_components(
 
         def check_components() -> Iterable[ConfigComponentError]:
             for component_config in unit_config.components:
-                address = ComponentAddress.create(unit_config.name, component_config.name)
+                address = Address.create(unit_config.name, component_config.name)
                 log(f"Checking component '{address}'...")
                 match load_component(
                     component_config,
                     id=uuid4(),
-                    address=address,
+                    name=component_config.name,
                     environment=environment,
                     paths=paths,
                     siblings=components,

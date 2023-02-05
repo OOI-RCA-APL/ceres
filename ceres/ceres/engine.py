@@ -8,7 +8,7 @@ from pathlib import Path
 from queue import Empty, Queue
 from typing import AsyncIterable, Sequence, final
 
-from .address import ComponentAddress
+from .address import Address
 from .config import Config, UnitConfig
 from .data import ImmutableDataObject, Name, jsonify
 from .database import Database
@@ -177,7 +177,7 @@ class Engine(Tasklet):
 
     async def call(
         self,
-        component: ComponentAddress,
+        component: Address,
         kind: CallableProcedureKind,
         procedure: str,
         input: object | None = None,
@@ -194,7 +194,7 @@ class Engine(Tasklet):
 
     async def subscribe(
         self,
-        component: ComponentAddress,
+        component: Address,
         kind: SubscribableProcedureKind,
         procedure: str,
         input: object | None = None,

@@ -27,7 +27,7 @@ from weakref import WeakValueDictionary, ref
 from pydantic import Field, ValidationError, validate_arguments, validator
 from typing_extensions import dataclass_transform
 
-from .address import ComponentAddress
+from .address import Address
 from .alert import Alert, AlertLevel
 from .config import JobConfig
 from .data import (
@@ -243,9 +243,7 @@ class Component(ValidatedDataclass, Tasklet):
             return components
 
     id: UUID = field(default_factory=uuid4)
-    address: ComponentAddress = field(
-        default_factory=lambda: ComponentAddress.create("default", randstr(ascii_lowercase, 8))
-    )
+    name: Name = field(default_factory=lambda: randstr(ascii_lowercase, 8))
     if TYPE_CHECKING:
         environment: Environment = field(default_factory=Environment)
     else:
@@ -372,8 +370,11 @@ class Component(ValidatedDataclass, Tasklet):
                 return cls.get_display_bindings()
 
     @property
-    def name(self) -> str:
-        return self.address.name
+    def address(self) -> Address:
+        if self.unit is None:
+            return Address.create("anonymous", self.name)
+
+        return Address.create(self.unit.name, self.name)
 
     @property
     def engine(self) -> "Engine | None":

@@ -1,7 +1,7 @@
 from enum import Enum
 from typing import Literal, Sequence
 
-from .address import ComponentAddress
+from .address import Address
 from .data import DataObject, ImmutableDataObject
 from .validation import ValidationProblem
 
@@ -109,7 +109,7 @@ class ConfigDatabaseError(BaseConfigError):
 
 class ConfigComponentError(BaseConfigError):
     kind: Literal[ConfigErrorKind.COMPONENT_ERROR] = ConfigErrorKind.COMPONENT_ERROR
-    component: ComponentAddress
+    component: Address
     error: ComponentError
 
 

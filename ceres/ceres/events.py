@@ -5,7 +5,7 @@ from uuid import UUID, uuid4
 
 from pydantic import Field
 
-from .address import ComponentAddress
+from .address import Address
 from .alert import Alert
 from .data import DateTime, ImmutableDataObject
 from .message import Message
@@ -14,7 +14,7 @@ from .timing import utc
 
 class Event(ImmutableDataObject, ABC):
     id: UUID = Field(default_factory=uuid4)
-    source: ComponentAddress = cast(ComponentAddress, None)
+    source: Address = cast(Address, None)
     timestamp: DateTime = Field(default_factory=utc)
     kind: str
 

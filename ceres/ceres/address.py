@@ -32,11 +32,11 @@ class _RegexStr(str):
 
 
 @final
-class ComponentAddress(_RegexStr):
+class Address(_RegexStr):
     regex = re.compile(rf"^{NAME_REGEX.pattern[1:-1]}\.{NAME_REGEX.pattern[1:-1]}$")
 
     @classmethod
-    def create(cls, unit: str, component: str, /) -> Self:
+    def create(cls, unit: Name, component: Name, /) -> Self:
         return cls(f"{unit}.{component}")
 
     @property

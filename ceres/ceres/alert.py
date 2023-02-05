@@ -4,7 +4,7 @@ from uuid import UUID, uuid4
 
 from pydantic import Field, validator
 
-from .address import ComponentAddress
+from .address import Address
 from .data import DateTime, ImmutableDataObject, jsonify
 from .timing import utc
 
@@ -19,7 +19,7 @@ class AlertLevel(str, Enum):
 
 class Alert(ImmutableDataObject):
     id: UUID = Field(default_factory=uuid4)
-    source: ComponentAddress = cast(ComponentAddress, None)
+    source: Address = cast(Address, None)
     timestamp: DateTime = Field(default_factory=utc)
     level: AlertLevel
     code: str

@@ -5,7 +5,7 @@ from typing import Any
 from sqlalchemy import TIMESTAMP, CheckConstraint, Dialect, Enum, Text, TypeDecorator
 from sqlalchemy.sql.operators import OperatorType
 
-from ...address import ComponentAddress
+from ...address import Address
 from ..utilities import snakecase
 
 
@@ -28,13 +28,13 @@ def EnumConstraint(column: str, cls: type[BaseEnum], name: str) -> CheckConstrai
     )
 
 
-class ComponentAddressMapper(TypeDecorator[ComponentAddress]):
+class ComponentAddressMapper(TypeDecorator[Address]):
     impl = Text
     cache_ok = True
 
     def process_bind_param(
         self,
-        value: ComponentAddress | None,
+        value: Address | None,
         dialect: Dialect,
     ) -> str | None:
         if value is None:
@@ -44,13 +44,13 @@ class ComponentAddressMapper(TypeDecorator[ComponentAddress]):
 
     def process_result_value(
         self,
-        value: ComponentAddress | None,
+        value: Address | None,
         dialect: Dialect,
-    ) -> ComponentAddress | None:
+    ) -> Address | None:
         if value is None:
             return None
 
-        return ComponentAddress(value)
+        return Address(value)
 
 
 class DateTimeMapper(TypeDecorator[datetime]):

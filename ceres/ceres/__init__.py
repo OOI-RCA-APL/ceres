@@ -1,4 +1,4 @@
-from .address import ComponentAddress as ComponentAddress
+from .address import Address as Address
 from .alert import Alert as Alert
 from .alert import AlertLevel as AlertLevel
 from .component import Component as Component
