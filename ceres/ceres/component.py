@@ -97,8 +97,7 @@ _EventT = TypeVar("_EventT", bound=Event)
 
 
 class ComponentPaths(ImmutableDataObject):
-    unit: Directory = Field(default_factory=Directory)
-    component: Directory = Field(default_factory=Directory)
+    local: Directory = Field(default_factory=Directory)
     data: Directory = Field(default_factory=Directory)
 
 
@@ -460,7 +459,7 @@ class Component(ValidatedDataclass, Tasklet):
                 self.__message_write_buffer.add(
                     MessageEntity(
                         id=event.message.id,
-                        component_id=self.id,  # TODO: Actually use the passed ID.
+                        source_id=self.id,  # TODO: Actually use the passed ID.
                         timestamp=event.message.timestamp,
                         direction=MessageDirection.RECEIVE,
                         content=event.message.content,
@@ -470,7 +469,7 @@ class Component(ValidatedDataclass, Tasklet):
                 self.__alert_write_buffer.add(
                     AlertEntity(
                         id=event.alert.id,
-                        component_id=self.id,  # TODO: Actually use the passed ID.
+                        source_id=self.id,  # TODO: Actually use the passed ID.
                         timestamp=event.alert.timestamp,
                         level=event.alert.level,
                         code=event.alert.code,
@@ -567,7 +566,7 @@ class Component(ValidatedDataclass, Tasklet):
     async def __run__(self) -> None:
         if self.__has_exclusive_temporary_environment:
             await self.environment.database.init()
-            await self.environment.get_component_id(self.address, self.id)
+            await self.environment.get_address_id(self.address, self.id)
 
         self.__start_scheduler()
 

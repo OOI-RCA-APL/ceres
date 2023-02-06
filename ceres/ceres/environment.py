@@ -126,7 +126,7 @@ class Environment(ValidateByType):
     def database(self) -> Database:
         return self.__database
 
-    async def get_component_id(
+    async def get_address_id(
         self,
         address: Address,
         default: UUID | None = None,

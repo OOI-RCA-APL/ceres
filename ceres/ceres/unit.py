@@ -5,6 +5,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, AsyncIterable, Sequence, final
 from weakref import ref
 
+from pydantic import Field
+
 from .address import Address
 from .component import (
     CallableProcedureKind,
@@ -32,8 +34,8 @@ else:
 
 
 class UnitPaths(ImmutableDataObject):
-    local: Directory
-    data: Directory
+    local: Directory = Field(default_factory=Directory)
+    data: Directory = Field(default_factory=Directory)
 
 
 @final
@@ -57,10 +59,7 @@ class Unit(Tasklet):
         if paths is not None:
             self.__paths = paths
         else:
-            self.__paths = UnitPaths(
-                local=Directory(),
-                data=Directory(),
-            )
+            self.__paths = UnitPaths()
 
         self.__engine: ref[Engine] | None = None
         self.__events: Stream[Event] = Stream()
@@ -183,15 +182,14 @@ class Unit(Tasklet):
                 continue
 
             address = Address.create(self.name, config.name)
-            id = await self.__environment.get_component_id(address)
+            id = await self.__environment.get_address_id(address)
             match load_component(
                 config,
                 id=id,
                 name=config.name,
                 environment=self.environment,
                 paths=ComponentPaths(
-                    unit=self.paths.local,
-                    component=self.paths.local.subdir(Path("components") / self.config.name),
+                    local=self.paths.local.subdir(Path("components") / self.config.name),
                     data=self.paths.data,
                 ),
                 siblings=self.__components,

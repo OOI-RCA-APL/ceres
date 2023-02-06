@@ -239,7 +239,7 @@ async def get_component_info(
     if component_config is None or component_cls is None:
         raise HTTPException(404)
 
-    id = await environment.get_component_id(address)
+    id = await environment.get_address_id(address)
     return ComponentInfo(
         id=id,
         name=component,

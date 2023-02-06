@@ -28,9 +28,12 @@ def EnumConstraint(column: str, cls: type[BaseEnum], name: str) -> CheckConstrai
     )
 
 
-class ComponentAddressMapper(TypeDecorator[Address]):
+class AddressMapper(TypeDecorator[Address]):
     impl = Text
     cache_ok = True
+
+    def coerce_compared_value(self, op: OperatorType | None, value: Any) -> Any:
+        return self.impl_instance.coerce_compared_value(op, value)
 
     def process_bind_param(
         self,
