@@ -9,7 +9,7 @@
     </div>
     <div v-else-if="unit && name">
       <div class="relative-position row">
-        <div class="q-px-md q-py-sm text-grey-8" style="min-width: 120px">Connections</div>
+        <div class="q-px-md q-py-sm text-grey-8" style="min-width: 120px">Messages</div>
         <q-separator vertical />
         <q-btn
           v-for="connection in connections"
@@ -34,22 +34,24 @@
               : [...state.selectedConnectionNames, connection.name]
           "
         >
-          {{ `@${name}.${connection.name}` }}
+          {{ `${unit.name}.${connection.name}` }}
         </q-btn>
       </div>
       <template v-if="state.selectedConnectionNames.length">
         <q-separator />
         <div class="row">
           <q-tab-panel
-            v-for="selectedConnectionName in state.selectedConnectionNames"
-            :key="selectedConnectionName"
+            v-for="connection in connections.filter((connection) =>
+              state.selectedConnectionNames.includes(connection.name)
+            )"
+            :key="connection.name"
             class="col q-pa-sm"
-            :name="selectedConnectionName"
+            :name="connection.name"
           >
             <message-view
-              :component-name="selectedConnectionName"
+              :component-name="connection.name"
               container-class="unit-page-message-view-container"
-              title="Messages"
+              :title="`${unit.name}.${connection.name}`"
               :unit-name="name"
             />
           </q-tab-panel>
@@ -57,45 +59,38 @@
       </template>
       <q-separator />
       <div class="relative-position row">
-        <div class="q-px-md q-py-sm text-grey-8" style="min-width: 120px">Drivers</div>
+        <div class="q-px-md q-py-sm text-grey-8" style="min-width: 120px">Displays</div>
         <q-separator vertical />
         <q-btn
-          v-for="driver in drivers"
-          :key="driver.name"
-          :class="[
-            'q-px-md',
-            state.selectedDriverNames.includes(driver.name) ? 'text-primary' : '',
-          ]"
+          v-for="hud in huds"
+          :key="hud.name"
+          :class="['q-px-md', state.selectedHudNames.includes(hud.name) ? 'text-primary' : '']"
           dense
           flat
-          :icon="
-            state.selectedDriverNames.includes(driver.name) ? 'arrow_drop_up' : 'arrow_drop_down'
-          "
+          :icon="state.selectedHudNames.includes(hud.name) ? 'arrow_drop_up' : 'arrow_drop_down'"
           no-caps
           square
           :style="{ fontWeight: '400' }"
           @click="
-            state.selectedDriverNames = state.selectedDriverNames.includes(driver.name)
-              ? state.selectedDriverNames.filter((current) => current !== driver.name)
-              : [...state.selectedDriverNames, driver.name]
+            state.selectedHudNames = state.selectedHudNames.includes(hud.name)
+              ? state.selectedHudNames.filter((current) => current !== hud.name)
+              : [...state.selectedHudNames, hud.name]
           "
         >
-          {{ `@${name}.${driver.name}` }}
+          {{ `${unit.name}.${hud.name}` }}
         </q-btn>
       </div>
-      <template v-if="state.selectedDriverNames.length">
+      <template v-if="state.selectedHudNames.length">
         <q-separator />
         <div class="row">
           <q-tab-panel
-            v-for="driver in drivers.filter((driver) =>
-              state.selectedDriverNames.includes(driver.name)
-            )"
-            :key="driver.name"
+            v-for="hud in huds.filter((hud) => state.selectedHudNames.includes(hud.name))"
+            :key="hud.name"
             class="col q-pa-sm"
-            :name="driver.name"
+            :name="hud.name"
           >
             <div
-              v-for="(displays, group) in getDisplayGroups(driver)"
+              v-for="(displays, group) in getDisplayGroups(hud)"
               :key="group"
               class="col q-gutter-xs q-mb-sm row-sm"
             >
@@ -103,20 +98,20 @@
                 v-for="display in displays"
                 :key="display.name"
                 class="col"
-                :component-name="driver.name"
+                :component-name="hud.name"
                 :display-name="display.name"
                 :unit-name="name"
               />
             </div>
             <div
-              v-for="display in driver.displays.filter((display) => display.group == null)"
+              v-for="display in hud.displays.filter((display) => display.group == null)"
               :key="display.name"
               class="col q-gutter-xs q-mb-sm row"
             >
               <display
                 :key="display.name"
                 class="col"
-                :component-name="driver.name"
+                :component-name="hud.name"
                 :display-name="display.name"
                 :unit-name="name"
               />
@@ -175,22 +170,20 @@ const title = $computed(() => {
     return `Unit "${name}" does not exist.`
   }
 
-  return `@${name}`
+  return name
 })
 
 const components = $computed(() => unit?.components ?? [])
 const connections = $computed(() =>
   components.filter((component) => component.roles.includes('connection'))
 )
-const drivers = $computed(() => components.filter((component) => component.displays.length))
+const huds = $computed(() => components.filter((component) => component.displays.length))
 
 const StateSchema = Zod.object({
   selectedConnectionNames: Zod.array(Zod.string()).default(() =>
     connections.length ? [connections[0].name] : []
   ),
-  selectedDriverNames: Zod.array(Zod.string()).default(() =>
-    drivers.length ? [drivers[0].name] : []
-  ),
+  selectedHudNames: Zod.array(Zod.string()).default(() => (huds.length ? [huds[0].name] : [])),
 })
 
 const state = usePersisted({
@@ -198,9 +191,9 @@ const state = usePersisted({
   methods: computed(() => [{ type: 'local-storage', key: `unit:${name}` }]),
 })
 
-function getDisplayGroups(driver: ComponentInfo) {
+function getDisplayGroups(hud: ComponentInfo) {
   const groups: Record<string, DisplayBinding[]> = {}
-  for (const display of driver.displays) {
+  for (const display of hud.displays) {
     if (display.group == null) {
       continue
     }

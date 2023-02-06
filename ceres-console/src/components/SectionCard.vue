@@ -3,13 +3,13 @@
     <div class="items-center no-wrap q-px-md q-py-xs row">
       <template v-if="to">
         <router-link class="wrapper-link" :to="to">
-          <common-text class="text-capitalize text-no-wrap" variant="title2">
+          <common-text class="text-no-wrap" variant="title2">
             {{ title }}
           </common-text>
         </router-link>
       </template>
       <template v-else>
-        <common-text class="text-capitalize text-no-wrap" variant="title2">
+        <common-text class="text-no-wrap" variant="title2">
           {{ title }}
         </common-text>
       </template>

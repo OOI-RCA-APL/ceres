@@ -45,7 +45,7 @@
                   <q-icon :name="icons.unit" size="12px" style="margin-left: 6px" />
                 </q-item-section>
                 <q-item-section>
-                  <q-item-label class="text-no-wrap">@{{ unit.name }}</q-item-label>
+                  <q-item-label class="text-no-wrap">{{ unit.name }}</q-item-label>
                 </q-item-section>
               </q-item>
             </q-expansion-item>

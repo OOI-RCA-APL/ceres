@@ -51,7 +51,7 @@ const state = usePersisted({
   methods: [
     {
       type: 'local-storage',
-      key: `@${unitName}.connections.${connectionName}.command`,
+      key: `${unitName}.connections.${connectionName}.command`,
     },
   ],
 })
