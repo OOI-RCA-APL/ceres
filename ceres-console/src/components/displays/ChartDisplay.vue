@@ -3,6 +3,7 @@
 </template>
 
 <script lang="ts" setup>
+import Chart from '@/components/Chart.vue'
 import { ChartDisplayInfo } from '@/display'
 
 const { info } = defineProps<{

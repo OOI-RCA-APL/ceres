@@ -13,6 +13,7 @@
         <q-toolbar-title class="cursor-pointer" @click="router.push('/')">
           <common-text variant="title1">{{ constants.appName }}</common-text>
         </q-toolbar-title>
+        <utc-clock />
       </q-toolbar>
       <q-separator />
     </q-header>
@@ -87,6 +88,7 @@ import { useConfig } from './api/queries'
 import AppBoundary from './AppBoundary.vue'
 import CommonText from './components/CommonText.vue'
 import PageSpinner from './components/PageSpinner.vue'
+import UtcClock from './components/UtcClock.vue'
 import constants from './constants'
 import icons from './icons'
 import { usePersisted } from './persistence'

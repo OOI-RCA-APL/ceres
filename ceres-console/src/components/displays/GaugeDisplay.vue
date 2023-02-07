@@ -6,6 +6,7 @@
 import { Option } from '@/chart'
 import { GaugeDisplayInfo } from '@/display'
 import { useQuasar } from 'quasar'
+import Chart from '../Chart.vue'
 
 const { info } = defineProps<{
   info: GaugeDisplayInfo

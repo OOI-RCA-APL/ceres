@@ -1,7 +1,3 @@
-import * as ECharts from 'echarts'
-import { ECBasicOption } from 'echarts/types/dist/shared'
+import { EChartsOption } from 'echarts'
 
-const Chart = ECharts
-export type Option = ECBasicOption
-
-export default Chart
+export type Option = EChartsOption
