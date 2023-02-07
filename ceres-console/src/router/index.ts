@@ -6,7 +6,7 @@ import {
   createWebHistory,
 } from 'vue-router'
 
-import routes from './routes'
+import routes from '@/router/routes'
 
 export default route(() => {
   const createHistory = process.env.SERVER

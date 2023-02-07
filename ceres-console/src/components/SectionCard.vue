@@ -30,7 +30,7 @@
 </template>
 
 <script lang="ts" setup>
-import CommonText from './CommonText.vue'
+import CommonText from '@/components/CommonText.vue'
 
 const { padding = false, noBody = false } = defineProps<{
   icon?: string

@@ -6,8 +6,8 @@
 </template>
 
 <script lang="ts" setup>
-import { useTime } from '../time'
-import CommonText from './CommonText.vue'
+import CommonText from '@/components/CommonText.vue'
+import { useTime } from '@/time'
 
 const time = useTime()
 </script>

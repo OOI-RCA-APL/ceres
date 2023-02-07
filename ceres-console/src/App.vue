@@ -7,6 +7,6 @@
 </template>
 
 <script lang="ts" setup>
-import AppBoundary from './AppBoundary.vue'
-import AppLoader from './AppLoader.vue'
+import AppBoundary from '@/AppBoundary.vue'
+import AppLoader from '@/AppLoader.vue'
 </script>

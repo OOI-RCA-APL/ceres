@@ -32,14 +32,14 @@
 
 <script lang="ts" setup>
 import { useDisplayStream } from '@/api/queries'
+import ChartDisplay from '@/components/displays/ChartDisplay.vue'
+import GaugeDisplay from '@/components/displays/GaugeDisplay.vue'
+import StateDisplay from '@/components/displays/StateDisplay.vue'
+import ValueDisplay from '@/components/displays/ValueDisplay.vue'
 import { DisplayInfo } from '@/display'
 import { capitalCase } from 'change-case'
 import { debounce, QMarkupTable, QTd, QTh, QTr } from 'quasar'
 import { watchEffect } from 'vue'
-import ChartDisplay from './displays/ChartDisplay.vue'
-import GaugeDisplay from './displays/GaugeDisplay.vue'
-import StateDisplay from './displays/StateDisplay.vue'
-import ValueDisplay from './displays/ValueDisplay.vue'
 
 const { unitName, componentName, displayName } = defineProps<{
   unitName: string

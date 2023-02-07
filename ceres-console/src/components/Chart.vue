@@ -3,8 +3,8 @@
 </template>
 
 <script setup lang="ts">
+import { Option } from '@/chart'
 import Inner from 'vue-echarts'
-import { Option } from '../chart'
 
 const {
   autoresize = true,

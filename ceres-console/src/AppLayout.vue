@@ -80,18 +80,18 @@
 </template>
 
 <script lang="ts" setup>
+import { useConfig } from '@/api/queries'
+import AppBoundary from '@/AppBoundary.vue'
+import CommonText from '@/components/CommonText.vue'
+import PageSpinner from '@/components/PageSpinner.vue'
+import UtcClock from '@/components/UtcClock.vue'
+import constants from '@/constants'
+import icons from '@/icons'
+import { usePersisted } from '@/persistence'
 import { useQuasar } from 'quasar'
 import { watchEffect } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import Zod from 'zod'
-import { useConfig } from './api/queries'
-import AppBoundary from './AppBoundary.vue'
-import CommonText from './components/CommonText.vue'
-import PageSpinner from './components/PageSpinner.vue'
-import UtcClock from './components/UtcClock.vue'
-import constants from './constants'
-import icons from './icons'
-import { usePersisted } from './persistence'
 
 const route = useRoute()
 const router = useRouter()

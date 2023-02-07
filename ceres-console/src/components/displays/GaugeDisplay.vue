@@ -4,9 +4,9 @@
 
 <script lang="ts" setup>
 import { Option } from '@/chart'
+import Chart from '@/components/Chart.vue'
 import { GaugeDisplayInfo } from '@/display'
 import { useQuasar } from 'quasar'
-import Chart from '../Chart.vue'
 
 const { info } = defineProps<{
   info: GaugeDisplayInfo
@@ -43,7 +43,10 @@ const segments = $computed(() => {
 
   const stops = info.color
 
-  return stops.map((stop) => createSegment(stop.color, stop.value))
+  return stops.map((stop, i) => {
+    const previous = stops[i - 1] ?? null
+    return createSegment(stop.color, stop.value - (previous?.value ?? 0))
+  })
 })
 
 const options = $computed(

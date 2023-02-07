@@ -1,9 +1,3 @@
-import { DisplayInfoModel } from '@/display'
-import { defineStore } from 'pinia'
-import { computed, isRef, ref, watchEffect } from 'vue'
-import { useQuery } from 'vue-query'
-import { MaybeRef } from 'vue-query/lib/vue/types'
-import Zod, { ZodTypeAny } from 'zod'
 import {
   ComponentInfo,
   ComponentInfoModel,
@@ -15,7 +9,13 @@ import {
   ResultModel,
   UnitInfo,
   UnitInfoModel,
-} from './models'
+} from '@/api/models'
+import { DisplayInfoModel } from '@/display'
+import { defineStore } from 'pinia'
+import { computed, isRef, ref, watchEffect } from 'vue'
+import { useQuery } from 'vue-query'
+import { MaybeRef } from 'vue-query/lib/vue/types'
+import Zod, { ZodTypeAny } from 'zod'
 export * from 'vue-query'
 
 export async function reload(): Promise<Result<Config>> {
