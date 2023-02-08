@@ -20,22 +20,12 @@
     >
       <message-view-item :key="message.id" :message="message" />
     </q-virtual-scroll>
-    <q-separator class="q-mb-sm" />
-    <div class="q-px-sm">
-      <command-input
-        :connection-name="componentName"
-        label="Send Command"
-        :unit-name="unitName"
-        @send="(command) => onSend(command)"
-      />
-    </div>
   </section-card>
 </template>
 
 <script lang="ts" setup>
 import { ComponentInfo, Message } from '@/api/models'
 import { getComponent, getMessages, useMessageStream } from '@/api/queries'
-import CommandInput from '@/components/CommandInput.vue'
 import MessageViewItem from '@/components/MessageViewItem.vue'
 import SectionCard from '@/components/SectionCard.vue'
 import { QVirtualScroll } from 'quasar'
@@ -208,13 +198,6 @@ function scrollToBottom() {
   if (scroll != null) {
     scroll.scrollTo(messages.length)
   }
-}
-
-async function onSend(command: string) {
-  console.log('sending: ' + command)
-  await delay()
-  await nextTick()
-  scrollToBottom()
 }
 
 try {

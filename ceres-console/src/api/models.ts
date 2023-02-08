@@ -109,7 +109,40 @@ export const DisplayBindingModel = Zod.object({
   kind: Zod.literal('display'),
   name: Zod.string(),
   function: Zod.string(),
-  group: Zod.string().nullable().default(null),
+})
+
+export type LayoutDisplay = Zod.infer<typeof LayoutDisplayModel>
+export const LayoutDisplayModel = Zod.object({
+  kind: Zod.literal('display'),
+  name: Zod.string(),
+})
+
+export type LayoutRow = {
+  kind: 'row'
+  children: LayoutNode[]
+}
+
+export const LayoutRowModel: Zod.ZodType<LayoutRow> = Zod.object({
+  kind: Zod.literal('row'),
+  children: Zod.lazy(() => Zod.array(LayoutNodeModel)),
+})
+
+export type LayoutColumn = {
+  kind: 'column'
+  children: LayoutNode[]
+}
+
+export const LayoutColumnModel: Zod.ZodType<LayoutColumn> = Zod.object({
+  kind: Zod.literal('column'),
+  children: Zod.lazy(() => Zod.array(LayoutNodeModel)),
+})
+
+export type LayoutNode = Zod.infer<typeof LayoutNodeModel>
+export const LayoutNodeModel = Zod.union([LayoutDisplayModel, LayoutColumnModel, LayoutRowModel])
+
+export type Layout = Zod.infer<typeof LayoutModel>
+export const LayoutModel = Zod.object({
+  body: LayoutNodeModel,
 })
 
 export type ComponentInfo = Zod.infer<typeof ComponentInfoModel>
@@ -120,6 +153,7 @@ export const ComponentInfoModel = Zod.object({
   config: ComponentConfigModel,
   roles: Zod.array(ComponentRoleModel),
   displays: Zod.array(DisplayBindingModel),
+  layout: LayoutModel,
 })
 
 export type UnitInfo = Zod.infer<typeof UnitInfoModel>

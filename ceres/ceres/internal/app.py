@@ -28,6 +28,7 @@ from ..data import ImmutableDataObject, Name, jsonify
 from ..environment import AlertQuery, Environment, MessageQuery
 from ..errors import ProcedureError, ReloadError
 from ..events import AlertEmittedEvent, MessageReceivedEvent, MessageSentEvent
+from ..layout import Layout
 from ..message import Message
 from ..procedure import (
     ActionBinding,
@@ -85,6 +86,7 @@ class ComponentInfo(ImmutableDataObject):
     jobs: Sequence[JobBinding]
     subscriptions: Sequence[SubscriptionBinding]
     displays: Sequence[DisplayBinding]
+    layout: Layout
 
 
 class UnitInfo(ImmutableDataObject):
@@ -251,6 +253,7 @@ async def get_component_info(
         jobs=list(component_cls.get_job_bindings().values()),
         subscriptions=list(component_cls.get_subscription_bindings().values()),
         displays=list(component_cls.get_display_bindings().values()),
+        layout=component_cls.get_layout(),
     )
 
 

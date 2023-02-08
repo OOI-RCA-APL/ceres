@@ -1,5 +1,5 @@
 <template>
-  <chart autoresize :option="info.value" :style="{ height: `${info.height}px` }" />
+  <chart :option="info.value" :style="{ height: `${info.height}px` }" />
 </template>
 
 <script lang="ts" setup>

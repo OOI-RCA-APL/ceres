@@ -19,7 +19,7 @@ class BaseDisplay(ImmutableDataObject):
     kind: str
 
 
-class ValueDisplay(ImmutableDataObject):
+class ValueDisplay(BaseDisplay):
     kind: Literal[DisplayKind.VALUE] = DisplayKind.VALUE
     value: AtomicValue
     unit: str | None = None
@@ -34,7 +34,7 @@ class StateInfo(ImmutableDataObject):
     description: str | None = None
 
 
-class StateDisplay(ImmutableDataObject):
+class StateDisplay(BaseDisplay):
     kind: Literal[DisplayKind.STATE] = DisplayKind.STATE
     value: AtomicValue
     options: Sequence[StateInfo]
@@ -50,7 +50,7 @@ class ColorStop(ImmutableDataObject):
     color: Color
 
 
-class GaugeDisplay(ImmutableDataObject):
+class GaugeDisplay(BaseDisplay):
     kind: Literal[DisplayKind.GAUGE] = DisplayKind.GAUGE
     value: float
     unit: str | None = None
@@ -58,7 +58,7 @@ class GaugeDisplay(ImmutableDataObject):
     color: Sequence[ColorStop] | Color | None = None
 
 
-class ChartDisplay(ImmutableDataObject):
+class ChartDisplay(BaseDisplay):
     kind: Literal[DisplayKind.CHART] = DisplayKind.CHART
     value: Mapping[str, object]
     height: int

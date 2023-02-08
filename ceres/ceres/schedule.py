@@ -31,9 +31,6 @@ class CronSchedule(BaseSchedule):
     kind: Literal[ScheduleKind.CRON] = ScheduleKind.CRON
     crontab: str
 
-    def __init__(self, crontab: timedelta, **kwargs: object) -> None:
-        super().__init__(crontab=crontab)  # type: ignore
-
     @validator("crontab")
     def _validate_crontab(cls, value: str) -> str:
         try:
@@ -53,9 +50,6 @@ class IntervalSchedule(BaseSchedule):
     start: DateTime | None = None
     end: DateTime | None = None
 
-    def __init__(self, interval: timedelta, **kwargs: object) -> None:
-        super().__init__(interval=interval)  # type: ignore
-
     @validator("interval")
     def _validate_interval(cls, value: timedelta) -> timedelta:
         if value.microseconds != 0:
@@ -70,9 +64,6 @@ class IntervalSchedule(BaseSchedule):
 class OrSchedule(BaseSchedule):
     kind: Literal[ScheduleKind.OR] = ScheduleKind.OR
     schedules: Sequence["Schedule"]
-
-    def __init__(self, schedules: Iterable["Schedule"], **kwargs: object) -> None:
-        super().__init__(schedules=schedules)  # type: ignore
 
     def __or__(self, other: "Schedule") -> "OrSchedule":
         if isinstance(other, OrSchedule):

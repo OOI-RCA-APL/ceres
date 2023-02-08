@@ -65,6 +65,7 @@ from .internal.utilities import (
     sleep_forever,
     strify,
 )
+from .layout import Layout, LayoutColumn, LayoutDisplay
 from .listener import ListenerBinding
 from .message import MessageDirection
 from .procedure import (
@@ -367,6 +368,17 @@ class Component(ValidatedDataclass, Tasklet):
                 return cls.get_subscription_bindings()
             case ProcedureKind.DISPLAY:
                 return cls.get_display_bindings()
+
+    @classmethod
+    def get_layout(cls) -> Layout:
+        return Layout(
+            body=LayoutColumn(
+                children=[
+                    LayoutDisplay(name=display.name)
+                    for display in cls.get_display_bindings().values()
+                ]
+            )
+        )
 
     @property
     def address(self) -> Address:

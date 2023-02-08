@@ -89,33 +89,7 @@
             class="col q-pa-sm"
             :name="hud.name"
           >
-            <div
-              v-for="(displays, group) in getDisplayGroups(hud)"
-              :key="group"
-              class="col q-gutter-xs q-mb-sm row-sm"
-            >
-              <display
-                v-for="display in displays"
-                :key="display.name"
-                class="col"
-                :component-name="hud.name"
-                :display-name="display.name"
-                :unit-name="name"
-              />
-            </div>
-            <div
-              v-for="display in hud.displays.filter((display) => display.group == null)"
-              :key="display.name"
-              class="col q-gutter-xs q-mb-sm row"
-            >
-              <display
-                :key="display.name"
-                class="col"
-                :component-name="hud.name"
-                :display-name="display.name"
-                :unit-name="name"
-              />
-            </div>
+            <layout :component-name="hud.name" :layout="hud.layout" :unit-name="unit.name" />
           </q-tab-panel>
         </div>
       </template>
@@ -130,7 +104,7 @@
           </thead>
           <tbody>
             <q-tr v-for="component in components" :key="component.name" no-hover>
-              <q-td class="self-name-column">@{{ name }}.{{ component.name }}</q-td>
+              <q-td class="self-name-column">{{ name }}.{{ component.name }}</q-td>
               <q-td class="text-capitalize">Yes</q-td>
             </q-tr>
           </tbody>
@@ -141,10 +115,9 @@
 </template>
 
 <script lang="ts" setup>
-import { ComponentInfo, DisplayBinding } from '@/api/models'
 import { getUnit } from '@/api/queries'
-import Display from '@/components/Display.vue'
 import FullPage from '@/components/FullPage.vue'
+import Layout from '@/components/Layout.vue'
 import MessageView from '@/components/MessageView.vue'
 import UnitControls from '@/components/UnitControls.vue'
 import { usePersisted } from '@/persistence'
@@ -190,28 +163,6 @@ const state = usePersisted({
   schema: StateSchema,
   methods: computed(() => [{ type: 'local-storage', key: `unit:${name}` }]),
 })
-
-function getDisplayGroups(hud: ComponentInfo) {
-  const groups: Record<string, DisplayBinding[]> = {}
-  for (const display of hud.displays) {
-    if (display.group == null) {
-      continue
-    }
-    if (!(display.group in groups)) {
-      groups[display.group] = []
-    }
-
-    groups[display.group].push(display)
-  }
-
-  const defaultGroup = groups['default']
-  delete groups['default']
-  if (defaultGroup != null) {
-    groups['default'] = defaultGroup
-  }
-
-  return groups
-}
 </script>
 
 <style lang="scss" scoped>

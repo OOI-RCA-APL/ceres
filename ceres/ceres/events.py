@@ -12,13 +12,6 @@ from .message import Message
 from .timing import utc
 
 
-class Event(ImmutableDataObject, ABC):
-    id: UUID = Field(default_factory=uuid4)
-    source: Address = cast(Address, None)
-    timestamp: DateTime = Field(default_factory=utc)
-    kind: str
-
-
 class StandardEventKind(str, Enum):
     CONNECTED = "connected"
     DISCONNECTED = "disconnected"
@@ -27,6 +20,13 @@ class StandardEventKind(str, Enum):
     MESSAGE_SENT = "message-sent"
     MESSAGE_RECEIVED = "message-received"
     ALERT_EMITTED = "alert-emitted"
+
+
+class Event(ImmutableDataObject, ABC):
+    id: UUID = Field(default_factory=uuid4)
+    source: Address = cast(Address, None)
+    timestamp: DateTime = Field(default_factory=utc)
+    kind: StandardEventKind | str
 
 
 class BaseStandardEvent(Event, ABC):

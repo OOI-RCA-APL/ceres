@@ -1,24 +1,23 @@
 <template>
   <q-chip
-    class="cursor-pointer q-px-md q-py-xs"
-    :icon="icon"
+    class="cursor-pointer q-px-sm"
+    dense
+    :icon="selected?.icon ?? undefined"
     :style="{
-      backgroundColor: color,
-      borderWidth: '1px',
-      borderStyle: 'solid',
-      borderColor: borderColor,
-      borderRadius: '2px',
+      backgroundColor: selected?.color ?? 'transparent',
     }"
   >
-    <common-text :style="{ color: textColor }" variant="title2">{{ label }}</common-text>
+    <common-text :style="{ color: 'white', fontWeight: 300 }" variant="body1">
+      {{ selected?.label ?? '?' }}
+    </common-text>
     <q-menu
       anchor="bottom middle"
       no-refocus
       :offset="[0, 8]"
       self="top middle"
-      transition-duration="200"
-      transition-hide="flip"
-      transition-show="flip"
+      transition-duration="100"
+      transition-hide="scale"
+      transition-show="scale"
       @click.stop.prevent
     >
       <div>
@@ -33,23 +32,21 @@
                 v-for="option in info.options"
                 v-bind:key="String(option.value) + typeof option.value"
               >
-                <q-th class="text-capitalize text-center">
+                <q-th class="text-capitalize text-right">
                   <q-chip
+                    class="q-px-sm"
+                    dense
                     :icon="option.icon ?? undefined"
-                    :label="option.label"
-                    :ripple="false"
-                    size="sm"
                     :style="{
                       backgroundColor: option.color ?? 'transparent',
-                      borderWidth: '1px',
-                      color: textColor,
-                      borderColor: borderColor,
-                      borderStyle: 'solid',
-                      fontWeight: 300,
                     }"
-                  />
+                  >
+                    <common-text :style="{ color: 'white', fontWeight: 300 }" variant="body1">
+                      {{ option.label }}
+                    </common-text>
+                  </q-chip>
                 </q-th>
-                <q-td class="text-left">
+                <q-td class="text-left" no-hover>
                   {{ option.description ?? 'No description available.' }}
                 </q-td>
               </q-tr>
@@ -64,20 +61,12 @@
 <script lang="ts" setup>
 import CommonText from '@/components/CommonText.vue'
 import { StateDisplayInfo } from '@/display'
-import { useQuasar } from 'quasar'
 
 const { info } = defineProps<{
   info: StateDisplayInfo
 }>()
 
-const quasar = useQuasar()
-
 const selected = $computed(() => info.options.find((state) => state.value === info.value ?? null))
-const icon = $computed(() => selected?.icon ?? undefined)
-const color = $computed(() => selected?.color ?? undefined)
-const label = $computed(() => selected?.label ?? '')
-const textColor = 'white'
-const borderColor = $computed(() => (quasar.dark.isActive ? 'white' : 'black'))
 </script>
 
 <style lang="scss" scoped>
