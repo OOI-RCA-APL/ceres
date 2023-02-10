@@ -212,11 +212,11 @@ class Environment(ValidateByType):
             statement = statement.where(MessageEntity.direction == query.direction)
         if query.prefix is not None:
             statement = statement.where(
-                MessageEntity.content.like(escape_like_expression(query.prefix + b"%"))
+                MessageEntity.content.like(escape_like_expression(query.prefix) + b"%")
             )
         if query.suffix is not None:
             statement = statement.where(
-                MessageEntity.content.like(escape_like_expression(b"%" + query.suffix))
+                MessageEntity.content.like(b"%" + escape_like_expression(query.suffix))
             )
 
         if query.order is not None:
