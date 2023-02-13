@@ -13,6 +13,8 @@ from .timing import utc
 
 
 class StandardEventKind(str, Enum):
+    STARTED = "started"
+    STOPPED = "stopped"
     CONNECTED = "connected"
     DISCONNECTED = "disconnected"
     CONNECTION_LOST = "connection-lost"
@@ -31,6 +33,16 @@ class Event(ImmutableDataObject, ABC):
 
 class BaseStandardEvent(Event, ABC):
     kind: StandardEventKind
+
+
+@final
+class StartedEvent(BaseStandardEvent):
+    kind: Literal[StandardEventKind.STARTED] = StandardEventKind.STARTED
+
+
+@final
+class StoppedEvent(BaseStandardEvent):
+    kind: Literal[StandardEventKind.STOPPED] = StandardEventKind.STOPPED
 
 
 @final
@@ -69,3 +81,16 @@ class MessageReceivedEvent(BaseStandardEvent):
 class AlertEmittedEvent(BaseStandardEvent):
     kind: Literal[StandardEventKind.ALERT_EMITTED] = StandardEventKind.ALERT_EMITTED
     alert: Alert
+
+
+StandardEvent = (
+    StartedEvent
+    | StoppedEvent
+    | ConnectedEvent
+    | DisconnectedEvent
+    | ConnectionLostEvent
+    | ConnectFailedEvent
+    | MessageSentEvent
+    | MessageReceivedEvent
+    | AlertEmittedEvent
+)

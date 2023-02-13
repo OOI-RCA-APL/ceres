@@ -25,6 +25,8 @@ from .environment import MessageOrder as MessageOrder
 from .environment import MessageQuery as MessageQuery
 from .environment import Query as Query
 from .events import Event as Event
+from .events import StandardEvent as StandardEvent
+from .events import StandardEventKind as StandardEventKind
 from .exceptions import ParseException as ParseException
 from .internal.cli import main as main  # noqa
 from .listener import on as on
