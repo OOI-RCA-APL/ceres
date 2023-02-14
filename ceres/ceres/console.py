@@ -1,11 +1,25 @@
 from enum import Enum
 from typing import Literal, Mapping, Sequence, TypeAlias
 
+from pydantic import StrictBool, StrictFloat, StrictInt, StrictStr
+from pydantic.color import Color
 from pydantic.color import Color as Color
 
 from .data import ImmutableDataObject
 
-AtomicValue: TypeAlias = str | int | float | bool
+
+class ConsoleColor(Color, Enum):
+    PRIMARY = Color("#0089ab")
+    SECONDARY = Color("#26a69a")
+    ACCENT = Color("#9c27b0")
+    DARK = Color("#1d1d1d")
+    POSITIVE = Color("#21ba45")
+    NEGATIVE = Color("#c10015")
+    INFO = Color("#31ccec")
+    WARNING = Color("#f2c037")
+
+
+AtomicValue: TypeAlias = StrictBool | StrictInt | StrictFloat | StrictStr
 
 
 class DisplayKind(str, Enum):
@@ -16,7 +30,7 @@ class DisplayKind(str, Enum):
 
 
 class BaseDisplay(ImmutableDataObject):
-    kind: str
+    kind: DisplayKind
 
 
 class ValueDisplay(BaseDisplay):
@@ -26,35 +40,29 @@ class ValueDisplay(BaseDisplay):
     color: Color | None = None
 
 
-class StateInfo(ImmutableDataObject):
-    value: AtomicValue
-    label: str
-    color: Color
-    icon: str | None = None
-    description: str | None = None
-
-
 class StateDisplay(BaseDisplay):
+    class Option(ImmutableDataObject):
+        value: AtomicValue
+        label: str
+        color: Color
+        icon: str | None = None
+        description: str | None = None
+
     kind: Literal[DisplayKind.STATE] = DisplayKind.STATE
     value: AtomicValue
-    options: Sequence[StateInfo]
-
-
-class RangeInfo(ImmutableDataObject):
-    min: float
-    max: float
-
-
-class ColorStop(ImmutableDataObject):
-    value: float
-    color: Color
+    options: Sequence[Option]
 
 
 class GaugeDisplay(BaseDisplay):
+    class ColorStop(ImmutableDataObject):
+        value: float
+        color: Color
+
     kind: Literal[DisplayKind.GAUGE] = DisplayKind.GAUGE
     value: float
     unit: str | None = None
-    range: RangeInfo
+    min: float
+    max: float
     color: Sequence[ColorStop] | Color | None = None
 
 
@@ -62,3 +70,6 @@ class ChartDisplay(BaseDisplay):
     kind: Literal[DisplayKind.CHART] = DisplayKind.CHART
     value: Mapping[str, object]
     height: int
+
+
+Display = ValueDisplay | StateDisplay | GaugeDisplay | ChartDisplay

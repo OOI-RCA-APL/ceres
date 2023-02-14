@@ -41,7 +41,7 @@ from ..procedure import (
 )
 from ..result import Fail, Ok, Result
 from . import logs
-from .console import Console
+from .console import ConsoleFiles
 from .utilities import strify
 
 if TYPE_CHECKING:
@@ -426,4 +426,4 @@ class App(FastAPI):
             logs.setup()
 
         self.include_router(api, prefix="/api")
-        self.mount("/", Console(), name="console")
+        self.mount("/", ConsoleFiles(), name="console")

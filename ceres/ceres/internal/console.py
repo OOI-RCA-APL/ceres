@@ -1,12 +1,10 @@
 import os
 from pathlib import Path
-from typing import final
 
 from fastapi.staticfiles import StaticFiles
 
 
-@final
-class Console(StaticFiles):
+class ConsoleFiles(StaticFiles):
     def __init__(self) -> None:
         directory = Path(__file__).parent / "../static/console"
         directory = directory.resolve()

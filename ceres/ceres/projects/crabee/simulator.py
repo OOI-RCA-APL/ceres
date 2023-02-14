@@ -1,0 +1,50 @@
+import asyncio
+from datetime import timedelta
+from random import randrange
+
+import anyio
+from anyio.abc import SocketStream
+
+from ... import Component, routine
+from ...data import PositiveTimeDelta
+
+
+class CrabeeSimulator(Component):
+    class Parameters(Component.Parameters):
+        port: int
+        interval: PositiveTimeDelta = timedelta(seconds=1)
+
+    parameters: Parameters
+
+    @routine
+    async def __send_messages(self) -> None:
+        self.logger.info(f"Creating listener on port {self.parameters.port}...")
+        listener = await anyio.create_tcp_listener(
+            local_host="0.0.0.0",
+            local_port=self.parameters.port,
+            reuse_port=True,
+        )
+
+        await listener.serve(self.handler)
+
+    async def handler(self, stream: SocketStream) -> None:
+        while True:
+            data = (
+                " ".join(
+                    [
+                        f"Temp1={randrange(0, 50)}.00",
+                        f"Temp2={randrange(0, 50)}.00",
+                        f"Temp3={randrange(0, 50)}.00",
+                        f"Pres={1000 + randrange(0, 50)}.00",
+                        f"Hum={randrange(0, 50)}.00",
+                        f"Pitch={randrange(-50, 50)}.00",
+                        f"Roll={randrange(-50, 50)}.00",
+                        "Leak1=0",
+                        "Leak2=0",
+                    ]
+                ).encode()
+                + b"\n"
+            )
+
+            await stream.send(data)
+            await asyncio.sleep(self.parameters.interval.total_seconds())

@@ -3,13 +3,13 @@ from datetime import datetime
 from itertools import groupby
 from typing import Any, Iterable, Sequence, final
 
-from ....address import Address
-from ....alert import Alert, AlertLevel
-from ....data import jsonify
-from ....dispatcher import Dispatch, DispatchWriter
-from ....notifier import Notification
-from ...markdown import markdown
-from ...templates import templates
+from ...address import Address
+from ...alert import Alert, AlertLevel
+from ...data import jsonify
+from ...dispatcher import Dispatch, DispatchWriter
+from ...notifier import Notification
+from ..markdown import markdown
+from ..templates import templates
 
 
 @final

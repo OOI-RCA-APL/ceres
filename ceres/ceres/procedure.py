@@ -29,7 +29,7 @@ class ProcedureKind(str, Enum):
     SUBSCRIPTION = "subscription"
     DISPLAY = "display"
 
-    def try_cast(self, /, enum_cls: type[Enum]) -> "CallableProcedureKind | None":
+    def downcast(self, /, enum_cls: type[Enum]) -> "CallableProcedureKind | None":
         try:
             return enum_cls(self.value)
         except Exception:
@@ -178,7 +178,7 @@ def _validate_procedure(
 
     output_hint = hints["return"]
 
-    if kind.try_cast(SubscribableProcedureKind):
+    if kind.downcast(SubscribableProcedureKind):
         error = ValueError(f"return type of {kind} {strify(function)} must be AsyncIterable[T]")
         if output_hint.__name__ != "AsyncIterable":
             raise error

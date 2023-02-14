@@ -34,11 +34,11 @@ const segments = $computed(() => {
     }
   }
   if (info.color == null) {
-    return [createSegment('transparent', info.range.max)]
+    return [createSegment('transparent', info.max)]
   }
 
   if (typeof info.color === 'string') {
-    return [createSegment(info.color, info.range.max)]
+    return [createSegment(info.color, info.max)]
   }
 
   const stops = info.color
@@ -70,8 +70,8 @@ const options = $computed(
       },
       xAxis: {
         type: 'value',
-        min: info.range.min,
-        max: info.range.max,
+        min: info.min,
+        max: info.max,
         axisLabel: {
           fontFamily: 'Roboto',
           opacity: 1,

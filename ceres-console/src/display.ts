@@ -47,7 +47,8 @@ export const GaugeDisplayInfoModel = BaseDisplayInfoModel.extend({
   kind: Zod.literal('gauge'),
   value: Zod.number(),
   unit: Zod.string().nullable().default(null),
-  range: RangeModel,
+  min: Zod.number(),
+  max: Zod.number(),
   color: Zod.union([Zod.array(ColorStopModel), Zod.string()])
     .nullable()
     .default(null),
