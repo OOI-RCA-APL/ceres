@@ -179,7 +179,14 @@ class Environment(ValidateByType):
             match self.database.kind:
                 case DatabaseKind.SQLITE:
                     statement = statement.where(
-                        _like(MessageEntity.timestamp, pattern, query.search_case_sensitive)
+                        _like(
+                            func.strftime(
+                                "%Y-%m-%d %H:%M:%f",
+                                func.julianday(MessageEntity.timestamp),
+                            ),
+                            pattern,
+                            query.search_case_sensitive,
+                        )
                         | _like(MessageEntity.direction, pattern, query.search_case_sensitive)
                         | _like(
                             MessageEntity.content,
