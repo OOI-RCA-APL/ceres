@@ -3,6 +3,8 @@ from datetime import datetime
 from itertools import groupby
 from typing import Any, Iterable, Sequence, final
 
+from typing_extensions import override
+
 from ...address import Address
 from ...alert import Alert, AlertLevel
 from ...data import jsonify
@@ -14,6 +16,7 @@ from ..templates import templates
 
 @final
 class HTMLDispatchWriter(DispatchWriter):
+    @override
     async def write(
         self,
         dispatch: Dispatch,

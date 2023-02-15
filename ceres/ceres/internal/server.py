@@ -4,6 +4,7 @@ from asyncio import Task
 from typing import TYPE_CHECKING, Any, final
 
 from starlette.types import ASGIApp
+from typing_extensions import override
 from uvicorn.config import Config as UvicornConfig
 from uvicorn.server import Server as BaseUvicorn
 
@@ -32,6 +33,7 @@ class Server(Tasklet):
     def config(self) -> ServerConfig:
         return self.__config
 
+    @override
     async def __run__(self) -> None:
         self.__uvicorn = _Uvicorn(
             UvicornConfig(
@@ -43,6 +45,7 @@ class Server(Tasklet):
 
         await self.__uvicorn.serve()
 
+    @override
     async def __stop__(self) -> None:
         if self.__uvicorn is not None:
             await self.__uvicorn.shutdown()
@@ -50,6 +53,7 @@ class Server(Tasklet):
 
 
 class _Uvicorn(BaseUvicorn):
+    @override
     async def serve(self, sockets: Any = None) -> None:
         logs.setup()
         try:
@@ -60,10 +64,12 @@ class _Uvicorn(BaseUvicorn):
             # diagnose the problem.
             pass
 
+    @override
     def install_signal_handlers(self) -> None:
         # Don't install anything, this will be handled externally.
         pass
 
+    @override
     async def shutdown(self, sockets: list[socket.socket] | None = None) -> None:
         async def stop_connection(connection: Protocols) -> None:
             try:

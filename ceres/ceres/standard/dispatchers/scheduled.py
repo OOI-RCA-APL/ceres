@@ -1,5 +1,6 @@
 from functools import partial
 from typing import Sequence
+from typing_extensions import override
 
 from pydantic import Field
 
@@ -17,6 +18,7 @@ class ScheduledDispatcher(Dispatcher):
 
     parameters: Parameters
 
+    @override
     async def __run__(self) -> None:
         for dispatch in self.parameters.dispatches:
             self.add_job(

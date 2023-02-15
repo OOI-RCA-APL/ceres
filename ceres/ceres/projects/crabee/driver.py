@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from typing import AsyncIterable
 
 from pydantic import Field
-from typing_extensions import Self
+from typing_extensions import Self, override
 
 from ... import (
     Alert,
@@ -233,6 +233,7 @@ class CrabeeDriver(Component):
         async for message in self.__data_message_stream:
             yield message
 
+    @override
     @classmethod
     def get_layout(cls) -> Layout:
         result = Layout(

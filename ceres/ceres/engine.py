@@ -8,6 +8,8 @@ from pathlib import Path
 from queue import Empty, Queue
 from typing import AsyncIterable, Sequence, final
 
+from typing_extensions import override
+
 from .address import Address
 from .config import Config, UnitConfig
 from .data import ImmutableDataObject, Name, jsonify
@@ -124,6 +126,7 @@ class Engine(Tasklet):
                 self.logger.error("Reload failed, found errors in configuration.")
                 return Fail(ReloadConfigInvalidError(errors=errors))
 
+    @override
     async def __run__(self) -> None:
         match await load_config(self.__config, logger=self.logger):
             case Ok():
@@ -169,6 +172,7 @@ class Engine(Tasklet):
                     self.logger.info("Exit signal received, stopping...")
                     break
 
+    @override
     async def __stop__(self) -> None:
         async def stop() -> None:
             await self.__stop_server()

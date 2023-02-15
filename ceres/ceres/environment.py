@@ -1,6 +1,6 @@
 from enum import Enum
 from re import Pattern
-from typing import TYPE_CHECKING, Any, Callable, Sequence, TypedDict
+from typing import TYPE_CHECKING, Any, Callable, Sequence, TypedDict, final
 from uuid import UUID, uuid4
 
 from pydantic import Extra
@@ -111,6 +111,7 @@ class AlertQuery(Query):
     limit: int | None = None
 
 
+@final
 class Environment(ValidateByType):
     def __init__(
         self,

@@ -3,6 +3,7 @@ from typing import Sequence
 
 import aiosmtplib
 from pydantic import Field, SecretStr
+from typing_extensions import override
 
 from ...data import ImmutableDataObject
 from ...notifier import Notification, Notifier
@@ -24,6 +25,7 @@ class SMTPNotifier(Notifier):
 
     parameters: Parameters
 
+    @override
     async def notify(
         self,
         notification: Notification,

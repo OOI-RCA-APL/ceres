@@ -4,6 +4,8 @@ from datetime import timedelta
 from enum import Enum
 from typing import AsyncIterable
 
+from typing_extensions import override
+
 from .component import Component
 from .data import ImmutableDataObject, PositiveTimeDelta, jsonify
 from .events import (
@@ -192,6 +194,7 @@ class Connection(Component, ABC):
                     if error := str(exception).strip():
                         self.logger.error(error)
 
+    @override
     async def __stop__(self) -> None:
         await super().__stop__()
         await self.try_disconnect()

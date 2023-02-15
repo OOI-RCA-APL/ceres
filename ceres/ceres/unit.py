@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, AsyncIterable, Sequence, final
 from weakref import ref
 
 from pydantic import Field
+from typing_extensions import override
 
 from .address import Address
 from .component import Component, ComponentPaths
@@ -146,6 +147,7 @@ class Unit(Tasklet):
 
         return instance.subscribe(procedure, input)
 
+    @override
     async def __run__(self) -> None:
         await self.__load_components()
 
@@ -157,6 +159,7 @@ class Unit(Tasklet):
 
         await sleep_forever()
 
+    @override
     async def __stop__(self) -> None:
         async def stop() -> None:
             try:

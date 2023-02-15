@@ -1,6 +1,6 @@
 from os import PathLike
 from pathlib import Path, PurePath
-from typing import IO, Any, Literal
+from typing import IO, Any, Literal, final
 from uuid import UUID, uuid4
 
 from fs.base import FS
@@ -11,6 +11,7 @@ from typing_extensions import Self
 OpenMode = Literal["r", "r+", "w", "w+", "a", "a+"]
 
 
+@final
 class Directory(PathLike[str]):
     def __init__(
         self,

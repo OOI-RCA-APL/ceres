@@ -26,7 +26,7 @@ from uuid import UUID, uuid4
 from weakref import WeakValueDictionary, ref
 
 from pydantic import Field, ValidationError, validate_arguments, validator
-from typing_extensions import dataclass_transform
+from typing_extensions import dataclass_transform, override
 
 from .address import Address
 from .alert import Alert, AlertLevel
@@ -507,6 +507,7 @@ class Component(ValidatedDataclass, Tasklet):
             self.logger.info(f"Scheduling job '{job.name}' on {job.schedule}.")
             self.add_job(partial(run, job), job.schedule, name=job.name)
 
+    @override
     async def __run__(self) -> None:
         if self.__has_exclusive_temporary_environment:
             await self.environment.database.init()
@@ -549,6 +550,7 @@ class Component(ValidatedDataclass, Tasklet):
                 await self.__alert_write_buffer.flush()
             await asyncio.sleep(0.1)
 
+    @override
     async def __stop__(self) -> None:
         self.__scheduler.stop()
         self.__scheduler = Scheduler()

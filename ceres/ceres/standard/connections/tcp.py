@@ -8,6 +8,7 @@ from enum import Enum
 from typing import Literal, final
 
 from pydantic import Field, validator
+from typing_extensions import override
 
 from ...connection import Connection
 from ...data import ImmutableDataObject, PositiveTimeDelta
@@ -68,9 +69,11 @@ class TCPConnection(Connection):
         self.__stream: _Stream | None = None
 
     @property
+    @override
     def target(self) -> str:
         return f"{self.parameters.host}:{self.parameters.port}"
 
+    @override
     async def try_connect(self) -> bool:
         if self.__stream:
             return True
@@ -91,6 +94,7 @@ class TCPConnection(Connection):
 
         return True
 
+    @override
     async def try_disconnect(self) -> None:
         if not self.__stream:
             return
@@ -103,6 +107,7 @@ class TCPConnection(Connection):
 
         self.__stream = None
 
+    @override
     async def send_data(self, data: bytes) -> None:
         if not self.__stream:
             raise ConnectionInactiveException("connection is not active")
@@ -116,6 +121,7 @@ class TCPConnection(Connection):
         except Exception:
             raise ConnectionLostException("connection was lost")
 
+    @override
     async def receive_data(self) -> bytes:
         if not self.__stream:
             raise ConnectionInactiveException("connection is not active")
