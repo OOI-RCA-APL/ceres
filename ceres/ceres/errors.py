@@ -18,6 +18,7 @@ class ComponentErrorKind(str, Enum):
     INIT_EXCEPTION = "component-init-exception"
     PARAMETERS_INVALID = "component-parameters-invalid"
     REFERENCE_INVALID = "component-reference-invalid"
+    JOB_INVALID = "component-job-invalid"
 
 
 class BaseComponentError(Error):
@@ -56,6 +57,10 @@ class ComponentReferenceInvalidError(BaseComponentError):
     kind: Literal[ComponentErrorKind.REFERENCE_INVALID] = ComponentErrorKind.REFERENCE_INVALID
 
 
+class ComponentJobInvalidError(BaseComponentError):
+    kind: Literal[ComponentErrorKind.JOB_INVALID] = ComponentErrorKind.JOB_INVALID
+
+
 ComponentError = (
     ComponentModuleNotFoundError
     | ComponentModuleExceptionError
@@ -64,6 +69,7 @@ ComponentError = (
     | ComponentParametersInvalidError
     | ComponentInitExceptionError
     | ComponentReferenceInvalidError
+    | ComponentJobInvalidError
 )
 
 

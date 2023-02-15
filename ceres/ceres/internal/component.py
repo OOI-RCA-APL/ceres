@@ -6,11 +6,10 @@ from types import MappingProxyType
 from typing import Any, Mapping, Sequence, TypeVar, cast, get_args, get_origin
 from uuid import UUID
 
-from pydantic import ValidationError, parse_obj_as, validate_arguments
-from pydantic.utils import lenient_issubclass
+from pydantic import ValidationError, parse_obj_as
 
 from ..component import Component, ComponentPaths
-from ..config import ComponentConfig
+from ..config import ComponentConfig, JobConfig
 from ..data import Name
 from ..environment import Environment
 from ..errors import (
@@ -18,6 +17,7 @@ from ..errors import (
     ComponentClassNotFoundError,
     ComponentError,
     ComponentInitExceptionError,
+    ComponentJobInvalidError,
     ComponentModuleExceptionError,
     ComponentModuleNotFoundError,
     ComponentParametersInvalidError,
@@ -25,7 +25,7 @@ from ..errors import (
     ValidationProblem,
 )
 from ..result import Fail, Ok, Result
-from .utilities import cached, lenient_isinstance, strify
+from .utilities import cached, lenient_isinstance, lenient_issubclass, strify
 
 _ComponentT = TypeVar("_ComponentT", bound=Component)
 
@@ -165,10 +165,15 @@ def load_component(
             )
         )
 
+    if config.jobs:
+        error = validate_jobs(cls, config.jobs)
+        if error is not None:
+            return Fail(error)
+
     applied_jobs = config.jobs
 
     try:
-        instance = validate_arguments(cls)(
+        instance = cls(
             id=id,
             name=name,
             environment=environment,
@@ -217,3 +222,32 @@ def _get_reference_mapping(
             )
 
     return MappingProxyType(mapping)
+
+
+def validate_jobs(
+    component: Component | type[Component],
+    jobs: Sequence[JobConfig],
+) -> ComponentJobInvalidError | None:
+    seen: set[str] = set()
+
+    for job in jobs:
+        if job.name in seen:
+            return ComponentJobInvalidError(
+                message=f"duplicate job '{job.name}', get the job a unique 'name' value"
+            )
+
+        action = component.get_action_bindings().get(job.action)
+        if action is None:
+            defined = sorted(component.get_action_bindings().keys())
+            return ComponentJobInvalidError(
+                message=f"{strify(component)} has no action named '{job.action}', defined actions are {defined}"
+            )
+
+        if job.input is None and (action.input is not None and action.input.required):
+            return ComponentJobInvalidError(
+                message=f"missing required input for job '{job.name}', set the job's 'input' to a non-none value"
+            )
+
+        seen.add(action.name)
+
+        # TODO: Validate job input is correct type.

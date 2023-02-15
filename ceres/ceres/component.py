@@ -19,7 +19,6 @@ from typing import (
     Mapping,
     Sequence,
     TypeVar,
-    cast,
     final,
     get_type_hints,
 )
@@ -286,20 +285,11 @@ class Component(ValidatedDataclass, Tasklet):
 
     @validator("jobs")
     def _validate_jobs(cls, jobs: Sequence[JobConfig]) -> Sequence[JobConfig]:
-        for job in jobs:
-            action = cls.get_action_bindings().get(job.action)
-            if action is None:
-                defined = sorted(cls.get_action_bindings().keys())
-                raise ValueError(
-                    f"{strify(cls)} has no action named '{job.action}', defined actions are {defined}"
-                )
+        from .internal.component import validate_jobs
 
-            if job.input is None and (action.input is not None and action.input.required):
-                raise ValueError(
-                    f"missing required input for job '{job.name}', set 'jobs.{job.name}.input' to a non-none value"
-                )
-
-            # TODO: Validate job input is correct type.
+        error = validate_jobs(cls, jobs)
+        if error is not None:
+            raise ValueError(error.message)
 
         return jobs
 
@@ -622,31 +612,44 @@ class Component(ValidatedDataclass, Tasklet):
         procedure: str,
         input: object | None = None,
     ) -> object | None:
-        output = await self.__invoke(procedure, input)
+        result = await self.__invoke(procedure, input)
         binding = self.get_procedure_bindings()[procedure]
 
-        if binding.live:
-            try:
-                async for value in output:
-                    return value
-            except Exception as exception:
-                raise ProcedureException(
-                    ProcedureExceptionError(traceback=traceback.format_exception(exception))
-                )
+        if not binding.live:
+            return result
 
-        return output
+        try:
+            match binding:
+                # If the procedure is a live query, we just return the first output.
+                case QueryBinding():
+                    async for output in result:
+                        return output
+
+                    return None
+                # If the procedure is a live action, iterate through all outputs and return the
+                # last one.
+                case ActionBinding():
+                    last: object | None = None
+                    async for output in result:
+                        last = output
+                    return last
+        except Exception as exception:
+            raise ProcedureException(
+                ProcedureExceptionError(traceback=traceback.format_exception(exception))
+            )
 
     async def subscribe(
         self,
         procedure: str,
         input: object | None = None,
     ) -> AsyncIterable[object | None]:
-        output = await self.__invoke(procedure, input)
-        binding: QueryBinding = cast(QueryBinding, self.get_procedure_bindings()[procedure])
-        if not isinstance(binding, QueryBinding):
-            raise ProcedureException(ProcedureNotSubscribableError())
+        result = await self.__invoke(procedure, input)
+        binding = self.get_procedure_bindings()[procedure]
 
         if not binding.live:
+            if isinstance(binding, ActionBinding):
+                raise ProcedureException(ProcedureNotSubscribableError())
+
             try:
                 while True:
                     yield await self.__invoke(procedure, input)
@@ -660,8 +663,8 @@ class Component(ValidatedDataclass, Tasklet):
                 )
 
         try:
-            async for value in output:
-                yield value
+            async for output in result:
+                yield output
         except Exception as exception:
             self.logger.error(
                 f"An exception occurred in procedure '{procedure}': {traceback.format_exc()}"
