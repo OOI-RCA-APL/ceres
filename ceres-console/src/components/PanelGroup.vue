@@ -28,6 +28,9 @@
 import ResizeHandle from '@/components/ResizeHandle.vue'
 import { providePanelGroup } from '@/panel-group'
 import { computed } from 'vue'
+
+const minHeight = 114
+
 const { defaultHeight, persistenceKey } = defineProps<{
   title?: string
   defaultHeight?: number
@@ -42,10 +45,10 @@ const group = providePanelGroup(
 )
 
 function onResize(delta: number) {
-  if (group.height == null) {
-    return
+  if (group.height != null) {
+    group.height = Math.max(group.height + delta, minHeight)
   }
-
-  group.height = Math.max(group.height + delta, 100)
 }
+
+onResize(0)
 </script>
