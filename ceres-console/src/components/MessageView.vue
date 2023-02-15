@@ -13,7 +13,7 @@
     <q-virtual-scroll
       ref="scroll"
       v-slot="{ item: message }"
-      :class="['self-message-container message-view-message-container', containerClass]"
+      class="col-grow message-view-message-container self-message-container"
       :items="messages"
       :virtual-scroll-item-size="messageHeight"
       :virtual-scroll-slice-size="250"
@@ -31,12 +31,7 @@ import SectionCard from '@/components/SectionCard.vue'
 import { QVirtualScroll } from 'quasar'
 import { computed, nextTick, onMounted, watch, watchEffect } from 'vue'
 
-const {
-  title,
-  containerClass = undefined,
-  unitName,
-  componentName,
-} = defineProps<{
+const { title, unitName, componentName } = defineProps<{
   title: string
   containerClass?: string | null
   unitName: string
@@ -200,19 +195,27 @@ function scrollToBottom() {
   }
 }
 
-try {
+onMounted(async () => {
   try {
-    isDoingInitialLoad = true
-    isLoadingCurrentMessages = true
-    await loadCurrentMessages()
+    try {
+      isDoingInitialLoad = true
+      isLoadingCurrentMessages = true
+      await loadCurrentMessages()
+    } finally {
+      isLoadingCurrentMessages = false
+    }
   } finally {
-    isLoadingCurrentMessages = false
+    void delay(1000).then(() => {
+      isDoingInitialLoad = false
+    })
   }
-} finally {
-  void delay(1000).then(() => {
-    isDoingInitialLoad = false
-  })
-}
+  const interval = setInterval(() => {
+    scrollToBottom()
+  }, 100)
+
+  await delay(1000)
+  clearInterval(interval)
+})
 
 watch([computed(() => search)], async () => {
   if (isDoingInitialLoad) {
@@ -227,19 +230,11 @@ watch([computed(() => search)], async () => {
     isLoadingCurrentMessages = false
   }
 })
-
-onMounted(async () => {
-  const interval = setInterval(() => {
-    scrollToBottom()
-  }, 100)
-
-  await delay(1000)
-  clearInterval(interval)
-})
 </script>
 
 <style lang="scss" scoped>
 .self-message-container {
+  height: 0; // Set so flex-box sizing works correctly.
   overscroll-behavior: contain;
   padding: 0 8px;
 }

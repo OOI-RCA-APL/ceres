@@ -34,7 +34,7 @@
               >
                 <q-th class="text-capitalize text-right">
                   <q-chip
-                    class="q-px-sm"
+                    class="q-px-sm self-option-chip"
                     dense
                     :icon="option.icon ?? undefined"
                     :style="{
@@ -72,5 +72,9 @@ const selected = $computed(() => info.options.find((state) => state.value === in
 <style lang="scss" scoped>
 .self-options-table th {
   padding-left: 8px !important;
+}
+
+.self-option-chip {
+  scale: 0.85;
 }
 </style>

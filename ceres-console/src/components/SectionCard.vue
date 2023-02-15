@@ -1,5 +1,5 @@
 <template>
-  <q-card bordered flat>
+  <q-card bordered class="column" flat>
     <div class="items-center no-wrap q-px-md q-py-xs row">
       <template v-if="to">
         <router-link class="wrapper-link" :to="to">
@@ -19,13 +19,10 @@
       </template>
       <slot name="header-append" />
     </div>
-    <template v-if="$slots.default && !noBody">
-      <q-separator :class="padding ? 'q-mb-md' : ''" />
-      <q-card-section v-if="title || icon" :class="padding ? 'q-pt-none' : 'q-py-none'">
-        <slot v-if="padding" />
-      </q-card-section>
-      <slot v-if="!padding" />
-    </template>
+    <q-separator />
+    <div v-if="$slots.default && !noBody" :class="['col-grow column', padding && 'q-pa-md']">
+      <slot />
+    </div>
   </q-card>
 </template>
 
@@ -40,10 +37,3 @@ const { padding = false, noBody = false } = defineProps<{
   noBody?: boolean
 }>()
 </script>
-
-<style lang="scss" scoped>
-.self-title {
-  padding: 0;
-  margin: 0;
-}
-</style>
