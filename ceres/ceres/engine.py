@@ -15,20 +15,22 @@ from .database import Database
 from .directory import Directory
 from .environment import Environment
 from .errors import (
-    ProcedureError,
     ProcedureUnitDoesNotExistError,
     ReloadAlreadyActiveError,
     ReloadConfigInvalidError,
     ReloadError,
 )
 from .events import Event
-from .exceptions import EngineConfigCheckFailedException, EngineDatabaseInitException
+from .exceptions import (
+    EngineConfigCheckFailedException,
+    EngineDatabaseInitException,
+    ProcedureException,
+)
 from .internal import logs
 from .internal.app import App
 from .internal.config import load_config
 from .internal.server import Server
 from .internal.tasklet import Tasklet
-from .procedure import CallableProcedureKind, SubscribableProcedureKind
 from .result import Fail, Ok, Result
 from .stream import Stream
 from .unit import Unit, UnitPaths
@@ -178,36 +180,24 @@ class Engine(Tasklet):
     async def call(
         self,
         component: Address,
-        kind: CallableProcedureKind,
         procedure: str,
         input: object | None = None,
-    ) -> Result[object | None, ProcedureError]:
+    ) -> object | None:
         if (unit := self.get_unit(component.unit)) is None:
-            raise ValueError(f"unit at {component} does not exist")
+            raise ProcedureException(ProcedureUnitDoesNotExistError())
 
-        return await unit.call(
-            component.name,
-            kind,
-            procedure,
-            input,
-        )
+        return await unit.call(component.name, procedure, input)
 
-    async def subscribe(
+    def subscribe(
         self,
         component: Address,
-        kind: SubscribableProcedureKind,
         procedure: str,
         input: object | None = None,
-    ) -> Result[AsyncIterable[object], ProcedureError]:
+    ) -> AsyncIterable[object]:
         if (unit := self.__units.get(component.unit)) is None:
-            return Fail(ProcedureUnitDoesNotExistError())
+            raise ProcedureException(ProcedureUnitDoesNotExistError())
 
-        return await unit.subscribe(
-            component.name,
-            kind,
-            procedure,
-            input,
-        )
+        return unit.subscribe(component.name, procedure, input)
 
     async def __reload(self) -> None:
         self.logger.info("Reloading...")

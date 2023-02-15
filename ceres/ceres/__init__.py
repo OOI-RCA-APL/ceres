@@ -39,10 +39,7 @@ from .notifier import Notifier as Notifier
 from .parsing import Parser as Parser
 from .procedure import ProcedureKind as ProcedureKind
 from .procedure import action as action
-from .procedure import display as display
-from .procedure import job as job
 from .procedure import query as query
-from .procedure import subscription as subscription
 from .result import Fail as Fail
 from .result import Ok as Ok
 from .result import Result as Result

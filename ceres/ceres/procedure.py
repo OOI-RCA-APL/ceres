@@ -1,6 +1,6 @@
 import inspect
+from datetime import timedelta
 from enum import Enum
-from functools import wraps
 from inspect import Parameter
 from typing import (
     Any,
@@ -16,41 +16,14 @@ from typing import (
 from pydantic import schema_of, validate_arguments
 from pydantic.typing import get_args
 
-from .data import ImmutableDataObject, Name
+from .data import ImmutableDataObject, Name, PositiveTimeDelta
 from .internal.binding import Binding, add_binding
 from .internal.utilities import get_member_name, is_optional, strify
-from .schedule import Schedule
 
 
 class ProcedureKind(str, Enum):
     QUERY = "query"
     ACTION = "action"
-    JOB = "job"
-    SUBSCRIPTION = "subscription"
-    DISPLAY = "display"
-
-    def downcast(self, /, enum_cls: type[Enum]) -> "CallableProcedureKind | None":
-        try:
-            return enum_cls(self.value)
-        except Exception:
-            return None
-
-
-class CallableProcedureKind(str, Enum):
-    QUERY = "query"
-    ACTION = "action"
-    JOB = "job"
-
-    def upcast(self) -> "ProcedureKind":
-        return ProcedureKind(self.value)
-
-
-class SubscribableProcedureKind(str, Enum):
-    SUBSCRIPTION = "subscription"
-    DISPLAY = "display"
-
-    def upcast(self) -> "ProcedureKind":
-        return ProcedureKind(self.value)
 
 
 class ProcedureSchemas(ImmutableDataObject):
@@ -72,32 +45,21 @@ class BaseProcedureBinding(Binding):
     kind: ProcedureKind
     name: str
     function: str
+    live: bool
     input: ProcedureInputInfo | None
     output: ProcedureOutputInfo
 
 
 class QueryBinding(BaseProcedureBinding):
     kind: Literal[ProcedureKind.QUERY] = ProcedureKind.QUERY
+    poll: PositiveTimeDelta
 
 
 class ActionBinding(BaseProcedureBinding):
     kind: Literal[ProcedureKind.ACTION] = ProcedureKind.ACTION
 
 
-class JobBinding(BaseProcedureBinding):
-    kind: Literal[ProcedureKind.JOB] = ProcedureKind.JOB
-    default_schedule: Schedule | None = None
-
-
-class SubscriptionBinding(BaseProcedureBinding):
-    kind: Literal[ProcedureKind.SUBSCRIPTION] = ProcedureKind.SUBSCRIPTION
-
-
-class DisplayBinding(BaseProcedureBinding):
-    kind: Literal[ProcedureKind.DISPLAY] = ProcedureKind.DISPLAY
-
-
-ProcedureBinding = QueryBinding | ActionBinding | JobBinding | SubscriptionBinding | DisplayBinding
+ProcedureBinding = QueryBinding | ActionBinding
 
 
 def _get_schema(hint: Any) -> Mapping[str, Any]:
@@ -121,6 +83,7 @@ def _get_schema(hint: Any) -> Mapping[str, Any]:
 class _ValidatedProcedureInfo(ImmutableDataObject):
     input: ProcedureInputInfo | None
     output: ProcedureOutputInfo
+    live: bool
 
 
 def _validate_procedure(
@@ -178,12 +141,17 @@ def _validate_procedure(
 
     output_hint = hints["return"]
 
-    if kind.downcast(SubscribableProcedureKind):
-        error = ValueError(f"return type of {kind} {strify(function)} must be AsyncIterable[T]")
-        if output_hint.__name__ != "AsyncIterable":
-            raise error
+    live = inspect.isasyncgenfunction(function)
+
+    if live:
+        error = ValueError(
+            f"return type of live {kind} {strify(function)} must be AsyncIterable[T]"
+        )
 
         try:
+            if output_hint.__name__ != "AsyncIterable":
+                raise error
+
             output_hint = get_args(output_hint)[0]
         except Exception:
             raise error
@@ -192,7 +160,7 @@ def _validate_procedure(
         output_json_schema = _get_schema(output_hint)
     except Exception:
         raise ValueError(
-            f"return type of {kind} {strify(function)} must be serializable as a JSON object"
+            f"output type of {kind} {strify(function)} must be serializable as a JSON object"
         )
 
     output_info = ProcedureOutputInfo(
@@ -202,26 +170,34 @@ def _validate_procedure(
     return _ValidatedProcedureInfo(
         input=input_info,
         output=output_info,
+        live=live,
     )
 
 
-_CallableProcedureFunctionT = TypeVar(
-    "_CallableProcedureFunctionT",
-    bound=Callable[[Any], Awaitable[Any]] | Callable[[Any, Any], Awaitable[Any]],
+_ProcedureFunctionT = TypeVar(
+    "_ProcedureFunctionT",
+    bound=Callable[[Any], Awaitable[Any] | AsyncIterable[Any]]
+    | Callable[[Any, Any], Awaitable[Any] | AsyncIterable[Any]],
 )
 
 
 @validate_arguments
-def query(name: Name) -> Callable[[_CallableProcedureFunctionT], _CallableProcedureFunctionT]:
-    def bind(function: _CallableProcedureFunctionT) -> _CallableProcedureFunctionT:
+def query(
+    name: Name,
+    *,
+    poll: float | timedelta = timedelta(seconds=5),
+) -> Callable[[_ProcedureFunctionT], _ProcedureFunctionT]:
+    def bind(function: _ProcedureFunctionT) -> _ProcedureFunctionT:
         validated = _validate_procedure(function, ProcedureKind.QUERY)
         add_binding(
             function,
             QueryBinding(
                 name=name,
-                function=function.__name__,
+                function=get_member_name(function),
                 input=validated.input,
                 output=validated.output,
+                live=validated.live,
+                poll=poll if isinstance(poll, timedelta) else timedelta(seconds=poll),
             ),
         )
 
@@ -231,8 +207,8 @@ def query(name: Name) -> Callable[[_CallableProcedureFunctionT], _CallableProced
 
 
 @validate_arguments
-def action(name: Name) -> Callable[[_CallableProcedureFunctionT], _CallableProcedureFunctionT]:
-    def bind(function: _CallableProcedureFunctionT) -> _CallableProcedureFunctionT:
+def action(name: Name) -> Callable[[_ProcedureFunctionT], _ProcedureFunctionT]:
+    def bind(function: _ProcedureFunctionT) -> _ProcedureFunctionT:
         validated = _validate_procedure(function, ProcedureKind.ACTION)
         add_binding(
             function,
@@ -241,106 +217,10 @@ def action(name: Name) -> Callable[[_CallableProcedureFunctionT], _CallableProce
                 function=get_member_name(function),
                 input=validated.input,
                 output=validated.output,
+                live=validated.live,
             ),
         )
 
         return function
 
     return bind
-
-
-@validate_arguments
-def job(
-    name: Name,
-    *,
-    default_schedule: Schedule | None = None,
-) -> Callable[[_CallableProcedureFunctionT], _CallableProcedureFunctionT]:
-    def bind(function: _CallableProcedureFunctionT) -> _CallableProcedureFunctionT:
-        validated = _validate_procedure(function, ProcedureKind.JOB)
-        add_binding(
-            function,
-            JobBinding(
-                name=name,
-                function=get_member_name(function),
-                input=validated.input,
-                output=validated.output,
-                default_schedule=default_schedule,
-            ),
-        )
-
-        return function
-
-    return bind
-
-
-_SubscribableProcedureFunctionT = TypeVar(
-    "_SubscribableProcedureFunctionT",
-    bound=Callable[[Any], AsyncIterable[Any]] | Callable[[Any, Any], AsyncIterable[Any]],
-)
-
-
-@validate_arguments
-def subscription(
-    name: Name,
-    *,
-    dedupe: bool = False,
-) -> Callable[[_SubscribableProcedureFunctionT], _SubscribableProcedureFunctionT]:
-    def bind(function: _SubscribableProcedureFunctionT) -> _SubscribableProcedureFunctionT:
-        validated = _validate_procedure(function, ProcedureKind.SUBSCRIPTION)
-        add_binding(
-            function,
-            SubscriptionBinding(
-                name=name,
-                function=get_member_name(function),
-                input=validated.input,
-                output=validated.output,
-            ),
-        )
-
-        if dedupe:
-            function = _dedupe(function)
-
-        return function
-
-    return bind
-
-
-@validate_arguments
-def display(
-    name: Name,
-    *,
-    dedupe: bool = True,
-) -> Callable[[_SubscribableProcedureFunctionT], _SubscribableProcedureFunctionT]:
-    def bind(function: _SubscribableProcedureFunctionT) -> _SubscribableProcedureFunctionT:
-        validated = _validate_procedure(function, ProcedureKind.SUBSCRIPTION)
-        add_binding(
-            function,
-            DisplayBinding(
-                name=name,
-                function=get_member_name(function),
-                input=validated.input,
-                output=validated.output,
-            ),
-        )
-
-        if dedupe:
-            function = _dedupe(function)
-
-        return function
-
-    return bind
-
-
-def _dedupe(function: _SubscribableProcedureFunctionT) -> _SubscribableProcedureFunctionT:
-    @wraps(function)
-    async def wrapper(*args: object, **kwargs: object) -> AsyncIterable[object | None]:
-        yielded = False
-        previous: object = None
-
-        async for value in function(*args, **kwargs):
-            if not yielded or value != previous:
-                yielded = True
-                yield value
-                previous = value
-
-    return wrapper  # type: ignore

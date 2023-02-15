@@ -237,11 +237,13 @@ function useStream<TModel extends ZodTypeAny>(
 export function useDisplayStream<TModel extends ZodTypeAny>(
   unitName: string,
   componentName: string,
-  displayName: string,
+  procedureName: string,
   onDisplay: (message: Zod.infer<TModel>) => unknown
 ) {
   return useStream(
-    getWebSocketURI(`/api/units/${unitName}/components/${componentName}/displays/${displayName}`),
+    getWebSocketURI(
+      `/api/units/${unitName}/components/${componentName}/procedures/${procedureName}/subscribe`
+    ),
     // eslint-disable-next-line @typescript-eslint/ban-ts-comment
     // @ts-ignore
     DisplayInfoModel,

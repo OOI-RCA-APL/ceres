@@ -26,19 +26,12 @@ from ..component import Component
 from ..config import ComponentConfig, Config, UnitConfig
 from ..data import ImmutableDataObject, Name, jsonify
 from ..environment import AlertQuery, Environment, MessageQuery
-from ..errors import ProcedureError, ReloadError
+from ..errors import ProcedureError, ProcedureExceptionError, ReloadError
 from ..events import AlertEmittedEvent, MessageReceivedEvent, MessageSentEvent
+from ..exceptions import ProcedureException
 from ..layout import Layout
 from ..message import Message
-from ..procedure import (
-    ActionBinding,
-    CallableProcedureKind,
-    DisplayBinding,
-    JobBinding,
-    QueryBinding,
-    SubscribableProcedureKind,
-    SubscriptionBinding,
-)
+from ..procedure import ActionBinding, QueryBinding
 from ..result import Fail, Ok, Result
 from . import logs
 from .console import ConsoleFiles
@@ -83,10 +76,7 @@ class ComponentInfo(ImmutableDataObject):
     roles: Sequence[ComponentRole]
     queries: Sequence[QueryBinding]
     actions: Sequence[ActionBinding]
-    jobs: Sequence[JobBinding]
-    subscriptions: Sequence[SubscriptionBinding]
-    displays: Sequence[DisplayBinding]
-    layout: Layout
+    layout: Layout | None
 
 
 class UnitInfo(ImmutableDataObject):
@@ -250,65 +240,32 @@ async def get_component_info(
         roles=_get_component_roles(component_cls),
         queries=list(component_cls.get_query_bindings().values()),
         actions=list(component_cls.get_action_bindings().values()),
-        jobs=list(component_cls.get_job_bindings().values()),
-        subscriptions=list(component_cls.get_subscription_bindings().values()),
-        displays=list(component_cls.get_display_bindings().values()),
         layout=component_cls.get_layout(),
     )
 
 
-async def _call(
-    engine: Engine,
+@api.post("/units/{unit}/components/{component}/procedures/{procedure}/call", tags=["procedures"])
+async def call(
     unit: Name,
     component: Name,
-    kind: CallableProcedureKind,
     procedure: Name,
-    input: Mapping[str, object] | None,
-) -> Result[object | None, ProcedureError]:
-    return await engine.call(Address.create(unit, component), kind, procedure, input)
-
-
-@api.post("/units/{unit}/components/{component}/queries/{query}", tags=["procedures"])
-async def run_query(
-    unit: Name,
-    component: Name,
-    query: Name,
     input: Mapping[str, object] | None = None,
     engine: Engine = Depends(use_engine),
 ) -> Result[Any | None, ProcedureError]:
-    return await _call(engine, unit, component, CallableProcedureKind.QUERY, query, input)
+    try:
+        return Ok(await engine.call(Address.create(unit, component), procedure, input))
+    except ProcedureException as exception:
+        return Fail(exception.error)
 
 
-@api.post("/units/{unit}/components/{component}/actions/{action}", tags=["procedures"])
-async def run_action(
-    unit: Name,
-    component: Name,
-    action: Name,
-    input: Mapping[str, object] | None = None,
-    engine: Engine = Depends(use_engine),
-) -> Result[Any | None, ProcedureError]:
-    return await _call(engine, unit, component, CallableProcedureKind.ACTION, action, input)
-
-
-@api.post("/units/{unit}/components/{component}/jobs/{job}", tags=["procedures"])
-async def run_job(
-    unit: Name,
-    component: Name,
-    job: Name,
-    input: Mapping[str, object] | None = None,
-    engine: Engine = Depends(use_engine),
-) -> Result[Any | None, ProcedureError]:
-    return await _call(engine, unit, component, CallableProcedureKind.JOB, job, input)
-
-
-async def _subscribe(
-    engine: Engine,
+@api.websocket("/units/{unit}/components/{component}/procedures/{procedure}/subscribe")
+async def subscribe(
     socket: WebSocket,
     unit: Name,
     component: Name,
-    kind: SubscribableProcedureKind,
     procedure: Name,
-    input: Json[Any],
+    input: Json[Any] = Query(None),
+    engine: Engine = Depends(use_engine),
 ) -> None:
     await socket.accept()
     address = Address.create(unit, component)
@@ -319,16 +276,6 @@ async def _subscribe(
             reason="'input' query parameter must be unspecified, null or a valid JSON object",
         )
         return
-
-    match await engine.subscribe(address, kind, procedure, input):
-        case Ok(values):
-            pass
-        case Fail() as fail:
-            await socket.close(
-                code=1008,  # Set code for policy violation.
-                reason=jsonify(fail),
-            )
-            return
 
     async def read() -> None:
         try:
@@ -341,16 +288,21 @@ async def _subscribe(
 
     async def write() -> None:
         try:
-            async for value in values:
-                await socket.send_text(jsonify(value))
+            async for output in engine.subscribe(address, procedure, input):
+                await socket.send_text(jsonify(output))
         except Exception as exception:
-            try:
-                await socket.close(
-                    code=1011,  # Set code for internal error.
-                    reason=jsonify(strify(exception)[0:100]),
-                )
-            except Exception:
-                pass
+            if isinstance(exception, ProcedureException):
+                if not isinstance(exception.error, ProcedureExceptionError):
+                    code = 1011  # Set code for internal error.
+                else:
+                    code = 1008  # Set code for policy violation.
+
+                reason = jsonify(Fail(exception.error))
+            else:
+                code = 1011  # Set code for internal error.
+                reason = jsonify(strify(exception)[0:100])
+
+            await socket.close(code, reason)
         finally:
             task_read.cancel()
 
@@ -361,46 +313,6 @@ async def _subscribe(
         await asyncio.gather(task_read, task_write)
     except CancelledError:
         pass
-
-
-@api.websocket("/units/{unit}/components/{component}/subscriptions/{subscription}")
-async def run_subscription(
-    socket: WebSocket,
-    unit: Name,
-    component: Name,
-    subscription: Name,
-    input: Json[Any] = Query(None),
-    engine: Engine = Depends(use_engine),
-) -> None:
-    await _subscribe(
-        engine,
-        socket,
-        unit,
-        component,
-        SubscribableProcedureKind.SUBSCRIPTION,
-        subscription,
-        input,
-    )
-
-
-@api.websocket("/units/{unit}/components/{component}/displays/{display}")
-async def run_display(
-    socket: WebSocket,
-    unit: Name,
-    component: Name,
-    display: Name,
-    input: Json[Any] = Query(None),
-    engine: Engine = Depends(use_engine),
-) -> None:
-    await _subscribe(
-        engine,
-        socket,
-        unit,
-        component,
-        SubscribableProcedureKind.DISPLAY,
-        display,
-        input,
-    )
 
 
 @final

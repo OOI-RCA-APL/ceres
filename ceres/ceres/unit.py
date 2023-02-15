@@ -8,23 +8,19 @@ from weakref import ref
 from pydantic import Field
 
 from .address import Address
-from .component import (
-    CallableProcedureKind,
-    Component,
-    ComponentPaths,
-    SubscribableProcedureKind,
-)
+from .component import Component, ComponentPaths
 from .config import UnitConfig
 from .data import ImmutableDataObject, Name, jsonify
 from .directory import Directory
 from .environment import Environment
-from .errors import ProcedureComponentNotLoadedError, ProcedureError
+from .errors import ProcedureComponentNotLoadedError
 from .events import Event
+from .exceptions import ProcedureException
 from .internal import logs
 from .internal.component import load_component
 from .internal.tasklet import Tasklet
 from .internal.utilities import sleep_forever, strify
-from .result import Fail, Ok, Result
+from .result import Fail, Ok
 from .stream import Stream, StreamView
 
 if TYPE_CHECKING:
@@ -129,28 +125,26 @@ class Unit(Tasklet):
     async def call(
         self,
         component: Name,
-        kind: CallableProcedureKind,
         procedure: str,
         input: object | None = None,
-    ) -> Result[object | None, ProcedureError]:
+    ) -> object | None:
         instance = self.get_component(component)
         if instance is None:
-            return Fail(ProcedureComponentNotLoadedError())
+            return ProcedureException(ProcedureComponentNotLoadedError())
 
-        return await instance.call(kind, procedure, input)
+        return await instance.call(procedure, input)
 
-    async def subscribe(
+    def subscribe(
         self,
         component: Name,
-        kind: SubscribableProcedureKind,
         procedure: str,
         input: object | None = None,
-    ) -> Result[AsyncIterable[object | None], ProcedureError]:
+    ) -> AsyncIterable[object | None]:
         instance = self.get_component(component)
         if instance is None:
-            return Fail(ProcedureComponentNotLoadedError())
+            raise ProcedureException(ProcedureComponentNotLoadedError())
 
-        return await instance.subscribe(kind, procedure, input)
+        return instance.subscribe(procedure, input)
 
     async def __run__(self) -> None:
         await self.__load_components()

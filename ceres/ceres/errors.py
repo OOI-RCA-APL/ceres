@@ -149,6 +149,7 @@ class ProcedureErrorKind(str, Enum):
     COMPONENT_NOT_LOADED = "procedure-component-not-loaded"
     DOES_NOT_EXIST = "procedure-does-not-exist"
     INVALID_INPUT = "procedure-invalid-input"
+    NOT_SUBSCRIBABLE = "procedure-not-subscribable"
     CANCELLED = "procedure-cancelled"
     EXCEPTION = "procedure-exception"
 
@@ -180,6 +181,10 @@ class ProcedureInvalidInputError(BaseProcedureError):
     problems: Sequence[ValidationProblem]
 
 
+class ProcedureNotSubscribableError(BaseProcedureError):
+    kind: Literal[ProcedureErrorKind.NOT_SUBSCRIBABLE] = ProcedureErrorKind.NOT_SUBSCRIBABLE
+
+
 class ProcedureCancelledError(BaseProcedureError):
     kind: Literal[ProcedureErrorKind.CANCELLED] = ProcedureErrorKind.CANCELLED
 
@@ -196,6 +201,7 @@ ProcedureError = (
     | ProcedureDoesNotExistError
     | ProcedureComponentNotLoadedError
     | ProcedureInvalidInputError
+    | ProcedureNotSubscribableError
     | ProcedureCancelledError
     | ProcedureExceptionError
 )

@@ -114,7 +114,7 @@ export const DisplayBindingModel = Zod.object({
 export type LayoutDisplay = Zod.infer<typeof LayoutDisplayModel>
 export const LayoutDisplayModel = Zod.object({
   kind: Zod.literal('display'),
-  name: Zod.string(),
+  procedure: Zod.string(),
 })
 
 export type LayoutRow = {
@@ -152,8 +152,7 @@ export const ComponentInfoModel = Zod.object({
   address: Zod.string(),
   config: ComponentConfigModel,
   roles: Zod.array(ComponentRoleModel),
-  displays: Zod.array(DisplayBindingModel),
-  layout: LayoutModel,
+  layout: LayoutModel.nullable(),
 })
 
 export type UnitInfo = Zod.infer<typeof UnitInfoModel>

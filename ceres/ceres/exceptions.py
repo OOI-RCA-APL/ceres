@@ -1,3 +1,6 @@
+from .errors import ProcedureError
+
+
 class CeresException(Exception):
     def __init__(self, message: str) -> None:
         super().__init__(message)
@@ -38,3 +41,11 @@ class ConnectionLostException(ConnectionException):
 
 class ParseException(CeresException):
     pass
+
+
+class ProcedureException(CeresException):
+    error: ProcedureError
+
+    def __init__(self, error: ProcedureError) -> None:
+        super().__init__(f"error occurred while running procedure")
+        self.error = error

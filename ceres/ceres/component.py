@@ -4,6 +4,7 @@ import inspect
 import traceback
 from asyncio import Queue as AsyncQueue
 from dataclasses import field
+from functools import partial
 from inspect import Parameter
 from logging import CRITICAL, DEBUG, ERROR, INFO, WARNING, Logger
 from string import ascii_lowercase
@@ -18,6 +19,7 @@ from typing import (
     Mapping,
     Sequence,
     TypeVar,
+    cast,
     final,
     get_type_hints,
 )
@@ -41,12 +43,12 @@ from .directory import Directory
 from .environment import Environment
 from .errors import (
     ProcedureDoesNotExistError,
-    ProcedureError,
     ProcedureExceptionError,
     ProcedureInvalidInputError,
+    ProcedureNotSubscribableError,
 )
 from .events import AlertEmittedEvent, Event, MessageReceivedEvent, MessageSentEvent
-from .exceptions import ComponentClassInvalidException
+from .exceptions import ComponentClassInvalidException, ProcedureException
 from .internal import logs
 from .internal.binding import get_bindings
 from .internal.database.buffer import WriteBuffer
@@ -65,22 +67,16 @@ from .internal.utilities import (
     sleep_forever,
     strify,
 )
-from .layout import Layout, LayoutColumn, LayoutDisplay
+from .layout import Layout
 from .listener import ListenerBinding
 from .message import MessageDirection
 from .procedure import (
     ActionBinding,
     BaseProcedureBinding,
-    CallableProcedureKind,
-    DisplayBinding,
-    JobBinding,
-    ProcedureKind,
+    ProcedureBinding,
     QueryBinding,
-    SubscribableProcedureKind,
-    SubscriptionBinding,
-    subscription,
+    query,
 )
-from .result import Fail, Ok, Result
 from .routine import RoutineBinding, routine
 from .schedule import Schedule
 from .stream import Stream, StreamView
@@ -253,7 +249,7 @@ class Component(ValidatedDataclass, Tasklet):
 
     parameters: Parameters = field(default_factory=Parameters)
     references: References = field(default_factory=References)
-    jobs: Mapping[Name, JobConfig] = field(default_factory=dict)
+    jobs: Sequence[JobConfig] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         self.__unit: ref[Unit] | None = None
@@ -289,23 +285,21 @@ class Component(ValidatedDataclass, Tasklet):
             component.__add_referencer(self)
 
     @validator("jobs")
-    def _validate_jobs(cls, jobs: Mapping[Name, JobConfig]) -> Mapping[Name, JobConfig]:
-        for job_name in jobs.keys():
-            if job_name not in cls.get_job_bindings():
-                defined = sorted(cls.get_job_bindings().keys())
+    def _validate_jobs(cls, jobs: Sequence[JobConfig]) -> Sequence[JobConfig]:
+        for job in jobs:
+            action = cls.get_action_bindings().get(job.action)
+            if action is None:
+                defined = sorted(cls.get_action_bindings().keys())
                 raise ValueError(
-                    f"{strify(cls)} has no job named '{job_name}', defined jobs are {defined}"
+                    f"{strify(cls)} has no action named '{job.action}', defined actions are {defined}"
                 )
 
-        for job in cls.get_job_bindings().values():
-            job_config = jobs.get(job.name)
-            if job_config is None or job_config.input is None:
-                if job.input is not None and job.input.required:
-                    raise ValueError(
-                        f"missing required input for job '{job.name}', set 'jobs.{job.name}.input' to a non-none value"
-                    )
+            if job.input is None and (action.input is not None and action.input.required):
+                raise ValueError(
+                    f"missing required input for job '{job.name}', set 'jobs.{job.name}.input' to a non-none value"
+                )
 
-                # TODO: Validate job input is correct type.
+            # TODO: Validate job input is correct type.
 
         return jobs
 
@@ -341,44 +335,12 @@ class Component(ValidatedDataclass, Tasklet):
 
     @final
     @classmethod
-    def get_job_bindings(cls) -> Mapping[str, JobBinding]:
-        return _get_procedure_bindings(cls, JobBinding)
-
-    @final
-    @classmethod
-    def get_subscription_bindings(cls) -> Mapping[str, SubscriptionBinding]:
-        return _get_procedure_bindings(cls, SubscriptionBinding)
-
-    @final
-    @classmethod
-    def get_display_bindings(cls) -> Mapping[str, DisplayBinding]:
-        return _get_procedure_bindings(cls, DisplayBinding)
-
-    @final
-    @classmethod
-    def get_procedure_bindings(cls, kind: "ProcedureKind") -> Mapping[str, BaseProcedureBinding]:
-        match kind:
-            case ProcedureKind.QUERY:
-                return cls.get_query_bindings()
-            case ProcedureKind.ACTION:
-                return cls.get_action_bindings()
-            case ProcedureKind.JOB:
-                return cls.get_job_bindings()
-            case ProcedureKind.SUBSCRIPTION:
-                return cls.get_subscription_bindings()
-            case ProcedureKind.DISPLAY:
-                return cls.get_display_bindings()
+    def get_procedure_bindings(cls) -> Mapping[str, ProcedureBinding]:
+        return {**cls.get_query_bindings(), **cls.get_action_bindings()}
 
     @classmethod
-    def get_layout(cls) -> Layout:
-        return Layout(
-            body=LayoutColumn(
-                children=[
-                    LayoutDisplay(name=display.name)
-                    for display in cls.get_display_bindings().values()
-                ]
-            )
-        )
+    def get_layout(cls) -> Layout | None:
+        return None
 
     @property
     def address(self) -> Address:
@@ -542,38 +504,18 @@ class Component(ValidatedDataclass, Tasklet):
     def __start_scheduler(self) -> None:
         self.__scheduler.start()
 
-        for job in self.get_job_bindings().values():
-            job_config = self.jobs.get(job.name)
+        async def run(job: JobConfig) -> None:
+            self.logger.info(f"Running job '{job.name}'...")
+            try:
+                await self.call(job.action, job.input)
+            except ProcedureException as exception:
+                self.logger.error(
+                    f"An error occurred while running job '{job.name}': {strify(exception.error)}"
+                )
 
-            if job_config is not None and job_config.input is not None:
-                input = job_config.input
-            else:
-                if job.input is not None:
-                    input = job.input.default
-                else:
-                    input = None
-
-            if job_config is not None and job_config.schedule is not None:
-                schedule = job_config.schedule
-            else:
-                schedule = job.default_schedule
-
-            if schedule is None:
-                continue
-
-            async def run_job() -> None:
-                self.logger.info(f"Running job '{job.name}'...")
-                match await self.call(CallableProcedureKind.JOB, job.name, input):
-                    case Ok():
-                        self.logger.info(f"Job '{job.name}' finished.")
-                        pass
-                    case Fail(error):
-                        self.logger.error(
-                            f"An error occurred while running job '{job.name}': {strify(error)}"
-                        )
-
-            self.logger.info(f"Scheduling job '{job.name}' on {schedule}.")
-            self.scheduler.add_job(run_job, schedule, name=job.name)
+        for job in self.jobs:
+            self.logger.info(f"Scheduling job '{job.name}' on {job.schedule}.")
+            self.add_job(partial(run, job), job.schedule, name=job.name)
 
     async def __run__(self) -> None:
         if self.__has_exclusive_temporary_environment:
@@ -630,8 +572,8 @@ class Component(ValidatedDataclass, Tasklet):
     class SubscribeEventsInput(ImmutableDataObject):
         kinds: str | FrozenSet[str] | None = None
 
-    @subscription("events")
-    async def subscribe_events(
+    @query("events")
+    async def get_events(
         self,
         input: SubscribeEventsInput = SubscribeEventsInput(),
     ) -> AsyncIterable[Event]:
@@ -649,16 +591,15 @@ class Component(ValidatedDataclass, Tasklet):
 
     async def __invoke(
         self,
-        kind: "ProcedureKind",
         procedure: str,
         input: object | None = None,
-    ) -> Result[object | None, ProcedureError]:
+    ) -> Any:
         if (
-            (binding := self.get_procedure_bindings(kind).get(procedure)) is None
+            (binding := self.get_procedure_bindings().get(procedure)) is None
             or (method := getattr(self, binding.function, None)) is None
             or not inspect.ismethod(method)
         ):
-            return Fail(ProcedureDoesNotExistError())
+            raise ProcedureException(ProcedureDoesNotExistError())
 
         arguments: list[object] = []
         if input is not None:
@@ -667,46 +608,67 @@ class Component(ValidatedDataclass, Tasklet):
         try:
             pre_validate_arguments(method, *arguments)
         except ValidationError as error:
-            return Fail(ProcedureInvalidInputError(problems=ValidationProblem.extract(error)))
+            raise ProcedureException(
+                ProcedureInvalidInputError(problems=ValidationProblem.extract(error))
+            )
 
         try:
-            return Ok(await awaitify(validate_arguments(method)(*arguments)))
+            return await awaitify(validate_arguments(method)(*arguments))
         except Exception:
-            return Fail(ProcedureExceptionError(traceback=traceback.format_exc()))
+            raise ProcedureException(ProcedureExceptionError(traceback=traceback.format_exc()))
 
     async def call(
         self,
-        kind: CallableProcedureKind,
         procedure: str,
         input: object | None = None,
-    ) -> Result[object | None, ProcedureError]:
-        return await self.__invoke(kind.upcast(), procedure, input)
+    ) -> object | None:
+        output = await self.__invoke(procedure, input)
+        binding = self.get_procedure_bindings()[procedure]
+
+        if binding.live:
+            try:
+                async for value in output:
+                    return value
+            except Exception as exception:
+                raise ProcedureException(
+                    ProcedureExceptionError(traceback=traceback.format_exception(exception))
+                )
+
+        return output
 
     async def subscribe(
         self,
-        kind: SubscribableProcedureKind,
         procedure: str,
         input: object | None = None,
-    ) -> Result[AsyncIterable[object | None], ProcedureError]:
-        values: AsyncIterable[object | None]
+    ) -> AsyncIterable[object | None]:
+        output = await self.__invoke(procedure, input)
+        binding: QueryBinding = cast(QueryBinding, self.get_procedure_bindings()[procedure])
+        if not isinstance(binding, QueryBinding):
+            raise ProcedureException(ProcedureNotSubscribableError())
 
-        match await self.__invoke(kind.upcast(), procedure, input):
-            case Ok(values):  # type: ignore
-                pass
-            case fail:
-                return fail
-
-        async def iterate() -> AsyncIterable[object | None]:
+        if not binding.live:
             try:
-                async for value in values:
-                    yield value
-            except Exception:
+                while True:
+                    yield await self.__invoke(procedure, input)
+                    await asyncio.sleep(binding.poll.total_seconds())
+            except Exception as exception:
                 self.logger.error(
-                    f"An exception occurred in {kind.value} '{procedure}': {traceback.format_exc()}"
+                    f"An exception occurred in procedure '{procedure}': {traceback.format_exc()}"
                 )
-                raise
+                raise ProcedureException(
+                    ProcedureExceptionError(traceback=traceback.format_exception(exception))
+                )
 
-        return Ok(iterate())
+        try:
+            async for value in output:
+                yield value
+        except Exception as exception:
+            self.logger.error(
+                f"An exception occurred in procedure '{procedure}': {traceback.format_exc()}"
+            )
+            raise ProcedureException(
+                ProcedureExceptionError(traceback=traceback.format_exception(exception))
+            )
 
 
 @cached

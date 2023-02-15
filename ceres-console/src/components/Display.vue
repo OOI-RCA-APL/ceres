@@ -7,7 +7,7 @@
     <q-markup-table dense flat separator="cell">
       <thead :class="$q.dark.isActive ? 'self-header-dark' : undefined">
         <q-tr no-hover>
-          <q-th>{{ capitalCase(displayName) }}</q-th>
+          <q-th>{{ capitalCase(procedureName) }}</q-th>
         </q-tr>
       </thead>
     </q-markup-table>
@@ -33,15 +33,15 @@ import { DisplayInfo } from '@/display'
 import { capitalCase } from 'change-case'
 import { QMarkupTable, QTh, QTr } from 'quasar'
 
-const { unitName, componentName, displayName } = defineProps<{
+const { unitName, componentName, procedureName } = defineProps<{
   unitName: string
   componentName: string
-  displayName: string
+  procedureName: string
 }>()
 
 let info: DisplayInfo | null = $ref(null)
 
-useDisplayStream(unitName, componentName, displayName, (current) => {
+useDisplayStream(unitName, componentName, procedureName, (current) => {
   info = current
 })
 </script>

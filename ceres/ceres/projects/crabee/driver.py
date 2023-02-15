@@ -18,11 +18,10 @@ from ... import (
     ParseException,
     Parser,
     Stream,
-    display,
     on,
+    query,
     routine,
     spawn,
-    subscription,
     utc,
 )
 from ...console import ChartDisplay, ConsoleColor, StateDisplay, ValueDisplay
@@ -228,8 +227,7 @@ class CrabeeDriver(Component):
             traceback.print_exc()
             return
 
-    @subscription("data-messages")
-    async def subscribe_data_messages(self) -> AsyncIterable[DataMessage]:
+    async def _get_data_messages(self) -> AsyncIterable[DataMessage]:
         if self.__last_data_message_received:
             yield self.__last_data_message_received
         async for message in self.__data_message_stream:
@@ -242,81 +240,81 @@ class CrabeeDriver(Component):
                 [
                     LayoutRow(
                         [
-                            LayoutDisplay("temperature-1"),
-                            LayoutDisplay("temperature-2"),
-                            LayoutDisplay("temperature-3"),
+                            LayoutDisplay("display-temperature-1"),
+                            LayoutDisplay("display-temperature-2"),
+                            LayoutDisplay("display-temperature-3"),
                         ]
                     ),
                     LayoutRow(
                         [
-                            LayoutDisplay("pressure"),
-                            LayoutDisplay("pitch"),
-                            LayoutDisplay("roll"),
+                            LayoutDisplay("display-pressure"),
+                            LayoutDisplay("display-pitch"),
+                            LayoutDisplay("display-roll"),
                         ],
                     ),
                     LayoutRow(
                         [
-                            LayoutDisplay("humidity"),
-                            LayoutDisplay("leak-1"),
-                            LayoutDisplay("leak-1"),
+                            LayoutDisplay("display-humidity"),
+                            LayoutDisplay("display-leak-1"),
+                            LayoutDisplay("display-leak-1"),
                         ],
                     ),
-                    LayoutDisplay("temperature-history"),
-                    LayoutDisplay("pressure-history"),
-                    LayoutDisplay("humidity-history"),
-                    LayoutDisplay("incline-history"),
+                    LayoutDisplay("display-temperature-history"),
+                    LayoutDisplay("display-pressure-history"),
+                    LayoutDisplay("display-humidity-history"),
+                    LayoutDisplay("display-incline-history"),
                 ]
             )
         )
 
         return result
 
-    @display("temperature-1")
+    @query("display-temperature-1")
     async def display_temperature_1(self) -> AsyncIterable[ValueDisplay]:
-        async for message in self.subscribe_data_messages():
+        async for message in self._get_data_messages():
             yield ValueDisplay(value=message.temperature_1, unit="°C")
 
-    @display("temperature-2")
+    @query("display-temperature-2")
     async def display_temperature_2(self) -> AsyncIterable[ValueDisplay]:
-        async for message in self.subscribe_data_messages():
+        async for message in self._get_data_messages():
             yield ValueDisplay(value=message.temperature_2, unit="°C")
 
-    @display("temperature-3")
+    @query("display-temperature-3")
     async def display_temperature_3(self) -> AsyncIterable[ValueDisplay]:
-        async for message in self.subscribe_data_messages():
+        async for message in self._get_data_messages():
             yield ValueDisplay(value=message.temperature_3, unit="°C")
 
-    @display("pressure")
+    @query("display-pressure")
     async def display_pressure(self) -> AsyncIterable[ValueDisplay]:
-        async for message in self.subscribe_data_messages():
+        async for message in self._get_data_messages():
             yield ValueDisplay(value=message.pressure, unit="mbars")
 
-    @display("humidity")
+    @query("display-humidity")
     async def display_humidity(self) -> AsyncIterable[ValueDisplay]:
-        async for message in self.subscribe_data_messages():
+        async for message in self._get_data_messages():
             yield ValueDisplay(value=message.humidity, unit="%")
 
-    @display("pitch")
+    @query("display-pitch")
     async def display_pitch(self) -> AsyncIterable[ValueDisplay]:
-        async for message in self.subscribe_data_messages():
+        async for message in self._get_data_messages():
             yield ValueDisplay(value=message.pitch, unit="°")
 
-    @display("roll")
+    @query("display-roll")
     async def display_roll(self) -> AsyncIterable[ValueDisplay]:
-        async for message in self.subscribe_data_messages():
+        async for message in self._get_data_messages():
             yield ValueDisplay(value=message.roll, unit="°")
 
-    @display("leak-1")
+    @query("display-leak-1")
     async def display_leak_1(self) -> AsyncIterable[StateDisplay]:
-        async for message in self.subscribe_data_messages():
+        async for message in self._get_data_messages():
             yield self.__display_leak(message.leak_1)
 
-    @display("leak-2")
+    @query("display-leak-2")
     async def display_leak_2(self) -> AsyncIterable[StateDisplay]:
-        async for message in self.subscribe_data_messages():
+        async for message in self._get_data_messages():
             yield self.__display_leak(message.leak_2)
 
-    @display("temperature-history")
+    @query("display-temperature-history")
     async def display_temperature_history(self) -> AsyncIterable[ChartDisplay]:
         while True:
             messages = await self.__get_data_message_history(cutoff=utc() - timedelta(hours=1))
@@ -368,7 +366,7 @@ class CrabeeDriver(Component):
 
             await asyncio.sleep(10)
 
-    @display("pressure-history")
+    @query("display-pressure-history")
     async def display_pressure_history(self) -> AsyncIterable[ChartDisplay]:
         while True:
             messages = await self.__get_data_message_history(cutoff=utc() - timedelta(hours=1))
@@ -402,7 +400,7 @@ class CrabeeDriver(Component):
 
             await asyncio.sleep(10)
 
-    @display("humidity-history")
+    @query("display-humidity-history")
     async def display_humidity_history(self) -> AsyncIterable[ChartDisplay]:
         while True:
             messages = await self.__get_data_message_history(cutoff=utc() - timedelta(hours=1))
@@ -439,7 +437,7 @@ class CrabeeDriver(Component):
 
             await asyncio.sleep(10)
 
-    @display("incline-history")
+    @query("display-incline-history")
     async def display_incline_history(self) -> AsyncIterable[ChartDisplay]:
         while True:
             messages = await self.__get_data_message_history(cutoff=utc() - timedelta(hours=1))

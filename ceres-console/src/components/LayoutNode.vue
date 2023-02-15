@@ -2,7 +2,7 @@
   <display
     v-if="node.kind === 'display'"
     :component-name="componentName"
-    :display-name="node.name"
+    :procedure-name="node.procedure"
     :unit-name="unitName"
   />
   <div v-else-if="node.kind === 'row'" class="q-col-gutter-sm row">

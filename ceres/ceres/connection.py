@@ -16,7 +16,7 @@ from .events import (
 )
 from .exceptions import ConnectionLostException
 from .message import Message, MessageDirection
-from .procedure import query, subscription
+from .procedure import query
 from .routine import routine
 
 
@@ -197,12 +197,9 @@ class Connection(Component, ABC):
         await self.try_disconnect()
 
     @query("connection-state")
-    async def get_connection_state(self) -> ConnectionState:
-        return self.__state
+    async def get_connection_state(self) -> AsyncIterable[ConnectionState]:
+        yield self.__state
 
-    @subscription("connection-state")
-    async def subscribe_connection_state(self) -> AsyncIterable[ConnectionState]:
-        yield await self.get_connection_state()
         async for event in self.events:
             if isinstance(event, ConnectedEvent | DisconnectedEvent):
                 yield self.__state

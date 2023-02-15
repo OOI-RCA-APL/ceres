@@ -14,10 +14,10 @@ class LayoutKind(str, Enum):
 
 class LayoutDisplay(DataObject):
     kind: Literal[LayoutKind.DISPLAY] = LayoutKind.DISPLAY
-    name: Name
+    procedure: Name
 
-    def __init__(self, name: Name, **kwargs: Any) -> None:
-        super().__init__(**{"name": name, **kwargs})
+    def __init__(self, procedure: Name, **kwargs: Any) -> None:
+        super().__init__(**{"procedure": procedure, **kwargs})
 
 
 class LayoutRow(DataObject):

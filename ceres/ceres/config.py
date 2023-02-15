@@ -4,7 +4,7 @@ from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Mapping, Sequence
 
-from pydantic import Field, SecretStr, parse_obj_as, validator
+from pydantic import Field, SecretStr, parse_obj_as, root_validator, validator
 from typing_extensions import Self
 
 from .address import Address
@@ -24,9 +24,18 @@ class ConfigObject(ImmutableDataObject):
 
 
 class JobConfig(ConfigObject):
+    name: Name
+    action: Name
     input: Any = None
-    schedule: Schedule | None = Field(default=None, discriminator="kind")
+    schedule: Schedule = Field(discriminator="kind")
     enabled: bool = True
+
+    @root_validator(pre=True)
+    def _validate_name(cls, values: dict[str, Any]) -> Any:
+        if "name" not in values and "action" in values:
+            values["name"] = values["action"]
+
+        return values
 
 
 class ComponentConfig(ConfigObject):
@@ -39,7 +48,7 @@ class ComponentConfig(ConfigObject):
 
     parameters: Mapping[Name, Any] = Field(default_factory=dict)
     references: Mapping[Name, Name | Sequence[Name]] = Field(default_factory=dict)
-    jobs: Mapping[Name, JobConfig] = Field(default_factory=dict)
+    jobs: Sequence[JobConfig] = Field(default_factory=list)
 
 
 class ServerConfig(ConfigObject):

@@ -39,7 +39,7 @@
           <panel-tab v-for="hud in huds" :key="hud.address" :name="hud.address" />
         </template>
         <panel v-for="hud in huds" :key="hud.address" :name="hud.address">
-          <div>
+          <div v-if="hud.layout">
             <layout :component-name="hud.name" :layout="hud.layout" :unit-name="unit.name" />
           </div>
         </panel>
@@ -100,7 +100,7 @@ const components = $computed(() => unit?.components ?? [])
 const connections = $computed(() =>
   components.filter((component) => component.roles.includes('connection'))
 )
-const huds = $computed(() => components.filter((component) => component.displays.length))
+const huds = $computed(() => components.filter((component) => component.layout != null))
 </script>
 
 <style lang="scss" scoped>
