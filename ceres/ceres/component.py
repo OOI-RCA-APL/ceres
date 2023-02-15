@@ -68,7 +68,6 @@ from .internal.utilities import (
 )
 from .layout import Layout
 from .listener import ListenerBinding
-from .message import MessageDirection
 from .procedure import (
     ActionBinding,
     BaseProcedureBinding,
@@ -425,7 +424,7 @@ class Component(ValidatedDataclass, Tasklet):
                         id=event.message.id,
                         source_id=self.id,  # TODO: Actually use the passed ID.
                         timestamp=event.message.timestamp,
-                        direction=MessageDirection.RECEIVE,
+                        direction=event.message.direction,
                         content=event.message.content,
                     )
                 )
