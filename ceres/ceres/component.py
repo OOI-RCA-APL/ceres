@@ -49,7 +49,7 @@ from .errors import (
 from .events import AlertEmittedEvent, Event, MessageReceivedEvent, MessageSentEvent
 from .exceptions import ComponentClassInvalidException, ProcedureException
 from .internal import logs
-from .internal.binding import get_bindings
+from .internal.binding import get_all_bindings
 from .internal.database.buffer import WriteBuffer
 from .internal.database.entities import AlertEntity, MessageEntity
 from .internal.scheduler import Scheduler
@@ -676,12 +676,12 @@ class Component(ValidatedDataclass, Tasklet):
 
 @cached
 def _get_listener_bindings(component_cls: type[Component]) -> Sequence[ListenerBinding]:
-    return tuple(get_bindings(component_cls, ListenerBinding))
+    return tuple(get_all_bindings(component_cls, ListenerBinding))
 
 
 @cached
 def _get_routine_bindings(component_cls: type[Component]) -> Sequence[RoutineBinding]:
-    return tuple(get_bindings(component_cls, RoutineBinding))
+    return tuple(get_all_bindings(component_cls, RoutineBinding))
 
 
 _ProcedureBindingT = TypeVar("_ProcedureBindingT", bound=BaseProcedureBinding)
@@ -693,5 +693,5 @@ def _get_procedure_bindings(
     binding_cls: type[_ProcedureBindingT],
 ) -> Mapping[str, _ProcedureBindingT]:
     return MappingProxyType(
-        {binding.name: binding for binding in get_bindings(component_cls, binding_cls)}
+        {binding.name: binding for binding in get_all_bindings(component_cls, binding_cls)}
     )

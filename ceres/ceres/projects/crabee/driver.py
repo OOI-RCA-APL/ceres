@@ -240,29 +240,29 @@ class CrabeeDriver(Component):
                 [
                     LayoutRow(
                         [
-                            LayoutDisplay("display-temperature-1"),
-                            LayoutDisplay("display-temperature-2"),
-                            LayoutDisplay("display-temperature-3"),
+                            LayoutDisplay("Temperature 1", cls.display_temperature_1),
+                            LayoutDisplay("Temperature 2", cls.display_temperature_2),
+                            LayoutDisplay("Temperature 3", cls.display_temperature_3),
                         ]
                     ),
                     LayoutRow(
                         [
-                            LayoutDisplay("display-pressure"),
-                            LayoutDisplay("display-pitch"),
-                            LayoutDisplay("display-roll"),
+                            LayoutDisplay("Pressure", cls.display_pressure),
+                            LayoutDisplay("Pitch", cls.display_pitch),
+                            LayoutDisplay("Roll", cls.display_roll),
                         ],
                     ),
                     LayoutRow(
                         [
-                            LayoutDisplay("display-humidity"),
-                            LayoutDisplay("display-leak-1"),
-                            LayoutDisplay("display-leak-1"),
+                            LayoutDisplay("Humidity", cls.display_humidity),
+                            LayoutDisplay("Leak 1", cls.display_leak_1),
+                            LayoutDisplay("Leak 2", cls.display_leak_2),
                         ],
                     ),
-                    LayoutDisplay("display-temperature-history"),
-                    LayoutDisplay("display-pressure-history"),
-                    LayoutDisplay("display-humidity-history"),
-                    LayoutDisplay("display-incline-history"),
+                    LayoutDisplay("Temperature History", cls.display_temperature_history),
+                    LayoutDisplay("Pressure History", cls.display_pressure_history),
+                    LayoutDisplay("Humidity History", cls.display_humidity_history),
+                    LayoutDisplay("Incline History", cls.display_incline_history),
                 ]
             )
         )

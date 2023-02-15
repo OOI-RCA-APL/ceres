@@ -9,6 +9,7 @@
     </div>
     <div v-else-if="unit">
       <panel-group
+        v-if="connections.length"
         :default-height="300"
         :persistence-key="`units/${unit.name}/messages-panel-group`"
         title="Messages"
@@ -34,7 +35,11 @@
           />
         </panel>
       </panel-group>
-      <panel-group :persistence-key="`units/${unit.name}/displays-panel-group`" title="Displays">
+      <panel-group
+        v-if="huds.length"
+        :persistence-key="`units/${unit.name}/displays-panel-group`"
+        title="Displays"
+      >
         <template #tabs>
           <panel-tab v-for="hud in huds" :key="hud.address" :name="hud.address" />
         </template>
@@ -44,7 +49,7 @@
           </div>
         </panel>
       </panel-group>
-      <div class="q-mt-lg q-pa-md">
+      <div class="q-pa-md">
         <q-markup-table v-if="components.length" bordered dense flat separator="vertical">
           <thead>
             <q-tr no-hover>

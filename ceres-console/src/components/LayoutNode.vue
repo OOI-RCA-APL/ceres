@@ -2,6 +2,7 @@
   <display
     v-if="node.kind === 'display'"
     :component-name="componentName"
+    :display="node"
     :procedure-name="node.procedure"
     :unit-name="unitName"
   />

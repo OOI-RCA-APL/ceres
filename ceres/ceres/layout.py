@@ -1,9 +1,12 @@
 from enum import Enum
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Callable, Literal
 
 from pydantic import Field
 
 from .data import DataObject, ImmutableDataObject, Name
+from .internal.binding import get_bindings
+from .internal.utilities import strify
+from .procedure import QueryBinding
 
 
 class LayoutKind(str, Enum):
@@ -14,10 +17,18 @@ class LayoutKind(str, Enum):
 
 class LayoutDisplay(DataObject):
     kind: Literal[LayoutKind.DISPLAY] = LayoutKind.DISPLAY
+    title: str
     procedure: Name
 
-    def __init__(self, procedure: Name, **kwargs: Any) -> None:
-        super().__init__(**{"procedure": procedure, **kwargs})
+    def __init__(self, title: str, procedure: Name | Callable[..., Any], **kwargs: Any) -> None:
+        if not isinstance(procedure, str):
+            bindings = get_bindings(procedure, QueryBinding)
+            if not bindings:
+                raise ValueError(f"function {strify(procedure)} has no query binding")
+
+            procedure = bindings[0].name
+
+        super().__init__(**{"title": title, "procedure": procedure, **kwargs})
 
 
 class LayoutRow(DataObject):

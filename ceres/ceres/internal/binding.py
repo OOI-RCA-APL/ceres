@@ -1,6 +1,6 @@
 import inspect
 from types import FunctionType
-from typing import Callable, Iterable, Sequence, TypeVar, cast
+from typing import Any, Callable, Iterable, Sequence, TypeVar, cast
 
 from ..data import ImmutableDataObject
 
@@ -31,18 +31,26 @@ def add_binding(function: Callable[..., object], binding: Binding) -> None:
     setattr(function, _BINDINGS_ATTRIBUTE, bindings)
 
 
-def get_bindings(component_cls: type, binding_cls: type[_BindingT]) -> Sequence[_BindingT]:
+def get_bindings(function: Callable[..., Any], binding_cls: type[_BindingT]) -> tuple[_BindingT]:
+    output: list[_BindingT] = []
+
+    while hasattr(function, "__wrapped__"):
+        function = function.__wrapped__  # type: ignore
+
+    if values := getattr(function, _BINDINGS_ATTRIBUTE, None):
+        if isinstance(values, Iterable):
+            for value in values:
+                if isinstance(value, binding_cls):
+                    output.append(value)
+
+    return tuple(output)
+
+
+def get_all_bindings(component_cls: type, binding_cls: type[_BindingT]) -> tuple[_BindingT]:
     output: list[_BindingT] = []
 
     for function in _get_functions(component_cls):
-        while hasattr(function, "__wrapped__"):
-            function = function.__wrapped__  # type: ignore
-
-        if values := getattr(function, _BINDINGS_ATTRIBUTE, None):
-            if isinstance(values, Iterable):
-                for value in values:
-                    if isinstance(value, binding_cls):
-                        output.append(value)
+        output.extend(get_bindings(function, binding_cls))
 
     return tuple(output)
 

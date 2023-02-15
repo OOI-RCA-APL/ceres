@@ -7,7 +7,7 @@
     <q-markup-table dense flat separator="cell">
       <thead :class="$q.dark.isActive ? 'self-header-dark' : undefined">
         <q-tr no-hover>
-          <q-th>{{ capitalCase(procedureName) }}</q-th>
+          <q-th>{{ display.title }}</q-th>
         </q-tr>
       </thead>
     </q-markup-table>
@@ -24,24 +24,24 @@
 </template>
 
 <script lang="ts" setup>
+import { LayoutDisplay } from '@/api/models'
 import { useDisplayStream } from '@/api/queries'
 import ChartDisplay from '@/components/displays/ChartDisplay.vue'
 import GaugeDisplay from '@/components/displays/GaugeDisplay.vue'
 import StateDisplay from '@/components/displays/StateDisplay.vue'
 import ValueDisplay from '@/components/displays/ValueDisplay.vue'
 import { DisplayInfo } from '@/display'
-import { capitalCase } from 'change-case'
 import { QMarkupTable, QTh, QTr } from 'quasar'
 
-const { unitName, componentName, procedureName } = defineProps<{
+const { unitName, componentName, display } = defineProps<{
   unitName: string
   componentName: string
-  procedureName: string
+  display: LayoutDisplay
 }>()
 
 let info: DisplayInfo | null = $ref(null)
 
-useDisplayStream(unitName, componentName, procedureName, (current) => {
+useDisplayStream(unitName, componentName, display.procedure, (current) => {
   info = current
 })
 </script>
