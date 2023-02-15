@@ -318,7 +318,6 @@ class CrabeeDriver(Component):
 
     @display("temperature-history")
     async def display_temperature_history(self) -> AsyncIterable[ChartDisplay]:
-        await asyncio.sleep(1)
         while True:
             messages = await self.__get_data_message_history(cutoff=utc() - timedelta(hours=1))
 
@@ -371,7 +370,6 @@ class CrabeeDriver(Component):
 
     @display("pressure-history")
     async def display_pressure_history(self) -> AsyncIterable[ChartDisplay]:
-        await asyncio.sleep(1)
         while True:
             messages = await self.__get_data_message_history(cutoff=utc() - timedelta(hours=1))
 
@@ -406,7 +404,6 @@ class CrabeeDriver(Component):
 
     @display("humidity-history")
     async def display_humidity_history(self) -> AsyncIterable[ChartDisplay]:
-        await asyncio.sleep(1)
         while True:
             messages = await self.__get_data_message_history(cutoff=utc() - timedelta(hours=1))
 
@@ -444,7 +441,6 @@ class CrabeeDriver(Component):
 
     @display("incline-history")
     async def display_incline_history(self) -> AsyncIterable[ChartDisplay]:
-        await asyncio.sleep(1)
         while True:
             messages = await self.__get_data_message_history(cutoff=utc() - timedelta(hours=1))
 
