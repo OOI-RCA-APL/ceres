@@ -98,8 +98,8 @@ const router = useRouter()
 const quasar = useQuasar()
 
 const StateSchema = Zod.object({
-  isDrawerOpen: Zod.boolean().default(false),
-  isDarkModeEnabled: Zod.boolean().default(false),
+  isDrawerOpen: Zod.boolean().default(true),
+  isDarkModeEnabled: Zod.boolean().default(true),
   isUnitsSectionExpanded: Zod.boolean().default(true),
 })
 
