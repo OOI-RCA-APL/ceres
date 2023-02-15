@@ -26,7 +26,7 @@ from ..component import Component
 from ..config import ComponentConfig, Config, UnitConfig
 from ..data import ImmutableDataObject, Name, jsonify
 from ..environment import AlertQuery, Environment, MessageQuery
-from ..errors import ProcedureError, ProcedureExceptionError, ReloadError
+from ..errors import ProcedureError, ProcedureInternalError, ReloadError
 from ..events import AlertEmittedEvent, MessageReceivedEvent, MessageSentEvent
 from ..exceptions import ProcedureException
 from ..layout import Layout
@@ -292,7 +292,7 @@ async def subscribe(
                 await socket.send_text(jsonify(output))
         except Exception as exception:
             if isinstance(exception, ProcedureException):
-                if not isinstance(exception.error, ProcedureExceptionError):
+                if not isinstance(exception.error, ProcedureInternalError):
                     code = 1011  # Set code for internal error.
                 else:
                     code = 1008  # Set code for policy violation.

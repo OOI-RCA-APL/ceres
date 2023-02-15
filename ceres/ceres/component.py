@@ -42,7 +42,7 @@ from .directory import Directory
 from .environment import Environment
 from .errors import (
     ProcedureDoesNotExistError,
-    ProcedureExceptionError,
+    ProcedureInternalError,
     ProcedureInvalidInputError,
     ProcedureNotSubscribableError,
 )
@@ -605,7 +605,7 @@ class Component(ValidatedDataclass, Tasklet):
         try:
             return await awaitify(validate_arguments(method)(*arguments))
         except Exception:
-            raise ProcedureException(ProcedureExceptionError(traceback=traceback.format_exc()))
+            raise ProcedureException(ProcedureInternalError(traceback=traceback.format_exc()))
 
     async def call(
         self,
@@ -635,7 +635,7 @@ class Component(ValidatedDataclass, Tasklet):
                     return last
         except Exception as exception:
             raise ProcedureException(
-                ProcedureExceptionError(traceback=traceback.format_exception(exception))
+                ProcedureInternalError(traceback=traceback.format_exception(exception))
             )
 
     async def subscribe(
@@ -659,7 +659,7 @@ class Component(ValidatedDataclass, Tasklet):
                     f"An exception occurred in procedure '{procedure}': {traceback.format_exc()}"
                 )
                 raise ProcedureException(
-                    ProcedureExceptionError(traceback=traceback.format_exception(exception))
+                    ProcedureInternalError(traceback=traceback.format_exception(exception))
                 )
 
         try:
@@ -670,7 +670,7 @@ class Component(ValidatedDataclass, Tasklet):
                 f"An exception occurred in procedure '{procedure}': {traceback.format_exc()}"
             )
             raise ProcedureException(
-                ProcedureExceptionError(traceback=traceback.format_exception(exception))
+                ProcedureInternalError(traceback=traceback.format_exception(exception))
             )
 
 

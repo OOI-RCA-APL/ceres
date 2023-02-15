@@ -11,14 +11,14 @@ class Error(ImmutableDataObject):
 
 
 class ComponentErrorKind(str, Enum):
-    CLASS_INVALID = "component-class-invalid"
-    MODULE_NOT_FOUND = "component-module-not-found"
-    MODULE_EXCEPTION = "component-module-exception"
-    CLASS_NOT_FOUND = "component-class-not-found"
-    INIT_EXCEPTION = "component-init-exception"
-    PARAMETERS_INVALID = "component-parameters-invalid"
-    REFERENCE_INVALID = "component-reference-invalid"
-    JOB_INVALID = "component-job-invalid"
+    CLASS_INVALID = "component-class-invalid-error"
+    MODULE_NOT_FOUND = "component-module-not-found-error"
+    MODULE_EXCEPTION = "component-module-exception-error"
+    CLASS_NOT_FOUND = "component-class-not-found-error"
+    INIT_EXCEPTION = "component-init-exception-error"
+    PARAMETERS_INVALID = "component-parameters-invalid-error"
+    REFERENCE_INVALID = "component-reference-invalid-error"
+    JOB_INVALID = "component-job-invalid-error"
 
 
 class BaseComponentError(Error):
@@ -129,8 +129,8 @@ ConfigError = (
 
 
 class ReloadErrorKind(str, Enum):
-    CONFIG_INVALID = "reload-config-invalid"
-    ALREADY_ACTIVE = "reload-already-active"
+    CONFIG_INVALID = "reload-config-invalid-error"
+    ALREADY_ACTIVE = "reload-already-active-error"
 
 
 class BaseReloadError(Error):
@@ -150,14 +150,14 @@ ReloadError = ReloadConfigInvalidError | ReloadAlreadyActiveError
 
 
 class ProcedureErrorKind(str, Enum):
-    UNIT_DOES_NOT_EXIST = "procedure-unit-does-not-exist"
-    COMPONENT_DOES_NOT_EXIST = "procedure-component-does-not-exist"
-    COMPONENT_NOT_LOADED = "procedure-component-not-loaded"
-    DOES_NOT_EXIST = "procedure-does-not-exist"
-    INVALID_INPUT = "procedure-invalid-input"
-    NOT_SUBSCRIBABLE = "procedure-not-subscribable"
-    CANCELLED = "procedure-cancelled"
-    EXCEPTION = "procedure-exception"
+    UNIT_DOES_NOT_EXIST = "procedure-unit-does-not-exist-error"
+    COMPONENT_DOES_NOT_EXIST = "procedure-component-does-not-exist-error"
+    COMPONENT_NOT_LOADED = "procedure-component-not-loaded-error"
+    DOES_NOT_EXIST = "procedure-does-not-exist-error"
+    INVALID_INPUT = "procedure-invalid-input-error"
+    NOT_SUBSCRIBABLE = "procedure-not-subscribable-error"
+    CANCELLED = "procedure-cancelled-error"
+    INTERNAL = "procedure-internal-error"
 
 
 class BaseProcedureError(Error):
@@ -195,8 +195,8 @@ class ProcedureCancelledError(BaseProcedureError):
     kind: Literal[ProcedureErrorKind.CANCELLED] = ProcedureErrorKind.CANCELLED
 
 
-class ProcedureExceptionError(BaseProcedureError):
-    kind: Literal[ProcedureErrorKind.EXCEPTION] = ProcedureErrorKind.EXCEPTION
+class ProcedureInternalError(BaseProcedureError):
+    kind: Literal[ProcedureErrorKind.INTERNAL] = ProcedureErrorKind.INTERNAL
     traceback: Sequence[str]
 
 
@@ -209,5 +209,5 @@ ProcedureError = (
     | ProcedureInvalidInputError
     | ProcedureNotSubscribableError
     | ProcedureCancelledError
-    | ProcedureExceptionError
+    | ProcedureInternalError
 )
