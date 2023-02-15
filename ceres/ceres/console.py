@@ -1,3 +1,4 @@
+from decimal import Decimal
 from enum import Enum
 from typing import Literal, Mapping, Sequence, TypeAlias
 
@@ -19,7 +20,7 @@ class ConsoleColor(Color, Enum):
     WARNING = Color("#f2c037")
 
 
-AtomicValue: TypeAlias = StrictBool | StrictInt | StrictFloat | StrictStr
+AtomicValue: TypeAlias = StrictBool | StrictInt | StrictFloat | Decimal | StrictStr
 
 
 class DisplayKind(str, Enum):
