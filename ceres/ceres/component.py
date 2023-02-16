@@ -22,7 +22,6 @@ from typing import (
     final,
     get_type_hints,
 )
-from uuid import UUID, uuid4
 from weakref import WeakValueDictionary, ref
 
 from pydantic import Field, ValidationError, validate_arguments, validator
@@ -68,6 +67,7 @@ from .internal.utilities import (
 )
 from .layout import Layout
 from .listener import ListenerBinding
+from .message import Message
 from .procedure import (
     ActionBinding,
     BaseProcedureBinding,
@@ -104,7 +104,7 @@ class Component(ValidatedDataclass, Tasklet):
     def __init_subclass__(cls, **kwargs: Any) -> type[Any]:
         super().__init_subclass__(**kwargs)
 
-        __init__ = cls.__init__
+        __init__ = cls.__init__  # type: ignore
         hints = get_type_hints(__init__)
         signature = inspect.signature(__init__)
 
@@ -236,7 +236,6 @@ class Component(ValidatedDataclass, Tasklet):
 
             return components
 
-    id: UUID = field(default_factory=uuid4)
     name: Name = field(default_factory=lambda: randstr(ascii_lowercase, 8))
     if TYPE_CHECKING:
         environment: Environment = field(default_factory=Environment)
@@ -253,7 +252,7 @@ class Component(ValidatedDataclass, Tasklet):
         self.__unit: ref[Unit] | None = None
         self.__events: Stream[Event] = Stream()
         self.__scheduler = Scheduler()
-        self.__referencers: WeakValueDictionary[UUID, Component] = WeakValueDictionary()
+        self.__referencers: WeakValueDictionary[Address, Component] = WeakValueDictionary()
 
     def __post_init_post_parse__(self) -> None:
         self.__has_exclusive_temporary_environment = self.environment is None  # type: ignore
@@ -261,13 +260,15 @@ class Component(ValidatedDataclass, Tasklet):
             self.environment = Environment()
 
         self.__message_write_buffer = WriteBuffer(
+            Message,
             MessageEntity,
-            self.environment.database,
+            self.environment,
             self.logger,
         )
         self.__alert_write_buffer = WriteBuffer(
+            Alert,
             AlertEntity,
-            self.environment.database,
+            self.environment,
             self.logger,
         )
         self.__event_processors = [
@@ -382,7 +383,7 @@ class Component(ValidatedDataclass, Tasklet):
 
     def __add_referencer(self, referencer: "Component") -> None:
         assert referencer is not self
-        self.__referencers[referencer.id] = referencer
+        self.__referencers[referencer.address] = referencer
 
     def __set_emitted_event_source(self, event: Event) -> None:
         if event.source is None:  # type: ignore
@@ -419,26 +420,9 @@ class Component(ValidatedDataclass, Tasklet):
 
         match event:
             case MessageSentEvent() | MessageReceivedEvent():
-                self.__message_write_buffer.add(
-                    MessageEntity(
-                        id=event.message.id,
-                        source_id=self.id,  # TODO: Actually use the passed ID.
-                        timestamp=event.message.timestamp,
-                        direction=event.message.direction,
-                        content=event.message.content,
-                    )
-                )
+                self.__message_write_buffer.add(event.message)
             case AlertEmittedEvent():
-                self.__alert_write_buffer.add(
-                    AlertEntity(
-                        id=event.alert.id,
-                        source_id=self.id,  # TODO: Actually use the passed ID.
-                        timestamp=event.alert.timestamp,
-                        level=event.alert.level,
-                        code=event.alert.code,
-                        info=dict(event.alert.info),
-                    )
-                )
+                self.__alert_write_buffer.add(event.alert)
             case _:
                 pass
 
@@ -510,7 +494,7 @@ class Component(ValidatedDataclass, Tasklet):
     async def __run__(self) -> None:
         if self.__has_exclusive_temporary_environment:
             await self.environment.database.init()
-            await self.environment.get_address_id(self.address, self.id)
+            await self.environment.assign_address_id(self.address)
 
         self.__start_scheduler()
 

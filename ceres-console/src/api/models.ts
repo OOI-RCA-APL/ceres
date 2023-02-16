@@ -148,7 +148,6 @@ export const LayoutModel = Zod.object({
 
 export type ComponentInfo = Zod.infer<typeof ComponentInfoModel>
 export const ComponentInfoModel = Zod.object({
-  id: Zod.string(),
   name: Zod.string(),
   address: Zod.string(),
   config: ComponentConfigModel,

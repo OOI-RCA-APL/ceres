@@ -1,8 +1,8 @@
 from functools import partial
 from typing import Sequence
-from typing_extensions import override
 
 from pydantic import Field
+from typing_extensions import override
 
 from ...dispatcher import Dispatch, Dispatcher
 from ...schedule import Schedule

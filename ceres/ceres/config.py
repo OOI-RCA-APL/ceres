@@ -133,8 +133,8 @@ class Config(ConfigObject):
     paths: PathsConfig = Field(default_factory=PathsConfig)
     units: Sequence[UnitConfig] = Field(default_factory=list)
 
-    __path: Path | None = None
-    __component_config_cache: dict[Address, ComponentConfig] = {}
+    __path: Path | None = None  # type: ignore
+    __component_config_cache: dict[Address, ComponentConfig] = {}  # type: ignore
 
     @classmethod
     def from_data(cls, data: Any, path: Path | None = None) -> Self:

@@ -179,7 +179,7 @@ class Unit(Tasklet):
                 continue
 
             address = Address.create(self.name, config.name)
-            id = await self.__environment.get_address_id(address)
+            id = await self.__environment.assign_address_id(address)
             match load_component(
                 config,
                 id=id,
@@ -194,7 +194,7 @@ class Unit(Tasklet):
                 case Ok(component):
                     self.__attach_component(component)
                     self.logger.info(
-                        f"Loaded '{component.address}' as {strify(type(component))} with id '{component.id}'."
+                        f"Loaded '{component.address}' as {strify(type(component))} with id {id}."
                     )
                 case Fail(error):
                     self.logger.error(

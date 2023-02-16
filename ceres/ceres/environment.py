@@ -1,3 +1,5 @@
+import asyncio
+import random
 from enum import Enum
 from re import Pattern
 from typing import TYPE_CHECKING, Any, Callable, Sequence, TypedDict, final
@@ -127,27 +129,41 @@ class Environment(ValidateByType):
     def database(self) -> Database:
         return self.__database
 
-    async def get_address_id(
+    async def assign_address_id(
         self,
         address: Address,
         default: UUID | None = None,
     ) -> UUID:
-        async with self.__database.session() as session:
-            if not (
-                component := await (
-                    session.scalar(
-                        select(ComponentEntity).where(ComponentEntity.address == address)
-                    )
-                )
-            ):
-                component = ComponentEntity(
-                    id=default or uuid4(),
-                    address=address,
-                )
-                session.add(component)
-                await session.commit()
+        # TODO: This is hacky as hell, fix this.
+        attempts = 10
 
-            return component.id
+        for attempt in range(1, attempts + 1):
+            try:
+                async with self.__database.session() as session:
+                    id = await (
+                        session.scalar(
+                            select(ComponentEntity.id).where(ComponentEntity.address == address)
+                        )
+                    )
+
+                    if id is not None:
+                        return id
+
+                    component = ComponentEntity(
+                        id=default or uuid4(),
+                        address=address,
+                    )
+
+                    session.add(component)
+                    await session.commit()
+                    return component.id
+            except Exception:
+                if attempt < attempts:
+                    await asyncio.sleep(random.random() * 0.25)
+                else:
+                    raise
+
+        raise Exception()
 
     async def get_messages(
         self,

@@ -174,7 +174,6 @@ def load_component(
 
     try:
         instance = cls(
-            id=id,
             name=name,
             environment=environment,
             paths=paths,

@@ -2,7 +2,6 @@ import asyncio
 from asyncio import CancelledError
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Mapping, Sequence, final
-from uuid import UUID
 
 from fastapi import (
     APIRouter,
@@ -69,7 +68,6 @@ def _get_component_roles(component: Component | type[Component]) -> Sequence[Com
 
 
 class ComponentInfo(ImmutableDataObject):
-    id: UUID
     name: Name
     address: Address
     config: ComponentConfig
@@ -207,7 +205,6 @@ async def get_unit_info(
                 unit,
                 component.name,
                 engine,
-                environment,
             )
         )
 
@@ -223,7 +220,6 @@ async def get_component_info(
     unit: Name,
     component: Name,
     engine: Engine = Depends(use_engine),
-    environment: Environment = Depends(use_environment),
 ) -> ComponentInfo:
     address = Address.create(unit, component)
     component_config = engine.config.get_component(address)
@@ -231,9 +227,7 @@ async def get_component_info(
     if component_config is None or component_cls is None:
         raise HTTPException(404)
 
-    id = await environment.get_address_id(address)
     return ComponentInfo(
-        id=id,
         name=component,
         address=address,
         config=component_config,
