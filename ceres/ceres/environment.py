@@ -1,5 +1,4 @@
-import asyncio
-import random
+from asyncio import Lock as AsyncLock
 from enum import Enum
 from re import Pattern
 from typing import TYPE_CHECKING, Any, Callable, Sequence, TypedDict, final
@@ -7,6 +6,7 @@ from uuid import UUID, uuid4
 
 from pydantic import Extra
 from sqlalchemy import BinaryExpression, ColumnElement, func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
 from sqlalchemy.sql.roles import ExpressionElementRole
 from typing_extensions import Self, Unpack
@@ -124,6 +124,8 @@ class Environment(ValidateByType):
             database = Database()
 
         self.__database = database
+        self.__mapping: dict[Address, UUID] | None = None
+        self.__mapping_lock = AsyncLock()
 
     @property
     def database(self) -> Database:
@@ -134,36 +136,36 @@ class Environment(ValidateByType):
         address: Address,
         default: UUID | None = None,
     ) -> UUID:
-        # TODO: This is hacky as hell, fix this.
-        attempts = 10
+        if self.__mapping is not None:
+            id = self.__mapping.get(address)
+            if id is not None:
+                return id
 
-        for attempt in range(1, attempts + 1):
-            try:
-                async with self.__database.session() as session:
-                    id = await (
-                        session.scalar(
-                            select(ComponentEntity.id).where(ComponentEntity.address == address)
-                        )
+        async with self.__database.session() as session:
+            mapping = await self.__get_or_load_mapping(session)
+            id = mapping.get(address)
+            if id is not None:
+                return id
+
+            if id is None:
+                id = await (
+                    session.scalar(
+                        select(ComponentEntity.id).where(ComponentEntity.address == address)
                     )
+                )
 
-                    if id is not None:
-                        return id
+            if id is None:
+                id = default or uuid4()
+                component = ComponentEntity(
+                    id=id,
+                    address=address,
+                )
 
-                    component = ComponentEntity(
-                        id=default or uuid4(),
-                        address=address,
-                    )
+                session.add(component)
+                await session.commit()
 
-                    session.add(component)
-                    await session.commit()
-                    return component.id
-            except Exception:
-                if attempt < attempts:
-                    await asyncio.sleep(random.random() * 0.25)
-                else:
-                    raise
-
-        raise Exception()
+            mapping[address] = id
+            return id
 
     async def get_messages(
         self,
@@ -336,6 +338,21 @@ class Environment(ValidateByType):
             rows = await session.execute(statement)
 
         return [Alert.construct(**row._asdict()) for row in rows]  # type: ignore
+
+    async def __generate_mapping(self, session: AsyncSession) -> dict[Address, UUID]:
+        return {
+            address: id
+            for address, id in await session.execute(
+                select(ComponentEntity.address, ComponentEntity.id)
+            )
+        }
+
+    async def __get_or_load_mapping(self, session: AsyncSession) -> dict[Address, UUID]:
+        async with self.__mapping_lock:
+            if self.__mapping is None:
+                self.__mapping = await self.__generate_mapping(session)
+
+        return self.__mapping
 
 
 def _like(
