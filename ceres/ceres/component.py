@@ -92,8 +92,8 @@ _EventT = TypeVar("_EventT", bound=Event)
 
 
 class ComponentPaths(ImmutableDataObject):
-    local: Directory = Field(default_factory=Directory)
     data: Directory = Field(default_factory=Directory)
+    local: Directory = Field(default_factory=Directory)
 
 
 @dataclass_transform(

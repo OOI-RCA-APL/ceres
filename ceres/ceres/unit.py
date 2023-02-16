@@ -1,7 +1,6 @@
 import asyncio
 import traceback
 from logging import Logger
-from pathlib import Path
 from typing import TYPE_CHECKING, AsyncIterable, Sequence, final
 from weakref import ref
 
@@ -31,8 +30,8 @@ else:
 
 
 class UnitPaths(ImmutableDataObject):
-    local: Directory = Field(default_factory=Directory)
     data: Directory = Field(default_factory=Directory)
+    local: Directory = Field(default_factory=Directory)
 
 
 @final
@@ -186,8 +185,8 @@ class Unit(Tasklet):
                 name=config.name,
                 environment=self.environment,
                 paths=ComponentPaths(
-                    local=self.paths.local.subdir(Path("components") / self.config.name),
                     data=self.paths.data,
+                    local=self.paths.local.subdir(config.name),
                 ),
                 siblings=self.__components,
             ):
