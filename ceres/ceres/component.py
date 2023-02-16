@@ -335,7 +335,7 @@ class Component(ValidatedDataclass, Tasklet):
     @property
     def address(self) -> Address:
         if self.unit is None:
-            return Address.create("anonymous", self.name)
+            return Address.create("default", self.name)
 
         return Address.create(self.unit.name, self.name)
 
