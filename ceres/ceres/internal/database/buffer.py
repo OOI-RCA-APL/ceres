@@ -2,17 +2,12 @@ import traceback
 from abc import ABC
 from asyncio import Event as AsyncEvent
 from logging import Logger
-from typing import TYPE_CHECKING, Any, Generic, Iterable, Mapping, TypeVar
-from uuid import UUID
+from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from ...address import Address
 from ...alert import Alert
 from ...config import DatabaseKind
 from ...message import Message
-from .entities import AlertEntity, ComponentEntity, MessageEntity
+from .entities import AlertEntity, MessageEntity
 
 _ModelT = TypeVar("_ModelT", bound=Message | Alert)
 _EntityT = TypeVar("_EntityT", bound=MessageEntity | AlertEntity)
@@ -35,7 +30,6 @@ class WriteBuffer(Generic[_ModelT, _EntityT], ABC):
         self.__entity_cls = entity_cls
         self.__environment = environment
         self.__pending: list[_ModelT] = []
-        self.__mapping: dict[Address, UUID] | None = None
         self.__flushing = False
         self.__empty_event = AsyncEvent()
         self.__empty_event.set()
@@ -79,13 +73,12 @@ class WriteBuffer(Generic[_ModelT, _EntityT], ABC):
                     case DatabaseKind.POSTGRES:
                         from sqlalchemy.dialects.postgresql import insert
 
-                mapping = await self.__get_updated_mapping(session, pending)
                 values: list[dict[str, Any]] = []
 
                 for model in pending:
                     data = model.dict()
                     data.pop("source", None)
-                    data["source_id"] = mapping[model.source]
+                    data["source_id"] = await self.__environment.assign_address_id(model.source)
                     values.append(data)
 
                 # TODO: Don't discard all buffered entities when a single entity insert fails.
@@ -105,27 +98,3 @@ class WriteBuffer(Generic[_ModelT, _EntityT], ABC):
 
     async def wait_until_empty(self) -> None:
         await self.__empty_event.wait()
-
-    async def __generate_mapping(self, session: AsyncSession) -> dict[Address, UUID]:
-        return {
-            address: id
-            for address, id in await session.execute(
-                select(ComponentEntity.address, ComponentEntity.id)
-            )
-        }
-
-    async def __get_updated_mapping(
-        self,
-        session: AsyncSession,
-        models: Iterable[_ModelT] = (),
-    ) -> Mapping[Address, UUID]:
-        if self.__mapping is None:
-            self.__mapping = await self.__generate_mapping(session)
-
-        for model in models:
-            if model.source not in self.__mapping:
-                self.__mapping[model.source] = await self.__environment.assign_address_id(
-                    model.source
-                )
-
-        return self.__mapping
