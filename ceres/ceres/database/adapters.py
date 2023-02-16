@@ -94,7 +94,7 @@ class SQLiteDatabaseAdapter(DatabaseAdapter[SQLiteDatabaseConfig]):
         def begin(connection: Connection) -> None:
             # Emit our own "BEGIN" statement.
             # https://docs.sqlalchemy.org/en/latest/dialects/sqlite.html#serializable-isolation-savepoints-transactional-ddl
-            connection.exec_driver_sql("BEGIN")
+            connection.exec_driver_sql("BEGIN IMMEDIATE")
 
         return engine
 
