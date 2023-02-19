@@ -3,7 +3,7 @@
     <template #header-append>
       <q-space class="gt-sm" />
       <div class="col-grow q-ml-sm self-search-input-container">
-        <q-input v-model="search" class="message-view-search-input" :debounce="50" dense outlined>
+        <q-input v-model="search" class="alert-view-search-input" :debounce="50" dense outlined>
           <template #prepend>
             <q-icon name="search" />
           </template>
@@ -11,29 +11,29 @@
       </div>
     </template>
     <q-virtual-scroll
-      v-if="messages.length"
+      v-if="alerts.length"
       ref="scroll"
-      v-slot="{ item: message }"
-      class="col-grow message-view-message-container self-message-container"
-      :items="messages"
-      :virtual-scroll-item-size="messageHeight"
+      v-slot="{ item: alert }"
+      class="alert-view-alert-container col-grow self-alert-container"
+      :items="alerts"
+      :virtual-scroll-item-size="alertHeight"
       :virtual-scroll-slice-size="250"
     >
-      <message-view-item :key="message.id" :message="message" />
+      <alert-view-item :key="alert.id" :alert="alert" />
     </q-virtual-scroll>
     <div v-else class="col-grow items-center justify-center row">
       <span class="self-empty-message-text text-italic">
-        <template v-if="isShowingAll">No messages were found.</template>
-        <template v-else>No matching messages were found.</template>
+        <template v-if="isShowingAll">No alerts were found.</template>
+        <template v-else>No matching alerts were found.</template>
       </span>
     </div>
   </section-card>
 </template>
 
 <script lang="ts" setup>
-import { ComponentInfo, Message } from '@/api/models'
-import { getComponent, getMessages, useMessageStream } from '@/api/queries'
-import MessageViewItem from '@/components/MessageViewItem.vue'
+import { Alert, ComponentInfo } from '@/api/models'
+import { getAlerts, getComponent, useAlertStream } from '@/api/queries'
+import AlertViewItem from '@/components/AlertViewItem.vue'
 import SectionCard from '@/components/SectionCard.vue'
 import { QVirtualScroll } from 'quasar'
 import { computed, nextTick, onMounted, watch, watchEffect } from 'vue'
@@ -43,6 +43,7 @@ const { title, unitName, componentName } = defineProps<{
   containerClass?: string | null
   unitName: string
   componentName: string
+  square?: boolean
 }>()
 
 const info = (await getComponent(unitName, componentName)) as ComponentInfo
@@ -50,7 +51,7 @@ if (info == null) {
   throw new Error('Component not found')
 }
 
-const messageHeight = 21.5
+const alertHeight = 21.5
 
 let search = $ref('')
 let scroll = $shallowRef<QVirtualScroll | null>(null)
@@ -64,14 +65,14 @@ const container = $computed(() => {
 
 const isShowingAll = $computed(() => search.length === 0)
 
-let messages = $ref<Message[]>([])
+let alerts = $ref<Alert[]>([])
 
-const earliestMessageTimestamp = $computed(() => messages[0]?.timestamp ?? null)
+const earliestAlertTimestamp = $computed(() => alerts[0]?.timestamp ?? null)
 
 let isExhausted = $ref(false)
 let isDoingInitialLoad = $ref(true)
-let isLoadingPreviousMessages = $ref(false)
-let isLoadingCurrentMessages = $ref(false)
+let isLoadingPreviousAlerts = $ref(false)
+let isLoadingCurrentAlerts = $ref(false)
 
 let containerInfo = $ref({
   scrollHeight: 0,
@@ -94,15 +95,15 @@ async function onScroll() {
     return
   }
 
-  if (isExhausted || isDoingInitialLoad || isLoadingCurrentMessages || isLoadingPreviousMessages) {
+  if (isExhausted || isDoingInitialLoad || isLoadingCurrentAlerts || isLoadingPreviousAlerts) {
     return
   }
 
   try {
-    isLoadingPreviousMessages = true
-    await loadPreviousMessages()
+    isLoadingPreviousAlerts = true
+    await loadPreviousAlerts()
   } finally {
-    isLoadingPreviousMessages = false
+    isLoadingPreviousAlerts = false
   }
 }
 
@@ -120,7 +121,7 @@ function isNearTop() {
     return false
   }
 
-  return containerInfo.scrollTop < 20 * messageHeight
+  return containerInfo.scrollTop < 20 * alertHeight
 }
 
 function isAtBottom() {
@@ -135,8 +136,8 @@ async function delay(milliseconds = 0) {
   return await new Promise((resolve) => setTimeout(resolve, milliseconds))
 }
 
-async function prependMessages(prepended: Message[]) {
-  messages = Object.freeze([...prepended, ...messages]) as Message[]
+async function prependAlerts(prepended: Alert[]) {
+  alerts = Object.freeze([...prepended, ...alerts]) as Alert[]
   scroll?.refresh(prepended.length)
 
   await delay(15)
@@ -145,11 +146,11 @@ async function prependMessages(prepended: Message[]) {
   await nextTick()
 }
 
-async function appendMessages(appended: Message[]) {
+async function appendAlerts(appended: Alert[]) {
   const follow = isAtBottom()
-  messages = Object.freeze([...messages, ...appended]) as Message[]
+  alerts = Object.freeze([...alerts, ...appended]) as Alert[]
   if (follow) {
-    scroll?.refresh(messages.length)
+    scroll?.refresh(alerts.length)
   }
 
   await delay(50)
@@ -158,25 +159,25 @@ async function appendMessages(appended: Message[]) {
   await nextTick()
 
   if (follow) {
-    scroll?.scrollTo(messages.length, 'end-force')
+    scroll?.scrollTo(alerts.length, 'end-force')
   }
 }
 
-async function loadPreviousMessages() {
-  const results = await getMessages({
+async function loadPreviousAlerts() {
+  const results = await getAlerts({
     source: info.address,
     search: search === '' ? undefined : search,
-    before: earliestMessageTimestamp == null ? undefined : earliestMessageTimestamp,
+    before: earliestAlertTimestamp == null ? undefined : earliestAlertTimestamp,
     order: 'new-to-old',
     limit: 100,
   })
 
   isExhausted = results.length === 0
-  await prependMessages(results.reverse())
+  await prependAlerts(results.reverse())
 }
 
-async function loadCurrentMessages() {
-  const results = await getMessages({
+async function loadCurrentAlerts() {
+  const results = await getAlerts({
     source: info.address,
     search: search === '' ? undefined : search,
     order: 'new-to-old',
@@ -184,23 +185,23 @@ async function loadCurrentMessages() {
   })
 
   isExhausted = results.length === 0
-  messages = []
-  await appendMessages(results.reverse())
+  alerts = []
+  await appendAlerts(results.reverse())
 }
 
-useMessageStream(
+useAlertStream(
   computed(() => ({
     source: info.address,
     search: search === '' ? undefined : search,
   })),
-  async (message: Message) => {
-    await appendMessages([message])
+  async (alert: Alert) => {
+    await appendAlerts([alert])
   }
 )
 
 function scrollToBottom() {
   if (scroll != null) {
-    scroll.scrollTo(messages.length)
+    scroll.scrollTo(alerts.length)
   }
 }
 
@@ -208,10 +209,10 @@ onMounted(async () => {
   try {
     try {
       isDoingInitialLoad = true
-      isLoadingCurrentMessages = true
-      await loadCurrentMessages()
+      isLoadingCurrentAlerts = true
+      await loadCurrentAlerts()
     } finally {
-      isLoadingCurrentMessages = false
+      isLoadingCurrentAlerts = false
     }
   } finally {
     void delay(1000).then(() => {
@@ -232,17 +233,17 @@ watch([computed(() => search)], async () => {
   }
 
   try {
-    isLoadingCurrentMessages = true
-    await loadCurrentMessages()
+    isLoadingCurrentAlerts = true
+    await loadCurrentAlerts()
     scrollToBottom()
   } finally {
-    isLoadingCurrentMessages = false
+    isLoadingCurrentAlerts = false
   }
 })
 </script>
 
 <style lang="scss" scoped>
-.self-message-container {
+.self-alert-container {
   height: 0; // Set so flex-box sizing works correctly.
   overscroll-behavior: contain;
   padding: 0 8px;
@@ -266,19 +267,19 @@ watch([computed(() => search)], async () => {
 </style>
 
 <style lang="scss">
-.message-view-search-input .q-field__control,
-.message-view-search-input .q-field__marginal {
+.alert-view-search-input .q-field__control,
+.alert-view-search-input .q-field__marginal {
   height: 28px;
 }
 
-.message-view-search-input {
+.alert-view-search-input {
   left: 12px;
   position: absolute;
   top: -14px;
   width: 100%;
 }
 
-.message-view-message-container .q-virtual-scroll__content {
+.alert-view-alert-container .q-virtual-scroll__content {
   contain: none !important;
 }
 </style>

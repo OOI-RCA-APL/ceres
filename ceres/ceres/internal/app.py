@@ -20,7 +20,7 @@ from starlette.status import HTTP_400_BAD_REQUEST
 from websockets.exceptions import ConnectionClosed
 
 from ..address import Address
-from ..alert import Alert
+from ..alert import Alert, AlertLevel
 from ..component import Component
 from ..config import ComponentConfig, Config, UnitConfig
 from ..data import ImmutableDataObject, Name, jsonify
@@ -114,6 +114,7 @@ async def reload(
 
 
 class GetMessagesQueryParameters(MessageQuery):
+    source: Address | None = None
     limit: int = Field(default=100, ge=0, le=500)
 
 
@@ -126,6 +127,9 @@ async def get_messages(
 
 
 class GetAlertsQueryParameters(AlertQuery):
+    source: Address | None = None
+    level: AlertLevel | None = None
+    code: str | None = None
     limit: int = Field(default=100, ge=0, le=500)
 
 
@@ -171,7 +175,8 @@ async def message_stream(
 @api.websocket("/alert-stream")
 async def alert_stream(
     socket: WebSocket,
-    address: Address | None = None,
+    source: Address | None = None,
+    search: str | None = None,
     engine: Engine = Depends(use_engine),
 ) -> None:
     try:
@@ -180,8 +185,15 @@ async def alert_stream(
         async for event in engine.events:
             if not isinstance(event, AlertEmittedEvent):
                 continue
-            if address is not None and event.alert.source != address:
+            if source is not None and event.alert.source != source:
                 continue
+            if search is not None:
+                if (
+                    search not in event.alert.timestamp.isoformat(" ")
+                    and search not in event.alert.code
+                    and search not in event.alert.info
+                ):
+                    continue
 
             await socket.send_text(jsonify(event.alert))
     except (WebSocketDisconnect, ConnectionClosed):

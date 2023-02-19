@@ -25,7 +25,7 @@ export const AlertModel = Zod.object({
   source: Zod.string(),
   timestamp: Zod.string(),
   level: AlertLevelModel,
-  kind: Zod.string(),
+  code: Zod.string(),
   info: Zod.record(Zod.string(), Zod.unknown()).default(() => ({})),
 })
 

@@ -1,13 +1,14 @@
 from asyncio import Lock as AsyncLock
+from datetime import datetime
 from enum import Enum
 from re import Pattern
 from typing import TYPE_CHECKING, Any, Callable, Sequence, TypedDict, final
 from uuid import UUID, uuid4
 
 from pydantic import Extra
-from sqlalchemy import BinaryExpression, ColumnElement, func, select
+from sqlalchemy import BinaryExpression, ColumnElement, Text, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import InstrumentedAttribute
+from sqlalchemy.sql.elements import SQLCoreOperations
 from sqlalchemy.sql.roles import ExpressionElementRole
 from typing_extensions import Self, Unpack
 
@@ -51,7 +52,8 @@ class Query(ImmutableDataObject):
 
 
 class MessageQueryArgs(TypedDict, total=False):
-    source: Address | Sequence[Address] | None
+    # source: Address | Sequence[Address] | None
+    source: Address | None
     search: str | None
     search_case_sensitive: bool
     within: PositiveTimeDelta | None
@@ -91,6 +93,8 @@ else:
 
 class AlertQueryArgs(TypedDict, total=False):
     source: Address | Sequence[Address] | None
+    search: str | None
+    search_case_sensitive: bool
     within: PositiveTimeDelta | None
     after: DateTime | None
     before: DateTime | None
@@ -103,6 +107,9 @@ class AlertQueryArgs(TypedDict, total=False):
 
 class AlertQuery(Query):
     source: Address | Sequence[Address] | None = None
+    search: str | None = None
+    search_case_sensitive: bool = False
+    within: PositiveTimeDelta | None = None
     within: PositiveTimeDelta | None = None
     after: DateTime | None = None
     before: DateTime | None = None
@@ -199,10 +206,7 @@ class Environment(ValidateByType):
                 case DatabaseKind.SQLITE:
                     statement = statement.where(
                         _like(
-                            func.strftime(
-                                "%Y-%m-%d %H:%M:%f",
-                                func.julianday(MessageEntity.timestamp),
-                            ),
+                            _sqlite_format_timestamp(MessageEntity.timestamp),
                             pattern,
                             query.search_case_sensitive,
                         )
@@ -216,7 +220,7 @@ class Environment(ValidateByType):
                 case DatabaseKind.POSTGRES:
                     statement = statement.where(
                         _like(
-                            func.to_char(MessageEntity.timestamp, "YYYY-MM-DD HH24:MI:SS.MS"),
+                            _pg_format_timestamp(MessageEntity.timestamp),
                             pattern,
                             query.search_case_sensitive,
                         )
@@ -295,6 +299,33 @@ class Environment(ValidateByType):
                 statement = statement.where(AlertEntity.source == query.source)
             else:
                 statement = statement.where(AlertEntity.source.in_(query.source))
+
+        if query.search is not None:
+            pattern = "%" + escape_like_expression(query.search) + "%"
+            match self.database.kind:
+                case DatabaseKind.SQLITE:
+                    statement = statement.where(
+                        _like(
+                            _sqlite_format_timestamp(AlertEntity.timestamp),
+                            pattern,
+                            query.search_case_sensitive,
+                        )
+                        | _like(AlertEntity.level, pattern, query.search_case_sensitive)
+                        | _like(AlertEntity.code, pattern, query.search_case_sensitive)
+                        | _like(AlertEntity.info, pattern, query.search_case_sensitive)
+                    )
+                case DatabaseKind.POSTGRES:
+                    statement = statement.where(
+                        _like(
+                            _pg_format_timestamp(AlertEntity.timestamp),
+                            pattern,
+                            query.search_case_sensitive,
+                        )
+                        | _like(AlertEntity.level, pattern, query.search_case_sensitive)
+                        | _like(AlertEntity.code, pattern, query.search_case_sensitive)
+                        | _like(cast(AlertEntity.info, Text), pattern, query.search_case_sensitive)
+                    )
+
         if query.within is not None:
             statement = statement.where(AlertEntity.timestamp >= utc() - query.within)
         if query.after is not None:
@@ -356,10 +387,21 @@ class Environment(ValidateByType):
 
 
 def _like(
-    expression: ColumnElement[Any] | InstrumentedAttribute[Any],
+    expression: SQLCoreOperations[Any],
     pattern: str | bytes,
     case_sensitive: bool = False,
 ) -> BinaryExpression[bool]:
     if case_sensitive:
         return expression.like(pattern)
     return expression.ilike(pattern)
+
+
+def _sqlite_format_timestamp(timestamp: SQLCoreOperations[datetime]) -> Any:
+    return func.strftime(
+        "%Y-%m-%d %H:%M:%f",
+        func.julianday(timestamp),
+    )
+
+
+def _pg_format_timestamp(timestamp: SQLCoreOperations[datetime]) -> Any:
+    return func.to_char(timestamp, "YYYY-MM-DD HH24:MI:SS.MS")

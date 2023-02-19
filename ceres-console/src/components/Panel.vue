@@ -1,5 +1,5 @@
 <template>
-  <div v-if="isSelected" class="full-height q-pa-sm">
+  <div v-if="isSelected" bordered class="col full-height overflow-hidden" flat square>
     <slot />
   </div>
 </template>

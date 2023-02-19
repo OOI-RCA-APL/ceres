@@ -1,11 +1,7 @@
 <template>
-  <q-card
-    bordered
-    :class="[$q.dark.isActive ? 'self-table-dark' : undefined, 'full-height', 'column']"
-    flat
-  >
+  <q-card bordered :class="[$q.dark.isActive && 'self-table-dark', 'full-height', 'column']" flat>
     <q-markup-table dense flat separator="cell">
-      <thead :class="$q.dark.isActive ? 'self-header-dark' : undefined">
+      <thead :class="$q.dark.isActive ? 'self-header-dark' : 'bg-grey-1 text-dark'">
         <q-tr no-hover>
           <q-th>{{ display.title }}</q-th>
         </q-tr>

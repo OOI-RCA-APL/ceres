@@ -1,9 +1,15 @@
 <template>
   <q-btn
-    :class="['q-px-md', isSelected ? 'text-primary' : '']"
+    align="left"
+    :class="[
+      'q-px-md',
+      'col-grow',
+      isSelected && 'text-primary',
+      isSelected && !$q.dark.isActive && 'bg-grey-1',
+    ]"
     dense
     flat
-    :icon="isSelected ? 'arrow_drop_up' : 'arrow_drop_down'"
+    :icon="isSelected ? icons.dropUp : icons.dropDown"
     no-caps
     square
     :style="{ fontWeight: '400' }"
@@ -16,9 +22,11 @@
       {{ name }}
     </template>
   </q-btn>
+  <q-separator vertical />
 </template>
 
 <script lang="ts" setup>
+import icons from '@/icons'
 import { usePanelGroup } from '@/panel-group'
 
 const { name } = defineProps<{

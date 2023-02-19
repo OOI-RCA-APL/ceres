@@ -1,4 +1,6 @@
 import {
+  Alert,
+  AlertModel,
   ComponentInfo,
   ComponentInfoModel,
   Config,
@@ -45,6 +47,17 @@ export async function getMessages(params: {
   return await get(`/api/messages${createQueryParams(params)}`, Zod.array(MessageModel))
 }
 
+export async function getAlerts(params: {
+  source?: string
+  search?: string
+  before?: string
+  after?: string
+  limit?: number
+  order?: 'new-to-old' | 'old-to-new'
+}): Promise<Alert[]> {
+  return await get(`/api/alerts${createQueryParams(params)}`, Zod.array(AlertModel))
+}
+
 function getWebSocketURI(relative: string) {
   const protocol = window.location.protocol.startsWith('https') ? 'wss' : 'ws'
   const hostname = window.location.hostname
@@ -79,6 +92,26 @@ export function useMessageStream<TModel extends ZodTypeAny>(
     // @ts-ignore
     MessageModel,
     onMessage
+  )
+}
+
+export function useAlertStream<TModel extends ZodTypeAny>(
+  params: MaybeRef<{
+    source?: string
+    search?: string
+  }>,
+  onAlert: (alert: Zod.infer<TModel>) => unknown
+) {
+  useStream(
+    computed(() =>
+      getWebSocketURI(
+        `/api/alert-stream${createQueryParams(isRef(params) ? params.value : params)}`
+      )
+    ),
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore
+    AlertModel,
+    onAlert
   )
 }
 

@@ -36,9 +36,36 @@
         </panel>
       </panel-group>
       <panel-group
+        v-if="components.length"
+        :default-height="300"
+        :persistence-key="`units/${unit.name}/alert-panel-group`"
+        title="Alerts"
+      >
+        <template #tabs>
+          <panel-tab
+            v-for="component in components"
+            :key="component.address"
+            :name="component.address"
+          />
+        </template>
+        <panel
+          v-for="component in components"
+          :key="component.address"
+          class="column"
+          :name="component.address"
+        >
+          <alert-view
+            class="col-grow"
+            :component-name="component.name"
+            :title="component.address"
+            :unit-name="unit.name"
+          />
+        </panel>
+      </panel-group>
+      <panel-group
         v-if="huds.length"
         :persistence-key="`units/${unit.name}/displays-panel-group`"
-        title="Displays"
+        title="UI"
       >
         <template #tabs>
           <panel-tab v-for="hud in huds" :key="hud.address" :name="hud.address" />
@@ -71,6 +98,7 @@
 
 <script lang="ts" setup>
 import { getUnit } from '@/api/queries'
+import AlertView from '@/components/AlertView.vue'
 import FullPage from '@/components/FullPage.vue'
 import Layout from '@/components/Layout.vue'
 import MessageView from '@/components/MessageView.vue'

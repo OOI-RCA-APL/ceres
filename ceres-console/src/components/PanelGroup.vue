@@ -1,11 +1,11 @@
 <template>
   <div
-    class="column"
+    class="column no-wrap"
     :style="group.height != null && group.selected.length ? { height: `${group.height}px` } : ''"
   >
-    <div class="col-shrink relative-position row">
+    <div class="no-wrap overflow-scroll relative-position row">
       <template v-if="title">
-        <div class="q-px-md q-py-sm text-grey-8" style="min-width: 120px">{{ title }}</div>
+        <div class="q-px-md q-py-sm self-title">{{ title }}</div>
         <q-separator vertical />
       </template>
       <slot name="tabs" />
@@ -13,10 +13,8 @@
     <q-separator />
 
     <template v-if="group.selected.length">
-      <div class="col-grow row">
-        <div class="col">
-          <slot />
-        </div>
+      <div class="col-grow q-col-gutter-sm q-pa-sm row">
+        <slot />
       </div>
       <resize-handle v-if="defaultHeight != null" vertical @resize="onResize" />
       <q-separator v-else />
@@ -52,3 +50,10 @@ function onResize(delta: number) {
 
 onResize(0)
 </script>
+
+<style lang="scss" scoped>
+.self-title {
+  opacity: 0.65;
+  min-width: 120px;
+}
+</style>

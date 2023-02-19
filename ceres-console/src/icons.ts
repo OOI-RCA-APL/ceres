@@ -4,6 +4,8 @@ const icons = {
   darkMode: 'dark_mode',
   dashboard: 'space_dashboard',
   delete: 'delete',
+  dropDown: 'arrow_drop_down',
+  dropUp: 'arrow_drop_up',
   help: 'help',
   job: 'build',
   lightMode: 'light_mode',
@@ -11,8 +13,8 @@ const icons = {
   script: 'code',
   search: 'search',
   send: 'send',
-  units: 'workspaces',
   unit: 'fiber_manual_record',
+  units: 'workspaces',
   user: 'person',
 } as const
 

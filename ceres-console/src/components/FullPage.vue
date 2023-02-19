@@ -1,6 +1,6 @@
 <template>
-  <div>
-    <div class="items-center position-sticky row">
+  <div :class="!$q.dark.isActive && 'bg-grey-2'">
+    <div :class="[!$q.dark.isActive && 'bg-white', 'items-center position-sticky row']">
       <common-text class="q-ml-md q-py-sm" variant="title2">{{ title }}</common-text>
       <slot name="header-append" />
     </div>

@@ -15,28 +15,20 @@
 </template>
 
 <script lang="ts" setup>
+import { Message } from '@/api/models'
 import moment from 'moment'
-
-type Message = {
-  timestamp: string
-  direction: 'send' | 'receive'
-  content: string
-}
 
 const { message } = defineProps<{
   message: Message
 }>()
 
 const directionColor = $computed(() => {
-  if (message.direction === 'receive') {
-    return 'info'
+  switch (message.direction) {
+    case 'receive':
+      return 'info'
+    case 'send':
+      return 'warning'
   }
-
-  if (message.direction === 'send') {
-    return 'warning'
-  }
-
-  return 'primary'
 })
 </script>
 
@@ -45,6 +37,7 @@ const directionColor = $computed(() => {
   align-items: center;
   flex-wrap: nowrap;
   justify-items: center;
+  min-height: 21.5px;
   white-space: nowrap;
 }
 
