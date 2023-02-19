@@ -1,6 +1,7 @@
 from asyncio import Lock as AsyncLock
 from datetime import datetime
 from enum import Enum
+from itertools import groupby
 from re import Pattern
 from typing import TYPE_CHECKING, Any, Callable, Sequence, TypedDict, final
 from uuid import UUID, uuid4
@@ -52,8 +53,7 @@ class Query(ImmutableDataObject):
 
 
 class MessageQueryArgs(TypedDict, total=False):
-    # source: Address | Sequence[Address] | None
-    source: Address | None
+    source: Address | Sequence[Address] | None
     search: str | None
     search_case_sensitive: bool
     within: PositiveTimeDelta | None
@@ -118,6 +118,20 @@ class AlertQuery(Query):
     code_regex: str | _StrPattern | None = None
     order: AlertOrder | None = None
     limit: int | None = None
+
+
+class AlertCountsQueryArgs(TypedDict, total=False):
+    source: Address | Sequence[Address] | None
+    within: PositiveTimeDelta | None
+    after: DateTime | None
+    before: DateTime | None
+
+
+class AlertCountsQuery(Query):
+    source: Address | Sequence[Address] | None = None
+    within: PositiveTimeDelta | None = None
+    after: DateTime | None = None
+    before: DateTime | None = None
 
 
 @final
@@ -369,6 +383,54 @@ class Environment(ValidateByType):
             rows = await session.execute(statement)
 
         return [Alert.construct(**row._asdict()) for row in rows]  # type: ignore
+
+    async def get_alert_counts(
+        self,
+        query: AlertCountsQuery | None = None,
+        **kwargs: Unpack[AlertCountsQueryArgs],
+    ) -> dict[Address, dict[AlertLevel, int]]:
+        statement = (
+            select(
+                ComponentEntity.address.label("source"),
+                AlertEntity.level,
+                func.count("*").label("count"),
+            )
+            .join(ComponentEntity)
+            .group_by(
+                ComponentEntity.address.label("source"),
+                AlertEntity.level,
+            )
+        )
+
+        if query is not None:
+            query = query.with_defaults(AlertCountsQuery(**kwargs))
+        else:
+            query = AlertCountsQuery(**kwargs)
+
+        if query.source is not None:
+            if isinstance(query.source, Address):
+                statement = statement.where(AlertEntity.source == query.source)
+            else:
+                statement = statement.where(AlertEntity.source.in_(query.source))
+
+        if query.within is not None:
+            statement = statement.where(AlertEntity.timestamp >= utc() - query.within)
+        if query.after is not None:
+            statement = statement.where(AlertEntity.timestamp >= query.after)
+        if query.before is not None:
+            statement = statement.where(AlertEntity.timestamp < query.before)
+
+        async with self.__database.session() as session:
+            output: dict[Address, dict[AlertLevel, int]] = {}
+            for address, by_address in groupby(
+                await session.execute(statement), lambda row: row[0]
+            ):
+                counts: dict[AlertLevel, int] = {}
+                for _, level, count in by_address:
+                    counts[level] = count
+                output[address] = counts
+
+        return output
 
     async def __generate_mapping(self, session: AsyncSession) -> dict[Address, UUID]:
         return {
