@@ -21,7 +21,7 @@
     >
       <message-view-item :key="message.id" :message="message" />
     </q-virtual-scroll>
-    <div v-else class="col-grow items-center justify-center row">
+    <div v-else-if="!isDoingInitialLoad" class="col-grow items-center justify-center row">
       <span class="self-empty-message-text text-italic">
         <template v-if="isShowingAll">No messages were found.</template>
         <template v-else>No matching messages were found.</template>

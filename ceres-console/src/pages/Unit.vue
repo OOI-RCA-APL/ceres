@@ -11,6 +11,7 @@
       <panel-group
         v-if="connections.length"
         :default-height="300"
+        :panels="connections.map((current) => current.name)"
         :persistence-key="`units/${unit.name}/messages-panel-group`"
         title="Messages"
       >
@@ -18,14 +19,14 @@
           <panel-tab
             v-for="connection in connections"
             :key="connection.address"
-            :name="connection.address"
+            :name="connection.name"
           />
         </template>
         <panel
           v-for="connection in connections"
           :key="connection.address"
           class="column"
-          :name="connection.address"
+          :name="connection.name"
         >
           <message-view
             class="col-grow"
@@ -38,6 +39,7 @@
       <panel-group
         v-if="components.length"
         :default-height="300"
+        :panels="components.map((current) => current.name)"
         :persistence-key="`units/${unit.name}/alert-panel-group`"
         title="Alerts"
       >
@@ -45,14 +47,17 @@
           <panel-tab
             v-for="component in components"
             :key="component.address"
-            :name="component.address"
-          />
+            :name="component.name"
+          >
+            {{ component.name }}
+            <alerts-indicator :component-name="component.name" :unit-name="unit.name" />
+          </panel-tab>
         </template>
         <panel
           v-for="component in components"
           :key="component.address"
           class="column"
-          :name="component.address"
+          :name="component.name"
         >
           <alert-view
             class="col-grow"
@@ -64,13 +69,14 @@
       </panel-group>
       <panel-group
         v-if="huds.length"
+        :panels="huds.map((current) => current.name)"
         :persistence-key="`units/${unit.name}/displays-panel-group`"
         title="UI"
       >
         <template #tabs>
-          <panel-tab v-for="hud in huds" :key="hud.address" :name="hud.address" />
+          <panel-tab v-for="hud in huds" :key="hud.address" :name="hud.name" />
         </template>
-        <panel v-for="hud in huds" :key="hud.address" :name="hud.address">
+        <panel v-for="hud in huds" :key="hud.address" :name="hud.name">
           <div v-if="hud.layout">
             <layout :component-name="hud.name" :layout="hud.layout" :unit-name="unit.name" />
           </div>
@@ -86,7 +92,7 @@
           </thead>
           <tbody>
             <q-tr v-for="component in components" :key="component.name" no-hover>
-              <q-td class="self-name-column">{{ name }}.{{ component.name }}</q-td>
+              <q-td class="self-name-column">{{ component.name }}</q-td>
               <q-td class="text-capitalize">Yes</q-td>
             </q-tr>
           </tbody>
@@ -98,6 +104,7 @@
 
 <script lang="ts" setup>
 import { getUnit } from '@/api/queries'
+import AlertsIndicator from '@/components/AlertsIndicator.vue'
 import AlertView from '@/components/AlertView.vue'
 import FullPage from '@/components/FullPage.vue'
 import Layout from '@/components/Layout.vue'

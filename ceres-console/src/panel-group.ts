@@ -1,6 +1,6 @@
 import { usePersisted } from '@/persistence'
 import { MaybeRef } from '@vueuse/core'
-import { computed, inject, InjectionKey, isRef, provide, reactive } from 'vue'
+import { computed, inject, InjectionKey, isRef, provide, reactive, watchEffect } from 'vue'
 import Zod from 'zod'
 
 type PanelGroupContext = ReturnType<typeof createPanelGroup>
@@ -8,6 +8,7 @@ type PanelGroupContext = ReturnType<typeof createPanelGroup>
 const injectionKey: InjectionKey<PanelGroupContext> = Symbol('panel-group')
 
 type PanelGroupOptions = {
+  panels?: string[]
   defaultHeight?: number
   persistenceKey?: string
 }
@@ -31,6 +32,14 @@ function createPanelGroup(options?: MaybeRef<PanelGroupOptions>) {
   if (reactiveOptions.value.defaultHeight != null && state.height == null) {
     state.height = reactiveOptions.value.defaultHeight
   }
+
+  watchEffect(() => {
+    if (reactiveOptions.value.panels != null) {
+      state.selected = state.selected.filter((current) =>
+        reactiveOptions.value.panels?.includes(current)
+      )
+    }
+  })
 
   function select(panel: string) {
     if (state.selected.includes(panel)) {

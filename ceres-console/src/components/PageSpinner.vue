@@ -1,17 +1,14 @@
 <template>
-  <div class="full-width items-center justify-center q-pb-lg self-container window-height">
-    <spinner class="self-spinner" color="primary" size="75px" />
+  <div class="full-width items-center justify-center q-pb-lg self-root window-height">
+    <q-spinner-ball color="primary" size="40px" />
   </div>
 </template>
 
-<script lang="ts" setup>
-import Spinner from '@/components/Spinner.vue'
-</script>
-
 <style lang="scss" scoped>
-.self-container {
+.self-root {
   align-items: center;
   display: flex;
+  animation: fadeIn 1s ease-in;
   justify-content: center;
   padding-bottom: 50vh;
 }

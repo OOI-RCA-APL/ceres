@@ -24,7 +24,13 @@ from ..alert import Alert, AlertLevel
 from ..component import Component
 from ..config import ComponentConfig, Config, UnitConfig
 from ..data import ImmutableDataObject, Name, jsonify
-from ..environment import AlertCountsQuery, AlertQuery, Environment, MessageQuery
+from ..environment import (
+    AlertQuery,
+    Environment,
+    MessageQuery,
+    Statistics,
+    StatisticsQuery,
+)
 from ..errors import ProcedureError, ProcedureInternalError, ReloadError
 from ..events import AlertEmittedEvent, MessageReceivedEvent, MessageSentEvent
 from ..exceptions import ProcedureException
@@ -141,16 +147,16 @@ async def get_alerts(
     return await environment.get_alerts(query)
 
 
-class GetAlertCountsQueryParameters(AlertCountsQuery):
-    source: Address | None = None
+class GetStatisticsQueryParameters(StatisticsQuery):
+    pass
 
 
-@api.get("/alert-counts", tags=["data"])
-async def get_alert_counts(
-    query: GetAlertCountsQueryParameters = Depends(),
+@api.get("/statistics", tags=["data"])
+async def get_statistics(
+    query: GetStatisticsQueryParameters = Depends(),
     environment: Environment = Depends(use_environment),
-) -> dict[Address, dict[AlertLevel, int]]:
-    return await environment.get_alert_counts(query)
+) -> Statistics:
+    return await environment.get_statistics(query)
 
 
 @api.websocket("/message-stream")

@@ -29,6 +29,35 @@ export const AlertModel = Zod.object({
   info: Zod.record(Zod.string(), Zod.unknown()).default(() => ({})),
 })
 
+export type AlertLevelStatistics = Zod.infer<typeof AlertLevelStatisticsModel>
+export const AlertLevelStatisticsModel = Zod.object({
+  level: AlertLevelModel,
+  count: Zod.number(),
+})
+
+export type AlertStatistics = Zod.infer<typeof AlertStatisticsModel>
+export const AlertStatisticsModel = Zod.object({
+  count: Zod.number(),
+  levels: Zod.array(AlertLevelStatisticsModel),
+})
+
+export type ComponentStatistics = Zod.infer<typeof ComponentStatisticsModel>
+export const ComponentStatisticsModel = Zod.object({
+  alerts: AlertStatisticsModel,
+})
+
+export type UnitStatistics = Zod.infer<typeof UnitStatisticsModel>
+export const UnitStatisticsModel = Zod.object({
+  alerts: AlertStatisticsModel,
+  components: Zod.record(Zod.string(), ComponentStatisticsModel),
+})
+
+export type Statistics = Zod.infer<typeof StatisticsModel>
+export const StatisticsModel = Zod.object({
+  alerts: AlertStatisticsModel,
+  units: Zod.record(Zod.string(), UnitStatisticsModel),
+})
+
 export type ComponentRole = Zod.infer<typeof ComponentRoleModel>
 export const ComponentRoleModel = Zod.enum(['connection', 'dispatcher', 'notifier'])
 

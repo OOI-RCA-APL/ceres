@@ -16,7 +16,12 @@
       <div class="col-grow q-col-gutter-sm q-pa-sm row">
         <slot />
       </div>
-      <resize-handle v-if="defaultHeight != null" vertical @resize="onResize" />
+      <resize-handle
+        v-if="defaultHeight != null && group.height != null"
+        v-model="group.height"
+        direction="vertical"
+        :min="114"
+      />
       <q-separator v-else />
     </template>
   </div>
@@ -27,28 +32,20 @@ import ResizeHandle from '@/components/ResizeHandle.vue'
 import { providePanelGroup } from '@/panel-group'
 import { computed } from 'vue'
 
-const minHeight = 114
-
-const { defaultHeight, persistenceKey } = defineProps<{
+const { panels, defaultHeight, persistenceKey } = defineProps<{
   title?: string
+  panels?: string[]
   defaultHeight?: number
   persistenceKey?: string
 }>()
 
 const group = providePanelGroup(
   computed(() => ({
+    panels,
     defaultHeight,
     persistenceKey,
   }))
 )
-
-function onResize(delta: number) {
-  if (group.height != null) {
-    group.height = Math.max(group.height + delta, minHeight)
-  }
-}
-
-onResize(0)
 </script>
 
 <style lang="scss" scoped>

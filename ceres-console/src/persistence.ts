@@ -30,14 +30,14 @@ export type PersistenceMethod<TData extends Mapping> =
 
 export type UsePersistedOptions<TData extends BaseData<TSchema>, TSchema extends BaseSchema> = {
   data?: TData
-  schema: TSchema
+  schema: TSchema | ((zod: typeof Zod) => TSchema)
   methods: MaybeRef<PersistenceMethod<TData>[]>
 }
 
 export function usePersisted<TData extends BaseData<TSchema>, TSchema extends BaseSchema>(
   options: UsePersistedOptions<TData, TSchema>
 ): TData {
-  const schema = options.schema
+  const schema = typeof options.schema == 'function' ? options.schema(Zod) : options.schema
   const methods = computed(() => (isRef(options.methods) ? options.methods.value : options.methods))
   const router = useRouter()
 

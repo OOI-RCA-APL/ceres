@@ -2,6 +2,8 @@
   <q-btn
     align="left"
     :class="[
+      'row',
+      'items-center',
       'q-px-md',
       'col-grow',
       isSelected && 'text-primary',

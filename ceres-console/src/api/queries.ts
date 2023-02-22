@@ -9,10 +9,14 @@ import {
   MessageModel,
   Result,
   ResultModel,
+  Statistics,
+  StatisticsModel,
   UnitInfo,
   UnitInfoModel,
 } from '@/api/models'
 import { DisplayInfoModel } from '@/display'
+import { useIntervalFn } from '@vueuse/core'
+import moment from 'moment'
 import { defineStore } from 'pinia'
 import { computed, isRef, ref, watchEffect } from 'vue'
 import { useQuery } from 'vue-query'
@@ -39,8 +43,8 @@ export async function getComponent(unit: string, name: string): Promise<Componen
 export async function getMessages(params: {
   source?: string
   search?: string
-  before?: string
   after?: string
+  before?: string
   limit?: number
   order?: 'new-to-old' | 'old-to-new'
 }): Promise<Message[]> {
@@ -50,12 +54,19 @@ export async function getMessages(params: {
 export async function getAlerts(params: {
   source?: string
   search?: string
-  before?: string
   after?: string
+  before?: string
   limit?: number
   order?: 'new-to-old' | 'old-to-new'
 }): Promise<Alert[]> {
   return await get(`/api/alerts${createQueryParams(params)}`, Zod.array(AlertModel))
+}
+
+export async function getStatistics(params: {
+  after?: string
+  before?: string
+}): Promise<Statistics> {
+  return await get(`/api/statistics${createQueryParams(params)}`, StatisticsModel)
 }
 
 function getWebSocketURI(relative: string) {
@@ -139,6 +150,30 @@ export const useConfig = defineStore('config', () => {
     load,
     getUnit,
     getComponent,
+  }
+})
+
+export const useStatistics = defineStore('statistics', () => {
+  const query = useQuery(['statistics'], () =>
+    getStatistics({
+      after: moment.utc().subtract(moment.duration(1, 'hour')).format(),
+    })
+  )
+
+  const data = $computed(() => query.data.value as Statistics)
+  const error = $computed(() => query.error)
+
+  async function load() {
+    await query.suspense()
+  }
+  useIntervalFn(async () => {
+    await query.refetch.value()
+  }, 1000 * 60)
+
+  return {
+    data: $$(data),
+    error: $$(error),
+    load,
   }
 })
 

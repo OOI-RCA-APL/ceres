@@ -1,12 +1,12 @@
 from asyncio import Lock as AsyncLock
+from collections import defaultdict
 from datetime import datetime
 from enum import Enum
-from itertools import groupby
 from re import Pattern
-from typing import TYPE_CHECKING, Any, Callable, Sequence, TypedDict, final
+from typing import TYPE_CHECKING, Any, Callable, Mapping, Sequence, TypedDict, final
 from uuid import UUID, uuid4
 
-from pydantic import Extra
+from pydantic import Extra, Field
 from sqlalchemy import BinaryExpression, ColumnElement, Text, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import SQLCoreOperations
@@ -16,7 +16,7 @@ from typing_extensions import Self, Unpack
 from .address import Address
 from .alert import Alert, AlertLevel
 from .config import DatabaseKind
-from .data import DateTime, ImmutableDataObject, PositiveTimeDelta
+from .data import DateTime, ImmutableDataObject, Name, PositiveTimeDelta
 from .database import Database
 from .internal.database.entities import AlertEntity, ComponentEntity, MessageEntity
 from .internal.utilities import ValidateByType, escape_like_expression
@@ -120,18 +120,40 @@ class AlertQuery(Query):
     limit: int | None = None
 
 
-class AlertCountsQueryArgs(TypedDict, total=False):
-    source: Address | Sequence[Address] | None
+class StatisticsQueryArgs(TypedDict, total=False):
     within: PositiveTimeDelta | None
     after: DateTime | None
     before: DateTime | None
 
 
-class AlertCountsQuery(Query):
-    source: Address | Sequence[Address] | None = None
+class StatisticsQuery(Query):
     within: PositiveTimeDelta | None = None
     after: DateTime | None = None
     before: DateTime | None = None
+
+
+class AlertLevelStatistics(ImmutableDataObject):
+    level: AlertLevel
+    count: int = Field(ge=0)
+
+
+class AlertStatistics(ImmutableDataObject):
+    count: int
+    levels: Sequence[AlertLevelStatistics]
+
+
+class ComponentStatistics(ImmutableDataObject):
+    alerts: AlertStatistics
+
+
+class UnitStatistics(ImmutableDataObject):
+    alerts: AlertStatistics
+    components: Mapping[Name, ComponentStatistics] = Field(default_factory=dict)
+
+
+class Statistics(ImmutableDataObject):
+    alerts: AlertStatistics
+    units: Mapping[Name, UnitStatistics] = Field(default_factory=dict)
 
 
 @final
@@ -384,11 +406,11 @@ class Environment(ValidateByType):
 
         return [Alert.construct(**row._asdict()) for row in rows]  # type: ignore
 
-    async def get_alert_counts(
+    async def get_statistics(
         self,
-        query: AlertCountsQuery | None = None,
-        **kwargs: Unpack[AlertCountsQueryArgs],
-    ) -> dict[Address, dict[AlertLevel, int]]:
+        query: StatisticsQuery | None = None,
+        **kwargs: Unpack[StatisticsQueryArgs],
+    ) -> Statistics:
         statement = (
             select(
                 ComponentEntity.address.label("source"),
@@ -403,15 +425,9 @@ class Environment(ValidateByType):
         )
 
         if query is not None:
-            query = query.with_defaults(AlertCountsQuery(**kwargs))
+            query = query.with_defaults(StatisticsQuery(**kwargs))
         else:
-            query = AlertCountsQuery(**kwargs)
-
-        if query.source is not None:
-            if isinstance(query.source, Address):
-                statement = statement.where(AlertEntity.source == query.source)
-            else:
-                statement = statement.where(AlertEntity.source.in_(query.source))
+            query = StatisticsQuery(**kwargs)
 
         if query.within is not None:
             statement = statement.where(AlertEntity.timestamp >= utc() - query.within)
@@ -420,17 +436,85 @@ class Environment(ValidateByType):
         if query.before is not None:
             statement = statement.where(AlertEntity.timestamp < query.before)
 
-        async with self.__database.session() as session:
-            output: dict[Address, dict[AlertLevel, int]] = {}
-            for address, by_address in groupby(
-                await session.execute(statement), lambda row: row[0]
-            ):
-                counts: dict[AlertLevel, int] = {}
-                for _, level, count in by_address:
-                    counts[level] = count
-                output[address] = counts
+        alert_count = 0
+        unit_alert_counts: defaultdict[Name, int] = defaultdict(int)
+        component_alert_counts: defaultdict[Name, defaultdict[Name, int]] = defaultdict(
+            lambda: defaultdict(int)
+        )
 
-        return output
+        alert_counts_by_level: defaultdict[AlertLevel, int] = defaultdict(int)
+        unit_alert_counts_by_level: defaultdict[Name, defaultdict[AlertLevel, int]] = defaultdict(
+            lambda: defaultdict(int)
+        )
+        component_alert_counts_by_level: defaultdict[
+            Name, defaultdict[Name, defaultdict[AlertLevel, int]]
+        ] = defaultdict(lambda: defaultdict(lambda: defaultdict(int)))
+
+        async with self.__database.session() as session:
+            rows = await session.execute(statement)
+
+        for address, level, count in rows:
+            alert_count += count
+            unit_alert_counts[address.unit] += count
+            component_alert_counts[address.unit][address.name] += count
+
+            alert_counts_by_level[level] += count
+            unit_alert_counts_by_level[address.unit][level] += count
+            component_alert_counts_by_level[address.unit][address.name][level] += count
+
+        return Statistics(
+            alerts=AlertStatistics(
+                count=alert_count,
+                levels=sorted(
+                    [
+                        AlertLevelStatistics(
+                            level=level,
+                            count=count,
+                        )
+                        for level, count in alert_counts_by_level.items()
+                    ],
+                    key=lambda current: current.level,
+                ),
+            ),
+            units={
+                unit_name: UnitStatistics(
+                    alerts=AlertStatistics(
+                        count=unit_alert_counts[unit_name],
+                        levels=sorted(
+                            [
+                                AlertLevelStatistics(
+                                    level=level,
+                                    count=count,
+                                )
+                                for level, count in unit_alert_counts_by_level[unit_name].items()
+                            ],
+                            key=lambda current: current.level,
+                        ),
+                    ),
+                    components={
+                        component_name: ComponentStatistics(
+                            alerts=AlertStatistics(
+                                count=component_alert_counts[unit_name][component_name],
+                                levels=sorted(
+                                    [
+                                        AlertLevelStatistics(
+                                            level=level,
+                                            count=count,
+                                        )
+                                        for level, count in component_alert_counts_by_level[
+                                            unit_name
+                                        ][component_name].items()
+                                    ],
+                                    key=lambda current: current.level,
+                                ),
+                            ),
+                        )
+                        for component_name in component_alert_counts_by_level[unit_name].keys()
+                    },
+                )
+                for unit_name in unit_alert_counts_by_level.keys()
+            },
+        )
 
     async def __generate_mapping(self, session: AsyncSession) -> dict[Address, UUID]:
         return {

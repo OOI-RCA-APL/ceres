@@ -1,7 +1,7 @@
 <template>
-  <q-card bordered :class="[$q.dark.isActive && 'self-table-dark', 'full-height', 'column']" flat>
+  <q-card bordered class="column full-height self-root" flat>
     <q-markup-table dense flat separator="cell">
-      <thead :class="$q.dark.isActive ? 'self-header-dark' : 'bg-grey-1 text-dark'">
+      <thead class="self-header">
         <q-tr no-hover>
           <q-th>{{ display.title }}</q-th>
         </q-tr>
@@ -43,11 +43,15 @@ useDisplayStream(unitName, componentName, display.procedure, (current) => {
 </script>
 
 <style lang="scss" scoped>
-.self-table-dark {
+.body--dark .self-root {
   background-color: #131313;
 }
 
-.self-header-dark {
+.self-header {
+  background-color: $grey-1;
+}
+
+.body--dark .self-header {
   background-color: #1d1d1d;
 }
 </style>

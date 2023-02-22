@@ -1,15 +1,9 @@
 <template>
-  <div
-    :class="[
-      'self-root',
-      vertical ? 'self-vertical' : 'self-horizontal',
-      $q.dark.isActive && 'self-root--dark',
-    ]"
-  >
+  <div :class="['self-root', isVertical ? 'self-vertical' : 'self-horizontal']">
     <div
       :class="[
         'self-handle',
-        vertical ? 'self-handle-vertical' : 'self-handle-horizontal',
+        isVertical ? 'self-handle-vertical' : 'self-handle-horizontal',
         drag != null && 'self-handle-dragging',
       ]"
       :style="{ top: `${innerPosition.y}px`, left: `${innerPosition.x}px` }"
@@ -19,14 +13,17 @@
 </template>
 
 <script lang="ts" setup>
-import { onUnmounted } from 'vue'
+import { onMounted, onUnmounted } from 'vue'
 
-const { vertical = true } = defineProps<{
-  vertical?: boolean
+const { direction, modelValue, min, max } = defineProps<{
+  direction: 'vertical' | 'horizontal'
+  modelValue: number
+  min?: number
+  max?: number
 }>()
 
 const emit = defineEmits<{
-  (emit: 'resize', delta: number): void
+  (emit: 'update:modelValue', modelValue: number): void
 }>()
 
 type Vector = { x: number; y: number }
@@ -35,8 +32,22 @@ type Drag = {
   end: Vector
 }
 
+function clamp(size: number) {
+  if (min && size < min) {
+    return min
+  }
+  if (max && size > max) {
+    return max
+  }
+
+  return size
+}
+
+const isVertical = $computed(() => direction == 'vertical')
+const axis = isVertical ? 'y' : 'x'
+
 let drag = $ref<Drag | null>(null)
-const innerPositionOffset = $computed(() => (vertical ? { x: 0, y: -3 } : { x: -3, y: 0 }))
+const innerPositionOffset = $computed(() => (isVertical ? { x: 0, y: -3 } : { x: -3, y: 0 }))
 const innerPosition = $computed(() => {
   const result = {
     x: innerPositionOffset.x,
@@ -47,11 +58,9 @@ const innerPosition = $computed(() => {
     return result
   }
 
-  if (vertical) {
-    result.y += drag.end.y - drag.start.y
-  } else {
-    result.x += drag.end.x - drag.start.x
-  }
+  const size = clamp(modelValue + drag.end[axis] - drag.start[axis])
+  const delta = size - modelValue
+  result[axis] += delta
 
   return result
 })
@@ -86,13 +95,19 @@ function onPointerUp(event: PointerEvent) {
   drag.end.x = event.pageX
   drag.end.y = event.pageY
 
-  const delta = vertical ? drag.end.y - drag.start.y : drag.end.x - drag.start.x
-  emit('resize', delta)
+  const size = clamp(modelValue + drag.end[axis] - drag.start[axis])
+  emit('update:modelValue', size)
 
   drag = null
   window.removeEventListener('pointerup', onPointerUp)
   window.removeEventListener('pointerup', onPointerMove)
 }
+
+onMounted(() => {
+  if (modelValue !== clamp(modelValue)) {
+    emit('update:modelValue', clamp(modelValue))
+  }
+})
 
 onUnmounted(() => {
   window.removeEventListener('pointerup', onPointerUp)
@@ -106,7 +121,7 @@ onUnmounted(() => {
   background-color: rgba(0, 0, 0, 0.12);
 }
 
-.self-root--dark {
+.body--dark .self-root {
   background-color: rgba(255, 255, 255, 0.28);
 }
 

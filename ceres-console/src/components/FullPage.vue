@@ -1,6 +1,6 @@
 <template>
-  <div :class="!$q.dark.isActive && 'bg-grey-2'">
-    <div :class="[!$q.dark.isActive && 'bg-white', 'items-center position-sticky row']">
+  <div class="full-height self-root">
+    <div class="items-center row self-header">
       <common-text class="q-ml-md q-py-sm" variant="title2">{{ title }}</common-text>
       <slot name="header-append" />
     </div>
@@ -16,3 +16,13 @@ defineProps<{
   title: string
 }>()
 </script>
+
+<style lang="scss" scoped>
+.body--light .self-root {
+  background-color: $grey-2;
+}
+
+.body--light .self-header {
+  background-color: white;
+}
+</style>

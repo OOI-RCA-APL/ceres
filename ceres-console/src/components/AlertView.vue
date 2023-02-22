@@ -21,7 +21,7 @@
     >
       <alert-view-item :key="alert.id" :alert="alert" />
     </q-virtual-scroll>
-    <div v-else class="col-grow items-center justify-center row">
+    <div v-else-if="!isDoingInitialLoad" class="col-grow items-center justify-center row">
       <span class="self-empty-message-text text-italic">
         <template v-if="isShowingAll">No alerts were found.</template>
         <template v-else>No matching alerts were found.</template>
