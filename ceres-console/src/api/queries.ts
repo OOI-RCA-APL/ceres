@@ -95,7 +95,7 @@ export function useMessageStream<TModel extends ZodTypeAny>(
     source?: string
     search?: string
   }>,
-  onMessage: (message: Zod.infer<TModel>) => unknown
+  onReceive: (message: Zod.infer<TModel>) => unknown
 ) {
   useStream(
     computed(() =>
@@ -106,7 +106,7 @@ export function useMessageStream<TModel extends ZodTypeAny>(
     // eslint-disable-next-line @typescript-eslint/ban-ts-comment
     // @ts-ignore
     MessageModel,
-    onMessage
+    onReceive
   )
 }
 
@@ -115,7 +115,7 @@ export function useAlertStream<TModel extends ZodTypeAny>(
     source?: string
     search?: string
   }>,
-  onAlert: (alert: Zod.infer<TModel>) => unknown
+  onReceive: (alert: Zod.infer<TModel>) => unknown
 ) {
   useStream(
     computed(() =>
@@ -126,7 +126,7 @@ export function useAlertStream<TModel extends ZodTypeAny>(
     // eslint-disable-next-line @typescript-eslint/ban-ts-comment
     // @ts-ignore
     AlertModel,
-    onAlert
+    onReceive
   )
 }
 

@@ -3,55 +3,69 @@
     <template #header-append>
       <q-space class="gt-sm" />
       <div class="col-grow q-ml-sm self-search-input-container">
-        <q-input v-model="search" class="message-view-search-input" :debounce="50" dense outlined>
+        <q-input v-model="search" class="item-view-search-input" :debounce="50" dense outlined>
           <template #prepend>
             <q-icon name="search" />
           </template>
         </q-input>
       </div>
     </template>
-    <div v-if="messages.length" class="col-grow self-virtual-scroll-container">
+    <div v-if="items.length" class="col-grow self-virtual-scroll-container">
       <q-virtual-scroll
         ref="scroll"
-        v-slot="{ item: message }"
-        class="fit message-view-virtual-scroll self-virtual-scroll"
-        :items="messages"
-        :virtual-scroll-item-size="messageHeight"
+        v-slot="{ item }"
+        class="fit item-view-virtual-scroll self-virtual-scroll"
+        :items="items"
+        :virtual-scroll-item-size="itemHeight"
         :virtual-scroll-slice-size="250"
       >
-        <message-view-item :key="message.id" :message="message" />
+        <item-view-message v-if="kind === 'message'" :key="item.id" :message="item" />
+        <item-view-alert v-else :key="item.id as any" :alert="item" />
       </q-virtual-scroll>
     </div>
     <div v-else-if="!isDoingInitialLoad" class="col-grow items-center justify-center row">
       <span class="self-empty-message-text text-italic">
-        <template v-if="isShowingAll">No messages were found.</template>
-        <template v-else>No matching messages were found.</template>
+        <template v-if="isShowingAll">No {{ kind }}s were found.</template>
+        <template v-else>No matching {{ kind }}s were found.</template>
       </span>
     </div>
   </section-card>
 </template>
 
 <script lang="ts" setup>
-import { ComponentInfo, Message } from '@/api/models'
-import { getComponent, getMessages, useMessageStream } from '@/api/queries'
-import MessageViewItem from '@/components/MessageViewItem.vue'
+import { Alert, ComponentInfo, Message } from '@/api/models'
+import {
+  getAlerts,
+  getComponent,
+  getMessages,
+  useAlertStream,
+  useMessageStream,
+} from '@/api/queries'
+import ItemViewAlert from '@/components/ItemViewAlert.vue'
+import ItemViewMessage from '@/components/ItemViewMessage.vue'
 import SectionCard from '@/components/SectionCard.vue'
 import { QVirtualScroll } from 'quasar'
 import { computed, nextTick, onMounted, watch, watchEffect } from 'vue'
 
-const { title, unitName, componentName } = defineProps<{
+type Item = Alert | Message
+
+const { title, unitName, componentName, kind } = defineProps<{
   title: string
   containerClass?: string | null
   unitName: string
   componentName: string
+  kind: 'alert' | 'message'
 }>()
+
+const get = $computed(() => (kind === 'message' ? getMessages : getAlerts))
+const useStream = $computed(() => (kind === 'message' ? useMessageStream : useAlertStream))
 
 const info = (await getComponent(unitName, componentName)) as ComponentInfo
 if (info == null) {
   throw new Error('Component not found')
 }
 
-const messageHeight = 21.5
+const itemHeight = 21.5
 
 let search = $ref('')
 let scroll = $shallowRef<QVirtualScroll | null>(null)
@@ -65,14 +79,14 @@ const container = $computed(() => {
 
 const isShowingAll = $computed(() => search.length === 0)
 
-let messages = $ref<Message[]>([])
+let items = $ref<Item[]>([])
 
-const earliestMessageTimestamp = $computed(() => messages[0]?.timestamp ?? null)
+const earliestItemTimestamp = $computed(() => items[0]?.timestamp ?? null)
 
 let isExhausted = $ref(false)
 let isDoingInitialLoad = $ref(true)
-let isLoadingPreviousMessages = $ref(false)
-let isLoadingCurrentMessages = $ref(false)
+let isLoadingPrevious = $ref(false)
+let isLoadingCurrent = $ref(false)
 
 let containerInfo = $ref({
   scrollHeight: 0,
@@ -95,15 +109,15 @@ async function onScroll() {
     return
   }
 
-  if (isExhausted || isDoingInitialLoad || isLoadingCurrentMessages || isLoadingPreviousMessages) {
+  if (isExhausted || isDoingInitialLoad || isLoadingCurrent || isLoadingPrevious) {
     return
   }
 
   try {
-    isLoadingPreviousMessages = true
-    await loadPreviousMessages()
+    isLoadingPrevious = true
+    await loadPrevious()
   } finally {
-    isLoadingPreviousMessages = false
+    isLoadingPrevious = false
   }
 }
 
@@ -121,7 +135,7 @@ function isNearTop() {
     return false
   }
 
-  return containerInfo.scrollTop < 20 * messageHeight
+  return containerInfo.scrollTop < 20 * itemHeight
 }
 
 function isAtBottom() {
@@ -136,8 +150,8 @@ async function delay(milliseconds = 0) {
   return await new Promise((resolve) => setTimeout(resolve, milliseconds))
 }
 
-async function prependMessages(prepended: Message[]) {
-  messages = Object.freeze([...prepended, ...messages]) as Message[]
+async function prependItems(prepended: Item[]) {
+  items = Object.freeze([...prepended, ...items]) as Item[]
   scroll?.refresh(prepended.length)
 
   await delay(15)
@@ -146,11 +160,11 @@ async function prependMessages(prepended: Message[]) {
   await nextTick()
 }
 
-async function appendMessages(appended: Message[]) {
+async function appendItems(appended: Item[]) {
   const follow = isAtBottom()
-  messages = Object.freeze([...messages, ...appended]) as Message[]
+  items = Object.freeze([...items, ...appended]) as Message[]
   if (follow) {
-    scroll?.refresh(messages.length)
+    scroll?.refresh(items.length)
   }
 
   await delay(50)
@@ -159,25 +173,25 @@ async function appendMessages(appended: Message[]) {
   await nextTick()
 
   if (follow) {
-    scroll?.scrollTo(messages.length, 'end-force')
+    scroll?.scrollTo(items.length, 'end-force')
   }
 }
 
-async function loadPreviousMessages() {
-  const results = await getMessages({
+async function loadPrevious() {
+  const results: Item[] = await get({
     source: info.address,
     search: search === '' ? undefined : search,
-    before: earliestMessageTimestamp == null ? undefined : earliestMessageTimestamp,
+    before: earliestItemTimestamp == null ? undefined : earliestItemTimestamp,
     order: 'new-to-old',
     limit: 100,
   })
 
   isExhausted = results.length === 0
-  await prependMessages(results.reverse())
+  await prependItems(results.reverse())
 }
 
-async function loadCurrentMessages() {
-  const results = await getMessages({
+async function loadCurrent() {
+  const results: Item[] = await get({
     source: info.address,
     search: search === '' ? undefined : search,
     order: 'new-to-old',
@@ -185,23 +199,23 @@ async function loadCurrentMessages() {
   })
 
   isExhausted = results.length === 0
-  messages = []
-  await appendMessages(results.reverse())
+  items = []
+  await appendItems(results.reverse())
 }
 
-useMessageStream(
+useStream(
   computed(() => ({
     source: info.address,
     search: search === '' ? undefined : search,
   })),
-  async (message: Message) => {
-    await appendMessages([message])
+  async (item: Item) => {
+    await appendItems([item])
   }
 )
 
 function scrollToBottom() {
   if (scroll != null) {
-    scroll.scrollTo(messages.length)
+    scroll.scrollTo(items.length)
   }
 }
 
@@ -209,10 +223,10 @@ onMounted(async () => {
   try {
     try {
       isDoingInitialLoad = true
-      isLoadingCurrentMessages = true
-      await loadCurrentMessages()
+      isLoadingCurrent = true
+      await loadCurrent()
     } finally {
-      isLoadingCurrentMessages = false
+      isLoadingCurrent = false
     }
   } finally {
     void delay(1000).then(() => {
@@ -233,11 +247,11 @@ watch([computed(() => search)], async () => {
   }
 
   try {
-    isLoadingCurrentMessages = true
-    await loadCurrentMessages()
+    isLoadingCurrent = true
+    await loadCurrent()
     scrollToBottom()
   } finally {
-    isLoadingCurrentMessages = false
+    isLoadingCurrent = false
   }
 })
 </script>
@@ -270,19 +284,19 @@ watch([computed(() => search)], async () => {
 </style>
 
 <style lang="scss">
-.message-view-search-input .q-field__control,
-.message-view-search-input .q-field__marginal {
+.item-view-search-input .q-field__control,
+.item-view-search-input .q-field__marginal {
   height: 28px;
 }
 
-.message-view-search-input {
+.item-view-search-input {
   left: 12px;
   position: absolute;
   top: -14px;
   width: 100%;
 }
 
-.message-view-virtual-scroll .q-virtual-scroll__content {
+.item-view-virtual-scroll .q-virtual-scroll__content {
   contain: unset !important;
 }
 </style>

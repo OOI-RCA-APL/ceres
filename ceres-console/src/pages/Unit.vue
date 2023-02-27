@@ -28,9 +28,10 @@
           class="column"
           :name="connection.name"
         >
-          <message-view
+          <item-view
             class="col-grow"
             :component-name="connection.name"
+            kind="message"
             :title="connection.address"
             :unit-name="unit.name"
           />
@@ -59,9 +60,10 @@
           class="column"
           :name="component.name"
         >
-          <alert-view
+          <item-view
             class="col-grow"
             :component-name="component.name"
+            kind="alert"
             :title="component.address"
             :unit-name="unit.name"
           />
@@ -105,10 +107,9 @@
 <script lang="ts" setup>
 import { getUnit } from '@/api/queries'
 import AlertsIndicator from '@/components/AlertsIndicator.vue'
-import AlertView from '@/components/AlertView.vue'
 import FullPage from '@/components/FullPage.vue'
+import ItemView from '@/components/ItemView.vue'
 import Layout from '@/components/Layout.vue'
-import MessageView from '@/components/MessageView.vue'
 import Panel from '@/components/Panel.vue'
 import PanelGroup from '@/components/PanelGroup.vue'
 import PanelTab from '@/components/PanelTab.vue'
