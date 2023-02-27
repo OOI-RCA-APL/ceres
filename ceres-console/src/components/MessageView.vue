@@ -10,17 +10,18 @@
         </q-input>
       </div>
     </template>
-    <q-virtual-scroll
-      v-if="messages.length"
-      ref="scroll"
-      v-slot="{ item: message }"
-      class="col-grow message-view-message-container self-message-container"
-      :items="messages"
-      :virtual-scroll-item-size="messageHeight"
-      :virtual-scroll-slice-size="250"
-    >
-      <message-view-item :key="message.id" :message="message" />
-    </q-virtual-scroll>
+    <div v-if="messages.length" class="col-grow self-virtual-scroll-container">
+      <q-virtual-scroll
+        ref="scroll"
+        v-slot="{ item: message }"
+        class="fit message-view-virtual-scroll self-virtual-scroll"
+        :items="messages"
+        :virtual-scroll-item-size="messageHeight"
+        :virtual-scroll-slice-size="250"
+      >
+        <message-view-item :key="message.id" :message="message" />
+      </q-virtual-scroll>
+    </div>
     <div v-else-if="!isDoingInitialLoad" class="col-grow items-center justify-center row">
       <span class="self-empty-message-text text-italic">
         <template v-if="isShowingAll">No messages were found.</template>
@@ -242,8 +243,11 @@ watch([computed(() => search)], async () => {
 </script>
 
 <style lang="scss" scoped>
-.self-message-container {
-  height: 0; // Set so flex-box sizing works correctly.
+.self-virtual-scroll-container {
+  contain: size !important; // This is needed for horizontal scrolling to work.
+}
+
+.self-virtual-scroll {
   overscroll-behavior: contain;
   padding: 0 8px;
 }
@@ -278,7 +282,7 @@ watch([computed(() => search)], async () => {
   width: 100%;
 }
 
-.message-view-message-container .q-virtual-scroll__content {
-  contain: none !important;
+.message-view-virtual-scroll .q-virtual-scroll__content {
+  contain: unset !important;
 }
 </style>

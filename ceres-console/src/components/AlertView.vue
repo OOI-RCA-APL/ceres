@@ -10,17 +10,18 @@
         </q-input>
       </div>
     </template>
-    <q-virtual-scroll
-      v-if="alerts.length"
-      ref="scroll"
-      v-slot="{ item: alert }"
-      class="alert-view-alert-container col-grow self-alert-container"
-      :items="alerts"
-      :virtual-scroll-item-size="alertHeight"
-      :virtual-scroll-slice-size="250"
-    >
-      <alert-view-item :key="alert.id" :alert="alert" />
-    </q-virtual-scroll>
+    <div v-if="alerts.length" class="col-grow self-virtual-scroll-container">
+      <q-virtual-scroll
+        ref="scroll"
+        v-slot="{ item: alert }"
+        class="alert-view-virtual-scroll fit self-virtual-scroll"
+        :items="alerts"
+        :virtual-scroll-item-size="alertHeight"
+        :virtual-scroll-slice-size="250"
+      >
+        <alert-view-item :key="alert.id" :alert="alert" />
+      </q-virtual-scroll>
+    </div>
     <div v-else-if="!isDoingInitialLoad" class="col-grow items-center justify-center row">
       <span class="self-empty-message-text text-italic">
         <template v-if="isShowingAll">No alerts were found.</template>
@@ -243,8 +244,11 @@ watch([computed(() => search)], async () => {
 </script>
 
 <style lang="scss" scoped>
-.self-alert-container {
-  height: 0; // Set so flex-box sizing works correctly.
+.self-virtual-scroll-container {
+  contain: size !important; // This is needed for horizontal scrolling to work.
+}
+
+.self-virtual-scroll {
   overscroll-behavior: contain;
   padding: 0 8px;
 }
@@ -279,7 +283,7 @@ watch([computed(() => search)], async () => {
   width: 100%;
 }
 
-.alert-view-alert-container .q-virtual-scroll__content {
-  contain: none !important;
+.alert-view-virtual-scroll .q-virtual-scroll__content {
+  contain: unset !important;
 }
 </style>
