@@ -1,5 +1,5 @@
 <template>
-  <chart class="self-root" :option="info.value" :style="{ height: `${info.height}px` }" />
+  <chart class="self-chart-root" :option="info.value" :style="{ height: `${info.height}px` }" />
 </template>
 
 <script lang="ts" setup>
@@ -12,7 +12,7 @@ const { info } = defineProps<{
 </script>
 
 <style lang="scss" scoped>
-.self-root {
+.self-chart-root {
   padding-top: 8px;
 }
 </style>

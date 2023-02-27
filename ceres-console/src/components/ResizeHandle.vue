@@ -1,5 +1,5 @@
 <template>
-  <div :class="['self-root', isVertical ? 'self-vertical' : 'self-horizontal']">
+  <div :class="['self-resize-handle-root', isVertical ? 'self-vertical' : 'self-horizontal']">
     <div
       :class="[
         'self-handle',
@@ -116,12 +116,12 @@ onUnmounted(() => {
 </script>
 
 <style lang="scss" scoped>
-.self-root {
+.self-resize-handle-root {
   position: relative;
   background-color: rgba(0, 0, 0, 0.12);
 }
 
-.body--dark .self-root {
+.body--dark .self-resize-handle-root {
   background-color: rgba(255, 255, 255, 0.28);
 }
 

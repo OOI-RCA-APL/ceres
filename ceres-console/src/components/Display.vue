@@ -1,5 +1,5 @@
 <template>
-  <q-card bordered class="column full-height self-root" flat>
+  <q-card bordered class="column full-height self-display-root" flat>
     <q-markup-table dense flat separator="cell">
       <thead class="self-header">
         <q-tr no-hover>
@@ -43,7 +43,7 @@ useDisplayStream(unitName, componentName, display.procedure, (current) => {
 </script>
 
 <style lang="scss" scoped>
-.body--dark .self-root {
+.body--dark .self-display-root {
   background-color: #131313;
 }
 

@@ -49,9 +49,11 @@ else:
 
 
 class ComponentRole(str, Enum):
+    ALERTER = "alerter"
     CONNECTION = "connection"
     DISPATCHER = "dispatcher"
     NOTIFIER = "notifier"
+    UI = "ui"
 
 
 def _get_component_roles(component: Component | type[Component]) -> Sequence[ComponentRole]:

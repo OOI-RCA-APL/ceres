@@ -1,5 +1,6 @@
 const icons = {
   add: 'add',
+  arrowRight: 'arrow_right',
   close: 'close',
   darkMode: 'dark_mode',
   dashboard: 'space_dashboard',
@@ -13,6 +14,7 @@ const icons = {
   script: 'code',
   search: 'search',
   send: 'send',
+  settings: 'settings',
   unit: 'fiber_manual_record',
   units: 'workspaces',
   user: 'person',

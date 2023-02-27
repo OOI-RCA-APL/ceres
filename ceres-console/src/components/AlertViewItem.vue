@@ -1,5 +1,5 @@
 <template>
-  <div class="row self-root">
+  <div class="row self-alert-view-item-root">
     <div class="self-timestamp">
       {{ moment.utc(alert.timestamp).format('YYYY-MM-DD HH:mm:ss.SSS') }}
     </div>
@@ -38,7 +38,7 @@ const levelColor = $computed(() => {
 </script>
 
 <style lang="scss" scoped>
-.self-root {
+.self-alert-view-item-root {
   align-items: center;
   flex-wrap: nowrap;
   justify-items: center;

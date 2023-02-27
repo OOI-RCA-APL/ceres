@@ -1,5 +1,5 @@
 <template>
-  <q-header class="bg-primary shadow-none">
+  <q-header class="bg-primary">
     <q-toolbar class="no-wrap">
       <q-btn
         dense
@@ -19,6 +19,8 @@
 </template>
 
 <script lang="ts" setup>
+import CommonText from '@/components/CommonText.vue'
+import UtcClock from '@/components/UtcClock.vue'
 import constants from '@/constants'
 import { useDrawer } from '@/drawer'
 import icons from '@/icons'

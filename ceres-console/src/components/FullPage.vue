@@ -1,6 +1,6 @@
 <template>
-  <div class="full-height self-root">
-    <div class="items-center row self-header">
+  <div class="full-height self-full-page-root">
+    <div class="items-center row self-full-page-header">
       <common-text class="q-ml-md q-py-sm" variant="title2">{{ title }}</common-text>
       <slot name="header-append" />
     </div>
@@ -18,11 +18,11 @@ defineProps<{
 </script>
 
 <style lang="scss" scoped>
-.body--light .self-root {
+.body--light .self-full-page-root {
   background-color: $grey-2;
 }
 
-.body--light .self-header {
+.body--light .self-full-page-header {
   background-color: white;
 }
 </style>

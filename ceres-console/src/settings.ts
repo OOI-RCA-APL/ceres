@@ -5,9 +5,10 @@ import { computed, watchEffect } from 'vue'
 
 export const useSettings = defineStore('settings', () => {
   const state = usePersisted({
-    schema: ({ object, boolean }) =>
+    schema: ({ object, number, boolean }) =>
       object({
         isDarkModeEnabled: boolean().default(true),
+        statisticsDuration: number().default(60 * 30),
       }),
     methods: [{ type: 'local-storage', key: 'store/settings' }],
   })
@@ -21,6 +22,10 @@ export const useSettings = defineStore('settings', () => {
     isDarkModeEnabled: computed({
       get: () => state.isDarkModeEnabled,
       set: (value) => (state.isDarkModeEnabled = value),
+    }),
+    statisticsDuration: computed({
+      get: () => state.statisticsDuration,
+      set: (value) => (state.statisticsDuration = value),
     }),
   }
 })

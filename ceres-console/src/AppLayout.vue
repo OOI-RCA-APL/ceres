@@ -1,5 +1,5 @@
 <template>
-  <q-layout class="self-layout" container view="hHh Lpr lff">
+  <q-layout class="self-app-layout-root" container view="hHh Lpr lff">
     <app-layout-header />
     <app-layout-drawer />
     <q-page-container :key="route.path">
@@ -47,7 +47,7 @@ onErrorCaptured((error) => {
 </script>
 
 <style lang="scss" scoped>
-.self-layout {
+.self-app-layout-root {
   height: 100vh;
 }
 </style>

@@ -15,10 +15,11 @@ import {
   UnitInfoModel,
 } from '@/api/models'
 import { DisplayInfoModel } from '@/display'
+import { useSettings } from '@/settings'
 import { useIntervalFn } from '@vueuse/core'
 import moment from 'moment'
 import { defineStore } from 'pinia'
-import { computed, isRef, ref, watchEffect } from 'vue'
+import { computed, isRef, ref, watch, watchEffect } from 'vue'
 import { useQuery } from 'vue-query'
 import { MaybeRef } from 'vue-query/lib/vue/types'
 import Zod, { ZodTypeAny } from 'zod'
@@ -43,6 +44,7 @@ export async function getComponent(unit: string, name: string): Promise<Componen
 export async function getMessages(params: {
   source?: string
   search?: string
+  within?: number
   after?: string
   before?: string
   limit?: number
@@ -54,6 +56,7 @@ export async function getMessages(params: {
 export async function getAlerts(params: {
   source?: string
   search?: string
+  within?: number
   after?: string
   before?: string
   limit?: number
@@ -63,6 +66,7 @@ export async function getAlerts(params: {
 }
 
 export async function getStatistics(params: {
+  within?: number
   after?: string
   before?: string
 }): Promise<Statistics> {
@@ -154,10 +158,13 @@ export const useConfig = defineStore('config', () => {
 })
 
 export const useStatistics = defineStore('statistics', () => {
-  const query = useQuery(['statistics'], () =>
-    getStatistics({
-      after: moment.utc().subtract(moment.duration(1, 'hour')).format(),
-    })
+  const settings = useSettings()
+  const query = useQuery(
+    ['statistics'],
+    async () =>
+      await getStatistics({
+        within: settings.statisticsDuration,
+      })
   )
 
   const data = $computed(() => query.data.value as Statistics)
@@ -166,13 +173,27 @@ export const useStatistics = defineStore('statistics', () => {
   async function load() {
     await query.suspense()
   }
+
   useIntervalFn(async () => {
     await query.refetch.value()
-  }, 1000 * 60)
+  }, moment.duration(30, 's').asMilliseconds())
+
+  watch(
+    computed(() => settings.statisticsDuration),
+    async () => {
+      query.refetch.value()
+    }
+  )
 
   return {
     data: $$(data),
     error: $$(error),
+    dataUpdatedAt: computed(() =>
+      query.dataUpdatedAt.value ? moment(query.dataUpdatedAt.value) : null
+    ),
+    errorUpdatedAt: computed(() =>
+      query.dataUpdatedAt.value ? moment(query.errorUpdatedAt.value) : null
+    ),
     load,
   }
 })

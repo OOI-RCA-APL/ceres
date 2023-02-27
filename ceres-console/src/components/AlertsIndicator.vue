@@ -1,22 +1,34 @@
 <template>
-  <q-badge v-if="levelStatistics" class="self-root" :color="color" rounded>
+  <q-badge v-if="levelStatistics" class="self-alerts-indicator-root" :color="color" rounded>
     {{ levelStatistics.count }}{{ levelStatistics.level[0].toUpperCase() }}
-    <q-tooltip :class="`bg-${color}`">
-      {{ levelStatistics.count }} {{ levelStatistics.level }} alert(s) were emitted
-      {{ subjectText }} in the last hour.
+    <q-tooltip v-if="!isShowingMenu" :class="`bg-${color}`">
+      <span class="q-mr-xs">
+        {{ levelStatistics.count }} {{ levelStatistics.level }} alert(s) were emitted
+        {{ subjectText }} in the last
+        {{ displayDuration(settings.statisticsDuration, { hideOne: true }) }}.
+      </span>
+      <span v-if="statistics.dataUpdatedAt" class="self-updated-at-text text-right">
+        Updated {{ displayDuration(time.now.diff(statistics.dataUpdatedAt, 's')) }} ago.
+      </span>
     </q-tooltip>
   </q-badge>
 </template>
 
 <script lang="ts" setup>
 import { useStatistics } from '@/api/queries'
+import { useSettings } from '@/settings'
+import { displayDuration, useTime } from '@/time'
 
 const { unitName, componentName } = defineProps<{
   unitName?: string
   componentName?: string
 }>()
 
+const settings = useSettings()
 const statistics = useStatistics()
+const time = useTime()
+
+let isShowingMenu = $ref(false)
 
 const subjectText = $computed(() => {
   if (unitName == null) {
@@ -76,7 +88,11 @@ const color = $computed(() => {
 </script>
 
 <style lang="scss" scoped>
-.self-root {
+.self-alerts-indicator-root {
   scale: 0.8;
+}
+
+.self-updated-at-text {
+  opacity: 0.75;
 }
 </style>
