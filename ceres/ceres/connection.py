@@ -18,7 +18,7 @@ from .events import (
 )
 from .exceptions import ConnectionLostException
 from .message import Message, MessageDirection
-from .procedure import query
+from .procedure import action, query
 from .routine import routine
 
 
@@ -144,6 +144,13 @@ class Connection(Component, ABC):
         self.emit_event(MessageSentEvent(message=message))
 
         return message
+
+    class SendMessageInput(ImmutableDataObject):
+        data: bytes
+
+    @action("send-message")
+    async def send_message(self, input: SendMessageInput) -> Message:
+        return await self.send(input.data)
 
     async def receive(self) -> Message:
         try:

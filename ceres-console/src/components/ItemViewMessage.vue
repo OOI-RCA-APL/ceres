@@ -1,5 +1,5 @@
 <template>
-  <div class="row self-message-view-item-root">
+  <div class="row self-item-view-message-root">
     <span class="self-timestamp">
       {{ moment.utc(message.timestamp).format('YYYY-MM-DD HH:mm:ss.SSS') }}
     </span>
@@ -33,7 +33,7 @@ const directionColor = $computed(() => {
 </script>
 
 <style lang="scss" scoped>
-.self-message-view-item-root {
+.self-item-view-message-root {
   align-items: center;
   flex-wrap: nowrap;
   justify-items: center;

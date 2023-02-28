@@ -3,7 +3,14 @@
     <template #header-append>
       <q-space class="gt-sm" />
       <div class="col-grow q-ml-sm self-search-input-container">
-        <q-input v-model="search" class="item-view-search-input" :debounce="50" dense outlined>
+        <q-input
+          v-model="search"
+          class="item-view-search-input"
+          :debounce="50"
+          dense
+          input-class="monospace"
+          outlined
+        >
           <template #prepend>
             <q-icon name="search" />
           </template>
@@ -29,6 +36,15 @@
         <template v-else>No matching {{ kind }}s were found.</template>
       </span>
     </div>
+    <q-space v-else />
+    <div v-if="kind === 'message'" class="q-mb-sm q-mt-xs q-mx-sm">
+      <command-input
+        :component-name="componentName"
+        label="Send Command"
+        :unit-name="unitName"
+        @send="onSend"
+      />
+    </div>
   </section-card>
 </template>
 
@@ -38,16 +54,18 @@ import {
   getAlerts,
   getComponent,
   getMessages,
+  sendMessage,
   useAlertStream,
   useMessageStream,
 } from '@/api/queries'
+import CommandInput from '@/components/CommandInput.vue'
 import ItemViewAlert from '@/components/ItemViewAlert.vue'
 import ItemViewMessage from '@/components/ItemViewMessage.vue'
 import SectionCard from '@/components/SectionCard.vue'
-import { QVirtualScroll } from 'quasar'
+import { QVirtualScroll, useQuasar } from 'quasar'
 import { computed, nextTick, onMounted, watch, watchEffect } from 'vue'
 
-type Item = Alert | Message
+type Item = Readonly<Alert | Message>
 
 const { title, unitName, componentName, kind } = defineProps<{
   title: string
@@ -57,6 +75,7 @@ const { title, unitName, componentName, kind } = defineProps<{
   kind: 'alert' | 'message'
 }>()
 
+const quasar = useQuasar()
 const get = $computed(() => (kind === 'message' ? getMessages : getAlerts))
 const useStream = $computed(() => (kind === 'message' ? useMessageStream : useAlertStream))
 
@@ -151,7 +170,7 @@ async function delay(milliseconds = 0) {
 }
 
 async function prependItems(prepended: Item[]) {
-  items = Object.freeze([...prepended, ...items]) as Item[]
+  items = [...prepended.map(Object.freeze), ...items] as Item[]
   scroll?.refresh(prepended.length)
 
   await delay(15)
@@ -162,7 +181,8 @@ async function prependItems(prepended: Item[]) {
 
 async function appendItems(appended: Item[]) {
   const follow = isAtBottom()
-  items = Object.freeze([...items, ...appended]) as Message[]
+  items.push(...(appended.map(Object.freeze) as Item[]))
+  items = items
   if (follow) {
     scroll?.refresh(items.length)
   }
@@ -219,6 +239,15 @@ function scrollToBottom() {
   }
 }
 
+async function forceScrollToBottom(duration = 500, interval = 50) {
+  const id = setInterval(() => {
+    scrollToBottom()
+  }, interval)
+
+  await delay(duration)
+  clearInterval(id)
+}
+
 onMounted(async () => {
   try {
     try {
@@ -233,12 +262,8 @@ onMounted(async () => {
       isDoingInitialLoad = false
     })
   }
-  const interval = setInterval(() => {
-    scrollToBottom()
-  }, 100)
 
-  await delay(1000)
-  clearInterval(interval)
+  forceScrollToBottom()
 })
 
 watch([computed(() => search)], async () => {
@@ -249,11 +274,23 @@ watch([computed(() => search)], async () => {
   try {
     isLoadingCurrent = true
     await loadCurrent()
-    scrollToBottom()
+    forceScrollToBottom()
   } finally {
     isLoadingCurrent = false
   }
 })
+
+async function onSend(data: string) {
+  const result = await sendMessage(unitName, componentName, data)
+  if (result.ok) {
+    return
+  }
+
+  quasar.notify({
+    type: 'negative',
+    message: `Message failed to send. ${JSON.stringify(result.error)}`,
+  })
+}
 </script>
 
 <style lang="scss" scoped>

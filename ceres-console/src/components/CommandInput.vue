@@ -3,10 +3,9 @@
     <q-input
       :ref="(ref: any) => (element = ref?.getNativeElement() ?? null)"
       v-model="state.command"
-      class="q-mb-sm self-commands-input"
       :color="isConnected ? 'primary' : 'negative'"
       dense
-      input-class="monospace"
+      input-class="monospace text-nowrap"
       :label="label"
       outlined
       @keydown.down.prevent="onDownKeyPressed"
@@ -26,10 +25,10 @@ import { useQuasar } from 'quasar'
 import { computed, watch } from 'vue'
 import Zod from 'zod'
 
-const { unitName, connectionName } = defineProps<{
+const { unitName, componentName } = defineProps<{
   label: string
   unitName: string
-  connectionName: string
+  componentName: string
 }>()
 
 const emit = defineEmits<{
@@ -51,7 +50,7 @@ const state = usePersisted({
   methods: [
     {
       type: 'local-storage',
-      key: `${unitName}.connections.${connectionName}.command`,
+      key: `${unitName}.${componentName}.command-input`,
     },
   ],
 })
@@ -99,7 +98,6 @@ function onDownKeyPressed() {
   }
 }
 
-// const isConnected = $computed(() => connection?.enabled && connection?.state === 'connected')
 const isConnected = true
 
 async function submit() {

@@ -11,6 +11,7 @@ from typing import AsyncIterable, Sequence, final
 from typing_extensions import override
 
 from .address import Address
+from .component import Component
 from .config import Config, UnitConfig
 from .data import ImmutableDataObject, Name, jsonify
 from .database import Database
@@ -93,6 +94,13 @@ class Engine(Tasklet):
 
     def get_unit(self, name: Name) -> Unit | None:
         return self.__units.get(name)
+
+    def get_component(self, address: Address) -> Component | None:
+        unit = self.__units.get(address.unit)
+        if unit is None:
+            return None
+
+        return unit.get_component(address.component)
 
     def __attach_unit(self, unit: Unit) -> None:
         self.__units[unit.name] = unit

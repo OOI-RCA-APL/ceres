@@ -227,6 +227,9 @@ async function post<TModel extends ZodTypeAny>(
 ): Promise<Zod.infer<TModel>> {
   const response = await fetch(url, {
     method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
     body: data != null ? JSON.stringify(data) : undefined,
   })
 
@@ -337,5 +340,44 @@ export function useDisplayStream<TModel extends ZodTypeAny>(
     // @ts-ignore
     DisplayInfoModel,
     onDisplay
+  )
+}
+
+const BaseOkModel = Zod.object({
+  ok: Zod.literal(true),
+})
+
+const BaseFailModel = Zod.object({
+  ok: Zod.literal(false),
+  error: Zod.unknown(),
+})
+
+function createResultType<TValueModel extends ZodTypeAny, TErrorModel extends ZodTypeAny>(
+  valueModel: TValueModel,
+  errorModel: TErrorModel
+) {
+  const okModel = BaseOkModel.extend({
+    value: valueModel,
+  })
+
+  const failModel = BaseFailModel.extend({
+    error: errorModel,
+  })
+
+  return Zod.discriminatedUnion('ok', [okModel, failModel])
+}
+
+export type SendMessageResult = Zod.infer<typeof SendMessageResultModel>
+const SendMessageResultModel = createResultType(MessageModel, BaseFailModel)
+
+export async function sendMessage(
+  unitName: string,
+  componentName: string,
+  data: string
+): Promise<SendMessageResult> {
+  return await post(
+    `/api/units/${unitName}/components/${componentName}/procedures/send-message/call`,
+    SendMessageResultModel,
+    { data }
   )
 }
