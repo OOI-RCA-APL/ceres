@@ -10,6 +10,7 @@ from .data import ImmutableDataObject
 from .environment import AlertOrder, AlertQuery
 from .loaded import Loaded
 from .notifier import Notification, Notifier
+from .ref import Ref
 
 
 class Dispatch(ImmutableDataObject):
@@ -32,14 +33,11 @@ class DispatchWriter:
 
 class Dispatcher(Component):
     class Parameters(Component.Parameters):
-        dispatches: Sequence[Dispatch] = Field(default_factory=list)
+        notifier: Ref[Notifier]
         writer: Loaded[DispatchWriter]
-
-    class References(Component.References):
-        notifier: Notifier
+        dispatches: Sequence[Dispatch] = Field(default_factory=list)
 
     parameters: Parameters
-    references: References
 
     async def dispatch(self, dispatch: Dispatch) -> None:
         query = dispatch.alerts.with_defaults(
@@ -75,7 +73,7 @@ class Dispatcher(Component):
             return
 
         try:
-            await self.references.notifier.notify(notification, dispatch.recipients)
+            await self.parameters.notifier.notify(notification, dispatch.recipients)
         except Exception:
             self.logger.error(
                 f"An exception occurred while sending notification to distribution '{dispatch.subject}': {traceback.format_exc()}"

@@ -27,6 +27,7 @@ from ... import (
 from ...console import ChartDisplay, ConsoleColor, StateDisplay, ValueDisplay
 from ...events import ConnectFailedEvent, ConnectionLostEvent, MessageReceivedEvent
 from ...layout import Layout, LayoutColumn, LayoutDisplay, LayoutRow
+from ...ref import Ref
 
 
 class DataMessage(ImmutableDataObject):
@@ -112,13 +113,10 @@ class Checks(ImmutableDataObject):
 
 class CrabeeDriver(Component):
     class Parameters(Component.Parameters):
+        connection: Ref[Connection]
         checks: Checks = Field(default_factory=Checks)
 
-    class References(Component.References):
-        connection: Connection
-
     parameters: Parameters
-    references: References
 
     def __post_init__(self) -> None:
         super().__post_init__()
@@ -129,7 +127,7 @@ class CrabeeDriver(Component):
     async def __fetch_last_data_message(self) -> None:
         if messages := await self.environment.get_messages(
             MessageQuery(
-                source=self.references.connection.address,
+                source=self.parameters.connection.address,
                 order=MessageOrder.NEW_TO_OLD,
                 limit=1,
             )

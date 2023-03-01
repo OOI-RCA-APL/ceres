@@ -4,6 +4,7 @@ from ceres.alert import Alert, AlertLevel
 from ceres.component import Component
 from ceres.events import Event
 from ceres.listener import on
+from ceres.ref import Ref
 
 
 async def test_event_listeners() -> None:
@@ -22,10 +23,10 @@ async def test_event_listeners() -> None:
         received_emitter_events: list[EmitterEvent] = field(default_factory=list)
         received_self_events: list[SelfEvent] = field(default_factory=list)
 
-        class References(Component.References):
-            emitter: Emitter
+        class Parameters(Component.Parameters):
+            emitter: Ref[Emitter]
 
-        references: References
+        parameters: Parameters
 
         @on(EmitterEvent, "emitter")
         def _on_other_event(self, event: EmitterEvent) -> None:
@@ -37,7 +38,7 @@ async def test_event_listeners() -> None:
 
     emitter = Emitter()
     receiver = Receiver(
-        references=Receiver.References(emitter=emitter),
+        parameters=Receiver.Parameters(emitter=emitter),
     )
 
     receiver.start()

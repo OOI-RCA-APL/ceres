@@ -47,7 +47,6 @@ class ComponentConfig(ConfigObject):
         cls: str | type = Field(alias="class")
 
     parameters: Mapping[Name, Any] = Field(default_factory=dict)
-    references: Mapping[Name, Name | Sequence[Name]] = Field(default_factory=dict)
     jobs: Sequence[JobConfig] = Field(default_factory=list)
 
 
@@ -106,15 +105,6 @@ class UnitConfig(ConfigObject):
         ):
             if len(list(group)) > 1:
                 raise ValueError(f"duplicate component name '{component_name}' in unit '{name}'")
-
-        mapping: dict[str, ComponentConfig] = {current.name: current for current in components}
-
-        for component in components:
-            for component_name in component.references.values():
-                if component_name not in mapping:
-                    raise ValueError(
-                        f"invalid reference, component '{component_name}' does not exist in unit '{name}'"
-                    )
 
         return components
 

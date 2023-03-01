@@ -15,18 +15,22 @@ from typing import (
     Any,
     AsyncIterable,
     Awaitable,
+    ByteString,
     Callable,
+    Collection,
     FrozenSet,
     Mapping,
     Sequence,
     TypeVar,
+    cast,
     final,
+    get_args,
     get_type_hints,
 )
 from weakref import WeakValueDictionary, ref
 
-from pydantic import Field, ValidationError, validate_arguments, validator
-from typing_extensions import dataclass_transform, override
+from pydantic import Field, ValidationError, parse_obj_as, validate_arguments, validator
+from typing_extensions import Self, dataclass_transform, override
 
 from .address import Address
 from .alert import Alert, AlertLevel
@@ -41,6 +45,7 @@ from .data import (
 from .directory import Directory
 from .environment import Environment
 from .errors import (
+    ComponentReferenceInvalidError,
     ProcedureDoesNotExistError,
     ProcedureInternalError,
     ProcedureInvalidInputError,
@@ -57,8 +62,10 @@ from .internal.tasklet import Tasklet
 from .internal.utilities import (
     awaitify,
     cached,
+    dictify,
     get_type_annotations,
     has_field,
+    is_optional,
     lenient_isinstance,
     lenient_issubclass,
     pre_validate_arguments,
@@ -76,6 +83,8 @@ from .procedure import (
     QueryBinding,
     query,
 )
+from .ref import Ref, RefInfo
+from .result import Fail, Ok, Result
 from .routine import RoutineBinding, routine
 from .schedule import Schedule
 from .stream import Stream, StreamView
@@ -116,7 +125,6 @@ class Component(ValidatedDataclass, Tasklet):
             return isinstance(cls, type) and isinstance(subcls, type) and issubclass(subcls, cls)
 
         parameters_hint = hints.get("parameters")
-        references_hint = hints.get("references")
         component_field_names = {field.name for field in dataclasses.fields(Component)}
 
         if (
@@ -132,23 +140,21 @@ class Component(ValidatedDataclass, Tasklet):
                 for i, parameter in enumerate(signature.parameters.values())
             )
             or parameters_hint is None
-            or references_hint is None
             or not is_subclass_or_typevar(parameters_hint, Component.Parameters)
-            or not is_subclass_or_typevar(references_hint, Component.References)
         ):
             raise ComponentClassInvalidException(
                 f"signature of {__init__} must be compatible with {inspect.signature(Component.__init__)}, got {signature}"
             )
 
-        if lenient_issubclass(references_hint, Component.References):
+        if lenient_issubclass(parameters_hint, Component.Parameters):
             for binding in cls.get_listener_bindings():
                 for source in binding.sources:
                     if source == "self":
                         continue
 
-                    if not has_field(references_hint, source):
+                    if not has_field(parameters_hint, source):
                         raise ComponentClassInvalidException(
-                            f"event listener {binding.function} refers to component '{source}' which is not defined as an attribute in {references_hint}"
+                            f"event listener '{binding.function}' refers to reference '{source}' which is not defined as an attribute in {strify(parameters_hint)}"
                         )
 
         return cls
@@ -215,9 +221,67 @@ class Component(ValidatedDataclass, Tasklet):
             await self.__queue.join()
 
     class Parameters(ImmutableDataObject):
-        pass
+        def assign_references(
+            self,
+            siblings: Mapping[Name, "Component"],
+        ) -> "Result[Self, ComponentReferenceInvalidError]":
+            output: dict[str, Any] = dictify(self)
 
-    class References(ImmutableDataObject):
+            def _create_reference_invalid_error(
+                reference: Any,
+                info: "RefInfo[Component]",
+            ) -> ComponentReferenceInvalidError:
+                return ComponentReferenceInvalidError(
+                    message=f"reference to component '{reference}' of type {strify(info.cls)} is required and specified by {strify(type(self))}, but it hasn't loaded yet or failed to load"
+                )
+
+            for name, field in self.__fields__.items():
+                field_value: Any = getattr(self, name)
+                if issubclass(field.type_, Ref):
+                    if isinstance(field_value, str):
+                        component = siblings.get(field_value)
+                    else:
+                        component = field_value
+
+                    info = cast(RefInfo[Component], field.type_)
+                    if (
+                        component is None
+                        and not is_optional(field.type_)
+                        and not is_optional(info.cls)
+                    ):
+                        return Fail(_create_reference_invalid_error(field_value, info))
+
+                    output[name] = component
+                    continue
+
+                if isinstance(field_value, Collection) and not isinstance(
+                    field_value, (str, ByteString)
+                ):
+                    try:
+                        element_type = get_args(field.type_)[0]
+                    except Exception:
+                        continue
+
+                    if issubclass(element_type, Ref):
+                        info = cast(RefInfo[Component], element_type)
+                        resolved: list[Any] = []
+                        for element in field_value:
+                            if isinstance(element, str):
+                                component = siblings.get(element)
+                            else:
+                                component = element
+
+                            if (
+                                component is None
+                                and not is_optional(element_type)
+                                and not is_optional(info.cls)
+                            ):
+                                return Fail(_create_reference_invalid_error(element, info))
+
+                        output[name] = parse_obj_as(field.type_, resolved)
+
+            return Ok(type(self)(**output))
+
         def get_components(self, alias: str | None = None) -> Sequence["Component"]:
             components = []
 
@@ -230,7 +294,7 @@ class Component(ValidatedDataclass, Tasklet):
             reference = getattr(self, alias, None)
             if isinstance(reference, Component):
                 components.append(reference)
-            elif isinstance(reference, Sequence):
+            elif isinstance(reference, Collection):
                 for component in reference:
                     if isinstance(component, Component):
                         components.append(component)
@@ -241,7 +305,6 @@ class Component(ValidatedDataclass, Tasklet):
     paths: ComponentPaths = field(default_factory=ComponentPaths)
 
     parameters: Parameters = field(default_factory=Parameters)
-    references: References = field(default_factory=References)
     jobs: Sequence[JobConfig] = field(default_factory=list)
 
     def __post_init__(self) -> None:
@@ -273,7 +336,7 @@ class Component(ValidatedDataclass, Tasklet):
             for binding in self.get_listener_bindings()
         ]
 
-        for component in self.references.get_components():
+        for component in self.parameters.get_components():
             component.__add_referencer(self)
 
     def _get_inferred_environment(self) -> Environment | None:
@@ -281,7 +344,7 @@ class Component(ValidatedDataclass, Tasklet):
             return self.unit.environment
 
         # TODO: We might want to do a topological sort here to pick the environment.
-        for component in self.references.get_components():
+        for component in self.parameters.get_components():
             return component.environment
 
         return None
@@ -311,11 +374,6 @@ class Component(ValidatedDataclass, Tasklet):
     @classmethod
     def get_parameters_type(cls) -> type[Parameters]:
         return get_type_annotations(cls)["parameters"]  # type: ignore
-
-    @final
-    @classmethod
-    def get_references_type(cls) -> type[References]:
-        return get_type_annotations(cls)["references"]  # type: ignore
 
     @final
     @classmethod
@@ -460,7 +518,7 @@ class Component(ValidatedDataclass, Tasklet):
             for alias in processor.binding.sources:
                 if (alias == "self" and self.address == event.source) or any(
                     component.address == event.source
-                    for component in self.references.get_components(alias)
+                    for component in self.parameters.get_components(alias)
                 ):
                     processor.put(event)
                     break
