@@ -238,8 +238,8 @@ class Engine(Tasklet):
             self.logger.info("Database configuration modified, reloading all units and database...")
             try:
                 await self.__stop_units()
-                await self.__database.dispose()
-                self.__database = Database(self.__config.database)
+                await self.__environment.database.dispose()
+                self.__environment = Environment(database=Database(self.__config.database))
             except Exception:
                 self.logger.error(
                     f"An issue occurred while reloading units and database: {traceback.format_exc()}"
