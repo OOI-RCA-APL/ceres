@@ -1,4 +1,5 @@
 import re
+from asyncio import Lock as AsyncLock
 from textwrap import dedent
 from typing import Any, Callable, Iterable, TypeVar, cast, final
 from uuid import UUID, uuid4
@@ -47,6 +48,9 @@ class Database:
             self.__config = source.config
             self.__adapter = source.__adapter
             self.__engine = AsyncEngine(source.__engine.sync_engine)
+
+        self.__init_lock = AsyncLock()
+        self.__completed_init_successfully = False
 
         self.__create_session = async_sessionmaker(
             self.__engine,
@@ -131,9 +135,15 @@ class Database:
         return text(self.compile(command, parameters))
 
     async def init(self) -> None:
-        async with self.begin() as connection:
-            for statement in self.ddl:
-                await connection.execute(text(statement))
+        async with self.__init_lock:
+            if self.__completed_init_successfully:
+                return
+
+            async with self.begin() as connection:
+                for statement in self.ddl:
+                    await connection.execute(text(statement))
+
+            self.__completed_init_successfully = True
 
     async def tables(self) -> list[str]:
         return await self.__run_sync(lambda connection: inspect(connection).get_table_names())

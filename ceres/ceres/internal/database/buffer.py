@@ -2,7 +2,7 @@ import traceback
 from abc import ABC
 from asyncio import Event as AsyncEvent
 from logging import Logger
-from typing import TYPE_CHECKING, Any, Generic, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, Generic, TypeVar
 
 from ...alert import Alert
 from ...config import DatabaseKind
@@ -23,7 +23,7 @@ class WriteBuffer(Generic[_ModelT, _EntityT], ABC):
         self,
         model_cls: type[_ModelT],
         entity_cls: type[_EntityT],
-        environment: Environment,
+        environment: Callable[[], Environment],
         logger: Logger | None = None,  # TODO: Remove this.
     ) -> None:
         self.__model_cls = model_cls
@@ -65,9 +65,11 @@ class WriteBuffer(Generic[_ModelT, _EntityT], ABC):
         pending = self.__pending
         self.__pending = []
 
+        environment = self.__environment()
+
         try:
-            async with self.__environment.database.session() as session:
-                match self.__environment.database.kind:
+            async with environment.database.session() as session:
+                match environment.database.kind:
                     case DatabaseKind.SQLITE:
                         from sqlalchemy.dialects.sqlite import insert
                     case DatabaseKind.POSTGRES:
@@ -78,7 +80,7 @@ class WriteBuffer(Generic[_ModelT, _EntityT], ABC):
                 for model in pending:
                     data = model.dict()
                     data.pop("source", None)
-                    data["source_id"] = await self.__environment.assign_address_id(model.source)
+                    data["source_id"] = await environment.assign_address_id(model.source)
                     values.append(data)
 
                 # TODO: Don't discard all buffered entities when a single entity insert fails.

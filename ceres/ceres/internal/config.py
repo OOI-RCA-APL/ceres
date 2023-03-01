@@ -4,7 +4,6 @@ from enum import Enum
 from logging import Logger
 from pathlib import Path
 from typing import Callable, Iterable, Sequence
-from uuid import uuid4
 
 import yaml
 from pydantic import ValidationError
@@ -15,7 +14,6 @@ from ..component import Component, ComponentPaths
 from ..config import Config, UnitConfig
 from ..data import Name
 from ..database import Database
-from ..environment import Environment
 from ..errors import (
     ConfigComponentError,
     ConfigDatabaseError,
@@ -152,7 +150,6 @@ async def _check_components(
 ) -> list[ConfigComponentError]:
     log("Checking component configurations...")
 
-    environment = Environment(database=Database(config.database))
     paths = ComponentPaths()
 
     def check_unit_config(unit_config: UnitConfig) -> Iterable[ConfigComponentError]:
@@ -164,9 +161,7 @@ async def _check_components(
                 log(f"Checking component '{address}'...")
                 match load_component(
                     component_config,
-                    id=uuid4(),
                     name=component_config.name,
-                    environment=environment,
                     paths=paths,
                     siblings=components,
                 ):

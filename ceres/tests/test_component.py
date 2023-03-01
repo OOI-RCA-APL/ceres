@@ -2,7 +2,6 @@ from dataclasses import field
 
 from ceres.alert import Alert, AlertLevel
 from ceres.component import Component
-from ceres.environment import Environment
 from ceres.events import Event
 from ceres.listener import on
 
@@ -36,12 +35,8 @@ async def test_event_listeners() -> None:
         def _on_self_event(self, event: SelfEvent) -> None:
             self.received_self_events.append(event)
 
-    environment = Environment()
-    emitter = Emitter(
-        environment=environment,
-    )
+    emitter = Emitter()
     receiver = Receiver(
-        environment=environment,
         references=Receiver.References(emitter=emitter),
     )
 

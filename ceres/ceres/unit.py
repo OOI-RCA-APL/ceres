@@ -7,20 +7,16 @@ from weakref import ref
 from pydantic import Field
 from typing_extensions import override
 
-from .address import Address
-from .component import Component, ComponentPaths
-from .config import UnitConfig
-from .data import ImmutableDataObject, Name, jsonify
+from .component import Component
+from .data import DataObject, Name
 from .directory import Directory
 from .environment import Environment
 from .errors import ProcedureComponentNotLoadedError
 from .events import Event
 from .exceptions import ProcedureException
 from .internal import logs
-from .internal.component import load_component
 from .internal.tasklet import Tasklet
-from .internal.utilities import sleep_forever, strify
-from .result import Fail, Ok
+from .internal.utilities import sleep_forever
 from .stream import Stream, StreamView
 
 if TYPE_CHECKING:
@@ -29,7 +25,7 @@ else:
     Engine = "Engine"
 
 
-class UnitPaths(ImmutableDataObject):
+class UnitPaths(DataObject):
     data: Directory = Field(default_factory=Directory)
     local: Directory = Field(default_factory=Directory)
 
@@ -39,18 +35,11 @@ class Unit(Tasklet):
     def __init__(
         self,
         *,
-        config: UnitConfig,
-        environment: Environment | None = None,
+        name: Name,
         paths: UnitPaths | None = None,
     ) -> None:
-        self.__config = config
-
-        if environment is not None:
-            self.__environment = environment
-            self.__has_exclusive_temporary_environment = False
-        else:
-            self.__environment = Environment()
-            self.__has_exclusive_temporary_environment = True
+        self.__name = name
+        self.__local_environment: Environment | None = None
 
         if paths is not None:
             self.__paths = paths
@@ -63,15 +52,17 @@ class Unit(Tasklet):
 
     @property
     def name(self) -> Name:
-        return self.__config.name
-
-    @property
-    def config(self) -> UnitConfig:
-        return self.__config
+        return self.__name
 
     @property
     def environment(self) -> Environment:
-        return self.__environment
+        if self.engine is not None:
+            return self.engine.environment
+
+        if self.__local_environment is None:
+            self.__local_environment = Environment()
+
+        return self.__local_environment
 
     @property
     def engine(self) -> "Engine | None":
@@ -96,25 +87,45 @@ class Unit(Tasklet):
     def components(self) -> Sequence[Component]:
         return list(self.__components.values())
 
+    def bind(self, environment: Environment) -> None:
+        self.__local_environment = environment
+
     def emit_event(self, event: Event) -> None:
         self.__events.put(event)
         if self.engine is not None:
             self.engine.emit_event(event)
 
     def attach_to_engine(self, engine: Engine) -> None:
-        if engine.get_unit(self.name) is not self:
-            raise ValueError("attached engine does not contain this unit")
+        if self.engine is engine:
+            return
 
+        if self.engine is not None:
+            self.detach_from_engine()
+
+        engine.add_unit(self)
         self.__engine = ref(engine)
 
     def detach_from_engine(self) -> None:
+        if self.engine is None:
+            return
+
+        self.engine.remove_unit(self)
         self.__engine = None
 
-    def __attach_component(self, component: Component) -> None:
+    def add_component(self, component: Component) -> None:
+        current = self.get_component(component.name)
+        if current is component:
+            return
+        if current is not None:
+            self.remove_component(current)
+
         self.__components[component.name] = component
         component.attach_to_unit(self)
 
-    def __detach_component(self, component: Component) -> None:
+    def remove_component(self, component: Component) -> None:
+        if self.get_component(component.name) is not component:
+            return
+
         self.__components.pop(component.name, None)
         if component.unit is self:
             component.detach_from_unit()
@@ -148,8 +159,6 @@ class Unit(Tasklet):
 
     @override
     async def __run__(self) -> None:
-        await self.__load_components()
-
         for component in self.components:
             component.start(
                 on_exception=self.__on_component_exception,
@@ -167,45 +176,17 @@ class Unit(Tasklet):
                     await component.stop()
 
             finally:
-                if self.__has_exclusive_temporary_environment:
+                if self.__local_environment is not None:
                     await self.environment.database.dispose()
 
         await asyncio.shield(asyncio.create_task(stop()))
-
-    async def __load_components(self) -> None:
-        for config in self.config.components:
-            if self.get_component(config.name) is not None:
-                continue
-
-            address = Address.create(self.name, config.name)
-            id = await self.__environment.assign_address_id(address)
-            match load_component(
-                config,
-                id=id,
-                name=config.name,
-                environment=self.environment,
-                paths=ComponentPaths(
-                    data=self.paths.data,
-                    local=self.paths.local.subdir(config.name),
-                ),
-                siblings=self.__components,
-            ):
-                case Ok(component):
-                    self.__attach_component(component)
-                    self.logger.info(
-                        f"Loaded '{component.address}' as {strify(type(component))} with ID '{id}'."
-                    )
-                case Fail(error):
-                    self.logger.error(
-                        f"Failed to load component '{address}'. Error: {jsonify(error, indent=2)}"
-                    )
 
     def __on_component_exception(self, component: Component, exception: BaseException) -> None:
         self.logger.error(
             f"Exception occurred in component '{component.address}': {traceback.format_exception(exception)}"
         )
-        self.__detach_component(component)
+        self.remove_component(component)
 
     def __on_component_completed(self, component: Component) -> None:
         self.logger.info(f"Component '{component.address}' stopped.")
-        self.__detach_component(component)
+        self.remove_component(component)

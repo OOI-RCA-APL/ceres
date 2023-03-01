@@ -4,14 +4,12 @@ import traceback
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any, Mapping, Sequence, TypeVar, cast, get_args, get_origin
-from uuid import UUID
 
 from pydantic import ValidationError, parse_obj_as
 
 from ..component import Component, ComponentPaths
 from ..config import ComponentConfig, JobConfig
 from ..data import Name
-from ..environment import Environment
 from ..errors import (
     ComponentClassInvalidError,
     ComponentClassNotFoundError,
@@ -81,9 +79,7 @@ def load_component_cls(config: ComponentConfig) -> Result[type[Component], Compo
 def load_component(
     config: ComponentConfig,
     *,
-    id: UUID,
     name: Name,
-    environment: Environment,
     paths: ComponentPaths,
     siblings: Mapping[Name, Component],
 ) -> Result[Component, ComponentError]:
@@ -175,7 +171,6 @@ def load_component(
     try:
         instance = cls(
             name=name,
-            environment=environment,
             paths=paths,
             parameters=applied_parameters,
             references=applied_references,

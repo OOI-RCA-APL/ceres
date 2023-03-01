@@ -11,7 +11,7 @@ from typing import AsyncIterable, Sequence, final
 from typing_extensions import override
 
 from .address import Address
-from .component import Component
+from .component import Component, ComponentPaths
 from .config import Config, UnitConfig
 from .data import ImmutableDataObject, Name, jsonify
 from .database import Database
@@ -31,9 +31,11 @@ from .exceptions import (
 )
 from .internal import logs
 from .internal.app import App
+from .internal.component import load_component
 from .internal.config import load_config
 from .internal.server import Server
 from .internal.tasklet import Tasklet
+from .internal.utilities import strify
 from .result import Fail, Ok, Result
 from .stream import Stream
 from .unit import Unit, UnitPaths
@@ -66,6 +68,7 @@ class Engine(Tasklet):
         )
 
         self.__units: dict[Name, Unit] = {}
+        self.__unit_configs: dict[Name, UnitConfig] = {}
         self.__events: Stream[Event] = Stream()
         self.__reloading = AsyncEvent()
 
@@ -102,12 +105,29 @@ class Engine(Tasklet):
 
         return unit.get_component(address.component)
 
-    def __attach_unit(self, unit: Unit) -> None:
+    def __add_unit_with_config(self, unit: Unit, config: UnitConfig | None = None) -> None:
+        if config is not None:
+            self.__unit_configs[unit.name] = config
+
+        self.add_unit(unit)
+
+    def add_unit(self, unit: Unit) -> None:
+        current = self.get_unit(unit.name)
+        if current is unit:
+            return
+        if current is not None:
+            self.remove_unit(current)
+
         self.__units[unit.name] = unit
+
         unit.attach_to_engine(self)
 
-    def __detach_unit(self, unit: Unit) -> None:
+    def remove_unit(self, unit: Unit) -> None:
+        if self.get_unit(unit.name) is not unit:
+            return
+
         self.__units.pop(unit.name, None)
+        self.__unit_configs.pop(unit.name, None)
         if unit.engine is self:
             unit.detach_from_engine()
 
@@ -277,6 +297,39 @@ class Engine(Tasklet):
         await self.__stop_server()
         await self.__start_server()
 
+    async def __load_components(self, unit: Unit) -> None:
+        unit_config = self.config.get_unit(unit.name)
+        if unit_config is None:
+            return
+
+        siblings: dict[Name, Component] = {}
+
+        for config in unit_config.components:
+            if unit.get_component(config.name) is not None:
+                continue
+
+            address = Address.create(unit.name, config.name)
+            id = await self.__environment.assign_address_id(address)
+            match load_component(
+                config,
+                name=config.name,
+                paths=ComponentPaths(
+                    data=unit.paths.data,
+                    local=unit.paths.local.subdir(config.name),
+                ),
+                siblings=siblings,
+            ):
+                case Ok(component):
+                    unit.add_component(component)
+                    siblings[component.name] = component
+                    unit.logger.info(
+                        f"Loaded '{component.address}' as {strify(type(component))} with ID '{id}'."
+                    )
+                case Fail(error):
+                    unit.logger.error(
+                        f"Failed to load component '{address}'. Error: {jsonify(error, indent=2)}"
+                    )
+
     async def __sync_units(self) -> None:
         configs: dict[Name, UnitConfig] = {current.name: current for current in self.__config.units}
 
@@ -289,7 +342,7 @@ class Engine(Tasklet):
                 if unit:
                     self.logger.info(f"Removing unit '{action.unit}'...")
                     await unit.stop()
-                    self.__detach_unit(unit)
+                    self.remove_unit(unit)
             else:
                 if action.kind == _UnitSyncActionKind.START:
                     if unit and unit.running:
@@ -302,7 +355,6 @@ class Engine(Tasklet):
 
                     self.logger.info(f"Reloading unit '{action.unit}'...")
                     await unit.stop()
-                    self.__detach_unit(unit)
 
                 if config := configs.get(action.unit):
                     if self.config.path is None:
@@ -321,12 +373,12 @@ class Engine(Tasklet):
                         )
 
                     unit = Unit(
-                        config=config,
-                        environment=self.__environment,
+                        name=config.name,
                         paths=paths,
                     )
 
-                    self.__attach_unit(unit)
+                    self.__add_unit_with_config(unit, config)
+                    await self.__load_components(unit)
                     unit.start(
                         on_completed=self.__on_unit_completed,
                         on_exception=self.__on_unit_exception,
@@ -366,8 +418,6 @@ class Engine(Tasklet):
                 self.logger.info(f"Stopping unit '{unit.name}'...")
                 await unit.stop()
 
-            self.__detach_unit(unit)
-
         await asyncio.gather(*(stop(unit) for unit in self.units))
 
         self.logger.info("All units were stopped successfully.")
@@ -379,12 +429,12 @@ class Engine(Tasklet):
 
         for name, config in configs.items():
             unit = self.get_unit(name)
-            if unit and unit.running and unit.config == config:
+            if unit and unit.running and self.__unit_configs.get(name) == config:
                 continue
 
             if not unit or not unit.running:
                 actions.append(_UnitSyncAction(kind=_UnitSyncActionKind.START, unit=name))
-            elif unit.config != config:
+            elif self.__unit_configs.get(name) != config:
                 actions.append(_UnitSyncAction(kind=_UnitSyncActionKind.RELOAD, unit=name))
 
         for name, unit in self.__units.items():
@@ -403,10 +453,10 @@ class Engine(Tasklet):
 
     def __on_unit_completed(self, unit: Unit) -> None:
         self.logger.info(f"Unit '{unit.name}' stopped.")
-        self.__detach_unit(unit)
+        self.remove_unit(unit)
 
     def __on_unit_exception(self, unit: Unit, exception: BaseException) -> None:
         self.logger.error(
             f"An exception occurred in unit '{unit.name}': {traceback.format_exception(exception)}"
         )
-        self.__detach_unit(unit)
+        self.remove_unit(unit)

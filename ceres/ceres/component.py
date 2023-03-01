@@ -238,11 +238,6 @@ class Component(ValidatedDataclass, Tasklet):
             return components
 
     name: Name = field(default_factory=lambda: randstr(ascii_lowercase, 8))
-    if TYPE_CHECKING:
-        environment: Environment = field(default_factory=Environment)
-    else:
-        environment: Environment | None = field(default=None)
-
     paths: ComponentPaths = field(default_factory=ComponentPaths)
 
     parameters: Parameters = field(default_factory=Parameters)
@@ -250,26 +245,23 @@ class Component(ValidatedDataclass, Tasklet):
     jobs: Sequence[JobConfig] = field(default_factory=list)
 
     def __post_init__(self) -> None:
+        self.__local_environment: Environment | None = None
         self.__unit: ref[Unit] | None = None
         self.__events: Stream[Event] = Stream()
         self.__scheduler = Scheduler()
         self.__referencers: WeakValueDictionary[Address, Component] = WeakValueDictionary()
 
     def __post_init_post_parse__(self) -> None:
-        self.__has_exclusive_temporary_environment = self.environment is None  # type: ignore
-        if self.__has_exclusive_temporary_environment:
-            self.environment = Environment()
-
         self.__message_write_buffer = WriteBuffer(
             Message,
             MessageEntity,
-            self.environment,
+            lambda: self.environment,
             self.logger,
         )
         self.__alert_write_buffer = WriteBuffer(
             Alert,
             AlertEntity,
-            self.environment,
+            lambda: self.environment,
             self.logger,
         )
         self.__event_processors = [
@@ -283,6 +275,27 @@ class Component(ValidatedDataclass, Tasklet):
 
         for component in self.references.get_components():
             component.__add_referencer(self)
+
+    def _get_inferred_environment(self) -> Environment | None:
+        if self.unit is not None:
+            return self.unit.environment
+
+        # TODO: We might want to do a topological sort here to pick the environment.
+        for component in self.references.get_components():
+            return component.environment
+
+        return None
+
+    @property
+    def environment(self) -> Environment:
+        inferred = self._get_inferred_environment()
+        if inferred is not None:
+            return inferred
+
+        if self.__local_environment is None:
+            self.__local_environment = Environment()
+
+        return self.__local_environment
 
     @validator("jobs")
     def _validate_jobs(cls, jobs: Sequence[JobConfig]) -> Sequence[JobConfig]:
@@ -398,12 +411,19 @@ class Component(ValidatedDataclass, Tasklet):
             object.__setattr__(alert, "source", self.address)
 
     def attach_to_unit(self, unit: Unit) -> None:
-        if unit.get_component(self.name) is not self:
-            raise ValueError("attached unit does not contain this component")
+        if self.unit is unit:
+            return
+
+        if self.unit is not None:
+            self.detach_from_unit()
 
         self.__unit = ref(unit)
 
     def detach_from_unit(self) -> None:
+        if self.unit is None:
+            return
+
+        self.unit.remove_component(self)
         self.__unit = None
 
     def emit_event(self, event: _EventT) -> _EventT:
@@ -493,7 +513,7 @@ class Component(ValidatedDataclass, Tasklet):
 
     @override
     async def __run__(self) -> None:
-        if self.__has_exclusive_temporary_environment:
+        if self._get_inferred_environment() is None:
             await self.environment.database.init()
             await self.environment.assign_address_id(self.address)
 
@@ -542,7 +562,7 @@ class Component(ValidatedDataclass, Tasklet):
             self.__message_write_buffer.flush(),
             self.__alert_write_buffer.flush(),
         )
-        if self.__has_exclusive_temporary_environment:
+        if self.__local_environment is not None:
             await self.environment.database.dispose()
 
     class SubscribeEventsInput(ImmutableDataObject):
