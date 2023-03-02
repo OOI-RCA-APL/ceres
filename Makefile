@@ -9,9 +9,9 @@ update:
 lint:
 	cd ./ceres && make lint
 	cd ./ceres-console && make lint
-format:
-	cd ./ceres && make format
-	cd ./ceres-console && make format
+fix:
+	cd ./ceres && make fix
+	cd ./ceres-console && make fix
 test:
 	cd ./ceres && make test
 clean:
