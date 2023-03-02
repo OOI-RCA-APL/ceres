@@ -2,7 +2,7 @@ import importlib
 import traceback
 from typing import TYPE_CHECKING, Annotated, Any, Iterable, Mapping, Sequence, TypeVar
 
-from pydantic import BaseModel, Field, validate_arguments, validator
+from pydantic import BaseModel, Field, root_validator, validate_arguments, validator
 from typing_extensions import Self
 
 from .data import ImmutableDataObject
@@ -13,7 +13,20 @@ _T = TypeVar("_T")
 
 class Loader(ImmutableDataObject):
     cls: type = Field(alias="class")
-    parameters: Sequence[Any] | Mapping[str, Any] = ()
+    args: Sequence[Any] = Field(default_factory=list)
+    kwargs: Mapping[str, Any] = Field(default_factory=dict)
+
+    @root_validator(pre=True)
+    def _move_extra_to_kwargs(cls, values: dict[str, Any]) -> dict[str, Any]:
+        required = {field.alias for field in cls.__fields__.values() if field.alias != "extra"}
+
+        extra: dict[str, Any] = {}
+        for field_name in tuple(values.keys()):
+            if field_name not in required:
+                extra[field_name] = values.pop(field_name)
+
+        values["kwargs"] = {**extra, **values.get("kwargs", {})}
+        return values
 
     @validator("cls", pre=True)
     def _validate_cls(cls, value: Any) -> type:
@@ -22,17 +35,13 @@ class Loader(ImmutableDataObject):
 
         return _load_object_cls(object, value)
 
-    @validator("parameters")
-    def _validate_parameters(
-        cls,
-        parameters: Sequence[Any] | Mapping[str, Any],
-        values: Mapping[str, Any],
-    ) -> Sequence[Any] | Mapping[str, Any]:
-        _load_object(object, values["cls"], parameters)
-        return parameters
+    @root_validator
+    def _validate(cls, values: dict[str, Any]) -> dict[str, Any]:
+        _load_object(object, values["cls"], values.get("args", []), values.get("kwargs", {}))
+        return values
 
     def load(self, base: type[_T]) -> _T:
-        return _load_object(base, self.cls, self.parameters)
+        return _load_object(base, self.cls, self.args, self.kwargs)
 
 
 class LoadedType:
@@ -114,20 +123,15 @@ def _load_object_cls(
 def _load_object(
     base: type[_T],
     source: type | str,
-    parameters: Sequence[Any] | Mapping[str, Any] = (),
+    args: Sequence[Any],
+    kwargs: Mapping[str, Any] = {},
 ) -> _T:
     cls = _load_object_cls(base, source)
     if lenient_issubclass(cls, BaseModel):
-        if isinstance(parameters, Mapping):
-            return cls(**parameters)
-        else:
-            return cls(*parameters)
+        return cls(*args, **kwargs)
 
     instance = object.__new__(cls)
     init = validate_arguments(cls.__init__)
-    if isinstance(parameters, Mapping):
-        init(instance, **parameters)
-    else:
-        init(instance, *parameters)
+    init(instance, *args, **kwargs)
 
     return instance
