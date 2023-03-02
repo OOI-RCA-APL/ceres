@@ -159,7 +159,7 @@ class TCPConnection(Connection):
 
             if disconnect.verify is None:
                 self.logger.warning(
-                    f"No disconnect verification is set. Disconnect will happen immediately."
+                    "No disconnect verification is set. Disconnect will happen immediately."
                 )
             else:
                 for count in range(1, disconnect.verify.count + 1):
@@ -170,7 +170,8 @@ class TCPConnection(Connection):
                     match disconnect.verify.kind:
                         case TCPDisconnectVerifyKind.RECONNECT:
                             self.logger.warning(
-                                f"Attempting to create another connection to {self.target} within {show_td(disconnect.verify.interval)}..."
+                                f"Attempting to create another connection to {self.target} within "
+                                f"{show_td(disconnect.verify.interval)}..."
                             )
                             try:
                                 await asyncio.wait_for(
@@ -181,15 +182,14 @@ class TCPConnection(Connection):
                                     disconnect.verify.interval.total_seconds(),
                                 )
                                 self.logger.info(
-                                    f"A second connection was created and dropped successfully. A disconnect has not occurred."
+                                    "A second connection was created and dropped successfully. A "
+                                    "disconnect has not occurred."
                                 )
                                 disconnected = False
                                 break
                             except Exception:
-                                self.logger.warning(f"Failed to create a second connection.")
+                                self.logger.warning("Failed to create a second connection.")
                                 continue
-                        case _:
-                            pass
 
                 if disconnected:
                     self.logger.error("Disconnect verified.")

@@ -47,5 +47,5 @@ class ProcedureException(CeresException):
     error: ProcedureError
 
     def __init__(self, error: ProcedureError) -> None:
-        super().__init__(f"error occurred while running procedure")
+        super().__init__("error occurred while running procedure")
         self.error = error

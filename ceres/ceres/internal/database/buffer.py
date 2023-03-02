@@ -73,7 +73,7 @@ class WriteBuffer(Generic[_ModelT, _EntityT], ABC):
                     case DatabaseKind.SQLITE:
                         from sqlalchemy.dialects.sqlite import insert
                     case DatabaseKind.POSTGRES:
-                        from sqlalchemy.dialects.postgresql import insert
+                        from sqlalchemy.dialects.postgresql import insert  # noqa
 
                 values: list[dict[str, Any]] = []
 

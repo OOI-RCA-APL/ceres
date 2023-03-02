@@ -183,7 +183,8 @@ class Unit(Tasklet):
 
     def __on_component_exception(self, component: Component, exception: BaseException) -> None:
         self.logger.error(
-            f"Exception occurred in component '{component.address}': {traceback.format_exception(exception)}"
+            f"Exception occurred in component '{component.address}': "
+            f"{traceback.format_exception(exception)}"
         )
         self.remove_component(component)
 

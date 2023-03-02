@@ -97,7 +97,8 @@ def _validate_procedure(
         for parameter in parameters
     ):
         raise ValueError(
-            f"{kind} {strify(function)} must have exactly one or two positional parameters, 'self', and optionally, an input parameter"
+            f"{kind} {strify(function)} must have exactly one or two positional parameters, 'self' "
+            "and optionally, an input parameter"
         )
 
     hints = get_type_hints(function)
@@ -110,7 +111,8 @@ def _validate_procedure(
         input_parameter = parameters[1]
         if input_parameter.name not in hints:
             raise ValueError(
-                f"second positional parameter '{input_parameter.name}' of {kind} {strify(function)} must have a type hint"
+                f"second positional parameter '{input_parameter.name}' of {kind} "
+                f"{strify(function)} must have a type hint"
             )
 
         input_hint = hints[input_parameter.name]
@@ -119,7 +121,8 @@ def _validate_procedure(
             input_json_schema = _get_schema(input_hint)
         except Exception:
             raise ValueError(
-                f"second positional parameter '{input_parameter.name}' of {kind} {strify(function)} must be parseable as a JSON object"
+                f"second positional parameter '{input_parameter.name}' of {kind} "
+                f"{strify(function)} must be parseable as a JSON object"
             )
 
         if input_parameter.default is Parameter.empty:

@@ -31,7 +31,8 @@ def _load_object_cls(
             raise ValueError(f"module '{cls_module_path}' was not found")
 
         raise ValueError(
-            f"component module '{cls_module_path}' raised an exception during import: {traceback.format_exc()}",
+            f"component module '{cls_module_path}' raised an exception during import: "
+            f"{traceback.format_exc()}",
         )
 
     cls = getattr(module, cls_name, None)

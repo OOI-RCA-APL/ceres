@@ -262,7 +262,8 @@ class Engine(Tasklet):
                 self.__environment = Environment(database=Database(self.__config.database))
             except Exception:
                 self.logger.error(
-                    f"An issue occurred while reloading units and database: {traceback.format_exc()}"
+                    f"An issue occurred while reloading units and database: "
+                    f"{traceback.format_exc()}"
                 )
 
         if self.__get_unit_sync_actions():
@@ -444,7 +445,7 @@ class Engine(Tasklet):
         return actions
 
     def __on_server_completed(self, server: Server) -> None:
-        self.logger.info(f"Server stopped.")
+        self.logger.info("Server stopped.")
 
     def __on_server_exception(self, server: Server, exception: BaseException) -> None:
         self.logger.error(

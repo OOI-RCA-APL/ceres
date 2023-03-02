@@ -135,7 +135,8 @@ async def _check_database(
                 ]
 
             log(
-                f"Failed to connect to database, {exception}, {show_td(elapsed)} of {show_td(timeout)} timeout elapsed, retrying in {show_td(interval)}..."
+                f"Failed to connect to database, {exception}, {show_td(elapsed)} of "
+                f"{show_td(timeout)} timeout elapsed, retrying in {show_td(interval)}..."
             )
             await database.dispose()
             await asyncio.sleep(interval.total_seconds())

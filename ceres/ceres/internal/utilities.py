@@ -177,7 +177,8 @@ def decode_td(value: str | timedelta | int | float | Any) -> timedelta:
 
     def get_exception() -> ValueError:
         return ValueError(
-            "invalid timedelta value, must be a ISO formatted interval or number with suffix 'us', 'ms', 's', 'm', 'h' or 'd'."
+            "invalid timedelta value, must be a ISO formatted interval or number with suffix 'us', "
+            "'ms', 's', 'm', 'h' or 'd'."
         )
 
     if not isinstance(value, str):

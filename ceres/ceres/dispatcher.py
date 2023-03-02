@@ -51,24 +51,28 @@ class Dispatcher(Component):
             alerts = await self.environment.get_alerts(query)
         except Exception:
             self.logger.error(
-                f"An exception occurred while reading alerts for dispatch '{dispatch.subject}': {traceback.format_exc()}"
+                f"An exception occurred while reading alerts for dispatch '{dispatch.subject}': "
+                f"{traceback.format_exc()}"
             )
             return
 
         if not alerts:
             self.logger.info(
-                "An no alerts were found that match the current filter. No notification will be sent."
+                "An no alerts were found that match the current filter. No notification will be "
+                "sent."
             )
             return
 
         try:
             notification = await self.parameters.writer.write(dispatch, alerts)
             self.logger.info(
-                f"Sending notification '{notification.subject}' to {len(dispatch.recipients)} recipients referring to {len(alerts)} alerts..."
+                f"Sending notification '{notification.subject}' to {len(dispatch.recipients)} "
+                f"recipients referring to {len(alerts)} alerts..."
             )
         except Exception:
             self.logger.error(
-                f"An exception occurred while writing notification for distribution '{dispatch.subject}': {traceback.format_exc()}"
+                f"An exception occurred while writing notification for dispatch "
+                f"'{dispatch.subject}': {traceback.format_exc()}"
             )
             return
 
@@ -76,5 +80,6 @@ class Dispatcher(Component):
             await self.parameters.notifier.notify(notification, dispatch.recipients)
         except Exception:
             self.logger.error(
-                f"An exception occurred while sending notification to distribution '{dispatch.subject}': {traceback.format_exc()}"
+                f"An exception occurred while sending notification to dispatch "
+                f"'{dispatch.subject}': {traceback.format_exc()}"
             )

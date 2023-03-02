@@ -29,7 +29,10 @@ def load_component_cls(config: ComponentConfig) -> Result[type[Component], Compo
         if not lenient_issubclass(config.cls, Component):
             return Fail(
                 ComponentClassInvalidError(
-                    message=f"component class must be a subclass of {Component}, got {strify(config.cls)}"
+                    message=(
+                        f"component class must be a subclass of {Component}, got "
+                        f"{strify(config.cls)}"
+                    )
                 )
             )
 
@@ -145,12 +148,18 @@ def validate_jobs(
         if action is None:
             defined = sorted(component.get_action_bindings().keys())
             return ComponentJobInvalidError(
-                message=f"{strify(component)} has no action named '{job.action}', defined actions are {defined}"
+                message=(
+                    f"{strify(component)} has no action named '{job.action}', defined actions are "
+                    f"{defined}"
+                )
             )
 
         if job.input is None and (action.input is not None and action.input.required):
             return ComponentJobInvalidError(
-                message=f"missing required input for job '{job.name}', set the job's 'input' to a non-none value"
+                message=(
+                    f"missing required input for job '{job.name}', set the job's 'input' to a "
+                    "non-none value"
+                )
             )
 
         seen.add(action.name)

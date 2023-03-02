@@ -4,7 +4,6 @@ from typing import Literal, Mapping, Sequence, TypeAlias
 
 from pydantic import StrictBool, StrictFloat, StrictInt, StrictStr
 from pydantic.color import Color
-from pydantic.color import Color as Color
 
 from .data import ImmutableDataObject
 

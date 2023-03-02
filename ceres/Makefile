@@ -8,9 +8,9 @@ update:
 test:
 	poetry run pytest
 lint:
-	poetry run sh -c "isort . --check --diff && black --check . && pyright"
-format:
-	poetry run sh -c "isort . && black ."
+	poetry run sh -c "black --check . && ruff check . && pyright ."
+fix:
+	poetry run sh -c "black . && ruff check --fix ."
 clean:
 	rm -rf ./*/**/__pycache__
 	rm -rf ./*/**/.mypy_cache

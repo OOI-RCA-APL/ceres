@@ -17,7 +17,6 @@ from pydantic import (
     parse_obj_as,
 )
 from pydantic.fields import FieldInfo
-from pydantic.fields import FieldInfo as FieldInfo
 from pydantic.json import pydantic_encoder
 from typing_extensions import dataclass_transform
 

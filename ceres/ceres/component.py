@@ -162,7 +162,8 @@ class Component(ValidatedDataclass, Tasklet):
             or not is_subclass_or_typevar(parameters_hint, Component.Parameters)
         ):
             raise ComponentClassInvalidException(
-                f"signature of {__init__} must be compatible with {inspect.signature(Component.__init__)}, got {signature}"
+                f"signature of {__init__} must be compatible with "
+                f"{inspect.signature(Component.__init__)}, got {signature}"
             )
 
         if lenient_issubclass(parameters_hint, Component.Parameters):
@@ -173,7 +174,8 @@ class Component(ValidatedDataclass, Tasklet):
 
                     if not has_field(parameters_hint, source):
                         raise ComponentClassInvalidException(
-                            f"event listener '{binding.function}' refers to reference '{source}' which is not defined as an attribute in {strify(parameters_hint)}"
+                            f"event listener '{binding.function}' refers to reference '{source}' "
+                            f"which is not defined as an attribute in {strify(parameters_hint)}"
                         )
 
         return cls
@@ -228,7 +230,8 @@ class Component(ValidatedDataclass, Tasklet):
                         await result
                 except Exception:
                     self.__logger.error(
-                        f"An exception occurred while processing event {event}: {traceback.format_exc()}"
+                        f"An exception occurred while processing event {event}: "
+                        f"{traceback.format_exc()}"
                     )
                 finally:
                     self.__queue.task_done()
@@ -253,12 +256,16 @@ class Component(ValidatedDataclass, Tasklet):
                 info: "type[RefInfo[Component]]",
             ) -> ComponentReferenceInvalidError:
                 return ComponentReferenceInvalidError(
-                    message=f"reference to component '{reference}' of type {strify(info.cls)} is required and specified by {strify(type(self))}, but it hasn't loaded yet or failed to load"
+                    message=(
+                        f"reference to component '{reference}' of type {strify(info.cls)} is "
+                        f"required and specified by {strify(type(self))}, but it hasn't loaded yet "
+                        "failed to load"
+                    )
                 )
 
-            for name, field in self.__fields__.items():
-                outer_type = field.outer_type_
-                inner_type = field.type_
+            for name, info in self.__fields__.items():
+                outer_type = info.outer_type_
+                inner_type = info.type_
                 value: Any = getattr(self, name)
 
                 if lenient_issubclass(outer_type, RefInfo):
@@ -607,7 +614,8 @@ class Component(ValidatedDataclass, Tasklet):
             await routine()
         except Exception:
             self.logger.error(
-                f"An exception occurred while running routine '{strify(binding.function)}': {strify(traceback.format_exc())}"
+                f"An exception occurred while running routine '{strify(binding.function)}': "
+                f"{strify(traceback.format_exc())}"
             )
 
     @routine

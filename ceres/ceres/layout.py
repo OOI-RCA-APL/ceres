@@ -47,8 +47,14 @@ class LayoutColumn(DataObject):
         super().__init__(**{"children": children, **kwargs})
 
 
-LayoutNode = Annotated[LayoutDisplay | LayoutRow | LayoutColumn, Field(discriminator="kind")]  # type: ignore
-LayoutContainerNode = Annotated[LayoutRow | LayoutColumn, Field(discriminator="kind")]  # type: ignore
+LayoutNode = Annotated[  # type: ignore
+    LayoutDisplay | LayoutRow | LayoutColumn,
+    Field(discriminator="kind"),
+]
+LayoutContainerNode = Annotated[
+    LayoutRow | LayoutColumn,
+    Field(discriminator="kind"),
+]
 
 
 class Layout(ImmutableDataObject):
