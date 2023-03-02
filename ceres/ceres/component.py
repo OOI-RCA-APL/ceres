@@ -87,7 +87,7 @@ from .procedure import (
     QueryBinding,
     query,
 )
-from .ref import Ref, RefInfo
+from .ref import RefInfo
 from .result import Fail, Ok, Result
 from .routine import RoutineBinding, routine
 from .schedule import Schedule
@@ -287,7 +287,7 @@ class Component(ValidatedDataclass, Tasklet):
                 if lenient_issubclass(inner_type, RefInfo) and lenient_issubclass(
                     get_origin(outer_type) or outer_type, Collection
                 ):
-                    if issubclass(inner_type, Ref):
+                    if issubclass(inner_type, RefInfo):
                         components: list[Any] = []
 
                         for element in value:

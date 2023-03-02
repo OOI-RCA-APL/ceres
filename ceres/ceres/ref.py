@@ -1,43 +1,37 @@
 from typing import TYPE_CHECKING, Annotated, Any, Generic, TypeVar
 
 from pydantic import parse_obj_as
+from pydantic.utils import lenient_isinstance
 from typing_extensions import Self
 
-from .internal.utilities import lenient_issubclass
+from .internal.utilities import strify
 
-if TYPE_CHECKING:
-    from .component import Component
-else:
-    Component = "Component"
-
-_ComponentT = TypeVar("_ComponentT", bound=Component)
+_T = TypeVar("_T")
 
 
-class RefInfo(Generic[_ComponentT]):
-    cls: type[_ComponentT]
-    _cache: dict[type, "RefInfo[Component]"] = {}
+class RefInfo(Generic[_T]):
+    cls: type[_T]
+    _cache: dict[type, "type[RefInfo[Any]]"] = {}
 
-    def __init__(self, cls: type[_ComponentT]) -> None:
+    def __init__(self, cls: type[_T]) -> None:
         self.cls = cls
 
-    def __class_getitem__(cls, item: type[_ComponentT]) -> Self:
-        from .component import Component
+    def __class_getitem__(cls, target_cls: type[_T]) -> type[Self]:
+        if not isinstance(target_cls, type):
+            raise ValueError(
+                f"reference type must be an instance of {type}, got '{strify(target_cls)}'"
+            )
 
-        if not lenient_issubclass(item, Component):
-            raise ValueError("references can only refer to components")
+        if target_cls in RefInfo._cache:
+            return RefInfo._cache[target_cls]  # type: ignore
 
-        if item in RefInfo._cache:
-            return RefInfo._cache[item]  # type: ignore
+        class RefInfoSpec(cls):  # type: ignore
+            cls = target_cls
 
-        base: type = super().__class_getitem__(item)  # type: ignore
-
-        class RefInfoSpec(base):  # type: ignore
-            cls = item
-
-        RefInfoSpec.__name__ = f"RefInfo[{item.__name__}]"
+        RefInfoSpec.__name__ = f"RefInfo[{target_cls.__name__}]"
         RefInfoSpec.__qualname__ = RefInfo.__qualname__.replace("RefInfoSpec", RefInfoSpec.__name__)
 
-        RefInfo._cache[item] = RefInfoSpec
+        RefInfo._cache[target_cls] = RefInfoSpec
         return RefInfoSpec
 
     @classmethod
@@ -45,15 +39,17 @@ class RefInfo(Generic[_ComponentT]):
         yield cls.validate
 
     @classmethod
-    def validate(cls, value: Any) -> _ComponentT | str:
+    def validate(cls, value: Any) -> _T | str:
         if isinstance(value, str):
+            return value
+        if lenient_isinstance(value, cls.cls):
             return value
 
         return parse_obj_as(cls.cls, value)
 
 
 if TYPE_CHECKING:
-    Ref = Annotated[_ComponentT, ()]  # type: ignore
+    Ref = Annotated[_T, ()]  # type: ignore
 else:
     Ref = RefInfo
     Ref.__name__ = "Ref"
