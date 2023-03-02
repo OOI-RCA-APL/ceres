@@ -344,7 +344,7 @@ else:
 
     def lenient_issubclass(obj, cls):
         try:
-            return isinstance(obj, type) and issubclass(obj, cls)
+            return issubclass(obj, cls)
         except TypeError:
             return False
 

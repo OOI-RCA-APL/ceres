@@ -40,10 +40,10 @@ from .parsing import Parser as Parser
 from .procedure import ProcedureKind as ProcedureKind
 from .procedure import action as action
 from .procedure import query as query
+from .ref import Ref as Ref
 from .result import Fail as Fail
 from .result import Ok as Ok
 from .result import Result as Result
-from .ref import Ref as Ref
 from .routine import routine as routine
 from .schedule import Schedule as Schedule
 from .schedule import ScheduleKind as ScheduleKind

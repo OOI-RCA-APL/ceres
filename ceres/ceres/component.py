@@ -15,26 +15,30 @@ from typing import (
     Any,
     AsyncIterable,
     Awaitable,
-    ByteString,
     Callable,
     Collection,
     FrozenSet,
     Mapping,
     Sequence,
     TypeVar,
-    cast,
     final,
-    get_args,
     get_type_hints,
 )
 from weakref import WeakValueDictionary, ref
 
-from pydantic import Field, ValidationError, parse_obj_as, validate_arguments, validator
-from typing_extensions import Self, dataclass_transform, override
+from pydantic import (
+    Field,
+    ValidationError,
+    parse_obj_as,
+    root_validator,
+    validate_arguments,
+    validator,
+)
+from sqlalchemy.util import unique_list
+from typing_extensions import Self, dataclass_transform, get_origin, override
 
 from .address import Address
 from .alert import Alert, AlertLevel
-from .config import JobConfig
 from .data import (
     VALIDATED_DATACLASS_FIELD_SPECIFIERS,
     ImmutableDataObject,
@@ -104,6 +108,21 @@ _EventT = TypeVar("_EventT", bound=Event)
 class ComponentPaths(ImmutableDataObject):
     data: Directory = Field(default_factory=Directory)
     local: Directory = Field(default_factory=Directory)
+
+
+class Job(ImmutableDataObject):
+    name: Name
+    action: Name
+    input: Any = None
+    schedule: Schedule = Field(discriminator="kind")
+    enabled: bool = True
+
+    @root_validator(pre=True)
+    def _default_name_to_action(cls, values: dict[str, Any]) -> Any:
+        if "name" not in values and "action" in values:
+            values["name"] = values["action"]
+
+        return values
 
 
 @dataclass_transform(
@@ -221,6 +240,8 @@ class Component(ValidatedDataclass, Tasklet):
             await self.__queue.join()
 
     class Parameters(ImmutableDataObject):
+        jobs: Sequence[Job] = Field(default_factory=list)
+
         def assign_references(
             self,
             siblings: Mapping[Name, "Component"],
@@ -229,43 +250,40 @@ class Component(ValidatedDataclass, Tasklet):
 
             def _create_reference_invalid_error(
                 reference: Any,
-                info: "RefInfo[Component]",
+                info: "type[RefInfo[Component]]",
             ) -> ComponentReferenceInvalidError:
                 return ComponentReferenceInvalidError(
                     message=f"reference to component '{reference}' of type {strify(info.cls)} is required and specified by {strify(type(self))}, but it hasn't loaded yet or failed to load"
                 )
 
             for name, field in self.__fields__.items():
-                field_value: Any = getattr(self, name)
-                if issubclass(field.type_, Ref):
-                    if isinstance(field_value, str):
-                        component = siblings.get(field_value)
-                    else:
-                        component = field_value
+                outer_type = field.outer_type_
+                inner_type = field.type_
+                value: Any = getattr(self, name)
 
-                    info = cast(RefInfo[Component], field.type_)
+                if lenient_issubclass(outer_type, RefInfo):
+                    if lenient_isinstance(value, str):
+                        component = siblings.get(value)
+                    else:
+                        component = value
+
                     if (
                         component is None
-                        and not is_optional(field.type_)
-                        and not is_optional(info.cls)
+                        and not is_optional(outer_type)
+                        and not is_optional(outer_type.cls)
                     ):
-                        return Fail(_create_reference_invalid_error(field_value, info))
+                        return Fail(_create_reference_invalid_error(value, outer_type))
 
                     output[name] = component
                     continue
 
-                if isinstance(field_value, Collection) and not isinstance(
-                    field_value, (str, ByteString)
+                if lenient_issubclass(inner_type, RefInfo) and lenient_issubclass(
+                    get_origin(outer_type) or outer_type, Collection
                 ):
-                    try:
-                        element_type = get_args(field.type_)[0]
-                    except Exception:
-                        continue
+                    if issubclass(inner_type, Ref):
+                        components: list[Any] = []
 
-                    if issubclass(element_type, Ref):
-                        info = cast(RefInfo[Component], element_type)
-                        resolved: list[Any] = []
-                        for element in field_value:
+                        for element in value:
                             if isinstance(element, str):
                                 component = siblings.get(element)
                             else:
@@ -273,39 +291,37 @@ class Component(ValidatedDataclass, Tasklet):
 
                             if (
                                 component is None
-                                and not is_optional(element_type)
-                                and not is_optional(info.cls)
+                                and not is_optional(inner_type)
+                                and not is_optional(inner_type.cls)
                             ):
-                                return Fail(_create_reference_invalid_error(element, info))
+                                return Fail(_create_reference_invalid_error(element, inner_type))
 
-                        output[name] = parse_obj_as(field.type_, resolved)
+                            components.append(component)
+
+                        output[name] = parse_obj_as(outer_type, components)
 
             return Ok(type(self)(**output))
 
         def get_components(self, alias: str | None = None) -> Sequence["Component"]:
-            components = []
+            components: list[Component] = []
 
             if alias is None:
-                for alias in self.dict().keys():
+                for alias in self.__fields__.keys():
                     components.extend(self.get_components(alias))
+            else:
+                reference = getattr(self, alias, None)
+                if isinstance(reference, Component):
+                    components.append(reference)
+                elif isinstance(reference, Collection):
+                    for component in reference:
+                        if isinstance(component, Component):
+                            components.append(component)
 
-                return components
-
-            reference = getattr(self, alias, None)
-            if isinstance(reference, Component):
-                components.append(reference)
-            elif isinstance(reference, Collection):
-                for component in reference:
-                    if isinstance(component, Component):
-                        components.append(component)
-
-            return components
+            return unique_list(components, id)
 
     name: Name = field(default_factory=lambda: randstr(ascii_lowercase, 8))
     paths: ComponentPaths = field(default_factory=ComponentPaths)
-
     parameters: Parameters = field(default_factory=Parameters)
-    jobs: Sequence[JobConfig] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         self.__local_environment: Environment | None = None
@@ -360,15 +376,15 @@ class Component(ValidatedDataclass, Tasklet):
 
         return self.__local_environment
 
-    @validator("jobs")
-    def _validate_jobs(cls, jobs: Sequence[JobConfig]) -> Sequence[JobConfig]:
+    @validator("parameters")
+    def _validate_parameters(cls, parameters: Parameters) -> Parameters:
         from .internal.component import validate_jobs
 
-        error = validate_jobs(cls, jobs)
+        error = validate_jobs(cls, parameters.jobs)
         if error is not None:
             raise ValueError(error.message)
 
-        return jobs
+        return parameters
 
     @final
     @classmethod
@@ -556,7 +572,7 @@ class Component(ValidatedDataclass, Tasklet):
     def __start_scheduler(self) -> None:
         self.__scheduler.start()
 
-        async def run(job: JobConfig) -> None:
+        async def run(job: Job) -> None:
             self.logger.info(f"Running job '{job.name}'...")
             try:
                 await self.call(job.action, job.input)
@@ -565,7 +581,7 @@ class Component(ValidatedDataclass, Tasklet):
                     f"An error occurred while running job '{job.name}': {strify(exception.error)}"
                 )
 
-        for job in self.jobs:
+        for job in self.parameters.jobs:
             self.logger.info(f"Scheduling job '{job.name}' on {job.schedule}.")
             self.add_job(partial(run, job), job.schedule, name=job.name)
 

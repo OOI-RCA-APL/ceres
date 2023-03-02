@@ -4,8 +4,8 @@ from typing import Mapping, Sequence, TypeVar, cast
 
 from pydantic import ValidationError, parse_obj_as
 
-from ..component import Component, ComponentPaths
-from ..config import ComponentConfig, JobConfig
+from ..component import Component, ComponentPaths, Job
+from ..config import ComponentConfig
 from ..data import Name
 from ..errors import (
     ComponentClassInvalidError,
@@ -105,19 +105,18 @@ def load_component(
             )
         )
 
-    if config.jobs:
-        error = validate_jobs(cls, config.jobs)
-        if error is not None:
-            return Fail(error)
-
-    applied_jobs = config.jobs
-
     try:
         instance = cls(
             name=name,
             paths=paths,
             parameters=applied_parameters,
-            jobs=applied_jobs,
+        )
+    except ValidationError as error:
+        return Fail(
+            ComponentParametersInvalidError(
+                message=f"invalid parameters for {strify(cls)}",
+                problems=ValidationProblem.extract(error),
+            )
         )
     except Exception as exception:
         return Fail(
@@ -132,7 +131,7 @@ def load_component(
 
 def validate_jobs(
     component: Component | type[Component],
-    jobs: Sequence[JobConfig],
+    jobs: Sequence[Job],
 ) -> ComponentJobInvalidError | None:
     seen: set[str] = set()
 

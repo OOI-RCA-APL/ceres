@@ -4,14 +4,13 @@ from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Mapping, Sequence
 
-from pydantic import Field, SecretStr, parse_obj_as, root_validator, validator
+from pydantic import Field, SecretStr, parse_obj_as, validator
 from typing_extensions import Self
 
 from .address import Address
 from .data import ImmutableDataObject, Name, PositiveTimeDelta
 from .internal.utilities import setattr_internal
 from .result import Ok
-from .schedule import Schedule
 
 if TYPE_CHECKING:
     from .component import Component
@@ -23,21 +22,6 @@ class ConfigObject(ImmutableDataObject):
     pass
 
 
-class JobConfig(ConfigObject):
-    name: Name
-    action: Name
-    input: Any = None
-    schedule: Schedule = Field(discriminator="kind")
-    enabled: bool = True
-
-    @root_validator(pre=True)
-    def _validate_name(cls, values: dict[str, Any]) -> Any:
-        if "name" not in values and "action" in values:
-            values["name"] = values["action"]
-
-        return values
-
-
 class ComponentConfig(ConfigObject):
     name: Name
 
@@ -47,7 +31,6 @@ class ComponentConfig(ConfigObject):
         cls: str | type = Field(alias="class")
 
     parameters: Mapping[Name, Any] = Field(default_factory=dict)
-    jobs: Sequence[JobConfig] = Field(default_factory=list)
 
 
 class ServerConfig(ConfigObject):
