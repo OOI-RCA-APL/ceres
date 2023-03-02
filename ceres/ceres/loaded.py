@@ -3,11 +3,76 @@ import traceback
 from typing import TYPE_CHECKING, Annotated, Any, Iterable, Mapping, Sequence, TypeVar
 
 from pydantic import BaseModel, Field, validate_arguments, validator
+from typing_extensions import Self
 
 from .data import ImmutableDataObject
 from .internal.utilities import lenient_isinstance, lenient_issubclass, strify
 
 _T = TypeVar("_T")
+
+
+class Loader(ImmutableDataObject):
+    cls: type = Field(alias="class")
+    parameters: Sequence[Any] | Mapping[str, Any] = ()
+
+    @validator("cls", pre=True)
+    def _validate_cls(cls, value: Any) -> type:
+        if not isinstance(value, (type, str)):
+            raise ValueError("class value must be a str import path or class instance")
+
+        return _load_object_cls(object, value)
+
+    @validator("parameters")
+    def _validate_parameters(
+        cls,
+        parameters: Sequence[Any] | Mapping[str, Any],
+        values: Mapping[str, Any],
+    ) -> Sequence[Any] | Mapping[str, Any]:
+        _load_object(object, values["cls"], parameters)
+        return parameters
+
+    def load(self, base: type[_T]) -> _T:
+        return _load_object(base, self.cls, self.parameters)
+
+
+class LoadedType:
+    cls: type = object
+    _cache: dict[type, type[Self]] = {}
+
+    def __class_getitem__(cls, target_cls: type, /) -> type[Self]:
+        if target_cls in LoadedType._cache:
+            return LoadedType._cache[target_cls]  # type: ignore
+
+        class LoadedTypeSpec(LoadedType):  # type: ignore
+            cls = target_cls
+
+        LoadedTypeSpec.__name__ = f"{LoadedType.__name__}[{target_cls.__name__}]"
+        LoadedTypeSpec.__qualname__ = LoadedType.__qualname__.replace(
+            LoadedType.__name__,
+            LoadedTypeSpec.__name__,
+        )
+
+        LoadedType._cache[target_cls] = LoadedTypeSpec
+        return LoadedTypeSpec
+
+    @classmethod
+    def __get_validators__(cls) -> Iterable[Any]:
+        yield cls.validate
+
+    @classmethod
+    def validate(cls, value: Any) -> Any:
+        if lenient_isinstance(value, cls.cls):
+            return value
+        if lenient_isinstance(value, Loader):
+            return value.load(cls.cls)
+
+        return Loader.parse_obj(value).load(cls.cls)
+
+
+if TYPE_CHECKING:
+    Loaded = Annotated[_T, ()]
+else:
+    Loaded = LoadedType
 
 
 def _load_object_cls(
@@ -66,68 +131,3 @@ def _load_object(
         init(instance, *parameters)
 
     return instance
-
-
-class Loader(ImmutableDataObject):
-    cls: type = Field(alias="class")
-    parameters: Sequence[Any] | Mapping[str, Any] = ()
-
-    @validator("cls", pre=True)
-    def _validate_cls(cls, value: Any) -> type:
-        if not isinstance(value, (type, str)):
-            raise ValueError("class value must be a str import path or class instance")
-
-        return _load_object_cls(object, value)
-
-    @validator("parameters")
-    def _validate_parameters(
-        cls,
-        parameters: Sequence[Any] | Mapping[str, Any],
-        values: Mapping[str, Any],
-    ) -> Sequence[Any] | Mapping[str, Any]:
-        _load_object(object, values["cls"], parameters)
-        return parameters
-
-    def load(self, base: type[_T]) -> _T:
-        return _load_object(base, self.cls, self.parameters)
-
-
-_class_getitem_cache: dict[type, type] = {}
-
-
-class _Loaded:
-    base: type
-
-    def __class_getitem__(cls, base: type, /) -> "type[_Loaded]":
-        result = _class_getitem_cache.get(base)
-        if result is None:
-
-            class LoadedAliasImpl(_Loaded):  # type: ignore
-                pass
-
-            LoadedAliasImpl.base = base
-            result = LoadedAliasImpl
-            _class_getitem_cache[base] = result
-
-        return result  # type: ignore
-
-    @classmethod
-    def __get_validators__(cls) -> Iterable[Any]:
-        yield cls.validate
-
-    @classmethod
-    def validate(cls, value: Any) -> Any:
-        if lenient_isinstance(value, cls.base):
-            return value
-        if lenient_isinstance(value, Loader):
-            return value.load(cls.base)
-
-        return Loader.parse_obj(value).load(cls.base)
-
-
-_Loaded.__name__ = "Loaded"
-
-if TYPE_CHECKING:
-    Loaded = Annotated[_T, ()]
-else:
-    Loaded = _Loaded

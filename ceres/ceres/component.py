@@ -3,7 +3,6 @@ import dataclasses
 import inspect
 import logging
 import traceback
-from asyncio import Queue as AsyncQueue
 from dataclasses import field
 from functools import partial
 from inspect import Parameter
@@ -14,7 +13,6 @@ from typing import (
     TYPE_CHECKING,
     Any,
     AsyncIterable,
-    Awaitable,
     Callable,
     Collection,
     FrozenSet,
@@ -29,13 +27,13 @@ from weakref import WeakValueDictionary, ref
 from pydantic import (
     Field,
     ValidationError,
-    parse_obj_as,
     root_validator,
     validate_arguments,
     validator,
 )
+from pydantic.utils import lenient_isinstance
 from sqlalchemy.util import unique_list
-from typing_extensions import Self, dataclass_transform, get_origin, override
+from typing_extensions import dataclass_transform, override
 
 from .address import Address
 from .alert import Alert, AlertLevel
@@ -49,7 +47,6 @@ from .data import (
 from .directory import Directory
 from .environment import Environment
 from .errors import (
-    ComponentReferenceInvalidError,
     ProcedureDoesNotExistError,
     ProcedureInternalError,
     ProcedureInvalidInputError,
@@ -61,16 +58,14 @@ from .internal import logs
 from .internal.binding import get_all_bindings
 from .internal.database.buffer import WriteBuffer
 from .internal.database.entities import AlertEntity, MessageEntity
+from .internal.events import EventProcessor
 from .internal.scheduler import Scheduler
 from .internal.tasklet import Tasklet
 from .internal.utilities import (
     awaitify,
     cached,
-    dictify,
     get_type_annotations,
     has_field,
-    is_optional,
-    lenient_isinstance,
     lenient_issubclass,
     pre_validate_arguments,
     randstr,
@@ -87,8 +82,6 @@ from .procedure import (
     QueryBinding,
     query,
 )
-from .ref import RefInfo
-from .result import Fail, Ok, Result
 from .routine import RoutineBinding, routine
 from .schedule import Schedule
 from .stream import Stream, StreamView
@@ -180,134 +173,8 @@ class Component(ValidatedDataclass, Tasklet):
 
         return cls
 
-    @final
-    class __EventProcessor:
-        __slots__ = (
-            "__binding",
-            "__handler",
-            "__handler_arity",
-            "__logger",
-            "__queue",
-        )
-
-        def __init__(
-            self,
-            *,
-            binding: ListenerBinding,
-            handler: Callable[[Event], None | Awaitable[None]]
-            | Callable[[], None | Awaitable[None]],
-            logger: Logger,
-        ) -> None:
-            self.__binding = binding
-            self.__handler = handler
-            self.__handler_arity = len(inspect.signature(self.__handler).parameters)
-            self.__logger = logger
-            self.__queue: AsyncQueue[Event] = AsyncQueue()
-
-        @property
-        def binding(self) -> ListenerBinding:
-            return self.__binding
-
-        @property
-        def idle(self) -> bool:
-            return self.__queue._finished.is_set()  # type: ignore
-
-        def put(self, event: Event) -> None:
-            self.__queue.put_nowait(event)
-
-        def clear(self) -> None:
-            while not self.__queue.empty():
-                self.__queue.get_nowait()
-                self.__queue.task_done()
-
-        async def run(self) -> None:
-            while True:
-                event = await self.__queue.get()
-
-                try:
-                    result = self.__handler(*[event][: self.__handler_arity])
-                    if inspect.iscoroutine(result):
-                        await result
-                except Exception:
-                    self.__logger.error(
-                        f"An exception occurred while processing event {event}: "
-                        f"{traceback.format_exc()}"
-                    )
-                finally:
-                    self.__queue.task_done()
-
-        async def wait_until_empty(self) -> None:
-            if self.__queue.empty():
-                return
-
-            await self.__queue.join()
-
     class Parameters(ImmutableDataObject):
         jobs: Sequence[Job] = Field(default_factory=list)
-
-        def assign_references(
-            self,
-            siblings: Mapping[Name, "Component"],
-        ) -> "Result[Self, ComponentReferenceInvalidError]":
-            output: dict[str, Any] = dictify(self)
-
-            def _create_reference_invalid_error(
-                reference: Any,
-                info: "type[RefInfo[Component]]",
-            ) -> ComponentReferenceInvalidError:
-                return ComponentReferenceInvalidError(
-                    message=(
-                        f"reference to component '{reference}' of type {strify(info.cls)} is "
-                        f"required and specified by {strify(type(self))}, but it hasn't loaded yet "
-                        "failed to load"
-                    )
-                )
-
-            for name, info in self.__fields__.items():
-                outer_type = info.outer_type_
-                inner_type = info.type_
-                value: Any = getattr(self, name)
-
-                if lenient_issubclass(outer_type, RefInfo):
-                    if lenient_isinstance(value, str):
-                        component = siblings.get(value)
-                    else:
-                        component = value
-
-                    if (
-                        component is None
-                        and not is_optional(outer_type)
-                        and not is_optional(outer_type.cls)
-                    ):
-                        return Fail(_create_reference_invalid_error(value, outer_type))
-
-                    output[name] = component
-                    continue
-
-                if lenient_issubclass(inner_type, RefInfo) and lenient_issubclass(
-                    get_origin(outer_type) or outer_type, Collection
-                ):
-                    if issubclass(inner_type, RefInfo):
-                        components: list[Any] = []
-
-                        for element in value:
-                            if isinstance(element, str):
-                                component = siblings.get(element)
-                            else:
-                                component = element
-
-                            if (
-                                component is None
-                                and not is_optional(inner_type)
-                                and not is_optional(inner_type.cls)
-                            ):
-                                return Fail(_create_reference_invalid_error(element, inner_type))
-
-                            components.append(component)
-
-                        output[name] = parse_obj_as(outer_type, components)
-
-            return Ok(type(self)(**output))
 
         def get_components(self, alias: str | None = None) -> Sequence["Component"]:
             components: list[Component] = []
@@ -351,7 +218,7 @@ class Component(ValidatedDataclass, Tasklet):
             self.logger,
         )
         self.__event_processors = [
-            self.__EventProcessor(
+            EventProcessor(
                 binding=binding,
                 handler=getattr(self, binding.function),
                 logger=self.logger,

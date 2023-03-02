@@ -74,15 +74,13 @@ def dictify(obj: object) -> dict[str, Any]:
             return dict(obj)
         if is_dataclass(obj):
             return dataclasses.asdict(obj)
-        if isinstance(obj, BaseModel):
-            return obj.dict()
-        if isinstance(obj, type):
-            return {key: getattr(obj, key) for key in dir(obj) if includes(key)}
-        if hasattr(obj, "__slots__"):
-            return {
-                name: getattr(obj, name) for name in obj.__slots__ if includes(name)  # type: ignore
-            }
-        return {key: value for key, value in obj.__dict__.items() if not includes(key)}
+        if not isinstance(obj, BaseModel):
+            if isinstance(obj, type):
+                return {key: getattr(obj, key) for key in dir(obj) if includes(key)}
+            slots: tuple[str, ...] | None = getattr(obj, "__slots__", None)
+            if slots is not None:
+                return {name: getattr(obj, name) for name in slots if includes(name)}
+        return {key: value for key, value in obj.__dict__.items() if includes(key)}
     except Exception:
         raise ValueError("object cannot be dictified")
 

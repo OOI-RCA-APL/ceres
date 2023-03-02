@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Annotated, Any, Generic, TypeVar
+from typing import TYPE_CHECKING, Annotated, Any, TypeVar
 
 from pydantic import parse_obj_as
 from pydantic.utils import lenient_isinstance
@@ -9,37 +9,37 @@ from .internal.utilities import strify
 _T = TypeVar("_T")
 
 
-class RefInfo(Generic[_T]):
-    cls: type[_T]
-    _cache: dict[type, "type[RefInfo[Any]]"] = {}
+class RefType:
+    cls: type = object
+    _cache: dict[type, type[Self]] = {}
 
-    def __init__(self, cls: type[_T]) -> None:
-        self.cls = cls
-
-    def __class_getitem__(cls, target_cls: type[_T]) -> type[Self]:
+    def __class_getitem__(cls, target_cls: type, /) -> type[Self]:
         if not isinstance(target_cls, type):
             raise ValueError(
                 f"reference type must be an instance of {type}, got '{strify(target_cls)}'"
             )
 
-        if target_cls in RefInfo._cache:
-            return RefInfo._cache[target_cls]  # type: ignore
+        if target_cls in RefType._cache:
+            return RefType._cache[target_cls]  # type: ignore
 
-        class RefInfoSpec(cls):  # type: ignore
+        class RefTypeSpec(RefType):  # type: ignore
             cls = target_cls
 
-        RefInfoSpec.__name__ = f"RefInfo[{target_cls.__name__}]"
-        RefInfoSpec.__qualname__ = RefInfo.__qualname__.replace("RefInfoSpec", RefInfoSpec.__name__)
+        RefTypeSpec.__name__ = f"{RefType.__name__}[{target_cls.__name__}]"
+        RefTypeSpec.__qualname__ = RefType.__qualname__.replace(
+            RefType.__name__,
+            RefTypeSpec.__name__,
+        )
 
-        RefInfo._cache[target_cls] = RefInfoSpec
-        return RefInfoSpec
+        RefType._cache[target_cls] = RefTypeSpec
+        return RefTypeSpec
 
     @classmethod
     def __get_validators__(cls):
         yield cls.validate
 
     @classmethod
-    def validate(cls, value: Any) -> _T | str:
+    def validate(cls, value: Any) -> Any:
         if isinstance(value, str):
             return value
         if lenient_isinstance(value, cls.cls):
@@ -51,6 +51,4 @@ class RefInfo(Generic[_T]):
 if TYPE_CHECKING:
     Ref = Annotated[_T, ()]  # type: ignore
 else:
-    Ref = RefInfo
-    Ref.__name__ = "Ref"
-    Ref.__qualname__ = Ref.__qualname__.replace("_Ref", "Ref")
+    Ref = RefType
