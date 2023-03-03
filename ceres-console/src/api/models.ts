@@ -65,8 +65,6 @@ export type ComponentConfig = Zod.infer<typeof ComponentConfigModel>
 export const ComponentConfigModel = Zod.object({
   name: NameStrModel,
   class: Zod.string(),
-  parameters: Zod.record(NameStrModel, Zod.unknown()).default(() => ({})),
-  references: Zod.record(NameStrModel, NameStrModel).default(() => ({})),
 })
 
 export type ServerConfig = Zod.infer<typeof ServerConfigModel>

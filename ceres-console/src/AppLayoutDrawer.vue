@@ -1,13 +1,13 @@
 <template>
   <q-drawer v-model="drawer.isOpen" class="self-app-layout-drawer-root" :width="drawer.width">
-    <resize-handle
-      v-model="drawer.width"
-      class="self-resize-handle"
-      direction="horizontal"
-      :min="60"
-      :style="{ left: `${drawer.width}px` }"
-    />
     <div class="column full-height">
+      <resize-handle
+        v-model="drawer.width"
+        class="self-resize-handle"
+        direction="horizontal"
+        :min="60"
+        :style="{ left: `${drawer.width}px` }"
+      />
       <div class="col-grow scroll">
         <q-list>
           <q-item :active="route.fullPath === '/'" clickable to="/">

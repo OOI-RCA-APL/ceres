@@ -22,7 +22,7 @@ class ConfigObject(ImmutableDataObject):
     pass
 
 
-class ComponentConfig(ConfigObject, ComponentLoader):
+class ComponentConfig(ComponentLoader):
     pass
 
 

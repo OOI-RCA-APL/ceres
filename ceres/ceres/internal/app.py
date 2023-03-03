@@ -105,6 +105,8 @@ def use_environment(connection: HTTPConnection) -> Environment:
 
 @api.get("/config", tags=["engine"])
 async def get_config(engine: Engine = Depends(use_engine)) -> Config:
+    print(engine.config.json(by_alias=True))
+    print(engine.config.json())
     return engine.config
 
 

@@ -1,14 +1,21 @@
 <template>
-  <div :class="['self-resize-handle-root', isVertical ? 'self-vertical' : 'self-horizontal']">
-    <div
-      :class="[
-        'self-handle',
-        isVertical ? 'self-handle-vertical' : 'self-handle-horizontal',
-        drag != null && 'self-handle-dragging',
-      ]"
-      :style="{ top: `${innerPosition.y}px`, left: `${innerPosition.x}px` }"
-      @pointerdown="onPointerDown"
-    />
+  <div
+    :class="[
+      'self-resize-handle-root',
+      isVertical ? 'self-resize-handle-root-vertical' : 'self-resize-handle-root-horizontal',
+    ]"
+  >
+    <div class="fit self-handle-container">
+      <div
+        :class="[
+          'self-handle',
+          isVertical ? 'self-handle-vertical' : 'self-handle-horizontal',
+          drag != null && 'self-handle-dragging',
+        ]"
+        :style="{ top: `${innerPosition.y}px`, left: `${innerPosition.x}px` }"
+        @pointerdown="onPointerDown"
+      />
+    </div>
   </div>
 </template>
 
@@ -117,7 +124,6 @@ onUnmounted(() => {
 
 <style lang="scss" scoped>
 .self-resize-handle-root {
-  position: relative;
   background-color: rgba(0, 0, 0, 0.12);
 }
 
@@ -125,14 +131,18 @@ onUnmounted(() => {
   background-color: rgba(255, 255, 255, 0.28);
 }
 
-.self-horizontal {
+.self-resize-handle-root-horizontal {
   width: 1px;
   height: 100%;
 }
 
-.self-vertical {
+.self-resize-handle-root-vertical {
   height: 1px;
   width: 100%;
+}
+
+.self-handle-container {
+  position: relative;
 }
 
 .self-handle {

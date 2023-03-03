@@ -45,7 +45,7 @@ def simplify(obj: object) -> Any:
 class DataObject(BaseModel, ABC):
     class Config(BaseConfig):
         arbitrary_types_allowed = True
-        allow_population_by_field_name = True
+        # allow_population_by_field_name = True
         orm_mode = True
         validate_assignment = True
         extra = Extra.forbid

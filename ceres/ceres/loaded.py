@@ -26,8 +26,12 @@ _T = TypeVar("_T")
 
 
 class Loader(ImmutableDataObject):
-    cls: type = Field(alias="class")
+    cls_path: str = Field(alias="class")
     args: Sequence[Any] | Mapping[str, Any] = ()
+
+    @property
+    def cls(self) -> type:
+        return self._load_cls(self.cls_path)
 
     @classmethod
     def _get_extra_kwarg_names(cls) -> Sequence[str]:
@@ -52,16 +56,21 @@ class Loader(ImmutableDataObject):
 
         return values
 
-    @validator("cls", pre=True)
-    def _pre_validate_cls(cls, value: Any) -> type:
-        if not isinstance(value, (type, str)):
-            raise ValueError("class value must be a str import path or class instance")
+    # @validator("cls_path", pre=True)
+    # def _pre_validate_cls(cls, value: Any) -> type:
+    #     if not isinstance(value, (type, str)):
+    #         raise ValueError("class value must be a str import path or class instance")
 
-        return cls._load_cls(value)
+    #     return cls._load_cls(value)
+
+    @validator("cls_path")
+    def _validate_cls_path(cls, value: str) -> str:
+        cls._load_cls(value)
+        return value
 
     @root_validator
     def _validate(cls, values: dict[str, Any]) -> dict[str, Any]:
-        if "cls" not in values:
+        if "cls_path" not in values:
             return values
 
         extra = {name: values[name] for name in cls._get_extra_kwarg_names()}
@@ -69,7 +78,7 @@ class Loader(ImmutableDataObject):
         if isinstance(args, Mapping):
             args = {**args, **extra}
 
-        cls._load_obj(values["cls"], args)
+        cls._load_obj(values["cls_path"], args)
 
         return values
 
@@ -80,7 +89,7 @@ class Loader(ImmutableDataObject):
             args = {**args, **extra}
 
         return self._load_obj(
-            self.cls,
+            self.cls_path,
             args,
             base=base,
         )
