@@ -10,7 +10,7 @@ from sqlalchemy import QueuePool, event
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
-from ..config import DatabaseConfig, PostgresDatabaseConfig, SQLiteDatabaseConfig
+from ceres.config import DatabaseConfig, PostgresDatabaseConfig, SQLiteDatabaseConfig
 
 ConfigT = TypeVar("ConfigT", bound=DatabaseConfig, covariant=True)
 

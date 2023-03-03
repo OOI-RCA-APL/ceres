@@ -8,9 +8,9 @@ from typing_extensions import override
 from uvicorn.config import Config as UvicornConfig
 from uvicorn.server import Server as BaseUvicorn
 
-from ..config import ServerConfig
-from . import logs
-from .tasklet import Tasklet
+from ceres.config import ServerConfig
+from ceres.internal import logs
+from ceres.internal.tasklet import Tasklet
 
 if TYPE_CHECKING:
     from uvicorn.server import Protocols

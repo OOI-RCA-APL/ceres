@@ -5,8 +5,8 @@ from typing import Sequence
 from pydantic import Field
 from typing_extensions import override
 
-from ...dispatcher import Dispatch, Dispatcher
-from ...schedule import Schedule
+from ceres.dispatcher import Dispatch, Dispatcher
+from ceres.schedule import Schedule
 
 
 class ScheduledDispatch(Dispatch):

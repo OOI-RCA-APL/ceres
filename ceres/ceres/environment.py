@@ -13,15 +13,15 @@ from sqlalchemy.sql.elements import SQLCoreOperations
 from sqlalchemy.sql.roles import ExpressionElementRole
 from typing_extensions import Self, Unpack
 
-from .address import Address
-from .alert import Alert, AlertLevel
-from .config import DatabaseKind
-from .data import DateTime, ImmutableDataObject, Name, PositiveTimeDelta
-from .database import Database
-from .internal.database.entities import AlertEntity, ComponentEntity, MessageEntity
-from .internal.utilities import ValidateByType, escape_like_expression
-from .message import Message, MessageDirection
-from .timing import utc
+from ceres.address import Address
+from ceres.alert import Alert, AlertLevel
+from ceres.config import DatabaseKind
+from ceres.data import DateTime, ImmutableDataObject, Name, PositiveTimeDelta
+from ceres.database import Database
+from ceres.internal.database.entities import AlertEntity, ComponentEntity, MessageEntity
+from ceres.internal.utilities import ValidateByType, escape_like_expression
+from ceres.message import Message, MessageDirection
+from ceres.timing import utc
 
 WhereExpression = ColumnElement[bool] | ExpressionElementRole[bool]
 OrderByExpression = ColumnElement[Any] | ExpressionElementRole[Any]

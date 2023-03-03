@@ -20,7 +20,12 @@ from pydantic.fields import FieldInfo
 from pydantic.json import pydantic_encoder
 from typing_extensions import dataclass_transform
 
-from .internal.utilities import PydanticDataclassLike, decode_td, dictify, is_pydantic_dataclass
+from ceres.internal.utilities import (
+    PydanticDataclassLike,
+    decode_td,
+    dictify,
+    is_pydantic_dataclass,
+)
 
 
 def jsonify(obj: object, **kwargs: Any) -> str:

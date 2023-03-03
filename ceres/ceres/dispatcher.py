@@ -3,13 +3,13 @@ from abc import abstractmethod
 from dataclasses import field
 from typing import Sequence
 
-from .alert import Alert
-from .component import Component
-from .data import ImmutableDataObject
-from .environment import AlertOrder, AlertQuery
-from .loaded import Loaded
-from .notifier import Notification, Notifier
-from .ref import Ref
+from ceres.alert import Alert
+from ceres.component import Component
+from ceres.data import ImmutableDataObject
+from ceres.environment import AlertOrder, AlertQuery
+from ceres.loaded import Loaded
+from ceres.notifier import Notification, Notifier
+from ceres.ref import Ref
 
 
 class Dispatch(ImmutableDataObject):

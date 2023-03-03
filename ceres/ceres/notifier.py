@@ -3,9 +3,9 @@ from typing import Sequence
 
 from pydantic import Field
 
-from .component import Component
-from .data import DateTime, ImmutableDataObject
-from .timing import utc
+from ceres.component import Component
+from ceres.data import DateTime, ImmutableDataObject
+from ceres.timing import utc
 
 
 class Notification(ImmutableDataObject):

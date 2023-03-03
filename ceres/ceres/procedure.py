@@ -16,9 +16,9 @@ from typing import (
 from pydantic import schema_of, validate_arguments
 from pydantic.typing import get_args
 
-from .data import ImmutableDataObject, Name, PositiveTimeDelta
-from .internal.binding import Binding, add_binding
-from .internal.utilities import get_member_name, is_optional, strify
+from ceres.data import ImmutableDataObject, Name, PositiveTimeDelta
+from ceres.internal.binding import Binding, add_binding
+from ceres.internal.utilities import get_member_name, is_optional, strify
 
 
 class ProcedureKind(str, Enum):

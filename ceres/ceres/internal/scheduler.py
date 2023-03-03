@@ -5,7 +5,7 @@ from typing import Any, Callable, final
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.base import BaseTrigger
 
-from ..schedule import Schedule, Trigger
+from ceres.schedule import Schedule, Trigger
 
 warnings.filterwarnings(
     action="ignore",

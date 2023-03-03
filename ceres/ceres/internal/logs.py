@@ -5,7 +5,7 @@ from logging import Formatter, Handler, Logger
 import uvicorn.logging
 from rich.logging import RichHandler
 
-from ..data import ImmutableDataObject
+from ceres.data import ImmutableDataObject
 
 
 class LogConfig(ImmutableDataObject):

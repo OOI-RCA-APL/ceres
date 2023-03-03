@@ -1,7 +1,7 @@
 from concurrent.futures import ThreadPoolExecutor
 from typing import Callable, ParamSpec, TypeVar
 
-from .internal.utilities import ensure_event_loop
+from ceres.internal.utilities import ensure_event_loop
 
 _P = ParamSpec("_P")
 _T = TypeVar("_T")

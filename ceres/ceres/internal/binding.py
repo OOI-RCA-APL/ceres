@@ -2,7 +2,7 @@ import inspect
 from types import FunctionType
 from typing import Any, Callable, Iterable, Sequence, TypeVar, cast
 
-from ..data import ImmutableDataObject
+from ceres.data import ImmutableDataObject
 
 _BINDINGS_ATTRIBUTE = "__bindings__"
 

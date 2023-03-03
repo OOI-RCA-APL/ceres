@@ -3,10 +3,10 @@ from typing import Annotated, Any, Callable, Literal
 
 from pydantic import Field
 
-from .data import DataObject, ImmutableDataObject, Name
-from .internal.binding import get_bindings
-from .internal.utilities import strify
-from .procedure import QueryBinding
+from ceres.data import DataObject, ImmutableDataObject, Name
+from ceres.internal.binding import get_bindings
+from ceres.internal.utilities import strify
+from ceres.procedure import QueryBinding
 
 
 class LayoutKind(str, Enum):

@@ -34,34 +34,34 @@ from pydantic import (
 from sqlalchemy.util import unique_list
 from typing_extensions import Self, dataclass_transform, override
 
-from .address import Address
-from .alert import Alert, AlertLevel
-from .data import (
+from ceres.address import Address
+from ceres.alert import Alert, AlertLevel
+from ceres.data import (
     VALIDATED_DATACLASS_FIELD_SPECIFIERS,
     ImmutableDataObject,
     Name,
     ValidatedDataclass,
     jsonify,
 )
-from .directory import Directory
-from .environment import Environment
-from .errors import (
+from ceres.directory import Directory
+from ceres.environment import Environment
+from ceres.errors import (
     ComponentReferenceInvalidError,
     ProcedureDoesNotExistError,
     ProcedureInternalError,
     ProcedureInvalidInputError,
     ProcedureNotSubscribableError,
 )
-from .events import AlertEmittedEvent, Event, MessageReceivedEvent, MessageSentEvent
-from .exceptions import ComponentClassInvalidException, ProcedureException
-from .internal import logs
-from .internal.binding import get_all_bindings
-from .internal.database.buffer import WriteBuffer
-from .internal.database.entities import AlertEntity, MessageEntity
-from .internal.events import EventProcessor
-from .internal.scheduler import Scheduler
-from .internal.tasklet import Tasklet
-from .internal.utilities import (
+from ceres.events import AlertEmittedEvent, Event, MessageReceivedEvent, MessageSentEvent
+from ceres.exceptions import ComponentClassInvalidException, ProcedureException
+from ceres.internal import logs
+from ceres.internal.binding import get_all_bindings
+from ceres.internal.database.buffer import WriteBuffer
+from ceres.internal.database.entities import AlertEntity, MessageEntity
+from ceres.internal.events import EventProcessor
+from ceres.internal.scheduler import Scheduler
+from ceres.internal.tasklet import Tasklet
+from ceres.internal.utilities import (
     awaitify,
     cached,
     get_model,
@@ -74,25 +74,25 @@ from .internal.utilities import (
     sleep_forever,
     strify,
 )
-from .layout import Layout
-from .listener import ListenerBinding
-from .message import Message
-from .procedure import (
+from ceres.layout import Layout
+from ceres.listener import ListenerBinding
+from ceres.message import Message
+from ceres.procedure import (
     ActionBinding,
     BaseProcedureBinding,
     ProcedureBinding,
     QueryBinding,
     query,
 )
-from .ref import RefType
-from .routine import RoutineBinding, routine
-from .schedule import Schedule
-from .stream import Stream, StreamView
-from .validation import ValidationProblem
+from ceres.ref import RefType
+from ceres.routine import RoutineBinding, routine
+from ceres.schedule import Schedule
+from ceres.stream import Stream, StreamView
+from ceres.validation import ValidationProblem
 
 if TYPE_CHECKING:
-    from .engine import Engine
-    from .unit import Unit
+    from ceres.engine import Engine
+    from ceres.unit import Unit
 else:
     Engine = "Engine"
     Unit = "Unit"

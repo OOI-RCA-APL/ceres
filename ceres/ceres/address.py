@@ -4,7 +4,7 @@ from typing import Any, final
 
 from typing_extensions import Self
 
-from .data import NAME_REGEX, Name
+from ceres.data import NAME_REGEX, Name
 
 
 class _RegexStr(str):

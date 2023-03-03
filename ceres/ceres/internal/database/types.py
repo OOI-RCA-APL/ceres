@@ -5,8 +5,8 @@ from typing import Any
 from sqlalchemy import TIMESTAMP, CheckConstraint, Dialect, Enum, Text, TypeDecorator
 from sqlalchemy.sql.operators import OperatorType
 
-from ...address import Address
-from ..utilities import snakecase
+from ceres.address import Address
+from ceres.internal.utilities import snakecase
 
 
 def EnumMapper(cls: type[BaseEnum]) -> Enum:

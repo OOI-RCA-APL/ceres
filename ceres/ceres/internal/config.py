@@ -9,12 +9,12 @@ import yaml
 from pydantic import ValidationError
 from yaml import MarkedYAMLError, YAMLError
 
-from ..address import Address
-from ..component import Component, ComponentPaths
-from ..config import Config, UnitConfig
-from ..data import Name
-from ..database import Database
-from ..errors import (
+from ceres.address import Address
+from ceres.component import Component, ComponentPaths
+from ceres.config import Config, UnitConfig
+from ceres.data import Name
+from ceres.database import Database
+from ceres.errors import (
     ComponentInitExceptionError,
     ComponentReferenceInvalidError,
     ConfigComponentError,
@@ -26,9 +26,9 @@ from ..errors import (
     ConfigValidationError,
     ValidationProblem,
 )
-from ..result import Fail, Ok, Result
-from ..timing import utc
-from .utilities import show_td
+from ceres.internal.utilities import show_td
+from ceres.result import Fail, Ok, Result
+from ceres.timing import utc
 
 
 class ConfigCheckKind(str, Enum):

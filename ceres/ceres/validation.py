@@ -1,7 +1,7 @@
 from pydantic import ValidationError
 from typing_extensions import Self
 
-from .data import ImmutableDataObject
+from ceres.data import ImmutableDataObject
 
 
 class ValidationProblem(ImmutableDataObject):

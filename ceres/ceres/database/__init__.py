@@ -15,14 +15,14 @@ from sqlalchemy.schema import CreateIndex, CreateTable
 from sqlalchemy.sql.elements import TextClause
 from typing_extensions import Self
 
-from ..config import (
+from ceres.config import (
     DatabaseConfig,
     DatabaseKind,
     PostgresDatabaseConfig,
     SQLiteDatabaseConfig,
 )
-from ..internal.database.entities import Entity
-from .adapters import DatabaseAdapter, PostgresDatabaseAdapter, SQLiteDatabaseAdapter
+from ceres.database.adapters import DatabaseAdapter, PostgresDatabaseAdapter, SQLiteDatabaseAdapter
+from ceres.internal.database.entities import Entity
 
 _T = TypeVar("_T")
 

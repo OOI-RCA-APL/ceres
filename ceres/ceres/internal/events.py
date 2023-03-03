@@ -1,11 +1,11 @@
 import inspect
+import traceback
 from asyncio import Queue as AsyncQueue
 from logging import Logger
-import traceback
 from typing import Awaitable, Callable, final
 
-from ..events import Event
-from ..listener import ListenerBinding
+from ceres.events import Event
+from ceres.listener import ListenerBinding
 
 
 @final

@@ -1,2 +1,2 @@
-from .driver import CrabeeDriver as CrabeeDriver
-from .simulator import CrabeeSimulator as CrabeeSimulator
+from ceres.projects.crabee.driver import CrabeeDriver as CrabeeDriver
+from ceres.projects.crabee.simulator import CrabeeSimulator as CrabeeSimulator

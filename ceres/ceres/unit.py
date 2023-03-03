@@ -7,20 +7,20 @@ from weakref import ref
 from pydantic import Field
 from typing_extensions import override
 
-from .component import Component
-from .data import DataObject, Name
-from .directory import Directory
-from .environment import Environment
-from .errors import ProcedureComponentNotLoadedError
-from .events import Event
-from .exceptions import ProcedureException
-from .internal import logs
-from .internal.tasklet import Tasklet
-from .internal.utilities import sleep_forever
-from .stream import Stream, StreamView
+from ceres.component import Component
+from ceres.data import DataObject, Name
+from ceres.directory import Directory
+from ceres.environment import Environment
+from ceres.errors import ProcedureComponentNotLoadedError
+from ceres.events import Event
+from ceres.exceptions import ProcedureException
+from ceres.internal import logs
+from ceres.internal.tasklet import Tasklet
+from ceres.internal.utilities import sleep_forever
+from ceres.stream import Stream, StreamView
 
 if TYPE_CHECKING:
-    from .engine import Engine
+    from ceres.engine import Engine
 else:
     Engine = "Engine"
 

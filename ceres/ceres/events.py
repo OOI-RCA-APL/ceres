@@ -5,11 +5,11 @@ from uuid import UUID, uuid4
 
 from pydantic import Field
 
-from .address import Address
-from .alert import Alert
-from .data import DateTime, ImmutableDataObject
-from .message import Message
-from .timing import utc
+from ceres.address import Address
+from ceres.alert import Alert
+from ceres.data import DateTime, ImmutableDataObject
+from ceres.message import Message
+from ceres.timing import utc
 
 
 class StandardEventKind(str, Enum):

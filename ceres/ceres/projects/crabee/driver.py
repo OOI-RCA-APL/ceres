@@ -6,7 +6,7 @@ from typing import AsyncIterable
 from pydantic import Field
 from typing_extensions import Self, override
 
-from ... import (
+from ceres import (
     Alert,
     AlertLevel,
     Component,
@@ -24,10 +24,10 @@ from ... import (
     spawn,
     utc,
 )
-from ...console import ChartDisplay, ConsoleColor, StateDisplay, ValueDisplay
-from ...events import ConnectFailedEvent, ConnectionLostEvent, MessageReceivedEvent
-from ...layout import Layout, LayoutColumn, LayoutDisplay, LayoutRow
-from ...ref import Ref
+from ceres.console import ChartDisplay, ConsoleColor, StateDisplay, ValueDisplay
+from ceres.events import ConnectFailedEvent, ConnectionLostEvent, MessageReceivedEvent
+from ceres.layout import Layout, LayoutColumn, LayoutDisplay, LayoutRow
+from ceres.ref import Ref
 
 
 class DataMessage(ImmutableDataObject):

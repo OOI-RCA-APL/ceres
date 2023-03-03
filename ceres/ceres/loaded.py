@@ -14,11 +14,11 @@ from typing import (
 from pydantic import Field, root_validator, validate_arguments, validator
 from typing_extensions import Self, override
 
-from .data import ImmutableDataObject, Name
-from .internal.utilities import get_model, lenient_isinstance, lenient_issubclass, strify
+from ceres.data import ImmutableDataObject, Name
+from ceres.internal.utilities import get_model, lenient_isinstance, lenient_issubclass, strify
 
 if TYPE_CHECKING:
-    from .component import Component
+    from ceres.component import Component
 else:
     Component = "Component"
 
@@ -182,7 +182,7 @@ class ComponentLoader(Loader):
         base: type[_T] | None = None,
     ) -> type[_T]:
         result = super()._load_cls(source, base=base)
-        from .component import Component
+        from ceres.component import Component
 
         if not lenient_issubclass(result, Component):
             raise ValueError(f"class must be a subclass of {Component}")

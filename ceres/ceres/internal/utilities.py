@@ -419,7 +419,7 @@ class ValidateByType:
 
 
 if TYPE_CHECKING:
-    from ..data import ValidatedDataclass
+    from ceres.data import ValidatedDataclass
 
 
 @overload

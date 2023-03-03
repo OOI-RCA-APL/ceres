@@ -19,31 +19,31 @@ from starlette.requests import HTTPConnection
 from starlette.status import HTTP_400_BAD_REQUEST
 from websockets.exceptions import ConnectionClosed
 
-from ..address import Address
-from ..alert import Alert, AlertLevel
-from ..component import Component
-from ..config import ComponentConfig, Config, UnitConfig
-from ..data import ImmutableDataObject, Name, jsonify
-from ..environment import (
+from ceres.address import Address
+from ceres.alert import Alert, AlertLevel
+from ceres.component import Component
+from ceres.config import ComponentConfig, Config, UnitConfig
+from ceres.data import ImmutableDataObject, Name, jsonify
+from ceres.environment import (
     AlertQuery,
     Environment,
     MessageQuery,
     Statistics,
     StatisticsQuery,
 )
-from ..errors import ProcedureError, ProcedureInternalError, ReloadError
-from ..events import AlertEmittedEvent, MessageReceivedEvent, MessageSentEvent
-from ..exceptions import ProcedureException
-from ..layout import Layout
-from ..message import Message
-from ..procedure import ActionBinding, QueryBinding
-from ..result import Fail, Ok, Result
-from . import logs
-from .console import ConsoleFiles
-from .utilities import strify
+from ceres.errors import ProcedureError, ProcedureInternalError, ReloadError
+from ceres.events import AlertEmittedEvent, MessageReceivedEvent, MessageSentEvent
+from ceres.exceptions import ProcedureException
+from ceres.internal import logs
+from ceres.internal.console import ConsoleFiles
+from ceres.internal.utilities import strify
+from ceres.layout import Layout
+from ceres.message import Message
+from ceres.procedure import ActionBinding, QueryBinding
+from ceres.result import Fail, Ok, Result
 
 if TYPE_CHECKING:
-    from ..engine import Engine
+    from ceres.engine import Engine
 else:
     Engine = "Engine"
 
@@ -60,9 +60,9 @@ def _get_component_roles(component: Component | type[Component]) -> Sequence[Com
     if not isinstance(component, type):
         component = type(component)
 
-    from ..connection import Connection
-    from ..dispatcher import Dispatcher
-    from ..notifier import Notifier
+    from ceres.connection import Connection
+    from ceres.dispatcher import Dispatcher
+    from ceres.notifier import Notifier
 
     roles: list[ComponentRole] = []
     if issubclass(component, Connection):

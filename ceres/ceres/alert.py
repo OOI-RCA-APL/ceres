@@ -4,9 +4,9 @@ from uuid import UUID, uuid4
 
 from pydantic import Field, validator
 
-from .address import Address
-from .data import DateTime, ImmutableDataObject, jsonify
-from .timing import utc
+from ceres.address import Address
+from ceres.data import DateTime, ImmutableDataObject, jsonify
+from ceres.timing import utc
 
 
 class AlertLevel(str, Enum):

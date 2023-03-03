@@ -3,7 +3,7 @@ from functools import lru_cache
 from re import Pattern
 from typing import Callable
 
-from .exceptions import ParseException
+from ceres.exceptions import ParseException
 
 
 class Parser:

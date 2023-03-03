@@ -1,8 +1,8 @@
 from typing import Any, Awaitable, Callable, Sequence, TypeVar
 
-from .events import Event
-from .internal.binding import Binding, add_binding
-from .internal.utilities import get_member_name
+from ceres.events import Event
+from ceres.internal.binding import Binding, add_binding
+from ceres.internal.utilities import get_member_name
 
 
 class ListenerBinding(Binding):

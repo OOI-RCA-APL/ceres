@@ -1,4 +1,4 @@
-from .errors import ProcedureError
+from ceres.errors import ProcedureError
 
 
 class CeresException(Exception):

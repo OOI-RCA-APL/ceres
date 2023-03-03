@@ -10,12 +10,12 @@ from typing import Literal, final
 from pydantic import Field, validator
 from typing_extensions import override
 
-from ...connection import Connection
-from ...data import ImmutableDataObject, PositiveTimeDelta
-from ...events import ConnectionLostEvent, MessageReceivedEvent
-from ...exceptions import ConnectionInactiveException, ConnectionLostException
-from ...internal.utilities import ensure_event_loop, show_td
-from ...routine import routine
+from ceres.connection import Connection
+from ceres.data import ImmutableDataObject, PositiveTimeDelta
+from ceres.events import ConnectionLostEvent, MessageReceivedEvent
+from ceres.exceptions import ConnectionInactiveException, ConnectionLostException
+from ceres.internal.utilities import ensure_event_loop, show_td
+from ceres.routine import routine
 
 
 @dataclass(kw_only=True, frozen=True)

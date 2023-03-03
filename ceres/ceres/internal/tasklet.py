@@ -1,8 +1,7 @@
 import asyncio
 from abc import ABC, abstractmethod
-from asyncio import FIRST_COMPLETED
+from asyncio import FIRST_COMPLETED, Task
 from asyncio import Event as AsyncEvent
-from asyncio import Task
 from dataclasses import dataclass, field
 from typing import Callable, cast
 

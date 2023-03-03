@@ -4,16 +4,16 @@ from asyncio import Event as AsyncEvent
 from logging import Logger
 from typing import TYPE_CHECKING, Any, Callable, Generic, TypeVar
 
-from ...alert import Alert
-from ...config import DatabaseKind
-from ...message import Message
-from .entities import AlertEntity, MessageEntity
+from ceres.alert import Alert
+from ceres.config import DatabaseKind
+from ceres.internal.database.entities import AlertEntity, MessageEntity
+from ceres.message import Message
 
 _ModelT = TypeVar("_ModelT", bound=Message | Alert)
 _EntityT = TypeVar("_EntityT", bound=MessageEntity | AlertEntity)
 
 if TYPE_CHECKING:
-    from ...environment import Environment
+    from ceres.environment import Environment
 else:
     Environment = "Environment"
 

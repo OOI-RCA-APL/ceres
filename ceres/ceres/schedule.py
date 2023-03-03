@@ -7,7 +7,7 @@ from apscheduler.triggers.cron import CronTrigger as InternalCronTrigger
 from apscheduler.triggers.interval import IntervalTrigger as InternalIntervalTrigger
 from pydantic import validator
 
-from .data import DateTime, ImmutableDataObject, PositiveTimeDelta
+from ceres.data import DateTime, ImmutableDataObject, PositiveTimeDelta
 
 
 class ScheduleKind(str, Enum):

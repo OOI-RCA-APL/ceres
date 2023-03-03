@@ -1,9 +1,9 @@
 import rich
 
-from ....config import Config
-from ....database import Database
-from ..exceptions import CLIDatabaseUnreachableException
-from ..shared import AsyncTyper, ConfigOption, get_yes_no
+from ceres.config import Config
+from ceres.database import Database
+from ceres.internal.cli.exceptions import CLIDatabaseUnreachableException
+from ceres.internal.cli.shared import AsyncTyper, ConfigOption, get_yes_no
 
 database = AsyncTyper(
     name="database",

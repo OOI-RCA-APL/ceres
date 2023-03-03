@@ -6,12 +6,12 @@ from typing import TYPE_CHECKING, Any, Sequence
 import rich
 from typer import Option, Typer
 
-from ...config import Config
-from ...data import jsonify
-from ...result import Ok
-from ..config import ConfigCheckKind, load_config
-from ..utilities import syncify
-from .exceptions import CLIInvalidConfigException
+from ceres.config import Config
+from ceres.data import jsonify
+from ceres.internal.cli.exceptions import CLIInvalidConfigException
+from ceres.internal.config import ConfigCheckKind, load_config
+from ceres.internal.utilities import syncify
+from ceres.result import Ok
 
 
 class AsyncTyper(Typer):

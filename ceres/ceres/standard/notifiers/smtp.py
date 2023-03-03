@@ -5,7 +5,7 @@ import aiosmtplib
 from pydantic import Field, SecretStr
 from typing_extensions import override
 
-from ...notifier import Notification, Notifier
+from ceres.notifier import Notification, Notifier
 
 
 class SMTPNotifier(Notifier):

@@ -23,10 +23,10 @@ from sqlalchemy.orm import (
 )
 from sqlalchemy.sql.roles import ExpressionElementRole
 
-from ...address import Address
-from ...alert import AlertLevel
-from ...message import MessageDirection
-from .types import AddressMapper, DateTimeMapper, EnumConstraint, EnumMapper
+from ceres.address import Address
+from ceres.alert import AlertLevel
+from ceres.internal.database.types import AddressMapper, DateTimeMapper, EnumConstraint, EnumMapper
+from ceres.message import MessageDirection
 
 
 class Entity(MappedAsDataclass, DeclarativeBase):

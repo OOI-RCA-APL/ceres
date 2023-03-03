@@ -6,9 +6,9 @@ from typing import AsyncIterable
 
 from typing_extensions import override
 
-from .component import Component
-from .data import ImmutableDataObject, PositiveTimeDelta, jsonify
-from .events import (
+from ceres.component import Component
+from ceres.data import ImmutableDataObject, PositiveTimeDelta, jsonify
+from ceres.events import (
     ConnectedEvent,
     ConnectFailedEvent,
     ConnectionLostEvent,
@@ -16,10 +16,10 @@ from .events import (
     MessageReceivedEvent,
     MessageSentEvent,
 )
-from .exceptions import ConnectionLostException
-from .message import Message, MessageDirection
-from .procedure import action, query
-from .routine import routine
+from ceres.exceptions import ConnectionLostException
+from ceres.message import Message, MessageDirection
+from ceres.procedure import action, query
+from ceres.routine import routine
 
 
 class ReconnectSettings(ImmutableDataObject):

@@ -7,13 +7,13 @@ from typing import TYPE_CHECKING, Any, Literal, Mapping, Sequence
 from pydantic import Field, SecretStr, parse_obj_as, validator
 from typing_extensions import Self
 
-from .address import Address
-from .data import ImmutableDataObject, Name, PositiveTimeDelta
-from .internal.utilities import setattr_internal
-from .loaded import ComponentLoader
+from ceres.address import Address
+from ceres.data import ImmutableDataObject, Name, PositiveTimeDelta
+from ceres.internal.utilities import setattr_internal
+from ceres.loaded import ComponentLoader
 
 if TYPE_CHECKING:
-    from .component import Component
+    from ceres.component import Component
 else:
     Component = "Component"
 

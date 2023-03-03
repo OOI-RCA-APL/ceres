@@ -5,8 +5,8 @@ from random import randrange
 import anyio
 from anyio.abc import SocketStream
 
-from ... import Component, routine
-from ...data import PositiveTimeDelta
+from ceres import Component, routine
+from ceres.data import PositiveTimeDelta
 
 
 class CrabeeSimulator(Component):

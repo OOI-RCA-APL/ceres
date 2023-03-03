@@ -5,7 +5,7 @@ from typing import Literal, Mapping, Sequence, TypeAlias
 from pydantic import StrictBool, StrictFloat, StrictInt, StrictStr
 from pydantic.color import Color
 
-from .data import ImmutableDataObject
+from ceres.data import ImmutableDataObject
 
 
 class ConsoleColor(Color, Enum):

@@ -1,9 +1,9 @@
 from enum import Enum
 from typing import Literal, Sequence
 
-from .address import Address
-from .data import DataObject, ImmutableDataObject
-from .validation import ValidationProblem
+from ceres.address import Address
+from ceres.data import DataObject, ImmutableDataObject
+from ceres.validation import ValidationProblem
 
 
 class Error(ImmutableDataObject):

@@ -5,13 +5,13 @@ from typing import Any, Iterable, Sequence, final
 
 from typing_extensions import override
 
-from ...address import Address
-from ...alert import Alert, AlertLevel
-from ...data import jsonify
-from ...dispatcher import Dispatch, DispatchWriter
-from ...notifier import Notification
-from ..markdown import markdown
-from ..templates import templates
+from ceres.address import Address
+from ceres.alert import Alert, AlertLevel
+from ceres.data import jsonify
+from ceres.dispatcher import Dispatch, DispatchWriter
+from ceres.notifier import Notification
+from ceres.standard.markdown import markdown
+from ceres.standard.templates import templates
 
 
 @final
