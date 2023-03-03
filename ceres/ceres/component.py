@@ -1,11 +1,9 @@
 import asyncio
-import dataclasses
 import inspect
 import logging
 import traceback
 from dataclasses import field
 from functools import partial
-from inspect import Parameter
 from logging import Logger
 from string import ascii_lowercase
 from types import MappingProxyType
@@ -15,25 +13,26 @@ from typing import (
     AsyncIterable,
     Callable,
     Collection,
+    Final,
     FrozenSet,
     Mapping,
     Sequence,
     TypeVar,
     final,
-    get_type_hints,
+    get_origin,
 )
 from weakref import WeakValueDictionary, ref
 
 from pydantic import (
     Field,
     ValidationError,
+    parse_obj_as,
     root_validator,
     validate_arguments,
     validator,
 )
-from pydantic.utils import lenient_isinstance
 from sqlalchemy.util import unique_list
-from typing_extensions import dataclass_transform, override
+from typing_extensions import Self, dataclass_transform, override
 
 from .address import Address
 from .alert import Alert, AlertLevel
@@ -47,6 +46,7 @@ from .data import (
 from .directory import Directory
 from .environment import Environment
 from .errors import (
+    ComponentReferenceInvalidError,
     ProcedureDoesNotExistError,
     ProcedureInternalError,
     ProcedureInvalidInputError,
@@ -64,8 +64,10 @@ from .internal.tasklet import Tasklet
 from .internal.utilities import (
     awaitify,
     cached,
-    get_type_annotations,
+    get_model,
     has_field,
+    is_optional,
+    lenient_isinstance,
     lenient_issubclass,
     pre_validate_arguments,
     randstr,
@@ -82,6 +84,7 @@ from .procedure import (
     QueryBinding,
     query,
 )
+from .ref import RefType
 from .routine import RoutineBinding, routine
 from .schedule import Schedule
 from .stream import Stream, StreamView
@@ -126,85 +129,60 @@ class Component(ValidatedDataclass, Tasklet):
     def __init_subclass__(cls, **kwargs: Any) -> type[Any]:
         super().__init_subclass__(**kwargs)
 
-        __init__ = cls.__init__  # type: ignore
-        hints = get_type_hints(__init__)
-        signature = inspect.signature(__init__)
+        for binding in cls.get_listener_bindings():
+            for source in binding.sources:
+                if source == "self":
+                    continue
 
-        def is_subclass_or_typevar(subcls: type, cls: type) -> bool:
-            if isinstance(subcls, TypeVar):
-                return True
-
-            return isinstance(cls, type) and isinstance(subcls, type) and issubclass(subcls, cls)
-
-        parameters_hint = hints.get("parameters")
-        component_field_names = {field.name for field in dataclasses.fields(Component)}
-
-        if (
-            not all(
-                i == 0
-                or (
-                    parameter.kind == Parameter.KEYWORD_ONLY
-                    and (
-                        parameter.name in component_field_names
-                        or parameter.default is not Parameter.empty
+                if not has_field(cls, source):
+                    raise ComponentClassInvalidException(
+                        f"event listener '{binding.function}' refers to reference '{source}' "
+                        f"which is not defined as an attribute in {strify(cls)}"
                     )
-                )
-                for i, parameter in enumerate(signature.parameters.values())
-            )
-            or parameters_hint is None
-            or not is_subclass_or_typevar(parameters_hint, Component.Parameters)
-        ):
-            raise ComponentClassInvalidException(
-                f"signature of {__init__} must be compatible with "
-                f"{inspect.signature(Component.__init__)}, got {signature}"
-            )
-
-        if lenient_issubclass(parameters_hint, Component.Parameters):
-            for binding in cls.get_listener_bindings():
-                for source in binding.sources:
-                    if source == "self":
-                        continue
-
-                    if not has_field(parameters_hint, source):
-                        raise ComponentClassInvalidException(
-                            f"event listener '{binding.function}' refers to reference '{source}' "
-                            f"which is not defined as an attribute in {strify(parameters_hint)}"
-                        )
 
         return cls
 
-    class Parameters(ImmutableDataObject):
-        jobs: Sequence[Job] = Field(default_factory=list)
+    name: Final[Name] = field(default_factory=lambda: randstr(ascii_lowercase, 8))
+    paths: Final[ComponentPaths] = field(default_factory=ComponentPaths)
+    jobs: Final[Sequence[Job]] = field(default_factory=list)
 
-        def get_components(self, alias: str | None = None) -> Sequence["Component"]:
-            components: list[Component] = []
+    @validator("jobs")
+    def _validate_jobs(cls, jobs: Sequence[Job]) -> Sequence[Job]:
+        seen: set[str] = set()
 
-            if alias is None:
-                for alias in self.__fields__.keys():
-                    components.extend(self.get_components(alias))
-            else:
-                reference = getattr(self, alias, None)
-                if isinstance(reference, Component):
-                    components.append(reference)
-                elif isinstance(reference, Collection):
-                    for component in reference:
-                        if isinstance(component, Component):
-                            components.append(component)
+        for job in jobs:
+            if job.name in seen:
+                raise ValueError(f"duplicate job '{job.name}', give the job a unique 'name' value")
 
-            return unique_list(components, id)
+            seen.add(job.name)
 
-    name: Name = field(default_factory=lambda: randstr(ascii_lowercase, 8))
-    paths: ComponentPaths = field(default_factory=ComponentPaths)
-    parameters: Parameters = field(default_factory=Parameters)
+        return jobs
 
-    def __post_init__(self) -> None:
+    @validator("jobs", each_item=True)
+    def _validate_job(cls, job: Job) -> Job:
+        action = cls.get_action_bindings().get(job.action)
+        if action is None:
+            defined = sorted(cls.get_action_bindings().keys())
+            raise ValueError(
+                f"{strify(cls)} has no action named '{job.action}', defined actions are "
+                f"{defined}"
+            )
+
+        if job.input is None and (action.input is not None and action.input.required):
+            raise ValueError(
+                f"missing required input for job '{job.name}', set the job's 'input' to a "
+                "non-none value"
+            )
+
+        return job
+
+    def __post_init_post_parse__(self) -> None:
         self.__local_environment: Environment | None = None
         self.__unit: ref[Unit] | None = None
         self.__events: Stream[Event] = Stream()
         self.__scheduler = Scheduler()
-        self.__referencers: WeakValueDictionary[Address, Component] = WeakValueDictionary()
+        self.__referencers: WeakValueDictionary[int, Component] = WeakValueDictionary()
 
-    def __post_init_post_parse__(self) -> None:
         self.__message_write_buffer = WriteBuffer(
             Message,
             MessageEntity,
@@ -226,22 +204,33 @@ class Component(ValidatedDataclass, Tasklet):
             for binding in self.get_listener_bindings()
         ]
 
-        for component in self.parameters.get_components():
-            component.__add_referencer(self)
+        self.__sync_referencers()
+        self.__setup__()
 
-    def _get_inferred_environment(self) -> Environment | None:
+    def __setup__(self) -> None:
+        pass
+
+    def __sync_referencers(self) -> None:
+        referenced = self.get_referenced_components()
+        for component in list(self.__referencers.values()):
+            if component not in referenced:
+                component.__referencers.pop(id(component))
+        for component in referenced:
+            component.__referencers[id(self)] = self
+
+    def __infer_environment(self) -> Environment | None:
         if self.unit is not None:
             return self.unit.environment
 
         # TODO: We might want to do a topological sort here to pick the environment.
-        for component in self.parameters.get_components():
+        for component in self.get_referenced_components():
             return component.environment
 
         return None
 
     @property
     def environment(self) -> Environment:
-        inferred = self._get_inferred_environment()
+        inferred = self.__infer_environment()
         if inferred is not None:
             return inferred
 
@@ -249,21 +238,6 @@ class Component(ValidatedDataclass, Tasklet):
             self.__local_environment = Environment()
 
         return self.__local_environment
-
-    @validator("parameters")
-    def _validate_parameters(cls, parameters: Parameters) -> Parameters:
-        from .internal.component import validate_jobs
-
-        error = validate_jobs(cls, parameters.jobs)
-        if error is not None:
-            raise ValueError(error.message)
-
-        return parameters
-
-    @final
-    @classmethod
-    def get_parameters_type(cls) -> type[Parameters]:
-        return get_type_annotations(cls)["parameters"]  # type: ignore
 
     @final
     @classmethod
@@ -343,9 +317,91 @@ class Component(ValidatedDataclass, Tasklet):
                 self.__alert_write_buffer.wait_until_empty(),
             )
 
-    def __add_referencer(self, referencer: "Component") -> None:
-        assert referencer is not self
-        self.__referencers[referencer.address] = referencer
+    def assign_referenced_components(
+        self,
+        references: Mapping[str, Self],
+    ) -> ComponentReferenceInvalidError | None:
+        def _create_reference_invalid_error(
+            reference: Any,
+            info: type[RefType],
+        ) -> ComponentReferenceInvalidError:
+            return ComponentReferenceInvalidError(
+                message=(
+                    f"reference to component '{reference}' of type {strify(info.cls)} is "
+                    f"required and specified by {strify(type(self))}, but it hasn't loaded yet "
+                    "failed to load"
+                )
+            )
+
+        for name, info in self.__pydantic_model__.__fields__.items():
+            outer_type = info.outer_type_
+            inner_type = info.type_
+            value: Any = getattr(self, name)
+
+            if lenient_issubclass(outer_type, RefType):
+                if lenient_isinstance(value, str):
+                    component = references.get(value)
+                else:
+                    component = value
+
+                if (
+                    component is None
+                    and not is_optional(outer_type)
+                    and not is_optional(outer_type.cls)
+                ):
+                    return _create_reference_invalid_error(value, outer_type)
+
+                object.__setattr__(self, name, component)
+                continue
+
+            if lenient_issubclass(inner_type, RefType) and lenient_issubclass(
+                get_origin(outer_type) or outer_type, Collection
+            ):
+                collection = value
+
+                if lenient_issubclass(inner_type, RefType):
+                    components: list[Any] = []
+
+                    for element in collection:
+                        if isinstance(element, str):
+                            component = references.get(element)
+                        else:
+                            component = element
+
+                        if (
+                            component is None
+                            and not is_optional(inner_type)
+                            and not is_optional(inner_type.cls)
+                        ):
+                            return _create_reference_invalid_error(element, inner_type)
+
+                        components.append(component)
+
+                    if callable(outer_type):
+                        assigned = outer_type(components)
+                    else:
+                        assigned = parse_obj_as(outer_type, components)
+
+                    object.__setattr__(self, name, assigned)
+
+        self.__sync_referencers()
+
+    def get_referenced_components(self, alias: str | None = None) -> Sequence["Component"]:
+        components: list[Component] = []
+
+        if alias is None:
+            for alias in get_model(self).__fields__:
+                components.extend(self.get_referenced_components(alias))
+        else:
+            reference = getattr(self, alias, None)
+            if isinstance(reference, Component):
+                components.append(reference)
+            elif isinstance(reference, Collection):
+                for component in reference:
+                    if isinstance(component, Component):
+                        components.append(component)
+
+        return unique_list(components, id)
 
     def __set_emitted_event_source(self, event: Event) -> None:
         if event.source is None:  # type: ignore
@@ -408,7 +464,7 @@ class Component(ValidatedDataclass, Tasklet):
             for alias in processor.binding.sources:
                 if (alias == "self" and self.address == event.source) or any(
                     component.address == event.source
-                    for component in self.parameters.get_components(alias)
+                    for component in self.get_referenced_components(alias)
                 ):
                     processor.put(event)
                     break
@@ -455,13 +511,13 @@ class Component(ValidatedDataclass, Tasklet):
                     f"An error occurred while running job '{job.name}': {strify(exception.error)}"
                 )
 
-        for job in self.parameters.jobs:
+        for job in self.jobs:
             self.logger.info(f"Scheduling job '{job.name}' on {job.schedule}.")
             self.add_job(partial(run, job), job.schedule, name=job.name)
 
     @override
     async def __run__(self) -> None:
-        if self._get_inferred_environment() is None:
+        if self.__infer_environment() is None:
             await self.environment.database.init()
             await self.environment.assign_address_id(self.address)
 

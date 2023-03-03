@@ -22,20 +22,20 @@ from .procedure import action, query
 from .routine import routine
 
 
-class ConnectionReconnect(ImmutableDataObject):
+class ReconnectSettings(ImmutableDataObject):
     interval: PositiveTimeDelta = timedelta(seconds=1)
     backoff: float | None = 2
     max_interval: PositiveTimeDelta | None = timedelta(seconds=60)
 
 
 class _ReconnectScheduler:
-    def __init__(self, config: ConnectionReconnect) -> None:
-        self.__initial_interval = config.interval
-        self.__current_interval = config.interval
-        self.__max_interval = config.max_interval
+    def __init__(self, settings: ReconnectSettings) -> None:
+        self.__initial_interval = settings.interval
+        self.__current_interval = settings.interval
+        self.__max_interval = settings.max_interval
 
-        if config.backoff is not None:
-            self.__backoff: float = config.backoff
+        if settings.backoff is not None:
+            self.__backoff: float = settings.backoff
         else:
             self.__backoff = 1
 
@@ -62,15 +62,13 @@ class ConnectionState(str, Enum):
 
 
 class Connection(Component, ABC):
-    class Parameters(Component.Parameters):
-        reconnect: ConnectionReconnect
+    reconnect_settings: ReconnectSettings
 
-    parameters: Parameters
-
-    def __post_init__(self) -> None:
-        super().__post_init__()
+    @override
+    def __setup__(self) -> None:
+        super().__setup__()
         self.__state = ConnectionState.DISCONNECTED
-        self.__reconnect = _ReconnectScheduler(self.parameters.reconnect)
+        self.__reconnect_scheduler = _ReconnectScheduler(self.reconnect_settings)
 
     @property
     @abstractmethod
@@ -187,10 +185,10 @@ class Connection(Component, ABC):
     @routine
     async def __update(self) -> None:
         while True:
-            self.__reconnect.reset()
+            self.__reconnect_scheduler.reset()
 
             while not await self.connect():
-                seconds = self.__reconnect.next().total_seconds()
+                seconds = self.__reconnect_scheduler.next().total_seconds()
                 self.logger.info(f"Reconnecting in {seconds:g} seconds...")
                 await asyncio.sleep(seconds)
 

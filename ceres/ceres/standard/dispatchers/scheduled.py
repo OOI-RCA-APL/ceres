@@ -1,3 +1,4 @@
+from dataclasses import field
 from functools import partial
 from typing import Sequence
 
@@ -13,14 +14,11 @@ class ScheduledDispatch(Dispatch):
 
 
 class ScheduledDispatcher(Dispatcher):
-    class Parameters(Dispatcher.Parameters):
-        dispatches: Sequence[ScheduledDispatch] = Field(default_factory=list)
-
-    parameters: Parameters
+    dispatches: Sequence[ScheduledDispatch] = field(default_factory=list)
 
     @override
     async def __run__(self) -> None:
-        for dispatch in self.parameters.dispatches:
+        for dispatch in self.dispatches:
             self.add_job(
                 partial(self.dispatch, dispatch),
                 dispatch.schedule,

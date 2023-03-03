@@ -15,6 +15,8 @@ from ..config import Config, UnitConfig
 from ..data import Name
 from ..database import Database
 from ..errors import (
+    ComponentInitExceptionError,
+    ComponentReferenceInvalidError,
     ConfigComponentError,
     ConfigDatabaseError,
     ConfigError,
@@ -26,7 +28,6 @@ from ..errors import (
 )
 from ..result import Fail, Ok, Result
 from ..timing import utc
-from .component import load_component
 from .utilities import show_td
 
 
@@ -151,28 +152,37 @@ async def _check_components(
 ) -> list[ConfigComponentError]:
     log("Checking component configurations...")
 
-    paths = ComponentPaths()
+    ComponentPaths()
 
     def check_unit_config(unit_config: UnitConfig) -> Iterable[ConfigComponentError]:
-        components: dict[Name, Component] = {}
+        references: dict[Name, Component] = {}
 
         def check_components() -> Iterable[ConfigComponentError]:
             for component_config in unit_config.components:
                 address = Address.create(unit_config.name, component_config.name)
                 log(f"Checking component '{address}'...")
-                match load_component(
-                    component_config,
-                    name=component_config.name,
-                    paths=paths,
-                    siblings=components,
-                ):
-                    case Ok(component):
-                        components[component_config.name] = component
-                    case Fail(error):
-                        yield ConfigComponentError(
-                            component=address,
-                            error=error,
-                        )
+                try:
+                    component = component_config.load()
+                    error = component.assign_referenced_components(references)
+                except Exception as exception:
+                    yield ConfigComponentError(
+                        component=address,
+                        error=ComponentInitExceptionError(
+                            message="an exception occurred while loading this component",
+                            traceback=traceback.format_exception(exception),
+                        ),
+                    )
+                    continue
+
+                if error is not None:
+                    yield ConfigComponentError(
+                        component=address,
+                        error=ComponentReferenceInvalidError(
+                            message=error.message,
+                        ),
+                    )
+
+                references[component_config.name] = component
 
         yield from check_components()
 

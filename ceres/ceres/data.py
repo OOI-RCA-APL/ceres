@@ -20,7 +20,7 @@ from pydantic.fields import FieldInfo
 from pydantic.json import pydantic_encoder
 from typing_extensions import dataclass_transform
 
-from .internal.utilities import decode_td, dictify, is_pydantic_dataclass
+from .internal.utilities import PydanticDataclassLike, decode_td, dictify, is_pydantic_dataclass
 
 
 def jsonify(obj: object, **kwargs: Any) -> str:
@@ -61,7 +61,10 @@ VALIDATED_DATACLASS_FIELD_SPECIFIERS: tuple[Callable[..., Any], type[FieldInfo]]
 VALIDATED_DATACLASS_DEFAULT_CONFIG = MappingProxyType(
     ConfigDict(
         arbitrary_types_allowed=True,
+        allow_population_by_field_name=True,
+        orm_mode=True,
         validate_assignment=True,
+        extra=Extra.forbid,
     )
 )
 
@@ -70,7 +73,7 @@ VALIDATED_DATACLASS_DEFAULT_CONFIG = MappingProxyType(
     kw_only_default=True,
     field_specifiers=VALIDATED_DATACLASS_FIELD_SPECIFIERS,
 )
-class ValidatedDataclass(ABC):
+class ValidatedDataclass(ABC, PydanticDataclassLike):  # type: ignore
     def __init_subclass__(
         cls,
         *,

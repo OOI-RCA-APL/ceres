@@ -11,7 +11,7 @@ from typing import AsyncIterable, Sequence, final
 from typing_extensions import override
 
 from .address import Address
-from .component import Component, ComponentPaths
+from .component import Component
 from .config import Config, UnitConfig
 from .data import ImmutableDataObject, Name, jsonify
 from .database import Database
@@ -31,7 +31,6 @@ from .exceptions import (
 )
 from .internal import logs
 from .internal.app import App
-from .internal.component import load_component
 from .internal.config import load_config
 from .internal.server import Server
 from .internal.tasklet import Tasklet
@@ -303,7 +302,7 @@ class Engine(Tasklet):
         if unit_config is None:
             return
 
-        siblings: dict[Name, Component] = {}
+        references: dict[Name, Component] = {}
 
         for config in unit_config.components:
             if unit.get_component(config.name) is not None:
@@ -311,25 +310,19 @@ class Engine(Tasklet):
 
             address = Address.create(unit.name, config.name)
             id = await self.__environment.assign_address_id(address)
-            match load_component(
-                config,
-                name=config.name,
-                paths=ComponentPaths(
-                    data=unit.paths.data,
-                    local=unit.paths.local.subdir(config.name),
-                ),
-                siblings=siblings,
-            ):
-                case Ok(component):
-                    unit.add_component(component)
-                    siblings[component.name] = component
-                    unit.logger.info(
-                        f"Loaded '{component.address}' as {strify(type(component))} with ID '{id}'."
-                    )
-                case Fail(error):
-                    unit.logger.error(
-                        f"Failed to load component '{address}'. Error: {jsonify(error, indent=2)}"
-                    )
+
+            try:
+                component = config.load()
+                component.assign_referenced_components(references)
+            except Exception:
+                unit.logger.error(f"Failed to load component '{address}': {traceback.format_exc()}")
+                continue
+
+            unit.logger.info(
+                f"Loaded '{component.address}' as {strify(type(component))} with ID '{id}'."
+            )
+            references[component.name] = component
+            unit.add_component(component)
 
     async def __sync_units(self) -> None:
         configs: dict[Name, UnitConfig] = {current.name: current for current in self.__config.units}

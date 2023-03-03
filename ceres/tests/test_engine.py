@@ -1,7 +1,7 @@
 import asyncio
 
+from ceres import Engine
 from ceres.config import Config, ServerConfig, UnitConfig
-from ceres.engine import Engine
 
 
 async def test_engine_can_start() -> None:

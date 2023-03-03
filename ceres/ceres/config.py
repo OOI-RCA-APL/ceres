@@ -10,7 +10,7 @@ from typing_extensions import Self
 from .address import Address
 from .data import ImmutableDataObject, Name, PositiveTimeDelta
 from .internal.utilities import setattr_internal
-from .result import Ok
+from .loaded import ComponentLoader
 
 if TYPE_CHECKING:
     from .component import Component
@@ -22,15 +22,8 @@ class ConfigObject(ImmutableDataObject):
     pass
 
 
-class ComponentConfig(ConfigObject):
-    name: Name
-
-    if TYPE_CHECKING:
-        cls: str | type[Component] = Field(alias="class")
-    else:
-        cls: str | type = Field(alias="class")
-
-    parameters: Mapping[Name, Any] = Field(default_factory=dict)
+class ComponentConfig(ConfigObject, ComponentLoader):
+    pass
 
 
 class ServerConfig(ConfigObject):
@@ -152,10 +145,4 @@ class Config(ConfigObject):
         if config is None:
             return None
 
-        from .internal.component import load_component_cls
-
-        match load_component_cls(config):
-            case Ok(cls):
-                return cls
-            case _:
-                return None
+        return config.cls  # type: ignore

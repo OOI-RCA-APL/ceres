@@ -27,9 +27,9 @@ from typing import (
     cast,
     get_type_hints,
     overload,
-    runtime_checkable,
 )
 
+import pydantic
 import rich
 from pydantic import BaseModel, parse_obj_as
 from pydantic.decorator import ValidatedFunction
@@ -85,17 +85,15 @@ def dictify(obj: object) -> dict[str, Any]:
         raise ValueError("object cannot be dictified")
 
 
-@runtime_checkable
 class DataclassLike(Protocol):
     __dataclass_fields__: ClassVar[dict[str, Any]]
     __dataclass_params__: ClassVar[Any]
-    __post_init__: ClassVar[Callable[..., None]]
+    __post_init__: Any
 
 
-@runtime_checkable
 class PydanticDataclassLike(DataclassLike, Protocol):
     __pydantic_run_validation__: ClassVar[bool]
-    __post_init_post_parse__: ClassVar[Callable[..., None]]
+    __post_init_post_parse__: Any
     __pydantic_initialised__: ClassVar[bool]
     __pydantic_model__: ClassVar[type[BaseModel]]
     __pydantic_validate_values__: ClassVar[Callable[[DataclassLike], None]]
@@ -418,3 +416,24 @@ class ValidateByType:
             raise ValueError(f"must be an instance of {strify(cls)}, got {strify(type(value))}")
 
         return value
+
+
+if TYPE_CHECKING:
+    from ..data import ValidatedDataclass
+
+
+@overload
+def get_model(obj: "BaseModel | ValidatedDataclass") -> BaseModel:
+    ...
+
+
+@overload
+def get_model(obj: Any) -> BaseModel | None:
+    ...
+
+
+def get_model(obj: Any) -> BaseModel | None:
+    try:
+        return pydantic.utils.get_model(obj)  # type: ignore
+    except Exception:
+        return None

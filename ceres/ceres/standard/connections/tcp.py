@@ -34,7 +34,7 @@ class TCPDisconnectVerify(ImmutableDataObject):
     count: int = Field(ge=1)
 
 
-class TCPDisconnect(ImmutableDataObject):
+class TCPDisconnectSettings(ImmutableDataObject):
     idle: PositiveTimeDelta
     verify: TCPDisconnectVerify | None = None
 
@@ -54,24 +54,22 @@ class TCPKeepAlive(ImmutableDataObject):
 
 @final
 class TCPConnection(Connection):
-    class Parameters(Connection.Parameters):
-        host: str
-        port: int
-        timeout: PositiveTimeDelta = timedelta(seconds=5)
-        separator: bytes = b"\r\n"
-        disconnect: TCPDisconnect | None = None
-        keep_alive: TCPKeepAlive | None = None
+    host: str
+    port: int
+    timeout: PositiveTimeDelta = timedelta(seconds=5)
+    separator: bytes = b"\r\n"
+    disconnect_settings: TCPDisconnectSettings | None = None
+    keep_alive: TCPKeepAlive | None = None
 
-    parameters: Parameters
-
-    def __post_init__(self) -> None:
-        super().__post_init__()
+    @override
+    def __setup__(self) -> None:
+        super().__setup__()
         self.__stream: _Stream | None = None
 
     @property
     @override
     def target(self) -> str:
-        return f"{self.parameters.host}:{self.parameters.port}"
+        return f"{self.host}:{self.port}"
 
     @override
     async def try_connect(self) -> bool:
@@ -80,10 +78,10 @@ class TCPConnection(Connection):
 
         loop = ensure_event_loop()
         sock = self.__create_socket()
-        address = self.parameters.host, self.parameters.port
+        address = self.host, self.port
         await asyncio.wait_for(
             loop.sock_connect(sock, address),
-            self.parameters.timeout.total_seconds(),
+            self.timeout.total_seconds(),
         )
 
         reader, writer = await asyncio.open_connection(sock=sock)
@@ -112,8 +110,8 @@ class TCPConnection(Connection):
         if not self.__stream:
             raise ConnectionInactiveException("connection is not active")
 
-        if not data.endswith(self.parameters.separator):
-            data += self.parameters.separator
+        if not data.endswith(self.separator):
+            data += self.separator
 
         try:
             self.__stream.writer.write(data)
@@ -127,14 +125,14 @@ class TCPConnection(Connection):
             raise ConnectionInactiveException("connection is not active")
 
         try:
-            return await self.__stream.reader.readuntil(self.parameters.separator)
+            return await self.__stream.reader.readuntil(self.separator)
         except Exception:
             raise ConnectionLostException("connection was lost")
 
     @routine
     async def __process_disconnect(self) -> None:
-        disconnect = self.parameters.disconnect
-        if disconnect is None:
+        condition = self.disconnect_settings
+        if condition is None:
             return
 
         async def wait_for_message_received() -> None:
@@ -146,40 +144,40 @@ class TCPConnection(Connection):
             try:
                 await asyncio.wait_for(
                     wait_for_message_received(),
-                    disconnect.idle.total_seconds(),
+                    condition.idle.total_seconds(),
                 )
                 continue
             except asyncio.TimeoutError:
                 if not self.connected:
                     continue
 
-            self.logger.warning(f"No new message has been received in {show_td(disconnect.idle)}.")
+            self.logger.warning(f"No new message has been received in {show_td(condition.idle)}.")
 
             disconnected = True
 
-            if disconnect.verify is None:
+            if condition.verify is None:
                 self.logger.warning(
                     "No disconnect verification is set. Disconnect will happen immediately."
                 )
             else:
-                for count in range(1, disconnect.verify.count + 1):
+                for count in range(1, condition.verify.count + 1):
                     self.logger.warning(
-                        f"Running disconnect verification {count}/{disconnect.verify.count}..."
+                        f"Running disconnect verification {count}/{condition.verify.count}..."
                     )
 
-                    match disconnect.verify.kind:
+                    match condition.verify.kind:
                         case TCPDisconnectVerifyKind.RECONNECT:
                             self.logger.warning(
                                 f"Attempting to create another connection to {self.target} within "
-                                f"{show_td(disconnect.verify.interval)}..."
+                                f"{show_td(condition.verify.interval)}..."
                             )
                             try:
                                 await asyncio.wait_for(
                                     asyncio.open_connection(
-                                        host=self.parameters.host,
-                                        port=self.parameters.port,
+                                        host=self.host,
+                                        port=self.port,
                                     ),
-                                    disconnect.verify.interval.total_seconds(),
+                                    condition.verify.interval.total_seconds(),
                                 )
                                 self.logger.info(
                                     "A second connection was created and dropped successfully. A "
@@ -204,10 +202,10 @@ class TCPConnection(Connection):
     def __create_socket(self) -> socket.socket:
         instance = socket.socket()
 
-        if self.parameters.keep_alive is not None:
-            keep_alive_idle = int(self.parameters.keep_alive.idle.total_seconds())
-            keep_alive_interval = int(self.parameters.keep_alive.interval.total_seconds())
-            keep_alive_count = self.parameters.keep_alive.count
+        if self.keep_alive is not None:
+            keep_alive_idle = int(self.keep_alive.idle.total_seconds())
+            keep_alive_interval = int(self.keep_alive.interval.total_seconds())
+            keep_alive_count = self.keep_alive.count
 
             keep_alive_idle_ms = keep_alive_interval * 1000
             keep_alive_interval_ms = keep_alive_interval * 1000

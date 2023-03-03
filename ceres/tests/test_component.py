@@ -1,10 +1,6 @@
 from dataclasses import field
 
-from ceres.alert import Alert, AlertLevel
-from ceres.component import Component
-from ceres.events import Event
-from ceres.listener import on
-from ceres.ref import Ref
+from ceres import Alert, AlertLevel, Component, Event, Ref, on
 
 
 async def test_event_listeners() -> None:
@@ -20,13 +16,10 @@ async def test_event_listeners() -> None:
         pass
 
     class Receiver(Component):
+        emitter: Ref[Emitter]
+
         received_emitter_events: list[EmitterEvent] = field(default_factory=list)
         received_self_events: list[SelfEvent] = field(default_factory=list)
-
-        class Parameters(Component.Parameters):
-            emitter: Ref[Emitter]
-
-        parameters: Parameters
 
         @on(EmitterEvent, "emitter")
         def _on_other_event(self, event: EmitterEvent) -> None:
@@ -37,9 +30,7 @@ async def test_event_listeners() -> None:
             self.received_self_events.append(event)
 
     emitter = Emitter()
-    receiver = Receiver(
-        parameters=Receiver.Parameters(emitter=emitter),
-    )
+    receiver = Receiver(emitter=emitter)
 
     receiver.start()
     emitter.start()
@@ -51,7 +42,9 @@ async def test_event_listeners() -> None:
 
     await receiver.settle()
     await emitter.settle()
-    assert [(type(event), event.value) for event in receiver.received_emitter_events] == [
+    assert [
+        (type(event), event.value) for event in receiver.received_emitter_events
+    ] == [
         (EmitterEvent, 0),
         (EmitterEvent, 1),
     ]

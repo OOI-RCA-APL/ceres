@@ -112,14 +112,12 @@ class Checks(ImmutableDataObject):
 
 
 class CrabeeDriver(Component):
-    class Parameters(Component.Parameters):
-        connection: Ref[Connection]
-        checks: Checks = Field(default_factory=Checks)
+    connection: Ref[Connection]
+    checks: Checks = Field(default_factory=Checks)
 
-    parameters: Parameters
-
-    def __post_init__(self) -> None:
-        super().__post_init__()
+    @override
+    def __setup__(self) -> None:
+        super().__setup__()
         self.__last_data_message_received: DataMessage | None = None
         self.__data_message_stream: Stream[DataMessage] = Stream()
 
@@ -127,7 +125,7 @@ class CrabeeDriver(Component):
     async def __fetch_last_data_message(self) -> None:
         if messages := await self.environment.get_messages(
             MessageQuery(
-                source=self.parameters.connection.address,
+                source=self.connection.address,
                 order=MessageOrder.NEW_TO_OLD,
                 limit=1,
             )
@@ -156,8 +154,8 @@ class CrabeeDriver(Component):
         )
 
     def __check_data_message(self, message: DataMessage) -> None:
-        for name in self.parameters.checks.__fields__.keys():
-            validator = getattr(self.parameters.checks, name, None)
+        for name in self.checks.__fields__.keys():
+            validator = getattr(self.checks, name, None)
             if not isinstance(validator, Check):
                 continue
 

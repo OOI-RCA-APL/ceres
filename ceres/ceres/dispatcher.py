@@ -1,8 +1,7 @@
 import traceback
 from abc import abstractmethod
+from dataclasses import field
 from typing import Sequence
-
-from pydantic import Field
 
 from .alert import Alert
 from .component import Component
@@ -32,12 +31,9 @@ class DispatchWriter:
 
 
 class Dispatcher(Component):
-    class Parameters(Component.Parameters):
-        notifier: Ref[Notifier]
-        writer: Loaded[DispatchWriter]
-        dispatches: Sequence[Dispatch] = Field(default_factory=list)
-
-    parameters: Parameters
+    notifier: Ref[Notifier]
+    writer: Loaded[DispatchWriter]
+    dispatches: Sequence[Dispatch] = field(default_factory=list)
 
     async def dispatch(self, dispatch: Dispatch) -> None:
         query = dispatch.alerts.with_defaults(
@@ -64,7 +60,7 @@ class Dispatcher(Component):
             return
 
         try:
-            notification = await self.parameters.writer.write(dispatch, alerts)
+            notification = await self.writer.write(dispatch, alerts)
             self.logger.info(
                 f"Sending notification '{notification.subject}' to {len(dispatch.recipients)} "
                 f"recipients referring to {len(alerts)} alerts..."
@@ -77,7 +73,7 @@ class Dispatcher(Component):
             return
 
         try:
-            await self.parameters.notifier.notify(notification, dispatch.recipients)
+            await self.notifier.notify(notification, dispatch.recipients)
         except Exception:
             self.logger.error(
                 f"An exception occurred while sending notification to dispatch "

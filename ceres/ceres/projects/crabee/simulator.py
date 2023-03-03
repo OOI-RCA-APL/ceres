@@ -10,18 +10,15 @@ from ...data import PositiveTimeDelta
 
 
 class CrabeeSimulator(Component):
-    class Parameters(Component.Parameters):
-        port: int
-        interval: PositiveTimeDelta = timedelta(seconds=1)
-
-    parameters: Parameters
+    port: int
+    interval: PositiveTimeDelta = timedelta(seconds=1)
 
     @routine
     async def __send_messages(self) -> None:
-        self.logger.info(f"Creating listener on port {self.parameters.port}...")
+        self.logger.info(f"Creating listener on port {self.port}...")
         listener = await anyio.create_tcp_listener(
             local_host="0.0.0.0",
-            local_port=self.parameters.port,
+            local_port=self.port,
             reuse_port=True,
         )
 
@@ -47,4 +44,4 @@ class CrabeeSimulator(Component):
             )
 
             await stream.send(data)
-            await asyncio.sleep(self.parameters.interval.total_seconds())
+            await asyncio.sleep(self.interval.total_seconds())

@@ -1,10 +1,24 @@
-from typing import TYPE_CHECKING, Annotated, Any, TypeVar
+from typing import (
+    TYPE_CHECKING,
+    Annotated,
+    Any,
+    Collection,
+    Mapping,
+    TypeVar,
+    cast,
+)
 
 from pydantic import parse_obj_as
-from pydantic.utils import lenient_isinstance
-from typing_extensions import Self
+from pydantic.utils import get_model
+from typing_extensions import Self, get_origin
 
-from .internal.utilities import strify
+from .errors import ComponentReferenceInvalidError
+from .internal.utilities import (
+    is_optional,
+    lenient_isinstance,
+    lenient_issubclass,
+    strify,
+)
 
 _T = TypeVar("_T")
 
