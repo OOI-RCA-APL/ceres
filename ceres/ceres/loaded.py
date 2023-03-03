@@ -56,13 +56,6 @@ class Loader(ImmutableDataObject):
 
         return values
 
-    # @validator("cls_path", pre=True)
-    # def _pre_validate_cls(cls, value: Any) -> type:
-    #     if not isinstance(value, (type, str)):
-    #         raise ValueError("class value must be a str import path or class instance")
-
-    #     return cls._load_cls(value)
-
     @validator("cls_path")
     def _validate_cls_path(cls, value: str) -> str:
         cls._load_cls(value)
@@ -82,15 +75,30 @@ class Loader(ImmutableDataObject):
 
         return values
 
-    def load(self, *, base: type[_T] | None = None) -> _T:
+    def load(
+        self,
+        *,
+        args: Sequence[Any] | Mapping[str, Any] | None = None,
+        base: type[_T] | None = None,
+    ) -> _T:
         extra = {name: getattr(self, name) for name in self._get_extra_kwarg_names()}
-        args = self.args
-        if isinstance(args, Mapping):
-            args = {**args, **extra}
+
+        if args is not None:
+            if not isinstance(args, Mapping):
+                applied_args = args
+            elif isinstance(self.args, Mapping):
+                applied_args = {**args, **self.args, **extra}
+            else:
+                applied_args = args
+        else:
+            if isinstance(self.args, Mapping):
+                applied_args = {**self.args, **extra}
+            else:
+                applied_args = self.args
 
         return self._load_obj(
             self.cls_path,
-            args,
+            applied_args,
             base=base,
         )
 
@@ -167,15 +175,29 @@ class ComponentLoader(Loader):
     name: Name
 
     @overload
-    def load(self) -> Component:
+    def load(
+        self,
+        *,
+        args: Sequence[Any] | Mapping[str, Any] | None = None,
+    ) -> Component:
         ...
 
     @overload
-    def load(self, *, base: type[_T] | None = None) -> _T:
+    def load(
+        self,
+        *,
+        args: Sequence[Any] | Mapping[str, Any] | None = None,
+        base: type[_T] | None = None,
+    ) -> _T:
         ...
 
-    def load(self, *, base: type[_T] | None = None) -> _T | Component:
-        return super().load(base=base)
+    def load(
+        self,
+        *,
+        args: Sequence[Any] | Mapping[str, Any] | None = None,
+        base: type[_T] | None = None,
+    ) -> _T | Component:
+        return super().load(args=args, base=base)
 
     @override
     @classmethod

@@ -11,7 +11,7 @@ from typing import AsyncIterable, Sequence, final
 from typing_extensions import override
 
 from ceres.address import Address
-from ceres.component import Component
+from ceres.component import Component, ComponentPaths
 from ceres.config import Config, UnitConfig
 from ceres.data import ImmutableDataObject, Name, jsonify
 from ceres.database import Database
@@ -312,7 +312,14 @@ class Engine(Tasklet):
             id = await self.__environment.assign_address_id(address)
 
             try:
-                component = config.load()
+                component = config.load(
+                    args={
+                        "paths": ComponentPaths(
+                            data=unit.paths.data,
+                            local=unit.paths.local.subdir(config.name),
+                        )
+                    }
+                )
                 component.assign_referenced_components(references)
             except Exception:
                 unit.logger.error(f"Failed to load component '{address}': {traceback.format_exc()}")
