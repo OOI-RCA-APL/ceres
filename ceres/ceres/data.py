@@ -1,9 +1,12 @@
+import importlib
 import json
 import re
+import traceback
 from abc import ABC
 from datetime import datetime, timedelta, timezone
+from re import Pattern
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Callable, cast
+from typing import TYPE_CHECKING, Any, Callable, ForwardRef, Mapping, cast
 
 import pydantic
 import pydantic.generics
@@ -18,13 +21,14 @@ from pydantic import (
 )
 from pydantic.fields import FieldInfo
 from pydantic.json import pydantic_encoder
-from typing_extensions import dataclass_transform
+from typing_extensions import Self, dataclass_transform
 
 from ceres.internal.utilities import (
     PydanticDataclassLike,
     decode_td,
     dictify,
     is_pydantic_dataclass,
+    strify,
 )
 
 
@@ -42,13 +46,167 @@ def simplify(obj: object) -> Any:
     return json.loads(jsonify(obj))
 
 
+class NameType(ConstrainedStr):
+    regex: Pattern[str] = re.compile(r"^[a-zA-Z_\-][a-zA-Z0-9_\-]*$")
+
+
+class DateTimeType(datetime):
+    @classmethod
+    def __get_validators__(cls):
+        yield cls.validate
+
+    @classmethod
+    def validate(cls, value: Any) -> datetime | None:
+        if value is None:
+            return None
+
+        timestamp = parse_obj_as(datetime, value)
+        if timestamp.tzinfo is None:
+            return timestamp.replace(tzinfo=timezone.utc)
+
+        return timestamp.astimezone(timezone.utc)
+
+
+class TimeDeltaType(timedelta):
+    @classmethod
+    def __get_validators__(cls):
+        yield cls.validate
+
+    @classmethod
+    def validate(cls, value: Any) -> timedelta | None:
+        if value is None:
+            return None
+
+        return decode_td(value)
+
+
+class PositiveTimeDeltaType(TimeDeltaType):
+    @classmethod
+    def validate(cls, value: Any) -> timedelta | None:
+        duration = super().validate(value)
+        if duration is None:
+            return None
+
+        if duration <= timedelta():
+            raise ValueError("must be greater than zero")
+
+        return duration
+
+
+class NonNegativeTimeDeltaType(TimeDeltaType):
+    @classmethod
+    def validate(cls, value: Any) -> timedelta | None:
+        duration = super().validate(value)
+        if duration is None:
+            return None
+
+        if duration < timedelta():
+            raise ValueError("must be greater than or equal to zero")
+
+        return duration
+
+
+def _get_cls_path(cls: type) -> str:
+    module: str | None = cls.__module__
+    if module is None or module == str.__module__:  # type: ignore
+        return cls.__name__
+
+    return module + "." + cls.__name__
+
+
+def _load_cls_from_cls_path(path: str) -> type:
+    last_dot_index = path.rindex(".")
+    cls_module_path = path[:last_dot_index]
+    cls_name = path[last_dot_index + 1 :]
+
+    try:
+        module = importlib.import_module(cls_module_path)
+    except Exception as exception:
+        if isinstance(exception, ModuleNotFoundError) and exception.name == cls_module_path:
+            raise ValueError(f"module '{cls_module_path}' was not found")
+
+        raise ValueError(
+            f"module '{cls_module_path}' raised an exception during import: "
+            f"{traceback.format_exc()}",
+        )
+
+    cls = getattr(module, cls_name, None)
+    if cls is None:
+        raise ValueError(f"module {module} does not contain class {cls_name}")
+    if not isinstance(cls, type):
+        raise ValueError(f"{path} is not a class, got {strify(cls)}")
+
+    return cls
+
+
+class ClassPath:
+    __slots__ = ("_cls", "_text")
+
+    def __init__(self, obj: str | type | Self, /) -> None:  # type: ignore
+        if isinstance(obj, ClassPath):
+            cls = obj._cls
+            text = obj._text
+        elif isinstance(obj, type):
+            cls = obj
+            text = _get_cls_path(obj)
+        elif isinstance(obj, str):
+            cls = _load_cls_from_cls_path(obj)
+            text = obj
+        else:
+            raise ValueError(
+                f"must an import path string, instance of {type} or another instance of "
+                f"{strify(type(self))}"
+            )
+
+        if text is None:
+            text = _get_cls_path(cls)
+
+        self._cls = cls
+        self._text = text
+
+    def __str__(self) -> str:
+        return self._text
+
+    def __repr__(self) -> str:
+        return f"{type(self).__name__}({repr(self._text)})"
+
+    @property
+    def cls(self) -> type:
+        return self._cls
+
+    @classmethod
+    def __get_validators__(cls):
+        yield cls
+
+
+if TYPE_CHECKING:
+    Name = str
+    DateTime = datetime
+    TimeDelta = timedelta
+    PositiveTimeDelta = timedelta
+    NonNegativeTimeDelta = timedelta
+else:
+    Name = NameType
+    DateTime = DateTimeType
+    TimeDelta = TimeDeltaType
+    PositiveTimeDelta = PositiveTimeDeltaType
+    NonNegativeTimeDelta = NonNegativeTimeDeltaType
+
+JSON_ENCODERS: Mapping[type[Any] | str | ForwardRef, Callable[..., Any]] = MappingProxyType(
+    {
+        ClassPath: str,
+    }
+)
+
+
 class DataObject(BaseModel, ABC):
     class Config(BaseConfig):
+        allow_population_by_field_name = True
         arbitrary_types_allowed = True
-        # allow_population_by_field_name = True
+        extra = Extra.forbid
+        json_encoders = dict(JSON_ENCODERS)
         orm_mode = True
         validate_assignment = True
-        extra = Extra.forbid
 
     def __str__(self) -> str:
         return super().__repr__()
@@ -65,11 +223,12 @@ VALIDATED_DATACLASS_FIELD_SPECIFIERS: tuple[Callable[..., Any], type[FieldInfo]]
 )
 VALIDATED_DATACLASS_DEFAULT_CONFIG = MappingProxyType(
     ConfigDict(
-        arbitrary_types_allowed=True,
         allow_population_by_field_name=True,
+        arbitrary_types_allowed=True,
+        extra=Extra.forbid,
+        json_encoders=dict(JSON_ENCODERS),  # type: ignore
         orm_mode=True,
         validate_assignment=True,
-        extra=Extra.forbid,
     )
 )
 
@@ -124,85 +283,3 @@ class ValidatedDataclass(ABC, PydanticDataclassLike):  # type: ignore
             validate_on_init=validate_on_init,
             kw_only=kw_only,
         )
-
-
-NAME_REGEX = re.compile(r"^[a-zA-Z_\-][a-zA-Z0-9_\-]*$")
-
-
-class _Name(ConstrainedStr):
-    regex = NAME_REGEX
-
-
-class _DateTime(datetime):
-    @classmethod
-    def __get_validators__(cls):
-        yield cls.validate
-
-    @classmethod
-    def validate(cls, value: Any) -> datetime | None:
-        if value is None:
-            return None
-
-        timestamp = parse_obj_as(datetime, value)
-        if timestamp.tzinfo is None:
-            return timestamp.replace(tzinfo=timezone.utc)
-
-        return timestamp.astimezone(timezone.utc)
-
-
-class _TimeDelta(timedelta):
-    @classmethod
-    def __get_validators__(cls):
-        yield cls.validate
-
-    @classmethod
-    def validate(cls, value: Any) -> timedelta | None:
-        if value is None:
-            return None
-
-        return decode_td(value)
-
-
-class _PositiveTimeDelta(_TimeDelta):
-    @classmethod
-    def validate(cls, value: Any) -> timedelta | None:
-        duration = super().validate(value)
-        if duration is None:
-            return None
-
-        if duration <= timedelta():
-            raise ValueError("must be greater than zero")
-
-        return duration
-
-
-class _NonNegativeTimeDelta(_TimeDelta):
-    @classmethod
-    def validate(cls, value: Any) -> timedelta | None:
-        duration = super().validate(value)
-        if duration is None:
-            return None
-
-        if duration < timedelta():
-            raise ValueError("must be greater than or equal to zero")
-
-        return duration
-
-
-if TYPE_CHECKING:
-    Name = str
-    DateTime = datetime
-    TimeDelta = timedelta
-    PositiveTimeDelta = timedelta
-    NonNegativeTimeDelta = timedelta
-else:
-    Name = _Name
-    Name.__name__ = "Name"
-    DateTime = _DateTime
-    DateTime.__name__ = "DateTime"
-    TimeDelta = _TimeDelta
-    TimeDelta.__name__ = "TimeDelta"
-    PositiveTimeDelta = _PositiveTimeDelta
-    PositiveTimeDelta.__name__ = "PositiveTimeDelta"
-    NonNegativeTimeDelta = _NonNegativeTimeDelta
-    NonNegativeTimeDelta.__name__ = "NonNegativeTimeDelta"

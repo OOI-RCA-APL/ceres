@@ -145,4 +145,4 @@ class Config(ConfigObject):
         if config is None:
             return None
 
-        return config.cls  # type: ignore
+        return config.cls_path.cls  # type: ignore

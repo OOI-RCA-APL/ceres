@@ -42,9 +42,7 @@ async def test_event_listeners() -> None:
 
     await receiver.settle()
     await emitter.settle()
-    assert [
-        (type(event), event.value) for event in receiver.received_emitter_events
-    ] == [
+    assert [(type(event), event.value) for event in receiver.received_emitter_events] == [
         (EmitterEvent, 0),
         (EmitterEvent, 1),
     ]

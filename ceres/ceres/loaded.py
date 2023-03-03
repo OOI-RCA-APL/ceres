@@ -1,5 +1,3 @@
-import importlib
-import traceback
 from types import MappingProxyType
 from typing import (
     TYPE_CHECKING,
@@ -8,14 +6,13 @@ from typing import (
     Mapping,
     Sequence,
     TypeVar,
-    overload,
 )
 
 from pydantic import Field, root_validator, validate_arguments, validator
 from typing_extensions import Self, override
 
-from ceres.data import ImmutableDataObject, Name
-from ceres.internal.utilities import get_model, lenient_isinstance, lenient_issubclass, strify
+from ceres.data import ClassPath, ImmutableDataObject, Name
+from ceres.internal.utilities import get_model, lenient_isinstance, lenient_issubclass
 
 if TYPE_CHECKING:
     from ceres.component import Component
@@ -26,12 +23,19 @@ _T = TypeVar("_T")
 
 
 class Loader(ImmutableDataObject):
-    cls_path: str = Field(alias="class")
+    class Config(ImmutableDataObject.Config):
+        json_encoders = {
+            **ImmutableDataObject.Config.json_encoders,
+            ClassPath: str,
+        }
+        pass
+
+    cls_path: ClassPath = Field(alias="class")
     args: Sequence[Any] | Mapping[str, Any] = ()
 
     @property
     def cls(self) -> type:
-        return self._load_cls(self.cls_path)
+        return self.cls_path.cls
 
     @classmethod
     def _get_extra_kwarg_names(cls) -> Sequence[str]:
@@ -56,11 +60,6 @@ class Loader(ImmutableDataObject):
 
         return values
 
-    @validator("cls_path")
-    def _validate_cls_path(cls, value: str) -> str:
-        cls._load_cls(value)
-        return value
-
     @root_validator
     def _validate(cls, values: dict[str, Any]) -> dict[str, Any]:
         if "cls_path" not in values:
@@ -71,16 +70,11 @@ class Loader(ImmutableDataObject):
         if isinstance(args, Mapping):
             args = {**args, **extra}
 
-        cls._load_obj(values["cls_path"], args)
+        cls._load_obj(values["cls_path"].cls, args)
 
         return values
 
-    def load(
-        self,
-        *,
-        args: Sequence[Any] | Mapping[str, Any] | None = None,
-        base: type[_T] | None = None,
-    ) -> _T:
+    def load(self, *, args: Sequence[Any] | Mapping[str, Any] | None = None) -> Any:
         extra = {name: getattr(self, name) for name in self._get_extra_kwarg_names()}
 
         if args is not None:
@@ -97,72 +91,26 @@ class Loader(ImmutableDataObject):
                 applied_args = self.args
 
         return self._load_obj(
-            self.cls_path,
+            self.cls_path.cls,
             applied_args,
-            base=base,
         )
-
-    @classmethod
-    def _load_cls(
-        cls,
-        source: type | str,
-        *,
-        base: type[_T] | None = None,
-    ) -> type[_T]:
-        if isinstance(source, type):
-            if base is not None:
-                if not lenient_issubclass(source, base):
-                    raise ValueError(
-                        f"{source} is not a subclass of {strify(base)}, got {strify(source)}"
-                    )
-
-            return source  # type: ignore
-
-        last_dot_index = source.rindex(".")
-        cls_module_path = source[:last_dot_index]
-        cls_name = source[last_dot_index + 1 :]
-
-        try:
-            module = importlib.import_module(cls_module_path)
-        except Exception as exception:
-            if isinstance(exception, ModuleNotFoundError) and exception.name == cls_module_path:
-                raise ValueError(f"module '{cls_module_path}' was not found")
-
-            raise ValueError(
-                f"component module '{cls_module_path}' raised an exception during import: "
-                f"{traceback.format_exc()}",
-            )
-
-        cls = getattr(module, cls_name, None)
-        if cls is None:
-            raise ValueError(f"module {module} does not contain class {cls_name}")
-        if not isinstance(cls, type):
-            raise ValueError(f"{source} is not a class, got {strify(cls)}")
-        if base is not None:
-            if not lenient_issubclass(cls, base):
-                raise ValueError(f"{source} is not a subclass of {strify(base)}, got {strify(cls)}")
-
-        return cls  # type: ignore
 
     @classmethod
     def _load_obj(
         cls,
-        source: type | str,
+        target: type,
         args: Sequence[Any] | Mapping[str, Any] = MappingProxyType({}),
-        *,
-        base: type[_T] | None = None,
-    ) -> _T:
-        target_cls = cls._load_cls(source, base=base)
-        model = get_model(target_cls)
+    ) -> Any:
+        model = get_model(target)
 
         if model is not None:
             if isinstance(args, Mapping):
-                instance = target_cls(**args)
+                instance = target(**args)
             else:
-                instance = target_cls(*args)
+                instance = target(*args)
         else:
-            instance = object.__new__(target_cls)
-            init = validate_arguments(target_cls.__init__)
+            instance = object.__new__(target)
+            init = validate_arguments(target.__init__)
             if isinstance(args, Mapping):
                 init(instance, **args)
             else:
@@ -174,51 +122,22 @@ class Loader(ImmutableDataObject):
 class ComponentLoader(Loader):
     name: Name
 
-    @overload
-    def load(
-        self,
-        *,
-        args: Sequence[Any] | Mapping[str, Any] | None = None,
-    ) -> Component:
-        ...
-
-    @overload
-    def load(
-        self,
-        *,
-        args: Sequence[Any] | Mapping[str, Any] | None = None,
-        base: type[_T] | None = None,
-    ) -> _T:
-        ...
-
-    def load(
-        self,
-        *,
-        args: Sequence[Any] | Mapping[str, Any] | None = None,
-        base: type[_T] | None = None,
-    ) -> _T | Component:
-        return super().load(args=args, base=base)
+    def load(self, *, args: Sequence[Any] | Mapping[str, Any] | None = None) -> Component:
+        return super().load(args=args)
 
     @override
     @classmethod
     def _get_extra_kwarg_names(cls) -> Sequence[str]:
         return [*super()._get_extra_kwarg_names(), "name"]
 
-    @override
-    @classmethod
-    def _load_cls(
-        cls,
-        source: type | str,
-        *,
-        base: type[_T] | None = None,
-    ) -> type[_T]:
-        result = super()._load_cls(source, base=base)
+    @validator("cls_path")
+    def _validate_cls_path(cls, value: ClassPath) -> ClassPath:
         from ceres.component import Component
 
-        if not lenient_issubclass(result, Component):
-            raise ValueError(f"class must be a subclass of {Component}")
+        if not lenient_issubclass(value.cls, Component):
+            raise ValueError(f"must be a subclass of {Component}")
 
-        return result
+        return value
 
 
 _loaded_type_cache: dict[type, type["LoadedType"]] = {}
@@ -251,10 +170,17 @@ class LoadedType:
     def validate(cls, value: Any) -> Any:
         if lenient_isinstance(value, cls.cls):
             return value
-        if lenient_isinstance(value, Loader):
-            return value.load(base=cls.cls)
 
-        return Loader.parse_obj(value).load(base=cls.cls)
+        if lenient_isinstance(value, Loader):
+            loader = value
+        else:
+            loader = Loader.parse_obj(value)
+
+        instance = loader.load()
+        if not lenient_isinstance(instance, cls.cls):
+            raise ValueError(f"must be an instance of {cls.cls}")
+
+        return instance
 
 
 if TYPE_CHECKING:

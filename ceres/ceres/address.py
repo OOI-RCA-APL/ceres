@@ -4,7 +4,7 @@ from typing import Any, final
 
 from typing_extensions import Self
 
-from ceres.data import NAME_REGEX, Name
+from ceres.data import Name, NameType
 
 
 class _RegexStr(str):
@@ -33,7 +33,7 @@ class _RegexStr(str):
 
 @final
 class Address(_RegexStr):
-    regex = re.compile(rf"^{NAME_REGEX.pattern[1:-1]}\.{NAME_REGEX.pattern[1:-1]}$")
+    regex = re.compile(rf"^{NameType.regex.pattern[1:-1]}\.{NameType.regex.pattern[1:-1]}$")
 
     @classmethod
     def create(cls, unit: Name, component: Name, /) -> Self:
