@@ -52,7 +52,14 @@ from ceres.errors import (
     ProcedureInvalidInputError,
     ProcedureNotSubscribableError,
 )
-from ceres.events import AlertEmittedEvent, Event, MessageReceivedEvent, MessageSentEvent
+from ceres.events import (
+    AlertEmittedEvent,
+    Event,
+    MessageReceivedEvent,
+    MessageSentEvent,
+    StartedEvent,
+    StoppedEvent,
+)
 from ceres.exceptions import ComponentClassInvalidException, ProcedureException
 from ceres.internal import logs
 from ceres.internal.binding import get_all_bindings
@@ -522,6 +529,7 @@ class Component(ValidatedDataclass, Tasklet):
             await self.environment.assign_address_id(self.address)
 
         self.__start_scheduler()
+        self.emit_event(StartedEvent())
 
         await asyncio.gather(
             sleep_forever(),
@@ -569,6 +577,10 @@ class Component(ValidatedDataclass, Tasklet):
         )
         if self.__local_environment is not None:
             await self.environment.database.dispose()
+
+    @override
+    async def __done__(self) -> None:
+        self.emit_event(StoppedEvent())
 
     class SubscribeEventsInput(ImmutableDataObject):
         kinds: str | FrozenSet[str] | None = None

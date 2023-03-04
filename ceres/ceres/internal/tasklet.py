@@ -36,6 +36,9 @@ class Tasklet(ABC):
     async def __stop__(self) -> None:
         ...
 
+    async def __done__(self) -> None:
+        pass
+
     @property
     def __tasklet__(self) -> TaskletInternal:
         if internal := self.__dict__.get(_INTERNAL_ATTRIBUTE_NAME):
@@ -92,8 +95,11 @@ class Tasklet(ABC):
                     self.__tasklet__.stopping.set()
                     self.__tasklet__.stopped.set()
 
-                    if on_completed:
-                        on_completed(self)
+                    try:
+                        await self.__done__()
+                    finally:
+                        if on_completed:
+                            on_completed(self)
 
         self.__tasklet__.task = asyncio.create_task(main(), name=str(type(self)))
 
