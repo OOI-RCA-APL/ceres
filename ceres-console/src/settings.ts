@@ -1,4 +1,5 @@
 import { usePersisted } from '@/persistence'
+import moment from 'moment'
 import { defineStore } from 'pinia'
 import { useQuasar } from 'quasar'
 import { computed, watchEffect } from 'vue'
@@ -24,8 +25,8 @@ export const useSettings = defineStore('settings', () => {
       set: (value) => (state.isDarkModeEnabled = value),
     }),
     statisticsDuration: computed({
-      get: () => state.statisticsDuration,
-      set: (value) => (state.statisticsDuration = value),
+      get: () => moment.duration(state.statisticsDuration, 'seconds'),
+      set: (value) => (state.statisticsDuration = value.asSeconds()),
     }),
   }
 })

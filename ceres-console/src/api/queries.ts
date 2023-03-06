@@ -163,7 +163,7 @@ export const useStatistics = defineStore('statistics', () => {
     ['statistics'],
     async () =>
       await getStatistics({
-        within: settings.statisticsDuration,
+        within: settings.statisticsDuration.asSeconds(),
       })
   )
 
@@ -179,7 +179,7 @@ export const useStatistics = defineStore('statistics', () => {
   }, moment.duration(30, 's').asMilliseconds())
 
   watch(
-    computed(() => settings.statisticsDuration),
+    computed(() => settings.statisticsDuration.asSeconds()),
     async () => {
       query.refetch.value()
     }
