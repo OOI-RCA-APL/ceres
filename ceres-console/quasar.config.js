@@ -5,6 +5,7 @@
 
 const { configure } = require('quasar/wrappers')
 const path = require('path')
+const ReactivityTransform = require('@vue-macros/reactivity-transform/vite')
 
 module.exports = configure((context) => {
   function getDevelopmentEnvironment() {
@@ -55,9 +56,7 @@ module.exports = configure((context) => {
           }
         : undefined,
       vueRouterMode: 'history',
-      viteVuePluginOptions: {
-        reactivityTransform: true,
-      },
+      vitePlugins: [ReactivityTransform()],
       extendViteConf(config) {
         config.resolve ??= {}
         config.resolve.alias ??= {}
