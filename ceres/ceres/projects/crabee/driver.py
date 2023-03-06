@@ -9,7 +9,6 @@ from typing_extensions import Self, override
 from ceres import (
     Alert,
     AlertLevel,
-    Component,
     Connection,
     ImmutableDataObject,
     Message,
@@ -24,10 +23,12 @@ from ceres import (
     spawn,
     utc,
 )
+from ceres.component import Component
 from ceres.console import ChartDisplay, ConsoleColor, StateDisplay, ValueDisplay
 from ceres.events import ConnectFailedEvent, ConnectionLostEvent, MessageReceivedEvent
 from ceres.layout import Layout, LayoutColumn, LayoutDisplay, LayoutRow
 from ceres.ref import Ref
+from ceres.roles.alerter import Alerter
 
 
 class DataMessage(ImmutableDataObject):
@@ -111,7 +112,7 @@ class Checks(ImmutableDataObject):
     leak_2: Check | None = None
 
 
-class CrabeeDriver(Component):
+class CrabeeDriver(Alerter, Component):
     connection: Ref[Connection]
     checks: Checks = Field(default_factory=Checks)
 
@@ -124,11 +125,9 @@ class CrabeeDriver(Component):
     @routine
     async def __fetch_last_data_message(self) -> None:
         if messages := await self.environment.get_messages(
-            MessageQuery(
-                source=self.connection.address,
-                order=MessageOrder.NEW_TO_OLD,
-                limit=1,
-            )
+            source=self.connection.address,
+            order=MessageOrder.NEW_TO_OLD,
+            limit=1,
         ):
             try:
                 self.__last_data_message_received = DataMessage.parse(messages[0])

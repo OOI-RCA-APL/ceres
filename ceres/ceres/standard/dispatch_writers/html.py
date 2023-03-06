@@ -8,8 +8,8 @@ from typing_extensions import override
 from ceres.address import Address
 from ceres.alert import Alert, AlertLevel
 from ceres.data import jsonify
-from ceres.dispatcher import Dispatch, DispatchWriter
-from ceres.notifier import Notification
+from ceres.roles.dispatcher import Dispatch, DispatchWriter
+from ceres.roles.notifier import Notification
 from ceres.standard.markdown import markdown
 from ceres.standard.templates import templates
 

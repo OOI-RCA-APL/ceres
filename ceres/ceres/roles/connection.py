@@ -17,6 +17,8 @@ from ceres.events import (
     MessageSentEvent,
 )
 from ceres.exceptions import ConnectionLostException
+from ceres.internal.database.buffer import WriteBuffer
+from ceres.internal.database.entities import MessageEntity
 from ceres.message import Message, MessageDirection
 from ceres.procedure import action, query
 from ceres.routine import routine
@@ -69,6 +71,24 @@ class Connection(Component, ABC):
         super().__setup__()
         self.__state = ConnectionState.DISCONNECTED
         self.__reconnect_scheduler = _ReconnectScheduler(self.reconnect_settings)
+        self.__message_write_buffer = WriteBuffer(
+            Message,
+            MessageEntity,
+            lambda: self.environment,
+            self.logger,
+        )
+
+    @override
+    async def __stop__(self) -> None:
+        await self._try_disconnect()
+        await self.__message_write_buffer.flush()
+        await super().__stop__()
+
+    @routine
+    async def __flush_message_buffer(self) -> None:
+        while True:
+            await self.__message_write_buffer.flush()
+            await asyncio.sleep(0.1)
 
     @property
     @abstractmethod
@@ -84,19 +104,19 @@ class Connection(Component, ABC):
         return self.__state == ConnectionState.CONNECTED
 
     @abstractmethod
-    async def try_connect(self) -> bool:
+    async def _try_connect(self) -> bool:
         ...
 
     @abstractmethod
-    async def try_disconnect(self) -> None:
+    async def _try_disconnect(self) -> None:
         ...
 
     @abstractmethod
-    async def send_data(self, data: bytes) -> None:
+    async def _send_data(self, data: bytes) -> None:
         ...
 
     @abstractmethod
-    async def receive_data(self) -> bytes:
+    async def _receive_data(self) -> bytes:
         ...
 
     async def connect(self) -> bool:
@@ -107,7 +127,7 @@ class Connection(Component, ABC):
         self.__state = ConnectionState.CONNECTING
 
         try:
-            connected = await self.try_connect()
+            connected = await self._try_connect()
         except Exception as exception:
             connected = False
             if error := str(exception).strip():
@@ -126,7 +146,7 @@ class Connection(Component, ABC):
 
     async def send(self, data: bytes) -> Message:
         try:
-            await self.send_data(data)
+            await self._send_data(data)
         except ConnectionLostException:
             self.emit_event(ConnectionLostEvent())
             await self.disconnect()
@@ -152,7 +172,7 @@ class Connection(Component, ABC):
 
     async def receive(self) -> Message:
         try:
-            data = await self.receive_data()
+            data = await self._receive_data()
         except ConnectionLostException:
             self.emit_event(ConnectionLostEvent())
             await self.disconnect()
@@ -176,7 +196,7 @@ class Connection(Component, ABC):
         self.logger.info("Disconnecting...")
 
         try:
-            await self.try_disconnect()
+            await self._try_disconnect()
         finally:
             self.__state = ConnectionState.DISCONNECTED
             self.emit_event(DisconnectedEvent())
@@ -198,11 +218,6 @@ class Connection(Component, ABC):
                 except Exception as exception:
                     if error := str(exception).strip():
                         self.logger.error(error)
-
-    @override
-    async def __stop__(self) -> None:
-        await super().__stop__()
-        await self.try_disconnect()
 
     @query("connection-state")
     async def get_connection_state(self) -> AsyncIterable[ConnectionState]:

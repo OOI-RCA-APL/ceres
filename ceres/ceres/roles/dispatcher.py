@@ -8,8 +8,8 @@ from ceres.component import Component
 from ceres.data import ImmutableDataObject
 from ceres.environment import AlertOrder, AlertQuery
 from ceres.loaded import Loaded
-from ceres.notifier import Notification, Notifier
 from ceres.ref import Ref
+from ceres.roles.notifier import Notification, Notifier
 
 
 class Dispatch(ImmutableDataObject):

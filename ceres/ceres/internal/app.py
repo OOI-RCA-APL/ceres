@@ -60,11 +60,14 @@ def _get_component_roles(component: Component | type[Component]) -> Sequence[Com
     if not isinstance(component, type):
         component = type(component)
 
-    from ceres.connection import Connection
-    from ceres.dispatcher import Dispatcher
-    from ceres.notifier import Notifier
+    from ceres.roles.alerter import Alerter
+    from ceres.roles.connection import Connection
+    from ceres.roles.dispatcher import Dispatcher
+    from ceres.roles.notifier import Notifier
 
     roles: list[ComponentRole] = []
+    if issubclass(component, Alerter):
+        roles.append(ComponentRole.ALERTER)
     if issubclass(component, Connection):
         roles.append(ComponentRole.CONNECTION)
     if issubclass(component, Dispatcher):

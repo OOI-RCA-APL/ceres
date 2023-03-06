@@ -38,33 +38,29 @@
         </panel>
       </panel-group>
       <panel-group
-        v-if="components.length"
+        v-if="alerters.length"
         :default-height="300"
-        :panels="components.map((current) => current.name)"
+        :panels="alerters.map((current) => current.name)"
         :persistence-key="`units/${unit.name}/alert-panel-group`"
         title="Alerts"
       >
         <template #tabs>
-          <panel-tab
-            v-for="component in components"
-            :key="component.address"
-            :name="component.name"
-          >
-            {{ component.name }}
-            <alerts-indicator :component-name="component.name" :unit-name="unit.name" />
+          <panel-tab v-for="alerter in alerters" :key="alerter.address" :name="alerter.name">
+            {{ alerter.name }}
+            <alerts-indicator :component-name="alerter.name" :unit-name="unit.name" />
           </panel-tab>
         </template>
         <panel
-          v-for="component in components"
-          :key="component.address"
+          v-for="alerter in alerters"
+          :key="alerter.address"
           class="column"
-          :name="component.name"
+          :name="alerter.name"
         >
           <item-view
             class="col-grow"
-            :component-name="component.name"
+            :component-name="alerter.name"
             kind="alert"
-            :title="component.address"
+            :title="alerter.address"
             :unit-name="unit.name"
           />
         </panel>
@@ -140,6 +136,9 @@ const title = $computed(() => {
 const components = $computed(() => unit?.components ?? [])
 const connections = $computed(() =>
   components.filter((component) => component.roles.includes('connection'))
+)
+const alerters = $computed(() =>
+  components.filter((component) => component.roles.includes('alerter'))
 )
 const huds = $computed(() => components.filter((component) => component.layout != null))
 </script>

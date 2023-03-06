@@ -64,7 +64,7 @@ export const StatisticsModel = Zod.object({
 })
 
 export type ComponentRole = Zod.infer<typeof ComponentRoleModel>
-export const ComponentRoleModel = Zod.enum(['connection', 'dispatcher', 'notifier'])
+export const ComponentRoleModel = Zod.enum(['alerter', 'connection', 'dispatcher', 'notifier'])
 
 export type ComponentConfig = Zod.infer<typeof ComponentConfigModel>
 export const ComponentConfigModel = Zod.object({

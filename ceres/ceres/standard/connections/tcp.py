@@ -10,11 +10,11 @@ from typing import Literal, final
 from pydantic import Field, validator
 from typing_extensions import override
 
-from ceres.connection import Connection
 from ceres.data import ImmutableDataObject, PositiveTimeDelta
 from ceres.events import ConnectionLostEvent, MessageReceivedEvent
 from ceres.exceptions import ConnectionInactiveException, ConnectionLostException
 from ceres.internal.utilities import ensure_event_loop, show_td
+from ceres.roles.connection import Connection
 from ceres.routine import routine
 
 
@@ -72,7 +72,7 @@ class TCPConnection(Connection):
         return f"{self.host}:{self.port}"
 
     @override
-    async def try_connect(self) -> bool:
+    async def _try_connect(self) -> bool:
         if self.__stream:
             return True
 
@@ -93,7 +93,7 @@ class TCPConnection(Connection):
         return True
 
     @override
-    async def try_disconnect(self) -> None:
+    async def _try_disconnect(self) -> None:
         if not self.__stream:
             return
 
@@ -106,7 +106,7 @@ class TCPConnection(Connection):
         self.__stream = None
 
     @override
-    async def send_data(self, data: bytes) -> None:
+    async def _send_data(self, data: bytes) -> None:
         if not self.__stream:
             raise ConnectionInactiveException("connection is not active")
 
@@ -120,7 +120,7 @@ class TCPConnection(Connection):
             raise ConnectionLostException("connection was lost")
 
     @override
-    async def receive_data(self) -> bytes:
+    async def _receive_data(self) -> bytes:
         if not self.__stream:
             raise ConnectionInactiveException("connection is not active")
 

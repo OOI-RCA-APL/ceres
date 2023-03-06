@@ -1,6 +1,5 @@
 import asyncio
 import inspect
-import logging
 import traceback
 from dataclasses import field
 from functools import partial
@@ -35,13 +34,12 @@ from sqlalchemy.util import unique_list
 from typing_extensions import Self, dataclass_transform, override
 
 from ceres.address import Address
-from ceres.alert import Alert, AlertLevel
+from ceres.alert import Alert
 from ceres.data import (
     VALIDATED_DATACLASS_FIELD_SPECIFIERS,
     ImmutableDataObject,
     Name,
     ValidatedDataclass,
-    jsonify,
 )
 from ceres.directory import Directory
 from ceres.environment import Environment
@@ -476,25 +474,6 @@ class Component(ValidatedDataclass, Tasklet):
                     processor.put(event)
                     break
 
-    def emit_alert(self, alert: Alert) -> Alert:
-        self.__set_emitted_alert_source(alert)
-
-        match alert.level:
-            case AlertLevel.DEBUG:
-                log_level = logging.DEBUG
-            case AlertLevel.INFO:
-                log_level = logging.INFO
-            case AlertLevel.WARNING:
-                log_level = logging.WARNING
-            case AlertLevel.ERROR:
-                log_level = logging.ERROR
-            case AlertLevel.CRITICAL:
-                log_level = logging.CRITICAL
-
-        self.emit_event(AlertEmittedEvent(alert=alert))
-        self.logger.log(log_level, f"Alert: {jsonify(alert)}")
-        return alert
-
     def add_job(
         self,
         function: Callable[[], Any],
@@ -552,20 +531,6 @@ class Component(ValidatedDataclass, Tasklet):
     @routine
     async def __run_event_processors(self) -> None:
         await asyncio.gather(*(processor.run() for processor in self.__event_processors))
-
-    @routine
-    async def __flush_message_buffer(self) -> None:
-        while True:
-            if not self.__message_write_buffer.flushing:
-                await self.__message_write_buffer.flush()
-            await asyncio.sleep(0.1)
-
-    @routine
-    async def __flush_alert_buffer(self) -> None:
-        while True:
-            if not self.__alert_write_buffer.flushing:
-                await self.__alert_write_buffer.flush()
-            await asyncio.sleep(0.1)
 
     @override
     async def __stop__(self) -> None:
