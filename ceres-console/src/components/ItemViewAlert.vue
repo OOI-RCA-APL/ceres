@@ -1,7 +1,7 @@
 <template>
   <div class="row self-item-view-alert-root">
     <div class="self-timestamp">
-      {{ moment.utc(alert.timestamp).format('YYYY-MM-DD HH:mm:ss.SSS') }}
+      {{ alert.timestamp.format('YYYY-MM-DD HH:mm:ss.SSS') }}
     </div>
     <q-chip class="self-level-chip" :color="levelColor" dense text-color="black">
       <span class="self-level-text">
@@ -15,7 +15,6 @@
 
 <script lang="ts" setup>
 import { Alert } from '@/api/models'
-import moment from 'moment'
 
 const { alert } = defineProps<{
   alert: Alert

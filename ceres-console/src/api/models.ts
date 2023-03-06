@@ -1,8 +1,13 @@
+import moment from 'moment'
 import Zod, { ZodTypeAny } from 'zod'
 
 export const NameStrModel = Zod.string().regex(/[a-zA-Z\-\_][a-zA-Z0-9\-\_]*/)
 export const EmailStrModel = Zod.string().regex(/.+@.+/)
 export const NonEmptyStrModel = Zod.string().regex(/.+/)
+
+const DateTimeModel = Zod.string()
+  .refine((value) => moment.utc(value).isValid())
+  .transform((value) => Object.freeze(moment.utc(value)))
 
 export type MessageDirection = Zod.infer<typeof MessageDirectionModel>
 export const MessageDirectionModel = Zod.enum(['send', 'receive'])
@@ -11,7 +16,7 @@ export type Message = Zod.infer<typeof MessageModel>
 export const MessageModel = Zod.object({
   id: Zod.string(),
   source: Zod.string(),
-  timestamp: Zod.string(),
+  timestamp: DateTimeModel,
   direction: MessageDirectionModel,
   content: Zod.string(),
 })
@@ -23,7 +28,7 @@ export type Alert = Zod.infer<typeof AlertModel>
 export const AlertModel = Zod.object({
   id: Zod.string(),
   source: Zod.string(),
-  timestamp: Zod.string(),
+  timestamp: DateTimeModel,
   level: AlertLevelModel,
   code: Zod.string(),
   info: Zod.record(Zod.string(), Zod.unknown()).default(() => ({})),

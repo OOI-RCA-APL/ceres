@@ -201,7 +201,7 @@ async function loadPrevious() {
   const results: Item[] = await get({
     source: info.address,
     search: search === '' ? undefined : search,
-    before: earliestItemTimestamp == null ? undefined : earliestItemTimestamp,
+    before: earliestItemTimestamp == null ? undefined : earliestItemTimestamp.format(),
     order: 'new-to-old',
     limit: 100,
   })

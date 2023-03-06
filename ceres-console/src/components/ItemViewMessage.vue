@@ -1,7 +1,7 @@
 <template>
   <div class="row self-item-view-message-root">
     <span class="self-timestamp">
-      {{ moment.utc(message.timestamp).format('YYYY-MM-DD HH:mm:ss.SSS') }}
+      {{ message.timestamp.format('YYYY-MM-DD HH:mm:ss.SSS') }}
     </span>
     <q-chip class="self-direction-chip" :color="directionColor" dense>
       <span class="self-direction-text">
@@ -16,7 +16,6 @@
 
 <script lang="ts" setup>
 import { Message } from '@/api/models'
-import moment from 'moment'
 
 const { message } = defineProps<{
   message: Message
