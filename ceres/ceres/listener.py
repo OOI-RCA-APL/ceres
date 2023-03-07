@@ -1,14 +1,13 @@
 from typing import Any, Awaitable, Callable, Sequence, TypeVar
 
 from ceres.events import Event
-from ceres.internal.binding import Binding, add_binding
+from ceres.internal.binding import Binding, add_function_binding
 from ceres.internal.utilities import get_member_name
 
 
 class ListenerBinding(Binding):
     sources: Sequence[str]
     event_cls: type[Event]
-    function: str
 
 
 _EventT = TypeVar("_EventT", bound=Event)
@@ -24,7 +23,7 @@ def on(
         sources = [sources]
 
     def inner(function: Callable[[Any, _EventT], _Void]) -> Any:
-        add_binding(
+        add_function_binding(
             function,
             ListenerBinding(
                 sources=sources,

@@ -17,7 +17,7 @@ from pydantic import schema_of, validate_arguments
 from pydantic.typing import get_args
 
 from ceres.data import ImmutableDataObject, Name, PositiveTimeDelta
-from ceres.internal.binding import Binding, add_binding
+from ceres.internal.binding import Binding, add_function_binding
 from ceres.internal.utilities import get_member_name, is_optional, strify
 
 
@@ -192,7 +192,7 @@ def query(
 ) -> Callable[[_ProcedureFunctionT], _ProcedureFunctionT]:
     def bind(function: _ProcedureFunctionT) -> _ProcedureFunctionT:
         validated = _validate_procedure(function, ProcedureKind.QUERY)
-        add_binding(
+        add_function_binding(
             function,
             QueryBinding(
                 name=name,
@@ -213,7 +213,7 @@ def query(
 def action(name: Name) -> Callable[[_ProcedureFunctionT], _ProcedureFunctionT]:
     def bind(function: _ProcedureFunctionT) -> _ProcedureFunctionT:
         validated = _validate_procedure(function, ProcedureKind.ACTION)
-        add_binding(
+        add_function_binding(
             function,
             ActionBinding(
                 name=name,

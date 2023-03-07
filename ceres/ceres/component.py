@@ -60,7 +60,7 @@ from ceres.events import (
 )
 from ceres.exceptions import ComponentClassInvalidException, ProcedureException
 from ceres.internal import logs
-from ceres.internal.binding import get_all_bindings
+from ceres.internal.binding import get_component_bindings
 from ceres.internal.database.buffer import WriteBuffer
 from ceres.internal.database.entities import AlertEntity, MessageEntity
 from ceres.internal.events import EventProcessor
@@ -79,12 +79,10 @@ from ceres.internal.utilities import (
     sleep_forever,
     strify,
 )
-from ceres.layout import Layout
 from ceres.listener import ListenerBinding
 from ceres.message import Message
 from ceres.procedure import (
     ActionBinding,
-    BaseProcedureBinding,
     ProcedureBinding,
     QueryBinding,
     query,
@@ -257,21 +255,25 @@ class Component(ValidatedDataclass, Tasklet):
     @final
     @classmethod
     def get_query_bindings(cls) -> Mapping[str, QueryBinding]:
-        return _get_procedure_bindings(cls, QueryBinding)
+        return {
+            name: binding
+            for name, binding in cls.get_procedure_bindings().items()
+            if isinstance(binding, QueryBinding)
+        }
 
     @final
     @classmethod
     def get_action_bindings(cls) -> Mapping[str, ActionBinding]:
-        return _get_procedure_bindings(cls, ActionBinding)
+        return {
+            name: binding
+            for name, binding in cls.get_procedure_bindings().items()
+            if isinstance(binding, ActionBinding)
+        }
 
     @final
     @classmethod
     def get_procedure_bindings(cls) -> Mapping[str, ProcedureBinding]:
-        return {**cls.get_query_bindings(), **cls.get_action_bindings()}
-
-    @classmethod
-    def get_layout(cls) -> Layout | None:
-        return None
+        return _get_procedure_bindings(cls)
 
     @property
     def address(self) -> Address:
@@ -532,6 +534,18 @@ class Component(ValidatedDataclass, Tasklet):
     async def __run_event_processors(self) -> None:
         await asyncio.gather(*(processor.run() for processor in self.__event_processors))
 
+    @routine
+    async def __flush_message_buffer(self) -> None:
+        while True:
+            await self.__message_write_buffer.flush()
+            await asyncio.sleep(0.1)
+
+    @routine
+    async def __flush_alert_buffer(self) -> None:
+        while True:
+            await self.__alert_write_buffer.flush()
+            await asyncio.sleep(0.1)
+
     @override
     async def __stop__(self) -> None:
         self.__scheduler.stop()
@@ -664,22 +678,22 @@ class Component(ValidatedDataclass, Tasklet):
 
 @cached
 def _get_listener_bindings(component_cls: type[Component]) -> Sequence[ListenerBinding]:
-    return tuple(get_all_bindings(component_cls, ListenerBinding))
+    return get_component_bindings(component_cls, ListenerBinding)
 
 
 @cached
 def _get_routine_bindings(component_cls: type[Component]) -> Sequence[RoutineBinding]:
-    return tuple(get_all_bindings(component_cls, RoutineBinding))
-
-
-_ProcedureBindingT = TypeVar("_ProcedureBindingT", bound=BaseProcedureBinding)
+    return get_component_bindings(component_cls, RoutineBinding)
 
 
 @cached
-def _get_procedure_bindings(
-    component_cls: type[_ComponentT],
-    binding_cls: type[_ProcedureBindingT],
-) -> Mapping[str, _ProcedureBindingT]:
+def _get_procedure_bindings(component_cls: type[_ComponentT]) -> Mapping[str, ProcedureBinding]:
     return MappingProxyType(
-        {binding.name: binding for binding in get_all_bindings(component_cls, binding_cls)}
+        {
+            binding.name: binding
+            for binding in sorted(
+                get_component_bindings(component_cls, ProcedureBinding),
+                key=lambda current: current.name,
+            )
+        }
     )

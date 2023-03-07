@@ -17,8 +17,6 @@ from ceres.events import (
     MessageSentEvent,
 )
 from ceres.exceptions import ConnectionLostException
-from ceres.internal.database.buffer import WriteBuffer
-from ceres.internal.database.entities import MessageEntity
 from ceres.message import Message, MessageDirection
 from ceres.procedure import action, query
 from ceres.routine import routine
@@ -71,24 +69,11 @@ class Connection(Component, ABC):
         super().__setup__()
         self.__state = ConnectionState.DISCONNECTED
         self.__reconnect_scheduler = _ReconnectScheduler(self.reconnect_settings)
-        self.__message_write_buffer = WriteBuffer(
-            Message,
-            MessageEntity,
-            lambda: self.environment,
-            self.logger,
-        )
 
     @override
     async def __stop__(self) -> None:
         await self._try_disconnect()
-        await self.__message_write_buffer.flush()
         await super().__stop__()
-
-    @routine
-    async def __flush_message_buffer(self) -> None:
-        while True:
-            await self.__message_write_buffer.flush()
-            await asyncio.sleep(0.1)
 
     @property
     @abstractmethod
@@ -170,6 +155,14 @@ class Connection(Component, ABC):
     async def send_message(self, input: SendMessageInput) -> Message:
         return await self.send(input.data)
 
+    @query("get-connection-state")
+    async def get_connection_state(self) -> AsyncIterable[ConnectionState]:
+        yield self.__state
+
+        async for event in self.events:
+            if isinstance(event, ConnectedEvent | DisconnectedEvent):
+                yield self.__state
+
     async def receive(self) -> Message:
         try:
             data = await self._receive_data()
@@ -218,11 +211,3 @@ class Connection(Component, ABC):
                 except Exception as exception:
                     if error := str(exception).strip():
                         self.logger.error(error)
-
-    @query("connection-state")
-    async def get_connection_state(self) -> AsyncIterable[ConnectionState]:
-        yield self.__state
-
-        async for event in self.events:
-            if isinstance(event, ConnectedEvent | DisconnectedEvent):
-                yield self.__state

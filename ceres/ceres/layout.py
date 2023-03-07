@@ -4,7 +4,7 @@ from typing import Annotated, Any, Callable, Literal
 from pydantic import Field
 
 from ceres.data import DataObject, ImmutableDataObject, Name
-from ceres.internal.binding import get_bindings
+from ceres.internal.binding import get_function_bindings
 from ceres.internal.utilities import strify
 from ceres.procedure import QueryBinding
 
@@ -22,7 +22,7 @@ class LayoutDisplay(DataObject):
 
     def __init__(self, title: str, procedure: Name | Callable[..., Any], **kwargs: Any) -> None:
         if not isinstance(procedure, str):
-            bindings = get_bindings(procedure, QueryBinding)
+            bindings = get_function_bindings(procedure, QueryBinding)
             if not bindings:
                 raise ValueError(f"function {strify(procedure)} has no query binding")
 

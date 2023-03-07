@@ -29,6 +29,7 @@ from ceres.events import ConnectFailedEvent, ConnectionLostEvent, MessageReceive
 from ceres.layout import Layout, LayoutColumn, LayoutDisplay, LayoutRow
 from ceres.ref import Ref
 from ceres.roles.alerter import Alerter
+from ceres.roles.ui import UI
 
 
 class DataMessage(ImmutableDataObject):
@@ -112,7 +113,7 @@ class Checks(ImmutableDataObject):
     leak_2: Check | None = None
 
 
-class CrabeeDriver(Alerter, Component):
+class CrabeeDriver(Alerter, UI, Component):
     connection: Ref[Connection]
     checks: Checks = Field(default_factory=Checks)
 
@@ -229,41 +230,39 @@ class CrabeeDriver(Alerter, Component):
             yield message
 
     @override
-    @classmethod
-    def get_layout(cls) -> Layout:
-        result = Layout(
+    @query("get-layout")
+    async def get_layout(self) -> Layout:
+        return Layout(
             LayoutColumn(
                 [
                     LayoutRow(
                         [
-                            LayoutDisplay("Temperature 1", cls.display_temperature_1),
-                            LayoutDisplay("Temperature 2", cls.display_temperature_2),
-                            LayoutDisplay("Temperature 3", cls.display_temperature_3),
+                            LayoutDisplay("Temperature 1", self.display_temperature_1),
+                            LayoutDisplay("Temperature 2", self.display_temperature_2),
+                            LayoutDisplay("Temperature 3", self.display_temperature_3),
                         ]
                     ),
                     LayoutRow(
                         [
-                            LayoutDisplay("Pressure", cls.display_pressure),
-                            LayoutDisplay("Pitch", cls.display_pitch),
-                            LayoutDisplay("Roll", cls.display_roll),
+                            LayoutDisplay("Pressure", self.display_pressure),
+                            LayoutDisplay("Pitch", self.display_pitch),
+                            LayoutDisplay("Roll", self.display_roll),
                         ],
                     ),
                     LayoutRow(
                         [
-                            LayoutDisplay("Humidity", cls.display_humidity),
-                            LayoutDisplay("Leak 1", cls.display_leak_1),
-                            LayoutDisplay("Leak 2", cls.display_leak_2),
+                            LayoutDisplay("Humidity", self.display_humidity),
+                            LayoutDisplay("Leak 1", self.display_leak_1),
+                            LayoutDisplay("Leak 2", self.display_leak_2),
                         ],
                     ),
-                    LayoutDisplay("Temperature History", cls.display_temperature_history),
-                    LayoutDisplay("Pressure History", cls.display_pressure_history),
-                    LayoutDisplay("Humidity History", cls.display_humidity_history),
-                    LayoutDisplay("Incline History", cls.display_incline_history),
+                    LayoutDisplay("Temperature History", self.display_temperature_history),
+                    LayoutDisplay("Pressure History", self.display_pressure_history),
+                    LayoutDisplay("Humidity History", self.display_humidity_history),
+                    LayoutDisplay("Incline History", self.display_incline_history),
                 ]
             )
         )
-
-        return result
 
     @query("display-temperature-1")
     async def display_temperature_1(self) -> AsyncIterable[ValueDisplay]:

@@ -1,6 +1,4 @@
-import inspect
-from types import FunctionType
-from typing import Any, Callable, Iterable, Sequence, TypeVar, cast
+from typing import Any, Callable, Iterable, Sequence, TypeVar
 
 from ceres.data import ImmutableDataObject
 
@@ -8,20 +6,35 @@ _BINDINGS_ATTRIBUTE = "__bindings__"
 
 
 class Binding(ImmutableDataObject):
-    pass
+    function: str
 
 
 _BindingT = TypeVar("_BindingT", bound=Binding)
 
 
-def add_binding(function: Callable[..., object], binding: Binding) -> None:
-    while hasattr(function, "__wrapped__"):
-        function = function.__wrapped__  # type: ignore
+def _get_root_function(function: Callable[..., Any]) -> Callable[..., Any]:
+    while True:
+        __wrapped__ = getattr(function, "__wrapped__", None)
+        if __wrapped__ is not None:
+            function = __wrapped__
+            continue
 
+        __func__ = getattr(function, "__func__", None)
+        if __func__ is not None and __func__ is not function:
+            function = __func__
+            continue
+
+        break
+
+    return function
+
+
+def add_function_binding(function: Callable[..., object], binding: Binding) -> None:
+    function = _get_root_function(function)
     bindings: Sequence[Binding] | None = getattr(function, _BINDINGS_ATTRIBUTE, None)
 
     if not isinstance(bindings, Sequence):
-        bindings = ()
+        bindings = []
 
     if isinstance(bindings, list):
         bindings.append(binding)
@@ -31,11 +44,12 @@ def add_binding(function: Callable[..., object], binding: Binding) -> None:
     setattr(function, _BINDINGS_ATTRIBUTE, bindings)
 
 
-def get_bindings(function: Callable[..., Any], binding_cls: type[_BindingT]) -> tuple[_BindingT]:
+def get_function_bindings(
+    function: Callable[..., Any],
+    binding_cls: type[_BindingT],
+) -> tuple[_BindingT, ...]:
+    function = _get_root_function(function)
     output: list[_BindingT] = []
-
-    while hasattr(function, "__wrapped__"):
-        function = function.__wrapped__  # type: ignore
 
     if values := getattr(function, _BINDINGS_ATTRIBUTE, None):
         if isinstance(values, Iterable):
@@ -46,32 +60,18 @@ def get_bindings(function: Callable[..., Any], binding_cls: type[_BindingT]) -> 
     return tuple(output)
 
 
-def get_all_bindings(component_cls: type, binding_cls: type[_BindingT]) -> tuple[_BindingT]:
-    output: list[_BindingT] = []
+def get_component_bindings(
+    component_cls: type,
+    binding_cls: type[_BindingT],
+) -> tuple[_BindingT, ...]:
+    bindings: dict[str, _BindingT] = {}
 
-    for function in _get_functions(component_cls):
-        output.extend(get_bindings(function, binding_cls))
-
-    return tuple(output)
-
-
-def _get_functions(component_cls: type) -> Sequence[FunctionType]:
-    functions: dict[str, FunctionType] = {}
-
-    for cls in reversed(cast(Sequence[type], component_cls.__mro__)):
-        for name in vars(cls):
-            if name in functions:
+    for cls in reversed(component_cls.__mro__):
+        for member in vars(cls).values():
+            if not callable(member):
                 continue
 
-            try:
-                if (member := getattr(component_cls, name, None)) is None:
-                    continue
-            except Exception:
-                continue
+            for binding in get_function_bindings(member, binding_cls):
+                bindings[binding.function] = binding
 
-            if not inspect.isfunction(member):
-                continue
-
-            functions[name] = member
-
-    return list(functions.values())
+    return tuple(sorted(bindings.values(), key=lambda current: current.function))

@@ -325,11 +325,11 @@ class Engine(Tasklet):
                 unit.logger.error(f"Failed to load component '{address}': {traceback.format_exc()}")
                 continue
 
+            references[component.name] = component
+            unit.add_component(component)
             unit.logger.info(
                 f"Loaded '{component.address}' as {strify(type(component))} with ID '{id}'."
             )
-            references[component.name] = component
-            unit.add_component(component)
 
     async def __sync_units(self) -> None:
         configs: dict[Name, UnitConfig] = {current.name: current for current in self.__config.units}

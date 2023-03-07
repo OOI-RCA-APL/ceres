@@ -119,9 +119,11 @@ class Loader(ImmutableDataObject):
         return instance
 
 
-class ComponentLoader(Loader):
+class _ComponentLoaderFields(ImmutableDataObject):
     name: Name
 
+
+class ComponentLoader(Loader, _ComponentLoaderFields):  # type: ignore
     def load(self, *, args: Sequence[Any] | Mapping[str, Any] | None = None) -> Component:
         return super().load(args=args)
 

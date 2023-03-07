@@ -1,14 +1,24 @@
 <template>
-  <layout-node :component-name="componentName" :node="layout.body" :unit-name="unitName" />
+  <layout-node
+    v-if="query.data.value?.ok"
+    :component-name="componentName"
+    :node="query.data.value.value.body"
+    :unit-name="unitName"
+  />
 </template>
 
 <script setup lang="ts">
-import type { Layout } from '@/api/models'
+import { getLayout, useQuery } from '@/api/queries'
 import LayoutNode from '@/components/LayoutNode.vue'
 
-const { layout } = defineProps<{
+const { unitName, componentName } = defineProps<{
   unitName: string
   componentName: string
-  layout: Layout
 }>()
+
+const query = useQuery(['getLayout', unitName, componentName], async () => {
+  return await getLayout(unitName, componentName)
+})
+
+await query.suspense()
 </script>

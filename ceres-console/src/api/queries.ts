@@ -5,6 +5,7 @@ import {
   ComponentInfoModel,
   Config,
   ConfigModel,
+  LayoutModel,
   Message,
   MessageModel,
   Result,
@@ -131,7 +132,7 @@ export function useAlertStream<TModel extends ZodTypeAny>(
 }
 
 export const useConfig = defineStore('config', () => {
-  const query = useQuery(['config'], getConfig, { retry: false })
+  const query = useQuery(['getConfig'], getConfig, { retry: false })
 
   const data = $computed(() => query.data.value as Config)
   const error = $computed(() => query.error)
@@ -379,5 +380,15 @@ export async function sendMessage(
     `/api/units/${unitName}/components/${componentName}/procedures/send-message/call`,
     SendMessageResultModel,
     { data }
+  )
+}
+
+export type GetLayoutResult = Zod.infer<typeof GetLayoutResultModel>
+const GetLayoutResultModel = createResultType(LayoutModel, BaseFailModel)
+
+export async function getLayout(unitName: string, componentName: string): Promise<GetLayoutResult> {
+  return await get(
+    `/api/units/${unitName}/components/${componentName}/procedures/get-layout/call`,
+    GetLayoutResultModel
   )
 }

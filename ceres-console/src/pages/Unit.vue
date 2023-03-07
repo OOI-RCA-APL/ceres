@@ -66,17 +66,17 @@
         </panel>
       </panel-group>
       <panel-group
-        v-if="huds.length"
-        :panels="huds.map((current) => current.name)"
+        v-if="uis.length"
+        :panels="uis.map((current) => current.name)"
         :persistence-key="`units/${unit.name}/displays-panel-group`"
         title="UI"
       >
         <template #tabs>
-          <panel-tab v-for="hud in huds" :key="hud.address" :name="hud.name" />
+          <panel-tab v-for="hud in uis" :key="hud.address" :name="hud.name" />
         </template>
-        <panel v-for="hud in huds" :key="hud.address" :name="hud.name">
-          <div v-if="hud.layout">
-            <layout :component-name="hud.name" :layout="hud.layout" :unit-name="unit.name" />
+        <panel v-for="ui in uis" :key="ui.address" :name="ui.name">
+          <div>
+            <layout :component-name="ui.name" :unit-name="unit.name" />
           </div>
         </panel>
       </panel-group>
@@ -140,7 +140,7 @@ const connections = $computed(() =>
 const alerters = $computed(() =>
   components.filter((component) => component.roles.includes('alerter'))
 )
-const huds = $computed(() => components.filter((component) => component.layout != null))
+const uis = $computed(() => components.filter((component) => component.roles.includes('ui')))
 </script>
 
 <style lang="scss" scoped>

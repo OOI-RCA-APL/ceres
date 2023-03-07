@@ -37,7 +37,6 @@ from ceres.exceptions import ProcedureException
 from ceres.internal import logs
 from ceres.internal.console import ConsoleFiles
 from ceres.internal.utilities import strify
-from ceres.layout import Layout
 from ceres.message import Message
 from ceres.procedure import ActionBinding, QueryBinding
 from ceres.result import Fail, Ok, Result
@@ -64,6 +63,7 @@ def _get_component_roles(component: Component | type[Component]) -> Sequence[Com
     from ceres.roles.connection import Connection
     from ceres.roles.dispatcher import Dispatcher
     from ceres.roles.notifier import Notifier
+    from ceres.roles.ui import UI
 
     roles: list[ComponentRole] = []
     if issubclass(component, Alerter):
@@ -74,6 +74,8 @@ def _get_component_roles(component: Component | type[Component]) -> Sequence[Com
         roles.append(ComponentRole.DISPATCHER)
     if issubclass(component, Notifier):
         roles.append(ComponentRole.NOTIFIER)
+    if issubclass(component, UI):
+        roles.append(ComponentRole.UI)
 
     return roles
 
@@ -85,7 +87,6 @@ class ComponentInfo(ImmutableDataObject):
     roles: Sequence[ComponentRole]
     queries: Sequence[QueryBinding]
     actions: Sequence[ActionBinding]
-    layout: Layout | None
 
 
 class UnitInfo(ImmutableDataObject):
@@ -227,7 +228,6 @@ async def alert_stream(
 async def get_unit_info(
     unit: Name,
     engine: Engine = Depends(use_engine),
-    environment: Environment = Depends(use_environment),
 ) -> UnitInfo:
     config = engine.config.get_unit(unit)
     if config is None:
@@ -269,11 +269,14 @@ async def get_component_info(
         roles=_get_component_roles(component_cls),
         queries=list(component_cls.get_query_bindings().values()),
         actions=list(component_cls.get_action_bindings().values()),
-        layout=component_cls.get_layout(),
     )
 
 
-@api.post("/units/{unit}/components/{component}/procedures/{procedure}/call", tags=["procedures"])
+@api.api_route(
+    "/units/{unit}/components/{component}/procedures/{procedure}/call",
+    methods=["GET", "POST"],
+    tags=["procedures"],
+)
 async def call(
     unit: Name,
     component: Name,
