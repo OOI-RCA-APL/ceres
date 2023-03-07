@@ -45,6 +45,7 @@ from ceres.roles.dispatcher import Dispatcher as Dispatcher
 from ceres.roles.dispatcher import DispatchWriter as DispatchWriter
 from ceres.roles.notifier import Notification as Notification
 from ceres.roles.notifier import Notifier as Notifier
+from ceres.roles.ui import UI as UI
 from ceres.routine import routine as routine
 from ceres.schedule import Schedule as Schedule
 from ceres.schedule import ScheduleKind as ScheduleKind

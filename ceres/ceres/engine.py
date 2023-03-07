@@ -6,7 +6,7 @@ from enum import Enum
 from logging import Logger
 from pathlib import Path
 from queue import Empty, Queue
-from typing import AsyncIterable, Sequence, final
+from typing import AsyncIterable, Mapping, Sequence, final
 
 from typing_extensions import override
 
@@ -212,23 +212,23 @@ class Engine(Tasklet):
         self,
         component: Address,
         procedure: str,
-        input: object | None = None,
+        args: Mapping[Name, object] | None = None,
     ) -> object | None:
         if (unit := self.get_unit(component.unit)) is None:
             raise ProcedureException(ProcedureUnitDoesNotExistError())
 
-        return await unit.call(component.name, procedure, input)
+        return await unit.call(component.name, procedure, args)
 
     def subscribe(
         self,
         component: Address,
         procedure: str,
-        input: object | None = None,
+        args: Mapping[Name, object] | None = None,
     ) -> AsyncIterable[object]:
         if (unit := self.__units.get(component.unit)) is None:
             raise ProcedureException(ProcedureUnitDoesNotExistError())
 
-        return unit.subscribe(component.name, procedure, input)
+        return unit.subscribe(component.name, procedure, args)
 
     async def __reload(self) -> None:
         self.logger.info("Reloading...")

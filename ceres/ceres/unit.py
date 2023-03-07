@@ -1,7 +1,7 @@
 import asyncio
 import traceback
 from logging import Logger
-from typing import TYPE_CHECKING, AsyncIterable, Sequence, final
+from typing import TYPE_CHECKING, AsyncIterable, Mapping, Sequence, final
 from weakref import ref
 
 from pydantic import Field
@@ -137,25 +137,25 @@ class Unit(Tasklet):
         self,
         component: Name,
         procedure: str,
-        input: object | None = None,
+        args: Mapping[Name, object] | None = None,
     ) -> object | None:
         instance = self.get_component(component)
         if instance is None:
             return ProcedureException(ProcedureComponentNotLoadedError())
 
-        return await instance.call(procedure, input)
+        return await instance.call(procedure, args)
 
     def subscribe(
         self,
         component: Name,
         procedure: str,
-        input: object | None = None,
+        args: Mapping[Name, object] | None = None,
     ) -> AsyncIterable[object | None]:
         instance = self.get_component(component)
         if instance is None:
             raise ProcedureException(ProcedureComponentNotLoadedError())
 
-        return instance.subscribe(procedure, input)
+        return instance.subscribe(procedure, args)
 
     @override
     async def __run__(self) -> None:

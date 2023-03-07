@@ -5,10 +5,12 @@ from typing import TYPE_CHECKING, Any, Mapping, Sequence, final
 
 from fastapi import (
     APIRouter,
+    Body,
     Depends,
     FastAPI,
     HTTPException,
     Query,
+    Request,
     Response,
     WebSocket,
     WebSocketDisconnect,
@@ -276,14 +278,27 @@ async def get_component_info(
     tags=["procedures"],
 )
 async def call(
+    request: Request,
     unit: Name,
     component: Name,
     procedure: Name,
-    input: Mapping[str, object] | None = None,
+    query_args: Json[Any] = Query(None, alias="args"),
+    body_args: Mapping[Name, object] | None = Body(None),
     engine: Engine = Depends(use_engine),
 ) -> Result[Any | None, ProcedureError]:
+    if not isinstance(query_args, Mapping | None):
+        raise HTTPException(
+            HTTP_400_BAD_REQUEST,
+            "'input' query parameter must be unspecified, null or a valid JSON object",
+        )
+
+    args = {}
+    args.update(body_args or {})
+    args.update(request.query_params)
+    args.pop("args", None)
+
     try:
-        return Ok(await engine.call(Address.create(unit, component), procedure, input))
+        return Ok(await engine.call(Address.create(unit, component), procedure, args))
     except ProcedureException as exception:
         return Fail(exception.error)
 
@@ -294,18 +309,23 @@ async def subscribe(
     unit: Name,
     component: Name,
     procedure: Name,
-    input: Json[Any] = Query(None),
+    query_args: Json[Any] = Query(None, alias="args"),
     engine: Engine = Depends(use_engine),
 ) -> None:
     await socket.accept()
-    address = Address.create(unit, component)
-
-    if not isinstance(input, Mapping | None):
+    if not isinstance(query_args, Mapping | None):
         await socket.close(
             code=1008,
             reason="'input' query parameter must be unspecified, null or a valid JSON object",
         )
         return
+
+    address = Address.create(unit, component)
+
+    args = {}
+    args.update(query_args or {})
+    args.update(socket.query_params)
+    args.pop("args", None)
 
     async def read() -> None:
         try:
@@ -318,7 +338,7 @@ async def subscribe(
 
     async def write() -> None:
         try:
-            async for output in engine.subscribe(address, procedure, input):
+            async for output in engine.subscribe(address, procedure, query_args):
                 await socket.send_text(jsonify(output))
         except Exception as exception:
             if isinstance(exception, ProcedureException):

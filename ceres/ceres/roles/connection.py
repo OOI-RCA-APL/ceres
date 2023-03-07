@@ -148,12 +148,9 @@ class Connection(Component, ABC):
 
         return message
 
-    class SendMessageInput(ImmutableDataObject):
-        data: bytes
-
     @action
-    async def send_message(self, input: SendMessageInput) -> Message:
-        return await self.send(input.data)
+    async def send_message(self, data: bytes) -> Message:
+        return await self.send(data)
 
     @query
     async def get_connection_state(self) -> AsyncIterable[ConnectionState]:

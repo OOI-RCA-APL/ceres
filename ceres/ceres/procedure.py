@@ -15,12 +15,13 @@ from typing import (
     overload,
 )
 
-from pydantic import schema_of, validate_arguments
+from pydantic import BaseModel, ConfigDict, Extra, schema_of, validate_arguments
+from pydantic.decorator import ValidatedFunction
 from pydantic.typing import get_args
 
 from ceres.data import ImmutableDataObject, Name, PositiveTimeDelta
 from ceres.internal.binding import add_local_binding
-from ceres.internal.utilities import get_function_name, is_optional, strify
+from ceres.internal.utilities import get_function_name, strify
 
 
 class ProcedureKind(str, Enum):
@@ -29,14 +30,13 @@ class ProcedureKind(str, Enum):
 
 
 class ProcedureSchemas(ImmutableDataObject):
-    input: Mapping[str, Any] | None
+    args: Mapping[str, Any] | None
     output: Mapping[str, Any]
 
 
-class ProcedureInputInfo(ImmutableDataObject):
+class ProcedureArgsInfo(ImmutableDataObject):
     json_schema: Mapping[str, Any]
     required: bool
-    default: object | None
 
 
 class ProcedureOutputInfo(ImmutableDataObject):
@@ -48,7 +48,7 @@ class _ProcedureBinding(ImmutableDataObject):
     kind: ProcedureKind
     function: str
     live: bool
-    input: ProcedureInputInfo | None
+    args: ProcedureArgsInfo | None
     output: ProcedureOutputInfo
 
 
@@ -96,7 +96,7 @@ def query(
             QueryBinding(
                 name=_normalize_procedure_name(name) if name else _get_procedure_name(function),
                 function=get_function_name(function),
-                input=validated.input,
+                args=validated.args,
                 output=validated.output,
                 live=validated.live,
                 poll=poll if isinstance(poll, timedelta) else timedelta(seconds=poll),
@@ -134,7 +134,7 @@ def action(
             ActionBinding(
                 name=_normalize_procedure_name(name) if name else _get_procedure_name(function),
                 function=get_function_name(function),
-                input=validated.input,
+                args=validated.args,
                 output=validated.output,
                 live=validated.live,
             ),
@@ -156,26 +156,48 @@ def _get_procedure_name(callable: Callable[..., Any]) -> Name:
     return _normalize_procedure_name(get_function_name(callable))
 
 
-def _get_schema(hint: Any) -> Mapping[str, Any]:
-    schema = schema_of(hint)
+def _get_args_schema(model: type[BaseModel]) -> Mapping[str, Any]:
+    schema = schema_of(model)
 
-    if schema.get("type") == "null":
-        schema = {"title": "Null", "type": "null"}
-    elif "definitions" in schema and schema["definitions"]:
-        schema = list(schema["definitions"].values())[0]
+    definitions = schema.get("definitions")
+    if not isinstance(definitions, dict) or not definitions:
+        return schema
 
-    title = schema.get("title")
-    if title is not None:
-        if title.startswith("ParsingModel[") and title.endswith("]"):
-            title = title[len("ParsingModel[") : -1]
+    root = list(definitions.values())[0]
+    if not isinstance(root, dict):
+        return schema
 
-        schema["title"] = title
+    properties = root.get("properties")
+    if isinstance(properties, dict):
+        properties.pop("self", None)
+        properties.pop("v__duplicate_kwargs", None)
+
+        args_property = properties.get("args")
+        if isinstance(args_property, dict):
+            if not args_property.get("items"):
+                del properties["args"]
+
+        kwargs_property = properties.get("kwargs")
+        if isinstance(kwargs_property, dict):
+            if not kwargs_property.get("items"):
+                del properties["kwargs"]
+
+    required = root.get("required")
+    if isinstance(required, list):
+        if "self" in required:
+            required.remove("self")
+        if not required:
+            del root["required"]
 
     return schema
 
 
+def _get_output_schema(hint: Any) -> Mapping[str, Any]:
+    return schema_of(hint)
+
+
 class _ValidatedProcedureInfo(ImmutableDataObject):
-    input: ProcedureInputInfo | None
+    args: ProcedureArgsInfo | None
     output: ProcedureOutputInfo
     live: bool
 
@@ -186,53 +208,23 @@ def _validate_procedure(
 ) -> _ValidatedProcedureInfo:
     signature = inspect.signature(function)
     parameters = [*signature.parameters.values()]
-    if len(parameters) not in (1, 2) or any(
-        parameter.kind not in (Parameter.POSITIONAL_OR_KEYWORD, Parameter.POSITIONAL_ONLY)
-        for parameter in parameters
-    ):
-        raise ValueError(
-            f"{kind} {strify(function)} must have exactly one or two positional parameters, 'self' "
-            "and optionally, an input parameter"
-        )
+    if not parameters or parameters[0].name != "self":
+        raise ValueError(f"{kind} {strify(function)} must have 'self' as its first parameter")
+    if any(parameter.kind == Parameter.POSITIONAL_ONLY for parameter in parameters[1:]):
+        raise ValueError(f"{kind} {strify(function)} cannot have positional-only arguments")
+
+    validation_config: Any = ConfigDict(extra=Extra.forbid)
+    validated = ValidatedFunction(function, validation_config)
+    args_model = validated.model
+    args_json_schema = _get_args_schema(args_model)
+    args_info = ProcedureArgsInfo(
+        json_schema=args_json_schema,
+        required=any(
+            field.required and not field.name == "self" for field in args_model.__fields__.values()
+        ),
+    )
 
     hints = get_type_hints(function)
-
-    if len(parameters) < 2:
-        input_info: ProcedureInputInfo | None = None
-    else:
-        input_json_schema: Mapping[str, Any] | None = None
-
-        input_parameter = parameters[1]
-        if input_parameter.name not in hints:
-            raise ValueError(
-                f"second positional parameter '{input_parameter.name}' of {kind} "
-                f"{strify(function)} must have a type hint"
-            )
-
-        input_hint = hints[input_parameter.name]
-
-        try:
-            input_json_schema = _get_schema(input_hint)
-        except Exception:
-            raise ValueError(
-                f"second positional parameter '{input_parameter.name}' of {kind} "
-                f"{strify(function)} must be parseable as a JSON object"
-            )
-
-        if input_parameter.default is Parameter.empty:
-            input_required = not is_optional(input_hint)
-            input_default: object | None = None
-        else:
-            input_required = False
-            # TODO: Check that the default input is valid.
-            input_default = input_parameter.default
-
-        input_info = ProcedureInputInfo(
-            json_schema=input_json_schema,
-            required=input_required,
-            default=input_default,
-        )
-
     if "return" not in hints:
         raise ValueError(f"return type of {kind} {strify(function)} must be specified")
 
@@ -254,7 +246,7 @@ def _validate_procedure(
             raise error
 
     try:
-        output_json_schema = _get_schema(output_hint)
+        output_json_schema = _get_output_schema(output_hint)
     except Exception:
         raise ValueError(
             f"output type of {kind} {strify(function)} must be serializable as a JSON object"
@@ -265,7 +257,7 @@ def _validate_procedure(
     )
 
     return _ValidatedProcedureInfo(
-        input=input_info,
+        args=args_info,
         output=output_info,
         live=live,
     )

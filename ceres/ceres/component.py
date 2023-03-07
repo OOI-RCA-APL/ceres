@@ -13,7 +13,6 @@ from typing import (
     Callable,
     Collection,
     Final,
-    FrozenSet,
     Mapping,
     Sequence,
     TypeVar,
@@ -23,6 +22,8 @@ from typing import (
 from weakref import WeakValueDictionary, ref
 
 from pydantic import (
+    ConfigDict,
+    Extra,
     Field,
     ValidationError,
     parse_obj_as,
@@ -30,6 +31,7 @@ from pydantic import (
     validate_arguments,
     validator,
 )
+from pydantic.decorator import ValidatedFunction
 from sqlalchemy.util import unique_list
 from typing_extensions import Self, dataclass_transform, override
 
@@ -47,7 +49,7 @@ from ceres.errors import (
     ComponentReferenceInvalidError,
     ProcedureDoesNotExistError,
     ProcedureInternalError,
-    ProcedureInvalidInputError,
+    ProcedureInvalidArgsError,
     ProcedureNotSubscribableError,
 )
 from ceres.events import (
@@ -74,7 +76,6 @@ from ceres.internal.utilities import (
     is_optional,
     lenient_isinstance,
     lenient_issubclass,
-    pre_validate_arguments,
     randstr,
     sleep_forever,
     strify,
@@ -85,7 +86,6 @@ from ceres.procedure import (
     ActionBinding,
     ProcedureBinding,
     QueryBinding,
-    query,
 )
 from ceres.ref import RefType
 from ceres.routine import RoutineBinding, routine
@@ -112,7 +112,7 @@ class ComponentPaths(ImmutableDataObject):
 class Job(ImmutableDataObject):
     name: Name
     action: Name
-    input: Any = None
+    args: Mapping[Name, Any] | None = None
     schedule: Schedule = Field(discriminator="kind")
     enabled: bool = True
 
@@ -171,10 +171,10 @@ class Component(ValidatedDataclass, Tasklet):
                 f"{defined}"
             )
 
-        if job.input is None and (action.input is not None and action.input.required):
+        if not job.args and (action.args is not None and action.args.required):
             raise ValueError(
-                f"missing required input for job '{job.name}', set the job's 'input' to a "
-                "non-none value"
+                f"missing required arguments for job '{job.name}', add arguments to the job's "
+                "'args' value"
             )
 
         return job
@@ -493,7 +493,7 @@ class Component(ValidatedDataclass, Tasklet):
         async def run(job: Job) -> None:
             self.logger.info(f"Running job '{job.name}'...")
             try:
-                await self.call(job.action, job.input)
+                await self.call(job.action, job.args)
             except ProcedureException as exception:
                 self.logger.error(
                     f"An error occurred while running job '{job.name}': {strify(exception.error)}"
@@ -561,31 +561,14 @@ class Component(ValidatedDataclass, Tasklet):
     async def __done__(self) -> None:
         self.emit_event(StoppedEvent())
 
-    class SubscribeEventsInput(ImmutableDataObject):
-        kinds: str | FrozenSet[str] | None = None
-
-    @query
-    async def get_events(
-        self,
-        input: SubscribeEventsInput = SubscribeEventsInput(),
-    ) -> AsyncIterable[Event]:
-        match input.kinds:
-            case None:
-                kinds = None
-            case str():
-                kinds = {input.kinds}
-            case _:
-                kinds = input.kinds
-
-        async for event in self.events:
-            if kinds is None or event.kind in kinds:
-                yield event
-
     async def __invoke(
         self,
         procedure: str,
-        input: object | None = None,
+        args: Mapping[Name, Any] | None = None,
     ) -> Any:
+        if args is None:
+            args = {}
+
         if (
             (binding := self.get_procedure_bindings().get(procedure)) is None
             or (method := getattr(self, binding.function, None)) is None
@@ -593,28 +576,30 @@ class Component(ValidatedDataclass, Tasklet):
         ):
             raise ProcedureException(ProcedureDoesNotExistError())
 
-        arguments: list[object] = []
-        if input is not None:
-            arguments.append(input)
+        config: Any = ConfigDict(
+            allow_population_by_field_name=True,
+            arbitrary_types_allowed=True,
+            extra=Extra.forbid,
+        )
 
         try:
-            pre_validate_arguments(method, *arguments)
+            ValidatedFunction(method, config).init_model_instance(**args)
         except ValidationError as error:
             raise ProcedureException(
-                ProcedureInvalidInputError(problems=ValidationProblem.extract(error))
+                ProcedureInvalidArgsError(problems=ValidationProblem.extract(error))
             )
 
         try:
-            return await awaitify(validate_arguments(method)(*arguments))
+            return await awaitify(validate_arguments(config=config)(method)(**args))
         except Exception:
             raise ProcedureException(ProcedureInternalError(traceback=traceback.format_exc()))
 
     async def call(
         self,
         procedure: str,
-        input: object | None = None,
+        args: Mapping[Name, Any] | None = None,
     ) -> object | None:
-        result = await self.__invoke(procedure, input)
+        result = await self.__invoke(procedure, args)
         binding = self.get_procedure_bindings()[procedure]
 
         if not binding.live:
@@ -643,9 +628,9 @@ class Component(ValidatedDataclass, Tasklet):
     async def subscribe(
         self,
         procedure: str,
-        input: object | None = None,
+        args: Mapping[Name, Any] | None = None,
     ) -> AsyncIterable[object | None]:
-        result = await self.__invoke(procedure, input)
+        result = await self.__invoke(procedure, args)
         binding = self.get_procedure_bindings()[procedure]
 
         if not binding.live:
@@ -654,7 +639,7 @@ class Component(ValidatedDataclass, Tasklet):
 
             try:
                 while True:
-                    yield await self.__invoke(procedure, input)
+                    yield await self.__invoke(procedure, args)
                     await asyncio.sleep(binding.poll.total_seconds())
             except Exception as exception:
                 self.logger.error(

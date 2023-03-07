@@ -221,16 +221,7 @@ VALIDATED_DATACLASS_FIELD_SPECIFIERS: tuple[Callable[..., Any], type[FieldInfo]]
     Field,
     FieldInfo,
 )
-VALIDATED_DATACLASS_DEFAULT_CONFIG = MappingProxyType(
-    ConfigDict(
-        allow_population_by_field_name=True,
-        arbitrary_types_allowed=True,
-        extra=Extra.forbid,
-        json_encoders=dict(JSON_ENCODERS),  # type: ignore
-        orm_mode=True,
-        validate_assignment=True,
-    )
-)
+VALIDATED_DATACLASS_DEFAULT_CONFIG = MappingProxyType(ConfigDict(**DataObject.__dict__))
 
 
 @dataclass_transform(

@@ -21,6 +21,7 @@ from typing import (
     Mapping,
     ParamSpec,
     Protocol,
+    Self,
     Sequence,
     TypeGuard,
     TypeVar,
@@ -30,8 +31,7 @@ from typing import (
 import pydantic
 import rich
 from pydantic import BaseModel, parse_obj_as
-from pydantic.decorator import ValidatedFunction
-from typing_extensions import Self, overload
+from typing_extensions import overload
 
 
 def strify(value: object) -> str:
@@ -153,14 +153,6 @@ class ValidateByType:
             raise ValueError(f"must be an instance of {strify(cls)}, got {strify(type(value))}")
 
         return value
-
-
-def pre_validate_arguments(
-    callable: Callable[_P, Any],
-    *args: _P.args,
-    **kwargs: _P.kwargs,
-) -> BaseModel:
-    return ValidatedFunction(callable, None).init_model_instance(*args, **kwargs)
 
 
 def unwrap(value: _T | None) -> _T:

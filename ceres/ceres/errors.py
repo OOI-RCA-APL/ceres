@@ -154,7 +154,7 @@ class ProcedureErrorKind(str, Enum):
     COMPONENT_DOES_NOT_EXIST = "procedure-component-does-not-exist-error"
     COMPONENT_NOT_LOADED = "procedure-component-not-loaded-error"
     DOES_NOT_EXIST = "procedure-does-not-exist-error"
-    INVALID_INPUT = "procedure-invalid-input-error"
+    INVALID_ARGS = "procedure-invalid-args-error"
     NOT_SUBSCRIBABLE = "procedure-not-subscribable-error"
     CANCELLED = "procedure-cancelled-error"
     INTERNAL = "procedure-internal-error"
@@ -182,8 +182,8 @@ class ProcedureDoesNotExistError(BaseProcedureError):
     kind: Literal[ProcedureErrorKind.DOES_NOT_EXIST] = ProcedureErrorKind.DOES_NOT_EXIST
 
 
-class ProcedureInvalidInputError(BaseProcedureError):
-    kind: Literal[ProcedureErrorKind.INVALID_INPUT] = ProcedureErrorKind.INVALID_INPUT
+class ProcedureInvalidArgsError(BaseProcedureError):
+    kind: Literal[ProcedureErrorKind.INVALID_ARGS] = ProcedureErrorKind.INVALID_ARGS
     problems: Sequence[ValidationProblem]
 
 
@@ -206,7 +206,7 @@ ProcedureError = (
     | ProcedureComponentDoesNotExistError
     | ProcedureDoesNotExistError
     | ProcedureComponentNotLoadedError
-    | ProcedureInvalidInputError
+    | ProcedureInvalidArgsError
     | ProcedureNotSubscribableError
     | ProcedureCancelledError
     | ProcedureInternalError

@@ -1,6 +1,6 @@
 from dataclasses import field
 
-from ceres import Alert, AlertLevel, Component, Event, Ref, on
+from ceres import Alert, Alerter, AlertLevel, Component, Event, Ref, on
 
 
 async def test_event_listeners() -> None:
@@ -56,7 +56,7 @@ async def test_event_listeners() -> None:
 
 
 async def test_component_alerts() -> None:
-    class Test(Component):
+    class Test(Alerter):
         pass
 
     component = Test()
