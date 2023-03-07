@@ -9,16 +9,18 @@ from typing import (
     Callable,
     Literal,
     Mapping,
+    ParamSpec,
     TypeVar,
     get_type_hints,
+    overload,
 )
 
 from pydantic import schema_of, validate_arguments
 from pydantic.typing import get_args
 
 from ceres.data import ImmutableDataObject, Name, PositiveTimeDelta
-from ceres.internal.binding import Binding, add_function_binding
-from ceres.internal.utilities import get_member_name, is_optional, strify
+from ceres.internal.binding import add_local_binding
+from ceres.internal.utilities import get_function_name, is_optional, strify
 
 
 class ProcedureKind(str, Enum):
@@ -41,25 +43,117 @@ class ProcedureOutputInfo(ImmutableDataObject):
     json_schema: Mapping[str, Any]
 
 
-class BaseProcedureBinding(Binding):
-    kind: ProcedureKind
+class _ProcedureBinding(ImmutableDataObject):
     name: str
+    kind: ProcedureKind
     function: str
     live: bool
     input: ProcedureInputInfo | None
     output: ProcedureOutputInfo
 
 
-class QueryBinding(BaseProcedureBinding):
+class QueryBinding(_ProcedureBinding):
     kind: Literal[ProcedureKind.QUERY] = ProcedureKind.QUERY
     poll: PositiveTimeDelta
 
 
-class ActionBinding(BaseProcedureBinding):
+class ActionBinding(_ProcedureBinding):
     kind: Literal[ProcedureKind.ACTION] = ProcedureKind.ACTION
 
 
 ProcedureBinding = QueryBinding | ActionBinding
+
+
+_P = ParamSpec("_P")
+_T = TypeVar("_T", bound=Awaitable[Any] | AsyncIterable[Any])
+
+
+@overload
+def query(function: Callable[_P, _T]) -> Callable[_P, _T]:
+    ...
+
+
+@overload
+def query(
+    *,
+    name: Name,
+    poll: float | timedelta = ...,
+) -> Callable[[Callable[_P, _T]], Callable[_P, _T]]:
+    ...
+
+
+@validate_arguments
+def query(
+    function: Callable[_P, _T] | None = None,
+    *,
+    name: Name | None = None,
+    poll: float | timedelta = timedelta(seconds=5),
+) -> Callable[_P, _T] | Callable[[Callable[_P, _T]], Callable[_P, _T]]:
+    def bind(function: Callable[_P, _T]) -> Callable[_P, _T]:
+        validated = _validate_procedure(function, ProcedureKind.QUERY)
+        add_local_binding(
+            function,
+            QueryBinding(
+                name=_normalize_procedure_name(name) if name else _get_procedure_name(function),
+                function=get_function_name(function),
+                input=validated.input,
+                output=validated.output,
+                live=validated.live,
+                poll=poll if isinstance(poll, timedelta) else timedelta(seconds=poll),
+            ),
+        )
+
+        return function
+
+    if function is None:
+        return bind
+
+    return bind(function)
+
+
+@overload
+def action(function: Callable[_P, _T]) -> Callable[_P, _T]:
+    ...
+
+
+@overload
+def action(*, name: Name) -> Callable[[Callable[_P, _T]], Callable[_P, _T]]:
+    ...
+
+
+@validate_arguments
+def action(
+    function: Callable[_P, _T] | None = None,
+    *,
+    name: Name | None = None,
+) -> Callable[_P, _T] | Callable[[Callable[_P, _T]], Callable[_P, _T]]:
+    def bind(function: Callable[_P, _T]) -> Callable[_P, _T]:
+        validated = _validate_procedure(function, ProcedureKind.ACTION)
+        add_local_binding(
+            function,
+            ActionBinding(
+                name=_normalize_procedure_name(name) if name else _get_procedure_name(function),
+                function=get_function_name(function),
+                input=validated.input,
+                output=validated.output,
+                live=validated.live,
+            ),
+        )
+
+        return function
+
+    if function is None:
+        return bind
+
+    return bind(function)
+
+
+def _normalize_procedure_name(name: str) -> Name:
+    return name.replace("_", "-").strip().strip("-")
+
+
+def _get_procedure_name(callable: Callable[..., Any]) -> Name:
+    return _normalize_procedure_name(get_function_name(callable))
 
 
 def _get_schema(hint: Any) -> Mapping[str, Any]:
@@ -175,55 +269,3 @@ def _validate_procedure(
         output=output_info,
         live=live,
     )
-
-
-_ProcedureFunctionT = TypeVar(
-    "_ProcedureFunctionT",
-    bound=Callable[[Any], Awaitable[Any] | AsyncIterable[Any]]
-    | Callable[[Any, Any], Awaitable[Any] | AsyncIterable[Any]],
-)
-
-
-@validate_arguments
-def query(
-    name: Name,
-    *,
-    poll: float | timedelta = timedelta(seconds=5),
-) -> Callable[[_ProcedureFunctionT], _ProcedureFunctionT]:
-    def bind(function: _ProcedureFunctionT) -> _ProcedureFunctionT:
-        validated = _validate_procedure(function, ProcedureKind.QUERY)
-        add_function_binding(
-            function,
-            QueryBinding(
-                name=name,
-                function=get_member_name(function),
-                input=validated.input,
-                output=validated.output,
-                live=validated.live,
-                poll=poll if isinstance(poll, timedelta) else timedelta(seconds=poll),
-            ),
-        )
-
-        return function
-
-    return bind
-
-
-@validate_arguments
-def action(name: Name) -> Callable[[_ProcedureFunctionT], _ProcedureFunctionT]:
-    def bind(function: _ProcedureFunctionT) -> _ProcedureFunctionT:
-        validated = _validate_procedure(function, ProcedureKind.ACTION)
-        add_function_binding(
-            function,
-            ActionBinding(
-                name=name,
-                function=get_member_name(function),
-                input=validated.input,
-                output=validated.output,
-                live=validated.live,
-            ),
-        )
-
-        return function
-
-    return bind

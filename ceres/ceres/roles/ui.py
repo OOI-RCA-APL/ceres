@@ -5,6 +5,6 @@ from ceres.procedure import query
 
 
 class UI(Component):
-    @query("get-layout")
+    @query
     async def get_layout(self) -> Layout:
         ...

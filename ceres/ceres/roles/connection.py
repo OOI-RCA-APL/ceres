@@ -151,11 +151,11 @@ class Connection(Component, ABC):
     class SendMessageInput(ImmutableDataObject):
         data: bytes
 
-    @action("send-message")
+    @action
     async def send_message(self, input: SendMessageInput) -> Message:
         return await self.send(input.data)
 
-    @query("get-connection-state")
+    @query
     async def get_connection_state(self) -> AsyncIterable[ConnectionState]:
         yield self.__state
 

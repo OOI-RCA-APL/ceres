@@ -1,21 +1,22 @@
 from typing import Any, Awaitable, Callable
 
-from ceres.internal.binding import Binding, add_function_binding
-from ceres.internal.utilities import get_member_name
+from ceres.data import ImmutableDataObject, Name
+from ceres.internal.binding import add_local_binding
+from ceres.internal.utilities import get_function_name
 
 
-class RoutineBinding(Binding):
-    pass
+class RoutineBinding(ImmutableDataObject):
+    function: Name
 
 
 _Return = Awaitable[None]
 
 
 def routine(function: Callable[[Any], _Return]) -> Callable[[Any], _Return]:
-    add_function_binding(
+    add_local_binding(
         function,
         RoutineBinding(
-            function=get_member_name(function),
+            function=get_function_name(function),
         ),
     )
 

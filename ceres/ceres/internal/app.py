@@ -38,7 +38,7 @@ from ceres.internal import logs
 from ceres.internal.console import ConsoleFiles
 from ceres.internal.utilities import strify
 from ceres.message import Message
-from ceres.procedure import ActionBinding, QueryBinding
+from ceres.procedure import ProcedureBinding
 from ceres.result import Fail, Ok, Result
 
 if TYPE_CHECKING:
@@ -85,8 +85,7 @@ class ComponentInfo(ImmutableDataObject):
     address: Address
     config: ComponentConfig
     roles: Sequence[ComponentRole]
-    queries: Sequence[QueryBinding]
-    actions: Sequence[ActionBinding]
+    procedures: Sequence[ProcedureBinding]
 
 
 class UnitInfo(ImmutableDataObject):
@@ -267,8 +266,7 @@ async def get_component_info(
         address=address,
         config=component_config,
         roles=_get_component_roles(component_cls),
-        queries=list(component_cls.get_query_bindings().values()),
-        actions=list(component_cls.get_action_bindings().values()),
+        procedures=list(component_cls.get_procedure_bindings().values()),
     )
 
 

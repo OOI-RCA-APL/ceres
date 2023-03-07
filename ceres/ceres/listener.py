@@ -1,12 +1,16 @@
 from typing import Any, Awaitable, Callable, Sequence, TypeVar
 
+from pydantic import validate_arguments
+
+from ceres.data import ImmutableDataObject, Name
 from ceres.events import Event
-from ceres.internal.binding import Binding, add_function_binding
-from ceres.internal.utilities import get_member_name
+from ceres.internal.binding import add_local_binding
+from ceres.internal.utilities import get_function_name
 
 
-class ListenerBinding(Binding):
-    sources: Sequence[str]
+class ListenerBinding(ImmutableDataObject):
+    function: Name
+    sources: Sequence[Name]
     event_cls: type[Event]
 
 
@@ -14,24 +18,25 @@ _EventT = TypeVar("_EventT", bound=Event)
 _Void = None | Awaitable[None]
 
 
+@validate_arguments
 def on(
     event: type[_EventT],
-    sources: str | Sequence[str] = "self",
+    sources: Name | Sequence[Name] = "self",
     /,
 ) -> Callable[[Callable[[Any, _EventT], _Void]], Callable[[Any, _EventT], _Void]]:
     if isinstance(sources, str):
         sources = [sources]
 
-    def inner(function: Callable[[Any, _EventT], _Void]) -> Any:
-        add_function_binding(
+    def bind(function: Callable[[Any, _EventT], _Void]) -> Any:
+        add_local_binding(
             function,
             ListenerBinding(
                 sources=sources,
                 event_cls=event,
-                function=get_member_name(function),
+                function=get_function_name(function),
             ),
         )
 
         return function
 
-    return inner
+    return bind

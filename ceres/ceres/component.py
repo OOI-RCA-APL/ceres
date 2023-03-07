@@ -60,7 +60,7 @@ from ceres.events import (
 )
 from ceres.exceptions import ComponentClassInvalidException, ProcedureException
 from ceres.internal import logs
-from ceres.internal.binding import get_component_bindings
+from ceres.internal.binding import get_bindings
 from ceres.internal.database.buffer import WriteBuffer
 from ceres.internal.database.entities import AlertEntity, MessageEntity
 from ceres.internal.events import EventProcessor
@@ -564,7 +564,7 @@ class Component(ValidatedDataclass, Tasklet):
     class SubscribeEventsInput(ImmutableDataObject):
         kinds: str | FrozenSet[str] | None = None
 
-    @query("events")
+    @query
     async def get_events(
         self,
         input: SubscribeEventsInput = SubscribeEventsInput(),
@@ -677,22 +677,22 @@ class Component(ValidatedDataclass, Tasklet):
 
 
 @cached
-def _get_listener_bindings(component_cls: type[Component]) -> Sequence[ListenerBinding]:
-    return get_component_bindings(component_cls, ListenerBinding)
+def _get_listener_bindings(cls: type[Component]) -> Sequence[ListenerBinding]:
+    return get_bindings(cls, ListenerBinding)
 
 
 @cached
-def _get_routine_bindings(component_cls: type[Component]) -> Sequence[RoutineBinding]:
-    return get_component_bindings(component_cls, RoutineBinding)
+def _get_routine_bindings(cls: type[Component]) -> Sequence[RoutineBinding]:
+    return get_bindings(cls, RoutineBinding)
 
 
 @cached
-def _get_procedure_bindings(component_cls: type[_ComponentT]) -> Mapping[str, ProcedureBinding]:
+def _get_procedure_bindings(cls: type[_ComponentT]) -> Mapping[Name, ProcedureBinding]:
     return MappingProxyType(
         {
             binding.name: binding
             for binding in sorted(
-                get_component_bindings(component_cls, ProcedureBinding),
+                get_bindings(cls, ProcedureBinding),
                 key=lambda current: current.name,
             )
         }

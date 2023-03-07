@@ -1,36 +1,20 @@
-from typing import Any, Callable, Iterable, Sequence, TypeVar
+from typing import Any, Callable, Iterable, Protocol, Sequence, TypeVar, runtime_checkable
 
-from ceres.data import ImmutableDataObject
+from ceres.internal.utilities import get_inner_function
 
-_BINDINGS_ATTRIBUTE = "__bindings__"
+_BINDINGS_ATTRIBUTE = "__local_bindings__"
 
 
-class Binding(ImmutableDataObject):
+@runtime_checkable
+class Binding(Protocol):
     function: str
 
 
 _BindingT = TypeVar("_BindingT", bound=Binding)
 
 
-def _get_root_function(function: Callable[..., Any]) -> Callable[..., Any]:
-    while True:
-        __wrapped__ = getattr(function, "__wrapped__", None)
-        if __wrapped__ is not None:
-            function = __wrapped__
-            continue
-
-        __func__ = getattr(function, "__func__", None)
-        if __func__ is not None and __func__ is not function:
-            function = __func__
-            continue
-
-        break
-
-    return function
-
-
-def add_function_binding(function: Callable[..., object], binding: Binding) -> None:
-    function = _get_root_function(function)
+def add_local_binding(function: Callable[..., object], binding: Binding) -> None:
+    function = get_inner_function(function)
     bindings: Sequence[Binding] | None = getattr(function, _BINDINGS_ATTRIBUTE, None)
 
     if not isinstance(bindings, Sequence):
@@ -44,11 +28,11 @@ def add_function_binding(function: Callable[..., object], binding: Binding) -> N
     setattr(function, _BINDINGS_ATTRIBUTE, bindings)
 
 
-def get_function_bindings(
+def get_local_bindings(
     function: Callable[..., Any],
     binding_cls: type[_BindingT],
 ) -> tuple[_BindingT, ...]:
-    function = _get_root_function(function)
+    function = get_inner_function(function)
     output: list[_BindingT] = []
 
     if values := getattr(function, _BINDINGS_ATTRIBUTE, None):
@@ -60,7 +44,7 @@ def get_function_bindings(
     return tuple(output)
 
 
-def get_component_bindings(
+def get_bindings(
     component_cls: type,
     binding_cls: type[_BindingT],
 ) -> tuple[_BindingT, ...]:
@@ -71,7 +55,7 @@ def get_component_bindings(
             if not callable(member):
                 continue
 
-            for binding in get_function_bindings(member, binding_cls):
+            for binding in get_local_bindings(member, binding_cls):
                 bindings[binding.function] = binding
 
     return tuple(sorted(bindings.values(), key=lambda current: current.function))

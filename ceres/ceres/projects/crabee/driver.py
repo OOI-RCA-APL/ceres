@@ -230,7 +230,7 @@ class CrabeeDriver(Alerter, UI, Component):
             yield message
 
     @override
-    @query("get-layout")
+    @query
     async def get_layout(self) -> Layout:
         return Layout(
             LayoutColumn(
@@ -264,52 +264,52 @@ class CrabeeDriver(Alerter, UI, Component):
             )
         )
 
-    @query("display-temperature-1")
+    @query
     async def display_temperature_1(self) -> AsyncIterable[ValueDisplay]:
         async for message in self._get_data_messages():
             yield ValueDisplay(value=message.temperature_1, unit="°C")
 
-    @query("display-temperature-2")
+    @query
     async def display_temperature_2(self) -> AsyncIterable[ValueDisplay]:
         async for message in self._get_data_messages():
             yield ValueDisplay(value=message.temperature_2, unit="°C")
 
-    @query("display-temperature-3")
+    @query
     async def display_temperature_3(self) -> AsyncIterable[ValueDisplay]:
         async for message in self._get_data_messages():
             yield ValueDisplay(value=message.temperature_3, unit="°C")
 
-    @query("display-pressure")
+    @query
     async def display_pressure(self) -> AsyncIterable[ValueDisplay]:
         async for message in self._get_data_messages():
             yield ValueDisplay(value=message.pressure, unit="mbars")
 
-    @query("display-humidity")
+    @query
     async def display_humidity(self) -> AsyncIterable[ValueDisplay]:
         async for message in self._get_data_messages():
             yield ValueDisplay(value=message.humidity, unit="%")
 
-    @query("display-pitch")
+    @query
     async def display_pitch(self) -> AsyncIterable[ValueDisplay]:
         async for message in self._get_data_messages():
             yield ValueDisplay(value=message.pitch, unit="°")
 
-    @query("display-roll")
+    @query
     async def display_roll(self) -> AsyncIterable[ValueDisplay]:
         async for message in self._get_data_messages():
             yield ValueDisplay(value=message.roll, unit="°")
 
-    @query("display-leak-1")
+    @query
     async def display_leak_1(self) -> AsyncIterable[StateDisplay]:
         async for message in self._get_data_messages():
             yield self.__display_leak(message.leak_1)
 
-    @query("display-leak-2")
+    @query
     async def display_leak_2(self) -> AsyncIterable[StateDisplay]:
         async for message in self._get_data_messages():
             yield self.__display_leak(message.leak_2)
 
-    @query("display-temperature-history")
+    @query
     async def display_temperature_history(self) -> AsyncIterable[ChartDisplay]:
         while True:
             messages = await self.__get_data_message_history(cutoff=utc() - timedelta(hours=1))
@@ -361,7 +361,7 @@ class CrabeeDriver(Alerter, UI, Component):
 
             await asyncio.sleep(10)
 
-    @query("display-pressure-history")
+    @query
     async def display_pressure_history(self) -> AsyncIterable[ChartDisplay]:
         while True:
             messages = await self.__get_data_message_history(cutoff=utc() - timedelta(hours=1))
@@ -395,7 +395,7 @@ class CrabeeDriver(Alerter, UI, Component):
 
             await asyncio.sleep(10)
 
-    @query("display-humidity-history")
+    @query
     async def display_humidity_history(self) -> AsyncIterable[ChartDisplay]:
         while True:
             messages = await self.__get_data_message_history(cutoff=utc() - timedelta(hours=1))
@@ -432,7 +432,7 @@ class CrabeeDriver(Alerter, UI, Component):
 
             await asyncio.sleep(10)
 
-    @query("display-incline-history")
+    @query
     async def display_incline_history(self) -> AsyncIterable[ChartDisplay]:
         while True:
             messages = await self.__get_data_message_history(cutoff=utc() - timedelta(hours=1))

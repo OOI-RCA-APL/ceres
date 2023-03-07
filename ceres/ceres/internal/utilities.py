@@ -9,7 +9,7 @@ from asyncio import AbstractEventLoop
 from contextlib import contextmanager
 from datetime import timedelta
 from functools import cache, wraps
-from types import MappingProxyType, NoneType, UnionType
+from types import NoneType, UnionType
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -25,15 +25,13 @@ from typing import (
     TypeGuard,
     TypeVar,
     cast,
-    get_type_hints,
-    overload,
 )
 
 import pydantic
 import rich
 from pydantic import BaseModel, parse_obj_as
 from pydantic.decorator import ValidatedFunction
-from typing_extensions import Self
+from typing_extensions import Self, overload
 
 
 def strify(value: object) -> str:
@@ -108,16 +106,66 @@ def is_pydantic_dataclass(obj: object) -> TypeGuard[PydanticDataclassLike]:
     return dataclasses.is_dataclass(obj) and hasattr(obj, "__pydantic_model__")
 
 
+@overload
+def get_model(obj: "BaseModel | PydanticDataclassLike") -> BaseModel:
+    ...
+
+
+@overload
+def get_model(obj: Any) -> BaseModel | None:
+    ...
+
+
+def get_model(obj: Any) -> BaseModel | None:
+    try:
+        return pydantic.utils.get_model(obj)  # type: ignore
+    except Exception:
+        return None
+
+
+def has_field(obj: Any, name: str, type: Any = None) -> bool:
+    name = snakecase(name)
+
+    if dataclasses.is_dataclass(obj):
+        return any(
+            field.name == name and (type is None or is_subtype(field.type, type))
+            for field in dataclasses.fields(obj)
+        )
+    if isinstance(obj, BaseModel) or issubclass(obj, BaseModel):
+        return any(
+            field.name == name and (type is None or is_subtype(field.outer_type_, type))
+            for field in obj.__fields__.values()
+        )
+
+    return False
+
+
+class ValidateByType:
+    @classmethod
+    def __get_validators__(cls) -> Iterable[Callable[[Any], Self]]:
+        if hasattr(super(), "__get_validators__"):
+            yield from super().__get_validators__()  # type: ignore
+        yield cls.__validate
+
+    @classmethod
+    def __validate(cls, value: Any) -> Self:
+        if not isinstance(value, cls):
+            raise ValueError(f"must be an instance of {strify(cls)}, got {strify(type(value))}")
+
+        return value
+
+
+def pre_validate_arguments(
+    callable: Callable[_P, Any],
+    *args: _P.args,
+    **kwargs: _P.kwargs,
+) -> BaseModel:
+    return ValidatedFunction(callable, None).init_model_instance(*args, **kwargs)
+
+
 def unwrap(value: _T | None) -> _T:
     assert value is not None
     return value
-
-
-_FunctionT = TypeVar("_FunctionT", bound=Callable[..., Any])
-
-
-def cached(function: _FunctionT) -> _FunctionT:
-    return cast(_FunctionT, cache(function))
 
 
 def snakecase(text: str) -> str:
@@ -126,9 +174,8 @@ def snakecase(text: str) -> str:
     return text.replace("-", "_").lower()
 
 
-@cached
-def get_type_annotations(obj: object) -> Mapping[str, Any]:
-    return MappingProxyType(get_type_hints(obj))
+def randstr(characters: str, length: int) -> str:
+    return "".join(random.choice(characters) for _ in range(length))
 
 
 def encode_td(value: timedelta) -> str:
@@ -240,26 +287,22 @@ def is_optional(type_: type | UnionType) -> bool:
     return is_subtype(NoneType, type_)
 
 
-def has_field(obj: Any, name: str, type: Any = None) -> bool:
-    name = name.replace("-", "_")
+if TYPE_CHECKING:
+    from builtins import isinstance as lenient_isinstance  # type: ignore
+    from builtins import issubclass as lenient_issubclass  # type: ignore
+else:
 
-    if dataclasses.is_dataclass(obj):
-        return any(
-            field.name == name and (type is None or is_subtype(field.type, type))
-            for field in dataclasses.fields(obj)
-        )
-    if isinstance(obj, BaseModel) or issubclass(obj, BaseModel):
-        return any(
-            field.name == name and (type is None or is_subtype(field.type_, type))
-            for field in obj.__fields__.values()
-        )
+    def lenient_isinstance(obj, cls):
+        try:
+            return isinstance(obj, cls)
+        except TypeError:
+            return False
 
-    return False
-
-
-def get_field_value(obj: Any, name: str) -> Any:
-    name = name.replace("-", "_")
-    return getattr(obj, name, None)
+    def lenient_issubclass(obj, cls):
+        try:
+            return issubclass(obj, cls)
+        except TypeError:
+            return False
 
 
 async def sleep_forever() -> None:
@@ -315,12 +358,13 @@ def temporary_signal_handler(signums: Sequence[int], handler: Callable[..., Any]
             signal.signal(signum, original)
 
 
-def pre_validate_arguments(
-    callable: Callable[_P, Any],
-    *args: _P.args,
-    **kwargs: _P.kwargs,
-) -> BaseModel:
-    return ValidatedFunction(callable, None).init_model_instance(*args, **kwargs)
+def set_current_process_name(name: str) -> None:
+    try:
+        from setproctitle import setproctitle
+
+        setproctitle(name)
+    except Exception:
+        pass
 
 
 def dbg(value: _T) -> _T:
@@ -328,39 +372,41 @@ def dbg(value: _T) -> _T:
     return value
 
 
-if TYPE_CHECKING:
-    from builtins import isinstance as lenient_isinstance  # type: ignore
-    from builtins import issubclass as lenient_issubclass  # type: ignore
-else:
-
-    def lenient_isinstance(obj, cls):
-        try:
-            return isinstance(obj, cls)
-        except TypeError:
-            return False
-
-    def lenient_issubclass(obj, cls):
-        try:
-            return issubclass(obj, cls)
-        except TypeError:
-            return False
+_FunctionT = TypeVar("_FunctionT", bound=Callable[..., Any])
 
 
-def randstr(characters: str, length: int) -> str:
-    return "".join(random.choice(characters) for _ in range(length))
+def cached(function: _FunctionT) -> _FunctionT:
+    return cast(_FunctionT, cache(function))
 
 
-def get_member_name(callable: Callable[..., Any]) -> str:
-    original = callable.__name__
+def get_function_name(function: Callable[..., Any]) -> str:
+    original = function.__name__
 
-    if callable.__name__.startswith("__") and not callable.__name__.endswith("__"):
-        tokens = callable.__qualname__.split(".")
+    if function.__name__.startswith("__") and not function.__name__.endswith("__"):
+        tokens = function.__qualname__.split(".")
         if len(tokens) < 2:
             return original
 
         return f"_{tokens[-2]}{original}"
 
     return original
+
+
+def get_inner_function(function: Callable[..., Any]) -> Callable[..., Any]:
+    while True:
+        __wrapped__ = getattr(function, "__wrapped__", None)
+        if __wrapped__ is not None:
+            function = __wrapped__
+            continue
+
+        __func__ = getattr(function, "__func__", None)
+        if __func__ is not None and __func__ is not function:
+            function = __func__
+            continue
+
+        break
+
+    return function
 
 
 def setattr_internal(cls: type[_T], instance: _T, name: str, value: object) -> None:
@@ -375,15 +421,6 @@ def getattr_internal(cls: type[_T], instance: _T, name: str, value: object) -> N
         name = f"_{cls.__name__}{name}"
 
     object.__setattr__(instance, name, value)
-
-
-def set_current_process_name(name: str) -> None:
-    try:
-        from setproctitle import setproctitle
-
-        setproctitle(name)
-    except Exception:
-        pass
 
 
 @overload
@@ -401,39 +438,3 @@ def escape_like_expression(text: str | bytes) -> str | bytes:
         return text.replace("%", "%%").replace("_", "__")
 
     return text.replace(b"%", b"%%").replace(b"_", b"__")
-
-
-class ValidateByType:
-    @classmethod
-    def __get_validators__(cls) -> Iterable[Callable[[Any], Self]]:
-        if hasattr(super(), "__get_validators__"):
-            yield from super().__get_validators__()  # type: ignore
-        yield cls.__validate
-
-    @classmethod
-    def __validate(cls, value: Any) -> Self:
-        if not isinstance(value, cls):
-            raise ValueError(f"must be an instance of {strify(cls)}, got {strify(type(value))}")
-
-        return value
-
-
-if TYPE_CHECKING:
-    from ceres.data import ValidatedDataclass
-
-
-@overload
-def get_model(obj: "BaseModel | ValidatedDataclass") -> BaseModel:
-    ...
-
-
-@overload
-def get_model(obj: Any) -> BaseModel | None:
-    ...
-
-
-def get_model(obj: Any) -> BaseModel | None:
-    try:
-        return pydantic.utils.get_model(obj)  # type: ignore
-    except Exception:
-        return None
