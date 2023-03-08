@@ -1,5 +1,6 @@
 from ceres.address import Address as Address
 from ceres.alert import Alert as Alert
+from ceres.ref import Reference as Reference
 from ceres.alert import AlertLevel as AlertLevel
 from ceres.component import Component as Component
 from ceres.config import Config as Config

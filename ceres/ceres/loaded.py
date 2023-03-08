@@ -12,7 +12,7 @@ from pydantic import Field, root_validator, validate_arguments
 from typing_extensions import Self
 
 from ceres.data import ClassPath, ImmutableDataObject
-from ceres.internal.utilities import get_model, lenient_isinstance
+from ceres.internal.utilities import get_model, is_mapping, lenient_isinstance
 
 _T = TypeVar("_T")
 
@@ -40,7 +40,7 @@ class Loader(ImmutableDataObject):
 
         args = values.get("args", {})
 
-        if isinstance(args, Mapping):
+        if is_mapping(args):
             values["args"] = {**args, **extra}
         else:
             if extra:
@@ -55,7 +55,7 @@ class Loader(ImmutableDataObject):
 
         extra = {name: values[name] for name in cls._get_extra_kwarg_names()}
         args = values.get("args", {})
-        if isinstance(args, Mapping):
+        if is_mapping(args):
             args = {**args, **extra}
 
         cls._load_obj(values["cls_path"].cls, args)
@@ -66,14 +66,14 @@ class Loader(ImmutableDataObject):
         extra = {name: getattr(self, name) for name in self._get_extra_kwarg_names()}
 
         if args is not None:
-            if not isinstance(args, Mapping):
+            if not is_mapping(args):
                 applied_args = args
-            elif isinstance(self.args, Mapping):
+            elif is_mapping(self.args):
                 applied_args = {**args, **self.args, **extra}
             else:
                 applied_args = args
         else:
-            if isinstance(self.args, Mapping):
+            if is_mapping(self.args):
                 applied_args = {**self.args, **extra}
             else:
                 applied_args = self.args
@@ -92,14 +92,14 @@ class Loader(ImmutableDataObject):
         model = get_model(target)
 
         if model is not None:
-            if isinstance(args, Mapping):
+            if is_mapping(args):
                 instance = target(**args)
             else:
                 instance = target(*args)
         else:
             instance = object.__new__(target)
             init = validate_arguments(target.__init__)
-            if isinstance(args, Mapping):
+            if is_mapping(args):
                 init(instance, **args)
             else:
                 init(instance, *args)

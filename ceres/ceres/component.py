@@ -29,8 +29,6 @@ from pydantic import (
     validator,
 )
 from pydantic.decorator import ValidatedFunction
-from pydantic.utils import lenient_isinstance
-from sqlalchemy.util import unique_list
 from typing_extensions import Self, dataclass_transform, override
 
 from ceres.address import Address
@@ -70,6 +68,7 @@ from ceres.internal.utilities import (
     awaitify,
     cached,
     has_field,
+    lenient_isinstance,
     randstr,
     sleep_forever,
     strify,
@@ -344,24 +343,27 @@ class Component(ValidatedDataclass, Tasklet):
         self.__sync_referencers()
 
     def get_referenced_components(self, alias: str | None = None) -> Sequence["Component"]:
-        from ceres.ref import Reference
-
         components: list[Component] = []
-
-        def visit(obj: Any) -> None:
-            if isinstance(obj, Reference):
-                obj = obj.unref()
-            if isinstance(obj, Component):
-                if obj is not self:
-                    components.append(obj)
 
         if alias is None:
             root = self
         else:
             root = getattr(self, alias, None)
 
+        if root is None:
+            return components
+
+        def visit(obj: Any) -> bool:
+            if lenient_isinstance(obj, Component):
+                obj = obj.unref()
+                if obj is not self:
+                    components.append(obj)
+                    return False
+
+            return True
+
         traverse(root, visit)
-        return unique_list(components, id)
+        return components
 
     def __set_emitted_event_source(self, event: Event) -> None:
         if event.source is None:  # type: ignore

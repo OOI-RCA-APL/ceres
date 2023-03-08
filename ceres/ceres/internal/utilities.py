@@ -23,7 +23,6 @@ from typing import (
     Mapping,
     ParamSpec,
     Protocol,
-    Self,
     Sequence,
     TypeGuard,
     TypeVar,
@@ -33,7 +32,7 @@ from typing import (
 import pydantic
 import rich
 from pydantic import BaseModel, parse_obj_as
-from typing_extensions import overload
+from typing_extensions import Self, overload
 
 
 def strify(value: object) -> str:
@@ -70,7 +69,7 @@ def dictify(obj: object) -> dict[str, Any]:
         return not key.startswith("__")
 
     try:
-        if isinstance(obj, Mapping):
+        if is_mapping(obj):
             return dict(obj)
         if is_dataclass(obj):
             return dataclasses.asdict(obj)
@@ -281,28 +280,58 @@ def is_optional_type(type_: type | UnionType) -> bool:
     return is_subtype(NoneType, type_)
 
 
+def is_stringy(obj: Any) -> TypeGuard[str | ByteString | memoryview]:
+    return lenient_isinstance(obj, (str, ByteString, memoryview))
+
+
 def is_iterable(obj: Any) -> TypeGuard[Iterable[Any]]:
+    if not lenient_isinstance(obj, Iterable):
+        return False
+
     try:
         iter(obj)
-        return True
     except Exception:
         return False
 
+    return True
 
-def is_container(obj: Any) -> TypeGuard[Collection[Any]]:
-    if isinstance(obj, (str, ByteString, memoryview)):
+
+def is_non_stringy_iterable(obj: Any) -> TypeGuard[Iterable[Any]]:
+    return not is_stringy(obj) and is_iterable(obj)
+
+
+def is_collection(obj: Any) -> TypeGuard[Collection[Any]]:
+    if not lenient_isinstance(obj, Collection):
         return False
 
-    return is_iterable(obj) and lenient_isinstance(obj, Collection)
+    try:
+        len(obj)
+        iter(obj)
+    except Exception:
+        return False
+
+    return True
+
+
+def is_non_stringy_collection(obj: Any) -> TypeGuard[Collection[Any]]:
+    return not is_stringy(obj) and is_collection(obj)
 
 
 def is_mapping(obj: Any) -> TypeGuard[Mapping[Any, Any]]:
-    return lenient_isinstance(obj, Mapping)
+    if not isinstance(obj, Mapping):
+        return False
+
+    try:
+        obj.keys()
+    except Exception:
+        return False
+
+    return True
 
 
 def traverse(
-    obj: Any,
-    visit: Callable[[Any], None],
+    obj: object,
+    visit: Callable[[object], bool | None],
     seen: set[int] | None = None,
 ) -> None:
     if seen is None:
@@ -312,7 +341,10 @@ def traverse(
 
     seen.add(id(obj))
 
-    visit(obj)
+    descend = visit(obj)
+    if descend is not None:
+        if not descend:
+            return
     if obj is None:
         return
 
@@ -326,7 +358,7 @@ def traverse(
         for key, value in obj.items():
             traverse(key, visit, seen)
             traverse(value, visit, seen)
-    elif is_container(obj):
+    elif is_non_stringy_collection(obj):
         for value in obj:
             traverse(value, visit, seen)
 
