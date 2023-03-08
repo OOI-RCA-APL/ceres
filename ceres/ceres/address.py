@@ -30,6 +30,9 @@ class _RegexStr(str):
 
         return str.__new__(cls, value)
 
+    def __repr__(self) -> str:
+        return f"{type(self).__name__}({repr(str(self))})"
+
 
 @final
 class Address(_RegexStr):
