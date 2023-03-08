@@ -320,7 +320,7 @@ class Engine(Tasklet):
                         )
                     }
                 )
-                component.assign_referenced_components(references)
+                component.assign_references(references)
             except Exception:
                 unit.logger.error(f"Failed to load component '{address}': {traceback.format_exc()}")
                 continue

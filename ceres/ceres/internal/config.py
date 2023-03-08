@@ -163,7 +163,7 @@ async def _check_components(
                 log(f"Checking component '{address}'...")
                 try:
                     component = component_config.load()
-                    error = component.assign_referenced_components(references)
+                    error = component.assign_references(references)
                 except Exception as exception:
                     yield ConfigComponentError(
                         component=address,

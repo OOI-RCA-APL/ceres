@@ -11,13 +11,11 @@ from typing import (
     Any,
     AsyncIterable,
     Callable,
-    Collection,
     Final,
     Mapping,
     Sequence,
     TypeVar,
     final,
-    get_origin,
 )
 from weakref import WeakValueDictionary, ref
 
@@ -26,12 +24,12 @@ from pydantic import (
     Extra,
     Field,
     ValidationError,
-    parse_obj_as,
     root_validator,
     validate_arguments,
     validator,
 )
 from pydantic.decorator import ValidatedFunction
+from pydantic.utils import lenient_isinstance
 from sqlalchemy.util import unique_list
 from typing_extensions import Self, dataclass_transform, override
 
@@ -71,14 +69,11 @@ from ceres.internal.tasklet import Tasklet
 from ceres.internal.utilities import (
     awaitify,
     cached,
-    get_model,
     has_field,
-    is_optional,
-    lenient_isinstance,
-    lenient_issubclass,
     randstr,
     sleep_forever,
     strify,
+    traverse,
 )
 from ceres.listener import ListenerBinding
 from ceres.message import Message
@@ -87,7 +82,6 @@ from ceres.procedure import (
     ProcedureBinding,
     QueryBinding,
 )
-from ceres.ref import RefType
 from ceres.routine import RoutineBinding, routine
 from ceres.schedule import Schedule
 from ceres.stream import Stream, StreamView
@@ -214,10 +208,11 @@ class Component(ValidatedDataclass, Tasklet):
         pass
 
     def __sync_referencers(self) -> None:
+        for referencer in list(self.__referencers.values()):
+            if id(self) not in {id(other) for other in referencer.get_referenced_components()}:
+                self.__referencers.pop(id(referencer))
+
         referenced = self.get_referenced_components()
-        for component in list(self.__referencers.values()):
-            if component not in referenced:
-                component.__referencers.pop(id(component))
         for component in referenced:
             component.__referencers[id(self)] = self
 
@@ -324,90 +319,48 @@ class Component(ValidatedDataclass, Tasklet):
                 self.__alert_write_buffer.wait_until_empty(),
             )
 
-    def assign_referenced_components(
+    def unref(self) -> Self:
+        return self
+
+    def assign_references(
         self,
-        references: Mapping[str, Self],
+        components: Mapping[str, Self],
     ) -> ComponentReferenceInvalidError | None:
-        def _create_reference_invalid_error(
-            reference: Any,
-            info: type[RefType],
-        ) -> ComponentReferenceInvalidError:
-            return ComponentReferenceInvalidError(
-                message=(
-                    f"reference to component '{reference}' of type {strify(info.cls)} is "
-                    f"required and specified by {strify(type(self))}, but it hasn't loaded yet "
-                    "failed to load"
+        from ceres.ref import get_references
+
+        for reference in get_references(self):
+            component = components.get(reference.__component_name__)
+            if component is None:
+                return ComponentReferenceInvalidError(
+                    message=(
+                        f"reference to component '{reference}' of type "
+                        f"{strify(reference.__component_cls__)} is required and specified by "
+                        f"{strify(type(self))}, but it hasn't loaded yet or failed to load"
+                    )
                 )
-            )
 
-        for name, info in self.__pydantic_model__.__fields__.items():
-            outer_type = info.outer_type_
-            inner_type = info.type_
-            value: Any = getattr(self, name)
-
-            if lenient_issubclass(outer_type, RefType):
-                if lenient_isinstance(value, str):
-                    component = references.get(value)
-                else:
-                    component = value
-
-                if (
-                    component is None
-                    and not is_optional(outer_type)
-                    and not is_optional(outer_type.cls)
-                ):
-                    return _create_reference_invalid_error(value, outer_type)
-
-                object.__setattr__(self, name, component)
-                continue
-
-            if lenient_issubclass(inner_type, RefType) and lenient_issubclass(
-                get_origin(outer_type) or outer_type, Collection
-            ):
-                collection = value
-
-                if lenient_issubclass(inner_type, RefType):
-                    components: list[Any] = []
-
-                    for element in collection:
-                        if isinstance(element, str):
-                            component = references.get(element)
-                        else:
-                            component = element
-
-                        if (
-                            component is None
-                            and not is_optional(inner_type)
-                            and not is_optional(inner_type.cls)
-                        ):
-                            return _create_reference_invalid_error(element, inner_type)
-
-                        components.append(component)
-
-                    if callable(outer_type):
-                        assigned = outer_type(components)
-                    else:
-                        assigned = parse_obj_as(outer_type, components)
-
-                    object.__setattr__(self, name, assigned)
+            reference.__component_instance__ = component
 
         self.__sync_referencers()
 
     def get_referenced_components(self, alias: str | None = None) -> Sequence["Component"]:
+        from ceres.ref import Reference
+
         components: list[Component] = []
 
-        if alias is None:
-            for alias in get_model(self).__fields__:
-                components.extend(self.get_referenced_components(alias))
-        else:
-            reference = getattr(self, alias, None)
-            if isinstance(reference, Component):
-                components.append(reference)
-            elif isinstance(reference, Collection):
-                for component in reference:
-                    if isinstance(component, Component):
-                        components.append(component)
+        def visit(obj: Any) -> None:
+            if isinstance(obj, Reference):
+                obj = obj.unref()
+            if isinstance(obj, Component):
+                if obj is not self:
+                    components.append(obj)
 
+        if alias is None:
+            root = self
+        else:
+            root = getattr(self, alias, None)
+
+        traverse(root, visit)
         return unique_list(components, id)
 
     def __set_emitted_event_source(self, event: Event) -> None:

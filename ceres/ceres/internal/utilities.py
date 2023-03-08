@@ -14,8 +14,10 @@ from typing import (
     TYPE_CHECKING,
     Any,
     Awaitable,
+    ByteString,
     Callable,
     ClassVar,
+    Collection,
     Iterable,
     Iterator,
     Mapping,
@@ -275,8 +277,58 @@ def is_subtype(subtype: type | UnionType, base: type | UnionType) -> bool:
     return False
 
 
-def is_optional(type_: type | UnionType) -> bool:
+def is_optional_type(type_: type | UnionType) -> bool:
     return is_subtype(NoneType, type_)
+
+
+def is_iterable(obj: Any) -> TypeGuard[Iterable[Any]]:
+    try:
+        iter(obj)
+        return True
+    except Exception:
+        return False
+
+
+def is_container(obj: Any) -> TypeGuard[Collection[Any]]:
+    if isinstance(obj, (str, ByteString, memoryview)):
+        return False
+
+    return is_iterable(obj) and lenient_isinstance(obj, Collection)
+
+
+def is_mapping(obj: Any) -> TypeGuard[Mapping[Any, Any]]:
+    return lenient_isinstance(obj, Mapping)
+
+
+def traverse(
+    obj: Any,
+    visit: Callable[[Any], None],
+    seen: set[int] | None = None,
+) -> None:
+    if seen is None:
+        seen = set()
+    if id(obj) in seen:
+        return
+
+    seen.add(id(obj))
+
+    visit(obj)
+    if obj is None:
+        return
+
+    if isinstance(obj, BaseModel) or is_dataclass(obj):
+        model = get_model(obj)
+        if model is not None:
+            for name in model.__fields__.keys():
+                element = getattr(obj, name, None)
+                traverse(element, visit, seen)
+    elif is_mapping(obj):
+        for key, value in obj.items():
+            traverse(key, visit, seen)
+            traverse(value, visit, seen)
+    elif is_container(obj):
+        for value in obj:
+            traverse(value, visit, seen)
 
 
 if TYPE_CHECKING:

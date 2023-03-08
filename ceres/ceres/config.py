@@ -1,16 +1,17 @@
 import itertools
+import traceback
 from datetime import timedelta
 from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Mapping, Sequence
 
 from pydantic import Field, SecretStr, parse_obj_as, validator
-from typing_extensions import Self
+from typing_extensions import Self, override
 
 from ceres.address import Address
-from ceres.data import ImmutableDataObject, Name, PositiveTimeDelta
-from ceres.internal.utilities import setattr_internal
-from ceres.loaded import ComponentLoader
+from ceres.data import ClassPath, ImmutableDataObject, Name, PositiveTimeDelta
+from ceres.internal.utilities import lenient_issubclass, setattr_internal
+from ceres.loaded import Loader
 
 if TYPE_CHECKING:
     from ceres.component import Component
@@ -22,8 +23,27 @@ class ConfigObject(ImmutableDataObject):
     pass
 
 
-class ComponentConfig(ComponentLoader):
-    pass
+class _ComponentConfigFields(ImmutableDataObject):
+    name: Name
+
+
+class ComponentConfig(Loader, _ComponentConfigFields):  # type: ignore
+    def load(self, *, args: Sequence[Any] | Mapping[str, Any] | None = None) -> Component:
+        return super().load(args=args)
+
+    @override
+    @classmethod
+    def _get_extra_kwarg_names(cls) -> Sequence[str]:
+        return [*super()._get_extra_kwarg_names(), "name"]
+
+    @validator("cls_path")
+    def _validate_cls_path(cls, value: ClassPath) -> ClassPath:
+        from ceres.component import Component
+
+        if not lenient_issubclass(value.cls, Component):
+            raise ValueError(f"must be a subclass of {Component}")
+
+        return value
 
 
 class ServerConfig(ConfigObject):
@@ -104,7 +124,11 @@ class Config(ConfigObject):
 
     @classmethod
     def from_data(cls, data: Any, path: Path | None = None) -> Self:
-        instance = parse_obj_as(cls, data)
+        try:
+            instance = parse_obj_as(cls, data)
+        except Exception:
+            traceback.print_exc()
+            raise
         setattr_internal(Config, instance, "__path", path)
         setattr_internal(Config, instance, "__component_config_cache", {})
         return instance

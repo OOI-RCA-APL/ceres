@@ -8,28 +8,16 @@ from typing import (
     TypeVar,
 )
 
-from pydantic import Field, root_validator, validate_arguments, validator
-from typing_extensions import Self, override
+from pydantic import Field, root_validator, validate_arguments
+from typing_extensions import Self
 
-from ceres.data import ClassPath, ImmutableDataObject, Name
-from ceres.internal.utilities import get_model, lenient_isinstance, lenient_issubclass
-
-if TYPE_CHECKING:
-    from ceres.component import Component
-else:
-    Component = "Component"
+from ceres.data import ClassPath, ImmutableDataObject
+from ceres.internal.utilities import get_model, lenient_isinstance
 
 _T = TypeVar("_T")
 
 
 class Loader(ImmutableDataObject):
-    class Config(ImmutableDataObject.Config):
-        json_encoders = {
-            **ImmutableDataObject.Config.json_encoders,
-            ClassPath: str,
-        }
-        pass
-
     cls_path: ClassPath = Field(alias="class")
     args: Sequence[Any] | Mapping[str, Any] = ()
 
@@ -117,29 +105,6 @@ class Loader(ImmutableDataObject):
                 init(instance, *args)
 
         return instance
-
-
-class _ComponentLoaderFields(ImmutableDataObject):
-    name: Name
-
-
-class ComponentLoader(Loader, _ComponentLoaderFields):  # type: ignore
-    def load(self, *, args: Sequence[Any] | Mapping[str, Any] | None = None) -> Component:
-        return super().load(args=args)
-
-    @override
-    @classmethod
-    def _get_extra_kwarg_names(cls) -> Sequence[str]:
-        return [*super()._get_extra_kwarg_names(), "name"]
-
-    @validator("cls_path")
-    def _validate_cls_path(cls, value: ClassPath) -> ClassPath:
-        from ceres.component import Component
-
-        if not lenient_issubclass(value.cls, Component):
-            raise ValueError(f"must be a subclass of {Component}")
-
-        return value
 
 
 _loaded_type_cache: dict[type, type["LoadedType"]] = {}
