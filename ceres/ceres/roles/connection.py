@@ -7,7 +7,7 @@ from typing import AsyncIterable
 from typing_extensions import override
 
 from ceres.component import Component
-from ceres.data import ImmutableDataObject, PositiveTimeDelta, jsonify
+from ceres.data import ImmutableDataObject, PositiveTimeDelta
 from ceres.events import (
     ConnectedEvent,
     ConnectFailedEvent,
@@ -143,9 +143,7 @@ class Connection(Component, ABC):
             content=data,
         )
 
-        self.logger.info(f"Sent: {jsonify(message.content)}")
         self.emit_event(MessageSentEvent(message=message))
-
         return message
 
     @action
@@ -174,9 +172,7 @@ class Connection(Component, ABC):
             content=data,
         )
 
-        self.logger.info(f"Received: {jsonify(message.content)}")
         self.emit_event(MessageReceivedEvent(message=message))
-
         return message
 
     async def disconnect(self) -> None:
