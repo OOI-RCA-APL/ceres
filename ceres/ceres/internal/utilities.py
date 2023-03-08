@@ -259,8 +259,6 @@ def decode_td(value: str | timedelta | int | float | Any) -> timedelta:
         case "d":
             return timedelta(days=decoded_value)
 
-    raise get_exception()
-
 
 def is_subtype(subtype: type | UnionType, base: type | UnionType) -> bool:
     try:
