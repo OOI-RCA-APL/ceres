@@ -19,8 +19,8 @@ from ceres.internal.utilities import (
     traverse,
 )
 
-_reference_class_l1_cache: dict[type, type["Reference"]] = {}
-_reference_class_l2_cache: dict[tuple[type, type], type["Reference"]] = {}
+_reference_cls_l1_generic_cache: dict[type, type["Reference"]] = {}
+_reference_cls_l2_generic_cache: dict[tuple[type, type], type["Reference"]] = {}
 
 
 @final
@@ -37,8 +37,8 @@ class Reference(PyProxyBase):
                 f"reference type must be an instance of {type}, got '{strify(component_cls)}'"
             )
 
-        if component_cls in _reference_class_l1_cache:
-            return _reference_class_l1_cache[component_cls]
+        if component_cls in _reference_cls_l1_generic_cache:
+            return _reference_cls_l1_generic_cache[component_cls]
 
         class ReferenceSpec(Reference):  # type: ignore
             __slots__ = ()
@@ -50,7 +50,7 @@ class Reference(PyProxyBase):
             ReferenceSpec.__name__,
         )
 
-        _reference_class_l1_cache[component_cls] = ReferenceSpec
+        _reference_cls_l1_generic_cache[component_cls] = ReferenceSpec
         return ReferenceSpec
 
     @classmethod
@@ -124,8 +124,8 @@ class Reference(PyProxyBase):
     def __component_instance__(self, value: Component | None) -> None:
         def get_class():
             key = (self.__component_cls__, type(value))
-            if key in _reference_class_l2_cache:
-                return _reference_class_l2_cache[key]
+            if key in _reference_cls_l2_generic_cache:
+                return _reference_cls_l2_generic_cache[key]
 
             class ReferenceSpec(type(self)):  # type: ignore
                 __slots__ = ()
@@ -141,7 +141,7 @@ class Reference(PyProxyBase):
             ReferenceSpec.__name__ = type(self).__name__
             ReferenceSpec.__qualname__ = type(self).__qualname__
 
-            _reference_class_l2_cache[key] = ReferenceSpec
+            _reference_cls_l2_generic_cache[key] = ReferenceSpec
             return ReferenceSpec
 
         self._wrapped = value

@@ -7,10 +7,10 @@ from ceres.data import ImmutableDataObject
 _ValueT = TypeVar("_ValueT", covariant=True)
 _ErrorT = TypeVar("_ErrorT", covariant=True)
 
-_class_getitem_cache: dict[tuple[Any, ...], Any] = {}
+_result_cls_generic_cache: dict[tuple[Any, ...], Any] = {}
 
 
-class __Result:
+class _Result:
     """
     This is a workaround for https://github.com/pydantic/pydantic/issues/1194. This can probably be
     removed once Pydantic 2.0 comes out and "GenericModel" is no longer needed.
@@ -21,18 +21,14 @@ class __Result:
         /,
         params: tuple[type[_ValueT], type[_ErrorT]],
     ) -> "Ok[_ValueT] | Fail[_ErrorT]":
-        if params in _class_getitem_cache:
-            return _class_getitem_cache[params]
+        if params in _result_cls_generic_cache:
+            return _result_cls_generic_cache[params]
         value = Ok[params[0]] | Fail[params[1]]  # type: ignore
-        _class_getitem_cache[params] = value
+        _result_cls_generic_cache[params] = value
         return value  # type: ignore
 
 
-__Result.__name__ = "Result"
-__Result.__qualname__ = __Result.__qualname__.replace("__Result", "Result")
-
-
-class Ok(ImmutableDataObject, GenericModel, Generic[_ValueT], __Result):
+class Ok(ImmutableDataObject, GenericModel, Generic[_ValueT], _Result):
     ok: Literal[True] = True
     value: _ValueT
 
@@ -48,7 +44,7 @@ class Ok(ImmutableDataObject, GenericModel, Generic[_ValueT], __Result):
         return True
 
 
-class Fail(ImmutableDataObject, GenericModel, Generic[_ErrorT], __Result):
+class Fail(ImmutableDataObject, GenericModel, Generic[_ErrorT], _Result):
     ok: Literal[False] = False
     error: _ErrorT
 
@@ -67,4 +63,4 @@ class Fail(ImmutableDataObject, GenericModel, Generic[_ErrorT], __Result):
 if TYPE_CHECKING:
     Result = Ok[_ValueT] | Fail[_ErrorT]
 else:
-    Result = __Result
+    Result = _Result
