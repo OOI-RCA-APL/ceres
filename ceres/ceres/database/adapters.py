@@ -78,10 +78,19 @@ class SQLiteDatabaseAdapter(DatabaseAdapter[SQLiteDatabaseConfig]):
     def create_engine(self) -> AsyncEngine:
         engine = super().create_engine()
 
+        @event.listens_for(engine.sync_engine, "first_connect")
+        def first_connect(connection: SQLiteConnection, *args: Any) -> None:
+            # Enable incremental "auto_vacuum" mode when the first connection to the database is
+            # made. This can only be done before database tables are created and is disabled by
+            # default, so we do it here just in case "incremental_vacuum" is needed later on.
+            # https://www.sqlite.org/pragma.html#pragma_auto_vacuum
+            # https://www.sqlite.org/pragma.html#pragma_incremental_vacuum
+            connection.execute("PRAGMA auto_vacuum = INCREMENTAL")
+
         @event.listens_for(engine.sync_engine, "connect")
         def connect(connection: SQLiteConnection, *args: Any) -> None:
             # Enable a 3 second busy timeout.
-            connection.execute("PRAGMA busy_timeout=3000")
+            connection.execute("PRAGMA busy_timeout = 3000")
             # Clear the isolation level to stop "pysqlite" from:
             #   1. Automatically emitting "BEGIN"
             #   2. Automatically emitting "COMMIT" before any DDL
@@ -89,7 +98,7 @@ class SQLiteDatabaseAdapter(DatabaseAdapter[SQLiteDatabaseConfig]):
             connection.isolation_level = None
             # Enable foreign key handling by default.
             # https://docs.sqlalchemy.org/en/latest/dialects/sqlite.html#foreign-key-support
-            connection.execute("PRAGMA foreign_keys=ON")
+            connection.execute("PRAGMA foreign_keys = ON")
 
         @event.listens_for(engine.sync_engine, "begin")
         def begin(connection: Connection) -> None:
@@ -101,7 +110,7 @@ class SQLiteDatabaseAdapter(DatabaseAdapter[SQLiteDatabaseConfig]):
         def close(connection: SQLiteConnection, *args: Any) -> None:
             # Run optimize every time we close a database connection.
             # https://www.sqlite.org/lang_analyze.html
-            connection.execute("PRAGMA analysis_limit=500")
+            connection.execute("PRAGMA analysis_limit = 500")
             connection.execute("PRAGMA optimize")
 
         return engine
