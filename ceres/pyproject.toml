@@ -45,9 +45,6 @@ types-pyyaml = "^6.0.11"
 [tool.poetry.scripts]
 ceres = "ceres:main"
 
-[tool.pytest.ini_options]
-asyncio_mode = "auto"
-
 [tool.black]
 line-length = 100
 
@@ -67,6 +64,10 @@ reportUntypedFunctionDecorator = false
 reportUnusedFunction = false
 typeCheckingMode = "strict"
 useLibraryCodeForTypes = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+filterwarnings = "ignore:.*pkg_resources.*:DeprecationWarning"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
