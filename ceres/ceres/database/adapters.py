@@ -69,8 +69,9 @@ class SQLiteDatabaseAdapter(DatabaseAdapter[SQLiteDatabaseConfig]):
     def get_engine_config(self) -> dict[str, Any]:
         return {
             "poolclass": QueuePool,
-            "pool_size": 10,
-            "max_overflow": -1,
+            "pool_size": 10,  # Keep a maximum of ten connections alive continuously.
+            "max_overflow": -1,  # Allow an infinite number of connections to be created if needed.
+            "pool_recycle": 60,  # Recreate connections after one minute.
             **self.config.engine,
         }
 
@@ -96,6 +97,13 @@ class SQLiteDatabaseAdapter(DatabaseAdapter[SQLiteDatabaseConfig]):
             # https://docs.sqlalchemy.org/en/latest/dialects/sqlite.html#serializable-isolation-savepoints-transactional-ddl
             connection.exec_driver_sql("BEGIN IMMEDIATE")
 
+        @event.listens_for(engine.sync_engine, "close")
+        def close(connection: SQLiteConnection, *args: Any) -> None:
+            # Run optimize every time we close a database connection.
+            # https://www.sqlite.org/lang_analyze.html
+            connection.execute("PRAGMA analysis_limit=500")
+            connection.execute("PRAGMA optimize")
+
         return engine
 
     def __get_temporary_path(self) -> Path:
@@ -114,9 +122,9 @@ class PostgresDatabaseAdapter(DatabaseAdapter[PostgresDatabaseConfig]):
     def get_engine_config(self) -> dict[str, Any]:
         return {
             "poolclass": QueuePool,
-            "pool_size": 10,
-            "max_overflow": -1,
+            "pool_size": 10,  # Keep a maximum of ten connections alive continuously.
+            "max_overflow": -1,  # Allow an infinite number of connections to be created if needed.
             "pool_pre_ping": True,  # Check to see if a connection has closed before use.
-            "pool_recycle": 60 * 5,  # Drop unused connections after 5 minutes.
+            "pool_recycle": 60 * 5,  # Recreate connections after five minutes.
             **self.config.engine,
         }
