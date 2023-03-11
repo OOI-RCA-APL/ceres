@@ -1,9 +1,11 @@
 from datetime import datetime, timezone
 from enum import Enum as BaseEnum
-from typing import Any
+from typing import Any, Callable
+from uuid import UUID
 
-from sqlalchemy import TIMESTAMP, CheckConstraint, Dialect, Enum, Text, TypeDecorator
+from sqlalchemy import TIMESTAMP, CheckConstraint, Dialect, Enum, Text, TypeDecorator, Uuid
 from sqlalchemy.sql.operators import OperatorType
+from typing_extensions import override
 
 from ceres.address import Address
 from ceres.internal.utilities import snakecase
@@ -28,13 +30,33 @@ def EnumConstraint(column: str, cls: type[BaseEnum], name: str) -> CheckConstrai
     )
 
 
+class UUIDMapper(Uuid[UUID]):
+    @override
+    def bind_processor(self, dialect: Dialect) -> Callable[..., str | None]:
+        if dialect.supports_native_uuid and self.native_uuid:
+            return super().bind_processor(dialect)  # type: ignore
+
+        # Reformat to keep dashes.
+        def process(value: UUID | str | None):
+            if value is None:
+                return None
+            if isinstance(value, str):
+                return str(UUID(value))
+
+            return str(value)
+
+        return process
+
+
 class AddressMapper(TypeDecorator[Address]):
     impl = Text
     cache_ok = True
 
+    @override
     def coerce_compared_value(self, op: OperatorType | None, value: Any) -> Any:
         return self.impl_instance.coerce_compared_value(op, value)
 
+    @override
     def process_bind_param(
         self,
         value: Address | None,
@@ -45,6 +67,7 @@ class AddressMapper(TypeDecorator[Address]):
 
         return str(value)
 
+    @override
     def process_result_value(
         self,
         value: Address | None,
@@ -63,9 +86,11 @@ class DateTimeMapper(TypeDecorator[datetime]):
     def __init__(self) -> None:
         super().__init__(timezone=True)
 
+    @override
     def coerce_compared_value(self, op: OperatorType | None, value: Any) -> Any:
         return self.impl_instance.coerce_compared_value(op, value)
 
+    @override
     def process_bind_param(self, value: datetime | None, dialect: Dialect) -> datetime | None:
         if value is None:
             return None
@@ -74,6 +99,7 @@ class DateTimeMapper(TypeDecorator[datetime]):
 
         return value.astimezone(timezone.utc)
 
+    @override
     def process_result_value(self, value: datetime | None, dialect: Dialect) -> datetime | None:
         if value is None:
             return None

@@ -10,7 +10,6 @@ from sqlalchemy import (
     LargeBinary,
     PrimaryKeyConstraint,
     Text,
-    Uuid,
 )
 from sqlalchemy.ext.associationproxy import AssociationProxy, association_proxy
 from sqlalchemy.orm import (
@@ -25,7 +24,13 @@ from sqlalchemy.sql.roles import ExpressionElementRole
 
 from ceres.address import Address
 from ceres.alert import AlertLevel
-from ceres.internal.database.types import AddressMapper, DateTimeMapper, EnumConstraint, EnumMapper
+from ceres.internal.database.types import (
+    AddressMapper,
+    DateTimeMapper,
+    EnumConstraint,
+    EnumMapper,
+    UUIDMapper,
+)
 from ceres.message import MessageDirection
 
 
@@ -42,7 +47,7 @@ class Entity(MappedAsDataclass, DeclarativeBase):
 @final
 class ComponentEntity(Entity):
     __tablename__ = "components"
-    id: Mapped[UUID] = mapped_column(Uuid)
+    id: Mapped[UUID] = mapped_column(UUIDMapper)
     address: Mapped[Address] = mapped_column(AddressMapper)
 
     __table_args__ = (
@@ -55,9 +60,9 @@ class ComponentEntity(Entity):
 class MessageEntity(Entity):
     __tablename__ = "messages"
 
-    id: Mapped[UUID] = mapped_column(Uuid)
+    id: Mapped[UUID] = mapped_column(UUIDMapper)
     source_id: Mapped[UUID] = mapped_column(
-        Uuid,
+        UUIDMapper,
         ForeignKey(ComponentEntity.id, name=f"fk_{__tablename__}__source_id__components"),
     )
     timestamp: Mapped[datetime] = mapped_column(DateTimeMapper)
@@ -85,9 +90,9 @@ class MessageEntity(Entity):
 class AlertEntity(Entity):
     __tablename__ = "alerts"
 
-    id: Mapped[UUID] = mapped_column(Uuid)
+    id: Mapped[UUID] = mapped_column(UUIDMapper)
     source_id: Mapped[UUID] = mapped_column(
-        Uuid,
+        UUIDMapper,
         ForeignKey(ComponentEntity.id, name=f"fk_{__tablename__}__source_id__components"),
     )
     timestamp: Mapped[datetime] = mapped_column(DateTimeMapper)
