@@ -1,6 +1,6 @@
 from abc import ABC
 from enum import Enum
-from typing import Literal, cast, final
+from typing import TYPE_CHECKING, Literal, cast, final
 from uuid import UUID, uuid4
 
 from pydantic import Field
@@ -24,9 +24,14 @@ class StandardEventKind(str, Enum):
     ALERT_EMITTED = "alert-emitted"
 
 
-class Event(ImmutableDataObject, ABC):
+class Event(ImmutableDataObject):
     id: UUID = Field(default_factory=uuid4)
-    source: Address = cast(Address, None)
+
+    if TYPE_CHECKING:
+        source: Address = cast(Address, None)
+    else:
+        source: Address
+
     timestamp: DateTime = Field(default_factory=utc)
     kind: StandardEventKind | str
 

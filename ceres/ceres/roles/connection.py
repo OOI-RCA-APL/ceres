@@ -120,11 +120,11 @@ class Connection(Component, ABC):
 
         if connected:
             self.__state = ConnectionState.CONNECTED
-            self.emit_event(ConnectedEvent())
+            self.emit_event(ConnectedEvent)
             self.logger.info("Connected successfully.")
         else:
             self.__state = ConnectionState.DISCONNECTED
-            self.emit_event(ConnectFailedEvent())
+            self.emit_event(ConnectFailedEvent)
             self.logger.error("Failed to connect.")
 
         return self.connected
@@ -133,7 +133,7 @@ class Connection(Component, ABC):
         try:
             await self._send_data(data)
         except ConnectionLostException:
-            self.emit_event(ConnectionLostEvent())
+            self.emit_event(ConnectionLostEvent)
             await self.disconnect()
             raise
 
@@ -143,7 +143,7 @@ class Connection(Component, ABC):
             content=data,
         )
 
-        self.emit_event(MessageSentEvent(message=message))
+        self.emit_event(MessageSentEvent, message=message)
         return message
 
     @action
@@ -162,7 +162,7 @@ class Connection(Component, ABC):
         try:
             data = await self._receive_data()
         except ConnectionLostException:
-            self.emit_event(ConnectionLostEvent())
+            self.emit_event(ConnectionLostEvent)
             await self.disconnect()
             raise
 
@@ -172,7 +172,7 @@ class Connection(Component, ABC):
             content=data,
         )
 
-        self.emit_event(MessageReceivedEvent(message=message))
+        self.emit_event(MessageReceivedEvent, message=message)
         return message
 
     async def disconnect(self) -> None:
@@ -185,7 +185,7 @@ class Connection(Component, ABC):
             await self._try_disconnect()
         finally:
             self.__state = ConnectionState.DISCONNECTED
-            self.emit_event(DisconnectedEvent())
+            self.emit_event(DisconnectedEvent)
             self.logger.info("Disconnected.")
 
     @routine

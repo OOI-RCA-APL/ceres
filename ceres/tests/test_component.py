@@ -1,6 +1,6 @@
 from dataclasses import field
 
-from ceres import Alert, Alerter, AlertLevel, Component, Event, Ref, on
+from ceres import Alerter, AlertLevel, Component, Event, Ref, on
 
 
 async def test_event_listeners() -> None:
@@ -35,10 +35,10 @@ async def test_event_listeners() -> None:
     receiver.start()
     emitter.start()
 
-    emitter.emit_event(EmitterEvent(value=0))
-    receiver.emit_event(SelfEvent(value=0))
-    emitter.emit_event(EmitterEvent(value=1))
-    receiver.emit_event(SelfEvent(value=1))
+    emitter.emit_event(EmitterEvent, value=0)
+    emitter.emit_event(EmitterEvent, value=1)
+    receiver.emit_event(SelfEvent, value=0)
+    receiver.emit_event(SelfEvent, value=1)
 
     await receiver.settle()
     await emitter.settle()
@@ -61,18 +61,8 @@ async def test_component_alerts() -> None:
 
     component = Test()
     component.start()
-    component.emit_alert(
-        Alert(
-            level=AlertLevel.ERROR,
-            code="test-alert-1",
-        )
-    )
-    component.emit_alert(
-        Alert(
-            level=AlertLevel.ERROR,
-            code="test-alert-2",
-        )
-    )
+    component.emit_alert(AlertLevel.ERROR, "test-alert-1")
+    component.emit_alert(AlertLevel.ERROR, "test-alert-2")
 
     await component.settle()
     assert len(await component.environment.get_alerts()) == 2

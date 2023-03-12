@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Any, Mapping, cast
+from typing import Any, Mapping
 from uuid import UUID, uuid4
 
 from pydantic import Field, validator
@@ -47,7 +47,7 @@ class AlertLevel(str, Enum):
 
 class Alert(ImmutableDataObject):
     id: UUID = Field(default_factory=uuid4)
-    source: Address = cast(Address, None)
+    source: Address
     timestamp: DateTime = Field(default_factory=utc)
     level: AlertLevel
     code: str

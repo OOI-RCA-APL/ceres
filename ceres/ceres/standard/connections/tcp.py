@@ -194,7 +194,7 @@ class TCPConnection(Connection):
 
             if disconnected:
                 try:
-                    self.emit_event(ConnectionLostEvent())
+                    self.emit_event(ConnectionLostEvent)
                     await self.disconnect()
                 except Exception:
                     pass

@@ -7,7 +7,6 @@ from pydantic import Field
 from typing_extensions import Self, override
 
 from ceres import (
-    Alert,
     AlertLevel,
     Connection,
     ImmutableDataObject,
@@ -137,21 +136,11 @@ class CrabeeDriver(Alerter, UI, Component):
 
     @on(ConnectionLostEvent, "connection")
     def __on_connection_lost(self, event: ConnectionLostEvent) -> None:
-        self.emit_alert(
-            Alert(
-                level=AlertLevel.ERROR,
-                code="connection/connection-lost",
-            )
-        )
+        self.emit_alert(AlertLevel.ERROR, "connection/connection-lost")
 
     @on(ConnectFailedEvent, "connection")
     def __on_connect_failed(self, event: ConnectFailedEvent) -> None:
-        self.emit_alert(
-            Alert(
-                level=AlertLevel.ERROR,
-                code="connection/connect-failed",
-            )
-        )
+        self.emit_alert(AlertLevel.ERROR, "connection/connect-failed")
 
     def __check_data_message(self, message: DataMessage) -> None:
         for name in self.checks.__fields__.keys():
@@ -167,18 +156,16 @@ class CrabeeDriver(Alerter, UI, Component):
                 validator.max is not None and value > validator.max
             ):
                 self.emit_alert(
-                    Alert(
-                        level=AlertLevel.ERROR,
-                        code="data/range-exceeded",
-                        info={
-                            "field": name,
-                            "value": value,
-                            "range": {
-                                "min": validator.min,
-                                "max": validator.max,
-                            },
+                    AlertLevel.ERROR,
+                    "data/range-exceeded",
+                    {
+                        "field": name,
+                        "value": value,
+                        "range": {
+                            "min": validator.min,
+                            "max": validator.max,
                         },
-                    )
+                    },
                 )
 
     @on(MessageReceivedEvent, "connection")
@@ -214,12 +201,7 @@ class CrabeeDriver(Alerter, UI, Component):
                 stream.write("\n")
 
         except ParseException:
-            self.emit_alert(
-                Alert(
-                    level=AlertLevel.ERROR,
-                    code="data/unparseable-message",
-                )
-            )
+            self.emit_alert(AlertLevel.ERROR, "data/unparseable-message")
             traceback.print_exc()
             return
 

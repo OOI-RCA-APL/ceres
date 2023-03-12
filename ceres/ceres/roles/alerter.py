@@ -1,25 +1,26 @@
-import logging
+from typing import Any, Mapping
 
 from ceres.alert import Alert, AlertLevel
 from ceres.component import Component
-from ceres.data import jsonify
 from ceres.events import AlertEmittedEvent
 
 
 class Alerter(Component):
-    def emit_alert(self, alert: Alert) -> Alert:
-        match alert.level:
-            case AlertLevel.DEBUG:
-                log_level = logging.DEBUG
-            case AlertLevel.INFO:
-                log_level = logging.INFO
-            case AlertLevel.WARNING:
-                log_level = logging.WARNING
-            case AlertLevel.ERROR:
-                log_level = logging.ERROR
-            case AlertLevel.CRITICAL:
-                log_level = logging.CRITICAL
+    def emit_alert(
+        self,
+        level: AlertLevel,
+        code: str,
+        info: Mapping[str, Any] | None = None,
+    ) -> Alert:
+        return self.emit_alert_instance(
+            Alert(
+                source=self.address,
+                level=level,
+                code=code,
+                info=info if info is not None else {},
+            )
+        )
 
-        self.emit_event(AlertEmittedEvent(alert=alert))
-        self.logger.log(log_level, f"Alert: {jsonify(alert)}")
+    def emit_alert_instance(self, alert: Alert) -> Alert:
+        self.emit_event(AlertEmittedEvent, alert=alert)
         return alert

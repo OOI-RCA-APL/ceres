@@ -13,6 +13,7 @@ from typing import (
     Callable,
     Final,
     Mapping,
+    ParamSpec,
     Sequence,
     TypeVar,
     final,
@@ -95,6 +96,7 @@ else:
 
 _ComponentT = TypeVar("_ComponentT", bound="Component")
 _EventT = TypeVar("_EventT", bound=Event)
+_EventP = ParamSpec("_EventP")
 
 
 class ComponentPaths(ImmutableDataObject):
@@ -392,8 +394,19 @@ class Component(ValidatedDataclass, Tasklet):
         self.unit.remove_component(self)
         self.__unit = None
 
-    def emit_event(self, event: _EventT) -> _EventT:
-        self.__set_emitted_event_source(event)
+    def emit_event(
+        self,
+        event_cls: Callable[_EventP, _EventT],
+        /,
+        *args: _EventP.args,
+        **kwargs: _EventP.kwargs,
+    ) -> _EventT:
+        if "source" not in kwargs:
+            kwargs["source"] = self.address
+
+        return self.emit_event_instance(event_cls(*args, **kwargs))
+
+    def emit_event_instance(self, event: _EventT) -> _EventT:
         # Handle "self" events.
         self.handle_event(event)
         # Send the event to all components have a reference to this one.
@@ -465,7 +478,7 @@ class Component(ValidatedDataclass, Tasklet):
             await self.environment.assign_address_id(self.address)
 
         self.__start_scheduler()
-        self.emit_event(StartedEvent())
+        self.emit_event(StartedEvent)
 
         await asyncio.gather(
             sleep_forever(),
@@ -514,7 +527,7 @@ class Component(ValidatedDataclass, Tasklet):
 
     @override
     async def __done__(self) -> None:
-        self.emit_event(StoppedEvent())
+        self.emit_event(StoppedEvent)
 
     async def __invoke(
         self,
