@@ -129,7 +129,16 @@ class Connection(Component, ABC):
 
         return self.connected
 
-    async def send(self, data: bytes) -> Message:
+    @query
+    async def get_connection_state(self) -> AsyncIterable[ConnectionState]:
+        yield self.__state
+
+        async for event in self.events:
+            if isinstance(event, ConnectedEvent | DisconnectedEvent):
+                yield self.__state
+
+    @action
+    async def send_message(self, data: bytes) -> Message:
         try:
             await self._send_data(data)
         except ConnectionLostException:
@@ -146,19 +155,7 @@ class Connection(Component, ABC):
         self.emit_event(MessageSentEvent, message=message)
         return message
 
-    @action
-    async def send_message(self, data: bytes) -> Message:
-        return await self.send(data)
-
-    @query
-    async def get_connection_state(self) -> AsyncIterable[ConnectionState]:
-        yield self.__state
-
-        async for event in self.events:
-            if isinstance(event, ConnectedEvent | DisconnectedEvent):
-                yield self.__state
-
-    async def receive(self) -> Message:
+    async def receive_message(self) -> Message:
         try:
             data = await self._receive_data()
         except ConnectionLostException:
@@ -200,7 +197,7 @@ class Connection(Component, ABC):
 
             while self.connected:
                 try:
-                    await self.receive()
+                    await self.receive_message()
                 except Exception as exception:
                     if error := str(exception).strip():
                         self.logger.error(error)
