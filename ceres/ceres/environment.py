@@ -64,6 +64,7 @@ class MessageQueryArgs(TypedDict, total=False):
     suffix: bytes | None
     order: MessageOrder | None
     limit: int | None
+    offset: int | None
 
 
 class MessageQuery(Query):
@@ -77,7 +78,8 @@ class MessageQuery(Query):
     prefix: bytes | None = None
     suffix: bytes | None = None
     order: MessageOrder | None = None
-    limit: int | None = None
+    limit: int | None = Field(None, ge=0)
+    offset: int | None = Field(None, ge=0)
 
 
 class AlertOrder(str, Enum):
@@ -103,6 +105,7 @@ class AlertQueryArgs(TypedDict, total=False):
     code_regex: str | _StrPattern | None
     order: AlertOrder | None
     limit: int | None
+    offset: int | None
 
 
 class AlertQuery(Query):
@@ -118,6 +121,7 @@ class AlertQuery(Query):
     code_regex: str | _StrPattern | None = None
     order: AlertOrder | None = None
     limit: int | None = None
+    offset: int | None = None
 
 
 class StatisticsQueryArgs(TypedDict, total=False):
@@ -294,6 +298,8 @@ class Environment(ValidateByType):
 
         if query.limit is not None:
             statement = statement.limit(query.limit)
+        if query.offset is not None:
+            statement = statement.offset(query.limit)
 
         if where is not None:
             statement = statement.where(where(MessageEntity))
@@ -392,6 +398,8 @@ class Environment(ValidateByType):
 
         if query.limit is not None:
             statement = statement.limit(query.limit)
+        if query.offset is not None:
+            statement = statement.offset(query.limit)
 
         if where is not None:
             statement = statement.where(where(AlertEntity))
