@@ -1,13 +1,11 @@
+import { panelGroupInjectionKey } from '@/injection-keys'
 import { usePersisted } from '@/persistence'
 import { MaybeRef } from '@vueuse/core'
-import { computed, inject, InjectionKey, isRef, provide, reactive, watchEffect } from 'vue'
+import { computed, inject, isRef, provide, reactive, watchEffect } from 'vue'
 import Zod from 'zod'
 
-type PanelGroupContext = ReturnType<typeof createPanelGroup>
-
-const injectionKey: InjectionKey<PanelGroupContext> = Symbol('panel-group')
-
-type PanelGroupOptions = {
+export type PanelGroup = ReturnType<typeof createPanelGroup>
+export type PanelGroupOptions = {
   panels?: string[]
   defaultHeight?: number
   persistenceKey?: string
@@ -79,10 +77,15 @@ function createPanelGroup(options?: MaybeRef<PanelGroupOptions>) {
 
 export function providePanelGroup(options?: MaybeRef<PanelGroupOptions>) {
   const group = createPanelGroup(options)
-  provide(injectionKey, group)
+  provide(panelGroupInjectionKey, group)
   return group
 }
 
-export function usePanelGroup(options?: MaybeRef<PanelGroupOptions>) {
-  return inject(injectionKey, null) ?? providePanelGroup(options)
+export function usePanelGroup() {
+  const instance = inject(panelGroupInjectionKey, null)
+  if (instance == null) {
+    throw Error(`missing inject for ${panelGroupInjectionKey}`)
+  }
+
+  return instance
 }

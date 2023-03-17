@@ -23,13 +23,13 @@
 </template>
 
 <script lang="ts" setup>
-import { Path, useSchemaForm } from '@/schema-form'
+import { SchemaPath, useSchemaForm } from '@/json-schema'
 import { Schema } from 'jsonschema'
 
 const { modelValue, path = [] } = defineProps<{
   modelValue: unknown
   schema: Schema & { type: 'string' }
-  path?: Path
+  path?: SchemaPath
 }>()
 
 const emit = defineEmits<{

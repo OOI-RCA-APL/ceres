@@ -1,20 +1,24 @@
 <template>
   <q-form @submit.prevent>
-    <schema-form-node
-      :model-value="modelValue"
-      :schema="schema"
-      @update:model-value="(modelValue) => $emit('update:modelValue', modelValue)"
-    />
-    <q-banner class="bg-negative" dense>
-      {{ JSON.stringify(form.validation.errors) }}
+    <q-banner v-if="form.schemaError" class="bg-warning text-dark" dense inline-actions>
+      Failed to generate form due to an invalid JSON schema.
     </q-banner>
+    <template v-else>
+      <schema-form-node
+        :model-value="modelValue"
+        :schema="schema"
+        @update:model-value="(modelValue) => $emit('update:modelValue', modelValue)"
+      />
+      <q-banner v-if="form.validationErrors" class="bg-negative" dense>
+        {{ form.validationErrorsText }}
+      </q-banner>
+    </template>
   </q-form>
 </template>
 
 <script lang="ts" setup>
 import SchemaFormNode from '@/components/SchemaFormNode.vue'
-import { provideSchemaForm } from '@/schema-form'
-import { Schema } from 'jsonschema'
+import { provideSchemaForm, Schema } from '@/json-schema'
 import { computed } from 'vue'
 
 const { modelValue, schema } = defineProps<{

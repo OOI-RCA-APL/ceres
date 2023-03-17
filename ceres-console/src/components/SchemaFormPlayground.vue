@@ -6,7 +6,7 @@
 
 <script lang="ts" setup>
 import SchemaForm from '@/components/SchemaForm.vue'
-import { Schema } from 'jsonschema'
+import { Schema } from '@/json-schema'
 
 let value = $shallowRef({
   name: 'Sarah',
@@ -39,6 +39,7 @@ const schema: Schema = {
     age: {
       type: 'integer',
       title: 'Age',
+      maximum: 50,
     },
     dimensions: {
       $ref: '#/definitions/Dimensions',

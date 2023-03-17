@@ -41,8 +41,7 @@
 import CommonText from '@/components/CommonText.vue'
 import SchemaFormNode from '@/components/SchemaFormNode.vue'
 import icons from '@/icons'
-import { Path, useSchemaForm } from '@/schema-form'
-import { Schema } from 'jsonschema'
+import { SchemaObject, SchemaPath, useSchemaForm } from '@/json-schema'
 
 const {
   modelValue,
@@ -50,8 +49,8 @@ const {
   path = [],
 } = defineProps<{
   modelValue: unknown
-  schema: Schema & { type: 'object' }
-  path?: Path
+  schema: SchemaObject & { type: 'object' }
+  path?: SchemaPath
 }>()
 
 const emit = defineEmits<{

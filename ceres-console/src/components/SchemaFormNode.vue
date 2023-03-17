@@ -1,7 +1,8 @@
 <template>
   <template v-if="resolved == null">
-    Unable to resolved schema definition: {{ JSON.stringify(schema) }}
+    Unable to resolve schema definition: {{ JSON.stringify(schema) }}
   </template>
+  <template v-else-if="typeof resolved === 'boolean'"></template>
   <template v-else-if="resolved.type === 'integer'">
     <schema-form-integer
       :model-value="modelValue"
@@ -41,8 +42,7 @@ import SchemaFormInteger from '@/components/SchemaFormInteger.vue'
 import SchemaFormNumber from '@/components/SchemaFormNumber.vue'
 import SchemaFormObject from '@/components/SchemaFormObject.vue'
 import SchemaFormString from '@/components/SchemaFormString.vue'
-import { Path, useSchemaForm } from '@/schema-form'
-import { Schema } from 'jsonschema'
+import { Schema, SchemaPath, useSchemaForm } from '@/json-schema'
 
 const {
   modelValue,
@@ -51,7 +51,7 @@ const {
 } = defineProps<{
   modelValue: unknown
   schema: Schema
-  path?: Path
+  path?: SchemaPath
 }>()
 
 defineEmits<{
