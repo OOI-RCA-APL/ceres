@@ -85,7 +85,7 @@
 </template>
 
 <script lang="ts" setup>
-import { useConfig } from '@/api/queries'
+import { useConfig } from '@/api/operations'
 import AlertsIndicator from '@/components/AlertsIndicator.vue'
 import ResizeHandle from '@/components/ResizeHandle.vue'
 import { useDrawer } from '@/drawer'

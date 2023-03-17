@@ -101,7 +101,7 @@
 </template>
 
 <script lang="ts" setup>
-import { getUnit } from '@/api/queries'
+import { getUnit } from '@/api/operations'
 import AlertsIndicator from '@/components/AlertsIndicator.vue'
 import FullPage from '@/components/FullPage.vue'
 import ItemView from '@/components/ItemView.vue'

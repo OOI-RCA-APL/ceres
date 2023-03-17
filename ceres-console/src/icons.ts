@@ -11,6 +11,7 @@ const icons = {
   job: 'build',
   lightMode: 'light_mode',
   menu: 'menu',
+  remove: 'remove',
   script: 'code',
   search: 'search',
   send: 'send',

@@ -8,7 +8,7 @@
 </template>
 
 <script setup lang="ts">
-import { getLayout, useQuery } from '@/api/queries'
+import { getLayout, useQuery } from '@/api/operations'
 import LayoutNode from '@/components/LayoutNode.vue'
 
 const { unitName, componentName } = defineProps<{

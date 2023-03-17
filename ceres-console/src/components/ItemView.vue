@@ -57,7 +57,7 @@ import {
   sendMessage,
   useAlertStream,
   useMessageStream,
-} from '@/api/queries'
+} from '@/api/operations'
 import CommandInput from '@/components/CommandInput.vue'
 import ItemViewAlert from '@/components/ItemViewAlert.vue'
 import ItemViewMessage from '@/components/ItemViewMessage.vue'

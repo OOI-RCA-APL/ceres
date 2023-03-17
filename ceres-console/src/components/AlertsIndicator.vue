@@ -15,7 +15,7 @@
 </template>
 
 <script lang="ts" setup>
-import { useStatistics } from '@/api/queries'
+import { useStatistics } from '@/api/operations'
 import { useSettings } from '@/settings'
 import { displayDuration, useTime } from '@/time'
 

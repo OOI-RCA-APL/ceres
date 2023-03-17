@@ -3,7 +3,7 @@
 </template>
 
 <script lang="ts" setup>
-import { useConfig } from '@/api/queries'
+import { useConfig } from '@/api/operations'
 import { useQuasar } from 'quasar'
 import { computed, provide } from 'vue'
 import { THEME_KEY } from 'vue-echarts'

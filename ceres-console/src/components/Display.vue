@@ -21,7 +21,7 @@
 
 <script lang="ts" setup>
 import { LayoutDisplay } from '@/api/models'
-import { useDisplayStream } from '@/api/queries'
+import { useDisplayStream } from '@/api/operations'
 import ChartDisplay from '@/components/displays/ChartDisplay.vue'
 import GaugeDisplay from '@/components/displays/GaugeDisplay.vue'
 import StateDisplay from '@/components/displays/StateDisplay.vue'
