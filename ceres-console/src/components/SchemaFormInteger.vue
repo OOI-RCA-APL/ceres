@@ -2,30 +2,22 @@
   <div>
     <q-input
       :aria-required="required"
-      class="self-input"
-      :clearable="!required"
       dense
       filled
-      input-class="self-input"
       label-slot
       :model-value="value"
       type="number"
-      @clear="emit('update:modelValue', undefined)"
       @update:model-value="(modelValue) => emit('update:modelValue', resolve(modelValue))"
     >
       <template #label>
-        <div class="row">
-          <span class="q-mr-xs">
-            {{ label }} <span v-if="required" style="opacity: 0.65">*</span>
-          </span>
-          <span :style="{ opacity: 0.5, fontSize: undefined }"> (int)</span>
-        </div>
+        <schema-form-node-input-label v-if="title" :label="title" type="Integer" />
       </template>
     </q-input>
   </div>
 </template>
 
 <script lang="ts" setup>
+import SchemaFormNodeInputLabel from '@/components/SchemaFormNodeInputLabel.vue'
 import { SchemaObject, SchemaPath, useSchemaForm } from '@/json-schema'
 
 const { modelValue, path = [] } = defineProps<{
@@ -65,5 +57,5 @@ if (value !== modelValue) {
 }
 
 const required = $computed(() => form.isRequired(path))
-const label = $computed(() => form.getLabel(path))
+const title = $computed(() => form.getTitle(path))
 </script>

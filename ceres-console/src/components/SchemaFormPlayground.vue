@@ -40,9 +40,23 @@ const schema: Schema = {
       type: 'integer',
       title: 'Age',
       maximum: 50,
+      default: 5,
+    },
+    alive: {
+      type: 'boolean',
+      title: 'Alive',
     },
     dimensions: {
       $ref: '#/definitions/Dimensions',
+      title: 'Age',
+    },
+    strings: {
+      type: 'array',
+      title: 'Strings',
+      items: {
+        type: 'string',
+      },
+      default: ['Hello'],
     },
   },
   required: ['name'],

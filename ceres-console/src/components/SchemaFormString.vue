@@ -1,7 +1,6 @@
 <template>
   <q-input
     :aria-required="required"
-    :clearable="!required"
     dense
     filled
     label-slot
@@ -9,22 +8,18 @@
     outlined
     type="text"
     @clear="emit('update:modelValue', undefined)"
+    @keydown.stop.backspace="onBackspace"
     @update:model-value="(modelValue) => emit('update:modelValue', resolve(modelValue))"
   >
     <template #label>
-      <div class="row">
-        <span class="q-mr-xs">
-          {{ label }} <span v-if="required" style="opacity: 0.65">*</span>
-        </span>
-        <span :style="{ opacity: 0.5, fontSize: undefined }"> (str)</span>
-      </div>
+      <schema-form-node-input-label v-if="title" :label="title" type="String" />
     </template>
   </q-input>
 </template>
 
 <script lang="ts" setup>
-import { SchemaPath, useSchemaForm } from '@/json-schema'
-import { Schema } from 'jsonschema'
+import SchemaFormNodeInputLabel from '@/components/SchemaFormNodeInputLabel.vue'
+import { Schema, SchemaPath, useSchemaForm } from '@/json-schema'
 
 const { modelValue, path = [] } = defineProps<{
   modelValue: unknown
@@ -43,12 +38,13 @@ function resolve(value: unknown) {
     return value
   }
 
-  const text = String(value)
-  if (text === '') {
-    return undefined
-  }
+  return String(value)
+}
 
-  return text
+function onBackspace() {
+  if (!required && value === '') {
+    emit('update:modelValue', undefined)
+  }
 }
 
 const value = $computed(() => resolve(modelValue))
@@ -57,5 +53,5 @@ if (value !== modelValue) {
 }
 
 const required = $computed(() => form.isRequired(path))
-const label = $computed(() => form.getLabel(path))
+const title = $computed(() => form.getTitle(path))
 </script>

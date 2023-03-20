@@ -16,6 +16,7 @@ export type SchemaObject = BaseSchemaObject & {
   exclusiveMinimum?: number
   exclusiveMaximum?: number
   required?: string[]
+  default?: unknown
 }
 
 export type Schema = boolean | SchemaObject
@@ -63,7 +64,7 @@ function createSchemaForm(options: SchemaFormOptions) {
   const validationErrorsText = computed(() =>
     ajv.value.errorsText(validationErrors.value, {
       separator: '\n',
-      dataVar: `${getLabel([]) ?? 'Data'} `,
+      dataVar: `${getTitle([]) ?? 'Data'} `,
     })
   )
 
@@ -124,12 +125,16 @@ function createSchemaForm(options: SchemaFormOptions) {
     if (typeof schema === 'boolean') {
       return false
     }
+    if (schema.default !== undefined) {
+      return JSON.parse(JSON.stringify(schema.default))
+    }
 
     const type = (Array.isArray(schema.type) ? schema[0] : schema.type) ?? undefined
     switch (type) {
       case 'null':
         return null
       case 'boolean':
+      case 'integer':
       case 'number':
         let number = 0
         if (schema.minimum != null && number < schema.minimum) {
@@ -264,7 +269,7 @@ function createSchemaForm(options: SchemaFormOptions) {
     return parent.required.includes(String(last))
   }
 
-  function getLabel(path: SchemaPath): string | undefined {
+  function getTitle(path: SchemaPath): string | undefined {
     const schema = getSchema(path)
     if (schema == null) {
       return undefined
@@ -279,6 +284,9 @@ function createSchemaForm(options: SchemaFormOptions) {
 
     if (label == null) {
       return undefined
+    }
+    if (typeof label === 'number') {
+      return String(label + 1)
     }
 
     return String(label)
@@ -296,7 +304,7 @@ function createSchemaForm(options: SchemaFormOptions) {
     getSchema,
     getParentSchema,
     isRequired,
-    getLabel,
+    getTitle,
   })
 }
 

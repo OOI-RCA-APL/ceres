@@ -1,23 +1,18 @@
 <template>
   <div>
-    <q-input
+    <q-checkbox
       :aria-required="required"
-      dense
-      filled
-      label-slot
+      class="q-ml-xs self-schema-form-boolean-root"
+      :keep-color="true"
+      :label="label"
       :model-value="value"
-      type="number"
+      size="xs"
       @update:model-value="(modelValue) => emit('update:modelValue', resolve(modelValue))"
-    >
-      <template #label>
-        <schema-form-node-input-label v-if="title" :label="title" type="Number" />
-      </template>
-    </q-input>
+    />
   </div>
 </template>
 
 <script lang="ts" setup>
-import SchemaFormNodeInputLabel from '@/components/SchemaFormNodeInputLabel.vue'
 import { SchemaObject, SchemaPath, useSchemaForm } from '@/json-schema'
 
 const { modelValue, path = [] } = defineProps<{
@@ -37,18 +32,7 @@ function resolve(value: unknown) {
     return value
   }
 
-  if (typeof value === 'string') {
-    if (value.trim() === '') {
-      return undefined
-    }
-  }
-
-  const resolved = Number(value)
-  if (Number.isNaN(resolved)) {
-    return undefined
-  }
-
-  return resolved
+  return Boolean(value)
 }
 
 const value = $computed(() => resolve(modelValue))
@@ -57,5 +41,11 @@ if (value !== modelValue) {
 }
 
 const required = $computed(() => form.isRequired(path))
-const title = $computed(() => form.getTitle(path))
+const label = $computed(() => form.getTitle(path))
 </script>
+
+<style scoped>
+.self-schema-form-boolean-root {
+  min-height: 40px;
+}
+</style>
