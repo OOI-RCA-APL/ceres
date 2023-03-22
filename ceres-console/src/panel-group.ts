@@ -1,5 +1,5 @@
 import { getter } from '@/getter'
-import { panelGroupInjectionKey } from '@/injection-keys'
+import { panelGroupInjectionKey } from '@/symbols'
 import { usePersisted } from '@/persistence'
 import { MaybeRef } from '@vueuse/core'
 import { computed, inject, isRef, provide, reactive, watchEffect } from 'vue'

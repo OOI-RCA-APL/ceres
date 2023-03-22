@@ -32,7 +32,7 @@
             class="col-grow"
             :component-name="connection.name"
             kind="message"
-            :title="connection.address"
+            :title="connection.name"
             :unit-name="unit.name"
           />
         </panel>
@@ -60,9 +60,33 @@
             class="col-grow"
             :component-name="alerter.name"
             kind="alert"
-            :title="alerter.address"
+            :title="alerter.name"
             :unit-name="unit.name"
           />
+        </panel>
+      </panel-group>
+      <panel-group
+        v-if="components.length"
+        :panels="components.map((current) => current.name)"
+        :persistence-key="`units/${unit.name}/actions-panel-group`"
+        title="Actions"
+      >
+        <template #tabs>
+          <panel-tab
+            v-for="component in components"
+            :key="component.address"
+            :name="component.name"
+          >
+            {{ component.name }}
+          </panel-tab>
+        </template>
+        <panel
+          v-for="component in components"
+          :key="component.address"
+          class="column"
+          :name="component.name"
+        >
+          <component-procedures class="col" :component="component" kind="action" />
         </panel>
       </panel-group>
       <panel-group
@@ -103,6 +127,7 @@
 <script lang="ts" setup>
 import { getUnit } from '@/api/operations'
 import AlertsIndicator from '@/components/AlertsIndicator.vue'
+import ComponentProcedures from '@/components/ComponentProcedures.vue'
 import FullPage from '@/components/FullPage.vue'
 import ItemView from '@/components/ItemView.vue'
 import Layout from '@/components/Layout.vue'
@@ -139,6 +164,11 @@ const connections = $computed(() =>
 )
 const alerters = $computed(() =>
   components.filter((component) => component.roles.includes('alerter'))
+)
+const actors = $computed(() =>
+  components.filter((component) =>
+    component.procedures.some((procedure) => procedure.kind === 'action')
+  )
 )
 const uis = $computed(() => components.filter((component) => component.roles.includes('ui')))
 </script>

@@ -184,12 +184,48 @@ export const LayoutModel = Zod.object({
   body: LayoutNodeModel,
 })
 
+export type ProcedureKind = Zod.infer<typeof ProcedureKindModel>
+export const ProcedureKindModel = Zod.enum(['query', 'action'])
+
+export type ProcedureArgsInfo = Zod.infer<typeof ProcedureArgsInfoModel>
+export const ProcedureArgsInfoModel = Zod.object({
+  json_schema: Zod.record(Zod.string(), Zod.any()),
+  required: Zod.boolean(),
+})
+
+export type ProcedureOutputInfo = Zod.infer<typeof ProcedureOutputInfoModel>
+export const ProcedureOutputInfoModel = Zod.object({
+  json_schema: Zod.record(Zod.string(), Zod.any()),
+})
+
+const BaseProcedureInfoModel = Zod.object({
+  name: Zod.string(),
+  kind: ProcedureKindModel,
+  live: Zod.boolean(),
+  args: ProcedureArgsInfoModel,
+  output: ProcedureOutputInfoModel,
+})
+
+export type QueryInfo = Zod.infer<typeof QueryInfoModel>
+export const QueryInfoModel = BaseProcedureInfoModel.extend({
+  kind: Zod.literal('query'),
+})
+
+export type ActionInfo = Zod.infer<typeof ActionInfoModel>
+export const ActionInfoModel = BaseProcedureInfoModel.extend({
+  kind: Zod.literal('action'),
+})
+
+export type ProcedureInfo = Zod.infer<typeof ProcedureInfoModel>
+export const ProcedureInfoModel = Zod.discriminatedUnion('kind', [QueryInfoModel, ActionInfoModel])
+
 export type ComponentInfo = Zod.infer<typeof ComponentInfoModel>
 export const ComponentInfoModel = Zod.object({
   name: Zod.string(),
   address: Zod.string(),
   config: ComponentConfigModel,
   roles: Zod.array(ComponentRoleModel),
+  procedures: Zod.array(ProcedureInfoModel),
 })
 
 export type UnitInfo = Zod.infer<typeof UnitInfoModel>

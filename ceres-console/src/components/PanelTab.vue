@@ -1,11 +1,9 @@
 <template>
   <q-btn
-    align="left"
     :class="[
       'row',
       'items-center',
-      'q-px-md',
-      'col-grow',
+      'col',
       isSelected && 'text-primary',
       isSelected && !$q.dark.isActive && 'bg-grey-1',
     ]"

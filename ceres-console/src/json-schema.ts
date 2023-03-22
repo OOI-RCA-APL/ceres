@@ -1,8 +1,8 @@
 import { getter } from '@/getter'
-import { schemaFormInjectionKey } from '@/injection-keys'
+import { schemaFormInjectionKey, unset } from '@/symbols'
 import { MaybeRef } from '@vueuse/core'
 import AJV, { SchemaObject as BaseSchemaObject } from 'ajv'
-import { computed, inject, isRef, provide, reactive } from 'vue'
+import { computed, inject, isRef, provide, reactive, ref } from 'vue'
 
 export type SchemaObject = BaseSchemaObject & {
   $ref?: string
@@ -22,7 +22,7 @@ export type SchemaObject = BaseSchemaObject & {
 
 export type Schema = boolean | SchemaObject
 export type SchemaFormOptions = {
-  value: MaybeRef<unknown>
+  initial: unknown
   schema: MaybeRef<Schema>
 }
 
@@ -45,13 +45,21 @@ function get(object: unknown, path: SchemaPath): any | null {
 }
 
 export function createSchemaForm(options: SchemaFormOptions) {
-  const rootValue = computed(() => (isRef(options.value) ? options.value.value : options.value))
+  if (!options.hasOwnProperty('initial')) {
+    options = { ...options, initial: unset }
+  }
+
   const rootSchema = computed(() => (isRef(options.schema) ? options.schema.value : options.schema))
+  const rootInitialValue = ref(
+    options.initial === unset ? getDefault(rootSchema.value) : options.initial
+  )
+  const rootValue = ref(rootInitialValue.value)
 
   const ajv = computed(
     () =>
       new AJV({
         allErrors: true,
+        validateFormats: false,
       })
   )
 
@@ -129,7 +137,7 @@ export function createSchemaForm(options: SchemaFormOptions) {
   ): null | boolean | number | string | unknown[] | Record<string, unknown> | undefined {
     const schema: Schema | undefined = Array.isArray(pathOrSchema)
       ? getSchema(pathOrSchema)
-      : pathOrSchema
+      : resolve(pathOrSchema)
     if (schema == null) {
       return undefined
     }
@@ -209,7 +217,7 @@ export function createSchemaForm(options: SchemaFormOptions) {
           return undefined
         }
 
-        current = current.properties[index] ?? null
+        current = current.properties[index] ?? undefined
         continue
       }
 

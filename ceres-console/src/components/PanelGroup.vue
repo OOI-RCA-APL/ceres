@@ -3,12 +3,11 @@
     class="column no-wrap"
     :style="group.height != null && group.selected.length ? { height: `${group.height}px` } : ''"
   >
-    <div class="no-wrap overflow-scroll relative-position row">
-      <template v-if="title">
-        <div class="q-px-md q-py-sm self-title">{{ title }}</div>
-        <q-separator vertical />
-      </template>
+    <div class="full-width no-wrap overflow-scroll relative-position row self-tab-row">
       <slot name="tabs" />
+      <div v-if="title" class="absolute self-title">
+        {{ title }}
+      </div>
     </div>
     <q-separator />
 
@@ -49,8 +48,13 @@ const group = providePanelGroup(
 </script>
 
 <style lang="scss" scoped>
+.self-tab-row {
+  min-height: 32px;
+}
+
 .self-title {
   opacity: 0.65;
-  min-width: 120px;
+  top: 6px;
+  left: 16px;
 }
 </style>

@@ -21,7 +21,7 @@ const { path } = defineProps<{
 }>()
 
 const form = useSchemaForm()
-const title = $computed(() => form.getTitle(path))
+const title = $computed(() => (path.length === 0 ? undefined : form.getTitle(path)))
 </script>
 
 <style scoped>
