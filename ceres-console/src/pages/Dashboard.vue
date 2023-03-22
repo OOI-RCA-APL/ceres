@@ -15,9 +15,6 @@
           />
         </div>
       </section-card>
-      <section-card class="q-mt-md" padding title="Schema">
-        <schema-form-playground />
-      </section-card>
     </div>
   </div>
 </template>
@@ -25,7 +22,6 @@
 <script lang="ts" setup>
 import { reload, useMutation } from '@/api/operations'
 import CommonText from '@/components/CommonText.vue'
-import SchemaFormPlayground from '@/components/SchemaFormPlayground.vue'
 import SectionCard from '@/components/SectionCard.vue'
 
 const reloadMutation = useMutation('reload', async () => {

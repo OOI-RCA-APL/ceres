@@ -1,36 +1,29 @@
 <template>
-  <div>
-    <q-input
-      :aria-required="required"
-      dense
-      filled
-      label-slot
-      :model-value="value"
-      type="number"
-      @update:model-value="(modelValue) => emit('update:modelValue', resolve(modelValue))"
-    >
-      <template #label>
-        <schema-form-node-input-label v-if="title" :label="title" type="Integer" />
-      </template>
-    </q-input>
-  </div>
+  <schema-form-input
+    :format="format"
+    input-type="number"
+    :model-value="modelValue"
+    :path="path"
+    :resolve="resolve"
+    :schema="schema"
+    schema-type="Integer"
+    @update:model-value="(modelValue) => emit('update:modelValue', modelValue)"
+  />
 </template>
 
 <script lang="ts" setup>
-import SchemaFormNodeInputLabel from '@/components/SchemaFormNodeInputLabel.vue'
-import { SchemaObject, SchemaPath, useSchemaForm } from '@/json-schema'
+import SchemaFormInput from '@/components/SchemaFormInput.vue'
+import { SchemaObject, SchemaPath } from '@/json-schema'
 
-const { modelValue, path = [] } = defineProps<{
+const { modelValue } = defineProps<{
   modelValue: unknown
-  schema: SchemaObject & { type: 'integer' }
-  path?: SchemaPath
+  schema: SchemaObject & { type: 'number' }
+  path: SchemaPath
 }>()
 
 const emit = defineEmits<{
   (emit: 'update:modelValue', value: unknown): void
 }>()
-
-const form = useSchemaForm()
 
 function resolve(value: unknown) {
   if (value == null) {
@@ -51,11 +44,11 @@ function resolve(value: unknown) {
   return Math.floor(resolved)
 }
 
-const value = $computed(() => resolve(modelValue))
-if (value !== modelValue) {
-  emit('update:modelValue', value)
-}
+function format(value: unknown) {
+  if (typeof value !== 'number') {
+    return ''
+  }
 
-const required = $computed(() => form.isRequired(path))
-const title = $computed(() => form.getTitle(path))
+  return String(value)
+}
 </script>

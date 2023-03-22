@@ -1,7 +1,8 @@
+import { getter } from '@/getter'
+import { schemaFormInjectionKey } from '@/injection-keys'
 import { MaybeRef } from '@vueuse/core'
 import AJV, { SchemaObject as BaseSchemaObject } from 'ajv'
 import { computed, inject, isRef, provide, reactive } from 'vue'
-import { schemaFormInjectionKey } from './injection-keys'
 
 export type SchemaObject = BaseSchemaObject & {
   $ref?: string
@@ -24,11 +25,28 @@ export type SchemaFormOptions = {
   value: MaybeRef<unknown>
   schema: MaybeRef<Schema>
 }
+
 export type SchemaForm = ReturnType<typeof createSchemaForm>
 
-function createSchemaForm(options: SchemaFormOptions) {
-  const value = computed(() => (isRef(options.value) ? options.value.value : options.value))
-  const schema = computed(() => (isRef(options.schema) ? options.schema.value : options.schema))
+function get(object: unknown, path: SchemaPath): any | null {
+  let current: any | null = object
+  for (const index of path) {
+    if (current == null) {
+      return null
+    }
+    if (typeof current !== 'object') {
+      return null
+    }
+
+    current = current[index] ?? null
+  }
+
+  return current
+}
+
+export function createSchemaForm(options: SchemaFormOptions) {
+  const rootValue = computed(() => (isRef(options.value) ? options.value.value : options.value))
+  const rootSchema = computed(() => (isRef(options.schema) ? options.schema.value : options.schema))
 
   const ajv = computed(
     () =>
@@ -40,7 +58,7 @@ function createSchemaForm(options: SchemaFormOptions) {
   const compilation = computed(() => {
     try {
       return {
-        validator: ajv.value.compile(schema.value),
+        validator: ajv.value.compile(rootSchema.value),
         error: null,
       }
     } catch (error) {
@@ -58,37 +76,24 @@ function createSchemaForm(options: SchemaFormOptions) {
       return null
     }
 
-    validator.value(value.value)
+    validator.value(rootValue.value)
     return validator.value.errors
   })
-  const validationErrorsText = computed(() =>
-    ajv.value.errorsText(validationErrors.value, {
-      separator: '\n',
-      dataVar: `${getTitle([]) ?? 'Data'} `,
-    })
-  )
 
-  function resolve(subschema: string | Schema): Schema | null {
-    if (typeof subschema === 'boolean') {
-      return subschema
+  function resolve(schema: Schema): Schema | undefined {
+    if (typeof schema === 'boolean') {
+      return schema
     }
 
-    let ref: string
-    if (typeof subschema === 'object') {
-      if (subschema.$ref == null) {
-        return subschema
-      }
-
-      ref = subschema.$ref
-    } else {
-      ref = subschema
+    if (schema.$ref == null) {
+      return schema
     }
 
-    if (!ref.startsWith('#/')) {
-      return null
+    if (!schema.$ref.startsWith('#/')) {
+      return undefined
     }
 
-    const path = ref
+    const path = schema.$ref
       .split('/')
       .slice(1)
       .map((current) => {
@@ -100,31 +105,38 @@ function createSchemaForm(options: SchemaFormOptions) {
         return number
       })
 
-    const target = get(path)
+    const target = get(rootSchema.value, path)
     if (target == null) {
-      return null
+      return undefined
     }
 
-    if (typeof subschema !== 'object') {
+    if (typeof schema !== 'object') {
       return target
     }
 
-    const result = {
+    const result: SchemaObject = {
       ...target,
-      ...subschema,
+      ...schema,
     }
 
-    result.title = target.title ?? subschema.title ?? String(path[path.length - 1] ?? '')
+    result.title = target.title ?? schema.title ?? String(path[path.length - 1] ?? '')
     delete result['$ref']
     return result
   }
 
-  function createDefault(
-    schema: Schema
-  ): null | boolean | number | string | unknown[] | Record<string, unknown> {
-    if (typeof schema === 'boolean') {
-      return false
+  function getDefault(
+    pathOrSchema: SchemaPath | Schema
+  ): null | boolean | number | string | unknown[] | Record<string, unknown> | undefined {
+    const schema: Schema | undefined = Array.isArray(pathOrSchema)
+      ? getSchema(pathOrSchema)
+      : pathOrSchema
+    if (schema == null) {
+      return undefined
     }
+    if (typeof schema === 'boolean') {
+      return undefined
+    }
+
     if (schema.default !== undefined) {
       return JSON.parse(JSON.stringify(schema.default))
     }
@@ -156,13 +168,12 @@ function createSchemaForm(options: SchemaFormOptions) {
         return ''
       case 'array':
         return []
-      case undefined:
       case 'object':
         const object: Record<string, unknown> = {}
         for (const [property, subschema] of Object.entries(schema.properties ?? {})) {
           const required = schema.required?.includes(property) ?? false
           if (required) {
-            object[property] = createDefault(subschema)
+            object[property] = getDefault(subschema)
           } else {
             object[property] = undefined
           }
@@ -170,36 +181,20 @@ function createSchemaForm(options: SchemaFormOptions) {
         return object
     }
 
-    return null
+    return undefined
   }
 
-  function get(path: SchemaPath): any | null {
-    let current: any | null = schema.value
-    for (const index of path) {
-      if (current == null) {
-        return null
-      }
-      if (typeof current !== 'object') {
-        return null
-      }
-
-      current = current[index] ?? null
-    }
-
-    return current
-  }
-
-  function getSchema(path: SchemaPath): Schema | null {
-    let current: Schema | null = schema.value
+  function getSchema(path: SchemaPath): Schema | undefined {
+    let current: Schema | undefined = rootSchema.value
 
     for (const index of path) {
       if (current == null) {
-        return null
+        return undefined
       }
 
       current = resolve(current)
       if (current == null) {
-        return null
+        return undefined
       }
 
       if (typeof current === 'boolean') {
@@ -207,11 +202,11 @@ function createSchemaForm(options: SchemaFormOptions) {
       }
 
       if (typeof index === 'string') {
-        if (current.type !== 'object' && current.type != null) {
-          return null
+        if (!isType(current, 'object')) {
+          return undefined
         }
         if (typeof current.properties !== 'object') {
-          return null
+          return undefined
         }
 
         current = current.properties[index] ?? null
@@ -219,16 +214,22 @@ function createSchemaForm(options: SchemaFormOptions) {
       }
 
       if (typeof index === 'number') {
-        if (current.type !== 'array') {
-          return null
+        if (!isType(current, 'array')) {
+          return undefined
         }
 
         const tupleSection =
-          current.prefixItems ?? (Array.isArray(current.items) ? current.items : null) ?? null
+          current.prefixItems ??
+          (Array.isArray(current.items) ? current.items : undefined) ??
+          undefined
         const arraySection =
-          current.additionalItems ?? (Array.isArray(current.items) ? null : current.items) ?? null
+          current.additionalItems ??
+          (Array.isArray(current.items) ? undefined : current.items) ??
+          undefined
 
-        if (Array.isArray(tupleSection) && index < tupleSection.length) {
+        if (tupleSection == null && arraySection == null) {
+          current = true
+        } else if (Array.isArray(tupleSection) && index < tupleSection.length) {
           current = tupleSection[index]
         } else {
           current = arraySection
@@ -238,21 +239,21 @@ function createSchemaForm(options: SchemaFormOptions) {
     }
 
     if (current == null) {
-      return null
+      return undefined
     }
 
     return resolve(current)
   }
 
-  function getParentSchema(path: SchemaPath): SchemaObject | null {
+  function getParentSchema(path: SchemaPath): SchemaObject | undefined {
     if (path.length === 0) {
-      return null
+      return undefined
     }
 
-    return getSchema(path.slice(0, path.length - 1)) as SchemaObject | null
+    return getSchema(path.slice(0, path.length - 1)) as SchemaObject | undefined
   }
 
-  function isRequired(path: SchemaPath): boolean {
+  function getRequired(path: SchemaPath): boolean {
     const parent = getParentSchema(path)
     if (parent == null) {
       return true
@@ -293,18 +294,17 @@ function createSchemaForm(options: SchemaFormOptions) {
   }
 
   return reactive({
-    value,
-    schema,
+    value: rootValue,
+    schema: rootSchema,
     validator,
     schemaError,
     validationErrors,
-    validationErrorsText,
-    resolve,
-    createDefault,
-    getSchema,
-    getParentSchema,
-    isRequired,
-    getTitle,
+    resolve: getter(() => rootSchema, resolve),
+    getDefault: getter(() => rootSchema, getDefault),
+    getSchema: getter(() => rootSchema, getSchema),
+    getParentSchema: getter(() => rootSchema, getParentSchema),
+    getRequired: getter(() => rootSchema, getRequired),
+    getTitle: getter(() => rootSchema, getTitle),
   })
 }
 
@@ -323,4 +323,16 @@ export function useSchemaForm() {
   return form
 }
 
-export type SchemaPath = (string | number)[]
+export type SchemaPath = ReadonlyArray<string | number>
+
+export function isType(schema: Schema, type: string) {
+  if (typeof schema === 'boolean' || schema === undefined) {
+    return false
+  }
+
+  if (Array.isArray(schema.type)) {
+    return schema.type.length === 1 && schema.type[0] === type
+  }
+
+  return schema.type === type
+}

@@ -24,7 +24,7 @@ const emit = defineEmits<{
 
 const form = useSchemaForm()
 const isDefined = $computed(() => modelValue !== undefined)
-const isRequired = $computed(() => form.isRequired(path))
+const isRequired = $computed(() => form.getRequired(path))
 
 function onClick() {
   if (isDefined) {
@@ -34,7 +34,7 @@ function onClick() {
   } else {
     const schema = form.getSchema(path)
     if (schema) {
-      emit('update:modelValue', form.createDefault(schema))
+      emit('update:modelValue', form.getDefault(schema))
     }
   }
 }

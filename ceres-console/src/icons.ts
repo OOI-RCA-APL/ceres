@@ -16,6 +16,8 @@ const icons = {
   search: 'search',
   send: 'send',
   settings: 'settings',
+  tools: 'construction',
+  json: 'data_object',
   unit: 'fiber_manual_record',
   units: 'workspaces',
   user: 'person',

@@ -20,7 +20,13 @@
       <slot name="header-append" />
     </div>
     <q-separator />
-    <div v-if="$slots.default && !noBody" :class="['col-grow column', padding && 'q-pa-md']">
+    <div
+      v-if="$slots.default && !noBody"
+      :class="[
+        'col-grow column',
+        padding && `q-pa-${typeof padding === 'boolean' ? 'md' : padding}`,
+      ]"
+    >
       <slot />
     </div>
   </q-card>
@@ -31,7 +37,7 @@ import CommonText from '@/components/CommonText.vue'
 
 const { padding = false, noBody = false } = defineProps<{
   icon?: string
-  padding?: boolean
+  padding?: boolean | 'xs' | 'sm' | 'md' | 'lg' | 'xl'
   title?: string
   to?: string
   noBody?: boolean

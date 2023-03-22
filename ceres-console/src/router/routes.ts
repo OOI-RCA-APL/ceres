@@ -23,6 +23,10 @@ const routes: RouteRecordRaw[] = [
         ],
       },
       {
+        path: '/tools/schema-form-playground',
+        component: () => import('@/pages/tools/SchemaFormPlayground.vue'),
+      },
+      {
         path: '/:catchAll(.*)*',
         redirect: '/units',
       },

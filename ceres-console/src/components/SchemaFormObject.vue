@@ -1,14 +1,11 @@
 <template>
-  <schema-form-composite :path="path" :value="object">
+  <schema-form-composite :model-value="object" :path="path">
     <div v-if="object" class="column q-col-gutter-sm q-pa-sm">
-      <div v-for="[property, subschema] in Object.entries(schema.properties ?? {})" :key="property">
+      <div v-for="property in Object.keys(schema.properties ?? {})" :key="property">
         <schema-form-node
           :model-value="object[property]"
           :path="[...path, property]"
-          :schema="subschema"
-          @update:model-value="
-            (subvalue) => $emit('update:modelValue', { ...object, [property]: subvalue })
-          "
+          @update:model-value="(subvalue) => onUpdate(property, subvalue)"
         />
       </div>
     </div>
@@ -20,14 +17,10 @@ import SchemaFormComposite from '@/components/SchemaFormComposite.vue'
 import SchemaFormNode from '@/components/SchemaFormNode.vue'
 import { SchemaObject, SchemaPath } from '@/json-schema'
 
-const {
-  modelValue,
-  schema,
-  path = [],
-} = defineProps<{
+const { modelValue, schema } = defineProps<{
   modelValue: unknown
   schema: SchemaObject & { type: 'object' }
-  path?: SchemaPath
+  path: SchemaPath
 }>()
 
 const emit = defineEmits<{
@@ -48,5 +41,23 @@ const object = $computed(() => {
 
 if (object !== modelValue) {
   emit('update:modelValue', object)
+}
+
+function withAssigned(property: string, subvalue: unknown) {
+  if (object == null) {
+    return object
+  }
+
+  const keys = Object.keys(schema.properties ?? {})
+  const entries = keys.map((current) => [
+    current,
+    current === property ? subvalue : object[current],
+  ])
+
+  return Object.fromEntries(entries)
+}
+
+function onUpdate(property: string, subvalue: unknown) {
+  emit('update:modelValue', withAssigned(property, subvalue))
 }
 </script>

@@ -1,3 +1,4 @@
+import { getter } from '@/getter'
 import { panelGroupInjectionKey } from '@/injection-keys'
 import { usePersisted } from '@/persistence'
 import { MaybeRef } from '@vueuse/core'
@@ -71,7 +72,7 @@ function createPanelGroup(options?: MaybeRef<PanelGroupOptions>) {
     select,
     deselect,
     toggle,
-    isSelected,
+    isSelected: getter(state, isSelected),
   })
 }
 

@@ -1,24 +1,22 @@
 <template>
-  <div>
-    <q-checkbox
-      :aria-required="required"
-      class="q-ml-xs self-schema-form-boolean-root"
-      :keep-color="true"
-      :label="label"
-      :model-value="value"
-      size="xs"
-      @update:model-value="(modelValue) => emit('update:modelValue', resolve(modelValue))"
-    />
-  </div>
+  <q-checkbox
+    :aria-required="required"
+    class="q-ml-xs self-schema-form-boolean-root"
+    :keep-color="true"
+    :label="label"
+    :model-value="value"
+    size="xs"
+    @update:model-value="(modelValue) => emit('update:modelValue', resolve(modelValue))"
+  />
 </template>
 
 <script lang="ts" setup>
 import { SchemaObject, SchemaPath, useSchemaForm } from '@/json-schema'
 
-const { modelValue, path = [] } = defineProps<{
+const { modelValue, path } = defineProps<{
   modelValue: unknown
-  schema: SchemaObject & { type: 'number' }
-  path?: SchemaPath
+  schema: SchemaObject & { type: 'boolean' }
+  path: SchemaPath
 }>()
 
 const emit = defineEmits<{
@@ -40,7 +38,7 @@ if (value !== modelValue) {
   emit('update:modelValue', value)
 }
 
-const required = $computed(() => form.isRequired(path))
+const required = $computed(() => form.getRequired(path))
 const label = $computed(() => form.getTitle(path))
 </script>
 

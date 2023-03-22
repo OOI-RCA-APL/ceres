@@ -6,7 +6,7 @@
           {{ title }}
         </div>
       </div>
-      <q-separator v-if="value != null" />
+      <q-separator v-if="modelValue != null" />
     </template>
     <slot />
   </q-card>
@@ -15,13 +15,13 @@
 <script lang="ts" setup>
 import { SchemaPath, useSchemaForm } from '@/json-schema'
 
-const { value, path } = defineProps<{
-  value: unknown
+const { path } = defineProps<{
+  modelValue: unknown
   path: SchemaPath
 }>()
 
 const form = useSchemaForm()
-const title = form.getTitle(path)
+const title = $computed(() => form.getTitle(path))
 </script>
 
 <style scoped>

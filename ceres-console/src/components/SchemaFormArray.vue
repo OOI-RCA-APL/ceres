@@ -1,19 +1,11 @@
 <template>
-  <schema-form-composite :path="path" :value="array">
-    <div v-if="array != null" class="column q-col-gutter-sm q-pa-sm">
-      <div v-for="[i, element] in array.entries()" :key="i">
+  <schema-form-composite :model-value="array" :path="path">
+    <div v-if="array != null" :key="key" class="column q-col-gutter-sm q-pa-sm">
+      <div v-for="[index, subvalue] in array.entries()" :key="index">
         <schema-form-node
-          :model-value="element"
-          :path="[...path, i]"
-          :schema="form.getSchema([...path, i])"
-          @update:model-value="
-            (element) =>
-              $emit('update:modelValue', [
-                ...(array ?? []).slice(0, i),
-                ...(element == undefined ? [] : [element]),
-                ...(array ?? []).slice(i + 1),
-              ])
-          "
+          :model-value="subvalue"
+          :path="[...path, index]"
+          @update:model-value="(subvalue) => onUpdate(index, subvalue)"
         />
       </div>
       <div class="text-center">
@@ -37,11 +29,13 @@ import SchemaFormNode from '@/components/SchemaFormNode.vue'
 import icons from '@/icons'
 import { SchemaObject, SchemaPath, useSchemaForm } from '@/json-schema'
 
-const { modelValue, path = [] } = defineProps<{
+const { modelValue, path } = defineProps<{
   modelValue: unknown
   schema: SchemaObject & { type: 'array' }
-  path?: SchemaPath
+  path: SchemaPath
 }>()
+
+let key = $ref(0)
 
 const emit = defineEmits<{
   (emit: 'update:modelValue', value: unknown): void
@@ -65,15 +59,34 @@ if (array !== modelValue) {
   emit('update:modelValue', array)
 }
 
+function withAssigned(index: number, subvalue: unknown) {
+  if (array == null) {
+    return array
+  }
+
+  const before = array.slice(0, index)
+  const middle = subvalue === undefined ? [] : [subvalue]
+  const after = array.slice(index + 1)
+
+  return [...before, ...middle, ...after]
+}
+
+function onUpdate(index: number, subvalue: unknown) {
+  if (subvalue == undefined) {
+    key++
+    key %= Number.MAX_SAFE_INTEGER - 1
+  }
+
+  emit('update:modelValue', withAssigned(index, subvalue))
+}
+
 function onAddButtonClicked() {
-  console.log(array)
   const subschema = form.getSchema([...path, array?.length ?? 0])
-  console.log(JSON.stringify(subschema))
   if (subschema == null) {
     return
   }
 
-  emit('update:modelValue', [...(array ?? []), form.createDefault(subschema)])
+  emit('update:modelValue', [...(array ?? []), form.getDefault(subschema)])
 }
 </script>
 

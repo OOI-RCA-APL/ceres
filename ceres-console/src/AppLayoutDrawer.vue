@@ -43,9 +43,32 @@
       <q-list>
         <q-item clickable>
           <q-item-section avatar>
+            <q-icon :name="icons.tools" />
+          </q-item-section>
+          <q-item-section>
+            <q-item-label>Tools</q-item-label>
+          </q-item-section>
+          <q-item-section side>
+            <q-icon :name="icons.arrowRight" />
+          </q-item-section>
+          <q-menu anchor="bottom right" class="no-shadow" :offset="[8, 0]" self="bottom left">
+            <q-list bordered>
+              <q-item clickable to="/tools/schema-form-playground">
+                <q-item-section avatar>
+                  <q-icon :name="icons.json" />
+                </q-item-section>
+                <q-item-section>
+                  <q-item-label>Schema Form Playground</q-item-label>
+                </q-item-section>
+              </q-item>
+            </q-list>
+          </q-menu>
+        </q-item>
+        <q-item clickable>
+          <q-item-section avatar>
             <q-icon :name="icons.settings" />
           </q-item-section>
-          <q-item-section avatar>
+          <q-item-section>
             <q-item-label>Settings</q-item-label>
           </q-item-section>
           <q-item-section side>

@@ -1,16 +1,19 @@
 <template>
   <q-form @submit.prevent>
-    <q-banner v-if="form.schemaError" class="bg-warning text-dark" dense inline-actions>
+    <q-banner v-if="form.schemaError" class="bg-warning text-dark" dense rounded>
       Failed to generate form due to an invalid JSON schema.
     </q-banner>
     <template v-else>
       <schema-form-node
         :model-value="modelValue"
-        :schema="schema"
+        :path="path"
         @update:model-value="(modelValue) => $emit('update:modelValue', modelValue)"
       />
-      <q-banner v-if="form.validationErrors" class="bg-negative" dense>
-        {{ form.validationErrorsText }}
+      <q-banner v-if="form.validationErrors" class="bg-negative q-mt-sm text-white" dense rounded>
+        <div v-for="(error, i) in form.validationErrors" :key="i">
+          {{ error.instancePath?.trim() ? error.instancePath + ': ' : '' }}
+          {{ error.message }}
+        </div>
       </q-banner>
     </template>
   </q-form>
@@ -18,10 +21,10 @@
 
 <script lang="ts" setup>
 import SchemaFormNode from '@/components/SchemaFormNode.vue'
-import { provideSchemaForm, Schema } from '@/json-schema'
+import { provideSchemaForm, Schema, SchemaPath } from '@/json-schema'
 import { computed } from 'vue'
 
-const { modelValue, schema } = defineProps<{
+const props = defineProps<{
   modelValue: unknown
   schema: Schema
 }>()
@@ -31,7 +34,9 @@ defineEmits<{
 }>()
 
 const form = provideSchemaForm({
-  value: computed(() => modelValue),
-  schema: computed(() => schema),
+  value: computed(() => props.modelValue),
+  schema: computed(() => props.schema),
 })
+
+const path: SchemaPath = []
 </script>

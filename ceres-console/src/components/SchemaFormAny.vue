@@ -6,18 +6,18 @@
     :path="path"
     :resolve="resolve"
     :schema="schema"
-    schema-type="String"
+    schema-type="JSON"
     @update:model-value="(modelValue) => emit('update:modelValue', modelValue)"
   />
 </template>
 
 <script lang="ts" setup>
 import SchemaFormInput from '@/components/SchemaFormInput.vue'
-import { SchemaObject, SchemaPath } from '@/json-schema'
+import { Schema, SchemaPath } from '@/json-schema'
 
 defineProps<{
   modelValue: unknown
-  schema: SchemaObject & { type: 'string' }
+  schema: Schema
   path: SchemaPath
 }>()
 
@@ -25,19 +25,33 @@ const emit = defineEmits<{
   (emit: 'update:modelValue', value: unknown): void
 }>()
 
-function resolve(value: unknown) {
-  if (value == null) {
+function resolve(value: unknown): unknown {
+  if (typeof value !== 'string') {
     return value
   }
+  if (value.trim() === '') {
+    return undefined
+  }
 
-  return String(value)
+  try {
+    return JSON.parse(value) ?? value
+  } catch {
+    return value
+  }
 }
 
 function format(value: unknown) {
-  if (typeof value !== 'string') {
+  if (value === undefined) {
     return ''
   }
+  if (typeof value === 'string') {
+    return value
+  }
 
-  return value
+  try {
+    return JSON.stringify(value) ?? ''
+  } catch {}
+
+  return ''
 }
 </script>
