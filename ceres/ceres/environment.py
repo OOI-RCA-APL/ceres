@@ -299,7 +299,7 @@ class Environment(ValidateByType):
         if query.limit is not None:
             statement = statement.limit(query.limit)
         if query.offset is not None:
-            statement = statement.offset(query.limit)
+            statement = statement.offset(query.offset)
 
         if where is not None:
             statement = statement.where(where(MessageEntity))
@@ -399,7 +399,7 @@ class Environment(ValidateByType):
         if query.limit is not None:
             statement = statement.limit(query.limit)
         if query.offset is not None:
-            statement = statement.offset(query.limit)
+            statement = statement.offset(query.offset)
 
         if where is not None:
             statement = statement.where(where(AlertEntity))
@@ -412,6 +412,8 @@ class Environment(ValidateByType):
         async with self.__database.session() as session:
             rows = await session.execute(statement)
 
+        if query.search is not None:
+            print(query)
         return [Alert.construct(**row._asdict()) for row in rows]  # type: ignore
 
     async def get_statistics(

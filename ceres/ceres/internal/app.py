@@ -129,7 +129,7 @@ async def reload(
 class GetMessagesQueryParameters(MessageQuery):
     source: Address | None = None
     limit: int = Field(default=100, ge=0, le=1000)
-    offset: int = Field(default=100, ge=0, le=1000)
+    offset: int = Field(default=0, ge=0)
 
 
 @api.get("/messages", tags=["data"])
@@ -145,7 +145,7 @@ class GetAlertsQueryParameters(AlertQuery):
     level: AlertLevel | None = None
     code: str | None = None
     limit: int = Field(default=100, ge=0, le=1000)
-    offset: int = Field(default=100, ge=0, le=1000)
+    offset: int = Field(default=0, ge=0)
 
 
 @api.get("/alerts", tags=["data"])
