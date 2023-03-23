@@ -13,7 +13,7 @@
     <template #label>
       <div class="row">
         <span class="q-mr-xs">{{ title }}</span>
-        <span :style="{ opacity: 0.5, fontSize: undefined }"> ⸱ {{ schemaType }}</span>
+        <span :style="{ opacity: 0.5 }"> ⸱ {{ schemaType }}</span>
       </div>
     </template>
   </q-input>

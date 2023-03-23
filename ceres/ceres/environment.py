@@ -1,9 +1,10 @@
 from asyncio import Lock as AsyncLock
 from collections import defaultdict
+from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
 from enum import Enum
 from re import Pattern
-from typing import TYPE_CHECKING, Any, Callable, Mapping, Sequence, TypedDict, final
+from typing import TYPE_CHECKING, Any, TypedDict, final
 from uuid import UUID, uuid4
 
 from pydantic import Extra, Field
@@ -39,7 +40,7 @@ class Query(ImmutableDataObject):
     def with_defaults(self, defaults: Self) -> Self:
         update: dict[str, Any] = {}
 
-        for attribute in self.__fields__.keys():
+        for attribute in self.__fields__:
             current = getattr(self, attribute, None)
             if current is not None:
                 continue
@@ -87,10 +88,7 @@ class AlertOrder(str, Enum):
     NEW_TO_OLD = "new-to-old"
 
 
-if TYPE_CHECKING:
-    _StrPattern = Pattern[str]
-else:
-    _StrPattern = Pattern
+_StrPattern = Pattern[str] if TYPE_CHECKING else Pattern
 
 
 class AlertQueryArgs(TypedDict, total=False):
@@ -112,7 +110,6 @@ class AlertQuery(Query):
     source: Address | Sequence[Address] | None = None
     search: str | None = None
     search_case_sensitive: bool = False
-    within: PositiveTimeDelta | None = None
     within: PositiveTimeDelta | None = None
     after: DateTime | None = None
     before: DateTime | None = None
@@ -197,7 +194,7 @@ class Environment(ValidateByType):
             if id is None:
                 id = await (
                     session.scalar(
-                        select(ComponentEntity.id).where(ComponentEntity.address == address)
+                        select(ComponentEntity.id).where(ComponentEntity.address == address),
                     )
                 )
 
@@ -255,7 +252,7 @@ class Environment(ValidateByType):
                             MessageEntity.content,
                             pattern.encode("utf-8"),
                             query.search_case_sensitive,
-                        )
+                        ),
                     )
                 case DatabaseKind.POSTGRES:
                     statement = statement.where(
@@ -269,7 +266,7 @@ class Environment(ValidateByType):
                             func.encode(MessageEntity.content, "escape"),
                             pattern.encode("utf-8").decode("unicode-escape"),
                             query.search_case_sensitive,
-                        )
+                        ),
                     )
 
         if query.within is not None:
@@ -282,11 +279,11 @@ class Environment(ValidateByType):
             statement = statement.where(MessageEntity.direction == query.direction)
         if query.prefix is not None:
             statement = statement.where(
-                MessageEntity.content.like(escape_like_expression(query.prefix) + b"%")
+                MessageEntity.content.like(escape_like_expression(query.prefix) + b"%"),
             )
         if query.suffix is not None:
             statement = statement.where(
-                MessageEntity.content.like(b"%" + escape_like_expression(query.suffix))
+                MessageEntity.content.like(b"%" + escape_like_expression(query.suffix)),
             )
 
         if query.order is not None:
@@ -354,7 +351,7 @@ class Environment(ValidateByType):
                         )
                         | _like(AlertEntity.level, pattern, query.search_case_sensitive)
                         | _like(AlertEntity.code, pattern, query.search_case_sensitive)
-                        | _like(AlertEntity.info, pattern, query.search_case_sensitive)
+                        | _like(AlertEntity.info, pattern, query.search_case_sensitive),
                     )
                 case DatabaseKind.POSTGRES:
                     statement = statement.where(
@@ -365,7 +362,7 @@ class Environment(ValidateByType):
                         )
                         | _like(AlertEntity.level, pattern, query.search_case_sensitive)
                         | _like(AlertEntity.code, pattern, query.search_case_sensitive)
-                        | _like(cast(AlertEntity.info, Text), pattern, query.search_case_sensitive)
+                        | _like(cast(AlertEntity.info, Text), pattern, query.search_case_sensitive),
                     )
 
         if query.within is not None:
@@ -449,15 +446,16 @@ class Environment(ValidateByType):
         alert_count = 0
         unit_alert_counts: defaultdict[Name, int] = defaultdict(int)
         component_alert_counts: defaultdict[Name, defaultdict[Name, int]] = defaultdict(
-            lambda: defaultdict(int)
+            lambda: defaultdict(int),
         )
 
         alert_counts_by_level: defaultdict[AlertLevel, int] = defaultdict(int)
         unit_alert_counts_by_level: defaultdict[Name, defaultdict[AlertLevel, int]] = defaultdict(
-            lambda: defaultdict(int)
+            lambda: defaultdict(int),
         )
         component_alert_counts_by_level: defaultdict[
-            Name, defaultdict[Name, defaultdict[AlertLevel, int]]
+            Name,
+            defaultdict[Name, defaultdict[AlertLevel, int]],
         ] = defaultdict(lambda: defaultdict(lambda: defaultdict(int)))
 
         async with self.__database.session() as session:
@@ -519,20 +517,20 @@ class Environment(ValidateByType):
                                 ),
                             ),
                         )
-                        for component_name in component_alert_counts_by_level[unit_name].keys()
+                        for component_name in component_alert_counts_by_level[unit_name]
                     },
                 )
-                for unit_name in unit_alert_counts_by_level.keys()
+                for unit_name in unit_alert_counts_by_level
             },
         )
 
     async def __generate_mapping(self, session: AsyncSession) -> dict[Address, UUID]:
-        return {
-            address: id
-            for address, id in await session.execute(
-                select(ComponentEntity.address, ComponentEntity.id)
+        return dict(
+            tuple(row)
+            for row in await session.execute(
+                select(ComponentEntity.address, ComponentEntity.id),
             )
-        }
+        )
 
     async def __get_or_load_mapping(self, session: AsyncSession) -> dict[Address, UUID]:
         async with self.__mapping_lock:

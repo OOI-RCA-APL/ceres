@@ -12,8 +12,6 @@ from ceres import (
     ImmutableDataObject,
     Message,
     MessageOrder,
-    MessageQuery,
-    ParseException,
     Parser,
     Stream,
     on,
@@ -25,6 +23,7 @@ from ceres import (
 from ceres.component import Component
 from ceres.console import ChartDisplay, ConsoleColor, StateDisplay, ValueDisplay
 from ceres.events import ConnectFailedEvent, ConnectionLostEvent, MessageReceivedEvent
+from ceres.exceptions import ParseException
 from ceres.layout import Layout, LayoutColumn, LayoutDisplay, LayoutRow
 from ceres.ref import Ref
 from ceres.roles.alerter import Alerter
@@ -461,10 +460,8 @@ class CrabeeDriver(Alerter, UI, Component):
         parsed: list[DataMessage] = []
         messages = reversed(
             await self.environment.get_messages(
-                MessageQuery(
-                    after=cutoff,
-                    order=MessageOrder.NEW_TO_OLD,
-                )
+                after=cutoff,
+                order=MessageOrder.NEW_TO_OLD,
             )
         )
 

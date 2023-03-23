@@ -1,5 +1,4 @@
 import re
-from re import Pattern
 from typing import Any, final
 
 from typing_extensions import Self
@@ -7,8 +6,9 @@ from typing_extensions import Self
 from ceres.data import Name, NameType
 
 
-class _RegexStr(str):
-    regex: Pattern[str] = re.compile(r".+")
+@final
+class Address(str):
+    regex = re.compile(rf"^{NameType.regex.pattern[1:-1]}\.{NameType.regex.pattern[1:-1]}$")
 
     @classmethod
     def __get_validators__(cls) -> Any:
@@ -30,14 +30,6 @@ class _RegexStr(str):
 
         return str.__new__(cls, value)
 
-    def __repr__(self) -> str:
-        return f"{type(self).__name__}({repr(str(self))})"
-
-
-@final
-class Address(_RegexStr):
-    regex = re.compile(rf"^{NameType.regex.pattern[1:-1]}\.{NameType.regex.pattern[1:-1]}$")
-
     @classmethod
     def create(cls, unit: Name, component: Name, /) -> Self:
         return cls(f"{unit}.{component}")
@@ -53,3 +45,6 @@ class Address(_RegexStr):
     @property
     def name(self) -> Name:
         return self.component
+
+    def __repr__(self) -> str:
+        return f"{type(self).__name__}({repr(str(self))})"

@@ -1,8 +1,8 @@
 import { getter } from '@/getter'
 import { usePersisted } from '@/persistence'
-import { MaybeRef } from '@vueuse/core'
+import { fromRef, MaybeRef, Plain } from '@/utilities'
 import AJV, { SchemaObject as BaseSchemaObject } from 'ajv'
-import { computed, isRef, reactive } from 'vue'
+import { computed, reactive } from 'vue'
 
 export type SchemaObject = BaseSchemaObject & {
   $ref?: string
@@ -17,36 +17,36 @@ export type SchemaObject = BaseSchemaObject & {
   exclusiveMinimum?: number
   exclusiveMaximum?: number
   required?: string[]
-  default?: unknown
+  default?: Plain
 }
 
 export type Schema = boolean | SchemaObject
 export type SchemaFormOptions = {
-  initial?: unknown
+  initial?: Plain
   schema: MaybeRef<Schema>
   persist?: string
 }
 
 export type SchemaForm = ReturnType<typeof createSchemaForm>
 
-function get(object: unknown, path: SchemaPath): any | null {
-  let current: any | null = object
+function get(object: Plain | undefined, path: SchemaPath): Plain | undefined {
+  let current: any = object
   for (const index of path) {
     if (current == null) {
-      return null
+      return undefined
     }
     if (typeof current !== 'object') {
-      return null
+      return undefined
     }
 
-    current = current[index] ?? null
+    current = current[index]
   }
 
   return current
 }
 
 export function createSchemaForm(options: SchemaFormOptions) {
-  const rootSchema = computed(() => (isRef(options.schema) ? options.schema.value : options.schema))
+  const rootSchema = computed(() => fromRef(options.schema))
   const state = usePersisted({
     schema: ({ object, any }) =>
       object({
@@ -118,12 +118,12 @@ export function createSchemaForm(options: SchemaFormOptions) {
       })
 
     const target = get(rootSchema.value, path)
-    if (target == null) {
+    if (target == null || typeof target !== 'object' || Array.isArray(target)) {
       return undefined
     }
 
     if (typeof schema !== 'object') {
-      return target
+      return undefined
     }
 
     const result: SchemaObject = {
@@ -131,14 +131,12 @@ export function createSchemaForm(options: SchemaFormOptions) {
       ...schema,
     }
 
-    result.title = target.title ?? schema.title ?? String(path[path.length - 1] ?? '')
+    result.title = String(target.title ?? schema.title ?? String(path[path.length - 1] ?? ''))
     delete result['$ref']
     return result
   }
 
-  function getDefault(
-    pathOrSchema: SchemaPath | Schema = []
-  ): null | boolean | number | string | unknown[] | Record<string, unknown> | undefined {
+  function getDefault(pathOrSchema: SchemaPath | Schema = []): Plain | undefined {
     const schema: Schema | undefined = Array.isArray(pathOrSchema)
       ? getSchema(pathOrSchema)
       : resolve(pathOrSchema)
@@ -181,7 +179,7 @@ export function createSchemaForm(options: SchemaFormOptions) {
       case 'array':
         return []
       case 'object':
-        const object: Record<string, unknown> = {}
+        const object: Record<string, any> = {}
         for (const [property, subschema] of Object.entries(schema.properties ?? {})) {
           const required = schema.required?.includes(property) ?? false
           if (required) {
@@ -190,6 +188,7 @@ export function createSchemaForm(options: SchemaFormOptions) {
             object[property] = undefined
           }
         }
+
         return object
     }
 

@@ -1,8 +1,8 @@
 import { getter } from '@/getter'
-import { panelGroupInjectionKey } from '@/symbols'
 import { usePersisted } from '@/persistence'
-import { MaybeRef } from '@vueuse/core'
-import { computed, inject, isRef, provide, reactive, watchEffect } from 'vue'
+import { panelGroupInjectionKey } from '@/symbols'
+import { asRef, MaybeRef } from '@/utilities'
+import { computed, inject, provide, reactive, watchEffect } from 'vue'
 import Zod from 'zod'
 
 export type PanelGroup = ReturnType<typeof createPanelGroup>
@@ -18,7 +18,7 @@ const PanelGroupStateSchema = Zod.object({
 })
 
 function createPanelGroup(options?: MaybeRef<PanelGroupOptions>) {
-  const reactiveOptions = isRef(options) ? options : computed(() => options ?? {})
+  const reactiveOptions = asRef(options ?? {})
   const state = usePersisted({
     schema: PanelGroupStateSchema,
     methods: computed(() =>

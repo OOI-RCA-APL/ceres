@@ -1,7 +1,8 @@
 import asyncio
 import traceback
+from collections.abc import AsyncIterable, Mapping, Sequence
 from logging import Logger
-from typing import TYPE_CHECKING, AsyncIterable, Mapping, Sequence, final
+from typing import TYPE_CHECKING, final
 from weakref import ref
 
 from pydantic import Field
@@ -184,7 +185,7 @@ class Unit(Tasklet):
     def __on_component_exception(self, component: Component, exception: BaseException) -> None:
         self.logger.error(
             f"Exception occurred in component '{component.address}': "
-            f"{traceback.format_exception(exception)}"
+            f"{traceback.format_exception(exception)}",
         )
         self.remove_component(component)
 
