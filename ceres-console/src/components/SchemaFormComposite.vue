@@ -13,14 +13,14 @@
 </template>
 
 <script lang="ts" setup>
-import { SchemaPath, useSchemaForm } from '@/json-schema'
+import { SchemaForm, SchemaPath } from '@/schema-form'
 
-const { path } = defineProps<{
+const { path, form } = defineProps<{
   modelValue: unknown
+  form: SchemaForm
   path: SchemaPath
 }>()
 
-const form = useSchemaForm()
 const title = $computed(() => (path.length === 0 ? undefined : form.getTitle(path)))
 </script>
 

@@ -22,7 +22,7 @@
       </div>
       <q-separator vertical />
       <div class="col q-pa-sm">
-        <schema-form v-if="selected" :key="selected.name" :schema="selected.args.json_schema" />
+        <schema-form v-if="selected" :key="selected.name" :form="form" />
         <div class="q-col-gutter-sm q-pt-sm row">
           <div>
             <q-btn class="full-width" color="primary" label="Run" />
@@ -45,6 +45,7 @@
 import { ComponentInfo, ProcedureKind } from '@/api/models'
 import SchemaForm from '@/components/SchemaForm.vue'
 import SectionCard from '@/components/SectionCard.vue'
+import { computed } from 'vue'
 
 const { component, kind } = defineProps<{
   component: ComponentInfo
@@ -61,4 +62,10 @@ const queries = $computed(() =>
 const procedures = $computed(() => (kind === 'action' ? actions : queries))
 
 let selected = $ref(procedures[0] ?? null)
+const form = computed(() => ({
+  persist: `/state/component/${component.address}/procedure/${selected.name}/${JSON.stringify(
+    selected.args.json_schema
+  )}`,
+  schema: selected.args.json_schema,
+}))
 </script>

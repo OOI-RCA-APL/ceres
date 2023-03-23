@@ -1,8 +1,8 @@
 import { getter } from '@/getter'
-import { schemaFormInjectionKey, unset } from '@/symbols'
+import { usePersisted } from '@/persistence'
 import { MaybeRef } from '@vueuse/core'
 import AJV, { SchemaObject as BaseSchemaObject } from 'ajv'
-import { computed, inject, isRef, provide, reactive, ref } from 'vue'
+import { computed, isRef, reactive } from 'vue'
 
 export type SchemaObject = BaseSchemaObject & {
   $ref?: string
@@ -22,8 +22,9 @@ export type SchemaObject = BaseSchemaObject & {
 
 export type Schema = boolean | SchemaObject
 export type SchemaFormOptions = {
-  initial: unknown
+  initial?: unknown
   schema: MaybeRef<Schema>
+  persist?: string
 }
 
 export type SchemaForm = ReturnType<typeof createSchemaForm>
@@ -45,15 +46,18 @@ function get(object: unknown, path: SchemaPath): any | null {
 }
 
 export function createSchemaForm(options: SchemaFormOptions) {
-  if (!options.hasOwnProperty('initial')) {
-    options = { ...options, initial: unset }
-  }
-
   const rootSchema = computed(() => (isRef(options.schema) ? options.schema.value : options.schema))
-  const rootInitialValue = ref(
-    options.initial === unset ? getDefault(rootSchema.value) : options.initial
-  )
-  const rootValue = ref(rootInitialValue.value)
+  const state = usePersisted({
+    schema: ({ object, any }) =>
+      object({
+        value: any().default(() => getDefault(rootSchema.value)),
+      }),
+    methods: options.persist ? [{ type: 'local-storage', key: options.persist }] : [],
+  })
+
+  if (options.hasOwnProperty('initial')) {
+    state.value = options.initial
+  }
 
   const ajv = computed(
     () =>
@@ -84,7 +88,7 @@ export function createSchemaForm(options: SchemaFormOptions) {
       return null
     }
 
-    validator.value(rootValue.value)
+    validator.value(state.value)
     return validator.value.errors
   })
 
@@ -133,7 +137,7 @@ export function createSchemaForm(options: SchemaFormOptions) {
   }
 
   function getDefault(
-    pathOrSchema: SchemaPath | Schema
+    pathOrSchema: SchemaPath | Schema = []
   ): null | boolean | number | string | unknown[] | Record<string, unknown> | undefined {
     const schema: Schema | undefined = Array.isArray(pathOrSchema)
       ? getSchema(pathOrSchema)
@@ -301,9 +305,14 @@ export function createSchemaForm(options: SchemaFormOptions) {
     return String(label)
   }
 
+  function reset() {
+    state.value = getDefault()
+  }
+
   return reactive({
-    value: rootValue,
+    value: computed({ get: () => state.value, set: (value) => (state.value = value) }),
     schema: rootSchema,
+    reset,
     validator,
     schemaError,
     validationErrors,
@@ -316,22 +325,11 @@ export function createSchemaForm(options: SchemaFormOptions) {
   })
 }
 
-export function provideSchemaForm(options: SchemaFormOptions) {
-  const form = createSchemaForm(options)
-  provide(schemaFormInjectionKey, form)
-  return form
-}
-
-export function useSchemaForm() {
-  const form = inject(schemaFormInjectionKey, null)
-  if (form == null) {
-    throw new Error(`missing inject for ${schemaFormInjectionKey}`)
-  }
-
-  return form
-}
-
 export type SchemaPath = ReadonlyArray<string | number>
+
+export function isSchemaForm(value: unknown): value is SchemaForm {
+  return value != null && typeof value === 'object' && 'schema' in value && 'validator' in value
+}
 
 export function isType(schema: Schema, type: string) {
   if (typeof schema === 'boolean' || schema === undefined) {

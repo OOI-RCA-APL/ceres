@@ -6,7 +6,7 @@
     </div>
     <div class="column q-col-gutter-sm q-pa-sm row-lg">
       <div class="col">
-        <section-card title="JSON Schema">
+        <section-card title="Schema">
           <q-input
             v-model="state.schemaJson"
             autogrow
@@ -20,7 +20,7 @@
       </div>
       <div class="col">
         <section-card padding="sm" title="Form">
-          <schema-form v-model="state.data" :schema="schema" />
+          <schema-form :form="form" />
         </section-card>
       </div>
       <div class="col">
@@ -30,7 +30,7 @@
             dense
             filled
             input-class="monospace"
-            :model-value="JSON.stringify(state.data, null, 2)"
+            :model-value="JSON.stringify(form.value, null, 2)"
             readonly
             square
             type="textarea"
@@ -46,16 +46,16 @@ import CommonText from '@/components/CommonText.vue'
 import SchemaForm from '@/components/SchemaForm.vue'
 import SectionCard from '@/components/SectionCard.vue'
 import { usePersisted } from '@/persistence'
+import { createSchemaForm } from '@/schema-form'
+import { computed } from 'vue'
 import Zod from 'zod'
 
 const state = usePersisted({
   schema: ({ object }) =>
     object({
-      schemaJson: Zod.string().default('{\n  "type": "object"\n}'),
-      data: Zod.unknown().default(() => ({})),
+      schemaJson: Zod.string().default(() => JSON.stringify(createDefaultSchema(), null, 2)),
     }),
-  methods: [{ type: 'local-storage', key: 'state/schema-form-playground' }],
-  // methods: [],
+  methods: [{ type: 'local-storage', key: 'state/schema-form-playground/schema' }],
 })
 
 const schema = $computed<any>(() => {
@@ -65,4 +65,25 @@ const schema = $computed<any>(() => {
     return undefined
   }
 })
+
+const form = createSchemaForm({
+  schema: computed(() => schema),
+  persist: 'state/schema-form-playground/form',
+})
+
+function createDefaultSchema() {
+  return {
+    type: 'object',
+    properties: {
+      name: {
+        type: 'string',
+        title: 'Name',
+      },
+      age: {
+        type: 'number',
+        title: 'Age',
+      },
+    },
+  }
+}
 </script>

@@ -61,6 +61,14 @@
                   <q-item-label>Schema Form Playground</q-item-label>
                 </q-item-section>
               </q-item>
+              <q-item clickable @click="clearLocalStorage">
+                <q-item-section avatar>
+                  <q-icon :name="icons.clearLocalStorage" />
+                </q-item-section>
+                <q-item-section>
+                  <q-item-label>Clear Local Storage</q-item-label>
+                </q-item-section>
+              </q-item>
             </q-list>
           </q-menu>
         </q-item>
@@ -116,12 +124,44 @@ import icons from '@/icons'
 import { useSettings } from '@/settings'
 import { displayDuration } from '@/time'
 import moment from 'moment'
+import { LocalStorage, useQuasar } from 'quasar'
 import { useRoute } from 'vue-router'
 
 const config = useConfig()
 const drawer = useDrawer()
+const quasar = useQuasar()
 const route = useRoute()
 const settings = useSettings()
+
+function clearLocalStorage() {
+  quasar
+    .dialog({
+      title: 'Clear Local Storage',
+      class: 'no-shadow',
+      message:
+        'This action will clear all saved UI state, form state and settings for this site from ' +
+        'your local browser. This can be useful if you have managed to get the application ' +
+        'into an undesirable state and want to get back to a clean slate.',
+      ok: {
+        label: 'Clear',
+        color: 'primary',
+        flat: true,
+      },
+      cancel: {
+        label: 'Cancel',
+        flat: true,
+        color: 'grey',
+      },
+    })
+    .onOk(() => {
+      LocalStorage.clear()
+      quasar.notify({
+        message: 'Local storage cleared successfully.',
+        icon: icons.clearLocalStorage,
+        color: 'positive',
+      })
+    })
+}
 </script>
 
 <style lang="scss" scoped>

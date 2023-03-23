@@ -1,8 +1,9 @@
 <template>
-  <schema-form-composite :model-value="object" :path="path">
+  <schema-form-composite :form="form" :model-value="object" :path="path">
     <div v-if="object" class="column q-col-gutter-sm q-pa-sm">
       <div v-for="property in Object.keys(schema.properties ?? {})" :key="property">
         <schema-form-node
+          :form="form"
           :model-value="object[property]"
           :path="[...path, property]"
           @update:model-value="(subvalue) => onUpdate(property, subvalue)"
@@ -15,10 +16,11 @@
 <script lang="ts" setup>
 import SchemaFormComposite from '@/components/SchemaFormComposite.vue'
 import SchemaFormNode from '@/components/SchemaFormNode.vue'
-import { SchemaObject, SchemaPath } from '@/json-schema'
+import { SchemaForm, SchemaObject, SchemaPath } from '@/schema-form'
 
 const { modelValue, schema } = defineProps<{
   modelValue: unknown
+  form: SchemaForm
   schema: SchemaObject & { type: 'object' }
   path: SchemaPath
 }>()

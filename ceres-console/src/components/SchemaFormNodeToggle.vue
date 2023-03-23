@@ -11,18 +11,18 @@
 </template>
 
 <script lang="ts" setup>
-import { SchemaPath, useSchemaForm } from '@/json-schema'
+import { SchemaForm, SchemaPath } from '@/schema-form'
 
-const { modelValue, path = [] } = defineProps<{
+const { modelValue, form, path } = defineProps<{
   modelValue: unknown
-  path?: SchemaPath
+  form: SchemaForm
+  path: SchemaPath
 }>()
 
 const emit = defineEmits<{
   (emit: 'update:modelValue', value: unknown): void
 }>()
 
-const form = useSchemaForm()
 const isDefined = $computed(() => modelValue !== undefined)
 const isRequired = $computed(() => form.getRequired(path))
 

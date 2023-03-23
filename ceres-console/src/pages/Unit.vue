@@ -165,11 +165,6 @@ const connections = $computed(() =>
 const alerters = $computed(() =>
   components.filter((component) => component.roles.includes('alerter'))
 )
-const actors = $computed(() =>
-  components.filter((component) =>
-    component.procedures.some((procedure) => procedure.kind === 'action')
-  )
-)
 const uis = $computed(() => components.filter((component) => component.roles.includes('ui')))
 </script>
 

@@ -1,5 +1,6 @@
 <template>
   <schema-form-input
+    :form="form"
     :format="format"
     input-type="text"
     :model-value="modelValue"
@@ -13,10 +14,11 @@
 
 <script lang="ts" setup>
 import SchemaFormInput from '@/components/SchemaFormInput.vue'
-import { SchemaObject, SchemaPath } from '@/json-schema'
+import { SchemaForm, SchemaObject, SchemaPath } from '@/schema-form'
 
 defineProps<{
   modelValue: unknown
+  form: SchemaForm
   schema: SchemaObject & { type: 'string' }
   path: SchemaPath
 }>()

@@ -1,4 +1,4 @@
-import type { SchemaForm } from '@/json-schema'
+import type { SchemaForm } from '@/schema-form'
 import type { PanelGroup } from '@/panel-group'
 import { InjectionKey } from 'vue'
 

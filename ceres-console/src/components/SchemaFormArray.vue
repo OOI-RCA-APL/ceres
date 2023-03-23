@@ -1,8 +1,9 @@
 <template>
-  <schema-form-composite :model-value="array" :path="path">
+  <schema-form-composite :form="form" :model-value="array" :path="path">
     <div v-if="array != null" :key="key" class="column q-col-gutter-sm q-pa-sm">
       <div v-for="[index, subvalue] in array.entries()" :key="index">
         <schema-form-node
+          :form="form"
           :model-value="subvalue"
           :path="[...path, index]"
           @update:model-value="(subvalue) => onUpdate(index, subvalue)"
@@ -27,10 +28,11 @@
 import SchemaFormComposite from '@/components/SchemaFormComposite.vue'
 import SchemaFormNode from '@/components/SchemaFormNode.vue'
 import icons from '@/icons'
-import { SchemaObject, SchemaPath, useSchemaForm } from '@/json-schema'
+import { SchemaForm, SchemaObject, SchemaPath } from '@/schema-form'
 
-const { modelValue, path } = defineProps<{
+const { modelValue, form, path } = defineProps<{
   modelValue: unknown
+  form: SchemaForm
   schema: SchemaObject & { type: 'array' }
   path: SchemaPath
 }>()
@@ -40,8 +42,6 @@ let key = $ref(0)
 const emit = defineEmits<{
   (emit: 'update:modelValue', value: unknown): void
 }>()
-
-const form = useSchemaForm()
 
 const array = $computed(() => {
   if (modelValue == null) {

@@ -5,6 +5,7 @@
     </q-banner>
     <template v-else>
       <schema-form-node
+        :form="form"
         :model-value="form.value"
         :path="path"
         @update:model-value="(modelValue) => (form.value = modelValue)"
@@ -21,36 +22,20 @@
 
 <script lang="ts" setup>
 import SchemaFormNode from '@/components/SchemaFormNode.vue'
-import { provideSchemaForm, Schema, SchemaPath } from '@/json-schema'
-import { unset } from '@/symbols'
-import { computed, watch, watchEffect } from 'vue'
+import {
+  createSchemaForm,
+  isSchemaForm,
+  SchemaForm,
+  SchemaFormOptions,
+  SchemaPath,
+} from '@/schema-form'
 
-const { modelValue = unset, schema } = defineProps<{
-  modelValue?: unknown
-  schema: Schema
+const props = defineProps<{
+  form: SchemaForm | SchemaFormOptions
 }>()
-
-const emit = defineEmits<{
-  (emit: 'update:modelValue', value: unknown): void
-}>()
-
-const form = provideSchemaForm({
-  initial: modelValue,
-  schema: computed(() => schema),
-})
-
-watch(
-  () => modelValue,
-  () => {
-    if (modelValue !== unset) {
-      form.value = modelValue
-    }
-  }
-)
-
-watchEffect(() => {
-  emit('update:modelValue', form.value)
-})
 
 const path: SchemaPath = []
+const form = $computed(() =>
+  isSchemaForm(props.form) ? props.form : createSchemaForm({ ...props.form })
+)
 </script>
