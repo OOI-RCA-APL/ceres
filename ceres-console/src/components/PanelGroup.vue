@@ -5,9 +5,14 @@
   >
     <div class="full-width no-wrap overflow-scroll relative-position row self-tab-row">
       <slot name="tabs" />
-      <div v-if="title" class="absolute self-title">
+      <q-chip
+        class="absolute bg-transparent no-shadow self-title"
+        clickable
+        dense
+        @click="group.toggleAll()"
+      >
         {{ title }}
-      </div>
+      </q-chip>
     </div>
     <q-separator />
 
@@ -31,18 +36,18 @@ import ResizeHandle from '@/components/ResizeHandle.vue'
 import { providePanelGroup } from '@/panel-group'
 import { computed } from 'vue'
 
-const { panels, defaultHeight, persistenceKey } = defineProps<{
-  title?: string
+const { panels, defaultHeight, persist } = defineProps<{
+  title: string
   panels?: string[]
   defaultHeight?: number
-  persistenceKey?: string
+  persist?: string
 }>()
 
 const group = providePanelGroup(
   computed(() => ({
     panels,
     defaultHeight,
-    persistenceKey,
+    persist,
   }))
 )
 </script>
@@ -54,7 +59,11 @@ const group = providePanelGroup(
 
 .self-title {
   opacity: 0.65;
-  top: 6px;
-  left: 16px;
+  top: 2px;
+  left: 4px;
+}
+
+.self-title:focus-visible {
+  outline: 1px solid grey;
 }
 </style>

@@ -9,7 +9,7 @@ export type PanelGroup = ReturnType<typeof createPanelGroup>
 export type PanelGroupOptions = {
   panels?: string[]
   defaultHeight?: number
-  persistenceKey?: string
+  persist?: string
 }
 
 const PanelGroupStateSchema = Zod.object({
@@ -22,8 +22,8 @@ function createPanelGroup(options?: MaybeRef<PanelGroupOptions>) {
   const state = usePersisted({
     schema: PanelGroupStateSchema,
     methods: computed(() =>
-      reactiveOptions.value.persistenceKey
-        ? [{ type: 'local-storage', key: reactiveOptions.value.persistenceKey }]
+      reactiveOptions.value.persist
+        ? [{ type: 'local-storage', key: reactiveOptions.value.persist }]
         : []
     ),
   })
@@ -54,6 +54,14 @@ function createPanelGroup(options?: MaybeRef<PanelGroupOptions>) {
     }
   }
 
+  function selectAll() {
+    state.selected = [...(reactiveOptions.value.panels ?? [])]
+  }
+
+  function deselectAll() {
+    state.selected = []
+  }
+
   function isSelected(panel: string) {
     return state.selected.includes(panel)
   }
@@ -66,13 +74,25 @@ function createPanelGroup(options?: MaybeRef<PanelGroupOptions>) {
     }
   }
 
+  function toggleAll() {
+    if (state.selected.length === 0) {
+      selectAll()
+    } else {
+      deselectAll()
+    }
+  }
+
   return reactive({
     selected: computed(() => [...state.selected]),
     height: computed({ get: () => state.height, set: (value) => (state.height = value) }),
     select,
     deselect,
     toggle,
+    selectAll,
+    deselectAll,
+    toggleAll,
     isSelected: getter(state, isSelected),
+    hasSelected: computed(() => state.selected.length > 0),
   })
 }
 

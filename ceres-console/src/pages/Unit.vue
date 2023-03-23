@@ -12,7 +12,7 @@
         v-if="connections.length"
         :default-height="300"
         :panels="connections.map((current) => current.name)"
-        :persistence-key="`units/${unit.name}/messages-panel-group`"
+        :persist="`units/${unit.name}/messages-panel-group`"
         title="Messages"
       >
         <template #tabs>
@@ -41,7 +41,7 @@
         v-if="alerters.length"
         :default-height="300"
         :panels="alerters.map((current) => current.name)"
-        :persistence-key="`units/${unit.name}/alert-panel-group`"
+        :persist="`units/${unit.name}/alert-panel-group`"
         title="Alerts"
       >
         <template #tabs>
@@ -68,7 +68,7 @@
       <panel-group
         v-if="components.length"
         :panels="components.map((current) => current.name)"
-        :persistence-key="`units/${unit.name}/actions-panel-group`"
+        :persist="`units/${unit.name}/actions-panel-group`"
         title="Actions"
       >
         <template #tabs>
@@ -92,7 +92,7 @@
       <panel-group
         v-if="uis.length"
         :panels="uis.map((current) => current.name)"
-        :persistence-key="`units/${unit.name}/displays-panel-group`"
+        :persist="`units/${unit.name}/displays-panel-group`"
         title="UI"
       >
         <template #tabs>
