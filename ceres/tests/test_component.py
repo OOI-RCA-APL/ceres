@@ -1,6 +1,17 @@
 from dataclasses import field
+from typing import Any
 
-from ceres import Alerter, AlertLevel, Component, Event, Ref, on
+import pytest
+
+from ceres import Alerter, AlertLevel, Component, Event, Ref, on, query
+from ceres.errors import (
+    ProcedureDoesNotExistError,
+    ProcedureInternalError,
+    ProcedureInvalidArgsError,
+)
+from ceres.exceptions import ProcedureException
+from ceres.procedure import action
+from ceres.validation import ValidationProblem
 
 
 async def test_event_listeners() -> None:
@@ -67,3 +78,96 @@ async def test_component_alerts() -> None:
     await component.settle()
     assert len(await component.environment.get_alerts()) == 2
     await component.stop()
+
+
+@pytest.mark.parametrize(["decorator"], [[query], [action]])
+async def test_component_procedure_no_args(decorator: Any) -> None:
+    class Test(Component):
+        @decorator
+        async def something(self) -> int:
+            return 5
+
+    component = Test()
+    assert await component.call("something", {}) == 5
+
+
+@pytest.mark.parametrize(["decorator"], [[query], [action]])
+async def test_component_procedure_with_args(decorator: Any) -> None:
+    class Test(Component):
+        @decorator
+        async def add(self, left: int, right: int) -> int:
+            return left + right
+
+    component = Test()
+    assert await component.call("add", {"left": 1, "right": 2}) == 3
+
+
+@pytest.mark.parametrize(["decorator"], [[query], [action]])
+async def test_component_procedure_with_default_args(decorator: Any) -> None:
+    class Test(Component):
+        @decorator
+        async def add(self, left: int = 1, right: int = 2) -> int:
+            return left + right
+
+    component = Test()
+    assert await component.call("add") == 3
+    assert await component.call("add", {}) == 3
+    assert await component.call("add", {"left": 5}) == 7
+    assert await component.call("add", {"right": 3}) == 4
+    assert await component.call("add", {"left": 5, "right": 5}) == 10
+
+
+@pytest.mark.parametrize(["decorator"], [[query], [action]])
+async def test_component_procedure_does_not_exist_error(decorator: Any) -> None:
+    class Test(Component):
+        @decorator
+        async def add(self, left: int, right: int) -> int:
+            return left + right
+
+    component = Test()
+    with pytest.raises(ProcedureException) as context:
+        await component.call("add_missing", {"left": 1, "right": 2})
+
+    assert context.value.error == ProcedureDoesNotExistError()
+
+
+@pytest.mark.parametrize(["decorator"], [[query], [action]])
+async def test_component_procedure_invalid_args_error(decorator: Any) -> None:
+    class Test(Component):
+        @decorator
+        async def add(self, left: int, right: int) -> int:
+            return left + right
+
+    component = Test()
+    with pytest.raises(ProcedureException) as context:
+        await component.call("add", {"left": 1})
+
+    assert context.value.error == ProcedureInvalidArgsError(
+        problems=[
+            ValidationProblem(
+                location=["right"],
+                message="field required",
+                kind="value_error.missing",
+            )
+        ],
+    )
+
+
+@pytest.mark.parametrize(["decorator"], [[query], [action]])
+async def test_component_procedure_internal_error(decorator: Any) -> None:
+    class Test(Component):
+        @decorator
+        async def test(self, left: int, right: int) -> float:
+            raise Exception("whoops")
+
+    component = Test()
+    with pytest.raises(ProcedureException) as context:
+        await component.call("test")
+
+    assert isinstance(context.value.error, ProcedureInvalidArgsError)
+
+    with pytest.raises(ProcedureException) as context:
+        await component.call("test", {"left": 5, "right": 5})
+
+    assert isinstance(context.value.error, ProcedureInternalError)
+    assert any('raise Exception("whoops")' in line for line in context.value.error.traceback)

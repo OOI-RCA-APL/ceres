@@ -559,8 +559,10 @@ class Component(ValidatedDataclass, Tasklet):
 
         try:
             return await awaitify(validate_arguments(config=config)(method)(**args))
-        except Exception:
-            raise ProcedureException(ProcedureInternalError(traceback=traceback.format_exc()))
+        except Exception as exception:
+            raise ProcedureException(
+                ProcedureInternalError(traceback=traceback.format_exception(exception))
+            )
 
     async def call(
         self,
