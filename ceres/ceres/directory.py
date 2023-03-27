@@ -1,167 +1,232 @@
+import os
+import shutil
 from os import PathLike
-from pathlib import Path, PurePath
-from typing import IO, Any, Literal, final
-from uuid import UUID, uuid4
+from pathlib import Path
+from tempfile import gettempdir
+from typing import IO, TYPE_CHECKING, Any, Iterable, Union, final, overload
+from uuid import uuid4
 
-from fs.base import FS
-from fs.osfs import OSFS
-from fs.tempfs import TempFS
 from typing_extensions import Self
 
-OpenMode = Literal["r", "r+", "w", "w+", "a", "a+"]
+try:
+    from _typeshed import OpenBinaryMode as OpenBinaryMode
+    from _typeshed import OpenTextMode as OpenTextMode
+except Exception:
+    if not TYPE_CHECKING:
+        OpenTextMode = "OpenTextMode"
+        OpenBinaryMode = "OpenBinaryMode"
+
+StrPath = str | PathLike[str]
+OpenMode = Union[OpenTextMode, OpenBinaryMode]
 
 
 @final
 class Directory(PathLike[str]):
     def __init__(
         self,
-        path: PurePath | str | None = None,
+        path: StrPath | None = None,
         parent: Self | None = None,
+        temporary: bool | None = None,
     ) -> None:
+        if temporary is None:
+            temporary = path is None
+
         if path is not None:
             path = Path(path)
         if parent is not None:
             path = parent.path / (Path(path) if path is not None else "")
-        if path is not None:
-            path = path.absolute()
-            path.mkdir(parents=True, exist_ok=True)
 
-        self.__id = uuid4()
-        self.__parent = parent
 
-        if path is not None:
-            self.__fs = OSFS(str(path))
+        if path is None:
+            id = uuid4()
+            path = Path(gettempdir()) / f"ceres-directory-{id}.sqlite"
         else:
-            self.__fs = TempFS()
+            path = path.absolute()
 
-    @property
-    def id(self) -> UUID:
-        return self.__id
+        self.__path = path
+        self.__parent = parent
+        self.__temporary = temporary
 
     @property
     def path(self) -> Path:
-        return Path(self.__fs.root_path)
+        return Path(self.__path)
 
     @property
-    def fs(self) -> FS:
-        return self.__fs
+    def temporary(self) -> bool:
+        return self.__temporary
 
     def __fspath__(self) -> str:
-        return str(self.path)
+        return self.__path.__fspath__()
+
+    def __truediv__(self, path: StrPath) -> Path:
+        return self.path / path
+
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}({repr(self.__path.__fspath__())})"
+
+    def __str__(self) -> str:
+        return self.__path.__fspath__()
+
+    def __eq__(self, /, other: object) -> bool:
+        return isinstance(other, Directory) and self.path == other.path
+
+    def __ne__(self, /, other: object) -> bool:
+        return not self.__eq__(other)
+
+    def __del__(self) -> None:
+        if not self.__temporary:
+            return
+
+        try:
+            self.remove()
+        except Exception:
+            pass
+
+    def __resolve(self, path: StrPath | None) -> Path:
+        if path is None:
+            path = "."
+        if not isinstance(path, Path):
+            path = Path(path)
+        if not path.is_absolute():
+            path = self.__path / path
+            path = path.absolute()
+
+        return path
+
+    def __setup_write_operation(
+        self,
+        path: StrPath,
+        mkdirs: bool | None,
+        mode: OpenMode,
+    ) -> Path:
+        path = self.__resolve(path)
+        if mkdirs is None:
+            mkdirs = "w" in mode or "a" in mode
+        if mkdirs:
+            if not path.parent.exists():
+                path.parent.mkdir(parents=True, exist_ok=True)
+
+        return path
+
+    @overload
+    def open(
+        self,
+        path: StrPath,
+        mode: OpenTextMode = "r",
+        buffering: int = ...,
+        encoding: str | None = None,
+        errors: str | None = None,
+        newline: str | None = None,
+        closefd: bool = True,
+        *,
+        mkdirs: bool | None = None,
+        **kwargs: Any,
+    ) -> IO[str]:
+        ...
+
+    @overload
+    def open(
+        self,
+        path: StrPath,
+        mode: OpenBinaryMode,
+        buffering: int = ...,
+        encoding: str | None = None,
+        errors: str | None = None,
+        newline: str | None = None,
+        closefd: bool = True,
+        *,
+        mkdirs: bool | None = None,
+        **kwargs: Any,
+    ) -> IO[bytes]:
+        ...
 
     def open(
         self,
-        path: PurePath | str,
+        path: StrPath,
         mode: OpenMode = "r",
         buffering: int = -1,
         encoding: str | None = None,
         errors: str | None = None,
-        newline: str = "",
-        mkdirs: bool = True,
+        newline: str | None = None,
+        closefd: bool = True,
+        *,
+        mkdirs: bool | None = None,
         **kwargs: Any,
-    ) -> IO[str]:
-        if mkdirs:
-            parent = str(Path(path).parent)
-            if not self.__fs.exists(parent):
-                self.__fs.makedirs(parent)
+    ) -> IO[str] | IO[bytes]:
+        path = self.__setup_write_operation(path, mkdirs, mode)
 
-        path = str(path)
-        return self.__fs.open(
-            path=path,
+        return open(
+            path,
             mode=mode,
             buffering=buffering,
             encoding=encoding,
             errors=errors,
             newline=newline,
+            closefd=closefd,
             **kwargs,
         )
 
-    def open_binary(
-        self,
-        path: PurePath | str,
-        mode: OpenMode = "r",
-        buffering: int = -1,
-        mkdirs: bool = True,
-        **kwargs: Any,
-    ) -> IO[bytes]:
-        if mkdirs:
-            parent = str(Path(path).parent)
-            if not self.__fs.exists(parent):
-                self.__fs.makedirs(parent)
+    def remove(self, path: StrPath | None = None, *, recursive: bool = True) -> None:
+        path = self.__resolve(path)
+        if not path.exists():
+            return
 
-        path = str(path)
-        return self.__fs.openbin(
-            path=path,
-            mode=mode,
-            buffering=buffering,
-            **kwargs,
-        )
-
-    def remove(self, path: PurePath | str, recursive: bool = False) -> None:
-        path = str(path)
-        if self.__fs.isdir(path):
+        if path.is_dir():
             if recursive:
-                self.__fs.removetree(path)
+                shutil.rmtree(path)
             else:
-                self.__fs.remove(path)
+                path.rmdir()
         else:
-            self.__fs.remove(path)
+            path.unlink()
 
-    def exists(self, path: PurePath | str) -> bool:
-        path = str(path)
-        return self.__fs.exists(path)
+    def exists(self, path: StrPath | None = None) -> bool:
+        path = self.__resolve(path)
+        if path == self.__path:
+            return path.is_dir()
 
-    def is_file(self, path: PurePath | str) -> bool:
-        path = str(path)
-        return self.__fs.isfile(path)
+        return path.exists()
 
-    def is_dir(self, path: PurePath | str) -> bool:
-        path = str(path)
-        return self.__fs.isdir(path)
+    def create(self, *, mkdirs: bool = True) -> None:
+        self.path.mkdir(parents=mkdirs)
 
-    def is_link(self, path: PurePath | str) -> bool:
-        path = str(path)
-        return self.__fs.islink(path)
+    def subpath(self, path: StrPath) -> Path:
+        return self.path / path
 
-    def is_empty(self, path: PurePath | str) -> bool:
-        path = str(path)
-        if self.__fs.isdir(path):
-            return self.__fs.isempty(path)
+    def subdir(self, path: StrPath, *, temporary: bool | None = None) -> Self:
+        return self.__class__(
+            path=self.subpath(path),
+            parent=self,
+            temporary=temporary,
+        )
 
-        return self.__fs.getsize(path) == 0
+    def iter_subpaths(self, path: StrPath | None = None) -> Iterable[Path]:
+        path = self.__resolve(path)
+        for name in os.scandir(path):
+            yield path / name
 
-    def touch(self, path: PurePath | str) -> None:
-        path = str(path)
-        self.__fs.touch(path)
+    def iter_subdirs(self, path: StrPath | None = None) -> Iterable[Self]:
+        for subpath in self.subpaths(path):
+            if subpath.is_dir():
+                yield self.subdir(subpath)
+
+    def subpaths(self, path: StrPath | None = None) -> list[Path]:
+        return list(self.iter_subpaths(path))
+
+    def subdirs(self, path: StrPath | None = None) -> list[Self]:
+        return list(self.iter_subdirs(path))
+
+    def touch(self, path: StrPath) -> None:
+        path = self.__resolve(path)
+        return path.touch(exist_ok=True)
 
     def move(
         self,
-        source: PurePath | str,
-        destination: PurePath | str,
+        source: StrPath,
+        destination: StrPath,
         *,
-        preserve_time: bool = False,
+        mkdirs: bool | None = None,
     ) -> None:
-        source = str(source)
-        destination = str(destination)
-
-        if self.__fs.isdir(source):
-            self.__fs.movedir(
-                source,
-                destination,
-                create=True,
-                preserve_time=preserve_time,
-            )
-        else:
-            self.__fs.move(
-                source,
-                destination,
-                preserve_time=preserve_time,
-            )
-
-    def ls(self, path: PurePath | str = ".") -> list[str]:
-        path = str(path)
-        return self.__fs.listdir(path)
-
-    def subdir(self, path: PurePath | str) -> Self:
-        path = str(path)
-        return type(self)(path, self)
+        source = self.__resolve(source)
+        destination = self.__resolve(destination)
+        self.__setup_write_operation(destination, mkdirs, "w")
+        shutil.move(source, destination)
