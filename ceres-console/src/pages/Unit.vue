@@ -109,13 +109,13 @@
           <thead>
             <q-tr no-hover>
               <q-th class="self-name-column text-left">Component</q-th>
-              <q-th class="text-left">Enabled</q-th>
+              <q-th class="text-left">Roles</q-th>
             </q-tr>
           </thead>
           <tbody>
             <q-tr v-for="component in components" :key="component.name" no-hover>
               <q-td class="self-name-column">{{ component.name }}</q-td>
-              <q-td class="text-capitalize">Yes</q-td>
+              <q-td>{{ [...component.roles].sort().join(', ') }}</q-td>
             </q-tr>
           </tbody>
         </q-markup-table>
