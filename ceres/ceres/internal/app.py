@@ -1,7 +1,7 @@
 import asyncio
 from asyncio import CancelledError
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Mapping, Sequence, final
+from typing import TYPE_CHECKING, Annotated, Any, Mapping, Sequence, final
 
 from fastapi import (
     APIRouter,
@@ -99,24 +99,30 @@ class UnitInfo(ImmutableDataObject):
 api = APIRouter()
 
 
-def use_engine(connection: HTTPConnection) -> Engine:
+def _get_current_engine(connection: HTTPConnection) -> Engine:
     assert isinstance(connection.app, App)
     return connection.app.engine
 
 
-def use_environment(connection: HTTPConnection) -> Environment:
-    return use_engine(connection).environment
+CurrentEngine = Annotated[Engine, Depends(_get_current_engine)]
+
+
+def _get_current_environment(connection: HTTPConnection) -> Environment:
+    return _get_current_engine(connection).environment
+
+
+CurrentEnvironment = Annotated[Environment, Depends(_get_current_environment)]
 
 
 @api.get("/config", tags=["engine"])
-async def get_config(engine: Engine = Depends(use_engine)) -> Config:
+async def get_config(engine: CurrentEngine) -> Config:
     return engine.config
 
 
 @api.post("/reload", tags=["engine"])
 async def reload(
     response: Response,
-    engine: Engine = Depends(use_engine),
+    engine: CurrentEngine,
 ) -> Result[Config, ReloadError]:
     match await engine.reload():
         case Ok(config):
@@ -134,8 +140,8 @@ class GetMessagesQueryParameters(MessageQuery):
 
 @api.get("/messages", tags=["data"])
 async def get_messages(
-    query: GetMessagesQueryParameters = Depends(),
-    environment: Environment = Depends(use_environment),
+    query: Annotated[GetMessagesQueryParameters, Depends()],
+    environment: CurrentEnvironment,
 ) -> list[Message]:
     return await environment.get_messages(query)
 
@@ -150,8 +156,8 @@ class GetAlertsQueryParameters(AlertQuery):
 
 @api.get("/alerts", tags=["data"])
 async def get_alerts(
-    query: GetAlertsQueryParameters = Depends(),
-    environment: Environment = Depends(use_environment),
+    environment: CurrentEnvironment,
+    query: Annotated[GetAlertsQueryParameters, Depends()],
 ) -> list[Alert]:
     return await environment.get_alerts(query)
 
@@ -162,8 +168,8 @@ class GetStatisticsQueryParameters(StatisticsQuery):
 
 @api.get("/statistics", tags=["data"])
 async def get_statistics(
-    query: GetStatisticsQueryParameters = Depends(),
-    environment: Environment = Depends(use_environment),
+    environment: CurrentEnvironment,
+    query: Annotated[GetStatisticsQueryParameters, Depends()],
 ) -> Statistics:
     return await environment.get_statistics(query)
 
@@ -171,9 +177,9 @@ async def get_statistics(
 @api.websocket("/message-stream")
 async def message_stream(
     socket: WebSocket,
+    engine: CurrentEngine,
     source: Address | None = None,
     search: str | None = None,
-    engine: Engine = Depends(use_engine),
 ) -> None:
     if search:
         search = search.lower()
@@ -202,9 +208,9 @@ async def message_stream(
 @api.websocket("/alert-stream")
 async def alert_stream(
     socket: WebSocket,
+    engine: CurrentEngine,
     source: Address | None = None,
     search: str | None = None,
-    engine: Engine = Depends(use_engine),
 ) -> None:
     try:
         await socket.accept()
@@ -229,8 +235,8 @@ async def alert_stream(
 
 @api.get("/units/{unit}", tags=["units"])
 async def get_unit_info(
+    engine: CurrentEngine,
     unit: Name,
-    engine: Engine = Depends(use_engine),
 ) -> UnitInfo:
     config = engine.config.get_unit(unit)
     if config is None:
@@ -240,9 +246,9 @@ async def get_unit_info(
     for component in config.components:
         components.append(
             await get_component_info(
+                engine,
                 unit,
                 component.name,
-                engine,
             )
         )
 
@@ -255,9 +261,9 @@ async def get_unit_info(
 
 @api.get("/units/{unit}/components/{component}", tags=["components"])
 async def get_component_info(
+    engine: CurrentEngine,
     unit: Name,
     component: Name,
-    engine: Engine = Depends(use_engine),
 ) -> ComponentInfo:
     address = Address.create(unit, component)
     component_config = engine.config.get_component(address)
@@ -281,12 +287,12 @@ async def get_component_info(
 )
 async def call(
     request: Request,
+    engine: CurrentEngine,
     unit: Name,
     component: Name,
     procedure: Name,
     query_args: Json[Any] = Query(None, alias="args"),
     body_args: Mapping[Name, object] | None = Body(None),
-    engine: Engine = Depends(use_engine),
 ) -> Result[Any | None, ProcedureError]:
     if not isinstance(query_args, Mapping | None):
         raise HTTPException(
@@ -308,11 +314,11 @@ async def call(
 @api.websocket("/units/{unit}/components/{component}/procedures/{procedure}/subscribe")
 async def subscribe(
     socket: WebSocket,
+    engine: CurrentEngine,
     unit: Name,
     component: Name,
     procedure: Name,
     query_args: Json[Any] = Query(None, alias="args"),
-    engine: Engine = Depends(use_engine),
 ) -> None:
     await socket.accept()
     if not isinstance(query_args, Mapping | None):
