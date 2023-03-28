@@ -1,13 +1,3 @@
-<template>
-  <inner
-    :key="resize.key"
-    ref="instance"
-    :autoresize="autoresize"
-    :loading="loading"
-    :option="appliedOptions"
-  />
-</template>
-
 <script setup lang="ts">
 import { Option } from '@/chart'
 import { useResize } from '@/resize'
@@ -38,3 +28,13 @@ watch(resize, () => {
   instance?.resize()
 })
 </script>
+
+<template>
+  <inner
+    :key="resize.key"
+    ref="instance"
+    :autoresize="autoresize"
+    :loading="loading"
+    :option="appliedOptions"
+  />
+</template>

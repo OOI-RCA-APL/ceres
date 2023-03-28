@@ -1,19 +1,3 @@
-<template>
-  <div class="row self-item-view-message-root">
-    <span class="self-timestamp">
-      {{ message.timestamp.format('YYYY-MM-DD HH:mm:ss.SSS') }}
-    </span>
-    <q-chip class="self-direction-chip" :color="directionColor" dense>
-      <span class="self-direction-text">
-        {{ message.direction }}
-      </span>
-    </q-chip>
-    <span class="self-content">
-      {{ message.content }}
-    </span>
-  </div>
-</template>
-
 <script lang="ts" setup>
 import { Message } from '@/api/models'
 
@@ -30,6 +14,22 @@ const directionColor = $computed(() => {
   }
 })
 </script>
+
+<template>
+  <div class="row self-item-view-message-root">
+    <span class="self-timestamp">
+      {{ message.timestamp.format('YYYY-MM-DD HH:mm:ss.SSS') }}
+    </span>
+    <q-chip class="self-direction-chip" :color="directionColor" dense>
+      <span class="self-direction-text">
+        {{ message.direction }}
+      </span>
+    </q-chip>
+    <span class="self-content">
+      {{ message.content }}
+    </span>
+  </div>
+</template>
 
 <style lang="scss" scoped>
 .self-item-view-message-root {

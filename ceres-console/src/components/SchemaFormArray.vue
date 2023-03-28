@@ -1,29 +1,3 @@
-<template>
-  <schema-form-composite :form="form" :model-value="array" :path="path">
-    <div v-if="array != null" :key="key" class="column q-col-gutter-sm q-pa-sm">
-      <div v-for="[index, subvalue] in array.entries()" :key="index">
-        <schema-form-node
-          :form="form"
-          :model-value="subvalue"
-          :path="[...path, index]"
-          @update:model-value="(subvalue) => onUpdate(index, subvalue)"
-        />
-      </div>
-      <div class="text-center">
-        <q-btn
-          class="self-add-button"
-          clickable
-          dense
-          :icon="icons.add"
-          :ripple="false"
-          round
-          @click="onAddButtonClicked"
-        />
-      </div>
-    </div>
-  </schema-form-composite>
-</template>
-
 <script lang="ts" setup>
 import SchemaFormComposite from '@/components/SchemaFormComposite.vue'
 import SchemaFormNode from '@/components/SchemaFormNode.vue'
@@ -89,6 +63,32 @@ function onAddButtonClicked() {
   emit('update:modelValue', [...(array ?? []), form.getDefault(subschema)])
 }
 </script>
+
+<template>
+  <schema-form-composite :form="form" :model-value="array" :path="path">
+    <div v-if="array != null" :key="key" class="column q-col-gutter-sm q-pa-sm">
+      <div v-for="[index, subvalue] in array.entries()" :key="index">
+        <schema-form-node
+          :form="form"
+          :model-value="subvalue"
+          :path="[...path, index]"
+          @update:model-value="(subvalue) => onUpdate(index, subvalue)"
+        />
+      </div>
+      <div class="text-center">
+        <q-btn
+          class="self-add-button"
+          clickable
+          dense
+          :icon="icons.add"
+          :ripple="false"
+          round
+          @click="onAddButtonClicked"
+        />
+      </div>
+    </div>
+  </schema-form-composite>
+</template>
 
 <style scoped>
 .self-add-button {

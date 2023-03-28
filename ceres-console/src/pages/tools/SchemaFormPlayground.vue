@@ -1,46 +1,3 @@
-<template>
-  <div>
-    <div>
-      <common-text class="q-ml-md q-py-sm" variant="title2">Schema Form Playground</common-text>
-      <q-separator />
-    </div>
-    <div class="column q-col-gutter-sm q-pa-sm row-lg">
-      <div class="col">
-        <section-card title="Schema">
-          <q-input
-            v-model="state.schemaJson"
-            autogrow
-            dense
-            filled
-            input-class="monospace"
-            square
-            type="textarea"
-          />
-        </section-card>
-      </div>
-      <div class="col">
-        <section-card padding="sm" title="Form">
-          <schema-form :form="form" />
-        </section-card>
-      </div>
-      <div class="col">
-        <section-card title="Form Data">
-          <q-input
-            autogrow
-            dense
-            filled
-            input-class="monospace"
-            :model-value="JSON.stringify(form.value, null, 2)"
-            readonly
-            square
-            type="textarea"
-          />
-        </section-card>
-      </div>
-    </div>
-  </div>
-</template>
-
 <script lang="ts" setup>
 import CommonText from '@/components/CommonText.vue'
 import SchemaForm from '@/components/SchemaForm.vue'
@@ -87,3 +44,46 @@ function createDefaultSchema() {
   }
 }
 </script>
+
+<template>
+  <div>
+    <div>
+      <common-text class="q-ml-md q-py-sm" variant="title2">Schema Form Playground</common-text>
+      <q-separator />
+    </div>
+    <div class="column q-col-gutter-sm q-pa-sm row-lg">
+      <div class="col">
+        <section-card title="Schema">
+          <q-input
+            v-model="state.schemaJson"
+            autogrow
+            dense
+            filled
+            input-class="monospace"
+            square
+            type="textarea"
+          />
+        </section-card>
+      </div>
+      <div class="col">
+        <section-card padding="sm" title="Form">
+          <schema-form :form="form" />
+        </section-card>
+      </div>
+      <div class="col">
+        <section-card title="Form Data">
+          <q-input
+            autogrow
+            dense
+            filled
+            input-class="monospace"
+            :model-value="JSON.stringify(form.value, null, 2)"
+            readonly
+            square
+            type="textarea"
+          />
+        </section-card>
+      </div>
+    </div>
+  </div>
+</template>

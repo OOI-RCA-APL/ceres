@@ -1,24 +1,3 @@
-<template>
-  <q-input
-    v-model="text"
-    :aria-required="isRequired"
-    dense
-    filled
-    label-slot
-    :type="inputType"
-    @blur="onBlur"
-    @focus="onFocus"
-    @keydown.backspace="onBackspace"
-  >
-    <template #label>
-      <div class="row">
-        <span class="q-mr-xs">{{ title }}</span>
-        <span :style="{ opacity: 0.5 }"> ⸱ {{ schemaType }}</span>
-      </div>
-    </template>
-  </q-input>
-</template>
-
 <script lang="ts" setup>
 import { Schema, SchemaForm, SchemaPath } from '@/schema-form'
 import { debounce } from 'quasar'
@@ -112,3 +91,24 @@ function onBackspace() {
   }
 }
 </script>
+
+<template>
+  <q-input
+    v-model="text"
+    :aria-required="isRequired"
+    dense
+    filled
+    label-slot
+    :type="inputType"
+    @blur="onBlur"
+    @focus="onFocus"
+    @keydown.backspace="onBackspace"
+  >
+    <template #label>
+      <div class="row">
+        <span class="q-mr-xs">{{ title }}</span>
+        <span :style="{ opacity: 0.5 }"> ⸱ {{ schemaType }}</span>
+      </div>
+    </template>
+  </q-input>
+</template>

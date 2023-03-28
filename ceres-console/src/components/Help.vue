@@ -1,3 +1,15 @@
+<script lang="ts" setup>
+import SectionCard from '@/components/SectionCard.vue'
+import icons from '@/icons'
+
+const isOpen = $ref(false)
+
+const { size = '16px' } = defineProps<{
+  title: string
+  size?: string
+}>()
+</script>
+
 <template>
   <q-icon
     class="cursor-pointer q-ml-sm"
@@ -17,15 +29,3 @@
     </q-dialog>
   </q-icon>
 </template>
-
-<script lang="ts" setup>
-import SectionCard from '@/components/SectionCard.vue'
-import icons from '@/icons'
-
-const isOpen = $ref(false)
-
-const { size = '16px' } = defineProps<{
-  title: string
-  size?: string
-}>()
-</script>

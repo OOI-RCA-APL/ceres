@@ -1,3 +1,15 @@
+<script lang="ts" setup>
+import { SchemaForm, SchemaPath } from '@/schema-form'
+
+const { path, form } = defineProps<{
+  modelValue: unknown
+  form: SchemaForm
+  path: SchemaPath
+}>()
+
+const title = $computed(() => (path.length === 0 ? undefined : form.getTitle(path)))
+</script>
+
 <template>
   <q-card bordered flat>
     <template v-if="title">
@@ -11,18 +23,6 @@
     <slot />
   </q-card>
 </template>
-
-<script lang="ts" setup>
-import { SchemaForm, SchemaPath } from '@/schema-form'
-
-const { path, form } = defineProps<{
-  modelValue: unknown
-  form: SchemaForm
-  path: SchemaPath
-}>()
-
-const title = $computed(() => (path.length === 0 ? undefined : form.getTitle(path)))
-</script>
 
 <style scoped>
 .self-title {

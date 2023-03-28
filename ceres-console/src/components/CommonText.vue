@@ -1,9 +1,3 @@
-<template>
-  <div :class="classes">
-    <slot />
-  </div>
-</template>
-
 <script lang="ts" setup>
 const { variant } = defineProps<{
   variant: 'title1' | 'title2' | 'title3' | 'body1' | 'body2'
@@ -11,6 +5,12 @@ const { variant } = defineProps<{
 
 const classes = $computed(() => `self-${variant}`)
 </script>
+
+<template>
+  <div :class="classes">
+    <slot />
+  </div>
+</template>
 
 <style lang="scss" scoped>
 .self-title1 {

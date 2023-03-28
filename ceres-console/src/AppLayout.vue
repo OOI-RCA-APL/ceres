@@ -1,22 +1,3 @@
-<template>
-  <q-layout class="self-app-layout-root" container view="hHh Lpr lff">
-    <app-layout-header />
-    <app-layout-drawer />
-    <q-page-container :key="route.path">
-      <app-boundary>
-        <suspense>
-          <template #default>
-            <router-view />
-          </template>
-          <template #fallback>
-            <page-spinner />
-          </template>
-        </suspense>
-      </app-boundary>
-    </q-page-container>
-  </q-layout>
-</template>
-
 <script lang="ts" setup>
 import AppBoundary from '@/AppBoundary.vue'
 import AppLayoutDrawer from '@/AppLayoutDrawer.vue'
@@ -45,6 +26,25 @@ onErrorCaptured((error) => {
   return true
 })
 </script>
+
+<template>
+  <q-layout class="self-app-layout-root" container view="hHh Lpr lff">
+    <app-layout-header />
+    <app-layout-drawer />
+    <q-page-container :key="route.path">
+      <app-boundary>
+        <suspense>
+          <template #default>
+            <router-view />
+          </template>
+          <template #fallback>
+            <page-spinner />
+          </template>
+        </suspense>
+      </app-boundary>
+    </q-page-container>
+  </q-layout>
+</template>
 
 <style lang="scss" scoped>
 .self-app-layout-root {

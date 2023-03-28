@@ -1,15 +1,3 @@
-<template>
-  <div
-    :class="[
-      'self-schema-form-node-toggle-root',
-      isDefined ? 'bg-primary' : 'bg-grey',
-      isDefined && 'self-schema-form-node-toggle-root-defined',
-      isRequired && 'self-schema-form-node-toggle-root-required',
-    ]"
-    @click="onClick"
-  />
-</template>
-
 <script lang="ts" setup>
 import { SchemaForm, SchemaPath } from '@/schema-form'
 
@@ -39,6 +27,18 @@ function onClick() {
   }
 }
 </script>
+
+<template>
+  <div
+    :class="[
+      'self-schema-form-node-toggle-root',
+      isDefined ? 'bg-primary' : 'bg-grey',
+      isDefined && 'self-schema-form-node-toggle-root-defined',
+      isRequired && 'self-schema-form-node-toggle-root-required',
+    ]"
+    @click="onClick"
+  />
+</template>
 
 <style scoped>
 .self-schema-form-node-toggle-root {

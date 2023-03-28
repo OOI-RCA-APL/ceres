@@ -1,3 +1,13 @@
+<script lang="ts" setup>
+import { reload, useMutation } from '@/api/operations'
+import CommonText from '@/components/CommonText.vue'
+import SectionCard from '@/components/SectionCard.vue'
+
+const reloadMutation = useMutation('reload', async () => {
+  await reload()
+})
+</script>
+
 <template>
   <div>
     <div>
@@ -18,13 +28,3 @@
     </div>
   </div>
 </template>
-
-<script lang="ts" setup>
-import { reload, useMutation } from '@/api/operations'
-import CommonText from '@/components/CommonText.vue'
-import SectionCard from '@/components/SectionCard.vue'
-
-const reloadMutation = useMutation('reload', async () => {
-  await reload()
-})
-</script>

@@ -1,3 +1,14 @@
+<script lang="ts" setup>
+import CommonText from '@/components/CommonText.vue'
+import { StateDisplayInfo } from '@/display'
+
+const { info } = defineProps<{
+  info: StateDisplayInfo
+}>()
+
+const selected = $computed(() => info.options.find((state) => state.value === info.value ?? null))
+</script>
+
 <template>
   <q-chip
     class="cursor-pointer q-px-sm"
@@ -30,7 +41,7 @@
             <tbody>
               <q-tr
                 v-for="option in info.options"
-                v-bind:key="String(option.value) + typeof option.value"
+                :key="String(option.value) + typeof option.value"
               >
                 <q-th class="text-capitalize text-right">
                   <q-chip
@@ -57,17 +68,6 @@
     </q-menu>
   </q-chip>
 </template>
-
-<script lang="ts" setup>
-import CommonText from '@/components/CommonText.vue'
-import { StateDisplayInfo } from '@/display'
-
-const { info } = defineProps<{
-  info: StateDisplayInfo
-}>()
-
-const selected = $computed(() => info.options.find((state) => state.value === info.value ?? null))
-</script>
 
 <style lang="scss" scoped>
 .self-options-table th {

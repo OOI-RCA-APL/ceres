@@ -1,18 +1,3 @@
-<template>
-  <schema-form-input
-    :form="form"
-    :format="format"
-    input-type="text"
-    :model-value="modelValue"
-    :path="path"
-    :resolve="resolve"
-    :resolve-text="resolveText"
-    :schema="schema"
-    schema-type="JSON"
-    @update:model-value="(modelValue) => emit('update:modelValue', modelValue)"
-  />
-</template>
-
 <script lang="ts" setup>
 import SchemaFormInput from '@/components/SchemaFormInput.vue'
 import { Schema, SchemaForm, SchemaPath } from '@/schema-form'
@@ -61,3 +46,18 @@ function format(value: unknown) {
   return ''
 }
 </script>
+
+<template>
+  <schema-form-input
+    :form="form"
+    :format="format"
+    input-type="text"
+    :model-value="modelValue"
+    :path="path"
+    :resolve="resolve"
+    :resolve-text="resolveText"
+    :schema="schema"
+    schema-type="JSON"
+    @update:model-value="(modelValue) => emit('update:modelValue', modelValue)"
+  />
+</template>

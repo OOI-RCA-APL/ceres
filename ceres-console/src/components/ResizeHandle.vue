@@ -1,24 +1,3 @@
-<template>
-  <div
-    :class="[
-      'self-resize-handle-root',
-      isVertical ? 'self-resize-handle-root-vertical' : 'self-resize-handle-root-horizontal',
-    ]"
-  >
-    <div class="fit self-handle-container">
-      <div
-        :class="[
-          'self-handle',
-          isVertical ? 'self-handle-vertical' : 'self-handle-horizontal',
-          drag != null && 'self-handle-dragging',
-        ]"
-        :style="{ top: `${innerPosition.y}px`, left: `${innerPosition.x}px` }"
-        @pointerdown="onPointerDown"
-      />
-    </div>
-  </div>
-</template>
-
 <script lang="ts" setup>
 import { onMounted, onUnmounted } from 'vue'
 
@@ -121,6 +100,27 @@ onUnmounted(() => {
   window.removeEventListener('pointerup', onPointerMove)
 })
 </script>
+
+<template>
+  <div
+    :class="[
+      'self-resize-handle-root',
+      isVertical ? 'self-resize-handle-root-vertical' : 'self-resize-handle-root-horizontal',
+    ]"
+  >
+    <div class="fit self-handle-container">
+      <div
+        :class="[
+          'self-handle',
+          isVertical ? 'self-handle-vertical' : 'self-handle-horizontal',
+          drag != null && 'self-handle-dragging',
+        ]"
+        :style="{ top: `${innerPosition.y}px`, left: `${innerPosition.x}px` }"
+        @pointerdown="onPointerDown"
+      />
+    </div>
+  </div>
+</template>
 
 <style lang="scss" scoped>
 .self-resize-handle-root {

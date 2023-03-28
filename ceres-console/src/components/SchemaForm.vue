@@ -1,3 +1,23 @@
+<script lang="ts" setup>
+import SchemaFormNode from '@/components/SchemaFormNode.vue'
+import {
+  createSchemaForm,
+  isSchemaForm,
+  SchemaForm,
+  SchemaFormOptions,
+  SchemaPath,
+} from '@/schema-form'
+
+const props = defineProps<{
+  form: SchemaForm | SchemaFormOptions
+}>()
+
+const path: SchemaPath = []
+const form = $computed(() =>
+  isSchemaForm(props.form) ? props.form : createSchemaForm({ ...props.form })
+)
+</script>
+
 <template>
   <q-form @submit.prevent>
     <q-banner v-if="form.schemaError" class="bg-warning text-dark" dense rounded>
@@ -19,23 +39,3 @@
     </template>
   </q-form>
 </template>
-
-<script lang="ts" setup>
-import SchemaFormNode from '@/components/SchemaFormNode.vue'
-import {
-  createSchemaForm,
-  isSchemaForm,
-  SchemaForm,
-  SchemaFormOptions,
-  SchemaPath,
-} from '@/schema-form'
-
-const props = defineProps<{
-  form: SchemaForm | SchemaFormOptions
-}>()
-
-const path: SchemaPath = []
-const form = $computed(() =>
-  isSchemaForm(props.form) ? props.form : createSchemaForm({ ...props.form })
-)
-</script>

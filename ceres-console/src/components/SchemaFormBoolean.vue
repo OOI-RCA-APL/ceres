@@ -1,15 +1,3 @@
-<template>
-  <q-checkbox
-    :aria-required="isRequired"
-    class="q-ml-xs self-schema-form-boolean-root"
-    :keep-color="true"
-    :label="label"
-    :model-value="value"
-    size="xs"
-    @update:model-value="(modelValue) => emit('update:modelValue', resolve(modelValue))"
-  />
-</template>
-
 <script lang="ts" setup>
 import { SchemaForm, SchemaObject, SchemaPath } from '@/schema-form'
 
@@ -40,6 +28,18 @@ if (value !== modelValue) {
 const isRequired = $computed(() => form.getRequired(path))
 const label = $computed(() => form.getTitle(path))
 </script>
+
+<template>
+  <q-checkbox
+    :aria-required="isRequired"
+    class="q-ml-xs self-schema-form-boolean-root"
+    :keep-color="true"
+    :label="label"
+    :model-value="value"
+    size="xs"
+    @update:model-value="(modelValue) => emit('update:modelValue', resolve(modelValue))"
+  />
+</template>
 
 <style scoped>
 .self-schema-form-boolean-root {

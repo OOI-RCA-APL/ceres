@@ -1,7 +1,3 @@
-<template>
-  <slot />
-</template>
-
 <script lang="ts" setup>
 import { useQuasar } from 'quasar'
 import { onErrorCaptured } from 'vue'
@@ -24,6 +20,10 @@ onErrorCaptured((error) => {
   return true
 })
 </script>
+
+<template>
+  <slot />
+</template>
 
 <style lang="scss">
 .unexpected-error-notification-button {

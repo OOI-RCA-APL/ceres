@@ -1,3 +1,32 @@
+<script lang="ts" setup>
+import { ComponentInfo, ProcedureKind } from '@/api/models'
+import SchemaForm from '@/components/SchemaForm.vue'
+import SectionCard from '@/components/SectionCard.vue'
+import { computed } from 'vue'
+
+const { component, kind } = defineProps<{
+  component: ComponentInfo
+  kind: ProcedureKind
+}>()
+
+const actions = $computed(() =>
+  component.procedures.filter((procedure) => procedure.kind === 'action')
+)
+const queries = $computed(() =>
+  component.procedures.filter((procedure) => procedure.kind === 'query')
+)
+
+const procedures = $computed(() => (kind === 'action' ? actions : queries))
+
+let selected = $ref(procedures[0] ?? null)
+const form = computed(() => ({
+  persist: `/state/component/${component.address}/procedure/${selected.name}/${JSON.stringify(
+    selected.args.json_schema
+  )}`,
+  schema: selected.args.json_schema,
+}))
+</script>
+
 <template>
   <section-card :title="component.name">
     <div class="row">
@@ -40,32 +69,3 @@
     </div>
   </section-card>
 </template>
-
-<script lang="ts" setup>
-import { ComponentInfo, ProcedureKind } from '@/api/models'
-import SchemaForm from '@/components/SchemaForm.vue'
-import SectionCard from '@/components/SectionCard.vue'
-import { computed } from 'vue'
-
-const { component, kind } = defineProps<{
-  component: ComponentInfo
-  kind: ProcedureKind
-}>()
-
-const actions = $computed(() =>
-  component.procedures.filter((procedure) => procedure.kind === 'action')
-)
-const queries = $computed(() =>
-  component.procedures.filter((procedure) => procedure.kind === 'query')
-)
-
-const procedures = $computed(() => (kind === 'action' ? actions : queries))
-
-let selected = $ref(procedures[0] ?? null)
-const form = computed(() => ({
-  persist: `/state/component/${component.address}/procedure/${selected.name}/${JSON.stringify(
-    selected.args.json_schema
-  )}`,
-  schema: selected.args.json_schema,
-}))
-</script>

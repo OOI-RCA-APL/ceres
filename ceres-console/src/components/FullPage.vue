@@ -1,3 +1,11 @@
+<script lang="ts" setup>
+import CommonText from '@/components/CommonText.vue'
+
+defineProps<{
+  title: string
+}>()
+</script>
+
 <template>
   <div class="full-height self-full-page-root">
     <div class="items-center row self-full-page-header">
@@ -8,14 +16,6 @@
     <slot />
   </div>
 </template>
-
-<script lang="ts" setup>
-import CommonText from '@/components/CommonText.vue'
-
-defineProps<{
-  title: string
-}>()
-</script>
 
 <style lang="scss" scoped>
 .body--light .self-full-page-root {

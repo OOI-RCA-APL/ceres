@@ -1,7 +1,3 @@
-<template>
-  <router-view />
-</template>
-
 <script lang="ts" setup>
 import { useConfig } from '@/api/operations'
 import { useQuasar } from 'quasar'
@@ -17,3 +13,7 @@ provide(
 const config = useConfig()
 await config.load()
 </script>
+
+<template>
+  <router-view />
+</template>

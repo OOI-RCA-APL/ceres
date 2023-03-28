@@ -1,3 +1,52 @@
+<script lang="ts" setup>
+import { useConfig } from '@/api/operations'
+import AlertsIndicator from '@/components/AlertsIndicator.vue'
+import ResizeHandle from '@/components/ResizeHandle.vue'
+import { useDrawer } from '@/drawer'
+import icons from '@/icons'
+import { useSettings } from '@/settings'
+import { displayDuration } from '@/time'
+import moment from 'moment'
+import { LocalStorage, useQuasar } from 'quasar'
+import { useRoute } from 'vue-router'
+
+const config = useConfig()
+const drawer = useDrawer()
+const quasar = useQuasar()
+const route = useRoute()
+const settings = useSettings()
+
+function clearLocalStorage() {
+  quasar
+    .dialog({
+      title: 'Clear Local Storage',
+      class: 'no-shadow',
+      message:
+        'This action will clear all saved UI state, form state and settings for this site from ' +
+        'your local browser. This can be useful if you have managed to get the application ' +
+        'into an undesirable state and want to get back to a clean slate.',
+      ok: {
+        label: 'Clear',
+        color: 'primary',
+        flat: true,
+      },
+      cancel: {
+        label: 'Cancel',
+        flat: true,
+        color: 'grey',
+      },
+    })
+    .onOk(() => {
+      LocalStorage.clear()
+      quasar.notify({
+        message: 'Local storage cleared successfully.',
+        icon: icons.clearLocalStorage,
+        color: 'positive',
+      })
+    })
+}
+</script>
+
 <template>
   <q-drawer v-model="drawer.isOpen" class="self-app-layout-drawer-root" :width="drawer.width">
     <div class="column full-height">
@@ -114,55 +163,6 @@
     </div>
   </q-drawer>
 </template>
-
-<script lang="ts" setup>
-import { useConfig } from '@/api/operations'
-import AlertsIndicator from '@/components/AlertsIndicator.vue'
-import ResizeHandle from '@/components/ResizeHandle.vue'
-import { useDrawer } from '@/drawer'
-import icons from '@/icons'
-import { useSettings } from '@/settings'
-import { displayDuration } from '@/time'
-import moment from 'moment'
-import { LocalStorage, useQuasar } from 'quasar'
-import { useRoute } from 'vue-router'
-
-const config = useConfig()
-const drawer = useDrawer()
-const quasar = useQuasar()
-const route = useRoute()
-const settings = useSettings()
-
-function clearLocalStorage() {
-  quasar
-    .dialog({
-      title: 'Clear Local Storage',
-      class: 'no-shadow',
-      message:
-        'This action will clear all saved UI state, form state and settings for this site from ' +
-        'your local browser. This can be useful if you have managed to get the application ' +
-        'into an undesirable state and want to get back to a clean slate.',
-      ok: {
-        label: 'Clear',
-        color: 'primary',
-        flat: true,
-      },
-      cancel: {
-        label: 'Cancel',
-        flat: true,
-        color: 'grey',
-      },
-    })
-    .onOk(() => {
-      LocalStorage.clear()
-      quasar.notify({
-        message: 'Local storage cleared successfully.',
-        icon: icons.clearLocalStorage,
-        color: 'positive',
-      })
-    })
-}
-</script>
 
 <style lang="scss" scoped>
 .self-app-layout-drawer-root {

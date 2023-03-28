@@ -1,7 +1,3 @@
-<template>
-  <chart autoresize class="self-chart" :option="options" />
-</template>
-
 <script lang="ts" setup>
 import { Option } from '@/chart'
 import Chart from '@/components/Chart.vue'
@@ -108,6 +104,10 @@ const options = $computed(
     } as Option)
 )
 </script>
+
+<template>
+  <chart autoresize class="self-chart" :option="options" />
+</template>
 
 <style lang="scss" scoped>
 .self-chart {

@@ -1,3 +1,14 @@
+<script setup lang="ts">
+import type { LayoutNode } from '@/api/models'
+import Display from '@/components/Display.vue'
+
+const { node } = defineProps<{
+  unitName: string
+  componentName: string
+  node: LayoutNode
+}>()
+</script>
+
 <template>
   <display
     v-if="node.kind === 'display'"
@@ -17,14 +28,3 @@
     </div>
   </div>
 </template>
-
-<script setup lang="ts">
-import type { LayoutNode } from '@/api/models'
-import Display from '@/components/Display.vue'
-
-const { node } = defineProps<{
-  unitName: string
-  componentName: string
-  node: LayoutNode
-}>()
-</script>

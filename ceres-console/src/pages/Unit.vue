@@ -1,3 +1,47 @@
+<script lang="ts" setup>
+import { getUnit } from '@/api/operations'
+import AlertsIndicator from '@/components/AlertsIndicator.vue'
+import ComponentProcedures from '@/components/ComponentProcedures.vue'
+import FullPage from '@/components/FullPage.vue'
+import ItemView from '@/components/ItemView.vue'
+import Layout from '@/components/Layout.vue'
+import Panel from '@/components/Panel.vue'
+import PanelGroup from '@/components/PanelGroup.vue'
+import PanelTab from '@/components/PanelTab.vue'
+import UnitControls from '@/components/UnitControls.vue'
+import { useQuery } from 'vue-query'
+
+const { name = null } = defineProps<{
+  name?: string | null
+}>()
+
+const query = useQuery(['getUnit', name], async () => (name == null ? null : await getUnit(name)))
+await query.suspense()
+
+const unit = $computed(() => query.data?.value ?? null)
+
+const title = $computed(() => {
+  if (name == null) {
+    return 'No unit is selected.'
+  }
+
+  if (unit == null) {
+    return `Unit "${name}" does not exist.`
+  }
+
+  return name
+})
+
+const components = $computed(() => unit?.components ?? [])
+const connections = $computed(() =>
+  components.filter((component) => component.roles.includes('connection'))
+)
+const alerters = $computed(() =>
+  components.filter((component) => component.roles.includes('alerter'))
+)
+const uis = $computed(() => components.filter((component) => component.roles.includes('ui')))
+</script>
+
 <template>
   <full-page :title="title">
     <template #header-append>
@@ -123,50 +167,6 @@
     </div>
   </full-page>
 </template>
-
-<script lang="ts" setup>
-import { getUnit } from '@/api/operations'
-import AlertsIndicator from '@/components/AlertsIndicator.vue'
-import ComponentProcedures from '@/components/ComponentProcedures.vue'
-import FullPage from '@/components/FullPage.vue'
-import ItemView from '@/components/ItemView.vue'
-import Layout from '@/components/Layout.vue'
-import Panel from '@/components/Panel.vue'
-import PanelGroup from '@/components/PanelGroup.vue'
-import PanelTab from '@/components/PanelTab.vue'
-import UnitControls from '@/components/UnitControls.vue'
-import { useQuery } from 'vue-query'
-
-const { name = null } = defineProps<{
-  name?: string | null
-}>()
-
-const query = useQuery(['getUnit', name], async () => (name == null ? null : await getUnit(name)))
-await query.suspense()
-
-const unit = $computed(() => query.data?.value ?? null)
-
-const title = $computed(() => {
-  if (name == null) {
-    return 'No unit is selected.'
-  }
-
-  if (unit == null) {
-    return `Unit "${name}" does not exist.`
-  }
-
-  return name
-})
-
-const components = $computed(() => unit?.components ?? [])
-const connections = $computed(() =>
-  components.filter((component) => component.roles.includes('connection'))
-)
-const alerters = $computed(() =>
-  components.filter((component) => component.roles.includes('alerter'))
-)
-const uis = $computed(() => components.filter((component) => component.roles.includes('ui')))
-</script>
 
 <style lang="scss" scoped>
 .self-name-column {

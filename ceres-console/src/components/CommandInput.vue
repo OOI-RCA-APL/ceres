@@ -1,23 +1,3 @@
-<template>
-  <q-form @submit.prevent="submit">
-    <q-input
-      :ref="(ref: any) => (element = ref?.getNativeElement() ?? null)"
-      v-model="state.command"
-      :color="isConnected ? 'primary' : 'negative'"
-      dense
-      input-class="monospace text-nowrap"
-      :label="label"
-      outlined
-      @keydown.down.prevent="onDownKeyPressed"
-      @keydown.up.prevent="onUpKeyPressed"
-    >
-      <template v-if="isConnected" #append>
-        <q-btn color="primary" dense flat :icon="icons.send" type="button" @click="submit" />
-      </template>
-    </q-input>
-  </q-form>
-</template>
-
 <script lang="ts" setup>
 import icons from '@/icons'
 import { usePersisted } from '@/persistence'
@@ -123,3 +103,23 @@ async function submit() {
   state.command = ''
 }
 </script>
+
+<template>
+  <q-form @submit.prevent="submit">
+    <q-input
+      :ref="(ref: any) => (element = ref?.getNativeElement() ?? null)"
+      v-model="state.command"
+      :color="isConnected ? 'primary' : 'negative'"
+      dense
+      input-class="monospace text-nowrap"
+      :label="label"
+      outlined
+      @keydown.down.prevent="onDownKeyPressed"
+      @keydown.up.prevent="onUpKeyPressed"
+    >
+      <template v-if="isConnected" #append>
+        <q-btn color="primary" dense flat :icon="icons.send" type="button" @click="submit" />
+      </template>
+    </q-input>
+  </q-form>
+</template>

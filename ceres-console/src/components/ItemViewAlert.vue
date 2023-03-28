@@ -1,18 +1,3 @@
-<template>
-  <div class="row self-item-view-alert-root">
-    <div class="self-timestamp">
-      {{ alert.timestamp.format('YYYY-MM-DD HH:mm:ss.SSS') }}
-    </div>
-    <q-chip class="self-level-chip" :color="levelColor" dense text-color="black">
-      <span class="self-level-text">
-        {{ alert.level }}
-      </span>
-    </q-chip>
-    <div class="self-code">{{ alert.code }}</div>
-    <div class="self-info">{{ JSON.stringify(alert.info, null, 2) }}</div>
-  </div>
-</template>
-
 <script lang="ts" setup>
 import { Alert } from '@/api/models'
 
@@ -35,6 +20,21 @@ const levelColor = $computed(() => {
   }
 })
 </script>
+
+<template>
+  <div class="row self-item-view-alert-root">
+    <div class="self-timestamp">
+      {{ alert.timestamp.format('YYYY-MM-DD HH:mm:ss.SSS') }}
+    </div>
+    <q-chip class="self-level-chip" :color="levelColor" dense text-color="black">
+      <span class="self-level-text">
+        {{ alert.level }}
+      </span>
+    </q-chip>
+    <div class="self-code">{{ alert.code }}</div>
+    <div class="self-info">{{ JSON.stringify(alert.info, null, 2) }}</div>
+  </div>
+</template>
 
 <style lang="scss" scoped>
 .self-item-view-alert-root {

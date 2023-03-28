@@ -1,3 +1,15 @@
+<script lang="ts" setup>
+import CommonText from '@/components/CommonText.vue'
+
+const { padding = false, noBody = false } = defineProps<{
+  icon?: string
+  padding?: boolean | 'xs' | 'sm' | 'md' | 'lg' | 'xl'
+  title?: string
+  to?: string
+  noBody?: boolean
+}>()
+</script>
+
 <template>
   <q-card bordered class="column" flat>
     <div class="items-center no-wrap q-px-md q-py-xs row">
@@ -31,15 +43,3 @@
     </div>
   </q-card>
 </template>
-
-<script lang="ts" setup>
-import CommonText from '@/components/CommonText.vue'
-
-const { padding = false, noBody = false } = defineProps<{
-  icon?: string
-  padding?: boolean | 'xs' | 'sm' | 'md' | 'lg' | 'xl'
-  title?: string
-  to?: string
-  noBody?: boolean
-}>()
-</script>

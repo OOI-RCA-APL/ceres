@@ -1,53 +1,3 @@
-<template>
-  <section-card :title="title">
-    <template #header-append>
-      <q-space class="gt-sm" />
-      <div class="col-grow q-ml-sm self-search-input-container">
-        <q-input
-          v-model="search"
-          class="item-view-search-input"
-          :debounce="50"
-          dense
-          input-class="monospace"
-          outlined
-        >
-          <template #prepend>
-            <q-icon name="search" />
-          </template>
-        </q-input>
-      </div>
-    </template>
-    <div v-if="items.length" class="col-grow self-virtual-scroll-container">
-      <q-virtual-scroll
-        ref="scroll"
-        v-slot="{ item }"
-        class="fit item-view-virtual-scroll self-virtual-scroll"
-        :items="items"
-        :virtual-scroll-item-size="itemHeight"
-        :virtual-scroll-slice-size="250"
-      >
-        <item-view-message v-if="kind === 'message'" :key="item.id" :message="item" />
-        <item-view-alert v-else :key="item.id as any" :alert="item" />
-      </q-virtual-scroll>
-    </div>
-    <div v-else-if="!isDoingInitialLoad" class="col-grow items-center justify-center row">
-      <span class="self-empty-message-text text-italic">
-        <template v-if="isShowingAll">No {{ kind }}s were found.</template>
-        <template v-else>No matching {{ kind }}s were found.</template>
-      </span>
-    </div>
-    <q-space v-else />
-    <div v-if="kind === 'message'" class="q-mb-sm q-mt-xs q-mx-sm">
-      <command-input
-        :component-name="componentName"
-        label="Send Command"
-        :unit-name="unitName"
-        @send="onSend"
-      />
-    </div>
-  </section-card>
-</template>
-
 <script lang="ts" setup>
 import { Alert, ComponentInfo, Message } from '@/api/models'
 import {
@@ -292,6 +242,56 @@ async function onSend(data: string) {
   })
 }
 </script>
+
+<template>
+  <section-card :title="title">
+    <template #header-append>
+      <q-space class="gt-sm" />
+      <div class="col-grow q-ml-sm self-search-input-container">
+        <q-input
+          v-model="search"
+          class="item-view-search-input"
+          :debounce="50"
+          dense
+          input-class="monospace"
+          outlined
+        >
+          <template #prepend>
+            <q-icon name="search" />
+          </template>
+        </q-input>
+      </div>
+    </template>
+    <div v-if="items.length" class="col-grow self-virtual-scroll-container">
+      <q-virtual-scroll
+        ref="scroll"
+        v-slot="{ item }"
+        class="fit item-view-virtual-scroll self-virtual-scroll"
+        :items="items"
+        :virtual-scroll-item-size="itemHeight"
+        :virtual-scroll-slice-size="250"
+      >
+        <item-view-message v-if="kind === 'message'" :key="item.id" :message="item" />
+        <item-view-alert v-else :key="item.id as any" :alert="item" />
+      </q-virtual-scroll>
+    </div>
+    <div v-else-if="!isDoingInitialLoad" class="col-grow items-center justify-center row">
+      <span class="self-empty-message-text text-italic">
+        <template v-if="isShowingAll">No {{ kind }}s were found.</template>
+        <template v-else>No matching {{ kind }}s were found.</template>
+      </span>
+    </div>
+    <q-space v-else />
+    <div v-if="kind === 'message'" class="q-mb-sm q-mt-xs q-mx-sm">
+      <command-input
+        :component-name="componentName"
+        label="Send Command"
+        :unit-name="unitName"
+        @send="onSend"
+      />
+    </div>
+  </section-card>
+</template>
 
 <style lang="scss" scoped>
 .self-virtual-scroll-container {

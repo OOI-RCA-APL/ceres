@@ -1,3 +1,24 @@
+<script lang="ts" setup>
+import ResizeHandle from '@/components/ResizeHandle.vue'
+import { providePanelGroup } from '@/panel-group'
+import { computed } from 'vue'
+
+const { panels, defaultHeight, persist } = defineProps<{
+  title: string
+  panels?: string[]
+  defaultHeight?: number
+  persist?: string
+}>()
+
+const group = providePanelGroup(
+  computed(() => ({
+    panels,
+    defaultHeight,
+    persist,
+  }))
+)
+</script>
+
 <template>
   <div
     class="column no-wrap"
@@ -30,27 +51,6 @@
     </template>
   </div>
 </template>
-
-<script lang="ts" setup>
-import ResizeHandle from '@/components/ResizeHandle.vue'
-import { providePanelGroup } from '@/panel-group'
-import { computed } from 'vue'
-
-const { panels, defaultHeight, persist } = defineProps<{
-  title: string
-  panels?: string[]
-  defaultHeight?: number
-  persist?: string
-}>()
-
-const group = providePanelGroup(
-  computed(() => ({
-    panels,
-    defaultHeight,
-    persist,
-  }))
-)
-</script>
 
 <style lang="scss" scoped>
 .self-tab-row {

@@ -1,3 +1,15 @@
+<script lang="ts" setup>
+import icons from '@/icons'
+import { usePanelGroup } from '@/panel-group'
+
+const { name } = defineProps<{
+  name: string
+}>()
+
+const group = usePanelGroup()
+const isSelected = $computed(() => group.isSelected(name))
+</script>
+
 <template>
   <q-btn
     :class="[
@@ -24,15 +36,3 @@
   </q-btn>
   <q-separator vertical />
 </template>
-
-<script lang="ts" setup>
-import icons from '@/icons'
-import { usePanelGroup } from '@/panel-group'
-
-const { name } = defineProps<{
-  name: string
-}>()
-
-const group = usePanelGroup()
-const isSelected = $computed(() => group.isSelected(name))
-</script>

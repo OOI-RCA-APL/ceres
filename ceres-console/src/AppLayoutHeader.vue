@@ -1,3 +1,15 @@
+<script lang="ts" setup>
+import CommonText from '@/components/CommonText.vue'
+import UtcClock from '@/components/UtcClock.vue'
+import constants from '@/constants'
+import { useDrawer } from '@/drawer'
+import icons from '@/icons'
+import { useRouter } from 'vue-router'
+
+const drawer = useDrawer()
+const router = useRouter()
+</script>
+
 <template>
   <q-header class="bg-primary">
     <q-toolbar class="no-wrap">
@@ -17,15 +29,3 @@
     <q-separator />
   </q-header>
 </template>
-
-<script lang="ts" setup>
-import CommonText from '@/components/CommonText.vue'
-import UtcClock from '@/components/UtcClock.vue'
-import constants from '@/constants'
-import { useDrawer } from '@/drawer'
-import icons from '@/icons'
-import { useRouter } from 'vue-router'
-
-const drawer = useDrawer()
-const router = useRouter()
-</script>

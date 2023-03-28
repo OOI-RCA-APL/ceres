@@ -10,7 +10,7 @@ module.exports = {
     node: true,
     'vue/setup-compiler-macros': true,
   },
-  extends: ['plugin:@typescript-eslint/recommended', 'plugin:vue/vue3-essential', 'prettier'],
+  extends: ['plugin:@typescript-eslint/recommended', 'plugin:vue/vue3-recommended', 'prettier'],
   plugins: ['@typescript-eslint', 'vue'],
   globals: {
     ga: 'readonly',
@@ -47,7 +47,7 @@ module.exports = {
     '@typescript-eslint/no-unsafe-return': 'off',
     '@typescript-eslint/restrict-template-expressions': 'off',
     'vue/attributes-order': ['warn', { alphabetical: true }],
-    'vue/component-tags-order': ['warn', { order: ['template', 'script', 'style'] }],
+    'vue/component-tags-order': ['warn', { order: ['script', 'template', 'style'] }],
     'vue/multi-word-component-names': 'off',
     'vue/no-mutating-props': 'off',
     'vue/no-setup-props-destructure': 'off',
