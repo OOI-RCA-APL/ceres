@@ -1,6 +1,6 @@
 import { getter } from '@/getter'
 import { usePersisted } from '@/persistence'
-import { fromRef, MaybeRef, Plain } from '@/utilities'
+import { asRef, MaybeRef, Plain } from '@/utilities'
 import AJV, { SchemaObject as BaseSchemaObject } from 'ajv'
 import { computed, reactive } from 'vue'
 
@@ -24,7 +24,8 @@ export type Schema = boolean | SchemaObject
 export type SchemaFormOptions = {
   initial?: Plain
   schema: MaybeRef<Schema>
-  persist?: string
+  persist?: MaybeRef<string>
+  onSubmit?: (value: unknown) => unknown
 }
 
 export type SchemaForm = ReturnType<typeof createSchemaForm>
@@ -46,13 +47,15 @@ function get(object: Plain | undefined, path: SchemaPath): Plain | undefined {
 }
 
 export function createSchemaForm(options: SchemaFormOptions) {
-  const rootSchema = computed(() => fromRef(options.schema))
+  const onSubmit = options.onSubmit
+  const rootSchema = asRef(options.schema)
+  const persist = asRef(options.persist)
   const state = usePersisted({
     schema: ({ object, any }) =>
       object({
         value: any().default(() => getDefault(rootSchema.value)),
       }),
-    methods: options.persist ? [{ type: 'local-storage', key: options.persist }] : [],
+    methods: computed(() => (persist.value ? [{ type: 'local-storage', key: persist.value }] : [])),
   })
 
   if (options.hasOwnProperty('initial')) {
@@ -85,11 +88,11 @@ export function createSchemaForm(options: SchemaFormOptions) {
   const validator = computed(() => compilation.value.validator)
   const validationErrors = computed(() => {
     if (validator.value == null) {
-      return null
+      return []
     }
 
     validator.value(state.value)
-    return validator.value.errors
+    return validator.value.errors ?? []
   })
 
   function resolve(schema: Schema): Schema | undefined {
@@ -181,8 +184,8 @@ export function createSchemaForm(options: SchemaFormOptions) {
       case 'object':
         const object: Record<string, any> = {}
         for (const [property, subschema] of Object.entries(schema.properties ?? {})) {
-          const required = schema.required?.includes(property) ?? false
-          if (required) {
+          const isRequired = schema.required?.includes(property) ?? false
+          if (isRequired) {
             object[property] = getDefault(subschema)
           } else {
             object[property] = undefined
@@ -304,14 +307,28 @@ export function createSchemaForm(options: SchemaFormOptions) {
     return String(label)
   }
 
+  const isValidSchema = computed(() => schemaError.value == null)
+  const isValid = computed(() => isValidSchema.value && validationErrors.value.length === 0)
+
   function reset() {
     state.value = getDefault()
+  }
+
+  async function submit() {
+    if (isValid.value && onSubmit) {
+      if (onSubmit) {
+        await onSubmit(state.value)
+      }
+    }
   }
 
   return reactive({
     value: computed({ get: () => state.value, set: (value) => (state.value = value) }),
     schema: rootSchema,
     reset,
+    submit,
+    isValidSchema,
+    isValid,
     validator,
     schemaError,
     validationErrors,

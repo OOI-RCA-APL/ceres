@@ -1,0 +1,1 @@
+import{_ as o}from"./plugin-vue_export-helper.21dcd24c.js";import{gs as s,g6 as t,ge as r,g9 as _,ga as a}from"./index.004dfdf0.js";const c={},n={class:"self-page"},l={class:"full-height overflow-auto scroll"};function i(d,f){const e=s("router-view");return t(),r("div",n,[_("div",l,[a(e)])])}var u=o(c,[["render",i]]);export{u as default};

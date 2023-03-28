@@ -1,7 +1,7 @@
 <template>
   <q-input
     v-model="text"
-    :aria-required="required"
+    :aria-required="isRequired"
     dense
     filled
     label-slot
@@ -22,7 +22,7 @@
 <script lang="ts" setup>
 import { Schema, SchemaForm, SchemaPath } from '@/schema-form'
 import { debounce } from 'quasar'
-import { watch, watchEffect } from 'vue'
+import { watch } from 'vue'
 
 const {
   modelValue,
@@ -30,6 +30,7 @@ const {
   path,
   resolve,
   format = String,
+  ...props
 } = defineProps<{
   modelValue: unknown
   form: SchemaForm
@@ -38,7 +39,8 @@ const {
   inputType: 'text' | 'number'
   schemaType: string
   resolve: (value: unknown) => unknown
-  format: (value: unknown) => string | null
+  resolveText?: (text: string) => unknown
+  format: (value: unknown) => string
 }>()
 
 const emit = defineEmits<{
@@ -53,23 +55,27 @@ if (resolvedModelValue !== modelValue) {
 let text = $ref(format(resolvedModelValue))
 let isFocused = $ref(false)
 
-const required = $computed(() => form.getRequired(path))
+const isRequired = $computed(() => form.getRequired(path))
 const title = $computed(() => form.getTitle(path))
+const resolveText = $computed(() => props.resolveText ?? resolve)
 
-// Whenever the input is not focused and model value is changes, update the text.
-watchEffect(() => {
-  if (!isFocused) {
-    text = format(resolve(modelValue))
+// Whenever the model value changes and the input is not focused, update the text.
+watch(
+  () => modelValue,
+  () => {
+    if (!isFocused) {
+      text = format(resolve(modelValue))
+    }
   }
-})
+)
 
 // Whenever the input is focused and the text resolves to a valid value, update the model value.
 watch(
   () => text,
   debounce(() => {
     if (isFocused) {
-      const resolvedValue = resolve(text)
-      if (resolvedValue !== modelValue && resolvedValue !== undefined) {
+      const resolvedValue = resolveText(text)
+      if (resolvedValue !== undefined && resolvedValue !== modelValue) {
         emit('update:modelValue', resolvedValue)
       }
     }
@@ -85,11 +91,15 @@ function onFocus() {
 function onBlur() {
   // Resolve the text value and emit the result whenever the input loses focus.
   if (resolvedModelValue !== undefined) {
-    const resolvedValue = resolve(text)
+    const resolvedValue = resolveText(text)
     emit('update:modelValue', resolvedValue)
+    // Write the resolved value to the text input.
+    text = format(resolvedValue)
+  } else {
+    // Write the undefined value to the text input.
+    text = format(undefined)
   }
-  // Write the resolved value to the text input.
-  text = format(resolvedModelValue)
+
   isFocused = false
 }
 
@@ -97,7 +107,7 @@ function onBlur() {
 function onBackspace() {
   // If the value is not required, the text is empty and the user hits backspace one more time,
   // emit undefined to remove the value.
-  if (text === '' && !required) {
+  if (text === '' && !isRequired) {
     emit('update:modelValue', undefined)
   }
 }

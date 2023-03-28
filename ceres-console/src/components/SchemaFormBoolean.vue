@@ -1,6 +1,6 @@
 <template>
   <q-checkbox
-    :aria-required="required"
+    :aria-required="isRequired"
     class="q-ml-xs self-schema-form-boolean-root"
     :keep-color="true"
     :label="label"
@@ -37,7 +37,7 @@ if (value !== modelValue) {
   emit('update:modelValue', value)
 }
 
-const required = $computed(() => form.getRequired(path))
+const isRequired = $computed(() => form.getRequired(path))
 const label = $computed(() => form.getTitle(path))
 </script>
 

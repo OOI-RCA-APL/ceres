@@ -10,7 +10,7 @@
         :path="path"
         @update:model-value="(modelValue) => (form.value = modelValue)"
       />
-      <q-banner v-if="form.validationErrors" class="bg-negative q-mt-sm text-white" dense rounded>
+      <q-banner v-if="!form.isValid" class="bg-negative q-mt-sm text-white" dense rounded>
         <div v-for="(error, i) in form.validationErrors" :key="i">
           {{ error.instancePath?.trim() ? error.instancePath + ': ' : '' }}
           {{ error.message }}
