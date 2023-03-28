@@ -8,13 +8,12 @@ from uuid import uuid4
 
 from typing_extensions import Self
 
-try:
+if TYPE_CHECKING:
     from _typeshed import OpenBinaryMode as OpenBinaryMode
     from _typeshed import OpenTextMode as OpenTextMode
-except Exception:
-    if not TYPE_CHECKING:
-        OpenTextMode = "OpenTextMode"
-        OpenBinaryMode = "OpenBinaryMode"
+else:
+    OpenBinaryMode = "OpenBinaryMode"
+    OpenTextMode = "OpenTextMode"
 
 StrPath = str | PathLike[str]
 OpenMode = Union[OpenTextMode, OpenBinaryMode]
@@ -35,7 +34,6 @@ class Directory(PathLike[str]):
             path = Path(path)
         if parent is not None:
             path = parent.path / (Path(path) if path is not None else "")
-
 
         if path is None:
             id = uuid4()
