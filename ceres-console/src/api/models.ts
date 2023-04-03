@@ -1,3 +1,4 @@
+import { Address } from '@/address'
 import moment from 'moment'
 import Zod, { ZodTypeAny } from 'zod'
 
@@ -15,7 +16,7 @@ export const MessageDirectionModel = Zod.enum(['send', 'receive'])
 export type Message = Zod.infer<typeof MessageModel>
 export const MessageModel = Zod.object({
   id: Zod.string(),
-  source: Zod.string(),
+  source: Zod.string().transform(Address.parse),
   timestamp: DateTimeModel,
   direction: MessageDirectionModel,
   content: Zod.string(),
@@ -27,7 +28,7 @@ export const AlertLevelModel = Zod.enum(['debug', 'info', 'warning', 'error', 'c
 export type Alert = Zod.infer<typeof AlertModel>
 export const AlertModel = Zod.object({
   id: Zod.string(),
-  source: Zod.string(),
+  source: Zod.string().transform(Address.parse),
   timestamp: DateTimeModel,
   level: AlertLevelModel,
   code: Zod.string(),
@@ -222,7 +223,7 @@ export const ProcedureInfoModel = Zod.discriminatedUnion('kind', [QueryInfoModel
 export type ComponentInfo = Zod.infer<typeof ComponentInfoModel>
 export const ComponentInfoModel = Zod.object({
   name: Zod.string(),
-  address: Zod.string(),
+  address: Zod.string().transform(Address.parse),
   config: ComponentConfigModel,
   roles: Zod.array(ComponentRoleModel),
   procedures: Zod.array(ProcedureInfoModel),

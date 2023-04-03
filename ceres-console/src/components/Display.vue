@@ -1,4 +1,5 @@
 <script lang="ts" setup>
+import { Address } from '@/address'
 import { LayoutDisplay } from '@/api/models'
 import { useDisplayStream } from '@/api/operations'
 import ChartDisplay from '@/components/displays/ChartDisplay.vue'
@@ -8,15 +9,14 @@ import ValueDisplay from '@/components/displays/ValueDisplay.vue'
 import { DisplayInfo } from '@/display'
 import { QMarkupTable, QTh, QTr } from 'quasar'
 
-const { unitName, componentName, display } = defineProps<{
-  unitName: string
-  componentName: string
+const { address, display } = defineProps<{
+  address: Address
   display: LayoutDisplay
 }>()
 
 let info: DisplayInfo | null = $ref(null)
 
-useDisplayStream(unitName, componentName, display.procedure, (current) => {
+useDisplayStream(address, display.procedure, (current) => {
   info = current
 })
 </script>

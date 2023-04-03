@@ -1,14 +1,14 @@
 <script lang="ts" setup>
+import { Address } from '@/address'
 import icons from '@/icons'
 import { usePersisted } from '@/persistence'
 import { useQuasar } from 'quasar'
 import { computed, watch } from 'vue'
 import Zod from 'zod'
 
-const { unitName, componentName } = defineProps<{
+const { address } = defineProps<{
   label: string
-  unitName: string
-  componentName: string
+  address: Address
 }>()
 
 const emit = defineEmits<{
@@ -30,7 +30,7 @@ const state = usePersisted({
   methods: [
     {
       type: 'local-storage',
-      key: `${unitName}.${componentName}.command-input`,
+      key: `state/command-input/${address}`,
     },
   ],
 })

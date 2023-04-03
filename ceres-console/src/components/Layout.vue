@@ -1,24 +1,20 @@
 <script setup lang="ts">
+import { Address } from '@/address'
 import { getLayout, useQuery } from '@/api/operations'
 import LayoutNode from '@/components/LayoutNode.vue'
+import { computed } from 'vue'
 
-const { unitName, componentName } = defineProps<{
-  unitName: string
-  componentName: string
+const { address } = defineProps<{
+  address: Address
 }>()
 
-const query = useQuery(['getLayout', unitName, componentName], async () => {
-  return await getLayout(unitName, componentName)
+const query = useQuery(['getLayout', computed(() => address)], async () => {
+  return await getLayout(address)
 })
 
 await query.suspense()
 </script>
 
 <template>
-  <layout-node
-    v-if="query.data.value?.ok"
-    :component-name="componentName"
-    :node="query.data.value.value.body"
-    :unit-name="unitName"
-  />
+  <layout-node v-if="query.data.value?.ok" :address="address" :node="query.data.value.value.body" />
 </template>

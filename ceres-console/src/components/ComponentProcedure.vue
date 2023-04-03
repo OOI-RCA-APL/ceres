@@ -20,8 +20,7 @@ const form = createSchemaForm({
   ),
   schema: computed(() => procedure.args.json_schema),
   async onSubmit(value) {
-    const unitName = component.address.split('.')[0]
-    result = await call(unitName, component.name, procedure.name, value)
+    result = await call(component.address, procedure.name, value)
   },
 })
 </script>

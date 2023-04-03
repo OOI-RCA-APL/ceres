@@ -8,7 +8,6 @@ import Layout from '@/components/Layout.vue'
 import Panel from '@/components/Panel.vue'
 import PanelGroup from '@/components/PanelGroup.vue'
 import PanelTab from '@/components/PanelTab.vue'
-import UnitControls from '@/components/UnitControls.vue'
 import { computed } from 'vue'
 import { useQuery } from 'vue-query'
 
@@ -47,10 +46,6 @@ const uis = $computed(() => components.filter((component) => component.roles.inc
 
 <template>
   <full-page :title="title">
-    <template #header-append>
-      <q-space />
-      <unit-controls v-if="unit" class="q-mr-md" :unit-name="unit.name" />
-    </template>
     <div v-if="components.length === 0" class="q-pa-md">
       <q-chip>No configuration found.</q-chip>
     </div>
@@ -65,22 +60,21 @@ const uis = $computed(() => components.filter((component) => component.roles.inc
         <template #tabs>
           <panel-tab
             v-for="connection in connections"
-            :key="connection.address"
+            :key="connection.address.toString()"
             :name="connection.name"
           />
         </template>
         <panel
           v-for="connection in connections"
-          :key="connection.address"
+          :key="connection.address.toString()"
           class="column"
           :name="connection.name"
         >
           <item-view
+            :address="connection.address"
             class="col-grow"
-            :component-name="connection.name"
             kind="message"
             :title="connection.name"
-            :unit-name="unit.name"
           />
         </panel>
       </panel-group>
@@ -92,23 +86,26 @@ const uis = $computed(() => components.filter((component) => component.roles.inc
         title="Alerts"
       >
         <template #tabs>
-          <panel-tab v-for="alerter in alerters" :key="alerter.address" :name="alerter.name">
+          <panel-tab
+            v-for="alerter in alerters"
+            :key="alerter.address.toString()"
+            :name="alerter.name"
+          >
             {{ alerter.name }}
             <alerts-indicator :component-name="alerter.name" :unit-name="unit.name" />
           </panel-tab>
         </template>
         <panel
           v-for="alerter in alerters"
-          :key="alerter.address"
+          :key="alerter.address.toString()"
           class="column"
           :name="alerter.name"
         >
           <item-view
+            :address="alerter.address"
             class="col-grow"
-            :component-name="alerter.name"
             kind="alert"
             :title="alerter.name"
-            :unit-name="unit.name"
           />
         </panel>
       </panel-group>
@@ -121,7 +118,7 @@ const uis = $computed(() => components.filter((component) => component.roles.inc
         <template #tabs>
           <panel-tab
             v-for="component in components"
-            :key="component.address"
+            :key="component.address.toString()"
             :name="component.name"
           >
             {{ component.name }}
@@ -129,7 +126,7 @@ const uis = $computed(() => components.filter((component) => component.roles.inc
         </template>
         <panel
           v-for="component in components"
-          :key="component.address"
+          :key="component.address.toString()"
           class="column"
           :name="component.name"
         >
@@ -143,9 +140,9 @@ const uis = $computed(() => components.filter((component) => component.roles.inc
         title="UI"
       >
         <template #tabs>
-          <panel-tab v-for="hud in uis" :key="hud.address" :name="hud.name" />
+          <panel-tab v-for="hud in uis" :key="hud.address.toString()" :name="hud.name" />
         </template>
-        <panel v-for="ui in uis" :key="ui.address" :name="ui.name">
+        <panel v-for="ui in uis" :key="ui.address.toString()" :name="ui.name">
           <div>
             <layout :component-name="ui.name" :unit-name="unit.name" />
           </div>

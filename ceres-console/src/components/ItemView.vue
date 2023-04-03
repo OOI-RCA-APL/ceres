@@ -1,4 +1,5 @@
 <script lang="ts" setup>
+import { Address } from '@/address'
 import { Alert, ComponentInfo, Message } from '@/api/models'
 import {
   getAlerts,
@@ -17,11 +18,10 @@ import { computed, nextTick, onMounted, watch, watchEffect } from 'vue'
 
 type Item = Readonly<Alert | Message>
 
-const { title, unitName, componentName, kind } = defineProps<{
+const { title, address, kind } = defineProps<{
   title: string
   containerClass?: string | null
-  unitName: string
-  componentName: string
+  address: Address
   kind: 'alert' | 'message'
 }>()
 
@@ -29,7 +29,7 @@ const quasar = useQuasar()
 const get = $computed(() => (kind === 'message' ? getMessages : getAlerts))
 const useStream = $computed(() => (kind === 'message' ? useMessageStream : useAlertStream))
 
-const info = (await getComponent(unitName, componentName)) as ComponentInfo
+const info = (await getComponent(address)) as ComponentInfo
 if (info == null) {
   throw new Error('Component not found')
 }
@@ -230,7 +230,7 @@ watch([computed(() => search)], async () => {
 })
 
 async function onSend(data: string) {
-  const result = await sendMessage(unitName, componentName, data)
+  const result = await sendMessage(address, data)
   if (result.ok) {
     return
   }
@@ -282,12 +282,7 @@ async function onSend(data: string) {
     </div>
     <q-space v-else />
     <div v-if="kind === 'message'" class="q-mb-sm q-mt-xs q-mx-sm">
-      <command-input
-        :component-name="componentName"
-        label="Send Command"
-        :unit-name="unitName"
-        @send="onSend"
-      />
+      <command-input :address="address" label="Send Command" @send="onSend" />
     </div>
   </section-card>
 </template>

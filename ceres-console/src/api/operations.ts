@@ -1,3 +1,4 @@
+import { Address } from '@/address'
 import {
   Alert,
   AlertModel,
@@ -38,12 +39,15 @@ export async function getUnit(name: string): Promise<UnitInfo | null> {
   return await getOrNull(`/api/units/${name}`, UnitInfoModel)
 }
 
-export async function getComponent(unit: string, name: string): Promise<ComponentInfo | null> {
-  return await getOrNull(`/api/units/${unit}/components/${name}`, ComponentInfoModel)
+export async function getComponent(address: Address): Promise<ComponentInfo | null> {
+  return await getOrNull(
+    `/api/units/${address.unit}/components/${address.component}`,
+    ComponentInfoModel
+  )
 }
 
 export async function getMessages(params: {
-  source?: string
+  source?: Address
   search?: string
   within?: number
   after?: string
@@ -55,7 +59,7 @@ export async function getMessages(params: {
 }
 
 export async function getAlerts(params: {
-  source?: string
+  source?: Address
   search?: string
   within?: number
   after?: string
@@ -93,7 +97,7 @@ function getWebSocketURI(relative: string) {
 
 export function useMessageStream<TModel extends ZodTypeAny>(
   params: MaybeRef<{
-    source?: string
+    source?: Address
     search?: string
   }>,
   onReceive: (message: Zod.infer<TModel>) => unknown
@@ -113,7 +117,7 @@ export function useMessageStream<TModel extends ZodTypeAny>(
 
 export function useAlertStream<TModel extends ZodTypeAny>(
   params: MaybeRef<{
-    source?: string
+    source?: Address
     search?: string
   }>,
   onReceive: (alert: Zod.infer<TModel>) => unknown
@@ -238,7 +242,9 @@ async function post<TModel extends ZodTypeAny>(
   return await model.parseAsync(json)
 }
 
-function createQueryParams(values: Record<string, string | number | null | undefined>): string {
+function createQueryParams(
+  values: Record<string, string | number | null | undefined | Address>
+): string {
   const result = new URLSearchParams()
   for (const key of Object.keys(values)) {
     const value = values[key]
@@ -328,14 +334,13 @@ function useStream<TModel extends ZodTypeAny>(
 }
 
 export function useDisplayStream<TModel extends ZodTypeAny>(
-  unitName: string,
-  componentName: string,
-  procedureName: string,
+  address: Address,
+  procedure: string,
   onDisplay: (message: Zod.infer<TModel>) => unknown
 ) {
   return useStream(
     getWebSocketURI(
-      `/api/units/${unitName}/components/${componentName}/procedures/${procedureName}/subscribe`
+      `/api/units/${address.unit}/components/${address.component}/procedures/${procedure}/subscribe`
     ),
     // eslint-disable-next-line @typescript-eslint/ban-ts-comment
     // @ts-ignore
@@ -372,26 +377,17 @@ function createResultType<TValueModel extends ZodTypeAny, TErrorModel extends Zo
 export type SendMessageResult = Zod.infer<typeof SendMessageResultModel>
 const SendMessageResultModel = createResultType(MessageModel, BaseFailModel)
 
-export async function call(
-  unitName: string,
-  componentName: string,
-  procedureName: string,
-  args?: Record<string, any>
-) {
+export async function call(address: Address, procedure: string, args?: Record<string, any>) {
   return await post(
-    `/api/units/${unitName}/components/${componentName}/procedures/${procedureName}/call` +
+    `/api/units/${address.unit}/components/${address.component}/procedures/${procedure}/call` +
       createQueryParams(args ?? {}),
     BaseOkModel
   )
 }
 
-export async function sendMessage(
-  unitName: string,
-  componentName: string,
-  data: string
-): Promise<SendMessageResult> {
+export async function sendMessage(address: Address, data: string): Promise<SendMessageResult> {
   return await post(
-    `/api/units/${unitName}/components/${componentName}/procedures/send-message/call`,
+    `/api/units/${address.unit}/components/${address.component}/procedures/send-message/call`,
     SendMessageResultModel,
     { data }
   )
@@ -400,9 +396,9 @@ export async function sendMessage(
 export type GetLayoutResult = Zod.infer<typeof GetLayoutResultModel>
 const GetLayoutResultModel = createResultType(LayoutModel, BaseFailModel)
 
-export async function getLayout(unitName: string, componentName: string): Promise<GetLayoutResult> {
+export async function getLayout(address: Address): Promise<GetLayoutResult> {
   return await get(
-    `/api/units/${unitName}/components/${componentName}/procedures/get-layout/call`,
+    `/api/units/${address.unit}/components/${address.component}/procedures/get-layout/call`,
     GetLayoutResultModel
   )
 }
