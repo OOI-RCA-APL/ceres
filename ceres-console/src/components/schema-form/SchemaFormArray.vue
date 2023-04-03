@@ -1,6 +1,6 @@
 <script lang="ts" setup>
-import SchemaFormComposite from '@/components/SchemaFormComposite.vue'
-import SchemaFormNode from '@/components/SchemaFormNode.vue'
+import SchemaFormComposite from '@/components/schema-form/SchemaFormComposite.vue'
+import SchemaFormNode from '@/components/schema-form/SchemaFormNode.vue'
 import icons from '@/icons'
 import { SchemaForm, SchemaObject, SchemaPath } from '@/schema-form'
 

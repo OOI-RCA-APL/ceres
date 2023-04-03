@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 import CommonText from '@/components/CommonText.vue'
-import SchemaForm from '@/components/SchemaForm.vue'
+import SchemaForm from '@/components/schema-form/SchemaForm.vue'
 import SectionCard from '@/components/SectionCard.vue'
 import { usePersisted } from '@/persistence'
 import { createSchemaForm } from '@/schema-form'

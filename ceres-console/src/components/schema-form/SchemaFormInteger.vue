@@ -1,8 +1,8 @@
 <script lang="ts" setup>
-import SchemaFormInput from '@/components/SchemaFormInput.vue'
+import SchemaFormInput from '@/components/schema-form/SchemaFormInput.vue'
 import { SchemaForm, SchemaObject, SchemaPath } from '@/schema-form'
 
-const { modelValue } = defineProps<{
+const { modelValue, form } = defineProps<{
   modelValue: unknown
   form: SchemaForm
   schema: SchemaObject & { type: 'number' }
@@ -29,7 +29,7 @@ function resolve(value: unknown) {
     return undefined
   }
 
-  return resolved
+  return Math.floor(resolved)
 }
 
 function format(value: unknown) {
@@ -50,7 +50,7 @@ function format(value: unknown) {
     :path="path"
     :resolve="resolve"
     :schema="schema"
-    schema-type="Number"
+    schema-type="Integer"
     @update:model-value="(modelValue) => emit('update:modelValue', modelValue)"
   />
 </template>

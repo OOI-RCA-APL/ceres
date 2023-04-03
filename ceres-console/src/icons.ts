@@ -1,6 +1,7 @@
 const icons = {
   add: 'add',
   arrowRight: 'arrow_right',
+  cancel: 'cancel',
   clearLocalStorage: 'delete_sweep',
   close: 'close',
   darkMode: 'dark_mode',

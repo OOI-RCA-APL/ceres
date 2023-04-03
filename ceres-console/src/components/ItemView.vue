@@ -132,7 +132,6 @@ async function prependItems(prepended: Item[]) {
 async function appendItems(appended: Item[]) {
   const follow = isAtBottom()
   items.push(...(appended.map(Object.freeze) as Item[]))
-  items = items
   if (follow) {
     scroll?.refresh(items.length)
   }

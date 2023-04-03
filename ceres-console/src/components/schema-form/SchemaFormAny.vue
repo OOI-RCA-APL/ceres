@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import SchemaFormInput from '@/components/SchemaFormInput.vue'
+import SchemaFormInput from '@/components/schema-form/SchemaFormInput.vue'
 import { Schema, SchemaForm, SchemaPath } from '@/schema-form'
 
 defineProps<{

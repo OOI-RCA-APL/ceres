@@ -9,13 +9,16 @@ import Panel from '@/components/Panel.vue'
 import PanelGroup from '@/components/PanelGroup.vue'
 import PanelTab from '@/components/PanelTab.vue'
 import UnitControls from '@/components/UnitControls.vue'
+import { computed } from 'vue'
 import { useQuery } from 'vue-query'
 
 const { name = null } = defineProps<{
   name?: string | null
 }>()
 
-const query = useQuery(['getUnit', name], async () => (name == null ? null : await getUnit(name)))
+const query = useQuery(['getUnit', computed(() => name)], async () =>
+  name == null ? null : await getUnit(name)
+)
 await query.suspense()
 
 const unit = $computed(() => query.data?.value ?? null)

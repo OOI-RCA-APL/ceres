@@ -1,8 +1,9 @@
 import { getter } from '@/getter'
 import { usePersisted } from '@/persistence'
-import { asRef, MaybeRef, Plain } from '@/utilities'
+import { asRef, MaybePromise, MaybeRef, Plain } from '@/utilities'
 import AJV, { SchemaObject as BaseSchemaObject } from 'ajv'
-import { computed, reactive } from 'vue'
+import { cloneDeep } from 'lodash'
+import { computed, reactive, ref } from 'vue'
 
 export type SchemaObject = BaseSchemaObject & {
   $ref?: string
@@ -23,10 +24,13 @@ export type SchemaObject = BaseSchemaObject & {
 export type Schema = boolean | SchemaObject
 export type SchemaFormOptions = {
   initial?: Plain
+  editing?: boolean
   schema: MaybeRef<Schema>
   persist?: MaybeRef<string>
-  onSubmit?: (value: unknown) => unknown
+  onSubmit?: (value: any) => MaybePromise<SchemaFormState | void>
 }
+
+export type SchemaFormState = 'viewing' | 'editing' | 'submitting' | 'submitted'
 
 export type SchemaForm = ReturnType<typeof createSchemaForm>
 
@@ -46,20 +50,23 @@ function get(object: Plain | undefined, path: SchemaPath): Plain | undefined {
   return current
 }
 
-export function createSchemaForm(options: SchemaFormOptions) {
+export function createSchemaForm({ ...options }: SchemaFormOptions) {
   const onSubmit = options.onSubmit
   const rootSchema = asRef(options.schema)
   const persist = asRef(options.persist)
-  const state = usePersisted({
-    schema: ({ object, any }) =>
+  const state = ref<SchemaFormState>(
+    options.editing == null || options.editing ? 'editing' : 'viewing'
+  )
+  const persisted = usePersisted({
+    schema: ({ object, unknown }) =>
       object({
-        value: any().default(() => getDefault(rootSchema.value)),
+        value: unknown().default(() => getDefault(rootSchema.value)),
       }),
     methods: computed(() => (persist.value ? [{ type: 'local-storage', key: persist.value }] : [])),
   })
 
   if (options.hasOwnProperty('initial')) {
-    state.value = options.initial
+    persisted.value = cloneDeep(options.initial)
   }
 
   const ajv = computed(
@@ -91,7 +98,7 @@ export function createSchemaForm(options: SchemaFormOptions) {
       return []
     }
 
-    validator.value(state.value)
+    validator.value(persisted.value)
     return validator.value.errors ?? []
   })
 
@@ -309,24 +316,49 @@ export function createSchemaForm(options: SchemaFormOptions) {
 
   const isValidSchema = computed(() => schemaError.value == null)
   const isValid = computed(() => isValidSchema.value && validationErrors.value.length === 0)
+  const canSubmit = computed(() => isValid.value && state.value === 'editing')
 
   function reset() {
-    state.value = getDefault()
+    assign(getDefault())
   }
 
   async function submit() {
-    if (isValid.value && onSubmit) {
-      if (onSubmit) {
-        await onSubmit(state.value)
-      }
+    if (canSubmit.value && onSubmit) {
+      return await onSubmit(persisted.value)
     }
   }
 
+  function edit() {
+    if (state.value === 'editing') {
+      return
+    }
+
+    state.value = 'editing'
+    reset()
+  }
+
+  function discard() {
+    state.value = 'viewing'
+    reset()
+  }
+
+  function assign(value: unknown) {
+    persisted.value = value
+  }
+
   return reactive({
-    value: computed({ get: () => state.value, set: (value) => (state.value = value) }),
+    value: computed(() => persisted.value),
     schema: rootSchema,
+    state: computed(() => state.value),
+    canSubmit,
+    editable: computed(() => state.value === 'editing'),
+    readonly: computed(() => state.value !== 'editing'),
+    submitting: computed(() => state.value === 'submitting'),
     reset,
     submit,
+    edit,
+    discard,
+    assign,
     isValidSchema,
     isValid,
     validator,

@@ -1,8 +1,7 @@
 <script lang="ts" setup>
 import { ComponentInfo, ProcedureKind } from '@/api/models'
-import SchemaForm from '@/components/SchemaForm.vue'
+import ComponentProcedure from '@/components/ComponentProcedure.vue'
 import SectionCard from '@/components/SectionCard.vue'
-import { computed } from 'vue'
 
 const { component, kind } = defineProps<{
   component: ComponentInfo
@@ -19,12 +18,6 @@ const queries = $computed(() =>
 const procedures = $computed(() => (kind === 'action' ? actions : queries))
 
 let selected = $ref(procedures[0] ?? null)
-const form = computed(() => ({
-  persist: `/state/component/${component.address}/procedure/${selected.name}/${JSON.stringify(
-    selected.args.json_schema
-  )}`,
-  schema: selected.args.json_schema,
-}))
 </script>
 
 <template>
@@ -51,20 +44,9 @@ const form = computed(() => ({
       </div>
       <q-separator vertical />
       <div class="col q-pa-sm">
-        <schema-form v-if="selected" :key="selected.name" :form="form" />
-        <div class="q-col-gutter-sm q-pt-sm row">
-          <div>
-            <q-btn class="full-width" color="primary" label="Run" />
-          </div>
-          <div>
-            <q-btn class="full-width" color="warning" flat label="Reset" />
-          </div>
-        </div>
-        <q-card bordered class="q-mt-sm" flat title="Result">
-          <div class="q-pa-sm text-center" style="opacity: 0.5">
-            Unsubmitted, run to get results.
-          </div>
-        </q-card>
+        <template v-if="selected">
+          <component-procedure :key="selected.name" :component="component" :procedure="selected" />
+        </template>
       </div>
     </div>
   </section-card>

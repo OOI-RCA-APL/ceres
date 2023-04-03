@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import SchemaFormNode from '@/components/SchemaFormNode.vue'
+import SchemaFormNode from '@/components/schema-form/SchemaFormNode.vue'
 import {
   createSchemaForm,
   isSchemaForm,
@@ -7,15 +7,26 @@ import {
   SchemaFormOptions,
   SchemaPath,
 } from '@/schema-form'
+import { watchEffect } from 'vue'
 
 const props = defineProps<{
   form: SchemaForm | SchemaFormOptions
+  formRef?: (form: SchemaForm) => unknown
 }>()
 
 const path: SchemaPath = []
-const form = $computed(() =>
-  isSchemaForm(props.form) ? props.form : createSchemaForm({ ...props.form })
-)
+const form = isSchemaForm(props.form) ? props.form : createSchemaForm({ ...props.form })
+
+watchEffect(() => {
+  if (props.formRef) {
+    props.formRef(form)
+  }
+})
+
+function update(value: unknown) {
+  form.assign(value)
+  form.assign(value)
+}
 </script>
 
 <template>
@@ -28,7 +39,7 @@ const form = $computed(() =>
         :form="form"
         :model-value="form.value"
         :path="path"
-        @update:model-value="(modelValue) => (form.value = modelValue)"
+        @update:model-value="update"
       />
       <q-banner v-if="!form.isValid" class="bg-negative q-mt-sm text-white" dense rounded>
         <div v-for="(error, i) in form.validationErrors" :key="i">

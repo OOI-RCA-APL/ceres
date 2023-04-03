@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 import { Schema, SchemaForm, SchemaPath } from '@/schema-form'
-import { debounce } from 'quasar'
+import { QInput, debounce } from 'quasar'
 import { watch } from 'vue'
 
 const {
@@ -9,7 +9,7 @@ const {
   path,
   resolve,
   format = String,
-  ...props
+  resolveText: resolveTextOriginal,
 } = defineProps<{
   modelValue: unknown
   form: SchemaForm
@@ -26,6 +26,8 @@ const emit = defineEmits<{
   (emit: 'update:modelValue', value: unknown): void
 }>()
 
+let input = $ref<QInput | null>(null)
+
 const resolvedModelValue = $computed(() => resolve(modelValue))
 if (resolvedModelValue !== modelValue) {
   emit('update:modelValue', resolvedModelValue)
@@ -36,7 +38,20 @@ let isFocused = $ref(false)
 
 const isRequired = $computed(() => form.getRequired(path))
 const title = $computed(() => form.getTitle(path))
-const resolveText = $computed(() => props.resolveText ?? resolve)
+const resolveText = $computed(() => resolveTextOriginal ?? resolve)
+
+// Whenever the input is focused and the text resolves to a valid value, update the model value.
+watch(
+  () => text,
+  debounce(() => {
+    if (isFocused) {
+      const resolvedValue = resolveText(text)
+      if (resolvedValue !== undefined) {
+        emit('update:modelValue', resolvedValue)
+      }
+    }
+  }, 0)
+)
 
 // Whenever the model value changes and the input is not focused, update the text.
 watch(
@@ -45,20 +60,8 @@ watch(
     if (!isFocused) {
       text = format(resolve(modelValue))
     }
-  }
-)
-
-// Whenever the input is focused and the text resolves to a valid value, update the model value.
-watch(
-  () => text,
-  debounce(() => {
-    if (isFocused) {
-      const resolvedValue = resolveText(text)
-      if (resolvedValue !== undefined && resolvedValue !== modelValue) {
-        emit('update:modelValue', resolvedValue)
-      }
-    }
-  }, 50)
+  },
+  { immediate: true }
 )
 
 // Run when the input is focused.
@@ -94,10 +97,12 @@ function onBackspace() {
 
 <template>
   <q-input
+    ref="input"
     v-model="text"
     :aria-required="isRequired"
     dense
     filled
+    input-class="monospace"
     label-slot
     :type="inputType"
     @blur="onBlur"

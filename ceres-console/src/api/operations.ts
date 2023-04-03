@@ -346,6 +346,7 @@ export function useDisplayStream<TModel extends ZodTypeAny>(
 
 const BaseOkModel = Zod.object({
   ok: Zod.literal(true),
+  value: Zod.unknown(),
 })
 
 const BaseFailModel = Zod.object({
@@ -370,6 +371,19 @@ function createResultType<TValueModel extends ZodTypeAny, TErrorModel extends Zo
 
 export type SendMessageResult = Zod.infer<typeof SendMessageResultModel>
 const SendMessageResultModel = createResultType(MessageModel, BaseFailModel)
+
+export async function call(
+  unitName: string,
+  componentName: string,
+  procedureName: string,
+  args?: Record<string, any>
+) {
+  return await post(
+    `/api/units/${unitName}/components/${componentName}/procedures/${procedureName}/call` +
+      createQueryParams(args ?? {}),
+    BaseOkModel
+  )
+}
 
 export async function sendMessage(
   unitName: string,

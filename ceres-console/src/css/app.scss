@@ -9,6 +9,16 @@
   text-decoration: unset;
 }
 
+.faded-clickable {
+  opacity: 0.6;
+  cursor: pointer;
+}
+
+.faded-clickable:hover,
+.faded-clickable:focus {
+  opacity: 1;
+}
+
 .text-link {
   color: unset;
   display: contents;

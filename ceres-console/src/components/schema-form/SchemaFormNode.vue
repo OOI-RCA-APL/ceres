@@ -1,12 +1,12 @@
 <script lang="ts" setup>
-import SchemaFormAny from '@/components/SchemaFormAny.vue'
-import SchemaFormArray from '@/components/SchemaFormArray.vue'
-import SchemaFormBoolean from '@/components/SchemaFormBoolean.vue'
-import SchemaFormInteger from '@/components/SchemaFormInteger.vue'
-import SchemaFormNodeToggle from '@/components/SchemaFormNodeToggle.vue'
-import SchemaFormNumber from '@/components/SchemaFormNumber.vue'
-import SchemaFormObject from '@/components/SchemaFormObject.vue'
-import SchemaFormString from '@/components/SchemaFormString.vue'
+import SchemaFormAny from '@/components/schema-form/SchemaFormAny.vue'
+import SchemaFormArray from '@/components/schema-form/SchemaFormArray.vue'
+import SchemaFormBoolean from '@/components/schema-form/SchemaFormBoolean.vue'
+import SchemaFormInteger from '@/components/schema-form/SchemaFormInteger.vue'
+import SchemaFormNodeToggle from '@/components/schema-form/SchemaFormNodeToggle.vue'
+import SchemaFormNumber from '@/components/schema-form/SchemaFormNumber.vue'
+import SchemaFormObject from '@/components/schema-form/SchemaFormObject.vue'
+import SchemaFormString from '@/components/schema-form/SchemaFormString.vue'
 import { isType, SchemaForm, SchemaPath } from '@/schema-form'
 
 const { modelValue, form, path } = defineProps<{

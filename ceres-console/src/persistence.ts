@@ -1,7 +1,7 @@
 import _ from 'lodash'
 import { debounce, LocalStorage } from 'quasar'
-import { computed, isReactive, isRef, reactive, Ref, watch } from 'vue'
-import { Router, useRouter } from 'vue-router'
+import { computed, isReactive, reactive, Ref, unref, watch } from 'vue'
+import { Router } from 'vue-router'
 import Zod, { ZodArray, ZodBoolean, ZodNativeEnum, ZodNumber, ZodObject } from 'zod'
 
 type MaybeRef<T> = Ref<T> | T
@@ -22,6 +22,7 @@ export type LocalStoragePersistenceMethod<TData extends Mapping> = {
 
 export type URLPersistenceMethod<TData extends Mapping> = {
   type: 'url'
+  router: Router
 } & BasePersistenceMethod<TData>
 
 export type PersistenceMethod<TData extends Mapping> =
@@ -38,8 +39,7 @@ export function usePersisted<TData extends BaseData<TSchema>, TSchema extends Ba
   options: UsePersistedOptions<TData, TSchema>
 ): TData {
   const schema = typeof options.schema == 'function' ? options.schema(Zod) : options.schema
-  const methods = computed(() => (isRef(options.methods) ? options.methods.value : options.methods))
-  const router = useRouter()
+  const methods = computed(() => unref(options.methods))
 
   let data = (options.data ?? schema.parse({})) as TData
   if (!isReactive(data)) {
@@ -68,7 +68,7 @@ export function usePersisted<TData extends BaseData<TSchema>, TSchema extends Ba
       if (method.type === 'local-storage') {
         writeToStorage(method, data)
       } else if (method.type === 'url') {
-        writeToUrl(method, data, schema, router)
+        writeToUrl(method, data, schema)
       }
     }
   }
@@ -165,8 +165,7 @@ function readFromUrl<TData extends BaseData<TSchema>, TSchema extends BaseSchema
 function writeToUrl<TData extends BaseData<TSchema>, TSchema extends BaseSchema>(
   method: URLPersistenceMethod<TData>,
   data: TData,
-  schema: TSchema,
-  router: Router
+  schema: TSchema
 ) {
   const fields = new Set(getFields(data, method))
   const url = new URL(window.location.href)
@@ -213,7 +212,7 @@ function writeToUrl<TData extends BaseData<TSchema>, TSchema extends BaseSchema>
   const params = url.searchParams.toString()
   const serialized = `${url.pathname}${params ? '?' + params : ''}`.replace(/%2C/g, ',')
 
-  void router.replace(serialized)
+  void method.router.replace(serialized)
 }
 
 function isFieldOfType(schema: BaseSchema, field: string, type: any): boolean {
