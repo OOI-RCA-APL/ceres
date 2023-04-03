@@ -144,7 +144,7 @@ const uis = $computed(() => components.filter((component) => component.roles.inc
         </template>
         <panel v-for="ui in uis" :key="ui.address.toString()" :name="ui.name">
           <div>
-            <layout :component-name="ui.name" :unit-name="unit.name" />
+            <layout :address="ui.address" />
           </div>
         </panel>
       </panel-group>

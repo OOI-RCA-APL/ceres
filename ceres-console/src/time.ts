@@ -26,6 +26,7 @@ function getNow(): Moment {
 
 export type Time = ReturnType<typeof useTime>
 
+const secondsInAMillisecond = 0.001
 const secondsInAMinute = 60
 const secondsInAnHour = secondsInAMinute * 60
 const secondsInADay = secondsInAnHour * 24
@@ -33,7 +34,7 @@ const secondsInAYear = secondsInADay * 365
 
 export function displayDuration(
   durationOrSections: Duration | number | null | undefined,
-  { hideOne = false }: { hideOne?: boolean } = {}
+  { hideOne = false, short = false }: { hideOne?: boolean; short?: boolean } = {}
 ): string {
   const seconds = moment.isDuration(durationOrSections)
     ? durationOrSections.asSeconds()
@@ -42,26 +43,33 @@ export function displayDuration(
   if (seconds == null) {
     return '?'
   }
-  let divisor = 1
-  let unit = 'seconds'
+  let divisor: number
+  let unit: string
+
   if (seconds >= secondsInAYear) {
     divisor = secondsInAYear
-    unit = 'years'
+    unit = short ? 'y' : 'years'
   } else if (seconds >= secondsInADay) {
     divisor = secondsInADay
-    unit = 'days'
+    unit = short ? 'd' : 'days'
   } else if (seconds >= secondsInAnHour) {
     divisor = secondsInAnHour
-    unit = 'hours'
+    unit = short ? 'h' : 'hours'
   } else if (seconds >= secondsInAMinute) {
     divisor = secondsInAMinute
-    unit = 'minutes'
+    unit = short ? 'm' : 'minutes'
+  } else if (seconds >= 1) {
+    divisor = 1
+    unit = short ? 's' : 'seconds'
+  } else {
+    divisor = secondsInAMillisecond
+    unit = short ? 'ms' : 'milliseconds'
   }
 
   let result = (seconds / divisor).toFixed(1)
   if (result.endsWith('.0')) {
     result = result.slice(0, result.length - '.0'.length)
-    if (result === '1' && unit.endsWith('s')) {
+    if (!short && result === '1' && unit.endsWith('s')) {
       unit = unit.slice(0, unit.length - 's'.length)
     }
   }
@@ -70,5 +78,5 @@ export function displayDuration(
     return unit
   }
 
-  return result + ' ' + unit
+  return short ? result + unit : result + ' ' + unit
 }

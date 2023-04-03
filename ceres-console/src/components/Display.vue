@@ -14,7 +14,7 @@ const { address, display } = defineProps<{
   display: LayoutDisplay
 }>()
 
-let info: DisplayInfo | null = $ref(null)
+let info: DisplayInfo | null = $shallowRef(null)
 
 useDisplayStream(address, display.procedure, (current) => {
   info = current

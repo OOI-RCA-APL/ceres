@@ -324,7 +324,12 @@ export function createSchemaForm({ ...options }: SchemaFormOptions) {
 
   async function submit() {
     if (canSubmit.value && onSubmit) {
-      return await onSubmit(persisted.value)
+      state.value = 'submitting'
+      try {
+        state.value = (await onSubmit(persisted.value)) ?? 'editing'
+      } catch {
+        state.value = 'editing'
+      }
     }
   }
 

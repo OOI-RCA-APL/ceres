@@ -24,9 +24,10 @@ function reset() {
   <div class="q-col-gutter-sm q-pt-sm row">
     <div>
       <q-btn
-        class="full-width"
         color="primary"
+        dense
         :disable="form == null || !form.canSubmit"
+        flat
         :label="submitLabel"
         :loading="form?.state === 'submitting'"
         @click="submit"
@@ -34,8 +35,8 @@ function reset() {
     </div>
     <div>
       <q-btn
-        class="full-width"
         color="warning"
+        dense
         :disable="form == null || form.readonly"
         flat
         :label="resetLabel"

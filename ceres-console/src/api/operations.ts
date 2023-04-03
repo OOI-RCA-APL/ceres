@@ -359,6 +359,8 @@ const BaseFailModel = Zod.object({
   error: Zod.unknown(),
 })
 
+const BaseResultModel = Zod.discriminatedUnion('ok', [BaseOkModel, BaseFailModel])
+
 function createResultType<TValueModel extends ZodTypeAny, TErrorModel extends ZodTypeAny>(
   valueModel: TValueModel,
   errorModel: TErrorModel
@@ -381,7 +383,7 @@ export async function call(address: Address, procedure: string, args?: Record<st
   return await post(
     `/api/units/${address.unit}/components/${address.component}/procedures/${procedure}/call` +
       createQueryParams(args ?? {}),
-    BaseOkModel
+    BaseResultModel
   )
 }
 
