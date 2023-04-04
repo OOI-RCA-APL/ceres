@@ -58,13 +58,19 @@ function onAddButtonClicked() {
 </script>
 
 <template>
-  <schema-form-composite :form="form" :model-value="array" :path="path">
+  <schema-form-composite
+    :form="form"
+    :model-value="array"
+    :path="path"
+    @update:model-value="(modelValue) => emit('update:modelValue', modelValue)"
+  >
     <div
       v-if="array != null"
-      :class="[
-        form.dense && $q.screen.gt.sm ? 'row items-center' : 'column',
-        'q-col-gutter-sm q-pa-sm',
-      ]"
+      :class="
+        form.inline && $q.screen.gt.sm
+          ? 'row items-center q-col-gutter-sm q-pa-sm'
+          : 'column q-col-gutter-xs q-pa-sm'
+      "
     >
       <div v-for="[index, subvalue] in array.entries()" :key="index">
         <schema-form-node
@@ -81,7 +87,6 @@ function onAddButtonClicked() {
           dense
           :icon="icons.add"
           :ripple="false"
-          round
           @click="onAddButtonClicked"
         />
       </div>

@@ -26,17 +26,17 @@ const group = providePanelGroup(
   >
     <div
       :class="[
+        $style.tabRow,
         'full-width',
         'no-wrap',
         'overflow-scroll',
         'relative-position',
         'row',
-        $style.tabRow,
       ]"
     >
       <slot name="tabs" />
       <q-chip
-        :class="['absolute', 'bg-transparent', 'no-shadow', $style.title]"
+        :class="[$style.title, 'absolute', 'bg-transparent', 'no-shadow']"
         clickable
         dense
         @click="group.toggleAll()"

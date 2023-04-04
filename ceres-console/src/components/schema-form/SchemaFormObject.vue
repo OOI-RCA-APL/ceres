@@ -50,10 +50,19 @@ function onUpdate(property: string, subvalue: unknown) {
 </script>
 
 <template>
-  <schema-form-composite :form="form" :model-value="object" :path="path">
+  <schema-form-composite
+    :form="form"
+    :model-value="object"
+    :path="path"
+    @update:model-value="(modelValue) => emit('update:modelValue', modelValue)"
+  >
     <div
       v-if="object"
-      :class="[form.dense ? 'row-md column' : 'column', 'q-col-gutter-sm', 'q-pa-sm']"
+      :class="
+        form.inline && $q.screen.gt.sm
+          ? 'row q-col-gutter-sm q-pa-sm'
+          : 'column q-col-gutter-xs q-pa-sm'
+      "
     >
       <div v-for="property in Object.keys(schema.properties ?? {})" :key="property">
         <schema-form-node

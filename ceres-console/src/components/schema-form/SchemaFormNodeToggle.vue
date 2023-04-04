@@ -14,7 +14,7 @@ const emit = defineEmits<{
 const isDefined = $computed(() => modelValue !== undefined)
 const isRequired = $computed(() => form.getRequired(path))
 
-function onClick() {
+function toggle() {
   if (isDefined) {
     if (!isRequired) {
       emit('update:modelValue', undefined)
@@ -36,7 +36,7 @@ function onClick() {
       isDefined && $style.defined,
       isRequired && $style.required,
     ]"
-    @click="onClick"
+    @click="toggle"
   />
 </template>
 

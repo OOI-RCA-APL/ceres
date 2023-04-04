@@ -45,9 +45,9 @@ function update(value: unknown) {
   <template v-if="schema == null">
     Unable to resolve schema definition at path: {{ JSON.stringify(path) }}
   </template>
-  <template v-else-if="isEmptyObjectSchema(schema)"> </template>
+  <template v-else-if="isEmptyObjectSchema(schema)" />
   <template v-else>
-    <div class="col-grow items-center relative-position row">
+    <div class="relative-position">
       <template v-if="typeof schema === 'boolean'">
         <schema-form-any v-bind="forward" @update:model-value="update" />
       </template>

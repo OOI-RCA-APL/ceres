@@ -152,7 +152,7 @@ const uis = $computed(() => components.filter((component) => component.roles.inc
         <q-markup-table v-if="components.length" bordered dense flat separator="vertical">
           <thead>
             <q-tr no-hover>
-              <q-th :class="['text-left', $style.nameColumn]">Component</q-th>
+              <q-th :class="[$style.nameColumn, 'text-left']">Component</q-th>
               <q-th class="text-left">Roles</q-th>
             </q-tr>
           </thead>

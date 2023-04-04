@@ -80,7 +80,7 @@ const color = $computed(() => {
         {{ subjectText }} in the last
         {{ displayDuration(settings.statisticsDuration, { hideOne: true }) }}.
       </span>
-      <span v-if="statistics.dataUpdatedAt" :class="['text-right', $style.updatedAtText]">
+      <span v-if="statistics.dataUpdatedAt" :class="$style.updatedAtText">
         Updated {{ displayDuration(time.now.diff(statistics.dataUpdatedAt, 's')) }} ago.
       </span>
     </q-tooltip>

@@ -109,7 +109,7 @@ onUnmounted(() => {
       isVertical ? $style.vertical : $style.horizontal,
     ]"
   >
-    <div :class="['fit', $style.handleContainer]">
+    <div :class="[$style.handleContainer, 'fit']">
       <div
         :class="[
           $style.handle,

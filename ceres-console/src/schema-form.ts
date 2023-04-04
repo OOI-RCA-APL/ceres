@@ -27,7 +27,7 @@ export type SchemaFormOptions = {
   editing?: boolean
   schema: MaybeRef<Schema>
   persist?: MaybeRef<string | undefined>
-  dense?: MaybeRef<boolean>
+  inline?: MaybeRef<boolean>
   onSubmit?: (value: any) => MaybePromise<SchemaFormState | void>
 }
 
@@ -55,7 +55,7 @@ export function createSchemaForm({ ...options }: SchemaFormOptions) {
   const onSubmit = options.onSubmit
   const rootSchema = computed(() => unref(options.schema))
   const persist = computed(() => unref(options.persist))
-  const dense = computed(() => unref(options.dense) ?? false)
+  const inline = computed(() => unref(options.inline) ?? false)
   const state = ref<SchemaFormState>(
     options.editing == null || options.editing ? 'editing' : 'viewing'
   )
@@ -361,7 +361,7 @@ export function createSchemaForm({ ...options }: SchemaFormOptions) {
     editable: computed(() => state.value === 'editing'),
     readonly: computed(() => state.value !== 'editing'),
     submitting: computed(() => state.value === 'submitting'),
-    dense,
+    inline,
     reset,
     submit,
     edit,

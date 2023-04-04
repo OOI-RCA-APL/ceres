@@ -45,7 +45,7 @@ const selected = $computed(() => info.options.find((state) => state.value === in
               >
                 <q-th class="text-capitalize text-right">
                   <q-chip
-                    :class="['q-px-sm', $style.optionChip]"
+                    :class="[$style.optionChip, 'q-px-sm']"
                     dense
                     :icon="option.icon ?? undefined"
                     :style="{

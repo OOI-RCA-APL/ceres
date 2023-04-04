@@ -50,7 +50,7 @@ function format(value: unknown) {
     :path="path"
     :resolve="resolve"
     :schema="schema"
-    schema-type="Number"
+    schema-type="number"
     @update:model-value="(modelValue) => emit('update:modelValue', modelValue)"
   />
 </template>

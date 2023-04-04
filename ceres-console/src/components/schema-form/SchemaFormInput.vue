@@ -112,9 +112,18 @@ function onBackspace() {
   >
     <template #label>
       <div class="monospace row">
-        <span class="q-mr-xs">{{ title }}</span>
-        <span :style="{ opacity: 0.5 }"> ⸱ {{ schemaType }}</span>
+        <span>{{ title }}</span>
+        <span :class="$style.labelExtra">
+          <span class="q-mr-xs">:</span>
+          <span>{{ schemaType }}</span>
+        </span>
       </div>
     </template>
   </q-input>
 </template>
+
+<style module>
+.labelExtra {
+  opacity: 0.5;
+}
+</style>

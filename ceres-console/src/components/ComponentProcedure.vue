@@ -56,7 +56,7 @@ const form = createSchemaForm({
       v-else
       dense
       filled
-      :input-class="['monospace', $style.output]"
+      :input-class="[$style.output, 'monospace']"
       :label="'Output - 1 second ago'"
       :loading="form.submitting"
       :model-value="resultJson"

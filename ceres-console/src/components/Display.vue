@@ -33,7 +33,7 @@ const form = procedure
           ? `state/display/schema-form/${component.address}/procedures/${procedure.name})`
           : undefined
       ),
-      dense: true,
+      inline: true,
     })
   : null
 
@@ -78,7 +78,7 @@ useDisplayStream(
       </template>
       <template v-else><q-spinner /></template>
     </div>
-    <div v-if="form != null" class="q-mx-sm">
+    <div v-if="form != null" class="q-mb-sm q-mx-sm">
       <schema-form :form="form" />
     </div>
   </q-card>

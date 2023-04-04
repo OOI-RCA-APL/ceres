@@ -39,7 +39,7 @@ function format(value: unknown) {
     :path="path"
     :resolve="resolve"
     :schema="schema"
-    schema-type="String"
+    schema-type="str"
     @update:model-value="(modelValue) => emit('update:modelValue', modelValue)"
   />
 </template>

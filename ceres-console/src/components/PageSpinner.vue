@@ -1,5 +1,5 @@
 <template>
-  <div :class="['full-width', 'q-pb-lg', 'window-height', $style.root]">
+  <div :class="[$style.root, 'full-width', 'q-pb-lg', 'window-height']">
     <q-spinner-ball color="primary" size="40px" />
   </div>
 </template>

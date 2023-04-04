@@ -32,7 +32,7 @@ const label = $computed(() => form.getLabel(path))
 <template>
   <q-checkbox
     :aria-required="isRequired"
-    :class="['q-ml-xs', $style.root]"
+    :class="[$style.root, 'q-ml-xs']"
     :keep-color="true"
     :label="label"
     :model-value="value"
