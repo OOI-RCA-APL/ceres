@@ -37,7 +37,7 @@ let text = $ref(format(resolvedModelValue))
 let isFocused = $ref(false)
 
 const isRequired = $computed(() => form.getRequired(path))
-const title = $computed(() => form.getTitle(path))
+const title = $computed(() => form.getLabel(path))
 const resolveText = $computed(() => resolveTextOriginal ?? resolve)
 
 // Whenever the input is focused and the text resolves to a valid value, update the model value.
@@ -100,6 +100,7 @@ function onBackspace() {
     ref="input"
     v-model="text"
     :aria-required="isRequired"
+    autogrow
     dense
     filled
     input-class="monospace"
@@ -110,7 +111,7 @@ function onBackspace() {
     @keydown.backspace="onBackspace"
   >
     <template #label>
-      <div class="row">
+      <div class="monospace row">
         <span class="q-mr-xs">{{ title }}</span>
         <span :style="{ opacity: 0.5 }"> ⸱ {{ schemaType }}</span>
       </div>

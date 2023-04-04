@@ -21,7 +21,7 @@ from pydantic.typing import get_args
 
 from ceres.data import ImmutableDataObject, Name, PositiveTimeDelta
 from ceres.internal.binding import add_local_binding
-from ceres.internal.utilities import get_function_name, strify
+from ceres.internal.utilities import get_function_name, strify, traverse
 
 
 class ProcedureKind(str, Enum):
@@ -156,38 +156,44 @@ def _get_procedure_name(callable: Callable[..., Any]) -> Name:
     return _normalize_procedure_name(get_function_name(callable))
 
 
+def _remove_extra_args(current: Any) -> bool:
+    if isinstance(current, dict) and current.get("type") == "object":
+        properties = current.get("properties")
+        if isinstance(properties, dict):
+            for key in list(properties):
+                if isinstance(key, str) and (key.startswith("v__") or key == "self"):
+                    del properties[key]
+            args_property = properties.get("args")
+            if isinstance(args_property, dict):
+                if args_property.get("type") == "array" and args_property.get("items") == {}:
+                    del properties["args"]
+
+            kwargs_property = properties.get("kwargs")
+            if isinstance(kwargs_property, dict):
+                if kwargs_property.get("type") == "object" and kwargs_property.get("items") is None:
+                    del properties["kwargs"]
+
+            required = current.get("required")
+            if isinstance(required, list):
+                if "self" in required:
+                    required.remove("self")
+                if not required:
+                    del current["required"]
+
+    return True
+
+
 def _get_args_schema(model: type[BaseModel]) -> Mapping[str, Any]:
     schema = schema_of(model)
 
-    definitions = schema.get("definitions")
-    if not isinstance(definitions, dict) or not definitions:
-        return schema
+    traverse(schema, _remove_extra_args)
+    # definitions = schema.get("definitions")
+    # if not isinstance(definitions, dict) or not definitions:
+    #     return schema
 
-    root = list(definitions.values())[0]
-    if not isinstance(root, dict):
-        return schema
-
-    properties = root.get("properties")
-    if isinstance(properties, dict):
-        properties.pop("self", None)
-        properties.pop("v__duplicate_kwargs", None)
-
-        args_property = properties.get("args")
-        if isinstance(args_property, dict):
-            if not args_property.get("items"):
-                del properties["args"]
-
-        kwargs_property = properties.get("kwargs")
-        if isinstance(kwargs_property, dict):
-            if not kwargs_property.get("items"):
-                del properties["kwargs"]
-
-    required = root.get("required")
-    if isinstance(required, list):
-        if "self" in required:
-            required.remove("self")
-        if not required:
-            del root["required"]
+    # root = list(definitions.values())[0]
+    # if not isinstance(root, dict):
+    #     return schema
 
     return schema
 
@@ -255,6 +261,7 @@ def _validate_procedure(
     output_info = ProcedureOutputInfo(
         json_schema=output_json_schema,
     )
+    print(args_info)
 
     return _ValidatedProcedureInfo(
         args=args_info,

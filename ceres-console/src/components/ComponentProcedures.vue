@@ -34,7 +34,7 @@ let selected = $ref(procedures[0] ?? null)
               @click="selected = procedure"
             >
               <q-item-section>
-                <q-item-label>
+                <q-item-label class="monospace">
                   {{ procedure.name }}
                 </q-item-label>
               </q-item-section>

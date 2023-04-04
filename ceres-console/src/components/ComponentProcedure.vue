@@ -56,7 +56,7 @@ const form = createSchemaForm({
       v-else
       dense
       filled
-      input-class="monospace"
+      :input-class="['monospace', $style.output]"
       :label="'Output - 1 second ago'"
       :loading="form.submitting"
       :model-value="resultJson"
@@ -67,20 +67,32 @@ const form = createSchemaForm({
       <template #label>
         <span class="full-width row">
           <span>Output</span>
-          <template v-if="receivedAt">
-            <span class="q-mx-xs">⸱</span>
-            <span style="opacity: 0.5">
-              {{ displayDuration(time.now.diff(receivedAt, 'seconds'), { short: true }) }} ago
-            </span>
-          </template>
-          <span v-if="receivedAt && sentAt">
-            <span class="q-mx-xs">⸱</span>
-            <span style="opacity: 0.5">
-              {{ displayDuration(receivedAt.diff(sentAt, 'seconds', true), { short: true }) }}
-            </span>
+          <span :class="$style.outputLabelExtra">
+            <template v-if="receivedAt">
+              <span class="q-mx-xs">⸱</span>
+              <span>
+                {{ displayDuration(time.now.diff(receivedAt, 'seconds'), { short: true }) }} ago
+              </span>
+            </template>
+            <template v-if="receivedAt && sentAt">
+              <span class="q-mx-xs">⸱</span>
+              <span>
+                {{ displayDuration(receivedAt.diff(sentAt, 'seconds', true), { short: true }) }}
+              </span>
+            </template>
           </span>
         </span>
       </template>
     </q-input>
   </q-card>
 </template>
+
+<style module>
+.output {
+  font-size: 11px;
+}
+
+.outputLabelExtra {
+  opacity: 0.5;
+}
+</style>

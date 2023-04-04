@@ -21,7 +21,7 @@ import { useSettings } from '@/settings'
 import { useIntervalFn } from '@vueuse/core'
 import moment from 'moment'
 import { defineStore } from 'pinia'
-import { computed, isRef, ref, watch, watchEffect } from 'vue'
+import { computed, isRef, unref, watch, watchEffect } from 'vue'
 import { useQuery } from 'vue-query'
 import { MaybeRef } from 'vue-query/lib/vue/types'
 import Zod, { ZodTypeAny } from 'zod'
@@ -242,12 +242,14 @@ async function post<TModel extends ZodTypeAny>(
   return await model.parseAsync(json)
 }
 
-function createQueryParams(
-  values: Record<string, string | number | null | undefined | Address>
-): string {
+function createQueryParams(values: Record<string, unknown>): string {
   const result = new URLSearchParams()
   for (const key of Object.keys(values)) {
-    const value = values[key]
+    let value = values[key]
+    if (typeof value === 'object' && !(value instanceof String)) {
+      value = JSON.stringify(value)
+    }
+
     if (value !== undefined) {
       result.append(key, String(value))
     }
@@ -266,7 +268,7 @@ function useStream<TModel extends ZodTypeAny>(
   model: TModel,
   onMessage: (message: Zod.infer<TModel>) => unknown
 ) {
-  const urlRef = isRef(url) ? url : ref(url)
+  const urlRef = computed(() => unref(url))
   function createSocket(url: string | URL, onDisconnect: () => unknown) {
     const socket = new WebSocket(urlRef.value)
     socket.addEventListener('open', () => {
@@ -281,8 +283,6 @@ function useStream<TModel extends ZodTypeAny>(
         console.log(`invalid JSON message from '${url}': '${event.data}'`)
         return
       }
-
-      // console.log(`message on '${url}': '${JSON.stringify(event.data)}'`)
 
       const result = model.safeParse(data)
       if (result.success) {
@@ -303,6 +303,7 @@ function useStream<TModel extends ZodTypeAny>(
 
     return socket
   }
+
   watchEffect((onCleanup) => {
     let mounted = true
 
@@ -334,13 +335,18 @@ function useStream<TModel extends ZodTypeAny>(
 }
 
 export function useDisplayStream<TModel extends ZodTypeAny>(
-  address: Address,
-  procedure: string,
+  address: MaybeRef<Address>,
+  procedure: MaybeRef<string>,
+  args: MaybeRef<Record<string, unknown>>,
   onDisplay: (message: Zod.infer<TModel>) => unknown
 ) {
   return useStream(
-    getWebSocketURI(
-      `/api/units/${address.unit}/components/${address.component}/procedures/${procedure}/subscribe`
+    computed(() =>
+      getWebSocketURI(
+        `/api/units/${unref(address).unit}/components/${unref(address).component}` +
+          `/procedures/${unref(procedure)}/subscribe?args=` +
+          encodeURIComponent(JSON.stringify(unref(args)))
+      )
     ),
     // eslint-disable-next-line @typescript-eslint/ban-ts-comment
     // @ts-ignore

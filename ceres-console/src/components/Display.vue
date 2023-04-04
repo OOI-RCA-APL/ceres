@@ -1,24 +1,63 @@
 <script lang="ts" setup>
-import { Address } from '@/address'
-import { LayoutDisplay } from '@/api/models'
+import { ComponentInfo, LayoutDisplay } from '@/api/models'
 import { useDisplayStream } from '@/api/operations'
 import ChartDisplay from '@/components/displays/ChartDisplay.vue'
 import GaugeDisplay from '@/components/displays/GaugeDisplay.vue'
 import StateDisplay from '@/components/displays/StateDisplay.vue'
 import ValueDisplay from '@/components/displays/ValueDisplay.vue'
+import SchemaForm from '@/components/schema-form/SchemaForm.vue'
 import { DisplayInfo } from '@/display'
-import { QMarkupTable, QTh, QTr } from 'quasar'
+import { createSchemaForm } from '@/schema-form'
+import { QMarkupTable, QTh, QTr, debounce } from 'quasar'
+import { computed, watch } from 'vue'
 
-const { address, display } = defineProps<{
-  address: Address
+const { component, display } = defineProps<{
+  component: ComponentInfo
   display: LayoutDisplay
 }>()
 
 let info: DisplayInfo | null = $shallowRef(null)
 
-useDisplayStream(address, display.procedure, (current) => {
-  info = current
-})
+const procedure = $computed(
+  () =>
+    component.procedures.find(
+      (procedure) => procedure.kind === 'query' && procedure.name === display.procedure
+    ) ?? null
+)
+
+const form = procedure
+  ? createSchemaForm({
+      schema: computed(() => procedure.args.json_schema),
+      persist: computed(() =>
+        procedure
+          ? `state/display/schema-form/${component.address}/procedures/${procedure.name})`
+          : undefined
+      ),
+      dense: true,
+    })
+  : null
+
+if (form && !form.isValid) {
+  form.reset()
+}
+
+let args = $ref<Record<string, unknown>>(form?.value ?? ({} as any))
+
+watch(
+  () => form?.value,
+  debounce(() => {
+    args = form?.value ?? ({} as any)
+  }, 250)
+)
+
+useDisplayStream(
+  component.address,
+  display.procedure,
+  computed(() => args),
+  (current) => {
+    info = current
+  }
+)
 </script>
 
 <template>
@@ -38,6 +77,9 @@ useDisplayStream(address, display.procedure, (current) => {
         <chart-display v-else-if="info.kind === 'chart'" :info="info" />
       </template>
       <template v-else><q-spinner /></template>
+    </div>
+    <div v-if="form != null" class="q-mx-sm">
+      <schema-form :form="form" />
     </div>
   </q-card>
 </template>

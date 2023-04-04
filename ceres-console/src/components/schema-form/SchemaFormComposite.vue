@@ -7,14 +7,14 @@ const { path, form } = defineProps<{
   path: SchemaPath
 }>()
 
-const title = $computed(() => (path.length === 0 ? undefined : form.getTitle(path)))
+const title = $computed(() => (path.length === 0 ? undefined : form.getLabel(path)))
 </script>
 
 <template>
   <q-card bordered flat>
     <template v-if="title">
-      <div class="items-center q-py-xs row">
-        <div class="self-title">
+      <div :class="['items-center q-pr-sm q-py-xs row', $style.titleContainer]">
+        <div :class="['monospace', $style.title]">
           {{ title }}
         </div>
       </div>
@@ -24,15 +24,16 @@ const title = $computed(() => (path.length === 0 ? undefined : form.getTitle(pat
   </q-card>
 </template>
 
-<style scoped>
-.self-title {
-  font-size: 15px;
-  font-weight: 400;
-  padding-left: 10px;
+<style module>
+.titleContainer {
+  min-height: 40px;
+  opacity: 0.75;
 }
 
-.body--dark .self-title {
-  color: white;
-  opacity: 0.75;
+.title {
+  font-size: 12px;
+  font-weight: 400;
+  padding-left: 12px;
+  padding-right: 12px;
 }
 </style>

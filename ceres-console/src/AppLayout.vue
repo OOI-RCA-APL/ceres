@@ -28,7 +28,7 @@ onErrorCaptured((error) => {
 </script>
 
 <template>
-  <q-layout class="self-app-layout-root" container view="hHh Lpr lff">
+  <q-layout :class="$style.root" container view="hHh Lpr lff">
     <app-layout-header />
     <app-layout-drawer />
     <q-page-container :key="route.path">
@@ -46,8 +46,8 @@ onErrorCaptured((error) => {
   </q-layout>
 </template>
 
-<style lang="scss" scoped>
-.self-app-layout-root {
+<style module>
+.root {
   height: 100vh;
 }
 </style>

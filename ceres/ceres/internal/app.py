@@ -346,7 +346,7 @@ async def subscribe(
 
     async def write() -> None:
         try:
-            async for output in engine.subscribe(address, procedure, query_args):
+            async for output in engine.subscribe(address, procedure, args):
                 await socket.send_text(jsonify(output))
         except Exception as exception:
             if isinstance(exception, ProcedureException):

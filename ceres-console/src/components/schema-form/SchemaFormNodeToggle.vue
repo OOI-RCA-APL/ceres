@@ -31,17 +31,17 @@ function onClick() {
 <template>
   <div
     :class="[
-      'self-schema-form-node-toggle-root',
+      $style.root,
       isDefined ? 'bg-primary' : 'bg-grey',
-      isDefined && 'self-schema-form-node-toggle-root-defined',
-      isRequired && 'self-schema-form-node-toggle-root-required',
+      isDefined && $style.defined,
+      isRequired && $style.required,
     ]"
     @click="onClick"
   />
 </template>
 
-<style scoped>
-.self-schema-form-node-toggle-root {
+<style module>
+.root {
   border-bottom-left-radius: 4px;
   border-top-left-radius: 4px;
   height: 100%;
@@ -50,18 +50,16 @@ function onClick() {
   width: 4px;
 }
 
-.self-schema-form-node-toggle-root:hover {
+.root:hover {
   opacity: 1;
 }
 
-.self-schema-form-node-toggle-root-required {
-  /* border: 0.5px dashed white; */
-  /* opacity: 0.5; */
+.required {
   background-color: transparent !important;
 }
 
-:not(.self-schema-form-node-toggle-root-defined),
-:not(.self-schema-form-node-toggle-root-required) {
+:not(.defined),
+:not(.required) {
   cursor: pointer;
 }
 </style>

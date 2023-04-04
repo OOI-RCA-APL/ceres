@@ -1,9 +1,9 @@
 import { getter } from '@/getter'
 import { usePersisted } from '@/persistence'
-import { asRef, MaybePromise, MaybeRef, Plain } from '@/utilities'
+import { MaybePromise, MaybeRef, Plain } from '@/utilities'
 import AJV, { SchemaObject as BaseSchemaObject } from 'ajv'
 import { cloneDeep } from 'lodash'
-import { computed, reactive, ref } from 'vue'
+import { computed, reactive, ref, unref } from 'vue'
 
 export type SchemaObject = BaseSchemaObject & {
   $ref?: string
@@ -26,7 +26,8 @@ export type SchemaFormOptions = {
   initial?: Plain
   editing?: boolean
   schema: MaybeRef<Schema>
-  persist?: MaybeRef<string>
+  persist?: MaybeRef<string | undefined>
+  dense?: MaybeRef<boolean>
   onSubmit?: (value: any) => MaybePromise<SchemaFormState | void>
 }
 
@@ -52,8 +53,9 @@ function get(object: Plain | undefined, path: SchemaPath): Plain | undefined {
 
 export function createSchemaForm({ ...options }: SchemaFormOptions) {
   const onSubmit = options.onSubmit
-  const rootSchema = asRef(options.schema)
-  const persist = asRef(options.persist)
+  const rootSchema = computed(() => unref(options.schema))
+  const persist = computed(() => unref(options.persist))
+  const dense = computed(() => unref(options.dense) ?? false)
   const state = ref<SchemaFormState>(
     options.editing == null || options.editing ? 'editing' : 'viewing'
   )
@@ -291,16 +293,16 @@ export function createSchemaForm({ ...options }: SchemaFormOptions) {
     return parent.required.includes(String(last))
   }
 
-  function getTitle(path: SchemaPath): string | undefined {
+  function getLabel(path: SchemaPath): string | undefined {
     const schema = getSchema(path)
     if (schema == null) {
       return undefined
     }
 
-    let label: string | number | undefined
-    if (typeof schema === 'boolean' || schema.title == null) {
+    let label: string | number | undefined = undefined
+    if (path.length > 0) {
       label = path[path.length - 1]
-    } else {
+    } else if (typeof schema === 'object') {
       label = schema.title
     }
 
@@ -359,6 +361,7 @@ export function createSchemaForm({ ...options }: SchemaFormOptions) {
     editable: computed(() => state.value === 'editing'),
     readonly: computed(() => state.value !== 'editing'),
     submitting: computed(() => state.value === 'submitting'),
+    dense,
     reset,
     submit,
     edit,
@@ -374,7 +377,7 @@ export function createSchemaForm({ ...options }: SchemaFormOptions) {
     getSchema: getter(() => rootSchema, getSchema),
     getParentSchema: getter(() => rootSchema, getParentSchema),
     getRequired: getter(() => rootSchema, getRequired),
-    getTitle: getter(() => rootSchema, getTitle),
+    getLabel: getter(() => rootSchema, getLabel),
   })
 }
 
@@ -394,4 +397,12 @@ export function isType(schema: Schema, type: string) {
   }
 
   return schema.type === type
+}
+
+export function isEmptyObjectSchema(schema: Schema) {
+  if (typeof schema === 'boolean' || schema === undefined) {
+    return false
+  }
+
+  return schema.properties != null && Object.keys(schema.properties).length === 0
 }

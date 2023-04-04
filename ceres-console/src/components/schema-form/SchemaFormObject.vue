@@ -51,7 +51,10 @@ function onUpdate(property: string, subvalue: unknown) {
 
 <template>
   <schema-form-composite :form="form" :model-value="object" :path="path">
-    <div v-if="object" class="column q-col-gutter-sm q-pa-sm">
+    <div
+      v-if="object"
+      :class="[form.dense ? 'row-md column' : 'column', 'q-col-gutter-sm', 'q-pa-sm']"
+    >
       <div v-for="property in Object.keys(schema.properties ?? {})" :key="property">
         <schema-form-node
           :form="form"

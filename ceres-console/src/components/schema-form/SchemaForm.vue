@@ -25,7 +25,6 @@ watchEffect(() => {
 
 function update(value: unknown) {
   form.assign(value)
-  form.assign(value)
 }
 </script>
 
