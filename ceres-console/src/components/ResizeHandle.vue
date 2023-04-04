@@ -104,16 +104,17 @@ onUnmounted(() => {
 <template>
   <div
     :class="[
-      'self-resize-handle-root',
-      isVertical ? 'self-resize-handle-root-vertical' : 'self-resize-handle-root-horizontal',
+      $style.root,
+      $q.dark.isActive && $style.dark,
+      isVertical ? $style.vertical : $style.horizontal,
     ]"
   >
-    <div class="fit self-handle-container">
+    <div :class="['fit', $style.handleContainer]">
       <div
         :class="[
-          'self-handle',
-          isVertical ? 'self-handle-vertical' : 'self-handle-horizontal',
-          drag != null && 'self-handle-dragging',
+          $style.handle,
+          isVertical ? $style.handleVertical : $style.handleHorizontal,
+          drag != null && $style.handleDragging,
         ]"
         :style="{ top: `${innerPosition.y}px`, left: `${innerPosition.x}px` }"
         @pointerdown="onPointerDown"
@@ -122,30 +123,30 @@ onUnmounted(() => {
   </div>
 </template>
 
-<style lang="scss" scoped>
-.self-resize-handle-root {
+<style module>
+.root {
   background-color: rgba(0, 0, 0, 0.12);
 }
 
-.body--dark .self-resize-handle-root {
+.dark {
   background-color: rgba(255, 255, 255, 0.28);
 }
 
-.self-resize-handle-root-horizontal {
+.horizontal {
   width: 1px;
   height: 100%;
 }
 
-.self-resize-handle-root-vertical {
+.vertical {
   height: 1px;
   width: 100%;
 }
 
-.self-handle-container {
+.handleContainer {
   position: relative;
 }
 
-.self-handle {
+.handle {
   background-color: grey;
   opacity: 0;
   z-index: 1;
@@ -153,21 +154,21 @@ onUnmounted(() => {
   position: absolute;
 }
 
-.self-handle:hover {
+.handle:hover {
   opacity: 0.25;
 }
 
-.self-handle-dragging {
+.handleDragging {
   opacity: 0.35 !important;
 }
 
-.self-handle-vertical {
+.handleVertical {
   cursor: row-resize;
   height: 7px;
   width: 100%;
 }
 
-.self-handle-horizontal {
+.handleHorizontal {
   cursor: col-resize;
   height: 100%;
   width: 7px;

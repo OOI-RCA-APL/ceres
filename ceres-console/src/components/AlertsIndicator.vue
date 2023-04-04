@@ -72,7 +72,7 @@ const color = $computed(() => {
 </script>
 
 <template>
-  <q-badge v-if="levelStatistics" class="self-alerts-indicator-root" :color="color" rounded>
+  <q-badge v-if="levelStatistics" :class="$style.root" :color="color" rounded>
     {{ levelStatistics.count }}{{ levelStatistics.level[0].toUpperCase() }}
     <q-tooltip v-if="!isShowingMenu" :class="`bg-${color}`">
       <span class="q-mr-xs">
@@ -80,19 +80,19 @@ const color = $computed(() => {
         {{ subjectText }} in the last
         {{ displayDuration(settings.statisticsDuration, { hideOne: true }) }}.
       </span>
-      <span v-if="statistics.dataUpdatedAt" class="self-updated-at-text text-right">
+      <span v-if="statistics.dataUpdatedAt" :class="['text-right', $style.updatedAtText]">
         Updated {{ displayDuration(time.now.diff(statistics.dataUpdatedAt, 's')) }} ago.
       </span>
     </q-tooltip>
   </q-badge>
 </template>
 
-<style lang="scss" scoped>
-.self-alerts-indicator-root {
+<style module>
+.root {
   scale: 0.8;
 }
 
-.self-updated-at-text {
+.updatedAtText {
   opacity: 0.75;
 }
 </style>

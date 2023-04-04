@@ -8,11 +8,11 @@ const { info } = defineProps<{
 </script>
 
 <template>
-  <chart class="self-chart-root" :option="info.value" :style="{ height: `${info.height}px` }" />
+  <chart :class="$style.root" :option="info.value" :style="{ height: `${info.height}px` }" />
 </template>
 
-<style lang="scss" scoped>
-.self-chart-root {
+<style module>
+.root {
   padding-top: 8px;
 }
 </style>

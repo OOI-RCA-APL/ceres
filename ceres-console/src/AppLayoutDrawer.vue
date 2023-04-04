@@ -48,11 +48,11 @@ function clearLocalStorage() {
 </script>
 
 <template>
-  <q-drawer v-model="drawer.isOpen" class="self-app-layout-drawer-root" :width="drawer.width">
+  <q-drawer v-model="drawer.isOpen" :class="$style.root" :width="drawer.width">
     <div class="column full-height">
       <resize-handle
         v-model="drawer.width"
-        class="self-resize-handle"
+        :class="$style.resizeHandle"
         direction="horizontal"
         :min="60"
         :style="{ left: `${drawer.width}px` }"
@@ -164,13 +164,13 @@ function clearLocalStorage() {
   </q-drawer>
 </template>
 
-<style lang="scss" scoped>
-.self-app-layout-drawer-root {
+<style module>
+.root {
   overflow: visible !important;
   position: relative;
 }
 
-.self-resize-handle {
+.resizeHandle {
   position: absolute;
   top: 0;
 }

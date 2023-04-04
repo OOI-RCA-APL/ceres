@@ -152,13 +152,13 @@ const uis = $computed(() => components.filter((component) => component.roles.inc
         <q-markup-table v-if="components.length" bordered dense flat separator="vertical">
           <thead>
             <q-tr no-hover>
-              <q-th class="self-name-column text-left">Component</q-th>
+              <q-th :class="['text-left', $style.nameColumn]">Component</q-th>
               <q-th class="text-left">Roles</q-th>
             </q-tr>
           </thead>
           <tbody>
             <q-tr v-for="component in components" :key="component.name" no-hover>
-              <q-td class="self-name-column">{{ component.name }}</q-td>
+              <q-td :class="$style.nameColumn">{{ component.name }}</q-td>
               <q-td>{{ [...component.roles].sort().join(', ') }}</q-td>
             </q-tr>
           </tbody>
@@ -168,8 +168,8 @@ const uis = $computed(() => components.filter((component) => component.roles.inc
   </full-page>
 </template>
 
-<style lang="scss" scoped>
-.self-name-column {
+<style module>
+.nameColumn {
   max-width: 50px;
 }
 </style>

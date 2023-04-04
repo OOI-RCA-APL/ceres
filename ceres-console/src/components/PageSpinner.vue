@@ -1,11 +1,11 @@
 <template>
-  <div class="full-width items-center justify-center q-pb-lg self-page-spinner-root window-height">
+  <div :class="['full-width', 'q-pb-lg', 'window-height', $style.root]">
     <q-spinner-ball color="primary" size="40px" />
   </div>
 </template>
 
-<style lang="scss" scoped>
-.self-page-spinner-root {
+<style module>
+.root {
   align-items: center;
   display: flex;
   animation: fadeIn 1s ease-in;

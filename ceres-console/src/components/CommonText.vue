@@ -1,47 +1,45 @@
 <script lang="ts" setup>
-const { variant } = defineProps<{
+defineProps<{
   variant: 'title1' | 'title2' | 'title3' | 'body1' | 'body2'
 }>()
-
-const classes = $computed(() => `self-${variant}`)
 </script>
 
 <template>
-  <div :class="classes">
+  <div :class="$style[variant]">
     <slot />
   </div>
 </template>
 
-<style lang="scss" scoped>
-.self-title1 {
+<style module>
+.title1 {
   font-family: 'Roboto';
   font-size: 22px;
   font-weight: 300;
   line-height: 1.5em;
 }
 
-.self-title2 {
+.title2 {
   font-family: 'Roboto';
   font-size: 18px;
   font-weight: 300;
   line-height: 1.5em;
 }
 
-.self-title3 {
+.title3 {
   font-family: 'Roboto';
   font-size: 14px;
   font-weight: 300;
   line-height: 1em;
 }
 
-.self-body1 {
+.body1 {
   font-size: 16px;
   font-weight: 400;
   line-height: 1.5rem;
   letter-spacing: 0.03125em;
 }
 
-.self-body2 {
+.body2 {
   font-size: 14px;
   font-weight: 400;
   line-height: 1.5rem;

@@ -37,7 +37,7 @@ const selected = $computed(() => info.options.find((state) => state.value === in
             <span class="text-faded">Possible States</span>
             <q-space />
           </div>
-          <q-markup-table bordered class="self-options-table" dense flat separator="cell">
+          <q-markup-table bordered :class="$style.optionsTable" dense flat separator="cell">
             <tbody>
               <q-tr
                 v-for="option in info.options"
@@ -45,7 +45,7 @@ const selected = $computed(() => info.options.find((state) => state.value === in
               >
                 <q-th class="text-capitalize text-right">
                   <q-chip
-                    class="q-px-sm self-option-chip"
+                    :class="['q-px-sm', $style.optionChip]"
                     dense
                     :icon="option.icon ?? undefined"
                     :style="{
@@ -69,12 +69,12 @@ const selected = $computed(() => info.options.find((state) => state.value === in
   </q-chip>
 </template>
 
-<style lang="scss" scoped>
-.self-options-table th {
+<style module>
+.optionsTable :deep th {
   padding-left: 8px !important;
 }
 
-.self-option-chip {
+.optionChip {
   scale: 0.85;
 }
 </style>

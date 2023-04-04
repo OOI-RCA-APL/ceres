@@ -58,8 +58,8 @@ function onClick() {
   background-color: transparent !important;
 }
 
-:not(.defined),
-:not(.required) {
+.root:not(.defined),
+.root:not(.required) {
   cursor: pointer;
 }
 </style>

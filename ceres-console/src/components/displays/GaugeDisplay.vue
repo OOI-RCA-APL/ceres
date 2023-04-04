@@ -106,11 +106,11 @@ const options = $computed(
 </script>
 
 <template>
-  <chart autoresize class="self-chart" :option="options" />
+  <chart autoresize :class="$style.root" :option="options" />
 </template>
 
-<style lang="scss" scoped>
-.self-chart {
+<style module>
+.root {
   margin-top: 8px;
   min-height: 70px;
 }
