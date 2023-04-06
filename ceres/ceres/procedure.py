@@ -261,7 +261,6 @@ def _validate_procedure(
     output_info = ProcedureOutputInfo(
         json_schema=output_json_schema,
     )
-    print(args_info)
 
     return _ValidatedProcedureInfo(
         args=args_info,

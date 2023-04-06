@@ -1,22 +1,25 @@
 <script lang="ts" setup>
 import { ComponentInfo, LayoutDisplay } from '@/api/models'
 import { useDisplayStream } from '@/api/operations'
-import ChartDisplay from '@/components/displays/ChartDisplay.vue'
-import GaugeDisplay from '@/components/displays/GaugeDisplay.vue'
-import StateDisplay from '@/components/displays/StateDisplay.vue'
-import ValueDisplay from '@/components/displays/ValueDisplay.vue'
+import DisplayContent from '@/components/DisplayContent.vue'
 import SchemaForm from '@/components/schema-form/SchemaForm.vue'
 import { DisplayInfo } from '@/display'
 import { createSchemaForm } from '@/schema-form'
-import { QMarkupTable, QTh, QTr, debounce } from 'quasar'
+import { debounce } from 'quasar'
 import { computed, watch } from 'vue'
 
-const { component, display } = defineProps<{
+const {
+  component,
+  display,
+  noConfig = false,
+} = defineProps<{
   component: ComponentInfo
   display: LayoutDisplay
+  noConfig?: boolean
 }>()
 
 let info: DisplayInfo | null = $shallowRef(null)
+let isShowingConfig = $ref(false)
 
 const procedure = $computed(
   () =>
@@ -33,7 +36,6 @@ const form = procedure
           ? `state/display/schema-form/${component.address}/procedures/${procedure.name})`
           : undefined
       ),
-      inline: true,
     })
   : null
 
@@ -58,42 +60,67 @@ useDisplayStream(
     info = current
   }
 )
+
+const configButtonColor = $computed(() => {
+  if (!form) {
+    return undefined
+  }
+  if (!form.isValid) {
+    return 'negative'
+  }
+  if (!form.isDefault) {
+    return 'primary'
+  }
+
+  return undefined
+})
 </script>
 
 <template>
-  <q-card bordered class="column full-height self-display-root" flat>
-    <q-markup-table dense flat separator="cell">
-      <thead class="self-header">
-        <q-tr no-hover>
-          <q-th>{{ display.title }}</q-th>
-        </q-tr>
-      </thead>
-    </q-markup-table>
-    <div class="col-grow items-center justify-center q-pa-xs row">
-      <template v-if="info">
-        <value-display v-if="info.kind === 'value'" :info="info" />
-        <state-display v-else-if="info.kind === 'state'" :info="info" />
-        <gauge-display v-else-if="info.kind === 'gauge'" :info="info" />
-        <chart-display v-else-if="info.kind === 'chart'" :info="info" />
-      </template>
-      <template v-else><q-spinner /></template>
-    </div>
-    <div v-if="form != null" class="q-mb-sm q-mx-sm">
-      <schema-form :form="form" />
-    </div>
+  <q-card bordered class="column full-height relative-position" flat>
+    <display-content :display="display" :info="info" />
+    <q-dialog v-if="form" v-model="isShowingConfig">
+      <q-card bordered :class="[$style.dialogContainer, 'q-pa-sm', 'no-shadow']">
+        <div class="q-pb-sm">
+          <q-card bordered flat>
+            <display-content :display="display" :info="info" />
+          </q-card>
+        </div>
+        <div>
+          <schema-form :form="form" />
+        </div>
+        <div class="q-col-gutter-sm q-mt-xs row">
+          <div class="col">
+            <q-btn v-close-popup class="full-width" color="primary" flat label="Done" />
+          </div>
+          <div class="col">
+            <q-btn class="full-width" color="warning" flat label="Reset" @click="form?.reset" />
+          </div>
+        </div>
+      </q-card>
+    </q-dialog>
+    <q-btn
+      v-if="!noConfig && form && !form.isEmpty"
+      :class="$style.configButton"
+      :color="configButtonColor"
+      flat
+      icon="settings"
+      round
+      size="xs"
+      @click="isShowingConfig = !isShowingConfig"
+    />
   </q-card>
 </template>
 
-<style lang="scss" scoped>
-.body--dark .self-display-root {
-  background-color: #131313;
+<style module>
+.configButton {
+  position: absolute;
+  right: 2px;
+  top: 1px;
 }
 
-.self-header {
-  background-color: $grey-1;
-}
-
-.body--dark .self-header {
-  background-color: #1d1d1d;
+.dialogContainer {
+  width: 600px;
+  max-width: 100%;
 }
 </style>

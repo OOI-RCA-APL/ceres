@@ -2,7 +2,7 @@ import { getter } from '@/getter'
 import { usePersisted } from '@/persistence'
 import { MaybePromise, MaybeRef, Plain } from '@/utilities'
 import AJV, { SchemaObject as BaseSchemaObject } from 'ajv'
-import { cloneDeep } from 'lodash'
+import { cloneDeep, isEqual } from 'lodash'
 import { computed, reactive, ref, unref } from 'vue'
 
 export type SchemaObject = BaseSchemaObject & {
@@ -316,6 +316,11 @@ export function createSchemaForm({ ...options }: SchemaFormOptions) {
     return String(label)
   }
 
+  const isEmpty = computed(
+    () => isEmptyObjectSchema(getSchema([])) && isEmptyObject(persisted.value)
+  )
+  const isDefault = computed(() => isEqual(persisted.value, getDefault()))
+
   const isValidSchema = computed(() => schemaError.value == null)
   const isValid = computed(() => isValidSchema.value && validationErrors.value.length === 0)
   const canSubmit = computed(() => isValid.value && state.value === 'editing')
@@ -367,8 +372,10 @@ export function createSchemaForm({ ...options }: SchemaFormOptions) {
     edit,
     discard,
     assign,
-    isValidSchema,
+    isEmpty,
+    isDefault,
     isValid,
+    isValidSchema,
     validator,
     schemaError,
     validationErrors,
@@ -399,10 +406,14 @@ export function isType(schema: Schema, type: string) {
   return schema.type === type
 }
 
-export function isEmptyObjectSchema(schema: Schema) {
-  if (typeof schema === 'boolean' || schema === undefined) {
+export function isEmptyObjectSchema(schema: Schema | null | undefined) {
+  if (typeof schema === 'boolean' || schema?.properties == null) {
     return false
   }
 
-  return schema.properties != null && Object.keys(schema.properties).length === 0
+  return Object.keys(schema.properties).length === 0
+}
+
+export function isEmptyObject(object: any) {
+  return typeof object === 'object' && !Array.isArray(object) && Object.keys(object).length === 0
 }
