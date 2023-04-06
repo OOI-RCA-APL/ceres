@@ -6,9 +6,18 @@ import StateDisplay from '@/components/displays/StateDisplay.vue'
 import ValueDisplay from '@/components/displays/ValueDisplay.vue'
 import { DisplayInfo } from '@/display'
 
-const { display, info } = defineProps<{
+const {
+  display,
+  info,
+  titleClickable = false,
+} = defineProps<{
   display: LayoutDisplay
   info: DisplayInfo | null
+  titleClickable?: boolean
+}>()
+
+const emit = defineEmits<{
+  (emit: 'title-click'): void
 }>()
 </script>
 
@@ -17,7 +26,13 @@ const { display, info } = defineProps<{
     <q-markup-table dense flat separator="cell">
       <thead class="self-header">
         <q-tr no-hover>
-          <q-th>{{ display.title }}</q-th>
+          <q-th
+            :class="titleClickable && 'cursor-pointer'"
+            :tabindex="titleClickable ? '0' : '-1'"
+            @click="emit('title-click')"
+          >
+            {{ display.title }}
+          </q-th>
         </q-tr>
       </thead>
     </q-markup-table>

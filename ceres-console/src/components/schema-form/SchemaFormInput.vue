@@ -100,7 +100,7 @@ function onBackspace() {
     ref="input"
     v-model="text"
     :aria-required="isRequired"
-    autogrow
+    :autogrow="inputType == 'text'"
     dense
     filled
     input-class="monospace"

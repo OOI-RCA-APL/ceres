@@ -2,6 +2,7 @@
 import { ComponentInfo, LayoutDisplay } from '@/api/models'
 import { useDisplayStream } from '@/api/operations'
 import DisplayContent from '@/components/DisplayContent.vue'
+import SectionCard from '@/components/SectionCard.vue'
 import SchemaForm from '@/components/schema-form/SchemaForm.vue'
 import { DisplayInfo } from '@/display'
 import { createSchemaForm } from '@/schema-form'
@@ -19,7 +20,7 @@ const {
 }>()
 
 let info: DisplayInfo | null = $shallowRef(null)
-let isShowingConfig = $ref(false)
+let isShowingDialog = $ref(false)
 
 const procedure = $computed(
   () =>
@@ -78,23 +79,42 @@ const configButtonColor = $computed(() => {
 
 <template>
   <q-card bordered class="column full-height relative-position" flat>
-    <display-content :display="display" :info="info" />
-    <q-dialog v-if="form" v-model="isShowingConfig">
-      <q-card bordered :class="[$style.dialogContainer, 'q-pa-sm', 'no-shadow']">
-        <div class="q-pb-sm">
-          <q-card bordered flat>
-            <display-content :display="display" :info="info" />
-          </q-card>
+    <display-content
+      :display="display"
+      :info="info"
+      title-clickable
+      @title-click="isShowingDialog = !isShowingDialog"
+    />
+    <q-dialog v-if="form" v-model="isShowingDialog">
+      <q-card
+        bordered
+        :class="[$style.dialogContainer, 'q-pa-sm', $q.dark.isActive && 'no-shadow']"
+      >
+        <div class="q-mb-sm">
+          <section-card padding title="Display">
+            <q-card bordered flat>
+              <display-content :display="display" :info="info" />
+            </q-card>
+          </section-card>
         </div>
-        <div>
-          <schema-form :form="form" />
+        <div v-if="!form.isEmpty" class="q-mb-sm">
+          <section-card padding title="Configuration">
+            <schema-form :form="form" />
+          </section-card>
         </div>
-        <div class="q-col-gutter-sm q-mt-xs row">
+        <div class="q-col-gutter-sm row">
           <div class="col">
             <q-btn v-close-popup class="full-width" color="primary" flat label="Done" />
           </div>
-          <div class="col">
-            <q-btn class="full-width" color="warning" flat label="Reset" @click="form?.reset" />
+          <div v-if="!form.isEmpty" class="col">
+            <q-btn
+              class="full-width"
+              color="warning"
+              :disable="form.isDefault"
+              flat
+              label="Reset"
+              @click="form?.reset"
+            />
           </div>
         </div>
       </q-card>
@@ -107,7 +127,7 @@ const configButtonColor = $computed(() => {
       icon="settings"
       round
       size="xs"
-      @click="isShowingConfig = !isShowingConfig"
+      @click="isShowingDialog = !isShowingDialog"
     />
   </q-card>
 </template>
@@ -120,7 +140,7 @@ const configButtonColor = $computed(() => {
 }
 
 .dialogContainer {
-  width: 600px;
+  min-width: 800px;
   max-width: 100%;
 }
 </style>
