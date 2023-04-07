@@ -1,4 +1,5 @@
 <script lang="ts" setup>
+import AppBoundary from '@/AppBoundary.vue'
 import { usePanelGroup } from '@/panel-group'
 
 const { name } = defineProps<{
@@ -11,6 +12,8 @@ const isSelected = $computed(() => group.isSelected(name))
 
 <template>
   <div v-if="isSelected" bordered class="col full-height overflow-hidden" flat square>
-    <slot />
+    <app-boundary>
+      <slot />
+    </app-boundary>
   </div>
 </template>

@@ -17,16 +17,10 @@ onErrorCaptured((error) => {
     },
   })
 
-  return true
+  return false
 })
 </script>
 
 <template>
   <slot />
 </template>
-
-<style lang="scss">
-.unexpected-error-notification-button {
-  width: 140px;
-}
-</style>
