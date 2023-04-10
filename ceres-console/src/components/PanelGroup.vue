@@ -34,7 +34,6 @@ const group = providePanelGroup(
         'row',
       ]"
     >
-      <slot name="tabs" />
       <q-chip
         :class="[$style.title, 'absolute', 'bg-transparent', 'no-shadow']"
         clickable
@@ -43,6 +42,7 @@ const group = providePanelGroup(
       >
         {{ title }}
       </q-chip>
+      <slot name="tabs" />
     </div>
     <q-separator />
 
@@ -70,6 +70,7 @@ const group = providePanelGroup(
   opacity: 0.65;
   top: 2px;
   left: 4px;
+  z-index: 1;
 }
 
 .title:focus-visible {

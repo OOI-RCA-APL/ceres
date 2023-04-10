@@ -385,12 +385,18 @@ function createResultType<TValueModel extends ZodTypeAny, TErrorModel extends Zo
 export type SendMessageResult = Zod.infer<typeof SendMessageResultModel>
 const SendMessageResultModel = createResultType(MessageModel, BaseFailModel)
 
-export async function call(address: Address, procedure: string, args?: Record<string, any>) {
-  return await post(
-    `/api/units/${address.unit}/components/${address.component}/procedures/${procedure}/call` +
-      createQueryParams(args ?? {}),
-    BaseResultModel
-  )
+export async function call(
+  address: Address,
+  procedure: string,
+  args: MaybeRef<Record<string, any>> = {}
+) {
+  let url =
+    `/api/units/${address.unit}/components/` + `${address.component}/procedures/${procedure}/call`
+  if (Object.keys(args).length > 0) {
+    url += `?args=${encodeURIComponent(JSON.stringify(unref(args)))}`
+  }
+
+  return await post(url, BaseResultModel)
 }
 
 export async function sendMessage(address: Address, data: string): Promise<SendMessageResult> {

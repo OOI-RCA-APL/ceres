@@ -301,6 +301,7 @@ async def call(
         )
 
     args = {}
+    args.update(query_args or {})
     args.update(body_args or {})
     args.update(request.query_params)
     args.pop("args", None)

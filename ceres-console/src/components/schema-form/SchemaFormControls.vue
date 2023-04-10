@@ -21,7 +21,7 @@ function reset() {
 </script>
 
 <template>
-  <div class="q-col-gutter-sm q-pt-sm row">
+  <div class="q-col-gutter-sm row">
     <div>
       <q-btn
         color="primary"
@@ -37,7 +37,7 @@ function reset() {
       <q-btn
         color="warning"
         dense
-        :disable="form == null || form.readonly"
+        :disable="form == null || form.readonly || form.isDefault"
         flat
         :label="resetLabel"
         @click="reset"

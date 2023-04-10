@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 defineProps<{
-  variant: 'title1' | 'title2' | 'title3' | 'body1' | 'body2'
+  variant: 'title1' | 'title2' | 'title3' | 'body1' | 'body2' | 'th'
 }>()
 </script>
 
@@ -44,5 +44,10 @@ defineProps<{
   font-weight: 400;
   line-height: 1.5rem;
   letter-spacing: 0.03125em;
+}
+
+.th {
+  font-size: 12px;
+  font-weight: 500;
 }
 </style>

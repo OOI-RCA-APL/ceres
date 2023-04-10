@@ -91,8 +91,13 @@ const uis = $computed(() => components.filter((component) => component.roles.inc
             :key="alerter.address.toString()"
             :name="alerter.name"
           >
-            {{ alerter.name }}
-            <alerts-indicator :component-name="alerter.name" :unit-name="unit.name" />
+            <template #append>
+              <alerts-indicator
+                :component-name="alerter.name"
+                :title="alerter.name"
+                :unit-name="unit.name"
+              />
+            </template>
           </panel-tab>
         </template>
         <panel
@@ -112,8 +117,8 @@ const uis = $computed(() => components.filter((component) => component.roles.inc
       <panel-group
         v-if="components.length"
         :panels="components.map((current) => current.name)"
-        :persist="`units/${unit.name}/actions-panel-group`"
-        title="Actions"
+        :persist="`units/${unit.name}/procedures-panel-group`"
+        title="Procedures"
       >
         <template #tabs>
           <panel-tab
@@ -130,7 +135,7 @@ const uis = $computed(() => components.filter((component) => component.roles.inc
           class="column"
           :name="component.name"
         >
-          <component-procedures class="col" :component="component" kind="action" />
+          <component-procedures class="col" :component="component" :title="component.name" />
         </panel>
       </panel-group>
       <panel-group

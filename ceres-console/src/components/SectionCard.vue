@@ -12,26 +12,28 @@ const { padding = false, noBody = false } = defineProps<{
 
 <template>
   <q-card bordered class="column" flat>
-    <div class="items-center no-wrap q-px-md q-py-xs row">
-      <template v-if="to">
-        <router-link class="wrapper-link" :to="to">
+    <template v-if="title">
+      <div class="items-center no-wrap q-pl-md q-pr-sm q-py-xs row">
+        <template v-if="to">
+          <router-link class="wrapper-link" :to="to">
+            <common-text class="text-no-wrap" variant="title2">
+              {{ title }}
+            </common-text>
+          </router-link>
+        </template>
+        <template v-else>
           <common-text class="text-no-wrap" variant="title2">
             {{ title }}
           </common-text>
-        </router-link>
-      </template>
-      <template v-else>
-        <common-text class="text-no-wrap" variant="title2">
-          {{ title }}
-        </common-text>
-      </template>
-      <template v-if="icon">
-        <q-space />
-        <q-icon :name="icon" size="20px" />
-      </template>
-      <slot name="header-append" />
-    </div>
-    <q-separator />
+        </template>
+        <template v-if="icon">
+          <q-space />
+          <q-icon :name="icon" size="20px" />
+        </template>
+        <slot name="header-append" />
+      </div>
+      <q-separator />
+    </template>
     <div
       v-if="$slots.default && !noBody"
       :class="[

@@ -18,8 +18,12 @@ import { computed, nextTick, onMounted, watch, watchEffect } from 'vue'
 
 type Item = Readonly<Alert | Message>
 
-const { title, address, kind } = defineProps<{
-  title: string
+const {
+  title = undefined,
+  address,
+  kind,
+} = defineProps<{
+  title?: string
   containerClass?: string | null
   address: Address
   kind: 'alert' | 'message'
@@ -252,11 +256,11 @@ async function onSend(data: string) {
           class="item-view-search-input"
           :debounce="50"
           dense
+          filled
           input-class="monospace"
-          outlined
         >
           <template #prepend>
-            <q-icon name="search" />
+            <q-icon name="search" size="20px" />
           </template>
         </q-input>
       </div>
@@ -282,7 +286,7 @@ async function onSend(data: string) {
     </div>
     <q-space v-else />
     <div v-if="kind === 'message'" class="q-mb-sm q-mt-xs q-mx-sm">
-      <command-input :address="address" label="Send Command" @send="onSend" />
+      <command-input :address="address" @send="onSend" />
     </div>
   </section-card>
 </template>
@@ -321,7 +325,7 @@ async function onSend(data: string) {
 }
 
 .item-view-search-input {
-  left: 12px;
+  left: 4px;
   position: absolute;
   top: -14px;
   width: 100%;

@@ -42,9 +42,9 @@ const form = createSchemaForm({
 </script>
 
 <template>
-  <schema-form :key="procedure.name" :form="form" />
-  <schema-form-controls v-if="form" :form="form" />
-  <q-card bordered class="q-mt-sm" flat title="Result">
+  <schema-form v-if="!form.isEmpty" :key="procedure.name" class="q-mb-sm" :form="form" />
+  <schema-form-controls v-if="form" class="q-mb-sm" :form="form" />
+  <q-card bordered flat title="Result">
     <div
       v-if="resultJson === undefined"
       class="items-center justify-center q-pa-sm row"
@@ -61,7 +61,7 @@ const form = createSchemaForm({
       :loading="form.submitting"
       :model-value="resultJson"
       readonly
-      :rows="4"
+      :rows="8"
       type="textarea"
     >
       <template #label>

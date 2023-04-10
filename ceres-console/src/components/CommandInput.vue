@@ -7,7 +7,6 @@ import { computed, watch } from 'vue'
 import Zod from 'zod'
 
 const { address } = defineProps<{
-  label: string
   address: Address
 }>()
 
@@ -18,7 +17,7 @@ const emit = defineEmits<{
 const quasar = useQuasar()
 
 const StateSchema = Zod.object({
-  command: Zod.string().default(''),
+  text: Zod.string().default(''),
   history: Zod.array(Zod.string()).default(() => []),
   historyIndex: Zod.number().nullable().default(null),
 })
@@ -38,10 +37,10 @@ const state = usePersisted({
 state.historyIndex = null
 
 watch(
-  computed(() => state.command),
+  computed(() => state.text),
   () => {
     setTimeout(() => {
-      if (state.historyIndex != null && state.command !== state.history[state.historyIndex]) {
+      if (state.historyIndex != null && state.text !== state.history[state.historyIndex]) {
         state.historyIndex = null
       }
     }, 0)
@@ -60,7 +59,7 @@ function onUpKeyPressed() {
     state.historyIndex = Math.max(state.historyIndex - 1, 0)
   }
 
-  state.command = state.history[state.historyIndex]
+  state.text = state.history[state.historyIndex]
 }
 
 function onDownKeyPressed() {
@@ -71,17 +70,17 @@ function onDownKeyPressed() {
 
   if (state.historyIndex >= state.history.length - 1) {
     state.historyIndex = null
-    state.command = ''
+    state.text = ''
   } else {
     state.historyIndex = Math.min(state.historyIndex + 1, state.history.length - 1)
-    state.command = state.history[state.historyIndex]
+    state.text = state.history[state.historyIndex]
   }
 }
 
 const isConnected = true
 
 async function submit() {
-  if (state.command.trim() === '') {
+  if (state.text.trim() === '') {
     return
   }
 
@@ -94,13 +93,13 @@ async function submit() {
     return
   }
 
-  emit('send', state.command.trim())
-  if (state.history.length === 0 || state.command !== state.history[state.history.length - 1]) {
-    state.history.push(state.command.trim())
+  emit('send', state.text.trim())
+  if (state.history.length === 0 || state.text !== state.history[state.history.length - 1]) {
+    state.history.push(state.text.trim())
   }
 
   state.historyIndex = null
-  state.command = ''
+  state.text = ''
 }
 </script>
 
@@ -108,17 +107,16 @@ async function submit() {
   <q-form @submit.prevent="submit">
     <q-input
       :ref="(ref: any) => (element = ref?.getNativeElement() ?? null)"
-      v-model="state.command"
+      v-model="state.text"
       :color="isConnected ? 'primary' : 'negative'"
       dense
+      filled
       input-class="monospace text-nowrap"
-      :label="label"
-      outlined
       @keydown.down.prevent="onDownKeyPressed"
       @keydown.up.prevent="onUpKeyPressed"
     >
-      <template v-if="isConnected" #append>
-        <q-btn color="primary" dense flat :icon="icons.send" type="button" @click="submit" />
+      <template #prepend>
+        <q-icon :name="icons.chevronRight" size="20px" />
       </template>
     </q-input>
   </q-form>

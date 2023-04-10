@@ -21,18 +21,21 @@ const isSelected = $computed(() => group.isSelected(name))
     ]"
     dense
     flat
-    :icon="isSelected ? icons.dropUp : icons.dropDown"
     no-caps
     square
     :style="{ fontWeight: '400' }"
     @click="group.toggle(name)"
   >
-    <template v-if="$slots.default">
-      <slot />
-    </template>
-    <template v-else>
-      {{ name }}
-    </template>
+    <div class="items-center row" :style="{ opacity: isSelected ? 1 : 0.75 }">
+      <q-icon :name="isSelected ? icons.dropUp : icons.dropDown" size="20px" />
+      <template v-if="$slots.default">
+        <slot />
+      </template>
+      <template v-else>
+        {{ name }}
+      </template>
+    </div>
+    <slot name="append" />
   </q-btn>
   <q-separator vertical />
 </template>
