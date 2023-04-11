@@ -142,8 +142,9 @@ class Connection(Component, ABC):
         try:
             await self._send_data(data)
         except ConnectionLostException:
-            self.emit_event(ConnectionLostEvent)
-            await self.disconnect()
+            if self.connected:
+                self.emit_event(ConnectionLostEvent)
+                await self.disconnect()
             raise
 
         message = Message(
@@ -159,8 +160,9 @@ class Connection(Component, ABC):
         try:
             data = await self._receive_data()
         except ConnectionLostException:
-            self.emit_event(ConnectionLostEvent)
-            await self.disconnect()
+            if self.connected:
+                self.emit_event(ConnectionLostEvent)
+                await self.disconnect()
             raise
 
         message = Message(
