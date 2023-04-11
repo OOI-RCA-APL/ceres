@@ -196,8 +196,6 @@ export function createSchemaForm({ ...options }: SchemaFormOptions) {
           const isRequired = schema.required?.includes(property) ?? false
           if (isRequired) {
             object[property] = getDefault(subschema)
-          } else {
-            object[property] = undefined
           }
         }
 

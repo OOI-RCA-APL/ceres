@@ -36,10 +36,9 @@ function withAssigned(property: string, subvalue: unknown) {
   }
 
   const keys = Object.keys(schema.properties ?? {})
-  const entries = keys.map((current) => [
-    current,
-    current === property ? subvalue : object[current],
-  ])
+  const entries = keys
+    .map((current) => [current, current === property ? subvalue : object[current]])
+    .filter(([, value]) => value !== undefined)
 
   return Object.fromEntries(entries)
 }
