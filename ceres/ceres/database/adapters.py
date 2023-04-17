@@ -89,8 +89,8 @@ class SQLiteDatabaseAdapter(DatabaseAdapter[SQLiteDatabaseConfig]):
 
         @event.listens_for(engine.sync_engine, "connect")
         def connect(connection: SQLiteConnection, *args: Any) -> None:
-            # Enable a 3 second busy timeout.
-            connection.execute("PRAGMA busy_timeout = 3000")
+            # Enable a 30 second busy timeout.
+            connection.execute("PRAGMA busy_timeout = 30000")
             # Clear the isolation level to stop "pysqlite" from:
             #   1. Automatically emitting "BEGIN"
             #   2. Automatically emitting "COMMIT" before any DDL
