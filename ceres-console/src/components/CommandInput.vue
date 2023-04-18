@@ -111,7 +111,7 @@ async function submit() {
       :color="isConnected ? 'primary' : 'negative'"
       dense
       filled
-      input-class="monospace text-nowrap"
+      input-class="monospace-md text-nowrap"
       @keydown.down.prevent="onDownKeyPressed"
       @keydown.up.prevent="onUpKeyPressed"
     >

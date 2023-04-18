@@ -69,13 +69,13 @@ watchEffect(() => {
     <template v-if="procedures.length">
       <q-select
         v-model="persisted.selectedName"
-        class="monospace q-mb-sm"
+        class="monospace-md q-mb-sm"
         dense
         filled
         :label="upperFirst(persisted.kind)"
         :options="procedures.map((procedure) => procedure.name)"
         options-dense
-        popup-content-class="no-shadow monospace"
+        popup-content-class="no-shadow monospace-md"
       />
       <template v-if="selected">
         <component-procedure :key="selected.name" :component="component" :procedure="selected" />

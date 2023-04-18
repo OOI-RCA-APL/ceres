@@ -4,13 +4,14 @@ from random import randrange
 
 import anyio
 from anyio.abc import SocketStream
+from pydantic import Field
 
 from ceres import Component, routine
 from ceres.data import PositiveTimeDelta
 
 
 class CrabeeSimulator(Component):
-    port: int
+    port: int = Field(ge=0)
     interval: PositiveTimeDelta = timedelta(seconds=1)
 
     @routine

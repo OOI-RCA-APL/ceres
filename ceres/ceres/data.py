@@ -21,7 +21,7 @@ from pydantic import (
 )
 from pydantic.fields import FieldInfo
 from pydantic.json import pydantic_encoder
-from typing_extensions import Self, dataclass_transform
+from typing_extensions import Self, dataclass_transform, override
 
 from ceres.internal.utilities import (
     PydanticDataclassLike,
@@ -48,6 +48,23 @@ def simplify(obj: object) -> Any:
 
 class NameType(ConstrainedStr):
     regex: Pattern[str] = re.compile(r"^[a-zA-Z_\-][a-zA-Z0-9_\-]*$")
+
+
+class NonEmptyStrType(ConstrainedStr):
+    min_length = 1
+
+
+class NonBlankStrType(ConstrainedStr):
+    min_length = 1
+
+    @override
+    @classmethod
+    def validate(cls, value: Any) -> str:
+        validated = super().validate(value)
+        if not validated.strip():
+            raise ValueError("must not be blank")
+
+        return validated
 
 
 class DateTimeType(datetime):
@@ -181,12 +198,16 @@ class ClassPath:
 
 if TYPE_CHECKING:
     Name = str
+    NonEmptyStr = str
+    NonBlankStr = str
     DateTime = datetime
     TimeDelta = timedelta
     PositiveTimeDelta = timedelta
     NonNegativeTimeDelta = timedelta
 else:
     Name = NameType
+    NonEmptyStr = NonEmptyStrType
+    NonBlankStr = NonBlankStrType
     DateTime = DateTimeType
     TimeDelta = TimeDeltaType
     PositiveTimeDelta = PositiveTimeDeltaType

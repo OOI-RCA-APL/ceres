@@ -5,17 +5,18 @@ from typing import Sequence
 
 from ceres.alert import Alert
 from ceres.component import Component
-from ceres.data import ImmutableDataObject
+from ceres.data import ImmutableDataObject, NonBlankStr
 from ceres.environment import AlertOrder, AlertQuery
 from ceres.loaded import Loaded
+from ceres.procedure import action
 from ceres.ref import Ref
 from ceres.roles.notifier import Notification, Notifier
 
 
 class Dispatch(ImmutableDataObject):
-    subject: str
-    description: str | None = None
-    signature: str | None = None
+    subject: NonBlankStr
+    description: NonBlankStr | None = None
+    signature: NonBlankStr | None = None
     alerts: AlertQuery
     recipients: Sequence[str]
 
@@ -35,6 +36,7 @@ class Dispatcher(Component):
     writer: Loaded[DispatchWriter]
     dispatches: Sequence[Dispatch] = field(default_factory=list)
 
+    @action
     async def dispatch(self, dispatch: Dispatch) -> None:
         query = dispatch.alerts.with_defaults(
             AlertQuery(

@@ -19,7 +19,7 @@ const title = $computed(() => (path.length === 0 ? undefined : form.getLabel(pat
 const isDefined = $computed(() => modelValue !== undefined)
 const isRequired = $computed(() => form.getRequired(path))
 
-const definedColor = 'primary'
+const definedColor = $computed(() => (isRequired ? 'transparent' : 'primary'))
 const undefinedColor = $computed(() => (quasar.dark.isActive ? 'grey-9' : 'grey-5'))
 
 const textColor = $computed(() => (quasar.dark.isActive || isDefined ? 'white' : undefined))
@@ -50,10 +50,11 @@ function toggle() {
       <template v-if="title">
         <div :class="[$style.titleContainer, 'q-py-xs', 'row']">
           <q-chip
-            :class="[$style.title, 'monospace']"
-            clickable
+            :class="[$style.title, 'monospace-md']"
+            :clickable="!isRequired"
             :color="color"
             dense
+            :ripple="!isRequired"
             :text-color="textColor"
             @click="toggle"
           >

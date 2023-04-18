@@ -40,7 +40,16 @@ ul {
 
 .monospace {
   font-family: 'Roboto Mono', monospace;
+}
+
+.monospace-md + .monospace-md {
+  @extend .monospace;
   font-size: 12px;
+}
+
+.monospace-sm + .monospace-sm {
+  @extend .monospace;
+  font-size: 11px;
 }
 
 input[type='number'] {

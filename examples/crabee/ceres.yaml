@@ -1,0 +1,53 @@
+server:
+  port: 9000
+database:
+  kind: sqlite
+  path: ./data/database.sqlite
+units:
+  - name: crabee
+    components:
+      - name: simulator
+        class: ceres.projects.crabee.CrabeeSimulator
+        args:
+          port: 4001
+          interval: 1s
+      - name: connection
+        class: ceres.standard.TCPConnection
+        args:
+          host: 0.0.0.0
+          port: 4001
+          separator: "\n"
+          disconnect_settings:
+            idle: 15s
+          reconnect_settings:
+            interval: 1s
+            backoff: 2
+            max_interval: 15s
+      - name: driver
+        class: ceres.projects.crabee.CrabeeDriver
+        args:
+          connection: connection
+  - name: notifications
+    components:
+      - name: notifier
+        class: ceres.standard.SMTPNotifier
+        args:
+          host: localhost
+          port: 25
+          sender: local@crabee.local
+      - name: dispatcher
+        class: ceres.standard.ScheduledDispatcher
+        args:
+          notifier: notifier
+          writer:
+            class: ceres.standard.HTMLDispatchWriter
+          dispatches:
+            - subject: Alerts
+              description: Within the last 30 minutes, the following alerts were reported.
+              schedule:
+                kind: cron
+                crontab: "* * * * *"
+              alerts:
+                within: 30m
+                limit: 250
+              recipients: [] # Add your email address here.

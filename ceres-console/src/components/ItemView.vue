@@ -257,7 +257,7 @@ async function onSend(data: string) {
           :debounce="100"
           dense
           filled
-          input-class="monospace"
+          input-class="monospace-md"
         >
           <template #prepend>
             <q-icon name="search" size="20px" />

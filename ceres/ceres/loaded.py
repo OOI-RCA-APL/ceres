@@ -93,6 +93,7 @@ class Loader(ImmutableDataObject):
 
         if model is not None:
             if is_mapping(args):
+                model.validate(args)
                 instance = target(**args)
             else:
                 instance = target(*args)

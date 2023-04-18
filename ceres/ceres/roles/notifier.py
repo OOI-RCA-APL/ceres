@@ -1,25 +1,23 @@
 from abc import abstractmethod
-from typing import Sequence
-
-from pydantic import Field
+from typing import Iterable
 
 from ceres.component import Component
-from ceres.data import DateTime, ImmutableDataObject
-from ceres.timing import utc
+from ceres.data import ImmutableDataObject, NonBlankStr
+from ceres.procedure import action
 
 
 class Notification(ImmutableDataObject):
-    timestamp: DateTime = Field(default_factory=utc)
-    subject: str
-    content: str
-    content_type: str
+    subject: NonBlankStr
+    content: str | None = None
+    content_type: NonBlankStr = "text/plain"
 
 
 class Notifier(Component):
+    @action
     @abstractmethod
     async def notify(
         self,
         notification: Notification,
-        recipients: Sequence[str],
+        recipients: Iterable[NonBlankStr],
     ) -> None:
         ...

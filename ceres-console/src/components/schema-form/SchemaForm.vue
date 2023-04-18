@@ -40,12 +40,20 @@ function update(value: unknown) {
         :path="path"
         @update:model-value="update"
       />
-      <q-banner v-if="!form.isValid" class="bg-negative q-mt-sm text-white" dense rounded>
-        <div v-for="(error, i) in form.validationErrors" :key="i">
-          {{ error.instancePath?.trim() ? error.instancePath + ': ' : '' }}
-          {{ error.message }}
-        </div>
-      </q-banner>
+      <q-markup-table v-if="!form.isValid" bordered class="q-mt-sm" dense flat separator="cell">
+        <thead>
+          <q-tr>
+            <q-td class="text-left">Location</q-td>
+            <q-td class="text-left">Problem</q-td>
+          </q-tr>
+        </thead>
+        <tbody>
+          <q-tr v-for="(error, i) in form.validationErrors" :key="i" class="bg-negative">
+            <q-td class="monospace-sm">{{ error.instancePath }}</q-td>
+            <q-td class="monospace-sm">{{ error.message }}</q-td>
+          </q-tr>
+        </tbody>
+      </q-markup-table>
     </template>
   </q-form>
 </template>

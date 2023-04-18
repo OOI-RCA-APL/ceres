@@ -103,7 +103,7 @@ function onBackspace() {
     :autogrow="inputType == 'text'"
     dense
     filled
-    input-class="monospace"
+    input-class="monospace-md"
     label-slot
     :type="inputType"
     @blur="onBlur"
@@ -111,7 +111,7 @@ function onBackspace() {
     @keydown.backspace="onBackspace"
   >
     <template #label>
-      <div class="monospace row">
+      <div class="monospace-md row">
         <span>{{ title }}</span>
         <span :class="$style.labelExtra">
           <span class="q-mr-xs">:</span>

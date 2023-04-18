@@ -1,19 +1,20 @@
 from email.message import EmailMessage
-from typing import Sequence
+from typing import Iterable
 
 import aiosmtplib
 from pydantic import Field, SecretStr
 from typing_extensions import override
 
+from ceres.data import NonBlankStr
 from ceres.roles.notifier import Notification, Notifier
 
 
 class SMTPNotifier(Notifier):
-    host: str
+    host: NonBlankStr
     port: int = Field(ge=0)
-    sender: str | None = None
-    username: str | None = None
-    password: SecretStr | None = None
+    sender: NonBlankStr
+    username: NonBlankStr | None = None
+    password: SecretStr | None = Field(None, min_length=1)
     use_tls: bool = False
     use_starttls: bool = False
 
@@ -21,15 +22,16 @@ class SMTPNotifier(Notifier):
     async def notify(
         self,
         notification: Notification,
-        recipients: Sequence[str],
+        recipients: Iterable[NonBlankStr],
     ) -> None:
+        recipients = list(recipients)
+
         message = EmailMessage()
-        if self.sender is not None:
-            message["From"] = self.sender
+        message["From"] = self.sender
         message["To"] = ",".join(recipient.strip() for recipient in recipients)
         message["Subject"] = notification.subject
         message.set_type(notification.content_type)
-        message.set_payload(notification.content, charset="utf-8")
+        message.set_payload(notification.content or "", charset="utf-8")
 
         if self.password is not None:
             password = self.password.get_secret_value()
