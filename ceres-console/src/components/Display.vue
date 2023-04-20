@@ -2,9 +2,9 @@
 import { ComponentInfo, LayoutDisplay } from '@/api/models'
 import { useDisplayStream } from '@/api/operations'
 import DisplayContent from '@/components/DisplayContent.vue'
-import SectionCard from '@/components/SectionCard.vue'
 import SchemaForm from '@/components/schema-form/SchemaForm.vue'
 import { DisplayInfo } from '@/display'
+import { LayoutPath } from '@/layout'
 import { createSchemaForm } from '@/schema-form'
 import { debounce } from 'quasar'
 import { computed, watch } from 'vue'
@@ -12,10 +12,12 @@ import { computed, watch } from 'vue'
 const {
   component,
   display,
+  path,
   noConfig = false,
 } = defineProps<{
   component: ComponentInfo
   display: LayoutDisplay
+  path: LayoutPath
   noConfig?: boolean
 }>()
 
@@ -34,7 +36,9 @@ const form = procedure
       schema: computed(() => procedure.args.json_schema),
       persist: computed(() =>
         procedure
-          ? `state/display/schema-form/${component.address}/procedures/${procedure.name})`
+          ? `state/display/schema-form/${component.address}/display/${procedure.name}/${path.join(
+              '.'
+            )})`
           : undefined
       ),
     })
@@ -69,16 +73,17 @@ const configButtonColor = $computed(() => {
   if (!form.isValid) {
     return 'negative'
   }
-  if (!form.isDefault) {
-    return 'primary'
-  }
 
-  return undefined
+  return 'primary'
 })
 </script>
 
 <template>
-  <q-card bordered class="column full-height relative-position" flat>
+  <q-card
+    bordered
+    :class="[$q.dark.isActive && $style.dark, 'column', 'full-height', 'relative-position']"
+    flat
+  >
     <display-content
       :display="display"
       :info="info"
@@ -86,25 +91,18 @@ const configButtonColor = $computed(() => {
       @title-click="isShowingDialog = !isShowingDialog"
     />
     <q-dialog v-if="form" v-model="isShowingDialog">
-      <q-card
-        bordered
-        :class="[$style.dialogContainer, 'q-pa-sm', $q.dark.isActive && 'no-shadow']"
-      >
-        <div class="q-mb-sm">
-          <section-card padding title="Display">
-            <q-card bordered flat>
-              <display-content :display="display" :info="info" />
-            </q-card>
-          </section-card>
-        </div>
-        <div v-if="!form.isEmpty" class="q-mb-sm">
-          <section-card padding title="Configuration">
+      <q-card bordered :class="[$style.dialogContainer, $q.dark.isActive && 'no-shadow']">
+        <display-content :display="display" :info="info" />
+        <q-separator />
+        <template v-if="!form.isEmpty">
+          <div class="q-pt-sm q-px-sm">
             <schema-form :form="form" />
-          </section-card>
-        </div>
-        <div class="q-col-gutter-sm row">
+          </div>
+          <q-separator class="q-mt-sm" />
+        </template>
+        <div class="justify-center row">
           <div class="col">
-            <q-btn v-close-popup class="full-width" color="primary" flat label="Done" />
+            <q-btn v-close-popup class="full-width" color="primary" flat label="Done" square />
           </div>
           <div v-if="!form.isEmpty" class="col">
             <q-btn
@@ -113,6 +111,7 @@ const configButtonColor = $computed(() => {
               :disable="form.isDefault"
               flat
               label="Reset"
+              square
               @click="form?.reset"
             />
           </div>
@@ -133,6 +132,10 @@ const configButtonColor = $computed(() => {
 </template>
 
 <style module>
+.dark {
+  background-color: #131313;
+}
+
 .configButton {
   position: absolute;
   right: 2px;

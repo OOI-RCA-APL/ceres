@@ -20,5 +20,6 @@ await query.suspense()
     v-if="query.data.value?.ok"
     :component="component"
     :node="query.data.value.value.body"
+    :path="[]"
   />
 </template>

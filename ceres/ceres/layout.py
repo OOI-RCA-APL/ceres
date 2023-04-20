@@ -13,6 +13,7 @@ class LayoutKind(str, Enum):
     DISPLAY = "display"
     ROW = "row"
     COLUMN = "column"
+    CAROUSEL = "carousel"
 
 
 class LayoutDisplay(DataObject):
@@ -47,12 +48,33 @@ class LayoutColumn(DataObject):
         super().__init__(**{"children": children, **kwargs})
 
 
+class LayoutCarousel(DataObject):
+    kind: Literal[LayoutKind.CAROUSEL] = LayoutKind.CAROUSEL
+    children: list["LayoutNode"]
+    height: int | str | None = None
+
+    def __init__(
+        self,
+        children: list["LayoutNode"],
+        *,
+        height: str | int | None = None,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(
+            **{
+                "children": children,
+                "height": height,
+                **kwargs,
+            }
+        )
+
+
 LayoutNode = Annotated[  # type: ignore
-    LayoutDisplay | LayoutRow | LayoutColumn,
+    LayoutDisplay | LayoutRow | LayoutColumn | LayoutCarousel,
     Field(discriminator="kind"),
 ]
 LayoutContainerNode = Annotated[
-    LayoutRow | LayoutColumn,
+    LayoutRow | LayoutColumn | LayoutCarousel,
     Field(discriminator="kind"),
 ]
 
@@ -64,5 +86,9 @@ class Layout(ImmutableDataObject):
         super().__init__(**{"body": body, **kwargs})
 
 
-LayoutRow.update_forward_refs()
-LayoutColumn.update_forward_refs()
+def _update_forward_refs() -> None:
+    for _current in [LayoutDisplay, LayoutRow, LayoutColumn, LayoutCarousel]:
+        _current.update_forward_refs()
+
+
+_update_forward_refs()

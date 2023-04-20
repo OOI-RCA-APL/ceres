@@ -177,8 +177,25 @@ export const LayoutColumnModel: Zod.ZodType<LayoutColumn> = Zod.object({
   children: Zod.lazy(() => Zod.array(LayoutNodeModel)),
 })
 
+export type LayoutCarousel = {
+  kind: 'carousel'
+  children: LayoutNode[]
+  height?: number | string | null
+}
+
+export const LayoutCarouselModel: Zod.ZodType<LayoutCarousel> = Zod.object({
+  kind: Zod.literal('carousel'),
+  children: Zod.lazy(() => Zod.array(LayoutNodeModel)),
+  height: Zod.union([Zod.string(), Zod.number(), Zod.null()]).optional().default(null),
+})
+
 export type LayoutNode = Zod.infer<typeof LayoutNodeModel>
-export const LayoutNodeModel = Zod.union([LayoutDisplayModel, LayoutColumnModel, LayoutRowModel])
+export const LayoutNodeModel = Zod.union([
+  LayoutDisplayModel,
+  LayoutColumnModel,
+  LayoutRowModel,
+  LayoutCarouselModel,
+])
 
 export type Layout = Zod.infer<typeof LayoutModel>
 export const LayoutModel = Zod.object({

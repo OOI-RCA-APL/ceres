@@ -24,7 +24,7 @@ from ceres.component import Component
 from ceres.console import ChartDisplay, ConsoleColor, StateDisplay, ValueDisplay
 from ceres.events import ConnectFailedEvent, ConnectionLostEvent, MessageReceivedEvent
 from ceres.exceptions import ParseException
-from ceres.layout import Layout, LayoutColumn, LayoutDisplay, LayoutRow
+from ceres.layout import Layout, LayoutCarousel, LayoutColumn, LayoutDisplay, LayoutRow
 from ceres.ref import Ref
 from ceres.roles.alerter import Alerter
 from ceres.roles.ui import UI
@@ -237,10 +237,15 @@ class CrabeeDriver(Alerter, UI, Component):
                             LayoutDisplay("Leak 2", self.display_leak_2),
                         ],
                     ),
-                    LayoutDisplay("Temperature History", self.display_temperature_history),
-                    LayoutDisplay("Pressure History", self.display_pressure_history),
-                    LayoutDisplay("Humidity History", self.display_humidity_history),
-                    LayoutDisplay("Incline History", self.display_incline_history),
+                    LayoutCarousel(
+                        [
+                            LayoutDisplay("Temperature History", self.display_temperature_history),
+                            LayoutDisplay("Pressure History", self.display_pressure_history),
+                            LayoutDisplay("Humidity History", self.display_humidity_history),
+                            LayoutDisplay("Incline History", self.display_incline_history),
+                        ],
+                        height=300,
+                    ),
                 ]
             )
         )

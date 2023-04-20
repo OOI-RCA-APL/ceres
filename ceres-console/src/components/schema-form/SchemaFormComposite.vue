@@ -40,7 +40,7 @@ function toggle() {
 </script>
 
 <template>
-  <q-card bordered flat>
+  <q-card :bordered="path.length > 0 || !isRequired" flat>
     <div
       :class="[
         form.inline && $q.screen.gt.sm ? 'row q-pr-xs' : 'column',

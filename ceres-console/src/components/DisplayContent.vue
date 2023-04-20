@@ -22,7 +22,7 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <div class="self-display-content-root">
+  <div class="column self-display-content-root">
     <q-markup-table dense flat separator="cell">
       <thead class="self-header">
         <q-tr no-hover>
@@ -36,7 +36,7 @@ const emit = defineEmits<{
         </q-tr>
       </thead>
     </q-markup-table>
-    <div class="items-center justify-center q-pa-xs row">
+    <div class="col-grow items-center justify-center q-pa-xs row">
       <template v-if="info">
         <value-display v-if="info.kind === 'value'" :info="info" />
         <state-display v-else-if="info.kind === 'state'" :info="info" />
@@ -54,7 +54,7 @@ const emit = defineEmits<{
 }
 
 .self-header {
-  background-color: $grey-1;
+  background-color: $grey-2;
 }
 
 .body--dark .self-header {

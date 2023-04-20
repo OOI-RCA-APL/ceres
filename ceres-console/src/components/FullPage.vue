@@ -7,7 +7,7 @@ defineProps<{
 </script>
 
 <template>
-  <div class="full-height self-full-page-root">
+  <div class="self-full-page-root">
     <div class="items-center row self-full-page-header">
       <common-text class="q-ml-md q-py-sm" variant="title2">{{ title }}</common-text>
       <slot name="header-append" />

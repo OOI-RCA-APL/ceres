@@ -5,6 +5,7 @@ const icons = {
   cancel: 'cancel',
   chevronLeft: 'chevron_left',
   chevronRight: 'chevron_right',
+  circle: 'circle',
   clearLocalStorage: 'delete_sweep',
   close: 'close',
   darkMode: 'dark_mode',

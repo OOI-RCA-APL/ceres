@@ -3,7 +3,7 @@ import SchemaFormComposite from '@/components/schema-form/SchemaFormComposite.vu
 import SchemaFormNode from '@/components/schema-form/SchemaFormNode.vue'
 import { SchemaForm, SchemaObject, SchemaPath } from '@/schema-form'
 
-const { modelValue, schema } = defineProps<{
+const { modelValue, form, schema, path } = defineProps<{
   modelValue: unknown
   form: SchemaForm
   schema: SchemaObject & { type: 'object' }
@@ -13,6 +13,8 @@ const { modelValue, schema } = defineProps<{
 const emit = defineEmits<{
   (emit: 'update:modelValue', value: unknown): void
 }>()
+
+const isRequired = $computed(() => form.getRequired(path))
 
 const object = $computed(() => {
   if (modelValue == null) {
@@ -59,7 +61,7 @@ function onUpdate(property: string, subvalue: unknown) {
       v-if="object"
       :class="[
         form.inline && $q.screen.gt.sm ? 'row q-col-gutter-sm' : 'column q-col-gutter-xs',
-        'q-pa-sm',
+        (path.length > 0 || !isRequired) && 'q-pa-sm',
       ]"
     >
       <div v-for="property in Object.keys(schema.properties ?? {})" :key="property">
