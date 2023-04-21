@@ -84,7 +84,7 @@ from ceres.procedure import (
 )
 from ceres.routine import RoutineBinding, routine
 from ceres.schedule import Schedule
-from ceres.stream import Stream, StreamView
+from ceres.stream import Stream, WriteStream
 from ceres.validation import ValidationProblem
 
 if TYPE_CHECKING:
@@ -177,7 +177,7 @@ class Component(ValidatedDataclass, Tasklet):
     def __post_init_post_parse__(self) -> None:
         self.__local_environment: Environment | None = None
         self.__unit: ref[Unit] | None = None
-        self.__events: Stream[Event] = Stream()
+        self.__events: WriteStream[Event] = WriteStream()
         self.__scheduler = Scheduler()
         self.__referencers: WeakValueDictionary[int, Component] = WeakValueDictionary()
 
@@ -301,7 +301,7 @@ class Component(ValidatedDataclass, Tasklet):
         return logs.get(str(self.address))
 
     @property
-    def events(self) -> StreamView[Event]:
+    def events(self) -> Stream[Event]:
         return self.__events.view()
 
     @property

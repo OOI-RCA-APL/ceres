@@ -1,7 +1,7 @@
 from types import NoneType
 from typing import Iterable, cast
 
-from ceres import Component, Reference, StreamView
+from ceres import Component, Reference, Stream
 
 
 def test_reference_isinstance():
@@ -18,7 +18,7 @@ def test_reference_proxy_properties():
     assert reference.name == component.name
     assert reference.address == component.address
     assert reference.running == component.running
-    assert isinstance(reference.events, StreamView)
+    assert isinstance(reference.events, Stream)
 
 
 def test_reference_unref():

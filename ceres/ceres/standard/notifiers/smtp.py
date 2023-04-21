@@ -25,6 +25,9 @@ class SMTPNotifier(Notifier):
         recipients: Iterable[NonBlankStr],
     ) -> None:
         recipients = list(recipients)
+        if not recipients:
+            self.logger.warning("No recipients specified, skipping notification.")
+            return
 
         message = EmailMessage()
         message["From"] = self.sender

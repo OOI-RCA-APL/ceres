@@ -1,6 +1,6 @@
 import asyncio
 
-from ceres.stream import Stream
+from ceres.stream import Stream, WriteStream
 
 
 async def _get_using_reader(stream: Stream[str], count: int) -> list[str]:
@@ -22,7 +22,7 @@ async def _get_using_iteration(stream: Stream[str], count: int) -> list[str]:
 
 
 async def test_single_reader() -> None:
-    stream: Stream[str] = Stream()
+    stream = WriteStream[str]()
     task = asyncio.create_task(_get_using_reader(stream, 3))
     await asyncio.sleep(0.1)
     stream.put("A")
@@ -33,7 +33,7 @@ async def test_single_reader() -> None:
 
 
 async def test_multiple_readers() -> None:
-    stream: Stream[str] = Stream()
+    stream = WriteStream[str]()
     tasks = [asyncio.create_task(_get_using_reader(stream, 3)) for _ in range(10)]
     await asyncio.sleep(0.1)
     stream.put("A")
@@ -44,7 +44,7 @@ async def test_multiple_readers() -> None:
 
 
 async def test_single_iterator() -> None:
-    stream: Stream[str] = Stream()
+    stream = WriteStream[str]()
     task = asyncio.create_task(_get_using_iteration(stream, 3))
     await asyncio.sleep(0.1)
     stream.put("A")
@@ -55,7 +55,7 @@ async def test_single_iterator() -> None:
 
 
 async def test_multiple_iterators() -> None:
-    stream: Stream[str] = Stream()
+    stream = WriteStream[str]()
     tasks = [asyncio.create_task(_get_using_iteration(stream, 3)) for _ in range(10)]
     await asyncio.sleep(0.1)
     stream.put("A")
@@ -66,7 +66,7 @@ async def test_multiple_iterators() -> None:
 
 
 async def test_clear() -> None:
-    stream: Stream[str] = Stream()
+    stream = WriteStream[str]()
     with stream.read() as values:
         stream.put("A")
         stream.put("B")

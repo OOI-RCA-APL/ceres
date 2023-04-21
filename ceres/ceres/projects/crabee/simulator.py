@@ -23,9 +23,9 @@ class CrabeeSimulator(Component):
             reuse_port=True,
         )
 
-        await listener.serve(self.handler)
+        await listener.serve(self.__handle)
 
-    async def handler(self, stream: SocketStream) -> None:
+    async def __handle(self, stream: SocketStream) -> None:
         while True:
             data = (
                 " ".join(

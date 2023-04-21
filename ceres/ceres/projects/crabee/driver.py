@@ -13,8 +13,6 @@ from ceres import (
     Message,
     MessageOrder,
     Parser,
-    Stream,
-    on,
     query,
     routine,
     spawn,
@@ -25,9 +23,11 @@ from ceres.console import ChartDisplay, ConsoleColor, StateDisplay, ValueDisplay
 from ceres.events import ConnectFailedEvent, ConnectionLostEvent, MessageReceivedEvent
 from ceres.exceptions import ParseException
 from ceres.layout import Layout, LayoutCarousel, LayoutColumn, LayoutDisplay, LayoutRow
+from ceres.listener import on
 from ceres.ref import Ref
 from ceres.roles.alerter import Alerter
 from ceres.roles.ui import UI
+from ceres.stream import WriteStream
 
 
 class DataMessage(ImmutableDataObject):
@@ -119,7 +119,7 @@ class CrabeeDriver(Alerter, UI, Component):
     def __setup__(self) -> None:
         super().__setup__()
         self.__last_data_message_received: DataMessage | None = None
-        self.__data_message_stream: Stream[DataMessage] = Stream()
+        self.__data_message_stream: WriteStream[DataMessage] = WriteStream()
 
     @routine
     async def __fetch_last_data_message(self) -> None:

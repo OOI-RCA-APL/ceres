@@ -56,7 +56,7 @@ class Dispatcher(Component):
 
         if not alerts:
             self.logger.info(
-                "An no alerts were found that match the current filter. No notification will be "
+                "No alerts were found that match the current filter. No notification will be "
                 "sent."
             )
             return

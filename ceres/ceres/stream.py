@@ -1,33 +1,35 @@
 from asyncio import Queue as AsyncQueue
 from asyncio import QueueEmpty
 from collections.abc import AsyncIterator
-from typing import Any, AsyncIterable, Literal, Sequence, TypeVar, final
+from typing import Any, AsyncIterable, Callable, Literal, Sequence, TypeVar, final, overload
 from weakref import WeakSet
 
 from typing_extensions import Self
 
 _T = TypeVar("_T")
+_I = TypeVar("_I")
+_O = TypeVar("_O")
 
 
 @final
 class StreamReader(AsyncIterator[_T]):
     __slots__ = (
-        "__stream",
-        "__queue",
+        "_source",
+        "_queue",
         "__weakref__",
     )
 
-    def __init__(self, stream: "Stream[_T]") -> None:
-        self.__stream = stream
-        self.__queue: AsyncQueue[_T] = AsyncQueue()
+    def __init__(self, source: "Stream[_T]") -> None:
+        self._source = source
+        self._queue: AsyncQueue[_T] = AsyncQueue()
         self.attach()
 
     @property
     def attached(self) -> bool:
-        return self.__stream.has_reader(self)
+        return self._source.has_reader(self)
 
     def __len__(self) -> int:
-        return self.__queue.qsize()
+        return self._queue.qsize()
 
     async def __anext__(self) -> _T:
         return await self.get()
@@ -49,85 +51,141 @@ class StreamReader(AsyncIterator[_T]):
 
     async def get(self) -> _T:
         self.attach()
-        value = await self.__queue.get()
-        self.__queue.task_done()
+        value = await self._queue.get()
+        self._queue.task_done()
         return value
 
     def clear(self) -> list[_T]:
         values: list[_T] = []
 
-        while not self.__queue.empty():
+        while not self._queue.empty():
             try:
-                values.append(self.__queue.get_nowait())
-                self.__queue.task_done()
+                values.append(self._queue.get_nowait())
+                self._queue.task_done()
             except QueueEmpty:
                 break
 
         return values
 
     async def join(self) -> None:
-        await self.__queue.join()
+        await self._queue.join()
 
     def attach(self) -> None:
-        self.__stream.add_reader(self)
+        self._source.add_reader(self)
 
     def detach(self) -> None:
-        self.__stream.remove_reader(self)
+        self._source.remove_reader(self)
 
-    def feed(self, value: _T) -> None:
-        self.__queue.put_nowait(value)
-
-
-@final
-class StreamView(AsyncIterable[_T]):
-    __slots__ = ("__stream",)
-
-    def __init__(self, stream: "Stream[_T]") -> None:
-        self.__stream = stream
-
-    @property
-    def readers(self) -> Sequence[StreamReader[_T]]:
-        return self.__stream.readers
-
-    def __aiter__(self) -> StreamReader[_T]:
-        return self.__stream.__aiter__()
-
-    def read(self) -> StreamReader[_T]:
-        return self.__stream.read()
-
-    def view(self) -> Self:
-        return self.__stream.view()
+    def _put(self, value: _T) -> None:
+        self._queue.put_nowait(value)
 
 
-@final
 class Stream(AsyncIterable[_T]):
-    __slots__ = ("__readers",)
+    __slots__ = (
+        "_source",
+        "_readers",
+        "_derived",
+        "_of",
+        "_filter",
+        "_map",
+        "__weakref__",
+    )
 
-    def __init__(self) -> None:
-        self.__readers: WeakSet[StreamReader[_T]] = WeakSet()
+    @overload
+    def __init__(self, source: "Stream[_T] | None" = None) -> None:
+        ...
+
+    @overload
+    def __init__(
+        self,
+        source: "Stream[Any]",
+        *,
+        of: type[_T],
+    ) -> None:
+        ...
+
+    @overload
+    def __init__(
+        self,
+        source: "Stream[_T]",
+        *,
+        filter: Callable[[_T], bool] | None = None,
+    ) -> None:
+        ...
+
+    @overload
+    def __init__(
+        self,
+        source: "Stream[_I]",
+        *,
+        map: Callable[[_I], _T] | None = None,
+    ) -> None:
+        ...
+
+    def __init__(
+        self,
+        source: "Stream[Any] | None" = None,
+        of: type[Any] | None = None,
+        filter: Callable[[Any], bool] | None = None,
+        map: Callable[[Any], Any] | None = None,
+    ) -> None:
+        self._source = source
+        if source is not None:
+            source._derived.add(self)
+        self._readers: WeakSet[StreamReader[_T]] = WeakSet()
+        self._derived: WeakSet[Stream[_T]] = WeakSet()
+        self._of = of
+        self._filter = filter
+        self._map = map
 
     @property
     def readers(self) -> Sequence[StreamReader[_T]]:
-        return list(self.__readers)
+        return list(self._readers)
 
     def __aiter__(self) -> StreamReader[_T]:
         return self.read()
 
-    def put(self, value: _T) -> None:
-        for reader in self.__readers:
-            reader.feed(value)
-
     def read(self) -> StreamReader[_T]:
         return StreamReader(self)
 
-    def view(self) -> StreamView[_T]:
-        return StreamView(self)
+    def view(self) -> "Stream[_T]":
+        return Stream(self)
+
+    def of(self, of: type[_O]) -> "Stream[_O]":
+        return Stream(self, of=of)
+
+    def filter(self, filter: Callable[[_T], bool]) -> Self:
+        return Stream(self, filter=filter)
+
+    def map(self, map: Callable[[_T], _O]) -> "Stream[_O]":
+        return Stream(self, map=map)  # type: ignore
 
     def has_reader(self, reader: StreamReader[Any]) -> bool:
-        return reader in self.__readers
+        return reader in self._readers
 
     def add_reader(self, reader: StreamReader[_T]) -> None:
-        self.__readers.add(reader)
+        self._readers.add(reader)
 
     def remove_reader(self, reader: StreamReader[_T]) -> None:
-        self.__readers.discard(reader)
+        self._readers.discard(reader)
+
+    def _put(self, value: _T) -> None:
+        try:
+            if self._of is not None and not isinstance(value, self._of):
+                return
+            if self._filter is not None and not self._filter(value):
+                return
+            if self._map is not None:
+                value = self._map(value)
+        except Exception:
+            return
+
+        for reader in self._readers:
+            reader._put(value)  # type: ignore
+        for child in self._derived:
+            child._put(value)
+
+
+class WriteStream(Stream[_T]):
+    def put(self, value: _T) -> None:
+        super()._put(value)

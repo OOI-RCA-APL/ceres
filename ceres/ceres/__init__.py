@@ -1,6 +1,5 @@
 from ceres.address import Address as Address
 from ceres.alert import Alert as Alert
-from ceres.ref import Reference as Reference
 from ceres.alert import AlertLevel as AlertLevel
 from ceres.component import Component as Component
 from ceres.config import Config as Config
@@ -35,6 +34,7 @@ from ceres.procedure import ProcedureKind as ProcedureKind
 from ceres.procedure import action as action
 from ceres.procedure import query as query
 from ceres.ref import Ref as Ref
+from ceres.ref import Reference as Reference
 from ceres.result import Fail as Fail
 from ceres.result import Ok as Ok
 from ceres.result import Result as Result
@@ -52,7 +52,7 @@ from ceres.schedule import Schedule as Schedule
 from ceres.schedule import ScheduleKind as ScheduleKind
 from ceres.stream import Stream as Stream
 from ceres.stream import StreamReader as StreamReader
-from ceres.stream import StreamView as StreamView
+from ceres.stream import WriteStream as WriteStream
 from ceres.threading import spawn as spawn
 from ceres.timing import utc as utc
 from ceres.unit import Unit as Unit

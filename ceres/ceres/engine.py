@@ -36,7 +36,7 @@ from ceres.internal.server import Server
 from ceres.internal.tasklet import Tasklet
 from ceres.internal.utilities import strify
 from ceres.result import Fail, Ok, Result
-from ceres.stream import Stream
+from ceres.stream import WriteStream
 from ceres.unit import Unit, UnitPaths
 
 
@@ -68,7 +68,7 @@ class Engine(Tasklet):
 
         self.__units: dict[Name, Unit] = {}
         self.__unit_configs: dict[Name, UnitConfig] = {}
-        self.__events: Stream[Event] = Stream()
+        self.__events: WriteStream[Event] = WriteStream()
         self.__reloading = AsyncEvent()
 
     @property

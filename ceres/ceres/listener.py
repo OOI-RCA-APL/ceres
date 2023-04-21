@@ -10,7 +10,7 @@ from ceres.internal.utilities import get_function_name
 
 class ListenerBinding(ImmutableDataObject):
     function: Name
-    sources: Sequence[Name]
+    sources: Sequence[str]
     event_cls: type[Event]
 
 
@@ -21,7 +21,7 @@ _Void = None | Awaitable[None]
 @validate_arguments
 def on(
     event: type[_EventT],
-    sources: Name | Sequence[Name] = "self",
+    sources: str | Sequence[str] = "self",
     /,
 ) -> Callable[[Callable[[Any, _EventT], _Void]], Callable[[Any, _EventT], _Void]]:
     if isinstance(sources, str):

@@ -18,7 +18,7 @@ from ceres.exceptions import ProcedureException
 from ceres.internal import logs
 from ceres.internal.tasklet import Tasklet
 from ceres.internal.utilities import sleep_forever
-from ceres.stream import Stream, StreamView
+from ceres.stream import Stream, WriteStream
 
 if TYPE_CHECKING:
     from ceres.engine import Engine
@@ -48,7 +48,7 @@ class Unit(Tasklet):
             self.__paths = UnitPaths()
 
         self.__engine: ref[Engine] | None = None
-        self.__events: Stream[Event] = Stream()
+        self.__events: WriteStream[Event] = WriteStream()
         self.__components: dict[Name, Component] = {}
 
     @property
@@ -81,7 +81,7 @@ class Unit(Tasklet):
         return logs.get(str(self.name))
 
     @property
-    def events(self) -> StreamView[Event]:
+    def events(self) -> Stream[Event]:
         return self.__events.view()
 
     @property
