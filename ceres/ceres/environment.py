@@ -1,3 +1,4 @@
+import re
 from asyncio import Lock as AsyncLock
 from collections import defaultdict
 from collections.abc import Callable, Mapping, Sequence
@@ -17,7 +18,7 @@ from typing_extensions import Self, Unpack
 from ceres.address import Address
 from ceres.alert import Alert, AlertLevel
 from ceres.config import DatabaseKind
-from ceres.data import DateTime, ImmutableDataObject, Name, PositiveTimeDelta
+from ceres.data import DateTime, ImmutableDataObject, Name, PositiveTimeDelta, jsonify
 from ceres.database import Database
 from ceres.internal.database.entities import AlertEntity, ComponentEntity, MessageEntity
 from ceres.internal.utilities import ValidateByType, escape_like_expression
@@ -79,8 +80,53 @@ class MessageQuery(Query):
     prefix: bytes | None = None
     suffix: bytes | None = None
     order: MessageOrder | None = None
-    limit: int | None = Field(None, ge=0)
-    offset: int | None = Field(None, ge=0)
+    limit: int | None = Field(default=None, ge=0)
+    offset: int | None = Field(default=None, ge=0)
+
+    def matches(self, message: Message) -> bool:
+        if self.source is not None:
+            if isinstance(self.source, Address):
+                if message.source != self.source:
+                    return False
+            else:
+                if message.source not in self.source:
+                    return False
+
+        if self.search is not None:
+            search = self.search
+            timestamp = _format_timestamp(message.timestamp)
+            direction = message.direction
+            content = message.content
+
+            if not self.search_case_sensitive:
+                search = search.lower()
+                content = content.lower()
+
+            if not (search in timestamp or search.encode() in content or search in direction):
+                return False
+
+        if self.within is not None:
+            if message.timestamp < utc() - self.within:
+                return False
+        if self.after is not None:
+            if message.timestamp < self.after:
+                return False
+        if self.before is not None:
+            if message.timestamp >= self.before:
+                return False
+
+        if self.direction is not None:
+            if message.direction != self.direction:
+                return False
+
+        if self.prefix is not None:
+            if not message.content.startswith(self.prefix):
+                return False
+        if self.suffix is not None:
+            if not message.content.endswith(self.suffix):
+                return False
+
+        return True
 
 
 class AlertOrder(str, Enum):
@@ -117,8 +163,69 @@ class AlertQuery(Query):
     code: str | Sequence[str] | None = None
     code_regex: str | _StrPattern | None = None
     order: AlertOrder | None = None
-    limit: int | None = None
-    offset: int | None = None
+    limit: int | None = Field(default=None, ge=0)
+    offset: int | None = Field(default=None, ge=0)
+
+    def matches(self, alert: Alert) -> bool:
+        if self.source is not None:
+            if isinstance(self.source, Address):
+                if alert.source != self.source:
+                    return False
+            else:
+                if alert.source not in self.source:
+                    return False
+
+        if self.search is not None:
+            search = self.search
+            timestamp = _format_timestamp(alert.timestamp)
+            level = alert.level
+            code = alert.code
+            info = jsonify(alert.info)
+
+            if self.search_case_sensitive:
+                search = search.lower()
+                code = code.lower()
+                info = info.lower()
+
+            if not (search in timestamp or search in level or search in code or search in info):
+                return False
+
+        if self.within is not None:
+            if alert.timestamp < utc() - self.within:
+                return False
+        if self.after is not None:
+            if alert.timestamp < self.after:
+                return False
+        if self.before is not None:
+            if alert.timestamp >= self.before:
+                return False
+
+        if self.level is not None:
+            if isinstance(self.level, AlertLevel):
+                if alert.level != self.level:
+                    return False
+            else:
+                if alert.level not in self.level:
+                    return False
+
+        if self.code is not None:
+            if isinstance(self.code, str):
+                if alert.code != self.code:
+                    return False
+            else:
+                if alert.code not in self.code:
+                    return False
+
+        if self.code_regex is not None:
+            regex = (
+                self.code_regex
+                if isinstance(self.code_regex, Pattern)
+                else re.compile(self.code_regex)
+            )
+            if not regex.match(alert.code):
+                return False
+
+        return True
 
 
 class StatisticsQueryArgs(TypedDict, total=False):
@@ -546,6 +653,10 @@ def _like(
     if case_sensitive:
         return expression.like(pattern)
     return expression.ilike(pattern)
+
+
+def _format_timestamp(timestamp: datetime) -> str:
+    return timestamp.strftime("%Y-%m-%d %H:%M:%f")[:-3]
 
 
 def _sqlite_format_timestamp(timestamp: SQLCoreOperations[datetime]) -> Any:

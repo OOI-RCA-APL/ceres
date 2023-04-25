@@ -181,26 +181,13 @@ async def message_stream(
     source: Address | None = None,
     search: str | None = None,
 ) -> None:
-    if search:
-        search = search.lower()
-
     try:
         await socket.accept()
 
-        async for event in engine.events:
-            if not isinstance(event, (MessageSentEvent, MessageReceivedEvent)):
-                continue
-            if source is not None and event.message.source != source:
-                continue
-            if search is not None:
-                if (
-                    search not in event.message.timestamp.isoformat(" ")
-                    and search not in event.message.direction
-                    and search.encode() not in event.message.content.lower()
-                ):
-                    continue
-
-            await socket.send_text(jsonify(event.message))
+        query = MessageQuery(source=source, search=search)
+        async for event in engine.events.of(MessageSentEvent | MessageReceivedEvent):
+            if query.matches(event.message):
+                await socket.send_text(jsonify(event.message))
     except (WebSocketDisconnect, ConnectionClosed):
         pass
 
@@ -215,20 +202,10 @@ async def alert_stream(
     try:
         await socket.accept()
 
-        async for event in engine.events:
-            if not isinstance(event, AlertEmittedEvent):
-                continue
-            if source is not None and event.alert.source != source:
-                continue
-            if search is not None:
-                if (
-                    search not in event.alert.timestamp.isoformat(" ")
-                    and search not in event.alert.code
-                    and search not in event.alert.info
-                ):
-                    continue
-
-            await socket.send_text(jsonify(event.alert))
+        query = AlertQuery(source=source, search=search)
+        async for event in engine.events.of(AlertEmittedEvent):
+            if query.matches(event.alert):
+                await socket.send_text(jsonify(event))
     except (WebSocketDisconnect, ConnectionClosed):
         pass
 

@@ -36,7 +36,7 @@ from ceres.internal.server import Server
 from ceres.internal.tasklet import Tasklet
 from ceres.internal.utilities import strify
 from ceres.result import Fail, Ok, Result
-from ceres.stream import WriteStream
+from ceres.stream import Stream, WriteStream
 from ceres.unit import Unit, UnitPaths
 
 
@@ -84,7 +84,7 @@ class Engine(Tasklet):
         return self.__environment
 
     @property
-    def events(self) -> AsyncIterable[Event]:
+    def events(self) -> Stream[Event]:
         return self.__events.view()
 
     @property
