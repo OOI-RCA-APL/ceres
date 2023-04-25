@@ -120,7 +120,7 @@ class TCPConnection(Connection):
             raise ConnectionLostException("connection was lost")
 
     @override
-    async def _receive_data(self) -> bytes:
+    async def _poll_data(self) -> bytes:
         if not self.__stream:
             raise ConnectionInactiveException("connection is not active")
 

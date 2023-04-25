@@ -1,5 +1,6 @@
 import asyncio
 from abc import ABC, abstractmethod
+from dataclasses import field
 from datetime import timedelta
 from enum import Enum
 from typing import AsyncIterable
@@ -20,6 +21,7 @@ from ceres.exceptions import ConnectionLostException
 from ceres.message import Message, MessageDirection
 from ceres.procedure import action, query
 from ceres.routine import routine
+from ceres.stream import Stream
 
 
 class ReconnectSettings(ImmutableDataObject):
@@ -62,7 +64,7 @@ class ConnectionState(str, Enum):
 
 
 class Connection(Component, ABC):
-    reconnect_settings: ReconnectSettings
+    reconnect_settings: ReconnectSettings = field(default_factory=ReconnectSettings)
 
     @override
     def __setup__(self) -> None:
@@ -88,6 +90,20 @@ class Connection(Component, ABC):
     def connected(self) -> bool:
         return self.__state == ConnectionState.CONNECTED
 
+    @property
+    def messages(self) -> Stream[Message]:
+        return self.events.of(MessageSentEvent | MessageReceivedEvent).map(
+            lambda event: event.message
+        )
+
+    @property
+    def sent(self) -> Stream[Message]:
+        return self.events.of(MessageSentEvent).map(lambda event: event.message)
+
+    @property
+    def received(self) -> Stream[Message]:
+        return self.events.of(MessageReceivedEvent).map(lambda event: event.message)
+
     @abstractmethod
     async def _try_connect(self) -> bool:
         ...
@@ -101,7 +117,7 @@ class Connection(Component, ABC):
         ...
 
     @abstractmethod
-    async def _receive_data(self) -> bytes:
+    async def _poll_data(self) -> bytes:
         ...
 
     async def connect(self) -> bool:
@@ -156,9 +172,9 @@ class Connection(Component, ABC):
         self.emit_event(MessageSentEvent, message=message)
         return message
 
-    async def receive_message(self) -> Message:
+    async def _poll_message(self) -> Message:
         try:
-            data = await self._receive_data()
+            data = await self._poll_data()
         except ConnectionLostException:
             if self.connected:
                 self.emit_event(ConnectionLostEvent)
@@ -199,7 +215,7 @@ class Connection(Component, ABC):
 
             while self.connected:
                 try:
-                    await self.receive_message()
+                    await self._poll_message()
                 except Exception as exception:
                     if error := str(exception).strip():
                         self.logger.error(error)
