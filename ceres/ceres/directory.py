@@ -184,8 +184,8 @@ class Directory(PathLike[str]):
 
         return path.exists()
 
-    def create(self, *, mkdirs: bool = True) -> None:
-        self.path.mkdir(parents=mkdirs)
+    def create(self, *, mkdirs: bool = True, exist_ok: bool=True) -> None:
+        self.path.mkdir(parents=mkdirs, exist_ok=exist_ok)
 
     def subpath(self, path: StrPath) -> Path:
         return self.path / path

@@ -43,8 +43,11 @@ units:
       - name: driver
         class: ceres.projects.a3.A3Driver
         args:
-          host_connection: host-connection
-          das_connection: das-connection
+          host:
+            connection: host-connection
+          das:
+            id: 2501
+            connection: das-connection
   - name: notifications
     components:
       - name: notifier

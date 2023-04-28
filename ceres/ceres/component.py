@@ -57,7 +57,7 @@ from ceres.events import (
     StartedEvent,
     StoppedEvent,
 )
-from ceres.exceptions import ComponentClassInvalidException, ProcedureException
+from ceres.exceptions import ProcedureException
 from ceres.internal import logs
 from ceres.internal.binding import get_bindings
 from ceres.internal.database.buffer import WriteBuffer
@@ -68,7 +68,6 @@ from ceres.internal.tasklet import Tasklet
 from ceres.internal.utilities import (
     awaitify,
     cached,
-    has_field,
     lenient_isinstance,
     randstr,
     sleep_forever,
@@ -132,11 +131,11 @@ class Component(ValidatedDataclass, Tasklet):
                 if source == "self":
                     continue
 
-                if not has_field(cls, source):
-                    raise ComponentClassInvalidException(
-                        f"event listener '{binding.function}' refers to reference '{source}' "
-                        f"which is not defined as an attribute in {strify(cls)}"
-                    )
+                # if not has_field(cls, source):
+                #     raise ComponentClassInvalidException(
+                #         f"event listener '{binding.function}' refers to reference '{source}' "
+                #         f"which is not defined as an attribute in {strify(cls)}"
+                #     )
 
         return cls
 
@@ -346,11 +345,13 @@ class Component(ValidatedDataclass, Tasklet):
 
     def get_referenced_components(self, alias: str | None = None) -> Sequence["Component"]:
         components: list[Component] = []
+        root = self
 
-        if alias is None:
-            root = self
-        else:
-            root = getattr(self, alias, None)
+        if alias is not None:
+            for segment in alias.split("."):
+                root = getattr(root, segment, None)
+                if root is None:
+                    break
 
         if root is None:
             return components

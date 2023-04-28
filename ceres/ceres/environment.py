@@ -1,11 +1,9 @@
-import re
 from asyncio import Lock as AsyncLock
 from collections import defaultdict
 from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
 from enum import Enum
-from re import Pattern
-from typing import TYPE_CHECKING, Any, TypedDict, final
+from typing import Any, TypedDict, final
 from uuid import UUID, uuid4
 
 from pydantic import Extra, Field
@@ -18,7 +16,15 @@ from typing_extensions import Self, Unpack
 from ceres.address import Address
 from ceres.alert import Alert, AlertLevel
 from ceres.config import DatabaseKind
-from ceres.data import DateTime, ImmutableDataObject, Name, PositiveTimeDelta, jsonify
+from ceres.data import (
+    BytesPattern,
+    DateTime,
+    ImmutableDataObject,
+    Name,
+    PositiveTimeDelta,
+    StrPattern,
+    jsonify,
+)
 from ceres.database import Database
 from ceres.internal.database.entities import AlertEntity, ComponentEntity, MessageEntity
 from ceres.internal.utilities import ValidateByType, escape_like_expression
@@ -64,6 +70,7 @@ class MessageQueryArgs(TypedDict, total=False):
     direction: MessageDirection | None
     prefix: bytes | None
     suffix: bytes | None
+    regex: BytesPattern | None
     order: MessageOrder | None
     limit: int | None
     offset: int | None
@@ -79,6 +86,7 @@ class MessageQuery(Query):
     direction: MessageDirection | None = None
     prefix: bytes | None = None
     suffix: bytes | None = None
+    regex: BytesPattern | None = None
     order: MessageOrder | None = None
     limit: int | None = Field(default=None, ge=0)
     offset: int | None = Field(default=None, ge=0)
@@ -125,6 +133,9 @@ class MessageQuery(Query):
         if self.suffix is not None:
             if not message.content.endswith(self.suffix):
                 return False
+        if self.regex is not None:
+            if not self.regex.match(message.content):
+                return False
 
         return True
 
@@ -132,9 +143,6 @@ class MessageQuery(Query):
 class AlertOrder(str, Enum):
     OLD_TO_NEW = "old-to-new"
     NEW_TO_OLD = "new-to-old"
-
-
-_StrPattern = Pattern[str] if TYPE_CHECKING else Pattern
 
 
 class AlertQueryArgs(TypedDict, total=False):
@@ -146,7 +154,7 @@ class AlertQueryArgs(TypedDict, total=False):
     before: DateTime | None
     level: AlertLevel | Sequence[AlertLevel] | None
     code: str | Sequence[str] | None
-    code_regex: str | _StrPattern | None
+    code_regex: StrPattern | None
     order: AlertOrder | None
     limit: int | None
     offset: int | None
@@ -161,7 +169,7 @@ class AlertQuery(Query):
     before: DateTime | None = None
     level: AlertLevel | Sequence[AlertLevel] | None = None
     code: str | Sequence[str] | None = None
-    code_regex: str | _StrPattern | None = None
+    code_regex: StrPattern | None = None
     order: AlertOrder | None = None
     limit: int | None = Field(default=None, ge=0)
     offset: int | None = Field(default=None, ge=0)
@@ -217,12 +225,7 @@ class AlertQuery(Query):
                     return False
 
         if self.code_regex is not None:
-            regex = (
-                self.code_regex
-                if isinstance(self.code_regex, Pattern)
-                else re.compile(self.code_regex)
-            )
-            if not regex.match(alert.code):
+            if not self.code_regex.match(alert.code):
                 return False
 
         return True
@@ -418,6 +421,23 @@ class Environment(ValidateByType):
 
         return [Message.construct(**row._asdict()) for row in rows]  # type: ignore
 
+    async def get_message(
+        self,
+        query: MessageQuery | None = None,
+        *,
+        where: Callable[[type[MessageEntity]], WhereExpression] | None = None,
+        order_by: Callable[[type[MessageEntity]], OrderByExpression] | None = None,
+        **kwargs: Unpack[MessageQueryArgs],
+    ) -> Message | None:
+        messages = await self.get_messages(
+            query,
+            where=where,
+            order_by=order_by,
+            **{**kwargs, "limit": 1},
+        )
+
+        return messages[0] if messages else None
+
     async def get_alerts(
         self,
         query: AlertQuery | None = None,
@@ -517,6 +537,23 @@ class Environment(ValidateByType):
             rows = await session.execute(statement)
 
         return [Alert.construct(**row._asdict()) for row in rows]  # type: ignore
+
+    async def get_alert(
+        self,
+        query: AlertQuery | None = None,
+        *,
+        where: Callable[[type[AlertEntity]], WhereExpression] | None = None,
+        order_by: Callable[[type[AlertEntity]], OrderByExpression] | None = None,
+        **kwargs: Unpack[AlertQueryArgs],
+    ) -> Alert | None:
+        alerts = await self.get_alerts(
+            query,
+            where=where,
+            order_by=order_by,
+            **{**kwargs, "limit": 1},
+        )
+
+        return alerts[0] if alerts else None
 
     async def get_statistics(
         self,

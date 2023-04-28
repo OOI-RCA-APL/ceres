@@ -151,7 +151,10 @@ class Reference(PyProxyBase):
         return self.__component_instance__
 
 
-def get_references(obj: Any) -> Sequence[Reference]:
+def get_references(root: Any) -> Sequence[Reference]:
+    if isinstance(root, Reference):
+        root = root.unref()
+
     references: list[Reference] = []
 
     def visit(obj: Any) -> bool:
@@ -161,7 +164,7 @@ def get_references(obj: Any) -> Sequence[Reference]:
 
         return True
 
-    traverse(obj, visit)
+    traverse(root, visit)
     return references
 
 

@@ -6,7 +6,7 @@ from abc import ABC
 from datetime import datetime, timedelta, timezone
 from re import Pattern
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Callable, ForwardRef, Mapping, cast
+from typing import TYPE_CHECKING, Annotated, Any, Callable, ForwardRef, Mapping, cast
 
 import pydantic
 import pydantic.generics
@@ -204,6 +204,8 @@ if TYPE_CHECKING:
     TimeDelta = timedelta
     PositiveTimeDelta = timedelta
     NonNegativeTimeDelta = timedelta
+    BytesPattern = Pattern[bytes]
+    StrPattern = Pattern[str]
 else:
     Name = NameType
     NonEmptyStr = NonEmptyStrType
@@ -212,6 +214,8 @@ else:
     TimeDelta = TimeDeltaType
     PositiveTimeDelta = PositiveTimeDeltaType
     NonNegativeTimeDelta = NonNegativeTimeDeltaType
+    BytesPattern = Annotated[Pattern, Field(regex=b".*")]
+    StrPattern = Annotated[Pattern, Field(regex=".*")]
 
 JSON_ENCODERS: Mapping[type[Any] | str | ForwardRef, Callable[..., Any]] = MappingProxyType(
     {

@@ -7,6 +7,7 @@ from pydantic.fields import Undefined, UndefinedType
 from typing_extensions import Unpack, overload
 
 from ceres.environment import MessageQuery, MessageQueryArgs
+from ceres.internal.utilities import BytesLike, bytes_of
 from ceres.message import Message
 from ceres.roles.connection import Connection
 
@@ -30,11 +31,11 @@ class Transport:
     def __repr__(self) -> str:
         return f"{type(self).__name__}({self.__connection})"
 
-    async def send_message(self, data: bytes) -> Message:
-        return await self.connection.send_message(data)
+    async def send(self, data: BytesLike) -> Message:
+        return await self.connection.send_message(bytes_of(data))
 
     @overload
-    async def receive_message(
+    async def receive(
         self,
         *,
         condition: Callable[[Message], bool] | None = None,
@@ -44,7 +45,7 @@ class Transport:
         ...
 
     @overload
-    async def receive_message(
+    async def receive(
         self,
         *,
         condition: Callable[[Message], bool] | None = None,
@@ -54,7 +55,7 @@ class Transport:
     ) -> Message | _T:
         ...
 
-    async def receive_message(
+    async def receive(
         self,
         *,
         condition: Callable[[Message], bool] | None = None,

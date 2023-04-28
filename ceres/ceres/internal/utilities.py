@@ -24,12 +24,14 @@ from typing import (
     ParamSpec,
     Protocol,
     Sequence,
+    TypeAlias,
     TypeGuard,
     TypeVar,
     cast,
 )
 
 import pydantic
+import pydantic.utils
 import rich
 from pydantic import BaseModel, parse_obj_as
 from typing_extensions import Self, overload
@@ -107,19 +109,25 @@ def is_pydantic_dataclass(obj: object) -> TypeGuard[PydanticDataclassLike]:
     return dataclasses.is_dataclass(obj) and hasattr(obj, "__pydantic_model__")
 
 
+ModelLike = BaseModel | PydanticDataclassLike
+
+
 @overload
-def get_model(obj: "BaseModel | PydanticDataclassLike") -> BaseModel:
+def get_model(obj: ModelLike | type[ModelLike]) -> type[BaseModel]:
     ...
 
 
 @overload
-def get_model(obj: Any) -> BaseModel | None:
+def get_model(obj: Any) -> type[BaseModel] | None:
     ...
 
 
-def get_model(obj: Any) -> BaseModel | None:
+def get_model(obj: Any) -> type[BaseModel] | None:
+    if not lenient_isinstance(obj, type):
+        obj = type(obj)
+
     try:
-        return pydantic.utils.get_model(obj)  # type: ignore
+        return pydantic.utils.get_model(cast(Any, obj))
     except Exception:
         return None
 
@@ -512,3 +520,14 @@ def escape_like_expression(text: str | bytes) -> str | bytes:
         return text.replace("%", "%%").replace("_", "__")
 
     return text.replace(b"%", b"%%").replace(b"_", b"__")
+
+
+BytesLike: TypeAlias = str | bytes | bytearray | memoryview
+
+
+def bytes_of(data: BytesLike) -> bytes:
+    if isinstance(data, bytes):
+        return data
+    if isinstance(data, str):
+        return data.encode("utf-8")
+    return bytes(data)
