@@ -19,7 +19,7 @@ class ScheduledDispatcher(Dispatcher):
     @override
     async def __run__(self) -> None:
         for dispatch in self.dispatches:
-            self.add_job(
+            self.schedule_job(
                 partial(self.dispatch, dispatch),
                 dispatch.schedule,
                 name=f"dispatch-{dispatch.subject}",

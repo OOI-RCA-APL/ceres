@@ -6,6 +6,7 @@ import random
 import re
 import signal
 from asyncio import AbstractEventLoop
+from collections import OrderedDict
 from contextlib import contextmanager
 from datetime import timedelta
 from functools import cache, wraps
@@ -531,3 +532,29 @@ def bytes_of(data: BytesLike) -> bytes:
     if isinstance(data, str):
         return data.encode("utf-8")
     return bytes(data)
+
+
+_K = TypeVar("_K")
+_V = TypeVar("_V")
+
+
+class CacheDict(OrderedDict[_K, _V]):
+    def __init__(self, size: int = 10) -> None:
+        assert size > 0
+        self.cache_len = size
+
+        super().__init__()
+
+    def __setitem__(self, key: _K, value: _V) -> None:
+        super().__setitem__(key, value)
+        super().move_to_end(key)
+
+        while len(self) > self.cache_len:
+            oldkey = next(iter(self))
+            super().__delitem__(oldkey)
+
+    def __getitem__(self, key: _K) -> _V:
+        val = super().__getitem__(key)
+        super().move_to_end(key)
+
+        return val

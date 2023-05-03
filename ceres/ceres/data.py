@@ -3,7 +3,7 @@ import json
 import re
 import traceback
 from abc import ABC
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from re import Pattern
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Annotated, Any, Callable, ForwardRef, Mapping, cast
@@ -77,7 +77,15 @@ class DateTimeType(datetime):
         if value is None:
             return None
 
-        timestamp = parse_obj_as(datetime, value)
+        timestamp = parse_obj_as(datetime | date, value)
+        if not isinstance(timestamp, datetime):
+            return datetime(
+                year=timestamp.year,
+                month=timestamp.month,
+                day=timestamp.day,
+                tzinfo=timezone.utc,
+            )
+
         if timestamp.tzinfo is None:
             return timestamp.replace(tzinfo=timezone.utc)
 

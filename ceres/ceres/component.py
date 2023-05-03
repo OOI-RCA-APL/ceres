@@ -155,23 +155,25 @@ class Component(ValidatedDataclass, Tasklet):
 
         return jobs
 
-    @validator("jobs", each_item=True)
-    def _validate_job(cls, job: Job) -> Job:
-        action = cls.get_action_bindings().get(job.action)
-        if action is None:
-            defined = sorted(cls.get_action_bindings().keys())
-            raise ValueError(
-                f"{strify(cls)} has no action named '{job.action}', defined actions are "
-                f"{defined}"
-            )
+    # @validator("jobs", each_item=True)
+    # def _validate_job(cls, job: Job) -> Job:
+    #     print(issubclass(cls, Component))
+    #     print(issubclass(cls, BaseModel))
+    #     action = cls.get_action_bindings().get(job.action)
+    #     if action is None:
+    #         defined = sorted(cls.get_action_bindings().keys())
+    #         raise ValueError(
+    #             f"{strify(cls)} has no action named '{job.action}', defined actions are "
+    #             f"{defined}"
+    #         )
 
-        if not job.args and (action.args is not None and action.args.required):
-            raise ValueError(
-                f"missing required arguments for job '{job.name}', add arguments to the job's "
-                "'args' value"
-            )
+    #     if not job.args and (action.args is not None and action.args.required):
+    #         raise ValueError(
+    #             f"missing required arguments for job '{job.name}', add arguments to the job's "
+    #             "'args' value"
+    #         )
 
-        return job
+    #     return job
 
     def __post_init_post_parse__(self) -> None:
         self.__local_environment: Environment | None = None
@@ -445,16 +447,16 @@ class Component(ValidatedDataclass, Tasklet):
                     processor.put(event)
                     break
 
-    def add_job(
+    def schedule_job(
         self,
         function: Callable[[], Any],
         schedule: Schedule,
         name: str | None = None,
     ) -> None:
-        self.__scheduler.add_job(function, schedule, name=name)
+        self.__scheduler.schedule(function, schedule, name=name)
 
-    def remove_job(self, name: str | Callable[[], Any]) -> None:
-        self.__scheduler.remove_job(name)
+    def unschedule_job(self, name: str | Callable[[], Any]) -> None:
+        self.__scheduler.unschedule(name)
 
     def __start_scheduler(self) -> None:
         self.__scheduler.start()
@@ -470,7 +472,7 @@ class Component(ValidatedDataclass, Tasklet):
 
         for job in self.jobs:
             self.logger.info(f"Scheduling job '{job.name}' on {job.schedule}.")
-            self.add_job(partial(run, job), job.schedule, name=job.name)
+            self.schedule_job(partial(run, job), job.schedule, name=job.name)
 
     @override
     async def __run__(self) -> None:

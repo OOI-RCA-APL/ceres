@@ -27,7 +27,7 @@ class Scheduler:
         if self.__inner.running:
             self.__inner.shutdown(wait)
 
-    def add_job(
+    def schedule(
         self,
         function: Callable[[], Any],
         schedule: Schedule,
@@ -41,7 +41,7 @@ class Scheduler:
             id=name,
         )
 
-    def remove_job(self, name: str | Callable[[], Any]) -> None:
+    def unschedule(self, name: str | Callable[[], Any]) -> None:
         if not isinstance(name, str):
             name = name.__name__
 

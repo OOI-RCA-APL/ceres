@@ -1,13 +1,16 @@
+import datetime as dt
 from abc import abstractmethod
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Iterable, Literal, Sequence
+from typing import TYPE_CHECKING, Iterable, Literal, Sequence
 
 from apscheduler.triggers.cron import CronTrigger as InternalCronTrigger
-from apscheduler.triggers.interval import IntervalTrigger as InternalIntervalTrigger
+from apscheduler.triggers.interval import IntervalTrigger as BaseInternalIntervalTrigger
+from apscheduler.util import normalize
 from pydantic import validator
 
 from ceres.data import DateTime, ImmutableDataObject, PositiveTimeDelta
+from ceres.internal.utilities import CacheDict
 
 
 class ScheduleKind(str, Enum):
@@ -49,6 +52,9 @@ class IntervalSchedule(BaseSchedule):
     interval: PositiveTimeDelta
     start: DateTime | None = None
     end: DateTime | None = None
+    multiplier: float = 1
+    min: timedelta | None = None
+    max: timedelta | None = None
 
     @validator("interval")
     def _validate_interval(cls, value: timedelta) -> timedelta:
@@ -102,7 +108,14 @@ class CronTrigger(Trigger):
     def __init__(self, schedule: CronSchedule) -> None:
         super().__init__()
         self.__schedule = schedule
-        self.__inner = InternalCronTrigger.from_crontab(schedule.crontab)
+        self.__inner = InternalCronTrigger.from_crontab(schedule.crontab, timezone=dt.timezone.utc)
+
+    def get_next_fire_time(
+        self,
+        previous_fire_time: datetime | None,
+        now: datetime,
+    ) -> datetime | None:
+        return self.__inner.get_next_fire_time(previous_fire_time, now)
 
     @property
     def schedule(self) -> CronSchedule:
@@ -110,6 +123,91 @@ class CronTrigger(Trigger):
 
     def next(self, previous: datetime | None, now: datetime) -> datetime | None:
         return self.__inner.get_next_fire_time(previous, now)
+
+
+class InternalIntervalTrigger(BaseInternalIntervalTrigger):
+    if TYPE_CHECKING:
+        start_date: datetime
+
+    def __init__(
+        self,
+        weeks: int = 0,
+        days: int = 0,
+        hours: int = 0,
+        minutes: int = 0,
+        seconds: int = 0,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
+        jitter: float | None = None,
+        multiplier: float = 1,
+        min: timedelta | None = None,
+        max: timedelta | None = None,
+    ):
+        super().__init__(
+            weeks=weeks,
+            days=days,
+            hours=hours,
+            minutes=minutes,
+            seconds=seconds,
+            start_date=start_date,
+            end_date=end_date,
+            timezone=dt.timezone.utc,
+            jitter=jitter,
+        )
+        self.multiplier = multiplier
+        self.min = min
+        self.max = max
+        self.__cache: CacheDict[datetime, int] = CacheDict()
+
+    def get_next_fire_time(
+        self,
+        previous_fire_time: datetime | None,
+        now: datetime,
+    ) -> datetime | None:
+        if self.end_date is not None and now > self.end_date:
+            return None
+
+        next_fire_time: datetime | None = None
+
+        if now < self.start_date:
+            next_fire_time = self.start_date
+        else:
+            start = self.start_date.timestamp()
+            end = now.timestamp()
+            base = self.interval.total_seconds()
+            min = self.min.total_seconds() if self.min is not None else None
+            max = self.max.total_seconds() if self.max is not None else None
+
+            iteration = 0
+            current = start
+            for previous_now, previous_iteration in self.__cache.items():
+                if now >= previous_now and previous_iteration > iteration:
+                    iteration = previous_iteration
+
+            while current < end:
+                interval = base * self.multiplier**iteration
+                if min is not None and interval < min:
+                    interval = min
+                if max is not None and interval > max:
+                    interval = max
+
+                if current + interval >= end:
+                    current = current + interval
+                    self.__cache[now] = iteration
+                    break
+
+                current += interval
+                iteration += 1
+
+            next_fire_time = datetime.fromtimestamp(current, dt.timezone.utc)
+
+        if self.jitter is not None:
+            next_fire_time = self._apply_jitter(next_fire_time, self.jitter, now)
+
+        if self.end_date is not None and next_fire_time > self.end_date:
+            return None
+
+        return normalize(next_fire_time)
 
 
 class IntervalTrigger(Trigger):
@@ -120,6 +218,9 @@ class IntervalTrigger(Trigger):
             seconds=int(schedule.interval.total_seconds()),
             start_date=self.__schedule.start,
             end_date=self.__schedule.end,
+            multiplier=self.__schedule.multiplier,
+            min=self.__schedule.min,
+            max=self.__schedule.max,
         )
 
     @property
