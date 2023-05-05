@@ -653,9 +653,6 @@ class A3Driver(Alerter):
                             continue
 
                         range_delay = si.range_delays.get(remote_address, np.nan)
-                        if range_delay is None:
-                            continue
-
                         range_delay_variable[i, j, k] = range_delay
 
             #

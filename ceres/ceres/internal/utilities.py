@@ -113,16 +113,6 @@ def is_pydantic_dataclass(obj: object) -> TypeGuard[PydanticDataclassLike]:
 ModelLike = BaseModel | PydanticDataclassLike
 
 
-@overload
-def get_model(obj: ModelLike | type[ModelLike]) -> type[BaseModel]:
-    ...
-
-
-@overload
-def get_model(obj: Any) -> type[BaseModel] | None:
-    ...
-
-
 def get_model(obj: Any) -> type[BaseModel] | None:
     if not lenient_isinstance(obj, type):
         obj = type(obj)
