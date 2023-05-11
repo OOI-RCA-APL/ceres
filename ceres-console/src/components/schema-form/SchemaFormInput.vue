@@ -10,16 +10,18 @@ const {
   resolve,
   format = String,
   resolveText: resolveTextOriginal,
+  mask = undefined,
 } = defineProps<{
   modelValue: unknown
   form: SchemaForm
   schema: Schema
   path: SchemaPath
-  inputType: 'text' | 'number'
+  inputType: 'text' | 'number' | 'date'
   schemaType: string
   resolve: (value: unknown) => unknown
   resolveText?: (text: string) => unknown
   format: (value: unknown) => string
+  mask?: string
 }>()
 
 const emit = defineEmits<{
@@ -105,6 +107,7 @@ function onBackspace() {
     filled
     input-class="monospace-md"
     label-slot
+    :mask="mask"
     :type="inputType"
     @blur="onBlur"
     @focus="onFocus"

@@ -2,6 +2,7 @@
 import SchemaFormAny from '@/components/schema-form/SchemaFormAny.vue'
 import SchemaFormArray from '@/components/schema-form/SchemaFormArray.vue'
 import SchemaFormBoolean from '@/components/schema-form/SchemaFormBoolean.vue'
+import SchemaFormDate from '@/components/schema-form/SchemaFormDate.vue'
 import SchemaFormInteger from '@/components/schema-form/SchemaFormInteger.vue'
 import SchemaFormNodeToggle from '@/components/schema-form/SchemaFormNodeToggle.vue'
 import SchemaFormNumber from '@/components/schema-form/SchemaFormNumber.vue'
@@ -61,7 +62,12 @@ function update(value: unknown) {
         <schema-form-number v-bind="forward" @update:model-value="update" />
       </template>
       <template v-else-if="is('string')">
-        <schema-form-string v-bind="forward" @update:model-value="update" />
+        <schema-form-date
+          v-if="schema.format === 'date'"
+          v-bind="forward"
+          @update:model-value="update"
+        />
+        <schema-form-string v-else v-bind="forward" @update:model-value="update" />
       </template>
       <template v-else-if="is('array')">
         <schema-form-array v-bind="forward" @update:model-value="update" />
