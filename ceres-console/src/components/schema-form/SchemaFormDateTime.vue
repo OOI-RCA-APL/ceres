@@ -6,7 +6,7 @@ import moment from 'moment'
 defineProps<{
   modelValue: unknown
   form: SchemaForm
-  schema: SchemaObject & { type: 'string'; format: 'date' }
+  schema: SchemaObject & { type: 'string'; format: 'date-time' }
   path: SchemaPath
 }>()
 
@@ -21,7 +21,13 @@ function resolve(value: unknown) {
     return value
   }
 
-  const parsed = moment(value, pattern)
+  if (typeof value === 'string') {
+    if (value.trim() === '') {
+      return undefined
+    }
+  }
+
+  const parsed = moment.utc(value, pattern)
   if (parsed.isValid()) {
     return parsed.format(pattern)
   }
@@ -30,11 +36,12 @@ function resolve(value: unknown) {
 }
 
 function format(value: unknown) {
-  if (typeof value !== 'string') {
+  const resolved = resolve(value)
+  if (typeof resolved !== 'string') {
     return ''
   }
 
-  return value
+  return resolved.replace(/[.:0 ]+$/, '')
 }
 </script>
 
@@ -43,12 +50,11 @@ function format(value: unknown) {
     :form="form"
     :format="format"
     input-type="text"
-    mask="####-##-## ##:##:##.###"
     :model-value="modelValue"
     :path="path"
     :resolve="resolve"
     :schema="schema"
-    schema-type="date"
+    schema-type="date-time"
     stack-label
     @update:model-value="(modelValue: any) => emit('update:modelValue', modelValue)"
   />

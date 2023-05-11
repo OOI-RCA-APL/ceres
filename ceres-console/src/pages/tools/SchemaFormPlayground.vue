@@ -3,7 +3,7 @@ import CommonText from '@/components/CommonText.vue'
 import SchemaForm from '@/components/schema-form/SchemaForm.vue'
 import SectionCard from '@/components/SectionCard.vue'
 import { usePersisted } from '@/persistence'
-import { createSchemaForm } from '@/schema-form'
+import { useSchemaForm } from '@/schema-form'
 import { computed } from 'vue'
 import Zod from 'zod'
 
@@ -23,7 +23,7 @@ const schema = $computed<any>(() => {
   }
 })
 
-const form = createSchemaForm({
+const form = useSchemaForm({
   schema: computed(() => schema),
   persist: 'state/schema-form-playground/form',
 })

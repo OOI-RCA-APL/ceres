@@ -3,6 +3,7 @@ import SchemaFormAny from '@/components/schema-form/SchemaFormAny.vue'
 import SchemaFormArray from '@/components/schema-form/SchemaFormArray.vue'
 import SchemaFormBoolean from '@/components/schema-form/SchemaFormBoolean.vue'
 import SchemaFormDate from '@/components/schema-form/SchemaFormDate.vue'
+import SchemaFormDateTime from '@/components/schema-form/SchemaFormDateTime.vue'
 import SchemaFormInteger from '@/components/schema-form/SchemaFormInteger.vue'
 import SchemaFormNodeToggle from '@/components/schema-form/SchemaFormNodeToggle.vue'
 import SchemaFormNumber from '@/components/schema-form/SchemaFormNumber.vue'
@@ -64,6 +65,11 @@ function update(value: unknown) {
       <template v-else-if="is('string')">
         <schema-form-date
           v-if="schema.format === 'date'"
+          v-bind="forward"
+          @update:model-value="update"
+        />
+        <schema-form-date-time
+          v-else-if="schema.format === 'date-time'"
           v-bind="forward"
           @update:model-value="update"
         />

@@ -5,7 +5,7 @@ import DisplayContent from '@/components/DisplayContent.vue'
 import SchemaForm from '@/components/schema-form/SchemaForm.vue'
 import { DisplayInfo } from '@/display'
 import { LayoutPath } from '@/layout'
-import { createSchemaForm } from '@/schema-form'
+import { useSchemaForm } from '@/schema-form'
 import { debounce } from 'quasar'
 import { computed, watch } from 'vue'
 
@@ -32,7 +32,7 @@ const procedure = $computed(
 )
 
 const form = procedure
-  ? createSchemaForm({
+  ? useSchemaForm({
       schema: computed(() => procedure.args.json_schema),
       persist: computed(() =>
         procedure

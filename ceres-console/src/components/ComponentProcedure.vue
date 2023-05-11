@@ -3,7 +3,7 @@ import { ComponentInfo, ProcedureInfo } from '@/api/models'
 import { call } from '@/api/operations'
 import SchemaForm from '@/components/schema-form/SchemaForm.vue'
 import SchemaFormControls from '@/components/schema-form/SchemaFormControls.vue'
-import { createSchemaForm } from '@/schema-form'
+import { useSchemaForm } from '@/schema-form'
 import { displayDuration, useTime } from '@/time'
 import moment, { Moment } from 'moment'
 import { computed } from 'vue'
@@ -27,7 +27,7 @@ const resultJson = $computed(() => {
 
 const time = useTime()
 
-const form = createSchemaForm({
+const form = useSchemaForm({
   persist: computed(
     () => `state/component-procedure/schema-form/${component.address}/procedures/${procedure.name})`
   ),

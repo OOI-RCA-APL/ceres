@@ -14,25 +14,28 @@ const emit = defineEmits<{
   (emit: 'update:modelValue', value: string | undefined): void
 }>()
 
+const pattern = 'YYYY-MM-DD'
+
 function resolve(value: unknown) {
   if (value == null) {
     return value
   }
 
-  const parsed = moment(value, 'YYYY-MM-DD')
+  const parsed = moment.utc(value, pattern)
   if (parsed.isValid()) {
-    return parsed.format('YYYY-MM-DD')
+    return parsed.format(pattern)
   }
 
   return undefined
 }
 
 function format(value: unknown) {
-  if (typeof value !== 'string') {
+  const resolved = resolve(value)
+  if (typeof resolved !== 'string') {
     return ''
   }
 
-  return value
+  return resolved
 }
 </script>
 
@@ -41,7 +44,6 @@ function format(value: unknown) {
     :form="form"
     :format="format"
     input-type="text"
-    mask="####-##-##"
     :model-value="modelValue"
     :path="path"
     :resolve="resolve"

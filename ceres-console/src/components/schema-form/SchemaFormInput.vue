@@ -11,6 +11,7 @@ const {
   format = String,
   resolveText: resolveTextOriginal,
   mask = undefined,
+  autogrow = false,
 } = defineProps<{
   modelValue: unknown
   form: SchemaForm
@@ -22,6 +23,7 @@ const {
   resolveText?: (text: string) => unknown
   format: (value: unknown) => string
   mask?: string
+  autogrow?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -102,7 +104,7 @@ function onBackspace() {
     ref="input"
     v-model="text"
     :aria-required="isRequired"
-    :autogrow="inputType == 'text'"
+    :autogrow="autogrow"
     dense
     filled
     input-class="monospace-md"
@@ -117,7 +119,7 @@ function onBackspace() {
       <div class="monospace-md row">
         <span>{{ title }}</span>
         <span :class="$style.labelExtra">
-          <span class="q-mr-xs">:</span>
+          <span class="q-mx-xs">{{ '⸱' }}</span>
           <span>{{ schemaType }}</span>
         </span>
       </div>

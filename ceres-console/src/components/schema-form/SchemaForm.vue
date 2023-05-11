@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import SchemaFormNode from '@/components/schema-form/SchemaFormNode.vue'
 import {
-  createSchemaForm,
+  useSchemaForm,
   isSchemaForm,
   SchemaForm,
   SchemaFormOptions,
@@ -15,7 +15,7 @@ const props = defineProps<{
 }>()
 
 const path: SchemaPath = []
-const form = isSchemaForm(props.form) ? props.form : createSchemaForm({ ...props.form })
+const form = isSchemaForm(props.form) ? props.form : useSchemaForm({ ...props.form })
 
 watchEffect(() => {
   if (props.formRef) {

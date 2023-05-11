@@ -32,6 +32,7 @@ function format(value: unknown) {
 
 <template>
   <schema-form-input
+    autogrow
     :form="form"
     :format="format"
     input-type="text"

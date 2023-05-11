@@ -1,5 +1,6 @@
 import { getter } from '@/getter'
 import { usePersisted } from '@/persistence'
+import { useTime } from '@/time'
 import { MaybePromise, MaybeRef, Plain } from '@/utilities'
 import AJV, { SchemaObject as BaseSchemaObject } from 'ajv'
 import { cloneDeep, isEqual } from 'lodash'
@@ -33,7 +34,7 @@ export type SchemaFormOptions = {
 
 export type SchemaFormState = 'viewing' | 'editing' | 'submitting' | 'submitted'
 
-export type SchemaForm = ReturnType<typeof createSchemaForm>
+export type SchemaForm = ReturnType<typeof useSchemaForm>
 
 function get(object: Plain | undefined, path: SchemaPath): Plain | undefined {
   let current: any = object
@@ -51,7 +52,7 @@ function get(object: Plain | undefined, path: SchemaPath): Plain | undefined {
   return current
 }
 
-export function createSchemaForm({ ...options }: SchemaFormOptions) {
+export function useSchemaForm({ ...options }: SchemaFormOptions) {
   const onSubmit = options.onSubmit
   const rootSchema = computed(() => unref(options.schema))
   const persist = computed(() => unref(options.persist))
@@ -59,6 +60,8 @@ export function createSchemaForm({ ...options }: SchemaFormOptions) {
   const state = ref<SchemaFormState>(
     options.editing == null || options.editing ? 'editing' : 'viewing'
   )
+
+  const time = useTime()
   const persisted = usePersisted({
     schema: ({ object, unknown }) =>
       object({
@@ -187,7 +190,17 @@ export function createSchemaForm({ ...options }: SchemaFormOptions) {
 
         return number
       case 'string':
-        return ''
+        if (schema.format === 'date-time') {
+          return time.now.format('YYYY-MM-DD HH:mm:00.000')
+        }
+        if (schema.format === 'date') {
+          return time.now.format('YYYY-MM-DD')
+        }
+        if (schema.format == null) {
+          return ''
+        }
+
+        return undefined
       case 'array':
         return []
       case 'object':
