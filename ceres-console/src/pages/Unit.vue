@@ -41,6 +41,7 @@ const connections = $computed(() =>
 const alerters = $computed(() =>
   components.filter((component) => component.roles.includes('alerter'))
 )
+const executors = $computed(() => components.filter((component) => component.procedures.length > 0))
 const uis = $computed(() => components.filter((component) => component.roles.includes('ui')))
 </script>
 
@@ -115,27 +116,27 @@ const uis = $computed(() => components.filter((component) => component.roles.inc
         </panel>
       </panel-group>
       <panel-group
-        v-if="components.length"
-        :panels="components.map((current) => current.name)"
+        v-if="executors.length"
+        :panels="executors.map((current) => current.name)"
         :persist="`units/${unit.name}/procedures-panel-group`"
         title="Procedures"
       >
         <template #tabs>
           <panel-tab
-            v-for="component in components"
-            :key="component.address.toString()"
-            :name="component.name"
+            v-for="executor in executors"
+            :key="executor.address.toString()"
+            :name="executor.name"
           >
-            {{ component.name }}
+            {{ executor.name }}
           </panel-tab>
         </template>
         <panel
-          v-for="component in components"
-          :key="component.address.toString()"
+          v-for="executor in executors"
+          :key="executor.address.toString()"
           class="column"
-          :name="component.name"
+          :name="executor.name"
         >
-          <component-procedures class="col" :component="component" :title="component.name" />
+          <component-procedures class="col" :component="executor" :title="executor.name" />
         </panel>
       </panel-group>
       <panel-group
