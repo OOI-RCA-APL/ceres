@@ -24,10 +24,6 @@ units:
           separator: "\n"
           disconnect_settings:
             idle: 1d
-          reconnect_settings:
-            interval: 1s
-            backoff: 2
-            max_interval: 15s
       - name: das-connection
         class: ceres.standard.TCPConnection
         args:
@@ -36,10 +32,6 @@ units:
           separator: "\n"
           disconnect_settings:
             idle: 15s
-          reconnect_settings:
-            interval: 1s
-            backoff: 2
-            max_interval: 15s
       - name: driver
         class: ceres.projects.a3.A3Driver
         args:

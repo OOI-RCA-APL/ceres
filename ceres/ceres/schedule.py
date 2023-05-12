@@ -11,6 +11,7 @@ from apscheduler.util import normalize
 from pydantic import PositiveFloat, validator
 
 from ceres.data import DateTime, ImmutableDataObject, PositiveTimeDelta
+from ceres.timing import utc
 
 
 class ScheduleKind(str, Enum):
@@ -64,7 +65,11 @@ class IntervalSchedule(BaseSchedule):
         return value
 
     @validator("min")
-    def _validate_min(cls, min: float | None, values: Mapping[str, Any]) -> float | None:
+    def _validate_min(
+        cls,
+        min: float | None,
+        values: Mapping[str, Any],
+    ) -> float | None:
         interval = values.get("interval")
         if min is None or interval is None:
             return None
@@ -74,7 +79,11 @@ class IntervalSchedule(BaseSchedule):
         return min
 
     @validator("max")
-    def _validate_max(cls, max: float | None, values: Mapping[str, Any]) -> float | None:
+    def _validate_max(
+        cls,
+        max: float | None,
+        values: Mapping[str, Any],
+    ) -> float | None:
         interval = values.get("interval")
         if max is None or interval is None:
             return None
@@ -132,16 +141,26 @@ class CronTrigger(Trigger):
 
     def get_next_fire_time(
         self,
-        previous_fire_time: datetime | None,
-        now: datetime,
+        previous_fire_time: datetime | None = None,
+        now: datetime | None = None,
     ) -> datetime | None:
+        if now is None:
+            now = utc()
+
         return self.__inner.get_next_fire_time(previous_fire_time, now)
 
     @property
     def schedule(self) -> CronSchedule:
         return self.__schedule
 
-    def next(self, previous: datetime | None, now: datetime) -> datetime | None:
+    def next(
+        self,
+        previous: datetime | None = None,
+        now: datetime | None = None,
+    ) -> datetime | None:
+        if now is None:
+            now = utc()
+
         return self.__inner.get_next_fire_time(previous, now)
 
 
@@ -162,7 +181,14 @@ class IntervalTrigger(Trigger):
     def schedule(self) -> IntervalSchedule:
         return self.__schedule
 
-    def next(self, previous: datetime | None, now: datetime) -> datetime | None:
+    def next(
+        self,
+        previous: datetime | None = None,
+        now: datetime | None = None,
+    ) -> datetime | None:
+        if now is None:
+            now = utc()
+
         return self.__inner.get_next_fire_time(previous, now)
 
 
@@ -176,7 +202,14 @@ class OrTrigger(Trigger):
     def schedule(self) -> OrSchedule:
         return self.__schedule
 
-    def next(self, previous: datetime | None, now: datetime) -> datetime | None:
+    def next(
+        self,
+        previous: datetime | None = None,
+        now: datetime | None = None,
+    ) -> datetime | None:
+        if now is None:
+            now = utc()
+
         minimum: datetime | None = None
         for trigger in self.__triggers:
             current = trigger.next(previous, now)
@@ -223,9 +256,12 @@ class InternalIntervalTrigger(BaseInternalIntervalTrigger):
 
     def get_next_fire_time(
         self,
-        previous_fire_time: datetime | None,
-        now: datetime,
+        previous_fire_time: datetime | None = None,
+        now: datetime | None = None,
     ) -> datetime | None:
+        if now is None:
+            now = utc()
+
         if self.end_date is not None and now > self.end_date:
             return None
 
@@ -266,19 +302,6 @@ def _compute_runtime(
 
     # https://www.wolframalpha.com/input?i2d=true&i=simplify+d+%3DSum%5Bv*Power%5Bm%2Ck%5D%2C%7Bk%2C0%2Cn+-+1%7D%5D
     return (interval * ((multiplier**iterations) - 1)) / (multiplier - 1)
-
-
-# def _compute_runtime_slow(
-#     interval: timedelta,
-#     multiplier: float,
-#     iterations: int,
-# ) -> Any:
-#     current = timedelta()
-#     k = 0
-#     while k < iterations:
-#         current += interval * (multiplier**k)
-#         k += 1
-#     return current
 
 
 def _compute_fire_time_delay(
@@ -337,7 +360,7 @@ def _compute_iterations_and_fire_time_delay(
     # Compute the number of iterations before the min/max limit is reached.
     # https://www.symbolab.com/solver/step-by-step/solve%20for%20k%2C%20t%3Dv%20%5Ccdot%20m%5E%7Bk%7D?or=input
     try:
-        pre_limit_iterations = math.ceil(math.log(limit / interval) / math.log(multiplier)) + 1
+        pre_limit_iterations = math.ceil(math.log(limit / interval) / math.log(multiplier))
     except ValueError:
         return None
 
@@ -362,7 +385,7 @@ def _compute_iterations_and_fire_time_delay(
         return None
 
     post_limit_iterations, post_limit_runtime = post_limit_result
-    iterations = pre_limit_iterations + post_limit_iterations - 1
+    iterations = pre_limit_iterations + post_limit_iterations
     next_fire_time_delay = pre_limit_runtime + post_limit_runtime
 
     return iterations, next_fire_time_delay

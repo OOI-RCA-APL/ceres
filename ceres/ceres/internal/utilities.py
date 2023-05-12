@@ -150,9 +150,7 @@ class ValidateByType:
     @classmethod
     def __validate(cls, value: Any) -> Self:
         if not isinstance(value, cls):
-            raise ValueError(
-                f"must be an instance of {strify(cls)}, got {strify(type(value))}"
-            )
+            raise ValueError(f"must be an instance of {strify(cls)}, got {strify(type(value))}")
 
         return value
 
@@ -415,9 +413,7 @@ def ensure_event_loop() -> AbstractEventLoop:
 
 
 @contextmanager
-def temporary_signal_handler(
-    signums: Sequence[int], handler: Callable[..., Any]
-) -> Iterator[None]:
+def temporary_signal_handler(signums: Sequence[int], handler: Callable[..., Any]) -> Iterator[None]:
     loop = get_event_loop_or_none()
     originals: dict[int, Any] = {}
 

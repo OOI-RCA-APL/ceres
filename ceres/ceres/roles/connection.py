@@ -5,10 +5,11 @@ from datetime import timedelta
 from enum import Enum
 from typing import AsyncIterable
 
+from pydantic import Field
 from typing_extensions import override
 
 from ceres.component import Component
-from ceres.data import ImmutableDataObject, PositiveTimeDelta
+from ceres.data import ImmutableDataObject
 from ceres.events import (
     ConnectedEvent,
     ConnectFailedEvent,
@@ -21,40 +22,19 @@ from ceres.exceptions import ConnectionLostException
 from ceres.message import Message, MessageDirection
 from ceres.procedure import action, query
 from ceres.routine import routine
+from ceres.schedule import IntervalSchedule
 from ceres.stream import Stream
+from ceres.timing import utc
 
 
 class ReconnectSettings(ImmutableDataObject):
-    interval: PositiveTimeDelta = timedelta(seconds=1)
-    backoff: float | None = 2
-    max_interval: PositiveTimeDelta | None = timedelta(seconds=60)
-
-
-class _ReconnectScheduler:
-    def __init__(self, settings: ReconnectSettings) -> None:
-        self.__initial_interval = settings.interval
-        self.__current_interval = settings.interval
-        self.__max_interval = settings.max_interval
-
-        if settings.backoff is not None:
-            self.__backoff: float = settings.backoff
-        else:
-            self.__backoff = 1
-
-        self.__retries = 0
-
-    def reset(self) -> None:
-        self.__current_interval = self.__initial_interval
-        self.__retries = 0
-
-    def next(self) -> timedelta:
-        interval = self.__current_interval * self.__backoff
-        if self.__max_interval is not None and interval > self.__max_interval:
-            interval = self.__max_interval
-        self.__current_interval = interval
-        self.__retries += 1
-
-        return interval
+    schedule: IntervalSchedule = Field(
+        default_factory=lambda: IntervalSchedule(
+            interval=timedelta(seconds=1),
+            multiplier=2,
+            max=timedelta(seconds=60),
+        )
+    )
 
 
 class ConnectionState(str, Enum):
@@ -70,7 +50,6 @@ class Connection(Component, ABC):
     def __setup__(self) -> None:
         super().__setup__()
         self.__state = ConnectionState.DISCONNECTED
-        self.__reconnect_scheduler = _ReconnectScheduler(self.reconnect_settings)
 
     @override
     async def __stop__(self) -> None:
@@ -206,12 +185,16 @@ class Connection(Component, ABC):
     @routine
     async def __update(self) -> None:
         while True:
-            self.__reconnect_scheduler.reset()
+            trigger = self.reconnect_settings.schedule.as_trigger()
 
             while not await self.connect():
-                seconds = self.__reconnect_scheduler.next().total_seconds()
-                self.logger.info(f"Reconnecting in {seconds:g} seconds...")
-                await asyncio.sleep(seconds)
+                next = trigger.next()
+                if next is None:
+                    break
+
+                delay = (next - utc()).total_seconds()
+                self.logger.info(f"Reconnecting in {round(delay, 1):g} seconds...")
+                await asyncio.sleep(delay)
 
             while self.connected:
                 try:

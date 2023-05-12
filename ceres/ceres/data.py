@@ -160,10 +160,7 @@ def _load_cls_from_cls_path(path: str) -> type:
     try:
         module = importlib.import_module(cls_module_path)
     except Exception as exception:
-        if (
-            isinstance(exception, ModuleNotFoundError)
-            and exception.name == cls_module_path
-        ):
+        if isinstance(exception, ModuleNotFoundError) and exception.name == cls_module_path:
             raise ValueError(f"module '{cls_module_path}' was not found")
 
         raise ValueError(
@@ -243,9 +240,7 @@ else:
     BytesPattern = Annotated[Pattern, Field(regex=b".*")]
     StrPattern = Annotated[Pattern, Field(regex=".*")]
 
-JSON_ENCODERS: Mapping[
-    type[Any] | str | ForwardRef, Callable[..., Any]
-] = MappingProxyType(
+JSON_ENCODERS: Mapping[type[Any] | str | ForwardRef, Callable[..., Any]] = MappingProxyType(
     {
         ClassPath: str,
     }
