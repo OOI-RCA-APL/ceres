@@ -167,6 +167,10 @@ export function useSchemaForm({ ...options }: SchemaFormOptions) {
       return JSON.parse(JSON.stringify(schema.default))
     }
 
+    if (schema.enum != null) {
+      return schema.enum[0]
+    }
+
     const type = (Array.isArray(schema.type) ? schema[0] : schema.type) ?? undefined
     switch (type) {
       case 'null':
@@ -191,9 +195,6 @@ export function useSchemaForm({ ...options }: SchemaFormOptions) {
 
         return number
       case 'string':
-        if (schema.enum != null) {
-          return schema.enum[0]
-        }
         if (schema.format === 'date-time') {
           return time.now.format('YYYY-MM-DD HH:mm:00.000')
         }
