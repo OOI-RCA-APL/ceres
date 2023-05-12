@@ -10,6 +10,7 @@ import SchemaFormNodeToggle from '@/components/schema-form/SchemaFormNodeToggle.
 import SchemaFormNumber from '@/components/schema-form/SchemaFormNumber.vue'
 import SchemaFormObject from '@/components/schema-form/SchemaFormObject.vue'
 import SchemaFormString from '@/components/schema-form/SchemaFormString.vue'
+import SchemaFormTimeDelta from '@/components/schema-form/SchemaFormTimeDelta.vue'
 import { isEmptyObjectSchema, isType, SchemaForm, SchemaPath } from '@/schema-form'
 
 const { modelValue, form, path } = defineProps<{
@@ -64,7 +65,12 @@ function update(value: unknown) {
         <schema-form-integer v-bind="forward" @update:model-value="update" />
       </template>
       <template v-else-if="is('number')">
-        <schema-form-number v-bind="forward" @update:model-value="update" />
+        <schema-form-time-delta
+          v-if="schema.format === 'time-delta'"
+          v-bind="forward"
+          @update:model-value="update"
+        />
+        <schema-form-number v-else v-bind="forward" @update:model-value="update" />
       </template>
       <template v-else-if="is('string')">
         <schema-form-date

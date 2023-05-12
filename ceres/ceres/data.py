@@ -67,6 +67,19 @@ class NonBlankStrType(ConstrainedStr):
         return validated
 
 
+class DateType(date):
+    @classmethod
+    def __get_validators__(cls):
+        yield cls.validate
+
+    @classmethod
+    def validate(cls, value: Any) -> date | None:
+        if value is None:
+            return None
+
+        return parse_obj_as(date, value)
+
+
 class DateTimeType(datetime):
     @classmethod
     def __get_validators__(cls):
@@ -147,7 +160,10 @@ def _load_cls_from_cls_path(path: str) -> type:
     try:
         module = importlib.import_module(cls_module_path)
     except Exception as exception:
-        if isinstance(exception, ModuleNotFoundError) and exception.name == cls_module_path:
+        if (
+            isinstance(exception, ModuleNotFoundError)
+            and exception.name == cls_module_path
+        ):
             raise ValueError(f"module '{cls_module_path}' was not found")
 
         raise ValueError(
@@ -208,6 +224,7 @@ if TYPE_CHECKING:
     Name = str
     NonEmptyStr = str
     NonBlankStr = str
+    Date = date
     DateTime = datetime
     TimeDelta = timedelta
     PositiveTimeDelta = timedelta
@@ -218,6 +235,7 @@ else:
     Name = NameType
     NonEmptyStr = NonEmptyStrType
     NonBlankStr = NonBlankStrType
+    Date = DateType
     DateTime = DateTimeType
     TimeDelta = TimeDeltaType
     PositiveTimeDelta = PositiveTimeDeltaType
@@ -225,7 +243,9 @@ else:
     BytesPattern = Annotated[Pattern, Field(regex=b".*")]
     StrPattern = Annotated[Pattern, Field(regex=".*")]
 
-JSON_ENCODERS: Mapping[type[Any] | str | ForwardRef, Callable[..., Any]] = MappingProxyType(
+JSON_ENCODERS: Mapping[
+    type[Any] | str | ForwardRef, Callable[..., Any]
+] = MappingProxyType(
     {
         ClassPath: str,
     }

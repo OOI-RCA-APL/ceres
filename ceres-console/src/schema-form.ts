@@ -61,6 +61,7 @@ export function useSchemaForm({ ...options }: SchemaFormOptions) {
   const state = ref<SchemaFormState>(
     options.editing == null || options.editing ? 'editing' : 'viewing'
   )
+  console.log(JSON.stringify(rootSchema.value))
 
   const time = useTime()
   const persisted = usePersisted({

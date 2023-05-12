@@ -12,6 +12,7 @@ const {
   resolveText: resolveTextOriginal,
   mask = undefined,
   autogrow = false,
+  suffix = undefined,
 } = defineProps<{
   modelValue: unknown
   form: SchemaForm
@@ -24,6 +25,7 @@ const {
   format: (value: unknown) => string
   mask?: string
   autogrow?: boolean
+  suffix?: string
 }>()
 
 const emit = defineEmits<{
@@ -110,6 +112,7 @@ function onBackspace() {
     input-class="monospace-md"
     label-slot
     :mask="mask"
+    :suffix="suffix"
     :type="inputType"
     @blur="onBlur"
     @focus="onFocus"
@@ -121,6 +124,7 @@ function onBackspace() {
         <span :class="$style.labelExtra">
           <span class="q-mx-xs">{{ '⸱' }}</span>
           <span>{{ schemaType }}</span>
+          <slot name="label-append" />
         </span>
       </div>
     </template>

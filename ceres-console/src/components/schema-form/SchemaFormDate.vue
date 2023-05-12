@@ -50,6 +50,7 @@ function format(value: unknown) {
     :schema="schema"
     schema-type="date"
     stack-label
+    suffix="UTC"
     @update:model-value="(modelValue: any) => emit('update:modelValue', modelValue)"
   />
 </template>

@@ -1,11 +1,11 @@
 <script lang="ts" setup>
 import SchemaFormNode from '@/components/schema-form/SchemaFormNode.vue'
 import {
-  useSchemaForm,
-  isSchemaForm,
   SchemaForm,
   SchemaFormOptions,
   SchemaPath,
+  isSchemaForm,
+  useSchemaForm,
 } from '@/schema-form'
 import { watchEffect } from 'vue'
 

@@ -48,6 +48,7 @@ function format(value: unknown) {
   <q-select
     dense
     filled
+    input-class="monospace-md"
     label-slot
     :model-value="resolve(modelValue)"
     :option-label="format"

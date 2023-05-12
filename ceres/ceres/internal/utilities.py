@@ -150,7 +150,9 @@ class ValidateByType:
     @classmethod
     def __validate(cls, value: Any) -> Self:
         if not isinstance(value, cls):
-            raise ValueError(f"must be an instance of {strify(cls)}, got {strify(type(value))}")
+            raise ValueError(
+                f"must be an instance of {strify(cls)}, got {strify(type(value))}"
+            )
 
         return value
 
@@ -223,6 +225,8 @@ def decode_td(value: str | timedelta | int | float | Any) -> timedelta:
         return parse_obj_as(timedelta, value)
     except Exception:
         pass
+
+    value = str(value).strip().lower()
 
     if value.endswith("us"):
         decoded_unit = "us"
@@ -411,7 +415,9 @@ def ensure_event_loop() -> AbstractEventLoop:
 
 
 @contextmanager
-def temporary_signal_handler(signums: Sequence[int], handler: Callable[..., Any]) -> Iterator[None]:
+def temporary_signal_handler(
+    signums: Sequence[int], handler: Callable[..., Any]
+) -> Iterator[None]:
     loop = get_event_loop_or_none()
     originals: dict[int, Any] = {}
 

@@ -1,11 +1,12 @@
 <script lang="ts" setup>
 import SchemaFormInput from '@/components/schema-form/SchemaFormInput.vue'
 import { SchemaForm, SchemaObject, SchemaPath } from '@/schema-form'
+import { displayTimeDelta, parseTimeDelta } from '@/utilities'
 
-const { modelValue, form } = defineProps<{
+const { modelValue } = defineProps<{
   modelValue: unknown
   form: SchemaForm
-  schema: SchemaObject & { type: 'number' }
+  schema: SchemaObject & { type: 'number'; format: 'time-delta' }
   path: SchemaPath
 }>()
 
@@ -13,31 +14,27 @@ const emit = defineEmits<{
   (emit: 'update:modelValue', value: unknown): void
 }>()
 
+const resolved = $computed(() => resolve(modelValue))
+
 function resolve(value: unknown) {
   if (value == null) {
     return value
   }
 
-  if (typeof value === 'string') {
-    if (value.trim() === '') {
-      return undefined
-    }
-  }
-
-  const resolved = Number(value)
-  if (Number.isNaN(resolved)) {
+  try {
+    return parseTimeDelta(value as any).asSeconds()
+  } catch {
     return undefined
   }
-
-  return Math.floor(resolved)
 }
 
 function format(value: unknown) {
-  if (typeof value !== 'number') {
+  const resolved = resolve(value)
+  if (resolved == null) {
     return ''
   }
 
-  return String(value)
+  return String(resolved)
 }
 </script>
 
@@ -45,12 +42,20 @@ function format(value: unknown) {
   <schema-form-input
     :form="form"
     :format="format"
-    input-type="number"
+    input-type="text"
     :model-value="modelValue"
     :path="path"
     :resolve="resolve"
     :schema="schema"
-    schema-type="integer"
+    schema-type="time-delta"
+    suffix="second(s)"
     @update:model-value="(modelValue) => emit('update:modelValue', modelValue)"
-  />
+  >
+    <template v-if="resolved != null" #label-append>
+      <span class="q-mx-xs">{{ '⸱' }}</span>
+      <span>
+        {{ displayTimeDelta(resolved, { decimals: 3 }) }}
+      </span>
+    </template>
+  </schema-form-input>
 </template>

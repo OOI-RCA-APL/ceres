@@ -14,7 +14,8 @@ const emit = defineEmits<{
   (emit: 'update:modelValue', value: string | undefined): void
 }>()
 
-const pattern = 'YYYY-MM-DD HH:mm:ss.SSS'
+const inputPattern = 'YYYY-MM-DD HH:mm:ss.SSS'
+const outputPattern = 'YYYY-MM-DD HH:mm:ss.SSS+00:00'
 
 function resolve(value: unknown) {
   if (value == null) {
@@ -27,21 +28,31 @@ function resolve(value: unknown) {
     }
   }
 
-  const parsed = moment.utc(value, pattern)
+  const parsed = moment.utc(value, inputPattern)
   if (parsed.isValid()) {
-    return parsed.format(pattern)
+    return parsed.format(outputPattern)
   }
 
   return undefined
 }
 
 function format(value: unknown) {
-  const resolved = resolve(value)
-  if (typeof resolved !== 'string') {
+  let resolved = resolve(value)
+  if (resolved == null) {
     return ''
   }
 
-  return resolved.replace(/[.:0 ]+$/, '')
+  if (/.[0]+$/.test(resolved)) {
+    resolved = resolved.slice(0, resolved.lastIndexOf('.')).trim()
+  }
+  if (/:[0]+$/.test(resolved)) {
+    resolved = resolved.slice(0, resolved.lastIndexOf(':')).trim()
+  }
+  if (resolved.endsWith(' 00:00')) {
+    resolved = resolved.slice(0, resolved.lastIndexOf(' ')).trim()
+  }
+
+  return resolved
 }
 </script>
 
@@ -56,6 +67,7 @@ function format(value: unknown) {
     :schema="schema"
     schema-type="date-time"
     stack-label
+    suffix="UTC"
     @update:model-value="(modelValue: any) => emit('update:modelValue', modelValue)"
   />
 </template>
