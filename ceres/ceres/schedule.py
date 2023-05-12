@@ -177,6 +177,8 @@ class IntervalTrigger(Trigger):
             max=self.__schedule.max,
         )
 
+        self.start: datetime = self.__inner.start_date
+
     @property
     def schedule(self) -> IntervalSchedule:
         return self.__schedule
@@ -253,6 +255,7 @@ class InternalIntervalTrigger(BaseInternalIntervalTrigger):
         self.multiplier = multiplier
         self.min = min
         self.max = max
+        self.start_date = start_date or utc() - timedelta(microseconds=1)
 
     def get_next_fire_time(
         self,
