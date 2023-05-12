@@ -4,6 +4,7 @@ import SchemaFormArray from '@/components/schema-form/SchemaFormArray.vue'
 import SchemaFormBoolean from '@/components/schema-form/SchemaFormBoolean.vue'
 import SchemaFormDate from '@/components/schema-form/SchemaFormDate.vue'
 import SchemaFormDateTime from '@/components/schema-form/SchemaFormDateTime.vue'
+import SchemaFormEnum from '@/components/schema-form/SchemaFormEnum.vue'
 import SchemaFormInteger from '@/components/schema-form/SchemaFormInteger.vue'
 import SchemaFormNodeToggle from '@/components/schema-form/SchemaFormNodeToggle.vue'
 import SchemaFormNumber from '@/components/schema-form/SchemaFormNumber.vue'
@@ -52,6 +53,9 @@ function update(value: unknown) {
     <div class="relative-position">
       <template v-if="typeof schema === 'boolean'">
         <schema-form-any v-bind="forward" @update:model-value="update" />
+      </template>
+      <template v-else-if="schema.enum != null">
+        <schema-form-enum v-bind="forward" @update:model-value="update" />
       </template>
       <template v-else-if="is('boolean')">
         <schema-form-boolean v-bind="forward" @update:model-value="update" />

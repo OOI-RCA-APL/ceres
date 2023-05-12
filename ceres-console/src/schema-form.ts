@@ -20,6 +20,7 @@ export type SchemaObject = BaseSchemaObject & {
   exclusiveMaximum?: number
   required?: string[]
   default?: Plain
+  enum?: Plain[]
 }
 
 export type Schema = boolean | SchemaObject
@@ -190,6 +191,9 @@ export function useSchemaForm({ ...options }: SchemaFormOptions) {
 
         return number
       case 'string':
+        if (schema.enum != null) {
+          return schema.enum[0]
+        }
         if (schema.format === 'date-time') {
           return time.now.format('YYYY-MM-DD HH:mm:00.000')
         }
