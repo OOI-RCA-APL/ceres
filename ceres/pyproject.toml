@@ -23,6 +23,9 @@ watchfiles = ">=0.10.0"
 websockets = "^10.0.0"
 zope-proxy = "^5.0.0"
 
+launchd = "^0.3.0"
+pysystemd = "^1.0.0"
+
 netcdf4 = "^1.6.0"
 numpy = "^1.24.0"
 

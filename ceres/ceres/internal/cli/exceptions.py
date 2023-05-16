@@ -23,3 +23,7 @@ class CLIServerNotEnabledException(CLIException):
 
 class CLIEngineNotRunningException(CLIException):
     exit_code = 6
+
+
+class CLIDaemonConfigException(CLIException):
+    exit_code = 7
