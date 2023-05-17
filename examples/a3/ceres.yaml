@@ -1,5 +1,7 @@
 daemon:
   name: a3
+  stdout: ./data/stdout.log
+  stderr: ./data/stderr.log
 server:
   port: 9000
 database:

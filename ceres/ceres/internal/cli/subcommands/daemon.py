@@ -137,7 +137,7 @@ class SystemDAdapter(DaemonAdapter):
     @property
     @override
     def state(self) -> DaemonState:
-        if self.execute(["is-active", "--user", self.label], log_output=False) != 0:
+        if self._execute(["is-active", "--user", self.label], log_output=False) != 0:
             return DaemonState.STOPPED
 
         return DaemonState.RUNNING
@@ -160,16 +160,15 @@ class SystemDAdapter(DaemonAdapter):
         current = self.path.read_text() if self.path.exists() else None
         data = f"""\
 [Unit]
-Description="Ceres Daemon"
+Description="{self.label}"
 
 [Service]
 ExecStart={sys.executable} -m ceres run
-User={self.user}
+WorkingDirectory={self.directory}
 Restart=always
-KillUserProcesses=no
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=default.target
 """
 
         if self.stdout:
@@ -177,24 +176,23 @@ WantedBy=multi-user.target
         if self.stderr:
             data += f"StandardError=file:{self.stderr}\n"
 
-        print(data)
         if current != data:
-            print("diff")
             self.path.parent.mkdir(parents=True, exist_ok=True)
             self.path.write_text(data)
-            self.execute(["daemon-reload", "--user", self.label])
+            self._execute(["daemon-reload", "--user"])
 
-        self.execute(["enable", "--user", self.label])
+        self._execute(["enable", "--user", self.label])
 
     @override
     def _delete(self) -> None:
         self.path.unlink(missing_ok=True)
 
-    def execute(
+    def _execute(
         self,
         command: Sequence[Any],
         *,
-        log_output: bool = True,
+        log_errors: bool = True,
+        log_output: bool = False,
     ) -> int:
         result = subprocess.run(
             ["systemctl", *(str(segment) for segment in command)],
@@ -202,11 +200,12 @@ WantedBy=multi-user.target
             stderr=subprocess.PIPE,
             universal_newlines=True,
         )
-        if log_output:
+        if (log_errors and result.returncode != 0) or log_output:
             if result.stderr.strip():
-                rich.print(result.stderr)
-            elif result.stdout.strip():
-                rich.print(result.stdout)
+                self._log(result.stderr)
+        if log_output:
+            if result.stdout.strip():
+                self._log(result.stdout)
 
         return result.returncode
 
@@ -216,9 +215,9 @@ WantedBy=multi-user.target
             return
 
         self._write()
-        self.execute(["daemon-reload", "--user"])
-        self.execute(["start", "--user", self.label])
-        self.execute(["enable", "--user", self.label])
+        self._execute(["daemon-reload", "--user"])
+        self._execute(["start", "--user", self.label])
+        self._execute(["enable", "--user", self.label])
 
     @override
     def restart(self) -> None:
@@ -231,14 +230,13 @@ WantedBy=multi-user.target
             return
 
         try:
-            self.execute(["stop", "--user", self.label])
-            self.execute(["disable", "--user", self.label])
+            self._execute(["stop", "--user", self.label])
+            self._execute(["disable", "--user", self.label])
         except Exception:
             traceback.print_exc()
 
         if delete:
-            pass
-            # self._delete()
+            self._delete()
 
 
 class LaunchDAdapter(DaemonAdapter):
@@ -249,7 +247,7 @@ class LaunchDAdapter(DaemonAdapter):
             return DaemonState.STOPPED
 
         try:
-            self.execute(["list", self.label], log_exceptions=False, log_output=False)
+            self._execute(["list", self.label], log_exceptions=False, log_output=False)
             return DaemonState.RUNNING
         except Exception:
             return DaemonState.STOPPED
@@ -277,8 +275,8 @@ class LaunchDAdapter(DaemonAdapter):
         data = {
             "Label": self.label,
             "UserName": self.user,
-            "WorkingDirectory": str(self.directory),
             "ProgramArguments": [sys.executable, "-m", "ceres", "run"],
+            "WorkingDirectory": str(self.directory),
             "RunAtLoad": True,
         }
 
@@ -291,13 +289,13 @@ class LaunchDAdapter(DaemonAdapter):
             launchd.plist.write(self.label, data)
             return
 
-        self.execute(["enable", self.target])
+        self._execute(["enable", self.target])
 
     @override
     def _delete(self) -> None:
         self.path.unlink(missing_ok=True)
 
-    def execute(
+    def _execute(
         self,
         command: Sequence[Any],
         *,
@@ -307,7 +305,7 @@ class LaunchDAdapter(DaemonAdapter):
         try:
             output = launchd.cmd.launchctl(*(str(segment) for segment in command))
             if log_output and output.strip():
-                rich.print(output)
+                self._log(output)
                 return output
         except Exception as exception:
             if log_exceptions:
@@ -325,11 +323,11 @@ class LaunchDAdapter(DaemonAdapter):
             return
 
         self._write()
-        self.execute(["load", "-w", self.path])
-        self.execute(["enable", self.target])
+        self._execute(["load", "-w", self.path])
+        self._execute(["enable", self.target])
 
         try:
-            self.execute(["start", self.target], log_output=False)
+            self._execute(["start", self.target], log_output=False)
         except Exception:
             pass
 
@@ -344,7 +342,7 @@ class LaunchDAdapter(DaemonAdapter):
             return
 
         try:
-            self.execute(["unload", "-w", self.path])
+            self._execute(["unload", "-w", self.path])
         except Exception:
             traceback.print_exc()
 
