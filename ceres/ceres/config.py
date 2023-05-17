@@ -48,7 +48,7 @@ class ComponentConfig(Loader, _ComponentConfigFields):  # type: ignore
 
 class DaemonConfig(ConfigObject):
     name: Name
-    user: Name
+    user: Name | None = None
     stdout: Path | None = None
     stderr: Path | None = None
 

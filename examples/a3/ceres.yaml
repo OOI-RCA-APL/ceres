@@ -1,3 +1,5 @@
+daemon:
+  name: a3
 server:
   port: 9000
 database:
