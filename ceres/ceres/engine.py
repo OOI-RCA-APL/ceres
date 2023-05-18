@@ -454,10 +454,8 @@ class Engine(Tasklet):
 
     def __on_unit_completed(self, unit: Unit) -> None:
         self.logger.info(f"Unit '{unit.name}' stopped.")
-        self.remove_unit(unit)
 
     def __on_unit_exception(self, unit: Unit, exception: BaseException) -> None:
         self.logger.error(
             f"An exception occurred in unit '{unit.name}': {traceback.format_exception(exception)}"
         )
-        self.remove_unit(unit)
