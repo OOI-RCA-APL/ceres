@@ -1,6 +1,5 @@
 import rich
 from rich.box import ROUNDED
-from rich.style import Style
 
 from ceres.config import Config
 from ceres.internal.cli.service import get_service
@@ -36,11 +35,7 @@ def status(config: Config = ConfigOption(checks=[])) -> None:
 
     service = get_service(config)
 
-    table = Table(
-        title="Service",
-        title_style=Style(bold=True),
-        box=ROUNDED,
-    )
+    table = Table(box=ROUNDED)
     table.add_column("Name")
     table.add_column("User")
     table.add_column("State")
