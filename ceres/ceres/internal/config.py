@@ -96,8 +96,10 @@ async def load_config(
 
     if ConfigCheckKind.DATABASE in checks:
         errors.extend(await _check_database(config, log))
+        log("Database configuration is valid.")
     if ConfigCheckKind.COMPONENTS in checks:
         errors.extend(await _check_components(config, log))
+        log("Component configurations are valid.")
 
     if errors:
         return Fail(errors)

@@ -9,7 +9,7 @@ from pydantic import Field, SecretStr, parse_obj_as, validator
 from typing_extensions import Self, override
 
 from ceres.address import Address
-from ceres.data import ClassPath, ImmutableDataObject, Name, PositiveTimeDelta
+from ceres.data import ClassPath, ImmutableDataObject, Name, NonBlankStr, PositiveTimeDelta
 from ceres.internal.utilities import lenient_issubclass, setattr_internal
 from ceres.loaded import Loader
 
@@ -46,6 +46,13 @@ class ComponentConfig(Loader, _ComponentConfigFields):  # type: ignore
         return value
 
 
+class ServiceConfig(ConfigObject):
+    name: Name
+    user: Name | None = None
+    stdout: Path | None = None
+    stderr: Path | None = None
+
+
 class ServerConfig(ConfigObject):
     port: int
     enable: bool = True
@@ -74,10 +81,10 @@ class SQLiteDatabaseConfig(BaseDatabaseConfig):
 
 class PostgresDatabaseConfig(BaseDatabaseConfig):
     kind: Literal[DatabaseKind.POSTGRES] = DatabaseKind.POSTGRES
-    host: str
+    host: NonBlankStr
     port: int
-    database: str
-    user: str
+    database: NonBlankStr
+    user: NonBlankStr
     password: SecretStr
 
 
@@ -114,6 +121,7 @@ class Config(ConfigObject):
     class Config(ConfigObject.Config):
         underscore_attrs_are_private = True
 
+    service: ServiceConfig | None = None
     server: ServerConfig | None = None
     database: DatabaseConfig = Field(default_factory=SQLiteDatabaseConfig, discriminator="kind")
     paths: PathsConfig = Field(default_factory=PathsConfig)
