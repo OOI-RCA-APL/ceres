@@ -13,8 +13,7 @@ from typing_extensions import override
 
 from ceres.config import Config
 from ceres.data import DataObject
-from ceres.internal.cli.exceptions import CLIDaemonConfigException
-from ceres.internal.cli.shared import AsyncTyper, ConfigOption
+from ceres.internal.cli.exceptions import CLIServiceConfigException
 
 if sys.platform == "darwin":
     import launchd
@@ -22,41 +21,37 @@ if sys.platform == "darwin":
 else:
     launchd: Any = None
 
-daemon = AsyncTyper(
-    name="daemon",
-    no_args_is_help=True,
-    help="Manage the project daemon.",
-)
 
-
-class DaemonState(str, Enum):
+class ServiceState(str, Enum):
     RUNNING = "running"
     STOPPED = "stopped"
 
 
-class DaemonStatus(DataObject):
-    state: DaemonState
+class ServiceStatus(DataObject):
+    state: ServiceState
     location: str
 
 
-class DaemonAdapter(ABC):
+class Service(ABC):
     def __init__(self, config: Config, silent: bool = True) -> None:
         if config.path is None:
-            raise CLIDaemonConfigException("Path configuration is missing from the config file.")
-        if config.daemon is None:
-            raise CLIDaemonConfigException("Daemon configuration is missing from the config file.")
+            raise CLIServiceConfigException("Path configuration is missing from the config file.")
+        if config.service is None:
+            raise CLIServiceConfigException(
+                "Service configuration is missing from the config file."
+            )
 
         self._root_config = config
-        self._daemon_config = config.daemon
+        self._service_config = config.service
         self._silent = silent
 
     @property
     def name(self) -> str:
-        return self._daemon_config.name
+        return self._service_config.name
 
     @property
     def user(self) -> str:
-        return self._daemon_config.user or getuser()
+        return self._service_config.user or getuser()
 
     @property
     def directory(self) -> Path:
@@ -65,17 +60,17 @@ class DaemonAdapter(ABC):
 
     @property
     def stdout(self) -> Path | None:
-        if self._daemon_config.stdout is None or self._daemon_config.stdout.is_absolute():
-            return self._daemon_config.stdout
+        if self._service_config.stdout is None or self._service_config.stdout.is_absolute():
+            return self._service_config.stdout
 
-        return self.directory / self._daemon_config.stdout
+        return self.directory / self._service_config.stdout
 
     @property
     def stderr(self) -> Path | None:
-        if self._daemon_config.stderr is None or self._daemon_config.stderr.is_absolute():
-            return self._daemon_config.stderr
+        if self._service_config.stderr is None or self._service_config.stderr.is_absolute():
+            return self._service_config.stderr
 
-        return self.directory / self._daemon_config.stderr
+        return self.directory / self._service_config.stderr
 
     def _log(self, message: Any) -> None:
         if not self._silent:
@@ -83,7 +78,7 @@ class DaemonAdapter(ABC):
 
     @property
     @abstractmethod
-    def state(self) -> DaemonState:
+    def state(self) -> ServiceState:
         ...
 
     @property
@@ -92,11 +87,11 @@ class DaemonAdapter(ABC):
         ...
 
     @abstractmethod
-    def _write(self) -> None:
+    def create(self) -> None:
         ...
 
     @abstractmethod
-    def _delete(self) -> None:
+    def delete(self) -> None:
         ...
 
     @abstractmethod
@@ -104,47 +99,22 @@ class DaemonAdapter(ABC):
         ...
 
     @abstractmethod
-    def restart(self) -> None:
-        ...
-
-    @abstractmethod
     def stop(self) -> None:
         ...
 
-    def status(self) -> DaemonStatus:
-        from rich.table import Table
 
-        status = DaemonStatus(
-            state=self.state,
-            location=self.location,
-        )
-
-        if not self._silent:
-            table = Table()
-            table.add_column("State")
-            table.add_column("Location")
-            table.add_row(
-                str(status.state.value).title(),
-                status.location,
-            )
-
-            self._log(table)
-
-        return status
-
-
-class SystemDAdapter(DaemonAdapter):
+class SystemDService(Service):
     @property
     @override
-    def state(self) -> DaemonState:
+    def state(self) -> ServiceState:
         if self._execute(["is-active", "--user", self.label], log_output=False) != 0:
-            return DaemonState.STOPPED
+            return ServiceState.STOPPED
 
-        return DaemonState.RUNNING
+        return ServiceState.RUNNING
 
     @property
     def label(self) -> str:
-        return "ceres." + self.name + ".service"
+        return self.name + ".service"
 
     @property
     @override
@@ -156,7 +126,7 @@ class SystemDAdapter(DaemonAdapter):
         return Path("~/.config/systemd/user").expanduser() / self.label
 
     @override
-    def _write(self) -> None:
+    def create(self) -> None:
         current = self.path.read_text() if self.path.exists() else None
         data = f"""\
 [Unit]
@@ -179,12 +149,12 @@ WantedBy=default.target
         if current != data:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             self.path.write_text(data)
-            self._execute(["daemon-reload", "--user"])
+            self._execute(["service-reload", "--user"])
 
         self._execute(["enable", "--user", self.label])
 
     @override
-    def _delete(self) -> None:
+    def delete(self) -> None:
         self.path.unlink(missing_ok=True)
 
     def _execute(
@@ -211,22 +181,17 @@ WantedBy=default.target
 
     @override
     def start(self) -> None:
-        if self.state == DaemonState.RUNNING:
+        if self.state == ServiceState.RUNNING:
             return
 
-        self._write()
-        self._execute(["daemon-reload", "--user"])
+        self.create()
+        self._execute(["service-reload", "--user"])
         self._execute(["start", "--user", self.label])
         self._execute(["enable", "--user", self.label])
 
     @override
-    def restart(self) -> None:
-        self.stop(delete=False)
-        self.start()
-
-    @override
-    def stop(self, delete: bool = True) -> None:
-        if self.state == DaemonState.STOPPED:
+    def stop(self) -> None:
+        if self.state == ServiceState.STOPPED:
             return
 
         try:
@@ -235,22 +200,21 @@ WantedBy=default.target
         except Exception:
             traceback.print_exc()
 
-        if delete:
-            self._delete()
+        self.delete()
 
 
-class LaunchDAdapter(DaemonAdapter):
+class LaunchDService(Service):
     @property
     @override
-    def state(self) -> DaemonState:
+    def state(self) -> ServiceState:
         if not self.path.exists():
-            return DaemonState.STOPPED
+            return ServiceState.STOPPED
 
         try:
             self._execute(["list", self.label], log_exceptions=False, log_output=False)
-            return DaemonState.RUNNING
+            return ServiceState.RUNNING
         except Exception:
-            return DaemonState.STOPPED
+            return ServiceState.STOPPED
 
     @property
     @override
@@ -259,7 +223,7 @@ class LaunchDAdapter(DaemonAdapter):
 
     @property
     def label(self) -> str:
-        return "com.ceres." + self.name
+        return self.name
 
     @property
     def path(self) -> Path:
@@ -270,7 +234,7 @@ class LaunchDAdapter(DaemonAdapter):
         return "user/501/" + self.label
 
     @override
-    def _write(self) -> None:
+    def create(self) -> None:
         current = plistlib.loads(self.path.read_text().encode()) if self.path.exists() else None
         data = {
             "Label": self.label,
@@ -292,7 +256,7 @@ class LaunchDAdapter(DaemonAdapter):
         self._execute(["enable", self.target])
 
     @override
-    def _delete(self) -> None:
+    def delete(self) -> None:
         self.path.unlink(missing_ok=True)
 
     def _execute(
@@ -319,10 +283,10 @@ class LaunchDAdapter(DaemonAdapter):
 
     @override
     def start(self) -> None:
-        if self.state == DaemonState.RUNNING:
+        if self.state == ServiceState.RUNNING:
             return
 
-        self._write()
+        self.create()
         self._execute(["load", "-w", self.path])
         self._execute(["enable", self.target])
 
@@ -332,13 +296,8 @@ class LaunchDAdapter(DaemonAdapter):
             pass
 
     @override
-    def restart(self) -> None:
-        self.stop(delete=False)
-        self.start()
-
-    @override
-    def stop(self, delete: bool = True) -> None:
-        if self.state == DaemonState.STOPPED:
+    def stop(self) -> None:
+        if self.state == ServiceState.STOPPED:
             return
 
         try:
@@ -346,34 +305,13 @@ class LaunchDAdapter(DaemonAdapter):
         except Exception:
             traceback.print_exc()
 
-        if delete:
-            self._delete()
+        self.delete()
 
 
-def _get_adapter(config: Config) -> DaemonAdapter:
+def get_service(config: Config) -> Service:
     if sys.platform == "linux":
-        return SystemDAdapter(config, silent=False)
+        return SystemDService(config, silent=False)
     if sys.platform == "darwin":
-        return LaunchDAdapter(config, silent=False)
+        return LaunchDService(config, silent=False)
 
     raise NotImplementedError(f"unsupported platform: {sys.platform}")
-
-
-@daemon.command()
-def start(config: Config = ConfigOption(checks=[])) -> None:
-    _get_adapter(config).start()
-
-
-@daemon.command()
-def restart(config: Config = ConfigOption(checks=[])) -> None:
-    _get_adapter(config).restart()
-
-
-@daemon.command()
-def stop(config: Config = ConfigOption(checks=[])) -> None:
-    _get_adapter(config).stop()
-
-
-@daemon.command()
-def status(config: Config = ConfigOption(checks=[])) -> None:
-    _get_adapter(config).status()

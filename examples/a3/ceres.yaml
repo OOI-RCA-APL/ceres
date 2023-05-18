@@ -1,4 +1,4 @@
-daemon:
+service:
   name: a3
   stdout: ./data/stdout.log
   stderr: ./data/stderr.log

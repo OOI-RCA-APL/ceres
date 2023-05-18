@@ -46,7 +46,7 @@ class ComponentConfig(Loader, _ComponentConfigFields):  # type: ignore
         return value
 
 
-class DaemonConfig(ConfigObject):
+class ServiceConfig(ConfigObject):
     name: Name
     user: Name | None = None
     stdout: Path | None = None
@@ -121,7 +121,7 @@ class Config(ConfigObject):
     class Config(ConfigObject.Config):
         underscore_attrs_are_private = True
 
-    daemon: DaemonConfig | None = None
+    service: ServiceConfig | None = None
     server: ServerConfig | None = None
     database: DatabaseConfig = Field(default_factory=SQLiteDatabaseConfig, discriminator="kind")
     paths: PathsConfig = Field(default_factory=PathsConfig)

@@ -23,8 +23,8 @@ from ceres.internal.cli.exceptions import (
     CLIStartupException,
 )
 from ceres.internal.cli.shared import AsyncTyper, ConfigOption, ConfigPathOption, get_config
-from ceres.internal.cli.subcommands.daemon import daemon
 from ceres.internal.cli.subcommands.database import database
+from ceres.internal.cli.subcommands.service import service
 from ceres.internal.config import load_config
 from ceres.internal.utilities import (
     ensure_event_loop,
@@ -43,7 +43,7 @@ main = AsyncTyper(
 )
 
 main.add_typer(database)
-main.add_typer(daemon)
+main.add_typer(service)
 
 
 @main.command()

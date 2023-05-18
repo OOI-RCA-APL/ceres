@@ -25,5 +25,5 @@ class CLIEngineNotRunningException(CLIException):
     exit_code = 6
 
 
-class CLIDaemonConfigException(CLIException):
+class CLIServiceConfigException(CLIException):
     exit_code = 7
