@@ -16,7 +16,7 @@ class CrabeeSimulator(Component):
 
     @routine
     async def __send_messages(self) -> None:
-        self.logger.info(f"Creating listener on port {self.port}...")
+        self.log.info(f"Creating listener on port {self.port}...")
         listener = await anyio.create_tcp_listener(
             local_host="0.0.0.0",
             local_port=self.port,

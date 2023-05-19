@@ -27,6 +27,7 @@ from ceres.errors import (
     ValidationProblem,
 )
 from ceres.internal.utilities import show_td
+from ceres.logs import Log
 from ceres.result import Fail, Ok, Result
 from ceres.timing import utc
 
@@ -44,10 +45,10 @@ async def load_config(
     config: Path | dict[str, object] | Config,
     *,
     checks: Sequence[ConfigCheckKind] = ConfigCheckKind.all(),
-    logger: Logger | Callable[[object], None] = lambda message: None,
+    logger: Logger | Log | Callable[[object], None] = lambda message: None,
 ) -> Result[Config, list[ConfigError]]:
     def log(message: object) -> None:
-        if isinstance(logger, Logger):
+        if isinstance(logger, Logger | Log):
             logger.info(message)
         else:
             logger(message)

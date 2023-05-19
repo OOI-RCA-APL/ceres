@@ -103,7 +103,7 @@ class Connection(Component, ABC):
         if self.__state == ConnectionState.CONNECTED:
             return True
 
-        self.logger.info(f"Connecting to '{self.target}'...")
+        self.log.info(f"Connecting to '{self.target}'...")
         self.__state = ConnectionState.CONNECTING
 
         try:
@@ -111,16 +111,16 @@ class Connection(Component, ABC):
         except Exception as exception:
             connected = False
             if error := str(exception).strip():
-                self.logger.error(error)
+                self.log.error(error)
 
         if connected:
             self.__state = ConnectionState.CONNECTED
             self.emit_event(ConnectedEvent)
-            self.logger.info("Connected successfully.")
+            self.log.info("Connected successfully.")
         else:
             self.__state = ConnectionState.DISCONNECTED
             self.emit_event(ConnectFailedEvent)
-            self.logger.error("Failed to connect.")
+            self.log.error("Failed to connect.")
 
         return self.connected
 
@@ -173,14 +173,14 @@ class Connection(Component, ABC):
         if self.__state == ConnectionState.DISCONNECTED:
             return
 
-        self.logger.info("Disconnecting...")
+        self.log.info("Disconnecting...")
 
         try:
             await self._try_disconnect()
         finally:
             self.__state = ConnectionState.DISCONNECTED
             self.emit_event(DisconnectedEvent)
-            self.logger.info("Disconnected.")
+            self.log.info("Disconnected.")
 
     @routine
     async def __update(self) -> None:
@@ -193,7 +193,7 @@ class Connection(Component, ABC):
                     break
 
                 delay = (next - utc()).total_seconds()
-                self.logger.info(f"Reconnecting in {round(delay, 1):g} seconds...")
+                self.log.info(f"Reconnecting in {round(delay, 1):g} seconds...")
                 await asyncio.sleep(delay)
 
             while self.connected:
@@ -201,4 +201,4 @@ class Connection(Component, ABC):
                     await self._poll_message()
                 except Exception as exception:
                     if error := str(exception).strip():
-                        self.logger.error(error)
+                        self.log.error(error)

@@ -14,7 +14,7 @@ from sqlalchemy.sql.roles import ExpressionElementRole
 from typing_extensions import Self, Unpack
 
 from ceres.address import Address
-from ceres.alert import Alert, AlertLevel
+from ceres.alert import Alert
 from ceres.config import DatabaseKind
 from ceres.data import (
     BytesPattern,
@@ -28,6 +28,7 @@ from ceres.data import (
 from ceres.database import Database
 from ceres.internal.database.entities import AlertEntity, ComponentEntity, MessageEntity
 from ceres.internal.utilities import ValidateByType, escape_like_expression
+from ceres.level import Level
 from ceres.message import Message, MessageDirection
 from ceres.timing import utc
 
@@ -152,7 +153,7 @@ class AlertQueryArgs(TypedDict, total=False):
     within: PositiveTimeDelta | None
     after: DateTime | None
     before: DateTime | None
-    level: AlertLevel | Sequence[AlertLevel] | None
+    level: Level | Sequence[Level] | None
     code: str | Sequence[str] | None
     code_regex: StrPattern | None
     order: AlertOrder | None
@@ -167,7 +168,7 @@ class AlertQuery(Query):
     within: PositiveTimeDelta | None = None
     after: DateTime | None = None
     before: DateTime | None = None
-    level: AlertLevel | Sequence[AlertLevel] | None = None
+    level: Level | Sequence[Level] | None = None
     code: str | Sequence[str] | None = None
     code_regex: StrPattern | None = None
     order: AlertOrder | None = None
@@ -209,7 +210,7 @@ class AlertQuery(Query):
                 return False
 
         if self.level is not None:
-            if isinstance(self.level, AlertLevel):
+            if isinstance(self.level, Level):
                 if alert.level != self.level:
                     return False
             else:
@@ -244,7 +245,7 @@ class StatisticsQuery(Query):
 
 
 class AlertLevelStatistics(ImmutableDataObject):
-    level: AlertLevel
+    level: Level
     count: int = Field(ge=0)
 
 
@@ -302,10 +303,8 @@ class Environment(ValidateByType):
                 return id
 
             if id is None:
-                id = await (
-                    session.scalar(
-                        select(ComponentEntity.id).where(ComponentEntity.address == address),
-                    )
+                id = await session.scalar(
+                    select(ComponentEntity.id).where(ComponentEntity.address == address),
                 )
 
             if id is None:
@@ -499,7 +498,7 @@ class Environment(ValidateByType):
         if query.before is not None:
             statement = statement.where(AlertEntity.timestamp < query.before)
         if query.level is not None:
-            if isinstance(query.level, AlertLevel):
+            if isinstance(query.level, Level):
                 statement = statement.where(AlertEntity.level == query.level)
             else:
                 statement = statement.where(AlertEntity.level.in_(query.level))
@@ -591,13 +590,13 @@ class Environment(ValidateByType):
             lambda: defaultdict(int),
         )
 
-        alert_counts_by_level: defaultdict[AlertLevel, int] = defaultdict(int)
-        unit_alert_counts_by_level: defaultdict[Name, defaultdict[AlertLevel, int]] = defaultdict(
+        alert_counts_by_level: defaultdict[Level, int] = defaultdict(int)
+        unit_alert_counts_by_level: defaultdict[Name, defaultdict[Level, int]] = defaultdict(
             lambda: defaultdict(int),
         )
         component_alert_counts_by_level: defaultdict[
             Name,
-            defaultdict[Name, defaultdict[AlertLevel, int]],
+            defaultdict[Name, defaultdict[Level, int]],
         ] = defaultdict(lambda: defaultdict(lambda: defaultdict(int)))
 
         async with self.__database.session() as session:

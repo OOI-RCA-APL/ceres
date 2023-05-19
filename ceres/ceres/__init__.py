@@ -1,6 +1,5 @@
 from ceres.address import Address as Address
 from ceres.alert import Alert as Alert
-from ceres.alert import AlertLevel as AlertLevel
 from ceres.component import Component as Component
 from ceres.config import Config as Config
 from ceres.config import DatabaseKind as DatabaseKind
@@ -24,6 +23,7 @@ from ceres.events import StandardEvent as StandardEvent
 from ceres.events import StandardEventKind as StandardEventKind
 from ceres.exceptions import ParseException as ParseException
 from ceres.internal.cli import main as main  # noqa
+from ceres.level import Level as Level
 from ceres.listener import on as on
 from ceres.loaded import Loaded as Loaded
 from ceres.loaded import Loader as Loader

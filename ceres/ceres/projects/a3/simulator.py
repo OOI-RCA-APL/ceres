@@ -34,7 +34,7 @@ class A3Simulator(Component):
     @routine
     async def __send_messages(self) -> None:
         if self.host is not None:
-            self.logger.info(f"Creating host listener on port {self.host.port}...")
+            self.log.info(f"Creating host listener on port {self.host.port}...")
             host_listener = await anyio.create_tcp_listener(
                 local_host="0.0.0.0",
                 local_port=self.host.port,
@@ -44,7 +44,7 @@ class A3Simulator(Component):
             host_listener = None
 
         if self.das is not None:
-            self.logger.info(f"Creating DAS listener on port {self.das.port}...")
+            self.log.info(f"Creating DAS listener on port {self.das.port}...")
             das_listener = await anyio.create_tcp_listener(
                 local_host="0.0.0.0",
                 local_port=self.das.port,

@@ -1,16 +1,16 @@
 import traceback
 from abc import ABC
 from asyncio import Event as AsyncEvent
-from logging import Logger
 from typing import TYPE_CHECKING, Any, Callable, Generic, TypeVar
 
 from ceres.alert import Alert
 from ceres.config import DatabaseKind
-from ceres.internal.database.entities import AlertEntity, MessageEntity
+from ceres.internal.database.entities import AlertEntity, LogEntryEntity, MessageEntity
+from ceres.logs import Log, LogEntry
 from ceres.message import Message
 
-_ModelT = TypeVar("_ModelT", bound=Message | Alert)
-_EntityT = TypeVar("_EntityT", bound=MessageEntity | AlertEntity)
+_ModelT = TypeVar("_ModelT", bound=Message | Alert | LogEntry)
+_EntityT = TypeVar("_EntityT", bound=MessageEntity | AlertEntity | LogEntryEntity)
 
 if TYPE_CHECKING:
     from ceres.environment import Environment
@@ -24,7 +24,7 @@ class WriteBuffer(Generic[_ModelT, _EntityT], ABC):
         model_cls: type[_ModelT],
         entity_cls: type[_EntityT],
         environment: Callable[[], Environment],
-        logger: Logger | None = None,  # TODO: Remove this.
+        log: Log | None = None,  # TODO: Remove this.
     ) -> None:
         self.__model_cls = model_cls
         self.__entity_cls = entity_cls
@@ -33,7 +33,7 @@ class WriteBuffer(Generic[_ModelT, _EntityT], ABC):
         self.__flushing = False
         self.__empty_event = AsyncEvent()
         self.__empty_event.set()
-        self.__logger = logger
+        self.__logger = log
 
     def __len__(self) -> int:
         return len(self.__pending)
@@ -80,7 +80,8 @@ class WriteBuffer(Generic[_ModelT, _EntityT], ABC):
                 for model in pending:
                     data = model.dict()
                     data.pop("source", None)
-                    data["source_id"] = await environment.assign_address_id(model.source)
+                    if model.source is not None:
+                        data["source_id"] = await environment.assign_address_id(model.source)
                     values.append(data)
 
                 # TODO: Don't discard all buffered entities when a single entity insert fails.

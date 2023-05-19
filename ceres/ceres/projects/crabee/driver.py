@@ -7,9 +7,9 @@ from pydantic import Field
 from typing_extensions import Self, override
 
 from ceres import (
-    AlertLevel,
     Connection,
     ImmutableDataObject,
+    Level,
     Message,
     MessageOrder,
     Parser,
@@ -135,11 +135,11 @@ class CrabeeDriver(Alerter, UI, Component):
 
     @on(ConnectionLostEvent, "connection")
     def __on_connection_lost(self, event: ConnectionLostEvent) -> None:
-        self.emit_alert(AlertLevel.ERROR, "connection/connection-lost")
+        self.emit_alert(Level.ERROR, "connection/connection-lost")
 
     @on(ConnectFailedEvent, "connection")
     def __on_connect_failed(self, event: ConnectFailedEvent) -> None:
-        self.emit_alert(AlertLevel.ERROR, "connection/connect-failed")
+        self.emit_alert(Level.ERROR, "connection/connect-failed")
 
     def __check_data_message(self, message: DataMessage) -> None:
         for name in self.checks.__fields__.keys():
@@ -155,7 +155,7 @@ class CrabeeDriver(Alerter, UI, Component):
                 validator.max is not None and value > validator.max
             ):
                 self.emit_alert(
-                    AlertLevel.ERROR,
+                    Level.ERROR,
                     "data/range-exceeded",
                     {
                         "field": name,
@@ -173,7 +173,7 @@ class CrabeeDriver(Alerter, UI, Component):
             message = DataMessage.parse(event.message)
             self.__data_message_stream.put(message)
             self.__last_data_message_received = message
-            self.logger.info(message)
+            self.log.info(message)
             self.__check_data_message(message)
 
             file = message.source.timestamp.strftime("%Y/%m/%y-%m-%d.csv")
@@ -200,7 +200,7 @@ class CrabeeDriver(Alerter, UI, Component):
                 stream.write("\n")
 
         except ParseException:
-            self.emit_alert(AlertLevel.ERROR, "data/unparseable-message")
+            self.emit_alert(Level.ERROR, "data/unparseable-message")
             traceback.print_exc()
             return
 

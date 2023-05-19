@@ -22,7 +22,7 @@ from starlette.status import HTTP_400_BAD_REQUEST
 from websockets.exceptions import ConnectionClosed
 
 from ceres.address import Address
-from ceres.alert import Alert, AlertLevel
+from ceres.alert import Alert, Level
 from ceres.component import Component
 from ceres.config import ComponentConfig, Config, UnitConfig
 from ceres.data import ImmutableDataObject, Name, jsonify
@@ -148,7 +148,7 @@ async def get_messages(
 
 class GetAlertsQueryParameters(AlertQuery):
     source: Address | None = None
-    level: AlertLevel | None = None
+    level: Level | None = None
     code: str | None = None
     limit: int = Field(default=100, ge=0, le=1000)
     offset: int = Field(default=0, ge=0)

@@ -6,7 +6,7 @@ from typing import Any, Iterable, Sequence, final
 from typing_extensions import override
 
 from ceres.address import Address
-from ceres.alert import Alert, AlertLevel
+from ceres.alert import Alert, Level
 from ceres.data import jsonify
 from ceres.roles.dispatcher import Dispatch, DispatchWriter
 from ceres.roles.notifier import Notification
@@ -43,7 +43,7 @@ class HTMLDispatchWriter(DispatchWriter):
         def get_latest_alert_timestamp(alerts: Iterable[Alert]) -> datetime:
             return max([alert.timestamp for alert in alerts])
 
-        Index = dict[AlertLevel, dict[tuple[Address, str, str], list[Alert]]]
+        Index = dict[Level, dict[tuple[Address, str, str], list[Alert]]]
 
         def create_index() -> Index:
             return defaultdict(create_index)  # type: ignore
@@ -53,7 +53,7 @@ class HTMLDispatchWriter(DispatchWriter):
         for level, by_level in groupby(
             sorted(
                 alerts,
-                key=lambda alert: -list(AlertLevel).index(alert.level),
+                key=lambda alert: -list(Level).index(alert.level),
             ),
             key=lambda alert: alert.level,
         ):

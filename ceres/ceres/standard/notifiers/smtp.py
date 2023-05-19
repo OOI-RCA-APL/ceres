@@ -26,7 +26,7 @@ class SMTPNotifier(Notifier):
     ) -> None:
         recipients = list(recipients)
         if not recipients:
-            self.logger.warning("No recipients specified, skipping notification.")
+            self.log.warning("No recipients specified, skipping notification.")
             return
 
         message = EmailMessage()
@@ -51,4 +51,4 @@ class SMTPNotifier(Notifier):
             start_tls=self.use_starttls,
         )
 
-        self.logger.info("Email notification sent successfully.")
+        self.log.info("Email notification sent successfully.")

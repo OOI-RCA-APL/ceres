@@ -8,6 +8,7 @@ from pydantic import Field
 from ceres.address import Address
 from ceres.alert import Alert
 from ceres.data import DateTime, ImmutableDataObject
+from ceres.logs import LogEntry
 from ceres.message import Message
 from ceres.timing import utc
 
@@ -22,6 +23,7 @@ class StandardEventKind(str, Enum):
     MESSAGE_SENT = "message-sent"
     MESSAGE_RECEIVED = "message-received"
     ALERT_EMITTED = "alert-emitted"
+    LOG_ENTRY_WRITTEN = "log-entry-written"
 
 
 class Event(ImmutableDataObject):
@@ -86,6 +88,12 @@ class MessageReceivedEvent(BaseStandardEvent):
 class AlertEmittedEvent(BaseStandardEvent):
     kind: Literal[StandardEventKind.ALERT_EMITTED] = StandardEventKind.ALERT_EMITTED
     alert: Alert
+
+
+@final
+class LogEntryWrittenEvent(BaseStandardEvent):
+    kind: Literal[StandardEventKind.LOG_ENTRY_WRITTEN] = StandardEventKind.LOG_ENTRY_WRITTEN
+    entry: LogEntry
 
 
 StandardEvent = (

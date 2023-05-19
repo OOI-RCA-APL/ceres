@@ -23,7 +23,6 @@ from sqlalchemy.orm import (
 from sqlalchemy.sql.roles import ExpressionElementRole
 
 from ceres.address import Address
-from ceres.alert import AlertLevel
 from ceres.internal.database.types import (
     AddressMapper,
     DateTimeMapper,
@@ -31,6 +30,8 @@ from ceres.internal.database.types import (
     EnumMapper,
     UUIDMapper,
 )
+from ceres.level import Level
+from ceres.logs import LogKind
 from ceres.message import MessageDirection
 
 
@@ -96,7 +97,7 @@ class AlertEntity(Entity):
         ForeignKey(ComponentEntity.id, name=f"fk_{__tablename__}__source_id__components"),
     )
     timestamp: Mapped[datetime] = mapped_column(DateTimeMapper)
-    level: Mapped[AlertLevel] = mapped_column(EnumMapper(AlertLevel))
+    level: Mapped[Level] = mapped_column(EnumMapper(Level))
     code: Mapped[str] = mapped_column(Text)
     info: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
 
@@ -110,10 +111,41 @@ class AlertEntity(Entity):
 
     __table_args__ = (
         PrimaryKeyConstraint("id", name=f"pk_{__tablename__}"),
-        EnumConstraint("level", AlertLevel, name=f"ck_{__tablename__}__level"),
+        EnumConstraint("level", Level, name=f"ck_{__tablename__}__level"),
         Index(f"ix_{__tablename__}__source_id", "source_id"),
         Index(f"ix_{__tablename__}__timestamp", "timestamp"),
         Index(f"ix_{__tablename__}__code", "code"),
+    )
+
+
+@final
+class LogEntryEntity(Entity):
+    __tablename__ = "log_entries"
+
+    id: Mapped[UUID] = mapped_column(UUIDMapper)
+    kind: Mapped[LogKind] = mapped_column(EnumMapper(LogKind))
+    source_id: Mapped[UUID | None] = mapped_column(
+        UUIDMapper,
+        ForeignKey(ComponentEntity.id, name=f"fk_{__tablename__}__source_id__components"),
+    )
+    timestamp: Mapped[datetime] = mapped_column(DateTimeMapper)
+    level: Mapped[Level] = mapped_column(EnumMapper(Level))
+    content: Mapped[str] = mapped_column(Text)
+
+    @declared_attr
+    def component(cls) -> Mapped[ComponentEntity | None]:
+        return relationship(ComponentEntity, lazy="joined")
+
+    @declared_attr  # type: ignore
+    def source(cls) -> AssociationProxy[Address]:
+        return association_proxy("component", "address")
+
+    __table_args__ = (
+        PrimaryKeyConstraint("id", name=f"pk_{__tablename__}"),
+        EnumConstraint("kind", LogKind, name=f"ck_{__tablename__}__kind"),
+        EnumConstraint("level", Level, name=f"ck_{__tablename__}__level"),
+        Index(f"ix_{__tablename__}__source_id", "source_id"),
+        Index(f"ix_{__tablename__}__timestamp", "timestamp"),
     )
 
 
