@@ -182,7 +182,7 @@ class Component(ValidatedDataclass, Tasklet):
         self.__scheduler = Scheduler()
         self.__referencers: WeakValueDictionary[int, Component] = WeakValueDictionary()
         self.__log = Log(LogKind.COMPONENT, lambda: self.address)
-        self.__log.add_handler(lambda entry: self.emit_event(LogEntryWrittenEvent, entry=entry))
+        self.__log.add_handler(self.__handle_log_entry)
 
         self.__message_write_buffer = WriteBuffer(
             Message,
@@ -331,6 +331,7 @@ class Component(ValidatedDataclass, Tasklet):
                 *(processor.wait_until_empty() for processor in self.__event_processors),
                 self.__message_write_buffer.wait_until_empty(),
                 self.__alert_write_buffer.wait_until_empty(),
+                self.__log_entry_write_buffer.wait_until_empty(),
             )
 
     def unref(self) -> Self:
@@ -381,17 +382,6 @@ class Component(ValidatedDataclass, Tasklet):
 
         traverse(root, visit)
         return components
-
-    def __set_emitted_event_source(self, event: Event) -> None:
-        if event.source is None:  # type: ignore
-            object.__setattr__(event, "source", self.address)
-
-        if isinstance(event, AlertEmittedEvent):
-            self.__set_emitted_alert_source(event.alert)
-
-    def __set_emitted_alert_source(self, alert: Alert) -> None:
-        if alert.source is None:  # type: ignore
-            object.__setattr__(alert, "source", self.address)
 
     def attach_to_unit(self, unit: Unit) -> None:
         if self.unit is unit:
