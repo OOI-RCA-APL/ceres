@@ -7,6 +7,8 @@ import {
   Config,
   ConfigModel,
   LayoutModel,
+  LogEntry,
+  LogEntryModel,
   Message,
   MessageModel,
   Result,
@@ -70,6 +72,18 @@ export async function getAlerts(params: {
   return await get(`/api/alerts${createQueryParams(params)}`, Zod.array(AlertModel))
 }
 
+export async function getLogEntries(params: {
+  source?: Address
+  search?: string
+  within?: number
+  after?: string
+  before?: string
+  limit?: number
+  order?: 'new-to-old' | 'old-to-new'
+}): Promise<LogEntry[]> {
+  return await get(`/api/log-entries${createQueryParams(params)}`, Zod.array(LogEntryModel))
+}
+
 export async function getStatistics(params: {
   within?: number
   after?: string
@@ -131,6 +145,26 @@ export function useAlertStream<TModel extends ZodTypeAny>(
     // eslint-disable-next-line @typescript-eslint/ban-ts-comment
     // @ts-ignore
     AlertModel,
+    onReceive
+  )
+}
+
+export function useLogEntryStream<TModel extends ZodTypeAny>(
+  params: MaybeRef<{
+    source?: Address
+    search?: string
+  }>,
+  onReceive: (alert: Zod.infer<TModel>) => unknown
+) {
+  useStream(
+    computed(() =>
+      getWebSocketURI(
+        `/api/log-entry-stream${createQueryParams(isRef(params) ? params.value : params)}`
+      )
+    ),
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore
+    LogEntryModel,
     onReceive
   )
 }

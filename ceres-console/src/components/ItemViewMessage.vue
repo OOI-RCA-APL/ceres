@@ -26,7 +26,7 @@ const directionColor = $computed(() => {
       </span>
     </q-chip>
     <span class="self-content">
-      {{ message.content }}
+      {{ JSON.stringify(message.content) }}
     </span>
   </div>
 </template>

@@ -29,16 +29,23 @@ from ceres.data import ImmutableDataObject, Name, jsonify
 from ceres.environment import (
     AlertQuery,
     Environment,
+    LogEntryQuery,
     MessageQuery,
     Statistics,
     StatisticsQuery,
 )
 from ceres.errors import ProcedureError, ProcedureInternalError, ReloadError
-from ceres.events import AlertEmittedEvent, MessageReceivedEvent, MessageSentEvent
+from ceres.events import (
+    AlertEmittedEvent,
+    LogEntryWrittenEvent,
+    MessageReceivedEvent,
+    MessageSentEvent,
+)
 from ceres.exceptions import ProcedureException
 from ceres.internal import logs
 from ceres.internal.console import ConsoleFiles
 from ceres.internal.utilities import strify
+from ceres.logs import LogEntry
 from ceres.message import Message
 from ceres.procedure import ProcedureBinding
 from ceres.result import Fail, Ok, Result
@@ -162,6 +169,21 @@ async def get_alerts(
     return await environment.get_alerts(query)
 
 
+class GetLogEntriesQueryParameters(LogEntryQuery):
+    source: Address | None = None
+    level: Level | None = None
+    limit: int = Field(default=100, ge=0, le=1000)
+    offset: int = Field(default=0, ge=0)
+
+
+@api.get("/log-entries", tags=["data"])
+async def get_log_entries(
+    environment: CurrentEnvironment,
+    query: Annotated[GetLogEntriesQueryParameters, Depends()],
+) -> list[LogEntry]:
+    return await environment.get_log_entries(query)
+
+
 class GetStatisticsQueryParameters(StatisticsQuery):
     pass
 
@@ -206,6 +228,24 @@ async def alert_stream(
         async for event in engine.events.of(AlertEmittedEvent):
             if query.matches(event.alert):
                 await socket.send_text(jsonify(event))
+    except (WebSocketDisconnect, ConnectionClosed):
+        pass
+
+
+@api.websocket("/log-entry-stream")
+async def log_entry_stream(
+    socket: WebSocket,
+    engine: CurrentEngine,
+    source: Address | None = None,
+    search: str | None = None,
+) -> None:
+    try:
+        await socket.accept()
+
+        query = LogEntryQuery(source=source, search=search)
+        async for event in engine.events.of(LogEntryWrittenEvent):
+            if query.matches(event.entry):
+                await socket.send_text(jsonify(event.entry))
     except (WebSocketDisconnect, ConnectionClosed):
         pass
 

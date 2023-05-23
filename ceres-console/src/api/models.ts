@@ -35,6 +35,15 @@ export const AlertModel = Zod.object({
   info: Zod.record(Zod.string(), Zod.unknown()).default(() => ({})),
 })
 
+export type LogEntry = Zod.infer<typeof LogEntryModel>
+export const LogEntryModel = Zod.object({
+  id: Zod.string(),
+  source: Zod.string().transform(Address.parse),
+  timestamp: DateTimeModel,
+  level: LevelModel,
+  content: Zod.string(),
+})
+
 export type AlertLevelStatistics = Zod.infer<typeof AlertLevelStatisticsModel>
 export const AlertLevelStatisticsModel = Zod.object({
   level: LevelModel,
