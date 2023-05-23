@@ -31,7 +31,6 @@ from ceres.internal.database.types import (
     UUIDMapper,
 )
 from ceres.level import Level
-from ceres.logs import LogKind
 from ceres.message import MessageDirection
 
 
@@ -123,8 +122,7 @@ class LogEntryEntity(Entity):
     __tablename__ = "log_entries"
 
     id: Mapped[UUID] = mapped_column(UUIDMapper)
-    kind: Mapped[LogKind] = mapped_column(EnumMapper(LogKind))
-    source_id: Mapped[UUID | None] = mapped_column(
+    source_id: Mapped[UUID] = mapped_column(
         UUIDMapper,
         ForeignKey(ComponentEntity.id, name=f"fk_{__tablename__}__source_id__components"),
     )
@@ -142,7 +140,6 @@ class LogEntryEntity(Entity):
 
     __table_args__ = (
         PrimaryKeyConstraint("id", name=f"pk_{__tablename__}"),
-        EnumConstraint("kind", LogKind, name=f"ck_{__tablename__}__kind"),
         EnumConstraint("level", Level, name=f"ck_{__tablename__}__level"),
         Index(f"ix_{__tablename__}__source_id", "source_id"),
         Index(f"ix_{__tablename__}__timestamp", "timestamp"),

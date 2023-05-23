@@ -40,7 +40,7 @@ def setup(config: LogConfig | None = None) -> None:
         datefmt=date_format,
     )
     server_formatter = logging.Formatter(
-        "[%(asctime)s.%(msecs)03d] [%(levelname)s] [server] %(message)s",
+        "[%(asctime)s.%(msecs)03d] [%(levelname)s] [ceres/server] %(message)s",
         datefmt=date_format,
     )
     access_formatter = uvicorn.logging.AccessFormatter(

@@ -5,130 +5,75 @@ from asyncio import Event as AsyncEvent
 from enum import Enum
 from pathlib import Path
 from queue import Empty, Queue
-from typing import AsyncIterable, Mapping, Sequence, final
+from typing import Literal, final
 
-from typing_extensions import override
+from typing_extensions import Final, override
 
 from ceres.address import Address
-from ceres.component import Component, ComponentPaths
+from ceres.component import Component, Paths
 from ceres.config import Config, UnitConfig
 from ceres.data import ImmutableDataObject, Name, jsonify
 from ceres.database import Database
 from ceres.directory import Directory
 from ceres.environment import Environment
 from ceres.errors import (
-    ProcedureUnitDoesNotExistError,
     ReloadAlreadyActiveError,
     ReloadConfigInvalidError,
     ReloadError,
 )
-from ceres.events import Event
 from ceres.exceptions import (
     EngineConfigCheckFailedException,
     EngineDatabaseInitException,
-    ProcedureException,
 )
 from ceres.internal.app import App
 from ceres.internal.config import load_config
 from ceres.internal.server import Server
-from ceres.internal.tasklet import Tasklet
-from ceres.internal.utilities import strify
-from ceres.logs import Log, LogKind
+from ceres.internal.utilities import setattr_internal, strify
 from ceres.result import Fail, Ok, Result
-from ceres.stream import Stream, WriteStream
-from ceres.unit import Unit, UnitPaths
+from ceres.unit import Unit
 
 
-class _UnitSyncActionKind(str, Enum):
+class ActionKind(str, Enum):
     START = "start"
     RELOAD = "reload"
     REMOVE = "remove"
 
 
-class _UnitSyncAction(ImmutableDataObject):
-    kind: _UnitSyncActionKind
-    unit: Name
+class Action(ImmutableDataObject):
+    kind: ActionKind
+    address: Address
 
 
 @final
-class Engine(Tasklet):
-    def __init__(self, config: Config) -> None:
-        self.__config = config
-        self.__config_queue: Queue[Config] = Queue()
-        self.__log = Log(LogKind.ENGINE)
+class Engine(Component):
+    name: Final[Literal[""]] = ""  # type: ignore
+    config: Final[Config]
 
-        if self.__config.server:
-            self.__server = Server(App(self), self.__config.server)
+    def __setup__(self) -> None:
+        self.__config_queue: Queue[Config] = Queue()
+
+        if self.config.server:
+            self.__server = Server(App(self), self.config.server)
         else:
             self.__server = None
 
-        self.__environment = Environment(
-            database=Database(self.__config.database),
-        )
+        self.bind(Environment(database=Database(self.config.database)))
 
-        self.__units: dict[Name, Unit] = {}
         self.__unit_configs: dict[Name, UnitConfig] = {}
-        self.__events: WriteStream[Event] = WriteStream()
         self.__reloading = AsyncEvent()
 
-    @property
-    def config(self) -> Config:
-        return self.__config
+    @override
+    def infer_environment(self) -> Environment | None:
+        return None
 
-    @property
-    def log(self) -> Log:
-        return self.__log
-
-    @property
-    def environment(self) -> Environment:
-        return self.__environment
-
-    @property
-    def events(self) -> Stream[Event]:
-        return self.__events.view()
-
-    @property
-    def units(self) -> Sequence[Unit]:
-        return list(self.__units.values())
-
-    def emit_event(self, event: Event) -> None:
-        self.__events.put(event)
-
-    def get_unit(self, name: Name) -> Unit | None:
-        return self.__units.get(name)
-
-    def get_component(self, address: Address) -> Component | None:
-        unit = self.__units.get(address.unit)
-        if unit is None:
-            return None
-
-        return unit.get_component(address.component)
-
-    def __add_unit_with_config(self, unit: Unit, config: UnitConfig | None = None) -> None:
+    def __add_unit(self, unit: Unit, config: UnitConfig | None = None) -> None:
+        self.add_child(unit)
         if config is not None:
             self.__unit_configs[unit.name] = config
 
-        self.add_unit(unit)
-
-    def add_unit(self, unit: Unit) -> None:
-        current = self.get_unit(unit.name)
-        if current is unit:
-            return
-        if current is not None:
-            self.remove_unit(current)
-
-        self.__units[unit.name] = unit
-
-        unit.attach_to_engine(self)
-
-    def remove_unit(self, unit: Unit) -> None:
-        if self.get_unit(unit.name) is not unit:
-            return
-
-        self.__units.pop(unit.name, None)
-        self.__unit_configs.pop(unit.name, None)
-        if unit.engine is self:
-            unit.detach_from_engine()
+    def remove_child(self, child: Component) -> None:
+        super().remove_child(child)
+        self.__unit_configs.pop(child.name, None)
 
     async def reload(self) -> Result[Config, ReloadError]:
         if self.__reloading.is_set():
@@ -136,12 +81,12 @@ class Engine(Tasklet):
 
         source: Path | Config
 
-        if self.__config.path:
-            self.log.info(f"Reloading configuration from '{self.__config.path}'...")
-            source = self.__config.path
+        if self.config.path:
+            self.log.info(f"Reloading configuration from '{self.config.path}'...")
+            source = self.config.path
         else:
             self.log.info("No configuration path is set. Reloading current configuration...")
-            source = self.__config
+            source = self.config
 
         match await load_config(source, logger=self.log):
             case Ok(config):
@@ -155,7 +100,7 @@ class Engine(Tasklet):
 
     @override
     async def __run__(self) -> None:
-        match await load_config(self.__config, logger=self.log):
+        match await load_config(self.config, logger=self.log):
             case Ok():
                 pass
             case Fail() as fail:
@@ -163,10 +108,10 @@ class Engine(Tasklet):
                     f"initial configuration check failed: {jsonify(fail, indent=2)}"
                 )
 
-        if not await self.__environment.database.tables():
+        if not await self.environment.database.tables():
             self.log.info("Database appears empty, initializing database...")
             try:
-                await self.__environment.database.init()
+                await self.environment.database.init()
                 self.log.info("Database initialized successfully.")
             except Exception as exception:
                 self.log.error("Database initialization failed.")
@@ -177,7 +122,7 @@ class Engine(Tasklet):
         while True:
             if started:
                 await self.__reloading.wait()
-                await self.__reload()
+                await self.__execute_reload()
 
             await self.__sync_units()
             await self.__start_server()
@@ -186,6 +131,7 @@ class Engine(Tasklet):
             self.__reloading.clear()
 
             tasks = [
+                asyncio.create_task(super().__run__(), name="run"),
                 asyncio.create_task(self.__reloading.wait(), name="reload-wait"),
                 asyncio.create_task(self.wait_until_stopping(), name="wait-until-stopping"),
             ]
@@ -201,50 +147,30 @@ class Engine(Tasklet):
 
     @override
     async def __stop__(self) -> None:
+        base = super().__stop__
+
         async def stop() -> None:
             await self.__stop_server()
             await self.__stop_units()
-            await self.__environment.database.dispose()
+            await base()
 
         await asyncio.shield(asyncio.create_task(stop()))
 
-    async def call(
-        self,
-        component: Address,
-        procedure: str,
-        args: Mapping[Name, object] | None = None,
-    ) -> object | None:
-        if (unit := self.get_unit(component.unit)) is None:
-            raise ProcedureException(ProcedureUnitDoesNotExistError())
-
-        return await unit.call(component.name, procedure, args)
-
-    def subscribe(
-        self,
-        component: Address,
-        procedure: str,
-        args: Mapping[Name, object] | None = None,
-    ) -> AsyncIterable[object]:
-        if (unit := self.__units.get(component.unit)) is None:
-            raise ProcedureException(ProcedureUnitDoesNotExistError())
-
-        return unit.subscribe(component.name, procedure, args)
-
-    async def __reload(self) -> None:
+    async def __execute_reload(self) -> None:
         self.log.info("Reloading...")
-        config_previous = self.__config
+        config_previous = self.config
 
         try:
-            self.__config = self.__config_queue.get_nowait()
+            setattr_internal(Engine, self, "config", self.__config_queue.get_nowait())
         except Empty:
             self.log.warning("No new configuration was found, ignoring reload.")
             return
 
-        if self.__config == config_previous:
+        if self.config == config_previous:
             self.log.info("Configuration was not modified. Nothing to reload.")
             return
 
-        if self.__config.server != config_previous.server:
+        if self.config.server != config_previous.server:
             self.log.info("Server configuration modified, reloading server...")
             try:
                 await self.__reload_server()
@@ -253,12 +179,12 @@ class Engine(Tasklet):
                     f"An issue occurred while reloading the server: {traceback.format_exc()}"
                 )
 
-        if self.__config.database != config_previous.database:
+        if self.config.database != config_previous.database:
             self.log.info("Database configuration modified, reloading all units and database...")
             try:
                 await self.__stop_units()
-                await self.__environment.database.dispose()
-                self.__environment = Environment(database=Database(self.__config.database))
+                await self.environment.database.dispose()
+                self.bind(Environment(database=Database(self.config.database)))
             except Exception:
                 self.log.error(
                     f"An issue occurred while reloading units and database: "
@@ -303,16 +229,16 @@ class Engine(Tasklet):
         references: dict[Name, Component] = {}
 
         for config in unit_config.components:
-            if unit.get_component(config.name) is not None:
+            if unit.get_child(config.name) is not None:
                 continue
 
-            address = Address.create(unit.name, config.name)
-            id = await self.__environment.assign_address_id(address)
+            address = unit.address / config.name
+            id = await self.environment.assign_address_id(address)
 
             try:
                 component = config.load(
                     args={
-                        "paths": ComponentPaths(
+                        "paths": Paths(
                             data=unit.paths.data,
                             local=unit.paths.local.subdir(config.name),
                         )
@@ -320,49 +246,49 @@ class Engine(Tasklet):
                 )
                 component.assign_references(references)
             except Exception:
-                unit.logger.error(f"Failed to load component '{address}': {traceback.format_exc()}")
+                unit.log.error(f"Failed to load component '{address}': {traceback.format_exc()}")
                 continue
 
             references[component.name] = component
-            unit.add_component(component)
-            unit.logger.info(
+            unit.add_child(component)
+            unit.log.info(
                 f"Loaded '{component.address}' as {strify(type(component))} with ID '{id}'."
             )
 
     async def __sync_units(self) -> None:
-        configs: dict[Name, UnitConfig] = {current.name: current for current in self.__config.units}
+        configs: dict[Name, UnitConfig] = {current.name: current for current in self.config.units}
 
         actions = self.__get_unit_sync_actions()
 
         for action in actions:
-            unit = self.__units.get(action.unit)
+            unit = self.get_child(action.address)
 
-            if action.kind == _UnitSyncActionKind.REMOVE:
+            if action.kind == ActionKind.REMOVE:
                 if unit:
-                    self.log.info(f"Removing unit '{action.unit}'...")
+                    self.log.info(f"Removing unit '{action.address}'...")
                     await unit.stop()
-                    self.remove_unit(unit)
+                    self.remove_child(unit)
             else:
-                if action.kind == _UnitSyncActionKind.START:
+                if action.kind == ActionKind.START:
                     if unit and unit.running:
                         continue
 
-                    self.log.info(f"Starting unit '{action.unit}'...")
-                elif action.kind == _UnitSyncActionKind.RELOAD:
+                    self.log.info(f"Starting unit '{action.address}'...")
+                elif action.kind == ActionKind.RELOAD:
                     if not unit:
                         continue
 
-                    self.log.info(f"Reloading unit '{action.unit}'...")
+                    self.log.info(f"Reloading unit '{action.address}'...")
                     await unit.stop()
 
-                if config := configs.get(action.unit):
+                if config := configs.get(action.address):
                     if self.config.path is None:
-                        paths = UnitPaths(
+                        paths = Paths(
                             local=Directory(),
                             data=Directory(),
                         )
                     else:
-                        paths = UnitPaths(
+                        paths = Paths(
                             local=Directory(
                                 self.config.path.parent / self.config.paths.local / config.name
                             ),
@@ -371,12 +297,9 @@ class Engine(Tasklet):
                             ),
                         )
 
-                    unit = Unit(
-                        name=config.name,
-                        paths=paths,
-                    )
+                    unit = Unit(name=config.name, paths=paths)
 
-                    self.__add_unit_with_config(unit, config)
+                    self.__add_unit(unit, config)
                     await self.__load_components(unit)
                     unit.start(
                         on_completed=self.__on_unit_completed,
@@ -386,17 +309,17 @@ class Engine(Tasklet):
         started = [
             action
             for action in actions
-            if action.kind == _UnitSyncActionKind.START and action.unit in self.__units
+            if action.kind == ActionKind.START and action.address in self.children
         ]
         reloaded = [
             action
             for action in actions
-            if action.kind == _UnitSyncActionKind.RELOAD and action.unit in self.__units
+            if action.kind == ActionKind.RELOAD and action.address in self.children
         ]
         removed = [
             action
             for action in actions
-            if action.kind == _UnitSyncActionKind.REMOVE and action.unit not in self.__units
+            if action.kind == ActionKind.REMOVE and action.address not in self.children
         ]
 
         if started:
@@ -407,38 +330,39 @@ class Engine(Tasklet):
             self.log.info(f"{len(removed)} unit(s) removed.")
 
     async def __stop_units(self) -> None:
-        if not self.__units:
+        if not self.children:
             return
 
         self.log.info("Stopping all units...")
 
-        async def stop(unit: Unit) -> None:
+        async def stop(unit: Component) -> None:
             if unit.running:
                 self.log.info(f"Stopping unit '{unit.name}'...")
                 await unit.stop()
 
-        await asyncio.gather(*(stop(unit) for unit in self.units))
+        await asyncio.gather(*(stop(unit) for unit in self.children))
 
         self.log.info("All units were stopped successfully.")
 
-    def __get_unit_sync_actions(self) -> list[_UnitSyncAction]:
-        configs: dict[Name, UnitConfig] = {current.name: current for current in self.__config.units}
+    def __get_unit_sync_actions(self) -> list[Action]:
+        configs: dict[Name, UnitConfig] = {current.name: current for current in self.config.units}
 
-        actions: list[_UnitSyncAction] = []
+        actions: list[Action] = []
 
         for name, config in configs.items():
-            unit = self.get_unit(name)
+            unit = self.get_child(name)
+            address = self.address / name
             if unit and unit.running and self.__unit_configs.get(name) == config:
                 continue
 
             if not unit or not unit.running:
-                actions.append(_UnitSyncAction(kind=_UnitSyncActionKind.START, unit=name))
+                actions.append(Action(kind=ActionKind.START, address=address))
             elif self.__unit_configs.get(name) != config:
-                actions.append(_UnitSyncAction(kind=_UnitSyncActionKind.RELOAD, unit=name))
+                actions.append(Action(kind=ActionKind.RELOAD, address=address))
 
-        for name, unit in self.__units.items():
-            if name not in configs:
-                actions.append(_UnitSyncAction(kind=_UnitSyncActionKind.REMOVE, unit=name))
+        for unit in self.children:
+            if unit.name not in configs:
+                actions.append(Action(kind=ActionKind.REMOVE, address=unit.address))
 
         return actions
 

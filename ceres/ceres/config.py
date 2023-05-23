@@ -156,13 +156,15 @@ class Config(ConfigObject):
     def get_unit(self, name: Name) -> UnitConfig | None:
         return next((unit for unit in self.units if unit.name == name), None)
 
-    def get_component(self, address: Address) -> ComponentConfig | None:
+    def get_address(self, address: Address) -> ComponentConfig | None:
+        if address.head is None:
+            return None
         if address in self.__component_config_cache:
             return self.__component_config_cache[address]
 
         component: ComponentConfig | None = None
 
-        if unit := self.get_unit(address.unit):
+        if unit := self.get_unit(address.head):
             component = next(
                 (current for current in unit.components if current.name == address.name), None
             )
@@ -173,7 +175,7 @@ class Config(ConfigObject):
         return component
 
     def get_component_cls(self, address: Address) -> type[Component] | None:
-        config = self.get_component(address)
+        config = self.get_address(address)
         if config is None:
             return None
 

@@ -10,7 +10,7 @@ from pydantic import ValidationError
 from yaml import MarkedYAMLError, YAMLError
 
 from ceres.address import Address
-from ceres.component import Component, ComponentPaths
+from ceres.component import Component, Paths
 from ceres.config import Config, UnitConfig
 from ceres.data import Name
 from ceres.database import Database
@@ -155,14 +155,14 @@ async def _check_components(
 ) -> list[ConfigComponentError]:
     log("Checking component configurations...")
 
-    ComponentPaths()
+    Paths()
 
     def check_unit_config(unit_config: UnitConfig) -> Iterable[ConfigComponentError]:
         references: dict[Name, Component] = {}
 
         def check_components() -> Iterable[ConfigComponentError]:
             for component_config in unit_config.components:
-                address = Address.create(unit_config.name, component_config.name)
+                address = Address(unit_config.name) / component_config.name
                 log(f"Checking component '{address}'...")
                 try:
                     component = component_config.load()

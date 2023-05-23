@@ -115,11 +115,11 @@ class Connection(Component, ABC):
 
         if connected:
             self.__state = ConnectionState.CONNECTED
-            self.emit_event(ConnectedEvent)
+            self.emit(ConnectedEvent)
             self.log.info("Connected successfully.")
         else:
             self.__state = ConnectionState.DISCONNECTED
-            self.emit_event(ConnectFailedEvent)
+            self.emit(ConnectFailedEvent)
             self.log.error("Failed to connect.")
 
         return self.connected
@@ -138,7 +138,7 @@ class Connection(Component, ABC):
             await self._send_data(data)
         except ConnectionLostException:
             if self.connected:
-                self.emit_event(ConnectionLostEvent)
+                self.emit(ConnectionLostEvent)
                 await self.disconnect()
             raise
 
@@ -148,7 +148,7 @@ class Connection(Component, ABC):
             content=data,
         )
 
-        self.emit_event(MessageSentEvent, message=message)
+        self.emit(MessageSentEvent, message=message)
         return message
 
     async def _poll_message(self) -> Message:
@@ -156,7 +156,7 @@ class Connection(Component, ABC):
             data = await self._poll_data()
         except ConnectionLostException:
             if self.connected:
-                self.emit_event(ConnectionLostEvent)
+                self.emit(ConnectionLostEvent)
                 await self.disconnect()
             raise
 
@@ -166,7 +166,7 @@ class Connection(Component, ABC):
             content=data,
         )
 
-        self.emit_event(MessageReceivedEvent, message=message)
+        self.emit(MessageReceivedEvent, message=message)
         return message
 
     async def disconnect(self) -> None:
@@ -179,7 +179,7 @@ class Connection(Component, ABC):
             await self._try_disconnect()
         finally:
             self.__state = ConnectionState.DISCONNECTED
-            self.emit_event(DisconnectedEvent)
+            self.emit(DisconnectedEvent)
             self.log.info("Disconnected.")
 
     @routine

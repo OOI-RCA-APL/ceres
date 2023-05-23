@@ -135,11 +135,11 @@ class CrabeeDriver(Alerter, UI, Component):
 
     @on(ConnectionLostEvent, "connection")
     def __on_connection_lost(self, event: ConnectionLostEvent) -> None:
-        self.emit_alert(Level.ERROR, "connection/connection-lost")
+        self.alert(Level.ERROR, "connection/connection-lost")
 
     @on(ConnectFailedEvent, "connection")
     def __on_connect_failed(self, event: ConnectFailedEvent) -> None:
-        self.emit_alert(Level.ERROR, "connection/connect-failed")
+        self.alert(Level.ERROR, "connection/connect-failed")
 
     def __check_data_message(self, message: DataMessage) -> None:
         for name in self.checks.__fields__.keys():
@@ -154,7 +154,7 @@ class CrabeeDriver(Alerter, UI, Component):
             if (validator.min is not None and value < validator.min) or (
                 validator.max is not None and value > validator.max
             ):
-                self.emit_alert(
+                self.alert(
                     Level.ERROR,
                     "data/range-exceeded",
                     {
@@ -200,7 +200,7 @@ class CrabeeDriver(Alerter, UI, Component):
                 stream.write("\n")
 
         except ParseException:
-            self.emit_alert(Level.ERROR, "data/unparseable-message")
+            self.alert(Level.ERROR, "data/unparseable-message")
             traceback.print_exc()
             return
 

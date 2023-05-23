@@ -34,10 +34,15 @@ from ceres.environment import (
     Statistics,
     StatisticsQuery,
 )
-from ceres.errors import ProcedureError, ProcedureInternalError, ReloadError
+from ceres.errors import (
+    ProcedureComponentDoesNotExistError,
+    ProcedureError,
+    ProcedureInternalError,
+    ReloadError,
+)
 from ceres.events import (
-    AlertEmittedEvent,
-    LogEntryWrittenEvent,
+    AlertEvent,
+    LogEvent,
     MessageReceivedEvent,
     MessageSentEvent,
 )
@@ -225,7 +230,7 @@ async def alert_stream(
         await socket.accept()
 
         query = AlertQuery(source=source, search=search)
-        async for event in engine.events.of(AlertEmittedEvent):
+        async for event in engine.events.of(AlertEvent):
             if query.matches(event.alert):
                 await socket.send_text(jsonify(event))
     except (WebSocketDisconnect, ConnectionClosed):
@@ -243,53 +248,25 @@ async def log_entry_stream(
         await socket.accept()
 
         query = LogEntryQuery(source=source, search=search)
-        async for event in engine.events.of(LogEntryWrittenEvent):
+        async for event in engine.events.of(LogEvent):
             if query.matches(event.entry):
                 await socket.send_text(jsonify(event.entry))
     except (WebSocketDisconnect, ConnectionClosed):
         pass
 
 
-@api.get("/units/{unit}", tags=["units"])
-async def get_unit_info(
-    engine: CurrentEngine,
-    unit: Name,
-) -> UnitInfo:
-    config = engine.config.get_unit(unit)
-    if config is None:
-        raise HTTPException(404)
-
-    components = []
-    for component in config.components:
-        components.append(
-            await get_component_info(
-                engine,
-                unit,
-                component.name,
-            )
-        )
-
-    return UnitInfo(
-        name=config.name,
-        config=config,
-        components=components,
-    )
-
-
-@api.get("/units/{unit}/components/{component}", tags=["components"])
+@api.get("/component", tags=["components"])
 async def get_component_info(
     engine: CurrentEngine,
-    unit: Name,
-    component: Name,
+    address: Address,
 ) -> ComponentInfo:
-    address = Address.create(unit, component)
-    component_config = engine.config.get_component(address)
+    component_config = engine.config.get_address(address)
     component_cls = engine.config.get_component_cls(address)
     if component_config is None or component_cls is None:
         raise HTTPException(404)
 
     return ComponentInfo(
-        name=component,
+        name=component_config.name,
         address=address,
         config=component_config,
         roles=_get_component_roles(component_cls),
@@ -298,15 +275,14 @@ async def get_component_info(
 
 
 @api.api_route(
-    "/units/{unit}/components/{component}/procedures/{procedure}/call",
+    "/call",
     methods=["GET", "POST"],
     tags=["procedures"],
 )
 async def call(
     request: Request,
     engine: CurrentEngine,
-    unit: Name,
-    component: Name,
+    address: Address,
     procedure: Name,
     query_args: Json[Any] = Query(None, alias="args"),
     body_args: Mapping[Name, object] | None = Body(None),
@@ -324,17 +300,19 @@ async def call(
     args.pop("args", None)
 
     try:
-        return Ok(await engine.call(Address.create(unit, component), procedure, args))
+        component = engine.get_component(address)
+        if component is None:
+            return Fail(ProcedureComponentDoesNotExistError())
+        return Ok(await component.call(procedure, args))
     except ProcedureException as exception:
         return Fail(exception.error)
 
 
-@api.websocket("/units/{unit}/components/{component}/procedures/{procedure}/subscribe")
+@api.websocket("/subscribe")
 async def subscribe(
     socket: WebSocket,
     engine: CurrentEngine,
-    unit: Name,
-    component: Name,
+    address: Address,
     procedure: Name,
     query_args: Json[Any] = Query(None, alias="args"),
 ) -> None:
@@ -346,12 +324,17 @@ async def subscribe(
         )
         return
 
-    address = Address.create(unit, component)
-
     args = {}
     args.update(query_args or {})
     args.update(socket.query_params)
     args.pop("args", None)
+
+    component = engine.get_component(address)
+    if component is None:
+        code = 1008  # Set code for policy violation.
+        reason = jsonify(Fail(ProcedureComponentDoesNotExistError()))
+        await socket.close(code, reason)
+        return
 
     async def read() -> None:
         try:
@@ -364,7 +347,7 @@ async def subscribe(
 
     async def write() -> None:
         try:
-            async for output in engine.subscribe(address, procedure, args):
+            async for output in component.subscribe(procedure, args):
                 await socket.send_text(jsonify(output))
         except Exception as exception:
             if isinstance(exception, ProcedureException):

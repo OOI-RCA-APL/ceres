@@ -8,7 +8,7 @@ from ceres.data import Name, NameType
 
 @final
 class Address(str):
-    regex = re.compile(rf"^{NameType.regex.pattern[1:-1]}\.{NameType.regex.pattern[1:-1]}$")
+    regex = re.compile(rf"^({NameType.get_pattern()}(\.{NameType.get_pattern()})*)?$")
 
     @classmethod
     def __get_validators__(cls) -> Any:
@@ -26,25 +26,41 @@ class Address(str):
             return value
 
         if cls.regex.match(value) is None:
-            raise ValueError(f"must match regex {cls.regex.pattern}")
+            raise ValueError(f"{value!r} must match regex {cls.regex.pattern}")
 
         return str.__new__(cls, value)
 
-    @classmethod
-    def create(cls, unit: Name, component: Name, /) -> Self:
-        return cls(f"{unit}.{component}")
+    @property
+    def unit(self) -> Name | None:
+        return self.head
 
     @property
-    def unit(self) -> Name:
-        return self[: self.index(".")]
+    def head(self) -> Name | None:
+        if not self or "." not in self:
+            return None
+
+        return self[: self.index(".")] or None
 
     @property
-    def component(self) -> Name:
-        return self[self.index(".") + 1 :]
+    def tail(self) -> Self | None:
+        if not self or "." not in self:
+            return None
+
+        return Address(self[self.index(".") + 1 :]) or None
 
     @property
-    def name(self) -> Name:
+    def component(self) -> Name | None:
+        if not self or "." not in self:
+            return None
+
+        return self[self.rindex(".") + 1 :] or None
+
+    @property
+    def name(self) -> Name | None:
         return self.component
 
     def __repr__(self) -> str:
         return f"{type(self).__name__}({repr(str(self))})"
+
+    def __truediv__(self, other: str) -> Self:
+        return Address(f"{self}{'.' if self else ''}{other.strip('.')}")

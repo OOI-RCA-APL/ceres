@@ -6,7 +6,7 @@ from ceres.config import Config, ServerConfig, UnitConfig
 
 async def test_engine_can_start() -> None:
     engine = Engine(
-        Config(
+        config=Config(
             server=ServerConfig(port=9000),
             units=[UnitConfig(name="test")],
         )

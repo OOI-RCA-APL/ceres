@@ -64,7 +64,7 @@ async def run(
             await _run_watch(config_path=config_path)
         else:
             set_current_process_name("ceres")
-            engine = Engine(await get_config(config_path, checks=[]))
+            engine = Engine(config=await get_config(config_path, checks=[]))
             exiting = AsyncEvent()
 
             async def main() -> None:

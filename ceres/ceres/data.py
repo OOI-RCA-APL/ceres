@@ -49,6 +49,10 @@ def simplify(obj: object) -> Any:
 class NameType(ConstrainedStr):
     regex: Pattern[str] = re.compile(r"^[a-zA-Z_\-][a-zA-Z0-9_\-]*$")
 
+    @classmethod
+    def get_pattern(cls) -> str:
+        return NameType.regex.pattern[1:-1]
+
 
 class NonEmptyStrType(ConstrainedStr):
     min_length = 1

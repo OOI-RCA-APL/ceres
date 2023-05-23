@@ -22,8 +22,8 @@ class StandardEventKind(str, Enum):
     CONNECT_FAILED = "connect-failed"
     MESSAGE_SENT = "message-sent"
     MESSAGE_RECEIVED = "message-received"
-    ALERT_EMITTED = "alert-emitted"
-    LOG_ENTRY_WRITTEN = "log-entry-written"
+    ALERT = "alert"
+    LOG = "log"
 
 
 class Event(ImmutableDataObject):
@@ -85,14 +85,14 @@ class MessageReceivedEvent(BaseStandardEvent):
 
 
 @final
-class AlertEmittedEvent(BaseStandardEvent):
-    kind: Literal[StandardEventKind.ALERT_EMITTED] = StandardEventKind.ALERT_EMITTED
+class AlertEvent(BaseStandardEvent):
+    kind: Literal[StandardEventKind.ALERT] = StandardEventKind.ALERT
     alert: Alert
 
 
 @final
-class LogEntryWrittenEvent(BaseStandardEvent):
-    kind: Literal[StandardEventKind.LOG_ENTRY_WRITTEN] = StandardEventKind.LOG_ENTRY_WRITTEN
+class LogEvent(BaseStandardEvent):
+    kind: Literal[StandardEventKind.LOG] = StandardEventKind.LOG
     entry: LogEntry
 
 
@@ -105,5 +105,6 @@ StandardEvent = (
     | ConnectFailedEvent
     | MessageSentEvent
     | MessageReceivedEvent
-    | AlertEmittedEvent
+    | AlertEvent
+    | LogEvent
 )

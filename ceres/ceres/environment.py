@@ -1,8 +1,11 @@
+import traceback
+from asyncio import Event as AsyncEvent
 from asyncio import Lock as AsyncLock
 from collections import defaultdict
 from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
 from enum import Enum
+from itertools import groupby
 from typing import Any, TypedDict, final
 from uuid import UUID, uuid4
 
@@ -355,6 +358,9 @@ class Statistics(ImmutableDataObject):
     units: Mapping[Name, UnitStatistics] = Field(default_factory=dict)
 
 
+Item = Message | Alert | LogEntry
+
+
 @final
 class Environment(ValidateByType):
     def __init__(
@@ -368,10 +374,18 @@ class Environment(ValidateByType):
         self.__database = database
         self.__mapping: dict[Address, UUID] | None = None
         self.__mapping_lock = AsyncLock()
+        self.__flushing = False
+        self.__buffer: list[Item] = []
+        self.__settled = AsyncEvent()
+        self.__settled.set()
 
     @property
     def database(self) -> Database:
         return self.__database
+
+    @property
+    def settled(self) -> bool:
+        return self.__settled.is_set()
 
     async def assign_address_id(
         self,
@@ -406,6 +420,65 @@ class Environment(ValidateByType):
 
             mapping[address] = id
             return id
+
+    def add(self, item: Message | Alert | LogEntry) -> None:
+        if not isinstance(item, (Message, Alert, LogEntry)):
+            raise TypeError(f"unsupported item type: {type(item)}")
+
+        self.__buffer.append(item)
+        self.__settled.clear()
+
+    async def flush(self) -> None:
+        if self.__flushing or not self.__buffer:
+            return
+        if not self.__buffer:
+            return
+
+        self.__flushing = True
+
+        try:
+            async with self.database.session() as session:
+                buffer = self.__buffer
+                self.__buffer = []
+
+                match self.database.kind:
+                    case DatabaseKind.SQLITE:
+                        from sqlalchemy.dialects.sqlite import insert
+                    case DatabaseKind.POSTGRES:
+                        from sqlalchemy.dialects.postgresql import insert  # noqa
+
+                values: list[dict[str, Any]] = []
+                for model_cls, models in groupby(buffer, type):
+                    match model_cls:
+                        case Message():
+                            entity_cls = MessageEntity
+                        case Alert():
+                            entity_cls = AlertEntity
+                        case LogEntry():
+                            entity_cls = LogEntryEntity
+                        case _:
+                            continue
+
+                    for model in models:
+                        data = model.dict()
+                        data.pop("source", None)
+                        data["source_id"] = await self.assign_address_id(model.source)
+                        values.append(data)
+
+                    await session.execute(
+                        insert(entity_cls).values(values).on_conflict_do_nothing()
+                    )
+
+                await session.commit()
+        except Exception:
+            traceback.print_exc()
+        finally:
+            self.__flushing = False
+            if not self.__buffer:
+                self.__settled.set()
+
+    async def settle(self) -> None:
+        await self.__settled.wait()
 
     async def get_messages(
         self,
@@ -651,7 +724,6 @@ class Environment(ValidateByType):
     ) -> list[LogEntry]:
         statement = select(
             LogEntryEntity.id,
-            LogEntryEntity.kind,
             ComponentEntity.address.label("source"),
             LogEntryEntity.timestamp,
             LogEntryEntity.level,

@@ -1160,7 +1160,7 @@ class A3Driver(Alerter):
             if not response_message:
                 if is_last_retry:
                     self.log.warning("Reporting no response...")
-                    self.emit_alert(
+                    self.alert(
                         Level.ERROR,
                         f"host/no-response/{command_name}",
                         {
@@ -1178,7 +1178,7 @@ class A3Driver(Alerter):
 
             if b"NO_REPLY" in content:
                 if is_last_retry:
-                    self.emit_alert(
+                    self.alert(
                         Level.ERROR,
                         f"host/no-remote-response/{command_name}",
                         {
@@ -1195,7 +1195,7 @@ class A3Driver(Alerter):
 
             if b"NO_DATA" in content:
                 if is_last_retry:
-                    self.emit_alert(
+                    self.alert(
                         Level.ERROR,
                         f"host/no-remote-response-data/{command_name}",
                         {
@@ -1212,7 +1212,7 @@ class A3Driver(Alerter):
 
             if content.endswith(b"?") or b"NONE" in content:
                 if is_last_retry:
-                    self.emit_alert(
+                    self.alert(
                         Level.ERROR,
                         f"host/bad-response/{command_name}",
                         {
@@ -1266,7 +1266,7 @@ class A3Driver(Alerter):
             if not response_message:
                 if is_last_retry:
                     self.log.warning("Reporting no response...")
-                    self.emit_alert(
+                    self.alert(
                         Level.ERROR,
                         f"das/no-response/{command_name}",
                         {
@@ -1286,7 +1286,7 @@ class A3Driver(Alerter):
 
             if error_flags != 0:
                 if is_last_retry:
-                    self.emit_alert(
+                    self.alert(
                         Level.ERROR,
                         f"das/bad-response/{command_name}",
                         {

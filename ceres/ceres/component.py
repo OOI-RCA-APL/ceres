@@ -32,7 +32,6 @@ from pydantic.decorator import ValidatedFunction
 from typing_extensions import Self, dataclass_transform, override
 
 from ceres.address import Address
-from ceres.alert import Alert
 from ceres.data import (
     VALIDATED_DATACLASS_FIELD_SPECIFIERS,
     ImmutableDataObject,
@@ -49,9 +48,9 @@ from ceres.errors import (
     ProcedureNotSubscribableError,
 )
 from ceres.events import (
-    AlertEmittedEvent,
+    AlertEvent,
     Event,
-    LogEntryWrittenEvent,
+    LogEvent,
     MessageReceivedEvent,
     MessageSentEvent,
     StartedEvent,
@@ -59,8 +58,6 @@ from ceres.events import (
 )
 from ceres.exceptions import ProcedureException
 from ceres.internal.binding import get_bindings
-from ceres.internal.database.buffer import WriteBuffer
-from ceres.internal.database.entities import AlertEntity, LogEntryEntity, MessageEntity
 from ceres.internal.events import EventProcessor
 from ceres.internal.scheduler import Scheduler
 from ceres.internal.tasklet import Tasklet
@@ -69,26 +66,23 @@ from ceres.internal.utilities import (
     cached,
     lenient_isinstance,
     randstr,
-    sleep_forever,
     strify,
     traverse,
 )
 from ceres.listener import ListenerBinding
-from ceres.logs import Log, LogEntry, LogKind
-from ceres.message import Message
+from ceres.logs import Log, LogEntry
 from ceres.procedure import (
     ActionBinding,
     ProcedureBinding,
     QueryBinding,
 )
-from ceres.routine import RoutineBinding, routine
+from ceres.routine import RoutineBinding
 from ceres.schedule import Schedule
 from ceres.stream import Stream, WriteStream
 from ceres.validation import ValidationProblem
 
 if TYPE_CHECKING:
     from ceres.engine import Engine
-    from ceres.unit import Unit
 else:
     Engine = "Engine"
     Unit = "Unit"
@@ -98,7 +92,7 @@ _EventT = TypeVar("_EventT", bound=Event)
 _EventP = ParamSpec("_EventP")
 
 
-class ComponentPaths(ImmutableDataObject):
+class Paths(ImmutableDataObject):
     data: Directory = Field(default_factory=Directory)
     local: Directory = Field(default_factory=Directory)
 
@@ -123,24 +117,8 @@ class Job(ImmutableDataObject):
     field_specifiers=VALIDATED_DATACLASS_FIELD_SPECIFIERS,
 )
 class Component(ValidatedDataclass, Tasklet):
-    def __init_subclass__(cls, **kwargs: Any) -> type[Any]:
-        super().__init_subclass__(**kwargs)
-
-        for binding in cls.get_listener_bindings():
-            for source in binding.sources:
-                if source == "self":
-                    continue
-
-                # if not has_field(cls, source):
-                #     raise ComponentClassInvalidException(
-                #         f"event listener '{binding.function}' refers to reference '{source}' "
-                #         f"which is not defined as an attribute in {strify(cls)}"
-                #     )
-
-        return cls
-
-    name: Final[Name] = field(default_factory=lambda: randstr(ascii_lowercase, 8))
-    paths: Final[ComponentPaths] = field(default_factory=ComponentPaths)
+    name: Final[Name] = Field(default_factory=lambda: randstr(ascii_lowercase, 8))
+    paths: Final[Paths] = field(default_factory=Paths)
     jobs: Final[Sequence[Job]] = field(default_factory=list)
 
     @validator("jobs")
@@ -155,53 +133,16 @@ class Component(ValidatedDataclass, Tasklet):
 
         return jobs
 
-    # @validator("jobs", each_item=True)
-    # def _validate_job(cls, job: Job) -> Job:
-    #     print(issubclass(cls, Component))
-    #     print(issubclass(cls, BaseModel))
-    #     action = cls.get_action_bindings().get(job.action)
-    #     if action is None:
-    #         defined = sorted(cls.get_action_bindings().keys())
-    #         raise ValueError(
-    #             f"{strify(cls)} has no action named '{job.action}', defined actions are "
-    #             f"{defined}"
-    #         )
-
-    #     if not job.args and (action.args is not None and action.args.required):
-    #         raise ValueError(
-    #             f"missing required arguments for job '{job.name}', add arguments to the job's "
-    #             "'args' value"
-    #         )
-
-    #     return job
-
     def __post_init_post_parse__(self) -> None:
-        self.__local_environment: Environment | None = None
-        self.__unit: ref[Unit] | None = None
+        self.__environment: Environment | None = None
+        self.__parent: ref[Component] | None = None
         self.__events: WriteStream[Event] = WriteStream()
         self.__scheduler = Scheduler()
         self.__referencers: WeakValueDictionary[int, Component] = WeakValueDictionary()
-        self.__log = Log(LogKind.COMPONENT, lambda: self.address)
+        self.__log = Log(lambda: self.address)
         self.__log.add_handler(self.__handle_log_entry)
+        self.__children: dict[Name, Component] = {}
 
-        self.__message_write_buffer = WriteBuffer(
-            Message,
-            MessageEntity,
-            lambda: self.environment,
-            self.log,
-        )
-        self.__alert_write_buffer = WriteBuffer(
-            Alert,
-            AlertEntity,
-            lambda: self.environment,
-            self.log,
-        )
-        self.__log_entry_write_buffer = WriteBuffer(
-            LogEntry,
-            LogEntryEntity,
-            lambda: self.environment,
-            self.log,
-        )
         self.__event_processors = [
             EventProcessor(
                 binding=binding,
@@ -214,41 +155,44 @@ class Component(ValidatedDataclass, Tasklet):
         self.__sync_referencers()
         self.__setup__()
 
+    def bind(self, environment: Environment) -> None:
+        self.__environment = environment
+
     def __setup__(self) -> None:
         pass
 
     def __handle_log_entry(self, entry: LogEntry) -> None:
-        self.emit_event(LogEntryWrittenEvent, entry=entry)
+        self.emit(LogEvent, entry=entry)
 
     def __sync_referencers(self) -> None:
         for referencer in list(self.__referencers.values()):
-            if id(self) not in {id(other) for other in referencer.get_referenced_components()}:
+            if id(self) not in {id(other) for other in referencer.get_referencers()}:
                 self.__referencers.pop(id(referencer))
 
-        referenced = self.get_referenced_components()
+        referenced = self.get_referencers()
         for component in referenced:
             component.__referencers[id(self)] = self
 
-    def __infer_environment(self) -> Environment | None:
-        if self.unit is not None:
-            return self.unit.environment
+    def infer_environment(self) -> Environment | None:
+        if self.parent is not None:
+            return self.parent.environment
 
         # TODO: We might want to do a topological sort here to pick the environment.
-        for component in self.get_referenced_components():
+        for component in self.get_referencers():
             return component.environment
 
         return None
 
     @property
     def environment(self) -> Environment:
-        inferred = self.__infer_environment()
+        inferred = self.infer_environment()
         if inferred is not None:
             return inferred
 
-        if self.__local_environment is None:
-            self.__local_environment = Environment()
+        if self.__environment is None:
+            self.__environment = Environment()
 
-        return self.__local_environment
+        return self.__environment
 
     @final
     @classmethod
@@ -285,24 +229,29 @@ class Component(ValidatedDataclass, Tasklet):
 
     @property
     def address(self) -> Address:
-        if self.unit is None:
-            return Address.create("default", self.name)
+        if self.parent is not None:
+            return self.parent.address / self.name
 
-        return Address.create(self.unit.name, self.name)
+        return Address(self.name)
 
     @property
     def engine(self) -> "Engine | None":
-        if self.unit is None:
+        if self.parent is None:
             return None
 
-        return self.unit.engine
+        from ceres.engine import Engine
+
+        if isinstance(self.parent, Engine):
+            return self.parent
+
+        return self.parent.engine
 
     @property
-    def unit(self) -> "Unit | None":
-        if self.__unit is None:
+    def parent(self) -> "Component | None":
+        if self.__parent is None:
             return None
 
-        return self.__unit()
+        return self.__parent()
 
     @property
     def scheduler(self) -> Scheduler:
@@ -317,21 +266,21 @@ class Component(ValidatedDataclass, Tasklet):
         return self.__events.view()
 
     @property
+    def children(self) -> Sequence[Self]:
+        return list(self.__children.values())
+
+    @property
     def settled(self) -> bool:
         return not self.running or (
             all(processor.idle for processor in self.__event_processors)
-            and len(self.__message_write_buffer) == 0
-            and len(self.__alert_write_buffer) == 0
-            and len(self.__log_entry_write_buffer) == 0
+            and self.environment.settled
         )
 
     async def settle(self) -> None:
         while not self.settled:
             await asyncio.gather(
                 *(processor.wait_until_empty() for processor in self.__event_processors),
-                self.__message_write_buffer.wait_until_empty(),
-                self.__alert_write_buffer.wait_until_empty(),
-                self.__log_entry_write_buffer.wait_until_empty(),
+                self.environment.settle(),
             )
 
     def unref(self) -> Self:
@@ -358,7 +307,7 @@ class Component(ValidatedDataclass, Tasklet):
 
         self.__sync_referencers()
 
-    def get_referenced_components(self, alias: str | None = None) -> Sequence["Component"]:
+    def get_referencers(self, alias: str | None = None) -> Sequence[Self]:
         components: list[Component] = []
         root = self
 
@@ -383,23 +332,63 @@ class Component(ValidatedDataclass, Tasklet):
         traverse(root, visit)
         return components
 
-    def attach_to_unit(self, unit: Unit) -> None:
-        if self.unit is unit:
+    def add_child(self, child: "Component", name: Name | None = None) -> None:
+        if child is self:
             return
 
-        if self.unit is not None:
-            self.detach_from_unit()
+        current = self.get_child(child.name)
+        if current is child:
+            return
+        if current is not None:
+            self.remove_child(current)
 
-        self.__unit = ref(unit)
+        if name is not None:
+            child.name = name  # type: ignore
 
-    def detach_from_unit(self) -> None:
-        if self.unit is None:
+        self.__children[child.name] = child
+        child.attach_to(self)
+
+    def remove_child(self, child: "Component") -> None:
+        if child is self:
             return
 
-        self.unit.remove_component(self)
-        self.__unit = None
+        if self.get_child(child.name) is not child:
+            return
 
-    def emit_event(
+        self.__children.pop(child.name, None)
+        if child.parent is self:
+            child.detach()
+
+    def get_child(self, name: Name) -> "Component | None":
+        return self.__children.get(name)
+
+    def get_component(self, address: Address | None = None) -> "Component | None":
+        if not address or not address.head:
+            return self
+
+        child = self.get_child(address.head)
+        if child is None:
+            return None
+
+        return child.get_component(address.tail)
+
+    def attach_to(self, parent: "Component") -> None:
+        if self.parent is parent:
+            return
+
+        if self.parent is not None:
+            self.detach()
+
+        self.__parent = ref(parent)
+
+    def detach(self) -> None:
+        if self.parent is None:
+            return
+
+        self.parent.remove_child(self)
+        self.__parent = None
+
+    def emit(
         self,
         event_cls: Callable[_EventP, _EventT],
         /,
@@ -409,9 +398,20 @@ class Component(ValidatedDataclass, Tasklet):
         if "source" not in kwargs:
             kwargs["source"] = self.address
 
-        return self.emit_event_instance(event_cls(*args, **kwargs))
+        event = event_cls(*args, **kwargs)
+        match event:
+            case MessageSentEvent() | MessageReceivedEvent():
+                self.environment.add(event.message)
+            case AlertEvent():
+                self.environment.add(event.alert)
+            case LogEvent():
+                self.environment.add(event.entry)
+            case _:
+                pass
 
-    def emit_event_instance(self, event: _EventT) -> _EventT:
+        return self.propagate(event)
+
+    def propagate(self, event: _EventT) -> _EventT:
         # Handle "self" events.
         self.handle_event(event)
         # Send the event to all components have a reference to this one.
@@ -420,18 +420,8 @@ class Component(ValidatedDataclass, Tasklet):
         # Add the event to the outgoing event stream.
         self.__events.put(event)
         # Pass the event up to the containing unit if it exists.
-        if self.unit is not None:
-            self.unit.emit_event(event)
-
-        match event:
-            case MessageSentEvent() | MessageReceivedEvent():
-                self.__message_write_buffer.add(event.message)
-            case AlertEmittedEvent():
-                self.__alert_write_buffer.add(event.alert)
-            case LogEntryWrittenEvent():
-                self.__log_entry_write_buffer.add(event.entry)
-            case _:
-                pass
+        if self.parent is not None:
+            self.parent.propagate(event)
 
         return event
 
@@ -445,8 +435,7 @@ class Component(ValidatedDataclass, Tasklet):
 
             for alias in processor.binding.sources:
                 if (alias == "self" and self.address == event.source) or any(
-                    component.address == event.source
-                    for component in self.get_referenced_components(alias)
+                    component.address == event.source for component in self.get_referencers(alias)
                 ):
                     processor.put(event)
                     break
@@ -480,16 +469,17 @@ class Component(ValidatedDataclass, Tasklet):
 
     @override
     async def __run__(self) -> None:
-        if self.__infer_environment() is None:
+        if self.infer_environment() is None:
             await self.environment.database.init()
             await self.environment.assign_address_id(self.address)
 
         self.__start_scheduler()
-        self.emit_event(StartedEvent)
+        self.emit(StartedEvent)
 
         await asyncio.gather(
-            sleep_forever(),
-            *(self.__process_routine(binding) for binding in self.get_routine_bindings()),
+            self.__process_routines(),
+            self.__process_events(),
+            self.__process_environment(),
         )
 
     async def __process_routine(self, binding: RoutineBinding) -> None:
@@ -505,42 +495,31 @@ class Component(ValidatedDataclass, Tasklet):
                 f"{strify(traceback.format_exc())}"
             )
 
-    @routine
-    async def __run_event_processors(self) -> None:
+    async def __process_routines(self) -> None:
+        await asyncio.gather(
+            *(self.__process_routine(binding) for binding in self.get_routine_bindings())
+        )
+
+    async def __process_events(self) -> None:
         await asyncio.gather(*(processor.run() for processor in self.__event_processors))
 
-    @routine
-    async def __flush_message_buffer(self) -> None:
+    async def __process_environment(self) -> None:
         while True:
-            await self.__message_write_buffer.flush()
-            await asyncio.sleep(0.1)
-
-    @routine
-    async def __flush_alert_buffer(self) -> None:
-        while True:
-            await self.__alert_write_buffer.flush()
-            await asyncio.sleep(0.1)
-
-    @routine
-    async def __flush_log_entry_write_buffer(self) -> None:
-        while True:
-            await self.__log_entry_write_buffer.flush()
+            if self.__environment is not None:
+                await self.__environment.flush()
             await asyncio.sleep(0.1)
 
     @override
     async def __stop__(self) -> None:
         self.__scheduler.stop()
         self.__scheduler = Scheduler()
-        await asyncio.gather(
-            self.__message_write_buffer.flush(),
-            self.__alert_write_buffer.flush(),
-        )
-        if self.__local_environment is not None:
-            await self.environment.database.dispose()
+        if self.__environment is not None:
+            await self.__environment.flush()
+            await self.__environment.database.dispose()
 
     @override
     async def __done__(self) -> None:
-        self.emit_event(StoppedEvent)
+        self.emit(StoppedEvent)
 
     async def __invoke(
         self,

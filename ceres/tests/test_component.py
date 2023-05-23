@@ -46,10 +46,10 @@ async def test_event_listeners() -> None:
     receiver.start()
     emitter.start()
 
-    emitter.emit_event(EmitterEvent, value=0)
-    emitter.emit_event(EmitterEvent, value=1)
-    receiver.emit_event(SelfEvent, value=0)
-    receiver.emit_event(SelfEvent, value=1)
+    emitter.emit(EmitterEvent, value=0)
+    emitter.emit(EmitterEvent, value=1)
+    receiver.emit(SelfEvent, value=0)
+    receiver.emit(SelfEvent, value=1)
 
     await receiver.settle()
     await emitter.settle()
@@ -72,8 +72,8 @@ async def test_component_alerts() -> None:
 
     component = Test()
     component.start()
-    component.emit_alert(Level.ERROR, "test-alert-1")
-    component.emit_alert(Level.ERROR, "test-alert-2")
+    component.alert(Level.ERROR, "test-alert-1")
+    component.alert(Level.ERROR, "test-alert-2")
 
     await component.settle()
     assert len(await component.environment.get_alerts()) == 2
