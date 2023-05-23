@@ -3,7 +3,6 @@ import inspect
 import traceback
 from dataclasses import field
 from functools import partial
-from logging import Logger
 from string import ascii_lowercase
 from types import MappingProxyType
 from typing import (
@@ -52,16 +51,16 @@ from ceres.errors import (
 from ceres.events import (
     AlertEmittedEvent,
     Event,
+    LogEntryWrittenEvent,
     MessageReceivedEvent,
     MessageSentEvent,
     StartedEvent,
     StoppedEvent,
 )
 from ceres.exceptions import ProcedureException
-from ceres.internal import logs
 from ceres.internal.binding import get_bindings
 from ceres.internal.database.buffer import WriteBuffer
-from ceres.internal.database.entities import AlertEntity, MessageEntity
+from ceres.internal.database.entities import AlertEntity, LogEntryEntity, MessageEntity
 from ceres.internal.events import EventProcessor
 from ceres.internal.scheduler import Scheduler
 from ceres.internal.tasklet import Tasklet
@@ -75,6 +74,7 @@ from ceres.internal.utilities import (
     traverse,
 )
 from ceres.listener import ListenerBinding
+from ceres.logs import Log, LogEntry, LogKind
 from ceres.message import Message
 from ceres.procedure import (
     ActionBinding,
@@ -181,24 +181,32 @@ class Component(ValidatedDataclass, Tasklet):
         self.__events: WriteStream[Event] = WriteStream()
         self.__scheduler = Scheduler()
         self.__referencers: WeakValueDictionary[int, Component] = WeakValueDictionary()
+        self.__log = Log(LogKind.COMPONENT, lambda: self.address)
+        self.__log.add_handler(self.__handle_log_entry)
 
         self.__message_write_buffer = WriteBuffer(
             Message,
             MessageEntity,
             lambda: self.environment,
-            self.logger,
+            self.log,
         )
         self.__alert_write_buffer = WriteBuffer(
             Alert,
             AlertEntity,
             lambda: self.environment,
-            self.logger,
+            self.log,
+        )
+        self.__log_entry_write_buffer = WriteBuffer(
+            LogEntry,
+            LogEntryEntity,
+            lambda: self.environment,
+            self.log,
         )
         self.__event_processors = [
             EventProcessor(
                 binding=binding,
                 handler=getattr(self, binding.function),
-                logger=self.logger,
+                log=self.log,
             )
             for binding in self.get_listener_bindings()
         ]
@@ -208,6 +216,9 @@ class Component(ValidatedDataclass, Tasklet):
 
     def __setup__(self) -> None:
         pass
+
+    def __handle_log_entry(self, entry: LogEntry) -> None:
+        self.emit_event(LogEntryWrittenEvent, entry=entry)
 
     def __sync_referencers(self) -> None:
         for referencer in list(self.__referencers.values()):
@@ -298,8 +309,8 @@ class Component(ValidatedDataclass, Tasklet):
         return self.__scheduler
 
     @property
-    def logger(self) -> Logger:
-        return logs.get(str(self.address))
+    def log(self) -> Log:
+        return self.__log
 
     @property
     def events(self) -> Stream[Event]:
@@ -311,6 +322,7 @@ class Component(ValidatedDataclass, Tasklet):
             all(processor.idle for processor in self.__event_processors)
             and len(self.__message_write_buffer) == 0
             and len(self.__alert_write_buffer) == 0
+            and len(self.__log_entry_write_buffer) == 0
         )
 
     async def settle(self) -> None:
@@ -319,6 +331,7 @@ class Component(ValidatedDataclass, Tasklet):
                 *(processor.wait_until_empty() for processor in self.__event_processors),
                 self.__message_write_buffer.wait_until_empty(),
                 self.__alert_write_buffer.wait_until_empty(),
+                self.__log_entry_write_buffer.wait_until_empty(),
             )
 
     def unref(self) -> Self:
@@ -370,17 +383,6 @@ class Component(ValidatedDataclass, Tasklet):
         traverse(root, visit)
         return components
 
-    def __set_emitted_event_source(self, event: Event) -> None:
-        if event.source is None:  # type: ignore
-            object.__setattr__(event, "source", self.address)
-
-        if isinstance(event, AlertEmittedEvent):
-            self.__set_emitted_alert_source(event.alert)
-
-    def __set_emitted_alert_source(self, alert: Alert) -> None:
-        if alert.source is None:  # type: ignore
-            object.__setattr__(alert, "source", self.address)
-
     def attach_to_unit(self, unit: Unit) -> None:
         if self.unit is unit:
             return
@@ -426,6 +428,8 @@ class Component(ValidatedDataclass, Tasklet):
                 self.__message_write_buffer.add(event.message)
             case AlertEmittedEvent():
                 self.__alert_write_buffer.add(event.alert)
+            case LogEntryWrittenEvent():
+                self.__log_entry_write_buffer.add(event.entry)
             case _:
                 pass
 
@@ -462,16 +466,16 @@ class Component(ValidatedDataclass, Tasklet):
         self.__scheduler.start()
 
         async def run(job: Job) -> None:
-            self.logger.info(f"Running job '{job.name}'...")
+            self.log.info(f"Running job '{job.name}'...")
             try:
                 await self.call(job.action, job.args)
             except ProcedureException as exception:
-                self.logger.error(
+                self.log.error(
                     f"An error occurred while running job '{job.name}': {strify(exception.error)}"
                 )
 
         for job in self.jobs:
-            self.logger.info(f"Scheduling job '{job.name}' on {job.schedule}.")
+            self.log.info(f"Scheduling job '{job.name}' on {job.schedule}.")
             self.schedule_job(partial(run, job), job.schedule, name=job.name)
 
     @override
@@ -496,7 +500,7 @@ class Component(ValidatedDataclass, Tasklet):
         try:
             await routine()
         except Exception:
-            self.logger.error(
+            self.log.error(
                 f"An exception occurred while running routine '{strify(binding.function)}': "
                 f"{strify(traceback.format_exc())}"
             )
@@ -515,6 +519,12 @@ class Component(ValidatedDataclass, Tasklet):
     async def __flush_alert_buffer(self) -> None:
         while True:
             await self.__alert_write_buffer.flush()
+            await asyncio.sleep(0.1)
+
+    @routine
+    async def __flush_log_entry_write_buffer(self) -> None:
+        while True:
+            await self.__log_entry_write_buffer.flush()
             await asyncio.sleep(0.1)
 
     @override
@@ -615,7 +625,7 @@ class Component(ValidatedDataclass, Tasklet):
                     yield await self.__invoke(procedure, args)
                     await asyncio.sleep(binding.poll.total_seconds())
             except Exception as exception:
-                self.logger.error(
+                self.log.error(
                     f"An exception occurred in procedure '{procedure}': {traceback.format_exc()}"
                 )
                 raise ProcedureException(
@@ -626,7 +636,7 @@ class Component(ValidatedDataclass, Tasklet):
             async for output in result:
                 yield output
         except Exception as exception:
-            self.logger.error(
+            self.log.error(
                 f"An exception occurred in procedure '{procedure}': {traceback.format_exc()}"
             )
             raise ProcedureException(

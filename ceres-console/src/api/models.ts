@@ -22,22 +22,31 @@ export const MessageModel = Zod.object({
   content: Zod.string(),
 })
 
-export type AlertLevel = Zod.infer<typeof AlertLevelModel>
-export const AlertLevelModel = Zod.enum(['debug', 'info', 'warning', 'error', 'critical'])
+export type Level = Zod.infer<typeof LevelModel>
+export const LevelModel = Zod.enum(['debug', 'info', 'warning', 'error', 'critical'])
 
 export type Alert = Zod.infer<typeof AlertModel>
 export const AlertModel = Zod.object({
   id: Zod.string(),
   source: Zod.string().transform(Address.parse),
   timestamp: DateTimeModel,
-  level: AlertLevelModel,
+  level: LevelModel,
   code: Zod.string(),
   info: Zod.record(Zod.string(), Zod.unknown()).default(() => ({})),
 })
 
+export type LogEntry = Zod.infer<typeof LogEntryModel>
+export const LogEntryModel = Zod.object({
+  id: Zod.string(),
+  source: Zod.string().transform(Address.parse),
+  timestamp: DateTimeModel,
+  level: LevelModel,
+  content: Zod.string(),
+})
+
 export type AlertLevelStatistics = Zod.infer<typeof AlertLevelStatisticsModel>
 export const AlertLevelStatisticsModel = Zod.object({
-  level: AlertLevelModel,
+  level: LevelModel,
   count: Zod.number(),
 })
 

@@ -8,6 +8,7 @@ from uuid import UUID
 
 from sqlalchemy import QueuePool, event
 from sqlalchemy.engine import Connection
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from ceres.config import DatabaseConfig, PostgresDatabaseConfig, SQLiteDatabaseConfig
@@ -110,8 +111,11 @@ class SQLiteDatabaseAdapter(DatabaseAdapter[SQLiteDatabaseConfig]):
         def close(connection: SQLiteConnection, *args: Any) -> None:
             # Run optimize every time we close a database connection.
             # https://www.sqlite.org/lang_analyze.html
-            connection.execute("PRAGMA analysis_limit = 500")
-            connection.execute("PRAGMA optimize")
+            try:
+                connection.execute("PRAGMA analysis_limit = 500")
+                connection.execute("PRAGMA optimize")
+            except OperationalError:
+                pass
 
         return engine
 

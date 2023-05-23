@@ -1,4 +1,3 @@
-from enum import Enum
 from typing import Any, Mapping
 from uuid import UUID, uuid4
 
@@ -6,50 +5,15 @@ from pydantic import Field, validator
 
 from ceres.address import Address
 from ceres.data import DateTime, ImmutableDataObject, jsonify
+from ceres.level import Level
 from ceres.timing import utc
-
-
-class AlertLevel(str, Enum):
-    DEBUG = "debug"
-    INFO = "info"
-    WARNING = "warning"
-    ERROR = "error"
-    CRITICAL = "critical"
-
-    @property
-    def priority(self) -> Any:
-        return tuple(type(self)).index(self)
-
-    def __lt__(self, __x: str) -> bool:
-        if isinstance(__x, AlertLevel):
-            return self.priority < __x.priority
-
-        return super().__lt__(__x)
-
-    def __le__(self, __x: str) -> bool:
-        if isinstance(__x, AlertLevel):
-            return self.priority <= __x.priority
-
-        return super().__le__(__x)
-
-    def __gt__(self, __x: str) -> bool:
-        if isinstance(__x, AlertLevel):
-            return self.priority > __x.priority
-
-        return super().__gt__(__x)
-
-    def __ge__(self, __x: str) -> bool:
-        if isinstance(__x, AlertLevel):
-            return self.priority >= __x.priority
-
-        return super().__ge__(__x)
 
 
 class Alert(ImmutableDataObject):
     id: UUID = Field(default_factory=uuid4)
     source: Address
     timestamp: DateTime = Field(default_factory=utc)
-    level: AlertLevel
+    level: Level
     code: str
     info: Mapping[str, Any] = Field(default_factory=dict)
 

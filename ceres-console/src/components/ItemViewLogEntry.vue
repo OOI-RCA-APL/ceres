@@ -1,12 +1,12 @@
 <script lang="ts" setup>
-import { Alert } from '@/api/models'
+import { LogEntry } from '@/api/models'
 
-const { alert } = defineProps<{
-  alert: Alert
+const { entry } = defineProps<{
+  entry: LogEntry
 }>()
 
 const levelColor = $computed(() => {
-  switch (alert.level) {
+  switch (entry.level) {
     case 'debug':
       return 'grey'
     case 'info':
@@ -22,22 +22,23 @@ const levelColor = $computed(() => {
 </script>
 
 <template>
-  <div class="row self-item-view-alert-root">
-    <div class="self-timestamp">
-      {{ alert.timestamp.format('YYYY-MM-DD HH:mm:ss.SSS') }}
-    </div>
+  <div class="row self-item-view-log-entry-root">
+    <span class="self-timestamp">
+      {{ entry.timestamp.format('YYYY-MM-DD HH:mm:ss.SSS') }}
+    </span>
     <q-chip class="self-level-chip" :color="levelColor" dense text-color="black">
       <span class="self-level-text">
-        {{ alert.level }}
+        {{ entry.level }}
       </span>
     </q-chip>
-    <div class="self-code">{{ alert.code }}</div>
-    <div class="self-info">{{ JSON.stringify(alert.info) }}</div>
+    <span class="self-content">
+      {{ JSON.stringify(entry.content) }}
+    </span>
   </div>
 </template>
 
 <style lang="scss" scoped>
-.self-item-view-alert-root {
+.self-item-view-log-entry-root {
   align-items: center;
   flex-wrap: nowrap;
   justify-items: center;
@@ -48,8 +49,8 @@ const levelColor = $computed(() => {
 .self-timestamp {
   font-family: 'Roboto Mono', monospace;
   font-size: 11px;
+  margin-right: 4px;
   white-space: nowrap;
-  margin-right: 8px;
 }
 
 .self-level-chip {
@@ -68,14 +69,7 @@ const levelColor = $computed(() => {
   width: 100%;
 }
 
-.self-code {
-  font-family: 'Roboto Mono', monospace;
-  font-size: 11px;
-  white-space: nowrap;
-  margin-right: 8px;
-}
-
-.self-info {
+.self-content {
   font-family: 'Roboto Mono', monospace;
   font-size: 11px;
   white-space: nowrap;

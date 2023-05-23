@@ -1,14 +1,15 @@
 from typing import Any, Mapping
 
-from ceres.alert import Alert, AlertLevel
+from ceres.alert import Alert
 from ceres.component import Component
 from ceres.events import AlertEmittedEvent
+from ceres.level import Level
 
 
 class Alerter(Component):
     def emit_alert(
         self,
-        level: AlertLevel,
+        level: Level,
         code: str,
         info: Mapping[str, Any] | None = None,
     ) -> Alert:

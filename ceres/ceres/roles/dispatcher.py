@@ -48,14 +48,14 @@ class Dispatcher(Component):
         try:
             alerts = await self.environment.get_alerts(query)
         except Exception:
-            self.logger.error(
+            self.log.error(
                 f"An exception occurred while reading alerts for dispatch '{dispatch.subject}': "
                 f"{traceback.format_exc()}"
             )
             return
 
         if not alerts:
-            self.logger.info(
+            self.log.info(
                 "No alerts were found that match the current filter. No notification will be "
                 "sent."
             )
@@ -63,12 +63,12 @@ class Dispatcher(Component):
 
         try:
             notification = await self.writer.write(dispatch, alerts)
-            self.logger.info(
+            self.log.info(
                 f"Sending notification '{notification.subject}' to {len(dispatch.recipients)} "
                 f"recipients referring to {len(alerts)} alerts..."
             )
         except Exception:
-            self.logger.error(
+            self.log.error(
                 f"An exception occurred while writing notification for dispatch "
                 f"'{dispatch.subject}': {traceback.format_exc()}"
             )
@@ -77,7 +77,7 @@ class Dispatcher(Component):
         try:
             await self.notifier.notify(notification, dispatch.recipients)
         except Exception:
-            self.logger.error(
+            self.log.error(
                 f"An exception occurred while sending notification to dispatch "
                 f"'{dispatch.subject}': {traceback.format_exc()}"
             )

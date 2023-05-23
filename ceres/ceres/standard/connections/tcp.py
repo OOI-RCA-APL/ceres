@@ -101,7 +101,7 @@ class TCPConnection(Connection):
             self.__stream.writer.close()
         except Exception as exception:
             if error := str(exception).strip():
-                self.logger.error(error)
+                self.log.error(error)
 
         self.__stream = None
 
@@ -151,23 +151,23 @@ class TCPConnection(Connection):
                 if not self.connected:
                     continue
 
-            self.logger.warning(f"No new message has been received in {show_td(condition.idle)}.")
+            self.log.warning(f"No new message has been received in {show_td(condition.idle)}.")
 
             disconnected = True
 
             if condition.verify is None:
-                self.logger.warning(
+                self.log.warning(
                     "No disconnect verification is set. Disconnect will happen immediately."
                 )
             else:
                 for count in range(1, condition.verify.count + 1):
-                    self.logger.warning(
+                    self.log.warning(
                         f"Running disconnect verification {count}/{condition.verify.count}..."
                     )
 
                     match condition.verify.kind:
                         case TCPDisconnectVerifyKind.RECONNECT:
-                            self.logger.warning(
+                            self.log.warning(
                                 f"Attempting to create another connection to {self.target} within "
                                 f"{show_td(condition.verify.interval)}..."
                             )
@@ -179,18 +179,18 @@ class TCPConnection(Connection):
                                     ),
                                     condition.verify.interval.total_seconds(),
                                 )
-                                self.logger.info(
+                                self.log.info(
                                     "A second connection was created and dropped successfully. A "
                                     "disconnect has not occurred."
                                 )
                                 disconnected = False
                                 break
                             except Exception:
-                                self.logger.warning("Failed to create a second connection.")
+                                self.log.warning("Failed to create a second connection.")
                                 continue
 
                 if disconnected:
-                    self.logger.error("Disconnect verified.")
+                    self.log.error("Disconnect verified.")
 
             if disconnected:
                 try:

@@ -116,6 +116,34 @@ const uis = $computed(() => components.filter((component) => component.roles.inc
         </panel>
       </panel-group>
       <panel-group
+        v-if="components.length"
+        :default-height="300"
+        :panels="components.map((current) => current.name)"
+        :persist="`units/${unit.name}/log-entry-panel-group`"
+        title="Logs"
+      >
+        <template #tabs>
+          <panel-tab
+            v-for="component in components"
+            :key="component.address.toString()"
+            :name="component.name"
+          />
+        </template>
+        <panel
+          v-for="component in components"
+          :key="component.address.toString()"
+          class="column"
+          :name="component.name"
+        >
+          <item-view
+            :address="component.address"
+            class="col-grow"
+            kind="log-entry"
+            :title="component.name"
+          />
+        </panel>
+      </panel-group>
+      <panel-group
         v-if="executors.length"
         :panels="executors.map((current) => current.name)"
         :persist="`units/${unit.name}/procedures-panel-group`"

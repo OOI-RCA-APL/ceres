@@ -14,7 +14,7 @@ from sqlalchemy.sql.roles import ExpressionElementRole
 from typing_extensions import Self, Unpack
 
 from ceres.address import Address
-from ceres.alert import Alert, AlertLevel
+from ceres.alert import Alert
 from ceres.config import DatabaseKind
 from ceres.data import (
     BytesPattern,
@@ -26,8 +26,15 @@ from ceres.data import (
     jsonify,
 )
 from ceres.database import Database
-from ceres.internal.database.entities import AlertEntity, ComponentEntity, MessageEntity
+from ceres.internal.database.entities import (
+    AlertEntity,
+    ComponentEntity,
+    LogEntryEntity,
+    MessageEntity,
+)
 from ceres.internal.utilities import ValidateByType, escape_like_expression
+from ceres.level import Level
+from ceres.logs import LogEntry
 from ceres.message import Message, MessageDirection
 from ceres.timing import utc
 
@@ -152,7 +159,7 @@ class AlertQueryArgs(TypedDict, total=False):
     within: PositiveTimeDelta | None
     after: DateTime | None
     before: DateTime | None
-    level: AlertLevel | Sequence[AlertLevel] | None
+    level: Level | Sequence[Level] | None
     code: str | Sequence[str] | None
     code_regex: StrPattern | None
     order: AlertOrder | None
@@ -167,7 +174,7 @@ class AlertQuery(Query):
     within: PositiveTimeDelta | None = None
     after: DateTime | None = None
     before: DateTime | None = None
-    level: AlertLevel | Sequence[AlertLevel] | None = None
+    level: Level | Sequence[Level] | None = None
     code: str | Sequence[str] | None = None
     code_regex: StrPattern | None = None
     order: AlertOrder | None = None
@@ -209,7 +216,7 @@ class AlertQuery(Query):
                 return False
 
         if self.level is not None:
-            if isinstance(self.level, AlertLevel):
+            if isinstance(self.level, Level):
                 if alert.level != self.level:
                     return False
             else:
@@ -231,6 +238,87 @@ class AlertQuery(Query):
         return True
 
 
+class LogEntryOrder(str, Enum):
+    OLD_TO_NEW = "old-to-new"
+    NEW_TO_OLD = "new-to-old"
+
+
+class LogEntryQueryArgs(TypedDict, total=False):
+    source: Address | Sequence[Address] | None
+    search: str | None
+    search_case_sensitive: bool
+    within: PositiveTimeDelta | None
+    after: DateTime | None
+    before: DateTime | None
+    level: Level | Sequence[Level] | None
+    prefix: str | None
+    suffix: str | None
+    regex: StrPattern | None
+    order: LogEntryOrder | None
+    limit: int | None
+    offset: int | None
+
+
+class LogEntryQuery(Query):
+    source: Address | Sequence[Address] | None = None
+    search: str | None = None
+    search_case_sensitive: bool = False
+    within: PositiveTimeDelta | None = None
+    after: DateTime | None = None
+    before: DateTime | None = None
+    level: Level | Sequence[Level] | None = None
+    prefix: str | None = None
+    suffix: str | None = None
+    regex: StrPattern | None = None
+    order: LogEntryOrder | None = None
+    limit: int | None = Field(default=None, ge=0)
+    offset: int | None = Field(default=None, ge=0)
+
+    def matches(self, entry: LogEntry) -> bool:
+        if self.source is not None:
+            if isinstance(self.source, Address):
+                if entry.source != self.source:
+                    return False
+            else:
+                if entry.source not in self.source:
+                    return False
+
+        if self.search is not None:
+            search = self.search
+            timestamp = _format_timestamp(entry.timestamp)
+            level = entry.level
+            content = entry.content
+
+            if not self.search_case_sensitive:
+                search = search.lower()
+                content = content.lower()
+
+            if not (search in timestamp or search in level or search in content):
+                return False
+
+        if self.within is not None:
+            if entry.timestamp < utc() - self.within:
+                return False
+        if self.after is not None:
+            if entry.timestamp < self.after:
+                return False
+        if self.before is not None:
+            if entry.timestamp >= self.before:
+                return False
+
+        if self.prefix is not None:
+            if not entry.content.startswith(self.prefix):
+                return False
+        if self.suffix is not None:
+            if not entry.content.endswith(self.suffix):
+                return False
+        if self.regex is not None:
+            if not self.regex.match(entry.content):
+                return False
+
+        return True
+
+
 class StatisticsQueryArgs(TypedDict, total=False):
     within: PositiveTimeDelta | None
     after: DateTime | None
@@ -244,7 +332,7 @@ class StatisticsQuery(Query):
 
 
 class AlertLevelStatistics(ImmutableDataObject):
-    level: AlertLevel
+    level: Level
     count: int = Field(ge=0)
 
 
@@ -302,10 +390,8 @@ class Environment(ValidateByType):
                 return id
 
             if id is None:
-                id = await (
-                    session.scalar(
-                        select(ComponentEntity.id).where(ComponentEntity.address == address),
-                    )
+                id = await session.scalar(
+                    select(ComponentEntity.id).where(ComponentEntity.address == address),
                 )
 
             if id is None:
@@ -499,7 +585,7 @@ class Environment(ValidateByType):
         if query.before is not None:
             statement = statement.where(AlertEntity.timestamp < query.before)
         if query.level is not None:
-            if isinstance(query.level, AlertLevel):
+            if isinstance(query.level, Level):
                 statement = statement.where(AlertEntity.level == query.level)
             else:
                 statement = statement.where(AlertEntity.level.in_(query.level))
@@ -555,6 +641,127 @@ class Environment(ValidateByType):
 
         return alerts[0] if alerts else None
 
+    async def get_log_entries(
+        self,
+        query: LogEntryQuery | None = None,
+        *,
+        where: Callable[[type[LogEntryEntity]], WhereExpression] | None = None,
+        order_by: Callable[[type[LogEntryEntity]], OrderByExpression] | None = None,
+        **kwargs: Unpack[LogEntryQueryArgs],
+    ) -> list[LogEntry]:
+        statement = select(
+            LogEntryEntity.id,
+            LogEntryEntity.kind,
+            ComponentEntity.address.label("source"),
+            LogEntryEntity.timestamp,
+            LogEntryEntity.level,
+            LogEntryEntity.content,
+        ).join(ComponentEntity)
+        if query is not None:
+            query = query.with_defaults(LogEntryQuery(**kwargs))
+        else:
+            query = LogEntryQuery(**kwargs)
+
+        if query.source is not None:
+            if isinstance(query.source, Address):
+                statement = statement.where(LogEntryEntity.source == query.source)
+            else:
+                statement = statement.where(LogEntryEntity.source.in_(query.source))
+
+        if query.search is not None:
+            pattern = "%" + escape_like_expression(query.search) + "%"
+            match self.database.kind:
+                case DatabaseKind.SQLITE:
+                    statement = statement.where(
+                        _like(
+                            _sqlite_format_timestamp(LogEntryEntity.timestamp),
+                            pattern,
+                            query.search_case_sensitive,
+                        )
+                        | _like(LogEntryEntity.level, pattern, query.search_case_sensitive)
+                        | _like(
+                            LogEntryEntity.content,
+                            pattern,
+                            query.search_case_sensitive,
+                        ),
+                    )
+                case DatabaseKind.POSTGRES:
+                    statement = statement.where(
+                        _like(
+                            _pg_format_timestamp(LogEntryEntity.timestamp),
+                            pattern,
+                            query.search_case_sensitive,
+                        )
+                        | _like(LogEntryEntity.level, pattern, query.search_case_sensitive)
+                        | _like(
+                            LogEntryEntity.content,
+                            pattern,
+                            query.search_case_sensitive,
+                        ),
+                    )
+
+        if query.within is not None:
+            statement = statement.where(LogEntryEntity.timestamp >= utc() - query.within)
+        if query.after is not None:
+            statement = statement.where(LogEntryEntity.timestamp >= query.after)
+        if query.before is not None:
+            statement = statement.where(LogEntryEntity.timestamp < query.before)
+        if query.level is not None:
+            if isinstance(query.level, Level):
+                statement = statement.where(LogEntryEntity.level == query.level)
+            else:
+                statement = statement.where(LogEntryEntity.level.in_(query.level))
+        if query.prefix is not None:
+            statement = statement.where(
+                LogEntryEntity.content.like(escape_like_expression(query.prefix) + "%"),
+            )
+        if query.suffix is not None:
+            statement = statement.where(
+                LogEntryEntity.content.like("%" + escape_like_expression(query.suffix)),
+            )
+
+        if query.order is not None:
+            match query.order:
+                case LogEntryOrder.OLD_TO_NEW:
+                    statement = statement.order_by(LogEntryEntity.timestamp)
+                case LogEntryOrder.NEW_TO_OLD:
+                    statement = statement.order_by(LogEntryEntity.timestamp.desc())
+
+        if query.limit is not None:
+            statement = statement.limit(query.limit)
+        if query.offset is not None:
+            statement = statement.offset(query.offset)
+
+        if where is not None:
+            statement = statement.where(where(LogEntryEntity))
+        if order_by is not None:
+            statement = statement.order_by(order_by(LogEntryEntity))
+
+        if query.order is None and order_by is None:
+            statement = statement.order_by(LogEntryEntity.timestamp)
+
+        async with self.__database.session() as session:
+            rows = await session.execute(statement)
+
+        return [LogEntry.construct(**row._asdict()) for row in rows]  # type: ignore
+
+    async def get_log_entry(
+        self,
+        query: LogEntryQuery | None = None,
+        *,
+        where: Callable[[type[LogEntryEntity]], WhereExpression] | None = None,
+        order_by: Callable[[type[LogEntryEntity]], OrderByExpression] | None = None,
+        **kwargs: Unpack[LogEntryQueryArgs],
+    ) -> LogEntry | None:
+        alerts = await self.get_log_entries(
+            query,
+            where=where,
+            order_by=order_by,
+            **{**kwargs, "limit": 1},
+        )
+
+        return alerts[0] if alerts else None
+
     async def get_statistics(
         self,
         query: StatisticsQuery | None = None,
@@ -591,13 +798,13 @@ class Environment(ValidateByType):
             lambda: defaultdict(int),
         )
 
-        alert_counts_by_level: defaultdict[AlertLevel, int] = defaultdict(int)
-        unit_alert_counts_by_level: defaultdict[Name, defaultdict[AlertLevel, int]] = defaultdict(
+        alert_counts_by_level: defaultdict[Level, int] = defaultdict(int)
+        unit_alert_counts_by_level: defaultdict[Name, defaultdict[Level, int]] = defaultdict(
             lambda: defaultdict(int),
         )
         component_alert_counts_by_level: defaultdict[
             Name,
-            defaultdict[Name, defaultdict[AlertLevel, int]],
+            defaultdict[Name, defaultdict[Level, int]],
         ] = defaultdict(lambda: defaultdict(lambda: defaultdict(int)))
 
         async with self.__database.session() as session:

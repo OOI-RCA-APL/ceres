@@ -20,7 +20,7 @@ else:
     import netCDF4 as nc
     from netCDF4 import Dataset
 
-from ceres.alert import AlertLevel
+from ceres.alert import Level
 from ceres.data import DateTime, ImmutableDataObject, PositiveTimeDelta
 from ceres.events import MessageReceivedEvent, MessageSentEvent
 from ceres.exceptions import ParseException
@@ -121,23 +121,23 @@ class A3Driver(Alerter):
 
     @on(MessageSentEvent, ["host.connection", "das.connection"])
     def __on_message_sent(self, event: MessageSentEvent) -> None:
-        self.logger.info(f"Sent: {event.message}")
+        self.log.info(f"Sent: {event.message}")
 
     @on(MessageReceivedEvent, ["host.connection", "das.connection"])
     def __on_message_received(self, event: MessageReceivedEvent) -> None:
-        self.logger.info(f"Received: {event.message}")
+        self.log.info(f"Received: {event.message}")
 
     async def __use_job_lock(self, priority: int, message: str | None = None) -> AsyncLock:
         await asyncio.sleep(priority * 0.1)
         if self.__job_lock.locked():
             if message is not None:
-                self.logger.info(message)
+                self.log.info(message)
             return self.__job_lock
 
         return self.__job_lock
 
     def __job_incomplete(self, message: str) -> JobIncomplete:
-        self.logger.error(message)
+        self.log.error(message)
         return JobIncomplete(message=message)
 
     @action
@@ -146,7 +146,7 @@ class A3Driver(Alerter):
             1, "Waiting for other job to finish before running science collection job..."
         ):
             transport = Transport(self.host.connection)
-            self.logger.info("Running science collection job...")
+            self.log.info("Running science collection job...")
             if not self.host.connection.connected:
                 return self.__job_incomplete(
                     "No host connection is active to run the science collection job."
@@ -197,7 +197,7 @@ class A3Driver(Alerter):
                 # TODO: Re-enable retries when we've sufficiently debugged ranging issues.
                 await transport.send(">SI")
 
-        self.logger.info("Science data collection job completed successfully.")
+        self.log.info("Science data collection job completed successfully.")
         return None
 
     @action
@@ -207,7 +207,7 @@ class A3Driver(Alerter):
                 "No host connection is active to run the configuration status collection job."
             )
 
-        self.logger.info("Running configuration status collection job...")
+        self.log.info("Running configuration status collection job...")
         async with await self.__use_job_lock(
             2,
             "Waiting for other job to finish before running configuration status collection job...",
@@ -224,7 +224,7 @@ class A3Driver(Alerter):
 
                 await self.__send_host("cs", command, b">CS")
 
-        self.logger.info("Configuration status collection job completed successfully.")
+        self.log.info("Configuration status collection job completed successfully.")
         return None
 
     @action
@@ -250,7 +250,7 @@ class A3Driver(Alerter):
 
                 await self.__send_host("vs", command, b">VS")
 
-        self.logger.info("Volatile status collection job completed successfully.")
+        self.log.info("Volatile status collection job completed successfully.")
         return None
 
     @action
@@ -264,7 +264,7 @@ class A3Driver(Alerter):
             3,
             "Waiting for other job to finish before running sync host job...",
         ):
-            self.logger.info("Running sync host job...")
+            self.log.info("Running sync host job...")
             # Wait a bit before the job starts.
             await asyncio.sleep(3)
 
@@ -292,7 +292,7 @@ class A3Driver(Alerter):
                     b">TSYNC",
                 )
 
-        self.logger.info("Sync host job completed successfully.")
+        self.log.info("Sync host job completed successfully.")
         return None
 
     async def sync_das(self) -> JobIncomplete | None:
@@ -306,19 +306,19 @@ class A3Driver(Alerter):
             5,
             "Waiting for other job to finish before running sync DAS job...",
         ):
-            self.logger.info("Running sync DAS job...")
+            self.log.info("Running sync DAS job...")
 
             # Wait a bit before the job starts.
             await asyncio.sleep(3)
 
-            self.logger.info("Stopping DAS logging temporarily...")
+            self.log.info("Stopping DAS logging temporarily...")
             # Send an '@LGEN' command with -1 as the first argument to stop all logging.
             await self.__send_das("lgen", f"@LGEN${self.das.id},?&,-1".encode(), b"%LGST")
 
             # Wait a bit before syncing time.
             await asyncio.sleep(3)
 
-            self.logger.info("Syncing DAS time...")
+            self.log.info("Syncing DAS time...")
 
             # Send a '<@STDT' command to set the current time.
             time = format_time(utc())
@@ -331,7 +331,7 @@ class A3Driver(Alerter):
             # Wait a bit before syncing the logging configuration.
             await asyncio.sleep(3)
 
-            self.logger.info("Syncing DAS logging configuration...")
+            self.log.info("Syncing DAS logging configuration...")
             # Send an '@LGBG' command to start logging 3 minutes from now. The start time must be at
             # least two minutes ahead of the current time.
             start = format_time(datetime.now(timezone.utc) + timedelta(minutes=3))
@@ -342,7 +342,7 @@ class A3Driver(Alerter):
                 b"%LGST",
             )
 
-        self.logger.info("Sync DAS job completed successfully.")
+        self.log.info("Sync DAS job completed successfully.")
         return None
 
     @action
@@ -367,7 +367,7 @@ class A3Driver(Alerter):
             7,
             "Waiting for other job to finish before running export job...",
         ):
-            self.logger.info("Running export job...")
+            self.log.info("Running export job...")
 
             day = start
 
@@ -379,7 +379,7 @@ class A3Driver(Alerter):
                     await self.export_remote_science_data(start_timestamp, end_timestamp)
                 except Exception as exception:
                     exceptions.append(exception)
-                    self.logger.error(
+                    self.log.error(
                         f"Remote science data export raised an exception: {traceback.format_exc()}"
                     )
 
@@ -387,7 +387,7 @@ class A3Driver(Alerter):
                     await self.export_local_science_data(start_timestamp, end_timestamp)
                 except Exception as exception:
                     exceptions.append(exception)
-                    self.logger.error(
+                    self.log.error(
                         f"Local science data export raised an exception: {traceback.format_exc()}"
                     )
 
@@ -397,12 +397,12 @@ class A3Driver(Alerter):
                 await self.export_aza_data()
             except Exception as exception:
                 exceptions.append(exception)
-                self.logger.error(f"AZA data export raised an exception: {traceback.format_exc()}")
+                self.log.error(f"AZA data export raised an exception: {traceback.format_exc()}")
 
         if exceptions:
             raise exceptions[0]
 
-        self.logger.info("Export job completed successfully.")
+        self.log.info("Export job completed successfully.")
         return None
 
     @action
@@ -411,7 +411,7 @@ class A3Driver(Alerter):
         start: DateTime,
         end: DateTime,
     ) -> None:
-        self.logger.info(f"Exporting remote science data for [{start.date().isoformat()}]...")
+        self.log.info(f"Exporting remote science data for [{start.date().isoformat()}]...")
         collections = await self.extract_remote_science_data_collections(start, end)
 
         if collections:
@@ -422,9 +422,9 @@ class A3Driver(Alerter):
                 )
             )
 
-            self.logger.info(f"Created: {path}")
+            self.log.info(f"Created: {path}")
         else:
-            self.logger.info(f"No remote science data to export for [{start.date().isoformat()}].")
+            self.log.info(f"No remote science data to export for [{start.date().isoformat()}].")
 
     @action
     async def extract_remote_science_data_collections(
@@ -724,7 +724,7 @@ class A3Driver(Alerter):
 
     @action
     async def export_local_science_data(self, start: datetime, end: datetime) -> None:
-        self.logger.info(f"Exporting local science data for [{start.date().isoformat()}]...")
+        self.log.info(f"Exporting local science data for [{start.date().isoformat()}]...")
         collections = await self.extract_local_science_data_collections(start, end)
 
         if collections:
@@ -735,9 +735,9 @@ class A3Driver(Alerter):
                 )
             )
 
-            self.logger.info(f"Created: {path}")
+            self.log.info(f"Created: {path}")
         else:
-            self.logger.info(f"No local science data to export for [{start.date().isoformat()}].")
+            self.log.info(f"No local science data to export for [{start.date().isoformat()}].")
 
     @action
     async def extract_local_science_data_collections(
@@ -935,12 +935,12 @@ class A3Driver(Alerter):
         return path
 
     async def export_aza_data(self) -> None:
-        self.logger.info("Exporting AZA data...")
+        self.log.info("Exporting AZA data...")
         collections = collections = await self.extract_aza_data_collections()
         if collections:
             await spawn(lambda: self.write_aza_data_collections(collections))
         else:
-            self.logger.info("No AZA data to export.")
+            self.log.info("No AZA data to export.")
 
     async def extract_aza_data_collections(self) -> list[AZACollection]:
         collections: list[AZACollection] = []
@@ -970,7 +970,7 @@ class A3Driver(Alerter):
                     elif b"AZA," in message.content:
                         asza.append(DASAZAResponse.parse(message))
                 except ParseException:
-                    self.logger.warning(f"Failed to parse AZA response: {traceback.format_exc()}")
+                    self.log.warning(f"Failed to parse AZA response: {traceback.format_exc()}")
                     continue
 
             if len(aszs) < 2 or len(asza) < 3:
@@ -1129,7 +1129,7 @@ class A3Driver(Alerter):
             with open(path, "a") as stream:
                 stream.write(f"{timestamp} {sender} {json.dumps(content)}\n")
         except Exception:
-            self.logger.error(f"Failed to write to raw log at [{path}]: {traceback.format_exc()}")
+            self.log.error(f"Failed to write to raw log at [{path}]: {traceback.format_exc()}")
 
         return path
 
@@ -1159,9 +1159,9 @@ class A3Driver(Alerter):
 
             if not response_message:
                 if is_last_retry:
-                    self.logger.warning("Reporting no response...")
+                    self.log.warning("Reporting no response...")
                     self.emit_alert(
-                        AlertLevel.ERROR,
+                        Level.ERROR,
                         f"host/no-response/{command_name}",
                         {
                             "command": command_message.content,
@@ -1171,7 +1171,7 @@ class A3Driver(Alerter):
                     )
                     return None
 
-                self.logger.warning(f"Wait for response prefix '{prefix}' timed out. Retrying...")
+                self.log.warning(f"Wait for response prefix '{prefix}' timed out. Retrying...")
                 continue
 
             content = response_message.content.strip()
@@ -1179,7 +1179,7 @@ class A3Driver(Alerter):
             if b"NO_REPLY" in content:
                 if is_last_retry:
                     self.emit_alert(
-                        AlertLevel.ERROR,
+                        Level.ERROR,
                         f"host/no-remote-response/{command_name}",
                         {
                             "command": command_message.content,
@@ -1189,14 +1189,14 @@ class A3Driver(Alerter):
                     )
                     return None
 
-                self.logger.warning("Received 'NO_REPLY' from remote unit. Retrying...")
+                self.log.warning("Received 'NO_REPLY' from remote unit. Retrying...")
                 await asyncio.sleep(3)
                 continue
 
             if b"NO_DATA" in content:
                 if is_last_retry:
                     self.emit_alert(
-                        AlertLevel.ERROR,
+                        Level.ERROR,
                         f"host/no-remote-response-data/{command_name}",
                         {
                             "command": command_message.content,
@@ -1206,14 +1206,14 @@ class A3Driver(Alerter):
                     )
                     return None
 
-                self.logger.warning("Received 'NO_DATA' from remote unit. Retrying...")
+                self.log.warning("Received 'NO_DATA' from remote unit. Retrying...")
                 await asyncio.sleep(3)
                 continue
 
             if content.endswith(b"?") or b"NONE" in content:
                 if is_last_retry:
                     self.emit_alert(
-                        AlertLevel.ERROR,
+                        Level.ERROR,
                         f"host/bad-response/{command_name}",
                         {
                             "command": command_message.content,
@@ -1223,7 +1223,7 @@ class A3Driver(Alerter):
                     )
                     return None
 
-                self.logger.warning("Received bad response from remote unit. Retrying...")
+                self.log.warning("Received bad response from remote unit. Retrying...")
                 await asyncio.sleep(3)
                 continue
 
@@ -1265,9 +1265,9 @@ class A3Driver(Alerter):
 
             if not response_message:
                 if is_last_retry:
-                    self.logger.warning("Reporting no response...")
+                    self.log.warning("Reporting no response...")
                     self.emit_alert(
-                        AlertLevel.ERROR,
+                        Level.ERROR,
                         f"das/no-response/{command_name}",
                         {
                             "command": sent,
@@ -1278,7 +1278,7 @@ class A3Driver(Alerter):
 
                     return None
 
-                self.logger.warning(f"Wait for response prefix '{prefix}' timed out. Retrying...")
+                self.log.warning(f"Wait for response prefix '{prefix}' timed out. Retrying...")
                 continue
 
             response_info = DASMessageInfo.parse(response_message)
@@ -1287,7 +1287,7 @@ class A3Driver(Alerter):
             if error_flags != 0:
                 if is_last_retry:
                     self.emit_alert(
-                        AlertLevel.ERROR,
+                        Level.ERROR,
                         f"das/bad-response/{command_name}",
                         {
                             "command": sent,
@@ -1298,7 +1298,7 @@ class A3Driver(Alerter):
 
                     return None
 
-                self.logger.warning(
+                self.log.warning(
                     f"Received bad response with error flags [{error_flags}]. Retrying..."
                 )
                 await asyncio.sleep(3)

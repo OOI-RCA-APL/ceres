@@ -3,7 +3,7 @@ from typing import Any
 
 import pytest
 
-from ceres import Alerter, AlertLevel, Component, Event, Ref, on, query
+from ceres import Alerter, Component, Event, Level, Ref, on, query
 from ceres.errors import (
     ProcedureDoesNotExistError,
     ProcedureInternalError,
@@ -72,8 +72,8 @@ async def test_component_alerts() -> None:
 
     component = Test()
     component.start()
-    component.emit_alert(AlertLevel.ERROR, "test-alert-1")
-    component.emit_alert(AlertLevel.ERROR, "test-alert-2")
+    component.emit_alert(Level.ERROR, "test-alert-1")
+    component.emit_alert(Level.ERROR, "test-alert-2")
 
     await component.settle()
     assert len(await component.environment.get_alerts()) == 2

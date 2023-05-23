@@ -1,22 +1,25 @@
 <script lang="ts" setup>
 import { Address } from '@/address'
-import { Alert, ComponentInfo, Message } from '@/api/models'
+import { Alert, ComponentInfo, LogEntry, Message } from '@/api/models'
 import {
   getAlerts,
   getComponent,
+  getLogEntries,
   getMessages,
   sendMessage,
   useAlertStream,
+  useLogEntryStream,
   useMessageStream,
 } from '@/api/operations'
 import CommandInput from '@/components/CommandInput.vue'
 import ItemViewAlert from '@/components/ItemViewAlert.vue'
+import ItemViewLogEntry from '@/components/ItemViewLogEntry.vue'
 import ItemViewMessage from '@/components/ItemViewMessage.vue'
 import SectionCard from '@/components/SectionCard.vue'
 import { QVirtualScroll, useQuasar } from 'quasar'
 import { computed, nextTick, onMounted, watch, watchEffect } from 'vue'
 
-type Item = Readonly<Alert | Message>
+type Item = Readonly<Alert | Message | LogEntry>
 
 const {
   title = undefined,
@@ -26,12 +29,31 @@ const {
   title?: string
   containerClass?: string | null
   address: Address
-  kind: 'alert' | 'message'
+  kind: 'alert' | 'message' | 'log-entry'
 }>()
 
 const quasar = useQuasar()
-const get = $computed(() => (kind === 'message' ? getMessages : getAlerts))
-const useStream = $computed(() => (kind === 'message' ? useMessageStream : useAlertStream))
+const get = $computed(() => {
+  switch (kind) {
+    case 'message':
+      return getMessages
+    case 'alert':
+      return getAlerts
+    case 'log-entry':
+      return getLogEntries
+  }
+})
+
+const useStream = $computed(() => {
+  switch (kind) {
+    case 'message':
+      return useMessageStream
+    case 'alert':
+      return useAlertStream
+    case 'log-entry':
+      return useLogEntryStream
+  }
+})
 
 const info = (await getComponent(address)) as ComponentInfo
 if (info == null) {
@@ -274,14 +296,19 @@ async function onSend(data: string) {
         :virtual-scroll-item-size="itemHeight"
         :virtual-scroll-slice-size="250"
       >
-        <item-view-message v-if="kind === 'message'" :key="item.id" :message="item" />
-        <item-view-alert v-else :key="item.id as any" :alert="item" />
+        <item-view-message v-if="kind === 'message'" :key="'m-' + item.id" :message="item" />
+        <item-view-alert v-else-if="kind === 'alert'" :key="'a-' + item.id" :alert="item" />
+        <item-view-log-entry v-else :key="'le-' + item.id" :entry="item" />
       </q-virtual-scroll>
     </div>
     <div v-else-if="!isDoingInitialLoad" class="col-grow items-center justify-center row">
       <span class="self-empty-message-text text-italic">
-        <template v-if="isShowingAll">No {{ kind }}s were found.</template>
-        <template v-else>No matching {{ kind }}s were found.</template>
+        <template v-if="isShowingAll">
+          No {{ kind.replace('log-entry', 'log entrie') }}s were found.
+        </template>
+        <template v-else>
+          No matching {{ kind.replace('log-entry', 'log entrie') }}s were found.
+        </template>
       </span>
     </div>
     <q-space v-else />

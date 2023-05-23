@@ -1,11 +1,11 @@
 import inspect
 import traceback
 from asyncio import Queue as AsyncQueue
-from logging import Logger
 from typing import Awaitable, Callable, final
 
 from ceres.events import Event
 from ceres.listener import ListenerBinding
+from ceres.logs import Log
 
 
 @final
@@ -14,7 +14,7 @@ class EventProcessor:
         "__binding",
         "__handler",
         "__handler_arity",
-        "__logger",
+        "__log",
         "__queue",
     )
 
@@ -23,12 +23,12 @@ class EventProcessor:
         *,
         binding: ListenerBinding,
         handler: Callable[[Event], None | Awaitable[None]] | Callable[[], None | Awaitable[None]],
-        logger: Logger,
+        log: Log,
     ) -> None:
         self.__binding = binding
         self.__handler = handler
         self.__handler_arity = len(inspect.signature(self.__handler).parameters)
-        self.__logger = logger
+        self.__log = log
         self.__queue: AsyncQueue[Event] = AsyncQueue()
 
     @property
@@ -56,7 +56,7 @@ class EventProcessor:
                 if inspect.iscoroutine(result):
                     await result
             except Exception:
-                self.__logger.error(
+                self.__log.error(
                     f"An exception occurred while processing event {event}: "
                     f"{traceback.format_exc()}"
                 )
