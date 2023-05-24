@@ -124,7 +124,7 @@ class CrabeeDriver(Alerter, UI, Component):
     @routine
     async def __fetch_last_data_message(self) -> None:
         if messages := await self.environment.get_messages(
-            source=self.connection.address,
+            address=self.connection.address,
             order=MessageOrder.NEW_TO_OLD,
             limit=1,
         ):

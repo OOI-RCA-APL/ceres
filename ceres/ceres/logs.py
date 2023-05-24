@@ -14,7 +14,7 @@ from ceres.timing import utc
 
 class LogEntry(ImmutableDataObject):
     id: UUID = Field(default_factory=uuid4)
-    source: Address
+    address: Address
     timestamp: DateTime = Field(default_factory=utc)
     level: Level
     content: str
@@ -60,7 +60,7 @@ class Log:
         self.base.log(logging.getLevelName(level.value.upper()), content)
 
         entry = LogEntry(
-            source=self.address,
+            address=self.address,
             level=level,
             content=content,
         )

@@ -143,7 +143,7 @@ class Connection(Component, ABC):
             raise
 
         message = Message(
-            source=self.address,
+            address=self.address,
             direction=MessageDirection.SEND,
             content=data,
         )
@@ -161,7 +161,7 @@ class Connection(Component, ABC):
             raise
 
         message = Message(
-            source=self.address,
+            address=self.address,
             direction=MessageDirection.RECEIVE,
             content=data,
         )

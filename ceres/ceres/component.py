@@ -471,7 +471,7 @@ class Component(ValidatedDataclass, Tasklet):
     async def __run__(self) -> None:
         if self.infer_environment() is None:
             await self.environment.database.init()
-            await self.environment.assign_address_id(self.address)
+            await self.environment.assign_component_id(self.address)
 
         self.__start_scheduler()
         self.emit(StartedEvent)

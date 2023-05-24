@@ -16,7 +16,7 @@ export const MessageDirectionModel = Zod.enum(['send', 'receive'])
 export type Message = Zod.infer<typeof MessageModel>
 export const MessageModel = Zod.object({
   id: Zod.string(),
-  source: Zod.string().transform(Address.parse),
+  address: Zod.string().transform(Address.parse),
   timestamp: DateTimeModel,
   direction: MessageDirectionModel,
   content: Zod.string(),
@@ -28,7 +28,7 @@ export const LevelModel = Zod.enum(['debug', 'info', 'warning', 'error', 'critic
 export type Alert = Zod.infer<typeof AlertModel>
 export const AlertModel = Zod.object({
   id: Zod.string(),
-  source: Zod.string().transform(Address.parse),
+  address: Zod.string().transform(Address.parse),
   timestamp: DateTimeModel,
   level: LevelModel,
   code: Zod.string(),
@@ -38,7 +38,7 @@ export const AlertModel = Zod.object({
 export type LogEntry = Zod.infer<typeof LogEntryModel>
 export const LogEntryModel = Zod.object({
   id: Zod.string(),
-  source: Zod.string().transform(Address.parse),
+  address: Zod.string().transform(Address.parse),
   timestamp: DateTimeModel,
   level: LevelModel,
   content: Zod.string(),

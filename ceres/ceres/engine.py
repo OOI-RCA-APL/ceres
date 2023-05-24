@@ -233,7 +233,7 @@ class Engine(Component):
                 continue
 
             address = unit.address / config.name
-            id = await self.environment.assign_address_id(address)
+            id = await self.environment.assign_component_id(address)
 
             try:
                 component = config.load(

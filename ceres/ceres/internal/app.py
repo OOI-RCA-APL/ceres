@@ -145,7 +145,7 @@ async def reload(
 
 
 class GetMessagesQueryParameters(MessageQuery):
-    source: Address | None = None
+    address: Address | None = None
     limit: int = Field(default=100, ge=0, le=1000)
     offset: int = Field(default=0, ge=0)
 
@@ -159,7 +159,7 @@ async def get_messages(
 
 
 class GetAlertsQueryParameters(AlertQuery):
-    source: Address | None = None
+    address: Address | None = None
     level: Level | None = None
     code: str | None = None
     limit: int = Field(default=100, ge=0, le=1000)
@@ -175,7 +175,7 @@ async def get_alerts(
 
 
 class GetLogEntriesQueryParameters(LogEntryQuery):
-    source: Address | None = None
+    address: Address | None = None
     level: Level | None = None
     limit: int = Field(default=100, ge=0, le=1000)
     offset: int = Field(default=0, ge=0)
@@ -205,13 +205,13 @@ async def get_statistics(
 async def message_stream(
     socket: WebSocket,
     engine: CurrentEngine,
-    source: Address | None = None,
+    address: Address | None = None,
     search: str | None = None,
 ) -> None:
     try:
         await socket.accept()
 
-        query = MessageQuery(source=source, search=search)
+        query = MessageQuery(address=address, search=search)
         async for event in engine.events.of(MessageSentEvent | MessageReceivedEvent):
             if query.matches(event.message):
                 await socket.send_text(jsonify(event.message))
@@ -223,13 +223,13 @@ async def message_stream(
 async def alert_stream(
     socket: WebSocket,
     engine: CurrentEngine,
-    source: Address | None = None,
+    address: Address | None = None,
     search: str | None = None,
 ) -> None:
     try:
         await socket.accept()
 
-        query = AlertQuery(source=source, search=search)
+        query = AlertQuery(address=address, search=search)
         async for event in engine.events.of(AlertEvent):
             if query.matches(event.alert):
                 await socket.send_text(jsonify(event))
@@ -241,13 +241,13 @@ async def alert_stream(
 async def log_entry_stream(
     socket: WebSocket,
     engine: CurrentEngine,
-    source: Address | None = None,
+    address: Address | None = None,
     search: str | None = None,
 ) -> None:
     try:
         await socket.accept()
 
-        query = LogEntryQuery(source=source, search=search)
+        query = LogEntryQuery(address=address, search=search)
         async for event in engine.events.of(LogEvent):
             if query.matches(event.entry):
                 await socket.send_text(jsonify(event.entry))

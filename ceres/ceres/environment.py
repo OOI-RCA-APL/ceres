@@ -35,7 +35,7 @@ from ceres.internal.database.entities import (
     LogEntryEntity,
     MessageEntity,
 )
-from ceres.internal.utilities import ValidateByType, escape_like_expression
+from ceres.internal.utilities import ValidateByType, chunkify, dictify, escape_like_expression
 from ceres.level import Level
 from ceres.logs import LogEntry
 from ceres.message import Message, MessageDirection
@@ -71,7 +71,7 @@ class Query(ImmutableDataObject):
 
 
 class MessageQueryArgs(TypedDict, total=False):
-    source: Address | Sequence[Address] | None
+    address: Address | Sequence[Address] | None
     search: str | None
     search_case_sensitive: bool
     within: PositiveTimeDelta | None
@@ -87,7 +87,7 @@ class MessageQueryArgs(TypedDict, total=False):
 
 
 class MessageQuery(Query):
-    source: Address | Sequence[Address] | None = None
+    address: Address | Sequence[Address] | None = None
     search: str | None = None
     search_case_sensitive: bool = False
     within: PositiveTimeDelta | None = None
@@ -102,12 +102,12 @@ class MessageQuery(Query):
     offset: int | None = Field(default=None, ge=0)
 
     def matches(self, message: Message) -> bool:
-        if self.source is not None:
-            if isinstance(self.source, Address):
-                if message.source != self.source:
+        if self.address is not None:
+            if isinstance(self.address, Address):
+                if message.address != self.address:
                     return False
             else:
-                if message.source not in self.source:
+                if message.address not in self.address:
                     return False
 
         if self.search is not None:
@@ -156,7 +156,7 @@ class AlertOrder(str, Enum):
 
 
 class AlertQueryArgs(TypedDict, total=False):
-    source: Address | Sequence[Address] | None
+    address: Address | Sequence[Address] | None
     search: str | None
     search_case_sensitive: bool
     within: PositiveTimeDelta | None
@@ -171,7 +171,7 @@ class AlertQueryArgs(TypedDict, total=False):
 
 
 class AlertQuery(Query):
-    source: Address | Sequence[Address] | None = None
+    address: Address | Sequence[Address] | None = None
     search: str | None = None
     search_case_sensitive: bool = False
     within: PositiveTimeDelta | None = None
@@ -185,12 +185,12 @@ class AlertQuery(Query):
     offset: int | None = Field(default=None, ge=0)
 
     def matches(self, alert: Alert) -> bool:
-        if self.source is not None:
-            if isinstance(self.source, Address):
-                if alert.source != self.source:
+        if self.address is not None:
+            if isinstance(self.address, Address):
+                if alert.address != self.address:
                     return False
             else:
-                if alert.source not in self.source:
+                if alert.address not in self.address:
                     return False
 
         if self.search is not None:
@@ -247,7 +247,7 @@ class LogEntryOrder(str, Enum):
 
 
 class LogEntryQueryArgs(TypedDict, total=False):
-    source: Address | Sequence[Address] | None
+    address: Address | Sequence[Address] | None
     search: str | None
     search_case_sensitive: bool
     within: PositiveTimeDelta | None
@@ -263,7 +263,7 @@ class LogEntryQueryArgs(TypedDict, total=False):
 
 
 class LogEntryQuery(Query):
-    source: Address | Sequence[Address] | None = None
+    address: Address | Sequence[Address] | None = None
     search: str | None = None
     search_case_sensitive: bool = False
     within: PositiveTimeDelta | None = None
@@ -278,12 +278,12 @@ class LogEntryQuery(Query):
     offset: int | None = Field(default=None, ge=0)
 
     def matches(self, entry: LogEntry) -> bool:
-        if self.source is not None:
-            if isinstance(self.source, Address):
-                if entry.source != self.source:
+        if self.address is not None:
+            if isinstance(self.address, Address):
+                if entry.address != self.address:
                     return False
             else:
-                if entry.source not in self.source:
+                if entry.address not in self.address:
                     return False
 
         if self.search is not None:
@@ -346,6 +346,7 @@ class AlertStatistics(ImmutableDataObject):
 
 class ComponentStatistics(ImmutableDataObject):
     alerts: AlertStatistics
+    children: Mapping[Name, "ComponentStatistics"] = Field(default_factory=dict)
 
 
 class UnitStatistics(ImmutableDataObject):
@@ -387,7 +388,7 @@ class Environment(ValidateByType):
     def settled(self) -> bool:
         return self.__settled.is_set()
 
-    async def assign_address_id(
+    async def assign_component_id(
         self,
         address: Address,
         default: UUID | None = None,
@@ -410,10 +411,7 @@ class Environment(ValidateByType):
 
             if id is None:
                 id = default or uuid4()
-                component = ComponentEntity(
-                    id=id,
-                    address=address,
-                )
+                component = ComponentEntity(id=id, address=address)
 
                 session.add(component)
                 await session.commit()
@@ -444,30 +442,36 @@ class Environment(ValidateByType):
                 match self.database.kind:
                     case DatabaseKind.SQLITE:
                         from sqlalchemy.dialects.sqlite import insert
+
+                        chunk_size = 500
+
                     case DatabaseKind.POSTGRES:
                         from sqlalchemy.dialects.postgresql import insert  # noqa
 
-                values: list[dict[str, Any]] = []
+                        chunk_size = 1000
+
                 for model_cls, models in groupby(buffer, type):
-                    match model_cls:
-                        case Message():
-                            entity_cls = MessageEntity
-                        case Alert():
-                            entity_cls = AlertEntity
-                        case LogEntry():
-                            entity_cls = LogEntryEntity
-                        case _:
-                            continue
+                    if issubclass(model_cls, Message):
+                        entity_cls = MessageEntity
+                    elif issubclass(model_cls, Alert):
+                        entity_cls = AlertEntity
+                    elif issubclass(model_cls, LogEntry):
+                        entity_cls = LogEntryEntity
+                    else:
+                        continue
 
-                    for model in models:
-                        data = model.dict()
-                        data.pop("source", None)
-                        data["source_id"] = await self.assign_address_id(model.source)
-                        values.append(data)
+                    for chunk in chunkify(models, chunk_size):
+                        values: list[dict[str, Any]] = []
 
-                    await session.execute(
-                        insert(entity_cls).values(values).on_conflict_do_nothing()
-                    )
+                        for model in chunk:
+                            data = dictify(model)
+                            data.pop("address", None)
+                            data["component_id"] = await self.assign_component_id(model.address)
+                            values.append(data)
+
+                        await session.execute(
+                            insert(entity_cls).values(values).on_conflict_do_nothing()
+                        )
 
                 await session.commit()
         except Exception:
@@ -500,11 +504,11 @@ class Environment(ValidateByType):
         else:
             query = MessageQuery(**kwargs)
 
-        if query.source is not None:
-            if isinstance(query.source, Address):
-                statement = statement.where(MessageEntity.source == query.source)
+        if query.address is not None:
+            if isinstance(query.address, Address):
+                statement = statement.where(MessageEntity.address == query.address)
             else:
-                statement = statement.where(MessageEntity.source.in_(query.source))
+                statement = statement.where(MessageEntity.address.in_(query.address))
 
         if query.search is not None:
             pattern = "%" + escape_like_expression(query.search) + "%"
@@ -619,11 +623,11 @@ class Environment(ValidateByType):
         else:
             query = AlertQuery(**kwargs)
 
-        if query.source is not None:
-            if isinstance(query.source, Address):
-                statement = statement.where(AlertEntity.source == query.source)
+        if query.address is not None:
+            if isinstance(query.address, Address):
+                statement = statement.where(AlertEntity.address == query.address)
             else:
-                statement = statement.where(AlertEntity.source.in_(query.source))
+                statement = statement.where(AlertEntity.address.in_(query.address))
 
         if query.search is not None:
             pattern = "%" + escape_like_expression(query.search) + "%"
@@ -734,11 +738,11 @@ class Environment(ValidateByType):
         else:
             query = LogEntryQuery(**kwargs)
 
-        if query.source is not None:
-            if isinstance(query.source, Address):
-                statement = statement.where(LogEntryEntity.source == query.source)
+        if query.address is not None:
+            if isinstance(query.address, Address):
+                statement = statement.where(LogEntryEntity.address == query.address)
             else:
-                statement = statement.where(LogEntryEntity.source.in_(query.source))
+                statement = statement.where(LogEntryEntity.address.in_(query.address))
 
         if query.search is not None:
             pattern = "%" + escape_like_expression(query.search) + "%"
@@ -840,16 +844,9 @@ class Environment(ValidateByType):
         **kwargs: Unpack[StatisticsQueryArgs],
     ) -> Statistics:
         statement = (
-            select(
-                ComponentEntity.address.label("source"),
-                AlertEntity.level,
-                func.count("*").label("count"),
-            )
+            select(ComponentEntity.address, AlertEntity.level, func.count("*").label("count"))
             .join(ComponentEntity)
-            .group_by(
-                ComponentEntity.address.label("source"),
-                AlertEntity.level,
-            )
+            .group_by(ComponentEntity.address, AlertEntity.level)
         )
 
         if query is not None:

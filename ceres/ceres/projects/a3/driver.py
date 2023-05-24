@@ -439,7 +439,7 @@ class A3Driver(Alerter):
             return collections
 
         initiators = await self.environment.get_messages(
-            source=self.host.connection.address,
+            address=self.host.connection.address,
             after=start,
             before=end,
             direction=MessageDirection.SEND,
@@ -449,7 +449,7 @@ class A3Driver(Alerter):
         for initiator in initiators:
             # Try to find a second SENS command shortly after the first.
             second = await self.environment.get_message(
-                source=self.host.connection.address,
+                address=self.host.connection.address,
                 after=initiator.timestamp,
                 before=initiator.timestamp + timedelta(minutes=1),
                 direction=MessageDirection.SEND,
@@ -461,7 +461,7 @@ class A3Driver(Alerter):
                 continue
 
             sens_response_messages = await self.environment.get_messages(
-                source=self.host.connection.address,
+                address=self.host.connection.address,
                 after=initiator.timestamp,
                 before=initiator.timestamp + timedelta(minutes=10),
                 direction=MessageDirection.RECEIVE,
@@ -469,7 +469,7 @@ class A3Driver(Alerter):
             )
 
             si_response_messages = await self.environment.get_messages(
-                source=self.host.connection.address,
+                address=self.host.connection.address,
                 after=initiator.timestamp,
                 before=initiator.timestamp + timedelta(minutes=10),
                 direction=MessageDirection.RECEIVE,
@@ -491,7 +491,7 @@ class A3Driver(Alerter):
 
             for address in addresses:
                 cs_response_message = await self.environment.get_message(
-                    source=self.host.connection.address,
+                    address=self.host.connection.address,
                     before=initiator.timestamp,
                     direction=MessageDirection.RECEIVE,
                     prefix=f">CS:{address}".encode(),
@@ -748,7 +748,7 @@ class A3Driver(Alerter):
         collections: list[LocalScienceDataCollection] = []
 
         messages = await self.environment.get_messages(
-            source=self.das.connection.address,
+            address=self.das.connection.address,
             after=start,
             before=end,
             direction=MessageDirection.RECEIVE,
@@ -946,7 +946,7 @@ class A3Driver(Alerter):
         collections: list[AZACollection] = []
 
         commands = await self.environment.get_messages(
-            source=self.das.connection.address,
+            address=self.das.connection.address,
             direction=MessageDirection.SEND,
             prefix=b"@AZAC",
             suffix=b",4\r\n",
@@ -954,7 +954,7 @@ class A3Driver(Alerter):
 
         for command in commands:
             messages = await self.environment.get_messages(
-                source=self.das.connection.address,
+                address=self.das.connection.address,
                 after=command.timestamp,
                 before=command.timestamp + timedelta(minutes=10),
                 regex=re.compile(b"^%[0-9]+,AZ[S,A],.*$"),
@@ -1115,7 +1115,7 @@ class A3Driver(Alerter):
         date = now.date()
 
         directory = f"/data/raw/{date.year}/{date.month}"
-        extension = ".host.txt" if message.source == self.host.connection.address else ".das.txt"
+        extension = ".host.txt" if message.address == self.host.connection.address else ".das.txt"
         path = f"{directory}/{date.isoformat()}{extension}"
 
         # Create any necessary directories.

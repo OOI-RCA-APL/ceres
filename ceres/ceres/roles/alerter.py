@@ -14,7 +14,7 @@ class Alerter(Component):
         info: Mapping[str, Any] | None = None,
     ) -> Alert:
         alert = Alert(
-            source=self.address,
+            address=self.address,
             level=level,
             code=code,
             info=info if info is not None else {},
