@@ -220,6 +220,10 @@ class ClassPath:
     def __get_validators__(cls):
         yield cls
 
+    @classmethod
+    def __modify_schema__(cls, field_schema: dict[str, Any]):
+        field_schema.update(type="string")
+
 
 if TYPE_CHECKING:
     Name = str

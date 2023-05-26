@@ -1,6 +1,6 @@
 <script lang="ts" setup>
-import { getUnit } from '@/api/operations'
-import AlertsIndicator from '@/components/AlertsIndicator.vue'
+import { Address } from '@/address'
+import { getComponent } from '@/api/operations'
 import ComponentProcedures from '@/components/ComponentProcedures.vue'
 import FullPage from '@/components/FullPage.vue'
 import ItemView from '@/components/ItemView.vue'
@@ -11,30 +11,27 @@ import PanelTab from '@/components/PanelTab.vue'
 import { computed } from 'vue'
 import { useQuery } from 'vue-query'
 
-const { name = null } = defineProps<{
-  name?: string | null
+const { address = null } = defineProps<{
+  address?: Address | null
 }>()
 
-const query = useQuery(['getUnit', computed(() => name)], async () =>
-  name == null ? null : await getUnit(name)
+const query = useQuery(['getComponent', computed(() => address)], async () =>
+  address == null ? null : await getComponent(address)
 )
 await query.suspense()
+console.log(JSON.stringify(query.data.value))
 
-const unit = $computed(() => query.data?.value ?? null)
+const component = $computed(() => query.data?.value ?? null)
 
 const title = $computed(() => {
-  if (name == null) {
-    return 'No unit is selected.'
+  if (address == null) {
+    return 'No component selected.'
   }
 
-  if (unit == null) {
-    return `Unit "${name}" does not exist.`
-  }
-
-  return name
+  return String(address)
 })
 
-const components = $computed(() => unit?.components ?? [])
+const components = $computed(() => component?.components ?? [])
 const connections = $computed(() =>
   components.filter((component) => component.roles.includes('connection'))
 )
@@ -50,12 +47,12 @@ const uis = $computed(() => components.filter((component) => component.roles.inc
     <div v-if="components.length === 0" class="q-pa-md">
       <q-chip>No configuration found.</q-chip>
     </div>
-    <div v-else-if="unit">
+    <div v-else-if="component">
       <panel-group
         v-if="connections.length"
         :default-height="300"
         :panels="connections.map((current) => current.name)"
-        :persist="`units/${unit.name}/messages-panel-group`"
+        :persist="`components/${component.address}/messages-panel-group`"
         title="Messages"
       >
         <template #tabs>
@@ -83,7 +80,7 @@ const uis = $computed(() => components.filter((component) => component.roles.inc
         v-if="alerters.length"
         :default-height="300"
         :panels="alerters.map((current) => current.name)"
-        :persist="`units/${unit.name}/alert-panel-group`"
+        :persist="`components/${component.address}/alert-panel-group`"
         title="Alerts"
       >
         <template #tabs>
@@ -93,11 +90,11 @@ const uis = $computed(() => components.filter((component) => component.roles.inc
             :name="alerter.name"
           >
             <template #append>
-              <alerts-indicator
+              <!-- <alerts-indicator
                 :component-name="alerter.name"
                 :title="alerter.name"
                 :unit-name="unit.name"
-              />
+              /> -->
             </template>
           </panel-tab>
         </template>
@@ -119,7 +116,7 @@ const uis = $computed(() => components.filter((component) => component.roles.inc
         v-if="components.length"
         :default-height="300"
         :panels="components.map((current) => current.name)"
-        :persist="`units/${unit.name}/log-entry-panel-group`"
+        :persist="`components/${component.address}/log-entry-panel-group`"
         title="Logs"
       >
         <template #tabs>
@@ -146,7 +143,7 @@ const uis = $computed(() => components.filter((component) => component.roles.inc
       <panel-group
         v-if="executors.length"
         :panels="executors.map((current) => current.name)"
-        :persist="`units/${unit.name}/procedures-panel-group`"
+        :persist="`components/${component.address}/procedures-panel-group`"
         title="Procedures"
       >
         <template #tabs>
@@ -170,7 +167,7 @@ const uis = $computed(() => components.filter((component) => component.roles.inc
       <panel-group
         v-if="uis.length"
         :panels="uis.map((current) => current.name)"
-        :persist="`units/${unit.name}/displays-panel-group`"
+        :persist="`components/${component.address}/displays-panel-group`"
         title="UI"
       >
         <template #tabs>

@@ -123,8 +123,7 @@ class CrabeeDriver(Alerter, UI, Component):
 
     @routine
     async def __fetch_last_data_message(self) -> None:
-        if messages := await self.environment.get_messages(
-            address=self.connection.address,
+        if messages := await self.connection.get_messages(
             order=MessageOrder.NEW_TO_OLD,
             limit=1,
         ):
@@ -464,7 +463,7 @@ class CrabeeDriver(Alerter, UI, Component):
     async def __get_data_message_history(self, *, cutoff: datetime) -> list[DataMessage]:
         parsed: list[DataMessage] = []
         messages = reversed(
-            await self.environment.get_messages(
+            await self.connection.get_messages(
                 after=cutoff,
                 order=MessageOrder.NEW_TO_OLD,
             )

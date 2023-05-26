@@ -6,7 +6,7 @@ import anyio
 from pydantic.fields import Undefined, UndefinedType
 from typing_extensions import Unpack, overload
 
-from ceres.environment import MessageQuery, MessageQueryArgs
+from ceres.component import MessageQuery, MessageQueryArgs
 from ceres.internal.utilities import BytesLike, bytes_of
 from ceres.message import Message
 from ceres.roles.connection import Connection

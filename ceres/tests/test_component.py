@@ -76,7 +76,7 @@ async def test_component_alerts() -> None:
     component.alert(Level.ERROR, "test-alert-2")
 
     await component.settle()
-    assert len(await component.environment.get_alerts()) == 2
+    assert len(await component.get_alerts()) == 2
     await component.stop()
 
 

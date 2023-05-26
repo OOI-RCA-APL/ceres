@@ -36,8 +36,10 @@ class Address(str):
 
     @property
     def head(self) -> Name | None:
-        if not self or "." not in self:
+        if not self:
             return None
+        if "." not in self:
+            return self
 
         return self[: self.index(".")] or None
 
@@ -64,3 +66,6 @@ class Address(str):
 
     def __truediv__(self, other: str) -> Self:
         return Address(f"{self}{'.' if self else ''}{other.strip('.')}")
+
+    def contains(self, other: Self) -> bool:
+        return not self or self == other or other.startswith(f"{self}.")

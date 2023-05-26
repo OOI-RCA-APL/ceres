@@ -7,7 +7,7 @@ server:
 database:
   kind: sqlite
   path: ./data/database.sqlite
-units:
+components:
   - name: a3
     components:
       - name: simulator

@@ -4,9 +4,8 @@ from dataclasses import field
 from typing import Sequence
 
 from ceres.alert import Alert
-from ceres.component import Component
+from ceres.component import AlertOrder, AlertQuery, Component
 from ceres.data import ImmutableDataObject, NonBlankStr
-from ceres.environment import AlertOrder, AlertQuery
 from ceres.loaded import Loaded
 from ceres.procedure import action
 from ceres.ref import Ref
@@ -46,7 +45,7 @@ class Dispatcher(Component):
         )
 
         try:
-            alerts = await self.environment.get_alerts(query)
+            alerts = await self.root.get_alerts(query)
         except Exception:
             self.log.error(
                 f"An exception occurred while reading alerts for dispatch '{dispatch.subject}': "

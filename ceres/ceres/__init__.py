@@ -1,7 +1,13 @@
 from ceres.address import Address as Address
 from ceres.alert import Alert as Alert
+from ceres.component import AlertOrder as AlertOrder
+from ceres.component import AlertQuery as AlertQuery
 from ceres.component import Component as Component
+from ceres.component import MessageOrder as MessageOrder
+from ceres.component import MessageQuery as MessageQuery
+from ceres.component import Query as Query
 from ceres.config import Config as Config
+from ceres.config import ConfigCheckKind as ConfigCheckKind
 from ceres.config import DatabaseKind as DatabaseKind
 from ceres.data import DataObject as DataObject
 from ceres.data import ImmutableDataObject as ImmutableDataObject
@@ -12,12 +18,6 @@ from ceres.database import Database as Database
 from ceres.database import DatabaseAdapter as DatabaseAdapter
 from ceres.directory import Directory as Directory
 from ceres.engine import Engine as Engine
-from ceres.environment import AlertOrder as AlertOrder
-from ceres.environment import AlertQuery as AlertQuery
-from ceres.environment import Environment as Environment
-from ceres.environment import MessageOrder as MessageOrder
-from ceres.environment import MessageQuery as MessageQuery
-from ceres.environment import Query as Query
 from ceres.events import Event as Event
 from ceres.events import StandardEvent as StandardEvent
 from ceres.events import StandardEventKind as StandardEventKind
@@ -55,4 +55,3 @@ from ceres.stream import StreamReader as StreamReader
 from ceres.stream import WriteStream as WriteStream
 from ceres.threading import spawn as spawn
 from ceres.timing import utc as utc
-from ceres.unit import Unit as Unit

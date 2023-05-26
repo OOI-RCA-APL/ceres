@@ -1,0 +1,77 @@
+<script lang="ts" setup>
+import { Address } from '@/address'
+import { ComponentConfig, Config } from '@/api/models'
+import { useDrawer } from '@/drawer'
+import icons from '@/icons'
+
+const { address, config } = defineProps<{
+  address: Address
+  config: Config | ComponentConfig
+}>()
+
+const drawer = useDrawer()
+const isExpanded = $computed(
+  () => !drawer.collapsedComponents.some((current) => current.equals(address))
+)
+const isLeaf = $computed(() => config.components.length === 0)
+
+function toggleExpanded() {
+  if (isExpanded) {
+    drawer.collapsedComponents = [...drawer.collapsedComponents, address]
+  } else {
+    drawer.collapsedComponents = drawer.collapsedComponents.filter(
+      (current) => !current.equals(address)
+    )
+  }
+}
+
+console.log(address, address.depth)
+</script>
+
+<template>
+  <q-item
+    :class="[$style.root, 'items-center', 'row']"
+    clickable
+    dense
+    :to="`/components/${address}`"
+  >
+    <div
+      :class="[$style.iconContainer, 'items-center', 'justify-center', 'row']"
+      :style="{ marginLeft: `${8 * address.depth}px` }"
+    >
+      <q-icon v-if="isLeaf" :name="icons.circle" size="8px" />
+      <q-btn
+        v-else
+        class="q-mr-sm"
+        flat
+        :icon="isExpanded ? icons.arrowDown : icons.arrowRight"
+        round
+        size="sm"
+        @click.stop.prevent="toggleExpanded"
+      />
+    </div>
+    <q-item-section no-wrap>
+      <q-item-label class="q-ml-md text-no-wrap">{{ config.name || 'Components' }}</q-item-label>
+    </q-item-section>
+    <q-item-section side>
+      <!-- <alerts-indicator :unit-name="config.name" /> -->
+    </q-item-section>
+  </q-item>
+  <div v-if="!isLeaf && isExpanded">
+    <app-layout-drawer-component
+      v-for="child in config.components"
+      :key="child.name"
+      :address="address.concat(child.name)"
+      :config="child"
+    />
+  </div>
+</template>
+
+<style module>
+.root {
+  min-height: 38px;
+}
+.iconContainer {
+  min-width: 40px;
+}
+</style>

@@ -23,17 +23,16 @@ from websockets.exceptions import ConnectionClosed
 
 from ceres.address import Address
 from ceres.alert import Alert, Level
-from ceres.component import Component
-from ceres.config import ComponentConfig, Config, UnitConfig
-from ceres.data import ImmutableDataObject, Name, jsonify
-from ceres.environment import (
+from ceres.component import (
     AlertQuery,
-    Environment,
+    Component,
     LogEntryQuery,
     MessageQuery,
     Statistics,
     StatisticsQuery,
 )
+from ceres.config import ComponentConfig, Config
+from ceres.data import ImmutableDataObject, Name, jsonify
 from ceres.errors import (
     ProcedureComponentDoesNotExistError,
     ProcedureError,
@@ -97,16 +96,13 @@ def _get_component_roles(component: Component | type[Component]) -> Sequence[Com
 class ComponentInfo(ImmutableDataObject):
     name: Name
     address: Address
+    components: Sequence["ComponentInfo"]
     config: ComponentConfig
     roles: Sequence[ComponentRole]
     procedures: Sequence[ProcedureBinding]
 
 
-class UnitInfo(ImmutableDataObject):
-    name: str
-    config: UnitConfig
-    components: Sequence[ComponentInfo]
-
+ComponentInfo.update_forward_refs()
 
 api = APIRouter()
 
@@ -117,13 +113,6 @@ def _get_current_engine(connection: HTTPConnection) -> Engine:
 
 
 CurrentEngine = Annotated[Engine, Depends(_get_current_engine)]
-
-
-def _get_current_environment(connection: HTTPConnection) -> Environment:
-    return _get_current_engine(connection).environment
-
-
-CurrentEnvironment = Annotated[Environment, Depends(_get_current_environment)]
 
 
 @api.get("/config", tags=["engine"])
@@ -153,9 +142,9 @@ class GetMessagesQueryParameters(MessageQuery):
 @api.get("/messages", tags=["data"])
 async def get_messages(
     query: Annotated[GetMessagesQueryParameters, Depends()],
-    environment: CurrentEnvironment,
+    engine: CurrentEngine,
 ) -> list[Message]:
-    return await environment.get_messages(query)
+    return await engine.get_messages(query)
 
 
 class GetAlertsQueryParameters(AlertQuery):
@@ -168,10 +157,10 @@ class GetAlertsQueryParameters(AlertQuery):
 
 @api.get("/alerts", tags=["data"])
 async def get_alerts(
-    environment: CurrentEnvironment,
+    engine: CurrentEngine,
     query: Annotated[GetAlertsQueryParameters, Depends()],
 ) -> list[Alert]:
-    return await environment.get_alerts(query)
+    return await engine.get_alerts(query)
 
 
 class GetLogEntriesQueryParameters(LogEntryQuery):
@@ -183,10 +172,10 @@ class GetLogEntriesQueryParameters(LogEntryQuery):
 
 @api.get("/log-entries", tags=["data"])
 async def get_log_entries(
-    environment: CurrentEnvironment,
+    engine: CurrentEngine,
     query: Annotated[GetLogEntriesQueryParameters, Depends()],
 ) -> list[LogEntry]:
-    return await environment.get_log_entries(query)
+    return await engine.get_log_entries(query)
 
 
 class GetStatisticsQueryParameters(StatisticsQuery):
@@ -195,23 +184,24 @@ class GetStatisticsQueryParameters(StatisticsQuery):
 
 @api.get("/statistics", tags=["data"])
 async def get_statistics(
-    environment: CurrentEnvironment,
+    engine: CurrentEngine,
     query: Annotated[GetStatisticsQueryParameters, Depends()],
 ) -> Statistics:
-    return await environment.get_statistics(query)
+    return await engine.get_statistics(query)
 
 
 @api.websocket("/message-stream")
 async def message_stream(
     socket: WebSocket,
     engine: CurrentEngine,
+    root: Address | None = None,
     address: Address | None = None,
     search: str | None = None,
 ) -> None:
     try:
         await socket.accept()
 
-        query = MessageQuery(address=address, search=search)
+        query = MessageQuery(root=root, address=address, search=search)
         async for event in engine.events.of(MessageSentEvent | MessageReceivedEvent):
             if query.matches(event.message):
                 await socket.send_text(jsonify(event.message))
@@ -223,13 +213,14 @@ async def message_stream(
 async def alert_stream(
     socket: WebSocket,
     engine: CurrentEngine,
+    root: Address | None = None,
     address: Address | None = None,
     search: str | None = None,
 ) -> None:
     try:
         await socket.accept()
 
-        query = AlertQuery(address=address, search=search)
+        query = AlertQuery(root=root, address=address, search=search)
         async for event in engine.events.of(AlertEvent):
             if query.matches(event.alert):
                 await socket.send_text(jsonify(event))
@@ -241,13 +232,14 @@ async def alert_stream(
 async def log_entry_stream(
     socket: WebSocket,
     engine: CurrentEngine,
+    root: Address | None = None,
     address: Address | None = None,
     search: str | None = None,
 ) -> None:
     try:
         await socket.accept()
 
-        query = LogEntryQuery(address=address, search=search)
+        query = LogEntryQuery(root=root, address=address, search=search)
         async for event in engine.events.of(LogEvent):
             if query.matches(event.entry):
                 await socket.send_text(jsonify(event.entry))
@@ -255,15 +247,19 @@ async def log_entry_stream(
         pass
 
 
-@api.get("/component", tags=["components"])
+@api.get("/components/{address}", tags=["components"])
 async def get_component_info(
     engine: CurrentEngine,
     address: Address,
 ) -> ComponentInfo:
-    component_config = engine.config.get_address(address)
+    component_config = engine.config.get_component(address)
     component_cls = engine.config.get_component_cls(address)
     if component_config is None or component_cls is None:
         raise HTTPException(404)
+
+    children: list[ComponentInfo] = []
+    for child_config in component_config.components:
+        children.append(await get_component_info(engine, address / child_config.name))
 
     return ComponentInfo(
         name=component_config.name,
@@ -271,11 +267,12 @@ async def get_component_info(
         config=component_config,
         roles=_get_component_roles(component_cls),
         procedures=list(component_cls.get_procedure_bindings().values()),
+        components=children,
     )
 
 
 @api.api_route(
-    "/call",
+    "/components/{address}/procedures/{procedure}/call",
     methods=["GET", "POST"],
     tags=["procedures"],
 )
@@ -308,7 +305,7 @@ async def call(
         return Fail(exception.error)
 
 
-@api.websocket("/subscribe")
+@api.websocket("/components/{address}/procedures/{procedure}/subscribe")
 async def subscribe(
     socket: WebSocket,
     engine: CurrentEngine,

@@ -22,10 +22,9 @@ from ceres.internal.cli.exceptions import (
     CLIServerNotEnabledException,
     CLIStartupException,
 )
-from ceres.internal.cli.shared import AsyncTyper, ConfigOption, ConfigPathOption, get_config
+from ceres.internal.cli.shared import AsyncTyper, ConfigOption, ConfigPathOption
 from ceres.internal.cli.subcommands.database import database
 from ceres.internal.cli.subcommands.service import service
-from ceres.internal.config import load_config
 from ceres.internal.utilities import (
     ensure_event_loop,
     set_current_process_name,
@@ -33,7 +32,7 @@ from ceres.internal.utilities import (
     syncify,
     temporary_signal_handler,
 )
-from ceres.result import Ok
+from ceres.result import Fail, Ok
 from ceres.threading import spawn
 
 main = AsyncTyper(
@@ -50,6 +49,7 @@ main.add_typer(service)
 async def run(
     *,
     config_path: Path = ConfigPathOption(),
+    all: bool = False,
     watch: bool = Option(
         False,
         help="Automatically restart the application on code changes.",
@@ -61,14 +61,21 @@ async def run(
     try:
         if watch:
             set_current_process_name("ceres-watch")
-            await _run_watch(config_path=config_path)
+            await _run_watch(config_path=config_path, all=all)
         else:
             set_current_process_name("ceres")
-            engine = Engine(config=await get_config(config_path, checks=[]))
+            engine = Engine()
+            match await engine.load(config_path):
+                case Ok():
+                    pass
+                case Fail() as fail:
+                    rich.print(fail)
+                    pass
+
             exiting = AsyncEvent()
 
             async def main() -> None:
-                task_run = asyncio.create_task(engine.run())
+                task_run = asyncio.create_task(engine.run(all=all))
                 task_wait_until_exiting = asyncio.create_task(exiting.wait())
 
                 await asyncio.wait(
@@ -103,7 +110,7 @@ async def check(*, config_path: Path = ConfigPathOption()) -> None:
     """
     Check project configuration for correctness.
     """
-    match await load_config(config_path, logger=rich.print):
+    match await Config.load(config_path, log=rich.print):
         case Ok():
             rich.print("All checks passed.")
         case fail:
@@ -132,11 +139,20 @@ def setup() -> None:
     logs.setup()
 
 
-def _run_sync(*, config_path: Path, watch: bool = False) -> None:
-    syncify(run)(config_path=config_path, watch=watch)
+def _run_sync(
+    *,
+    config_path: Path,
+    watch: bool,
+    all: bool,
+) -> None:
+    syncify(run)(config_path=config_path, watch=watch, all=all)
 
 
-async def _run_watch(*, config_path: Path) -> None:
+async def _run_watch(
+    *,
+    config_path: Path,
+    all: bool,
+) -> None:
     async def main() -> None:
         from watchfiles import PythonFilter, awatch
         from watchfiles.run import CombinedProcess, start_process
@@ -148,6 +164,7 @@ async def _run_watch(*, config_path: Path) -> None:
             kwargs = {
                 "config_path": config_path,
                 "watch": False,
+                "all": all,
             }
 
             return await spawn(start_process, target, "function", (), kwargs)

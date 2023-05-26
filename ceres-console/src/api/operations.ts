@@ -2,6 +2,7 @@ import { Address } from '@/address'
 import {
   Alert,
   AlertModel,
+  ComponentConfig,
   ComponentInfo,
   ComponentInfoModel,
   Config,
@@ -15,8 +16,6 @@ import {
   ResultModel,
   Statistics,
   StatisticsModel,
-  UnitInfo,
-  UnitInfoModel,
 } from '@/api/models'
 import { DisplayInfoModel } from '@/display'
 import { useSettings } from '@/settings'
@@ -37,19 +36,13 @@ export async function getConfig(): Promise<Config> {
   return await get('/api/config', ConfigModel)
 }
 
-export async function getUnit(name: string): Promise<UnitInfo | null> {
-  return await getOrNull(`/api/units/${name}`, UnitInfoModel)
-}
-
 export async function getComponent(address: Address): Promise<ComponentInfo | null> {
-  return await getOrNull(
-    `/api/units/${address.unit}/components/${address.component}`,
-    ComponentInfoModel
-  )
+  return await getOrNull(`/api/components/${address}`, ComponentInfoModel)
 }
 
 export async function getMessages(params: {
-  source?: Address
+  root?: Address
+  address?: Address
   search?: string
   within?: number
   after?: string
@@ -61,7 +54,8 @@ export async function getMessages(params: {
 }
 
 export async function getAlerts(params: {
-  source?: Address
+  root?: Address
+  address?: Address
   search?: string
   within?: number
   after?: string
@@ -73,7 +67,8 @@ export async function getAlerts(params: {
 }
 
 export async function getLogEntries(params: {
-  source?: Address
+  root?: Address
+  address?: Address
   search?: string
   within?: number
   after?: string
@@ -111,7 +106,8 @@ function getWebSocketURI(relative: string) {
 
 export function useMessageStream<TModel extends ZodTypeAny>(
   params: MaybeRef<{
-    source?: Address
+    root?: Address
+    address?: Address
     search?: string
   }>,
   onReceive: (message: Zod.infer<TModel>) => unknown
@@ -131,7 +127,8 @@ export function useMessageStream<TModel extends ZodTypeAny>(
 
 export function useAlertStream<TModel extends ZodTypeAny>(
   params: MaybeRef<{
-    source?: Address
+    root?: Address
+    address?: Address
     search?: string
   }>,
   onReceive: (alert: Zod.infer<TModel>) => unknown
@@ -151,7 +148,8 @@ export function useAlertStream<TModel extends ZodTypeAny>(
 
 export function useLogEntryStream<TModel extends ZodTypeAny>(
   params: MaybeRef<{
-    source?: Address
+    root?: Address
+    address?: Address
     search?: string
   }>,
   onReceive: (alert: Zod.infer<TModel>) => unknown
@@ -179,19 +177,27 @@ export const useConfig = defineStore('config', () => {
     await query.suspense()
   }
 
-  function getUnit(unitName: string) {
-    return data.units.find((unit) => unit.name === unitName) ?? null
-  }
+  function getComponent(address: Address): Config | ComponentConfig | null {
+    if (address.isRoot) {
+      return null
+    }
 
-  function getComponent(unitName: string, componentName: string) {
-    return getUnit(unitName)?.components.find((component) => component.name === componentName)
+    let current: Config | ComponentConfig | null = data
+    for (const name of address.path) {
+      if (current == null) {
+        return null
+      }
+
+      current = current.components.find((component) => component.name === name) ?? null
+    }
+
+    return current
   }
 
   return {
     data: $$(data),
     error: $$(error),
     load,
-    getUnit,
     getComponent,
   }
 })
@@ -280,8 +286,12 @@ function createQueryParams(values: Record<string, unknown>): string {
   const result = new URLSearchParams()
   for (const key of Object.keys(values)) {
     let value = values[key]
-    if (typeof value === 'object' && !(value instanceof String)) {
-      value = JSON.stringify(value)
+    if (typeof value === 'object') {
+      if (typeof value?.valueOf() === 'string') {
+        value = value.valueOf()
+      } else {
+        value = JSON.stringify(value)
+      }
     }
 
     if (value !== undefined) {
@@ -377,8 +387,7 @@ export function useDisplayStream<TModel extends ZodTypeAny>(
   return useStream(
     computed(() =>
       getWebSocketURI(
-        `/api/units/${unref(address).unit}/components/${unref(address).component}` +
-          `/procedures/${unref(procedure)}/subscribe?args=` +
+        `/api/components/${unref(address)}/procedures/${unref(procedure)}/subscribe?args=` +
           encodeURIComponent(JSON.stringify(unref(args)))
       )
     ),
@@ -424,8 +433,7 @@ export async function call(
   procedure: string,
   args: MaybeRef<Record<string, any>> = {}
 ) {
-  let url =
-    `/api/units/${address.unit}/components/` + `${address.component}/procedures/${procedure}/call`
+  let url = `/api/components/${address}/procedures/${procedure}/call`
   if (Object.keys(args).length > 0) {
     url += `?args=${encodeURIComponent(JSON.stringify(unref(args)))}`
   }
@@ -435,7 +443,7 @@ export async function call(
 
 export async function sendMessage(address: Address, data: string): Promise<SendMessageResult> {
   return await post(
-    `/api/units/${address.unit}/components/${address.component}/procedures/send-message/call`,
+    `/api/components/${address}/procedures/send-message/call`,
     SendMessageResultModel,
     { data }
   )
@@ -445,8 +453,5 @@ export type GetLayoutResult = Zod.infer<typeof GetLayoutResultModel>
 const GetLayoutResultModel = createResultType(LayoutModel, BaseFailModel)
 
 export async function getLayout(address: Address): Promise<GetLayoutResult> {
-  return await get(
-    `/api/units/${address.unit}/components/${address.component}/procedures/get-layout/call`,
-    GetLayoutResultModel
-  )
+  return await get(`/api/components/${address}/procedures/get-layout/call`, GetLayoutResultModel)
 }

@@ -1,6 +1,7 @@
 <script lang="ts" setup>
+import AppLayoutDrawerComponent from '@/AppLayoutDrawerComponent.vue'
+import { Address } from '@/address'
 import { useConfig } from '@/api/operations'
-import AlertsIndicator from '@/components/AlertsIndicator.vue'
 import ResizeHandle from '@/components/ResizeHandle.vue'
 import { useDrawer } from '@/drawer'
 import icons from '@/icons'
@@ -67,26 +68,7 @@ function clearLocalStorage() {
               <q-item-label>Dashboard</q-item-label>
             </q-item-section>
           </q-item>
-          <q-expansion-item v-model="drawer.isShowingUnits" :icon="icons.units" label="Units">
-            <q-item
-              v-for="unit in config.data.units"
-              :key="unit.name"
-              clickable
-              dense
-              style="min-height: 38px"
-              :to="`/units/${unit.name}`"
-            >
-              <q-item-section avatar>
-                <q-icon :name="icons.unit" size="12px" style="margin-left: 6px" />
-              </q-item-section>
-              <q-item-section no-wrap>
-                <q-item-label class="text-no-wrap">{{ unit.name }}</q-item-label>
-              </q-item-section>
-              <q-item-section side>
-                <alerts-indicator :unit-name="unit.name" />
-              </q-item-section>
-            </q-item>
-          </q-expansion-item>
+          <app-layout-drawer-component :address="new Address('')" :config="config.data" />
         </q-list>
       </div>
       <q-list>

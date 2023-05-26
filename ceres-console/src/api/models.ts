@@ -82,10 +82,16 @@ export const ComponentRoleModel = Zod.enum([
   'ui',
 ])
 
-export type ComponentConfig = Zod.infer<typeof ComponentConfigModel>
-export const ComponentConfigModel = Zod.object({
+export type ComponentConfig = {
+  name: string
+  class: string
+  components: ComponentConfig[]
+}
+
+export const ComponentConfigModel: Zod.ZodType<ComponentConfig> = Zod.object({
   name: NameStrModel,
   class: Zod.string(),
+  components: Zod.lazy(() => Zod.array(ComponentConfigModel)),
 })
 
 export type ServerConfig = Zod.infer<typeof ServerConfigModel>
@@ -131,25 +137,12 @@ export const DatabaseConfigModel = Zod.discriminatedUnion('kind', [
   PostgresDatabaseConfigModel,
 ])
 
-export type UnitConfig = Zod.infer<typeof UnitConfigModel>
-export const UnitConfigModel = Zod.object({
-  name: NameStrModel,
-  components: Zod.array(ComponentConfigModel).default(() => []),
-})
-
-export type UserConfig = Zod.infer<typeof UserConfigModel>
-export const UserConfigModel = Zod.object({
-  username: NameStrModel,
-  email: EmailStrModel,
-  meta: Zod.record(Zod.string(), Zod.unknown()).default(() => ({})),
-})
-
 export type Config = Zod.infer<typeof ConfigModel>
 export const ConfigModel = Zod.object({
+  name: Zod.string().nullable().default(''),
   server: ServerConfigModel,
   database: DatabaseConfigModel,
-  users: Zod.array(UserConfigModel).default(() => []),
-  units: Zod.array(UnitConfigModel).default(() => []),
+  components: Zod.array(ComponentConfigModel).default(() => []),
 })
 
 export type DisplayBinding = Zod.infer<typeof DisplayBindingModel>
@@ -246,21 +239,23 @@ export const ActionInfoModel = BaseProcedureInfoModel.extend({
 export type ProcedureInfo = Zod.infer<typeof ProcedureInfoModel>
 export const ProcedureInfoModel = Zod.discriminatedUnion('kind', [QueryInfoModel, ActionInfoModel])
 
-export type ComponentInfo = Zod.infer<typeof ComponentInfoModel>
-export const ComponentInfoModel = Zod.object({
+export type ComponentInfo = {
+  name: string
+  address: Address
+  config: ComponentConfig
+  roles: ComponentRole[]
+  procedures: ProcedureInfo[]
+  components: ComponentInfo[]
+}
+
+export const ComponentInfoModel: Zod.ZodType<ComponentInfo> = Zod.object({
   name: Zod.string(),
   address: Zod.string().transform(Address.parse),
   config: ComponentConfigModel,
   roles: Zod.array(ComponentRoleModel),
   procedures: Zod.array(ProcedureInfoModel),
-})
-
-export type UnitInfo = Zod.infer<typeof UnitInfoModel>
-export const UnitInfoModel = Zod.object({
-  name: Zod.string(),
-  config: UnitConfigModel,
-  components: Zod.array(ComponentInfoModel),
-})
+  components: Zod.lazy(() => Zod.array(ComponentInfoModel)),
+}) as any
 
 export type Ok<TValue> = {
   ok: true

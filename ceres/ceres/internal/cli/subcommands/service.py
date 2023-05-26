@@ -1,10 +1,9 @@
 import rich
 from rich.box import ROUNDED
 
-from ceres.config import Config
+from ceres.config import Config, ConfigCheckKind
 from ceres.internal.cli.service import get_service
 from ceres.internal.cli.shared import AsyncTyper, ConfigOption
-from ceres.internal.config import ConfigCheckKind
 
 service = AsyncTyper(
     name="service",

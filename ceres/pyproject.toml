@@ -54,6 +54,7 @@ line-length = 100
 
 [tool.ruff]
 line-length = 100
+ignore = ["F402"]
 
 [tool.pyright]
 include = ["ceres", "tests"]

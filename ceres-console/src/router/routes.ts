@@ -1,3 +1,4 @@
+import { Address } from '@/address'
 import { RouteRecordRaw } from 'vue-router'
 
 const routes: RouteRecordRaw[] = [
@@ -10,14 +11,14 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/pages/Dashboard.vue'),
       },
       {
-        path: '/units',
-        component: () => import('@/pages/Units.vue'),
+        path: '/components',
+        component: () => import('@/pages/Components.vue'),
         children: [
           {
-            path: ':name?',
-            component: () => import('@/pages/Unit.vue'),
+            path: ':address',
+            component: () => import('@/pages/Component.vue'),
             props: (route) => ({
-              name: parseStringOrNull(route.params.name),
+              address: parseAddressOrNull(route.params.address),
             }),
           },
         ],
@@ -43,6 +44,19 @@ function parseStringOrNull(value: string | string[]) {
   }
 
   return value[0] ?? null
+}
+
+function parseAddressOrNull(value: string | string[]) {
+  const string = parseStringOrNull(value)
+  if (string == null) {
+    return null
+  }
+
+  try {
+    return new Address(string)
+  } catch {
+    return null
+  }
 }
 
 export default routes

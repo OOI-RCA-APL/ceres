@@ -30,9 +30,9 @@ class Event(ImmutableDataObject):
     id: UUID = Field(default_factory=uuid4)
 
     if TYPE_CHECKING:
-        source: Address = cast(Address, None)
+        address: Address = cast(Address, None)
     else:
-        source: Address
+        address: Address
 
     timestamp: DateTime = Field(default_factory=utc)
     kind: StandardEventKind | str

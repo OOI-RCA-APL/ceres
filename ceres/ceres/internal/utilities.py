@@ -552,9 +552,10 @@ class CacheDict(OrderedDict[_K, _V]):
 
         return val
 
+
 def chunkify(iterable: Iterable[_T], size: int) -> Iterable[tuple[_T]]:
     if not isinstance(iterable, tuple):
         iterable = tuple(iterable)
 
     for i in range(0, len(iterable), size):
-        yield iterable[i:i + size]
+        yield iterable[i : i + size]

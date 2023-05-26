@@ -5,37 +5,32 @@ from asyncio import Event as AsyncEvent
 from enum import Enum
 from pathlib import Path
 from queue import Empty, Queue
-from typing import Literal, final
+from typing import Any, Literal, Mapping, final
 
 from typing_extensions import Final, override
 
 from ceres.address import Address
 from ceres.component import Component, Paths
-from ceres.config import Config, UnitConfig
-from ceres.data import ImmutableDataObject, Name, jsonify
+from ceres.config import ComponentConfig, Config
+from ceres.data import ImmutableDataObject, Name
 from ceres.database import Database
-from ceres.directory import Directory
-from ceres.environment import Environment
 from ceres.errors import (
+    ConfigError,
     ReloadAlreadyActiveError,
     ReloadConfigInvalidError,
     ReloadError,
 )
-from ceres.exceptions import (
-    EngineConfigCheckFailedException,
-    EngineDatabaseInitException,
-)
+from ceres.exceptions import EngineDatabaseInitException
 from ceres.internal.app import App
-from ceres.internal.config import load_config
 from ceres.internal.server import Server
 from ceres.internal.utilities import setattr_internal, strify
+from ceres.procedure import action
 from ceres.result import Fail, Ok, Result
-from ceres.unit import Unit
 
 
 class ActionKind(str, Enum):
-    START = "start"
-    RELOAD = "reload"
+    CREATE = "create"
+    RECREATE = "recreate"
     REMOVE = "remove"
 
 
@@ -47,34 +42,39 @@ class Action(ImmutableDataObject):
 @final
 class Engine(Component):
     name: Final[Literal[""]] = ""  # type: ignore
-    config: Final[Config]
 
     def __setup__(self) -> None:
+        self.__config = Config()
         self.__config_queue: Queue[Config] = Queue()
-
-        if self.config.server:
-            self.__server = Server(App(self), self.config.server)
-        else:
-            self.__server = None
-
-        self.bind(Environment(database=Database(self.config.database)))
-
-        self.__unit_configs: dict[Name, UnitConfig] = {}
         self.__reloading = AsyncEvent()
+        self.__server: Server | None = None
 
+    @property
+    def config(self) -> Config:
+        return self.__config
+
+    @property
     @override
-    def infer_environment(self) -> Environment | None:
-        return None
+    def database(self) -> Database:
+        if self.local_database is None:
+            self.local_database = Database(self.config.database)
 
-    def __add_unit(self, unit: Unit, config: UnitConfig | None = None) -> None:
-        self.add_child(unit)
-        if config is not None:
-            self.__unit_configs[unit.name] = config
+        return self.local_database
 
-    def remove_child(self, child: Component) -> None:
-        super().remove_child(child)
-        self.__unit_configs.pop(child.name, None)
+    async def load(
+        self,
+        source: Path | Mapping[str, Any] | Config,
+    ) -> "Result[Config, list[ConfigError]]":
+        match await Config.load(source, log=self.log):
+            case Ok(config) as ok:
+                self.__config = config
+                await self.load_database()
+                await self.load_components()
+                return ok
+            case Fail() as fail:
+                return fail
 
+    @action
     async def reload(self) -> Result[Config, ReloadError]:
         if self.__reloading.is_set():
             return Fail(ReloadAlreadyActiveError())
@@ -88,7 +88,7 @@ class Engine(Component):
             self.log.info("No configuration path is set. Reloading current configuration...")
             source = self.config
 
-        match await load_config(source, logger=self.log):
+        match await Config.load(source, log=self.log):
             case Ok(config):
                 self.log.info("Queueing reload...")
                 self.__reloading.set()
@@ -98,24 +98,19 @@ class Engine(Component):
                 self.log.error("Reload failed, found errors in configuration.")
                 return Fail(ReloadConfigInvalidError(errors=errors))
 
-    @override
-    async def __run__(self) -> None:
-        match await load_config(self.config, logger=self.log):
-            case Ok():
-                pass
-            case Fail() as fail:
-                raise EngineConfigCheckFailedException(
-                    f"initial configuration check failed: {jsonify(fail, indent=2)}"
-                )
-
-        if not await self.environment.database.tables():
+    async def load_database(self) -> None:
+        if not await self.database.tables():
             self.log.info("Database appears empty, initializing database...")
             try:
-                await self.environment.database.init()
+                await self.database.init()
                 self.log.info("Database initialized successfully.")
             except Exception as exception:
                 self.log.error("Database initialization failed.")
                 raise EngineDatabaseInitException(str(exception))
+
+    @override
+    async def __run__(self) -> None:
+        await self.load_database()
 
         started = False
 
@@ -124,7 +119,6 @@ class Engine(Component):
                 await self.__reloading.wait()
                 await self.__execute_reload()
 
-            await self.__sync_units()
             await self.__start_server()
 
             started = True
@@ -147,14 +141,8 @@ class Engine(Component):
 
     @override
     async def __stop__(self) -> None:
-        base = super().__stop__
-
-        async def stop() -> None:
-            await self.__stop_server()
-            await self.__stop_units()
-            await base()
-
-        await asyncio.shield(asyncio.create_task(stop()))
+        await self.__stop_server()
+        await super().__stop__()
 
     async def __execute_reload(self) -> None:
         self.log.info("Reloading...")
@@ -180,28 +168,145 @@ class Engine(Component):
                 )
 
         if self.config.database != config_previous.database:
-            self.log.info("Database configuration modified, reloading all units and database...")
+            self.log.info(
+                "Database configuration modified, reloading all components and database..."
+            )
             try:
-                await self.__stop_units()
-                await self.environment.database.dispose()
-                self.bind(Environment(database=Database(self.config.database)))
+                for child in self.children:
+                    await child.stop()
+                await self.flush()
+                if self.local_database is not None:
+                    await self.local_database.dispose()
+                    self.local_database = Database(self.config.database)
             except Exception:
                 self.log.error(
-                    f"An issue occurred while reloading units and database: "
+                    f"An issue occurred while reloading components and database: "
                     f"{traceback.format_exc()}"
                 )
 
-        if self.__get_unit_sync_actions():
+        if self.get_reload_actions():
             self.log.info("Syncing units...")
             try:
-                await self.__sync_units()
+                await self.sync_components()
             except Exception:
                 self.log.error(f"An issue occurred while syncing units: {traceback.format_exc()}")
 
         self.log.info("Reload completed.")
 
+    async def load_components(self) -> None:
+        await self.load_subcomponents(self)
+
+    async def load_subcomponents(self, component: Component) -> None:
+        if component is self:
+            config = self.config
+        else:
+            config = self.config.get_component(component.address)
+            if config is None:
+                return
+
+        references: dict[Name, Component] = {}
+
+        for subconfig in config.components:
+            child = component.get_child(subconfig.name)
+            address = component.address / subconfig.name
+            id = await self.assign_component_id(address)
+
+            if child is None:
+                try:
+                    child = subconfig.load(
+                        args={
+                            "paths": Paths(
+                                data=component.paths.data,
+                                local=component.paths.local.subdir(subconfig.name),
+                            )
+                        }
+                    )
+                    component.add_child(child)
+                    child.assign_references(references)
+                    await self.load_subcomponents(child)
+                    component.log.info(
+                        f"Loaded '{child.address}' as {strify(type(child))} with ID '{id}'."
+                    )
+                except Exception:
+                    component.log.error(f"Failed to load '{address}': {traceback.format_exc()}")
+                    continue
+
+            references[child.name] = child
+
+    async def sync_components(self) -> None:
+        actions = self.get_reload_actions()
+
+        for action in actions:
+            component = self.get_component(action.address)
+
+            if action.kind == ActionKind.REMOVE:
+                if component is not None:
+                    self.log.info(f"'{action.address}' will be removed...")
+                    await component.stop()
+                    component.detach()
+            else:
+                if action.kind == ActionKind.CREATE:
+                    if component is None:
+                        self.log.info(f"'{action.address}' will be created...")
+                elif action.kind == ActionKind.RECREATE:
+                    if component is not None:
+                        self.log.info(f"'{action.address}'will be recreated...")
+                        await component.stop()
+                        component.detach()
+
+        await self.load_subcomponents(self)
+
+        created = [
+            action
+            for action in actions
+            if action.kind == ActionKind.CREATE and action.address in self.children
+        ]
+        recreated = [
+            action
+            for action in actions
+            if action.kind == ActionKind.RECREATE and action.address in self.children
+        ]
+        removed = [
+            action
+            for action in actions
+            if action.kind == ActionKind.REMOVE and action.address not in self.children
+        ]
+
+        if created:
+            self.log.info(f"{len(created)} components(s) created.")
+        if recreated:
+            self.log.info(f"{len(recreated)} components(s) reloaded.")
+        if removed:
+            self.log.info(f"{len(removed)} components(s) removed.")
+
+    def get_reload_actions(self) -> list[Action]:
+        configs: dict[Name, ComponentConfig] = {
+            current.name: current for current in self.config.components
+        }
+
+        actions: list[Action] = []
+
+        for name, config in configs.items():
+            component = self.get_child(name)
+            address = self.address / name
+            if component is None:
+                actions.append(Action(kind=ActionKind.CREATE, address=address))
+            elif component.__config__ != config:
+                actions.append(Action(kind=ActionKind.RECREATE, address=address))
+
+        for component in self.children:
+            if component.name not in configs:
+                actions.append(Action(kind=ActionKind.REMOVE, address=component.address))
+
+        return actions
+
     async def __start_server(self) -> None:
-        if not self.__server or self.__server.running:
+        if self.__config.server is None:
+            self.__server = None
+        else:
+            self.__server = Server(App(self), self.__config.server)
+
+        if self.__server is None or self.__server.running:
             return
 
         self.log.info("Starting server...")
@@ -211,171 +316,19 @@ class Engine(Component):
         )
 
     async def __stop_server(self) -> None:
-        if not self.__server or not self.__server.running:
+        if self.__server is None or not self.__server.running:
             return
 
         self.log.info("Stopping server...")
         await self.__server.stop()
+        self.__server = None
 
     async def __reload_server(self) -> None:
         await self.__stop_server()
         await self.__start_server()
-
-    async def __load_components(self, unit: Unit) -> None:
-        unit_config = self.config.get_unit(unit.name)
-        if unit_config is None:
-            return
-
-        references: dict[Name, Component] = {}
-
-        for config in unit_config.components:
-            if unit.get_child(config.name) is not None:
-                continue
-
-            address = unit.address / config.name
-            id = await self.environment.assign_component_id(address)
-
-            try:
-                component = config.load(
-                    args={
-                        "paths": Paths(
-                            data=unit.paths.data,
-                            local=unit.paths.local.subdir(config.name),
-                        )
-                    }
-                )
-                component.assign_references(references)
-            except Exception:
-                unit.log.error(f"Failed to load component '{address}': {traceback.format_exc()}")
-                continue
-
-            references[component.name] = component
-            unit.add_child(component)
-            unit.log.info(
-                f"Loaded '{component.address}' as {strify(type(component))} with ID '{id}'."
-            )
-
-    async def __sync_units(self) -> None:
-        configs: dict[Name, UnitConfig] = {current.name: current for current in self.config.units}
-
-        actions = self.__get_unit_sync_actions()
-
-        for action in actions:
-            unit = self.get_child(action.address)
-
-            if action.kind == ActionKind.REMOVE:
-                if unit:
-                    self.log.info(f"Removing unit '{action.address}'...")
-                    await unit.stop()
-                    self.remove_child(unit)
-            else:
-                if action.kind == ActionKind.START:
-                    if unit and unit.running:
-                        continue
-
-                    self.log.info(f"Starting unit '{action.address}'...")
-                elif action.kind == ActionKind.RELOAD:
-                    if not unit:
-                        continue
-
-                    self.log.info(f"Reloading unit '{action.address}'...")
-                    await unit.stop()
-
-                if config := configs.get(action.address):
-                    if self.config.path is None:
-                        paths = Paths(
-                            local=Directory(),
-                            data=Directory(),
-                        )
-                    else:
-                        paths = Paths(
-                            local=Directory(
-                                self.config.path.parent / self.config.paths.local / config.name
-                            ),
-                            data=Directory(
-                                self.config.path.parent / self.config.paths.data / config.name
-                            ),
-                        )
-
-                    unit = Unit(name=config.name, paths=paths)
-
-                    self.__add_unit(unit, config)
-                    await self.__load_components(unit)
-                    unit.start(
-                        on_completed=self.__on_unit_completed,
-                        on_exception=self.__on_unit_exception,
-                    )
-
-        started = [
-            action
-            for action in actions
-            if action.kind == ActionKind.START and action.address in self.children
-        ]
-        reloaded = [
-            action
-            for action in actions
-            if action.kind == ActionKind.RELOAD and action.address in self.children
-        ]
-        removed = [
-            action
-            for action in actions
-            if action.kind == ActionKind.REMOVE and action.address not in self.children
-        ]
-
-        if started:
-            self.log.info(f"{len(started)} unit(s) started.")
-        if reloaded:
-            self.log.info(f"{len(reloaded)} unit(s) reloaded.")
-        if removed:
-            self.log.info(f"{len(removed)} unit(s) removed.")
-
-    async def __stop_units(self) -> None:
-        if not self.children:
-            return
-
-        self.log.info("Stopping all units...")
-
-        async def stop(unit: Component) -> None:
-            if unit.running:
-                self.log.info(f"Stopping unit '{unit.name}'...")
-                await unit.stop()
-
-        await asyncio.gather(*(stop(unit) for unit in self.children))
-
-        self.log.info("All units were stopped successfully.")
-
-    def __get_unit_sync_actions(self) -> list[Action]:
-        configs: dict[Name, UnitConfig] = {current.name: current for current in self.config.units}
-
-        actions: list[Action] = []
-
-        for name, config in configs.items():
-            unit = self.get_child(name)
-            address = self.address / name
-            if unit and unit.running and self.__unit_configs.get(name) == config:
-                continue
-
-            if not unit or not unit.running:
-                actions.append(Action(kind=ActionKind.START, address=address))
-            elif self.__unit_configs.get(name) != config:
-                actions.append(Action(kind=ActionKind.RELOAD, address=address))
-
-        for unit in self.children:
-            if unit.name not in configs:
-                actions.append(Action(kind=ActionKind.REMOVE, address=unit.address))
-
-        return actions
 
     def __on_server_completed(self, server: Server) -> None:
         self.log.info("Server stopped.")
 
     def __on_server_exception(self, server: Server, exception: BaseException) -> None:
         self.log.error(f"An exception occurred in server: {traceback.format_exception(exception)}")
-
-    def __on_unit_completed(self, unit: Unit) -> None:
-        self.log.info(f"Unit '{unit.name}' stopped.")
-
-    def __on_unit_exception(self, unit: Unit, exception: BaseException) -> None:
-        self.log.error(
-            f"An exception occurred in unit '{unit.name}': {traceback.format_exception(exception)}"
-        )

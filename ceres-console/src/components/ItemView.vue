@@ -174,7 +174,7 @@ async function appendItems(appended: Item[]) {
 
 async function loadPrevious() {
   const results: Item[] = await get({
-    source: info.address,
+    address: info.address,
     search: search === '' ? undefined : search,
     before: earliestItemTimestamp == null ? undefined : earliestItemTimestamp.format(),
     order: 'new-to-old',
@@ -187,7 +187,7 @@ async function loadPrevious() {
 
 async function loadCurrent() {
   const results: Item[] = await get({
-    source: info.address,
+    address: info.address,
     search: search === '' ? undefined : search,
     order: 'new-to-old',
     limit: 100,
@@ -200,7 +200,7 @@ async function loadCurrent() {
 
 useStream(
   computed(() => ({
-    source: info.address,
+    address: info.address,
     search: search === '' ? undefined : search,
   })),
   async (item: Item) => {
