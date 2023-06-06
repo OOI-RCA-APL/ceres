@@ -31,7 +31,8 @@ const title = $computed(() => {
   return String(address)
 })
 
-const components = $computed(() => component?.components ?? [])
+const children = $computed(() => component?.components ?? [])
+const components = $computed(() => (component == null ? [] : [component, ...children]))
 const connections = $computed(() =>
   components.filter((component) => component.roles.includes('connection'))
 )
@@ -51,7 +52,7 @@ const uis = $computed(() => components.filter((component) => component.roles.inc
       <panel-group
         v-if="connections.length"
         :default-height="300"
-        :panels="connections.map((current) => current.name)"
+        :panels="connections.map((current) => current.address.toString())"
         :persist="`components/${component.address}/messages-panel-group`"
         title="Messages"
       >
@@ -59,27 +60,27 @@ const uis = $computed(() => components.filter((component) => component.roles.inc
           <panel-tab
             v-for="connection in connections"
             :key="connection.address.toString()"
-            :name="connection.name"
+            :name="connection.address.toString()"
           />
         </template>
         <panel
           v-for="connection in connections"
           :key="connection.address.toString()"
           class="column"
-          :name="connection.name"
+          :name="connection.address.toString()"
         >
           <item-view
             :address="connection.address"
             class="col-grow"
             kind="message"
-            :title="connection.name"
+            :title="connection.address.toString()"
           />
         </panel>
       </panel-group>
       <panel-group
         v-if="alerters.length"
         :default-height="300"
-        :panels="alerters.map((current) => current.name)"
+        :panels="alerters.map((current) => current.address.toString())"
         :persist="`components/${component.address}/alert-panel-group`"
         title="Alerts"
       >
@@ -87,7 +88,7 @@ const uis = $computed(() => components.filter((component) => component.roles.inc
           <panel-tab
             v-for="alerter in alerters"
             :key="alerter.address.toString()"
-            :name="alerter.name"
+            :name="alerter.address.toString()"
           >
             <template #append>
               <!-- <alerts-indicator
@@ -102,20 +103,20 @@ const uis = $computed(() => components.filter((component) => component.roles.inc
           v-for="alerter in alerters"
           :key="alerter.address.toString()"
           class="column"
-          :name="alerter.name"
+          :name="alerter.address.toString()"
         >
           <item-view
             :address="alerter.address"
             class="col-grow"
             kind="alert"
-            :title="alerter.name"
+            :title="alerter.address.toString()"
           />
         </panel>
       </panel-group>
       <panel-group
         v-if="components.length"
         :default-height="300"
-        :panels="components.map((current) => current.name)"
+        :panels="components.map((current) => current.address.toString())"
         :persist="`components/${component.address}/log-entry-panel-group`"
         title="Logs"
       >
@@ -123,26 +124,26 @@ const uis = $computed(() => components.filter((component) => component.roles.inc
           <panel-tab
             v-for="component in components"
             :key="component.address.toString()"
-            :name="component.name"
+            :name="component.address.toString()"
           />
         </template>
         <panel
           v-for="component in components"
           :key="component.address.toString()"
           class="column"
-          :name="component.name"
+          :name="component.address.toString()"
         >
           <item-view
             :address="component.address"
             class="col-grow"
             kind="log-entry"
-            :title="component.name"
+            :title="component.address.toString()"
           />
         </panel>
       </panel-group>
       <panel-group
         v-if="executors.length"
-        :panels="executors.map((current) => current.name)"
+        :panels="executors.map((current) => current.address.toString())"
         :persist="`components/${component.address}/procedures-panel-group`"
         title="Procedures"
       >
@@ -150,30 +151,32 @@ const uis = $computed(() => components.filter((component) => component.roles.inc
           <panel-tab
             v-for="executor in executors"
             :key="executor.address.toString()"
-            :name="executor.name"
-          >
-            {{ executor.name }}
-          </panel-tab>
+            :name="executor.address.toString()"
+          />
         </template>
         <panel
           v-for="executor in executors"
           :key="executor.address.toString()"
           class="column"
-          :name="executor.name"
+          :name="executor.address.toString()"
         >
           <component-procedures class="col" :component="executor" :title="executor.name" />
         </panel>
       </panel-group>
       <panel-group
         v-if="uis.length"
-        :panels="uis.map((current) => current.name)"
+        :panels="uis.map((current) => current.address.toString())"
         :persist="`components/${component.address}/displays-panel-group`"
         title="UI"
       >
         <template #tabs>
-          <panel-tab v-for="hud in uis" :key="hud.address.toString()" :name="hud.name" />
+          <panel-tab
+            v-for="hud in uis"
+            :key="hud.address.toString()"
+            :name="hud.address.toString()"
+          />
         </template>
-        <panel v-for="ui in uis" :key="ui.address.toString()" :name="ui.name">
+        <panel v-for="ui in uis" :key="ui.address.toString()" :name="ui.address.toString()">
           <div>
             <layout :component="ui" />
           </div>
@@ -183,13 +186,13 @@ const uis = $computed(() => components.filter((component) => component.roles.inc
         <q-markup-table v-if="components.length" bordered dense flat separator="vertical">
           <thead>
             <q-tr no-hover>
-              <q-th :class="[$style.nameColumn, 'text-left']">Component</q-th>
+              <q-th :class="[$style.addressColumn, 'text-left']">Component</q-th>
               <q-th class="text-left">Roles</q-th>
             </q-tr>
           </thead>
           <tbody>
-            <q-tr v-for="component in components" :key="component.name" no-hover>
-              <q-td :class="$style.nameColumn">{{ component.name }}</q-td>
+            <q-tr v-for="component in components" :key="component.address.toString()" no-hover>
+              <q-td :class="$style.addressColumn">{{ component.address.toString() }}</q-td>
               <q-td>{{ [...component.roles].sort().join(', ') }}</q-td>
             </q-tr>
           </tbody>
@@ -200,7 +203,7 @@ const uis = $computed(() => components.filter((component) => component.roles.inc
 </template>
 
 <style module>
-.nameColumn {
+.addressColumn {
   max-width: 50px;
 }
 </style>
