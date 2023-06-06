@@ -3,12 +3,14 @@ import { Address } from '@/address'
 import { ComponentConfig, Config } from '@/api/models'
 import { useDrawer } from '@/drawer'
 import icons from '@/icons'
+import { useRouter } from 'vue-router'
 
 const { address, config } = defineProps<{
   address: Address
   config: Config | ComponentConfig
 }>()
 
+const router = useRouter()
 const drawer = useDrawer()
 const isExpanded = $computed(
   () => !drawer.collapsedComponents.some((current) => current.equals(address))
@@ -39,19 +41,21 @@ console.log(address, address.depth)
       :class="[$style.iconContainer, 'items-center', 'justify-center', 'row']"
       :style="{ marginLeft: `${8 * address.depth}px` }"
     >
-      <q-icon v-if="isLeaf" :name="icons.circle" size="8px" />
       <q-btn
-        v-else
         class="q-mr-sm"
         flat
-        :icon="isExpanded ? icons.arrowDown : icons.arrowRight"
         round
-        size="sm"
-        @click.stop.prevent="toggleExpanded"
-      />
+        size="xs"
+        :tabindex="isLeaf ? -1 : 0"
+        :to="isLeaf ? `/components/${address}` : undefined"
+        @click.stop.prevent="isLeaf ? router.push(`/components/${address}`) : toggleExpanded()"
+      >
+        <q-icon v-if="isLeaf" :name="icons.circle" size="6px" />
+        <q-icon v-else :name="isExpanded ? icons.arrowDown : icons.arrowRight" size="20px" />
+      </q-btn>
     </div>
     <q-item-section no-wrap>
-      <q-item-label class="q-ml-md text-no-wrap">{{ config.name || 'Components' }}</q-item-label>
+      <q-item-label class="q-ml-md text-no-wrap">{{ config.name || '@' }}</q-item-label>
     </q-item-section>
     <q-item-section side>
       <!-- <alerts-indicator :unit-name="config.name" /> -->
@@ -71,6 +75,7 @@ console.log(address, address.depth)
 .root {
   min-height: 38px;
 }
+
 .iconContainer {
   min-width: 40px;
 }
