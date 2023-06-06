@@ -2,10 +2,12 @@
 /* eslint-env node */
 
 // https://v2.quasar.dev/quasar-cli-vite/quasar-config-js
-
 const { configure } = require('quasar/wrappers')
+
 const path = require('path')
-const ReactivityTransform = require('@vue-macros/reactivity-transform/vite')
+const fs = require('fs')
+
+const ReactivityTransformPlugin = require('@vue-macros/reactivity-transform/vite')
 
 module.exports = configure((context) => {
   function getDevelopmentEnvironment() {
@@ -56,7 +58,7 @@ module.exports = configure((context) => {
           }
         : undefined,
       vueRouterMode: 'history',
-      vitePlugins: [ReactivityTransform()],
+      vitePlugins: [ReactivityTransformPlugin(), AllowDotURLsPlugin()],
       extendViteConf(config) {
         config.resolve ??= {}
         config.resolve.alias ??= {}
@@ -92,3 +94,23 @@ module.exports = configure((context) => {
     animations: [],
   }
 })
+
+function AllowDotURLsPlugin() {
+  return {
+    name: 'allow-dot-urls-plugin',
+    configureServer: (server) => {
+      server.middlewares.use((request, _, next) => {
+        const path = request.url.split('?', 2)[0]
+        if (
+          !request.url.startsWith('/@') && // Ignore virtual files provided by vite plugins.
+          !request.url.startsWith('/api/') && // Ignore API proxy configured below.
+          !fs.existsSync(`./public${path}`) && // Ignore files served directly from public folder.
+          !fs.existsSync(`.${path}`) // Ignore actual files.
+        ) {
+          request.url = '/' // Rewrite all other requests to root.
+        }
+        next()
+      })
+    },
+  }
+}
