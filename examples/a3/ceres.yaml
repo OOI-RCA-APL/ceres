@@ -1,49 +1,43 @@
-service:
-  name: a3
-  stdout: ./data/stdout.log
-  stderr: ./data/stderr.log
 server:
   port: 9000
 database:
   kind: sqlite
   path: ./data/database.sqlite
 components:
-  - name: a3
-    components:
-      - name: simulator
-        class: ceres.projects.a3.A3Simulator
-        args:
-          host:
-            port: 4000
-          das:
-            id: 2501
-            port: 4001
-            sampling_interval: 1m
-            sampling_variable_interval: 8s
-      - name: host-connection
-        class: ceres.standard.TCPConnection
-        args:
-          host: 0.0.0.0
-          port: 4000
-          separator: "\n"
-          disconnect_settings:
-            idle: 1d
-      - name: das-connection
-        class: ceres.standard.TCPConnection
-        args:
-          host: 0.0.0.0
-          port: 4001
-          separator: "\n"
-          disconnect_settings:
-            idle: 15s
-      - name: driver
-        class: ceres.projects.a3.A3Driver
-        args:
-          host:
-            connection: host-connection
-          das:
-            id: 2501
-            connection: das-connection
+  - name: simulator
+    class: ceres.projects.a3.A3Simulator
+    args:
+      host:
+        port: 4000
+      das:
+        id: 2501
+        port: 4001
+        sampling_interval: 1m
+        sampling_variable_interval: 8s
+  - name: host-connection
+    class: ceres.standard.TCPConnection
+    args:
+      host: 0.0.0.0
+      port: 4000
+      separator: "\n"
+      disconnect_settings:
+        idle: 1d
+  - name: das-connection
+    class: ceres.standard.TCPConnection
+    args:
+      host: 0.0.0.0
+      port: 4001
+      separator: "\n"
+      disconnect_settings:
+        idle: 15s
+  - name: driver
+    class: ceres.projects.a3.A3Driver
+    args:
+      host:
+        connection: host-connection
+      das:
+        id: 2501
+        connection: das-connection
   - name: notifications
     components:
       - name: notifier

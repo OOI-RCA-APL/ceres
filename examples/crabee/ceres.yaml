@@ -3,26 +3,24 @@ server:
 database:
   kind: sqlite
   path: ./data/database.sqlite
-units:
-  - name: crabee
-    components:
-      - name: simulator
-        class: ceres.projects.crabee.CrabeeSimulator
-        args:
-          port: 4001
-          interval: 1s
-      - name: connection
-        class: ceres.standard.TCPConnection
-        args:
-          host: 0.0.0.0
-          port: 4001
-          separator: "\n"
-          disconnect_settings:
-            idle: 15s
-      - name: driver
-        class: ceres.projects.crabee.CrabeeDriver
-        args:
-          connection: connection
+components:
+  - name: simulator
+    class: ceres.projects.crabee.CrabeeSimulator
+    args:
+      port: 4001
+      interval: 1s
+  - name: connection
+    class: ceres.standard.TCPConnection
+    args:
+      host: 0.0.0.0
+      port: 4001
+      separator: "\n"
+      disconnect_settings:
+        idle: 15s
+  - name: driver
+    class: ceres.projects.crabee.CrabeeDriver
+    args:
+      connection: connection
   - name: notifications
     components:
       - name: notifier
