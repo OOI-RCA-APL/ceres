@@ -44,8 +44,8 @@ export const LogEntryModel = Zod.object({
   content: Zod.string(),
 })
 
-export type AlertLevelStatistics = Zod.infer<typeof AlertLevelStatisticsModel>
-export const AlertLevelStatisticsModel = Zod.object({
+export type LevelStatistics = Zod.infer<typeof LevelStatisticsModel>
+export const LevelStatisticsModel = Zod.object({
   level: LevelModel,
   count: Zod.number(),
 })
@@ -53,24 +53,13 @@ export const AlertLevelStatisticsModel = Zod.object({
 export type AlertStatistics = Zod.infer<typeof AlertStatisticsModel>
 export const AlertStatisticsModel = Zod.object({
   count: Zod.number(),
-  levels: Zod.array(AlertLevelStatisticsModel),
-})
-
-export type ComponentStatistics = Zod.infer<typeof ComponentStatisticsModel>
-export const ComponentStatisticsModel = Zod.object({
-  alerts: AlertStatisticsModel,
-})
-
-export type UnitStatistics = Zod.infer<typeof UnitStatisticsModel>
-export const UnitStatisticsModel = Zod.object({
-  alerts: AlertStatisticsModel,
-  components: Zod.record(Zod.string(), ComponentStatisticsModel),
+  levels: Zod.array(LevelStatisticsModel),
 })
 
 export type Statistics = Zod.infer<typeof StatisticsModel>
 export const StatisticsModel = Zod.object({
+  address: Zod.string().transform(Address.parse),
   alerts: AlertStatisticsModel,
-  units: Zod.record(Zod.string(), UnitStatisticsModel),
 })
 
 export type ComponentRole = Zod.infer<typeof ComponentRoleModel>

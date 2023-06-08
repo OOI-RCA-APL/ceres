@@ -1,6 +1,7 @@
 <script lang="ts" setup>
 import { Address } from '@/address'
 import { getComponent } from '@/api/operations'
+import AlertsIndicator from '@/components/AlertsIndicator.vue'
 import ComponentProcedures from '@/components/ComponentProcedures.vue'
 import FullPage from '@/components/FullPage.vue'
 import ItemView from '@/components/ItemView.vue'
@@ -91,11 +92,7 @@ const uis = $computed(() => components.filter((component) => component.roles.inc
             :name="alerter.address.toString()"
           >
             <template #append>
-              <!-- <alerts-indicator
-                :component-name="alerter.name"
-                :title="alerter.name"
-                :unit-name="unit.name"
-              /> -->
+              <alerts-indicator :address="alerter.address" />
             </template>
           </panel-tab>
         </template>

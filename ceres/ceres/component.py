@@ -3,7 +3,6 @@ import inspect
 import traceback
 from asyncio import Event as AsyncEvent
 from asyncio import Lock as AsyncLock
-from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import field
 from datetime import datetime
@@ -49,6 +48,7 @@ from ceres.config import ComponentConfig, DatabaseKind
 from ceres.data import (
     VALIDATED_DATACLASS_FIELD_SPECIFIERS,
     BytesPattern,
+    DataObject,
     DateTime,
     ImmutableDataObject,
     Name,
@@ -418,40 +418,32 @@ class LogEntryQuery(Query):
 
 
 class StatisticsQueryArgs(TypedDict, total=False):
+    root: Address | None
     within: PositiveTimeDelta | None
     after: DateTime | None
     before: DateTime | None
 
 
 class StatisticsQuery(Query):
+    root: Address | None = None
     within: PositiveTimeDelta | None = None
     after: DateTime | None = None
     before: DateTime | None = None
 
 
-class AlertLevelStatistics(ImmutableDataObject):
+class LevelStatistics(DataObject):
     level: Level
     count: int = Field(ge=0)
 
 
-class AlertStatistics(ImmutableDataObject):
-    count: int
-    levels: Sequence[AlertLevelStatistics]
+class AlertStatistics(DataObject):
+    count: int = 0
+    levels: list[LevelStatistics] = Field(default_factory=list)
 
 
-class ComponentStatistics(ImmutableDataObject):
-    alerts: AlertStatistics
-    children: Mapping[Name, "ComponentStatistics"] = Field(default_factory=dict)
-
-
-class UnitStatistics(ImmutableDataObject):
-    alerts: AlertStatistics
-    components: Mapping[Name, ComponentStatistics] = Field(default_factory=dict)
-
-
-class Statistics(ImmutableDataObject):
-    alerts: AlertStatistics
-    units: Mapping[Name, UnitStatistics] = Field(default_factory=dict)
+class Statistics(DataObject):
+    address: Address
+    alerts: AlertStatistics = Field(default_factory=AlertStatistics)
 
 
 Item = Message | Alert | LogEntry
@@ -652,13 +644,13 @@ class Component(ValidatedDataclass, Tasklet):
         components: list["Component"] = []
 
         def recurse(current: Component) -> None:
-            if not inclusive and current is self:
-                return
+            if inclusive or current is not self:
+                components.append(current)
 
-            components.append(current)
             for component in current.__children.values():
                 recurse(component)
 
+        recurse(self)
         return components
 
     async def settle(self) -> None:
@@ -1168,7 +1160,7 @@ class Component(ValidatedDataclass, Tasklet):
         **kwargs: Unpack[MessageQueryArgs],
     ) -> list[Message]:
         if self.parent is not None:
-            kwargs = {**kwargs, "root": self.address}
+            kwargs = {"root": self.address, **kwargs}
 
         if query is not None:
             query = query.with_defaults(MessageQuery(**kwargs))
@@ -1295,7 +1287,7 @@ class Component(ValidatedDataclass, Tasklet):
         **kwargs: Unpack[AlertQueryArgs],
     ) -> list[Alert]:
         if self.parent is not None:
-            kwargs = {**kwargs, "root": self.address}
+            kwargs = {"root": self.address, **kwargs}
 
         if query is not None:
             query = query.with_defaults(AlertQuery(**kwargs))
@@ -1421,7 +1413,7 @@ class Component(ValidatedDataclass, Tasklet):
         **kwargs: Unpack[LogEntryQueryArgs],
     ) -> list[LogEntry]:
         if self.parent is not None:
-            kwargs = {**kwargs, "root": self.address}
+            kwargs = {"root": self.address, **kwargs}
 
         if query is not None:
             query = query.with_defaults(LogEntryQuery(**kwargs))
@@ -1546,20 +1538,35 @@ class Component(ValidatedDataclass, Tasklet):
         self,
         query: StatisticsQuery | None = None,
         **kwargs: Unpack[StatisticsQueryArgs],
-    ) -> Statistics:
+    ) -> list[Statistics]:
         if self.parent is not None:
-            return await self.root.get_statistics(query, **kwargs)
-
-        statement = (
-            select(ComponentEntity.address, AlertEntity.level, func.count("*").label("count"))
-            .join(ComponentEntity)
-            .group_by(ComponentEntity.address, AlertEntity.level)
-        )
+            kwargs = {"root": self.address, **kwargs}
 
         if query is not None:
             query = query.with_defaults(StatisticsQuery(**kwargs))
         else:
             query = StatisticsQuery(**kwargs)
+
+        if self.parent is not None:
+            return await self.root.get_statistics(query, **kwargs)
+
+        if query is not None:
+            query = query.with_defaults(StatisticsQuery(**kwargs))
+        else:
+            query = StatisticsQuery(**kwargs)
+
+        root = query.root or self.address
+        addresses = [component.address for component in self.traverse()]
+
+        statement = (
+            select(ComponentEntity.address, AlertEntity.level, func.count("*"))
+            .where(
+                AlertEntity.address.in_(addresses)
+                & (_address_contains(root, ComponentEntity.address))
+            )
+            .join(ComponentEntity)
+            .group_by(ComponentEntity.address, AlertEntity.level)
+        )
 
         if query.within is not None:
             statement = statement.where(AlertEntity.timestamp >= utc() - query.within)
@@ -1568,86 +1575,26 @@ class Component(ValidatedDataclass, Tasklet):
         if query.before is not None:
             statement = statement.where(AlertEntity.timestamp < query.before)
 
-        alert_count = 0
-        unit_alert_counts: defaultdict[Name, int] = defaultdict(int)
-        component_alert_counts: defaultdict[Name, defaultdict[Name, int]] = defaultdict(
-            lambda: defaultdict(int),
-        )
+        results: dict[Address, Statistics] = {}
 
-        alert_counts_by_level: defaultdict[Level, int] = defaultdict(int)
-        unit_alert_counts_by_level: defaultdict[Name, defaultdict[Level, int]] = defaultdict(
-            lambda: defaultdict(int),
-        )
-        component_alert_counts_by_level: defaultdict[
-            Name,
-            defaultdict[Name, defaultdict[Level, int]],
-        ] = defaultdict(lambda: defaultdict(lambda: defaultdict(int)))
+        async with self.database.session() as session:
+            for address, level, count in await session.execute(statement):
+                address: Address
+                for ancestor in address.path:
+                    if not root.contains(ancestor):
+                        continue
 
-        async with await self.__init_database_session() as session:
-            rows = await session.execute(statement)
+                    current = results.setdefault(ancestor, Statistics(address=ancestor))
+                    current.alerts.count += count
+                    for entry in current.alerts.levels:
+                        if entry.level == level:
+                            entry.count += count
+                            break
+                    else:
+                        current.alerts.levels.append(LevelStatistics(level=level, count=count))
+                        current.alerts.levels.sort(key=lambda entry: entry.level)
 
-        for address, level, count in rows:
-            alert_count += count
-            unit_alert_counts[address.unit] += count
-            component_alert_counts[address.unit][address.name] += count
-
-            alert_counts_by_level[level] += count
-            unit_alert_counts_by_level[address.unit][level] += count
-            component_alert_counts_by_level[address.unit][address.name][level] += count
-
-        return Statistics(
-            alerts=AlertStatistics(
-                count=alert_count,
-                levels=sorted(
-                    [
-                        AlertLevelStatistics(
-                            level=level,
-                            count=count,
-                        )
-                        for level, count in alert_counts_by_level.items()
-                    ],
-                    key=lambda current: current.level,
-                ),
-            ),
-            units={
-                unit_name: UnitStatistics(
-                    alerts=AlertStatistics(
-                        count=unit_alert_counts[unit_name],
-                        levels=sorted(
-                            [
-                                AlertLevelStatistics(
-                                    level=level,
-                                    count=count,
-                                )
-                                for level, count in unit_alert_counts_by_level[unit_name].items()
-                            ],
-                            key=lambda current: current.level,
-                        ),
-                    ),
-                    components={
-                        component_name: ComponentStatistics(
-                            alerts=AlertStatistics(
-                                count=component_alert_counts[unit_name][component_name],
-                                levels=sorted(
-                                    [
-                                        AlertLevelStatistics(
-                                            level=level,
-                                            count=count,
-                                        )
-                                        for level, count in component_alert_counts_by_level[
-                                            unit_name
-                                        ][component_name].items()
-                                    ],
-                                    key=lambda current: current.level,
-                                ),
-                            ),
-                        )
-                        for component_name in component_alert_counts_by_level[unit_name]
-                    },
-                )
-                for unit_name in unit_alert_counts_by_level
-            },
-        )
+        return list(results.values())
 
     async def __generate_mapping(self, session: AsyncSession) -> dict[Address, UUID]:
         return dict(

@@ -1,6 +1,7 @@
 <script lang="ts" setup>
 import { Address } from '@/address'
 import { ComponentConfig, Config } from '@/api/models'
+import AlertsIndicator from '@/components/AlertsIndicator.vue'
 import { useDrawer } from '@/drawer'
 import icons from '@/icons'
 import { useRouter } from 'vue-router'
@@ -58,7 +59,7 @@ console.log(address, address.depth)
       <q-item-label class="q-ml-md text-no-wrap">{{ config.name || '@' }}</q-item-label>
     </q-item-section>
     <q-item-section side>
-      <!-- <alerts-indicator :unit-name="config.name" /> -->
+      <alerts-indicator :address="address" />
     </q-item-section>
   </q-item>
   <div v-if="!isLeaf && isExpanded">

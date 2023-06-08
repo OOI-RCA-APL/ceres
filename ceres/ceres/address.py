@@ -61,6 +61,37 @@ class Address(str):
     def name(self) -> Name | None:
         return self.component
 
+    @property
+    def parent(self) -> Self | None:
+        if not self:
+            return None
+        if "." not in self:
+            return Address("")
+
+        return Address(self[: self.rindex(".")]) or None
+
+    @property
+    def depth(self) -> int:
+        if not self:
+            return 0
+
+        return self.count(".") + 1
+
+    @property
+    def names(self) -> list[str]:
+        return [names for names in self.split(".") if names]
+
+    @property
+    def path(self) -> list[Self]:
+        path: list[Self] = []
+        current = self
+
+        while current is not None:
+            path.append(current)
+            current = current.parent
+
+        return list(reversed(path))
+
     def __repr__(self) -> str:
         return f"{type(self).__name__}({repr(str(self))})"
 

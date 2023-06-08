@@ -186,7 +186,7 @@ class GetStatisticsQueryParameters(StatisticsQuery):
 async def get_statistics(
     engine: CurrentEngine,
     query: Annotated[GetStatisticsQueryParameters, Depends()],
-) -> Statistics:
+) -> list[Statistics]:
     return await engine.get_statistics(query)
 
 
@@ -223,7 +223,7 @@ async def alert_stream(
         query = AlertQuery(root=root, address=address, search=search)
         async for event in engine.events.of(AlertEvent):
             if query.matches(event.alert):
-                await socket.send_text(jsonify(event))
+                await socket.send_text(jsonify(event.alert))
     except (WebSocketDisconnect, ConnectionClosed):
         pass
 

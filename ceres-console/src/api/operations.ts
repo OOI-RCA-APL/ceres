@@ -8,6 +8,7 @@ import {
   Config,
   ConfigModel,
   LayoutModel,
+  LevelStatistics,
   LogEntry,
   LogEntryModel,
   Message,
@@ -18,6 +19,7 @@ import {
   StatisticsModel,
 } from '@/api/models'
 import { DisplayInfoModel } from '@/display'
+import { getter } from '@/getter'
 import { useSettings } from '@/settings'
 import { useIntervalFn } from '@vueuse/core'
 import moment from 'moment'
@@ -83,8 +85,8 @@ export async function getStatistics(params: {
   within?: number
   after?: string
   before?: string
-}): Promise<Statistics> {
-  return await get(`/api/statistics${createQueryParams(params)}`, StatisticsModel)
+}): Promise<Statistics[]> {
+  return await get(`/api/statistics${createQueryParams(params)}`, Zod.array(StatisticsModel))
 }
 
 function getWebSocketURI(relative: string) {
@@ -212,8 +214,17 @@ export const useStatistics = defineStore('statistics', () => {
       })
   )
 
-  const data = $computed(() => query.data.value as Statistics)
-  const error = $computed(() => query.error)
+  const mapping = computed(() => {
+    if (query.data.value == null) {
+      return {}
+    }
+
+    return Object.fromEntries(
+      query.data.value.map((statistics) => [statistics.address.toString(), statistics])
+    )
+  })
+
+  const error = computed(() => query.error.value)
 
   async function load() {
     await query.suspense()
@@ -221,7 +232,7 @@ export const useStatistics = defineStore('statistics', () => {
 
   useIntervalFn(async () => {
     await query.refetch.value()
-  }, moment.duration(30, 's').asMilliseconds())
+  }, moment.duration(15, 's').asMilliseconds())
 
   watch(
     computed(() => settings.statisticsDuration.asSeconds()),
@@ -230,14 +241,25 @@ export const useStatistics = defineStore('statistics', () => {
     }
   )
 
+  function get(address: Address): Statistics | null {
+    return mapping.value[address.toString()] ?? null
+  }
+
+  function getAlertLevel(address: Address): LevelStatistics | null {
+    const statistics = get(address)
+    if (statistics == null) {
+      return null
+    }
+
+    return statistics.alerts.levels[statistics.alerts.levels.length - 1] ?? null
+  }
+
   return {
-    data: $$(data),
+    get: getter(query.data, get),
+    getAlertInfo: getter(query.data, getAlertLevel),
     error: $$(error),
-    dataUpdatedAt: computed(() =>
+    updatedAt: computed(() =>
       query.dataUpdatedAt.value ? moment(query.dataUpdatedAt.value) : null
-    ),
-    errorUpdatedAt: computed(() =>
-      query.dataUpdatedAt.value ? moment(query.errorUpdatedAt.value) : null
     ),
     load,
   }
@@ -332,7 +354,7 @@ function useStream<TModel extends ZodTypeAny>(
       if (result.success) {
         onMessage(result.data)
       } else {
-        console.error(result.error)
+        console.error(url, model, data, result.error)
       }
     })
 
