@@ -179,22 +179,6 @@ const uis = $computed(() => components.filter((component) => component.roles.inc
           </div>
         </panel>
       </panel-group>
-      <div class="q-pa-md">
-        <q-markup-table v-if="components.length" bordered dense flat separator="vertical">
-          <thead>
-            <q-tr no-hover>
-              <q-th :class="[$style.addressColumn, 'text-left']">Component</q-th>
-              <q-th class="text-left">Roles</q-th>
-            </q-tr>
-          </thead>
-          <tbody>
-            <q-tr v-for="component in components" :key="component.address.toString()" no-hover>
-              <q-td :class="$style.addressColumn">{{ component.address.toString() }}</q-td>
-              <q-td>{{ [...component.roles].sort().join(', ') }}</q-td>
-            </q-tr>
-          </tbody>
-        </q-markup-table>
-      </div>
     </div>
   </full-page>
 </template>
