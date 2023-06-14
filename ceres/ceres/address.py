@@ -1,6 +1,6 @@
 import re
 from functools import lru_cache
-from typing import Any
+from typing import Any, Sequence
 
 from typing_extensions import Self, override
 
@@ -107,7 +107,7 @@ class Address(AddressPattern):
         return self.count(".") + 1
 
     @property
-    def path(self) -> list[Self]:
+    def path(self) -> Sequence[Self]:
         path: list[Self] = []
         current = self
 
@@ -117,6 +117,10 @@ class Address(AddressPattern):
             current = current.parent
 
         return list(reversed(path))
+
+    @property
+    def names(self) -> Sequence[Name]:
+        return [name for name in self.split(".") if name]
 
     @property
     @override

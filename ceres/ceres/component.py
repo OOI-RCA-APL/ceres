@@ -744,7 +744,7 @@ class Component(ValidatedDataclass, Tasklet):
         address = Address(address)
 
         current: Component | None = self
-        for name in address.path:
+        for name in address.names:
             if current is None:
                 break
 
@@ -1222,10 +1222,8 @@ class Component(ValidatedDataclass, Tasklet):
         if query.order is None and order_by is None:
             statement = statement.order_by(MessageEntity.timestamp)
 
-        start = utc()
         async with await self.__init_database_session() as session:
             rows = await session.execute(statement)
-        print("\n\n\nget_messages\n\n\n", utc() - start)
 
         return [Message.construct(**row._asdict()) for row in rows]  # type: ignore
 

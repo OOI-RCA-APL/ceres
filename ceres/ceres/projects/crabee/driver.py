@@ -468,6 +468,7 @@ class CrabeeDriver(Alerter, UI, Component):
                 order=MessageOrder.NEW_TO_OLD,
             )
         )
+        print(list(messages))
 
         def parse() -> None:
             for message in messages:
