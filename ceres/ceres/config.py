@@ -54,8 +54,6 @@ class _NodeConfigMixin(ImmutableDataObject):
         if not address:
             return None
         if address.head is None:
-            print("address.head is None")
-            print(address)
             return None
 
         component = next(

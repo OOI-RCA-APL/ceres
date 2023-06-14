@@ -43,7 +43,6 @@ export async function getComponent(address: Address): Promise<ComponentInfo | nu
 }
 
 export async function getMessages(params: {
-  root?: Address
   address?: Address
   search?: string
   within?: number
@@ -56,7 +55,6 @@ export async function getMessages(params: {
 }
 
 export async function getAlerts(params: {
-  root?: Address
   address?: Address
   search?: string
   within?: number
@@ -69,7 +67,6 @@ export async function getAlerts(params: {
 }
 
 export async function getLogEntries(params: {
-  root?: Address
   address?: Address
   search?: string
   within?: number
@@ -108,7 +105,6 @@ function getWebSocketURI(relative: string) {
 
 export function useMessageStream<TModel extends ZodTypeAny>(
   params: MaybeRef<{
-    root?: Address
     address?: Address
     search?: string
   }>,
@@ -129,7 +125,6 @@ export function useMessageStream<TModel extends ZodTypeAny>(
 
 export function useAlertStream<TModel extends ZodTypeAny>(
   params: MaybeRef<{
-    root?: Address
     address?: Address
     search?: string
   }>,
@@ -150,7 +145,6 @@ export function useAlertStream<TModel extends ZodTypeAny>(
 
 export function useLogEntryStream<TModel extends ZodTypeAny>(
   params: MaybeRef<{
-    root?: Address
     address?: Address
     search?: string
   }>,

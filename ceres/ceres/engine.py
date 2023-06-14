@@ -194,9 +194,9 @@ class Engine(Component):
         self.log.info("Reload completed.")
 
     async def load_components(self) -> None:
-        await self.load_subcomponents(self)
+        await self.__load_subcomponents_for(self)
 
-    async def load_subcomponents(self, component: Component) -> None:
+    async def __load_subcomponents_for(self, component: Component) -> None:
         if component is self:
             config = self.config
         else:
@@ -207,7 +207,7 @@ class Engine(Component):
         references: dict[Name, Component] = {}
 
         for subconfig in config.components:
-            child = component.get_child(subconfig.name)
+            child = component.get_component(subconfig.name)
             address = component.address / subconfig.name
             id = await self.assign_component_id(address)
 
@@ -221,9 +221,9 @@ class Engine(Component):
                             )
                         }
                     )
-                    component.add_child(child)
+                    component.add_component(child)
                     child.assign_references(references)
-                    await self.load_subcomponents(child)
+                    await self.__load_subcomponents_for(child)
                     component.log.info(
                         f"Loaded '{child.address}' as {strify(type(child))} with ID '{id}'."
                     )
@@ -254,7 +254,7 @@ class Engine(Component):
                         await component.stop()
                         component.detach()
 
-        await self.load_subcomponents(self)
+        await self.__load_subcomponents_for(self)
 
         created = [
             action
@@ -287,7 +287,7 @@ class Engine(Component):
         actions: list[Action] = []
 
         for name, config in configs.items():
-            component = self.get_child(name)
+            component = self.get_component(name)
             address = self.address / name
             if component is None:
                 actions.append(Action(kind=ActionKind.CREATE, address=address))

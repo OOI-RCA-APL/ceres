@@ -1226,8 +1226,8 @@ class A3Driver(Alerter):
     def __generate_sequence_number(self) -> int:
         while True:
             sequence_number = random.randint(1, 99)
-            if sequence_number != self._last_sequence_number:
-                self._last_sequence_number = sequence_number
+            if sequence_number != self.__last_sequence_number:
+                self.__last_sequence_number = sequence_number
                 return sequence_number
 
     async def __send_das(

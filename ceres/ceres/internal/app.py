@@ -21,11 +21,12 @@ from starlette.requests import HTTPConnection
 from starlette.status import HTTP_400_BAD_REQUEST
 from websockets.exceptions import ConnectionClosed
 
-from ceres.address import Address
+from ceres.address import Address, AddressPattern
 from ceres.alert import Alert, Level
 from ceres.component import (
     AlertQuery,
     Component,
+    ComponentQuery,
     LogEntryQuery,
     MessageQuery,
     Statistics,
@@ -120,10 +121,40 @@ async def get_config(engine: CurrentEngine) -> Config:
     return engine.config
 
 
+class StartResult(ImmutableDataObject):
+    started: Sequence[Address]
+
+
+@api.post("/start", tags=["engine"])
+async def start(
+    engine: CurrentEngine,
+    query: ComponentQuery,
+) -> StartResult:
+    components = engine.get_components(query)
+    started = [component.address for component in components if not component.running]
+    components.start()
+    return StartResult(started=started)
+
+
+class StopResult(ImmutableDataObject):
+    stopped: Sequence[Address]
+
+
+@api.post("/stop", tags=["engine"])
+async def stop(
+    engine: CurrentEngine,
+    query: ComponentQuery,
+) -> StopResult:
+    components = engine.get_components(query)
+    stopped = [component.address for component in components if component.running]
+    await components.stop()
+    return StopResult(stopped=stopped)
+
+
 @api.post("/reload", tags=["engine"])
 async def reload(
-    response: Response,
     engine: CurrentEngine,
+    response: Response,
 ) -> Result[Config, ReloadError]:
     match await engine.reload():
         case Ok(config):
@@ -134,21 +165,19 @@ async def reload(
 
 
 class GetMessagesQueryParameters(MessageQuery):
-    address: Address | None = None
     limit: int = Field(default=100, ge=0, le=1000)
     offset: int = Field(default=0, ge=0)
 
 
 @api.get("/messages", tags=["data"])
 async def get_messages(
-    query: Annotated[GetMessagesQueryParameters, Depends()],
     engine: CurrentEngine,
+    query: Annotated[GetMessagesQueryParameters, Depends()],
 ) -> list[Message]:
     return await engine.get_messages(query)
 
 
 class GetAlertsQueryParameters(AlertQuery):
-    address: Address | None = None
     level: Level | None = None
     code: str | None = None
     limit: int = Field(default=100, ge=0, le=1000)
@@ -194,16 +223,15 @@ async def get_statistics(
 async def message_stream(
     socket: WebSocket,
     engine: CurrentEngine,
-    root: Address | None = None,
-    address: Address | None = None,
+    address: AddressPattern | None = None,
     search: str | None = None,
 ) -> None:
     try:
         await socket.accept()
 
-        query = MessageQuery(root=root, address=address, search=search)
+        query = MessageQuery(address=address, search=search)
         async for event in engine.events.of(MessageSentEvent | MessageReceivedEvent):
-            if query.matches(event.message):
+            if query.matches(event.message, engine.address):
                 await socket.send_text(jsonify(event.message))
     except (WebSocketDisconnect, ConnectionClosed):
         pass
@@ -213,16 +241,15 @@ async def message_stream(
 async def alert_stream(
     socket: WebSocket,
     engine: CurrentEngine,
-    root: Address | None = None,
     address: Address | None = None,
     search: str | None = None,
 ) -> None:
     try:
         await socket.accept()
 
-        query = AlertQuery(root=root, address=address, search=search)
+        query = AlertQuery(address=address, search=search)
         async for event in engine.events.of(AlertEvent):
-            if query.matches(event.alert):
+            if query.matches(event.alert, engine.address):
                 await socket.send_text(jsonify(event.alert))
     except (WebSocketDisconnect, ConnectionClosed):
         pass
@@ -232,16 +259,15 @@ async def alert_stream(
 async def log_entry_stream(
     socket: WebSocket,
     engine: CurrentEngine,
-    root: Address | None = None,
     address: Address | None = None,
     search: str | None = None,
 ) -> None:
     try:
         await socket.accept()
 
-        query = LogEntryQuery(root=root, address=address, search=search)
+        query = LogEntryQuery(address=address, search=search)
         async for event in engine.events.of(LogEvent):
-            if query.matches(event.entry):
+            if query.matches(event.entry, engine.address):
                 await socket.send_text(jsonify(event.entry))
     except (WebSocketDisconnect, ConnectionClosed):
         pass

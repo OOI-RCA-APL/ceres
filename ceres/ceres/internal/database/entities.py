@@ -84,6 +84,7 @@ class MessageEntity(Entity):
         PrimaryKeyConstraint("id", name=f"pk_{__tablename__}"),
         EnumConstraint("direction", MessageDirection, name=f"ck_{__tablename__}__direction"),
         Index(f"ix_{__tablename__}__component_id", "component_id"),
+        Index(f"ix_{__tablename__}__component_id__timestamp", "component_id", "timestamp"),
         Index(f"ix_{__tablename__}__timestamp", "timestamp"),
         Index(f"ix_{__tablename__}__content", "content"),
     )
@@ -118,6 +119,7 @@ class AlertEntity(Entity):
         PrimaryKeyConstraint("id", name=f"pk_{__tablename__}"),
         EnumConstraint("level", Level, name=f"ck_{__tablename__}__level"),
         Index(f"ix_{__tablename__}__component_id", "component_id"),
+        Index(f"ix_{__tablename__}__component_id__timestamp", "component_id", "timestamp"),
         Index(f"ix_{__tablename__}__timestamp", "timestamp"),
         Index(f"ix_{__tablename__}__code", "code"),
     )
@@ -151,6 +153,7 @@ class LogEntryEntity(Entity):
         PrimaryKeyConstraint("id", name=f"pk_{__tablename__}"),
         EnumConstraint("level", Level, name=f"ck_{__tablename__}__level"),
         Index(f"ix_{__tablename__}__component_id", "component_id"),
+        Index(f"ix_{__tablename__}__component_id__timestamp", "component_id", "timestamp"),
         Index(f"ix_{__tablename__}__timestamp", "timestamp"),
     )
 

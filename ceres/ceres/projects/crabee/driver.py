@@ -122,12 +122,6 @@ class CrabeeDriver(Alerter, UI, Component):
         self.__data_message_stream: WriteStream[DataMessage] = WriteStream()
 
     @routine
-    async def __report(self) -> None:
-        while True:
-            await asyncio.sleep(1)
-            self.alert(Level.ERROR, "test/error")
-
-    @routine
     async def __fetch_last_data_message(self) -> None:
         if messages := await self.connection.get_messages(
             order=MessageOrder.NEW_TO_OLD,

@@ -19,6 +19,7 @@ from typing import (
     Callable,
     ClassVar,
     Collection,
+    Hashable,
     Iterable,
     Iterator,
     Mapping,
@@ -559,3 +560,28 @@ def chunkify(iterable: Iterable[_T], size: int) -> Iterable[tuple[_T]]:
 
     for i in range(0, len(iterable), size):
         yield iterable[i : i + size]
+
+
+def _hash(value: object) -> Hashable:
+    if isinstance(value, Hashable):
+        return hash(value)
+
+    return id(value)
+
+
+def uniquify(iterable: Iterable[_T], key: Callable[[_T], Hashable] | None = None) -> Iterable[_T]:
+    if key is None:
+        key = _hash
+
+    seen: set[Hashable] = set()
+    output: list[_T] = []
+
+    for value in iterable:
+        identity = value if key is None else key(value)
+        if identity in seen:
+            continue
+
+        seen.add(identity)
+        output.append(value)
+
+    return output

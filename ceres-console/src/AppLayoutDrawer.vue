@@ -46,6 +46,8 @@ function clearLocalStorage() {
       })
     })
 }
+
+const root = new Address('')
 </script>
 
 <template>
@@ -68,7 +70,7 @@ function clearLocalStorage() {
               <q-item-label>Dashboard</q-item-label>
             </q-item-section>
           </q-item>
-          <app-layout-drawer-component :address="new Address('')" :config="config.data" />
+          <app-layout-drawer-component :address="root" :config="config.data" />
         </q-list>
       </div>
       <q-list>

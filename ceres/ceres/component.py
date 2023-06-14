@@ -17,8 +17,13 @@ from typing import (
     AsyncIterable,
     Callable,
     Final,
+    Generic,
+    Iterable,
+    Iterator,
     Mapping,
     ParamSpec,
+    Protocol,
+    SupportsIndex,
     TypedDict,
     TypeVar,
     final,
@@ -42,7 +47,7 @@ from sqlalchemy.sql.elements import SQLCoreOperations
 from sqlalchemy.sql.roles import ExpressionElementRole
 from typing_extensions import Self, Unpack, dataclass_transform, override
 
-from ceres.address import Address
+from ceres.address import Address, AddressPattern
 from ceres.alert import Alert
 from ceres.config import ComponentConfig, DatabaseKind
 from ceres.data import (
@@ -94,8 +99,10 @@ from ceres.internal.utilities import (
     escape_like_expression,
     lenient_isinstance,
     randstr,
+    setattr_internal,
     strify,
     traverse,
+    uniquify,
 )
 from ceres.level import Level
 from ceres.listener import ListenerBinding
@@ -125,11 +132,6 @@ WhereExpression = ColumnElement[bool] | ExpressionElementRole[bool]
 OrderByExpression = ColumnElement[Any] | ExpressionElementRole[Any]
 
 
-class MessageOrder(str, Enum):
-    OLD_TO_NEW = "old-to-new"
-    NEW_TO_OLD = "new-to-old"
-
-
 class Query(ImmutableDataObject):
     class Config(ImmutableDataObject.Config):
         extra = Extra.ignore
@@ -150,9 +152,47 @@ class Query(ImmutableDataObject):
         return self.copy(update=update)
 
 
-class MessageQueryArgs(TypedDict, total=False):
-    root: Address | None
-    address: Address | Sequence[Address] | None
+class Addressable(Protocol):
+    @property
+    def address(self) -> Address:
+        ...
+
+
+_ObjectT = TypeVar("_ObjectT", bound=Addressable)
+
+
+class ObjectQueryArgs(TypedDict, total=False):
+    address: AddressPattern | None
+
+
+class ObjectQuery(Generic[_ObjectT], Query):
+    address: AddressPattern | None = None
+
+    def matches(self, obj: _ObjectT, root: "Address") -> bool:
+        if not root.contains(obj.address):
+            return False
+
+        if self.address is not None:
+            if not self.address.matches(obj.address, root):
+                return False
+
+        return True
+
+
+class ComponentQueryArgs(ObjectQueryArgs, total=False):
+    pass
+
+
+class ComponentQuery(ObjectQuery["Component"]):
+    pass
+
+
+class MessageOrder(str, Enum):
+    OLD_TO_NEW = "old-to-new"
+    NEW_TO_OLD = "new-to-old"
+
+
+class MessageQueryArgs(ObjectQueryArgs, total=False):
     search: str | None
     search_case_sensitive: bool
     within: PositiveTimeDelta | None
@@ -167,9 +207,7 @@ class MessageQueryArgs(TypedDict, total=False):
     offset: int | None
 
 
-class MessageQuery(Query):
-    root: Address | None = None
-    address: Address | Sequence[Address] | None = None
+class MessageQuery(ObjectQuery[Message]):
     search: str | None = None
     search_case_sensitive: bool = False
     within: PositiveTimeDelta | None = None
@@ -183,23 +221,16 @@ class MessageQuery(Query):
     limit: int | None = Field(default=None, ge=0)
     offset: int | None = Field(default=None, ge=0)
 
-    def matches(self, message: Message) -> bool:
-        if self.root is not None:
-            return self.root.contains(message.address)
-
-        if self.address is not None:
-            if isinstance(self.address, Address):
-                if message.address != self.address:
-                    return False
-            else:
-                if message.address not in self.address:
-                    return False
+    @override
+    def matches(self, obj: Message, root: Address) -> bool:
+        if not super().matches(obj, root):
+            return False
 
         if self.search is not None:
             search = self.search
-            timestamp = _format_timestamp(message.timestamp)
-            direction = message.direction
-            content = message.content
+            timestamp = _format_timestamp(obj.timestamp)
+            direction = obj.direction
+            content = obj.content
 
             if not self.search_case_sensitive:
                 search = search.lower()
@@ -209,27 +240,27 @@ class MessageQuery(Query):
                 return False
 
         if self.within is not None:
-            if message.timestamp < utc() - self.within:
+            if obj.timestamp < utc() - self.within:
                 return False
         if self.after is not None:
-            if message.timestamp < self.after:
+            if obj.timestamp < self.after:
                 return False
         if self.before is not None:
-            if message.timestamp >= self.before:
+            if obj.timestamp >= self.before:
                 return False
 
         if self.direction is not None:
-            if message.direction != self.direction:
+            if obj.direction != self.direction:
                 return False
 
         if self.prefix is not None:
-            if not message.content.startswith(self.prefix):
+            if not obj.content.startswith(self.prefix):
                 return False
         if self.suffix is not None:
-            if not message.content.endswith(self.suffix):
+            if not obj.content.endswith(self.suffix):
                 return False
         if self.regex is not None:
-            if not self.regex.match(message.content):
+            if not self.regex.match(obj.content):
                 return False
 
         return True
@@ -241,8 +272,6 @@ class AlertOrder(str, Enum):
 
 
 class AlertQueryArgs(TypedDict, total=False):
-    root: Address | None
-    address: Address | Sequence[Address] | None
     search: str | None
     search_case_sensitive: bool
     within: PositiveTimeDelta | None
@@ -256,9 +285,7 @@ class AlertQueryArgs(TypedDict, total=False):
     offset: int | None
 
 
-class AlertQuery(Query):
-    root: Address | None = None
-    address: Address | Sequence[Address] | None = None
+class AlertQuery(ObjectQuery[Alert]):
     search: str | None = None
     search_case_sensitive: bool = False
     within: PositiveTimeDelta | None = None
@@ -271,24 +298,17 @@ class AlertQuery(Query):
     limit: int | None = Field(default=None, ge=0)
     offset: int | None = Field(default=None, ge=0)
 
-    def matches(self, alert: Alert) -> bool:
-        if self.root is not None:
-            return self.root.contains(alert.address)
-
-        if self.address is not None:
-            if isinstance(self.address, Address):
-                if alert.address != self.address:
-                    return False
-            else:
-                if alert.address not in self.address:
-                    return False
+    @override
+    def matches(self, obj: Alert, root: Address) -> bool:
+        if not super().matches(obj, root):
+            return False
 
         if self.search is not None:
             search = self.search
-            timestamp = _format_timestamp(alert.timestamp)
-            level = alert.level
-            code = alert.code
-            info = jsonify(alert.info)
+            timestamp = _format_timestamp(obj.timestamp)
+            level = obj.level
+            code = obj.code
+            info = jsonify(obj.info)
 
             if self.search_case_sensitive:
                 search = search.lower()
@@ -299,33 +319,33 @@ class AlertQuery(Query):
                 return False
 
         if self.within is not None:
-            if alert.timestamp < utc() - self.within:
+            if obj.timestamp < utc() - self.within:
                 return False
         if self.after is not None:
-            if alert.timestamp < self.after:
+            if obj.timestamp < self.after:
                 return False
         if self.before is not None:
-            if alert.timestamp >= self.before:
+            if obj.timestamp >= self.before:
                 return False
 
         if self.level is not None:
             if isinstance(self.level, Level):
-                if alert.level != self.level:
+                if obj.level != self.level:
                     return False
             else:
-                if alert.level not in self.level:
+                if obj.level not in self.level:
                     return False
 
         if self.code is not None:
             if isinstance(self.code, str):
-                if alert.code != self.code:
+                if obj.code != self.code:
                     return False
             else:
-                if alert.code not in self.code:
+                if obj.code not in self.code:
                     return False
 
         if self.code_regex is not None:
-            if not self.code_regex.match(alert.code):
+            if not self.code_regex.match(obj.code):
                 return False
 
         return True
@@ -337,8 +357,6 @@ class LogEntryOrder(str, Enum):
 
 
 class LogEntryQueryArgs(TypedDict, total=False):
-    root: Address | None
-    address: Address | Sequence[Address] | None
     search: str | None
     search_case_sensitive: bool
     within: PositiveTimeDelta | None
@@ -353,9 +371,7 @@ class LogEntryQueryArgs(TypedDict, total=False):
     offset: int | None
 
 
-class LogEntryQuery(Query):
-    root: Address | None = None
-    address: Address | Sequence[Address] | None = None
+class LogEntryQuery(ObjectQuery[LogEntry]):
     search: str | None = None
     search_case_sensitive: bool = False
     within: PositiveTimeDelta | None = None
@@ -369,23 +385,16 @@ class LogEntryQuery(Query):
     limit: int | None = Field(default=None, ge=0)
     offset: int | None = Field(default=None, ge=0)
 
-    def matches(self, entry: LogEntry) -> bool:
-        if self.root is not None:
-            return self.root.contains(entry.address)
-
-        if self.address is not None:
-            if isinstance(self.address, Address):
-                if entry.address != self.address:
-                    return False
-            else:
-                if entry.address not in self.address:
-                    return False
+    @override
+    def matches(self, obj: LogEntry, root: Address) -> bool:
+        if not super().matches(obj, root):
+            return False
 
         if self.search is not None:
             search = self.search
-            timestamp = _format_timestamp(entry.timestamp)
-            level = entry.level
-            content = entry.content
+            timestamp = _format_timestamp(obj.timestamp)
+            level = obj.level
+            content = obj.content
 
             if not self.search_case_sensitive:
                 search = search.lower()
@@ -395,23 +404,23 @@ class LogEntryQuery(Query):
                 return False
 
         if self.within is not None:
-            if entry.timestamp < utc() - self.within:
+            if obj.timestamp < utc() - self.within:
                 return False
         if self.after is not None:
-            if entry.timestamp < self.after:
+            if obj.timestamp < self.after:
                 return False
         if self.before is not None:
-            if entry.timestamp >= self.before:
+            if obj.timestamp >= self.before:
                 return False
 
         if self.prefix is not None:
-            if not entry.content.startswith(self.prefix):
+            if not obj.content.startswith(self.prefix):
                 return False
         if self.suffix is not None:
-            if not entry.content.endswith(self.suffix):
+            if not obj.content.endswith(self.suffix):
                 return False
         if self.regex is not None:
-            if not self.regex.match(entry.content):
+            if not self.regex.match(obj.content):
                 return False
 
         return True
@@ -640,19 +649,6 @@ class Component(ValidatedDataclass, Tasklet):
     def settled(self) -> bool:
         return not self.running or (all(processor.idle for processor in self.__event_processors))
 
-    def traverse(self, *, inclusive: bool = True) -> list["Component"]:
-        components: list["Component"] = []
-
-        def recurse(current: Component) -> None:
-            if inclusive or current is not self:
-                components.append(current)
-
-            for component in current.__children.values():
-                recurse(component)
-
-        recurse(self)
-        return components
-
     async def settle(self) -> None:
         while not self.settled:
             await asyncio.gather(
@@ -709,81 +705,89 @@ class Component(ValidatedDataclass, Tasklet):
         traverse(root, visit)
         return components
 
-    def add_child(
+    def add_component(
         self,
-        child: "Component",
+        component: _ComponentT,
+        /,
         name: Name | None = None,
-    ) -> None:
-        if child is self:
+    ) -> _ComponentT:
+        if component is self or component in self.get_ancestors():
+            raise ValueError("component cannot contain itself")
+
+        if isinstance(name, str):
+            setattr_internal(Component, component, "name", name)
+
+        self.__children[component.name] = component
+        component.detach()
+        component.__parent = ref(self)
+
+        return component
+
+    def detach(self) -> None:
+        if self.parent is None:
             return
 
-        current = self.get_child(child.name)
-        if current is child:
-            return
-        if current is not None:
-            self.remove_child(current)
+        self.parent.__children.pop(self.name, None)
+        self.__parent = None
 
-        if name is not None:
-            child.name = name  # type: ignore
-
-        self.__children[child.name] = child
-        child.attach_to(self)
-
-    def get_child(self, name: Name) -> "Component | None":
-        return self.__children.get(name)
-
-    def remove_child(self, child: "str | Component") -> "Component | None":
-        if isinstance(child, str):
-            found = self.get_child(child)
-            if found is None:
-                return None
-
-            child = found
-
-        if child is self:
-            return None
-
-        if self.get_child(child.name) is not child:
-            return None
-
-        self.__children.pop(child.name, None)
-        if child.parent is self:
-            child.detach()
-
-        return child
-
-    def get_component(self, address: Address | None) -> "Component | None":
-        if not address or not address.head:
-            return self
-
-        child = self.get_child(address.head)
-        if child is None:
-            return None
-
-        return child.get_component(address.tail)
-
-    def remove_component(self, address: Address | None) -> "Component | None":
+    def remove_component(self, /, address: Name | Address | None) -> "Component | None":
         component = self.get_component(address)
         if component is not None:
             component.detach()
 
         return component
 
-    def attach_to(self, parent: "Component") -> None:
-        if self.parent is parent:
-            return
+    def get_component(self, address: Name | Address | None, /) -> "Component | None":
+        if not address:
+            return self
 
-        if self.parent is not None:
-            self.detach()
+        address = Address(address)
 
-        self.__parent = ref(parent)
+        current: Component | None = self
+        for name in address.path:
+            if current is None:
+                break
 
-    def detach(self) -> None:
-        if self.parent is None:
-            return
+            current = current.__children.get(name)
 
-        self.parent.remove_child(self)
-        self.__parent = None
+        return current
+
+    def get_components(
+        self,
+        /,
+        __query: ComponentQuery | AddressPattern | None = None,
+        *,
+        inclusive: bool = False,
+        **kwargs: Unpack[ComponentQueryArgs],
+    ) -> "ComponentGroup":
+        components: list[Component] = []
+
+        query = ComponentQuery(**kwargs)
+        if isinstance(__query, ComponentQuery):
+            query = __query.with_defaults(query)
+        elif isinstance(__query, AddressPattern):
+            query = ComponentQuery(**{**query.dict(), "address": __query})
+
+        def traverse(current: Component) -> None:
+            if (inclusive or current is not self) and query.matches(current, self.address):
+                components.append(current)
+
+            for component in current.__children.values():
+                traverse(component)
+
+        traverse(self)
+
+        return ComponentGroup(components)
+
+    def get_ancestors(self, *, inclusive: bool = False) -> "ComponentGroup":
+        ancestors: list[Component] = []
+
+        current: Component | None = self if inclusive else self.parent
+        while current is not None:
+            ancestors.append(current)
+            current = current.parent
+
+        return ComponentGroup(ancestors)
 
     def emit(
         self,
@@ -877,38 +881,6 @@ class Component(ValidatedDataclass, Tasklet):
             self.__process_routines(),
             self.__process_events(),
         )
-
-    @override
-    def start(
-        self,
-        *,
-        all: bool = False,
-        on_completed: Callable[[Self], None] | None = None,
-        on_exception: Callable[[Self, BaseException], None] | None = None,
-    ) -> None:
-        super().start(
-            on_completed=on_completed,
-            on_exception=on_exception,
-        )
-        if all:
-            for child in self.__children.values():
-                child.start(all=all)
-
-    @override
-    async def run(
-        self,
-        *,
-        all: bool = False,
-        raise_exceptions: bool = True,
-        on_completed: Callable[[Self], None] | None = None,
-        on_exception: Callable[[Self, BaseException], None] | None = None,
-    ) -> None:
-        self.start(
-            all=all,
-            on_completed=on_completed,
-            on_exception=on_exception,
-        )
-        await self.wait_until_stopped(raise_exceptions)
 
     async def __process_routine(self, binding: RoutineBinding) -> None:
         routine = getattr(self, binding.function, None)
@@ -1139,9 +1111,7 @@ class Component(ValidatedDataclass, Tasklet):
                             data["component_id"] = await self.assign_component_id(model.address)
                             values.append(data)
 
-                        await session.execute(
-                            insert(entity_cls).values(values).on_conflict_do_nothing()
-                        )
+                        await session.execute(insert(entity_cls).on_conflict_do_nothing(), values)
 
                 await session.commit()
         except Exception:
@@ -1151,6 +1121,12 @@ class Component(ValidatedDataclass, Tasklet):
             if not self.__buffer:
                 self.__buffer_empty.set()
 
+    async def __get_component_ids(self, query: ComponentQuery) -> list[UUID]:
+        return [
+            await self.assign_component_id(component.address)
+            for component in self.get_components(query)
+        ]
+
     async def get_messages(
         self,
         query: MessageQuery | None = None,
@@ -1159,33 +1135,23 @@ class Component(ValidatedDataclass, Tasklet):
         order_by: Callable[[type[MessageEntity]], OrderByExpression] | None = None,
         **kwargs: Unpack[MessageQueryArgs],
     ) -> list[Message]:
-        if self.parent is not None:
-            kwargs = {"root": self.address, **kwargs}
-
         if query is not None:
             query = query.with_defaults(MessageQuery(**kwargs))
         else:
             query = MessageQuery(**kwargs)
 
-        if self.parent is not None:
-            return await self.root.get_messages(query, where=where, order_by=order_by, **kwargs)
-
-        statement = select(
-            MessageEntity.id,
-            ComponentEntity.address,
-            MessageEntity.timestamp,
-            MessageEntity.direction,
-            MessageEntity.content,
-        ).join(ComponentEntity)
-
-        if query.root is not None:
-            statement = statement.where(_address_contains(query.root, ComponentEntity.address))
-
-        if query.address is not None:
-            if isinstance(query.address, Address):
-                statement = statement.where(MessageEntity.address == query.address)
-            else:
-                statement = statement.where(MessageEntity.address.in_(query.address))
+        ids = await self.__get_component_ids(ComponentQuery(address=query.address))
+        statement = (
+            select(
+                MessageEntity.id,
+                ComponentEntity.address,
+                MessageEntity.timestamp,
+                MessageEntity.direction,
+                MessageEntity.content,
+            )
+            .join(ComponentEntity)
+            .where(MessageEntity.component_id.in_(ids))
+        )
 
         if query.search is not None:
             pattern = "%" + escape_like_expression(query.search) + "%"
@@ -1245,7 +1211,7 @@ class Component(ValidatedDataclass, Tasklet):
 
         if query.limit is not None:
             statement = statement.limit(query.limit)
-        if query.offset is not None:
+        if query.offset is not None and query.offset > 0:
             statement = statement.offset(query.offset)
 
         if where is not None:
@@ -1256,8 +1222,10 @@ class Component(ValidatedDataclass, Tasklet):
         if query.order is None and order_by is None:
             statement = statement.order_by(MessageEntity.timestamp)
 
+        start = utc()
         async with await self.__init_database_session() as session:
             rows = await session.execute(statement)
+        print("\n\n\nget_messages\n\n\n", utc() - start)
 
         return [Message.construct(**row._asdict()) for row in rows]  # type: ignore
 
@@ -1286,34 +1254,24 @@ class Component(ValidatedDataclass, Tasklet):
         order_by: Callable[[type[AlertEntity]], OrderByExpression] | None = None,
         **kwargs: Unpack[AlertQueryArgs],
     ) -> list[Alert]:
-        if self.parent is not None:
-            kwargs = {"root": self.address, **kwargs}
-
         if query is not None:
             query = query.with_defaults(AlertQuery(**kwargs))
         else:
             query = AlertQuery(**kwargs)
 
-        if self.parent is not None:
-            return await self.root.get_alerts(query, where=where, order_by=order_by, **kwargs)
-
-        statement = select(
-            AlertEntity.id,
-            ComponentEntity.address,
-            AlertEntity.timestamp,
-            AlertEntity.level,
-            AlertEntity.code,
-            AlertEntity.info,
-        ).join(ComponentEntity)
-
-        if query.root is not None:
-            statement = statement.where(_address_contains(query.root, ComponentEntity.address))
-
-        if query.address is not None:
-            if isinstance(query.address, Address):
-                statement = statement.where(AlertEntity.address == query.address)
-            else:
-                statement = statement.where(AlertEntity.address.in_(query.address))
+        ids = await self.__get_component_ids(ComponentQuery(address=query.address))
+        statement = (
+            select(
+                AlertEntity.id,
+                ComponentEntity.address,
+                AlertEntity.timestamp,
+                AlertEntity.level,
+                AlertEntity.code,
+                AlertEntity.info,
+            )
+            .join(ComponentEntity)
+            .where(ComponentEntity.id.in_(ids))
+        )
 
         if query.search is not None:
             pattern = "%" + escape_like_expression(query.search) + "%"
@@ -1371,7 +1329,7 @@ class Component(ValidatedDataclass, Tasklet):
 
         if query.limit is not None:
             statement = statement.limit(query.limit)
-        if query.offset is not None:
+        if query.offset is not None and query.offset > 0:
             statement = statement.offset(query.offset)
 
         if where is not None:
@@ -1412,33 +1370,23 @@ class Component(ValidatedDataclass, Tasklet):
         order_by: Callable[[type[LogEntryEntity]], OrderByExpression] | None = None,
         **kwargs: Unpack[LogEntryQueryArgs],
     ) -> list[LogEntry]:
-        if self.parent is not None:
-            kwargs = {"root": self.address, **kwargs}
-
         if query is not None:
             query = query.with_defaults(LogEntryQuery(**kwargs))
         else:
             query = LogEntryQuery(**kwargs)
 
-        if self.parent is not None:
-            return await self.root.get_log_entries(query, where=where, order_by=order_by, **kwargs)
-
-        statement = select(
-            LogEntryEntity.id,
-            ComponentEntity.address,
-            LogEntryEntity.timestamp,
-            LogEntryEntity.level,
-            LogEntryEntity.content,
-        ).join(ComponentEntity)
-
-        if query.root is not None:
-            statement = statement.where(_address_contains(query.root, ComponentEntity.address))
-
-        if query.address is not None:
-            if isinstance(query.address, Address):
-                statement = statement.where(LogEntryEntity.address == query.address)
-            else:
-                statement = statement.where(LogEntryEntity.address.in_(query.address))
+        ids = await self.__get_component_ids(ComponentQuery(address=query.address))
+        statement = (
+            select(
+                LogEntryEntity.id,
+                ComponentEntity.address,
+                LogEntryEntity.timestamp,
+                LogEntryEntity.level,
+                LogEntryEntity.content,
+            )
+            .join(ComponentEntity)
+            .where(ComponentEntity.id.in_(ids))
+        )
 
         if query.search is not None:
             pattern = "%" + escape_like_expression(query.search) + "%"
@@ -1501,7 +1449,7 @@ class Component(ValidatedDataclass, Tasklet):
 
         if query.limit is not None:
             statement = statement.limit(query.limit)
-        if query.offset is not None:
+        if query.offset is not None and query.offset > 0:
             statement = statement.offset(query.offset)
 
         if where is not None:
@@ -1556,7 +1504,7 @@ class Component(ValidatedDataclass, Tasklet):
             query = StatisticsQuery(**kwargs)
 
         root = query.root or self.address
-        addresses = [component.address for component in self.traverse()]
+        addresses = [component.address for component in self.get_components()]
 
         statement = (
             select(ComponentEntity.address, AlertEntity.level, func.count("*"))
@@ -1662,3 +1610,34 @@ def _pg_format_timestamp(timestamp: SQLCoreOperations[datetime]) -> Any:
 
 def _address_contains(root: Address, expression: SQLCoreOperations[Address]) -> Any:
     return (func.length(root) == 0) | (expression == root) | expression.like(f"{root}.%")
+
+
+class ComponentGroup(Sequence[Component]):
+    def __init__(self, components: Iterable[Component]):
+        self.components = tuple(uniquify(components, key=lambda component: component.address))
+
+    def __getitem__(self, __index: SupportsIndex) -> Component:
+        return self.components[__index]
+
+    def __len__(self) -> int:
+        return len(self.components)
+
+    def __iter__(self) -> Iterator[Component]:
+        return iter(self.components)
+
+    def __contains__(self, __object: object) -> bool:
+        return __object in self.components
+
+    def reversed(self) -> Self:
+        return self.__class__(reversed(self.components))
+
+    def start(self) -> None:
+        for component in self.components:
+            component.start()
+
+    async def stop(self) -> None:
+        for component in reversed(self.components):
+            await component.stop()
+
+    def __or__(self, __other: "ComponentGroup") -> Self:
+        return self.__class__(uniquify((*self.components, *__other.components)))

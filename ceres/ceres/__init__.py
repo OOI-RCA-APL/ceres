@@ -5,7 +5,7 @@ from ceres.component import AlertQuery as AlertQuery
 from ceres.component import Component as Component
 from ceres.component import MessageOrder as MessageOrder
 from ceres.component import MessageQuery as MessageQuery
-from ceres.component import Query as Query
+from ceres.component import ObjectQuery as ObjectQuery
 from ceres.config import Config as Config
 from ceres.config import ConfigCheckKind as ConfigCheckKind
 from ceres.config import DatabaseKind as DatabaseKind
