@@ -1,5 +1,6 @@
 <script lang="ts" setup>
 import { Message } from '@/api/models'
+import ItemViewItem from '@/components/ItemViewItem.vue'
 
 const { message } = defineProps<{
   message: Message
@@ -16,55 +17,38 @@ const directionColor = $computed(() => {
 </script>
 
 <template>
-  <div class="row self-item-view-message-root">
-    <span class="self-timestamp">
-      {{ message.timestamp.format('YYYY-MM-DD HH:mm:ss.SSS') }}
-    </span>
-    <q-chip class="self-direction-chip" :color="directionColor" dense>
-      <span class="self-direction-text">
-        {{ message.direction }}
+  <item-view-item :item="message">
+    <q-td>
+      <q-chip :class="$style.directionChip" :color="directionColor" dense>
+        <span :class="$style.directionText">
+          {{ message.direction }}
+        </span>
+      </q-chip>
+    </q-td>
+    <q-td class="col-grow">
+      <span :class="$style.content">
+        {{ JSON.stringify(message.content) }}
       </span>
-    </q-chip>
-    <span class="self-content">
-      {{ JSON.stringify(message.content) }}
-    </span>
-  </div>
+    </q-td>
+  </item-view-item>
 </template>
 
-<style lang="scss" scoped>
-.self-item-view-message-root {
-  align-items: center;
-  flex-wrap: nowrap;
-  justify-items: center;
-  min-height: 21.5px;
-  white-space: nowrap;
-}
-
-.self-direction-chip {
+<style lang="scss" module>
+.directionChip {
   font-size: 9px;
-  margin-right: 8px;
   min-width: 50px;
   text-transform: uppercase;
-  white-space: nowrap;
 }
 
-.self-direction-text {
+.directionText {
   color: black;
   justify-items: center;
   text-align: center;
   white-space: nowrap;
-  white-space: nowrap;
   width: 100%;
 }
 
-.self-timestamp {
-  font-family: 'Roboto Mono', monospace;
-  font-size: 11px;
-  margin-right: 4px;
-  white-space: nowrap;
-}
-
-.self-content {
+.content {
   font-family: 'Roboto Mono', monospace;
   font-size: 11px;
   white-space: nowrap;

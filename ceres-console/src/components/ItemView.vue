@@ -290,15 +290,18 @@ async function onSend(data: string) {
     <div v-if="items.length" class="col-grow self-virtual-scroll-container">
       <q-virtual-scroll
         ref="scroll"
-        v-slot="{ item }"
+        v-slot="{ item, index }"
         class="fit item-view-virtual-scroll self-virtual-scroll"
+        dense
+        flat
         :items="items"
-        :virtual-scroll-item-size="itemHeight"
+        separator="cell"
+        type="table"
         :virtual-scroll-slice-size="250"
       >
-        <item-view-message v-if="kind === 'message'" :key="'m-' + item.id" :message="item" />
-        <item-view-alert v-else-if="kind === 'alert'" :key="'a-' + item.id" :alert="item" />
-        <item-view-log-entry v-else :key="'le-' + item.id" :entry="item" />
+        <item-view-message v-if="kind === 'message'" :key="'m' + index" :message="item" />
+        <item-view-alert v-else-if="kind === 'alert'" :key="'a' + index" :alert="item" />
+        <item-view-log-entry v-else :key="'le' + index" :entry="item" />
       </q-virtual-scroll>
     </div>
     <div v-else-if="!isDoingInitialLoad" class="col-grow items-center justify-center row">
@@ -312,7 +315,8 @@ async function onSend(data: string) {
       </span>
     </div>
     <q-space v-else />
-    <div v-if="kind === 'message'" class="q-mb-sm q-mt-xs q-mx-sm">
+    <div v-if="kind === 'message'">
+      <q-separator />
       <command-input :address="address" @send="onSend" />
     </div>
   </section-card>
@@ -325,7 +329,6 @@ async function onSend(data: string) {
 
 .self-virtual-scroll {
   overscroll-behavior: contain;
-  padding: 0 8px;
 }
 
 .self-search-input-container {

@@ -44,6 +44,8 @@ export const LogEntryModel = Zod.object({
   content: Zod.string(),
 })
 
+export type Item = Message | Alert | LogEntry
+
 export type LevelStatistics = Zod.infer<typeof LevelStatisticsModel>
 export const LevelStatisticsModel = Zod.object({
   level: LevelModel,
