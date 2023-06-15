@@ -574,14 +574,11 @@ def uniquify(iterable: Iterable[_T], key: Callable[[_T], Hashable] | None = None
         key = _hash
 
     seen: set[Hashable] = set()
-    output: list[_T] = []
 
     for value in iterable:
-        identity = value if key is None else key(value)
+        identity = key(value)
         if identity in seen:
             continue
 
         seen.add(identity)
-        output.append(value)
-
-    return output
+        yield value

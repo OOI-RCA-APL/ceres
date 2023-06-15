@@ -66,7 +66,7 @@ console.log(address, address.depth)
     <app-layout-drawer-component
       v-for="child in config.components"
       :key="child.name"
-      :address="address.concat(child.name)"
+      :address="address.append(child.name)"
       :config="child"
     />
   </div>

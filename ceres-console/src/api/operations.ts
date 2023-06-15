@@ -179,7 +179,7 @@ export const useConfig = defineStore('config', () => {
     }
 
     let current: Config | ComponentConfig | null = data
-    for (const name of address.path) {
+    for (const name of address.names) {
       if (current == null) {
         return null
       }

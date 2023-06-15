@@ -432,7 +432,7 @@ class HTTPLoggingMiddleware:
 
             try:
                 if message["type"] == "http.response.start" and scope["type"] == "http":
-                    http = cast(HTTPScope, scope)
+                    http = cast(HTTPScope, scope)  # type: ignore
                     path = http["path"]
                     verb = http["method"]
                     client = http["client"]
@@ -451,7 +451,7 @@ class HTTPLoggingMiddleware:
                     or message["type"] == "websocket.close"
                     and scope["type"] == "websocket"
                 ):
-                    socket = cast(WebSocketScope, scope)
+                    socket = cast(WebSocketScope, scope)  # type: ignore
                     type = message["type"]
                     path = socket["path"]
                     match type:

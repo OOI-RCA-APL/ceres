@@ -7,7 +7,7 @@ from sqlalchemy import TIMESTAMP, CheckConstraint, Dialect, Enum, Text, TypeDeco
 from sqlalchemy.sql.operators import OperatorType
 from typing_extensions import override
 
-from ceres.address import Address
+from ceres.address import AbsoluteAddress
 from ceres.internal.utilities import snakecase
 
 
@@ -49,7 +49,7 @@ class UUIDMapper(Uuid[UUID]):
         return process
 
 
-class AddressMapper(TypeDecorator[Address]):
+class AbsoluteAddressMapper(TypeDecorator[AbsoluteAddress]):
     impl = Text
     cache_ok = True
 
@@ -60,7 +60,7 @@ class AddressMapper(TypeDecorator[Address]):
     @override
     def process_bind_param(
         self,
-        value: Address | None,
+        value: AbsoluteAddress | None,
         dialect: Dialect,
     ) -> str | None:
         if value is None:
@@ -71,13 +71,13 @@ class AddressMapper(TypeDecorator[Address]):
     @override
     def process_result_value(
         self,
-        value: Address | None,
+        value: AbsoluteAddress | None,
         dialect: Dialect,
-    ) -> Address | None:
+    ) -> AbsoluteAddress | None:
         if value is None:
             return None
 
-        return Address(value)
+        return AbsoluteAddress(value)
 
 
 class DateTimeMapper(TypeDecorator[datetime]):

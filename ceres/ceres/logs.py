@@ -5,7 +5,7 @@ from uuid import UUID, uuid4
 
 from pydantic import Field
 
-from ceres.address import Address
+from ceres.address import AbsoluteAddress
 from ceres.data import DateTime, ImmutableDataObject
 from ceres.internal import logs
 from ceres.level import Level
@@ -14,7 +14,7 @@ from ceres.timing import utc
 
 class LogEntry(ImmutableDataObject):
     id: UUID = Field(default_factory=uuid4)
-    address: Address
+    address: AbsoluteAddress
     timestamp: DateTime = Field(default_factory=utc)
     level: Level
     content: str
@@ -31,13 +31,13 @@ LogHandlerFunction: TypeAlias = Callable[[LogEntry], object]
 class Log:
     def __init__(
         self,
-        address: Address | Callable[[], Address],
+        address: AbsoluteAddress | Callable[[], AbsoluteAddress],
     ) -> None:
         self.__address = address
         self.__handlers: list[LogHandler | LogHandlerFunction] = []
 
     @property
-    def address(self) -> Address:
+    def address(self) -> AbsoluteAddress:
         if callable(self.__address):
             return self.__address()
 
@@ -49,7 +49,7 @@ class Log:
 
     @property
     def base(self) -> Logger:
-        return logs.get("ceres:" + self.address if self.address else "ceres")
+        return logs.get(self.address)
 
     def write(self, level: Level, content: object, *args: object, **kwargs: object) -> LogEntry:
         if not isinstance(content, str):

@@ -3,7 +3,7 @@ from uuid import UUID, uuid4
 
 from pydantic import Field, validator
 
-from ceres.address import Address
+from ceres.address import AbsoluteAddress
 from ceres.data import DateTime, ImmutableDataObject, jsonify
 from ceres.level import Level
 from ceres.timing import utc
@@ -11,7 +11,7 @@ from ceres.timing import utc
 
 class Alert(ImmutableDataObject):
     id: UUID = Field(default_factory=uuid4)
-    address: Address
+    address: AbsoluteAddress
     timestamp: DateTime = Field(default_factory=utc)
     level: Level
     code: str

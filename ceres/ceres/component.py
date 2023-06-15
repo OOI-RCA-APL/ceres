@@ -47,7 +47,7 @@ from sqlalchemy.sql.elements import SQLCoreOperations
 from sqlalchemy.sql.roles import ExpressionElementRole
 from typing_extensions import Self, Unpack, dataclass_transform, override
 
-from ceres.address import Address, AddressPattern
+from ceres.address import AbsoluteAddress, Address, AddressPattern
 from ceres.alert import Alert
 from ceres.config import ComponentConfig, DatabaseKind
 from ceres.data import (
@@ -154,7 +154,7 @@ class Query(ImmutableDataObject):
 
 class Addressable(Protocol):
     @property
-    def address(self) -> Address:
+    def address(self) -> AbsoluteAddress:
         ...
 
 
@@ -168,7 +168,7 @@ class ObjectQueryArgs(TypedDict, total=False):
 class ObjectQuery(Generic[_ObjectT], Query):
     address: AddressPattern | None = None
 
-    def matches(self, obj: _ObjectT, root: "Address") -> bool:
+    def matches(self, obj: _ObjectT, root: AbsoluteAddress) -> bool:
         if not root.contains(obj.address):
             return False
 
@@ -222,7 +222,7 @@ class MessageQuery(ObjectQuery[Message]):
     offset: int | None = Field(default=None, ge=0)
 
     @override
-    def matches(self, obj: Message, root: Address) -> bool:
+    def matches(self, obj: Message, root: AbsoluteAddress) -> bool:
         if not super().matches(obj, root):
             return False
 
@@ -299,7 +299,7 @@ class AlertQuery(ObjectQuery[Alert]):
     offset: int | None = Field(default=None, ge=0)
 
     @override
-    def matches(self, obj: Alert, root: Address) -> bool:
+    def matches(self, obj: Alert, root: AbsoluteAddress) -> bool:
         if not super().matches(obj, root):
             return False
 
@@ -386,7 +386,7 @@ class LogEntryQuery(ObjectQuery[LogEntry]):
     offset: int | None = Field(default=None, ge=0)
 
     @override
-    def matches(self, obj: LogEntry, root: Address) -> bool:
+    def matches(self, obj: LogEntry, root: AbsoluteAddress) -> bool:
         if not super().matches(obj, root):
             return False
 
@@ -578,11 +578,11 @@ class Component(ValidatedDataclass, Tasklet):
         return _get_procedure_bindings(cls)
 
     @property
-    def address(self) -> Address:
+    def address(self) -> AbsoluteAddress:
         if self.parent is not None:
             return self.parent.address / self.name
 
-        return Address(self.name)
+        return AbsoluteAddress("@")
 
     @property
     def root(self) -> "Component":
@@ -737,11 +737,15 @@ class Component(ValidatedDataclass, Tasklet):
 
         return component
 
-    def get_component(self, address: Name | Address | None, /) -> "Component | None":
+    def get_component(self, address: str | Address | None, /) -> "Component | None":
         if not address:
             return self
 
-        address = Address(address)
+        if not isinstance(address, Address):
+            address = Address(address)
+
+        if address.is_absolute and self.parent is not None:
+            return self.root.get_component(address)
 
         current: Component | None = self
         for name in address.names:
@@ -1124,7 +1128,7 @@ class Component(ValidatedDataclass, Tasklet):
     async def __get_component_ids(self, query: ComponentQuery) -> list[UUID]:
         return [
             await self.assign_component_id(component.address)
-            for component in self.get_components(query)
+            for component in self.get_components(query, inclusive=True)
         ]
 
     async def get_messages(
@@ -1495,11 +1499,6 @@ class Component(ValidatedDataclass, Tasklet):
 
         if self.parent is not None:
             return await self.root.get_statistics(query, **kwargs)
-
-        if query is not None:
-            query = query.with_defaults(StatisticsQuery(**kwargs))
-        else:
-            query = StatisticsQuery(**kwargs)
 
         root = query.root or self.address
         addresses = [component.address for component in self.get_components()]

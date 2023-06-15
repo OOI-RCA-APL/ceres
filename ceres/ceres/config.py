@@ -12,7 +12,7 @@ from pydantic import Field, SecretStr, ValidationError, parse_obj_as, validator
 from typing_extensions import Self, override
 from yaml import MarkedYAMLError, YAMLError
 
-from ceres.address import Address
+from ceres.address import AbsoluteAddress, Address
 from ceres.data import ClassPath, ImmutableDataObject, Name, NonBlankStr, PositiveTimeDelta
 from ceres.errors import (
     ComponentInitExceptionError,
@@ -49,31 +49,6 @@ class _ComponentConfigMixin(ImmutableDataObject):
 class _NodeConfigMixin(ImmutableDataObject):
     if TYPE_CHECKING:
         components: Sequence["ComponentConfig"]
-
-    def get_component(self, address: Address) -> "ComponentConfig | None":
-        if not address:
-            return None
-        if address.head is None:
-            return None
-
-        component = next(
-            (current for current in self.components if current.name == address.head), None
-        )
-
-        if not address.tail:
-            return component
-
-        if component is None:
-            return None
-
-        return component.get_component(address.tail)
-
-    def get_component_cls(self, address: Address) -> type[Component] | None:
-        config = self.get_component(address)
-        if config is None:
-            return None
-
-        return config.cls_path.cls  # type: ignore
 
     @validator("components", check_fields=False)
     def _validate_components(
@@ -329,7 +304,7 @@ class Config(ConfigObject, _NodeConfigMixin):
         log("Checking component configurations...")
 
         def check_component(
-            address: Address,
+            address: AbsoluteAddress,
             component: Config | ComponentConfig,
             errors: list[ConfigComponentError],
             references: dict[Name, Component],
@@ -375,6 +350,25 @@ class Config(ConfigObject, _NodeConfigMixin):
         references: dict[Name, Component] = {}
 
         for component in config.components:
-            errors.extend(check_component(Address(component.name), component, errors, references))
+            errors.extend(
+                check_component(AbsoluteAddress(component.name), component, errors, references)
+            )
 
         return errors
+
+    def get_component(self, address: Address) -> "ComponentConfig | None":
+        current = self
+        for name in address.names:
+            if current is None:
+                return None
+
+            current = next((child for child in current.components if child.name == name), None)
+
+        return current if isinstance(current, ComponentConfig) else None
+
+    def get_component_cls(self, address: Address) -> type[Component] | None:
+        config = self.get_component(address)
+        if config is None:
+            return None
+
+        return config.cls_path.cls  # type: ignore

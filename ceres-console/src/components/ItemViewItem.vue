@@ -13,7 +13,7 @@ const { item } = defineProps<{
         {{ item.timestamp.format('YYYY-MM-DD HH:mm:ss.SSS') }}
       </span>
     </q-td>
-    <q-td>@{{ item.address }} </q-td>
+    <q-td>{{ item.address }} </q-td>
     <slot />
   </q-tr>
 </template>

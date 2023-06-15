@@ -84,7 +84,7 @@ class Transport:
                     if not condition(message):
                         return fail()
                 if query is not None:
-                    if not query.matches(message):
+                    if not query.matches(message, self.__connection.address):
                         return fail()
 
                 return message

@@ -1,6 +1,7 @@
 import asyncio
 import socket
 import sys
+import traceback
 from asyncio import StreamReader, StreamWriter
 from dataclasses import dataclass
 from datetime import timedelta
@@ -12,7 +13,6 @@ from typing_extensions import override
 
 from ceres.data import ImmutableDataObject, PositiveTimeDelta
 from ceres.events import ConnectionLostEvent, MessageReceivedEvent
-from ceres.exceptions import ConnectionInactiveException, ConnectionLostException
 from ceres.internal.utilities import ensure_event_loop, show_td
 from ceres.roles.connection import Connection
 from ceres.routine import routine
@@ -106,9 +106,9 @@ class TCPConnection(Connection):
         self.__stream = None
 
     @override
-    async def _send_data(self, data: bytes) -> None:
+    async def _send_data(self, data: bytes) -> bytes | None:
         if not self.__stream:
-            raise ConnectionInactiveException("connection is not active")
+            return None
 
         if not data.endswith(self.separator):
             data += self.separator
@@ -117,17 +117,20 @@ class TCPConnection(Connection):
             self.__stream.writer.write(data)
             await self.__stream.writer.drain()
         except Exception:
-            raise ConnectionLostException("connection was lost")
+            self.log.error(traceback.format_exc())
+            return None
+
+        return data
 
     @override
-    async def _poll_data(self) -> bytes:
+    async def _poll_data(self) -> bytes | None:
         if not self.__stream:
-            raise ConnectionInactiveException("connection is not active")
+            return None
 
         try:
             return await self.__stream.reader.readuntil(self.separator)
         except Exception:
-            raise ConnectionLostException("connection was lost")
+            return None
 
     @routine
     async def __process_disconnect(self) -> None:

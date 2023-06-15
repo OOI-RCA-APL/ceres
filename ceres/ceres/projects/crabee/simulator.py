@@ -17,13 +17,18 @@ class CrabeeSimulator(Component):
     @routine
     async def __send_messages(self) -> None:
         self.log.info(f"Creating listener on port {self.port}...")
-        listener = await anyio.create_tcp_listener(
-            local_host="0.0.0.0",
-            local_port=self.port,
-            reuse_port=True,
-        )
+        while True:
+            try:
+                listener = await anyio.create_tcp_listener(
+                    local_host="0.0.0.0",
+                    local_port=self.port,
+                    reuse_port=True,
+                )
 
-        await listener.serve(self.__handle)
+                await listener.serve(self.__handle)
+            except Exception as exception:
+                self.log.error(str(exception).strip())
+                await asyncio.sleep(1)
 
     async def __handle(self, stream: SocketStream) -> None:
         while True:

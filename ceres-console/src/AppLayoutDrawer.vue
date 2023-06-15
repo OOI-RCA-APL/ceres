@@ -47,7 +47,7 @@ function clearLocalStorage() {
     })
 }
 
-const root = new Address('')
+const root = new Address('@')
 </script>
 
 <template>

@@ -5,7 +5,7 @@ from uuid import UUID, uuid4
 
 from pydantic import Field
 
-from ceres.address import Address
+from ceres.address import AbsoluteAddress
 from ceres.alert import Alert
 from ceres.data import DateTime, ImmutableDataObject
 from ceres.logs import LogEntry
@@ -30,9 +30,9 @@ class Event(ImmutableDataObject):
     id: UUID = Field(default_factory=uuid4)
 
     if TYPE_CHECKING:
-        address: Address = cast(Address, None)
+        address: AbsoluteAddress = cast(AbsoluteAddress, None)
     else:
-        address: Address
+        address: AbsoluteAddress
 
     timestamp: DateTime = Field(default_factory=utc)
     kind: StandardEventKind | str

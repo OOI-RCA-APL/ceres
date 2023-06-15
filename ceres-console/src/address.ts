@@ -2,6 +2,12 @@ export class Address {
   private value: string
 
   constructor(value: string | Address) {
+    if (typeof value === 'string') {
+      if (!value.startsWith('@')) {
+        throw new Error('Address must start with "@"')
+      }
+    }
+
     this.value = value.toString().trim()
   }
 
@@ -26,38 +32,34 @@ export class Address {
   }
 
   public get isRoot(): boolean {
-    return this.value === ''
-  }
-
-  public get head(): string | null {
-    return this.value.slice(0, this.value.indexOf('.')).trim() || null
-  }
-
-  public get unit(): string | null {
-    return this.head
+    return this.value === '@'
   }
 
   public get name(): string | null {
+    if (this.isRoot) {
+    }
+
     return this.value.slice(this.value.lastIndexOf('.') + 1).trim() || null
   }
 
-  public get path(): string[] {
-    return this.value.split('.').filter((current) => current)
+  public get names(): string[] {
+    const path = this.value.slice(1)
+    return path.split('.')
   }
 
   public get depth(): number {
-    if (this.value === '') {
+    if (this.isRoot) {
       return 0
     }
 
     return [...this.value].filter((current) => current === '.').length + 1
   }
 
-  public concat(other: Address | string): Address {
-    if (this.value === '') {
-      return new Address(other)
+  public append(name: string): Address {
+    if (this.isRoot) {
+      return new Address('@' + name)
     }
 
-    return new Address(this.value + '.' + other)
+    return new Address(this.value + '.' + name)
   }
 }

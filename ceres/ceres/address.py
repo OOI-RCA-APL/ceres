@@ -36,17 +36,27 @@ class AddressLike(str):
 
 @lru_cache(maxsize=100)
 def _compile(pattern: "AddressPattern") -> StrPattern:
-    return re.compile("^" + pattern.replace(".", r"\.").replace("*", r".*") + "$")
+    segments = []
+    for segment in pattern.split("|"):
+        if not segment.startswith("@"):
+            segment = "@?" + segment
+        segments.append(segment)
+
+    return re.compile("^" + "|".join(segments).replace(".", r"\.").replace("*", r".*") + "$")
+
+
+NAME_PATTERN = NameType.regex.pattern[1:-1]
+SEGMENT_PATTERN = r"(@|@?[a-z-A-Z_\-.*]+)"
 
 
 class AddressPattern(AddressLike):
-    regex = re.compile(rf"^({NameType.get_pattern()}|[.*|])*$")
+    regex = re.compile(rf"^{SEGMENT_PATTERN}(\|{SEGMENT_PATTERN})*$")
 
     @classmethod
     def __get_validators__(cls) -> Any:
         yield cls.validate
 
-    def matches(self, address: "Address", root: "Address | None" = None) -> bool:
+    def matches(self, address: "AbsoluteAddress", root: "AbsoluteAddress | None" = None) -> bool:
         resolved = address.relative_to(root) if root is not None else address
         if resolved is None:
             return False
@@ -65,61 +75,55 @@ class AddressPattern(AddressLike):
 
 
 class Address(AddressPattern):
-    regex = re.compile(rf"^({NameType.get_pattern()}(\.{NameType.get_pattern()})*)?$")
-
-    @property
-    def head(self) -> Name | None:
-        if not self:
-            return None
-        if "." not in self:
-            return self
-
-        return self[: self.index(".")] or None
-
-    @property
-    def tail(self) -> Self | None:
-        if not self or "." not in self:
-            return None
-
-        return Address(self[self.index(".") + 1 :]) or None
+    regex = re.compile(rf"^@|@?{NAME_PATTERN}(\.{NAME_PATTERN})*$")
 
     @property
     def name(self) -> Name | None:
-        if not self or "." not in self:
+        self = self.as_relative()
+        if self is None:
             return None
+        if "." not in self:
+            return str(self)
 
         return self[self.rindex(".") + 1 :] or None
 
     @property
     def parent(self) -> Self | None:
-        if not self:
-            return None
-        if "." not in self:
-            return Address("")
+        if "." in self:
+            return Address(self[: self.rindex(".")]) or None
 
-        return Address(self[: self.rindex(".")]) or None
+        if self.is_root:
+            return None
+
+        if self.startswith("@"):
+            return Address(self[1:])
+
+        return None
 
     @property
     def depth(self) -> int:
-        if not self:
+        self = self.as_relative()
+        if self is None:
             return 0
 
         return self.count(".") + 1
 
     @property
     def path(self) -> Sequence[Self]:
+        self = self.as_relative()
         path: list[Self] = []
         current = self
 
         while current is not None:
-            if current:
-                path.append(current)
             current = current.parent
 
         return list(reversed(path))
 
     @property
     def names(self) -> Sequence[Name]:
+        self = self.as_relative()
+        if self is None:
+            return []
         return [name for name in self.split(".") if name]
 
     @property
@@ -127,14 +131,59 @@ class Address(AddressPattern):
     def simple(self) -> bool:
         return True
 
+    @property
+    def is_root(self) -> bool:
+        return self == "@"
+
+    @property
+    def is_absolute(self) -> bool:
+        return self.startswith("@")
+
+    @property
+    def is_relative(self) -> bool:
+        return not self.is_absolute
+
     def __truediv__(self, other: str) -> Self:
-        return Address(f"{self}{'.' if self else ''}{other.strip('.')}")
+        return self.__class__(f"{self}{'.' if not self.is_root else ''}{other.strip('.')}")
 
-    def contains(self, other: Self) -> bool:
-        return not self or self == other or other.startswith(f"{self}.")
+    def contains(self, other: "Address") -> bool:
+        self = self.as_absolute()
+        other = other.as_absolute()
 
-    def relative_to(self, root: Self) -> Self | None:
+        return self.is_root or self == other or other.startswith(f"{self}.")
+
+    def relative_to(self, root: "AbsoluteAddress") -> "Address | None":
+        if self.is_absolute:
+            return self
+
         if self.startswith(root):
-            return self.__class__(self[len(root) :])
+            return Address(self[len(root) :])
 
         return None
+
+    def as_relative(self) -> "Address | None":
+        stripped = self.lstrip("@")
+        if not stripped:
+            return None
+
+        return Address(stripped)
+
+    def as_absolute(self) -> "AbsoluteAddress":
+        return AbsoluteAddress(self)
+
+
+class AbsoluteAddress(Address):
+    regex = re.compile(rf"^@({NAME_PATTERN}(\.{NAME_PATTERN})*)*$")
+
+    @override
+    @classmethod
+    def validate(cls, value: str) -> Self:
+        if isinstance(value, cls):
+            return value
+
+        if cls.regex.match(value) is None:
+            value = "@" + value
+        if cls.regex.match(value) is None:
+            raise ValueError(f"{value!r} must match regex {cls.regex.pattern}")
+
+        return str.__new__(cls, value)
