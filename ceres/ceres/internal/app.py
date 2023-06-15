@@ -1,8 +1,19 @@
 import asyncio
+import traceback
 from asyncio import CancelledError
 from enum import Enum
-from typing import TYPE_CHECKING, Annotated, Any, Mapping, Sequence, final
+from http.client import responses
+from typing import TYPE_CHECKING, Annotated, Any, Mapping, Sequence, cast, final
 
+from asgiref.typing import (
+    ASGIReceiveCallable,
+    ASGIReceiveEvent,
+    ASGISendCallable,
+    ASGISendEvent,
+    HTTPScope,
+    Scope,
+    WebSocketScope,
+)
 from fastapi import (
     APIRouter,
     Body,
@@ -17,11 +28,12 @@ from fastapi import (
 )
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import Field, Json
+from starlette.middleware import Middleware
 from starlette.requests import HTTPConnection
 from starlette.status import HTTP_400_BAD_REQUEST
 from websockets.exceptions import ConnectionClosed
 
-from ceres.address import Address, AddressPattern
+from ceres.address import AbsoluteAddress, Address, AddressPattern
 from ceres.alert import Alert, Level
 from ceres.component import (
     AlertQuery,
@@ -96,7 +108,7 @@ def _get_component_roles(component: Component | type[Component]) -> Sequence[Com
 
 class ComponentInfo(ImmutableDataObject):
     name: Name
-    address: Address
+    address: AbsoluteAddress
     components: Sequence["ComponentInfo"]
     config: ComponentConfig
     roles: Sequence[ComponentRole]
@@ -193,7 +205,7 @@ async def get_alerts(
 
 
 class GetLogEntriesQueryParameters(LogEntryQuery):
-    address: Address | None = None
+    address: AbsoluteAddress | None = None
     level: Level | None = None
     limit: int = Field(default=100, ge=0, le=1000)
     offset: int = Field(default=0, ge=0)
@@ -234,6 +246,7 @@ async def message_stream(
             if query.matches(event.message, engine.address):
                 await socket.send_text(jsonify(event.message))
     except (WebSocketDisconnect, ConnectionClosed):
+        raise
         pass
 
 
@@ -241,7 +254,7 @@ async def message_stream(
 async def alert_stream(
     socket: WebSocket,
     engine: CurrentEngine,
-    address: Address | None = None,
+    address: AbsoluteAddress | None = None,
     search: str | None = None,
 ) -> None:
     try:
@@ -259,7 +272,7 @@ async def alert_stream(
 async def log_entry_stream(
     socket: WebSocket,
     engine: CurrentEngine,
-    address: Address | None = None,
+    address: AbsoluteAddress | None = None,
     search: str | None = None,
 ) -> None:
     try:
@@ -276,7 +289,7 @@ async def log_entry_stream(
 @api.get("/components/{address}", tags=["components"])
 async def get_component_info(
     engine: CurrentEngine,
-    address: Address,
+    address: AbsoluteAddress,
 ) -> ComponentInfo:
     component_config = engine.config.get_component(address)
     component_cls = engine.config.get_component_cls(address)
@@ -305,7 +318,7 @@ async def get_component_info(
 async def call(
     request: Request,
     engine: CurrentEngine,
-    address: Address,
+    address: AbsoluteAddress,
     procedure: Name,
     query_args: Json[Any] = Query(None, alias="args"),
     body_args: Mapping[Name, object] | None = Body(None),
@@ -335,7 +348,7 @@ async def call(
 async def subscribe(
     socket: WebSocket,
     engine: CurrentEngine,
-    address: Address,
+    address: AbsoluteAddress,
     procedure: Name,
     query_args: Json[Any] = Query(None, alias="args"),
 ) -> None:
@@ -397,6 +410,67 @@ async def subscribe(
         pass
 
 
+class HTTPLoggingMiddleware:
+    def __init__(self, app: "App") -> None:
+        self.app = app
+
+    async def __call__(
+        self,
+        scope: Scope,
+        receive: ASGIReceiveCallable,
+        send: ASGISendCallable,
+    ) -> None:
+        async def receive_wrapper() -> ASGIReceiveEvent:
+            return await receive()
+
+        async def send_wrapper(message: ASGISendEvent) -> None:
+            from ceres.internal.app import App
+
+            app = scope.get("app")
+            if not isinstance(app, App):
+                return await send(message)
+
+            try:
+                if message["type"] == "http.response.start" and scope["type"] == "http":
+                    http = cast(HTTPScope, scope)
+                    path = http["path"]
+                    verb = http["method"]
+                    client = http["client"]
+                    host = client[0] if client else "?"
+
+                    status = message["status"]
+                    description = responses.get(status, "Unknown")
+                    level = Level.INFO if status < 400 else Level.ERROR
+
+                    app.engine.log.write(
+                        level,
+                        f"[HTTP] {verb} {path} {host} {status} {description}",
+                    )
+                elif (
+                    message["type"] == "websocket.accept"
+                    or message["type"] == "websocket.close"
+                    and scope["type"] == "websocket"
+                ):
+                    socket = cast(WebSocketScope, scope)
+                    type = message["type"]
+                    path = socket["path"]
+                    match type:
+                        case "websocket.accept":
+                            verb = "ACCEPT"
+                        case "websocket.close":
+                            verb = "CLOSE"
+                    client = socket["client"]
+                    host = client[0] if client else "?"
+
+                    app.engine.log.info(f"[WS] '{verb}' {path} {host}")
+            except Exception:
+                traceback.print_exc()
+
+            return await send(message)
+
+        return await self.app(scope, receive_wrapper, send_wrapper)  # type: ignore
+
+
 @final
 class App(FastAPI):
     def __init__(self, engine: Engine) -> None:
@@ -404,6 +478,7 @@ class App(FastAPI):
             redoc_url=None,
             docs_url="/api/docs",
             openapi_url="/api/openapi.json",
+            middleware=[Middleware(HTTPLoggingMiddleware)],
         )
 
         self.engine = engine

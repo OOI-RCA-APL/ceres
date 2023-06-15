@@ -2,7 +2,6 @@ import logging
 from dataclasses import dataclass, field
 from logging import Formatter, Handler, Logger
 
-import uvicorn.logging
 from rich.logging import RichHandler
 
 from ceres.data import ImmutableDataObject
@@ -39,19 +38,6 @@ def setup(config: LogConfig | None = None) -> None:
         "[%(asctime)s.%(msecs)03d] [%(levelname)s] [%(name)s] %(message)s",
         datefmt=date_format,
     )
-    server_formatter = logging.Formatter(
-        "[%(asctime)s.%(msecs)03d] [%(levelname)s] [ceres/server] %(message)s",
-        datefmt=date_format,
-    )
-    access_formatter = uvicorn.logging.AccessFormatter(
-        "[%(asctime)s.%(msecs)03d] "
-        "[%(levelname)s] [server] "
-        "[%(client_addr)s] "
-        "- %(request_line)s "
-        "- %(status_code)s",
-        datefmt=date_format,
-        use_colors=False,
-    )
 
     def create_handler(formatter: Formatter) -> Handler:
         handler = RichHandler(
@@ -63,8 +49,6 @@ def setup(config: LogConfig | None = None) -> None:
         return handler
 
     default_handler = create_handler(default_formatter)
-    server_handler = create_handler(server_formatter)
-    access_handler = create_handler(access_formatter)
 
     def setup_logger(name: str, handler: Handler) -> None:
         logger = logging.getLogger(name)
@@ -78,16 +62,9 @@ def setup(config: LogConfig | None = None) -> None:
     for name in list(__state.loggers.keys()):
         setup_logger(name, default_handler)
 
-    setup_logger("uvicorn", server_handler)
-    setup_logger("uvicorn.error", server_handler)
-    setup_logger("uvicorn.access", access_handler)
-
-
-def main() -> Logger:
-    """
-    Get the main logger. This should be used in mainline application code.
-    """
-    return get("uvicorn")
+    logging.getLogger("uvicorn").disabled = True
+    logging.getLogger("uvicorn.error").disabled = True
+    logging.getLogger("uvicorn.access").disabled = True
 
 
 def get(name: str) -> Logger:
