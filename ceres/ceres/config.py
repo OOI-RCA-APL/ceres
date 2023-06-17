@@ -104,8 +104,7 @@ class ServiceConfig(ConfigObject):
 
 
 class ServerConfig(ConfigObject):
-    port: int
-    enable: bool = True
+    port: int | None = None
 
 
 class DatabaseKind(str, Enum):
@@ -160,7 +159,7 @@ class Config(ConfigObject, _NodeConfigMixin):
         underscore_attrs_are_private = True
 
     service: ServiceConfig | None = None
-    server: ServerConfig | None = None
+    server: ServerConfig = Field(default_factory=ServerConfig)
     database: DatabaseConfig = Field(default_factory=SQLiteDatabaseConfig, discriminator="kind")
     paths: PathsConfig = Field(default_factory=PathsConfig)
     components: Sequence[ComponentConfig] = ()

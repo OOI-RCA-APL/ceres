@@ -70,6 +70,7 @@ input::-webkit-inner-spin-button {
 /* width */
 ::-webkit-scrollbar {
   width: 8px;
+  height: 8px;
   padding: 2px;
 }
 
@@ -78,13 +79,16 @@ input::-webkit-inner-spin-button {
   background: #8888889e;
 }
 
+::-webkit-scrollbar-corner {
+  background: #888;
+}
+
 /* Handle */
 ::-webkit-scrollbar-thumb {
   background: #888;
-  border-radius: 10px;
 }
 
 /* Handle on hover */
 ::-webkit-scrollbar-thumb:hover {
-  background: #555;
+  background: #777;
 }

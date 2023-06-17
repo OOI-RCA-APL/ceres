@@ -87,8 +87,7 @@ export const ComponentConfigModel: Zod.ZodType<ComponentConfig> = Zod.object({
 
 export type ServerConfig = Zod.infer<typeof ServerConfigModel>
 export const ServerConfigModel = Zod.object({
-  port: Zod.number(),
-  enable: Zod.boolean(),
+  port: Zod.number().nullable().default(null),
 })
 
 export type DatabaseKind = Zod.infer<typeof DatabaseKindModel>

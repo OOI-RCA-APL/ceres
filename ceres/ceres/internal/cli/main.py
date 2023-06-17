@@ -7,7 +7,7 @@ from typing import Annotated, Any, TypeVar
 
 import anyio
 import rich
-from aiohttp import ClientError, ClientSession
+from aiohttp import ClientError, ClientSession, UnixConnector
 from anyio.abc import TaskGroup
 from click import ParamType
 from pydantic import parse_obj_as
@@ -20,16 +20,16 @@ from ceres.data import jsonify, simplify
 from ceres.engine import Engine
 from ceres.exceptions import EngineException
 from ceres.internal import logs
-from ceres.internal.app import StartResult, StopResult
 from ceres.internal.cli.exceptions import (
     CLIEngineNotRunningException,
     CLIInvalidConfigException,
-    CLIServerNotEnabledException,
     CLIStartupException,
 )
 from ceres.internal.cli.shared import AsyncTyper, ConfigOption, ConfigPathOption
 from ceres.internal.cli.subcommands.database import database
 from ceres.internal.cli.subcommands.service import service
+from ceres.internal.context import ProjectContext
+from ceres.internal.server import StartResult, StopResult
 from ceres.internal.utilities import (
     ensure_event_loop,
     set_current_process_name,
@@ -221,29 +221,22 @@ _T = TypeVar("_T")
 
 class APIClient:
     def __init__(self, config: Config) -> None:
-        if config.server is None or not config.server.enable:
-            raise CLIServerNotEnabledException("Engine server is not enabled.")
-        self.__server_config = config.server
-
-    def __create_session(self) -> ClientSession:
-        return ClientSession(f"http://0.0.0.0:{self.__server_config.port}")
+        assert config.path is not None
+        self.__config = config
 
     async def request(self, method: str, path: str, *, data: object = None, result: type[_T]) -> _T:
+        context = ProjectContext(self.__config)
         path = "/api/" + path.lstrip("/")
+        path = f"http+unix://{str(context.socket).replace('/', '%2F')}{path}"
 
-        async with self.__create_session() as session:
-            async with session.request(
-                method,
-                path,
-                json=simplify(data),
-                headers={"Content-Type": "application/json"},
-            ) as response:
+        async with ClientSession(connector=UnixConnector(str(context.socket))) as session:
+            async with session.request(method, path, json=simplify(data)) as response:
                 return parse_obj_as(result, await response.json())
 
     async def get(self, path: str, result: type[_T]) -> _T:
         return await self.request("GET", path, result=result)
 
-    async def post(self, path: str, data: object, result: type[_T]) -> _T:
+    async def post(self, path: str, data: object | None, result: type[_T]) -> _T:
         return await self.request("POST", path, data=data, result=result)
 
 
@@ -252,11 +245,9 @@ async def reload(*, config: Config = ConfigOption(checks=[])) -> None:
     """
     Apply configuration changes while the engine is running.
     """
-    if config.server is None or not config.server.enable:
-        raise CLIServerNotEnabledException("Engine server is not enabled.")
+    client = APIClient(config)
     try:
-        async with ClientSession(base_url=f"http://0.0.0.0:{config.server.port}") as client:
-            await client.post("/api/reload")
+        await client.post("/reload", data=None, result=Any)
     except ClientError:
         raise CLIEngineNotRunningException("Engine is not running or not accessible at the moment.")
 
@@ -269,7 +260,6 @@ class AddressPatternParser(ParamType):
 
 
 AddressPatternInput = Annotated[
-    # AddressPattern,
     AddressPattern,
     Argument(click_type=AddressPatternParser()),
 ]

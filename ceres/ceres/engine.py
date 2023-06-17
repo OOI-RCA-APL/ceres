@@ -5,15 +5,16 @@ from asyncio import Event as AsyncEvent
 from enum import Enum
 from pathlib import Path
 from queue import Empty, Queue
-from typing import Any, Literal, Mapping, final
+from typing import Any, Mapping, final
 
-from typing_extensions import Final, override
+from typing_extensions import override
 
 from ceres.address import AbsoluteAddress
 from ceres.component import Component, Paths
 from ceres.config import ComponentConfig, Config
 from ceres.data import ImmutableDataObject, Name
 from ceres.database import Database
+from ceres.directory import Directory
 from ceres.errors import (
     ConfigError,
     ReloadAlreadyActiveError,
@@ -21,7 +22,6 @@ from ceres.errors import (
     ReloadError,
 )
 from ceres.exceptions import EngineDatabaseInitException
-from ceres.internal.app import App
 from ceres.internal.server import Server
 from ceres.internal.utilities import setattr_internal, strify
 from ceres.procedure import action
@@ -41,17 +41,35 @@ class Action(ImmutableDataObject):
 
 @final
 class Engine(Component):
-    name: Final[Literal["@"]] = "@"  # type: ignore
-
     def __setup__(self) -> None:
         self.__config = Config()
         self.__config_queue: Queue[Config] = Queue()
         self.__reloading = AsyncEvent()
         self.__server: Server | None = None
+        self.__saved_project_directory: Directory | None = None
 
     @property
     def config(self) -> Config:
         return self.__config
+
+    @property
+    def project_directory(self) -> Directory:
+        if self.__config.path is None:
+            if self.__saved_project_directory is None:
+                self.__saved_project_directory = Directory()
+        else:
+            if (
+                self.__saved_project_directory is None
+                or self.__saved_project_directory.path != self.__config.path.parent
+            ):
+                self.__saved_project_directory = Directory(self.__config.path.parent)
+            print(self.__saved_project_directory.path)
+
+        return self.__saved_project_directory
+
+    @property
+    def local_directory(self) -> Directory:
+        return self.project_directory.subdir("local")
 
     @property
     @override
@@ -301,13 +319,10 @@ class Engine(Component):
         return actions
 
     async def __start_server(self) -> None:
-        if self.__config.server is None:
-            self.__server = None
-        else:
-            self.__server = Server(App(self), self.__config.server)
-
-        if self.__server is None or self.__server.running:
+        if self.__server is not None and self.__server.running:
             return
+
+        self.__server = Server(self, self.config)
 
         self.log.info("Starting server...")
         self.__server.start(

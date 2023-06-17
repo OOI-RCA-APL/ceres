@@ -16,7 +16,8 @@ const drawer = useDrawer()
 const isExpanded = $computed(
   () => !drawer.collapsedComponents.some((current) => current.equals(address))
 )
-const isLeaf = $computed(() => config.components.length === 0)
+const isRoot = $computed(() => address.isRoot)
+const isLeaf = $computed(() => !isRoot && config.components.length === 0)
 
 function toggleExpanded() {
   if (isExpanded) {
@@ -27,16 +28,14 @@ function toggleExpanded() {
     )
   }
 }
-
-console.log(address, address.depth)
 </script>
 
 <template>
   <q-item
     :class="[$style.root, 'items-center', 'row']"
-    clickable
+    :clickable="!isRoot"
     dense
-    :to="`/components/${address}`"
+    :to="isRoot ? undefined : `/components/${address}`"
   >
     <div
       :class="[$style.iconContainer, 'items-center', 'justify-center', 'row']"
@@ -56,7 +55,7 @@ console.log(address, address.depth)
       </q-btn>
     </div>
     <q-item-section no-wrap>
-      <q-item-label class="q-ml-md text-no-wrap">{{ config.name || '@' }}</q-item-label>
+      <q-item-label class="q-ml-md text-no-wrap">{{ config.name || 'Components' }}</q-item-label>
     </q-item-section>
     <q-item-section side>
       <alerts-indicator :address="address" />
