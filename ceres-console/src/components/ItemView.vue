@@ -61,7 +61,12 @@ if (info == null) {
   throw new Error('Component not found')
 }
 
-const itemHeight = 21.5
+const itemsVisible = $computed(() => Math.ceil(containerInfo.clientHeight / itemHeight))
+const itemHeight = 28
+const itemLoadSize = $computed(() => Math.min(itemsVisible + 100, 1000))
+const itemSliceSize = 150
+const itemCullThreshold = $computed(() => itemsVisible + 250)
+const itemCullCount = $computed(() => itemsVisible + 100)
 
 let search = $ref('')
 let scroll = $shallowRef<QVirtualScroll | null>(null)
@@ -184,17 +189,15 @@ async function appendItems(appended: Item[]) {
   const follow = isAtBottom()
   items.push(...(appended.map(Object.freeze) as Item[]))
   if (follow) {
-    scroll?.refresh(items.length)
+    if (items.length > itemCullThreshold) {
+      items = items.slice(items.length - itemCullCount, items.length)
+      await forceScrollToBottom(250)
+    } else {
+      scroll?.refresh(items.length + 1)
+    }
   }
-
-  await delay(50)
-  await nextTick()
   await delay()
   await nextTick()
-
-  if (follow) {
-    scroll?.scrollTo(items.length, 'end-force')
-  }
 }
 
 async function loadPrevious() {
@@ -203,7 +206,7 @@ async function loadPrevious() {
     search: search === '' ? undefined : search,
     before: earliestItemTimestamp == null ? undefined : earliestItemTimestamp.format(),
     order: 'new-to-old',
-    limit: 100,
+    limit: itemLoadSize,
   })
 
   isExhausted = results.length === 0
@@ -215,7 +218,7 @@ async function loadCurrent() {
     address: info.address,
     search: search === '' ? undefined : search,
     order: 'new-to-old',
-    limit: 100,
+    limit: itemLoadSize,
   })
 
   isExhausted = results.length === 0
@@ -315,22 +318,23 @@ async function onSend(data: string) {
     <div v-if="items.length" class="col-grow self-virtual-scroll-container">
       <q-virtual-scroll
         ref="scroll"
-        v-slot="{ item, index }"
+        v-slot="{ item }"
         class="fit item-view-virtual-scroll self-virtual-scroll"
         dense
         flat
         :items="items"
         separator="cell"
         type="table"
-        :virtual-scroll-slice-size="250"
+        :virtual-scroll-item-size="itemHeight"
+        :virtual-scroll-slice-size="itemSliceSize"
       >
-        <item-view-message v-if="kind === 'message'" :key="'m' + index" :message="item" />
-        <item-view-alert v-else-if="kind === 'alert'" :key="'a' + index" :alert="item" />
-        <item-view-log-entry v-else :key="'le' + index" :entry="item" />
+        <item-view-message v-if="kind === 'message'" :key="(item as Message).id" :message="item" />
+        <item-view-alert v-else-if="kind === 'alert'" :key="(item as Alert).id" :alert="item" />
+        <item-view-log-entry v-else :key="(item as LogEntry).id" :entry="item" />
       </q-virtual-scroll>
       <transition appear enter-active-class="animated fadeIn" leave-active-class="animated fadeOut">
         <q-btn
-          v-if="!isAtBottomComputed"
+          v-if="!isDoingInitialLoad && !isAtBottomComputed"
           class="absolute-bottom-right"
           color="primary"
           :icon="icons.arrowDownward"
