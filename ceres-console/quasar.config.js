@@ -91,7 +91,7 @@ module.exports = configure((context) => {
     },
 
     // https://v2.quasar.dev/options/animations
-    animations: [],
+    animations: 'all',
   }
 })
 

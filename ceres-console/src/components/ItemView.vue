@@ -16,6 +16,7 @@ import ItemViewAlert from '@/components/ItemViewAlert.vue'
 import ItemViewLogEntry from '@/components/ItemViewLogEntry.vue'
 import ItemViewMessage from '@/components/ItemViewMessage.vue'
 import SectionCard from '@/components/SectionCard.vue'
+import icons from '@/icons'
 import { QVirtualScroll, useQuasar } from 'quasar'
 import { computed, nextTick, onMounted, watch, watchEffect } from 'vue'
 
@@ -85,15 +86,21 @@ let isLoadingCurrent = $ref(false)
 
 let containerInfo = $ref({
   scrollHeight: 0,
+  scrollWidth: 0,
   scrollTop: 0,
+  scrollLeft: 0,
   clientHeight: 0,
+  clientWidth: 0,
 })
 
 function updateContainerInfo() {
   if (container != null) {
     containerInfo.scrollHeight = container.scrollHeight
+    containerInfo.scrollWidth = container.scrollWidth
     containerInfo.scrollTop = container.scrollTop
+    containerInfo.scrollLeft = container.scrollLeft
     containerInfo.clientHeight = container.clientHeight
+    containerInfo.clientWidth = container.clientWidth
   }
 }
 
@@ -140,6 +147,24 @@ function isAtBottom() {
 
   return containerInfo.scrollTop + containerInfo.clientHeight >= containerInfo.scrollHeight - 2
 }
+
+const isAtBottomComputed = $computed(isAtBottom)
+
+const isShowingVerticalScrollBar = $computed(() => {
+  if (container == null) {
+    return true
+  }
+
+  return containerInfo.scrollHeight > containerInfo.clientHeight
+})
+
+const isShowingHorizontalScrollBar = $computed(() => {
+  if (container == null) {
+    return true
+  }
+
+  return containerInfo.scrollWidth > containerInfo.clientWidth
+})
 
 async function delay(milliseconds = 0) {
   return await new Promise((resolve) => setTimeout(resolve, milliseconds))
@@ -303,6 +328,23 @@ async function onSend(data: string) {
         <item-view-alert v-else-if="kind === 'alert'" :key="'a' + index" :alert="item" />
         <item-view-log-entry v-else :key="'le' + index" :entry="item" />
       </q-virtual-scroll>
+      <transition appear enter-active-class="animated fadeIn" leave-active-class="animated fadeOut">
+        <q-btn
+          v-if="!isAtBottomComputed"
+          class="absolute-bottom-right"
+          color="primary"
+          :icon="icons.arrowDownward"
+          round
+          size="sm"
+          :style="{
+            right: isShowingVerticalScrollBar ? '12px' : '4px',
+            bottom: isShowingHorizontalScrollBar ? '12px' : '4px',
+          }"
+          @click="scrollToBottom"
+        >
+          <q-tooltip class="bg-primary text-white">Latest</q-tooltip>
+        </q-btn>
+      </transition>
     </div>
     <div v-else-if="!isDoingInitialLoad" class="col-grow items-center justify-center row">
       <span class="self-empty-message-text text-italic">
@@ -325,6 +367,7 @@ async function onSend(data: string) {
 <style lang="scss" scoped>
 .self-virtual-scroll-container {
   contain: size !important; // This is needed for horizontal scrolling to work.
+  position: relative;
 }
 
 .self-virtual-scroll {
