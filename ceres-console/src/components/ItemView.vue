@@ -142,7 +142,7 @@ function isNearTop() {
     return false
   }
 
-  return containerInfo.scrollTop < 20 * itemHeight
+  return containerInfo.scrollTop <= 10 * itemHeight
 }
 
 function isAtBottom() {
@@ -176,11 +176,13 @@ async function delay(milliseconds = 0) {
 }
 
 async function prependItems(prepended: Item[]) {
+  const scrollTop = containerInfo.scrollTop
+  const height = prepended.length * itemHeight
   items = [...prepended.map(Object.freeze), ...items] as Item[]
-  scroll?.refresh(prepended.length)
-
-  await delay(15)
-  await nextTick()
+  scroll?.refresh(-1)
+  container?.scrollTo({
+    top: scrollTop + height,
+  })
   await delay()
   await nextTick()
 }
