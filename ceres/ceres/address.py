@@ -42,11 +42,15 @@ def _compile(pattern: "AddressPattern") -> StrPattern:
             segment = "@?" + segment
         segments.append(segment)
 
-    return re.compile("^" + "|".join(segments).replace(".", r"\.").replace("*", r".*") + "$")
+    return re.compile(
+        "^"
+        + "|".join(segments).replace(".", r"\.").replace("*", r".*").replace("+", r"($|\..*)")
+        + "$"
+    )
 
 
 NAME_PATTERN = NameType.regex.pattern[1:-1]
-SEGMENT_PATTERN = r"(@|@?[a-z-A-Z_\-.*]+)"
+SEGMENT_PATTERN = r"(@|@?[a-z-A-Z_\-.*]+)\+?"
 
 
 class AddressPattern(AddressLike):
