@@ -80,7 +80,7 @@ const container = $computed(() => {
 
 const isShowingAll = $computed(() => search.length === 0)
 
-let items = $ref<Item[]>([])
+let items = $shallowRef<Item[]>([])
 
 const earliestItemTimestamp = $computed(() => items[0]?.timestamp ?? null)
 
@@ -189,7 +189,7 @@ async function prependItems(prepended: Item[]) {
 
 async function appendItems(appended: Item[]) {
   const follow = isAtBottom()
-  items.push(...(appended.map(Object.freeze) as Item[]))
+  items = [...items, ...appended.map(Object.freeze)] as Item[]
   if (follow) {
     if (items.length > itemCullThreshold) {
       items = items.slice(items.length - itemCullCount, items.length)
