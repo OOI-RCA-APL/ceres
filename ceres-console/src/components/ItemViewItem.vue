@@ -7,7 +7,7 @@ const { item } = defineProps<{
 </script>
 
 <template>
-  <q-tr class="no-wrap row" no-hover>
+  <q-tr class="no-wrap" no-hover>
     <q-td>
       <span :class="$style.timestamp">
         {{ item.timestamp.format('YYYY-MM-DD HH:mm:ss.SSS') }}

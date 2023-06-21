@@ -25,7 +25,7 @@ const directionColor = $computed(() => {
         </span>
       </q-chip>
     </q-td>
-    <q-td class="col-grow">
+    <q-td>
       <span :class="$style.content">
         {{ JSON.stringify(message.content) }}
       </span>

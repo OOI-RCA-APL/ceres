@@ -2,8 +2,9 @@
 import icons from '@/icons'
 import { usePanelGroup } from '@/panel-group'
 
-const { name } = defineProps<{
+const { name, title } = defineProps<{
   name: string
+  title?: string
 }>()
 
 const group = usePanelGroup()
@@ -32,7 +33,7 @@ const isSelected = $computed(() => group.isSelected(name))
         <slot />
       </template>
       <template v-else>
-        {{ name }}
+        {{ title ?? name }}
       </template>
     </div>
     <slot name="append" />

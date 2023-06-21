@@ -32,7 +32,7 @@ const levelColor = $computed(() => {
         </span>
       </q-chip>
     </q-td>
-    <q-td class="col-grow">
+    <q-td>
       <span :class="$style.content">
         {{ JSON.stringify(entry.content) }}
       </span>

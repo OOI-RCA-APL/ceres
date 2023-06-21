@@ -33,6 +33,8 @@ const {
   kind: 'alert' | 'message' | 'log-entry'
 }>()
 
+const pattern = $computed(() => new Address(address.toString() + '+'))
+
 const quasar = useQuasar()
 const get = $computed(() => {
   switch (kind) {
@@ -64,7 +66,7 @@ if (info == null) {
 const itemsVisible = $computed(() => Math.ceil(containerInfo.clientHeight / itemHeight))
 const itemHeight = 28
 const itemLoadSize = $computed(() => Math.min(itemsVisible + 100, 1000))
-const itemSliceSize = 150
+const itemSliceSize = 250
 const itemCullThreshold = $computed(() => itemsVisible + 250)
 const itemCullCount = $computed(() => itemsVisible + 100)
 
@@ -142,7 +144,7 @@ function isNearTop() {
     return false
   }
 
-  return containerInfo.scrollTop <= 10 * itemHeight
+  return containerInfo.scrollTop <= 20 * itemHeight
 }
 
 function isAtBottom() {
@@ -204,7 +206,7 @@ async function appendItems(appended: Item[]) {
 
 async function loadPrevious() {
   const results: Item[] = await get({
-    address: info.address,
+    address: pattern,
     search: search === '' ? undefined : search,
     before: earliestItemTimestamp == null ? undefined : earliestItemTimestamp.format(),
     order: 'new-to-old',
@@ -217,7 +219,7 @@ async function loadPrevious() {
 
 async function loadCurrent() {
   const results: Item[] = await get({
-    address: info.address,
+    address: pattern,
     search: search === '' ? undefined : search,
     order: 'new-to-old',
     limit: itemLoadSize,
@@ -230,7 +232,7 @@ async function loadCurrent() {
 
 useStream(
   computed(() => ({
-    address: info.address,
+    address: pattern,
     search: search === '' ? undefined : search,
   })),
   async (item: Item) => {

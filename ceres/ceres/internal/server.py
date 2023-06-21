@@ -214,7 +214,6 @@ async def get_alerts(
 
 
 class GetLogEntriesQueryParameters(LogEntryQuery):
-    address: AbsoluteAddress | None = None
     level: Level | None = None
     limit: int = Field(default=100, ge=0, le=1000)
     offset: int = Field(default=0, ge=0)
@@ -263,7 +262,7 @@ async def message_stream(
 async def alert_stream(
     socket: WebSocket,
     engine: CurrentEngine,
-    address: AbsoluteAddress | None = None,
+    address: AddressPattern | None = None,
     search: str | None = None,
 ) -> None:
     try:
@@ -281,7 +280,7 @@ async def alert_stream(
 async def log_entry_stream(
     socket: WebSocket,
     engine: CurrentEngine,
-    address: AbsoluteAddress | None = None,
+    address: AddressPattern | None = None,
     search: str | None = None,
 ) -> None:
     try:
