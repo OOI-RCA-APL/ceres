@@ -8,12 +8,12 @@ const { item } = defineProps<{
 
 <template>
   <q-tr class="no-wrap" no-hover>
-    <q-td>
+    <q-td auto-width>
       <span :class="$style.timestamp">
         {{ item.timestamp.format('YYYY-MM-DD HH:mm:ss.SSS') }}
       </span>
     </q-td>
-    <q-td>{{ item.address }} </q-td>
+    <q-td auto-width>{{ item.address }}</q-td>
     <slot />
   </q-tr>
 </template>

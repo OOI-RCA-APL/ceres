@@ -42,7 +42,7 @@ function toggleExpanded() {
       :style="{ marginLeft: `${8 * address.depth}px` }"
     >
       <q-btn
-        class="q-mr-sm"
+        :class="$style.toggleButton"
         flat
         round
         size="xs"
@@ -50,8 +50,8 @@ function toggleExpanded() {
         :to="isLeaf ? `/components/${address}` : undefined"
         @click.stop.prevent="isLeaf ? router.push(`/components/${address}`) : toggleExpanded()"
       >
-        <q-icon v-if="isLeaf" :name="icons.circle" size="6px" />
-        <q-icon v-else :name="isExpanded ? icons.arrowDown : icons.arrowRight" size="20px" />
+        <q-icon v-if="isLeaf" :name="icons.circle" size="7px" />
+        <q-icon v-else :name="isExpanded ? icons.arrowDown : icons.arrowRight" size="22px" />
       </q-btn>
     </div>
     <q-item-section no-wrap>
@@ -74,6 +74,10 @@ function toggleExpanded() {
 <style module>
 .root {
   min-height: 38px;
+}
+
+.toggleButton {
+  margin-left: -16px;
 }
 
 .iconContainer {

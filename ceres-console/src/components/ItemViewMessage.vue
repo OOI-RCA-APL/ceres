@@ -18,7 +18,7 @@ const directionColor = $computed(() => {
 
 <template>
   <item-view-item :item="message">
-    <q-td>
+    <q-td auto-width>
       <q-chip :class="$style.directionChip" :color="directionColor" dense>
         <span :class="$style.directionText">
           {{ message.direction }}

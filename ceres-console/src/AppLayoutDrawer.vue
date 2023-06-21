@@ -52,12 +52,12 @@ const root = new Address('@')
 
 <template>
   <q-drawer v-model="drawer.isOpen" :class="$style.root" :width="drawer.width">
-    <div class="column full-height">
+    <div class="column full-height no-wrap overflow-hidden">
       <resize-handle
         v-model="drawer.width"
         :class="$style.resizeHandle"
         direction="horizontal"
-        :min="60"
+        :min="54"
         :style="{ left: `${drawer.width}px` }"
       />
       <div class="col-grow scroll">

@@ -58,5 +58,6 @@ const levelColor = $computed(() => {
   font-family: 'Roboto Mono', monospace;
   font-size: 11px;
   white-space: nowrap;
+  width: 100%;
 }
 </style>

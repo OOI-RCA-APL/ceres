@@ -24,17 +24,17 @@ const levelColor = $computed(() => {
 
 <template>
   <item-view-item :item="alert">
-    <q-td>
+    <q-td auto-width>
       <q-chip :class="$style.levelChip" :color="levelColor" dense text-color="black">
         <span :class="$style.levelText">
           {{ alert.level }}
         </span>
       </q-chip>
     </q-td>
-    <q-td>
+    <q-td auto-width>
       <div :class="$style.code">{{ alert.code }}</div>
     </q-td>
-    <q-td class="col-grow">
+    <q-td>
       <div :class="$style.info">{{ JSON.stringify(alert.info) }}</div>
     </q-td>
   </item-view-item>
