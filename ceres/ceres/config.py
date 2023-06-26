@@ -5,6 +5,7 @@ from datetime import timedelta
 from enum import Enum
 from logging import Logger
 from pathlib import Path
+from string import ascii_lowercase
 from typing import TYPE_CHECKING, Any, Callable, Literal, Mapping, Sequence
 
 import yaml
@@ -25,7 +26,7 @@ from ceres.errors import (
     ConfigReadError,
     ConfigValidationError,
 )
-from ceres.internal.utilities import lenient_issubclass, setattr_internal, show_td
+from ceres.internal.utilities import lenient_issubclass, randstr, setattr_internal, show_td
 from ceres.loaded import Loader
 from ceres.logs import Log
 from ceres.result import Fail, Ok, Result
@@ -46,9 +47,29 @@ class _ComponentConfigMixin(ImmutableDataObject):
     name: Name
 
 
-class _NodeConfigMixin(ImmutableDataObject):
-    if TYPE_CHECKING:
-        components: Sequence["ComponentConfig"]
+class ComponentConfig(Loader, _ComponentConfigMixin):
+    cls_path: ClassPath = Field(
+        default_factory=lambda: ClassPath("ceres.component.Component"), alias="class"
+    )
+    components: Sequence["ComponentConfig"] = ()
+    output: Path | None = None
+
+    def create(self, *, args: Sequence[Any] | Mapping[str, Any] | None = None) -> Component:
+        return super().create(args=args)
+
+    @override
+    @classmethod
+    def _get_extra_kwarg_names(cls) -> Sequence[str]:
+        return [*super()._get_extra_kwarg_names(), "name"]
+
+    @validator("cls_path")
+    def _validate_cls_path(cls, value: ClassPath) -> ClassPath:
+        from ceres.component import Component
+
+        if not lenient_issubclass(value.cls, Component):
+            raise ValueError(f"must be a subclass of {Component}")
+
+        return value
 
     @validator("components", check_fields=False)
     def _validate_components(
@@ -67,30 +88,6 @@ class _NodeConfigMixin(ImmutableDataObject):
                 )
 
         return components
-
-
-class ComponentConfig(Loader, _ComponentConfigMixin, _NodeConfigMixin):  # type: ignore
-    cls_path: ClassPath = Field(
-        default_factory=lambda: ClassPath("ceres.component.Component"), alias="class"
-    )
-    components: Sequence["ComponentConfig"] = ()
-
-    def load(self, *, args: Sequence[Any] | Mapping[str, Any] | None = None) -> Component:
-        return super().load(args=args)
-
-    @override
-    @classmethod
-    def _get_extra_kwarg_names(cls) -> Sequence[str]:
-        return [*super()._get_extra_kwarg_names(), "name"]
-
-    @validator("cls_path")
-    def _validate_cls_path(cls, value: ClassPath) -> ClassPath:
-        from ceres.component import Component
-
-        if not lenient_issubclass(value.cls, Component):
-            raise ValueError(f"must be a subclass of {Component}")
-
-        return value
 
 
 ComponentConfig.update_forward_refs()
@@ -140,11 +137,6 @@ class PostgresDatabaseConfig(BaseDatabaseConfig):
 DatabaseConfig = SQLiteDatabaseConfig | PostgresDatabaseConfig
 
 
-class PathsConfig(ConfigObject):
-    data: Path = Path("./data")
-    local: Path = Path("./local")
-
-
 class ConfigCheckKind(str, Enum):
     DATABASE = "database"
     COMPONENTS = "components"
@@ -154,21 +146,34 @@ class ConfigCheckKind(str, Enum):
         return tuple(cls)
 
 
-class Config(ConfigObject, _NodeConfigMixin):
-    class Config(ConfigObject.Config):
+class Config(ComponentConfig):
+    class Config(ComponentConfig.Config):
         underscore_attrs_are_private = True
+
+    name: Name = Field(default_factory=lambda: randstr(ascii_lowercase, 8))
+    cls_path: ClassPath = Field(
+        default_factory=lambda: ClassPath("ceres.engine.Engine"),
+        alias="class",
+    )
 
     service: ServiceConfig | None = None
     server: ServerConfig = Field(default_factory=ServerConfig)
     database: DatabaseConfig = Field(default_factory=SQLiteDatabaseConfig, discriminator="kind")
-    paths: PathsConfig = Field(default_factory=PathsConfig)
-    components: Sequence[ComponentConfig] = ()
 
     __path: Path | None = None  # type: ignore
 
     @property
     def path(self) -> Path | None:
         return self.__path
+
+    @validator("cls_path")
+    def _validate_cls_path(cls, value: ClassPath) -> ClassPath:
+        from ceres.engine import Engine
+
+        if not lenient_issubclass(value.cls, Engine):
+            raise ValueError(f"must be a subclass of {Engine}")
+
+        return value
 
     @classmethod
     async def load(
@@ -312,7 +317,7 @@ class Config(ConfigObject, _NodeConfigMixin):
                 log(f"Checking '{address}'...")
 
                 try:
-                    instance = component.load()
+                    instance = component.create()
                 except Exception as exception:
                     errors.append(
                         ConfigComponentError(

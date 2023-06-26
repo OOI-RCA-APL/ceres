@@ -31,7 +31,7 @@ class AddressLike(str):
         return str.__new__(cls, value)
 
     def __repr__(self) -> str:
-        return f"{self.__class__.__name__}({repr(str(self))})"
+        return f"{type(self).__name__}({repr(str(self))})"
 
 
 @lru_cache(maxsize=100)
@@ -148,7 +148,7 @@ class Address(AddressPattern):
         return not self.is_absolute
 
     def __truediv__(self, other: str) -> Self:
-        return self.__class__(f"{self}{'.' if not self.is_root else ''}{other.strip('.')}")
+        return type(self)(f"{self}{'.' if not self.is_root else ''}{other.strip('.')}")
 
     def contains(self, other: "Address") -> bool:
         self = self.as_absolute()
