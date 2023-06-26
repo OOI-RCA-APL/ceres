@@ -1,4 +1,5 @@
 import os
+import warnings
 from functools import wraps
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Sequence
@@ -37,23 +38,39 @@ class AsyncTyper(Typer):
             return decorator
 
 
+chdir = os.chdir
+
+
+def __disabled_chdir__(*args: Any, **kwargs: Any) -> None:
+    warnings.warn("Changing directory is disabled while running Ceres.")
+
+
+def disable_chdir():
+    os.chdir = __disabled_chdir__
+
+
 def get_config_path(config_path: Path | None) -> Path:
-    if not config_path:
+    if config_path is None:
         possibilities = [
-            "ceres.yaml",
-            "ceres.yml",
-            "ceres.json",
+            Path(name)
+            for name in (
+                "ceres.yaml",
+                "ceres.yml",
+                "ceres.json",
+            )
         ]
 
         for possibility in possibilities:
-            if os.path.isfile(possibility):
-                config_path = Path(os.path.realpath(possibility))
+            if possibility.is_file():
+                config_path = possibility.absolute()
                 break
         else:
             raise CLIInvalidConfigException(
                 f"Must be in a directory containing one of: {possibilities}"
             )
 
+    chdir(config_path.parent)
+    disable_chdir()
     return config_path
 
 
