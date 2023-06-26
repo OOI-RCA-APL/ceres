@@ -12,8 +12,8 @@ import PanelTab from '@/components/PanelTab.vue'
 import { computed } from 'vue'
 import { useQuery } from 'vue-query'
 
-const { address = null } = defineProps<{
-  address?: Address | null
+const { address = new Address('@') } = defineProps<{
+  address: Address
 }>()
 
 const query = useQuery(['getComponent', computed(() => address)], async () =>
@@ -59,7 +59,7 @@ const uis = $computed(() => components.filter((component) => component.roles.inc
         name="Alerts"
         :persist="`components/${component.address}/alerts-panel-container`"
       >
-        <item-view :address="address" class="full-height" kind="alert" title="Messages" />
+        <item-view :address="address" class="full-height" kind="alert" title="Alerts" />
       </panel-container>
       <panel-container
         container-class="q-pa-sm"

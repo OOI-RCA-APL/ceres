@@ -129,10 +129,11 @@ export const DatabaseConfigModel = Zod.discriminatedUnion('kind', [
 
 export type Config = Zod.infer<typeof ConfigModel>
 export const ConfigModel = Zod.object({
-  name: Zod.string().nullable().default(''),
+  name: NameStrModel,
+  class: Zod.string(),
+  components: Zod.array(ComponentConfigModel),
   server: ServerConfigModel,
   database: DatabaseConfigModel,
-  components: Zod.array(ComponentConfigModel).default(() => []),
 })
 
 export type DisplayBinding = Zod.infer<typeof DisplayBindingModel>

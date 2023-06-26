@@ -55,7 +55,9 @@ function toggleExpanded() {
       </q-btn>
     </div>
     <q-item-section no-wrap>
-      <q-item-label class="q-ml-md text-no-wrap">{{ config.name || 'Components' }}</q-item-label>
+      <q-item-label class="q-ml-md text-no-wrap">{{
+        address.isRoot ? 'Components' : config.name
+      }}</q-item-label>
     </q-item-section>
     <q-item-section side>
       <alerts-indicator :address="address" />

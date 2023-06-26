@@ -1,5 +1,8 @@
+.PHONY: *
 build:
 	cd ./ceres && make build
+dev:
+	cd ./ceres-console && make dev
 install:
 	cd ./ceres && make install
 	cd ./ceres-console && make install

@@ -1,3 +1,4 @@
+.PHONY: *
 build: install
 	cd ../ceres-console && make build
 	poetry build
