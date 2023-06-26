@@ -48,14 +48,14 @@ class DatabaseAdapter(Generic[ConfigT], ABC):
 class SQLiteDatabaseAdapter(DatabaseAdapter[SQLiteDatabaseConfig]):
     def get_engine_url(self) -> str:
         # If a path is provided, create an database at the provided path.
-        if self.config.path:
+        if self.config.path is not None:
             return f"sqlite+aiosqlite:///{self.config.path.resolve()}"
 
         # Otherwise create a temporary on-disk database.
         return f"sqlite+aiosqlite:///{self.__get_temporary_path()}"
 
     def __del__(self) -> None:
-        if self.config.path or not self.__get_temporary_path().exists():
+        if self.config.path is not None or not self.__get_temporary_path().exists():
             return
 
         try:
@@ -79,8 +79,19 @@ class SQLiteDatabaseAdapter(DatabaseAdapter[SQLiteDatabaseConfig]):
     def create_engine(self) -> AsyncEngine:
         engine = super().create_engine()
 
+        # https://docs.sqlalchemy.org/en/latest/core/events.html#sqlalchemy.events.DialectEvents.do_connect
+        @event.listens_for(engine.sync_engine, "do_connect")
+        def do_connect(*args: object) -> None:
+            # Create the directory containing the database file if it doesn't already exist.
+            if self.config.path is not None:
+                try:
+                    self.config.path.parent.mkdir(parents=True, exist_ok=True)
+                except Exception:
+                    traceback.print_exc()
+
+        # https://docs.sqlalchemy.org/en/latest/core/events.html#sqlalchemy.events.PoolEvents.first_connect
         @event.listens_for(engine.sync_engine, "first_connect")
-        def first_connect(connection: SQLiteConnection, *args: Any) -> None:
+        def first_connect(connection: SQLiteConnection, *args: object) -> None:
             # Enable incremental "auto_vacuum" mode when the first connection to the database is
             # made. This can only be done before database tables are created and is disabled by
             # default, so we do it here just in case "incremental_vacuum" is needed later on.
@@ -88,8 +99,9 @@ class SQLiteDatabaseAdapter(DatabaseAdapter[SQLiteDatabaseConfig]):
             # https://www.sqlite.org/pragma.html#pragma_incremental_vacuum
             connection.execute("PRAGMA auto_vacuum = INCREMENTAL")
 
+        # https://docs.sqlalchemy.org/en/20/core/events.html#sqlalchemy.events.PoolEvents.connect
         @event.listens_for(engine.sync_engine, "connect")
-        def connect(connection: SQLiteConnection, *args: Any) -> None:
+        def connect(connection: SQLiteConnection, *args: object) -> None:
             # Enable a 30 second busy timeout.
             connection.execute("PRAGMA busy_timeout = 30000")
             # Clear the isolation level to stop "pysqlite" from:
@@ -101,14 +113,16 @@ class SQLiteDatabaseAdapter(DatabaseAdapter[SQLiteDatabaseConfig]):
             # https://docs.sqlalchemy.org/en/latest/dialects/sqlite.html#foreign-key-support
             connection.execute("PRAGMA foreign_keys = ON")
 
+        # https://docs.sqlalchemy.org/en/20/core/events.html#sqlalchemy.events.ConnectionEvents.begin
         @event.listens_for(engine.sync_engine, "begin")
         def begin(connection: Connection) -> None:
             # Emit our own "BEGIN" statement.
             # https://docs.sqlalchemy.org/en/latest/dialects/sqlite.html#serializable-isolation-savepoints-transactional-ddl
             connection.exec_driver_sql("BEGIN IMMEDIATE")
 
+        # https://docs.sqlalchemy.org/en/20/core/events.html#sqlalchemy.events.PoolEvents.close
         @event.listens_for(engine.sync_engine, "close")
-        def close(connection: SQLiteConnection, *args: Any) -> None:
+        def close(connection: SQLiteConnection, *args: object) -> None:
             # Run optimize every time we close a database connection.
             # https://www.sqlite.org/lang_analyze.html
             try:
