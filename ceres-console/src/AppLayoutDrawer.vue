@@ -57,6 +57,7 @@ const root = new Address('@')
         v-model="drawer.width"
         :class="$style.resizeHandle"
         direction="horizontal"
+        :max="600"
         :min="54"
         :style="{ left: `${drawer.width}px` }"
       />
