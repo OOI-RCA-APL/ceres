@@ -35,6 +35,12 @@ const children = $computed(() => component?.components ?? [])
 const components = $computed(() => (component == null ? [] : [component, ...children]))
 const executors = $computed(() => components.filter((component) => component.procedures.length > 0))
 const uis = $computed(() => components.filter((component) => component.roles.includes('ui')))
+
+const panelProps = {
+  defaultHeight: 300,
+  minHeight: 114,
+  maxHeight: 4000,
+}
 </script>
 
 <template>
@@ -45,8 +51,7 @@ const uis = $computed(() => components.filter((component) => component.roles.inc
     <div v-else-if="component">
       <panel-container
         container-class="q-pa-sm"
-        :default-height="300"
-        :min-height="114"
+        v-bind="panelProps"
         name="Messages"
         :persist="`components/${component.address}/messages-panel-container`"
       >
@@ -54,8 +59,7 @@ const uis = $computed(() => components.filter((component) => component.roles.inc
       </panel-container>
       <panel-container
         container-class="q-pa-sm"
-        :default-height="300"
-        :min-height="114"
+        v-bind="panelProps"
         name="Alerts"
         :persist="`components/${component.address}/alerts-panel-container`"
       >
@@ -63,8 +67,7 @@ const uis = $computed(() => components.filter((component) => component.roles.inc
       </panel-container>
       <panel-container
         container-class="q-pa-sm"
-        :default-height="300"
-        :min-height="114"
+        v-bind="panelProps"
         name="Logs"
         :persist="`components/${component.address}/log-entries-panel-container`"
       >
@@ -74,6 +77,7 @@ const uis = $computed(() => components.filter((component) => component.roles.inc
         v-if="executors.length"
         :panels="executors.map((current) => current.address.toString())"
         :persist="`components/${component.address}/procedures-panel-group`"
+        v-bind="panelProps"
         title="Procedures"
       >
         <template #tabs>
@@ -99,6 +103,7 @@ const uis = $computed(() => components.filter((component) => component.roles.inc
       </panel-group>
       <panel-group
         v-if="uis.length"
+        v-bind="panelProps"
         :panels="uis.map((current) => current.address.toString())"
         :persist="`components/${component.address}/displays-panel-group`"
         title="UI"

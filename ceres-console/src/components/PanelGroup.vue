@@ -7,6 +7,8 @@ const { panels, defaultHeight, persist } = defineProps<{
   title: string
   panels?: string[]
   defaultHeight?: number
+  minHeight?: number
+  maxHeight?: number
   persist?: string
 }>()
 
@@ -54,7 +56,8 @@ const group = providePanelGroup(
         v-if="defaultHeight != null && group.height != null"
         v-model="group.height"
         direction="vertical"
-        :min="114"
+        :max="maxHeight"
+        :min="minHeight"
       />
       <q-separator v-else />
     </template>

@@ -20,10 +20,13 @@ type Drag = {
 }
 
 function clamp(size: number) {
-  if (min && size < min) {
+  if (size < 0) {
+    return 0
+  }
+  if (min != null && size < min) {
     return min
   }
-  if (max && size > max) {
+  if (max != null && size > max) {
     return max
   }
 

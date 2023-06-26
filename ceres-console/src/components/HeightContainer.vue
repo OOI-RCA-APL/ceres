@@ -6,6 +6,7 @@ import { computed } from 'vue'
 const { defaultHeight, persist } = defineProps<{
   defaultHeight: number
   minHeight?: number
+  maxHeight?: number
   persist?: string
 }>()
 
@@ -26,6 +27,7 @@ const state = usePersisted({
       :class="$style.handle"
       direction="vertical"
       :min="minHeight"
+      :max="maxHeight"
     />
   </div>
 </template>

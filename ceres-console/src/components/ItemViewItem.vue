@@ -20,7 +20,7 @@ const { item } = defineProps<{
 
 <style lang="scss" module>
 .root {
-  height: 32px !important;
+  height: 31px !important;
   overflow-y: hidden !important;
 }
 

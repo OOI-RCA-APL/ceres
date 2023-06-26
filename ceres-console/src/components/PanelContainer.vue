@@ -5,10 +5,11 @@ import icons from '@/icons'
 import { usePersisted } from '@/persistence'
 import { computed } from 'vue'
 
-const { name, defaultHeight, minHeight, persist } = defineProps<{
+const { name, persist } = defineProps<{
   name: string
   defaultHeight: number
   minHeight?: number
+  maxHeight?: number
   persist?: string
   containerClass?: string
 }>()
@@ -49,6 +50,7 @@ const state = usePersisted({
       <height-container
         :class="containerClass"
         :default-height="defaultHeight"
+        :max-height="maxHeight"
         :min-height="minHeight"
         :persist="persist && persist + '/height'"
       >

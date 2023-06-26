@@ -64,7 +64,7 @@ if (info == null) {
 }
 
 const itemsVisible = $computed(() => Math.ceil(containerInfo.clientHeight / itemHeight))
-const itemHeight = 32
+const itemHeight = 31
 const itemLoadSizeInitial = $computed(() => Math.min(itemsVisible + 250, 1000))
 const itemLoadSize = $computed(() => Math.min(itemsVisible + 100, 1000))
 const itemSliceSize = 250
