@@ -25,7 +25,7 @@ const levelColor = $computed(() => {
 
 <template>
   <item-view-item :item="entry">
-    <q-td>
+    <q-td auto-width>
       <q-chip :class="$style.levelChip" :color="levelColor" dense text-color="black">
         <span :class="$style.levelText">
           {{ entry.level }}

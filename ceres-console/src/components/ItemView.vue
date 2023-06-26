@@ -64,7 +64,8 @@ if (info == null) {
 }
 
 const itemsVisible = $computed(() => Math.ceil(containerInfo.clientHeight / itemHeight))
-const itemHeight = 28
+const itemHeight = 32
+const itemLoadSizeInitial = $computed(() => Math.min(itemsVisible + 250, 1000))
 const itemLoadSize = $computed(() => Math.min(itemsVisible + 100, 1000))
 const itemSliceSize = 250
 const itemCullThreshold = $computed(() => itemsVisible + 250)
@@ -144,7 +145,7 @@ function isNearTop() {
     return false
   }
 
-  return containerInfo.scrollTop <= 20 * itemHeight
+  return containerInfo.scrollTop <= 1 * itemHeight
 }
 
 function isAtBottom() {
@@ -182,10 +183,10 @@ async function prependItems(prepended: Item[]) {
   const height = prepended.length * itemHeight
   items = [...prepended.map(Object.freeze), ...items] as Item[]
   scroll?.refresh(-1)
+  await nextTick()
   container?.scrollTo({
     top: scrollTop + height,
   })
-  await delay()
   await nextTick()
 }
 
@@ -200,7 +201,6 @@ async function appendItems(appended: Item[]) {
       scroll?.refresh(items.length + 1)
     }
   }
-  await delay()
   await nextTick()
 }
 
@@ -222,7 +222,7 @@ async function loadCurrent() {
     address: pattern,
     search: search === '' ? undefined : search,
     order: 'new-to-old',
-    limit: itemLoadSize,
+    limit: itemLoadSizeInitial,
   })
 
   isExhausted = results.length === 0

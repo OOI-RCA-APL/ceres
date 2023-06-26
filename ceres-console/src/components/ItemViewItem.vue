@@ -7,7 +7,7 @@ const { item } = defineProps<{
 </script>
 
 <template>
-  <q-tr class="no-wrap" no-hover>
+  <q-tr :class="[$style.root, 'no-wrap']" no-hover>
     <q-td auto-width>
       <span :class="$style.timestamp">
         {{ item.timestamp.format('YYYY-MM-DD HH:mm:ss.SSS') }}
@@ -19,6 +19,11 @@ const { item } = defineProps<{
 </template>
 
 <style lang="scss" module>
+.root {
+  height: 32px !important;
+  overflow-y: hidden !important;
+}
+
 .timestamp {
   font-family: 'Roboto Mono', monospace;
   font-size: 11px;
