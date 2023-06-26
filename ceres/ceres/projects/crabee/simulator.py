@@ -32,6 +32,7 @@ class CrabeeSimulator(Component):
                 await asyncio.sleep(1)
             finally:
                 server.close()
+                await server.wait_closed()
 
     async def __handle(self, reader: StreamReader, writer: StreamWriter) -> None:
         while not writer.is_closing():

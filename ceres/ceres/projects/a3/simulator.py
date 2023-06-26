@@ -35,36 +35,38 @@ class A3Simulator(Component):
     async def __send_messages(self) -> None:
         if self.host is not None:
             self.log.info(f"Creating host listener on port {self.host.port}...")
-            host_listener = await asyncio.start_server(
+            host_server = await asyncio.start_server(
                 self.__handle_host,
                 "0.0.0.0",
                 self.host.port,
                 reuse_port=True,
             )
         else:
-            host_listener = None
+            host_server = None
 
         if self.das is not None:
             self.log.info(f"Creating DAS listener on port {self.das.port}...")
-            das_listener = await asyncio.start_server(
+            das_server = await asyncio.start_server(
                 self.__handle_das,
                 "0.0.0.0",
                 self.das.port,
                 reuse_port=True,
             )
         else:
-            das_listener = None
+            das_server = None
 
         try:
             await asyncio.gather(
-                host_listener.serve_forever() if host_listener else sleep_forever(),
-                das_listener.serve_forever() if das_listener else sleep_forever(),
+                host_server.serve_forever() if host_server else sleep_forever(),
+                das_server.serve_forever() if das_server else sleep_forever(),
             )
         finally:
-            if host_listener is not None:
-                host_listener.close()
-            if das_listener is not None:
-                das_listener.close()
+            if host_server is not None:
+                host_server.close()
+                await host_server.wait_closed()
+            if das_server is not None:
+                das_server.close()
+                await das_server.wait_closed()
 
     async def __handle_host(self, reader: StreamReader, writer: StreamWriter) -> None:
         pass
