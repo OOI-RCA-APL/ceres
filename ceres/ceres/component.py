@@ -63,7 +63,6 @@ from ceres.data import (
     jsonify,
 )
 from ceres.database import Database
-from ceres.directory import Directory
 from ceres.errors import (
     ComponentReferenceInvalidError,
     ProcedureDoesNotExistError,
@@ -458,11 +457,6 @@ class Statistics(DataObject):
 Item = Message | Alert | LogEntry
 
 
-class Paths(ImmutableDataObject):
-    data: Directory = Field(default_factory=Directory)
-    local: Directory = Field(default_factory=Directory)
-
-
 class Job(ImmutableDataObject):
     name: Name
     action: Name
@@ -484,7 +478,6 @@ class Job(ImmutableDataObject):
 )
 class Component(ValidatedDataclass, Tasklet):
     name: Final[Name] = Field(default_factory=lambda: randstr(ascii_lowercase, 8))
-    paths: Final[Paths] = field(default_factory=Paths)
     jobs: Final[Sequence[Job]] = field(default_factory=list)
 
     @validator("jobs")
@@ -506,7 +499,7 @@ class Component(ValidatedDataclass, Tasklet):
         self.__referencers: WeakValueDictionary[int, Component] = WeakValueDictionary()
         self.__log = Log(lambda: self.address)
         self.__log.add_handler(self.__handle_log_entry)
-        self.__children: dict[Name, Component] = {}
+        self.__components: dict[Name, Component] = {}
         self.__config__: "ComponentConfig | None" = None
 
         self.__event_processors = [
@@ -517,7 +510,6 @@ class Component(ValidatedDataclass, Tasklet):
             )
             for binding in self.get_listener_bindings()
         ]
-
         self.__database: Database | None = None
         self.__mapping: dict[Address, UUID] | None = None
         self.__mapping_lock = AsyncLock()
@@ -642,8 +634,8 @@ class Component(ValidatedDataclass, Tasklet):
         return self.__events.view()
 
     @property
-    def children(self) -> Sequence["Component"]:
-        return list(self.__children.values())
+    def components(self) -> Sequence["Component"]:
+        return list(self.__components.values())
 
     @property
     def settled(self) -> bool:
@@ -717,7 +709,7 @@ class Component(ValidatedDataclass, Tasklet):
         if isinstance(name, str):
             setattr_internal(Component, component, "name", name)
 
-        self.__children[component.name] = component
+        self.__components[component.name] = component
         component.detach()
         component.__parent = ref(self)
 
@@ -727,7 +719,7 @@ class Component(ValidatedDataclass, Tasklet):
         if self.parent is None:
             return
 
-        self.parent.__children.pop(self.name, None)
+        self.parent.__components.pop(self.name, None)
         self.__parent = None
 
     def remove_component(self, /, address: Name | Address | None) -> "Component | None":
@@ -752,7 +744,7 @@ class Component(ValidatedDataclass, Tasklet):
             if current is None:
                 break
 
-            current = current.__children.get(name)
+            current = current.__components.get(name)
 
         return current
 
@@ -776,7 +768,7 @@ class Component(ValidatedDataclass, Tasklet):
             if (inclusive or current is not self) and query.matches(current, self.address):
                 components.append(current)
 
-            for component in current.__children.values():
+            for component in current.__components.values():
                 traverse(component)
 
         traverse(self)
@@ -914,7 +906,7 @@ class Component(ValidatedDataclass, Tasklet):
 
     @override
     async def __stop__(self) -> None:
-        for component in reversed(self.children):
+        for component in reversed(self.components):
             self.log.info(f"Stopping '{component.address}'...")
             await component.stop()
 
@@ -1626,7 +1618,7 @@ class ComponentGroup(Sequence[Component]):
         return __object in self.components
 
     def reversed(self) -> Self:
-        return self.__class__(reversed(self.components))
+        return type(self)(reversed(self.components))
 
     def start(self) -> None:
         for component in self.components:
@@ -1637,4 +1629,4 @@ class ComponentGroup(Sequence[Component]):
             await component.stop()
 
     def __or__(self, __other: "ComponentGroup") -> Self:
-        return self.__class__(uniquify((*self.components, *__other.components)))
+        return type(self)(uniquify((*self.components, *__other.components)))

@@ -20,6 +20,7 @@ from ceres import (
 )
 from ceres.component import Component
 from ceres.console import ChartDisplay, ConsoleColor, StateDisplay, ValueDisplay
+from ceres.directory import Directory
 from ceres.events import ConnectFailedEvent, ConnectionLostEvent, MessageReceivedEvent
 from ceres.exceptions import ParseException
 from ceres.layout import Layout, LayoutCarousel, LayoutColumn, LayoutDisplay, LayoutRow
@@ -112,6 +113,7 @@ class Checks(ImmutableDataObject):
 
 
 class CrabeeDriver(Alerter, UI, Component):
+    output: Directory
     connection: Ref[Connection]
     checks: Checks = Field(default_factory=Checks)
 
@@ -189,8 +191,8 @@ class CrabeeDriver(Alerter, UI, Component):
                 "leak_2": int(message.leak_2),
             }
 
-            exists = self.paths.data.exists(file)
-            with self.paths.data.open(file, "a") as stream:
+            exists = self.output.exists(file)
+            with self.output.open(file, "a") as stream:
                 if not exists:
                     stream.write(",".join(info.keys()))
                     stream.write("\n")

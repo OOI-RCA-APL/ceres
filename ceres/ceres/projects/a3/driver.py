@@ -13,6 +13,8 @@ import numpy as np
 from pydantic import Field
 from typing_extensions import override
 
+from ceres.directory import Directory
+
 if TYPE_CHECKING:
     nc: Any
     Dataset: Any
@@ -109,6 +111,7 @@ class AZACollection(ImmutableDataObject):
 
 
 class A3Driver(Alerter):
+    output: Directory
     host: HostSettings
     das: DASSettings
     nodes: Sequence[NodeDefinition] = Field(default_factory=list)
@@ -518,7 +521,7 @@ class A3Driver(Alerter):
         if not collections:
             raise Exception("No collections to export.")
 
-        directory = self.paths.data.subdir(f"/science/{date.year}/{date.month}")
+        directory = self.output.subdir(f"/science/{date.year}/{date.month}")
         directory.create()
         path = directory / f"{date.isoformat()}.remote.nc"
 
@@ -791,7 +794,7 @@ class A3Driver(Alerter):
         if not collections:
             raise Exception("No collections to export.")
 
-        directory = self.paths.data.subdir(f"/science/{date.year}/{date.month}")
+        directory = self.output.subdir(f"/science/{date.year}/{date.month}")
         directory.create()
         path = directory / f"{date.isoformat()}.local.nc"
 
@@ -989,7 +992,7 @@ class A3Driver(Alerter):
         if not collections:
             raise Exception("No collections to export.")
 
-        directory = self.paths.data
+        directory = self.output
         directory.create()
         path = directory / "aza.nc"
 
@@ -1106,7 +1109,7 @@ class A3Driver(Alerter):
         now = datetime.now(timezone.utc)
         date = now.date()
 
-        directory = self.paths.data / f"raw/{date.year}/{date.month}"
+        directory = self.output / f"raw/{date.year}/{date.month}"
         extension = ".host.txt" if message.address == self.host.connection.address else ".das.txt"
         path = f"{directory}/{date.isoformat()}{extension}"
 

@@ -10,7 +10,7 @@ from typing import Any, Mapping, final
 from typing_extensions import override
 
 from ceres.address import AbsoluteAddress
-from ceres.component import Component, Paths
+from ceres.component import Component
 from ceres.config import ComponentConfig, Config
 from ceres.data import ImmutableDataObject, Name
 from ceres.database import Database
@@ -42,7 +42,7 @@ class Action(ImmutableDataObject):
 @final
 class Engine(Component):
     def __setup__(self) -> None:
-        self.__config = Config()
+        self.__config: Config | None = None
         self.__config_queue: Queue[Config] = Queue()
         self.__reloading = AsyncEvent()
         self.__server: Server | None = None
@@ -50,20 +50,22 @@ class Engine(Component):
 
     @property
     def config(self) -> Config:
+        if self.__config is None:
+            self.__config = Config()
+
         return self.__config
 
     @property
     def project_directory(self) -> Directory:
-        if self.__config.path is None:
+        if self.config.path is None:
             if self.__saved_project_directory is None:
                 self.__saved_project_directory = Directory()
         else:
             if (
                 self.__saved_project_directory is None
-                or self.__saved_project_directory.path != self.__config.path.parent
+                or self.__saved_project_directory.path != self.config.path.parent
             ):
-                self.__saved_project_directory = Directory(self.__config.path.parent)
-            print(self.__saved_project_directory.path)
+                self.__saved_project_directory = Directory(self.config.path.parent)
 
         return self.__saved_project_directory
 
@@ -190,7 +192,7 @@ class Engine(Component):
                 "Database configuration modified, reloading all components and database..."
             )
             try:
-                for child in self.children:
+                for child in self.components:
                     await child.stop()
                 await self.flush()
                 if self.local_database is not None:
@@ -231,14 +233,7 @@ class Engine(Component):
 
             if child is None:
                 try:
-                    child = subconfig.load(
-                        args={
-                            "paths": Paths(
-                                data=component.paths.data,
-                                local=component.paths.local.subdir(subconfig.name),
-                            )
-                        }
-                    )
+                    child = subconfig.create()
                     component.add_component(child)
                     child.assign_references(references)
                     await self.__load_subcomponents_for(child)
@@ -277,17 +272,17 @@ class Engine(Component):
         created = [
             action
             for action in actions
-            if action.kind == ActionKind.CREATE and action.address in self.children
+            if action.kind == ActionKind.CREATE and action.address in self.components
         ]
         recreated = [
             action
             for action in actions
-            if action.kind == ActionKind.RECREATE and action.address in self.children
+            if action.kind == ActionKind.RECREATE and action.address in self.components
         ]
         removed = [
             action
             for action in actions
-            if action.kind == ActionKind.REMOVE and action.address not in self.children
+            if action.kind == ActionKind.REMOVE and action.address not in self.components
         ]
 
         if created:
@@ -312,7 +307,7 @@ class Engine(Component):
             elif component.__config__ != config:
                 actions.append(Action(kind=ActionKind.RECREATE, address=address))
 
-        for component in self.children:
+        for component in self.components:
             if component.name not in configs:
                 actions.append(Action(kind=ActionKind.REMOVE, address=component.address))
 

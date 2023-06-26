@@ -45,6 +45,17 @@ class Directory(PathLike[str]):
         self.__parent = parent
         self.__temporary = temporary
 
+    @classmethod
+    def __get_validators__(cls):
+        yield cls.validate
+
+    @classmethod
+    def validate(cls, value: Any) -> Self:
+        if isinstance(value, cls):
+            return value
+
+        return cls(value)
+
     @property
     def path(self) -> Path:
         return Path(self.__path)
@@ -60,7 +71,7 @@ class Directory(PathLike[str]):
         return self.path / path
 
     def __repr__(self) -> str:
-        return f"{self.__class__.__name__}({repr(self.__path.__fspath__())})"
+        return f"{type(self).__name__}({repr(self.__path.__fspath__())})"
 
     def __str__(self) -> str:
         return self.__path.__fspath__()
@@ -191,7 +202,7 @@ class Directory(PathLike[str]):
         return self.path / path
 
     def subdir(self, path: StrPath, *, temporary: bool | None = None) -> Self:
-        return self.__class__(
+        return type(self)(
             path=self.subpath(path),
             parent=self,
             temporary=temporary,
