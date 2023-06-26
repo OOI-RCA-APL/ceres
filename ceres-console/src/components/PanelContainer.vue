@@ -7,7 +7,7 @@ import { computed } from 'vue'
 
 const { name, defaultHeight, minHeight, persist } = defineProps<{
   name: string
-  defaultHeight?: number
+  defaultHeight: number
   minHeight?: number
   persist?: string
   containerClass?: string

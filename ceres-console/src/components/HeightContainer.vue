@@ -12,7 +12,7 @@ const { defaultHeight, persist } = defineProps<{
 const state = usePersisted({
   schema: ({ object, number }) =>
     object({
-      height: number().nullable().default(defaultHeight),
+      height: number().default(defaultHeight),
     }),
   methods: computed(() => (persist ? [{ type: 'local-storage', key: persist }] : [])),
 })
