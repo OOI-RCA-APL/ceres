@@ -83,10 +83,7 @@ else:
 
 
 class ComponentRole(str, Enum):
-    ALERTER = "alerter"
     CONNECTION = "connection"
-    DISPATCHER = "dispatcher"
-    NOTIFIER = "notifier"
     UI = "ui"
 
 
@@ -94,21 +91,12 @@ def _get_component_roles(component: Component | type[Component]) -> Sequence[Com
     if not isinstance(component, type):
         component = type(component)
 
-    from ceres.roles.alerter import Alerter
     from ceres.roles.connection import Connection
-    from ceres.roles.dispatcher import Dispatcher
-    from ceres.roles.notifier import Notifier
     from ceres.roles.ui import UI
 
     roles: list[ComponentRole] = []
-    if issubclass(component, Alerter):
-        roles.append(ComponentRole.ALERTER)
     if issubclass(component, Connection):
         roles.append(ComponentRole.CONNECTION)
-    if issubclass(component, Dispatcher):
-        roles.append(ComponentRole.DISPATCHER)
-    if issubclass(component, Notifier):
-        roles.append(ComponentRole.NOTIFIER)
     if issubclass(component, UI):
         roles.append(ComponentRole.UI)
 

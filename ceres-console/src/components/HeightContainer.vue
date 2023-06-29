@@ -26,8 +26,8 @@ const state = usePersisted({
       v-model="state.height"
       :class="$style.handle"
       direction="vertical"
-      :min="minHeight"
       :max="maxHeight"
+      :min="minHeight"
     />
   </div>
 </template>

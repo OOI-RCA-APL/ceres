@@ -837,6 +837,21 @@ class Component(ValidatedDataclass, Tasklet):
                     processor.put(event)
                     break
 
+    def alert(
+        self,
+        level: Level,
+        code: str,
+        info: Mapping[str, Any] | None = None,
+    ) -> Alert:
+        alert = Alert(
+            address=self.address,
+            level=level,
+            code=code,
+            info=info if info is not None else {},
+        )
+        self.emit(AlertEvent, alert=alert)
+        return alert
+
     def schedule_job(
         self,
         function: Callable[[], Any],

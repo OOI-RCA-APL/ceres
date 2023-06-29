@@ -38,7 +38,6 @@ from ceres.ref import Reference as Reference
 from ceres.result import Fail as Fail
 from ceres.result import Ok as Ok
 from ceres.result import Result as Result
-from ceres.roles.alerter import Alerter as Alerter
 from ceres.roles.connection import Connection as Connection
 from ceres.roles.connection import ConnectionState as ConnectionState
 from ceres.roles.dispatcher import Dispatch as Dispatch
