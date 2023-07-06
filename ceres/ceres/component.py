@@ -3,8 +3,9 @@ import inspect
 import traceback
 from asyncio import Event as AsyncEvent
 from asyncio import Lock as AsyncLock
+from collections import deque
 from collections.abc import Sequence
-from dataclasses import field
+from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from functools import partial
@@ -472,6 +473,12 @@ class Job(ImmutableDataObject):
         return values
 
 
+@dataclass
+class _Flush:
+    items: Sequence[Item]
+    event: AsyncEvent = field(default_factory=AsyncEvent)
+
+
 @dataclass_transform(
     kw_only_default=True,
     field_specifiers=VALIDATED_DATACLASS_FIELD_SPECIFIERS,
@@ -513,10 +520,10 @@ class Component(ValidatedDataclass, Tasklet):
         self.__database: Database | None = None
         self.__mapping: dict[Address, UUID] | None = None
         self.__mapping_lock = AsyncLock()
-        self.__flushing = False
-        self.__buffer: list[Item] = []
-        self.__buffer_empty = AsyncEvent()
-        self.__buffer_empty.set()
+        self.__flush_buffer: list[Item] = []
+        self.__flushes: deque[_Flush] = deque()
+        self.__flushed = AsyncEvent()
+        self.__flushed.set()
 
         self.__sync_referencers()
         self.__setup__()
@@ -639,13 +646,20 @@ class Component(ValidatedDataclass, Tasklet):
 
     @property
     def settled(self) -> bool:
-        return not self.running or (all(processor.idle for processor in self.__event_processors))
+        if not self.running:
+            return True
+
+        return (
+            all(processor.idle for processor in self.__event_processors) and self.__flushed.is_set()
+        )
 
     async def settle(self) -> None:
+        await self.flush()
+
         while not self.settled:
             await asyncio.gather(
                 *(processor.wait_until_empty() for processor in self.__event_processors),
-                self.__buffer_empty.wait(),
+                self.__flushed.wait(),
             )
 
     def unref(self) -> Self:
@@ -908,7 +922,8 @@ class Component(ValidatedDataclass, Tasklet):
 
     async def __process_flush(self) -> None:
         while True:
-            await self.flush()
+            if self.__flush_buffer:
+                await self.flush()
             await asyncio.sleep(0.1)
 
     async def __process_routines(self) -> None:
@@ -1072,26 +1087,54 @@ class Component(ValidatedDataclass, Tasklet):
             mapping[address] = id
             return id
 
+    @final
     def store(self, item: Item) -> None:
+        # If the component has a parent, defer to the parent component.
+        if self.parent is not None:
+            self.parent.store(item)
+            return
+
         if not isinstance(item, Item):
             raise TypeError(f"unsupported item type: {type(item)}")
 
-        self.__buffer.append(item)
-        self.__buffer_empty.clear()
+        # Add the item to the flush buffer and clear the flushed event.
+        self.__flush_buffer.append(item)
+        self.__flushed.clear()
 
+    @final
     async def flush(self) -> None:
-        if self.__flushing or not self.__buffer:
-            return
-        if not self.__buffer:
+        if self.parent is None:
+            # If the component has no parent, only flush this component.
+            await self.__flush_self()
+        else:
+            # Otherwise, flush all components in the branch.
+            await asyncio.gather(self.parent.flush(), self.__flush_self())
+
+    async def __flush_self(self) -> None:
+        # If there's no items in the buffer, wait for the latest flush to complete.
+        if not self.__flush_buffer:
+            if self.__flushes:
+                await self.__flushes[-1].event.wait()
+
+            # Otherwise return, there's nothing to wait for.
             return
 
-        self.__flushing = True
+        # Store all pending flushes.
+        pending = tuple(self.__flushes)
+
+        # Register the flush request.
+        flush = _Flush(items=tuple(self.__flush_buffer))
+        self.__flushes.append(flush)
+
+        # Clear the buffer.
+        self.__flush_buffer = []
 
         try:
-            async with await self.__init_database_session() as session:
-                buffer = self.__buffer
-                self.__buffer = []
+            # Wait for all previous flushes to complete.
+            await asyncio.gather(current.event.wait() for current in pending)
 
+            async with await self.__init_database_session() as session:
+                # Pick the number of items to insert in a single query based on the database kind.
                 match self.database.kind:
                     case DatabaseKind.SQLITE:
                         from sqlalchemy.dialects.sqlite import insert
@@ -1103,7 +1146,9 @@ class Component(ValidatedDataclass, Tasklet):
 
                         chunk_size = 1000
 
-                for model_cls, models in groupby(buffer, type):
+                # Group items by item class.
+                for model_cls, model in groupby(flush.items, type):
+                    # Determine the entity class of item.
                     if issubclass(model_cls, Message):
                         entity_cls = MessageEntity
                     elif issubclass(model_cls, Alert):
@@ -1113,24 +1158,33 @@ class Component(ValidatedDataclass, Tasklet):
                     else:
                         continue
 
-                    for chunk in chunkify(models, chunk_size):
+                    # Insert items in chunks.
+                    for chunk in chunkify(model, chunk_size):
                         values: list[dict[str, Any]] = []
 
                         for model in chunk:
+                            # Convert the model to a dictionary, replacing the "address" field with
+                            # the "component_id".
                             data = dictify(model)
                             data.pop("address", None)
                             data["component_id"] = await self.assign_component_id(model.address)
                             values.append(data)
 
-                        await session.execute(insert(entity_cls).on_conflict_do_nothing(), values)
+                        await session.execute(
+                            insert(entity_cls).on_conflict_do_nothing(),
+                            values,
+                        )
 
                 await session.commit()
-        except Exception:
-            traceback.print_exc()
         finally:
-            self.__flushing = False
-            if not self.__buffer:
-                self.__buffer_empty.set()
+            # Notify the flush is complete.
+            flush.event.set()
+            # Remove it from the queue.
+            self.__flushes.popleft()
+            # If there are items no items remaining in the buffer and no pending flushes, set
+            # the "flushed" event.
+            if not self.__flush_buffer and not self.__flushes:
+                self.__flushed.set()
 
     async def __get_component_ids(self, query: ComponentQuery) -> list[UUID]:
         return [

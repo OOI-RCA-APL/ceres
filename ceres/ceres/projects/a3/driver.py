@@ -13,6 +13,7 @@ import numpy as np
 from pydantic import Field
 from typing_extensions import override
 
+from ceres.component import Component
 from ceres.directory import Directory
 
 if TYPE_CHECKING:
@@ -47,7 +48,6 @@ from ceres.projects.a3.parsing import (
     parse_logged_das_message,
 )
 from ceres.ref import Ref
-from ceres.roles.alerter import Alerter
 from ceres.roles.connection import Connection
 from ceres.threading import spawn
 from ceres.timing import utc
@@ -110,7 +110,7 @@ class AZACollection(ImmutableDataObject):
         ]
 
 
-class A3Driver(Alerter):
+class A3Driver(Component):
     output: Directory
     host: HostSettings
     das: DASSettings

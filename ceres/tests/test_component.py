@@ -3,7 +3,7 @@ from typing import Any
 
 import pytest
 
-from ceres import Alerter, Component, Event, Level, Ref, on, query
+from ceres import Component, Event, Level, Ref, on, query
 from ceres.errors import (
     ProcedureDoesNotExistError,
     ProcedureInternalError,
@@ -67,16 +67,22 @@ async def test_event_listeners() -> None:
 
 
 async def test_component_alerts() -> None:
-    class Test(Alerter):
+    class Test(Component):
         pass
 
     component = Test()
     component.start()
-    component.alert(Level.ERROR, "test-alert-1")
+    component.alert(Level.INFO, "test-alert-1")
     component.alert(Level.ERROR, "test-alert-2")
 
-    await component.settle()
-    assert len(await component.get_alerts()) == 2
+    alerts = await component.get_alerts()
+    assert len(alerts) == 0
+    await component.flush()
+    alerts = await component.get_alerts()
+    assert len(alerts) == 2
+    assert (alerts[0].level, alerts[0].code) == (Level.INFO, "test-alert-1")
+    assert (alerts[1].level, alerts[1].code) == (Level.ERROR, "test-alert-2")
+
     await component.stop()
 
 

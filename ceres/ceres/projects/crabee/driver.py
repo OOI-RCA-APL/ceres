@@ -18,7 +18,6 @@ from ceres import (
     spawn,
     utc,
 )
-from ceres.component import Component
 from ceres.console import ChartDisplay, ConsoleColor, StateDisplay, ValueDisplay
 from ceres.directory import Directory
 from ceres.events import ConnectFailedEvent, ConnectionLostEvent, MessageReceivedEvent
@@ -26,7 +25,6 @@ from ceres.exceptions import ParseException
 from ceres.layout import Layout, LayoutCarousel, LayoutColumn, LayoutDisplay, LayoutRow
 from ceres.listener import on
 from ceres.ref import Ref
-from ceres.roles.alerter import Alerter
 from ceres.roles.ui import UI
 from ceres.stream import WriteStream
 
@@ -112,7 +110,7 @@ class Checks(ImmutableDataObject):
     leak_2: Check | None = None
 
 
-class CrabeeDriver(Alerter, UI, Component):
+class CrabeeDriver(UI):
     output: Directory
     connection: Ref[Connection]
     checks: Checks = Field(default_factory=Checks)
