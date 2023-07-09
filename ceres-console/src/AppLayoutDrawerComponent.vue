@@ -35,7 +35,7 @@ function toggleExpanded() {
     :class="[$style.root, 'items-center', 'row']"
     :clickable="!isRoot"
     dense
-    :to="isRoot ? undefined : `/components/${address}`"
+    :to="`/components/${address}`"
   >
     <div
       :class="[$style.iconContainer, 'items-center', 'justify-center', 'row']"

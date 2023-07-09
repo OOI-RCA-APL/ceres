@@ -170,8 +170,8 @@ class Config(ComponentConfig):
     def _validate_cls_path(cls, value: ClassPath) -> ClassPath:
         from ceres.engine import Engine
 
-        if not lenient_issubclass(value.cls, Engine):
-            raise ValueError(f"must be a subclass of {Engine}")
+        if value.cls is not Engine:
+            raise ValueError(f"must be {Engine}")
 
         return value
 

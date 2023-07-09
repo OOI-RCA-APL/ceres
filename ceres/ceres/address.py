@@ -25,6 +25,7 @@ class AddressLike(str):
         if isinstance(value, cls):
             return value
 
+        value = value.replace(" ", "+")
         if cls.regex.match(value) is None:
             raise ValueError(f"{value!r} must match regex {cls.regex.pattern}")
 
@@ -34,19 +35,23 @@ class AddressLike(str):
         return f"{type(self).__name__}({repr(str(self))})"
 
 
-@lru_cache(maxsize=100)
+@lru_cache(maxsize=500)
 def _compile(pattern: "AddressPattern") -> StrPattern:
     segments = []
     for segment in pattern.split("|"):
         if not segment.startswith("@"):
             segment = "@?" + segment
+
+        segment = (
+            segment.replace(".", r"\.")
+            .replace("@+", r".*")
+            .replace("*", r".*")
+            .replace("+", r"($|\..+)")
+        )
+
         segments.append(segment)
 
-    return re.compile(
-        "^"
-        + "|".join(segments).replace(".", r"\.").replace("*", r".*").replace("+", r"($|\..*)")
-        + "$"
-    )
+    return re.compile("^" + "|".join(segments) + "$")
 
 
 NAME_PATTERN = NameType.regex.pattern[1:-1]

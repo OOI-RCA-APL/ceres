@@ -169,7 +169,7 @@ class Engine(Component):
         config_previous = self.config
 
         try:
-            setattr_internal(Engine, self, "config", self.__config_queue.get_nowait())
+            setattr_internal(Engine, self, "__config", self.__config_queue.get_nowait())
         except Empty:
             self.log.warning("No new configuration was found, ignoring reload.")
             return
