@@ -29,7 +29,7 @@ from ceres.roles.ui import UI
 from ceres.stream import WriteStream
 
 
-class DataMessage(ImmutableDataObject):
+class CrabeeParticle(ImmutableDataObject):
     source: Message
     temperature_1: float
     temperature_2: float
@@ -45,8 +45,8 @@ class DataMessage(ImmutableDataObject):
     leak_2: bool
 
     @classmethod
-    def parse(cls, source: Message) -> Self:
-        parser = Parser(source.content)
+    def parse(cls, message: Message) -> Self:
+        parser = Parser(message.content)
 
         parser.eat(b"Temp1=")
         temperature_1 = parser.eat_float()
@@ -80,7 +80,7 @@ class DataMessage(ImmutableDataObject):
         parser.try_eat_space()
 
         return cls(
-            source=source,
+            source=message,
             temperature_1=temperature_1,
             temperature_2=temperature_2,
             temperature_3=temperature_3,
@@ -118,8 +118,8 @@ class CrabeeDriver(UI):
     @override
     def __setup__(self) -> None:
         super().__setup__()
-        self.__last_data_message_received: DataMessage | None = None
-        self.__data_message_stream: WriteStream[DataMessage] = WriteStream()
+        self.__last_data_message_received: CrabeeParticle | None = None
+        self.__data_message_stream: WriteStream[CrabeeParticle] = WriteStream()
 
     @routine
     async def __fetch_last_data_message(self) -> None:
@@ -128,7 +128,7 @@ class CrabeeDriver(UI):
             limit=1,
         ):
             try:
-                self.__last_data_message_received = DataMessage.parse(messages[0])
+                self.__last_data_message_received = CrabeeParticle.parse(messages[0])
             except ParseException:
                 pass
 
@@ -140,7 +140,7 @@ class CrabeeDriver(UI):
     def __on_connect_failed(self, event: ConnectFailedEvent) -> None:
         self.alert(Level.ERROR, "connection/connect-failed")
 
-    def __check_data_message(self, message: DataMessage) -> None:
+    def __check_data_message(self, message: CrabeeParticle) -> None:
         for name in self.checks.__fields__.keys():
             validator = getattr(self.checks, name, None)
             if not isinstance(validator, Check):
@@ -169,7 +169,7 @@ class CrabeeDriver(UI):
     @on(MessageReceivedEvent, "connection")
     def __on_message_received(self, event: MessageReceivedEvent) -> None:
         try:
-            message = DataMessage.parse(event.message)
+            message = CrabeeParticle.parse(event.message)
             self.__data_message_stream.put(message)
             self.__last_data_message_received = message
             self.log.info(message)
@@ -203,7 +203,7 @@ class CrabeeDriver(UI):
             traceback.print_exc()
             return
 
-    async def _get_data_messages(self) -> AsyncIterable[DataMessage]:
+    async def _get_data_messages(self) -> AsyncIterable[CrabeeParticle]:
         if self.__last_data_message_received:
             yield self.__last_data_message_received
         async for message in self.__data_message_stream:
@@ -460,8 +460,8 @@ class CrabeeDriver(UI):
 
             await asyncio.sleep(30)
 
-    async def __get_data_message_history(self, *, cutoff: datetime) -> list[DataMessage]:
-        parsed: list[DataMessage] = []
+    async def __get_data_message_history(self, *, cutoff: datetime) -> list[CrabeeParticle]:
+        parsed: list[CrabeeParticle] = []
         messages = reversed(
             await self.connection.get_messages(
                 after=cutoff,
@@ -472,7 +472,7 @@ class CrabeeDriver(UI):
         def parse() -> None:
             for message in messages:
                 try:
-                    parsed.append(DataMessage.parse(message))
+                    parsed.append(CrabeeParticle.parse(message))
                 except ParseException:
                     continue
 

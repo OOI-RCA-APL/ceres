@@ -32,15 +32,15 @@ from ceres.listener import on
 from ceres.message import Message, MessageDirection
 from ceres.procedure import action
 from ceres.projects.a3.parsing import (
-    BaseDASAZAResponse,
-    DASAZAResponse,
-    DASAZSResponse,
-    DASLoggedDQZMessage,
-    DASLoggedINCMessage,
-    DASLoggedMessage,
-    DASLoggedPRSMessage,
-    DASLoggedTIMMessage,
-    DASLoggedTMPMessage,
+    BaseDASAZAParticle,
+    DASAZAParticle,
+    DASAZSMessageParticle,
+    DASLoggedDQZMessageParticle,
+    DASLoggedINCMessageParticle,
+    DASLoggedMessageParticle,
+    DASLoggedPRSMessageParticle,
+    DASLoggedTIMMessageParticle,
+    DASLoggedTMPMessageParticle,
     DASMessageInfo,
     HostCSResponse,
     HostSENSResponse,
@@ -74,7 +74,7 @@ class DASSettings(ImmutableDataObject):
     sampling_interval: PositiveTimeDelta = timedelta(minutes=1)
 
 
-class RemoteScienceDataCollection(ImmutableDataObject):
+class RemoteScienceDataParticle(ImmutableDataObject):
     start_time: datetime
     end_time: datetime
     sens: Mapping[int, HostSENSResponse]
@@ -82,25 +82,25 @@ class RemoteScienceDataCollection(ImmutableDataObject):
     cs: Mapping[int, HostCSResponse]
 
 
-class LocalScienceDataCollection(ImmutableDataObject):
-    tim: DASLoggedTIMMessage
-    tmp: DASLoggedTMPMessage
-    inc: DASLoggedINCMessage
-    dqz: DASLoggedDQZMessage
-    prs: DASLoggedPRSMessage
+class LocalScienceDataParticle(ImmutableDataObject):
+    tim: DASLoggedTIMMessageParticle
+    tmp: DASLoggedTMPMessageParticle
+    inc: DASLoggedINCMessageParticle
+    dqz: DASLoggedDQZMessageParticle
+    prs: DASLoggedPRSMessageParticle
 
 
-class AZACollection(ImmutableDataObject):
+class AZAParticle(ImmutableDataObject):
     start_time: datetime
     end_time: datetime
-    start_azs: DASAZSResponse
-    start_high_pressure_aza: DASAZAResponse
-    low_pressure_aza: DASAZAResponse
-    end_high_pressure_aza: DASAZAResponse
-    end_azs: DASAZSResponse
+    start_azs: DASAZSMessageParticle
+    start_high_pressure_aza: DASAZAParticle
+    low_pressure_aza: DASAZAParticle
+    end_high_pressure_aza: DASAZAParticle
+    end_azs: DASAZSMessageParticle
 
     @property
-    def responses(self) -> Sequence[BaseDASAZAResponse]:
+    def responses(self) -> Sequence[BaseDASAZAParticle]:
         return [
             self.start_azs,
             self.start_high_pressure_aza,
@@ -415,13 +415,13 @@ class A3Driver(Component):
         end: DateTime,
     ) -> None:
         self.log.info(f"Exporting remote science data for [{start.date().isoformat()}]...")
-        collections = await self.extract_remote_science_data_collections(start, end)
+        particles = await self.extract_remote_science_data_particles(start, end)
 
-        if collections:
+        if particles:
             path = await spawn(
-                lambda: self.write_remote_science_data_collections(
+                lambda: self.write_remote_science_data_particles(
                     date=start.date(),
-                    collections=collections,
+                    particles=particles,
                 )
             )
 
@@ -430,16 +430,16 @@ class A3Driver(Component):
             self.log.info(f"No remote science data to export for [{start.date().isoformat()}].")
 
     @action
-    async def extract_remote_science_data_collections(
+    async def extract_remote_science_data_particles(
         self,
         start: DateTime,
         end: DateTime,
-    ) -> Sequence[RemoteScienceDataCollection]:
+    ) -> Sequence[RemoteScienceDataParticle]:
         wired = next((node for node in self.nodes if node.wired), None)
-        collections: list[RemoteScienceDataCollection] = []
+        particles: list[RemoteScienceDataParticle] = []
 
         if not wired:
-            return collections
+            return particles
 
         initiators = await self.host.connection.get_messages(
             after=start,
@@ -501,8 +501,8 @@ class A3Driver(Component):
                     except ParseException:
                         pass
 
-            collections.append(
-                RemoteScienceDataCollection(
+            particles.append(
+                RemoteScienceDataParticle(
                     start_time=start_time,
                     end_time=end_time,
                     sens=sens_responses,
@@ -511,15 +511,15 @@ class A3Driver(Component):
                 )
             )
 
-        return collections
+        return particles
 
-    def write_remote_science_data_collections(
+    def write_remote_science_data_particles(
         self,
         date: date,
-        collections: Sequence[RemoteScienceDataCollection],
+        particles: Sequence[RemoteScienceDataParticle],
     ) -> Path:
-        if not collections:
-            raise Exception("No collections to export.")
+        if not particles:
+            raise Exception("No particles to export.")
 
         directory = self.output.subdir(f"/science/{date.year}/{date.month}")
         directory.create()
@@ -527,7 +527,7 @@ class A3Driver(Component):
 
         address_set: set[int] = set()
 
-        for result in collections:
+        for result in particles:
             address_set |= result.sens.keys()
             address_set |= result.si.keys()
 
@@ -561,7 +561,7 @@ class A3Driver(Component):
 
             # Add time data.
             time_variable[:] = nc.date2num(
-                [collection.start_time for collection in collections], TIMESTAMP_UNITS
+                [particle.start_time for particle in particles], TIMESTAMP_UNITS
             )
 
             #
@@ -612,8 +612,8 @@ class A3Driver(Component):
 
             # Add SENS response data to variables.
             for i, address in enumerate(addresses):
-                for j, collection in enumerate(collections):
-                    sens = collection.sens.get(address)
+                for j, particle in enumerate(particles):
+                    sens = particle.sens.get(address)
                     if not sens:
                         continue
 
@@ -645,8 +645,8 @@ class A3Driver(Component):
             # Add SI response data to variables.
             for i, address in enumerate(addresses):
                 for j, remote_address in enumerate(addresses):
-                    for k, collection in enumerate(collections):
-                        si = collection.si.get(address)
+                    for k, particle in enumerate(particles):
+                        si = particle.si.get(address)
                         if not si:
                             continue
 
@@ -667,8 +667,8 @@ class A3Driver(Component):
 
             # Add CS response data to variables.
             for i, address in enumerate(addresses):
-                for j, collection in enumerate(collections):
-                    cs = collection.cs.get(address)
+                for j, particle in enumerate(particles):
+                    cs = particle.cs.get(address)
                     if not cs:
                         continue
 
@@ -704,16 +704,16 @@ class A3Driver(Component):
 
             # Add response timestamp data to variables.
             for i, address in enumerate(addresses):
-                for j, collection in enumerate(collections):
-                    if sens := collection.sens.get(address):
+                for j, particle in enumerate(particles):
+                    if sens := particle.sens.get(address):
                         sens_response_timestamp_variable[i, j] = nc.date2num(
                             sens.source.timestamp, TIMESTAMP_UNITS
                         )
-                    if si := collection.si.get(address):
+                    if si := particle.si.get(address):
                         si_response_timestamp_variable[i, j] = nc.date2num(
                             si.source.timestamp, TIMESTAMP_UNITS
                         )
-                    if cs := collection.cs.get(address):
+                    if cs := particle.cs.get(address):
                         cs_response_timestamp_variable[i, j] = nc.date2num(
                             cs.source.timestamp, TIMESTAMP_UNITS
                         )
@@ -723,13 +723,13 @@ class A3Driver(Component):
     @action
     async def export_local_science_data(self, start: datetime, end: datetime) -> None:
         self.log.info(f"Exporting local science data for [{start.date().isoformat()}]...")
-        collections = await self.extract_local_science_data_collections(start, end)
+        particles = await self.extract_local_science_data_particles(start, end)
 
-        if collections:
+        if particles:
             path = await spawn(
-                lambda: self.write_local_science_data_collections(
+                lambda: self.write_local_science_data_particles(
                     date=start.date(),
-                    collections=collections,
+                    particles=particles,
                 )
             )
 
@@ -738,12 +738,12 @@ class A3Driver(Component):
             self.log.info(f"No local science data to export for [{start.date().isoformat()}].")
 
     @action
-    async def extract_local_science_data_collections(
+    async def extract_local_science_data_particles(
         self,
         start: DateTime,
         end: DateTime,
-    ) -> list[LocalScienceDataCollection]:
-        collections: list[LocalScienceDataCollection] = []
+    ) -> list[LocalScienceDataParticle]:
+        particles: list[LocalScienceDataParticle] = []
 
         messages = await self.das.connection.get_messages(
             after=start,
@@ -752,7 +752,7 @@ class A3Driver(Component):
             regex=re.compile(rb"^%[0-9]+,.+$"),
         )
 
-        latest: dict[type[DASLoggedMessage], DASLoggedMessage] = {}
+        latest: dict[type[DASLoggedMessageParticle], DASLoggedMessageParticle] = {}
 
         for message in messages:
             try:
@@ -762,20 +762,30 @@ class A3Driver(Component):
 
             latest[type(parsed)] = parsed
 
-            if isinstance(parsed, DASLoggedPRSMessage):
-                tim = cast(DASLoggedTIMMessage | None, latest.get(DASLoggedTIMMessage))
-                tmp = cast(DASLoggedTMPMessage | None, latest.get(DASLoggedTMPMessage))
-                inc = cast(DASLoggedINCMessage | None, latest.get(DASLoggedINCMessage))
-                dqz = cast(DASLoggedDQZMessage | None, latest.get(DASLoggedDQZMessage))
-                prs = cast(DASLoggedPRSMessage | None, latest.get(DASLoggedPRSMessage))
+            if isinstance(parsed, DASLoggedPRSMessageParticle):
+                tim = cast(
+                    DASLoggedTIMMessageParticle | None, latest.get(DASLoggedTIMMessageParticle)
+                )
+                tmp = cast(
+                    DASLoggedTMPMessageParticle | None, latest.get(DASLoggedTMPMessageParticle)
+                )
+                inc = cast(
+                    DASLoggedINCMessageParticle | None, latest.get(DASLoggedINCMessageParticle)
+                )
+                dqz = cast(
+                    DASLoggedDQZMessageParticle | None, latest.get(DASLoggedDQZMessageParticle)
+                )
+                prs = cast(
+                    DASLoggedPRSMessageParticle | None, latest.get(DASLoggedPRSMessageParticle)
+                )
             else:
                 continue
 
             if not tim or not tmp or not inc or not dqz or not prs:
                 continue
 
-            collections.append(
-                LocalScienceDataCollection(
+            particles.append(
+                LocalScienceDataParticle(
                     tim=tim,
                     tmp=tmp,
                     inc=inc,
@@ -784,15 +794,15 @@ class A3Driver(Component):
                 )
             )
 
-        return collections
+        return particles
 
-    def write_local_science_data_collections(
+    def write_local_science_data_particles(
         self,
         date: date,
-        collections: Sequence[LocalScienceDataCollection],
+        particles: Sequence[LocalScienceDataParticle],
     ) -> Path:
-        if not collections:
-            raise Exception("No collections to export.")
+        if not particles:
+            raise Exception("No particles to export.")
 
         directory = self.output.subdir(f"/science/{date.year}/{date.month}")
         directory.create()
@@ -817,7 +827,7 @@ class A3Driver(Component):
 
             # Add time data.
             time_variable[:] = nc.date2num(
-                [collection.tim.source.timestamp for collection in collections], TIMESTAMP_UNITS
+                [particle.tim.source.timestamp for particle in particles], TIMESTAMP_UNITS
             )
 
             #
@@ -907,40 +917,40 @@ class A3Driver(Component):
             prs_message_timestamp_variable.long_name = "PRS Message Timestamp"
 
             # Add data to variables.
-            for i, collection in enumerate(collections):
-                temperature_variable[i] = collection.tmp.temperature
-                pitch_variable[i] = collection.inc.pitch
-                roll_variable[i] = collection.inc.roll
-                dqz_pressure_variable[i] = collection.dqz.pressure
-                dqz_temperature_variable[i] = collection.dqz.temperature
-                prs_pressure_variable[i] = collection.prs.pressure
-                prs_temperature_variable[i] = collection.prs.temperature
+            for i, particle in enumerate(particles):
+                temperature_variable[i] = particle.tmp.temperature
+                pitch_variable[i] = particle.inc.pitch
+                roll_variable[i] = particle.inc.roll
+                dqz_pressure_variable[i] = particle.dqz.pressure
+                dqz_temperature_variable[i] = particle.dqz.temperature
+                prs_pressure_variable[i] = particle.prs.pressure
+                prs_temperature_variable[i] = particle.prs.temperature
 
                 tmp_message_timestamp_variable[i] = nc.date2num(
-                    collection.tmp.source.timestamp, TIMESTAMP_UNITS
+                    particle.tmp.source.timestamp, TIMESTAMP_UNITS
                 )
                 inc_message_timestamp_variable[i] = nc.date2num(
-                    collection.inc.source.timestamp, TIMESTAMP_UNITS
+                    particle.inc.source.timestamp, TIMESTAMP_UNITS
                 )
                 dqz_message_timestamp_variable[i] = nc.date2num(
-                    collection.dqz.source.timestamp, TIMESTAMP_UNITS
+                    particle.dqz.source.timestamp, TIMESTAMP_UNITS
                 )
                 prs_message_timestamp_variable[i] = nc.date2num(
-                    collection.prs.source.timestamp, TIMESTAMP_UNITS
+                    particle.prs.source.timestamp, TIMESTAMP_UNITS
                 )
 
         return path
 
     async def export_aza_data(self) -> None:
         self.log.info("Exporting AZA data...")
-        collections = collections = await self.extract_aza_data_collections()
-        if collections:
-            await spawn(lambda: self.write_aza_data_collections(collections))
+        particles = particles = await self.extract_aza_particles()
+        if particles:
+            await spawn(lambda: self.write_aza_particles(particles))
         else:
-            self.log.info("No AZA data to export.")
+            self.log.info("No AZA particles to export.")
 
-    async def extract_aza_data_collections(self) -> list[AZACollection]:
-        collections: list[AZACollection] = []
+    async def extract_aza_particles(self) -> list[AZAParticle]:
+        particles: list[AZAParticle] = []
 
         commands = await self.das.connection.get_messages(
             direction=MessageDirection.SEND,
@@ -955,15 +965,15 @@ class A3Driver(Component):
                 regex=re.compile(b"^%[0-9]+,AZ[S,A],.*$"),
             )
 
-            aszs: list[DASAZSResponse] = []
-            asza: list[DASAZAResponse] = []
+            aszs: list[DASAZSMessageParticle] = []
+            asza: list[DASAZAParticle] = []
 
             for message in messages:
                 try:
                     if b"AZS," in message.content:
-                        aszs.append(DASAZSResponse.parse(message))
+                        aszs.append(DASAZSMessageParticle.parse(message))
                     elif b"AZA," in message.content:
-                        asza.append(DASAZAResponse.parse(message))
+                        asza.append(DASAZAParticle.parse(message))
                 except ParseException:
                     self.log.warning(f"Failed to parse AZA response: {traceback.format_exc()}")
                     continue
@@ -974,7 +984,7 @@ class A3Driver(Component):
             start_time = command.timestamp
             end_time = max(message.timestamp for message in messages)
 
-            collection = AZACollection(
+            particle = AZAParticle(
                 start_time=start_time,
                 end_time=end_time,
                 start_azs=aszs[0],
@@ -984,13 +994,13 @@ class A3Driver(Component):
                 end_azs=aszs[1],
             )
 
-            collections.append(collection)
+            particles.append(particle)
 
-        return collections
+        return particles
 
-    def write_aza_data_collections(self, collections: Sequence[AZACollection]) -> Path:
-        if not collections:
-            raise Exception("No collections to export.")
+    def write_aza_particles(self, particles: Sequence[AZAParticle]) -> Path:
+        if not particles:
+            raise Exception("No particles to export.")
 
         directory = self.output
         directory.create()
@@ -1019,7 +1029,7 @@ class A3Driver(Component):
 
             # Add time data.
             time_variable[:] = nc.date2num(
-                [collection.start_time for collection in collections], TIMESTAMP_UNITS
+                [particle.start_time for particle in particles], TIMESTAMP_UNITS
             )
 
             #
@@ -1085,8 +1095,8 @@ class A3Driver(Component):
             response_timestamp_variable.long_name = "Response Timestamp"
 
             # Add AZA response data.
-            for j, collection in enumerate(collections):
-                for i, response in enumerate(collection.responses):
+            for j, particle in enumerate(particles):
+                for i, response in enumerate(particle.responses):
                     transfer_sensor_pressure_variable[i, j] = response.transfer_sensor_pressure
                     transfer_sensor_temperature_variable[
                         i, j

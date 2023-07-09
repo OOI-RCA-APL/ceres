@@ -1,8 +1,9 @@
 import json
+from abc import abstractmethod
 from datetime import datetime
 from typing import TypeVar
 
-from typing_extensions import Self
+from typing_extensions import Self, override
 
 from ceres import Message, MessageDirection, ParseException, Parser
 from ceres.data import DataObject, ImmutableDataObject
@@ -603,15 +604,16 @@ class DASMessageInfo(ImmutableDataObject):
             return None
 
 
-class DASMessageData(ImmutableDataObject):
+class DASMessageParticle(ImmutableDataObject):
     source: DASMessageInfo
 
+    @abstractmethod
     @classmethod
     def parse(cls: type[Self], message: Message) -> Self:
-        raise NotImplementedError()
+        ...
 
 
-class BaseDASAZAResponse(DASMessageData):
+class BaseDASAZAParticle(DASMessageParticle):
     transfer_sensor_pressure: float
     transfer_sensor_temperature: float
     ambient_sensor_pressure: float
@@ -620,11 +622,12 @@ class BaseDASAZAResponse(DASMessageData):
     low_pressure_sensor_temperature: float
 
 
-class DASAZSResponse(BaseDASAZAResponse):
+class DASAZSMessageParticle(BaseDASAZAParticle):
+    @override
     @classmethod
-    def parse(cls, message: Message) -> "DASAZSResponse":
+    def parse(cls, message: Message) -> Self:
         source = DASMessageInfo.parse(message)
-        return DASAZSResponse(
+        return cls(
             source=source,
             transfer_sensor_pressure=source.get_float(6),
             transfer_sensor_temperature=source.get_float(7),
@@ -635,13 +638,14 @@ class DASAZSResponse(BaseDASAZAResponse):
         )
 
 
-class DASAZAResponse(BaseDASAZAResponse):
+class DASAZAParticle(BaseDASAZAParticle):
     offset_time: float  # Seconds since the start of the AZA cycle.
 
+    @override
     @classmethod
-    def parse(cls, message: Message) -> "DASAZAResponse":
+    def parse(cls, message: Message) -> Self:
         source = DASMessageInfo.parse(message)
-        return DASAZAResponse(
+        return DASAZAParticle(
             source=source,
             offset_time=source.get_float(4) * 10,
             transfer_sensor_pressure=source.get_float(7),
@@ -653,7 +657,8 @@ class DASAZAResponse(BaseDASAZAResponse):
         )
 
 
-class DASLoggedTIMMessage(DASMessageData):
+class DASLoggedTIMMessageParticle(DASMessageParticle):
+    @override
     @classmethod
     def parse(cls, message: Message) -> Self:
         source = DASMessageInfo.parse(message)
@@ -665,9 +670,10 @@ class DASLoggedTIMMessage(DASMessageData):
         )
 
 
-class DASLoggedTMPMessage(DASMessageData):
+class DASLoggedTMPMessageParticle(DASMessageParticle):
     temperature: float
 
+    @override
     @classmethod
     def parse(cls, message: Message) -> Self:
         source = DASMessageInfo.parse(message)
@@ -680,10 +686,11 @@ class DASLoggedTMPMessage(DASMessageData):
         )
 
 
-class DASLoggedINCMessage(DASMessageData):
+class DASLoggedINCMessageParticle(DASMessageParticle):
     pitch: float
     roll: float
 
+    @override
     @classmethod
     def parse(cls, message: Message) -> Self:
         source = DASMessageInfo.parse(message)
@@ -697,10 +704,11 @@ class DASLoggedINCMessage(DASMessageData):
         )
 
 
-class DASLoggedDQZMessage(DASMessageData):
+class DASLoggedDQZMessageParticle(DASMessageParticle):
     pressure: float
     temperature: float
 
+    @override
     @classmethod
     def parse(cls, message: Message) -> Self:
         source = DASMessageInfo.parse(message)
@@ -714,10 +722,11 @@ class DASLoggedDQZMessage(DASMessageData):
         )
 
 
-class DASLoggedPRSMessage(DASMessageData):
+class DASLoggedPRSMessageParticle(DASMessageParticle):
     pressure: float
     temperature: float
 
+    @override
     @classmethod
     def parse(cls, message: Message) -> Self:
         source = DASMessageInfo.parse(message)
@@ -731,22 +740,22 @@ class DASLoggedPRSMessage(DASMessageData):
         )
 
 
-DASLoggedMessage = (
-    DASLoggedTIMMessage
-    | DASLoggedTMPMessage
-    | DASLoggedINCMessage
-    | DASLoggedDQZMessage
-    | DASLoggedPRSMessage
+DASLoggedMessageParticle = (
+    DASLoggedTIMMessageParticle
+    | DASLoggedTMPMessageParticle
+    | DASLoggedINCMessageParticle
+    | DASLoggedDQZMessageParticle
+    | DASLoggedPRSMessageParticle
 )
 
 
-def parse_logged_das_message(message: Message) -> DASLoggedMessage:
-    classes: list[type[DASLoggedMessage]] = [
-        DASLoggedTIMMessage,
-        DASLoggedTMPMessage,
-        DASLoggedINCMessage,
-        DASLoggedDQZMessage,
-        DASLoggedPRSMessage,
+def parse_logged_das_message(message: Message) -> DASLoggedMessageParticle:
+    classes: list[type[DASLoggedMessageParticle]] = [
+        DASLoggedTIMMessageParticle,
+        DASLoggedTMPMessageParticle,
+        DASLoggedINCMessageParticle,
+        DASLoggedDQZMessageParticle,
+        DASLoggedPRSMessageParticle,
     ]
 
     for cls in classes:
