@@ -207,6 +207,12 @@ class ClassPath:
     def __repr__(self) -> str:
         return f"{type(self).__name__}({repr(self.__text)})"
 
+    def __eq__(self, obj: object) -> bool:
+        return isinstance(obj, ClassPath) and self.__text == obj.__text
+
+    def __hash__(self) -> int:
+        return hash(self.__text)
+
     @property
     def cls(self) -> type:
         return _load_cls_from_cls_path(self.__text)
