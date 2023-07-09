@@ -278,7 +278,7 @@ VALIDATED_DATACLASS_FIELD_SPECIFIERS: tuple[Callable[..., Any], type[FieldInfo]]
     Field,
     FieldInfo,
 )
-VALIDATED_DATACLASS_DEFAULT_CONFIG = MappingProxyType(ConfigDict(**DataObject.__dict__))
+VALIDATED_DATACLASS_DEFAULT_CONFIG = MappingProxyType(ConfigDict(**DataObject.Config.__dict__))
 
 
 @dataclass_transform(
