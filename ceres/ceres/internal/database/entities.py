@@ -4,6 +4,7 @@ from uuid import UUID
 
 from sqlalchemy import (
     JSON,
+    Boolean,
     ColumnElement,
     ForeignKey,
     Index,
@@ -49,6 +50,7 @@ class ComponentEntity(Entity):
     __tablename__ = "components"
     id: Mapped[UUID] = mapped_column(UUIDMapper)
     address: Mapped[Address] = mapped_column(AbsoluteAddressMapper)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False)
 
     __table_args__ = (
         PrimaryKeyConstraint("id", name=f"pk_{__tablename__}"),

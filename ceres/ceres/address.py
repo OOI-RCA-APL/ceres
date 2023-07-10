@@ -39,15 +39,20 @@ class AddressLike(str):
 def _compile(pattern: "AddressPattern") -> StrPattern:
     segments = []
     for segment in pattern.split("|"):
-        if not segment.startswith("@"):
-            segment = "@?" + segment
+        segment = segment.strip()
 
-        segment = (
-            segment.replace(".", r"\.")
-            .replace("@+", r".*")
-            .replace("*", r".*")
-            .replace("+", r"($|\..+)")
-        )
+        if segment == "+":
+            segment = ".*"
+        else:
+            if not segment.startswith("@"):
+                segment = "@?" + segment
+
+            segment = (
+                segment.replace(".", r"\.")
+                .replace("@+", r".*")
+                .replace("*", r".*")
+                .replace("+", r"($|\..+)")
+            )
 
         segments.append(segment)
 
@@ -55,7 +60,7 @@ def _compile(pattern: "AddressPattern") -> StrPattern:
 
 
 NAME_PATTERN = NameType.regex.pattern[1:-1]
-SEGMENT_PATTERN = r"(@|@?[a-z-A-Z_\-.*]+)\+?"
+SEGMENT_PATTERN = r"@\+?|@?[a-z-A-Z_\-.*]+\+?|\+"
 
 
 class AddressPattern(AddressLike):

@@ -42,7 +42,7 @@ from pydantic import (
     validator,
 )
 from pydantic.decorator import ValidatedFunction
-from sqlalchemy import BinaryExpression, ColumnElement, Text, cast, func, select
+from sqlalchemy import BinaryExpression, ColumnElement, Text, cast, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import SQLCoreOperations
 from sqlalchemy.sql.roles import ExpressionElementRole
@@ -180,11 +180,26 @@ class ObjectQuery(Generic[_ObjectT], Query):
 
 
 class ComponentQueryArgs(ObjectQueryArgs, total=False):
-    pass
+    enabled: bool | None
+    running: bool | None
 
 
 class ComponentQuery(ObjectQuery["Component"]):
-    pass
+    enabled: bool | None = None
+    running: bool | None = None
+
+    @override
+    def matches(self, obj: "Component", root: AbsoluteAddress) -> bool:
+        if not super().matches(obj, root):
+            return False
+
+        if self.enabled is not None and obj.enabled != self.enabled:
+            return False
+
+        if self.running is not None and obj.running != self.running:
+            return False
+
+        return True
 
 
 class MessageOrder(str, Enum):
@@ -508,6 +523,7 @@ class Component(ValidatedDataclass, Tasklet):
         self.__log.add_handler(self.__handle_log_entry)
         self.__components: dict[Name, Component] = {}
         self.__config__: "ComponentConfig | None" = None
+        self.__enabled = False
 
         self.__event_processors = [
             EventProcessor(
@@ -582,6 +598,45 @@ class Component(ValidatedDataclass, Tasklet):
             return self.parent.address / self.name
 
         return AbsoluteAddress("@")
+
+    @property
+    def enabled(self) -> bool:
+        return self.__enabled
+
+    async def enable(self) -> None:
+        await self.__set_enabled_in_database(True)
+        self.__enabled = True
+
+    async def disable(self) -> None:
+        await self.__set_enabled_in_database(False)
+        self.__enabled = False
+
+    async def up(self) -> None:
+        await self.enable()
+        self.start()
+
+    async def down(self) -> None:
+        await self.disable()
+        await self.stop()
+
+    async def __get_enabled_in_database(self) -> bool:
+        async with await self.__init_database_session() as session:
+            return (
+                await session.scalar(
+                    select(ComponentEntity.enabled).where(ComponentEntity.address == self.address)
+                )
+                or False
+            )
+
+    async def __set_enabled_in_database(self, enabled: bool) -> None:
+        async with await self.__init_database_session() as session:
+            await session.execute(
+                update(ComponentEntity)
+                .where(ComponentEntity.address == self.address)
+                .values(enabled=enabled)
+            )
+
+            await session.commit()
 
     @property
     def root(self) -> "Component":
@@ -895,8 +950,7 @@ class Component(ValidatedDataclass, Tasklet):
 
     @override
     async def __run__(self) -> None:
-        if self.address:
-            await self.root.assign_component_id(self.address)
+        await self.sync_with_database()
 
         self.__start_scheduler()
         self.emit(StartedEvent)
@@ -1055,6 +1109,11 @@ class Component(ValidatedDataclass, Tasklet):
     async def __init_database_session(self) -> AsyncSession:
         await self.database.init()
         return self.database.session()
+
+    async def sync_with_database(self) -> UUID:
+        id = await self.root.assign_component_id(self.address)
+        self.__enabled = await self.__get_enabled_in_database()
+        return id
 
     async def assign_component_id(
         self,
@@ -1696,6 +1755,22 @@ class ComponentGroup(Sequence[Component]):
     async def stop(self) -> None:
         for component in reversed(self.components):
             await component.stop()
+
+    async def enable(self) -> None:
+        for component in self.components:
+            await component.enable()
+
+    async def disable(self) -> None:
+        for component in reversed(self.components):
+            await component.disable()
+
+    async def up(self) -> None:
+        for component in self.components:
+            await component.up()
+
+    async def down(self) -> None:
+        for component in reversed(self.components):
+            await component.down()
 
     def __or__(self, __other: "ComponentGroup") -> Self:
         return type(self)(uniquify((*self.components, *__other.components)))

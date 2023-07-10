@@ -135,14 +135,10 @@ class StartResult(ImmutableDataObject):
 
 
 @api.post("/start", tags=["engine"])
-async def start(
-    engine: CurrentEngine,
-    query: ComponentQuery,
-) -> StartResult:
-    components = engine.get_components(query)
-    started = [component.address for component in components if not component.running]
-    components.start()
-    return StartResult(started=started)
+async def start(engine: CurrentEngine, query: ComponentQuery) -> StartResult:
+    stopped = engine.get_components(query, running=False)
+    stopped.start()
+    return StartResult(started=[component.address for component in stopped])
 
 
 class StopResult(ImmutableDataObject):
@@ -150,14 +146,70 @@ class StopResult(ImmutableDataObject):
 
 
 @api.post("/stop", tags=["engine"])
-async def stop(
-    engine: CurrentEngine,
-    query: ComponentQuery,
-) -> StopResult:
-    components = engine.get_components(query)
-    stopped = [component.address for component in components if component.running]
-    await components.stop()
-    return StopResult(stopped=stopped)
+async def stop(engine: CurrentEngine, query: ComponentQuery) -> StopResult:
+    running = engine.get_components(query, running=True)
+    await running.stop()
+    return StopResult(stopped=[component.address for component in running])
+
+
+class EnableResult(ImmutableDataObject):
+    enabled: Sequence[AbsoluteAddress]
+
+
+@api.post("/enable", tags=["engine"])
+async def enable(engine: CurrentEngine, query: ComponentQuery) -> EnableResult:
+    disabled = engine.get_components(query, enabled=False)
+    await disabled.enable()
+    return EnableResult(enabled=[component.address for component in disabled])
+
+
+class DisableResult(ImmutableDataObject):
+    disabled: Sequence[AbsoluteAddress]
+
+
+@api.post("/disable", tags=["engine"])
+async def disable(engine: CurrentEngine, query: ComponentQuery) -> DisableResult:
+    enabled = engine.get_components(query, enabled=True)
+    await enabled.enable()
+    return DisableResult(disabled=[component.address for component in enabled])
+
+
+class UpResult(ImmutableDataObject):
+    enabled: Sequence[AbsoluteAddress]
+    started: Sequence[AbsoluteAddress]
+
+
+@api.post("/up", tags=["engine"])
+async def up(engine: CurrentEngine, query: ComponentQuery) -> UpResult:
+    disabled = engine.get_components(query, enabled=False)
+    await disabled.enable()
+
+    stopped = engine.get_components(query, running=False)
+    stopped.start()
+
+    return UpResult(
+        enabled=[component.address for component in disabled],
+        started=[component.address for component in stopped],
+    )
+
+
+class DownResult(ImmutableDataObject):
+    disabled: Sequence[AbsoluteAddress]
+    stopped: Sequence[AbsoluteAddress]
+
+
+@api.post("/down", tags=["engine"])
+async def down(engine: CurrentEngine, query: ComponentQuery) -> DownResult:
+    enabled = engine.get_components(query, enabled=True)
+    await enabled.disable()
+
+    running = engine.get_components(query, running=True)
+    await running.stop()
+
+    return DownResult(
+        disabled=[component.address for component in enabled],
+        stopped=[component.address for component in running],
+    )
 
 
 @api.post("/reload", tags=["engine"])

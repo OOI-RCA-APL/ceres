@@ -29,7 +29,14 @@ from ceres.internal.cli.shared import AsyncTyper, ConfigOption, ConfigPathOption
 from ceres.internal.cli.subcommands.database import database
 from ceres.internal.cli.subcommands.service import service
 from ceres.internal.context import ProjectContext
-from ceres.internal.server import StartResult, StopResult
+from ceres.internal.server import (
+    DisableResult,
+    DownResult,
+    EnableResult,
+    StartResult,
+    StopResult,
+    UpResult,
+)
 from ceres.internal.utilities import (
     ensure_event_loop,
     set_current_process_name,
@@ -266,10 +273,7 @@ AddressPatternInput = Annotated[
 
 
 @main.command()
-async def start(
-    addresses: list[str],
-    config: Config = ConfigOption(checks=[]),
-) -> None:
+async def start(addresses: list[str], config: Config = ConfigOption(checks=[])) -> None:
     client = APIClient(config)
     address = AddressPattern("|".join(addresses))
     query = ComponentQuery(address=address)
@@ -279,13 +283,50 @@ async def start(
 
 
 @main.command()
-async def stop(
-    addresses: list[str],
-    config: Config = ConfigOption(checks=[]),
-) -> None:
+async def stop(addresses: list[str], config: Config = ConfigOption(checks=[])) -> None:
     client = APIClient(config)
     address = AddressPattern("|".join(addresses))
     query = ComponentQuery(address=address)
     result = await client.post("/stop", query, StopResult)
+
+    rich.print(result)
+
+
+@main.command()
+async def enable(addresses: list[str], config: Config = ConfigOption(checks=[])) -> None:
+    client = APIClient(config)
+    address = AddressPattern("|".join(addresses))
+    query = ComponentQuery(address=address)
+    result = await client.post("/enable", data=query, result=EnableResult)
+
+    rich.print(result)
+
+
+@main.command()
+async def disable(addresses: list[str], config: Config = ConfigOption(checks=[])) -> None:
+    client = APIClient(config)
+    address = AddressPattern("|".join(addresses))
+    query = ComponentQuery(address=address)
+    result = await client.post("/disable", query, DisableResult)
+
+    rich.print(result)
+
+
+@main.command()
+async def up(addresses: list[str], config: Config = ConfigOption(checks=[])) -> None:
+    client = APIClient(config)
+    address = AddressPattern("|".join(addresses))
+    query = ComponentQuery(address=address)
+    result = await client.post("/up", data=query, result=UpResult)
+
+    rich.print(result)
+
+
+@main.command()
+async def down(addresses: list[str], config: Config = ConfigOption(checks=[])) -> None:
+    client = APIClient(config)
+    address = AddressPattern("|".join(addresses))
+    query = ComponentQuery(address=address)
+    result = await client.post("/down", query, DownResult)
 
     rich.print(result)

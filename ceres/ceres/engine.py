@@ -144,8 +144,17 @@ class Engine(Component):
             started = True
             self.__reloading.clear()
 
+            async def start_enabled() -> None:
+                await asyncio.sleep(0)
+                for component in self.get_components():
+                    await component.sync_with_database()
+                    if component.enabled:
+                        self.log.info(f"Starting enabled component {component.address!r}...")
+                        component.start()
+
             tasks = [
                 asyncio.create_task(super().__run__(), name="run"),
+                asyncio.create_task(start_enabled(), name="start-enabled"),
                 asyncio.create_task(self.__reloading.wait(), name="reload-wait"),
                 asyncio.create_task(self.wait_until_stopping(), name="wait-until-stopping"),
             ]
@@ -235,6 +244,7 @@ class Engine(Component):
                 try:
                     child = subconfig.create()
                     component.add_component(child)
+                    await child.sync_with_database()
                     child.assign_references(references)
                     await self.__load_subcomponents_for(child)
                     component.log.info(
