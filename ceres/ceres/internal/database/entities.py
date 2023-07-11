@@ -25,7 +25,7 @@ from sqlalchemy.sql.roles import ExpressionElementRole
 
 from ceres.address import Address
 from ceres.internal.database.types import (
-    AbsoluteAddressMapper,
+    AddressMapper,
     DateTimeMapper,
     EnumConstraint,
     EnumMapper,
@@ -49,7 +49,7 @@ class Entity(MappedAsDataclass, DeclarativeBase):
 class ComponentEntity(Entity):
     __tablename__ = "components"
     id: Mapped[UUID] = mapped_column(UUIDMapper)
-    address: Mapped[Address] = mapped_column(AbsoluteAddressMapper)
+    address: Mapped[Address] = mapped_column(AddressMapper)
     enabled: Mapped[bool] = mapped_column(Boolean, default=False)
 
     __table_args__ = (

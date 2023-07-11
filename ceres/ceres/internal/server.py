@@ -47,7 +47,7 @@ from uvicorn.config import Config as UvicornConfig
 from uvicorn.server import Server as BaseUvicorn
 from websockets.exceptions import ConnectionClosed
 
-from ceres.address import AbsoluteAddress, AddressSelector
+from ceres.address import Address, AddressSelector
 from ceres.alert import Alert, Level
 from ceres.component import (
     AlertQuery,
@@ -115,7 +115,7 @@ def _get_component_roles(component: Component | type[Component]) -> Sequence[Com
 
 class ComponentInfo(ImmutableDataObject):
     name: Name
-    address: AbsoluteAddress
+    address: Address
     components: Sequence["ComponentInfo"]
     config: ComponentConfig
     roles: Sequence[ComponentRole]
@@ -141,7 +141,7 @@ async def get_config(engine: CurrentEngine) -> Config:
 
 
 class StartResult(ImmutableDataObject):
-    started: Sequence[AbsoluteAddress]
+    started: Sequence[Address]
 
 
 @api.post("/start", tags=["engine"])
@@ -152,7 +152,7 @@ async def start(engine: CurrentEngine, query: ComponentQuery) -> StartResult:
 
 
 class StopResult(ImmutableDataObject):
-    stopped: Sequence[AbsoluteAddress]
+    stopped: Sequence[Address]
 
 
 @api.post("/stop", tags=["engine"])
@@ -163,7 +163,7 @@ async def stop(engine: CurrentEngine, query: ComponentQuery) -> StopResult:
 
 
 class EnableResult(ImmutableDataObject):
-    enabled: Sequence[AbsoluteAddress]
+    enabled: Sequence[Address]
 
 
 @api.post("/enable", tags=["engine"])
@@ -174,7 +174,7 @@ async def enable(engine: CurrentEngine, query: ComponentQuery) -> EnableResult:
 
 
 class DisableResult(ImmutableDataObject):
-    disabled: Sequence[AbsoluteAddress]
+    disabled: Sequence[Address]
 
 
 @api.post("/disable", tags=["engine"])
@@ -185,8 +185,8 @@ async def disable(engine: CurrentEngine, query: ComponentQuery) -> DisableResult
 
 
 class UpResult(ImmutableDataObject):
-    enabled: Sequence[AbsoluteAddress]
-    started: Sequence[AbsoluteAddress]
+    enabled: Sequence[Address]
+    started: Sequence[Address]
 
 
 @api.post("/up", tags=["engine"])
@@ -204,8 +204,8 @@ async def up(engine: CurrentEngine, query: ComponentQuery) -> UpResult:
 
 
 class DownResult(ImmutableDataObject):
-    disabled: Sequence[AbsoluteAddress]
-    stopped: Sequence[AbsoluteAddress]
+    disabled: Sequence[Address]
+    stopped: Sequence[Address]
 
 
 @api.post("/down", tags=["engine"])
@@ -347,7 +347,7 @@ async def log_entry_stream(
 @api.get("/components/{address}", tags=["components"])
 async def get_component_info(
     engine: CurrentEngine,
-    address: AbsoluteAddress,
+    address: Address,
 ) -> ComponentInfo:
     print(address)
     component_config = engine.config.get_component(address)
@@ -382,7 +382,7 @@ async def get_component_info(
 async def call(
     request: Request,
     engine: CurrentEngine,
-    address: AbsoluteAddress,
+    address: Address,
     procedure: Name,
     query_args: Json[Any] = Query(None, alias="args"),
     body_args: Mapping[Name, object] | None = Body(None),
@@ -412,7 +412,7 @@ async def call(
 async def subscribe(
     socket: WebSocket,
     engine: CurrentEngine,
-    address: AbsoluteAddress,
+    address: Address,
     procedure: Name,
     query_args: Json[Any] = Query(None, alias="args"),
 ) -> None:

@@ -1,7 +1,7 @@
 from enum import Enum
 from typing import Literal, Sequence
 
-from ceres.address import AbsoluteAddress
+from ceres.address import Address
 from ceres.data import DataObject, ImmutableDataObject
 from ceres.validation import ValidationProblem
 
@@ -115,7 +115,7 @@ class ConfigDatabaseError(BaseConfigError):
 
 class ConfigComponentError(BaseConfigError):
     kind: Literal[ConfigErrorKind.COMPONENT_ERROR] = ConfigErrorKind.COMPONENT_ERROR
-    component: AbsoluteAddress
+    component: Address
     error: ComponentError
 
 

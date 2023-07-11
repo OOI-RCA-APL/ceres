@@ -13,7 +13,7 @@ from pydantic import Field, SecretStr, ValidationError, parse_obj_as, validator
 from typing_extensions import Self, override
 from yaml import MarkedYAMLError, YAMLError
 
-from ceres.address import AbsoluteAddress, Address
+from ceres.address import Address, DynamicAddress
 from ceres.data import ClassPath, ImmutableDataObject, Name, NonBlankStr, PositiveTimeDelta
 from ceres.errors import (
     ComponentInitExceptionError,
@@ -307,7 +307,7 @@ class Config(ComponentConfig):
         log("Checking component configurations...")
 
         def check_component(
-            address: AbsoluteAddress,
+            address: Address,
             component: Config | ComponentConfig,
             errors: list[ConfigComponentError],
             references: dict[Name, Component],
@@ -353,13 +353,11 @@ class Config(ComponentConfig):
         references: dict[Name, Component] = {}
 
         for component in config.components:
-            errors.extend(
-                check_component(AbsoluteAddress(component.name), component, errors, references)
-            )
+            errors.extend(check_component(Address(component.name), component, errors, references))
 
         return errors
 
-    def get_component(self, address: Address) -> "ComponentConfig | None":
+    def get_component(self, address: DynamicAddress) -> "ComponentConfig | None":
         current = self
         for name in address.names:
             if current is None:
@@ -381,7 +379,7 @@ class Config(ComponentConfig):
             }
         )
 
-    def get_component_cls(self, address: Address) -> type[Component] | None:
+    def get_component_cls(self, address: DynamicAddress) -> type[Component] | None:
         config = self.get_component(address)
         if config is None:
             return None

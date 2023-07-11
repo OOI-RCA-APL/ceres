@@ -1,4 +1,6 @@
 from ceres.address import Address as Address
+from ceres.address import AddressSelector as AddressSelector
+from ceres.address import DynamicAddress as DynamicAddress
 from ceres.alert import Alert as Alert
 from ceres.component import AlertOrder as AlertOrder
 from ceres.component import AlertQuery as AlertQuery

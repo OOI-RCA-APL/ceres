@@ -9,7 +9,7 @@ from typing import Any, Mapping, final
 
 from typing_extensions import override
 
-from ceres.address import AbsoluteAddress
+from ceres.address import Address
 from ceres.component import Component
 from ceres.config import ComponentConfig, Config
 from ceres.data import ImmutableDataObject, Name
@@ -36,7 +36,7 @@ class ActionKind(str, Enum):
 
 class Action(ImmutableDataObject):
     kind: ActionKind
-    address: AbsoluteAddress
+    address: Address
 
 
 @final

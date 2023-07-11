@@ -6,9 +6,13 @@ from typing_extensions import Self, override
 
 from ceres.data import Name, NameType, StrPattern
 
+_NAME = NameType.regex.pattern[1:-1]
+_MODIFIER = r":(all|children|descendants|ancestors)+"
+_SEGMENT = rf"@|{_MODIFIER}|@?[a-z-A-Z_\-.]+({_MODIFIER})?"
 
-class AddressLike(str):
-    regex: StrPattern
+
+class AddressSelector(str):
+    regex: StrPattern = re.compile(rf"^{_SEGMENT}(\|{_SEGMENT})*$")
 
     @classmethod
     def __get_validators__(cls) -> Any:
@@ -33,9 +37,22 @@ class AddressLike(str):
     def __repr__(self) -> str:
         return f"{type(self).__name__}({repr(str(self))})"
 
+    def matches(self, address: "DynamicAddress", root: "Address | None" = None) -> bool:
+        resolved = address.relative_to(root) if root is not None else address
+        if resolved is None:
+            return False
+
+        return self.compile().match(resolved) is not None
+
+    def __or__(self, other: "AddressSelector") -> "AddressSelector":
+        return AddressSelector(f"{self}|{other}")
+
+    def compile(self) -> StrPattern:
+        return _compile_selector(self)
+
 
 @lru_cache(maxsize=500)
-def _compile(pattern: "AddressSelector") -> StrPattern:
+def _compile_selector(pattern: "AddressSelector") -> StrPattern:
     segments = []
     for segment in pattern.split("|"):
         segment = segment.strip()
@@ -58,7 +75,7 @@ def _compile(pattern: "AddressSelector") -> StrPattern:
             segment = segment[: -len(":descendants")]
             segment += r".+" if segment == "@" else r"\..+$"
         elif segment.endswith(":ancestors"):
-            address = Address(segment[: -len(":ancestors")])
+            address = DynamicAddress(segment[: -len(":ancestors")])
             segment = ("(" + "|".join(address.ancestors) + ")").replace(".", r"\.")
 
         segments.append(segment)
@@ -66,38 +83,8 @@ def _compile(pattern: "AddressSelector") -> StrPattern:
     return re.compile("^" + "|".join(segments) + "$")
 
 
-NAME_PATTERN = NameType.regex.pattern[1:-1]
-MODIFIER_PATTERN = r":(all|children|descendants|ancestors)+"
-SEGMENT_PATTERN = rf"@|{MODIFIER_PATTERN}|@?[a-z-A-Z_\-.]+({MODIFIER_PATTERN})?"
-
-
-class AddressSelector(AddressLike):
-    regex = re.compile(rf"^{SEGMENT_PATTERN}(\|{SEGMENT_PATTERN})*$")
-
-    @classmethod
-    def __get_validators__(cls) -> Any:
-        yield cls.validate
-
-    def matches(self, address: "AbsoluteAddress", root: "AbsoluteAddress | None" = None) -> bool:
-        resolved = address.relative_to(root) if root is not None else address
-        if resolved is None:
-            return False
-
-        return self.compile().match(resolved) is not None
-
-    def __or__(self, other: "AddressSelector") -> "AddressSelector":
-        return AddressSelector(f"{self}|{other}")
-
-    def compile(self) -> StrPattern:
-        return _compile(self)
-
-    @property
-    def simple(self) -> bool:
-        return Address.regex.match(self) is not None
-
-
-class Address(AddressSelector):
-    regex = re.compile(rf"^@|@?{NAME_PATTERN}(\.{NAME_PATTERN})*$")
+class DynamicAddress(AddressSelector):
+    regex = re.compile(rf"^@|@?{_NAME}(\.{_NAME})*$")
 
     @property
     def name(self) -> Name | None:
@@ -112,13 +99,13 @@ class Address(AddressSelector):
     @property
     def parent(self) -> Self | None:
         if "." in self:
-            return Address(self[: self.rindex(".")]) or None
+            return DynamicAddress(self[: self.rindex(".")]) or None
 
         if self.is_root:
             return None
 
         if self.startswith("@"):
-            return Address(self[1:])
+            return DynamicAddress(self[1:])
 
         return None
 
@@ -161,11 +148,6 @@ class Address(AddressSelector):
         return [name for name in self.split(".") if name]
 
     @property
-    @override
-    def simple(self) -> bool:
-        return True
-
-    @property
     def is_root(self) -> bool:
         return self == "@"
 
@@ -180,34 +162,33 @@ class Address(AddressSelector):
     def __truediv__(self, other: str) -> Self:
         return type(self)(f"{self}{'.' if not self.is_root else ''}{other.strip('.')}")
 
-    def contains(self, other: "Address") -> bool:
-        self = self.as_absolute()
-        other = other.as_absolute()
-
-        return self.is_root or self == other or other.startswith(f"{self}.")
-
-    def relative_to(self, root: "AbsoluteAddress") -> "Address | None":
+    def relative_to(self, root: "Address") -> "DynamicAddress | None":
         if self.is_absolute:
             return self
 
         if self.startswith(root):
-            return Address(self[len(root) :])
+            return DynamicAddress(self[len(root) :])
 
         return None
 
-    def as_relative(self) -> "Address | None":
+    def as_relative(self) -> "DynamicAddress | None":
         stripped = self.lstrip("@")
         if not stripped:
             return None
 
-        return Address(stripped)
+        return DynamicAddress(stripped)
 
-    def as_absolute(self) -> "AbsoluteAddress":
-        return AbsoluteAddress(self)
+    def as_absolute(self) -> "Address":
+        return Address(self)
 
 
-class AbsoluteAddress(Address):
-    regex = re.compile(rf"^@({NAME_PATTERN}(\.{NAME_PATTERN})*)*$")
+class Address(DynamicAddress):
+    regex = re.compile(rf"^@({_NAME}(\.{_NAME})*)*$")
+
+    @property
+    @classmethod
+    def root(cls) -> "Address":
+        return _ROOT
 
     @override
     @classmethod
@@ -221,3 +202,9 @@ class AbsoluteAddress(Address):
             raise ValueError(f"{value!r} must match regex {cls.regex.pattern}")
 
         return str.__new__(cls, value)
+
+    def contains(self, other: "Address") -> bool:
+        return self.is_root or self == other or other.startswith(f"{self}.")
+
+
+_ROOT = Address("@")

@@ -3,7 +3,7 @@ from uuid import UUID, uuid4
 
 from pydantic import Field
 
-from ceres.address import AbsoluteAddress
+from ceres.address import Address
 from ceres.data import DateTime, ImmutableDataObject
 from ceres.timing import utc
 
@@ -15,7 +15,7 @@ class MessageDirection(str, Enum):
 
 class Message(ImmutableDataObject):
     id: UUID = Field(default_factory=uuid4)
-    address: AbsoluteAddress
+    address: Address
     timestamp: DateTime = Field(default_factory=utc)
     direction: MessageDirection
     content: bytes
