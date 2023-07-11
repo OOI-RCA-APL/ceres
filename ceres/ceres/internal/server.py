@@ -38,6 +38,7 @@ from fastapi import (
     WebSocketDisconnect,
 )
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from pydantic import Field, Json
 from starlette.requests import HTTPConnection
 from starlette.status import HTTP_400_BAD_REQUEST
@@ -543,14 +544,6 @@ class App(FastAPI):
         )
 
         self.__engine = engine
-        self.add_middleware(
-            CORSMiddleware,
-            allow_origins=["*"],
-            allow_credentials=True,
-            allow_methods=["*"],
-            allow_headers=["*"],
-        )
-        self.add_middleware(LoggingMiddleware)
 
         @self.middleware("http")
         async def error_middleware(
@@ -562,6 +555,16 @@ class App(FastAPI):
             except Exception:
                 self.engine.log.error(traceback.format_exc())
                 raise
+
+        self.add_middleware(
+            CORSMiddleware,
+            allow_origins=["*"],
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+        self.add_middleware(LoggingMiddleware)
+        self.add_middleware(GZipMiddleware)
 
         @self.on_event("startup")
         def startup() -> None:
