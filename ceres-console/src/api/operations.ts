@@ -21,10 +21,10 @@ import {
 import { DisplayInfoModel } from '@/display'
 import { getter } from '@/getter'
 import { useSettings } from '@/settings'
-import { useIntervalFn, useWebSocket } from '@vueuse/core'
+import { useIntervalFn } from '@vueuse/core'
 import moment from 'moment'
 import { defineStore } from 'pinia'
-import { computed, isRef, unref, watch } from 'vue'
+import { computed, isRef, unref, watch, watchEffect } from 'vue'
 import { useQuery } from 'vue-query'
 import { MaybeRef } from 'vue-query/lib/vue/types'
 import Zod, { ZodTypeAny } from 'zod'
@@ -329,17 +329,18 @@ function useStream<TModel extends ZodTypeAny>(
   onMessage: (message: Zod.infer<TModel>) => unknown
 ) {
   const urlRef = computed(() => unref(url))
-  useWebSocket(urlRef, {
-    autoReconnect: true,
-    onConnected() {
-      console.log(`connected to '${urlRef.value}'`)
-    },
-    onMessage(__socket, event) {
+  function createSocket(url: string | URL, onDisconnect: () => unknown) {
+    const socket = new WebSocket(urlRef.value)
+    socket.addEventListener('open', () => {
+      console.log(`connected to '${url}'`)
+    })
+
+    socket.addEventListener('message', (event) => {
       let data
       try {
         data = JSON.parse(event.data)
       } catch {
-        console.log(`invalid JSON message from '${urlRef.value}': '${event.data}'`)
+        console.log(`invalid JSON message from '${url}': '${event.data}'`)
         return
       }
 
@@ -347,15 +348,49 @@ function useStream<TModel extends ZodTypeAny>(
       if (result.success) {
         onMessage(result.data)
       } else {
-        console.error('invalid message for model', model, data, result.error)
+        console.error(url, model, data, result.error)
       }
-    },
-    onError(__socket, event) {
-      console.error(`error on '${urlRef.value}': ${event.type}`)
-    },
-    onDisconnected() {
-      console.log(`disconnected from '${urlRef.value}'`)
-    },
+    })
+
+    socket.addEventListener('error', (event) => {
+      console.log(`error on '${url}': ${event.type}`)
+    })
+
+    socket.addEventListener('close', () => {
+      console.log(`disconnected from '${url}'`)
+      onDisconnect()
+    })
+
+    return socket
+  }
+
+  watchEffect((onCleanup) => {
+    let mounted = true
+
+    function onDisconnect() {
+      socket.close()
+      setTimeout(() => {
+        if (mounted) {
+          socket = createSocket(urlRef.value, onDisconnect)
+        }
+      }, 3000)
+    }
+
+    let socket = createSocket(urlRef.value, onDisconnect)
+
+    function onUnload() {
+      if (socket.readyState == WebSocket.OPEN) {
+        socket.close()
+      }
+    }
+
+    window.addEventListener('unload', onUnload)
+
+    onCleanup(() => {
+      mounted = false
+      window.removeEventListener('unload', onUnload)
+      socket.close()
+    })
   })
 }
 
