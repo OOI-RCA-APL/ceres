@@ -4,7 +4,17 @@ import traceback
 from asyncio import CancelledError, Task, gather
 from enum import Enum
 from http.client import responses
-from typing import TYPE_CHECKING, Annotated, Any, Mapping, Sequence, cast, final
+from typing import (
+    TYPE_CHECKING,
+    Annotated,
+    Any,
+    Awaitable,
+    Callable,
+    Mapping,
+    Sequence,
+    cast,
+    final,
+)
 
 from asgiref.typing import (
     ASGIReceiveCallable,
@@ -29,7 +39,6 @@ from fastapi import (
 )
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import Field, Json
-from starlette.middleware import Middleware
 from starlette.requests import HTTPConnection
 from starlette.status import HTTP_400_BAD_REQUEST
 from typing_extensions import override
@@ -339,6 +348,7 @@ async def get_component_info(
     engine: CurrentEngine,
     address: AbsoluteAddress,
 ) -> ComponentInfo:
+    print(address)
     component_config = engine.config.get_component(address)
     component_cls = engine.config.get_component_cls(address)
     if component_config is None or component_cls is None:
@@ -348,14 +358,19 @@ async def get_component_info(
     for child_config in component_config.components:
         children.append(await get_component_info(engine, address / child_config.name))
 
-    return ComponentInfo(
-        name=component_config.name,
-        address=address,
-        config=component_config,
-        roles=_get_component_roles(component_cls),
-        procedures=list(component_cls.get_procedure_bindings().values()),
-        components=children,
-    )
+    try:
+        info = ComponentInfo(
+            name=component_config.name,
+            address=address,
+            config=component_config,
+            roles=_get_component_roles(component_cls),
+            procedures=list(component_cls.get_procedure_bindings().values()),
+            components=children,
+        )
+        return info
+    except Exception:
+        traceback.print_exc()
+        raise
 
 
 @api.api_route(
@@ -458,7 +473,7 @@ async def subscribe(
         pass
 
 
-class HTTPLoggingMiddleware:
+class LoggingMiddleware:
     def __init__(self, app: "App") -> None:
         self.app = app
 
@@ -475,44 +490,43 @@ class HTTPLoggingMiddleware:
             from ceres.internal.server import App
 
             app = scope.get("app")
-            if not isinstance(app, App):
-                return await send(message)
 
-            try:
-                if message["type"] == "http.response.start" and scope["type"] == "http":
-                    http = cast(HTTPScope, scope)  # type: ignore
-                    path = http["path"]
-                    verb = http["method"]
-                    client = http["client"]
-                    host = client[0] if client else "?"
+            if isinstance(app, App):
+                try:
+                    if message["type"] == "http.response.start" and scope["type"] == "http":
+                        http = cast(HTTPScope, scope)  # type: ignore
+                        path = http["path"]
+                        verb = http["method"]
+                        client = http["client"]
+                        host = client[0] if client else "?"
 
-                    status = message["status"]
-                    description = responses.get(status, "Unknown")
-                    level = Level.INFO if status < 400 else Level.ERROR
+                        status = message["status"]
+                        description = responses.get(status, "Unknown")
+                        level = Level.INFO if status < 400 else Level.ERROR
 
-                    app.engine.log.write(
-                        level,
-                        f"[HTTP] {verb} {path} {host} {status} {description}",
-                    )
-                elif (
-                    message["type"] == "websocket.accept"
-                    or message["type"] == "websocket.close"
-                    and scope["type"] == "websocket"
-                ):
-                    socket = cast(WebSocketScope, scope)  # type: ignore
-                    type = message["type"]
-                    path = socket["path"]
-                    match type:
-                        case "websocket.accept":
-                            verb = "ACCEPT"
-                        case "websocket.close":
-                            verb = "CLOSE"
-                    client = socket["client"]
-                    host = client[0] if client else "?"
+                        app.engine.log.write(
+                            level,
+                            f"[HTTP] {verb} {path} {host} {status} {description}",
+                        )
+                    elif (
+                        message["type"] == "websocket.accept"
+                        or message["type"] == "websocket.close"
+                        and scope["type"] == "websocket"
+                    ):
+                        socket = cast(WebSocketScope, scope)  # type: ignore
+                        type = message["type"]
+                        path = socket["path"]
+                        match type:
+                            case "websocket.accept":
+                                verb = "ACCEPT"
+                            case "websocket.close":
+                                verb = "CLOSE"
+                        client = socket["client"]
+                        host = client[0] if client else "?"
 
-                    app.engine.log.info(f"[WS] '{verb}' {path} {host}")
-            except Exception:
-                traceback.print_exc()
+                        app.engine.log.info(f"[WS] '{verb}' {path} {host}")
+                except Exception:
+                    traceback.print_exc()
 
             return await send(message)
 
@@ -526,7 +540,6 @@ class App(FastAPI):
             redoc_url=None,
             docs_url="/api/docs",
             openapi_url="/api/openapi.json",
-            middleware=[Middleware(HTTPLoggingMiddleware)],
         )
 
         self.__engine = engine
@@ -537,6 +550,18 @@ class App(FastAPI):
             allow_methods=["*"],
             allow_headers=["*"],
         )
+        self.add_middleware(LoggingMiddleware)
+
+        @self.middleware("http")
+        async def error_middleware(
+            request: Request,
+            call_next: Callable[[Request], Awaitable[Response]],
+        ) -> Response:
+            try:
+                return await call_next(request)
+            except Exception:
+                self.engine.log.error(traceback.format_exc())
+                raise
 
         @self.on_event("startup")
         def startup() -> None:

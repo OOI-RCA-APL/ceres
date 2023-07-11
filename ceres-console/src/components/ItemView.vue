@@ -33,7 +33,7 @@ const {
   kind: 'alert' | 'message' | 'log-entry'
 }>()
 
-const pattern = $computed(() => new Address(address.toString() + '+'))
+const selector = $computed(() => new Address(address.toString() + ':all'))
 
 const quasar = useQuasar()
 const get = $computed(() => {
@@ -206,7 +206,7 @@ async function appendItems(appended: Item[]) {
 
 async function loadPrevious() {
   const results: Item[] = await get({
-    address: pattern,
+    address: selector,
     search: search === '' ? undefined : search,
     before: earliestItemTimestamp == null ? undefined : earliestItemTimestamp.format(),
     order: 'new-to-old',
@@ -219,7 +219,7 @@ async function loadPrevious() {
 
 async function loadCurrent() {
   const results: Item[] = await get({
-    address: pattern,
+    address: selector,
     search: search === '' ? undefined : search,
     order: 'new-to-old',
     limit: itemLoadSizeInitial,
@@ -232,7 +232,7 @@ async function loadCurrent() {
 
 useStream(
   computed(() => ({
-    address: pattern,
+    address: selector,
     search: search === '' ? undefined : search,
   })),
   async (item: Item) => {

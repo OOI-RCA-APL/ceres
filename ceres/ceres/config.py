@@ -52,7 +52,6 @@ class ComponentConfig(Loader, _ComponentConfigMixin):
         default_factory=lambda: ClassPath("ceres.component.Component"), alias="class"
     )
     components: Sequence["ComponentConfig"] = ()
-    output: Path | None = None
 
     def create(self, *, args: Sequence[Any] | Mapping[str, Any] | None = None) -> Component:
         return super().create(args=args)
@@ -368,7 +367,19 @@ class Config(ComponentConfig):
 
             current = next((child for child in current.components if child.name == name), None)
 
-        return current if isinstance(current, ComponentConfig) else None
+        if current is None:
+            return None
+        if type(current) is ComponentConfig:
+            return current
+
+        return ComponentConfig.parse_obj(
+            {
+                "name": current.name,
+                "class": current.cls_path,  # type: ignore
+                "args": current.args,
+                "components": current.components,
+            }
+        )
 
     def get_component_cls(self, address: Address) -> type[Component] | None:
         config = self.get_component(address)

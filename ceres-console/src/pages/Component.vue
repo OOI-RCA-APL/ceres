@@ -45,10 +45,10 @@ const panelProps = {
 
 <template>
   <full-page :title="title">
-    <div v-if="components.length === 0" class="q-pa-md">
-      <q-chip>No configuration found.</q-chip>
+    <div v-if="component == null" class="q-pa-md">
+      <q-chip>Component not found.</q-chip>
     </div>
-    <div v-else-if="component">
+    <div v-else>
       <panel-container
         container-class="q-pa-sm"
         v-bind="panelProps"
