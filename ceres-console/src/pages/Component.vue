@@ -28,6 +28,10 @@ const title = $computed(() => {
     return 'No component selected.'
   }
 
+  if (address.isRoot) {
+    return 'Components'
+  }
+
   return String(address)
 })
 
@@ -36,7 +40,7 @@ const components = $computed(() => (component == null ? [] : [component, ...chil
 const executors = $computed(() => components.filter((component) => component.procedures.length > 0))
 const uis = $computed(() => components.filter((component) => component.roles.includes('ui')))
 
-const panelProps = {
+const resizablePanelProps = {
   defaultHeight: 300,
   minHeight: 114,
   maxHeight: 4000,
@@ -51,7 +55,7 @@ const panelProps = {
     <div v-else>
       <panel-container
         container-class="q-pa-sm"
-        v-bind="panelProps"
+        v-bind="resizablePanelProps"
         name="Messages"
         :persist="`components/${component.address}/messages-panel-container`"
       >
@@ -59,7 +63,7 @@ const panelProps = {
       </panel-container>
       <panel-container
         container-class="q-pa-sm"
-        v-bind="panelProps"
+        v-bind="resizablePanelProps"
         name="Alerts"
         :persist="`components/${component.address}/alerts-panel-container`"
       >
@@ -67,7 +71,7 @@ const panelProps = {
       </panel-container>
       <panel-container
         container-class="q-pa-sm"
-        v-bind="panelProps"
+        v-bind="resizablePanelProps"
         name="Logs"
         :persist="`components/${component.address}/log-entries-panel-container`"
       >
@@ -77,7 +81,6 @@ const panelProps = {
         v-if="executors.length"
         :panels="executors.map((current) => current.address.toString())"
         :persist="`components/${component.address}/procedures-panel-group`"
-        v-bind="panelProps"
         title="Procedures"
       >
         <template #tabs>
@@ -103,7 +106,6 @@ const panelProps = {
       </panel-group>
       <panel-group
         v-if="uis.length"
-        v-bind="panelProps"
         :panels="uis.map((current) => current.address.toString())"
         :persist="`components/${component.address}/displays-panel-group`"
         title="UI"
