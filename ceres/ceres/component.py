@@ -48,7 +48,7 @@ from sqlalchemy.sql.elements import SQLCoreOperations
 from sqlalchemy.sql.roles import ExpressionElementRole
 from typing_extensions import Self, Unpack, dataclass_transform, override
 
-from ceres.address import AbsoluteAddress, Address, AddressPattern
+from ceres.address import AbsoluteAddress, Address, AddressSelector
 from ceres.alert import Alert
 from ceres.config import ComponentConfig, DatabaseKind
 from ceres.data import (
@@ -162,11 +162,11 @@ _ObjectT = TypeVar("_ObjectT", bound=Addressable)
 
 
 class ObjectQueryArgs(TypedDict, total=False):
-    address: AddressPattern | None
+    address: AddressSelector | None
 
 
 class ObjectQuery(Generic[_ObjectT], Query):
-    address: AddressPattern | None = None
+    address: AddressSelector | None = None
 
     def matches(self, obj: _ObjectT, root: AbsoluteAddress) -> bool:
         if not root.contains(obj.address):
@@ -820,7 +820,7 @@ class Component(ValidatedDataclass, Tasklet):
     def get_components(
         self,
         /,
-        __query: ComponentQuery | AddressPattern | None = None,
+        __query: ComponentQuery | AddressSelector | None = None,
         *,
         inclusive: bool = False,
         **kwargs: Unpack[ComponentQueryArgs],
@@ -830,7 +830,7 @@ class Component(ValidatedDataclass, Tasklet):
         query = ComponentQuery(**kwargs)
         if isinstance(__query, ComponentQuery):
             query = __query.with_defaults(query)
-        elif isinstance(__query, AddressPattern):
+        elif isinstance(__query, AddressSelector):
             query = ComponentQuery(**{**query.dict(), "address": __query})
 
         def traverse(current: Component) -> None:

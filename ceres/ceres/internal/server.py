@@ -37,7 +37,7 @@ from uvicorn.config import Config as UvicornConfig
 from uvicorn.server import Server as BaseUvicorn
 from websockets.exceptions import ConnectionClosed
 
-from ceres.address import AbsoluteAddress, AddressPattern
+from ceres.address import AbsoluteAddress, AddressSelector
 from ceres.alert import Alert, Level
 from ceres.component import (
     AlertQuery,
@@ -283,7 +283,7 @@ async def get_statistics(
 async def message_stream(
     socket: WebSocket,
     engine: CurrentEngine,
-    address: AddressPattern | None = None,
+    address: AddressSelector | None = None,
     search: str | None = None,
 ) -> None:
     try:
@@ -302,7 +302,7 @@ async def message_stream(
 async def alert_stream(
     socket: WebSocket,
     engine: CurrentEngine,
-    address: AddressPattern | None = None,
+    address: AddressSelector | None = None,
     search: str | None = None,
 ) -> None:
     try:
@@ -320,7 +320,7 @@ async def alert_stream(
 async def log_entry_stream(
     socket: WebSocket,
     engine: CurrentEngine,
-    address: AddressPattern | None = None,
+    address: AddressSelector | None = None,
     search: str | None = None,
 ) -> None:
     try:

@@ -25,7 +25,6 @@ class AddressLike(str):
         if isinstance(value, cls):
             return value
 
-        value = value.replace(" ", "+")
         if cls.regex.match(value) is None:
             raise ValueError(f"{value!r} must match regex {cls.regex.pattern}")
 
@@ -36,23 +35,31 @@ class AddressLike(str):
 
 
 @lru_cache(maxsize=500)
-def _compile(pattern: "AddressPattern") -> StrPattern:
+def _compile(pattern: "AddressSelector") -> StrPattern:
     segments = []
     for segment in pattern.split("|"):
         segment = segment.strip()
 
-        if segment == "+":
-            segment = ".*"
-        else:
-            if not segment.startswith("@"):
-                segment = "@?" + segment
+        if not segment.startswith("@"):
+            segment = "@" + segment
 
-            segment = (
-                segment.replace(".", r"\.")
-                .replace("@+", r".*")
-                .replace("*", r".*")
-                .replace("+", r"($|\..+)")
-            )
+        segment.replace(".", r"\.")
+
+        if segment.endswith(":all"):
+            segment = segment[: -len(":all")]
+            if segment == "@":
+                segment += r".*"
+            else:
+                segment += r"($|\..+)"
+        elif segment.endswith(":children"):
+            segment = segment[: -len(":children")]
+            segment += r"[^.]+$" if segment == "@" else r"\.[^.]+$"
+        elif segment.endswith(":descendants"):
+            segment = segment[: -len(":descendants")]
+            segment += r".+" if segment == "@" else r"\..+$"
+        elif segment.endswith(":ancestors"):
+            address = Address(segment[: -len(":ancestors")])
+            segment = ("(" + "|".join(address.ancestors) + ")").replace(".", r"\.")
 
         segments.append(segment)
 
@@ -60,10 +67,11 @@ def _compile(pattern: "AddressPattern") -> StrPattern:
 
 
 NAME_PATTERN = NameType.regex.pattern[1:-1]
-SEGMENT_PATTERN = r"@\+?|@?[a-z-A-Z_\-.*]+\+?|\+"
+MODIFIER_PATTERN = r":(all|children|descendants|ancestors)+"
+SEGMENT_PATTERN = rf"@|{MODIFIER_PATTERN}|@?[a-z-A-Z_\-.]+({MODIFIER_PATTERN})?"
 
 
-class AddressPattern(AddressLike):
+class AddressSelector(AddressLike):
     regex = re.compile(rf"^{SEGMENT_PATTERN}(\|{SEGMENT_PATTERN})*$")
 
     @classmethod
@@ -77,8 +85,8 @@ class AddressPattern(AddressLike):
 
         return self.compile().match(resolved) is not None
 
-    def __or__(self, other: "AddressPattern") -> "AddressPattern":
-        return AddressPattern(f"{self}|{other}")
+    def __or__(self, other: "AddressSelector") -> "AddressSelector":
+        return AddressSelector(f"{self}|{other}")
 
     def compile(self) -> StrPattern:
         return _compile(self)
@@ -88,7 +96,7 @@ class AddressPattern(AddressLike):
         return Address.regex.match(self) is not None
 
 
-class Address(AddressPattern):
+class Address(AddressSelector):
     regex = re.compile(rf"^@|@?{NAME_PATTERN}(\.{NAME_PATTERN})*$")
 
     @property
@@ -129,9 +137,21 @@ class Address(AddressPattern):
         current = self
 
         while current is not None:
+            path.append(current)
             current = current.parent
 
         return list(reversed(path))
+
+    @property
+    def ancestors(self) -> Sequence[Self]:
+        ancestors: list[Self] = []
+        current = self.parent
+
+        while current is not None:
+            ancestors.append(current)
+            current = current.parent
+
+        return ancestors
 
     @property
     def names(self) -> Sequence[Name]:

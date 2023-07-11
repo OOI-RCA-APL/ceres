@@ -13,7 +13,7 @@ from click import ParamType
 from pydantic import parse_obj_as
 from typer import Argument, Option
 
-from ceres.address import AddressPattern
+from ceres.address import AddressSelector
 from ceres.component import ComponentQuery
 from ceres.config import Config
 from ceres.data import jsonify, simplify
@@ -262,12 +262,12 @@ async def reload(*, config: Config = ConfigOption(checks=[])) -> None:
 class AddressPatternParser(ParamType):
     name = "AddressPattern"
 
-    def convert(self, value: str, param: object, ctx: object) -> AddressPattern:
-        return AddressPattern(value)
+    def convert(self, value: str, param: object, ctx: object) -> AddressSelector:
+        return AddressSelector(value)
 
 
 AddressPatternInput = Annotated[
-    AddressPattern,
+    AddressSelector,
     Argument(click_type=AddressPatternParser()),
 ]
 
@@ -275,7 +275,7 @@ AddressPatternInput = Annotated[
 @main.command()
 async def start(addresses: list[str], config: Config = ConfigOption(checks=[])) -> None:
     client = APIClient(config)
-    address = AddressPattern("|".join(addresses))
+    address = AddressSelector("|".join(addresses))
     query = ComponentQuery(address=address)
     result = await client.post("/start", data=query, result=StartResult)
 
@@ -285,7 +285,7 @@ async def start(addresses: list[str], config: Config = ConfigOption(checks=[])) 
 @main.command()
 async def stop(addresses: list[str], config: Config = ConfigOption(checks=[])) -> None:
     client = APIClient(config)
-    address = AddressPattern("|".join(addresses))
+    address = AddressSelector("|".join(addresses))
     query = ComponentQuery(address=address)
     result = await client.post("/stop", query, StopResult)
 
@@ -295,7 +295,7 @@ async def stop(addresses: list[str], config: Config = ConfigOption(checks=[])) -
 @main.command()
 async def enable(addresses: list[str], config: Config = ConfigOption(checks=[])) -> None:
     client = APIClient(config)
-    address = AddressPattern("|".join(addresses))
+    address = AddressSelector("|".join(addresses))
     query = ComponentQuery(address=address)
     result = await client.post("/enable", data=query, result=EnableResult)
 
@@ -305,7 +305,7 @@ async def enable(addresses: list[str], config: Config = ConfigOption(checks=[]))
 @main.command()
 async def disable(addresses: list[str], config: Config = ConfigOption(checks=[])) -> None:
     client = APIClient(config)
-    address = AddressPattern("|".join(addresses))
+    address = AddressSelector("|".join(addresses))
     query = ComponentQuery(address=address)
     result = await client.post("/disable", query, DisableResult)
 
@@ -315,7 +315,7 @@ async def disable(addresses: list[str], config: Config = ConfigOption(checks=[])
 @main.command()
 async def up(addresses: list[str], config: Config = ConfigOption(checks=[])) -> None:
     client = APIClient(config)
-    address = AddressPattern("|".join(addresses))
+    address = AddressSelector("|".join(addresses))
     query = ComponentQuery(address=address)
     result = await client.post("/up", data=query, result=UpResult)
 
@@ -325,7 +325,7 @@ async def up(addresses: list[str], config: Config = ConfigOption(checks=[])) -> 
 @main.command()
 async def down(addresses: list[str], config: Config = ConfigOption(checks=[])) -> None:
     client = APIClient(config)
-    address = AddressPattern("|".join(addresses))
+    address = AddressSelector("|".join(addresses))
     query = ComponentQuery(address=address)
     result = await client.post("/down", query, DownResult)
 
