@@ -1,9 +1,8 @@
 import asyncio
+from asyncio import StreamReader, StreamWriter
 from datetime import timedelta
 from random import randrange
 
-import anyio
-from anyio.abc import SocketStream
 from pydantic import Field
 
 from ceres import Component, routine
@@ -16,17 +15,27 @@ class CrabeeSimulator(Component):
 
     @routine
     async def __send_messages(self) -> None:
-        self.log.info(f"Creating listener on port {self.port}...")
-        listener = await anyio.create_tcp_listener(
-            local_host="0.0.0.0",
-            local_port=self.port,
-            reuse_port=True,
-        )
-
-        await listener.serve(self.__handle)
-
-    async def __handle(self, stream: SocketStream) -> None:
         while True:
+            self.log.info(f"Creating listener on port {self.port}...")
+            server = await asyncio.start_server(
+                self.__handle,
+                "0.0.0.0",
+                self.port,
+                reuse_port=True,
+            )
+
+            try:
+                async with server:
+                    await server.serve_forever()
+            except Exception as exception:
+                self.log.error(str(exception).strip())
+                await asyncio.sleep(1)
+            finally:
+                server.close()
+                await server.wait_closed()
+
+    async def __handle(self, reader: StreamReader, writer: StreamWriter) -> None:
+        while not writer.is_closing():
             data = (
                 " ".join(
                     [
@@ -44,5 +53,6 @@ class CrabeeSimulator(Component):
                 + b"\n"
             )
 
-            await stream.send(data)
+            writer.write(data)
+            await writer.drain()
             await asyncio.sleep(self.interval.total_seconds())

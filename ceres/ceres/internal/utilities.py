@@ -19,6 +19,7 @@ from typing import (
     Callable,
     ClassVar,
     Collection,
+    Hashable,
     Iterable,
     Iterator,
     Mapping,
@@ -76,12 +77,13 @@ def dictify(obj: object) -> dict[str, Any]:
             return dict(obj)
         if is_dataclass(obj):
             return dataclasses.asdict(obj)
-        if not isinstance(obj, BaseModel):
-            if isinstance(obj, type):
-                return {key: getattr(obj, key) for key in dir(obj) if includes(key)}
-            slots: tuple[str, ...] | None = getattr(obj, "__slots__", None)
-            if slots is not None:
-                return {name: getattr(obj, name) for name in slots if includes(name)}
+        if isinstance(obj, BaseModel):
+            return {key: getattr(obj, key) for key in obj.__fields__.keys() if includes(key)}
+        if isinstance(obj, type):
+            return {key: getattr(obj, key) for key in dir(obj) if includes(key)}
+        slots: tuple[str, ...] | None = getattr(obj, "__slots__", None)
+        if slots is not None:
+            return {name: getattr(obj, name) for name in slots if includes(name)}
         return {key: value for key, value in obj.__dict__.items() if includes(key)}
     except Exception:
         raise ValueError("object cannot be dictified")
@@ -550,3 +552,33 @@ class CacheDict(OrderedDict[_K, _V]):
         super().move_to_end(key)
 
         return val
+
+
+def chunkify(iterable: Iterable[_T], size: int) -> Iterable[tuple[_T]]:
+    if not isinstance(iterable, tuple):
+        iterable = tuple(iterable)
+
+    for i in range(0, len(iterable), size):
+        yield iterable[i : i + size]
+
+
+def _hash(value: object) -> Hashable:
+    if isinstance(value, Hashable):
+        return hash(value)
+
+    return id(value)
+
+
+def uniquify(iterable: Iterable[_T], key: Callable[[_T], Hashable] | None = None) -> Iterable[_T]:
+    if key is None:
+        key = _hash
+
+    seen: set[Hashable] = set()
+
+    for value in iterable:
+        identity = key(value)
+        if identity in seen:
+            continue
+
+        seen.add(identity)
+        yield value

@@ -15,14 +15,18 @@ const emit = defineEmits<{
 type Vector = { x: number; y: number }
 type Drag = {
   start: Vector
+  startModelValue: number
   end: Vector
 }
 
 function clamp(size: number) {
-  if (min && size < min) {
+  if (size < 0) {
+    return 0
+  }
+  if (min != null && size < min) {
     return min
   }
-  if (max && size > max) {
+  if (max != null && size > max) {
     return max
   }
 
@@ -44,10 +48,6 @@ const innerPosition = $computed(() => {
     return result
   }
 
-  const size = clamp(modelValue + drag.end[axis] - drag.start[axis])
-  const delta = size - modelValue
-  result[axis] += delta
-
   return result
 })
 
@@ -55,6 +55,7 @@ function onPointerDown(event: PointerEvent) {
   event.preventDefault()
   drag = {
     start: { x: event.pageX, y: event.pageY },
+    startModelValue: modelValue,
     end: { x: event.pageX, y: event.pageY },
   }
 
@@ -70,6 +71,8 @@ function onPointerMove(event: PointerEvent) {
   event.preventDefault()
   drag.end.x = event.pageX
   drag.end.y = event.pageY
+  const size = clamp(drag.startModelValue + drag.end[axis] - drag.start[axis])
+  emit('update:modelValue', size)
 }
 
 function onPointerUp(event: PointerEvent) {
@@ -81,7 +84,7 @@ function onPointerUp(event: PointerEvent) {
   drag.end.x = event.pageX
   drag.end.y = event.pageY
 
-  const size = clamp(modelValue + drag.end[axis] - drag.start[axis])
+  const size = clamp(drag.startModelValue + drag.end[axis] - drag.start[axis])
   emit('update:modelValue', size)
 
   drag = null
@@ -149,7 +152,7 @@ onUnmounted(() => {
 .handle {
   background-color: grey;
   opacity: 0;
-  z-index: 1;
+  z-index: 10;
   transition: opacity 0.25s;
   position: absolute;
 }

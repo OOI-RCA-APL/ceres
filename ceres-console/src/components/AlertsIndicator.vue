@@ -1,11 +1,11 @@
 <script lang="ts" setup>
+import { Address } from '@/address'
 import { useStatistics } from '@/api/operations'
 import { useSettings } from '@/settings'
 import { displayDuration, useTime } from '@/time'
 
-const { unitName, componentName } = defineProps<{
-  unitName?: string
-  componentName?: string
+const { address } = defineProps<{
+  address?: Address
 }>()
 
 const settings = useSettings()
@@ -15,48 +15,27 @@ const time = useTime()
 let isShowingMenu = $ref(false)
 
 const subjectText = $computed(() => {
-  if (unitName == null) {
+  if (address == null || address.isRoot) {
     return ''
-  }
-  if (componentName == null) {
-    return 'by this unit'
   }
 
   return 'by this component'
 })
+
 const info = $computed(() => {
-  if (statistics.data == null) {
+  if (address == null || address.isRoot) {
     return null
   }
-  if (unitName == null) {
-    return statistics.data
-  }
 
-  const unitInfo = statistics.data.units[unitName]
-  if (unitInfo == null) {
-    return null
-  }
-  if (componentName == null) {
-    return unitInfo
-  }
-
-  return unitInfo.components[componentName] ?? null
-})
-
-const levelStatistics = $computed(() => {
-  const levels = info?.alerts.levels
-  if (levels == null || levels.length === 0) {
-    return null
-  }
-  return levels[levels.length - 1]
+  return statistics.getAlertInfo(address)
 })
 
 const color = $computed(() => {
-  if (levelStatistics == null) {
+  if (info == null) {
     return undefined
   }
 
-  switch (levelStatistics.level) {
+  switch (info.level) {
     case 'debug':
       return 'grey'
     case 'info':
@@ -72,16 +51,15 @@ const color = $computed(() => {
 </script>
 
 <template>
-  <q-badge v-if="levelStatistics" :class="$style.root" :color="color" rounded>
-    {{ levelStatistics.count }}{{ levelStatistics.level[0].toUpperCase() }}
+  <q-badge v-if="info" :class="$style.root" :color="color" rounded>
+    {{ info.count }}{{ info.level[0].toUpperCase() }}
     <q-tooltip v-if="!isShowingMenu" :class="`bg-${color}`">
       <span class="q-mr-xs">
-        {{ levelStatistics.count }} {{ levelStatistics.level }} alert(s) were emitted
-        {{ subjectText }} in the last
+        {{ info.count }} {{ info.level }} alert(s) were emitted {{ subjectText }} in the last
         {{ displayDuration(settings.statisticsDuration, { hideOne: true }) }}.
       </span>
-      <span v-if="statistics.dataUpdatedAt" :class="$style.updatedAtText">
-        Updated {{ displayDuration(time.now.diff(statistics.dataUpdatedAt, 's')) }} ago.
+      <span v-if="statistics.updatedAt" :class="$style.updatedAtText">
+        Updated {{ displayDuration(time.now.diff(statistics.updatedAt, 's')) }} ago.
       </span>
     </q-tooltip>
   </q-badge>

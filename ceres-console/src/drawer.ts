@@ -1,14 +1,15 @@
+import { Address } from '@/address'
 import { usePersisted } from '@/persistence'
 import { defineStore } from 'pinia'
 import { computed } from 'vue'
 
 export const useDrawer = defineStore('drawer', () => {
   const state = usePersisted({
-    schema: ({ object, number, boolean }) =>
+    schema: ({ object, array, number, string, boolean }) =>
       object({
         width: number().default(200),
         isOpen: boolean().default(true),
-        isShowingUnits: boolean().default(true),
+        collapsedComponents: array(string().transform(Address.parse)).default(() => []),
       }),
     methods: [{ type: 'local-storage', key: 'store/drawer' }],
   })
@@ -22,9 +23,9 @@ export const useDrawer = defineStore('drawer', () => {
       get: () => state.isOpen,
       set: (value) => (state.isOpen = value),
     }),
-    isShowingUnits: computed({
-      get: () => state.isShowingUnits,
-      set: (value) => (state.isShowingUnits = value),
+    collapsedComponents: computed({
+      get: () => state.collapsedComponents,
+      set: (value) => (state.collapsedComponents = value),
     }),
   }
 })

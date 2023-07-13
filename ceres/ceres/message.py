@@ -15,7 +15,7 @@ class MessageDirection(str, Enum):
 
 class Message(ImmutableDataObject):
     id: UUID = Field(default_factory=uuid4)
-    source: Address
+    address: Address
     timestamp: DateTime = Field(default_factory=utc)
     direction: MessageDirection
     content: bytes

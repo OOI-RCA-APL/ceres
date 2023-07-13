@@ -11,7 +11,7 @@ from ceres.timing import utc
 
 class Alert(ImmutableDataObject):
     id: UUID = Field(default_factory=uuid4)
-    source: Address
+    address: Address
     timestamp: DateTime = Field(default_factory=utc)
     level: Level
     code: str

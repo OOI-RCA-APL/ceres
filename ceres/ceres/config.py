@@ -1,17 +1,37 @@
+import asyncio
 import itertools
 import traceback
 from datetime import timedelta
 from enum import Enum
+from logging import Logger
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, Mapping, Sequence
+from string import ascii_lowercase
+from typing import TYPE_CHECKING, Any, Callable, Literal, Mapping, Sequence
 
-from pydantic import Field, SecretStr, parse_obj_as, validator
+import yaml
+from pydantic import Field, SecretStr, ValidationError, parse_obj_as, validator
 from typing_extensions import Self, override
+from yaml import MarkedYAMLError, YAMLError
 
-from ceres.address import Address
+from ceres.address import Address, DynamicAddress
 from ceres.data import ClassPath, ImmutableDataObject, Name, NonBlankStr, PositiveTimeDelta
-from ceres.internal.utilities import lenient_issubclass, setattr_internal
+from ceres.errors import (
+    ComponentInitExceptionError,
+    ComponentReferenceInvalidError,
+    ConfigComponentError,
+    ConfigDatabaseError,
+    ConfigError,
+    ConfigParseError,
+    ConfigParseErrorLocation,
+    ConfigReadError,
+    ConfigValidationError,
+)
+from ceres.internal.utilities import lenient_issubclass, randstr, setattr_internal, show_td
 from ceres.loaded import Loader
+from ceres.logs import Log
+from ceres.result import Fail, Ok, Result
+from ceres.timing import utc
+from ceres.validation import ValidationProblem
 
 if TYPE_CHECKING:
     from ceres.component import Component
@@ -23,13 +43,18 @@ class ConfigObject(ImmutableDataObject):
     pass
 
 
-class _ComponentConfigFields(ImmutableDataObject):
+class _ComponentConfigMixin(ImmutableDataObject):
     name: Name
 
 
-class ComponentConfig(Loader, _ComponentConfigFields):  # type: ignore
-    def load(self, *, args: Sequence[Any] | Mapping[str, Any] | None = None) -> Component:
-        return super().load(args=args)
+class ComponentConfig(Loader, _ComponentConfigMixin):
+    cls_path: ClassPath = Field(
+        default_factory=lambda: ClassPath("ceres.component.Component"), alias="class"
+    )
+    components: Sequence["ComponentConfig"] = ()
+
+    def create(self, *, args: Sequence[Any] | Mapping[str, Any] | None = None) -> Component:
+        return super().create(args=args)
 
     @override
     @classmethod
@@ -45,6 +70,27 @@ class ComponentConfig(Loader, _ComponentConfigFields):  # type: ignore
 
         return value
 
+    @validator("components", check_fields=False)
+    def _validate_components(
+        cls,
+        components: Sequence["ComponentConfig"],
+        values: Mapping[str, Any],
+    ) -> Sequence["ComponentConfig"]:
+        name: str = values.get("name", "<ERROR>")
+        for component_name, group in itertools.groupby(
+            components,
+            lambda component: component.name,
+        ):
+            if len(list(group)) > 1:
+                raise ValueError(
+                    f"duplicate subcomponent name '{component_name}' in component '{name}'"
+                )
+
+        return components
+
+
+ComponentConfig.update_forward_refs()
+
 
 class ServiceConfig(ConfigObject):
     name: Name
@@ -54,8 +100,7 @@ class ServiceConfig(ConfigObject):
 
 
 class ServerConfig(ConfigObject):
-    port: int
-    enable: bool = True
+    port: int | None = None
 
 
 class DatabaseKind(str, Enum):
@@ -91,88 +136,250 @@ class PostgresDatabaseConfig(BaseDatabaseConfig):
 DatabaseConfig = SQLiteDatabaseConfig | PostgresDatabaseConfig
 
 
-class UnitConfig(ConfigObject):
-    name: Name
-    components: Sequence[ComponentConfig] = Field(default_factory=list)
-
-    @validator("components")
-    def _validate_components(
-        cls,
-        components: Sequence[ComponentConfig],
-        values: Mapping[str, Any],
-    ) -> Sequence[ComponentConfig]:
-        name: str = values.get("name", "<ERROR>")
-        for component_name, group in itertools.groupby(
-            components,
-            lambda component: component.name,
-        ):
-            if len(list(group)) > 1:
-                raise ValueError(f"duplicate component name '{component_name}' in unit '{name}'")
-
-        return components
-
-
-class PathsConfig(ConfigObject):
-    data: Path = Field(default=Path("./data"))
-    local: Path = Field(default=Path("./local"))
-
-
-class Config(ConfigObject):
-    class Config(ConfigObject.Config):
-        underscore_attrs_are_private = True
-
-    service: ServiceConfig | None = None
-    server: ServerConfig | None = None
-    database: DatabaseConfig = Field(default_factory=SQLiteDatabaseConfig, discriminator="kind")
-    paths: PathsConfig = Field(default_factory=PathsConfig)
-    units: Sequence[UnitConfig] = Field(default_factory=list)
-
-    __path: Path | None = None  # type: ignore
-    __component_config_cache: dict[Address, ComponentConfig] = {}  # type: ignore
+class ConfigCheckKind(str, Enum):
+    DATABASE = "database"
+    COMPONENTS = "components"
 
     @classmethod
-    def from_data(cls, data: Any, path: Path | None = None) -> Self:
+    def all(cls) -> Sequence["ConfigCheckKind"]:
+        return tuple(cls)
+
+
+class Config(ComponentConfig):
+    class Config(ComponentConfig.Config):
+        underscore_attrs_are_private = True
+
+    name: Name = Field(default_factory=lambda: randstr(ascii_lowercase, 8))
+    cls_path: ClassPath = Field(
+        default_factory=lambda: ClassPath("ceres.engine.Engine"),
+        alias="class",
+    )
+
+    service: ServiceConfig | None = None
+    server: ServerConfig = Field(default_factory=ServerConfig)
+    database: DatabaseConfig = Field(default_factory=SQLiteDatabaseConfig, discriminator="kind")
+
+    __path: Path | None = None  # type: ignore
+
+    @property
+    def path(self) -> Path | None:
+        return self.__path
+
+    @validator("cls_path")
+    def _validate_cls_path(cls, value: ClassPath) -> ClassPath:
+        from ceres.engine import Engine
+
+        if value.cls is not Engine:
+            raise ValueError(f"must be {Engine}")
+
+        return value
+
+    @classmethod
+    async def load(
+        cls,
+        source: Path | Mapping[str, object] | Self,
+        *,
+        checks: Sequence[ConfigCheckKind] = ConfigCheckKind.all(),
+        log: Logger | Log | Callable[[object], None] = lambda message: None,
+    ) -> "Result[Self, list[ConfigError]]":
+        def log_info(message: object) -> None:
+            if isinstance(log, Logger | Log):
+                log.info(message)
+            else:
+                log(message)
+
+        try:
+            if isinstance(source, Mapping):
+                instance = cls.__from_data(source)
+            elif isinstance(source, Path):
+                try:
+                    path = source.resolve()
+                except Exception:
+                    return Fail([ConfigReadError(message=f"path '{source}' could not be resolved")])
+
+                try:
+                    with open(path, "r") as stream:
+                        data = yaml.safe_load(stream)
+                except OSError:
+                    return Fail([ConfigReadError(message=f"failed to read file at '{path}'")])
+                except YAMLError as error:
+                    message: str | None = None
+                    location: ConfigParseErrorLocation | None = None
+
+                    if isinstance(error, MarkedYAMLError):
+                        message = error.problem
+
+                        if error.problem_mark:
+                            location = ConfigParseErrorLocation(
+                                line=error.problem_mark.line,
+                                column=error.problem_mark.column,
+                            )
+
+                    return Fail(
+                        [
+                            ConfigParseError(
+                                message=message,
+                                location=location,
+                            )
+                        ]
+                    )
+
+                instance = cls.__from_data(data, path)
+            else:
+                instance = source
+        except ValidationError as error:
+            return Fail([ConfigValidationError(problems=ValidationProblem.extract(error))])
+
+        errors: list[ConfigError] = []
+
+        if ConfigCheckKind.DATABASE in checks:
+            errors.extend(await cls.__check_database(instance, log_info))
+            log_info("Database configuration is valid.")
+        if ConfigCheckKind.COMPONENTS in checks:
+            errors.extend(await cls.__check_components(instance, log_info))
+            log_info("Component configurations are valid.")
+
+        if errors:
+            return Fail(errors)
+
+        return Ok(instance)
+
+    @classmethod
+    def __from_data(cls, data: Any, path: Path | None = None) -> Self:
         try:
             instance = parse_obj_as(cls, data)
         except Exception:
             traceback.print_exc()
             raise
         setattr_internal(Config, instance, "__path", path)
-        setattr_internal(Config, instance, "__component_config_cache", {})
         return instance
 
-    @property
-    def path(self) -> Path | None:
-        return self.__path
+    @classmethod
+    async def __check_database(
+        cls,
+        config: Self,
+        log: Callable[[object], None],
+    ) -> list[ConfigDatabaseError]:
+        from ceres.database import Database
 
-    @validator("units")
-    def _validate_units(cls, units: Sequence[UnitConfig]) -> Sequence[UnitConfig]:
-        for name, group in itertools.groupby(units, lambda unit: unit.name):
-            if len(list(group)) > 1:
-                raise ValueError(f"duplicate unit name '{name}'")
+        log("Checking database configuration...")
 
-        return units
+        start = utc()
+        timeout = config.database.retry.timeout
+        interval = config.database.retry.interval
 
-    def get_unit(self, name: Name) -> UnitConfig | None:
-        return next((unit for unit in self.units if unit.name == name), None)
+        while True:
+            database = Database(config.database)
 
-    def get_component(self, address: Address) -> ComponentConfig | None:
-        if address in self.__component_config_cache:
-            return self.__component_config_cache[address]
+            try:
+                async with database.connect():
+                    log("Connected to database successfully.")
+                    return []
+            except Exception as exception:
+                elapsed = utc() - start
 
-        component: ComponentConfig | None = None
+                if elapsed > timeout:
+                    log(f"Failed to connect to database within {show_td(timeout)}.")
+                    await database.dispose()
+                    return [
+                        ConfigDatabaseError(
+                            message="failed to connect to database",
+                            exception=traceback.format_exc(),
+                        )
+                    ]
 
-        if unit := self.get_unit(address.unit):
-            component = next(
-                (current for current in unit.components if current.name == address.name), None
-            )
+                log(
+                    f"Failed to connect to database, {exception}, {show_td(elapsed)} of "
+                    f"{show_td(timeout)} timeout elapsed, retrying in {show_td(interval)}..."
+                )
+                await database.dispose()
+                await asyncio.sleep(interval.total_seconds())
+                continue
+            finally:
+                await database.dispose()
 
-        if component:
-            self.__component_config_cache[address] = component
+    @classmethod
+    async def __check_components(
+        cls,
+        config: Self,
+        log: Callable[[object], None],
+    ) -> list[ConfigComponentError]:
+        log("Checking component configurations...")
 
-        return component
+        def check_component(
+            address: Address,
+            component: Config | ComponentConfig,
+            errors: list[ConfigComponentError],
+            references: dict[Name, Component],
+        ) -> list[ConfigComponentError]:
+            if isinstance(component, ComponentConfig):
+                log(f"Checking '{address}'...")
 
-    def get_component_cls(self, address: Address) -> type[Component] | None:
+                try:
+                    instance = component.create()
+                except Exception as exception:
+                    errors.append(
+                        ConfigComponentError(
+                            component=address,
+                            error=ComponentInitExceptionError(
+                                message="an exception occurred while loading this component",
+                                traceback=traceback.format_exception(exception),
+                            ),
+                        )
+                    )
+
+                    return errors
+
+                error = instance.assign_references(references)
+                if error is not None:
+                    errors.append(
+                        ConfigComponentError(
+                            component=address,
+                            error=ComponentReferenceInvalidError(
+                                message=error.message,
+                            ),
+                        )
+                    )
+
+                references[component.name] = instance
+
+            subreferences: dict[Name, Component] = {}
+            for subcomponent in component.components:
+                check_component(address / subcomponent.name, subcomponent, errors, subreferences)
+
+            return errors
+
+        errors: list[ConfigComponentError] = []
+        references: dict[Name, Component] = {}
+
+        for component in config.components:
+            errors.extend(check_component(Address(component.name), component, errors, references))
+
+        return errors
+
+    def get_component(self, address: DynamicAddress) -> "ComponentConfig | None":
+        current = self
+        for name in address.names:
+            if current is None:
+                return None
+
+            current = next((child for child in current.components if child.name == name), None)
+
+        if current is None:
+            return None
+        if type(current) is ComponentConfig:
+            return current
+
+        return ComponentConfig.parse_obj(
+            {
+                "name": current.name,
+                "class": current.cls_path,  # type: ignore
+                "args": current.args,
+                "components": current.components,
+            }
+        )
+
+    def get_component_cls(self, address: DynamicAddress) -> type[Component] | None:
         config = self.get_component(address)
         if config is None:
             return None

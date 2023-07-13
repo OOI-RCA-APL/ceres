@@ -16,6 +16,7 @@ import ItemViewAlert from '@/components/ItemViewAlert.vue'
 import ItemViewLogEntry from '@/components/ItemViewLogEntry.vue'
 import ItemViewMessage from '@/components/ItemViewMessage.vue'
 import SectionCard from '@/components/SectionCard.vue'
+import icons from '@/icons'
 import { QVirtualScroll, useQuasar } from 'quasar'
 import { computed, nextTick, onMounted, watch, watchEffect } from 'vue'
 
@@ -31,6 +32,8 @@ const {
   address: Address
   kind: 'alert' | 'message' | 'log-entry'
 }>()
+
+const selector = $computed(() => new Address(address.toString() + ':all'))
 
 const quasar = useQuasar()
 const get = $computed(() => {
@@ -60,7 +63,13 @@ if (info == null) {
   throw new Error('Component not found')
 }
 
-const itemHeight = 21.5
+const itemsVisible = $computed(() => Math.ceil(containerInfo.clientHeight / itemHeight))
+const itemHeight = 31
+const itemLoadSizeInitial = $computed(() => Math.min(itemsVisible + 250, 1000))
+const itemLoadSize = $computed(() => Math.min(itemsVisible + 100, 1000))
+const itemSliceSize = 250
+const itemCullThreshold = $computed(() => itemsVisible + 250)
+const itemCullCount = $computed(() => itemsVisible + 100)
 
 let search = $ref('')
 let scroll = $shallowRef<QVirtualScroll | null>(null)
@@ -74,7 +83,7 @@ const container = $computed(() => {
 
 const isShowingAll = $computed(() => search.length === 0)
 
-let items = $ref<Item[]>([])
+let items = $shallowRef<Item[]>([])
 
 const earliestItemTimestamp = $computed(() => items[0]?.timestamp ?? null)
 
@@ -85,15 +94,21 @@ let isLoadingCurrent = $ref(false)
 
 let containerInfo = $ref({
   scrollHeight: 0,
+  scrollWidth: 0,
   scrollTop: 0,
+  scrollLeft: 0,
   clientHeight: 0,
+  clientWidth: 0,
 })
 
 function updateContainerInfo() {
   if (container != null) {
     containerInfo.scrollHeight = container.scrollHeight
+    containerInfo.scrollWidth = container.scrollWidth
     containerInfo.scrollTop = container.scrollTop
+    containerInfo.scrollLeft = container.scrollLeft
     containerInfo.clientHeight = container.clientHeight
+    containerInfo.clientWidth = container.clientWidth
   }
 }
 
@@ -130,7 +145,7 @@ function isNearTop() {
     return false
   }
 
-  return containerInfo.scrollTop < 20 * itemHeight
+  return containerInfo.scrollTop <= 1 * itemHeight
 }
 
 function isAtBottom() {
@@ -141,44 +156,61 @@ function isAtBottom() {
   return containerInfo.scrollTop + containerInfo.clientHeight >= containerInfo.scrollHeight - 2
 }
 
+const isAtBottomComputed = $computed(isAtBottom)
+
+const isShowingVerticalScrollBar = $computed(() => {
+  if (container == null) {
+    return true
+  }
+
+  return containerInfo.scrollHeight > containerInfo.clientHeight
+})
+
+const isShowingHorizontalScrollBar = $computed(() => {
+  if (container == null) {
+    return true
+  }
+
+  return containerInfo.scrollWidth > containerInfo.clientWidth
+})
+
 async function delay(milliseconds = 0) {
   return await new Promise((resolve) => setTimeout(resolve, milliseconds))
 }
 
 async function prependItems(prepended: Item[]) {
+  const scrollTop = containerInfo.scrollTop
+  const height = prepended.length * itemHeight
   items = [...prepended.map(Object.freeze), ...items] as Item[]
-  scroll?.refresh(prepended.length)
-
-  await delay(15)
+  scroll?.refresh(-1)
   await nextTick()
-  await delay()
+  container?.scrollTo({
+    top: scrollTop + height,
+  })
   await nextTick()
 }
 
 async function appendItems(appended: Item[]) {
   const follow = isAtBottom()
-  items.push(...(appended.map(Object.freeze) as Item[]))
+  items = [...items, ...appended.map(Object.freeze)] as Item[]
   if (follow) {
-    scroll?.refresh(items.length)
+    if (items.length > itemCullThreshold) {
+      items = items.slice(items.length - itemCullCount, items.length)
+      await forceScrollToBottom(250)
+    } else {
+      scroll?.refresh(items.length + 1)
+    }
   }
-
-  await delay(50)
   await nextTick()
-  await delay()
-  await nextTick()
-
-  if (follow) {
-    scroll?.scrollTo(items.length, 'end-force')
-  }
 }
 
 async function loadPrevious() {
   const results: Item[] = await get({
-    source: info.address,
+    address: selector,
     search: search === '' ? undefined : search,
     before: earliestItemTimestamp == null ? undefined : earliestItemTimestamp.format(),
     order: 'new-to-old',
-    limit: 100,
+    limit: itemLoadSize,
   })
 
   isExhausted = results.length === 0
@@ -187,10 +219,10 @@ async function loadPrevious() {
 
 async function loadCurrent() {
   const results: Item[] = await get({
-    source: info.address,
+    address: selector,
     search: search === '' ? undefined : search,
     order: 'new-to-old',
-    limit: 100,
+    limit: itemLoadSizeInitial,
   })
 
   isExhausted = results.length === 0
@@ -200,7 +232,7 @@ async function loadCurrent() {
 
 useStream(
   computed(() => ({
-    source: info.address,
+    address: selector,
     search: search === '' ? undefined : search,
   })),
   async (item: Item) => {
@@ -292,14 +324,35 @@ async function onSend(data: string) {
         ref="scroll"
         v-slot="{ item }"
         class="fit item-view-virtual-scroll self-virtual-scroll"
+        dense
+        flat
         :items="items"
+        separator="cell"
+        type="table"
         :virtual-scroll-item-size="itemHeight"
-        :virtual-scroll-slice-size="250"
+        :virtual-scroll-slice-size="itemSliceSize"
       >
-        <item-view-message v-if="kind === 'message'" :key="'m-' + item.id" :message="item" />
-        <item-view-alert v-else-if="kind === 'alert'" :key="'a-' + item.id" :alert="item" />
-        <item-view-log-entry v-else :key="'le-' + item.id" :entry="item" />
+        <item-view-message v-if="kind === 'message'" :key="(item as Message).id" :message="item" />
+        <item-view-alert v-else-if="kind === 'alert'" :key="(item as Alert).id" :alert="item" />
+        <item-view-log-entry v-else :key="(item as LogEntry).id" :entry="item" />
       </q-virtual-scroll>
+      <transition appear enter-active-class="animated fadeIn" leave-active-class="animated fadeOut">
+        <q-btn
+          v-if="!isDoingInitialLoad && !isAtBottomComputed"
+          class="absolute-bottom-right"
+          color="primary"
+          :icon="icons.arrowDownward"
+          round
+          size="sm"
+          :style="{
+            right: isShowingVerticalScrollBar ? '12px' : '4px',
+            bottom: isShowingHorizontalScrollBar ? '12px' : '4px',
+          }"
+          @click="scrollToBottom"
+        >
+          <q-tooltip class="bg-primary text-white">Latest</q-tooltip>
+        </q-btn>
+      </transition>
     </div>
     <div v-else-if="!isDoingInitialLoad" class="col-grow items-center justify-center row">
       <span class="self-empty-message-text text-italic">
@@ -312,7 +365,8 @@ async function onSend(data: string) {
       </span>
     </div>
     <q-space v-else />
-    <div v-if="kind === 'message'" class="q-mb-sm q-mt-xs q-mx-sm">
+    <div v-if="kind === 'message'">
+      <q-separator />
       <command-input :address="address" @send="onSend" />
     </div>
   </section-card>
@@ -321,11 +375,11 @@ async function onSend(data: string) {
 <style lang="scss" scoped>
 .self-virtual-scroll-container {
   contain: size !important; // This is needed for horizontal scrolling to work.
+  position: relative;
 }
 
 .self-virtual-scroll {
   overscroll-behavior: contain;
-  padding: 0 8px;
 }
 
 .self-search-input-container {

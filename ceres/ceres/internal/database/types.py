@@ -13,7 +13,8 @@ from ceres.internal.utilities import snakecase
 
 def EnumMapper(cls: type[BaseEnum]) -> Enum:
     enum = Enum(
-        *(current.value for current in cls),
+        cls,
+        values_callable=lambda enum: [current.value for current in enum],
         native_enum=False,
         create_constraint=False,
         name=snakecase(cls.__name__),

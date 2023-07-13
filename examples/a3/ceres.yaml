@@ -1,13 +1,11 @@
 service:
   name: a3
-  stdout: ./data/stdout.log
-  stderr: ./data/stderr.log
 server:
   port: 9000
 database:
   kind: sqlite
-  path: ./data/database.sqlite
-units:
+  path: ./local/database.sqlite
+components:
   - name: a3
     components:
       - name: simulator
@@ -35,10 +33,11 @@ units:
           port: 4001
           separator: "\n"
           disconnect_settings:
-            idle: 15s
+            idle: 2m
       - name: driver
         class: ceres.projects.a3.A3Driver
         args:
+          output: ./local/output
           host:
             connection: host-connection
           das:

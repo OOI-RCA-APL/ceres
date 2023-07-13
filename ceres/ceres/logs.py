@@ -1,5 +1,4 @@
 import logging
-from enum import Enum
 from logging import Logger
 from typing import Callable, Protocol, Sequence, TypeAlias
 from uuid import UUID, uuid4
@@ -13,16 +12,9 @@ from ceres.level import Level
 from ceres.timing import utc
 
 
-class LogKind(str, Enum):
-    ENGINE = "engine"
-    SERVER = "server"
-    COMPONENT = "component"
-
-
 class LogEntry(ImmutableDataObject):
     id: UUID = Field(default_factory=uuid4)
-    kind: LogKind
-    source: Address | None = None
+    address: Address
     timestamp: DateTime = Field(default_factory=utc)
     level: Level
     content: str
@@ -39,23 +31,17 @@ LogHandlerFunction: TypeAlias = Callable[[LogEntry], object]
 class Log:
     def __init__(
         self,
-        kind: LogKind,
-        source: Address | Callable[[], Address] | None = None,
+        address: Address | Callable[[], Address],
     ) -> None:
-        self.__kind = kind
-        self.__source = source
+        self.__address = address
         self.__handlers: list[LogHandler | LogHandlerFunction] = []
 
     @property
-    def kind(self) -> LogKind:
-        return self.__kind
+    def address(self) -> Address:
+        if callable(self.__address):
+            return self.__address()
 
-    @property
-    def source(self) -> Address | None:
-        if callable(self.__source):
-            return self.__source()
-
-        return self.__source
+        return self.__address
 
     @property
     def handlers(self) -> Sequence[LogHandler | LogHandlerFunction]:
@@ -63,8 +49,7 @@ class Log:
 
     @property
     def base(self) -> Logger:
-        name = f"{self.__kind.value}:{self.source}" if self.source else self.__kind.value
-        return logs.get(name)
+        return logs.get(self.address)
 
     def write(self, level: Level, content: object, *args: object, **kwargs: object) -> LogEntry:
         if not isinstance(content, str):
@@ -75,8 +60,7 @@ class Log:
         self.base.log(logging.getLevelName(level.value.upper()), content)
 
         entry = LogEntry(
-            kind=self.__kind,
-            source=self.source,
+            address=self.address,
             level=level,
             content=content,
         )

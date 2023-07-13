@@ -59,7 +59,7 @@ class HTMLDispatchWriter(DispatchWriter):
         ):
             for key, by_key in groupby(
                 sorted(by_level, key=lambda alert: -alert.timestamp.timestamp()),
-                lambda alert: (alert.source, alert.code, jsonify(alert.info)),
+                lambda alert: (alert.address, alert.code, jsonify(alert.info)),
             ):
                 group = index[level]
                 if key not in group:

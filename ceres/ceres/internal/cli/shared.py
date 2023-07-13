@@ -1,4 +1,5 @@
 import os
+import warnings
 from functools import wraps
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Sequence
@@ -6,10 +7,9 @@ from typing import TYPE_CHECKING, Any, Sequence
 import rich
 from typer import Option, Typer
 
-from ceres.config import Config
+from ceres.config import Config, ConfigCheckKind
 from ceres.data import jsonify
 from ceres.internal.cli.exceptions import CLIInvalidConfigException
-from ceres.internal.config import ConfigCheckKind, load_config
 from ceres.internal.utilities import syncify
 from ceres.result import Ok
 
@@ -38,23 +38,39 @@ class AsyncTyper(Typer):
             return decorator
 
 
+chdir = os.chdir
+
+
+def __disabled_chdir__(*args: Any, **kwargs: Any) -> None:
+    warnings.warn("Changing directory is disabled while running Ceres.")
+
+
+def disable_chdir():
+    os.chdir = __disabled_chdir__
+
+
 def get_config_path(config_path: Path | None) -> Path:
-    if not config_path:
+    if config_path is None:
         possibilities = [
-            "ceres.yaml",
-            "ceres.yml",
-            "ceres.json",
+            Path(name)
+            for name in (
+                "ceres.yaml",
+                "ceres.yml",
+                "ceres.json",
+            )
         ]
 
         for possibility in possibilities:
-            if os.path.isfile(possibility):
-                config_path = Path(os.path.realpath(possibility))
+            if possibility.is_file():
+                config_path = possibility.absolute()
                 break
         else:
             raise CLIInvalidConfigException(
                 f"Must be in a directory containing one of: {possibilities}"
             )
 
+    chdir(config_path.parent)
+    disable_chdir()
     return config_path
 
 
@@ -62,7 +78,11 @@ async def get_config(
     config_path: Path | None,
     checks: Sequence[ConfigCheckKind],
 ) -> Config:
-    match await load_config(get_config_path(config_path), logger=rich.print, checks=checks):
+    match await Config.load(
+        get_config_path(config_path),
+        log=rich.print,
+        checks=checks,
+    ):
         case Ok(config):
             return config
         case fail:

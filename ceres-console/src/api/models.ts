@@ -16,7 +16,7 @@ export const MessageDirectionModel = Zod.enum(['send', 'receive'])
 export type Message = Zod.infer<typeof MessageModel>
 export const MessageModel = Zod.object({
   id: Zod.string(),
-  source: Zod.string().transform(Address.parse),
+  address: Zod.string().transform(Address.parse),
   timestamp: DateTimeModel,
   direction: MessageDirectionModel,
   content: Zod.string(),
@@ -28,7 +28,7 @@ export const LevelModel = Zod.enum(['debug', 'info', 'warning', 'error', 'critic
 export type Alert = Zod.infer<typeof AlertModel>
 export const AlertModel = Zod.object({
   id: Zod.string(),
-  source: Zod.string().transform(Address.parse),
+  address: Zod.string().transform(Address.parse),
   timestamp: DateTimeModel,
   level: LevelModel,
   code: Zod.string(),
@@ -38,14 +38,16 @@ export const AlertModel = Zod.object({
 export type LogEntry = Zod.infer<typeof LogEntryModel>
 export const LogEntryModel = Zod.object({
   id: Zod.string(),
-  source: Zod.string().transform(Address.parse),
+  address: Zod.string().transform(Address.parse),
   timestamp: DateTimeModel,
   level: LevelModel,
   content: Zod.string(),
 })
 
-export type AlertLevelStatistics = Zod.infer<typeof AlertLevelStatisticsModel>
-export const AlertLevelStatisticsModel = Zod.object({
+export type Item = Message | Alert | LogEntry
+
+export type LevelStatistics = Zod.infer<typeof LevelStatisticsModel>
+export const LevelStatisticsModel = Zod.object({
   level: LevelModel,
   count: Zod.number(),
 })
@@ -53,45 +55,33 @@ export const AlertLevelStatisticsModel = Zod.object({
 export type AlertStatistics = Zod.infer<typeof AlertStatisticsModel>
 export const AlertStatisticsModel = Zod.object({
   count: Zod.number(),
-  levels: Zod.array(AlertLevelStatisticsModel),
-})
-
-export type ComponentStatistics = Zod.infer<typeof ComponentStatisticsModel>
-export const ComponentStatisticsModel = Zod.object({
-  alerts: AlertStatisticsModel,
-})
-
-export type UnitStatistics = Zod.infer<typeof UnitStatisticsModel>
-export const UnitStatisticsModel = Zod.object({
-  alerts: AlertStatisticsModel,
-  components: Zod.record(Zod.string(), ComponentStatisticsModel),
+  levels: Zod.array(LevelStatisticsModel),
 })
 
 export type Statistics = Zod.infer<typeof StatisticsModel>
 export const StatisticsModel = Zod.object({
+  address: Zod.string().transform(Address.parse),
   alerts: AlertStatisticsModel,
-  units: Zod.record(Zod.string(), UnitStatisticsModel),
 })
 
 export type ComponentRole = Zod.infer<typeof ComponentRoleModel>
-export const ComponentRoleModel = Zod.enum([
-  'alerter',
-  'connection',
-  'dispatcher',
-  'notifier',
-  'ui',
-])
+export const ComponentRoleModel = Zod.enum(['connection', 'ui'])
 
-export type ComponentConfig = Zod.infer<typeof ComponentConfigModel>
-export const ComponentConfigModel = Zod.object({
+export type ComponentConfig = {
+  name: string
+  class: string
+  components: ComponentConfig[]
+}
+
+export const ComponentConfigModel: Zod.ZodType<ComponentConfig> = Zod.object({
   name: NameStrModel,
   class: Zod.string(),
+  components: Zod.lazy(() => Zod.array(ComponentConfigModel)),
 })
 
 export type ServerConfig = Zod.infer<typeof ServerConfigModel>
 export const ServerConfigModel = Zod.object({
-  port: Zod.number(),
-  enable: Zod.boolean(),
+  port: Zod.number().nullable().default(null),
 })
 
 export type DatabaseKind = Zod.infer<typeof DatabaseKindModel>
@@ -131,25 +121,13 @@ export const DatabaseConfigModel = Zod.discriminatedUnion('kind', [
   PostgresDatabaseConfigModel,
 ])
 
-export type UnitConfig = Zod.infer<typeof UnitConfigModel>
-export const UnitConfigModel = Zod.object({
-  name: NameStrModel,
-  components: Zod.array(ComponentConfigModel).default(() => []),
-})
-
-export type UserConfig = Zod.infer<typeof UserConfigModel>
-export const UserConfigModel = Zod.object({
-  username: NameStrModel,
-  email: EmailStrModel,
-  meta: Zod.record(Zod.string(), Zod.unknown()).default(() => ({})),
-})
-
 export type Config = Zod.infer<typeof ConfigModel>
 export const ConfigModel = Zod.object({
+  name: NameStrModel,
+  class: Zod.string(),
+  components: Zod.array(ComponentConfigModel),
   server: ServerConfigModel,
   database: DatabaseConfigModel,
-  users: Zod.array(UserConfigModel).default(() => []),
-  units: Zod.array(UnitConfigModel).default(() => []),
 })
 
 export type DisplayBinding = Zod.infer<typeof DisplayBindingModel>
@@ -246,21 +224,23 @@ export const ActionInfoModel = BaseProcedureInfoModel.extend({
 export type ProcedureInfo = Zod.infer<typeof ProcedureInfoModel>
 export const ProcedureInfoModel = Zod.discriminatedUnion('kind', [QueryInfoModel, ActionInfoModel])
 
-export type ComponentInfo = Zod.infer<typeof ComponentInfoModel>
-export const ComponentInfoModel = Zod.object({
+export type ComponentInfo = {
+  name: string
+  address: Address
+  config: ComponentConfig
+  roles: ComponentRole[]
+  procedures: ProcedureInfo[]
+  components: ComponentInfo[]
+}
+
+export const ComponentInfoModel: Zod.ZodType<ComponentInfo> = Zod.object({
   name: Zod.string(),
   address: Zod.string().transform(Address.parse),
   config: ComponentConfigModel,
   roles: Zod.array(ComponentRoleModel),
   procedures: Zod.array(ProcedureInfoModel),
-})
-
-export type UnitInfo = Zod.infer<typeof UnitInfoModel>
-export const UnitInfoModel = Zod.object({
-  name: Zod.string(),
-  config: UnitConfigModel,
-  components: Zod.array(ComponentInfoModel),
-})
+  components: Zod.lazy(() => Zod.array(ComponentInfoModel)),
+}) as any
 
 export type Ok<TValue> = {
   ok: true

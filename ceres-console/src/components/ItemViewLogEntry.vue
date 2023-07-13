@@ -1,6 +1,8 @@
 <script lang="ts" setup>
 import { LogEntry } from '@/api/models'
 
+import ItemViewItem from '@/components/ItemViewItem.vue'
+
 const { entry } = defineProps<{
   entry: LogEntry
 }>()
@@ -22,56 +24,40 @@ const levelColor = $computed(() => {
 </script>
 
 <template>
-  <div class="row self-item-view-log-entry-root">
-    <span class="self-timestamp">
-      {{ entry.timestamp.format('YYYY-MM-DD HH:mm:ss.SSS') }}
-    </span>
-    <q-chip class="self-level-chip" :color="levelColor" dense text-color="black">
-      <span class="self-level-text">
-        {{ entry.level }}
+  <item-view-item :item="entry">
+    <q-td auto-width>
+      <q-chip :class="$style.levelChip" :color="levelColor" dense text-color="black">
+        <span :class="$style.levelText">
+          {{ entry.level }}
+        </span>
+      </q-chip>
+    </q-td>
+    <q-td>
+      <span :class="$style.content">
+        {{ JSON.stringify(entry.content) }}
       </span>
-    </q-chip>
-    <span class="self-content">
-      {{ JSON.stringify(entry.content) }}
-    </span>
-  </div>
+    </q-td>
+  </item-view-item>
 </template>
 
-<style lang="scss" scoped>
-.self-item-view-log-entry-root {
-  align-items: center;
-  flex-wrap: nowrap;
-  justify-items: center;
-  min-height: 21.5px;
-  white-space: nowrap;
-}
-
-.self-timestamp {
-  font-family: 'Roboto Mono', monospace;
-  font-size: 11px;
-  margin-right: 4px;
-  white-space: nowrap;
-}
-
-.self-level-chip {
+<style lang="scss" module>
+.levelChip {
   font-size: 9px;
-  margin-right: 8px;
   min-width: 58px;
   text-transform: uppercase;
-  white-space: nowrap;
 }
 
-.self-level-text {
+.levelText {
   justify-items: center;
   text-align: center;
-  white-space: nowrap;
   white-space: nowrap;
   width: 100%;
 }
 
-.self-content {
+.content {
   font-family: 'Roboto Mono', monospace;
   font-size: 11px;
   white-space: nowrap;
+  width: 100%;
 }
 </style>

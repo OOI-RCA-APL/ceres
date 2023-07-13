@@ -178,12 +178,12 @@ def _load_cls_from_cls_path(path: str) -> type:
 
 
 class ClassPath:
-    __slots__ = ("_cls", "_text")
+    __slots__ = ("__text",)
 
     def __init__(self, obj: str | type | Self, /) -> None:  # type: ignore
         if isinstance(obj, ClassPath):
-            cls = obj._cls
-            text = obj._text
+            cls = obj.cls
+            text = obj.__text
         elif isinstance(obj, type):
             cls = obj
             text = _get_cls_path(obj)
@@ -199,22 +199,31 @@ class ClassPath:
         if text is None:
             text = _get_cls_path(cls)
 
-        self._cls = cls
-        self._text = text
+        self.__text = text
 
     def __str__(self) -> str:
-        return self._text
+        return self.__text
 
     def __repr__(self) -> str:
-        return f"{type(self).__name__}({repr(self._text)})"
+        return f"{type(self).__name__}({repr(self.__text)})"
+
+    def __eq__(self, obj: object) -> bool:
+        return isinstance(obj, ClassPath) and self.__text == obj.__text
+
+    def __hash__(self) -> int:
+        return hash(self.__text)
 
     @property
     def cls(self) -> type:
-        return self._cls
+        return _load_cls_from_cls_path(self.__text)
 
     @classmethod
     def __get_validators__(cls):
         yield cls
+
+    @classmethod
+    def __modify_schema__(cls, field_schema: dict[str, Any]):
+        field_schema.update(type="string")
 
 
 if TYPE_CHECKING:
@@ -269,7 +278,7 @@ VALIDATED_DATACLASS_FIELD_SPECIFIERS: tuple[Callable[..., Any], type[FieldInfo]]
     Field,
     FieldInfo,
 )
-VALIDATED_DATACLASS_DEFAULT_CONFIG = MappingProxyType(ConfigDict(**DataObject.__dict__))
+VALIDATED_DATACLASS_DEFAULT_CONFIG = MappingProxyType(ConfigDict(**DataObject.Config.__dict__))
 
 
 @dataclass_transform(

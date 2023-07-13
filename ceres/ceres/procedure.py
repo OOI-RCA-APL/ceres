@@ -253,9 +253,10 @@ def _validate_procedure(
 
     try:
         output_json_schema = _get_output_schema(output_hint)
-    except Exception:
+    except Exception as exception:
         raise ValueError(
-            f"output type of {kind} {strify(function)} must be serializable as a JSON object"
+            f"output type of {kind} {strify(function)} must be serializable as a JSON object: "
+            f"{exception}"
         )
 
     output_info = ProcedureOutputInfo(

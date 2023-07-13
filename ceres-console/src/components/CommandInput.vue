@@ -111,7 +111,10 @@ async function submit() {
       :color="isConnected ? 'primary' : 'negative'"
       dense
       filled
+      icon="send"
       input-class="monospace-md text-nowrap"
+      label="Send Message"
+      square
       @keydown.down.prevent="onDownKeyPressed"
       @keydown.up.prevent="onUpKeyPressed"
     >

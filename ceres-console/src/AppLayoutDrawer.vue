@@ -1,6 +1,7 @@
 <script lang="ts" setup>
+import AppLayoutDrawerComponent from '@/AppLayoutDrawerComponent.vue'
+import { Address } from '@/address'
 import { useConfig } from '@/api/operations'
-import AlertsIndicator from '@/components/AlertsIndicator.vue'
 import ResizeHandle from '@/components/ResizeHandle.vue'
 import { useDrawer } from '@/drawer'
 import icons from '@/icons'
@@ -45,16 +46,19 @@ function clearLocalStorage() {
       })
     })
 }
+
+const root = new Address('@')
 </script>
 
 <template>
   <q-drawer v-model="drawer.isOpen" :class="$style.root" :width="drawer.width">
-    <div class="column full-height">
+    <div class="column full-height no-wrap overflow-hidden">
       <resize-handle
         v-model="drawer.width"
         :class="$style.resizeHandle"
         direction="horizontal"
-        :min="60"
+        :max="600"
+        :min="54"
         :style="{ left: `${drawer.width}px` }"
       />
       <div class="col-grow scroll">
@@ -67,26 +71,7 @@ function clearLocalStorage() {
               <q-item-label>Dashboard</q-item-label>
             </q-item-section>
           </q-item>
-          <q-expansion-item v-model="drawer.isShowingUnits" :icon="icons.units" label="Units">
-            <q-item
-              v-for="unit in config.data.units"
-              :key="unit.name"
-              clickable
-              dense
-              style="min-height: 38px"
-              :to="`/units/${unit.name}`"
-            >
-              <q-item-section avatar>
-                <q-icon :name="icons.unit" size="12px" style="margin-left: 6px" />
-              </q-item-section>
-              <q-item-section no-wrap>
-                <q-item-label class="text-no-wrap">{{ unit.name }}</q-item-label>
-              </q-item-section>
-              <q-item-section side>
-                <alerts-indicator :unit-name="unit.name" />
-              </q-item-section>
-            </q-item>
-          </q-expansion-item>
+          <app-layout-drawer-component :address="root" :config="config.data" />
         </q-list>
       </div>
       <q-list>

@@ -62,7 +62,7 @@ class Loader(ImmutableDataObject):
 
         return values
 
-    def load(self, *, args: Sequence[Any] | Mapping[str, Any] | None = None) -> Any:
+    def create(self, *, args: Sequence[Any] | Mapping[str, Any] | None = None) -> Any:
         extra = {name: getattr(self, name) for name in self._get_extra_kwarg_names()}
 
         if args is not None:
@@ -144,7 +144,7 @@ class LoadedType:
         else:
             loader = Loader.parse_obj(value)
 
-        instance = loader.load()
+        instance = loader.create()
         if not lenient_isinstance(instance, cls.cls):
             raise ValueError(f"must be an instance of {cls.cls}")
 

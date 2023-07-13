@@ -2,11 +2,13 @@ import { Address } from '@/address'
 import {
   Alert,
   AlertModel,
+  ComponentConfig,
   ComponentInfo,
   ComponentInfoModel,
   Config,
   ConfigModel,
   LayoutModel,
+  LevelStatistics,
   LogEntry,
   LogEntryModel,
   Message,
@@ -15,10 +17,9 @@ import {
   ResultModel,
   Statistics,
   StatisticsModel,
-  UnitInfo,
-  UnitInfoModel,
 } from '@/api/models'
 import { DisplayInfoModel } from '@/display'
+import { getter } from '@/getter'
 import { useSettings } from '@/settings'
 import { useIntervalFn } from '@vueuse/core'
 import moment from 'moment'
@@ -37,19 +38,12 @@ export async function getConfig(): Promise<Config> {
   return await get('/api/config', ConfigModel)
 }
 
-export async function getUnit(name: string): Promise<UnitInfo | null> {
-  return await getOrNull(`/api/units/${name}`, UnitInfoModel)
-}
-
 export async function getComponent(address: Address): Promise<ComponentInfo | null> {
-  return await getOrNull(
-    `/api/units/${address.unit}/components/${address.component}`,
-    ComponentInfoModel
-  )
+  return await getOrNull(`/api/components/${address}`, ComponentInfoModel)
 }
 
 export async function getMessages(params: {
-  source?: Address
+  address?: Address
   search?: string
   within?: number
   after?: string
@@ -61,7 +55,7 @@ export async function getMessages(params: {
 }
 
 export async function getAlerts(params: {
-  source?: Address
+  address?: Address
   search?: string
   within?: number
   after?: string
@@ -73,7 +67,7 @@ export async function getAlerts(params: {
 }
 
 export async function getLogEntries(params: {
-  source?: Address
+  address?: Address
   search?: string
   within?: number
   after?: string
@@ -88,8 +82,8 @@ export async function getStatistics(params: {
   within?: number
   after?: string
   before?: string
-}): Promise<Statistics> {
-  return await get(`/api/statistics${createQueryParams(params)}`, StatisticsModel)
+}): Promise<Statistics[]> {
+  return await get(`/api/statistics${createQueryParams(params)}`, Zod.array(StatisticsModel))
 }
 
 function getWebSocketURI(relative: string) {
@@ -111,7 +105,7 @@ function getWebSocketURI(relative: string) {
 
 export function useMessageStream<TModel extends ZodTypeAny>(
   params: MaybeRef<{
-    source?: Address
+    address?: Address
     search?: string
   }>,
   onReceive: (message: Zod.infer<TModel>) => unknown
@@ -131,7 +125,7 @@ export function useMessageStream<TModel extends ZodTypeAny>(
 
 export function useAlertStream<TModel extends ZodTypeAny>(
   params: MaybeRef<{
-    source?: Address
+    address?: Address
     search?: string
   }>,
   onReceive: (alert: Zod.infer<TModel>) => unknown
@@ -151,7 +145,7 @@ export function useAlertStream<TModel extends ZodTypeAny>(
 
 export function useLogEntryStream<TModel extends ZodTypeAny>(
   params: MaybeRef<{
-    source?: Address
+    address?: Address
     search?: string
   }>,
   onReceive: (alert: Zod.infer<TModel>) => unknown
@@ -179,19 +173,27 @@ export const useConfig = defineStore('config', () => {
     await query.suspense()
   }
 
-  function getUnit(unitName: string) {
-    return data.units.find((unit) => unit.name === unitName) ?? null
-  }
+  function getComponent(address: Address): Config | ComponentConfig | null {
+    if (address.isRoot) {
+      return null
+    }
 
-  function getComponent(unitName: string, componentName: string) {
-    return getUnit(unitName)?.components.find((component) => component.name === componentName)
+    let current: Config | ComponentConfig | null = data
+    for (const name of address.names) {
+      if (current == null) {
+        return null
+      }
+
+      current = current.components.find((component) => component.name === name) ?? null
+    }
+
+    return current
   }
 
   return {
     data: $$(data),
     error: $$(error),
     load,
-    getUnit,
     getComponent,
   }
 })
@@ -206,8 +208,17 @@ export const useStatistics = defineStore('statistics', () => {
       })
   )
 
-  const data = $computed(() => query.data.value as Statistics)
-  const error = $computed(() => query.error)
+  const mapping = computed(() => {
+    if (query.data.value == null) {
+      return {}
+    }
+
+    return Object.fromEntries(
+      query.data.value.map((statistics) => [statistics.address.toString(), statistics])
+    )
+  })
+
+  const error = computed(() => query.error.value)
 
   async function load() {
     await query.suspense()
@@ -215,7 +226,7 @@ export const useStatistics = defineStore('statistics', () => {
 
   useIntervalFn(async () => {
     await query.refetch.value()
-  }, moment.duration(30, 's').asMilliseconds())
+  }, moment.duration(15, 's').asMilliseconds())
 
   watch(
     computed(() => settings.statisticsDuration.asSeconds()),
@@ -224,14 +235,25 @@ export const useStatistics = defineStore('statistics', () => {
     }
   )
 
+  function get(address: Address): Statistics | null {
+    return mapping.value[address.toString()] ?? null
+  }
+
+  function getAlertLevel(address: Address): LevelStatistics | null {
+    const statistics = get(address)
+    if (statistics == null) {
+      return null
+    }
+
+    return statistics.alerts.levels[statistics.alerts.levels.length - 1] ?? null
+  }
+
   return {
-    data: $$(data),
+    get: getter(query.data, get),
+    getAlertInfo: getter(query.data, getAlertLevel),
     error: $$(error),
-    dataUpdatedAt: computed(() =>
+    updatedAt: computed(() =>
       query.dataUpdatedAt.value ? moment(query.dataUpdatedAt.value) : null
-    ),
-    errorUpdatedAt: computed(() =>
-      query.dataUpdatedAt.value ? moment(query.errorUpdatedAt.value) : null
     ),
     load,
   }
@@ -280,8 +302,12 @@ function createQueryParams(values: Record<string, unknown>): string {
   const result = new URLSearchParams()
   for (const key of Object.keys(values)) {
     let value = values[key]
-    if (typeof value === 'object' && !(value instanceof String)) {
-      value = JSON.stringify(value)
+    if (typeof value === 'object') {
+      if (typeof value?.valueOf() === 'string') {
+        value = value.valueOf()
+      } else {
+        value = JSON.stringify(value)
+      }
     }
 
     if (value !== undefined) {
@@ -322,7 +348,7 @@ function useStream<TModel extends ZodTypeAny>(
       if (result.success) {
         onMessage(result.data)
       } else {
-        console.error(result.error)
+        console.error(url, model, data, result.error)
       }
     })
 
@@ -347,7 +373,7 @@ function useStream<TModel extends ZodTypeAny>(
         if (mounted) {
           socket = createSocket(urlRef.value, onDisconnect)
         }
-      }, 250)
+      }, 3000)
     }
 
     let socket = createSocket(urlRef.value, onDisconnect)
@@ -377,8 +403,7 @@ export function useDisplayStream<TModel extends ZodTypeAny>(
   return useStream(
     computed(() =>
       getWebSocketURI(
-        `/api/units/${unref(address).unit}/components/${unref(address).component}` +
-          `/procedures/${unref(procedure)}/subscribe?args=` +
+        `/api/components/${unref(address)}/procedures/${unref(procedure)}/subscribe?args=` +
           encodeURIComponent(JSON.stringify(unref(args)))
       )
     ),
@@ -424,8 +449,7 @@ export async function call(
   procedure: string,
   args: MaybeRef<Record<string, any>> = {}
 ) {
-  let url =
-    `/api/units/${address.unit}/components/` + `${address.component}/procedures/${procedure}/call`
+  let url = `/api/components/${address}/procedures/${procedure}/call`
   if (Object.keys(args).length > 0) {
     url += `?args=${encodeURIComponent(JSON.stringify(unref(args)))}`
   }
@@ -435,7 +459,7 @@ export async function call(
 
 export async function sendMessage(address: Address, data: string): Promise<SendMessageResult> {
   return await post(
-    `/api/units/${address.unit}/components/${address.component}/procedures/send-message/call`,
+    `/api/components/${address}/procedures/send-message/call`,
     SendMessageResultModel,
     { data }
   )
@@ -445,8 +469,5 @@ export type GetLayoutResult = Zod.infer<typeof GetLayoutResultModel>
 const GetLayoutResultModel = createResultType(LayoutModel, BaseFailModel)
 
 export async function getLayout(address: Address): Promise<GetLayoutResult> {
-  return await get(
-    `/api/units/${address.unit}/components/${address.component}/procedures/get-layout/call`,
-    GetLayoutResultModel
-  )
+  return await get(`/api/components/${address}/procedures/get-layout/call`, GetLayoutResultModel)
 }

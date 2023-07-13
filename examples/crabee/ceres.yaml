@@ -1,9 +1,11 @@
+service:
+  name: crabee
 server:
   port: 9000
 database:
   kind: sqlite
-  path: ./data/database.sqlite
-units:
+  path: ./local/database.sqlite
+components:
   - name: crabee
     components:
       - name: simulator
@@ -22,6 +24,7 @@ units:
       - name: driver
         class: ceres.projects.crabee.CrabeeDriver
         args:
+          output: ./local/output
           connection: connection
   - name: notifications
     components:

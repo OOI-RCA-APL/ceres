@@ -1,4 +1,5 @@
 import asyncio
+import traceback
 from abc import ABC, abstractmethod
 from dataclasses import field
 from datetime import timedelta
@@ -53,7 +54,7 @@ class Connection(Component, ABC):
 
     @override
     async def __stop__(self) -> None:
-        await self._try_disconnect()
+        await self.disconnect()
         await super().__stop__()
 
     @property
@@ -92,11 +93,11 @@ class Connection(Component, ABC):
         ...
 
     @abstractmethod
-    async def _send_data(self, data: bytes) -> None:
+    async def _send_data(self, data: bytes) -> bytes | None:
         ...
 
     @abstractmethod
-    async def _poll_data(self) -> bytes:
+    async def _poll_data(self) -> bytes | None:
         ...
 
     async def connect(self) -> bool:
@@ -115,11 +116,11 @@ class Connection(Component, ABC):
 
         if connected:
             self.__state = ConnectionState.CONNECTED
-            self.emit_event(ConnectedEvent)
+            self.emit(ConnectedEvent)
             self.log.info("Connected successfully.")
         else:
             self.__state = ConnectionState.DISCONNECTED
-            self.emit_event(ConnectFailedEvent)
+            self.emit(ConnectFailedEvent)
             self.log.error("Failed to connect.")
 
         return self.connected
@@ -134,39 +135,51 @@ class Connection(Component, ABC):
 
     @action
     async def send_message(self, data: bytes) -> Message:
+        if not self.connected:
+            raise ConnectionLostException("connection is lost")
+
         try:
-            await self._send_data(data)
-        except ConnectionLostException:
-            if self.connected:
-                self.emit_event(ConnectionLostEvent)
-                await self.disconnect()
-            raise
+            sent = await self._send_data(data)
+        except Exception:
+            sent = None
+
+        if sent is None and self.connected:
+            self.emit(ConnectionLostEvent)
+            await self.disconnect()
+            raise ConnectionLostException("connection was lost")
 
         message = Message(
-            source=self.address,
+            address=self.address,
             direction=MessageDirection.SEND,
             content=data,
         )
 
-        self.emit_event(MessageSentEvent, message=message)
+        self.emit(MessageSentEvent, message=message)
         return message
 
-    async def _poll_message(self) -> Message:
+    async def __poll_message(self) -> Message | None:
         try:
             data = await self._poll_data()
-        except ConnectionLostException:
-            if self.connected:
-                self.emit_event(ConnectionLostEvent)
-                await self.disconnect()
+        except Exception:
+            self.log.error(traceback.format_exc())
+            data = None
             raise
 
+        if data is None:
+            if self.connected:
+                self.log.error("Connection was lost.")
+                self.emit(ConnectionLostEvent)
+                await self.disconnect()
+
+            return None
+
         message = Message(
-            source=self.address,
+            address=self.address,
             direction=MessageDirection.RECEIVE,
             content=data,
         )
 
-        self.emit_event(MessageReceivedEvent, message=message)
+        self.emit(MessageReceivedEvent, message=message)
         return message
 
     async def disconnect(self) -> None:
@@ -179,7 +192,7 @@ class Connection(Component, ABC):
             await self._try_disconnect()
         finally:
             self.__state = ConnectionState.DISCONNECTED
-            self.emit_event(DisconnectedEvent)
+            self.emit(DisconnectedEvent)
             self.log.info("Disconnected.")
 
     @routine
@@ -197,8 +210,6 @@ class Connection(Component, ABC):
                 await asyncio.sleep(delay)
 
             while self.connected:
-                try:
-                    await self._poll_message()
-                except Exception as exception:
-                    if error := str(exception).strip():
-                        self.log.error(error)
+                data = await self.__poll_message()
+                if data is None:
+                    break
