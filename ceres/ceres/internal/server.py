@@ -349,7 +349,6 @@ async def get_component_info(
     engine: CurrentEngine,
     address: Address,
 ) -> ComponentInfo:
-    print(address)
     component_config = engine.config.get_component(address)
     component_cls = engine.config.get_component_cls(address)
     if component_config is None or component_cls is None:
