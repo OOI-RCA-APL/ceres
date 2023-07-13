@@ -1,9 +1,7 @@
-import rich
-
 from ceres.config import Config
 from ceres.database import Database
 from ceres.internal.cli.exceptions import CLIDatabaseUnreachableException
-from ceres.internal.cli.shared import AsyncTyper, ConfigOption, get_yes_no
+from ceres.internal.cli.shared import AsyncTyper, ConfigOption, get_yes_no, write
 
 database = AsyncTyper(
     name="database",
@@ -37,7 +35,7 @@ async def init(*, config: Config = ConfigOption(checks=[])) -> None:
     if get_yes_no(confirm):
         await database.init()
     else:
-        rich.print("Database has not been modified.")
+        write("Database has not been modified.")
 
     await database.dispose()
 
@@ -50,4 +48,4 @@ async def schema(*, config: Config = ConfigOption(checks=[])) -> None:
     database = Database(config.database)
 
     for statement in database.ddl:
-        rich.print(f"{statement};")
+        write(f"{statement};")

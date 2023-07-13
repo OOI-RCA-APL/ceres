@@ -1,9 +1,6 @@
-import rich
-from rich.box import ROUNDED
-
 from ceres.config import Config, ConfigCheckKind
 from ceres.internal.cli.service import get_service
-from ceres.internal.cli.shared import AsyncTyper, ConfigOption
+from ceres.internal.cli.shared import AsyncTyper, ConfigOption, write, write_table
 
 service = AsyncTyper(
     name="service",
@@ -15,35 +12,31 @@ service = AsyncTyper(
 @service.command()
 def start(config: Config = ConfigOption(checks=ConfigCheckKind.all())) -> None:
     service = get_service(config)
-    rich.print(f"All checks passed. Starting service {service.name!r} at {service.location!r}...")
+    write(f"All checks passed. Starting service {service.name!r} at {service.location!r}...")
     service.start()
-    rich.print("Service started successfully.")
+    write("Service started successfully.")
 
 
 @service.command()
 def stop(config: Config = ConfigOption(checks=[])) -> None:
     service = get_service(config)
-    rich.print(f"Stopping service {service.name!r} at {service.location}...")
+    write(f"Stopping service {service.name!r} at {service.location}...")
     service.stop()
-    rich.print("Service stopped successfully.")
+    write("Service stopped successfully.")
 
 
 @service.command()
 def status(config: Config = ConfigOption(checks=[])) -> None:
-    from rich.table import Table
-
     service = get_service(config)
 
-    table = Table(box=ROUNDED)
-    table.add_column("Name")
-    table.add_column("User")
-    table.add_column("State")
-    table.add_column("Location")
-    table.add_row(
-        service.name,
-        service.user,
-        service.state.value.title(),
-        service.location,
-    )
-
-    rich.print(table)
+    with write_table() as table:
+        table.add_column("Name")
+        table.add_column("User")
+        table.add_column("State")
+        table.add_column("Location")
+        table.add_row(
+            service.name,
+            service.user,
+            service.state.value.title(),
+            service.location,
+        )

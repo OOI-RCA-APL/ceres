@@ -1,10 +1,13 @@
 import os
 import warnings
+from contextlib import contextmanager
 from functools import wraps
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Sequence
+from typing import IO, TYPE_CHECKING, Any, Sequence
 
 import rich
+import rich.box
+from rich.table import Table
 from typer import Option, Typer
 
 from ceres.config import Config, ConfigCheckKind
@@ -133,3 +136,30 @@ def get_yes_no(prompt: str, default: bool | None = None) -> bool:
             return True
         if text in ("no", "n"):
             return False
+
+
+def write(
+    *args: object,
+    sep: str = " ",
+    end: str = "\n",
+    file: IO[str] | None = None,
+    flush: bool = False,
+):
+    rich.print(
+        *args,
+        sep=sep,
+        end=end,
+        file=file,
+        flush=flush,
+    )
+
+
+@contextmanager
+def write_table(title: str | None = None):
+    table = Table(title=title, box=rich.box.SQUARE, title_justify="left")
+    yield table
+    rich.print(table)
+
+
+def strbool(value: bool) -> str:
+    return "Yes" if value else "No"

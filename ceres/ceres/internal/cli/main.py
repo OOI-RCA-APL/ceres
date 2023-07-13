@@ -3,18 +3,17 @@ import signal
 from asyncio import FIRST_COMPLETED
 from asyncio import Event as AsyncEvent
 from pathlib import Path
-from typing import Annotated, Any, TypeVar
+from typing import Annotated, Any, Mapping, TypeVar
 
 import anyio
-import rich
 from aiohttp import ClientError, ClientSession, UnixConnector
 from anyio.abc import TaskGroup
 from click import ParamType
-from pydantic import parse_obj_as
+from pydantic import BaseModel, parse_obj_as
 from typer import Argument, Option
 
 from ceres.address import AddressSelector
-from ceres.component import ComponentQuery
+from ceres.component import ComponentQuery, ComponentStatus
 from ceres.config import Config
 from ceres.data import jsonify, simplify
 from ceres.engine import Engine
@@ -25,7 +24,14 @@ from ceres.internal.cli.exceptions import (
     CLIInvalidConfigException,
     CLIStartupException,
 )
-from ceres.internal.cli.shared import AsyncTyper, ConfigOption, ConfigPathOption
+from ceres.internal.cli.shared import (
+    AsyncTyper,
+    ConfigOption,
+    ConfigPathOption,
+    strbool,
+    write,
+    write_table,
+)
 from ceres.internal.cli.subcommands.database import database
 from ceres.internal.cli.subcommands.service import service
 from ceres.internal.context import ProjectContext
@@ -33,6 +39,8 @@ from ceres.internal.server import (
     DisableResult,
     DownResult,
     EnableResult,
+    GetStatusesQueryParameters,
+    HealthResult,
     StartResult,
     StopResult,
     UpResult,
@@ -81,7 +89,7 @@ async def run(
                 case Ok():
                     pass
                 case Fail() as fail:
-                    rich.print(fail)
+                    write(fail)
                     pass
 
             exiting = AsyncEvent()
@@ -129,9 +137,9 @@ async def check(*, config_path: Path = ConfigPathOption()) -> None:
     """
     Check project configuration for correctness.
     """
-    match await Config.load(config_path, log=rich.print):
+    match await Config.load(config_path, log=write):
         case Ok():
-            rich.print("All checks passed.")
+            write("All checks passed.")
         case fail:
             raise CLIInvalidConfigException(
                 f"Failed to load configuration. {jsonify(fail, indent=2)}"
@@ -196,7 +204,7 @@ async def _run_watch(
                 )
 
                 # Indicate a restart and show changed files.
-                rich.print(f"Restarting, watch mode detected: {strify(info)}")
+                write(f"Restarting, watch mode detected: {strify(info)}")
 
                 # Stop the running process if necessary.
                 if process.is_alive():
@@ -231,20 +239,57 @@ class APIClient:
         assert config.path is not None
         self.__config = config
 
-    async def request(self, method: str, path: str, *, data: object = None, result: type[_T]) -> _T:
+    async def online(self) -> bool:
+        try:
+            await self.get("/health", result=HealthResult)
+        except Exception:
+            return False
+
+        return True
+
+    async def request(
+        self,
+        method: str,
+        path: str,
+        *,
+        data: object = None,
+        params: BaseModel | Mapping[str, object] | None = None,
+        result: type[_T],
+    ) -> _T:
         context = ProjectContext(self.__config)
         path = "/api/" + path.lstrip("/")
         path = f"http+unix://{str(context.socket).replace('/', '%2F')}{path}"
 
+        if isinstance(params, BaseModel):
+            params = {key: str(value) for key, value in params.dict(exclude_defaults=True).items()}
+
         async with ClientSession(connector=UnixConnector(str(context.socket))) as session:
-            async with session.request(method, path, json=simplify(data)) as response:
+            async with session.request(
+                method,
+                path,
+                json=simplify(data),
+                params=params,
+            ) as response:
                 return parse_obj_as(result, await response.json())
 
-    async def get(self, path: str, result: type[_T]) -> _T:
-        return await self.request("GET", path, result=result)
+    async def get(
+        self,
+        path: str,
+        *,
+        params: BaseModel | Mapping[str, object] | None = None,
+        result: type[_T],
+    ) -> _T:
+        return await self.request("GET", path, params=params, result=result)
 
-    async def post(self, path: str, data: object | None, result: type[_T]) -> _T:
-        return await self.request("POST", path, data=data, result=result)
+    async def post(
+        self,
+        path: str,
+        data: object | None = None,
+        *,
+        params: BaseModel | Mapping[str, object] | None = None,
+        parse: type[_T] = Any,
+    ) -> _T:
+        return await self.request("POST", path, data=data, params=params, result=parse)
 
 
 @main.command()
@@ -254,7 +299,7 @@ async def reload(*, config: Config = ConfigOption(checks=[])) -> None:
     """
     client = APIClient(config)
     try:
-        await client.post("/reload", data=None, result=Any)
+        await client.post("/reload")
     except ClientError:
         raise CLIEngineNotRunningException("Engine is not running or not accessible at the moment.")
 
@@ -273,13 +318,60 @@ AddressPatternInput = Annotated[
 
 
 @main.command()
+async def status(addresses: list[str], config: Config = ConfigOption(checks=[])) -> None:
+    client = APIClient(config)
+    project = ProjectContext(config)
+    address = AddressSelector("|".join(addresses))
+    try:
+        statuses = await client.get(
+            "/statuses",
+            params=GetStatusesQueryParameters(address=address),
+            result=list[ComponentStatus],
+        )
+    except ClientError:
+        statuses = None
+
+    running = statuses is not None
+
+    with write_table("Engine") as table:
+        table.add_column("Project")
+        table.add_column("Running")
+        table.add_row(
+            str(project.path),
+            strbool(running),
+        )
+
+    if not running:
+        return
+
+    with write_table("Server") as table:
+        table.add_column("Port")
+        table.add_column("Socket")
+        table.add_row(
+            str(project.port or "(Disabled)"),
+            str(project.socket),
+        )
+
+    with write_table("Components") as table:
+        table.add_column("Address")
+        table.add_column("Running")
+        table.add_column("Enabled")
+        for status in statuses:
+            table.add_row(
+                status.address,
+                strbool(status.running),
+                strbool(status.enabled),
+            )
+
+
+@main.command()
 async def start(addresses: list[str], config: Config = ConfigOption(checks=[])) -> None:
     client = APIClient(config)
     address = AddressSelector("|".join(addresses))
     query = ComponentQuery(address=address)
-    result = await client.post("/start", data=query, result=StartResult)
+    result = await client.post("/start", query, parse=StartResult)
 
-    rich.print(result)
+    write(result)
 
 
 @main.command()
@@ -287,9 +379,9 @@ async def stop(addresses: list[str], config: Config = ConfigOption(checks=[])) -
     client = APIClient(config)
     address = AddressSelector("|".join(addresses))
     query = ComponentQuery(address=address)
-    result = await client.post("/stop", query, StopResult)
+    result = await client.post("/stop", query, parse=StopResult)
 
-    rich.print(result)
+    write(result)
 
 
 @main.command()
@@ -297,9 +389,9 @@ async def enable(addresses: list[str], config: Config = ConfigOption(checks=[]))
     client = APIClient(config)
     address = AddressSelector("|".join(addresses))
     query = ComponentQuery(address=address)
-    result = await client.post("/enable", data=query, result=EnableResult)
+    result = await client.post("/enable", query, parse=EnableResult)
 
-    rich.print(result)
+    write(result)
 
 
 @main.command()
@@ -307,9 +399,9 @@ async def disable(addresses: list[str], config: Config = ConfigOption(checks=[])
     client = APIClient(config)
     address = AddressSelector("|".join(addresses))
     query = ComponentQuery(address=address)
-    result = await client.post("/disable", query, DisableResult)
+    result = await client.post("/disable", query, parse=DisableResult)
 
-    rich.print(result)
+    write(result)
 
 
 @main.command()
@@ -317,9 +409,9 @@ async def up(addresses: list[str], config: Config = ConfigOption(checks=[])) -> 
     client = APIClient(config)
     address = AddressSelector("|".join(addresses))
     query = ComponentQuery(address=address)
-    result = await client.post("/up", data=query, result=UpResult)
+    result = await client.post("/up", query, parse=UpResult)
 
-    rich.print(result)
+    write(result)
 
 
 @main.command()
@@ -327,6 +419,6 @@ async def down(addresses: list[str], config: Config = ConfigOption(checks=[])) -
     client = APIClient(config)
     address = AddressSelector("|".join(addresses))
     query = ComponentQuery(address=address)
-    result = await client.post("/down", query, DownResult)
+    result = await client.post("/down", query, parse=DownResult)
 
-    rich.print(result)
+    write(result)

@@ -8,7 +8,7 @@ from ceres.data import Name, NameType, StrPattern
 
 _NAME = NameType.regex.pattern[1:-1]
 _MODIFIER = r":(all|children|descendants|ancestors)+"
-_SEGMENT = rf"@|{_MODIFIER}|@?[a-z-A-Z_\-.]+({_MODIFIER})?"
+_SEGMENT = rf"@?[a-z-A-Z_\-.]+({_MODIFIER})?|@|{_MODIFIER}"
 
 
 class AddressSelector(str):

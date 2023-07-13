@@ -53,6 +53,7 @@ from ceres.component import (
     AlertQuery,
     Component,
     ComponentQuery,
+    ComponentStatus,
     LogEntryQuery,
     MessageQuery,
     Statistics,
@@ -133,6 +134,15 @@ def _get_current_engine(connection: HTTPConnection) -> Engine:
 
 
 CurrentEngine = Annotated[Engine, Depends(_get_current_engine)]
+
+
+class HealthResult(ImmutableDataObject):
+    ok: bool
+
+
+@api.get("/health", tags=["engine"])
+async def get_health() -> HealthResult:
+    return HealthResult(ok=True)
 
 
 @api.get("/config", tags=["engine"])
@@ -235,6 +245,23 @@ async def reload(
             return Fail(error)
 
 
+class GetStatusesQueryParameters(ComponentQuery):
+    pass
+
+
+@api.get("/status", tags=["components"])
+async def get_status(engine: CurrentEngine) -> ComponentStatus:
+    return await engine.get_status()
+
+
+@api.get("/statuses", tags=["components"])
+async def get_statuses(
+    engine: CurrentEngine,
+    query: Annotated[GetStatusesQueryParameters, Depends()],
+) -> list[ComponentStatus]:
+    return await engine.get_statuses(query)
+
+
 class GetMessagesQueryParameters(MessageQuery):
     limit: int = Field(default=100, ge=0, le=1000)
     offset: int = Field(default=0, ge=0)
@@ -281,7 +308,7 @@ class GetStatisticsQueryParameters(StatisticsQuery):
     pass
 
 
-@api.get("/statistics", tags=["data"])
+@api.get("/statistics", tags=["components"])
 async def get_statistics(
     engine: CurrentEngine,
     query: Annotated[GetStatisticsQueryParameters, Depends()],

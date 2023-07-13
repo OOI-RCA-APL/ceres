@@ -210,6 +210,12 @@ class ComponentQuery(ObjectQuery["Component"]):
         return True
 
 
+class ComponentStatus(ImmutableDataObject):
+    address: Address
+    enabled: bool
+    running: bool
+
+
 class MessageOrder(str, Enum):
     OLD_TO_NEW = "old-to-new"
     NEW_TO_OLD = "new-to-old"
@@ -1264,6 +1270,27 @@ class Component(ValidatedDataclass, Tasklet):
         return [
             await self.assign_component_id(component.address)
             for component in self.get_components(query, inclusive=True)
+        ]
+
+    async def get_status(self) -> ComponentStatus:
+        return ComponentStatus(
+            address=self.address,
+            running=self.running,
+            enabled=self.enabled,
+        )
+
+    async def get_statuses(
+        self,
+        query: ComponentQuery | None = None,
+        **kwargs: Unpack[ComponentQueryArgs],
+    ) -> list[ComponentStatus]:
+        if query is not None:
+            query = query.with_defaults(ComponentQuery(**kwargs))
+        else:
+            query = ComponentQuery(**kwargs)
+
+        return [
+            await component.get_status() for component in self.get_components(query, inclusive=True)
         ]
 
     async def get_messages(

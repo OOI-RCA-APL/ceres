@@ -7,6 +7,7 @@ from ceres.config import Config
 class ProjectContext:
     def __init__(self, config: Config) -> None:
         assert config.path is not None
+        self.__config = config
         self.__path = config.path.parent.resolve()
 
     @property
@@ -24,3 +25,7 @@ class ProjectContext:
     @property
     def socket(self) -> Path:
         return Path(f"/tmp/ceres-{self.hash}.sock")
+
+    @property
+    def port(self) -> int | None:
+        return self.__config.server.port
