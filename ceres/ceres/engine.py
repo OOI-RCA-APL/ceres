@@ -163,7 +163,12 @@ class Engine(Component):
                 await asyncio.wait(tasks, return_when=FIRST_COMPLETED)
             finally:
                 for task in tasks:
-                    task.cancel()
+                    if not task.cancelled():
+                        if task.done():
+                            try:
+                                task.result()
+                            except Exception:
+                                self.log.error(traceback.format_exc())
                 if self.stopping:
                     self.log.info("Exit signal received, stopping...")
                     break

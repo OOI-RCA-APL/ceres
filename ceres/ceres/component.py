@@ -956,6 +956,20 @@ class Component(ValidatedDataclass, Tasklet):
             self.log.info(f"Scheduling job '{job.name}' on {job.schedule}.")
             self.schedule_job(partial(run, job), job.schedule, name=job.name)
 
+    def start(
+        self,
+        *,
+        on_completed: Callable[[Self], None] | None = None,
+        on_exception: Callable[[Self, BaseException], None] | None = None,
+    ) -> None:
+        for component in reversed(self.get_ancestors()):
+            component.start()
+
+        super().start(
+            on_completed=on_completed,
+            on_exception=on_exception,
+        )
+
     @override
     async def __run__(self) -> None:
         await self.sync_with_database()
@@ -1170,24 +1184,16 @@ class Component(ValidatedDataclass, Tasklet):
 
     @final
     async def flush(self) -> None:
-        if self.parent is None:
-            # If the component has no parent, only flush this component.
-            await self.__flush_self()
-        else:
-            # Otherwise, flush all components in the branch.
-            await asyncio.gather(self.parent.flush(), self.__flush_self())
+        # Keep track of all pending flushes.
+        pending = tuple(self.__flushes)
 
-    async def __flush_self(self) -> None:
         # If there's no items in the buffer, wait for the latest flush to complete.
         if not self.__flush_buffer:
-            if self.__flushes:
-                await self.__flushes[-1].event.wait()
+            if pending:
+                await pending[-1].event.wait()
 
             # Otherwise return, there's nothing to wait for.
             return
-
-        # Store all pending flushes.
-        pending = tuple(self.__flushes)
 
         # Register the flush request.
         flush = _Flush(items=tuple(self.__flush_buffer))
@@ -1197,8 +1203,9 @@ class Component(ValidatedDataclass, Tasklet):
         self.__flush_buffer = []
 
         try:
-            # Wait for all previous flushes to complete.
-            await asyncio.gather(current.event.wait() for current in pending)
+            # Wait for the previous flush to complete.
+            if pending:
+                await pending[-1].event.wait()
 
             async with await self.__init_database_session() as session:
                 # Pick the number of items to insert in a single query based on the database kind.
