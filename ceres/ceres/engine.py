@@ -252,7 +252,7 @@ class Engine(Component):
                     await child.sync_with_database()
                     child.assign_references(references)
                     await self.__load_subcomponents_for(child)
-                    component.log.info(
+                    self.log.info(
                         f"Loaded '{child.address}' as {strify(type(child))} with ID '{id}'."
                     )
                 except Exception:
