@@ -607,8 +607,8 @@ class DASMessageInfo(ImmutableDataObject):
 class DASMessageParticle(ImmutableDataObject):
     source: DASMessageInfo
 
-    @abstractmethod
     @classmethod
+    @abstractmethod
     def parse(cls: type[Self], message: Message) -> Self:
         ...
 
