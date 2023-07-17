@@ -1,9 +1,12 @@
 import asyncio
 import socket
 import traceback
-from asyncio import CancelledError, Task, gather
+from asyncio import FIRST_COMPLETED, CancelledError, Task, gather
+from asyncio import Event as AsyncEvent
 from enum import Enum
 from http.client import responses
+from pathlib import Path
+from queue import Empty, Queue
 from typing import (
     TYPE_CHECKING,
     Annotated,
@@ -61,10 +64,15 @@ from ceres.component import (
 )
 from ceres.config import ComponentConfig, Config
 from ceres.data import ImmutableDataObject, Name, jsonify
+from ceres.database import Database
+from ceres.directory import Directory
 from ceres.errors import (
+    ConfigError,
     ProcedureComponentDoesNotExistError,
     ProcedureError,
     ProcedureInternalError,
+    ReloadAlreadyActiveError,
+    ReloadConfigInvalidError,
     ReloadError,
 )
 from ceres.events import (
@@ -73,13 +81,13 @@ from ceres.events import (
     MessageReceivedEvent,
     MessageSentEvent,
 )
-from ceres.exceptions import ProcedureException
+from ceres.exceptions import EngineDatabaseInitException, ProcedureException
 from ceres.internal import logs
 from ceres.internal.console import ConsoleFiles
 from ceres.internal.context import ProjectContext
 from ceres.internal.tasklet import Tasklet
 from ceres.internal.utilities import sleep_forever, strify
-from ceres.logs import LogEntry
+from ceres.logs import Log, LogEntry
 from ceres.message import Message
 from ceres.procedure import ProcedureBinding
 from ceres.result import Fail, Ok, Result
@@ -128,11 +136,17 @@ ComponentInfo.update_forward_refs()
 api = APIRouter()
 
 
+def _get_current_server(connection: HTTPConnection) -> "Server":
+    assert isinstance(connection.app, App)
+    return connection.app.server
+
+
 def _get_current_engine(connection: HTTPConnection) -> Engine:
     assert isinstance(connection.app, App)
     return connection.app.engine
 
 
+CurrentServer = Annotated["Server", Depends(_get_current_server)]
 CurrentEngine = Annotated[Engine, Depends(_get_current_engine)]
 
 
@@ -146,8 +160,8 @@ async def get_health() -> HealthResult:
 
 
 @api.get("/config", tags=["engine"])
-async def get_config(engine: CurrentEngine) -> Config:
-    return engine.config
+async def get_config(server: CurrentServer) -> Config:
+    return server.config
 
 
 class StartResult(ImmutableDataObject):
@@ -156,7 +170,7 @@ class StartResult(ImmutableDataObject):
 
 @api.post("/start", tags=["engine"])
 async def start(engine: CurrentEngine, query: ComponentQuery) -> StartResult:
-    stopped = engine.get_components(query, running=False)
+    stopped = engine.get_components(query, running=False, inclusive=True)
     stopped.start()
     return StartResult(started=[component.address for component in stopped])
 
@@ -167,7 +181,7 @@ class StopResult(ImmutableDataObject):
 
 @api.post("/stop", tags=["engine"])
 async def stop(engine: CurrentEngine, query: ComponentQuery) -> StopResult:
-    running = engine.get_components(query, running=True)
+    running = engine.get_components(query, running=True, inclusive=True)
     await running.stop()
     return StopResult(stopped=[component.address for component in running])
 
@@ -178,7 +192,7 @@ class EnableResult(ImmutableDataObject):
 
 @api.post("/enable", tags=["engine"])
 async def enable(engine: CurrentEngine, query: ComponentQuery) -> EnableResult:
-    disabled = engine.get_components(query, enabled=False)
+    disabled = engine.get_components(query, enabled=False, inclusive=True)
     await disabled.enable()
     return EnableResult(enabled=[component.address for component in disabled])
 
@@ -189,7 +203,7 @@ class DisableResult(ImmutableDataObject):
 
 @api.post("/disable", tags=["engine"])
 async def disable(engine: CurrentEngine, query: ComponentQuery) -> DisableResult:
-    enabled = engine.get_components(query, enabled=True)
+    enabled = engine.get_components(query, enabled=True, inclusive=True)
     await enabled.enable()
     return DisableResult(disabled=[component.address for component in enabled])
 
@@ -201,10 +215,10 @@ class UpResult(ImmutableDataObject):
 
 @api.post("/up", tags=["engine"])
 async def up(engine: CurrentEngine, query: ComponentQuery) -> UpResult:
-    disabled = engine.get_components(query, enabled=False)
+    disabled = engine.get_components(query, enabled=False, inclusive=True)
     await disabled.enable()
 
-    stopped = engine.get_components(query, running=False)
+    stopped = engine.get_components(query, running=False, inclusive=True)
     stopped.start()
 
     return UpResult(
@@ -220,10 +234,10 @@ class DownResult(ImmutableDataObject):
 
 @api.post("/down", tags=["engine"])
 async def down(engine: CurrentEngine, query: ComponentQuery) -> DownResult:
-    enabled = engine.get_components(query, enabled=True)
+    enabled = engine.get_components(query, enabled=True, inclusive=True)
     await enabled.disable()
 
-    running = engine.get_components(query, running=True)
+    running = engine.get_components(query, running=True, inclusive=True)
     await running.stop()
 
     return DownResult(
@@ -234,10 +248,10 @@ async def down(engine: CurrentEngine, query: ComponentQuery) -> DownResult:
 
 @api.post("/reload", tags=["engine"])
 async def reload(
-    engine: CurrentEngine,
+    server: CurrentServer,
     response: Response,
 ) -> Result[Config, ReloadError]:
-    match await engine.reload():
+    match await server.reload():
         case Ok(config):
             return Ok(config)
         case Fail(error):
@@ -373,17 +387,17 @@ async def log_entry_stream(
 
 @api.get("/components/{address}", tags=["components"])
 async def get_component_info(
-    engine: CurrentEngine,
+    server: CurrentServer,
     address: Address,
 ) -> ComponentInfo:
-    component_config = engine.config.get_component(address)
-    component_cls = engine.config.get_component_cls(address)
+    component_config = server.config.get_component(address)
+    component_cls = server.config.get_component_cls(address)
     if component_config is None or component_cls is None:
         raise HTTPException(404)
 
     children: list[ComponentInfo] = []
     for child_config in component_config.components:
-        children.append(await get_component_info(engine, address / child_config.name))
+        children.append(await get_component_info(server, address / child_config.name))
 
     try:
         info = ComponentInfo(
@@ -562,14 +576,14 @@ class LoggingMiddleware:
 
 @final
 class App(FastAPI):
-    def __init__(self, engine: Engine) -> None:
+    def __init__(self, server: "Server") -> None:
         super().__init__(
             redoc_url=None,
             docs_url="/api/docs",
             openapi_url="/api/openapi.json",
         )
 
-        self.__engine = engine
+        self.__server = server
 
         @self.middleware("http")
         async def error_middleware(
@@ -600,53 +614,140 @@ class App(FastAPI):
         self.mount("/", ConsoleFiles(), name="console")
 
     @property
+    def server(self) -> "Server":
+        return self.__server
+
+    @property
     def engine(self) -> Engine:
-        return self.__engine
+        return self.__server.engine
+
+
+class ActionKind(str, Enum):
+    CREATE = "create"
+    RECREATE = "recreate"
+    REMOVE = "remove"
+
+
+class Action(ImmutableDataObject):
+    kind: ActionKind
+    address: Address
 
 
 @final
 class Server(Tasklet):
-    def __init__(self, engine: Engine, config: Config) -> None:
-        self.__engine = engine
-        self.__config = config
-        self.__app = App(engine)
+    def __init__(self, config_path: Path) -> None:
+        from ceres.engine import Engine
+
+        self.__config_path = config_path
+        match Config.read(config_path):
+            case Ok(config):
+                self.__config = config
+            case Fail(errors):
+                raise ValueError(str(errors))
+
+        self.__config_queue: Queue[Config] = Queue()
+        self.__database = Database(self.__config.database)
+        self.__engine = Engine()
+        self.__engine.local_database = self.__database
+        self.__reloading = AsyncEvent()
+
         self.__port_uvicorn: _Uvicorn | None = None
         self.__uds_uvicorn: _Uvicorn | None = None
 
-    @property
-    def engine(self) -> Engine:
-        return self.__engine
+        self.__app = App(self)
 
     @property
     def config(self) -> Config:
         return self.__config
 
+    @property
+    def project_directory(self) -> Directory:
+        return Directory(self.__config_path.parent)
+
+    @property
+    def local_directory(self) -> Directory:
+        return self.project_directory.subdir("local")
+
+    @property
+    def database(self) -> Database:
+        return self.__database
+
+    @property
+    def engine(self) -> Engine:
+        return self.__engine
+
+    @property
+    def log(self) -> Log:
+        return self.__engine.log
+
     @override
     async def __run__(self) -> None:
         context = ProjectContext(self.__config)
-        self.engine.local_directory.create()
+        self.local_directory.create()
 
-        self.__uds_uvicorn = _Uvicorn(
-            UvicornConfig(
-                app=self.__app,
-                uds=str(context.socket),
-                loop="none",
-            )
-        )
+        await self.load_database()
 
-        if self.__config.server.port is not None:
-            self.__port_uvicorn = _Uvicorn(
+        started = False
+
+        async def serve() -> None:
+            self.__uds_uvicorn = _Uvicorn(
                 UvicornConfig(
                     app=self.__app,
-                    port=self.__config.server.port,
+                    uds=str(context.socket),
                     loop="none",
                 )
             )
 
-        await gather(
-            self.__uds_uvicorn.serve(),
-            self.__port_uvicorn.serve() if self.__port_uvicorn is not None else sleep_forever(),
-        )
+            if self.__config.server.port is not None:
+                self.__port_uvicorn = _Uvicorn(
+                    UvicornConfig(
+                        app=self.__app,
+                        port=self.__config.server.port,
+                        loop="none",
+                    )
+                )
+
+            await gather(
+                self.__uds_uvicorn.serve(),
+                self.__port_uvicorn.serve() if self.__port_uvicorn is not None else sleep_forever(),
+            )
+
+        async def start_enabled() -> None:
+            await asyncio.sleep(0)
+            for component in self.engine.get_components(inclusive=True):
+                await component.sync_with_database()
+                if component.enabled:
+                    self.log.info(f"Starting enabled component '{component.address}'...")
+                    component.start()
+
+        while True:
+            if started:
+                await self.__reloading.wait()
+                await self.__execute_reload()
+
+            started = True
+            self.__reloading.clear()
+
+            tasks = [
+                asyncio.create_task(serve(), name="serve"),
+                asyncio.create_task(start_enabled(), name="start-enabled"),
+                asyncio.create_task(self.__reloading.wait(), name="reload-wait"),
+                asyncio.create_task(self.wait_until_stopping(), name="wait-until-stopping"),
+            ]
+
+            try:
+                await asyncio.wait(tasks, return_when=FIRST_COMPLETED)
+            finally:
+                for task in tasks:
+                    if not task.cancelled():
+                        if task.done():
+                            try:
+                                task.result()
+                            except Exception:
+                                self.log.error(traceback.format_exc())
+                if self.stopping:
+                    self.log.info("Exit signal received, stopping...")
+                    break
 
     @override
     async def __stop__(self) -> None:
@@ -656,6 +757,202 @@ class Server(Tasklet):
         if self.__uds_uvicorn is not None:
             await self.__uds_uvicorn.shutdown()
             self.__uds_uvicorn = None
+
+        await self.engine.stop()
+
+    async def load(self) -> "Result[Config, list[ConfigError]]":
+        match await Config.load(self.__config_path, log=self.log):
+            case Ok(config) as ok:
+                self.__config = config
+                await self.load_database()
+                await self.load_components()
+                return ok
+            case Fail() as fail:
+                return fail
+
+    async def reload(self) -> Result[Config, ReloadError]:
+        if self.__reloading.is_set():
+            return Fail(ReloadAlreadyActiveError())
+
+        source: Path | Config
+
+        if self.config.path:
+            self.log.info(f"Reloading configuration from '{self.config.path}'...")
+            source = self.config.path
+        else:
+            self.log.info("No configuration path is set. Reloading current configuration...")
+            source = self.config
+
+        match await Config.load(source, log=self.log):
+            case Ok(config):
+                self.log.info("Queueing reload...")
+                self.__reloading.set()
+                self.__config_queue.put(config)
+                return Ok(config)
+            case Fail(errors):
+                self.log.error("Reload failed, found errors in configuration.")
+                return Fail(ReloadConfigInvalidError(errors=errors))
+
+    async def load_database(self) -> None:
+        if not await self.database.tables():
+            self.log.info("Database appears empty, initializing database...")
+            try:
+                await self.database.init()
+                self.log.info("Database initialized successfully.")
+            except Exception as exception:
+                self.log.error("Database initialization failed.")
+                raise EngineDatabaseInitException(str(exception))
+
+    async def __execute_reload(self) -> None:
+        self.log.info("Reloading...")
+        config_previous = self.config
+
+        try:
+            self.__config = self.__config_queue.get_nowait()
+        except Empty:
+            self.log.warning("No new configuration was found, ignoring reload.")
+            return
+
+        if self.config == config_previous:
+            self.log.info("Configuration was not modified. Nothing to reload.")
+            return
+
+        # if self.config.server != config_previous.server:
+        #     self.log.info("Server configuration modified, reloading server...")
+        #     try:
+        #         await self.__reload_server()
+        #     except Exception:
+        #         self.log.error(
+        #             f"An issue occurred while reloading the server: {traceback.format_exc()}"
+        #         )
+
+        if self.config.database != config_previous.database:
+            self.log.info(
+                "Database configuration modified, reloading all components and database..."
+            )
+            try:
+                for child in self.engine.components:
+                    await child.stop()
+                await self.engine.flush()
+                if self.__database is not None:
+                    await self.__database.dispose()
+                    self.__database = Database(self.config.database)
+                    self.engine.local_database = self.__database
+            except Exception:
+                self.log.error(
+                    f"An issue occurred while reloading components and database: "
+                    f"{traceback.format_exc()}"
+                )
+
+        if self.get_reload_actions():
+            self.log.info("Syncing units...")
+            try:
+                await self.sync_components()
+            except Exception:
+                self.log.error(f"An issue occurred while syncing units: {traceback.format_exc()}")
+
+        self.log.info("Reload completed.")
+
+    async def load_components(self) -> None:
+        await self.__load_subcomponents_for(self.engine)
+
+    async def __load_subcomponents_for(self, component: Component) -> None:
+        if component is self:
+            config = self.config
+        else:
+            config = self.config.get_component(component.address)
+            if config is None:
+                return
+
+        references: dict[Name, Component] = {}
+
+        for subconfig in config.components:
+            child = component.get_component(subconfig.name)
+            address = component.address / subconfig.name
+            id = await self.engine.assign_component_id(address)
+
+            if child is None:
+                try:
+                    child = subconfig.create()
+                    component.add_component(child)
+                    await child.sync_with_database()
+                    child.assign_references(references)
+                    await self.__load_subcomponents_for(child)
+                    self.log.info(
+                        f"Loaded '{child.address}' as {strify(type(child))} with ID '{id}'."
+                    )
+                except Exception:
+                    component.log.error(f"Failed to load '{address}': {traceback.format_exc()}")
+                    continue
+
+            references[child.name] = child
+
+    async def sync_components(self) -> None:
+        actions = self.get_reload_actions()
+
+        for action in actions:
+            component = self.engine.get_component(action.address)
+
+            if action.kind == ActionKind.REMOVE:
+                if component is not None:
+                    self.log.info(f"'{action.address}' will be removed...")
+                    await component.stop()
+                    component.detach()
+            else:
+                if action.kind == ActionKind.CREATE:
+                    if component is None:
+                        self.log.info(f"'{action.address}' will be created...")
+                elif action.kind == ActionKind.RECREATE:
+                    if component is not None:
+                        self.log.info(f"'{action.address}'will be recreated...")
+                        await component.stop()
+                        component.detach()
+
+        await self.__load_subcomponents_for(self.engine)
+
+        created = [
+            action
+            for action in actions
+            if action.kind == ActionKind.CREATE and action.address in self.engine.components
+        ]
+        recreated = [
+            action
+            for action in actions
+            if action.kind == ActionKind.RECREATE and action.address in self.engine.components
+        ]
+        removed = [
+            action
+            for action in actions
+            if action.kind == ActionKind.REMOVE and action.address not in self.engine.components
+        ]
+
+        if created:
+            self.log.info(f"{len(created)} components(s) created.")
+        if recreated:
+            self.log.info(f"{len(recreated)} components(s) reloaded.")
+        if removed:
+            self.log.info(f"{len(removed)} components(s) removed.")
+
+    def get_reload_actions(self) -> list[Action]:
+        configs: dict[Name, ComponentConfig] = {
+            current.name: current for current in self.config.components
+        }
+
+        actions: list[Action] = []
+
+        for name, config in configs.items():
+            component = self.engine.get_component(name)
+            address = self.engine.address / name
+            if component is None:
+                actions.append(Action(kind=ActionKind.CREATE, address=address))
+            elif component.__config__ != config:
+                actions.append(Action(kind=ActionKind.RECREATE, address=address))
+
+        for component in self.engine.components:
+            if component.name not in configs:
+                actions.append(Action(kind=ActionKind.REMOVE, address=component.address))
+
+        return actions
 
 
 class _Uvicorn(BaseUvicorn):

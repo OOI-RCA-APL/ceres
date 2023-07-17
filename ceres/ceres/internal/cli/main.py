@@ -16,7 +16,6 @@ from ceres.address import AddressSelector
 from ceres.component import ComponentQuery, ComponentStatus
 from ceres.config import Config
 from ceres.data import jsonify, simplify
-from ceres.engine import Engine
 from ceres.exceptions import EngineException
 from ceres.internal import logs
 from ceres.internal.cli.exceptions import (
@@ -41,6 +40,7 @@ from ceres.internal.server import (
     EnableResult,
     GetStatusesQueryParameters,
     HealthResult,
+    Server,
     StartResult,
     StopResult,
     UpResult,
@@ -84,8 +84,8 @@ async def run(
             await _run_watch(config_path=config_path, all=all)
         else:
             set_current_process_name("ceres")
-            engine = Engine()
-            match await engine.load(config_path):
+            server = Server(config_path)
+            match await server.load():
                 case Ok():
                     pass
                 case Fail() as fail:
@@ -95,11 +95,11 @@ async def run(
             exiting = AsyncEvent()
 
             async def run() -> None:
-                engine.start()
+                server.start()
                 if all:
-                    engine.get_components().start()
+                    server.engine.get_components().start()
 
-                await engine.wait_until_stopped()
+                await server.wait_until_stopped()
 
             async def main() -> None:
                 task_run = asyncio.create_task(run())
@@ -118,7 +118,7 @@ async def run(
                         if not task_run.cancelled():
                             task_run.result()
                     else:
-                        await engine.stop()
+                        await server.stop()
                 finally:
                     task_run.cancel()
                     task_wait_until_exiting.cancel()
@@ -293,7 +293,7 @@ class APIClient:
 
 
 @main.command()
-async def reload(*, config: Config = ConfigOption(checks=[])) -> None:
+async def reload(*, config: Config = ConfigOption()) -> None:
     """
     Apply configuration changes while the engine is running.
     """
@@ -318,10 +318,13 @@ AddressPatternInput = Annotated[
 
 
 @main.command()
-async def status(addresses: list[str], config: Config = ConfigOption(checks=[])) -> None:
+async def status(
+    addresses: list[str] = [":all"],
+    config: Config = ConfigOption(),
+) -> None:
     client = APIClient(config)
     project = ProjectContext(config)
-    address = AddressSelector("|".join(addresses))
+    address = AddressSelector("|".join(addresses) if addresses else ":all")
     try:
         statuses = await client.get(
             "/statuses",
@@ -333,24 +336,20 @@ async def status(addresses: list[str], config: Config = ConfigOption(checks=[]))
 
     running = statuses is not None
 
-    with write_table("Engine") as table:
-        table.add_column("Project")
+    with write_table("Server") as table:
+        table.add_column("Path")
         table.add_column("Running")
+        table.add_column("Port")
+        table.add_column("Socket")
         table.add_row(
             str(project.path),
             strbool(running),
+            str(project.port or "(Disabled)"),
+            str(project.socket),
         )
 
     if not running:
         return
-
-    with write_table("Server") as table:
-        table.add_column("Port")
-        table.add_column("Socket")
-        table.add_row(
-            str(project.port or "(Disabled)"),
-            str(project.socket),
-        )
 
     with write_table("Components") as table:
         table.add_column("Address")
@@ -365,7 +364,7 @@ async def status(addresses: list[str], config: Config = ConfigOption(checks=[]))
 
 
 @main.command()
-async def start(addresses: list[str], config: Config = ConfigOption(checks=[])) -> None:
+async def start(addresses: list[str], config: Config = ConfigOption()) -> None:
     client = APIClient(config)
     address = AddressSelector("|".join(addresses))
     query = ComponentQuery(address=address)
@@ -375,7 +374,7 @@ async def start(addresses: list[str], config: Config = ConfigOption(checks=[])) 
 
 
 @main.command()
-async def stop(addresses: list[str], config: Config = ConfigOption(checks=[])) -> None:
+async def stop(addresses: list[str], config: Config = ConfigOption()) -> None:
     client = APIClient(config)
     address = AddressSelector("|".join(addresses))
     query = ComponentQuery(address=address)
@@ -385,7 +384,7 @@ async def stop(addresses: list[str], config: Config = ConfigOption(checks=[])) -
 
 
 @main.command()
-async def enable(addresses: list[str], config: Config = ConfigOption(checks=[])) -> None:
+async def enable(addresses: list[str], config: Config = ConfigOption()) -> None:
     client = APIClient(config)
     address = AddressSelector("|".join(addresses))
     query = ComponentQuery(address=address)
@@ -395,7 +394,7 @@ async def enable(addresses: list[str], config: Config = ConfigOption(checks=[]))
 
 
 @main.command()
-async def disable(addresses: list[str], config: Config = ConfigOption(checks=[])) -> None:
+async def disable(addresses: list[str], config: Config = ConfigOption()) -> None:
     client = APIClient(config)
     address = AddressSelector("|".join(addresses))
     query = ComponentQuery(address=address)
@@ -405,7 +404,7 @@ async def disable(addresses: list[str], config: Config = ConfigOption(checks=[])
 
 
 @main.command()
-async def up(addresses: list[str], config: Config = ConfigOption(checks=[])) -> None:
+async def up(addresses: list[str], config: Config = ConfigOption()) -> None:
     client = APIClient(config)
     address = AddressSelector("|".join(addresses))
     query = ComponentQuery(address=address)
@@ -415,7 +414,7 @@ async def up(addresses: list[str], config: Config = ConfigOption(checks=[])) -> 
 
 
 @main.command()
-async def down(addresses: list[str], config: Config = ConfigOption(checks=[])) -> None:
+async def down(addresses: list[str], config: Config = ConfigOption()) -> None:
     client = APIClient(config)
     address = AddressSelector("|".join(addresses))
     query = ComponentQuery(address=address)

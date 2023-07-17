@@ -175,6 +175,52 @@ class Config(ComponentConfig):
         return value
 
     @classmethod
+    def read(cls, source: Path | Mapping[str, object] | Self) -> "Result[Self, list[ConfigError]]":
+        try:
+            if isinstance(source, Mapping):
+                instance = cls.__from_data(source)
+            elif isinstance(source, Path):
+                try:
+                    path = source.resolve()
+                except Exception:
+                    return Fail([ConfigReadError(message=f"path '{source}' could not be resolved")])
+
+                try:
+                    with open(path, "r") as stream:
+                        data = yaml.safe_load(stream)
+                except OSError:
+                    return Fail([ConfigReadError(message=f"failed to read file at '{path}'")])
+                except YAMLError as error:
+                    message: str | None = None
+                    location: ConfigParseErrorLocation | None = None
+
+                    if isinstance(error, MarkedYAMLError):
+                        message = error.problem
+
+                        if error.problem_mark:
+                            location = ConfigParseErrorLocation(
+                                line=error.problem_mark.line,
+                                column=error.problem_mark.column,
+                            )
+
+                    return Fail(
+                        [
+                            ConfigParseError(
+                                message=message,
+                                location=location,
+                            )
+                        ]
+                    )
+
+                instance = cls.__from_data(data, path)
+            else:
+                instance = source
+        except ValidationError as error:
+            return Fail([ConfigValidationError(problems=ValidationProblem.extract(error))])
+
+        return Ok(instance)
+
+    @classmethod
     async def load(
         cls,
         source: Path | Mapping[str, object] | Self,
