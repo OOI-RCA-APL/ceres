@@ -642,7 +642,7 @@ class Server(Tasklet):
 
         self.__config_queue: Queue[Config] = Queue()
         self.__database = Database(self.__config.database)
-        self.__root = Component()
+        self.__root = self.__config.create()
         self.__root.bind_server(self)
         self.__reloading = AsyncEvent()
 
