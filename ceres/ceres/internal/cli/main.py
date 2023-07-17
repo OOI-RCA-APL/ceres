@@ -18,6 +18,17 @@ from ceres.config import Config
 from ceres.data import jsonify, simplify
 from ceres.exceptions import ServerException
 from ceres.internal import logs
+from ceres.internal.app import (
+    DisableResult,
+    DownResult,
+    EnableResult,
+    GetStatusesQueryParameters,
+    HealthResult,
+    Server,
+    StartResult,
+    StopResult,
+    UpResult,
+)
 from ceres.internal.cli.exceptions import (
     CLIEngineNotRunningException,
     CLIInvalidConfigException,
@@ -34,17 +45,6 @@ from ceres.internal.cli.shared import (
 from ceres.internal.cli.subcommands.database import database
 from ceres.internal.cli.subcommands.service import service
 from ceres.internal.context import ProjectContext
-from ceres.internal.server import (
-    DisableResult,
-    DownResult,
-    EnableResult,
-    GetStatusesQueryParameters,
-    HealthResult,
-    Server,
-    StartResult,
-    StopResult,
-    UpResult,
-)
 from ceres.internal.utilities import (
     ensure_event_loop,
     set_current_process_name,

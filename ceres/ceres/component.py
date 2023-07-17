@@ -24,10 +24,10 @@ from typing import (
     Mapping,
     ParamSpec,
     Protocol,
-    SupportsIndex,
     TypedDict,
     TypeVar,
     final,
+    overload,
 )
 from uuid import UUID, uuid4
 from weakref import WeakValueDictionary, ref
@@ -128,7 +128,7 @@ from ceres.timing import utc
 from ceres.validation import ValidationProblem
 
 if TYPE_CHECKING:
-    from ceres.internal.server import Server
+    from ceres.server import Server
 else:
     Server = "Server"
 
@@ -791,7 +791,7 @@ class Component(ValidatedDataclass, Tasklet):
 
         self.__components[component.name] = component
         component.detach()
-        component.__parent = ref(self)
+        component.__parent = ref(self)  # type: ignore
 
         return component
 
@@ -842,7 +842,7 @@ class Component(ValidatedDataclass, Tasklet):
         if isinstance(__query, ComponentQuery):
             query = __query.with_defaults(query)
         elif isinstance(__query, AddressSelector):
-            query = ComponentQuery(**{**query.dict(), "address": __query})
+            query = ComponentQuery(**{**query.dict(), "address": __query})  # type: ignore
 
         def traverse(current: Component) -> None:
             if (inclusive or current is not self) and query.matches(current, self.address):
@@ -1775,8 +1775,20 @@ class ComponentGroup(Sequence[Component]):
     def __init__(self, components: Iterable[Component]):
         self.components = tuple(uniquify(components, key=lambda component: component.address))
 
-    def __getitem__(self, __index: SupportsIndex) -> Component:
-        return self.components[__index]
+    @overload
+    def __getitem__(self, __index: int) -> Component:
+        ...
+
+    @overload
+    def __getitem__(self, __index: slice) -> Self:
+        ...
+
+    def __getitem__(self, __index: int | slice) -> "Component | Self":  # type: ignore
+        value = self.components[__index]
+        if isinstance(value, tuple):
+            return type(self)(value)
+
+        return value
 
     def __len__(self) -> int:
         return len(self.components)
