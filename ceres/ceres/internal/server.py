@@ -81,7 +81,7 @@ from ceres.events import (
     MessageReceivedEvent,
     MessageSentEvent,
 )
-from ceres.exceptions import EngineDatabaseInitException, ProcedureException
+from ceres.exceptions import DatabaseInitException, ProcedureException
 from ceres.internal import logs
 from ceres.internal.console import ConsoleFiles
 from ceres.internal.context import ProjectContext
@@ -94,10 +94,7 @@ from ceres.result import Fail, Ok, Result
 
 if TYPE_CHECKING:
     from uvicorn.server import Protocols
-
-    from ceres.engine import Engine
 else:
-    Engine = "Engine"
     Protocols = "Protocols"
 
 
@@ -141,25 +138,25 @@ def _get_current_server(connection: HTTPConnection) -> "Server":
     return connection.app.server
 
 
-def _get_current_engine(connection: HTTPConnection) -> Engine:
+def _get_current_root(connection: HTTPConnection) -> Component:
     assert isinstance(connection.app, App)
-    return connection.app.engine
+    return connection.app.root
 
 
 CurrentServer = Annotated["Server", Depends(_get_current_server)]
-CurrentEngine = Annotated[Engine, Depends(_get_current_engine)]
+CurrentRoot = Annotated[Component, Depends(_get_current_root)]
 
 
 class HealthResult(ImmutableDataObject):
     ok: bool
 
 
-@api.get("/health", tags=["engine"])
+@api.get("/health", tags=["root"])
 async def get_health() -> HealthResult:
     return HealthResult(ok=True)
 
 
-@api.get("/config", tags=["engine"])
+@api.get("/config", tags=["root"])
 async def get_config(server: CurrentServer) -> Config:
     return server.config
 
@@ -168,9 +165,9 @@ class StartResult(ImmutableDataObject):
     started: Sequence[Address]
 
 
-@api.post("/start", tags=["engine"])
-async def start(engine: CurrentEngine, query: ComponentQuery) -> StartResult:
-    stopped = engine.get_components(query, running=False, inclusive=True)
+@api.post("/start", tags=["root"])
+async def start(root: CurrentRoot, query: ComponentQuery) -> StartResult:
+    stopped = root.get_components(query, running=False, inclusive=True)
     stopped.start()
     return StartResult(started=[component.address for component in stopped])
 
@@ -179,9 +176,9 @@ class StopResult(ImmutableDataObject):
     stopped: Sequence[Address]
 
 
-@api.post("/stop", tags=["engine"])
-async def stop(engine: CurrentEngine, query: ComponentQuery) -> StopResult:
-    running = engine.get_components(query, running=True, inclusive=True)
+@api.post("/stop", tags=["root"])
+async def stop(root: CurrentRoot, query: ComponentQuery) -> StopResult:
+    running = root.get_components(query, running=True, inclusive=True)
     await running.stop()
     return StopResult(stopped=[component.address for component in running])
 
@@ -190,9 +187,9 @@ class EnableResult(ImmutableDataObject):
     enabled: Sequence[Address]
 
 
-@api.post("/enable", tags=["engine"])
-async def enable(engine: CurrentEngine, query: ComponentQuery) -> EnableResult:
-    disabled = engine.get_components(query, enabled=False, inclusive=True)
+@api.post("/enable", tags=["root"])
+async def enable(root: CurrentRoot, query: ComponentQuery) -> EnableResult:
+    disabled = root.get_components(query, enabled=False, inclusive=True)
     await disabled.enable()
     return EnableResult(enabled=[component.address for component in disabled])
 
@@ -201,9 +198,9 @@ class DisableResult(ImmutableDataObject):
     disabled: Sequence[Address]
 
 
-@api.post("/disable", tags=["engine"])
-async def disable(engine: CurrentEngine, query: ComponentQuery) -> DisableResult:
-    enabled = engine.get_components(query, enabled=True, inclusive=True)
+@api.post("/disable", tags=["root"])
+async def disable(root: CurrentRoot, query: ComponentQuery) -> DisableResult:
+    enabled = root.get_components(query, enabled=True, inclusive=True)
     await enabled.enable()
     return DisableResult(disabled=[component.address for component in enabled])
 
@@ -213,12 +210,12 @@ class UpResult(ImmutableDataObject):
     started: Sequence[Address]
 
 
-@api.post("/up", tags=["engine"])
-async def up(engine: CurrentEngine, query: ComponentQuery) -> UpResult:
-    disabled = engine.get_components(query, enabled=False, inclusive=True)
+@api.post("/up", tags=["root"])
+async def up(root: CurrentRoot, query: ComponentQuery) -> UpResult:
+    disabled = root.get_components(query, enabled=False, inclusive=True)
     await disabled.enable()
 
-    stopped = engine.get_components(query, running=False, inclusive=True)
+    stopped = root.get_components(query, running=False, inclusive=True)
     stopped.start()
 
     return UpResult(
@@ -232,12 +229,12 @@ class DownResult(ImmutableDataObject):
     stopped: Sequence[Address]
 
 
-@api.post("/down", tags=["engine"])
-async def down(engine: CurrentEngine, query: ComponentQuery) -> DownResult:
-    enabled = engine.get_components(query, enabled=True, inclusive=True)
+@api.post("/down", tags=["root"])
+async def down(root: CurrentRoot, query: ComponentQuery) -> DownResult:
+    enabled = root.get_components(query, enabled=True, inclusive=True)
     await enabled.disable()
 
-    running = engine.get_components(query, running=True, inclusive=True)
+    running = root.get_components(query, running=True, inclusive=True)
     await running.stop()
 
     return DownResult(
@@ -246,7 +243,7 @@ async def down(engine: CurrentEngine, query: ComponentQuery) -> DownResult:
     )
 
 
-@api.post("/reload", tags=["engine"])
+@api.post("/reload", tags=["root"])
 async def reload(
     server: CurrentServer,
     response: Response,
@@ -264,16 +261,16 @@ class GetStatusesQueryParameters(ComponentQuery):
 
 
 @api.get("/status", tags=["components"])
-async def get_status(engine: CurrentEngine) -> ComponentStatus:
-    return await engine.get_status()
+async def get_status(root: CurrentRoot) -> ComponentStatus:
+    return await root.get_status()
 
 
 @api.get("/statuses", tags=["components"])
 async def get_statuses(
-    engine: CurrentEngine,
+    root: CurrentRoot,
     query: Annotated[GetStatusesQueryParameters, Depends()],
 ) -> list[ComponentStatus]:
-    return await engine.get_statuses(query)
+    return await root.get_statuses(query)
 
 
 class GetMessagesQueryParameters(MessageQuery):
@@ -283,10 +280,10 @@ class GetMessagesQueryParameters(MessageQuery):
 
 @api.get("/messages", tags=["data"])
 async def get_messages(
-    engine: CurrentEngine,
+    root: CurrentRoot,
     query: Annotated[GetMessagesQueryParameters, Depends()],
 ) -> list[Message]:
-    return await engine.get_messages(query)
+    return await root.get_messages(query)
 
 
 class GetAlertsQueryParameters(AlertQuery):
@@ -298,10 +295,10 @@ class GetAlertsQueryParameters(AlertQuery):
 
 @api.get("/alerts", tags=["data"])
 async def get_alerts(
-    engine: CurrentEngine,
+    root: CurrentRoot,
     query: Annotated[GetAlertsQueryParameters, Depends()],
 ) -> list[Alert]:
-    return await engine.get_alerts(query)
+    return await root.get_alerts(query)
 
 
 class GetLogEntriesQueryParameters(LogEntryQuery):
@@ -312,10 +309,10 @@ class GetLogEntriesQueryParameters(LogEntryQuery):
 
 @api.get("/log-entries", tags=["data"])
 async def get_log_entries(
-    engine: CurrentEngine,
+    root: CurrentRoot,
     query: Annotated[GetLogEntriesQueryParameters, Depends()],
 ) -> list[LogEntry]:
-    return await engine.get_log_entries(query)
+    return await root.get_log_entries(query)
 
 
 class GetStatisticsQueryParameters(StatisticsQuery):
@@ -324,16 +321,16 @@ class GetStatisticsQueryParameters(StatisticsQuery):
 
 @api.get("/statistics", tags=["components"])
 async def get_statistics(
-    engine: CurrentEngine,
+    root: CurrentRoot,
     query: Annotated[GetStatisticsQueryParameters, Depends()],
 ) -> list[Statistics]:
-    return await engine.get_statistics(query)
+    return await root.get_statistics(query)
 
 
 @api.websocket("/message-stream")
 async def message_stream(
     socket: WebSocket,
-    engine: CurrentEngine,
+    root: CurrentRoot,
     address: AddressSelector | None = None,
     search: str | None = None,
 ) -> None:
@@ -341,8 +338,8 @@ async def message_stream(
         await socket.accept()
 
         query = MessageQuery(address=address, search=search)
-        async for event in engine.events.of(MessageSentEvent | MessageReceivedEvent):
-            if query.matches(event.message, engine.address):
+        async for event in root.events.of(MessageSentEvent | MessageReceivedEvent):
+            if query.matches(event.message, root.address):
                 await socket.send_text(jsonify(event.message))
     except (WebSocketDisconnect, ConnectionClosed):
         raise
@@ -352,7 +349,7 @@ async def message_stream(
 @api.websocket("/alert-stream")
 async def alert_stream(
     socket: WebSocket,
-    engine: CurrentEngine,
+    root: CurrentRoot,
     address: AddressSelector | None = None,
     search: str | None = None,
 ) -> None:
@@ -360,8 +357,8 @@ async def alert_stream(
         await socket.accept()
 
         query = AlertQuery(address=address, search=search)
-        async for event in engine.events.of(AlertEvent):
-            if query.matches(event.alert, engine.address):
+        async for event in root.events.of(AlertEvent):
+            if query.matches(event.alert, root.address):
                 await socket.send_text(jsonify(event.alert))
     except (WebSocketDisconnect, ConnectionClosed):
         pass
@@ -370,7 +367,7 @@ async def alert_stream(
 @api.websocket("/log-entry-stream")
 async def log_entry_stream(
     socket: WebSocket,
-    engine: CurrentEngine,
+    root: CurrentRoot,
     address: AddressSelector | None = None,
     search: str | None = None,
 ) -> None:
@@ -378,8 +375,8 @@ async def log_entry_stream(
         await socket.accept()
 
         query = LogEntryQuery(address=address, search=search)
-        async for event in engine.events.of(LogEvent):
-            if query.matches(event.entry, engine.address):
+        async for event in root.events.of(LogEvent):
+            if query.matches(event.entry, root.address):
                 await socket.send_text(jsonify(event.entry))
     except (WebSocketDisconnect, ConnectionClosed):
         pass
@@ -421,7 +418,7 @@ async def get_component_info(
 )
 async def call(
     request: Request,
-    engine: CurrentEngine,
+    root: CurrentRoot,
     address: Address,
     procedure: Name,
     query_args: Json[Any] = Query(None, alias="args"),
@@ -440,7 +437,7 @@ async def call(
     args.pop("args", None)
 
     try:
-        component = engine.get_component(address)
+        component = root.get_component(address)
         if component is None:
             return Fail(ProcedureComponentDoesNotExistError())
         return Ok(await component.call(procedure, args))
@@ -451,7 +448,7 @@ async def call(
 @api.websocket("/components/{address}/procedures/{procedure}/subscribe")
 async def subscribe(
     socket: WebSocket,
-    engine: CurrentEngine,
+    root: CurrentRoot,
     address: Address,
     procedure: Name,
     query_args: Json[Any] = Query(None, alias="args"),
@@ -469,7 +466,7 @@ async def subscribe(
     args.update(socket.query_params)
     args.pop("args", None)
 
-    component = engine.get_component(address)
+    component = root.get_component(address)
     if component is None:
         code = 1008  # Set code for policy violation.
         reason = jsonify(Fail(ProcedureComponentDoesNotExistError()))
@@ -545,7 +542,7 @@ class LoggingMiddleware:
                         description = responses.get(status, "Unknown")
                         level = Level.INFO if status < 400 else Level.ERROR
 
-                        app.engine.log.write(
+                        app.root.log.write(
                             level,
                             f"[HTTP] {verb} {path} {host} {status} {description}",
                         )
@@ -565,7 +562,7 @@ class LoggingMiddleware:
                         client = socket["client"]
                         host = client[0] if client else "?"
 
-                        app.engine.log.info(f"[WS] '{verb}' {path} {host}")
+                        app.root.log.info(f"[WS] '{verb}' {path} {host}")
                 except Exception:
                     traceback.print_exc()
 
@@ -593,7 +590,7 @@ class App(FastAPI):
             try:
                 return await call_next(request)
             except Exception:
-                self.engine.log.error(traceback.format_exc())
+                self.root.log.error(traceback.format_exc())
                 raise
 
         self.add_middleware(
@@ -618,8 +615,8 @@ class App(FastAPI):
         return self.__server
 
     @property
-    def engine(self) -> Engine:
-        return self.__server.engine
+    def root(self) -> "Component":
+        return self.__server.root
 
 
 class ActionKind(str, Enum):
@@ -636,8 +633,6 @@ class Action(ImmutableDataObject):
 @final
 class Server(Tasklet):
     def __init__(self, config_path: Path) -> None:
-        from ceres.engine import Engine
-
         self.__config_path = config_path
         match Config.read(config_path):
             case Ok(config):
@@ -647,8 +642,8 @@ class Server(Tasklet):
 
         self.__config_queue: Queue[Config] = Queue()
         self.__database = Database(self.__config.database)
-        self.__engine = Engine()
-        self.__engine.local_database = self.__database
+        self.__root = Component()
+        self.__root.bind_server(self)
         self.__reloading = AsyncEvent()
 
         self.__port_uvicorn: _Uvicorn | None = None
@@ -673,12 +668,12 @@ class Server(Tasklet):
         return self.__database
 
     @property
-    def engine(self) -> Engine:
-        return self.__engine
+    def root(self) -> Component:
+        return self.__root
 
     @property
     def log(self) -> Log:
-        return self.__engine.log
+        return self.__root.log
 
     @override
     async def __run__(self) -> None:
@@ -714,7 +709,7 @@ class Server(Tasklet):
 
         async def start_enabled() -> None:
             await asyncio.sleep(0)
-            for component in self.engine.get_components(inclusive=True):
+            for component in self.root.get_components(inclusive=True):
                 await component.sync_with_database()
                 if component.enabled:
                     self.log.info(f"Starting enabled component '{component.address}'...")
@@ -758,7 +753,7 @@ class Server(Tasklet):
             await self.__uds_uvicorn.shutdown()
             self.__uds_uvicorn = None
 
-        await self.engine.stop()
+        await self.root.stop()
 
     async def load(self) -> "Result[Config, list[ConfigError]]":
         match await Config.load(self.__config_path, log=self.log):
@@ -801,7 +796,7 @@ class Server(Tasklet):
                 self.log.info("Database initialized successfully.")
             except Exception as exception:
                 self.log.error("Database initialization failed.")
-                raise EngineDatabaseInitException(str(exception))
+                raise DatabaseInitException(str(exception))
 
     async def __execute_reload(self) -> None:
         self.log.info("Reloading...")
@@ -831,13 +826,9 @@ class Server(Tasklet):
                 "Database configuration modified, reloading all components and database..."
             )
             try:
-                for child in self.engine.components:
-                    await child.stop()
-                await self.engine.flush()
-                if self.__database is not None:
-                    await self.__database.dispose()
-                    self.__database = Database(self.config.database)
-                    self.engine.local_database = self.__database
+                await self.root.stop()
+                await self.__database.dispose()
+                self.__database = Database(self.config.database)
             except Exception:
                 self.log.error(
                     f"An issue occurred while reloading components and database: "
@@ -854,7 +845,7 @@ class Server(Tasklet):
         self.log.info("Reload completed.")
 
     async def load_components(self) -> None:
-        await self.__load_subcomponents_for(self.engine)
+        await self.__load_subcomponents_for(self.root)
 
     async def __load_subcomponents_for(self, component: Component) -> None:
         if component is self:
@@ -869,7 +860,7 @@ class Server(Tasklet):
         for subconfig in config.components:
             child = component.get_component(subconfig.name)
             address = component.address / subconfig.name
-            id = await self.engine.assign_component_id(address)
+            id = await self.root.assign_component_id(address)
 
             if child is None:
                 try:
@@ -891,7 +882,7 @@ class Server(Tasklet):
         actions = self.get_reload_actions()
 
         for action in actions:
-            component = self.engine.get_component(action.address)
+            component = self.root.get_component(action.address)
 
             if action.kind == ActionKind.REMOVE:
                 if component is not None:
@@ -908,22 +899,22 @@ class Server(Tasklet):
                         await component.stop()
                         component.detach()
 
-        await self.__load_subcomponents_for(self.engine)
+        await self.__load_subcomponents_for(self.root)
 
         created = [
             action
             for action in actions
-            if action.kind == ActionKind.CREATE and action.address in self.engine.components
+            if action.kind == ActionKind.CREATE and action.address in self.root.components
         ]
         recreated = [
             action
             for action in actions
-            if action.kind == ActionKind.RECREATE and action.address in self.engine.components
+            if action.kind == ActionKind.RECREATE and action.address in self.root.components
         ]
         removed = [
             action
             for action in actions
-            if action.kind == ActionKind.REMOVE and action.address not in self.engine.components
+            if action.kind == ActionKind.REMOVE and action.address not in self.root.components
         ]
 
         if created:
@@ -941,14 +932,14 @@ class Server(Tasklet):
         actions: list[Action] = []
 
         for name, config in configs.items():
-            component = self.engine.get_component(name)
-            address = self.engine.address / name
+            component = self.root.get_component(name)
+            address = self.root.address / name
             if component is None:
                 actions.append(Action(kind=ActionKind.CREATE, address=address))
             elif component.__config__ != config:
                 actions.append(Action(kind=ActionKind.RECREATE, address=address))
 
-        for component in self.engine.components:
+        for component in self.root.components:
             if component.name not in configs:
                 actions.append(Action(kind=ActionKind.REMOVE, address=component.address))
 

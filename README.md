@@ -38,23 +38,23 @@ Ceres is a Python framework for streaming data collection and monitoring. This p
    _This makes `ceres` available as a command._
 
 7. Run `ceres run --all --watch` to run the project.
-   
-   * _The `--all` flag starts all components on engine startup._
-   * _The `--watch` flag makes the engine reload when either configuration or code are modified._
 
-9. Go to `localhost:9000`. You should see the web console.
+   - _The `--all` flag starts all components on server startup._
+   - _The `--watch` flag makes the server reload when either configuration or code are modified._
 
-10. Ceres reads the `ceres.yaml` configuration file at the project root in order to function. At the moment, the project is not actually connecting to a real device, only a simulator.
+8. Go to `localhost:9000`. You should see the web console.
 
-   If you have an actual Crabee device available, edit `ceres.yaml` and change the IP address of the connection component to the IP address of the board.
+9. Ceres reads the `ceres.yaml` configuration file at the project root in order to function. At the moment, the project is not actually connecting to a real device, only a simulator.
 
-   ```python3
-   - host: 0.0.0.0
-   + host: 10.95.96.173
-   ```
+If you have an actual Crabee device available, edit `ceres.yaml` and change the IP address of the connection component to the IP address of the board.
 
-   Once `ceres.yaml` is saved, the engine should reload immediately and try to connect to the device.
+```python3
+- host: 0.0.0.0
++ host: 10.95.96.173
+```
 
-   If the device is reachable, you should see logs indicating the connection was successful and messages should be printed every second, just like the simulator.
+Once `ceres.yaml` is saved, the server should reload immediately and try to connect to the device.
 
-   If the device is not reachable, the connection component will log errors and attempt to reconnect repeatedly according to an exponential fallback interval.
+If the device is reachable, you should see logs indicating the connection was successful and messages should be printed every second, just like the simulator.
+
+If the device is not reachable, the connection component will log errors and attempt to reconnect repeatedly according to an exponential fallback interval.

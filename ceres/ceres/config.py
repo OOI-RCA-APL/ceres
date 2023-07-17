@@ -150,11 +150,6 @@ class Config(ComponentConfig):
         underscore_attrs_are_private = True
 
     name: Name = Field(default_factory=lambda: randstr(ascii_lowercase, 8))
-    cls_path: ClassPath = Field(
-        default_factory=lambda: ClassPath("ceres.engine.Engine"),
-        alias="class",
-    )
-
     service: ServiceConfig | None = None
     server: ServerConfig = Field(default_factory=ServerConfig)
     database: DatabaseConfig = Field(default_factory=SQLiteDatabaseConfig, discriminator="kind")
@@ -164,15 +159,6 @@ class Config(ComponentConfig):
     @property
     def path(self) -> Path | None:
         return self.__path
-
-    @validator("cls_path")
-    def _validate_cls_path(cls, value: ClassPath) -> ClassPath:
-        from ceres.engine import Engine
-
-        if value.cls is not Engine:
-            raise ValueError(f"must be {Engine}")
-
-        return value
 
     @classmethod
     def read(cls, source: Path | Mapping[str, object] | Self) -> "Result[Self, list[ConfigError]]":

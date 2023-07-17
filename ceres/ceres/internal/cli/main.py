@@ -16,7 +16,7 @@ from ceres.address import AddressSelector
 from ceres.component import ComponentQuery, ComponentStatus
 from ceres.config import Config
 from ceres.data import jsonify, simplify
-from ceres.exceptions import EngineException
+from ceres.exceptions import ServerException
 from ceres.internal import logs
 from ceres.internal.cli.exceptions import (
     CLIEngineNotRunningException,
@@ -97,7 +97,7 @@ async def run(
             async def run() -> None:
                 server.start()
                 if all:
-                    server.engine.get_components().start()
+                    server.root.get_components().start()
 
                 await server.wait_until_stopped()
 
@@ -128,7 +128,7 @@ async def run(
 
             with temporary_signal_handler([signal.SIGINT, signal.SIGTERM], handle_exit_signal):
                 await main()
-    except EngineException as exception:
+    except ServerException as exception:
         raise CLIStartupException(f"Engine startup failed. {exception.message}")
 
 
