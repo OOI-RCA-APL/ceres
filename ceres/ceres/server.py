@@ -366,7 +366,7 @@ class Server(Tasklet):
 
         include = {"name", "cls_path", "class", "args"}
         old = {} if component.__config__ is None else component.__config__.dict(include=include)
-        new = {} if config is None else config.dict(include=include)
+        new = config.dict(include=include)
 
         if old != new:
             return [Action(kind=ActionKind.RECREATE, address=address)]
