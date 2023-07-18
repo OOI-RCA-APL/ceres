@@ -5,7 +5,6 @@ from datetime import timedelta
 from enum import Enum
 from logging import Logger
 from pathlib import Path
-from string import ascii_lowercase
 from typing import TYPE_CHECKING, Any, Callable, Literal, Mapping, Sequence
 
 import yaml
@@ -26,7 +25,7 @@ from ceres.errors import (
     ConfigReadError,
     ConfigValidationError,
 )
-from ceres.internal.utilities import lenient_issubclass, randstr, setattr_internal, show_td
+from ceres.internal.utilities import lenient_issubclass, setattr_internal, show_td
 from ceres.loaded import Loader
 from ceres.logs import Log
 from ceres.result import Fail, Ok, Result
@@ -54,7 +53,9 @@ class ComponentConfig(Loader, _ComponentConfigMixin):
     components: Sequence["ComponentConfig"] = ()
 
     def create(self, *, args: Sequence[Any] | Mapping[str, Any] | None = None) -> Component:
-        return super().create(args=args)
+        component: Component = super().create(args=args)
+        component.__config__ = self
+        return component
 
     @override
     @classmethod
@@ -149,12 +150,7 @@ class Config(ComponentConfig):
     class Config(ComponentConfig.Config):
         underscore_attrs_are_private = True
 
-    name: Name = Field(default_factory=lambda: randstr(ascii_lowercase, 8))
-    cls_path: ClassPath = Field(
-        default_factory=lambda: ClassPath("ceres.engine.Engine"),
-        alias="class",
-    )
-
+    name: Name = "root"
     service: ServiceConfig | None = None
     server: ServerConfig = Field(default_factory=ServerConfig)
     database: DatabaseConfig = Field(default_factory=SQLiteDatabaseConfig, discriminator="kind")
@@ -165,14 +161,51 @@ class Config(ComponentConfig):
     def path(self) -> Path | None:
         return self.__path
 
-    @validator("cls_path")
-    def _validate_cls_path(cls, value: ClassPath) -> ClassPath:
-        from ceres.engine import Engine
+    @classmethod
+    def read(cls, source: Path | Mapping[str, object] | Self) -> "Result[Self, list[ConfigError]]":
+        try:
+            if isinstance(source, Mapping):
+                instance = cls.__from_data(source)
+            elif isinstance(source, Path):
+                try:
+                    path = source.resolve()
+                except Exception:
+                    return Fail([ConfigReadError(message=f"path '{source}' could not be resolved")])
 
-        if value.cls is not Engine:
-            raise ValueError(f"must be {Engine}")
+                try:
+                    with open(path, "r") as stream:
+                        data = yaml.safe_load(stream)
+                except OSError:
+                    return Fail([ConfigReadError(message=f"failed to read file at '{path}'")])
+                except YAMLError as error:
+                    message: str | None = None
+                    location: ConfigParseErrorLocation | None = None
 
-        return value
+                    if isinstance(error, MarkedYAMLError):
+                        message = error.problem
+
+                        if error.problem_mark:
+                            location = ConfigParseErrorLocation(
+                                line=error.problem_mark.line,
+                                column=error.problem_mark.column,
+                            )
+
+                    return Fail(
+                        [
+                            ConfigParseError(
+                                message=message,
+                                location=location,
+                            )
+                        ]
+                    )
+
+                instance = cls.__from_data(data, path)
+            else:
+                instance = source
+        except ValidationError as error:
+            return Fail([ConfigValidationError(problems=ValidationProblem.extract(error))])
+
+        return Ok(instance)
 
     @classmethod
     async def load(
@@ -365,19 +398,7 @@ class Config(ComponentConfig):
 
             current = next((child for child in current.components if child.name == name), None)
 
-        if current is None:
-            return None
-        if type(current) is ComponentConfig:
-            return current
-
-        return ComponentConfig.parse_obj(
-            {
-                "name": current.name,
-                "class": current.cls_path,  # type: ignore
-                "args": current.args,
-                "components": current.components,
-            }
-        )
+        return current
 
     def get_component_cls(self, address: DynamicAddress) -> type[Component] | None:
         config = self.get_component(address)

@@ -59,7 +59,13 @@ const resizablePanelProps = {
         name="Messages"
         :persist="`components/${component.address}/messages-panel-container`"
       >
-        <item-view :address="address" class="full-height" kind="message" title="Messages" />
+        <item-view
+          :address="address"
+          class="full-height"
+          kind="message"
+          :show-command-input="component.roles.includes('connection')"
+          title="Messages"
+        />
       </panel-container>
       <panel-container
         container-class="q-pa-sm"
@@ -112,10 +118,10 @@ const resizablePanelProps = {
       >
         <template #tabs>
           <panel-tab
-            v-for="hud in uis"
-            :key="hud.address.toString()"
-            :name="hud.address.toString()"
-            :title="hud.address.toString() + '/ui'"
+            v-for="ui in uis"
+            :key="ui.address.toString()"
+            :name="ui.address.toString()"
+            :title="ui.address.toString() + '/ui'"
           />
         </template>
         <panel v-for="ui in uis" :key="ui.address.toString()" :name="ui.address.toString()">

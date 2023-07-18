@@ -87,6 +87,11 @@ class A3Simulator(Component):
 
             async with anyio.move_on_after(self.das.sampling_interval.total_seconds()):
                 for message in messages:
-                    writer.write(message.encode() + b"\r\n")
-                    await writer.drain()
+                    try:
+                        writer.write(message.encode() + b"\r\n")
+                        await writer.drain()
+                    except Exception:
+                        if writer.is_closing():
+                            break
+
                     await asyncio.sleep(self.das.sampling_variable_interval.total_seconds())

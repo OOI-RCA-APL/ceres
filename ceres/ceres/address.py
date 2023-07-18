@@ -98,14 +98,14 @@ class DynamicAddress(AddressSelector):
 
     @property
     def parent(self) -> Self | None:
-        if "." in self:
-            return DynamicAddress(self[: self.rindex(".")]) or None
-
         if self.is_root:
             return None
 
+        if "." in self:
+            return type(self)(self[: self.rindex(".")]) or None
+
         if self.startswith("@"):
-            return DynamicAddress(self[1:])
+            return type(self)("@")
 
         return None
 
@@ -185,7 +185,6 @@ class DynamicAddress(AddressSelector):
 class Address(DynamicAddress):
     regex = re.compile(rf"^@({_NAME}(\.{_NAME})*)*$")
 
-    @property
     @classmethod
     def root(cls) -> "Address":
         return _ROOT

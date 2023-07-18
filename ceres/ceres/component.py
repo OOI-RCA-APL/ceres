@@ -24,10 +24,10 @@ from typing import (
     Mapping,
     ParamSpec,
     Protocol,
-    SupportsIndex,
     TypedDict,
     TypeVar,
     final,
+    overload,
 )
 from uuid import UUID, uuid4
 from weakref import WeakValueDictionary, ref
@@ -128,9 +128,9 @@ from ceres.timing import utc
 from ceres.validation import ValidationProblem
 
 if TYPE_CHECKING:
-    from ceres.engine import Engine
+    from ceres.server import Server
 else:
-    Engine = "Engine"
+    Server = "Server"
 
 _ComponentT = TypeVar("_ComponentT", bound="Component")
 _EventT = TypeVar("_EventT", bound=Event)
@@ -547,7 +547,8 @@ class Component(ValidatedDataclass, Tasklet):
             )
             for binding in self.get_listener_bindings()
         ]
-        self.__database: Database | None = None
+        self.__server: Server | None = None
+        self.__local_database: Database | None = None
         self.__mapping: dict[Address, UUID] | None = None
         self.__mapping_lock = AsyncLock()
         self.__flush_buffer: list[Item] = []
@@ -661,18 +662,6 @@ class Component(ValidatedDataclass, Tasklet):
         return current
 
     @property
-    def engine(self) -> "Engine | None":
-        from ceres.engine import Engine
-
-        current: Component | None = self
-        while current.parent is not None:
-            current = current.parent
-            if isinstance(current, Engine):
-                return current
-
-        return None
-
-    @property
     def parent(self) -> "Component | None":
         if self.__parent is None:
             return None
@@ -683,19 +672,27 @@ class Component(ValidatedDataclass, Tasklet):
     def database(self) -> Database:
         if self.parent is not None:
             return self.parent.database
+        if self.server is not None:
+            return self.server.database
 
-        if self.__database is None:
-            self.__database = Database()
+        if self.__local_database is None:
+            self.__local_database = Database()
 
-        return self.__database
+        return self.__local_database
 
     @property
     def local_database(self) -> Database | None:
-        return self.__database
+        return self.__local_database
 
-    @local_database.setter
-    def local_database(self, database: Database) -> None:
-        self.__database = database
+    def bind_server(self, server: Server) -> None:
+        self.__server = server
+
+    @property
+    def server(self) -> "Server | None":
+        if self.parent is not None:
+            return self.parent.server
+
+        return self.__server
 
     @property
     def scheduler(self) -> Scheduler:
@@ -710,8 +707,8 @@ class Component(ValidatedDataclass, Tasklet):
         return self.__events.view()
 
     @property
-    def components(self) -> Sequence["Component"]:
-        return list(self.__components.values())
+    def components(self) -> "ComponentGroup":
+        return ComponentGroup(self.__components.values())
 
     @property
     def settled(self) -> bool:
@@ -794,7 +791,7 @@ class Component(ValidatedDataclass, Tasklet):
 
         self.__components[component.name] = component
         component.detach()
-        component.__parent = ref(self)
+        component.__parent = ref(self)  # type: ignore
 
         return component
 
@@ -845,7 +842,7 @@ class Component(ValidatedDataclass, Tasklet):
         if isinstance(__query, ComponentQuery):
             query = __query.with_defaults(query)
         elif isinstance(__query, AddressSelector):
-            query = ComponentQuery(**{**query.dict(), "address": __query})
+            query = ComponentQuery(**{**query.dict(), "address": __query})  # type: ignore
 
         def traverse(current: Component) -> None:
             if (inclusive or current is not self) and query.matches(current, self.address):
@@ -1025,9 +1022,9 @@ class Component(ValidatedDataclass, Tasklet):
         self.__scheduler.stop()
         self.__scheduler = Scheduler()
         await self.flush()
-        if self.__database is not None:
-            await self.__database.dispose()
-            self.__database = None
+        if self.__local_database is not None:
+            await self.__local_database.dispose()
+            self.__local_database = None
 
     @override
     async def __done__(self) -> None:
@@ -1778,8 +1775,20 @@ class ComponentGroup(Sequence[Component]):
     def __init__(self, components: Iterable[Component]):
         self.components = tuple(uniquify(components, key=lambda component: component.address))
 
-    def __getitem__(self, __index: SupportsIndex) -> Component:
-        return self.components[__index]
+    @overload
+    def __getitem__(self, __index: int) -> Component:
+        ...
+
+    @overload
+    def __getitem__(self, __index: slice) -> Self:
+        ...
+
+    def __getitem__(self, __index: int | slice) -> "Component | Self":  # type: ignore
+        value = self.components[__index]
+        if isinstance(value, tuple):
+            return type(self)(value)
+
+        return value
 
     def __len__(self) -> int:
         return len(self.components)

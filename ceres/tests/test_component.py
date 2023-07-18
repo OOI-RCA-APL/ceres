@@ -72,11 +72,13 @@ async def test_component_alerts() -> None:
 
     component = Test()
     component.start()
-    component.alert(Level.INFO, "test-alert-1")
-    component.alert(Level.ERROR, "test-alert-2")
 
     alerts = await component.get_alerts()
     assert len(alerts) == 0
+
+    component.alert(Level.INFO, "test-alert-1")
+    component.alert(Level.ERROR, "test-alert-2")
+
     await component.flush()
     alerts = await component.get_alerts()
     assert len(alerts) == 2

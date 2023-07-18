@@ -26,11 +26,13 @@ const {
   title = undefined,
   address,
   kind,
+  showCommandInput = false,
 } = defineProps<{
   title?: string
   containerClass?: string | null
   address: Address
   kind: 'alert' | 'message' | 'log-entry'
+  showCommandInput?: boolean
 }>()
 
 const selector = $computed(() => new Address(address.toString() + ':all'))
@@ -365,7 +367,7 @@ async function onSend(data: string) {
       </span>
     </div>
     <q-space v-else />
-    <div v-if="kind === 'message'">
+    <div v-if="kind === 'message' && showCommandInput">
       <q-separator />
       <command-input :address="address" @send="onSend" />
     </div>

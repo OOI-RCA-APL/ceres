@@ -105,7 +105,7 @@ def ConfigPathOption() -> Any:
     )
 
 
-def ConfigOption(*, checks: Sequence[ConfigCheckKind]) -> Any:
+def ConfigOption(*, checks: Sequence[ConfigCheckKind] = ()) -> Any:
     async def callback(config_path: Path = ConfigPathOption()) -> Config:
         return await get_config(config_path, checks)
 

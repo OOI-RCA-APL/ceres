@@ -19,7 +19,6 @@ from ceres.data import simplify as simplify
 from ceres.database import Database as Database
 from ceres.database import DatabaseAdapter as DatabaseAdapter
 from ceres.directory import Directory as Directory
-from ceres.engine import Engine as Engine
 from ceres.events import Event as Event
 from ceres.events import StandardEvent as StandardEvent
 from ceres.events import StandardEventKind as StandardEventKind

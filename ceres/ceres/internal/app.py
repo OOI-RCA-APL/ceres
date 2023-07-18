@@ -1,7 +1,6 @@
 import asyncio
-import socket
 import traceback
-from asyncio import CancelledError, Task, gather
+from asyncio import CancelledError
 from enum import Enum
 from http.client import responses
 from typing import (
@@ -42,9 +41,6 @@ from fastapi.middleware.gzip import GZipMiddleware
 from pydantic import Field, Json
 from starlette.requests import HTTPConnection
 from starlette.status import HTTP_400_BAD_REQUEST
-from typing_extensions import override
-from uvicorn.config import Config as UvicornConfig
-from uvicorn.server import Server as BaseUvicorn
 from websockets.exceptions import ConnectionClosed
 
 from ceres.address import Address, AddressSelector
@@ -76,21 +72,16 @@ from ceres.events import (
 from ceres.exceptions import ProcedureException
 from ceres.internal import logs
 from ceres.internal.console import ConsoleFiles
-from ceres.internal.context import ProjectContext
-from ceres.internal.tasklet import Tasklet
-from ceres.internal.utilities import sleep_forever, strify
+from ceres.internal.utilities import strify
 from ceres.logs import LogEntry
 from ceres.message import Message
 from ceres.procedure import ProcedureBinding
 from ceres.result import Fail, Ok, Result
 
 if TYPE_CHECKING:
-    from uvicorn.server import Protocols
-
-    from ceres.engine import Engine
+    from ceres.server import Server
 else:
-    Engine = "Engine"
-    Protocols = "Protocols"
+    Server = "Server"
 
 
 class ComponentRole(str, Enum):
@@ -128,35 +119,41 @@ ComponentInfo.update_forward_refs()
 api = APIRouter()
 
 
-def _get_current_engine(connection: HTTPConnection) -> Engine:
+def _get_current_server(connection: HTTPConnection) -> "Server":
     assert isinstance(connection.app, App)
-    return connection.app.engine
+    return connection.app.server
 
 
-CurrentEngine = Annotated[Engine, Depends(_get_current_engine)]
+def _get_current_root(connection: HTTPConnection) -> Component:
+    assert isinstance(connection.app, App)
+    return connection.app.root
+
+
+CurrentServer = Annotated["Server", Depends(_get_current_server)]
+CurrentRoot = Annotated[Component, Depends(_get_current_root)]
 
 
 class HealthResult(ImmutableDataObject):
     ok: bool
 
 
-@api.get("/health", tags=["engine"])
+@api.get("/health", tags=["root"])
 async def get_health() -> HealthResult:
     return HealthResult(ok=True)
 
 
-@api.get("/config", tags=["engine"])
-async def get_config(engine: CurrentEngine) -> Config:
-    return engine.config
+@api.get("/config", tags=["root"])
+async def get_config(server: CurrentServer) -> Config:
+    return server.config
 
 
 class StartResult(ImmutableDataObject):
     started: Sequence[Address]
 
 
-@api.post("/start", tags=["engine"])
-async def start(engine: CurrentEngine, query: ComponentQuery) -> StartResult:
-    stopped = engine.get_components(query, running=False)
+@api.post("/start", tags=["root"])
+async def start(root: CurrentRoot, query: ComponentQuery) -> StartResult:
+    stopped = root.get_components(query, running=False, inclusive=True)
     stopped.start()
     return StartResult(started=[component.address for component in stopped])
 
@@ -165,9 +162,9 @@ class StopResult(ImmutableDataObject):
     stopped: Sequence[Address]
 
 
-@api.post("/stop", tags=["engine"])
-async def stop(engine: CurrentEngine, query: ComponentQuery) -> StopResult:
-    running = engine.get_components(query, running=True)
+@api.post("/stop", tags=["root"])
+async def stop(root: CurrentRoot, query: ComponentQuery) -> StopResult:
+    running = root.get_components(query, running=True, inclusive=True)
     await running.stop()
     return StopResult(stopped=[component.address for component in running])
 
@@ -176,9 +173,9 @@ class EnableResult(ImmutableDataObject):
     enabled: Sequence[Address]
 
 
-@api.post("/enable", tags=["engine"])
-async def enable(engine: CurrentEngine, query: ComponentQuery) -> EnableResult:
-    disabled = engine.get_components(query, enabled=False)
+@api.post("/enable", tags=["root"])
+async def enable(root: CurrentRoot, query: ComponentQuery) -> EnableResult:
+    disabled = root.get_components(query, enabled=False, inclusive=True)
     await disabled.enable()
     return EnableResult(enabled=[component.address for component in disabled])
 
@@ -187,9 +184,9 @@ class DisableResult(ImmutableDataObject):
     disabled: Sequence[Address]
 
 
-@api.post("/disable", tags=["engine"])
-async def disable(engine: CurrentEngine, query: ComponentQuery) -> DisableResult:
-    enabled = engine.get_components(query, enabled=True)
+@api.post("/disable", tags=["root"])
+async def disable(root: CurrentRoot, query: ComponentQuery) -> DisableResult:
+    enabled = root.get_components(query, enabled=True, inclusive=True)
     await enabled.enable()
     return DisableResult(disabled=[component.address for component in enabled])
 
@@ -199,12 +196,12 @@ class UpResult(ImmutableDataObject):
     started: Sequence[Address]
 
 
-@api.post("/up", tags=["engine"])
-async def up(engine: CurrentEngine, query: ComponentQuery) -> UpResult:
-    disabled = engine.get_components(query, enabled=False)
+@api.post("/up", tags=["root"])
+async def up(root: CurrentRoot, query: ComponentQuery) -> UpResult:
+    disabled = root.get_components(query, enabled=False, inclusive=True)
     await disabled.enable()
 
-    stopped = engine.get_components(query, running=False)
+    stopped = root.get_components(query, running=False, inclusive=True)
     stopped.start()
 
     return UpResult(
@@ -218,12 +215,12 @@ class DownResult(ImmutableDataObject):
     stopped: Sequence[Address]
 
 
-@api.post("/down", tags=["engine"])
-async def down(engine: CurrentEngine, query: ComponentQuery) -> DownResult:
-    enabled = engine.get_components(query, enabled=True)
+@api.post("/down", tags=["root"])
+async def down(root: CurrentRoot, query: ComponentQuery) -> DownResult:
+    enabled = root.get_components(query, enabled=True, inclusive=True)
     await enabled.disable()
 
-    running = engine.get_components(query, running=True)
+    running = root.get_components(query, running=True, inclusive=True)
     await running.stop()
 
     return DownResult(
@@ -232,12 +229,12 @@ async def down(engine: CurrentEngine, query: ComponentQuery) -> DownResult:
     )
 
 
-@api.post("/reload", tags=["engine"])
+@api.post("/reload", tags=["root"])
 async def reload(
-    engine: CurrentEngine,
+    server: CurrentServer,
     response: Response,
 ) -> Result[Config, ReloadError]:
-    match await engine.reload():
+    match await server.reload():
         case Ok(config):
             return Ok(config)
         case Fail(error):
@@ -250,16 +247,16 @@ class GetStatusesQueryParameters(ComponentQuery):
 
 
 @api.get("/status", tags=["components"])
-async def get_status(engine: CurrentEngine) -> ComponentStatus:
-    return await engine.get_status()
+async def get_status(root: CurrentRoot) -> ComponentStatus:
+    return await root.get_status()
 
 
 @api.get("/statuses", tags=["components"])
 async def get_statuses(
-    engine: CurrentEngine,
+    root: CurrentRoot,
     query: Annotated[GetStatusesQueryParameters, Depends()],
 ) -> list[ComponentStatus]:
-    return await engine.get_statuses(query)
+    return await root.get_statuses(query)
 
 
 class GetMessagesQueryParameters(MessageQuery):
@@ -269,10 +266,10 @@ class GetMessagesQueryParameters(MessageQuery):
 
 @api.get("/messages", tags=["data"])
 async def get_messages(
-    engine: CurrentEngine,
+    root: CurrentRoot,
     query: Annotated[GetMessagesQueryParameters, Depends()],
 ) -> list[Message]:
-    return await engine.get_messages(query)
+    return await root.get_messages(query)
 
 
 class GetAlertsQueryParameters(AlertQuery):
@@ -284,10 +281,10 @@ class GetAlertsQueryParameters(AlertQuery):
 
 @api.get("/alerts", tags=["data"])
 async def get_alerts(
-    engine: CurrentEngine,
+    root: CurrentRoot,
     query: Annotated[GetAlertsQueryParameters, Depends()],
 ) -> list[Alert]:
-    return await engine.get_alerts(query)
+    return await root.get_alerts(query)
 
 
 class GetLogEntriesQueryParameters(LogEntryQuery):
@@ -298,10 +295,10 @@ class GetLogEntriesQueryParameters(LogEntryQuery):
 
 @api.get("/log-entries", tags=["data"])
 async def get_log_entries(
-    engine: CurrentEngine,
+    root: CurrentRoot,
     query: Annotated[GetLogEntriesQueryParameters, Depends()],
 ) -> list[LogEntry]:
-    return await engine.get_log_entries(query)
+    return await root.get_log_entries(query)
 
 
 class GetStatisticsQueryParameters(StatisticsQuery):
@@ -310,16 +307,16 @@ class GetStatisticsQueryParameters(StatisticsQuery):
 
 @api.get("/statistics", tags=["components"])
 async def get_statistics(
-    engine: CurrentEngine,
+    root: CurrentRoot,
     query: Annotated[GetStatisticsQueryParameters, Depends()],
 ) -> list[Statistics]:
-    return await engine.get_statistics(query)
+    return await root.get_statistics(query)
 
 
 @api.websocket("/message-stream")
 async def message_stream(
     socket: WebSocket,
-    engine: CurrentEngine,
+    root: CurrentRoot,
     address: AddressSelector | None = None,
     search: str | None = None,
 ) -> None:
@@ -327,8 +324,8 @@ async def message_stream(
         await socket.accept()
 
         query = MessageQuery(address=address, search=search)
-        async for event in engine.events.of(MessageSentEvent | MessageReceivedEvent):
-            if query.matches(event.message, engine.address):
+        async for event in root.events.of(MessageSentEvent | MessageReceivedEvent):
+            if query.matches(event.message, root.address):
                 await socket.send_text(jsonify(event.message))
     except (WebSocketDisconnect, ConnectionClosed):
         raise
@@ -338,7 +335,7 @@ async def message_stream(
 @api.websocket("/alert-stream")
 async def alert_stream(
     socket: WebSocket,
-    engine: CurrentEngine,
+    root: CurrentRoot,
     address: AddressSelector | None = None,
     search: str | None = None,
 ) -> None:
@@ -346,8 +343,8 @@ async def alert_stream(
         await socket.accept()
 
         query = AlertQuery(address=address, search=search)
-        async for event in engine.events.of(AlertEvent):
-            if query.matches(event.alert, engine.address):
+        async for event in root.events.of(AlertEvent):
+            if query.matches(event.alert, root.address):
                 await socket.send_text(jsonify(event.alert))
     except (WebSocketDisconnect, ConnectionClosed):
         pass
@@ -356,7 +353,7 @@ async def alert_stream(
 @api.websocket("/log-entry-stream")
 async def log_entry_stream(
     socket: WebSocket,
-    engine: CurrentEngine,
+    root: CurrentRoot,
     address: AddressSelector | None = None,
     search: str | None = None,
 ) -> None:
@@ -364,8 +361,8 @@ async def log_entry_stream(
         await socket.accept()
 
         query = LogEntryQuery(address=address, search=search)
-        async for event in engine.events.of(LogEvent):
-            if query.matches(event.entry, engine.address):
+        async for event in root.events.of(LogEvent):
+            if query.matches(event.entry, root.address):
                 await socket.send_text(jsonify(event.entry))
     except (WebSocketDisconnect, ConnectionClosed):
         pass
@@ -373,17 +370,27 @@ async def log_entry_stream(
 
 @api.get("/components/{address}", tags=["components"])
 async def get_component_info(
-    engine: CurrentEngine,
+    server: CurrentServer,
     address: Address,
 ) -> ComponentInfo:
-    component_config = engine.config.get_component(address)
-    component_cls = engine.config.get_component_cls(address)
+    component_config = server.config.get_component(address)
+    if component_config is not None and type(component_config) is not ComponentConfig:
+        component_config = ComponentConfig.parse_obj(
+            {
+                "name": component_config.name,
+                "class": component_config.cls_path,
+                "args": component_config.args,
+                "components": component_config.components,
+            }
+        )
+
+    component_cls = server.config.get_component_cls(address)
     if component_config is None or component_cls is None:
         raise HTTPException(404)
 
     children: list[ComponentInfo] = []
     for child_config in component_config.components:
-        children.append(await get_component_info(engine, address / child_config.name))
+        children.append(await get_component_info(server, address / child_config.name))
 
     try:
         info = ComponentInfo(
@@ -407,7 +414,7 @@ async def get_component_info(
 )
 async def call(
     request: Request,
-    engine: CurrentEngine,
+    root: CurrentRoot,
     address: Address,
     procedure: Name,
     query_args: Json[Any] = Query(None, alias="args"),
@@ -426,7 +433,7 @@ async def call(
     args.pop("args", None)
 
     try:
-        component = engine.get_component(address)
+        component = root.get_component(address)
         if component is None:
             return Fail(ProcedureComponentDoesNotExistError())
         return Ok(await component.call(procedure, args))
@@ -437,7 +444,7 @@ async def call(
 @api.websocket("/components/{address}/procedures/{procedure}/subscribe")
 async def subscribe(
     socket: WebSocket,
-    engine: CurrentEngine,
+    root: CurrentRoot,
     address: Address,
     procedure: Name,
     query_args: Json[Any] = Query(None, alias="args"),
@@ -455,7 +462,7 @@ async def subscribe(
     args.update(socket.query_params)
     args.pop("args", None)
 
-    component = engine.get_component(address)
+    component = root.get_component(address)
     if component is None:
         code = 1008  # Set code for policy violation.
         reason = jsonify(Fail(ProcedureComponentDoesNotExistError()))
@@ -514,7 +521,7 @@ class LoggingMiddleware:
             return await receive()
 
         async def send_wrapper(message: ASGISendEvent) -> None:
-            from ceres.internal.server import App
+            from ceres.internal.app import App
 
             app = scope.get("app")
 
@@ -531,7 +538,7 @@ class LoggingMiddleware:
                         description = responses.get(status, "Unknown")
                         level = Level.INFO if status < 400 else Level.ERROR
 
-                        app.engine.log.write(
+                        app.root.log.write(
                             level,
                             f"[HTTP] {verb} {path} {host} {status} {description}",
                         )
@@ -551,7 +558,7 @@ class LoggingMiddleware:
                         client = socket["client"]
                         host = client[0] if client else "?"
 
-                        app.engine.log.info(f"[WS] '{verb}' {path} {host}")
+                        app.root.log.info(f"[WS] '{verb}' {path} {host}")
                 except Exception:
                     traceback.print_exc()
 
@@ -562,14 +569,14 @@ class LoggingMiddleware:
 
 @final
 class App(FastAPI):
-    def __init__(self, engine: Engine) -> None:
+    def __init__(self, server: Server) -> None:
         super().__init__(
             redoc_url=None,
             docs_url="/api/docs",
             openapi_url="/api/openapi.json",
         )
 
-        self.__engine = engine
+        self.__server = server
 
         @self.middleware("http")
         async def error_middleware(
@@ -579,7 +586,7 @@ class App(FastAPI):
             try:
                 return await call_next(request)
             except Exception:
-                self.engine.log.error(traceback.format_exc())
+                self.root.log.error(traceback.format_exc())
                 raise
 
         self.add_middleware(
@@ -600,97 +607,9 @@ class App(FastAPI):
         self.mount("/", ConsoleFiles(), name="console")
 
     @property
-    def engine(self) -> Engine:
-        return self.__engine
-
-
-@final
-class Server(Tasklet):
-    def __init__(self, engine: Engine, config: Config) -> None:
-        self.__engine = engine
-        self.__config = config
-        self.__app = App(engine)
-        self.__port_uvicorn: _Uvicorn | None = None
-        self.__uds_uvicorn: _Uvicorn | None = None
+    def server(self) -> Server:
+        return self.__server
 
     @property
-    def engine(self) -> Engine:
-        return self.__engine
-
-    @property
-    def config(self) -> Config:
-        return self.__config
-
-    @override
-    async def __run__(self) -> None:
-        context = ProjectContext(self.__config)
-        self.engine.local_directory.create()
-
-        self.__uds_uvicorn = _Uvicorn(
-            UvicornConfig(
-                app=self.__app,
-                uds=str(context.socket),
-                loop="none",
-            )
-        )
-
-        if self.__config.server.port is not None:
-            self.__port_uvicorn = _Uvicorn(
-                UvicornConfig(
-                    app=self.__app,
-                    port=self.__config.server.port,
-                    loop="none",
-                )
-            )
-
-        await gather(
-            self.__uds_uvicorn.serve(),
-            self.__port_uvicorn.serve() if self.__port_uvicorn is not None else sleep_forever(),
-        )
-
-    @override
-    async def __stop__(self) -> None:
-        if self.__port_uvicorn is not None:
-            await self.__port_uvicorn.shutdown()
-            self.__port_uvicorn = None
-        if self.__uds_uvicorn is not None:
-            await self.__uds_uvicorn.shutdown()
-            self.__uds_uvicorn = None
-
-
-class _Uvicorn(BaseUvicorn):
-    @override
-    async def serve(self, sockets: Any = None) -> None:
-        logs.setup()
-        try:
-            await super().serve(sockets)
-        except SystemExit:
-            # TODO: This occurs when the server's port couldn't be opened. We should probably try to
-            # reconnect when this happens. For now, Uvicorn logs the error which should help
-            # diagnose the problem.
-            pass
-
-    @override
-    def install_signal_handlers(self) -> None:
-        # Don't install anything, this will be handled externally.
-        pass
-
-    @override
-    async def shutdown(self, sockets: list[socket.socket] | None = None) -> None:
-        async def stop_connection(connection: Protocols) -> None:
-            try:
-                await connection.close()  # type: ignore
-            except Exception:
-                connection.shutdown()
-
-        async def stop_task(task: Task[Any]) -> None:
-            task.cancel()
-
-        await asyncio.gather(
-            *(stop_connection(connection) for connection in self.server_state.connections),
-            *(stop_task(task) for task in self.server_state.tasks),
-            return_exceptions=True,
-        )
-
-        if hasattr(self, "servers"):
-            await super().shutdown(sockets)
+    def root(self) -> Component:
+        return self.__server.root

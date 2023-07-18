@@ -7,15 +7,15 @@ class CeresException(Exception):
         self.message = message
 
 
-class EngineException(CeresException):
+class ServerException(CeresException):
     pass
 
 
-class EngineConfigCheckFailedException(EngineException):
+class ConfigCheckFailedException(ServerException):
     pass
 
 
-class EngineDatabaseInitException(EngineException):
+class DatabaseInitException(ServerException):
     pass
 
 
