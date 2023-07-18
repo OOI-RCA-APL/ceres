@@ -187,7 +187,7 @@ class DisableResult(ImmutableDataObject):
 @api.post("/disable", tags=["root"])
 async def disable(root: CurrentRoot, query: ComponentQuery) -> DisableResult:
     enabled = root.get_components(query, enabled=True, inclusive=True)
-    await enabled.enable()
+    await enabled.disable()
     return DisableResult(disabled=[component.address for component in enabled])
 
 
