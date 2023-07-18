@@ -107,7 +107,7 @@ class AlertEntity(Entity):
     timestamp: Mapped[datetime] = mapped_column(DateTimeMapper)
     level: Mapped[Level] = mapped_column(EnumMapper(Level))
     code: Mapped[str] = mapped_column(Text)
-    info: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    info: Mapped[dict[str, Any]] = mapped_column(JSON, default_factory=dict)
 
     @declared_attr
     def component(cls) -> Mapped[ComponentEntity]:
