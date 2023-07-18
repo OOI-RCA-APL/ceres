@@ -24,7 +24,6 @@ from ceres.internal.app import (
     EnableResult,
     GetStatusesQueryParameters,
     HealthResult,
-    Server,
     StartResult,
     StopResult,
     UpResult,
@@ -53,6 +52,7 @@ from ceres.internal.utilities import (
     temporary_signal_handler,
 )
 from ceres.result import Fail, Ok
+from ceres.server import Server
 from ceres.threading import spawn
 
 main = AsyncTyper(

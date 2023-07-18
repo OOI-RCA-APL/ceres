@@ -374,6 +374,16 @@ async def get_component_info(
     address: Address,
 ) -> ComponentInfo:
     component_config = server.config.get_component(address)
+    if component_config is not None and type(component_config) is not ComponentConfig:
+        component_config = ComponentConfig.parse_obj(
+            {
+                "name": component_config.name,
+                "class": component_config.cls_path,
+                "args": component_config.args,
+                "components": component_config.components,
+            }
+        )
+
     component_cls = server.config.get_component_cls(address)
     if component_config is None or component_cls is None:
         raise HTTPException(404)

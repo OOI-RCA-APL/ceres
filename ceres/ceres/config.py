@@ -5,7 +5,6 @@ from datetime import timedelta
 from enum import Enum
 from logging import Logger
 from pathlib import Path
-from string import ascii_lowercase
 from typing import TYPE_CHECKING, Any, Callable, Literal, Mapping, Sequence
 
 import yaml
@@ -26,7 +25,7 @@ from ceres.errors import (
     ConfigReadError,
     ConfigValidationError,
 )
-from ceres.internal.utilities import lenient_issubclass, randstr, setattr_internal, show_td
+from ceres.internal.utilities import lenient_issubclass, setattr_internal, show_td
 from ceres.loaded import Loader
 from ceres.logs import Log
 from ceres.result import Fail, Ok, Result
@@ -54,7 +53,9 @@ class ComponentConfig(Loader, _ComponentConfigMixin):
     components: Sequence["ComponentConfig"] = ()
 
     def create(self, *, args: Sequence[Any] | Mapping[str, Any] | None = None) -> Component:
-        return super().create(args=args)
+        component: Component = super().create(args=args)
+        component.__config__ = self
+        return component
 
     @override
     @classmethod
@@ -149,7 +150,7 @@ class Config(ComponentConfig):
     class Config(ComponentConfig.Config):
         underscore_attrs_are_private = True
 
-    name: Name = Field(default_factory=lambda: randstr(ascii_lowercase, 8))
+    name: Name = "root"
     service: ServiceConfig | None = None
     server: ServerConfig = Field(default_factory=ServerConfig)
     database: DatabaseConfig = Field(default_factory=SQLiteDatabaseConfig, discriminator="kind")
@@ -397,19 +398,7 @@ class Config(ComponentConfig):
 
             current = next((child for child in current.components if child.name == name), None)
 
-        if current is None:
-            return None
-        if type(current) is ComponentConfig:
-            return current
-
-        return ComponentConfig.parse_obj(
-            {
-                "name": current.name,
-                "class": current.cls_path,  # type: ignore
-                "args": current.args,
-                "components": current.components,
-            }
-        )
+        return current
 
     def get_component_cls(self, address: DynamicAddress) -> type[Component] | None:
         config = self.get_component(address)

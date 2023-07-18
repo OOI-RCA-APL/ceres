@@ -1,25 +1,17 @@
 import asyncio
-import socket
 import traceback
-from asyncio import FIRST_COMPLETED, Task, gather
+from asyncio import FIRST_COMPLETED
 from asyncio import Event as AsyncEvent
 from enum import Enum
 from pathlib import Path
-from queue import Empty, Queue
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    final,
-)
+from typing import Sequence, final
 
 from typing_extensions import override
-from uvicorn.config import Config as UvicornConfig
-from uvicorn.server import Server as BaseUvicorn
 
 from ceres.address import Address
 from ceres.component import Component
-from ceres.config import ComponentConfig, Config
-from ceres.data import ImmutableDataObject, Name
+from ceres.config import Config
+from ceres.data import ImmutableDataObject
 from ceres.database import Database
 from ceres.directory import Directory
 from ceres.errors import (
@@ -29,17 +21,12 @@ from ceres.errors import (
     ReloadError,
 )
 from ceres.exceptions import DatabaseInitException
-from ceres.internal import logs
 from ceres.internal.context import ProjectContext
 from ceres.internal.tasklet import Tasklet
-from ceres.internal.utilities import sleep_forever, strify
+from ceres.internal.utilities import sleep_forever, strify, uniquify
+from ceres.internal.uvicorn import Uvicorn, UvicornConfig
 from ceres.logs import Log
 from ceres.result import Fail, Ok, Result
-
-if TYPE_CHECKING:
-    from uvicorn.server import Protocols
-else:
-    Protocols = "Protocols"
 
 
 class ActionKind(str, Enum):
@@ -59,22 +46,26 @@ class Server(Tasklet):
         self.__config_path = config_path
         match Config.read(config_path):
             case Ok(config):
-                self.__config = config
+                self.__config: Config = config
             case Fail(errors):
                 raise ValueError(str(errors))
 
-        self.__config_queue: Queue[Config] = Queue()
         self.__database = Database(self.__config.database)
         self.__root = self.__config.create()
         self.__root.bind_server(self)
         self.__reloading = AsyncEvent()
+        self.__reloaded_config: Config | None = None
 
-        self.__port_uvicorn: _Uvicorn | None = None
-        self.__uds_uvicorn: _Uvicorn | None = None
+        self.__port_uvicorn: Uvicorn | None = None
+        self.__uds_uvicorn: Uvicorn | None = None
 
         from ceres.internal.app import App
 
         self.__app = App(self)
+
+    @property
+    def config_path(self) -> Path:
+        return self.__config_path
 
     @property
     def config(self) -> Config:
@@ -102,43 +93,11 @@ class Server(Tasklet):
 
     @override
     async def __run__(self) -> None:
-        context = ProjectContext(self.__config)
         self.local_directory.create()
 
         await self.load_database()
 
         started = False
-
-        async def serve() -> None:
-            self.__uds_uvicorn = _Uvicorn(
-                UvicornConfig(
-                    app=self.__app,
-                    uds=str(context.socket),
-                    loop="none",
-                )
-            )
-
-            if self.__config.server.port is not None:
-                self.__port_uvicorn = _Uvicorn(
-                    UvicornConfig(
-                        app=self.__app,
-                        port=self.__config.server.port,
-                        loop="none",
-                    )
-                )
-
-            await gather(
-                self.__uds_uvicorn.serve(),
-                self.__port_uvicorn.serve() if self.__port_uvicorn is not None else sleep_forever(),
-            )
-
-        async def start_enabled() -> None:
-            await asyncio.sleep(0)
-            for component in self.root.get_components(inclusive=True):
-                await component.sync_with_database()
-                if component.enabled:
-                    self.log.info(f"Starting enabled component '{component.address}'...")
-                    component.start()
 
         while True:
             if started:
@@ -148,8 +107,20 @@ class Server(Tasklet):
             started = True
             self.__reloading.clear()
 
+            self.__start_uds_uvicorn()
+            self.__start_port_uvicorn()
+
+            async def start_enabled() -> None:
+                await asyncio.sleep(0)
+                for component in self.root.get_components(inclusive=True):
+                    await component.sync_with_database()
+                    if component.enabled and not component.running:
+                        self.log.info(f"Starting enabled component '{component.address}'...")
+                        component.start()
+
+                await sleep_forever()
+
             tasks = [
-                asyncio.create_task(serve(), name="serve"),
                 asyncio.create_task(start_enabled(), name="start-enabled"),
                 asyncio.create_task(self.__reloading.wait(), name="reload-wait"),
                 asyncio.create_task(self.wait_until_stopping(), name="wait-until-stopping"),
@@ -165,18 +136,16 @@ class Server(Tasklet):
                                 task.result()
                             except Exception:
                                 self.log.error(traceback.format_exc())
+                        else:
+                            task.cancel()
                 if self.stopping:
                     self.log.info("Exit signal received, stopping...")
                     break
 
     @override
     async def __stop__(self) -> None:
-        if self.__port_uvicorn is not None:
-            await self.__port_uvicorn.shutdown()
-            self.__port_uvicorn = None
-        if self.__uds_uvicorn is not None:
-            await self.__uds_uvicorn.shutdown()
-            self.__uds_uvicorn = None
+        await self.__stop_uds_uvicorn()
+        await self.__stop_port_uvicorn()
 
         await self.root.stop()
 
@@ -194,20 +163,13 @@ class Server(Tasklet):
         if self.__reloading.is_set():
             return Fail(ReloadAlreadyActiveError())
 
-        source: Path | Config
+        self.log.info(f"Reloading configuration from '{self.__config_path}'...")
 
-        if self.config.path:
-            self.log.info(f"Reloading configuration from '{self.config.path}'...")
-            source = self.config.path
-        else:
-            self.log.info("No configuration path is set. Reloading current configuration...")
-            source = self.config
-
-        match await Config.load(source, log=self.log):
+        match await Config.load(self.__config_path, log=self.log):
             case Ok(config):
                 self.log.info("Queueing reload...")
                 self.__reloading.set()
-                self.__config_queue.put(config)
+                self.__reloaded_config = config
                 return Ok(config)
             case Fail(errors):
                 self.log.error("Reload failed, found errors in configuration.")
@@ -225,106 +187,142 @@ class Server(Tasklet):
 
     async def __execute_reload(self) -> None:
         self.log.info("Reloading...")
-        config_previous = self.config
+        previous = self.config
 
-        try:
-            self.__config = self.__config_queue.get_nowait()
-        except Empty:
+        if self.__reloaded_config is None:
             self.log.warning("No new configuration was found, ignoring reload.")
             return
 
-        if self.config == config_previous:
-            self.log.info("Configuration was not modified. Nothing to reload.")
-            return
+        self.__config = self.__reloaded_config
 
-        # if self.config.server != config_previous.server:
-        #     self.log.info("Server configuration modified, reloading server...")
-        #     try:
-        #         await self.__reload_server()
-        #     except Exception:
-        #         self.log.error(
-        #             f"An issue occurred while reloading the server: {traceback.format_exc()}"
-        #         )
+        changed = False
 
-        if self.config.database != config_previous.database:
-            self.log.info(
-                "Database configuration modified, reloading all components and database..."
-            )
+        if self.config.server != previous.server:
+            self.log.info("Server configuration modified, reloading server...")
             try:
-                await self.root.stop()
-                await self.__database.dispose()
-                self.__database = Database(self.config.database)
+                await self.__stop_port_uvicorn()
+                self.__start_port_uvicorn()
+                self.__start_uds_uvicorn()
             except Exception:
                 self.log.error(
-                    f"An issue occurred while reloading components and database: "
-                    f"{traceback.format_exc()}"
+                    f"An issue occurred while reloading the server: {traceback.format_exc()}"
                 )
+            finally:
+                changed = True
+        else:
+            self.log.info("No changes to server configuration.")
 
-        if self.get_reload_actions():
-            self.log.info("Syncing units...")
-            try:
-                await self.sync_components()
-            except Exception:
-                self.log.error(f"An issue occurred while syncing units: {traceback.format_exc()}")
+        try:
+            if self.config.database != previous.database:
+                self.log.info(
+                    "Database configuration modified, reloading database and components..."
+                )
+                try:
+                    running = self.root.get_components(inclusive=True, running=True)
+                    await self.root.stop()
+                    await self.__database.dispose()
+                    self.__database = Database(self.config.database)
+                    running.start()
+                except Exception:
+                    self.log.error(
+                        f"An issue occurred while reloading components and database: "
+                        f"{traceback.format_exc()}"
+                    )
+                finally:
+                    changed = True
+            else:
+                self.log.info("No changes to database configuration.")
+
+            if actions := self.__get_component_reload_actions():
+                try:
+                    self.log.info("Syncing component configurations...")
+                    try:
+                        await self.__execute_actions(actions)
+                    except Exception:
+                        self.log.error(f"An issue occurred while syncing: {traceback.format_exc()}")
+                finally:
+                    changed = True
+            else:
+                self.log.info("No changes to component configurations.")
+        finally:
+            self.__reloaded_config = None
+            self.__reloading.clear()
+
+        if not changed:
+            self.log.info("No changes to configuration. Nothing to do.")
 
         self.log.info("Reload completed.")
 
     async def load_components(self) -> None:
-        await self.__load_subcomponents_for(self.root)
+        await self.__load_component(Address.root())
 
-    async def __load_subcomponents_for(self, component: Component) -> None:
-        if component is self:
+    async def __load_component(self, address: Address) -> Component | None:
+        if address.is_root:
             config = self.config
         else:
-            config = self.config.get_component(component.address)
+            config = self.config.get_component(address)
             if config is None:
+                return None
+
+        component = self.root.get_component(address)
+        id = await self.root.assign_component_id(address)
+
+        if component is None:
+            try:
+                component = config.create()
+                if address.is_root:
+                    self.__root = component
+                    component.bind_server(self)
+                else:
+                    parent = self.root.get_component(address.parent)
+                    if parent is not None:
+                        parent.add_component(component)
+                        component.assign_references(
+                            {sibling.name: sibling for sibling in parent.components}
+                        )
+
+                await component.sync_with_database()
+                self.log.info(f"Loaded '{address}' as {strify(type(component))} with ID '{id}'.")
+
+            except Exception:
+                self.root.log.error(f"Failed to load '{address}': {traceback.format_exc()}")
                 return
 
-        references: dict[Name, Component] = {}
+        for child in config.components:
+            await self.__load_component(address / child.name)
 
-        for subconfig in config.components:
-            child = component.get_component(subconfig.name)
-            address = component.address / subconfig.name
-            id = await self.root.assign_component_id(address)
-
-            if child is None:
-                try:
-                    child = subconfig.create()
-                    component.add_component(child)
-                    await child.sync_with_database()
-                    child.assign_references(references)
-                    await self.__load_subcomponents_for(child)
-                    self.log.info(
-                        f"Loaded '{child.address}' as {strify(type(child))} with ID '{id}'."
-                    )
-                except Exception:
-                    component.log.error(f"Failed to load '{address}': {traceback.format_exc()}")
-                    continue
-
-            references[child.name] = child
-
-    async def sync_components(self) -> None:
-        actions = self.get_reload_actions()
-
+    async def __execute_actions(self, actions: Sequence[Action]) -> None:
+        running = [
+            other.address for other in self.root.get_components(inclusive=True) if other.running
+        ]
         for action in actions:
             component = self.root.get_component(action.address)
 
             if action.kind == ActionKind.REMOVE:
                 if component is not None:
-                    self.log.info(f"'{action.address}' will be removed...")
+                    self.log.info(f"Removing '{action.address}'...")
                     await component.stop()
                     component.detach()
+                    self.log.info(f"Removed '{action.address}'.")
             else:
                 if action.kind == ActionKind.CREATE:
                     if component is None:
-                        self.log.info(f"'{action.address}' will be created...")
+                        self.log.info(f"Creating '{action.address}'...")
+                        await self.__load_component(action.address)
+                        self.log.info(f"Created '{action.address}'.")
                 elif action.kind == ActionKind.RECREATE:
                     if component is not None:
-                        self.log.info(f"'{action.address}'will be recreated...")
+                        self.log.info(f"Recreating '{action.address}'...")
                         await component.stop()
                         component.detach()
+                        await self.__load_component(action.address)
+                        self.log.info(f"Recreated '{action.address}'.")
 
-        await self.__load_subcomponents_for(self.root)
+        for address in running:
+            component = self.root.get_component(address)
+            if component is not None and not component.running:
+                self.log.info(f"Starting '{address}'...")
+                component.start()
 
         created = [
             action
@@ -349,61 +347,91 @@ class Server(Tasklet):
         if removed:
             self.log.info(f"{len(removed)} components(s) removed.")
 
-    def get_reload_actions(self) -> list[Action]:
-        configs: dict[Name, ComponentConfig] = {
-            current.name: current for current in self.config.components
-        }
+    def __get_component_reload_actions(self) -> list[Action]:
+        return self.__get_component_reload_actions_for(Address.root())
+
+    def __get_component_reload_actions_for(self, address: Address) -> list[Action]:
+        config = self.config.get_component(address)
+
+        component = self.root.get_component(address)
+        if component is None and config is not None:
+            return [Action(kind=ActionKind.CREATE, address=address)]
+        if component is not None and config is None:
+            return [Action(kind=ActionKind.REMOVE, address=address)]
+        if component is None and config is None:
+            return []
+
+        assert component is not None
+        assert config is not None
+
+        include = {"name", "cls_path", "class", "args"}
+        old = {} if component.__config__ is None else component.__config__.dict(include=include)
+        new = {} if config is None else config.dict(include=include)
+
+        if old != new:
+            return [Action(kind=ActionKind.RECREATE, address=address)]
 
         actions: list[Action] = []
+        children = uniquify(
+            [child.address for child in component.components]
+            + [component.address / child.name for child in config.components]
+        )
 
-        for name, config in configs.items():
-            component = self.root.get_component(name)
-            address = self.root.address / name
-            if component is None:
-                actions.append(Action(kind=ActionKind.CREATE, address=address))
-            elif component.__config__ != config:
-                actions.append(Action(kind=ActionKind.RECREATE, address=address))
-
-        for component in self.root.components:
-            if component.name not in configs:
-                actions.append(Action(kind=ActionKind.REMOVE, address=component.address))
+        for child in children:
+            actions.extend(self.__get_component_reload_actions_for(child))
 
         return actions
 
-
-class _Uvicorn(BaseUvicorn):
-    @override
-    async def serve(self, sockets: Any = None) -> None:
-        logs.setup()
-        try:
-            await super().serve(sockets)
-        except SystemExit:
-            # TODO: This occurs when the server's port couldn't be opened. We should probably try to
-            # reconnect when this happens. For now, Uvicorn logs the error which should help
-            # diagnose the problem.
-            pass
-
-    @override
-    def install_signal_handlers(self) -> None:
-        # Don't install anything, this will be handled externally.
-        pass
-
-    @override
-    async def shutdown(self, sockets: list[socket.socket] | None = None) -> None:
-        async def stop_connection(connection: Protocols) -> None:
-            try:
-                await connection.close()  # type: ignore
-            except Exception:
-                connection.shutdown()
-
-        async def stop_task(task: Task[Any]) -> None:
-            task.cancel()
-
-        await asyncio.gather(
-            *(stop_connection(connection) for connection in self.server_state.connections),
-            *(stop_task(task) for task in self.server_state.tasks),
-            return_exceptions=True,
+    def __create_uds_uvicorn(self) -> Uvicorn:
+        context = ProjectContext(self.__config)
+        return Uvicorn(
+            UvicornConfig(
+                app=self.__app,
+                uds=str(context.socket),
+                loop="none",
+            )
         )
 
-        if hasattr(self, "servers"):
-            await super().shutdown(sockets)
+    def __start_uds_uvicorn(self) -> Uvicorn:
+        if self.__uds_uvicorn is None:
+            self.__uds_uvicorn = self.__create_uds_uvicorn()
+
+        if not self.__uds_uvicorn.running:
+            self.__uds_uvicorn.start()
+            self.log.info(f"Listening on socket at '{self.__uds_uvicorn.config.uds}'.")
+
+        return self.__uds_uvicorn
+
+    async def __stop_uds_uvicorn(self) -> None:
+        if self.__uds_uvicorn is not None:
+            await self.__uds_uvicorn.stop()
+            self.log.info(f"Removing listener from socket at '{self.__uds_uvicorn.config.uds}'.")
+            self.__uds_uvicorn = None
+
+    def __create_port_uvicorn(self) -> Uvicorn | None:
+        if self.__config.server.port is None:
+            return None
+
+        return Uvicorn(
+            UvicornConfig(
+                app=self.__app,
+                port=self.__config.server.port,
+                loop="none",
+            )
+        )
+
+    def __start_port_uvicorn(self) -> Uvicorn | None:
+        if self.__port_uvicorn is None:
+            self.__port_uvicorn = self.__create_port_uvicorn()
+
+        if self.__port_uvicorn is not None and not self.__port_uvicorn.running:
+            self.log.info(f"Listening on port {self.__port_uvicorn.config.port}...")
+            self.__port_uvicorn.start()
+
+        return self.__port_uvicorn
+
+    async def __stop_port_uvicorn(self) -> None:
+        if self.__port_uvicorn is not None:
+            self.log.info(f"Removing listener from port {self.__port_uvicorn.config.port}...")
+            await self.__port_uvicorn.stop()
+            self.__port_uvicorn = None

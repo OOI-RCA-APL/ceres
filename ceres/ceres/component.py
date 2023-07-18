@@ -707,8 +707,8 @@ class Component(ValidatedDataclass, Tasklet):
         return self.__events.view()
 
     @property
-    def components(self) -> Sequence["Component"]:
-        return list(self.__components.values())
+    def components(self) -> "ComponentGroup":
+        return ComponentGroup(self.__components.values())
 
     @property
     def settled(self) -> bool:

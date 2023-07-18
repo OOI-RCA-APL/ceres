@@ -3,9 +3,9 @@ from abc import ABC, abstractmethod
 from asyncio import FIRST_COMPLETED, Task
 from asyncio import Event as AsyncEvent
 from dataclasses import dataclass, field
-from typing import Callable, cast
+from typing import Awaitable, Callable, cast
 
-from typing_extensions import Self
+from typing_extensions import Self, override
 
 
 @dataclass
@@ -132,3 +132,13 @@ class Tasklet(ABC):
             on_exception=on_exception,
         )
         await self.wait_until_stopped(raise_exceptions)
+
+
+class AsyncRunner(Tasklet):
+    def __init__(self, main: Callable[[], Awaitable[None]]) -> None:
+        super().__init__()
+        self.main = main
+
+    @override
+    async def __run__(self) -> None:
+        await self.main()
