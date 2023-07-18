@@ -112,9 +112,7 @@ export function useMessageStream<TModel extends ZodTypeAny>(
 ) {
   useStream(
     computed(() =>
-      getWebSocketURI(
-        `/api/message-stream${createQueryParams(isRef(params) ? params.value : params)}`
-      )
+      getWebSocketURI(`/api/messages${createQueryParams(isRef(params) ? params.value : params)}`)
     ),
     // eslint-disable-next-line @typescript-eslint/ban-ts-comment
     // @ts-ignore
@@ -132,9 +130,7 @@ export function useAlertStream<TModel extends ZodTypeAny>(
 ) {
   useStream(
     computed(() =>
-      getWebSocketURI(
-        `/api/alert-stream${createQueryParams(isRef(params) ? params.value : params)}`
-      )
+      getWebSocketURI(`/api/alerts${createQueryParams(isRef(params) ? params.value : params)}`)
     ),
     // eslint-disable-next-line @typescript-eslint/ban-ts-comment
     // @ts-ignore
@@ -152,9 +148,7 @@ export function useLogEntryStream<TModel extends ZodTypeAny>(
 ) {
   useStream(
     computed(() =>
-      getWebSocketURI(
-        `/api/log-entry-stream${createQueryParams(isRef(params) ? params.value : params)}`
-      )
+      getWebSocketURI(`/api/log-entries${createQueryParams(isRef(params) ? params.value : params)}`)
     ),
     // eslint-disable-next-line @typescript-eslint/ban-ts-comment
     // @ts-ignore

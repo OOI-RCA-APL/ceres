@@ -313,8 +313,8 @@ async def get_statistics(
     return await root.get_statistics(query)
 
 
-@api.websocket("/message-stream")
-async def message_stream(
+@api.websocket("/messages")
+async def stream_messages(
     socket: WebSocket,
     root: CurrentRoot,
     address: AddressSelector | None = None,
@@ -332,8 +332,8 @@ async def message_stream(
         pass
 
 
-@api.websocket("/alert-stream")
-async def alert_stream(
+@api.websocket("/alerts")
+async def stream_alerts(
     socket: WebSocket,
     root: CurrentRoot,
     address: AddressSelector | None = None,
@@ -350,8 +350,8 @@ async def alert_stream(
         pass
 
 
-@api.websocket("/log-entry-stream")
-async def log_entry_stream(
+@api.websocket("/log-entries")
+async def stream_log_entries(
     socket: WebSocket,
     root: CurrentRoot,
     address: AddressSelector | None = None,
