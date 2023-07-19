@@ -7,7 +7,7 @@ const { item } = defineProps<{
 </script>
 
 <template>
-  <q-tr :class="[$style.root, 'no-wrap']" no-hover>
+  <q-tr :class="[$style.root, 'no-wrap', 'item-view-item']" no-hover>
     <q-td auto-width>
       <span :class="$style.timestamp">
         {{ item.timestamp.format('YYYY-MM-DD HH:mm:ss.SSS') }}
@@ -22,6 +22,18 @@ const { item } = defineProps<{
 .root {
   height: 31px !important;
   overflow-y: hidden !important;
+}
+
+.root:last-child td {
+  border-bottom: 1px dashed;
+}
+
+:global(.light) .root:last-child td {
+  border-bottom-color: rgba(0, 0, 0, 0.12) !important;
+}
+
+:global(.dark) .root:last-child td {
+  border-bottom-color: rgba(255, 255, 255, 0.12) !important;
 }
 
 .timestamp {

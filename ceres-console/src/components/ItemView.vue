@@ -330,6 +330,7 @@ async function onSend(data: string) {
         flat
         :items="items"
         separator="cell"
+        square
         type="table"
         :virtual-scroll-item-size="itemHeight"
         :virtual-scroll-slice-size="itemSliceSize"
