@@ -310,7 +310,7 @@ async function onSend(data: string) {
         <q-input
           v-model="search"
           class="item-view-search-input"
-          :debounce="100"
+          :debounce="250"
           dense
           filled
           input-class="monospace-md"
