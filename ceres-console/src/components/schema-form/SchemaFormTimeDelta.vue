@@ -73,8 +73,8 @@ const presets = [
     </template>
     <template #append>
       <q-btn color="primary" flat :icon="icons.settings" round size="8px">
-        <q-menu dense>
-          <q-list dense>
+        <q-menu class="no-shadow" dense>
+          <q-list bordered class="rounded-borders" dense>
             <q-item
               v-for="preset in presets"
               :key="preset.label"
