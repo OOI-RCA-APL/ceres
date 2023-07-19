@@ -1,9 +1,11 @@
 <script lang="ts" setup>
 import SchemaFormInput from '@/components/schema-form/SchemaFormInput.vue'
+import icons from '@/icons'
 import { SchemaForm, SchemaObject, SchemaPath } from '@/schema-form'
 import moment from 'moment'
+import { watchEffect } from 'vue'
 
-defineProps<{
+const { modelValue } = defineProps<{
   modelValue: unknown
   form: SchemaForm
   schema: SchemaObject & { type: 'string'; format: 'date-time' }
@@ -11,11 +13,16 @@ defineProps<{
 }>()
 
 const emit = defineEmits<{
-  (emit: 'update:modelValue', value: string | undefined): void
+  (emit: 'update:modelValue', value: string | null | undefined): void
 }>()
 
 const inputPattern = 'YYYY-MM-DD HH:mm:ss.SSS'
 const outputPattern = 'YYYY-MM-DD HH:mm:ss.SSS+00:00'
+
+const resolved = $computed(() => resolve(modelValue))
+watchEffect(() => {
+  console.log(resolved)
+})
 
 function resolve(value: unknown) {
   if (value == null) {
@@ -54,6 +61,64 @@ function format(value: unknown) {
 
   return resolved
 }
+
+const presets = [
+  {
+    label: 'Now',
+    factory: () => resolve(moment.utc()),
+  },
+  {
+    label: 'Today (UTC)',
+    factory: () => resolve(moment.utc().set({ hour: 0, minute: 0, second: 0, millisecond: 0 })),
+  },
+  {
+    label: 'Yesterday (UTC)',
+    factory: () =>
+      resolve(
+        moment.utc().subtract(1, 'day').set({ hour: 0, minute: 0, second: 0, millisecond: 0 })
+      ),
+  },
+  {
+    label: '-1 Hour',
+    factory: () => resolve(moment.utc(resolved ?? moment.utc()).subtract(1, 'hour')),
+  },
+  {
+    label: '+1 Hour',
+    factory: () => resolve(moment.utc(resolved ?? moment.utc()).add(1, 'hour')),
+  },
+  {
+    label: '-1 Day',
+    factory: () => resolve(moment.utc(resolved ?? moment.utc()).subtract(1, 'day')),
+  },
+  {
+    label: '+1 Day',
+    factory: () => resolve(moment.utc(resolved ?? moment.utc()).add(1, 'day')),
+  },
+  {
+    label: '-1 Week',
+    factory: () => resolve(moment.utc(resolved ?? moment.utc()).subtract(7, 'days')),
+  },
+  {
+    label: '+1 Week',
+    factory: () => resolve(moment.utc(resolved ?? moment.utc()).add(7, 'days')),
+  },
+  {
+    label: '-1 Month',
+    factory: () => resolve(moment.utc(resolved ?? moment.utc()).subtract(7, 'days')),
+  },
+  {
+    label: '+1 Month',
+    factory: () => resolve(moment.utc(resolved ?? moment.utc()).add(7, 'days')),
+  },
+  {
+    label: '-1 Year',
+    factory: () => resolve(moment.utc(resolved ?? moment.utc()).subtract(365, 'days')),
+  },
+  {
+    label: '+1 Year',
+    factory: () => resolve(moment.utc(resolved ?? moment.utc()).add(365, 'days')),
+  },
+] as const
 </script>
 
 <template>
@@ -66,8 +131,27 @@ function format(value: unknown) {
     :resolve="resolve"
     :schema="schema"
     schema-type="date-time"
-    stack-label
     suffix="UTC"
     @update:model-value="(modelValue: any) => emit('update:modelValue', modelValue)"
-  />
+  >
+    <template #append>
+      <q-btn color="primary" flat :icon="icons.settings" round size="8px">
+        <q-menu dense>
+          <q-list bordered dense>
+            <q-item
+              v-for="preset in presets"
+              :key="preset.label"
+              :active="preset.factory() === resolved"
+              clickable
+              @click="emit('update:modelValue', preset.factory())"
+            >
+              <q-item-section>
+                <q-item-label>{{ preset.label }}</q-item-label>
+              </q-item-section>
+            </q-item>
+          </q-list>
+        </q-menu>
+      </q-btn>
+    </template>
+  </schema-form-input>
 </template>

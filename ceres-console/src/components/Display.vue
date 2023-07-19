@@ -51,9 +51,10 @@ if (form && !form.isValid) {
 let args = $ref<Record<string, unknown>>(form?.value ?? ({} as any))
 
 watch(
-  () => form?.value,
+  () => JSON.stringify(form?.value),
   debounce(() => {
     args = form?.value ?? ({} as any)
+    info = null
   }, 250)
 )
 
@@ -90,7 +91,7 @@ const configButtonColor = $computed(() => {
       title-clickable
       @title-click="isShowingDialog = !isShowingDialog"
     />
-    <q-dialog v-if="form" v-model="isShowingDialog">
+    <q-dialog v-if="form" v-model="isShowingDialog" full-width>
       <q-card bordered :class="[$style.dialogContainer, $q.dark.isActive && 'no-shadow']">
         <display-content :display="display" :info="info" />
         <q-separator />
@@ -140,10 +141,5 @@ const configButtonColor = $computed(() => {
   position: absolute;
   right: 2px;
   top: 1px;
-}
-
-.dialogContainer {
-  min-width: 800px;
-  max-width: 100%;
 }
 </style>

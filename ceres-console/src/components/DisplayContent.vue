@@ -43,7 +43,7 @@ const emit = defineEmits<{
         <gauge-display v-else-if="info.kind === 'gauge'" :info="info" />
         <chart-display v-else-if="info.kind === 'chart'" :info="info" />
       </template>
-      <template v-else><q-spinner /></template>
+      <template v-else><q-spinner color="primary" size="16px" /></template>
     </div>
   </div>
 </template>

@@ -1,6 +1,6 @@
 import asyncio
 import traceback
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import AsyncIterable
 
 from pydantic import Field
@@ -19,6 +19,7 @@ from ceres import (
     utc,
 )
 from ceres.console import ChartDisplay, ConsoleColor, StateDisplay, ValueDisplay
+from ceres.data import DateTime, TimeDelta
 from ceres.directory import Directory
 from ceres.events import ConnectFailedEvent, ConnectionLostEvent, MessageReceivedEvent
 from ceres.exceptions import ParseException
@@ -295,9 +296,13 @@ class CrabeeDriver(UI):
             yield self.__display_leak(message.leak_2)
 
     @query
-    async def display_temperature_history(self) -> AsyncIterable[ChartDisplay]:
+    async def display_temperature_history(
+        self,
+        duration: TimeDelta = timedelta(hours=1),
+        start: DateTime | None = None,
+    ) -> AsyncIterable[ChartDisplay]:
         while True:
-            messages = await self.__get_data_message_history(cutoff=utc() - timedelta(hours=1))
+            messages = await self.__get_particles(duration, start)
 
             yield ChartDisplay(
                 value={
@@ -347,9 +352,13 @@ class CrabeeDriver(UI):
             await asyncio.sleep(10)
 
     @query
-    async def display_pressure_history(self) -> AsyncIterable[ChartDisplay]:
+    async def display_pressure_history(
+        self,
+        duration: TimeDelta = timedelta(hours=1),
+        start: DateTime | None = None,
+    ) -> AsyncIterable[ChartDisplay]:
         while True:
-            messages = await self.__get_data_message_history(cutoff=utc() - timedelta(hours=1))
+            messages = await self.__get_particles(duration, start)
 
             yield ChartDisplay(
                 value={
@@ -381,9 +390,13 @@ class CrabeeDriver(UI):
             await asyncio.sleep(10)
 
     @query
-    async def display_humidity_history(self) -> AsyncIterable[ChartDisplay]:
+    async def display_humidity_history(
+        self,
+        duration: TimeDelta = timedelta(hours=1),
+        start: DateTime | None = None,
+    ) -> AsyncIterable[ChartDisplay]:
         while True:
-            messages = await self.__get_data_message_history(cutoff=utc() - timedelta(hours=1))
+            messages = await self.__get_particles(duration, start)
 
             yield ChartDisplay(
                 value={
@@ -418,9 +431,13 @@ class CrabeeDriver(UI):
             await asyncio.sleep(10)
 
     @query
-    async def display_incline_history(self) -> AsyncIterable[ChartDisplay]:
+    async def display_incline_history(
+        self,
+        duration: TimeDelta = timedelta(hours=1),
+        start: DateTime | None = None,
+    ) -> AsyncIterable[ChartDisplay]:
         while True:
-            messages = await self.__get_data_message_history(cutoff=utc() - timedelta(hours=1))
+            messages = await self.__get_particles(duration, start)
 
             yield ChartDisplay(
                 value={
@@ -460,11 +477,22 @@ class CrabeeDriver(UI):
 
             await asyncio.sleep(30)
 
-    async def __get_data_message_history(self, *, cutoff: datetime) -> list[CrabeeParticle]:
-        parsed: list[CrabeeParticle] = []
+    async def __get_particles(
+        self,
+        duration: TimeDelta,
+        start: DateTime | None,
+    ) -> list[CrabeeParticle]:
+        now = utc()
+        if start is None:
+            start = now - duration
+
+        end = start + duration
+
+        particles: list[CrabeeParticle] = []
         messages = reversed(
             await self.connection.get_messages(
-                after=cutoff,
+                after=start,
+                before=end,
                 order=MessageOrder.NEW_TO_OLD,
             )
         )
@@ -472,12 +500,12 @@ class CrabeeDriver(UI):
         def parse() -> None:
             for message in messages:
                 try:
-                    parsed.append(CrabeeParticle.parse(message))
+                    particles.append(CrabeeParticle.parse(message))
                 except ParseException:
                     continue
 
         await spawn(parse)
-        return parsed
+        return particles
 
     def __display_leak(self, leak: bool) -> StateDisplay:
         return StateDisplay(
