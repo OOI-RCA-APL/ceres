@@ -68,28 +68,64 @@ input::-webkit-inner-spin-button {
   padding-right: 8px;
 }
 
-/* width */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-  padding: 2px;
+  width: 16px;
+  height: 16px;
 }
 
-/* Track */
 ::-webkit-scrollbar-track {
-  background: #8888889e;
+  box-sizing: border-box;
+  border-collapse: collapse;
+  border-style: solid;
+  border-width: 0;
 }
 
-::-webkit-scrollbar-corner {
-  background: #888;
+::-webkit-scrollbar-track:vertical {
+  border-left-width: 0.5px;
 }
 
-/* Handle */
+::-webkit-scrollbar-track:horizontal {
+  border-top-width: 0.5px;
+}
+
+.light ::-webkit-scrollbar-track,
+.light ::-webkit-scrollbar-corner {
+  background: #fafafa;
+}
+
+.light ::-webkit-scrollbar-track {
+  border-color: #ddd;
+}
+
+.dark ::-webkit-scrollbar-track,
+.dark ::-webkit-scrollbar-corner {
+  background: #292929;
+}
+
+.dark ::-webkit-scrollbar-track {
+  border-color: rgba(255, 255, 255, 0.28);
+}
+
 ::-webkit-scrollbar-thumb {
-  background: #888;
+  background-clip: padding-box;
+  border-radius: 10px;
+  border: 4.5px solid transparent;
+  min-height: 32px;
+  min-width: 32px;
 }
 
-/* Handle on hover */
-::-webkit-scrollbar-thumb:hover {
-  background: #777;
+.light ::-webkit-scrollbar-thumb {
+  background-color: $grey-5;
+}
+
+.light ::-webkit-scrollbar-thumb:hover {
+  background-color: $grey-6;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background-color: #6f6f6f;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background-color: #9b9b9b;
 }

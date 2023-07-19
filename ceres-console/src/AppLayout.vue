@@ -9,7 +9,7 @@ const route = useRoute()
 </script>
 
 <template>
-  <q-layout :class="$style.root" container view="hHh Lpr lff">
+  <q-layout view="hHh LpR fFf">
     <app-layout-header />
     <app-layout-drawer />
     <q-page-container :key="route.path">
@@ -26,9 +26,3 @@ const route = useRoute()
     </q-page-container>
   </q-layout>
 </template>
-
-<style module>
-.root {
-  height: 100vh;
-}
-</style>

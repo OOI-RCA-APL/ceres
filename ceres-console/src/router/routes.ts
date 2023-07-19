@@ -11,17 +11,15 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/pages/Dashboard.vue'),
       },
       {
-        path: '/components',
-        component: () => import('@/pages/Components.vue'),
-        children: [
-          {
-            path: ':address',
-            component: () => import('@/pages/Component.vue'),
-            props: (route) => ({
-              address: parseAddressOrNull(route.params.address),
-            }),
-          },
-        ],
+        path: '/components/@',
+        redirect: '/components',
+      },
+      {
+        path: '/components/:address?',
+        component: () => import('@/pages/Component.vue'),
+        props: (route) => ({
+          address: parseAddressOrNull(route.params.address) ?? new Address('@'),
+        }),
       },
       {
         path: '/tools/schema-form-playground',

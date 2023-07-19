@@ -51,7 +51,7 @@ const root = new Address('@')
 </script>
 
 <template>
-  <q-drawer v-model="drawer.isOpen" :class="$style.root" :width="drawer.width">
+  <q-drawer v-model="drawer.isOpen" :class="$style.root" side="left" :width="drawer.width">
     <div class="column full-height no-wrap overflow-hidden">
       <resize-handle
         v-model="drawer.width"
