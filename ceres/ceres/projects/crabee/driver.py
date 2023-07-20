@@ -298,11 +298,11 @@ class CrabeeDriver(UI):
     @query
     async def display_temperature_history(
         self,
-        duration: TimeDelta = timedelta(hours=1),
         start: DateTime | None = None,
+        duration: TimeDelta = timedelta(hours=1),
     ) -> AsyncIterable[ChartDisplay]:
         while True:
-            messages = await self.__get_particles(duration, start)
+            messages = await self.__get_particles(start, duration)
 
             yield ChartDisplay(
                 value={
@@ -354,11 +354,11 @@ class CrabeeDriver(UI):
     @query
     async def display_pressure_history(
         self,
-        duration: TimeDelta = timedelta(hours=1),
         start: DateTime | None = None,
+        duration: TimeDelta = timedelta(hours=1),
     ) -> AsyncIterable[ChartDisplay]:
         while True:
-            messages = await self.__get_particles(duration, start)
+            messages = await self.__get_particles(start, duration)
 
             yield ChartDisplay(
                 value={
@@ -392,11 +392,11 @@ class CrabeeDriver(UI):
     @query
     async def display_humidity_history(
         self,
-        duration: TimeDelta = timedelta(hours=1),
         start: DateTime | None = None,
+        duration: TimeDelta = timedelta(hours=1),
     ) -> AsyncIterable[ChartDisplay]:
         while True:
-            messages = await self.__get_particles(duration, start)
+            messages = await self.__get_particles(start, duration)
 
             yield ChartDisplay(
                 value={
@@ -433,11 +433,11 @@ class CrabeeDriver(UI):
     @query
     async def display_incline_history(
         self,
-        duration: TimeDelta = timedelta(hours=1),
         start: DateTime | None = None,
+        duration: TimeDelta = timedelta(hours=1),
     ) -> AsyncIterable[ChartDisplay]:
         while True:
-            messages = await self.__get_particles(duration, start)
+            messages = await self.__get_particles(start, duration)
 
             yield ChartDisplay(
                 value={
@@ -479,8 +479,8 @@ class CrabeeDriver(UI):
 
     async def __get_particles(
         self,
-        duration: TimeDelta,
         start: DateTime | None,
+        duration: TimeDelta,
     ) -> list[CrabeeParticle]:
         now = utc()
         if start is None:
