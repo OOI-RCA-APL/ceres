@@ -23,6 +23,7 @@ const selected = $computed(() => info.options.find((state) => state.value === in
     </common-text>
     <q-menu
       anchor="bottom middle"
+      class="no-shadow"
       no-refocus
       :offset="[0, 8]"
       self="top middle"

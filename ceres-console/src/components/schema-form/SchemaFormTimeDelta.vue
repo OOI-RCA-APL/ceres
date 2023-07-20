@@ -1,10 +1,9 @@
 <script lang="ts" setup>
 import SchemaFormInput from '@/components/schema-form/SchemaFormInput.vue'
-import icons from '@/icons'
 import { SchemaForm, SchemaObject, SchemaPath } from '@/schema-form'
 import { displayTimeDelta, parseTimeDelta } from '@/utilities'
 
-const { modelValue } = defineProps<{
+const { modelValue, form, path } = defineProps<{
   modelValue: unknown
   form: SchemaForm
   schema: SchemaObject & { type: 'number'; format: 'time-delta' }
@@ -16,6 +15,8 @@ const emit = defineEmits<{
 }>()
 
 const resolved = $computed(() => resolve(modelValue))
+const defaultValue = $computed(() => resolve(form.getDefault(path)))
+const resolvedOrDefault = $computed(() => resolved ?? defaultValue)
 
 function resolve(value: unknown) {
   if (value == null) {
@@ -49,7 +50,7 @@ const presets = [
   { label: '1 week', factory: () => resolve('7d') },
   { label: '1 month', factory: () => resolve('30d') },
   { label: '1 year', factory: () => resolve('365d') },
-] as const
+]
 </script>
 
 <template>
@@ -59,36 +60,18 @@ const presets = [
     input-type="text"
     :model-value="modelValue"
     :path="path"
+    :presets="presets"
     :resolve="resolve"
     :schema="schema"
     schema-type="time-delta"
     suffix="second(s)"
     @update:model-value="(modelValue) => emit('update:modelValue', modelValue)"
   >
-    <template v-if="resolved != null" #label-append>
+    <template v-if="resolvedOrDefault" #label-append>
       <span class="q-mx-xs">{{ '⸱' }}</span>
       <span>
-        {{ displayTimeDelta(resolved, { decimals: 3 }) }}
+        {{ displayTimeDelta(resolvedOrDefault, { decimals: 3 }) }}
       </span>
-    </template>
-    <template #append>
-      <q-btn color="primary" flat :icon="icons.settings" round size="8px">
-        <q-menu class="no-shadow" dense>
-          <q-list bordered class="rounded-borders" dense>
-            <q-item
-              v-for="preset in presets"
-              :key="preset.label"
-              :active="preset.factory() === resolved"
-              clickable
-              @click="emit('update:modelValue', preset.factory())"
-            >
-              <q-item-section>
-                <q-item-label>{{ preset.label }}</q-item-label>
-              </q-item-section>
-            </q-item>
-          </q-list>
-        </q-menu>
-      </q-btn>
     </template>
   </schema-form-input>
 </template>

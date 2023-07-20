@@ -22,6 +22,7 @@ const {
 }>()
 
 let info: DisplayInfo | null = $shallowRef(null)
+let isLoading = $ref(true)
 let isShowingDialog = $ref(false)
 
 const procedure = $computed(
@@ -54,7 +55,7 @@ watch(
   () => JSON.stringify(form?.value),
   debounce(() => {
     args = form?.value ?? ({} as any)
-    info = null
+    isLoading = true
   }, 250)
 )
 
@@ -64,6 +65,7 @@ useDisplayStream(
   computed(() => args),
   (current) => {
     info = current
+    isLoading = false
   }
 )
 
@@ -93,7 +95,7 @@ const configButtonColor = $computed(() => {
     />
     <q-dialog v-if="form" v-model="isShowingDialog" full-width>
       <q-card bordered :class="[$style.dialogContainer, $q.dark.isActive && 'no-shadow']">
-        <display-content :display="display" :info="info" />
+        <display-content :display="display" :info="info" :is-loading="isLoading" />
         <q-separator />
         <template v-if="!form.isEmpty">
           <div class="q-pt-sm q-px-sm">
@@ -109,7 +111,7 @@ const configButtonColor = $computed(() => {
             <q-btn
               class="full-width"
               color="warning"
-              :disable="form.isDefault"
+              :disable="form.isInitialValue"
               flat
               label="Reset"
               square

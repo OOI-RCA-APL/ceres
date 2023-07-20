@@ -21,6 +21,17 @@ export function hash(str: string): string {
 }
 
 export function parseTimeDelta(value: string | number | Duration): Duration {
+  function getException() {
+    return new Error(
+      'Invalid time-delta value.' +
+        'Must be a moment duration, a number, or a string number with a unit suffix ' +
+        "'ms', 's', 'm', 'h', or 'd'."
+    )
+  }
+
+  if (typeof value === 'string' && value.trim() === '') {
+    throw getException()
+  }
   if (typeof value === 'number') {
     return moment.duration(value, 'seconds')
   }
@@ -29,14 +40,6 @@ export function parseTimeDelta(value: string | number | Duration): Duration {
   }
   if (moment.isDuration(value)) {
     return value
-  }
-
-  function getException() {
-    return new Error(
-      'Invalid time-delta value.' +
-        'Must be a moment duration, a number, or a string number with a unit suffix ' +
-        "'ms', 's', 'm', 'h', or 'd'."
-    )
   }
 
   if (typeof value !== 'string') {

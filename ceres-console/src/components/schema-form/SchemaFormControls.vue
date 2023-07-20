@@ -37,7 +37,7 @@ function reset() {
       <q-btn
         color="warning"
         dense
-        :disable="form == null || form.readonly || form.isDefault"
+        :disable="form == null || form.readonly || form.isInitialValue"
         flat
         :label="resetLabel"
         @click="reset"

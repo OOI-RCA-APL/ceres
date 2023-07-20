@@ -61,13 +61,12 @@ export function useSchemaForm({ ...options }: SchemaFormOptions) {
   const state = ref<SchemaFormState>(
     options.editing == null || options.editing ? 'editing' : 'viewing'
   )
-  console.log(JSON.stringify(rootSchema.value))
 
   const time = useTime()
   const persisted = usePersisted({
     schema: ({ object, unknown }) =>
       object({
-        value: unknown().default(() => getDefault(rootSchema.value)),
+        value: unknown().default(() => getInitialValue(rootSchema.value)),
       }),
     methods: computed(() => (persist.value ? [{ type: 'local-storage', key: persist.value }] : [])),
   })
@@ -168,6 +167,24 @@ export function useSchemaForm({ ...options }: SchemaFormOptions) {
       return JSON.parse(JSON.stringify(schema.default))
     }
 
+    return undefined
+  }
+
+  function getInitialValue(pathOrSchema: SchemaPath | Schema = []): Plain | undefined {
+    const schema: Schema | undefined = Array.isArray(pathOrSchema)
+      ? getSchema(pathOrSchema)
+      : resolve(pathOrSchema)
+    if (schema == null) {
+      return undefined
+    }
+    if (typeof schema === 'boolean') {
+      return undefined
+    }
+
+    if (schema.default !== undefined) {
+      return JSON.parse(JSON.stringify(schema.default))
+    }
+
     if (schema.enum != null) {
       return schema.enum[0]
     }
@@ -214,7 +231,7 @@ export function useSchemaForm({ ...options }: SchemaFormOptions) {
         for (const [property, subschema] of Object.entries(schema.properties ?? {})) {
           const isRequired = schema.required?.includes(property) ?? false
           if (isRequired) {
-            object[property] = getDefault(subschema)
+            object[property] = getInitialValue(subschema)
           }
         }
 
@@ -337,13 +354,14 @@ export function useSchemaForm({ ...options }: SchemaFormOptions) {
     () => isEmptyObjectSchema(getSchema([])) && isEmptyObject(persisted.value)
   )
   const isDefault = computed(() => isEqual(persisted.value, getDefault()))
+  const isInitialValue = computed(() => isEqual(persisted.value, getInitialValue()))
 
   const isValidSchema = computed(() => schemaError.value == null)
   const isValid = computed(() => isValidSchema.value && validationErrors.value.length === 0)
   const canSubmit = computed(() => isValid.value && state.value === 'editing')
 
   function reset() {
-    assign(getDefault())
+    assign(getInitialValue())
   }
 
   async function submit() {
@@ -391,6 +409,7 @@ export function useSchemaForm({ ...options }: SchemaFormOptions) {
     assign,
     isEmpty,
     isDefault,
+    isInitialValue,
     isValid,
     isValidSchema,
     validator,
@@ -398,6 +417,7 @@ export function useSchemaForm({ ...options }: SchemaFormOptions) {
     validationErrors,
     resolve: getter(() => rootSchema, resolve),
     getDefault: getter(() => rootSchema, getDefault),
+    getInitialValue: getter(() => rootSchema, getInitialValue),
     getSchema: getter(() => rootSchema, getSchema),
     getParentSchema: getter(() => rootSchema, getParentSchema),
     getRequired: getter(() => rootSchema, getRequired),

@@ -53,7 +53,7 @@ function onAddButtonClicked() {
     return
   }
 
-  emit('update:modelValue', [...(array ?? []), form.getDefault(subschema)])
+  emit('update:modelValue', [...(array ?? []), form.getInitialValue(subschema)])
 }
 </script>
 

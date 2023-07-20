@@ -2,7 +2,7 @@
 import SchemaFormInput from '@/components/schema-form/SchemaFormInput.vue'
 import { SchemaForm, SchemaObject, SchemaPath } from '@/schema-form'
 
-const { modelValue } = defineProps<{
+defineProps<{
   modelValue: unknown
   form: SchemaForm
   schema: SchemaObject & { type: 'number' }

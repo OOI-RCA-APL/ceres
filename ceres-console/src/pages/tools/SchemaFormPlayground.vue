@@ -59,7 +59,7 @@ function createDefaultSchema() {
             autogrow
             dense
             filled
-            input-class="monospace-md"
+            input-class="monospace-sm"
             square
             type="textarea"
           />
@@ -76,7 +76,7 @@ function createDefaultSchema() {
             autogrow
             dense
             filled
-            input-class="monospace-md"
+            input-class="monospace-sm"
             :model-value="JSON.stringify(form.value, null, 2)"
             readonly
             square

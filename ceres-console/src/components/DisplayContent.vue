@@ -10,10 +10,12 @@ const {
   display,
   info,
   titleClickable = false,
+  isLoading = false,
 } = defineProps<{
   display: LayoutDisplay
   info: DisplayInfo | null
   titleClickable?: boolean
+  isLoading?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -22,9 +24,9 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <div class="column self-display-content-root">
+  <div :class="[$style.root, 'column']">
     <q-markup-table dense flat separator="cell">
-      <thead class="self-header">
+      <thead :class="$style.header">
         <q-tr no-hover>
           <q-th
             :class="titleClickable && 'cursor-pointer'"
@@ -36,28 +38,53 @@ const emit = defineEmits<{
         </q-tr>
       </thead>
     </q-markup-table>
-    <div class="col-grow items-center justify-center q-pa-xs row">
+    <div class="col-grow items-center justify-center q-pa-xs relative-position row">
       <template v-if="info">
-        <value-display v-if="info.kind === 'value'" :info="info" />
-        <state-display v-else-if="info.kind === 'state'" :info="info" />
-        <gauge-display v-else-if="info.kind === 'gauge'" :info="info" />
-        <chart-display v-else-if="info.kind === 'chart'" :info="info" />
+        <value-display v-if="info.kind === 'value'" key="value-display" :info="info" />
+        <state-display v-else-if="info.kind === 'state'" key="state-display" :info="info" />
+        <gauge-display v-else-if="info.kind === 'gauge'" key="gauge-display" :info="info" />
+        <chart-display v-else-if="info.kind === 'chart'" key="chart-display" :info="info" />
       </template>
-      <template v-else><q-spinner color="primary" size="16px" /></template>
+      <template v-else>
+        <div key="placeholder" :class="$style.placeholder" />
+      </template>
+      <transition appear enter-active-class="animated fadeIn" leave-active-class="animated fadeOut">
+        <div
+          v-if="isLoading || info == null"
+          key="spinner"
+          :class="[$style.spinnerContainer, info == null ? 'absolute-center' : 'absolute-top-left']"
+        >
+          <q-spinner :class="$style.spinner" color="primary" size="18px" />
+        </div>
+      </transition>
     </div>
   </div>
 </template>
 
-<style lang="scss" scoped>
-.body--dark .self-display-content-root {
+<style lang="scss" module>
+:global(.dark) .root {
   background-color: #131313;
 }
 
-.self-header {
+.header {
   background-color: $grey-2;
 }
 
-.body--dark .self-header {
+:global(.dark) .header {
   background-color: #1d1d1d;
+}
+
+.spinnerContainer {
+  width: 18px;
+  height: 18px;
+  margin: 4px 8px;
+}
+
+.spinner {
+  transform: translate(-50%, -50%);
+}
+
+.placeholder {
+  min-height: 27px;
 }
 </style>

@@ -24,6 +24,7 @@ const emit = defineEmits<{
 }>()
 
 const schema = $computed(() => form.getSchema(path))
+const isRequired = $computed(() => form.getRequired(path))
 const forward = $computed(() => ({
   class: 'col-grow',
   form,
@@ -95,6 +96,7 @@ function update(value: unknown) {
         <schema-form-any v-bind="forward" @update:model-value="update" />
       </template>
       <schema-form-node-toggle
+        v-if="!isRequired"
         class="absolute-top-left"
         :form="form"
         :model-value="modelValue"

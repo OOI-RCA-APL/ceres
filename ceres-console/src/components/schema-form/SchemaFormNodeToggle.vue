@@ -22,7 +22,7 @@ function toggle() {
   } else {
     const schema = form.getSchema(path)
     if (schema) {
-      emit('update:modelValue', form.getDefault(schema))
+      emit('update:modelValue', form.getInitialValue(schema))
     }
   }
 }

@@ -40,15 +40,16 @@ ul {
 
 .monospace {
   font-family: 'Roboto Mono', monospace;
+  font-weight: 400;
   white-space: pre;
 }
 
-.monospace-md + .monospace-md {
+.monospace-md.monospace-md {
   @extend .monospace;
   font-size: 12px;
 }
 
-.monospace-sm + .monospace-sm {
+.monospace-sm.monospace-sm {
   @extend .monospace;
   font-size: 11px;
 }
