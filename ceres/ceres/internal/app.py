@@ -40,7 +40,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from pydantic import Field, Json
 from starlette.requests import HTTPConnection
-from starlette.status import HTTP_400_BAD_REQUEST
+from starlette.status import HTTP_400_BAD_REQUEST, HTTP_404_NOT_FOUND
 from websockets.exceptions import ConnectionClosed
 
 from ceres.address import Address, AddressSelector
@@ -65,9 +65,15 @@ from ceres.errors import (
 )
 from ceres.events import (
     AlertEvent,
+    ConnectedEvent,
+    DisabledEvent,
+    DisconnectedEvent,
+    EnabledEvent,
     LogEvent,
     MessageReceivedEvent,
     MessageSentEvent,
+    StartedEvent,
+    StoppedEvent,
 )
 from ceres.exceptions import ProcedureException
 from ceres.internal import logs
@@ -329,7 +335,6 @@ async def stream_messages(
                 await socket.send_text(jsonify(event.message))
     except (WebSocketDisconnect, ConnectionClosed):
         raise
-        pass
 
 
 @api.websocket("/alerts")
@@ -386,7 +391,7 @@ async def get_component_info(
 
     component_cls = server.config.get_component_cls(address)
     if component_config is None or component_cls is None:
-        raise HTTPException(404)
+        raise HTTPException(HTTP_404_NOT_FOUND)
 
     children: list[ComponentInfo] = []
     for child_config in component_config.components:
@@ -405,6 +410,54 @@ async def get_component_info(
     except Exception:
         traceback.print_exc()
         raise
+
+
+@api.get("/component-status/{address}", tags=["components"])
+async def get_component_status(root: CurrentRoot, address: Address) -> ComponentStatus:
+    component = root.get_component(address)
+    if component is None:
+        raise HTTPException(HTTP_404_NOT_FOUND)
+
+    return await component.get_status()
+
+
+class GetComponentStatusesQueryParameters(ComponentQuery):
+    pass
+
+
+@api.get("/component-statuses", tags=["components"])
+async def get_component_statuses(
+    root: CurrentRoot,
+    query: Annotated[GetComponentStatusesQueryParameters, Depends()],
+) -> list[ComponentStatus]:
+    return await root.get_statuses(query)
+
+
+class StreamComponentStatusesQueryParameters(ComponentQuery):
+    pass
+
+
+@api.websocket("/component-statuses")
+async def stream_component_statuses(
+    socket: WebSocket,
+    root: CurrentRoot,
+    query: Annotated[StreamComponentStatusesQueryParameters, Depends()],
+) -> None:
+    try:
+        await socket.accept()
+        await socket.send_text(jsonify(await root.get_statuses(query)))
+
+        async for _ in root.events.of(
+            StartedEvent
+            | StoppedEvent
+            | EnabledEvent
+            | DisabledEvent
+            | ConnectedEvent
+            | DisconnectedEvent
+        ):
+            await socket.send_text(jsonify(await root.get_statuses(query)))
+    except (WebSocketDisconnect, ConnectionClosed):
+        pass
 
 
 @api.api_route(

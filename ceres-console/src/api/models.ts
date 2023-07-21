@@ -10,6 +10,13 @@ const DateTimeModel = Zod.string()
   .refine((value) => moment.utc(value).isValid())
   .transform((value) => Object.freeze(moment.utc(value)))
 
+export type ComponentStatus = Zod.infer<typeof ComponentStatusModel>
+export const ComponentStatusModel = Zod.object({
+  address: Zod.string().transform(Address.parse),
+  running: Zod.boolean(),
+  enabled: Zod.boolean(),
+})
+
 export type MessageDirection = Zod.infer<typeof MessageDirectionModel>
 export const MessageDirectionModel = Zod.enum(['send', 'receive'])
 
