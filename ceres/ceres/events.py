@@ -53,9 +53,11 @@ class StartedEvent(BaseStandardEvent):
 class StoppedEvent(BaseStandardEvent):
     kind: Literal[StandardEventKind.STOPPED] = StandardEventKind.STOPPED
 
+
 @final
 class EnabledEvent(BaseStandardEvent):
     kind: Literal[StandardEventKind.ENABLED] = StandardEventKind.ENABLED
+
 
 @final
 class DisabledEvent(BaseStandardEvent):
