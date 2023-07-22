@@ -62,4 +62,12 @@ export class Address {
 
     return new Address(this.value + '.' + name)
   }
+
+  public all(): Address {
+    if (this.value.endsWith(':all')) {
+      return this
+    }
+
+    return new Address(this.value + ':all')
+  }
 }

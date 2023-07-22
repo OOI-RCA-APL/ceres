@@ -2,6 +2,7 @@
 import { Address } from '@/address'
 import { ComponentConfig, Config } from '@/api/models'
 import AlertsIndicator from '@/components/AlertsIndicator.vue'
+import ComponentStatusBadge from '@/components/ComponentStatusBadge.vue'
 import { useDrawer } from '@/drawer'
 import icons from '@/icons'
 import { useRouter } from 'vue-router'
@@ -13,6 +14,7 @@ const { address, config } = defineProps<{
 
 const router = useRouter()
 const drawer = useDrawer()
+
 const isExpanded = $computed(
   () => !drawer.collapsedComponents.some((current) => current.equals(address))
 )
@@ -31,12 +33,7 @@ function toggleExpanded() {
 </script>
 
 <template>
-  <q-item
-    :class="[$style.root, 'items-center', 'row']"
-    :clickable="!isRoot"
-    dense
-    :to="`/components/${address}`"
-  >
+  <q-item :class="[$style.root, 'items-center', 'row']" dense>
     <div
       :class="[$style.iconContainer, 'items-center', 'justify-center', 'row']"
       :style="{ marginLeft: `${8 * address.depth}px` }"
@@ -55,12 +52,19 @@ function toggleExpanded() {
       </q-btn>
     </div>
     <q-item-section no-wrap>
-      <q-item-label class="q-ml-md text-no-wrap">{{
-        address.isRoot ? 'Components' : config.name
-      }}</q-item-label>
+      <q-item-label class="q-ml-md text-no-wrap">
+        <router-link class="wrapper-link" :to="`/components/${address}`">
+          {{ address.isRoot ? 'Components' : config.name }}
+        </router-link>
+      </q-item-label>
     </q-item-section>
     <q-item-section side>
       <alerts-indicator :address="address" />
+    </q-item-section>
+    <q-item-section side>
+      <div class="items-center row">
+        <component-status-badge :address="address" />
+      </div>
     </q-item-section>
   </q-item>
   <div v-if="!isLeaf && isExpanded">

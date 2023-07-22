@@ -5,6 +5,8 @@ import {
   ComponentConfig,
   ComponentInfo,
   ComponentInfoModel,
+  ComponentStatus,
+  ComponentStatusModel,
   Config,
   ConfigModel,
   LayoutModel,
@@ -24,7 +26,7 @@ import { useSettings } from '@/settings'
 import { useIntervalFn } from '@vueuse/core'
 import moment from 'moment'
 import { defineStore } from 'pinia'
-import { computed, isRef, unref, watch, watchEffect } from 'vue'
+import { computed, isRef, ref, unref, watch, watchEffect } from 'vue'
 import { useQuery } from 'vue-query'
 import { MaybeRef } from 'vue-query/lib/vue/types'
 import Zod, { ZodTypeAny } from 'zod'
@@ -103,12 +105,32 @@ function getWebSocketURI(relative: string) {
   return `${protocol}://${hostname}${port}${relative}`
 }
 
-export function useMessageStream<TModel extends ZodTypeAny>(
+export function useComponentStatusesStream(
   params: MaybeRef<{
     address?: Address
     search?: string
   }>,
-  onReceive: (message: Zod.infer<TModel>) => unknown
+  onReceive: (message: ComponentStatus[]) => unknown
+) {
+  useStream(
+    computed(() =>
+      getWebSocketURI(
+        `/api/component-statuses${createQueryParams(isRef(params) ? params.value : params)}`
+      )
+    ),
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore
+    Zod.array(ComponentStatusModel),
+    onReceive
+  )
+}
+
+export function useMessageStream(
+  params: MaybeRef<{
+    address?: Address
+    search?: string
+  }>,
+  onReceive: (message: Message) => unknown
 ) {
   useStream(
     computed(() =>
@@ -121,12 +143,12 @@ export function useMessageStream<TModel extends ZodTypeAny>(
   )
 }
 
-export function useAlertStream<TModel extends ZodTypeAny>(
+export function useAlertStream(
   params: MaybeRef<{
     address?: Address
     search?: string
   }>,
-  onReceive: (alert: Zod.infer<TModel>) => unknown
+  onReceive: (alert: Alert) => unknown
 ) {
   useStream(
     computed(() =>
@@ -139,12 +161,12 @@ export function useAlertStream<TModel extends ZodTypeAny>(
   )
 }
 
-export function useLogEntryStream<TModel extends ZodTypeAny>(
+export function useLogEntryStream(
   params: MaybeRef<{
     address?: Address
     search?: string
   }>,
-  onReceive: (alert: Zod.infer<TModel>) => unknown
+  onReceive: (entry: LogEntry) => unknown
 ) {
   useStream(
     computed(() =>
@@ -251,6 +273,22 @@ export const useStatistics = defineStore('statistics', () => {
       query.dataUpdatedAt.value ? moment(query.dataUpdatedAt.value) : null
     ),
     load,
+  }
+})
+
+export const useComponentStatuses = defineStore('component-statuses', () => {
+  const statuses = ref<Record<string, ComponentStatus>>({})
+
+  useComponentStatusesStream({}, (next) => {
+    statuses.value = Object.fromEntries(next.map((status) => [status.address.toString(), status]))
+  })
+
+  function get(address: Address): ComponentStatus | null {
+    return statuses.value[address.toString()] ?? null
+  }
+
+  return {
+    get: getter(statuses, get),
   }
 })
 
@@ -465,4 +503,28 @@ const GetLayoutResultModel = createResultType(LayoutModel, BaseFailModel)
 
 export async function getLayout(address: Address): Promise<GetLayoutResult> {
   return await get(`/api/components/${address}/procedures/get-layout/call`, GetLayoutResultModel)
+}
+
+export async function start(address: Address) {
+  return await post('/api/start', Zod.any(), { address })
+}
+
+export async function stop(address: Address) {
+  return await post('/api/stop', Zod.any(), { address })
+}
+
+export async function enable(address: Address) {
+  return await post('/api/enable', Zod.any(), { address })
+}
+
+export async function disable(address: Address) {
+  return await post('/api/disable', Zod.any(), { address })
+}
+
+export async function up(address: Address) {
+  return await post('/api/up', Zod.any(), { address })
+}
+
+export async function down(address: Address) {
+  return await post('/api/down', Zod.any(), { address })
 }

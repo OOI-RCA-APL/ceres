@@ -2,6 +2,7 @@
 import { Address } from '@/address'
 import { getComponent } from '@/api/operations'
 import ComponentProcedures from '@/components/ComponentProcedures.vue'
+import ComponentStatusBadge from '@/components/ComponentStatusBadge.vue'
 import FullPage from '@/components/FullPage.vue'
 import ItemView from '@/components/ItemView.vue'
 import Layout from '@/components/Layout.vue'
@@ -49,6 +50,11 @@ const resizablePanelProps = {
 
 <template>
   <full-page :title="title">
+    <template #header-append>
+      <div class="items-center q-ml-sm row">
+        <component-status-badge :address="address" :class="$style.statusBadge" />
+      </div>
+    </template>
     <div v-if="component == null" class="q-pa-md">
       <q-chip>Component not found.</q-chip>
     </div>
@@ -137,5 +143,9 @@ const resizablePanelProps = {
 <style module>
 .addressColumn {
   max-width: 50px;
+}
+
+.statusBadge {
+  margin-top: 2px;
 }
 </style>

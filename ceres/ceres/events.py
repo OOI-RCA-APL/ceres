@@ -16,6 +16,8 @@ from ceres.timing import utc
 class StandardEventKind(str, Enum):
     STARTED = "started"
     STOPPED = "stopped"
+    ENABLED = "enabled"
+    DISABLED = "disabled"
     CONNECTED = "connected"
     DISCONNECTED = "disconnected"
     CONNECTION_LOST = "connection-lost"
@@ -50,6 +52,16 @@ class StartedEvent(BaseStandardEvent):
 @final
 class StoppedEvent(BaseStandardEvent):
     kind: Literal[StandardEventKind.STOPPED] = StandardEventKind.STOPPED
+
+
+@final
+class EnabledEvent(BaseStandardEvent):
+    kind: Literal[StandardEventKind.ENABLED] = StandardEventKind.ENABLED
+
+
+@final
+class DisabledEvent(BaseStandardEvent):
+    kind: Literal[StandardEventKind.DISABLED] = StandardEventKind.DISABLED
 
 
 @final

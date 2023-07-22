@@ -81,6 +81,8 @@ from ceres.errors import (
 )
 from ceres.events import (
     AlertEvent,
+    DisabledEvent,
+    EnabledEvent,
     Event,
     LogEvent,
     MessageReceivedEvent,
@@ -212,8 +214,8 @@ class ComponentQuery(ObjectQuery["Component"]):
 
 class ComponentStatus(ImmutableDataObject):
     address: Address
-    enabled: bool
     running: bool
+    enabled: bool
 
 
 class MessageOrder(str, Enum):
@@ -652,6 +654,11 @@ class Component(ValidatedDataclass, Tasklet):
             )
 
             await session.commit()
+
+        if enabled:
+            self.emit(EnabledEvent)
+        else:
+            self.emit(DisabledEvent)
 
     @property
     def root(self) -> "Component":
