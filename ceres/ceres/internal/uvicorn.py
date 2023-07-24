@@ -13,7 +13,7 @@ from ceres.internal.tasklet import Tasklet
 if TYPE_CHECKING:
     from uvicorn.server import Protocols
 else:
-    Protocols = "Protocols"
+    Protocols = object
 
 
 class UvicornConfig(Config):

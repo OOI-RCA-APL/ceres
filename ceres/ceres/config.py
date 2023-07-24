@@ -35,7 +35,7 @@ from ceres.validation import ValidationProblem
 if TYPE_CHECKING:
     from ceres.component import Component
 else:
-    Component = "Component"
+    Component = object
 
 
 class ConfigObject(ImmutableDataObject):

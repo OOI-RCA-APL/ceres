@@ -4,7 +4,7 @@ from asyncio import FIRST_COMPLETED
 from asyncio import Event as AsyncEvent
 from enum import Enum
 from pathlib import Path
-from typing import Sequence, final
+from typing import Self, Sequence
 
 from typing_extensions import override
 
@@ -22,10 +22,9 @@ from ceres.errors import (
 )
 from ceres.exceptions import DatabaseInitException
 from ceres.internal.context import ProjectContext
-from ceres.internal.tasklet import Tasklet
 from ceres.internal.utilities import sleep_forever, strify, uniquify
 from ceres.internal.uvicorn import Uvicorn, UvicornConfig
-from ceres.logs import Log
+from ceres.object import Object
 from ceres.result import Fail, Ok, Result
 
 
@@ -40,11 +39,13 @@ class Action(ImmutableDataObject):
     address: Address
 
 
-@final
-class Server(Tasklet):
-    def __init__(self, config_path: Path) -> None:
-        self.__config_path = config_path
-        match Config.read(config_path):
+class Server(Object, kw_only=False):
+    config_path: Path
+
+    def __post_init_post_parse__(self) -> None:
+        super().__post_init_post_parse__()
+
+        match Config.read(self.config_path):
             case Ok(config):
                 self.__config: Config = config
             case Fail(errors):
@@ -52,20 +53,39 @@ class Server(Tasklet):
 
         self.__database = Database(self.__config.database)
         self.__root = self.__config.create()
-        self.__root.bind_server(self)
+        self.__root.server = self
         self.__reloading = AsyncEvent()
         self.__reloaded_config: Config | None = None
-
         self.__port_uvicorn: Uvicorn | None = None
         self.__uds_uvicorn: Uvicorn | None = None
 
         from ceres.internal.app import App
 
         self.__app = App(self)
+        self.__setup__()
+
+    def __setup__(self) -> None:
+        pass
 
     @property
-    def config_path(self) -> Path:
-        return self.__config_path
+    @override
+    def address(self) -> Address:
+        return Address.root()
+
+    @property
+    @override
+    def root(self) -> Component:
+        return self.__root
+
+    @property
+    @override
+    def database(self) -> Database:
+        return self.__database
+
+    @property
+    @override
+    def server(self) -> Self:
+        return self
 
     @property
     def config(self) -> Config:
@@ -73,74 +93,67 @@ class Server(Tasklet):
 
     @property
     def project_directory(self) -> Directory:
-        return Directory(self.__config_path.parent)
+        return Directory(self.config_path.parent)
 
     @property
     def local_directory(self) -> Directory:
         return self.project_directory.subdir("local")
 
-    @property
-    def database(self) -> Database:
-        return self.__database
-
-    @property
-    def root(self) -> Component:
-        return self.__root
-
-    @property
-    def log(self) -> Log:
-        return self.__root.log
-
     @override
     async def __run__(self) -> None:
         self.local_directory.create()
+        await self.__load_database()
 
-        await self.load_database()
+        async def process() -> None:
+            started = False
 
-        started = False
+            while True:
+                if started:
+                    await self.__reloading.wait()
+                    await self.__execute_reload()
 
-        while True:
-            if started:
-                await self.__reloading.wait()
-                await self.__execute_reload()
+                started = True
+                self.__reloading.clear()
 
-            started = True
-            self.__reloading.clear()
+                self.__start_uds_uvicorn()
+                self.__start_port_uvicorn()
 
-            self.__start_uds_uvicorn()
-            self.__start_port_uvicorn()
+                async def start_enabled() -> None:
+                    await asyncio.sleep(0)
+                    for component in self.root.get_components(inclusive=True):
+                        await component.sync_with_database()
+                        if component.enabled and not component.running:
+                            self.log.info(f"Starting enabled component '{component.address}'...")
+                            component.start()
 
-            async def start_enabled() -> None:
-                await asyncio.sleep(0)
-                for component in self.root.get_components(inclusive=True):
-                    await component.sync_with_database()
-                    if component.enabled and not component.running:
-                        self.log.info(f"Starting enabled component '{component.address}'...")
-                        component.start()
+                    await sleep_forever()
 
-                await sleep_forever()
+                tasks = [
+                    asyncio.create_task(start_enabled(), name="start-enabled"),
+                    asyncio.create_task(self.__reloading.wait(), name="reload-wait"),
+                    asyncio.create_task(self.wait_until_stopping(), name="wait-until-stopping"),
+                ]
 
-            tasks = [
-                asyncio.create_task(start_enabled(), name="start-enabled"),
-                asyncio.create_task(self.__reloading.wait(), name="reload-wait"),
-                asyncio.create_task(self.wait_until_stopping(), name="wait-until-stopping"),
-            ]
+                try:
+                    await asyncio.wait(tasks, return_when=FIRST_COMPLETED)
+                finally:
+                    for task in tasks:
+                        if not task.cancelled():
+                            if task.done():
+                                try:
+                                    task.result()
+                                except Exception:
+                                    self.log.error(traceback.format_exc())
+                            else:
+                                task.cancel()
+                    if self.stopping:
+                        self.log.info("Exit signal received, stopping...")
+                        break
 
-            try:
-                await asyncio.wait(tasks, return_when=FIRST_COMPLETED)
-            finally:
-                for task in tasks:
-                    if not task.cancelled():
-                        if task.done():
-                            try:
-                                task.result()
-                            except Exception:
-                                self.log.error(traceback.format_exc())
-                        else:
-                            task.cancel()
-                if self.stopping:
-                    self.log.info("Exit signal received, stopping...")
-                    break
+        await asyncio.gather(
+            super().__run__(),
+            process(),
+        )
 
     @override
     async def __stop__(self) -> None:
@@ -148,13 +161,15 @@ class Server(Tasklet):
         await self.__stop_port_uvicorn()
 
         await self.root.stop()
+        await self.__database.dispose()
+        await super().__stop__()
 
     async def load(self) -> "Result[Config, list[ConfigError]]":
-        match await Config.load(self.__config_path, log=self.log):
+        match await Config.load(self.config_path, log=self.log):
             case Ok(config) as ok:
                 self.__config = config
-                await self.load_database()
-                await self.load_components()
+                await self.__load_database()
+                await self.__load_components()
                 return ok
             case Fail() as fail:
                 return fail
@@ -163,9 +178,9 @@ class Server(Tasklet):
         if self.__reloading.is_set():
             return Fail(ReloadAlreadyActiveError())
 
-        self.log.info(f"Reloading configuration from '{self.__config_path}'...")
+        self.log.info(f"Reloading configuration from '{self.config_path}'...")
 
-        match await Config.load(self.__config_path, log=self.log):
+        match await Config.load(self.config_path, log=self.log):
             case Ok(config):
                 self.log.info("Queueing reload...")
                 self.__reloading.set()
@@ -175,7 +190,7 @@ class Server(Tasklet):
                 self.log.error("Reload failed, found errors in configuration.")
                 return Fail(ReloadConfigInvalidError(errors=errors))
 
-    async def load_database(self) -> None:
+    async def __load_database(self) -> None:
         if not await self.database.tables():
             self.log.info("Database appears empty, initializing database...")
             try:
@@ -253,7 +268,7 @@ class Server(Tasklet):
 
         self.log.info("Reload completed.")
 
-    async def load_components(self) -> None:
+    async def __load_components(self) -> None:
         await self.__load_component(Address.root())
 
     async def __load_component(self, address: Address) -> Component | None:
@@ -265,14 +280,14 @@ class Server(Tasklet):
                 return None
 
         component = self.root.get_component(address)
-        id = await self.root.assign_component_id(address)
+        id = await self.get_id(address)
 
         if component is None:
             try:
                 component = config.create()
                 if address.is_root:
                     self.__root = component
-                    component.bind_server(self)
+                    component.server = self
                 else:
                     parent = self.root.get_component(address.parent)
                     if parent is not None:

@@ -87,7 +87,7 @@ from ceres.result import Fail, Ok, Result
 if TYPE_CHECKING:
     from ceres.server import Server
 else:
-    Server = "Server"
+    Server = object
 
 
 class ComponentRole(str, Enum):

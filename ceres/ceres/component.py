@@ -1,15 +1,10 @@
 import asyncio
 import inspect
 import traceback
-from asyncio import Event as AsyncEvent
-from asyncio import Lock as AsyncLock
-from collections import deque
-from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import field
 from datetime import datetime
 from enum import Enum
 from functools import partial
-from itertools import groupby
 from string import ascii_lowercase
 from types import MappingProxyType
 from typing import (
@@ -24,12 +19,13 @@ from typing import (
     Mapping,
     ParamSpec,
     Protocol,
+    Sequence,
     TypedDict,
     TypeVar,
     final,
     overload,
 )
-from uuid import UUID, uuid4
+from uuid import UUID
 from weakref import WeakValueDictionary, ref
 
 from pydantic import (
@@ -68,7 +64,6 @@ from ceres.data import (
     Name,
     PositiveTimeDelta,
     StrPattern,
-    ValidatedDataclass,
     jsonify,
 )
 from ceres.database import Database
@@ -79,17 +74,7 @@ from ceres.errors import (
     ProcedureInvalidArgsError,
     ProcedureNotSubscribableError,
 )
-from ceres.events import (
-    AlertEvent,
-    DisabledEvent,
-    EnabledEvent,
-    Event,
-    LogEvent,
-    MessageReceivedEvent,
-    MessageSentEvent,
-    StartedEvent,
-    StoppedEvent,
-)
+from ceres.events import AlertEvent, DisabledEvent, EnabledEvent, Event
 from ceres.exceptions import ProcedureException
 from ceres.internal.binding import get_bindings
 from ceres.internal.database.entities import (
@@ -100,12 +85,9 @@ from ceres.internal.database.entities import (
 )
 from ceres.internal.events import EventProcessor
 from ceres.internal.scheduler import Scheduler
-from ceres.internal.tasklet import Tasklet
 from ceres.internal.utilities import (
     awaitify,
     cached,
-    chunkify,
-    dictify,
     escape_like_expression,
     lenient_isinstance,
     randstr,
@@ -116,8 +98,9 @@ from ceres.internal.utilities import (
 )
 from ceres.level import Level
 from ceres.listener import ListenerBinding
-from ceres.logs import Log, LogEntry
+from ceres.logs import LogEntry
 from ceres.message import Message, MessageDirection
+from ceres.object import Object
 from ceres.procedure import (
     ActionBinding,
     ProcedureBinding,
@@ -125,14 +108,13 @@ from ceres.procedure import (
 )
 from ceres.routine import RoutineBinding
 from ceres.schedule import Schedule
-from ceres.stream import Stream, WriteStream
 from ceres.timing import utc
 from ceres.validation import ValidationProblem
 
 if TYPE_CHECKING:
     from ceres.server import Server
 else:
-    Server = "Server"
+    Server = object
 
 _ComponentT = TypeVar("_ComponentT", bound="Component")
 _EventT = TypeVar("_EventT", bound=Event)
@@ -504,17 +486,11 @@ class Job(ImmutableDataObject):
         return values
 
 
-@dataclass
-class _Flush:
-    items: Sequence[Item]
-    event: AsyncEvent = field(default_factory=AsyncEvent)
-
-
 @dataclass_transform(
     kw_only_default=True,
     field_specifiers=VALIDATED_DATACLASS_FIELD_SPECIFIERS,
 )
-class Component(ValidatedDataclass, Tasklet):
+class Component(Object):
     name: Final[Name] = Field(default_factory=lambda: randstr(ascii_lowercase, 8))
     jobs: Final[Sequence[Job]] = field(default_factory=list)
 
@@ -531,16 +507,16 @@ class Component(ValidatedDataclass, Tasklet):
         return jobs
 
     def __post_init_post_parse__(self) -> None:
+        super().__post_init_post_parse__()
+
         self.__parent: ref[Component] | None = None
-        self.__events: WriteStream[Event] = WriteStream()
         self.__scheduler = Scheduler()
         self.__referencers: WeakValueDictionary[int, Component] = WeakValueDictionary()
-        self.__log = Log(lambda: self.address)
-        self.__log.add_handler(self.__handle_log_entry)
         self.__components: dict[Name, Component] = {}
         self.__config__: "ComponentConfig | None" = None
         self.__enabled = False
-
+        self.__server: Server | None = None
+        self.__database: Database | None = None
         self.__event_processors = [
             EventProcessor(
                 binding=binding,
@@ -549,23 +525,19 @@ class Component(ValidatedDataclass, Tasklet):
             )
             for binding in self.get_listener_bindings()
         ]
-        self.__server: Server | None = None
-        self.__local_database: Database | None = None
-        self.__mapping: dict[Address, UUID] | None = None
-        self.__mapping_lock = AsyncLock()
-        self.__flush_buffer: list[Item] = []
-        self.__flushes: deque[_Flush] = deque()
-        self.__flushed = AsyncEvent()
-        self.__flushed.set()
 
-        self.__sync_referencers()
         self.__setup__()
 
     def __setup__(self) -> None:
         pass
 
-    def __handle_log_entry(self, entry: LogEntry) -> None:
-        self.emit(LogEvent, entry=entry)
+    @property
+    @override
+    def __container__(self) -> Object | None:
+        if self.parent is not None:
+            return self.parent
+
+        return self.server
 
     def __sync_referencers(self) -> None:
         for referencer in list(self.__referencers.values()):
@@ -610,6 +582,7 @@ class Component(ValidatedDataclass, Tasklet):
         return _get_procedure_bindings(cls)
 
     @property
+    @override
     def address(self) -> Address:
         if self.parent is not None:
             return self.parent.address / self.name
@@ -619,6 +592,45 @@ class Component(ValidatedDataclass, Tasklet):
     @property
     def enabled(self) -> bool:
         return self.__enabled
+
+    @property
+    def settled(self) -> bool:
+        if not self.running:
+            return True
+
+        return super().settled and all(processor.idle for processor in self.__event_processors)
+
+    async def settle(self) -> None:
+        while not self.settled:
+            await asyncio.gather(
+                super().settle(),
+                *(processor.wait_until_empty() for processor in self.__event_processors),
+            )
+
+    def handle_event(self, event: Event) -> None:
+        from ceres.component import Component
+
+        if not self.running or self.stopping:
+            return
+
+        for processor in self.__event_processors:
+            if not lenient_isinstance(event, processor.binding.event_cls):
+                continue
+
+            for alias in processor.binding.sources:
+                if (
+                    alias == "self"
+                    and self.address == event.address
+                    or (
+                        isinstance(self, Component)
+                        and any(
+                            component.address == event.address
+                            for component in self.get_referencers(alias)
+                        )
+                    )
+                ):
+                    processor.put(event)
+                    break
 
     async def enable(self) -> None:
         await self.__set_enabled_in_database(True)
@@ -661,6 +673,7 @@ class Component(ValidatedDataclass, Tasklet):
             self.emit(DisabledEvent)
 
     @property
+    @override
     def root(self) -> "Component":
         current: Component | None = self
         while current.parent is not None:
@@ -676,64 +689,38 @@ class Component(ValidatedDataclass, Tasklet):
         return self.__parent()
 
     @property
+    @override
     def database(self) -> Database:
         if self.parent is not None:
             return self.parent.database
         if self.server is not None:
             return self.server.database
+        if self.__database is None:
+            self.__database = Database()
 
-        if self.__local_database is None:
-            self.__local_database = Database()
-
-        return self.__local_database
-
-    @property
-    def local_database(self) -> Database | None:
-        return self.__local_database
-
-    def bind_server(self, server: Server) -> None:
-        self.__server = server
+        return self.__database
 
     @property
+    @override
     def server(self) -> "Server | None":
         if self.parent is not None:
             return self.parent.server
+        if self.__server is not None:
+            return self.__server
 
-        return self.__server
+        return None
+
+    @server.setter
+    def server(self, server: Server) -> None:
+        self.__server = server
 
     @property
     def scheduler(self) -> Scheduler:
         return self.__scheduler
 
     @property
-    def log(self) -> Log:
-        return self.__log
-
-    @property
-    def events(self) -> Stream[Event]:
-        return self.__events.view()
-
-    @property
     def components(self) -> "ComponentGroup":
         return ComponentGroup(self.__components.values())
-
-    @property
-    def settled(self) -> bool:
-        if not self.running:
-            return True
-
-        return (
-            all(processor.idle for processor in self.__event_processors) and self.__flushed.is_set()
-        )
-
-    async def settle(self) -> None:
-        await self.flush()
-
-        while not self.settled:
-            await asyncio.gather(
-                *(processor.wait_until_empty() for processor in self.__event_processors),
-                self.__flushed.wait(),
-            )
 
     def unref(self) -> Self:
         return self
@@ -759,7 +746,7 @@ class Component(ValidatedDataclass, Tasklet):
 
         self.__sync_referencers()
 
-    def get_referencers(self, alias: str | None = None) -> Sequence[Self]:
+    def get_referencers(self, alias: str | None = None) -> Sequence["Component"]:
         components: list[Component] = []
         root = self
 
@@ -887,42 +874,14 @@ class Component(ValidatedDataclass, Tasklet):
     def propagate(self, event: _EventT) -> _EventT:
         # Handle "self" events.
         self.handle_event(event)
+
+        super().propagate(event)
+
         # Send the event to all components have a reference to this one.
         for referencer in self.__referencers.values():
             referencer.handle_event(event)
-        # Add the event to the outgoing event stream.
-        self.__events.put(event)
-        # Pass the event up to the containing unit if it exists.
-        if self.parent is not None:
-            self.parent.propagate(event)
-        else:
-            # Otherwise, store any related items in the database.
-            match event:
-                case MessageSentEvent() | MessageReceivedEvent():
-                    self.store(event.message)
-                case AlertEvent():
-                    self.store(event.alert)
-                case LogEvent():
-                    self.store(event.entry)
-                case _:
-                    pass
 
         return event
-
-    def handle_event(self, event: Event) -> None:
-        if not self.running or self.stopping:
-            return
-
-        for processor in self.__event_processors:
-            if not lenient_isinstance(event, processor.binding.event_cls):
-                continue
-
-            for alias in processor.binding.sources:
-                if (alias == "self" and self.address == event.address) or any(
-                    component.address == event.address for component in self.get_referencers(alias)
-                ):
-                    processor.put(event)
-                    break
 
     def alert(
         self,
@@ -985,13 +944,15 @@ class Component(ValidatedDataclass, Tasklet):
         await self.sync_with_database()
 
         self.__start_scheduler()
-        self.emit(StartedEvent)
 
         await asyncio.gather(
-            self.__process_flush(),
-            self.__process_routines(),
+            super().__run__(),
             self.__process_events(),
+            self.__process_routines(),
         )
+
+    async def __process_events(self) -> None:
+        await asyncio.gather(*(processor.run() for processor in self.__event_processors))
 
     async def __process_routine(self, binding: RoutineBinding) -> None:
         routine = getattr(self, binding.function, None)
@@ -1006,19 +967,10 @@ class Component(ValidatedDataclass, Tasklet):
                 f"{strify(traceback.format_exc())}"
             )
 
-    async def __process_flush(self) -> None:
-        while True:
-            if self.__flush_buffer:
-                await self.flush()
-            await asyncio.sleep(0.1)
-
     async def __process_routines(self) -> None:
         await asyncio.gather(
             *(self.__process_routine(binding) for binding in self.get_routine_bindings())
         )
-
-    async def __process_events(self) -> None:
-        await asyncio.gather(*(processor.run() for processor in self.__event_processors))
 
     @override
     async def __stop__(self) -> None:
@@ -1029,13 +981,11 @@ class Component(ValidatedDataclass, Tasklet):
         self.__scheduler.stop()
         self.__scheduler = Scheduler()
         await self.flush()
-        if self.__local_database is not None:
-            await self.__local_database.dispose()
-            self.__local_database = None
+        if self.__database is not None:
+            await self.__database.dispose()
+            self.__database = None
 
-    @override
-    async def __done__(self) -> None:
-        self.emit(StoppedEvent)
+        await super().__stop__()
 
     async def __invoke(
         self,
@@ -1143,136 +1093,13 @@ class Component(ValidatedDataclass, Tasklet):
         return self.database.session()
 
     async def sync_with_database(self) -> UUID:
-        id = await self.root.assign_component_id(self.address)
+        id = await self.get_id(self.address)
         self.__enabled = await self.__get_enabled_in_database()
         return id
 
-    async def assign_component_id(
-        self,
-        address: Address,
-        default: UUID | None = None,
-    ) -> UUID:
-        if self.__mapping is not None:
-            id = self.__mapping.get(address)
-            if id is not None:
-                return id
-
-        async with await self.__init_database_session() as session:
-            mapping = await self.__get_or_load_mapping(session)
-            id = mapping.get(address)
-            if id is not None:
-                return id
-
-            if id is None:
-                id = await session.scalar(
-                    select(ComponentEntity.id).where(ComponentEntity.address == address),
-                )
-
-            if id is None:
-                id = default or uuid4()
-                component = ComponentEntity(id=id, address=address)
-
-                session.add(component)
-                await session.commit()
-
-            mapping[address] = id
-            return id
-
-    @final
-    def store(self, item: Item) -> None:
-        # If the component has a parent, defer to the parent component.
-        if self.parent is not None:
-            self.parent.store(item)
-            return
-
-        if not isinstance(item, Item):
-            raise TypeError(f"unsupported item type: {type(item)}")
-
-        # Add the item to the flush buffer and clear the flushed event.
-        self.__flush_buffer.append(item)
-        self.__flushed.clear()
-
-    @final
-    async def flush(self) -> None:
-        # Keep track of all pending flushes.
-        pending = tuple(self.__flushes)
-
-        # If there's no items in the buffer, wait for the latest flush to complete.
-        if not self.__flush_buffer:
-            if pending:
-                await pending[-1].event.wait()
-
-            # Otherwise return, there's nothing to wait for.
-            return
-
-        # Register the flush request.
-        flush = _Flush(items=tuple(self.__flush_buffer))
-        self.__flushes.append(flush)
-
-        # Clear the buffer.
-        self.__flush_buffer = []
-
-        try:
-            # Wait for the previous flush to complete.
-            if pending:
-                await pending[-1].event.wait()
-
-            async with await self.__init_database_session() as session:
-                # Pick the number of items to insert in a single query based on the database kind.
-                match self.database.kind:
-                    case DatabaseKind.SQLITE:
-                        from sqlalchemy.dialects.sqlite import insert
-
-                        chunk_size = 500
-
-                    case DatabaseKind.POSTGRES:
-                        from sqlalchemy.dialects.postgresql import insert  # noqa
-
-                        chunk_size = 1000
-
-                # Group items by item class.
-                for model_cls, model in groupby(flush.items, type):
-                    # Determine the entity class of item.
-                    if issubclass(model_cls, Message):
-                        entity_cls = MessageEntity
-                    elif issubclass(model_cls, Alert):
-                        entity_cls = AlertEntity
-                    elif issubclass(model_cls, LogEntry):
-                        entity_cls = LogEntryEntity
-                    else:
-                        continue
-
-                    # Insert items in chunks.
-                    for chunk in chunkify(model, chunk_size):
-                        values: list[dict[str, Any]] = []
-
-                        for model in chunk:
-                            # Convert the model to a dictionary, replacing the "address" field with
-                            # the "component_id".
-                            data = dictify(model)
-                            data.pop("address", None)
-                            data["component_id"] = await self.assign_component_id(model.address)
-                            values.append(data)
-
-                        await session.execute(
-                            insert(entity_cls).on_conflict_do_nothing(),
-                            values,
-                        )
-
-                await session.commit()
-        finally:
-            # Notify the flush is complete.
-            flush.event.set()
-            # Remove it from the queue.
-            self.__flushes.popleft()
-            # If there are items no items remaining in the buffer and no pending flushes, set
-            # the "flushed" event.
-            if not self.__flush_buffer and not self.__flushes:
-                self.__flushed.set()
-
-    async def __get_component_ids(self, query: ComponentQuery) -> list[UUID]:
+    async def __get_ids(self, query: ComponentQuery) -> list[UUID]:
         return [
-            await self.assign_component_id(component.address)
+            await self.get_id(component.address)
             for component in self.get_components(query, inclusive=True)
         ]
 
@@ -1310,7 +1137,7 @@ class Component(ValidatedDataclass, Tasklet):
         else:
             query = MessageQuery(**kwargs)
 
-        ids = await self.__get_component_ids(ComponentQuery(address=query.address))
+        ids = await self.__get_ids(ComponentQuery(address=query.address))
         statement = (
             select(
                 MessageEntity.id,
@@ -1427,7 +1254,7 @@ class Component(ValidatedDataclass, Tasklet):
         else:
             query = AlertQuery(**kwargs)
 
-        ids = await self.__get_component_ids(ComponentQuery(address=query.address))
+        ids = await self.__get_ids(ComponentQuery(address=query.address))
         statement = (
             select(
                 AlertEntity.id,
@@ -1543,7 +1370,7 @@ class Component(ValidatedDataclass, Tasklet):
         else:
             query = LogEntryQuery(**kwargs)
 
-        ids = await self.__get_component_ids(ComponentQuery(address=query.address))
+        ids = await self.__get_ids(ComponentQuery(address=query.address))
         statement = (
             select(
                 LogEntryEntity.id,
@@ -1707,24 +1534,9 @@ class Component(ValidatedDataclass, Tasklet):
 
         return list(results.values())
 
-    async def __generate_mapping(self, session: AsyncSession) -> dict[Address, UUID]:
-        return dict(
-            tuple(row)
-            for row in await session.execute(
-                select(ComponentEntity.address, ComponentEntity.id),
-            )
-        )
-
-    async def __get_or_load_mapping(self, session: AsyncSession) -> dict[Address, UUID]:
-        async with self.__mapping_lock:
-            if self.__mapping is None:
-                self.__mapping = await self.__generate_mapping(session)
-
-        return self.__mapping
-
 
 @cached
-def _get_listener_bindings(cls: type[Component]) -> Sequence[ListenerBinding]:
+def _get_listener_bindings(cls: type[Object]) -> Sequence[ListenerBinding]:
     return get_bindings(cls, ListenerBinding)
 
 
