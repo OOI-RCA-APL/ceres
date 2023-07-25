@@ -70,7 +70,7 @@ class Server(Object, kw_only=False):
     @property
     @override
     def address(self) -> Address:
-        return Address.root()
+        return Address.server()
 
     @property
     @override

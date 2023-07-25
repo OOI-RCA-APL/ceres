@@ -160,7 +160,7 @@ class ObjectQueryArgs(TypedDict, total=False):
 class ObjectQuery(Generic[_ObjectT], Query):
     address: AddressSelector | None = None
 
-    def matches(self, obj: _ObjectT, root: Address) -> bool:
+    def matches(self, obj: _ObjectT, root: Address = Address.root()) -> bool:
         if not root.contains(obj.address):
             return False
 
@@ -181,7 +181,7 @@ class ComponentQuery(ObjectQuery["Component"]):
     running: bool | None = None
 
     @override
-    def matches(self, obj: "Component", root: Address) -> bool:
+    def matches(self, obj: "Component", root: Address = Address.root()) -> bool:
         if not super().matches(obj, root):
             return False
 
@@ -235,7 +235,7 @@ class MessageQuery(ObjectQuery[Message]):
     offset: int | None = Field(default=None, ge=0)
 
     @override
-    def matches(self, obj: Message, root: Address) -> bool:
+    def matches(self, obj: Message, root: Address = Address.root()) -> bool:
         if not super().matches(obj, root):
             return False
 
@@ -312,7 +312,7 @@ class AlertQuery(ObjectQuery[Alert]):
     offset: int | None = Field(default=None, ge=0)
 
     @override
-    def matches(self, obj: Alert, root: Address) -> bool:
+    def matches(self, obj: Alert, root: Address = Address.root()) -> bool:
         if not super().matches(obj, root):
             return False
 
@@ -399,7 +399,7 @@ class LogEntryQuery(ObjectQuery[LogEntry]):
     offset: int | None = Field(default=None, ge=0)
 
     @override
-    def matches(self, obj: LogEntry, root: Address) -> bool:
+    def matches(self, obj: LogEntry, root: Address = Address.root()) -> bool:
         if not super().matches(obj, root):
             return False
 
@@ -1581,13 +1581,13 @@ def _pg_format_timestamp(timestamp: SQLColumnExpression[datetime]) -> Any:
 
 
 def _address_contains(
-    root: Address,
-    expression: SQLColumnExpression[Address],
+    self: Address,
+    other: SQLColumnExpression[Address],
 ) -> bool | SQLColumnExpression[bool]:
-    if root.is_root:
+    if self.is_server:
         return True
 
-    return (expression == root) | expression.like(f"{root}.%")
+    return (other == self) | ((other != "~") & (other.like(f"{self}.%") | (self.is_root)))
 
 
 class ComponentGroup(Sequence[Component]):
