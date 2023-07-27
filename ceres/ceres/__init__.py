@@ -2,12 +2,7 @@ from ceres.address import Address as Address
 from ceres.address import AddressSelector as AddressSelector
 from ceres.address import DynamicAddress as DynamicAddress
 from ceres.alert import Alert as Alert
-from ceres.component import AlertOrder as AlertOrder
-from ceres.component import AlertQuery as AlertQuery
 from ceres.component import Component as Component
-from ceres.component import MessageOrder as MessageOrder
-from ceres.component import MessageQuery as MessageQuery
-from ceres.component import ObjectQuery as ObjectQuery
 from ceres.config import Config as Config
 from ceres.config import ConfigCheckKind as ConfigCheckKind
 from ceres.config import DatabaseKind as DatabaseKind
@@ -23,6 +18,14 @@ from ceres.events import Event as Event
 from ceres.events import StandardEvent as StandardEvent
 from ceres.events import StandardEventKind as StandardEventKind
 from ceres.exceptions import ParseException as ParseException
+from ceres.filter import AlertFilter as AlertFilter
+from ceres.filter import AlertOrder as AlertOrder
+from ceres.filter import ComponentFilter as ComponentFilter
+from ceres.filter import LogEntryFilter as LogEntryFilter
+from ceres.filter import LogEntryOrder as LogEntryOrder
+from ceres.filter import MessageFilter as MessageFilter
+from ceres.filter import MessageOrder as MessageOrder
+from ceres.filter import StatisticsFilter as StatisticsFilter
 from ceres.internal.cli import main as main  # noqa
 from ceres.level import Level as Level
 from ceres.listener import on as on

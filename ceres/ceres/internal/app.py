@@ -45,16 +45,7 @@ from websockets.exceptions import ConnectionClosed
 
 from ceres.address import Address, AddressSelector
 from ceres.alert import Alert, Level
-from ceres.component import (
-    AlertQuery,
-    Component,
-    ComponentQuery,
-    ComponentStatus,
-    LogEntryQuery,
-    MessageQuery,
-    Statistics,
-    StatisticsQuery,
-)
+from ceres.component import Component, Status
 from ceres.config import ComponentConfig, Config
 from ceres.data import ImmutableDataObject, Name, jsonify
 from ceres.errors import (
@@ -76,11 +67,19 @@ from ceres.events import (
     StoppedEvent,
 )
 from ceres.exceptions import ProcedureException
+from ceres.filter import (
+    AlertFilter,
+    ComponentFilter,
+    LogEntryFilter,
+    MessageFilter,
+    StatisticsFilter,
+)
 from ceres.internal import logs
 from ceres.internal.console import ConsoleFiles
 from ceres.internal.utilities import strify
 from ceres.logs import LogEntry
 from ceres.message import Message
+from ceres.object import Statistics
 from ceres.procedure import ProcedureBinding
 from ceres.result import Fail, Ok, Result
 
@@ -125,35 +124,48 @@ ComponentInfo.update_forward_refs()
 api = APIRouter()
 
 
-def _get_current_server(connection: HTTPConnection) -> "Server":
+def _get_current_server(connection: HTTPConnection) -> Server:
     assert isinstance(connection.app, App)
     return connection.app.server
 
 
-CurrentServer = Annotated["Server", Depends(_get_current_server)]
+CurrentServer = Annotated[Server, Depends(_get_current_server)]
 
 
 class HealthResult(ImmutableDataObject):
     ok: bool
 
 
-@api.get("/health", tags=["root"])
+@api.get("/health", tags=["server"])
 async def get_health() -> HealthResult:
     return HealthResult(ok=True)
 
 
-@api.get("/config", tags=["root"])
+@api.get("/config", tags=["server"])
 async def get_config(server: CurrentServer) -> Config:
     return server.config
+
+
+@api.post("/reload", tags=["server"])
+async def reload(
+    server: CurrentServer,
+    response: Response,
+) -> Result[Config, ReloadError]:
+    match await server.reload():
+        case Ok(config):
+            return Ok(config)
+        case Fail(error):
+            response.status_code = HTTP_400_BAD_REQUEST
+            return Fail(error)
 
 
 class StartResult(ImmutableDataObject):
     started: Sequence[Address]
 
 
-@api.post("/start", tags=["root"])
-async def start(server: CurrentServer, query: ComponentQuery) -> StartResult:
-    stopped = server.root.get_components(query, running=False, inclusive=True)
+@api.post("/start", tags=["components"])
+async def start(server: CurrentServer, filter: ComponentFilter) -> StartResult:
+    stopped = server.get_components(filter, running=False)
     stopped.start()
     return StartResult(started=[component.address for component in stopped])
 
@@ -162,9 +174,9 @@ class StopResult(ImmutableDataObject):
     stopped: Sequence[Address]
 
 
-@api.post("/stop", tags=["root"])
-async def stop(server: CurrentServer, query: ComponentQuery) -> StopResult:
-    running = server.root.get_components(query, running=True, inclusive=True)
+@api.post("/stop", tags=["components"])
+async def stop(server: CurrentServer, filter: ComponentFilter) -> StopResult:
+    running = server.get_components(filter, running=True)
     await running.stop()
     return StopResult(stopped=[component.address for component in running])
 
@@ -173,9 +185,9 @@ class EnableResult(ImmutableDataObject):
     enabled: Sequence[Address]
 
 
-@api.post("/enable", tags=["root"])
-async def enable(server: CurrentServer, query: ComponentQuery) -> EnableResult:
-    disabled = server.root.get_components(query, enabled=False, inclusive=True)
+@api.post("/enable", tags=["components"])
+async def enable(server: CurrentServer, filter: ComponentFilter) -> EnableResult:
+    disabled = server.get_components(filter, enabled=False)
     await disabled.enable()
     return EnableResult(enabled=[component.address for component in disabled])
 
@@ -184,9 +196,9 @@ class DisableResult(ImmutableDataObject):
     disabled: Sequence[Address]
 
 
-@api.post("/disable", tags=["root"])
-async def disable(server: CurrentServer, query: ComponentQuery) -> DisableResult:
-    enabled = server.root.get_components(query, enabled=True, inclusive=True)
+@api.post("/disable", tags=["components"])
+async def disable(server: CurrentServer, filter: ComponentFilter) -> DisableResult:
+    enabled = server.get_components(filter, enabled=True)
     await enabled.disable()
     return DisableResult(disabled=[component.address for component in enabled])
 
@@ -196,12 +208,12 @@ class UpResult(ImmutableDataObject):
     started: Sequence[Address]
 
 
-@api.post("/up", tags=["root"])
-async def up(server: CurrentServer, query: ComponentQuery) -> UpResult:
-    disabled = server.root.get_components(query, enabled=False, inclusive=True)
+@api.post("/up", tags=["components"])
+async def up(server: CurrentServer, filter: ComponentFilter) -> UpResult:
+    disabled = server.get_components(filter, enabled=False)
     await disabled.enable()
 
-    stopped = server.root.get_components(query, running=False, inclusive=True)
+    stopped = server.get_components(filter, running=False)
     stopped.start()
 
     return UpResult(
@@ -215,12 +227,12 @@ class DownResult(ImmutableDataObject):
     stopped: Sequence[Address]
 
 
-@api.post("/down", tags=["root"])
-async def down(server: CurrentServer, query: ComponentQuery) -> DownResult:
-    enabled = server.root.get_components(query, enabled=True, inclusive=True)
+@api.post("/down", tags=["components"])
+async def down(server: CurrentServer, filter: ComponentFilter) -> DownResult:
+    enabled = server.get_components(filter, enabled=True)
     await enabled.disable()
 
-    running = server.root.get_components(query, running=True, inclusive=True)
+    running = server.get_components(filter, running=True)
     await running.stop()
 
     return DownResult(
@@ -229,37 +241,55 @@ async def down(server: CurrentServer, query: ComponentQuery) -> DownResult:
     )
 
 
-@api.post("/reload", tags=["root"])
-async def reload(
-    server: CurrentServer,
-    response: Response,
-) -> Result[Config, ReloadError]:
-    match await server.reload():
-        case Ok(config):
-            return Ok(config)
-        case Fail(error):
-            response.status_code = HTTP_400_BAD_REQUEST
-            return Fail(error)
+@api.get("/status/{address}?", tags=["components"])
+async def get_status(server: CurrentServer, address: Address | None = None) -> Status:
+    status = await server.get_status(address)
+    if status is None:
+        raise HTTPException(HTTP_404_NOT_FOUND)
+
+    return status
 
 
-class GetStatusesQueryParameters(ComponentQuery):
+class GetStatusesQueryParameters(ComponentFilter):
     pass
-
-
-@api.get("/status", tags=["components"])
-async def get_status(server: CurrentServer) -> ComponentStatus:
-    return await server.root.get_status()
 
 
 @api.get("/statuses", tags=["components"])
 async def get_statuses(
     server: CurrentServer,
-    query: Annotated[GetStatusesQueryParameters, Depends()],
-) -> list[ComponentStatus]:
-    return await server.root.get_statuses(query)
+    filter: Annotated[GetStatusesQueryParameters, Depends()],
+) -> list[Status]:
+    return await server.get_statuses(filter)
 
 
-class GetMessagesQueryParameters(MessageQuery):
+class StreamStatusesQueryParameters(ComponentFilter):
+    pass
+
+
+@api.websocket("/statuses")
+async def stream_statuses(
+    socket: WebSocket,
+    server: CurrentServer,
+    filter: Annotated[StreamStatusesQueryParameters, Depends()],
+) -> None:
+    try:
+        await socket.accept()
+        await socket.send_text(jsonify(await server.get_statuses(filter)))
+
+        async for _ in server.events.of(
+            StartedEvent
+            | StoppedEvent
+            | EnabledEvent
+            | DisabledEvent
+            | ConnectedEvent
+            | DisconnectedEvent
+        ):
+            await socket.send_text(jsonify(await server.get_statuses(filter)))
+    except (WebSocketDisconnect, ConnectionClosed):
+        pass
+
+
+class GetMessagesQueryParameters(MessageFilter):
     limit: int = Field(default=100, ge=0, le=1000)
     offset: int = Field(default=0, ge=0)
 
@@ -267,12 +297,12 @@ class GetMessagesQueryParameters(MessageQuery):
 @api.get("/messages", tags=["data"])
 async def get_messages(
     server: CurrentServer,
-    query: Annotated[GetMessagesQueryParameters, Depends()],
+    filter: Annotated[GetMessagesQueryParameters, Depends()],
 ) -> list[Message]:
-    return await server.root.get_messages(query)
+    return await server.get_messages(filter)
 
 
-class GetAlertsQueryParameters(AlertQuery):
+class GetAlertsQueryParameters(AlertFilter):
     level: Level | None = None
     code: str | None = None
     limit: int = Field(default=100, ge=0, le=1000)
@@ -282,12 +312,12 @@ class GetAlertsQueryParameters(AlertQuery):
 @api.get("/alerts", tags=["data"])
 async def get_alerts(
     server: CurrentServer,
-    query: Annotated[GetAlertsQueryParameters, Depends()],
+    filter: Annotated[GetAlertsQueryParameters, Depends()],
 ) -> list[Alert]:
-    return await server.root.get_alerts(query)
+    return await server.get_alerts(filter)
 
 
-class GetLogEntriesQueryParameters(LogEntryQuery):
+class GetLogEntriesQueryParameters(LogEntryFilter):
     level: Level | None = None
     limit: int = Field(default=100, ge=0, le=1000)
     offset: int = Field(default=0, ge=0)
@@ -296,21 +326,21 @@ class GetLogEntriesQueryParameters(LogEntryQuery):
 @api.get("/log-entries", tags=["data"])
 async def get_log_entries(
     server: CurrentServer,
-    query: Annotated[GetLogEntriesQueryParameters, Depends()],
+    filter: Annotated[GetLogEntriesQueryParameters, Depends()],
 ) -> list[LogEntry]:
-    return await server.root.get_log_entries(query)
+    return await server.get_log_entries(filter)
 
 
-class GetStatisticsQueryParameters(StatisticsQuery):
+class GetStatisticsQueryParameters(StatisticsFilter):
     pass
 
 
-@api.get("/statistics", tags=["components"])
+@api.get("/statistics", tags=["data"])
 async def get_statistics(
     server: CurrentServer,
-    query: Annotated[GetStatisticsQueryParameters, Depends()],
+    filter: Annotated[GetStatisticsQueryParameters, Depends()],
 ) -> list[Statistics]:
-    return await server.root.get_statistics(query)
+    return await server.get_statistics(filter)
 
 
 @api.websocket("/messages")
@@ -323,9 +353,9 @@ async def stream_messages(
     try:
         await socket.accept()
 
-        query = MessageQuery(address=address, search=search)
+        filter = MessageFilter(address=address, search=search)
         async for event in server.events.of(MessageSentEvent | MessageReceivedEvent):
-            if query.matches(event.message):
+            if filter.matches(event.message):
                 await socket.send_text(jsonify(event.message))
     except (WebSocketDisconnect, ConnectionClosed):
         raise
@@ -341,9 +371,9 @@ async def stream_alerts(
     try:
         await socket.accept()
 
-        query = AlertQuery(address=address, search=search)
+        filter = AlertFilter(address=address, search=search)
         async for event in server.events.of(AlertEvent):
-            if query.matches(event.alert):
+            if filter.matches(event.alert):
                 await socket.send_text(jsonify(event.alert))
     except (WebSocketDisconnect, ConnectionClosed):
         pass
@@ -359,9 +389,9 @@ async def stream_log_entries(
     try:
         await socket.accept()
 
-        query = LogEntryQuery(address=address, search=search)
+        filter = LogEntryFilter(address=address, search=search)
         async for event in server.events.of(LogEvent):
-            if query.matches(event.entry):
+            if filter.matches(event.entry):
                 await socket.send_text(jsonify(event.entry))
     except (WebSocketDisconnect, ConnectionClosed):
         pass
@@ -404,54 +434,6 @@ async def get_component_info(
     except Exception:
         traceback.print_exc()
         raise
-
-
-@api.get("/component-status/{address}", tags=["components"])
-async def get_component_status(server: CurrentServer, address: Address) -> ComponentStatus:
-    component = server.root.get_component(address)
-    if component is None:
-        raise HTTPException(HTTP_404_NOT_FOUND)
-
-    return await component.get_status()
-
-
-class GetComponentStatusesQueryParameters(ComponentQuery):
-    pass
-
-
-@api.get("/component-statuses", tags=["components"])
-async def get_component_statuses(
-    server: CurrentServer,
-    query: Annotated[GetComponentStatusesQueryParameters, Depends()],
-) -> list[ComponentStatus]:
-    return await server.root.get_statuses(query)
-
-
-class StreamComponentStatusesQueryParameters(ComponentQuery):
-    pass
-
-
-@api.websocket("/component-statuses")
-async def stream_component_statuses(
-    socket: WebSocket,
-    server: CurrentServer,
-    query: Annotated[StreamComponentStatusesQueryParameters, Depends()],
-) -> None:
-    try:
-        await socket.accept()
-        await socket.send_text(jsonify(await server.root.get_statuses(query)))
-
-        async for _ in server.root.events.of(
-            StartedEvent
-            | StoppedEvent
-            | EnabledEvent
-            | DisabledEvent
-            | ConnectedEvent
-            | DisconnectedEvent
-        ):
-            await socket.send_text(jsonify(await server.root.get_statuses(query)))
-    except (WebSocketDisconnect, ConnectionClosed):
-        pass
 
 
 @api.api_route(

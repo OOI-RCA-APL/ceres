@@ -6,10 +6,10 @@ from enum import Enum
 from pathlib import Path
 from typing import Self, Sequence
 
-from typing_extensions import override
+from typing_extensions import Unpack, override
 
-from ceres.address import Address
-from ceres.component import Component
+from ceres.address import Address, AddressSelector, DynamicAddress
+from ceres.component import Component, ComponentGroup
 from ceres.config import Config
 from ceres.data import ImmutableDataObject
 from ceres.database import Database
@@ -21,6 +21,7 @@ from ceres.errors import (
     ReloadError,
 )
 from ceres.exceptions import DatabaseInitException
+from ceres.filter import ComponentFilter, ComponentFilterArgs
 from ceres.internal.context import ProjectContext
 from ceres.internal.utilities import sleep_forever, strify, uniquify
 from ceres.internal.uvicorn import Uvicorn, UvicornConfig
@@ -52,12 +53,16 @@ class Server(Object, kw_only=False):
                 raise ValueError(str(errors))
 
         self.__database = Database(self.__config.database)
-        self.__root = self.__config.create()
-        self.__root.server = self
         self.__reloading = AsyncEvent()
         self.__reloaded_config: Config | None = None
         self.__port_uvicorn: Uvicorn | None = None
         self.__uds_uvicorn: Uvicorn | None = None
+
+        self.__root = self.__config.create()
+        self.root = self.__root
+
+        assert self.root.server is self
+        assert self.root.database is self.database
 
         from ceres.internal.app import App
 
@@ -76,6 +81,12 @@ class Server(Object, kw_only=False):
     @override
     def root(self) -> Component:
         return self.__root
+
+    @root.setter
+    def root(self, root: Component) -> None:
+        root = root.unref()
+        self.__root = root
+        self.__root.server = self
 
     @property
     @override
@@ -120,7 +131,7 @@ class Server(Object, kw_only=False):
 
                 async def start_enabled() -> None:
                     await asyncio.sleep(0)
-                    for component in self.root.get_components(inclusive=True):
+                    for component in self.get_components():
                         await component.sync_with_database()
                         if component.enabled and not component.running:
                             self.log.info(f"Starting enabled component '{component.address}'...")
@@ -173,6 +184,21 @@ class Server(Object, kw_only=False):
                 return ok
             case Fail() as fail:
                 return fail
+
+    @override
+    def get_component(self, address: str | DynamicAddress | None, /) -> Component | None:
+        return self.root.get_component(address)
+
+    @override
+    def get_components(
+        self,
+        filter: ComponentFilter | AddressSelector | None = None,
+        /,
+        *,
+        inclusive: bool = False,
+        **kwargs: Unpack[ComponentFilterArgs],
+    ) -> "ComponentGroup":
+        return self.root.get_components(filter, inclusive=True, **kwargs)
 
     async def reload(self) -> Result[Config, ReloadError]:
         if self.__reloading.is_set():
@@ -233,7 +259,7 @@ class Server(Object, kw_only=False):
                     "Database configuration modified, reloading database and components..."
                 )
                 try:
-                    running = self.root.get_components(inclusive=True, running=True)
+                    running = self.get_components(running=True)
                     await self.root.stop()
                     await self.__database.dispose()
                     self.__database = Database(self.config.database)
@@ -279,17 +305,16 @@ class Server(Object, kw_only=False):
             if config is None:
                 return None
 
-        component = self.root.get_component(address)
+        component = self.get_component(address)
         id = await self.get_id(address)
 
         if component is None:
             try:
                 component = config.create()
                 if address.is_root:
-                    self.__root = component
-                    component.server = self
+                    self.root = component
                 else:
-                    parent = self.root.get_component(address.parent)
+                    parent = self.get_component(address.parent)
                     if parent is not None:
                         parent.add_component(component)
                         component.assign_references(
@@ -300,24 +325,22 @@ class Server(Object, kw_only=False):
                 self.log.info(f"Loaded '{address}' as {strify(type(component))} with ID '{id}'.")
 
             except Exception:
-                self.root.log.error(f"Failed to load '{address}': {traceback.format_exc()}")
+                self.log.error(f"Failed to load '{address}': {traceback.format_exc()}")
                 return
 
         for child in config.components:
             await self.__load_component(address / child.name)
 
     async def __execute_actions(self, actions: Sequence[Action]) -> None:
-        running = [
-            other.address for other in self.root.get_components(inclusive=True) if other.running
-        ]
+        running = [other.address for other in self.get_components() if other.running]
         for action in actions:
-            component = self.root.get_component(action.address)
+            component = self.get_component(action.address)
 
             if action.kind == ActionKind.REMOVE:
                 if component is not None:
                     self.log.info(f"Removing '{action.address}'...")
                     await component.stop()
-                    component.detach()
+                    component.remove_component()
                     self.log.info(f"Removed '{action.address}'.")
             else:
                 if action.kind == ActionKind.CREATE:
@@ -329,12 +352,12 @@ class Server(Object, kw_only=False):
                     if component is not None:
                         self.log.info(f"Recreating '{action.address}'...")
                         await component.stop()
-                        component.detach()
+                        component.remove_component()
                         await self.__load_component(action.address)
                         self.log.info(f"Recreated '{action.address}'.")
 
         for address in running:
-            component = self.root.get_component(address)
+            component = self.get_component(address)
             if component is not None and not component.running:
                 self.log.info(f"Starting '{address}'...")
                 component.start()
@@ -342,17 +365,17 @@ class Server(Object, kw_only=False):
         created = [
             action
             for action in actions
-            if action.kind == ActionKind.CREATE and action.address in self.root.components
+            if action.kind == ActionKind.CREATE and self.get_component(action.address) is not None
         ]
         recreated = [
             action
             for action in actions
-            if action.kind == ActionKind.RECREATE and action.address in self.root.components
+            if action.kind == ActionKind.RECREATE and self.get_component(action.address) is not None
         ]
         removed = [
             action
             for action in actions
-            if action.kind == ActionKind.REMOVE and action.address not in self.root.components
+            if action.kind == ActionKind.REMOVE and self.get_component(action.address) is None
         ]
 
         if created:

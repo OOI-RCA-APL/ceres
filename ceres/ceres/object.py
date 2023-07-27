@@ -4,6 +4,7 @@ from asyncio import Event as AsyncEvent
 from asyncio import Lock as AsyncLock
 from collections import deque
 from dataclasses import dataclass, field
+from datetime import datetime
 from itertools import groupby
 from typing import (
     TYPE_CHECKING,
@@ -15,16 +16,25 @@ from typing import (
 )
 from uuid import UUID, uuid4
 
-from sqlalchemy import ColumnElement, select
+from pydantic import Field
+from sqlalchemy import (
+    BinaryExpression,
+    SQLColumnExpression,
+    Text,
+    cast,
+    func,
+    select,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.sql.roles import ExpressionElementRole
-from typing_extensions import ParamSpec, dataclass_transform, override
+from typing_extensions import ParamSpec, Unpack, dataclass_transform, override, overload
 
-from ceres.address import Address
+from ceres.address import Address, AddressSelector, DynamicAddress
 from ceres.alert import Alert
 from ceres.config import DatabaseKind
 from ceres.data import (
     VALIDATED_DATACLASS_FIELD_SPECIFIERS,
+    DataObject,
+    ImmutableDataObject,
     ValidatedDataclass,
 )
 from ceres.database import Database
@@ -37,6 +47,21 @@ from ceres.events import (
     StartedEvent,
     StoppedEvent,
 )
+from ceres.filter import (
+    AlertFilter,
+    AlertFilterArgs,
+    AlertOrder,
+    ComponentFilter,
+    ComponentFilterArgs,
+    LogEntryFilter,
+    LogEntryFilterArgs,
+    LogEntryOrder,
+    MessageFilter,
+    MessageFilterArgs,
+    MessageOrder,
+    StatisticsFilter,
+    StatisticsFilterArgs,
+)
 from ceres.internal.database.entities import (
     AlertEntity,
     ComponentEntity,
@@ -44,26 +69,47 @@ from ceres.internal.database.entities import (
     MessageEntity,
 )
 from ceres.internal.tasklet import Tasklet
-from ceres.internal.utilities import chunkify, dictify
+from ceres.internal.utilities import chunkify, dictify, escape_like_expression
 from ceres.level import Level
 from ceres.logs import Log, LogEntry
 from ceres.message import Message
 from ceres.stream import Stream, WriteStream
+from ceres.timing import utc
 
 if TYPE_CHECKING:
-    from ceres.component import Component
+    from ceres.component import Component, ComponentGroup
     from ceres.server import Server
 else:
     Component = object
+    ComponentGroup = object
+    Status = object
     Server = object
 
 _EventT = TypeVar("_EventT", bound=Event)
 _EventP = ParamSpec("_EventP")
 
-WhereExpression = ColumnElement[bool] | ExpressionElementRole[bool]
-OrderByExpression = ColumnElement[Any] | ExpressionElementRole[Any]
-
 Item = Message | Alert | LogEntry
+
+
+class LevelStatistics(DataObject):
+    level: Level
+    count: int = Field(ge=0)
+
+
+class AlertStatistics(DataObject):
+    count: int = 0
+    levels: list[LevelStatistics] = Field(default_factory=list)
+
+
+class Statistics(DataObject):
+    address: Address
+    alerts: AlertStatistics = Field(default_factory=AlertStatistics)
+
+
+class Status(ImmutableDataObject):
+    address: Address
+    running: bool
+    enabled: bool
 
 
 @dataclass
@@ -338,3 +384,507 @@ class Object(ValidatedDataclass, Tasklet):
     async def __init_database_session(self) -> AsyncSession:
         await self.database.init()
         return self.database.session()
+
+    def get_object(self, address: str | DynamicAddress | None, /) -> "Object | None":
+        if address is None:
+            return self
+
+        address = DynamicAddress(address)
+        if address.is_server:
+            return self.server
+
+        return self.get_component(address)
+
+    @abstractmethod
+    def get_component(self, address: str | DynamicAddress | None, /) -> Component | None:
+        ...
+
+    @abstractmethod
+    def get_components(
+        self,
+        filter: ComponentFilter | AddressSelector | None = None,
+        /,
+        *,
+        inclusive: bool = False,
+        **kwargs: Unpack[ComponentFilterArgs],
+    ) -> "ComponentGroup":
+        ...
+
+    @overload
+    async def get_status(self, address: str | DynamicAddress) -> Status | None:
+        ...
+
+    @overload
+    async def get_status(self, address: None = None) -> Status:
+        ...
+
+    async def get_status(self, address: str | DynamicAddress | None = None) -> Status | None:
+        if address is None:
+            return Status(
+                address=self.address,
+                running=self.running,
+                enabled=False,
+            )
+
+        component = self.get_object(address)
+        if component is None:
+            return None
+
+        return await component.get_status()
+
+    async def get_statuses(
+        self,
+        filter: ComponentFilter | None = None,
+        /,
+        **kwargs: Unpack[ComponentFilterArgs],
+    ) -> list[Status]:
+        if filter is not None:
+            filter = filter.with_overrides(ComponentFilter(**kwargs))
+        else:
+            filter = ComponentFilter(**kwargs)
+
+        return [
+            await component.get_status()
+            for component in self.get_components(filter, inclusive=True)
+        ]
+
+    async def get_messages(
+        self,
+        filter: MessageFilter | None = None,
+        /,
+        *,
+        where: Callable[[type[MessageEntity]], SQLColumnExpression[bool]] | None = None,
+        order_by: Callable[[type[MessageEntity]], SQLColumnExpression[Any]] | None = None,
+        **kwargs: Unpack[MessageFilterArgs],
+    ) -> list[Message]:
+        if filter is not None:
+            filter = filter.with_overrides(MessageFilter(**kwargs))
+        else:
+            filter = MessageFilter(**kwargs)
+
+        ids = await self.__get_ids(filter.address)
+        statement = (
+            select(
+                MessageEntity.id,
+                ComponentEntity.address,
+                MessageEntity.timestamp,
+                MessageEntity.direction,
+                MessageEntity.content,
+            )
+            .join(ComponentEntity)
+            .where(MessageEntity.component_id.in_(ids))
+        )
+
+        if filter.search is not None:
+            pattern = "%" + escape_like_expression(filter.search) + "%"
+            match self.database.kind:
+                case DatabaseKind.SQLITE:
+                    statement = statement.where(
+                        _like(
+                            _sqlite_format_timestamp(MessageEntity.timestamp),
+                            pattern,
+                            filter.search_case_sensitive,
+                        )
+                        | _like(MessageEntity.direction, pattern, filter.search_case_sensitive)
+                        | _like(
+                            MessageEntity.content,
+                            pattern.encode("utf-8"),
+                            filter.search_case_sensitive,
+                        ),
+                    )
+                case DatabaseKind.POSTGRES:
+                    statement = statement.where(
+                        _like(
+                            _pg_format_timestamp(MessageEntity.timestamp),
+                            pattern,
+                            filter.search_case_sensitive,
+                        )
+                        | _like(MessageEntity.direction, pattern, filter.search_case_sensitive)
+                        | _like(
+                            func.encode(MessageEntity.content, "escape"),
+                            pattern.encode("utf-8").decode("unicode-escape"),
+                            filter.search_case_sensitive,
+                        ),
+                    )
+
+        if filter.within is not None:
+            statement = statement.where(MessageEntity.timestamp >= utc() - filter.within)
+        if filter.after is not None:
+            statement = statement.where(MessageEntity.timestamp >= filter.after)
+        if filter.before is not None:
+            statement = statement.where(MessageEntity.timestamp < filter.before)
+        if filter.direction is not None:
+            statement = statement.where(MessageEntity.direction == filter.direction)
+        if filter.prefix is not None:
+            statement = statement.where(
+                MessageEntity.content.like(escape_like_expression(filter.prefix) + b"%"),
+            )
+        if filter.suffix is not None:
+            statement = statement.where(
+                MessageEntity.content.like(b"%" + escape_like_expression(filter.suffix)),
+            )
+
+        if filter.order is not None:
+            match filter.order:
+                case MessageOrder.OLD_TO_NEW:
+                    statement = statement.order_by(MessageEntity.timestamp)
+                case MessageOrder.NEW_TO_OLD:
+                    statement = statement.order_by(MessageEntity.timestamp.desc())
+
+        if filter.limit is not None:
+            statement = statement.limit(filter.limit)
+        if filter.offset is not None and filter.offset > 0:
+            statement = statement.offset(filter.offset)
+
+        if where is not None:
+            statement = statement.where(where(MessageEntity))
+        if order_by is not None:
+            statement = statement.order_by(order_by(MessageEntity))
+
+        if filter.order is None and order_by is None:
+            statement = statement.order_by(MessageEntity.timestamp)
+
+        async with await self.__init_database_session() as session:
+            rows = await session.execute(statement)
+
+        return [Message.construct(**row._asdict()) for row in rows]  # type: ignore
+
+    async def get_message(
+        self,
+        filter: MessageFilter | None = None,
+        /,
+        *,
+        where: Callable[[type[MessageEntity]], SQLColumnExpression[bool]] | None = None,
+        order_by: Callable[[type[MessageEntity]], SQLColumnExpression[Any]] | None = None,
+        **kwargs: Unpack[MessageFilterArgs],
+    ) -> Message | None:
+        messages = await self.get_messages(
+            filter,
+            where=where,
+            order_by=order_by,
+            **{**kwargs, "limit": 1},
+        )
+
+        return messages[0] if messages else None
+
+    async def get_alerts(
+        self,
+        filter: AlertFilter | None = None,
+        /,
+        *,
+        where: Callable[[type[AlertEntity]], SQLColumnExpression[bool]] | None = None,
+        order_by: Callable[[type[AlertEntity]], SQLColumnExpression[Any]] | None = None,
+        **kwargs: Unpack[AlertFilterArgs],
+    ) -> list[Alert]:
+        if filter is not None:
+            filter = filter.with_overrides(AlertFilter(**kwargs))
+        else:
+            filter = AlertFilter(**kwargs)
+
+        ids = await self.__get_ids(filter.address)
+        statement = (
+            select(
+                AlertEntity.id,
+                ComponentEntity.address,
+                AlertEntity.timestamp,
+                AlertEntity.level,
+                AlertEntity.code,
+                AlertEntity.info,
+            )
+            .join(ComponentEntity)
+            .where(ComponentEntity.id.in_(ids))
+        )
+
+        if filter.search is not None:
+            pattern = "%" + escape_like_expression(filter.search) + "%"
+            match self.database.kind:
+                case DatabaseKind.SQLITE:
+                    statement = statement.where(
+                        _like(
+                            _sqlite_format_timestamp(AlertEntity.timestamp),
+                            pattern,
+                            filter.search_case_sensitive,
+                        )
+                        | _like(AlertEntity.level, pattern, filter.search_case_sensitive)
+                        | _like(AlertEntity.code, pattern, filter.search_case_sensitive)
+                        | _like(AlertEntity.info, pattern, filter.search_case_sensitive),
+                    )
+                case DatabaseKind.POSTGRES:
+                    statement = statement.where(
+                        _like(
+                            _pg_format_timestamp(AlertEntity.timestamp),
+                            pattern,
+                            filter.search_case_sensitive,
+                        )
+                        | _like(AlertEntity.level, pattern, filter.search_case_sensitive)
+                        | _like(AlertEntity.code, pattern, filter.search_case_sensitive)
+                        | _like(
+                            cast(AlertEntity.info, Text), pattern, filter.search_case_sensitive
+                        ),
+                    )
+
+        if filter.within is not None:
+            statement = statement.where(AlertEntity.timestamp >= utc() - filter.within)
+        if filter.after is not None:
+            statement = statement.where(AlertEntity.timestamp >= filter.after)
+        if filter.before is not None:
+            statement = statement.where(AlertEntity.timestamp < filter.before)
+        if filter.level is not None:
+            if isinstance(filter.level, Level):
+                statement = statement.where(AlertEntity.level == filter.level)
+            else:
+                statement = statement.where(AlertEntity.level.in_(filter.level))
+        if filter.code is not None:
+            if isinstance(filter.code, str):
+                statement = statement.where(AlertEntity.code == filter.code)
+            else:
+                statement = statement.where(AlertEntity.code.in_(filter.code))
+        if filter.code_regex is not None:
+            statement = statement.where(AlertEntity.code.regexp_match(filter.code_regex))
+
+        if filter.order is not None:
+            match filter.order:
+                case AlertOrder.OLD_TO_NEW:
+                    statement = statement.order_by(AlertEntity.timestamp)
+                case AlertOrder.NEW_TO_OLD:
+                    statement = statement.order_by(AlertEntity.timestamp.desc())
+        elif order_by is None:
+            statement = statement.order_by(AlertEntity.timestamp)
+
+        if filter.limit is not None:
+            statement = statement.limit(filter.limit)
+        if filter.offset is not None and filter.offset > 0:
+            statement = statement.offset(filter.offset)
+
+        if where is not None:
+            statement = statement.where(where(AlertEntity))
+        if order_by is not None:
+            statement = statement.order_by(order_by(AlertEntity))
+
+        if filter.order is None and order_by is None:
+            statement = statement.order_by(AlertEntity.timestamp)
+
+        async with await self.__init_database_session() as session:
+            rows = await session.execute(statement)
+
+        return [Alert.construct(**row._asdict()) for row in rows]  # type: ignore
+
+    async def get_alert(
+        self,
+        filter: AlertFilter | None = None,
+        /,
+        *,
+        where: Callable[[type[AlertEntity]], SQLColumnExpression[bool]] | None = None,
+        order_by: Callable[[type[AlertEntity]], SQLColumnExpression[Any]] | None = None,
+        **kwargs: Unpack[AlertFilterArgs],
+    ) -> Alert | None:
+        alerts = await self.get_alerts(
+            filter,
+            where=where,
+            order_by=order_by,
+            **{**kwargs, "limit": 1},
+        )
+
+        return alerts[0] if alerts else None
+
+    async def get_log_entries(
+        self,
+        filter: LogEntryFilter | None = None,
+        /,
+        *,
+        where: Callable[[type[LogEntryEntity]], SQLColumnExpression[bool]] | None = None,
+        order_by: Callable[[type[LogEntryEntity]], SQLColumnExpression[Any]] | None = None,
+        **kwargs: Unpack[LogEntryFilterArgs],
+    ) -> list[LogEntry]:
+        if filter is not None:
+            filter = filter.with_overrides(LogEntryFilter(**kwargs))
+        else:
+            filter = LogEntryFilter(**kwargs)
+
+        ids = await self.__get_ids(filter.address)
+        statement = (
+            select(
+                LogEntryEntity.id,
+                ComponentEntity.address,
+                LogEntryEntity.timestamp,
+                LogEntryEntity.level,
+                LogEntryEntity.content,
+            )
+            .join(ComponentEntity)
+            .where(ComponentEntity.id.in_(ids))
+        )
+
+        if filter.search is not None:
+            pattern = "%" + escape_like_expression(filter.search) + "%"
+            match self.database.kind:
+                case DatabaseKind.SQLITE:
+                    statement = statement.where(
+                        _like(
+                            _sqlite_format_timestamp(LogEntryEntity.timestamp),
+                            pattern,
+                            filter.search_case_sensitive,
+                        )
+                        | _like(LogEntryEntity.level, pattern, filter.search_case_sensitive)
+                        | _like(
+                            LogEntryEntity.content,
+                            pattern,
+                            filter.search_case_sensitive,
+                        ),
+                    )
+                case DatabaseKind.POSTGRES:
+                    statement = statement.where(
+                        _like(
+                            _pg_format_timestamp(LogEntryEntity.timestamp),
+                            pattern,
+                            filter.search_case_sensitive,
+                        )
+                        | _like(LogEntryEntity.level, pattern, filter.search_case_sensitive)
+                        | _like(
+                            LogEntryEntity.content,
+                            pattern,
+                            filter.search_case_sensitive,
+                        ),
+                    )
+
+        if filter.within is not None:
+            statement = statement.where(LogEntryEntity.timestamp >= utc() - filter.within)
+        if filter.after is not None:
+            statement = statement.where(LogEntryEntity.timestamp >= filter.after)
+        if filter.before is not None:
+            statement = statement.where(LogEntryEntity.timestamp < filter.before)
+        if filter.level is not None:
+            if isinstance(filter.level, Level):
+                statement = statement.where(LogEntryEntity.level == filter.level)
+            else:
+                statement = statement.where(LogEntryEntity.level.in_(filter.level))
+        if filter.prefix is not None:
+            statement = statement.where(
+                LogEntryEntity.content.like(escape_like_expression(filter.prefix) + "%"),
+            )
+        if filter.suffix is not None:
+            statement = statement.where(
+                LogEntryEntity.content.like("%" + escape_like_expression(filter.suffix)),
+            )
+
+        if filter.order is not None:
+            match filter.order:
+                case LogEntryOrder.OLD_TO_NEW:
+                    statement = statement.order_by(LogEntryEntity.timestamp)
+                case LogEntryOrder.NEW_TO_OLD:
+                    statement = statement.order_by(LogEntryEntity.timestamp.desc())
+
+        if filter.limit is not None:
+            statement = statement.limit(filter.limit)
+        if filter.offset is not None and filter.offset > 0:
+            statement = statement.offset(filter.offset)
+
+        if where is not None:
+            statement = statement.where(where(LogEntryEntity))
+        if order_by is not None:
+            statement = statement.order_by(order_by(LogEntryEntity))
+
+        if filter.order is None and order_by is None:
+            statement = statement.order_by(LogEntryEntity.timestamp)
+
+        async with await self.__init_database_session() as session:
+            rows = await session.execute(statement)
+
+        return [LogEntry.construct(**row._asdict()) for row in rows]  # type: ignore
+
+    async def get_log_entry(
+        self,
+        filter: LogEntryFilter | None = None,
+        /,
+        *,
+        where: Callable[[type[LogEntryEntity]], SQLColumnExpression[bool]] | None = None,
+        order_by: Callable[[type[LogEntryEntity]], SQLColumnExpression[Any]] | None = None,
+        **kwargs: Unpack[LogEntryFilterArgs],
+    ) -> LogEntry | None:
+        alerts = await self.get_log_entries(
+            filter,
+            where=where,
+            order_by=order_by,
+            **{**kwargs, "limit": 1},
+        )
+
+        return alerts[0] if alerts else None
+
+    async def get_statistics(
+        self,
+        filter: StatisticsFilter | None = None,
+        /,
+        **kwargs: Unpack[StatisticsFilterArgs],
+    ) -> list[Statistics]:
+        if filter is not None:
+            filter = filter.with_overrides(StatisticsFilter(**kwargs))
+        else:
+            filter = StatisticsFilter(**kwargs)
+
+        addresses = self.__get_addresses(filter.address)
+        statement = (
+            select(ComponentEntity.address, AlertEntity.level, func.count("*"))
+            .where(AlertEntity.address.in_(addresses))
+            .join(ComponentEntity)
+            .group_by(ComponentEntity.address, AlertEntity.level)
+        )
+
+        if filter.within is not None:
+            statement = statement.where(AlertEntity.timestamp >= utc() - filter.within)
+        if filter.after is not None:
+            statement = statement.where(AlertEntity.timestamp >= filter.after)
+        if filter.before is not None:
+            statement = statement.where(AlertEntity.timestamp < filter.before)
+
+        results: dict[Address, Statistics] = {}
+
+        async with self.database.session() as session:
+            for address, level, count in await session.execute(statement):
+                address: Address
+                for ancestor in address.path:
+                    if not self.address.contains(ancestor):
+                        continue
+
+                    current = results.setdefault(ancestor, Statistics(address=ancestor))
+                    current.alerts.count += count
+                    for entry in current.alerts.levels:
+                        if entry.level == level:
+                            entry.count += count
+                            break
+                    else:
+                        current.alerts.levels.append(LevelStatistics(level=level, count=count))
+                        current.alerts.levels.sort(key=lambda entry: entry.level)
+
+        return list(results.values())
+
+    async def __get_ids(self, address: AddressSelector | None) -> list[UUID]:
+        return [await self.get_id(address) for address in self.__get_addresses(address)]
+
+    def __get_addresses(self, address: AddressSelector | None) -> list[Address]:
+        ids: list[Address] = []
+
+        if address is None or address.matches(self.address):
+            ids.append(self.address)
+
+        ids.extend(
+            component.address for component in self.get_components(address=address, inclusive=False)
+        )
+
+        return ids
+
+
+def _like(
+    expression: SQLColumnExpression[Any],
+    pattern: str | bytes,
+    case_sensitive: bool = False,
+) -> BinaryExpression[bool]:
+    if case_sensitive:
+        return expression.like(pattern)
+    return expression.ilike(pattern)
+
+
+def _sqlite_format_timestamp(timestamp: SQLColumnExpression[datetime]) -> Any:
+    return func.strftime("%Y-%m-%d %H:%M:%f", func.julianday(timestamp))
+
+
+def _pg_format_timestamp(timestamp: SQLColumnExpression[datetime]) -> Any:
+    return func.to_char(timestamp, "YYYY-MM-DD HH24:MI:SS.MS")

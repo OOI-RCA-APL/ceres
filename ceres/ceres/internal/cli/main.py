@@ -13,7 +13,7 @@ from pydantic import BaseModel, parse_obj_as
 from typer import Argument, Option
 
 from ceres.address import AddressSelector
-from ceres.component import ComponentQuery, ComponentStatus
+from ceres.component import ComponentFilter
 from ceres.config import Config
 from ceres.data import jsonify, simplify
 from ceres.exceptions import ServerException
@@ -51,6 +51,7 @@ from ceres.internal.utilities import (
     syncify,
     temporary_signal_handler,
 )
+from ceres.object import Status
 from ceres.result import Fail, Ok
 from ceres.server import Server
 from ceres.threading import spawn
@@ -329,7 +330,7 @@ async def status(
         statuses = await client.get(
             "/statuses",
             params=GetStatusesQueryParameters(address=address),
-            result=list[ComponentStatus],
+            result=list[Status],
         )
     except ClientError:
         statuses = None
@@ -367,7 +368,7 @@ async def status(
 async def start(addresses: list[str], config: Config = ConfigOption()) -> None:
     client = APIClient(config)
     address = AddressSelector("|".join(addresses))
-    query = ComponentQuery(address=address)
+    query = ComponentFilter(address=address)
     result = await client.post("/start", query, parse=StartResult)
 
     write(result)
@@ -377,7 +378,7 @@ async def start(addresses: list[str], config: Config = ConfigOption()) -> None:
 async def stop(addresses: list[str], config: Config = ConfigOption()) -> None:
     client = APIClient(config)
     address = AddressSelector("|".join(addresses))
-    query = ComponentQuery(address=address)
+    query = ComponentFilter(address=address)
     result = await client.post("/stop", query, parse=StopResult)
 
     write(result)
@@ -387,7 +388,7 @@ async def stop(addresses: list[str], config: Config = ConfigOption()) -> None:
 async def enable(addresses: list[str], config: Config = ConfigOption()) -> None:
     client = APIClient(config)
     address = AddressSelector("|".join(addresses))
-    query = ComponentQuery(address=address)
+    query = ComponentFilter(address=address)
     result = await client.post("/enable", query, parse=EnableResult)
 
     write(result)
@@ -397,7 +398,7 @@ async def enable(addresses: list[str], config: Config = ConfigOption()) -> None:
 async def disable(addresses: list[str], config: Config = ConfigOption()) -> None:
     client = APIClient(config)
     address = AddressSelector("|".join(addresses))
-    query = ComponentQuery(address=address)
+    query = ComponentFilter(address=address)
     result = await client.post("/disable", query, parse=DisableResult)
 
     write(result)
@@ -407,7 +408,7 @@ async def disable(addresses: list[str], config: Config = ConfigOption()) -> None
 async def up(addresses: list[str], config: Config = ConfigOption()) -> None:
     client = APIClient(config)
     address = AddressSelector("|".join(addresses))
-    query = ComponentQuery(address=address)
+    query = ComponentFilter(address=address)
     result = await client.post("/up", query, parse=UpResult)
 
     write(result)
@@ -417,7 +418,7 @@ async def up(addresses: list[str], config: Config = ConfigOption()) -> None:
 async def down(addresses: list[str], config: Config = ConfigOption()) -> None:
     client = APIClient(config)
     address = AddressSelector("|".join(addresses))
-    query = ComponentQuery(address=address)
+    query = ComponentFilter(address=address)
     result = await client.post("/down", query, parse=DownResult)
 
     write(result)

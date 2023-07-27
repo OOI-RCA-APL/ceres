@@ -5,8 +5,6 @@ import {
   ComponentConfig,
   ComponentInfo,
   ComponentInfoModel,
-  ComponentStatus,
-  ComponentStatusModel,
   Config,
   ConfigModel,
   LayoutModel,
@@ -19,6 +17,8 @@ import {
   ResultModel,
   Statistics,
   StatisticsModel,
+  Status,
+  StatusModel,
 } from '@/api/models'
 import { DisplayInfoModel } from '@/display'
 import { getter } from '@/getter'
@@ -105,22 +105,20 @@ function getWebSocketURI(relative: string) {
   return `${protocol}://${hostname}${port}${relative}`
 }
 
-export function useComponentStatusesStream(
+export function useStatusesStream(
   params: MaybeRef<{
     address?: Address
     search?: string
   }>,
-  onReceive: (message: ComponentStatus[]) => unknown
+  onReceive: (message: Status[]) => unknown
 ) {
   useStream(
     computed(() =>
-      getWebSocketURI(
-        `/api/component-statuses${createQueryParams(isRef(params) ? params.value : params)}`
-      )
+      getWebSocketURI(`/api/statuses${createQueryParams(isRef(params) ? params.value : params)}`)
     ),
     // eslint-disable-next-line @typescript-eslint/ban-ts-comment
     // @ts-ignore
-    Zod.array(ComponentStatusModel),
+    Zod.array(StatusModel),
     onReceive
   )
 }
@@ -276,14 +274,14 @@ export const useStatistics = defineStore('statistics', () => {
   }
 })
 
-export const useComponentStatuses = defineStore('component-statuses', () => {
-  const statuses = ref<Record<string, ComponentStatus>>({})
+export const useStatuses = defineStore('statuses', () => {
+  const statuses = ref<Record<string, Status>>({})
 
-  useComponentStatusesStream({}, (next) => {
+  useStatusesStream({}, (next) => {
     statuses.value = Object.fromEntries(next.map((status) => [status.address.toString(), status]))
   })
 
-  function get(address: Address): ComponentStatus | null {
+  function get(address: Address): Status | null {
     return statuses.value[address.toString()] ?? null
   }
 
