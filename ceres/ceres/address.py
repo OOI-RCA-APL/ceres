@@ -231,14 +231,6 @@ class Address(DynamicAddress):
         return other == self or (
             (not other.is_server) and (other.startswith(f"{self}.") or self.is_root)
         )
-        # if self == other:
-        #     return True
-        # if self.is_server:
-        #     return True
-        # if other.is_server:
-        #     return False
-
-        # return
 
 
 _SERVER = Address("~")
