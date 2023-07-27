@@ -1,12 +1,14 @@
 import asyncio
 import traceback
 from asyncio import CancelledError
+from dataclasses import dataclass
 from enum import Enum
 from http.client import responses
 from typing import (
     TYPE_CHECKING,
     Annotated,
     Any,
+    AsyncIterator,
     Awaitable,
     Callable,
     Mapping,
@@ -43,7 +45,7 @@ from starlette.requests import HTTPConnection
 from starlette.status import HTTP_400_BAD_REQUEST, HTTP_404_NOT_FOUND
 from websockets.exceptions import ConnectionClosed
 
-from ceres.address import Address, AddressSelector
+from ceres.address import Address
 from ceres.alert import Alert, Level
 from ceres.component import Component, Status
 from ceres.config import ComponentConfig, Config
@@ -53,18 +55,6 @@ from ceres.errors import (
     ProcedureError,
     ProcedureInternalError,
     ReloadError,
-)
-from ceres.events import (
-    AlertEvent,
-    ConnectedEvent,
-    DisabledEvent,
-    DisconnectedEvent,
-    EnabledEvent,
-    LogEvent,
-    MessageReceivedEvent,
-    MessageSentEvent,
-    StartedEvent,
-    StoppedEvent,
 )
 from ceres.exceptions import ProcedureException
 from ceres.filter import (
@@ -132,13 +122,26 @@ def _get_current_server(connection: HTTPConnection) -> Server:
 CurrentServer = Annotated[Server, Depends(_get_current_server)]
 
 
-class HealthResult(ImmutableDataObject):
-    ok: bool
+@dataclass
+class Socket:
+    socket: WebSocket
+
+    async def send(self, data: Any) -> None:
+        await self.socket.send_text(jsonify(data))
+
+    async def receive(self) -> Any:
+        await self.socket.receive_json()
 
 
-@api.get("/health", tags=["server"])
-async def get_health() -> HealthResult:
-    return HealthResult(ok=True)
+async def _use_current_socket(socket: WebSocket) -> AsyncIterator[Socket]:
+    try:
+        await socket.accept()
+        yield Socket(socket)
+    except (WebSocketDisconnect, ConnectionClosed):
+        pass
+
+
+CurrentSocket = Annotated[Socket, Depends(_use_current_socket)]
 
 
 @api.get("/config", tags=["server"])
@@ -241,167 +244,8 @@ async def down(server: CurrentServer, filter: ComponentFilter) -> DownResult:
     )
 
 
-@api.get("/status/{address}?", tags=["components"])
-async def get_status(server: CurrentServer, address: Address | None = None) -> Status:
-    status = await server.get_status(address)
-    if status is None:
-        raise HTTPException(HTTP_404_NOT_FOUND)
-
-    return status
-
-
-class GetStatusesQueryParameters(ComponentFilter):
-    pass
-
-
-@api.get("/statuses", tags=["components"])
-async def get_statuses(
-    server: CurrentServer,
-    filter: Annotated[GetStatusesQueryParameters, Depends()],
-) -> list[Status]:
-    return await server.get_statuses(filter)
-
-
-class StreamStatusesQueryParameters(ComponentFilter):
-    pass
-
-
-@api.websocket("/statuses")
-async def stream_statuses(
-    socket: WebSocket,
-    server: CurrentServer,
-    filter: Annotated[StreamStatusesQueryParameters, Depends()],
-) -> None:
-    try:
-        await socket.accept()
-        await socket.send_text(jsonify(await server.get_statuses(filter)))
-
-        async for _ in server.events.of(
-            StartedEvent
-            | StoppedEvent
-            | EnabledEvent
-            | DisabledEvent
-            | ConnectedEvent
-            | DisconnectedEvent
-        ):
-            await socket.send_text(jsonify(await server.get_statuses(filter)))
-    except (WebSocketDisconnect, ConnectionClosed):
-        pass
-
-
-class GetMessagesQueryParameters(MessageFilter):
-    limit: int = Field(default=100, ge=0, le=1000)
-    offset: int = Field(default=0, ge=0)
-
-
-@api.get("/messages", tags=["data"])
-async def get_messages(
-    server: CurrentServer,
-    filter: Annotated[GetMessagesQueryParameters, Depends()],
-) -> list[Message]:
-    return await server.get_messages(filter)
-
-
-class GetAlertsQueryParameters(AlertFilter):
-    level: Level | None = None
-    code: str | None = None
-    limit: int = Field(default=100, ge=0, le=1000)
-    offset: int = Field(default=0, ge=0)
-
-
-@api.get("/alerts", tags=["data"])
-async def get_alerts(
-    server: CurrentServer,
-    filter: Annotated[GetAlertsQueryParameters, Depends()],
-) -> list[Alert]:
-    return await server.get_alerts(filter)
-
-
-class GetLogEntriesQueryParameters(LogEntryFilter):
-    level: Level | None = None
-    limit: int = Field(default=100, ge=0, le=1000)
-    offset: int = Field(default=0, ge=0)
-
-
-@api.get("/log-entries", tags=["data"])
-async def get_log_entries(
-    server: CurrentServer,
-    filter: Annotated[GetLogEntriesQueryParameters, Depends()],
-) -> list[LogEntry]:
-    return await server.get_log_entries(filter)
-
-
-class GetStatisticsQueryParameters(StatisticsFilter):
-    pass
-
-
-@api.get("/statistics", tags=["data"])
-async def get_statistics(
-    server: CurrentServer,
-    filter: Annotated[GetStatisticsQueryParameters, Depends()],
-) -> list[Statistics]:
-    return await server.get_statistics(filter)
-
-
-@api.websocket("/messages")
-async def stream_messages(
-    socket: WebSocket,
-    server: CurrentServer,
-    address: AddressSelector | None = None,
-    search: str | None = None,
-) -> None:
-    try:
-        await socket.accept()
-
-        filter = MessageFilter(address=address, search=search)
-        async for event in server.events.of(MessageSentEvent | MessageReceivedEvent):
-            if filter.matches(event.message):
-                await socket.send_text(jsonify(event.message))
-    except (WebSocketDisconnect, ConnectionClosed):
-        raise
-
-
-@api.websocket("/alerts")
-async def stream_alerts(
-    socket: WebSocket,
-    server: CurrentServer,
-    address: AddressSelector | None = None,
-    search: str | None = None,
-) -> None:
-    try:
-        await socket.accept()
-
-        filter = AlertFilter(address=address, search=search)
-        async for event in server.events.of(AlertEvent):
-            if filter.matches(event.alert):
-                await socket.send_text(jsonify(event.alert))
-    except (WebSocketDisconnect, ConnectionClosed):
-        pass
-
-
-@api.websocket("/log-entries")
-async def stream_log_entries(
-    socket: WebSocket,
-    server: CurrentServer,
-    address: AddressSelector | None = None,
-    search: str | None = None,
-) -> None:
-    try:
-        await socket.accept()
-
-        filter = LogEntryFilter(address=address, search=search)
-        async for event in server.events.of(LogEvent):
-            if filter.matches(event.entry):
-                await socket.send_text(jsonify(event.entry))
-    except (WebSocketDisconnect, ConnectionClosed):
-        pass
-
-
 @api.get("/components/{address}", tags=["components"])
-async def get_component_info(
-    server: CurrentServer,
-    address: Address,
-) -> ComponentInfo:
+async def get_component(server: CurrentServer, address: Address) -> ComponentInfo:
     component_config = server.config.get_component(address)
     if component_config is not None and type(component_config) is not ComponentConfig:
         component_config = ComponentConfig.parse_obj(
@@ -419,7 +263,7 @@ async def get_component_info(
 
     children: list[ComponentInfo] = []
     for child_config in component_config.components:
-        children.append(await get_component_info(server, address / child_config.name))
+        children.append(await get_component(server, address / child_config.name))
 
     try:
         info = ComponentInfo(
@@ -434,6 +278,137 @@ async def get_component_info(
     except Exception:
         traceback.print_exc()
         raise
+
+
+@api.get("/status/{address}?", tags=["status"])
+async def get_status(server: CurrentServer, address: Address | None = None) -> Status:
+    status = await server.get_status(address)
+    if status is None:
+        raise HTTPException(HTTP_404_NOT_FOUND)
+
+    return status
+
+
+class GetStatusesQueryParameters(ComponentFilter):
+    pass
+
+
+@api.get("/statuses", tags=["status"])
+async def get_statuses(
+    server: CurrentServer,
+    filter: Annotated[GetStatusesQueryParameters, Depends()],
+) -> list[Status]:
+    return await server.get_statuses(filter)
+
+
+class StreamStatusesQueryParameters(GetStatusesQueryParameters):
+    pass
+
+
+@api.websocket("/statuses")
+async def stream_statuses(
+    socket: CurrentSocket,
+    server: CurrentServer,
+    filter: Annotated[StreamStatusesQueryParameters, Depends()],
+) -> None:
+    async for statuses in server.stream_statuses(filter):
+        await socket.send(statuses)
+
+
+class GetMessagesQueryParameters(MessageFilter):
+    limit: int = Field(default=100, ge=0, le=1000)
+    offset: int = Field(default=0, ge=0)
+
+
+@api.get("/messages", tags=["messages"])
+async def get_messages(
+    server: CurrentServer,
+    filter: Annotated[GetMessagesQueryParameters, Depends()],
+) -> list[Message]:
+    return await server.get_messages(filter)
+
+
+class StreamMessagesQueryParameters(GetMessagesQueryParameters):
+    pass
+
+
+@api.websocket("/messages")
+async def stream_messages(
+    socket: CurrentSocket,
+    server: CurrentServer,
+    filter: Annotated[StreamMessagesQueryParameters, Depends()],
+) -> None:
+    async for message in server.stream_messages(filter):
+        await socket.send(message)
+
+
+class GetAlertsQueryParameters(AlertFilter):
+    level: Level | None = None
+    code: str | None = None
+    limit: int = Field(default=100, ge=0, le=1000)
+    offset: int = Field(default=0, ge=0)
+
+
+@api.get("/alerts", tags=["alerts"])
+async def get_alerts(
+    server: CurrentServer,
+    filter: Annotated[GetAlertsQueryParameters, Depends()],
+) -> list[Alert]:
+    return await server.get_alerts(filter)
+
+
+class StreamAlertsQueryParameters(GetAlertsQueryParameters):
+    pass
+
+
+@api.websocket("/alerts")
+async def stream_alerts(
+    socket: CurrentSocket,
+    server: CurrentServer,
+    filter: Annotated[StreamAlertsQueryParameters, Depends()],
+) -> None:
+    async for alert in server.stream_alerts(filter):
+        await socket.send(alert)
+
+
+class GetLogEntriesQueryParameters(LogEntryFilter):
+    level: Level | None = None
+    limit: int = Field(default=100, ge=0, le=1000)
+    offset: int = Field(default=0, ge=0)
+
+
+@api.get("/log-entries", tags=["logs"])
+async def get_log_entries(
+    server: CurrentServer,
+    filter: Annotated[GetLogEntriesQueryParameters, Depends()],
+) -> list[LogEntry]:
+    return await server.get_log_entries(filter)
+
+
+class StreamLogEntriesQueryParameters(GetLogEntriesQueryParameters):
+    pass
+
+
+@api.websocket("/log-entries")
+async def stream_log_entries(
+    socket: CurrentSocket,
+    server: CurrentServer,
+    filter: Annotated[StreamLogEntriesQueryParameters, Depends()],
+) -> None:
+    async for entry in server.stream_log_entries(filter):
+        await socket.send(entry)
+
+
+class GetStatisticsQueryParameters(StatisticsFilter):
+    pass
+
+
+@api.get("/statistics", tags=["data"])
+async def get_statistics(
+    server: CurrentServer,
+    filter: Annotated[GetStatisticsQueryParameters, Depends()],
+) -> list[Statistics]:
+    return await server.get_statistics(filter)
 
 
 @api.api_route(

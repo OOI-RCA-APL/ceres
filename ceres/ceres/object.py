@@ -9,6 +9,7 @@ from itertools import groupby
 from typing import (
     TYPE_CHECKING,
     Any,
+    AsyncIterable,
     Callable,
     Mapping,
     Sequence,
@@ -26,7 +27,7 @@ from sqlalchemy import (
     select,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing_extensions import ParamSpec, Unpack, dataclass_transform, override, overload
+from typing_extensions import ParamSpec, Unpack, dataclass_transform, overload, override
 
 from ceres.address import Address, AddressSelector, DynamicAddress
 from ceres.alert import Alert
@@ -40,6 +41,10 @@ from ceres.data import (
 from ceres.database import Database
 from ceres.events import (
     AlertEvent,
+    ConnectedEvent,
+    DisabledEvent,
+    DisconnectedEvent,
+    EnabledEvent,
     Event,
     LogEvent,
     MessageReceivedEvent,
@@ -438,15 +443,27 @@ class Object(ValidatedDataclass, Tasklet):
         /,
         **kwargs: Unpack[ComponentFilterArgs],
     ) -> list[Status]:
-        if filter is not None:
-            filter = filter.with_overrides(ComponentFilter(**kwargs))
-        else:
-            filter = ComponentFilter(**kwargs)
+        filter = ComponentFilter(**kwargs).with_defaults(filter)
 
-        return [
-            await component.get_status()
-            for component in self.get_components(filter, inclusive=True)
-        ]
+        return [await component.get_status() for component in self.get_components(filter)]
+
+    async def stream_statuses(
+        self,
+        filter: ComponentFilter | None = None,
+        /,
+        **kwargs: Unpack[ComponentFilterArgs],
+    ) -> AsyncIterable[list[Status]]:
+        yield await self.get_statuses(filter, **kwargs)
+
+        async for _ in self.events.of(
+            StartedEvent
+            | StoppedEvent
+            | EnabledEvent
+            | DisabledEvent
+            | ConnectedEvent
+            | DisconnectedEvent
+        ):
+            yield await self.get_statuses(filter, **kwargs)
 
     async def get_messages(
         self,
@@ -457,10 +474,7 @@ class Object(ValidatedDataclass, Tasklet):
         order_by: Callable[[type[MessageEntity]], SQLColumnExpression[Any]] | None = None,
         **kwargs: Unpack[MessageFilterArgs],
     ) -> list[Message]:
-        if filter is not None:
-            filter = filter.with_overrides(MessageFilter(**kwargs))
-        else:
-            filter = MessageFilter(**kwargs)
+        filter = MessageFilter(**kwargs).with_defaults(filter)
 
         ids = await self.__get_ids(filter.address)
         statement = (
@@ -549,6 +563,19 @@ class Object(ValidatedDataclass, Tasklet):
 
         return [Message.construct(**row._asdict()) for row in rows]  # type: ignore
 
+    async def stream_messages(
+        self,
+        filter: MessageFilter | None = None,
+        /,
+        **kwargs: Unpack[MessageFilterArgs],
+    ) -> AsyncIterable[Message]:
+        filter = MessageFilter(**kwargs).with_defaults(filter)
+
+        async for event in self.events.of(MessageSentEvent | MessageReceivedEvent).filter(
+            lambda event: filter.matches(event.message),
+        ):
+            yield event.message
+
     async def get_message(
         self,
         filter: MessageFilter | None = None,
@@ -576,10 +603,7 @@ class Object(ValidatedDataclass, Tasklet):
         order_by: Callable[[type[AlertEntity]], SQLColumnExpression[Any]] | None = None,
         **kwargs: Unpack[AlertFilterArgs],
     ) -> list[Alert]:
-        if filter is not None:
-            filter = filter.with_overrides(AlertFilter(**kwargs))
-        else:
-            filter = AlertFilter(**kwargs)
+        filter = AlertFilter(**kwargs).with_defaults(filter)
 
         ids = await self.__get_ids(filter.address)
         statement = (
@@ -669,6 +693,19 @@ class Object(ValidatedDataclass, Tasklet):
 
         return [Alert.construct(**row._asdict()) for row in rows]  # type: ignore
 
+    async def stream_alerts(
+        self,
+        filter: AlertFilter | None = None,
+        /,
+        **kwargs: Unpack[AlertFilterArgs],
+    ) -> AsyncIterable[Alert]:
+        filter = AlertFilter(**kwargs).with_defaults(filter)
+
+        async for event in self.events.of(AlertEvent).filter(
+            lambda event: filter.matches(event.alert)
+        ):
+            yield event.alert
+
     async def get_alert(
         self,
         filter: AlertFilter | None = None,
@@ -696,10 +733,7 @@ class Object(ValidatedDataclass, Tasklet):
         order_by: Callable[[type[LogEntryEntity]], SQLColumnExpression[Any]] | None = None,
         **kwargs: Unpack[LogEntryFilterArgs],
     ) -> list[LogEntry]:
-        if filter is not None:
-            filter = filter.with_overrides(LogEntryFilter(**kwargs))
-        else:
-            filter = LogEntryFilter(**kwargs)
+        filter = LogEntryFilter(**kwargs).with_defaults(filter)
 
         ids = await self.__get_ids(filter.address)
         statement = (
@@ -791,6 +825,19 @@ class Object(ValidatedDataclass, Tasklet):
 
         return [LogEntry.construct(**row._asdict()) for row in rows]  # type: ignore
 
+    async def stream_log_entries(
+        self,
+        filter: LogEntryFilter | None = None,
+        /,
+        **kwargs: Unpack[LogEntryFilterArgs],
+    ) -> AsyncIterable[LogEntry]:
+        filter = LogEntryFilter(**kwargs).with_defaults(filter)
+
+        async for event in self.events.of(LogEvent).filter(
+            lambda event: filter.matches(event.entry)
+        ):
+            yield event.entry
+
     async def get_log_entry(
         self,
         filter: LogEntryFilter | None = None,
@@ -815,10 +862,7 @@ class Object(ValidatedDataclass, Tasklet):
         /,
         **kwargs: Unpack[StatisticsFilterArgs],
     ) -> list[Statistics]:
-        if filter is not None:
-            filter = filter.with_overrides(StatisticsFilter(**kwargs))
-        else:
-            filter = StatisticsFilter(**kwargs)
+        filter = StatisticsFilter(**kwargs).with_defaults(filter)
 
         addresses = self.__get_addresses(filter.address)
         statement = (

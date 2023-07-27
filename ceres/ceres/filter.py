@@ -12,7 +12,7 @@ from typing import (
 )
 
 from pydantic import Extra, Field
-from typing_extensions import ParamSpec, override
+from typing_extensions import override
 
 from ceres.address import Address, AddressSelector
 from ceres.alert import Alert
@@ -24,7 +24,6 @@ from ceres.data import (
     StrPattern,
     jsonify,
 )
-from ceres.events import Event
 from ceres.level import Level
 from ceres.logs import LogEntry
 from ceres.message import Message, MessageDirection
@@ -35,9 +34,6 @@ if TYPE_CHECKING:
 else:
     Component = object
 
-_EventT = TypeVar("_EventT", bound=Event)
-_EventP = ParamSpec("_EventP")
-
 Item = Message | Alert | LogEntry
 
 
@@ -45,7 +41,10 @@ class Filter(ImmutableDataObject):
     class Config(ImmutableDataObject.Config):
         extra = Extra.ignore
 
-    def with_overrides(self, overrides: Self) -> Self:
+    def with_overrides(self, overrides: Self | None) -> Self:
+        if overrides is None:
+            return self
+
         update: dict[str, Any] = {}
 
         for attribute in overrides.__fields_set__:
@@ -53,7 +52,10 @@ class Filter(ImmutableDataObject):
 
         return self.copy(update=update)
 
-    def with_defaults(self, defaults: Self) -> Self:
+    def with_defaults(self, defaults: Self | None) -> Self:
+        if defaults is None:
+            return self
+
         update: dict[str, Any] = {}
 
         for attribute in defaults.__fields_set__:

@@ -23,7 +23,6 @@ from ceres.internal.app import (
     DownResult,
     EnableResult,
     GetStatusesQueryParameters,
-    HealthResult,
     StartResult,
     StopResult,
     UpResult,
@@ -242,7 +241,7 @@ class APIClient:
 
     async def online(self) -> bool:
         try:
-            await self.get("/health", result=HealthResult)
+            await self.get("/status", result=Status)
         except Exception:
             return False
 
