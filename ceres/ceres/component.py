@@ -384,7 +384,7 @@ class Component(Object):
                     )
                 )
 
-            reference.__component_instance__ = component
+            reference.__reference_component__ = component
 
         self.__sync_referencers()
 

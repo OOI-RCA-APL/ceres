@@ -4,13 +4,16 @@ from typing import (
     Any,
     Sequence,
     TypeVar,
+    Union,
     final,
 )
 
+from wrapt import ObjectProxy
 from pydantic import parse_obj_as
 from typing_extensions import Self
 from zope.proxy import PyProxyBase
 
+from ceres.address import Address, DynamicAddress
 from ceres.component import Component
 from ceres.data import Name
 from ceres.internal.utilities import (
@@ -22,11 +25,20 @@ from ceres.internal.utilities import (
 _reference_cls_l1_generic_cache: dict[type, type["Reference"]] = {}
 _reference_cls_l2_generic_cache: dict[tuple[type, type], type["Reference"]] = {}
 
+ReferenceTarget = Union[Component, "Reference", DynamicAddress, str]
+ReferenceRoot = Union[Component, "Reference"]
+
 
 @final
-class Reference(PyProxyBase):
-    __slots__ = ("__component_name__",)
-    __component_cls__: type = Component
+class Reference(ObjectProxy):
+    __slots__ = (
+        "__reference_target__",
+        "__reference_root__",
+    )
+
+    __reference_cls__: type = Component
+    __reference_target__: ReferenceTarget | None
+    __reference_root__: ReferenceRoot | None
 
     def __class_getitem__(cls, component_cls: type, /) -> type[Self]:
         if component_cls is Component:
@@ -43,7 +55,7 @@ class Reference(PyProxyBase):
         class ReferenceSpec(Reference):  # type: ignore
             __slots__ = ()
 
-        ReferenceSpec.__component_cls__ = component_cls
+        ReferenceSpec.__reference_cls__ = component_cls
         ReferenceSpec.__name__ = f"{Reference.__name__}[{component_cls.__name__}]"
         ReferenceSpec.__qualname__ = Reference.__qualname__.replace(
             Reference.__name__,
@@ -61,51 +73,52 @@ class Reference(PyProxyBase):
     def validate(cls, value: Any) -> Self | None:
         if value is None:
             return value
-        if lenient_isinstance(value, (Component, Reference, str)):
+        if lenient_isinstance(value, (Component, Reference, DynamicAddress, str)):
             return cls(value)
 
-        return cls(parse_obj_as(cls.__component_cls__, value))
+        return cls(parse_obj_as(cls.__reference_cls__, value))
 
-    def __new__(cls, component: Component | Self | str):  # type: ignore
-        if not lenient_isinstance(component, (Component, Reference, str)):
+    def __new__(
+        cls,
+        target: ReferenceTarget | None = None,
+        root: ReferenceRoot | None = None,
+    ):  # type: ignore
+        if not lenient_isinstance(target, (Component, Reference, Address, str)):
             raise ValueError(
-                f"first argument must be a component, another reference or a string, got "
-                f"{strify(type(component))}"
+                f"first argument must be a component, another reference, an address or string, got "
+                f"{strify(type(target))}"
             )
 
-        if lenient_isinstance(component, str):
-            component_instance = None
-            component_name = component
-        elif lenient_isinstance(component, Reference):
-            component_instance = component.__component_instance__
-            component_name = component.__component_name__
+        if lenient_isinstance(target, str):
+            target = DynamicAddress(target)
         else:
-            component_instance = component
-            component_name = component.name
+            if target is not None and not lenient_isinstance(
+                target,
+                cls.__reference_cls__,
+            ):
+                raise ValueError(
+                    f"expected component of type {strify(type(cls.__reference_cls__))}, "
+                    f"got {strify(type(target))}"
+                )
 
-        if component_instance is not None and not lenient_isinstance(
-            component_instance,
-            cls.__component_cls__,
-        ):
-            raise ValueError(
-                f"expected component of type {strify(type(cls.__component_cls__))}, got "
-                f"{strify(type(component_instance))}"
-            )
-
-        instance = super().__new__(cls, component_instance)
-        instance.__component_name__ = component_name
-        instance.__component_instance__ = component_instance
+        instance = super().__new__(cls, target)
+        instance.__reference_target__ = target
+        instance.__reference_root__ = root
 
         return instance
 
-    def __init__(self, component: Component | Self | str):
+    def __init__(
+        self,
+        target: ReferenceTarget | None = None,
+        root: ReferenceRoot | None = None,
+    ):
         pass
 
     def __repr__(self) -> str:
-        if self.__component_instance__ is None:
-            argument = self.__component_name__
+        if self.__reference_component__ is None:
+            argument = self.__reference_target__
         else:
-            argument = self.__component_instance__
+            argument = self.__reference_component__
 
         return f"Reference({repr(argument)})"
 
@@ -114,16 +127,16 @@ class Reference(PyProxyBase):
 
     @property
     def name(self) -> Name:
-        return self.__component_name__
+        return self.__reference_component__.name
 
     @property
-    def __component_instance__(self) -> Component | None:
+    def __reference_component__(self) -> Component | None:
         return self._wrapped  # type: ignore
 
-    @__component_instance__.setter
-    def __component_instance__(self, value: Component | None) -> None:
+    @__reference_component__.setter
+    def __reference_component__(self, value: Component | None) -> None:
         def get_class():
-            key = (self.__component_cls__, type(value))
+            key = (self.__reference_cls__, type(value))
             if key in _reference_cls_l2_generic_cache:
                 return _reference_cls_l2_generic_cache[key]
 
@@ -148,7 +161,7 @@ class Reference(PyProxyBase):
         self.__class__ = get_class()
 
     def unref(self) -> Component | None:
-        return self.__component_instance__
+        return self.__reference_component__
 
 
 def get_references(root: Any) -> Sequence[Reference]:
