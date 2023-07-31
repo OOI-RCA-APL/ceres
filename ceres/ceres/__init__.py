@@ -3,6 +3,11 @@ from ceres.address import AddressSelector as AddressSelector
 from ceres.address import DynamicAddress as DynamicAddress
 from ceres.alert import Alert as Alert
 from ceres.component import Component as Component
+from ceres.component import ProcedureKind as ProcedureKind
+from ceres.component import action as action
+from ceres.component import on as on
+from ceres.component import query as query
+from ceres.component import routine as routine
 from ceres.config import Config as Config
 from ceres.config import ConfigCheckKind as ConfigCheckKind
 from ceres.config import DatabaseKind as DatabaseKind
@@ -28,15 +33,11 @@ from ceres.filter import MessageOrder as MessageOrder
 from ceres.filter import StatisticsFilter as StatisticsFilter
 from ceres.internal.cli import main as main  # noqa
 from ceres.level import Level as Level
-from ceres.listener import on as on
 from ceres.loaded import Loaded as Loaded
 from ceres.loaded import Loader as Loader
 from ceres.message import Message as Message
 from ceres.message import MessageDirection as MessageDirection
 from ceres.parsing import Parser as Parser
-from ceres.procedure import ProcedureKind as ProcedureKind
-from ceres.procedure import action as action
-from ceres.procedure import query as query
 from ceres.ref import Ref as Ref
 from ceres.ref import Reference as Reference
 from ceres.result import Fail as Fail
@@ -50,7 +51,6 @@ from ceres.roles.dispatcher import DispatchWriter as DispatchWriter
 from ceres.roles.notifier import Notification as Notification
 from ceres.roles.notifier import Notifier as Notifier
 from ceres.roles.ui import UI as UI
-from ceres.routine import routine as routine
 from ceres.schedule import Schedule as Schedule
 from ceres.schedule import ScheduleKind as ScheduleKind
 from ceres.stream import Stream as Stream

@@ -1,16 +1,14 @@
-from dataclasses import field
 from typing import Any
 
 import pytest
 
-from ceres import Component, Event, Level, Ref, on, query
+from ceres import Component, Event, Level, Ref, action, on, query
 from ceres.errors import (
     ProcedureDoesNotExistError,
     ProcedureInternalError,
     ProcedureInvalidArgsError,
 )
 from ceres.exceptions import ProcedureException
-from ceres.procedure import action
 from ceres.validation import ValidationProblem
 
 
@@ -29,15 +27,16 @@ async def test_event_listeners() -> None:
     class Receiver(Component):
         emitter: Ref[Emitter]
 
-        received_emitter_events: list[EmitterEvent] = field(default_factory=list)
-        received_self_events: list[SelfEvent] = field(default_factory=list)
+        def __setup__(self) -> None:
+            self.received_emitter_events: list[EmitterEvent] = []
+            self.received_self_events: list[SelfEvent] = []
 
-        @on(EmitterEvent, "emitter")
-        def _on_other_event(self, event: EmitterEvent) -> None:
+        @on(source="emitter", event=EmitterEvent)
+        def on__other_event(self, event: EmitterEvent) -> None:
             self.received_emitter_events.append(event)
 
-        @on(SelfEvent)
-        def _on_self_event(self, event: SelfEvent) -> None:
+        @on(source="self", event=SelfEvent)
+        def on__self_event(self, event: SelfEvent) -> None:
             self.received_self_events.append(event)
 
     emitter = Emitter()
@@ -53,6 +52,9 @@ async def test_event_listeners() -> None:
 
     await receiver.settle()
     await emitter.settle()
+    await receiver.stop()
+    await emitter.stop()
+
     assert [(type(event), event.value) for event in receiver.received_emitter_events] == [
         (EmitterEvent, 0),
         (EmitterEvent, 1),

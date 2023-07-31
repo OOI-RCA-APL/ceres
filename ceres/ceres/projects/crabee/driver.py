@@ -13,21 +13,24 @@ from ceres import (
     Message,
     MessageOrder,
     Parser,
-    query,
-    routine,
-    spawn,
+    Ref,
     utc,
 )
+from ceres.component import on, query, routine
 from ceres.console import ChartDisplay, ConsoleColor, StateDisplay, ValueDisplay
 from ceres.data import DateTime, TimeDelta
 from ceres.directory import Directory
-from ceres.events import ConnectFailedEvent, ConnectionLostEvent, MessageReceivedEvent
+from ceres.events import (
+    ConnectedEvent,
+    ConnectFailedEvent,
+    ConnectionLostEvent,
+    MessageReceivedEvent,
+)
 from ceres.exceptions import ParseException
 from ceres.layout import Layout, LayoutCarousel, LayoutColumn, LayoutDisplay, LayoutRow
-from ceres.listener import on
-from ceres.ref import Ref
 from ceres.roles.ui import UI
 from ceres.stream import WriteStream
+from ceres.threading import spawn
 
 
 class CrabeeParticle(ImmutableDataObject):
@@ -123,7 +126,7 @@ class CrabeeDriver(UI):
         self.__data_message_stream: WriteStream[CrabeeParticle] = WriteStream()
 
     @routine
-    async def __fetch_last_data_message(self) -> None:
+    async def do__fetch_last_data_message(self) -> None:
         if messages := await self.connection.get_messages(
             order=MessageOrder.NEW_TO_OLD,
             limit=1,
@@ -133,12 +136,12 @@ class CrabeeDriver(UI):
             except ParseException:
                 pass
 
-    @on(ConnectionLostEvent, "connection")
-    def __on_connection_lost(self, event: ConnectionLostEvent) -> None:
+    @on(source="connection", event=ConnectionLostEvent)
+    def on__connection_lost(self) -> None:
         self.alert(Level.ERROR, "connection/connection-lost")
 
-    @on(ConnectFailedEvent, "connection")
-    def __on_connect_failed(self, event: ConnectFailedEvent) -> None:
+    @on(source="connection", event=ConnectFailedEvent)
+    def on__connect_failed(self) -> None:
         self.alert(Level.ERROR, "connection/connect-failed")
 
     def __check_data_message(self, message: CrabeeParticle) -> None:
@@ -167,8 +170,8 @@ class CrabeeDriver(UI):
                     },
                 )
 
-    @on(MessageReceivedEvent, "connection")
-    def __on_message_received(self, event: MessageReceivedEvent) -> None:
+    @on(source="connection")
+    def on__message_received(self, event: MessageReceivedEvent) -> None:
         try:
             message = CrabeeParticle.parse(event.message)
             self.__data_message_stream.put(message)

@@ -9,7 +9,7 @@ from typing import AsyncIterable
 from pydantic import Field
 from typing_extensions import override
 
-from ceres.component import Component
+from ceres.component import Component, action, query, routine
 from ceres.data import ImmutableDataObject
 from ceres.events import (
     ConnectedEvent,
@@ -21,8 +21,6 @@ from ceres.events import (
 )
 from ceres.exceptions import ConnectionLostException
 from ceres.message import Message, MessageDirection
-from ceres.procedure import action, query
-from ceres.routine import routine
 from ceres.schedule import IntervalSchedule
 from ceres.stream import Stream
 from ceres.timing import utc

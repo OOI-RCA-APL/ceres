@@ -4,11 +4,10 @@ from dataclasses import field
 from typing import Sequence
 
 from ceres.alert import Alert
-from ceres.component import Component
+from ceres.component import Component, action
 from ceres.data import ImmutableDataObject, NonBlankStr
 from ceres.filter import AlertFilter, AlertOrder
 from ceres.loaded import Loaded
-from ceres.procedure import action
 from ceres.ref import Ref
 from ceres.roles.notifier import Notification, Notifier
 

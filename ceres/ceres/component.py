@@ -1,37 +1,49 @@
 import asyncio
 import inspect
 import traceback
+from asyncio import Queue as AsyncQueue
 from dataclasses import field
+from datetime import timedelta
+from enum import Enum
 from functools import partial
+from inspect import Parameter
 from string import ascii_lowercase
-from types import MappingProxyType
+from types import MappingProxyType, UnionType
 from typing import (
     TYPE_CHECKING,
     Any,
     AsyncIterable,
+    Awaitable,
     Callable,
     Final,
     Iterable,
     Iterator,
+    Literal,
     Mapping,
     ParamSpec,
+    Protocol,
     Sequence,
     TypeVar,
     final,
+    get_type_hints,
+    runtime_checkable,
 )
 from uuid import UUID
 from weakref import WeakValueDictionary, ref
 
 from pydantic import (
+    BaseModel,
     ConfigDict,
     Extra,
     Field,
     ValidationError,
     root_validator,
+    schema_of,
     validate_arguments,
     validator,
 )
 from pydantic.decorator import ValidatedFunction
+from pydantic.typing import get_args
 from sqlalchemy import (
     select,
     update,
@@ -46,6 +58,7 @@ from ceres.data import (
     VALIDATED_DATACLASS_FIELD_SPECIFIERS,
     ImmutableDataObject,
     Name,
+    PositiveTimeDelta,
 )
 from ceres.database import Database
 from ceres.errors import (
@@ -58,13 +71,13 @@ from ceres.errors import (
 from ceres.events import AlertEvent, DisabledEvent, EnabledEvent, Event
 from ceres.exceptions import ProcedureException
 from ceres.filter import ComponentFilter, ComponentFilterArgs
-from ceres.internal.binding import get_bindings
 from ceres.internal.database.entities import ComponentEntity
-from ceres.internal.events import EventProcessor
 from ceres.internal.scheduler import Scheduler
 from ceres.internal.utilities import (
     awaitify,
     cached,
+    get_function_name,
+    get_inner_function,
     lenient_isinstance,
     randstr,
     setattr_internal,
@@ -73,16 +86,9 @@ from ceres.internal.utilities import (
     uniquify,
 )
 from ceres.level import Level
-from ceres.listener import ListenerBinding
-from ceres.logs import LogEntry
+from ceres.logs import Log, LogEntry
 from ceres.message import Message
 from ceres.object import Object, Status
-from ceres.procedure import (
-    ActionBinding,
-    ProcedureBinding,
-    QueryBinding,
-)
-from ceres.routine import RoutineBinding
 from ceres.schedule import Schedule
 from ceres.validation import ValidationProblem
 
@@ -145,8 +151,8 @@ class Component(Object):
         self.__enabled = False
         self.__server: Server | None = None
         self.__database: Database | None = None
-        self.__event_processors = [
-            EventProcessor(
+        self.__listeners = [
+            _Listener(
                 binding=binding,
                 handler=getattr(self, binding.function),
                 log=self.log,
@@ -178,17 +184,17 @@ class Component(Object):
 
     @final
     @classmethod
-    def get_listener_bindings(cls) -> Sequence[ListenerBinding]:
+    def get_listener_bindings(cls) -> Sequence["ListenerBinding"]:
         return _get_listener_bindings(cls)
 
     @final
     @classmethod
-    def get_routine_bindings(cls) -> Sequence[RoutineBinding]:
+    def get_routine_bindings(cls) -> Sequence["RoutineBinding"]:
         return _get_routine_bindings(cls)
 
     @final
     @classmethod
-    def get_query_bindings(cls) -> Mapping[str, QueryBinding]:
+    def get_query_bindings(cls) -> Mapping[str, "QueryBinding"]:
         return {
             name: binding
             for name, binding in cls.get_procedure_bindings().items()
@@ -197,7 +203,7 @@ class Component(Object):
 
     @final
     @classmethod
-    def get_action_bindings(cls) -> Mapping[str, ActionBinding]:
+    def get_action_bindings(cls) -> Mapping[str, "ActionBinding"]:
         return {
             name: binding
             for name, binding in cls.get_procedure_bindings().items()
@@ -206,7 +212,7 @@ class Component(Object):
 
     @final
     @classmethod
-    def get_procedure_bindings(cls) -> Mapping[str, ProcedureBinding]:
+    def get_procedure_bindings(cls) -> Mapping[str, "ProcedureBinding"]:
         return _get_procedure_bindings(cls)
 
     @property
@@ -227,14 +233,14 @@ class Component(Object):
         if not self.running:
             return True
 
-        return super().settled and all(processor.idle for processor in self.__event_processors)
+        return super().settled and all(processor.idle for processor in self.__listeners)
 
     @override
     async def settle(self) -> None:
         while not self.settled:
             await asyncio.gather(
                 super().settle(),
-                *(processor.wait_until_empty() for processor in self.__event_processors),
+                *(listener.wait_until_empty() for listener in self.__listeners),
             )
 
     def handle_event(self, event: Event) -> None:
@@ -243,8 +249,8 @@ class Component(Object):
         if not self.running or self.stopping:
             return
 
-        for processor in self.__event_processors:
-            if not lenient_isinstance(event, processor.binding.event_cls):
+        for processor in self.__listeners:
+            if not lenient_isinstance(event, processor.binding.event):
                 continue
 
             for alias in processor.binding.sources:
@@ -609,9 +615,9 @@ class Component(Object):
         )
 
     async def __process_events(self) -> None:
-        await asyncio.gather(*(processor.run() for processor in self.__event_processors))
+        await asyncio.gather(*(processor.run() for processor in self.__listeners))
 
-    async def __process_routine(self, binding: RoutineBinding) -> None:
+    async def __process_routine(self, binding: "RoutineBinding") -> None:
         routine = getattr(self, binding.function, None)
         if routine is None:
             return
@@ -756,34 +762,30 @@ class Component(Object):
 
 
 @cached
-def _get_listener_bindings(cls: type[Object]) -> Sequence[ListenerBinding]:
+def _get_listener_bindings(cls: type[Component]) -> Sequence["ListenerBinding"]:
     return get_bindings(cls, ListenerBinding)
 
 
 @cached
-def _get_routine_bindings(cls: type[Component]) -> Sequence[RoutineBinding]:
+def _get_routine_bindings(cls: type[Component]) -> Sequence["RoutineBinding"]:
     return get_bindings(cls, RoutineBinding)
 
 
 @cached
-def _get_procedure_bindings(cls: type[_ComponentT]) -> Mapping[Name, ProcedureBinding]:
-    return MappingProxyType(
-        {
-            binding.name: binding
-            for binding in sorted(
-                get_bindings(cls, ProcedureBinding),
-                key=lambda current: current.name,
-            )
-        }
-    )
+def _get_procedure_bindings(cls: type[_ComponentT]) -> Mapping[Name, "ProcedureBinding"]:
+    queries = get_bindings(cls, QueryBinding)
+    actions = get_bindings(cls, ActionBinding)
+    procedures = sorted([*queries, *actions], key=lambda current: current.name)
+
+    return MappingProxyType({binding.name: binding for binding in procedures})
 
 
 class ComponentGroup(Sequence[Component]):
     def __init__(self, components: Iterable[Component]):
-        self.components = tuple(uniquify(components, key=lambda component: component.address))
+        self.__components = tuple(uniquify(components, key=lambda component: component.address))
 
     def __repr__(self) -> str:
-        return f"{type(self).__name__}({repr(list(self.components))})"
+        return f"{type(self).__name__}({repr(list(self.__components))})"
 
     def __str__(self) -> str:
         return repr(self)
@@ -797,47 +799,489 @@ class ComponentGroup(Sequence[Component]):
         ...
 
     def __getitem__(self, __index: int | slice) -> "Component | Self":  # type: ignore
-        value = self.components[__index]
+        value = self.__components[__index]
         if isinstance(value, tuple):
             return type(self)(value)
 
         return value
 
     def __len__(self) -> int:
-        return len(self.components)
+        return len(self.__components)
 
     def __iter__(self) -> Iterator[Component]:
-        return iter(self.components)
+        return iter(self.__components)
 
     def __contains__(self, __object: object) -> bool:
-        return __object in self.components
+        return __object in self.__components
 
     def reversed(self) -> Self:
-        return type(self)(reversed(self.components))
+        return type(self)(reversed(self.__components))
 
     def start(self) -> None:
-        for component in self.components:
+        for component in self.__components:
             component.start()
 
     async def stop(self) -> None:
-        for component in reversed(self.components):
+        for component in reversed(self.__components):
             await component.stop()
 
     async def enable(self) -> None:
-        for component in self.components:
+        for component in self.__components:
             await component.enable()
 
     async def disable(self) -> None:
-        for component in reversed(self.components):
+        for component in reversed(self.__components):
             await component.disable()
 
     async def up(self) -> None:
-        for component in self.components:
+        for component in self.__components:
             await component.up()
 
     async def down(self) -> None:
-        for component in reversed(self.components):
+        for component in reversed(self.__components):
             await component.down()
 
     def __or__(self, __other: "ComponentGroup") -> Self:
-        return type(self)(uniquify((*self.components, *__other.components)))
+        return type(self)(uniquify((*self.__components, *__other.__components)))
+
+
+class ListenerBinding(ImmutableDataObject):
+    name: Name
+    function: Name
+    sources: Sequence[str]
+    event: type | UnionType
+
+
+_ListenerReturn = None | Awaitable[None]
+_ListenerFunctionT = TypeVar(
+    "_ListenerFunctionT",
+    bound=Callable[[Any], _ListenerReturn] | Callable[[Any, Any], _ListenerReturn],
+)
+
+
+@overload
+def on(function: _ListenerFunctionT) -> _ListenerFunctionT:
+    ...
+
+
+@overload
+def on(
+    *,
+    source: str | Sequence[str] = "self",
+    event: type | UnionType | None = None,
+) -> Callable[[_ListenerFunctionT], _ListenerFunctionT]:
+    ...
+
+
+@validate_arguments(config={"arbitrary_types_allowed": True})
+def on(
+    function: _ListenerFunctionT | None = None,
+    *,
+    source: str | Sequence[str] = "self",
+    event: type | UnionType | None = None,
+) -> _ListenerFunctionT | Callable[[_ListenerFunctionT], _ListenerFunctionT]:
+    if isinstance(source, str):
+        source = [source]
+
+    def on(
+        function: Callable[[Any], _ListenerReturn] | Callable[[Any, _EventT], _ListenerReturn]
+    ) -> Any:
+        signature = inspect.signature(function)
+
+        assigned_event_type = event
+
+        if assigned_event_type is None:
+            hints = get_type_hints(function)
+            parameters = list(signature.parameters.values())
+            if len(parameters) > 1:
+                event_parameter = parameters[1]
+                assigned_event_type = hints.get(event_parameter.name)
+
+        if assigned_event_type is None:
+            assigned_event_type = Event
+
+        _bind(
+            function,
+            ListenerBinding(
+                name=_get_bound_name(function),
+                function=get_function_name(function),
+                sources=source,
+                event=assigned_event_type,
+            ),
+        )
+
+        return function
+
+    if function is None:
+        return on
+
+    return on(function)
+
+
+class ProcedureKind(str, Enum):
+    QUERY = "query"
+    ACTION = "action"
+
+
+class ProcedureSchemas(ImmutableDataObject):
+    args: Mapping[str, Any] | None
+    output: Mapping[str, Any]
+
+
+class ProcedureArgsInfo(ImmutableDataObject):
+    json_schema: Mapping[str, Any]
+    required: bool
+
+
+class ProcedureOutputInfo(ImmutableDataObject):
+    json_schema: Mapping[str, Any]
+
+
+class _ProcedureBinding(ImmutableDataObject):
+    name: str
+    kind: ProcedureKind
+    function: str
+    live: bool
+    args: ProcedureArgsInfo | None
+    output: ProcedureOutputInfo
+
+
+class QueryBinding(_ProcedureBinding):
+    kind: Literal[ProcedureKind.QUERY] = ProcedureKind.QUERY
+    poll: PositiveTimeDelta = timedelta(seconds=1)
+
+
+class ActionBinding(_ProcedureBinding):
+    kind: Literal[ProcedureKind.ACTION] = ProcedureKind.ACTION
+
+
+ProcedureBinding = QueryBinding | ActionBinding
+
+
+_P = ParamSpec("_P")
+_T = TypeVar("_T", bound=Awaitable[Any] | AsyncIterable[Any])
+
+
+@overload
+def query(function: Callable[_P, _T]) -> Callable[_P, _T]:
+    ...
+
+
+@overload
+def query(
+    *,
+    poll: float | timedelta = ...,
+) -> Callable[[Callable[_P, _T]], Callable[_P, _T]]:
+    ...
+
+
+@validate_arguments
+def query(
+    function: Callable[_P, _T] | None = None,
+    *,
+    poll: float | timedelta = timedelta(seconds=5),
+) -> Callable[_P, _T] | Callable[[Callable[_P, _T]], Callable[_P, _T]]:
+    def query(function: Callable[_P, _T]) -> Callable[_P, _T]:
+        validated = _validate_procedure(function, ProcedureKind.QUERY)
+        _bind(
+            function,
+            QueryBinding(
+                name=_get_bound_name(function),
+                function=get_function_name(function),
+                args=validated.args,
+                output=validated.output,
+                live=validated.live,
+                poll=poll if isinstance(poll, timedelta) else timedelta(seconds=poll),
+            ),
+        )
+
+        return function
+
+    if function is None:
+        return query
+
+    return query(function)
+
+
+@overload
+def action(function: Callable[_P, _T]) -> Callable[_P, _T]:
+    ...
+
+
+@overload
+def action() -> Callable[[Callable[_P, _T]], Callable[_P, _T]]:
+    ...
+
+
+@validate_arguments
+def action(
+    function: Callable[_P, _T] | None = None,
+) -> Callable[_P, _T] | Callable[[Callable[_P, _T]], Callable[_P, _T]]:
+    def action(function: Callable[_P, _T]) -> Callable[_P, _T]:
+        validated = _validate_procedure(function, ProcedureKind.ACTION)
+        _bind(
+            function,
+            ActionBinding(
+                name=_get_bound_name(function),
+                function=get_function_name(function),
+                args=validated.args,
+                output=validated.output,
+                live=validated.live,
+            ),
+        )
+
+        return function
+
+    if function is None:
+        return action
+
+    return action(function)
+
+
+def _remove_extra_args(current: Any) -> bool:
+    if isinstance(current, dict) and current.get("type") == "object":
+        properties = current.get("properties")
+        if isinstance(properties, dict):
+            for key in list(properties):
+                if isinstance(key, str) and (key.startswith("v__") or key == "self"):
+                    del properties[key]
+            args_property = properties.get("args")
+            if isinstance(args_property, dict):
+                if args_property.get("type") == "array" and args_property.get("items") == {}:
+                    del properties["args"]
+
+            kwargs_property = properties.get("kwargs")
+            if isinstance(kwargs_property, dict):
+                if kwargs_property.get("type") == "object" and kwargs_property.get("items") is None:
+                    del properties["kwargs"]
+
+            required = current.get("required")
+            if isinstance(required, list):
+                if "self" in required:
+                    required.remove("self")
+                if not required:
+                    del current["required"]
+
+    return True
+
+
+def _get_args_schema(model: type[BaseModel]) -> Mapping[str, Any]:
+    schema = schema_of(model)
+    traverse(schema, _remove_extra_args)
+    return schema
+
+
+def _get_output_schema(hint: Any) -> Mapping[str, Any]:
+    return schema_of(hint)
+
+
+class _ValidatedProcedureInfo(ImmutableDataObject):
+    args: ProcedureArgsInfo | None
+    output: ProcedureOutputInfo
+    live: bool
+
+
+def _validate_procedure(
+    function: Callable[..., Any],
+    kind: ProcedureKind,
+) -> _ValidatedProcedureInfo:
+    signature = inspect.signature(function)
+    parameters = [*signature.parameters.values()]
+    if not parameters or parameters[0].name != "self":
+        raise ValueError(f"{kind} {strify(function)} must have 'self' as its first parameter")
+    if any(parameter.kind == Parameter.POSITIONAL_ONLY for parameter in parameters[1:]):
+        raise ValueError(f"{kind} {strify(function)} cannot have positional-only arguments")
+
+    validation_config: Any = ConfigDict(extra=Extra.forbid)
+    validated = ValidatedFunction(function, validation_config)
+    args_model = validated.model
+    args_json_schema = _get_args_schema(args_model)
+    args_info = ProcedureArgsInfo(
+        json_schema=args_json_schema,
+        required=any(
+            field.required and not field.name == "self" for field in args_model.__fields__.values()
+        ),
+    )
+
+    hints = get_type_hints(function)
+    if "return" not in hints:
+        raise ValueError(f"return type of {kind} {strify(function)} must be specified")
+
+    output_hint = hints["return"]
+
+    live = inspect.isasyncgenfunction(function)
+
+    if live:
+        error = ValueError(
+            f"return type of live {kind} {strify(function)} must be AsyncIterable[T]"
+        )
+
+        try:
+            if output_hint.__name__ != "AsyncIterable":
+                raise error
+
+            output_hint = get_args(output_hint)[0]
+        except Exception:
+            raise error
+
+    try:
+        output_json_schema = _get_output_schema(output_hint)
+    except Exception as exception:
+        raise ValueError(
+            f"output type of {kind} {strify(function)} must be serializable as a JSON object: "
+            f"{exception}"
+        )
+
+    output_info = ProcedureOutputInfo(
+        json_schema=output_json_schema,
+    )
+
+    return _ValidatedProcedureInfo(
+        args=args_info,
+        output=output_info,
+        live=live,
+    )
+
+
+_BINDINGS_ATTRIBUTE = "__bindings__"
+
+
+class RoutineBinding(ImmutableDataObject):
+    function: Name
+
+
+_RoutineReturn = Awaitable[None]
+
+
+def routine(function: Callable[[Any], _RoutineReturn]) -> Callable[[Any], _RoutineReturn]:
+    _bind(
+        function,
+        RoutineBinding(
+            function=get_function_name(function),
+        ),
+    )
+
+    return function
+
+
+def _get_bound_name(function: Callable[..., Any]) -> str:
+    return _get_normalized_name(get_function_name(function))
+
+
+def _get_normalized_name(name: str) -> Name:
+    return name.replace("_", "-").strip().strip("-")
+
+
+@runtime_checkable
+class Binding(Protocol):
+    function: str
+
+
+_BindingT = TypeVar("_BindingT", bound=Binding)
+
+
+def get_function_bindings(
+    function: Callable[..., Any],
+    binding_cls: type[_BindingT],
+) -> tuple[_BindingT, ...]:
+    function = get_inner_function(function)
+    output: list[_BindingT] = []
+
+    if values := getattr(function, _BINDINGS_ATTRIBUTE, None):
+        if isinstance(values, Iterable):
+            for value in values:
+                if isinstance(value, binding_cls):
+                    output.append(value)
+
+    return tuple(output)
+
+
+def _bind(function: Callable[..., object], binding: Binding) -> None:
+    function = get_inner_function(function)
+    bindings: Sequence[Binding] | None = getattr(function, _BINDINGS_ATTRIBUTE, None)
+
+    if not isinstance(bindings, Sequence):
+        bindings = []
+
+    if isinstance(bindings, list):
+        bindings.append(binding)
+    else:
+        bindings = [*bindings, binding]
+
+    setattr(function, _BINDINGS_ATTRIBUTE, bindings)
+
+
+def get_bindings(component_cls: type[Component], binding_cls: type[_BindingT]) -> list[_BindingT]:
+    bindings: dict[str, _BindingT] = {}
+
+    for cls in reversed(component_cls.__mro__):
+        for member in vars(cls).values():
+            if not callable(member):
+                continue
+
+            for binding in get_function_bindings(member, binding_cls):
+                bindings[binding.function] = binding
+
+    return sorted(bindings.values(), key=lambda current: current.function)
+
+
+@final
+class _Listener:
+    __slots__ = (
+        "__binding",
+        "__handler",
+        "__handler_arity",
+        "__log",
+        "__queue",
+    )
+
+    def __init__(
+        self,
+        *,
+        binding: ListenerBinding,
+        handler: Callable[[Event], None | Awaitable[None]] | Callable[[], None | Awaitable[None]],
+        log: Log,
+    ) -> None:
+        self.__binding = binding
+        self.__handler = handler
+        self.__handler_arity = len(inspect.signature(self.__handler).parameters)
+        self.__log = log
+        self.__queue: AsyncQueue[Event] = AsyncQueue()
+
+    @property
+    def binding(self) -> ListenerBinding:
+        return self.__binding
+
+    @property
+    def idle(self) -> bool:
+        return self.__queue._finished.is_set()  # type: ignore
+
+    def put(self, event: Event) -> None:
+        self.__queue.put_nowait(event)
+
+    def clear(self) -> None:
+        while not self.__queue.empty():
+            self.__queue.get_nowait()
+            self.__queue.task_done()
+
+    async def run(self) -> None:
+        while True:
+            event = await self.__queue.get()
+
+            try:
+                result = self.__handler(*[event][: self.__handler_arity])
+                if inspect.iscoroutine(result):
+                    await result
+            except Exception:
+                self.__log.error(
+                    f"An exception occurred while processing event {event}: "
+                    f"{traceback.format_exc()}"
+                )
+            finally:
+                self.__queue.task_done()
+
+    async def wait_until_empty(self) -> None:
+        if self.__queue.empty():
+            return
+
+        await self.__queue.join()

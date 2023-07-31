@@ -427,14 +427,14 @@ function useStream<TModel extends ZodTypeAny>(
 
 export function useDisplayStream<TModel extends ZodTypeAny>(
   address: MaybeRef<Address>,
-  procedure: MaybeRef<string>,
+  query: MaybeRef<string>,
   args: MaybeRef<Record<string, unknown>>,
   onDisplay: (message: Zod.infer<TModel>) => unknown
 ) {
   return useStream(
     computed(() =>
       getWebSocketURI(
-        `/api/components/${unref(address)}/procedures/${unref(procedure)}/subscribe?args=` +
+        `/api/components/${unref(address)}/procedures/${unref(query)}/subscribe?args=` +
           encodeURIComponent(JSON.stringify(unref(args)))
       )
     ),

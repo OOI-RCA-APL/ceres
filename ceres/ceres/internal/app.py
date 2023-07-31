@@ -70,7 +70,7 @@ from ceres.internal.utilities import strify
 from ceres.logs import LogEntry
 from ceres.message import Message
 from ceres.object import Statistics
-from ceres.procedure import ProcedureBinding
+from ceres.component import ProcedureBinding
 from ceres.result import Fail, Ok, Result
 
 if TYPE_CHECKING:

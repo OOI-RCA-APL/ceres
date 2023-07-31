@@ -25,19 +25,19 @@ let info: DisplayInfo | null = $shallowRef(null)
 let isLoading = $ref(true)
 let isShowingDialog = $ref(false)
 
-const procedure = $computed(
+const query = $computed(
   () =>
     component.procedures.find(
-      (procedure) => procedure.kind === 'query' && procedure.name === display.procedure
+      (procedure) => procedure.kind === 'query' && procedure.name === display.query
     ) ?? null
 )
 
-const form = procedure
+const form = query
   ? useSchemaForm({
-      schema: computed(() => procedure.args.json_schema),
+      schema: computed(() => query.args.json_schema),
       persist: computed(() =>
-        procedure
-          ? `state/display/schema-form/${component.address}/display/${procedure.name}/${path.join(
+        query
+          ? `state/display/schema-form/${component.address}/display/${query.name}/${path.join(
               '.'
             )})`
           : undefined
@@ -61,7 +61,7 @@ watch(
 
 useDisplayStream(
   component.address,
-  display.procedure,
+  display.query,
   computed(() => args),
   (current) => {
     info = current
