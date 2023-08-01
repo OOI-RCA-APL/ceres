@@ -21,7 +21,6 @@ from ceres.console import ChartDisplay, ConsoleColor, StateDisplay, ValueDisplay
 from ceres.data import DateTime, TimeDelta
 from ceres.directory import Directory
 from ceres.events import (
-    ConnectedEvent,
     ConnectFailedEvent,
     ConnectionLostEvent,
     MessageReceivedEvent,
@@ -136,11 +135,11 @@ class CrabeeDriver(UI):
             except ParseException:
                 pass
 
-    @on(source="connection", event=ConnectionLostEvent)
+    @on(reference="connection", event=ConnectionLostEvent)
     def on__connection_lost(self) -> None:
         self.alert(Level.ERROR, "connection/connection-lost")
 
-    @on(source="connection", event=ConnectFailedEvent)
+    @on(reference="connection", event=ConnectFailedEvent)
     def on__connect_failed(self) -> None:
         self.alert(Level.ERROR, "connection/connect-failed")
 
@@ -170,7 +169,7 @@ class CrabeeDriver(UI):
                     },
                 )
 
-    @on(source="connection")
+    @on(reference="connection")
     def on__message_received(self, event: MessageReceivedEvent) -> None:
         try:
             message = CrabeeParticle.parse(event.message)

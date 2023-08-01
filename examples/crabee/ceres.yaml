@@ -25,7 +25,7 @@ components:
         class: ceres.projects.crabee.CrabeeDriver
         args:
           output: ./local/output
-          connection: connection
+          connection: "@crabee.connection"
   - name: notifications
     components:
       - name: notifier
@@ -37,7 +37,7 @@ components:
       - name: dispatcher
         class: ceres.standard.ScheduledDispatcher
         args:
-          notifier: notifier
+          notifier: "@notifications.notifier"
           writer:
             class: ceres.standard.HTMLDispatchWriter
           dispatches:

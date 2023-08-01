@@ -62,7 +62,6 @@ from ceres.data import (
 )
 from ceres.database import Database
 from ceres.errors import (
-    ComponentReferenceInvalidError,
     ProcedureDoesNotExistError,
     ProcedureInternalError,
     ProcedureInvalidArgsError,
@@ -86,16 +85,18 @@ from ceres.internal.utilities import (
     uniquify,
 )
 from ceres.level import Level
-from ceres.logs import Log, LogEntry
+from ceres.logs import LogEntry
 from ceres.message import Message
 from ceres.object import Object, Status
 from ceres.schedule import Schedule
 from ceres.validation import ValidationProblem
 
 if TYPE_CHECKING:
+    from ceres.ref import Reference
     from ceres.server import Server
 else:
     Server = object
+    Reference = object
 
 _ComponentT = TypeVar("_ComponentT", bound="Component")
 _EventT = TypeVar("_EventT", bound=Event)
@@ -153,13 +154,14 @@ class Component(Object):
         self.__database: Database | None = None
         self.__listeners = [
             _Listener(
+                component=self,
                 binding=binding,
                 handler=getattr(self, binding.function),
-                log=self.log,
             )
             for binding in self.get_listener_bindings()
         ]
 
+        self.sync_component_references()
         self.__setup__()
 
     def __setup__(self) -> None:
@@ -173,14 +175,10 @@ class Component(Object):
 
         return self.server
 
-    def __sync_referencers(self) -> None:
-        for referencer in list(self.__referencers.values()):
-            if id(self) not in {id(other) for other in referencer.get_referencers()}:
-                self.__referencers.pop(id(referencer))
-
-        referenced = self.get_referencers()
-        for component in referenced:
-            component.__referencers[id(self)] = self
+    @property
+    @override
+    def __contained__(self) -> Sequence[Object]:
+        return list(self.get_components())
 
     @final
     @classmethod
@@ -240,33 +238,18 @@ class Component(Object):
         while not self.settled:
             await asyncio.gather(
                 super().settle(),
-                *(listener.wait_until_empty() for listener in self.__listeners),
+                *(listener.settle() for listener in self.__listeners),
             )
 
-    def handle_event(self, event: Event) -> None:
-        from ceres.component import Component
+    @override
+    def handle(self, event: Event) -> None:
+        super().handle(event)
 
         if not self.running or self.stopping:
             return
 
-        for processor in self.__listeners:
-            if not lenient_isinstance(event, processor.binding.event):
-                continue
-
-            for alias in processor.binding.sources:
-                if (
-                    alias == "self"
-                    and self.address == event.address
-                    or (
-                        isinstance(self, Component)
-                        and any(
-                            component.address == event.address
-                            for component in self.get_referencers(alias)
-                        )
-                    )
-                ):
-                    processor.put(event)
-                    break
+        for listener in self.__listeners:
+            listener.handle(event)
 
     async def enable(self) -> None:
         await self.__set_enabled_in_database(True)
@@ -367,28 +350,45 @@ class Component(Object):
     def unref(self) -> Self:
         return self
 
-    def assign_references(
-        self,
-        components: Mapping[str, Self],
-    ) -> ComponentReferenceInvalidError | None:
-        from ceres.ref import get_references
+    def sync_component_references(self) -> tuple[list[Reference], list[Reference]]:
+        resolved: list[Reference] = []
+        unresolved: list[Reference] = []
 
-        for reference in get_references(self):
-            component = components.get(reference.__component_name__)
-            if component is None:
-                return ComponentReferenceInvalidError(
-                    message=(
-                        f"reference to component '{reference}' of type "
-                        f"{strify(reference.__component_cls__)} is required and specified by "
-                        f"{strify(type(self))}, but it hasn't loaded yet or failed to load"
-                    )
-                )
+        for reference in self.get_component_references():
+            reference.__reference_root__ = self
 
-            reference.__reference_component__ = component
+            if reference.__reference_component__ is not None:
+                resolved.append(reference)
+            else:
+                unresolved.append(reference)
 
-        self.__sync_referencers()
+        for referencer in list(self.__referencers.values()):
+            if id(self) not in {
+                id(other.unref()) for other in referencer.get_component_references()
+            }:
+                self.__referencers.pop(id(referencer))
 
-    def get_referencers(self, alias: str | None = None) -> Sequence["Component"]:
+        for component in self.get_referenced_components():
+            component.__referencers[id(self)] = self
+
+        return resolved, unresolved
+
+    def get_component_references(self) -> list[Reference]:
+        from ceres.ref import Reference
+
+        references: list[Reference] = []
+
+        def visit(obj: Any) -> bool:
+            if isinstance(obj, Reference):
+                references.append(obj)
+                return False
+
+            return True
+
+        traverse(self, visit)
+        return references
+
+    def get_referenced_components(self, alias: str | None = None) -> "ComponentGroup":
         components: list[Component] = []
         root = self
 
@@ -399,7 +399,7 @@ class Component(Object):
                     break
 
         if root is None:
-            return components
+            return ComponentGroup(components)
 
         def visit(obj: Any) -> bool:
             if lenient_isinstance(obj, Component):
@@ -411,7 +411,7 @@ class Component(Object):
             return True
 
         traverse(root, visit)
-        return components
+        return ComponentGroup(components)
 
     def add_component(
         self,
@@ -428,14 +428,17 @@ class Component(Object):
         self.__components[component.name] = component
         component.remove_component()
         component.__parent = ref(self)  # type: ignore
+        component.sync_component_references()
 
         return component
 
     def remove_component(self, address: str | DynamicAddress | None = None) -> "Component | None":
         if address is None:
             if self.parent is not None:
-                self.parent.__components.pop(self.name, None)
+                removed = self.parent.__components.pop(self.name, None)
                 self.__parent = None
+                if removed is not None:
+                    removed.sync_component_references()
 
             return
 
@@ -535,14 +538,11 @@ class Component(Object):
         return self.propagate(event_cls(*args, **kwargs))
 
     def propagate(self, event: _EventT) -> _EventT:
-        # Handle "self" events.
-        self.handle_event(event)
-
         super().propagate(event)
 
-        # Send the event to all components have a reference to this one.
         for referencer in self.__referencers.values():
-            referencer.handle_event(event)
+            if referencer.root is not self.root:
+                referencer.handle(event)
 
         return event
 
@@ -781,8 +781,14 @@ def _get_procedure_bindings(cls: type[_ComponentT]) -> Mapping[Name, "ProcedureB
 
 
 class ComponentGroup(Sequence[Component]):
+    __slots__ = (
+        "__components",
+        "__identities",
+    )
+
     def __init__(self, components: Iterable[Component]):
         self.__components = tuple(uniquify(components, key=lambda component: component.address))
+        self.__identities: set[int] | None = None
 
     def __repr__(self) -> str:
         return f"{type(self).__name__}({repr(list(self.__components))})"
@@ -811,8 +817,14 @@ class ComponentGroup(Sequence[Component]):
     def __iter__(self) -> Iterator[Component]:
         return iter(self.__components)
 
-    def __contains__(self, __object: object) -> bool:
-        return __object in self.__components
+    def __contains__(self, other: object) -> bool:
+        if self.__identities is None:
+            self.__identities = {id(component.unref()) for component in self.__components}
+
+        if isinstance(other, Component):
+            other = other.unref()
+
+        return id(other) in self.__identities
 
     def reversed(self) -> Self:
         return type(self)(reversed(self.__components))
@@ -848,8 +860,10 @@ class ComponentGroup(Sequence[Component]):
 class ListenerBinding(ImmutableDataObject):
     name: Name
     function: Name
-    sources: Sequence[str]
     event: type | UnionType
+    self: bool
+    reference: Sequence[str]
+    address: AddressSelector | None
 
 
 _ListenerReturn = None | Awaitable[None]
@@ -867,8 +881,10 @@ def on(function: _ListenerFunctionT) -> _ListenerFunctionT:
 @overload
 def on(
     *,
-    source: str | Sequence[str] = "self",
     event: type | UnionType | None = None,
+    self: bool = False,
+    reference: str | Sequence[str] = "self",
+    address: str | AddressSelector | Sequence[str | AddressSelector] | None = None,
 ) -> Callable[[_ListenerFunctionT], _ListenerFunctionT]:
     ...
 
@@ -877,11 +893,21 @@ def on(
 def on(
     function: _ListenerFunctionT | None = None,
     *,
-    source: str | Sequence[str] = "self",
     event: type | UnionType | None = None,
+    self: bool = False,
+    reference: str | Sequence[str] | None = None,
+    address: str | AddressSelector | Sequence[str | AddressSelector] | None = None,
 ) -> _ListenerFunctionT | Callable[[_ListenerFunctionT], _ListenerFunctionT]:
-    if isinstance(source, str):
-        source = [source]
+    if reference is None:
+        reference = []
+    if isinstance(reference, str):
+        reference = [reference]
+
+    if address is not None:
+        if isinstance(address, (str, DynamicAddress)):
+            address = [address]
+
+        address = AddressSelector("|".join(str(current) for current in address))
 
     def on(
         function: Callable[[Any], _ListenerReturn] | Callable[[Any, _EventT], _ListenerReturn]
@@ -905,7 +931,9 @@ def on(
             ListenerBinding(
                 name=_get_bound_name(function),
                 function=get_function_name(function),
-                sources=source,
+                reference=tuple(reference),
+                address=address,
+                self=self,
                 event=assigned_event_type,
             ),
         )
@@ -1228,41 +1256,63 @@ def get_bindings(component_cls: type[Component], binding_cls: type[_BindingT]) -
 @final
 class _Listener:
     __slots__ = (
+        "__component",
         "__binding",
         "__handler",
         "__handler_arity",
-        "__log",
         "__queue",
     )
 
     def __init__(
         self,
         *,
+        component: Component,
         binding: ListenerBinding,
         handler: Callable[[Event], None | Awaitable[None]] | Callable[[], None | Awaitable[None]],
-        log: Log,
     ) -> None:
+        self.__component = component
         self.__binding = binding
         self.__handler = handler
         self.__handler_arity = len(inspect.signature(self.__handler).parameters)
-        self.__log = log
         self.__queue: AsyncQueue[Event] = AsyncQueue()
-
-    @property
-    def binding(self) -> ListenerBinding:
-        return self.__binding
 
     @property
     def idle(self) -> bool:
         return self.__queue._finished.is_set()  # type: ignore
 
-    def put(self, event: Event) -> None:
-        self.__queue.put_nowait(event)
-
     def clear(self) -> None:
         while not self.__queue.empty():
             self.__queue.get_nowait()
             self.__queue.task_done()
+
+    def handles(self, event: Event) -> bool:
+        if not lenient_isinstance(event, self.__binding.event):
+            return False
+
+        if self.__binding.self:
+            if event.address == self.__component.address:
+                return True
+
+        if self.__binding.reference:
+            for alias in self.__binding.reference:
+                if self.__component.address == event.address or any(
+                    component.address == event.address
+                    for component in self.__component.get_referenced_components(alias)
+                ):
+                    return True
+
+        if self.__binding.address is not None:
+            if self.__binding.address.matches(event.address, self.__component.address):
+                return True
+
+        return False
+
+    def handle(self, event: Event) -> bool:
+        if not self.handles(event):
+            return False
+
+        self.__queue.put_nowait(event)
+        return True
 
     async def run(self) -> None:
         while True:
@@ -1273,14 +1323,14 @@ class _Listener:
                 if inspect.iscoroutine(result):
                     await result
             except Exception:
-                self.__log.error(
+                self.__component.log.error(
                     f"An exception occurred while processing event {event}: "
                     f"{traceback.format_exc()}"
                 )
             finally:
                 self.__queue.task_done()
 
-    async def wait_until_empty(self) -> None:
+    async def settle(self) -> None:
         if self.__queue.empty():
             return
 

@@ -22,7 +22,7 @@ from ceres.errors import (
 )
 from ceres.exceptions import DatabaseInitException
 from ceres.filter import ComponentFilter, ComponentFilterArgs
-from ceres.internal.context import ProjectContext
+from ceres.internal.project import Project
 from ceres.internal.utilities import sleep_forever, strify, uniquify
 from ceres.internal.uvicorn import Uvicorn, UvicornConfig
 from ceres.object import Object
@@ -71,6 +71,16 @@ class Server(Object, kw_only=False):
 
     def __setup__(self) -> None:
         pass
+
+    @property
+    @override
+    def __container__(self) -> Object | None:
+        return None
+
+    @property
+    @override
+    def __contained__(self) -> Sequence[Object]:
+        return [self.root, *self.get_components()]
 
     @property
     @override
@@ -317,9 +327,6 @@ class Server(Object, kw_only=False):
                     parent = self.get_component(address.parent)
                     if parent is not None:
                         parent.add_component(component)
-                        component.assign_references(
-                            {sibling.name: sibling for sibling in parent.components}
-                        )
 
                 await component.sync_with_database()
                 self.log.info(f"Loaded '{address}' as {strify(type(component))} with ID '{id}'.")
@@ -421,11 +428,11 @@ class Server(Object, kw_only=False):
         return actions
 
     def __create_uds_uvicorn(self) -> Uvicorn:
-        context = ProjectContext(self.__config)
+        context = Project(self.config_path, self.__config)
         return Uvicorn(
             UvicornConfig(
                 app=self.__app,
-                uds=str(context.socket),
+                uds=str(context.socket_path),
                 loop="none",
             )
         )

@@ -121,11 +121,11 @@ class A3Driver(Component):
         self.__job_lock = AsyncLock()
         self.__last_sequence_number: int | None = None
 
-    @on(source=["host.connection", "das.connection"])
+    @on(reference=("host.connection", "das.connection"))
     def on__message_sent(self, event: MessageSentEvent) -> None:
         self.log.info(f"Sent: {event.message}")
 
-    @on(source=["host.connection", "das.connection"])
+    @on(reference=("host.connection", "das.connection"))
     def on__message_received(self, event: MessageReceivedEvent) -> None:
         self.log.info(f"Received: {event.message}")
 

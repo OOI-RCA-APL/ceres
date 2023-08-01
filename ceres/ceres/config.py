@@ -25,7 +25,7 @@ from ceres.errors import (
     ConfigReadError,
     ConfigValidationError,
 )
-from ceres.internal.utilities import lenient_issubclass, setattr_internal, show_td
+from ceres.internal.utilities import lenient_issubclass, show_td
 from ceres.loaded import Loader
 from ceres.logs import Log
 from ceres.result import Fail, Ok, Result
@@ -155,12 +155,6 @@ class Config(ComponentConfig):
     server: ServerConfig = Field(default_factory=ServerConfig)
     database: DatabaseConfig = Field(default_factory=SQLiteDatabaseConfig, discriminator="kind")
 
-    __path: Path | None = None  # type: ignore
-
-    @property
-    def path(self) -> Path | None:
-        return self.__path
-
     @classmethod
     def read(cls, source: Path | Mapping[str, object] | Self) -> "Result[Self, list[ConfigError]]":
         try:
@@ -266,11 +260,16 @@ class Config(ComponentConfig):
         errors: list[ConfigError] = []
 
         if ConfigCheckKind.DATABASE in checks:
-            errors.extend(await cls.__check_database(instance, log_info))
-            log_info("Database configuration is valid.")
+            database_errors = await cls.__check_database(instance, log_info)
+            errors.extend(database_errors)
+            if not database_errors:
+                log_info("Database configuration is valid.")
+
         if ConfigCheckKind.COMPONENTS in checks:
-            errors.extend(await cls.__check_components(instance, log_info))
-            log_info("Component configurations are valid.")
+            component_errors = await cls.__check_components(instance, log_info)
+            errors.extend(component_errors)
+            if not component_errors:
+                log_info("Component configurations are valid.")
 
         if errors:
             return Fail(errors)
@@ -284,7 +283,7 @@ class Config(ComponentConfig):
         except Exception:
             traceback.print_exc()
             raise
-        setattr_internal(Config, instance, "__path", path)
+
         return instance
 
     @classmethod
@@ -340,16 +339,17 @@ class Config(ComponentConfig):
         log("Checking component configurations...")
 
         def check_component(
-            address: Address,
-            component: Config | ComponentConfig,
+            parent: Component | None,
+            component_config: Config | ComponentConfig,
             errors: list[ConfigComponentError],
-            references: dict[Name, Component],
-        ) -> list[ConfigComponentError]:
-            if isinstance(component, ComponentConfig):
+        ) -> Component | None:
+            address = Address.root() if parent is None else parent.address / component_config.name
+
+            if isinstance(component_config, ComponentConfig):
                 log(f"Checking '{address}'...")
 
                 try:
-                    instance = component.create()
+                    component = component_config.create()
                 except Exception as exception:
                     errors.append(
                         ConfigComponentError(
@@ -361,32 +361,39 @@ class Config(ComponentConfig):
                         )
                     )
 
-                    return errors
+                    return None
 
-                error = instance.assign_references(references)
-                if error is not None:
-                    errors.append(
-                        ConfigComponentError(
-                            component=address,
-                            error=ComponentReferenceInvalidError(
-                                message=error.message,
-                            ),
-                        )
-                    )
+            if parent is not None:
+                parent.add_component(component)
 
-                references[component.name] = instance
+            for subcomponent_config in component_config.components:
+                check_component(
+                    component,
+                    subcomponent_config,
+                    errors,
+                )
 
-            subreferences: dict[Name, Component] = {}
-            for subcomponent in component.components:
-                check_component(address / subcomponent.name, subcomponent, errors, subreferences)
-
-            return errors
+            return component
 
         errors: list[ConfigComponentError] = []
-        references: dict[Name, Component] = {}
 
-        for component in config.components:
-            errors.extend(check_component(Address(component.name), component, errors, references))
+        root = check_component(None, config, errors)
+        if errors or root is None:
+            return errors
+
+        for component in root.get_components():
+            _, unresolved = component.sync_component_references()
+            if unresolved:
+                first = next(iter(unresolved))
+                target = first.__reference_target__
+                errors.append(
+                    ConfigComponentError(
+                        component=component.address,
+                        error=ComponentReferenceInvalidError(
+                            message=f"reference to component '{target}' was not found",
+                        ),
+                    )
+                )
 
         return errors
 

@@ -140,8 +140,14 @@ class Object(ValidatedDataclass, Tasklet):
         self.__flushed.set()
 
     @property
+    @abstractmethod
     def __container__(self) -> "Object | None":
-        return None
+        return ...
+
+    @property
+    @abstractmethod
+    def __contained__(self) -> Sequence["Object"]:
+        return ...
 
     @property
     @abstractmethod
@@ -197,7 +203,8 @@ class Object(ValidatedDataclass, Tasklet):
     def propagate(self, event: _EventT) -> _EventT:
         # Add the event to the outgoing event stream.
         self.__events.put(event)
-        # If there is no containing object, store the event ourselves.
+
+        # If there is no containing object, store and disperse the event ourselves.
         if self.__container__ is None:
             match event:
                 case MessageSentEvent() | MessageReceivedEvent():
@@ -208,11 +215,18 @@ class Object(ValidatedDataclass, Tasklet):
                     self.store(event.entry)
                 case _:
                     pass
+
+            self.handle(event)
+            for contained in self.__contained__:
+                contained.handle(event)
         # Otherwise propagate the event to the containing object.
         else:
             self.__container__.propagate(event)
 
         return event
+
+    def handle(self, event: Event) -> None:
+        pass
 
     def alert(
         self,

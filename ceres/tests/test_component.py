@@ -31,11 +31,11 @@ async def test_event_listeners() -> None:
             self.received_emitter_events: list[EmitterEvent] = []
             self.received_self_events: list[SelfEvent] = []
 
-        @on(source="emitter", event=EmitterEvent)
+        @on(reference="emitter")
         def on__other_event(self, event: EmitterEvent) -> None:
             self.received_emitter_events.append(event)
 
-        @on(source="self", event=SelfEvent)
+        @on(self=True)
         def on__self_event(self, event: SelfEvent) -> None:
             self.received_self_events.append(event)
 

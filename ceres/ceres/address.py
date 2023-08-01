@@ -41,6 +41,8 @@ class AddressSelector(str):
         resolved = address.relative_to(root) if root is not None else address
         if resolved is None:
             return False
+        if self == ":all":
+            print(resolved, self, self.compile().pattern)
 
         return self.compile().match(resolved) is not None
 
@@ -53,6 +55,7 @@ class AddressSelector(str):
 
 @lru_cache(maxsize=500)
 def _compile_selector(pattern: "AddressSelector") -> StrPattern:
+    # TODO: Handle bare :all correctly.
     segments = []
 
     for segment in pattern.split("|"):
@@ -62,6 +65,7 @@ def _compile_selector(pattern: "AddressSelector") -> StrPattern:
 
         segment = segment.strip()
 
+        # TODO: This shouldn't be happening.
         if not segment.startswith("@"):
             segment = "@" + segment
 

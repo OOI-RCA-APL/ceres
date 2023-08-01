@@ -11,9 +11,9 @@ from typing import Any, Sequence
 import rich
 from typing_extensions import override
 
-from ceres.config import Config
 from ceres.data import DataObject
 from ceres.internal.cli.exceptions import CLIServiceConfigException
+from ceres.internal.project import Project
 
 if sys.platform == "darwin":
     import launchd
@@ -33,47 +33,44 @@ class ServiceStatus(DataObject):
 
 
 class Service(ABC):
-    def __init__(self, config: Config, silent: bool = True) -> None:
-        if config.path is None:
-            raise CLIServiceConfigException("Path configuration is missing from the config file.")
-        if config.service is None:
+    def __init__(self, project: Project, silent: bool = True) -> None:
+        if project.config.service is None:
             raise CLIServiceConfigException(
                 "Service configuration is missing from the config file."
             )
 
-        self._root_config = config
-        self._service_config = config.service
-        self._silent = silent
+        self.__project = project
+        self.__service_config = project.config.service
+        self.__silent = silent
+
+    @property
+    def project(self) -> Project:
+        return self.__project
 
     @property
     def name(self) -> str:
-        return self._service_config.name
+        return self.__service_config.name
 
     @property
     def user(self) -> str:
-        return self._service_config.user or getuser()
-
-    @property
-    def directory(self) -> Path:
-        assert self._root_config.path is not None
-        return self._root_config.path.parent
+        return self.__service_config.user or getuser()
 
     @property
     def stdout(self) -> Path | None:
-        if self._service_config.stdout is None or self._service_config.stdout.is_absolute():
-            return self._service_config.stdout
+        if self.__service_config.stdout is None or self.__service_config.stdout.is_absolute():
+            return self.__service_config.stdout
 
-        return self.directory / self._service_config.stdout
+        return self.__project.directory / self.__service_config.stdout
 
     @property
     def stderr(self) -> Path | None:
-        if self._service_config.stderr is None or self._service_config.stderr.is_absolute():
-            return self._service_config.stderr
+        if self.__service_config.stderr is None or self.__service_config.stderr.is_absolute():
+            return self.__service_config.stderr
 
-        return self.directory / self._service_config.stderr
+        return self.__project.directory / self.__service_config.stderr
 
     def _log(self, message: Any) -> None:
-        if not self._silent:
+        if not self.__silent:
             rich.print(message)
 
     @property
@@ -134,7 +131,7 @@ Description="{self.label}"
 
 [Service]
 ExecStart={sys.executable} -m ceres run
-WorkingDirectory={self.directory}
+WorkingDirectory={self.project.directory}
 Restart=always
 
 [Install]
@@ -240,7 +237,7 @@ class LaunchDService(Service):
             "Label": self.label,
             "UserName": self.user,
             "ProgramArguments": [sys.executable, "-m", "ceres", "run"],
-            "WorkingDirectory": str(self.directory),
+            "WorkingDirectory": str(self.project.directory),
             "RunAtLoad": True,
         }
 
@@ -306,12 +303,3 @@ class LaunchDService(Service):
             traceback.print_exc()
 
         self.delete()
-
-
-def get_service(config: Config) -> Service:
-    if sys.platform == "linux":
-        return SystemDService(config, silent=False)
-    if sys.platform == "darwin":
-        return LaunchDService(config, silent=False)
-
-    raise NotImplementedError(f"unsupported platform: {sys.platform}")
