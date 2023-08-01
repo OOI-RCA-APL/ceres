@@ -8,7 +8,7 @@ from ceres.component import Component, action
 from ceres.data import ImmutableDataObject, NonBlankStr
 from ceres.filter import AlertFilter, AlertOrder
 from ceres.loaded import Loaded
-from ceres.ref import Ref
+from ceres.reference import Ref
 from ceres.roles.notifier import Notification, Notifier
 
 

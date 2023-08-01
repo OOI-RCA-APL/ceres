@@ -92,7 +92,7 @@ from ceres.schedule import Schedule
 from ceres.validation import ValidationProblem
 
 if TYPE_CHECKING:
-    from ceres.ref import Reference
+    from ceres.reference import Reference
     from ceres.server import Server
 else:
     Server = object
@@ -357,7 +357,7 @@ class Component(Object):
         for reference in self.get_component_references():
             reference.__reference_root__ = self
 
-            if reference.__reference_component__ is not None:
+            if reference.unref() is not None:
                 resolved.append(reference)
             else:
                 unresolved.append(reference)
@@ -374,7 +374,7 @@ class Component(Object):
         return resolved, unresolved
 
     def get_component_references(self) -> list[Reference]:
-        from ceres.ref import Reference
+        from ceres.reference import Reference
 
         references: list[Reference] = []
 
@@ -448,7 +448,7 @@ class Component(Object):
 
         return component
 
-    def get_component(self, address: str | DynamicAddress | None, /) -> "Component | None":
+    def get_component(self, address: str | DynamicAddress | None = None, /) -> "Component | None":
         if not address:
             return self
 
@@ -861,7 +861,7 @@ class ListenerBinding(ImmutableDataObject):
     name: Name
     function: Name
     event: type | UnionType
-    self: bool
+    local: bool
     reference: Sequence[str]
     address: AddressSelector | None
 
@@ -882,7 +882,7 @@ def on(function: _ListenerFunctionT) -> _ListenerFunctionT:
 def on(
     *,
     event: type | UnionType | None = None,
-    self: bool = False,
+    local: bool = False,
     reference: str | Sequence[str] = "self",
     address: str | AddressSelector | Sequence[str | AddressSelector] | None = None,
 ) -> Callable[[_ListenerFunctionT], _ListenerFunctionT]:
@@ -894,7 +894,7 @@ def on(
     function: _ListenerFunctionT | None = None,
     *,
     event: type | UnionType | None = None,
-    self: bool = False,
+    local: bool = False,
     reference: str | Sequence[str] | None = None,
     address: str | AddressSelector | Sequence[str | AddressSelector] | None = None,
 ) -> _ListenerFunctionT | Callable[[_ListenerFunctionT], _ListenerFunctionT]:
@@ -933,7 +933,7 @@ def on(
                 function=get_function_name(function),
                 reference=tuple(reference),
                 address=address,
-                self=self,
+                local=local,
                 event=assigned_event_type,
             ),
         )
@@ -1289,7 +1289,7 @@ class _Listener:
         if not lenient_isinstance(event, self.__binding.event):
             return False
 
-        if self.__binding.self:
+        if self.__binding.local:
             if event.address == self.__component.address:
                 return True
 

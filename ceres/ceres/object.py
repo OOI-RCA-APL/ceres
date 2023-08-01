@@ -415,7 +415,7 @@ class Object(ValidatedDataclass, Tasklet):
         return self.get_component(address)
 
     @abstractmethod
-    def get_component(self, address: str | DynamicAddress | None, /) -> Component | None:
+    def get_component(self, address: str | DynamicAddress | None = None, /) -> Component | None:
         ...
 
     @abstractmethod

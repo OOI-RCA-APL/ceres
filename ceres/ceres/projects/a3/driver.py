@@ -46,7 +46,7 @@ from ceres.projects.a3.parsing import (
     HostSIResponse,
     parse_logged_das_message,
 )
-from ceres.ref import Ref
+from ceres.reference import Ref
 from ceres.roles.connection import Connection
 from ceres.threading import spawn
 from ceres.timing import utc

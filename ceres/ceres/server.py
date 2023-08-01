@@ -196,7 +196,7 @@ class Server(Object, kw_only=False):
                 return fail
 
     @override
-    def get_component(self, address: str | DynamicAddress | None, /) -> Component | None:
+    def get_component(self, address: str | DynamicAddress | None = None, /) -> Component | None:
         return self.root.get_component(address)
 
     @override

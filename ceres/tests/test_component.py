@@ -35,7 +35,7 @@ async def test_event_listeners() -> None:
         def on__other_event(self, event: EmitterEvent) -> None:
             self.received_emitter_events.append(event)
 
-        @on(self=True)
+        @on(local=True)
         def on__self_event(self, event: SelfEvent) -> None:
             self.received_self_events.append(event)
 

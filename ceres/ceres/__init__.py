@@ -37,9 +37,11 @@ from ceres.loaded import Loaded as Loaded
 from ceres.loaded import Loader as Loader
 from ceres.message import Message as Message
 from ceres.message import MessageDirection as MessageDirection
+from ceres.object import Statistics as Statistics
+from ceres.object import Status as Status
 from ceres.parsing import Parser as Parser
-from ceres.ref import Ref as Ref
-from ceres.ref import Reference as Reference
+from ceres.reference import Ref as Ref
+from ceres.reference import Reference as Reference
 from ceres.result import Fail as Fail
 from ceres.result import Ok as Ok
 from ceres.result import Result as Result
