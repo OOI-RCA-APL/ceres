@@ -84,7 +84,7 @@ from ceres.events import (
 )
 from ceres.exceptions import ProcedureException
 from ceres.filter import ComponentFilter, ComponentFilterArgs
-from ceres.internal.database.entities import ComponentEntity
+from ceres.internal.database.entities import ObjectEntity
 from ceres.internal.scheduler import Scheduler
 from ceres.internal.utilities import (
     awaitify,
@@ -285,7 +285,7 @@ class Component(Object):
     async def __get_enabled_in_database(self) -> bool:
         async with await self.__init_database_session() as session:
             enabled = await session.scalar(
-                select(ComponentEntity.enabled).where(ComponentEntity.address == self.address)
+                select(ObjectEntity.enabled).where(ObjectEntity.address == self.address)
             )
 
             if enabled is None:
@@ -296,8 +296,8 @@ class Component(Object):
     async def __set_enabled_in_database(self, enabled: bool) -> None:
         async with await self.__init_database_session() as session:
             await session.execute(
-                update(ComponentEntity)
-                .where(ComponentEntity.address == self.address)
+                update(ObjectEntity)
+                .where(ObjectEntity.address == self.address)
                 .values(enabled=enabled)
             )
 

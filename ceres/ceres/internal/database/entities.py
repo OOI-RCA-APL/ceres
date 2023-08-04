@@ -64,7 +64,7 @@ class Entity(MappedAsDataclass, DeclarativeBase):
     @staticmethod
     def get_entity_classes() -> list[type["Entity"]]:
         classes: list[type[Entity]] = [
-            ComponentEntity,
+            ObjectEntity,
             MessageEntity,
             AlertEntity,
             LogEntryEntity,
@@ -95,8 +95,9 @@ class Entity(MappedAsDataclass, DeclarativeBase):
 
 
 @final
-class ComponentEntity(Entity):
-    __tablename__ = "components"
+class ObjectEntity(Entity):
+    __tablename__ = "objects"
+
     id: Mapped[UUID] = mapped_column(UUIDMapper)
     address: Mapped[Address] = mapped_column(AddressMapper)
     enabled: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -112,11 +113,11 @@ class MessageEntity(Entity):
     __tablename__ = "messages"
 
     id: Mapped[UUID] = mapped_column(UUIDMapper)
-    component_id: Mapped[UUID] = mapped_column(
+    object_id: Mapped[UUID] = mapped_column(
         UUIDMapper,
         ForeignKey(
-            ComponentEntity.id,
-            name=f"fk_{__tablename__}__component_id__{ComponentEntity.__tablename__}",
+            ObjectEntity.id,
+            name=f"fk_{__tablename__}__object_id__{ObjectEntity.__tablename__}",
         ),
     )
     timestamp: Mapped[datetime] = mapped_column(DateTimeMapper)
@@ -124,18 +125,18 @@ class MessageEntity(Entity):
     content: Mapped[bytes] = mapped_column(LargeBinary)
 
     @declared_attr
-    def component(cls) -> Mapped[ComponentEntity]:
-        return relationship(ComponentEntity, lazy="joined")
+    def object(cls) -> Mapped[ObjectEntity]:
+        return relationship(ObjectEntity, lazy="joined")
 
     @declared_attr  # type: ignore
     def address(cls) -> AssociationProxy[Address]:
-        return association_proxy("component", "address")
+        return association_proxy("object", "address")
 
     __table_args__ = (
         PrimaryKeyConstraint("id", name=f"pk_{__tablename__}"),
         EnumConstraint("direction", MessageDirection, name=f"ck_{__tablename__}__direction"),
-        Index(f"ix_{__tablename__}__component_id", "component_id"),
-        Index(f"ix_{__tablename__}__component_id__timestamp", "component_id", "timestamp"),
+        Index(f"ix_{__tablename__}__object_id", "object_id"),
+        Index(f"ix_{__tablename__}__object_id__timestamp", "object_id", "timestamp"),
         Index(f"ix_{__tablename__}__timestamp", "timestamp"),
         Index(f"ix_{__tablename__}__content", "content"),
     )
@@ -146,11 +147,11 @@ class AlertEntity(Entity):
     __tablename__ = "alerts"
 
     id: Mapped[UUID] = mapped_column(UUIDMapper)
-    component_id: Mapped[UUID] = mapped_column(
+    object_id: Mapped[UUID] = mapped_column(
         UUIDMapper,
         ForeignKey(
-            ComponentEntity.id,
-            name=f"fk_{__tablename__}__component_id__{ComponentEntity.__tablename__}",
+            ObjectEntity.id,
+            name=f"fk_{__tablename__}__object_id__{ObjectEntity.__tablename__}",
         ),
     )
     timestamp: Mapped[datetime] = mapped_column(DateTimeMapper)
@@ -159,18 +160,18 @@ class AlertEntity(Entity):
     info: Mapped[dict[str, Any]] = mapped_column(JSON, default_factory=dict)
 
     @declared_attr
-    def component(cls) -> Mapped[ComponentEntity]:
-        return relationship(ComponentEntity, lazy="joined")
+    def object(cls) -> Mapped[ObjectEntity]:
+        return relationship(ObjectEntity, lazy="joined")
 
     @declared_attr  # type: ignore
     def address(cls) -> AssociationProxy[Address]:
-        return association_proxy("component", "address")
+        return association_proxy("object", "address")
 
     __table_args__ = (
         PrimaryKeyConstraint("id", name=f"pk_{__tablename__}"),
         EnumConstraint("level", Level, name=f"ck_{__tablename__}__level"),
-        Index(f"ix_{__tablename__}__component_id", "component_id"),
-        Index(f"ix_{__tablename__}__component_id__timestamp", "component_id", "timestamp"),
+        Index(f"ix_{__tablename__}__object_id", "object_id"),
+        Index(f"ix_{__tablename__}__object_id__timestamp", "object_id", "timestamp"),
         Index(f"ix_{__tablename__}__timestamp", "timestamp"),
         Index(f"ix_{__tablename__}__code", "code"),
     )
@@ -181,11 +182,11 @@ class LogEntryEntity(Entity):
     __tablename__ = "log_entries"
 
     id: Mapped[UUID] = mapped_column(UUIDMapper)
-    component_id: Mapped[UUID] = mapped_column(
+    object_id: Mapped[UUID] = mapped_column(
         UUIDMapper,
         ForeignKey(
-            ComponentEntity.id,
-            name=f"fk_{__tablename__}__component_id__{ComponentEntity.__tablename__}",
+            ObjectEntity.id,
+            name=f"fk_{__tablename__}__object_id__{ObjectEntity.__tablename__}",
         ),
     )
     timestamp: Mapped[datetime] = mapped_column(DateTimeMapper)
@@ -193,18 +194,18 @@ class LogEntryEntity(Entity):
     content: Mapped[str] = mapped_column(Text)
 
     @declared_attr
-    def component(cls) -> Mapped[ComponentEntity | None]:
-        return relationship(ComponentEntity, lazy="joined")
+    def object(cls) -> Mapped[ObjectEntity | None]:
+        return relationship(ObjectEntity, lazy="joined")
 
     @declared_attr  # type: ignore
     def address(cls) -> AssociationProxy[Address]:
-        return association_proxy("component", "address")
+        return association_proxy("object", "address")
 
     __table_args__ = (
         PrimaryKeyConstraint("id", name=f"pk_{__tablename__}"),
         EnumConstraint("level", Level, name=f"ck_{__tablename__}__level"),
-        Index(f"ix_{__tablename__}__component_id", "component_id"),
-        Index(f"ix_{__tablename__}__component_id__timestamp", "component_id", "timestamp"),
+        Index(f"ix_{__tablename__}__object_id", "object_id"),
+        Index(f"ix_{__tablename__}__object_id__timestamp", "object_id", "timestamp"),
         Index(f"ix_{__tablename__}__timestamp", "timestamp"),
     )
 

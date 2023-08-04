@@ -69,9 +69,9 @@ from ceres.filter import (
 )
 from ceres.internal.database.entities import (
     AlertEntity,
-    ComponentEntity,
     LogEntryEntity,
     MessageEntity,
+    ObjectEntity,
 )
 from ceres.internal.tasklet import Tasklet
 from ceres.internal.utilities import chunkify, dictify, escape_like_expression
@@ -287,14 +287,14 @@ class Object(ValidatedDataclass, Tasklet):
 
             if id is None:
                 id = await session.scalar(
-                    select(ComponentEntity.id).where(ComponentEntity.address == address),
+                    select(ObjectEntity.id).where(ObjectEntity.address == address),
                 )
 
             if id is None:
                 id = default or uuid4()
-                component = ComponentEntity(id=id, address=address)
+                obj = ObjectEntity(id=id, address=address)
 
-                session.add(component)
+                session.add(obj)
                 await session.commit()
 
             mapping[address] = id
@@ -366,7 +366,7 @@ class Object(ValidatedDataclass, Tasklet):
                             # the "component_id".
                             data = dictify(model)
                             data.pop("address", None)
-                            data["component_id"] = await self.get_id(model.address)
+                            data["object_id"] = await self.get_id(model.address)
                             values.append(data)
 
                         await session.execute(
@@ -389,7 +389,7 @@ class Object(ValidatedDataclass, Tasklet):
         return dict(
             tuple(row)
             for row in await session.execute(
-                select(ComponentEntity.address, ComponentEntity.id),
+                select(ObjectEntity.address, ObjectEntity.id),
             )
         )
 
@@ -494,13 +494,13 @@ class Object(ValidatedDataclass, Tasklet):
         statement = (
             select(
                 MessageEntity.id,
-                ComponentEntity.address,
+                ObjectEntity.address,
                 MessageEntity.timestamp,
                 MessageEntity.direction,
                 MessageEntity.content,
             )
-            .join(ComponentEntity)
-            .where(MessageEntity.component_id.in_(ids))
+            .join(ObjectEntity)
+            .where(MessageEntity.object_id.in_(ids))
         )
 
         if filter.search is not None:
@@ -623,14 +623,14 @@ class Object(ValidatedDataclass, Tasklet):
         statement = (
             select(
                 AlertEntity.id,
-                ComponentEntity.address,
+                ObjectEntity.address,
                 AlertEntity.timestamp,
                 AlertEntity.level,
                 AlertEntity.code,
                 AlertEntity.info,
             )
-            .join(ComponentEntity)
-            .where(ComponentEntity.id.in_(ids))
+            .join(ObjectEntity)
+            .where(ObjectEntity.id.in_(ids))
         )
 
         if filter.search is not None:
@@ -753,13 +753,13 @@ class Object(ValidatedDataclass, Tasklet):
         statement = (
             select(
                 LogEntryEntity.id,
-                ComponentEntity.address,
+                ObjectEntity.address,
                 LogEntryEntity.timestamp,
                 LogEntryEntity.level,
                 LogEntryEntity.content,
             )
-            .join(ComponentEntity)
-            .where(ComponentEntity.id.in_(ids))
+            .join(ObjectEntity)
+            .where(ObjectEntity.id.in_(ids))
         )
 
         if filter.search is not None:
@@ -880,10 +880,10 @@ class Object(ValidatedDataclass, Tasklet):
 
         addresses = self.__get_addresses(filter.address)
         statement = (
-            select(ComponentEntity.address, AlertEntity.level, func.count("*"))
+            select(ObjectEntity.address, AlertEntity.level, func.count("*"))
             .where(AlertEntity.address.in_(addresses))
-            .join(ComponentEntity)
-            .group_by(ComponentEntity.address, AlertEntity.level)
+            .join(ObjectEntity)
+            .group_by(ObjectEntity.address, AlertEntity.level)
         )
 
         if filter.within is not None:

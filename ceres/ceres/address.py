@@ -41,8 +41,6 @@ class AddressSelector(str):
         resolved = address.relative_to(root) if root is not None else address
         if resolved is None:
             return False
-        if self == ":all":
-            print(resolved, self, self.compile().pattern)
 
         return self.compile().match(resolved) is not None
 
