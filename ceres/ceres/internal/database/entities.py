@@ -1,15 +1,20 @@
+import re
 from datetime import datetime
-from typing import Any, final
+from textwrap import dedent
+from typing import Any, Iterable
 from uuid import UUID
 
 from sqlalchemy import (
     JSON,
     Boolean,
+    ClauseElement,
     ColumnElement,
+    Engine,
     ForeignKey,
     Index,
     LargeBinary,
     PrimaryKeyConstraint,
+    Table,
     Text,
 )
 from sqlalchemy.ext.associationproxy import AssociationProxy, association_proxy
@@ -21,7 +26,9 @@ from sqlalchemy.orm import (
     mapped_column,
     relationship,
 )
+from sqlalchemy.schema import CreateIndex, CreateTable
 from sqlalchemy.sql.roles import ExpressionElementRole
+from typing_extensions import final
 
 from ceres.address import Address
 from ceres.internal.database.types import (
@@ -35,11 +42,53 @@ from ceres.level import Level
 from ceres.message import MessageDirection
 
 
+def _compile_to_sql_statement(engine: Engine, element: ClauseElement) -> str:
+    statement = re.sub(
+        r"[\n\r]+\t",
+        "\n    ",
+        dedent(str(element.compile(engine)).strip()),
+    )
+
+    if not statement.endswith(";"):
+        statement += ";"
+
+    return statement
+
+
 class Entity(MappedAsDataclass, DeclarativeBase):
     __abstract__ = True
     __mapper_args__ = {
         "eager_defaults": True,
     }
+
+    @staticmethod
+    def get_entity_classes() -> list[type["Entity"]]:
+        classes: list[type[Entity]] = [
+            ComponentEntity,
+            MessageEntity,
+            AlertEntity,
+            LogEntryEntity,
+        ]
+
+        classes.extend(
+            mapper.class_
+            for mapper in Entity.registry.mappers
+            if mapper.class_ not in classes and issubclass(mapper.class_, Entity)
+        )
+
+        return classes
+
+    @classmethod
+    def get_entity_table(cls) -> Table:
+        assert isinstance(cls.__table__, Table)
+        return cls.__table__
+
+    @classmethod
+    def get_entity_ddl(cls, engine: Engine) -> Iterable[str]:
+        table = cls.get_entity_table()
+        yield _compile_to_sql_statement(engine, CreateTable(table, if_not_exists=True))
+        for index in sorted(table.indexes, key=lambda index: str(index.name)):
+            yield _compile_to_sql_statement(engine, CreateIndex(index, if_not_exists=True))
 
     def values(self) -> dict[str, Any]:
         return {name: getattr(self, name) for name in self.__table__.columns.keys()}

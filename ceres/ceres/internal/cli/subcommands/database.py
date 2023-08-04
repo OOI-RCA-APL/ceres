@@ -48,4 +48,4 @@ async def schema(*, config: Config = ConfigOption(checks=[])) -> None:
     database = Database(config.database)
 
     for statement in database.ddl:
-        write(f"{statement};")
+        write(statement)

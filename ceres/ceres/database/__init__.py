@@ -1,17 +1,15 @@
-import re
 from asyncio import Lock as AsyncLock
 from textwrap import dedent
-from typing import Any, Callable, Iterable, TypeVar, cast, final
+from typing import Any, Callable, TypeVar, cast, final
 from uuid import UUID, uuid4
 
-from sqlalchemy import ClauseElement, Connection, Table, inspect, text
+from sqlalchemy import Connection, inspect, text
 from sqlalchemy.ext.asyncio import (
     AsyncConnection,
     AsyncEngine,
     AsyncSession,
     async_sessionmaker,
 )
-from sqlalchemy.schema import CreateIndex, CreateTable
 from sqlalchemy.sql.elements import TextClause
 from typing_extensions import Self
 
@@ -86,21 +84,10 @@ class Database:
 
     @property
     def ddl(self) -> list[str]:
-        def compile(element: ClauseElement) -> str:
-            return re.sub(
-                r"[\n\r]+\t",
-                "\n    ",
-                dedent(str(element.compile(self.__engine.sync_engine)).strip()),
-            )
-
-        def get_table_ddl(table: Table) -> Iterable[str]:
-            yield compile(CreateTable(table, if_not_exists=True))
-            for index in sorted(table.indexes, key=lambda index: str(index.name)):
-                yield compile(CreateIndex(index, if_not_exists=True))
-
         commands: list[str] = []
-        for table in Entity.metadata.tables.values():
-            commands.extend(get_table_ddl(table))
+
+        for cls in Entity.get_entity_classes():
+            commands.extend(cls.get_entity_ddl(self.__engine.sync_engine))
 
         return commands
 
