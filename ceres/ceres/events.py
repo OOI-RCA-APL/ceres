@@ -1,13 +1,13 @@
 from abc import ABC
 from enum import Enum
-from typing import TYPE_CHECKING, Literal, cast, final
+from typing import TYPE_CHECKING, Literal, cast
 from uuid import UUID, uuid4
 
 from pydantic import Field
 
 from ceres.address import Address
 from ceres.alert import Alert
-from ceres.data import DateTime, ImmutableDataObject
+from ceres.data import DateTime, ImmutableDataObject, PositiveTimeDelta
 from ceres.logs import LogEntry
 from ceres.message import Message
 from ceres.timing import utc
@@ -26,6 +26,13 @@ class StandardEventKind(str, Enum):
     MESSAGE_RECEIVED = "message-received"
     ALERT = "alert"
     LOG = "log"
+    ROUTINE_STARTED = "routine-started"
+    ROUTINE_STOPPED = "routine-stopped"
+    ROUTINE_COMPLETED = "routine-completed"
+    ROUTINE_CANCELLED = "routine-cancelled"
+    ROUTINE_EXCEPTION = "routine-exception"
+    ROUTINE_RESTARTING = "routine-restarting"
+    ROUTINE_RESTARTED = "routine-restarted"
 
 
 class Event(ImmutableDataObject):
@@ -44,79 +51,114 @@ class BaseStandardEvent(Event, ABC):
     kind: StandardEventKind
 
 
-@final
 class StartedEvent(BaseStandardEvent):
     kind: Literal[StandardEventKind.STARTED] = StandardEventKind.STARTED
 
 
-@final
 class StoppedEvent(BaseStandardEvent):
     kind: Literal[StandardEventKind.STOPPED] = StandardEventKind.STOPPED
 
 
-@final
 class EnabledEvent(BaseStandardEvent):
     kind: Literal[StandardEventKind.ENABLED] = StandardEventKind.ENABLED
 
 
-@final
 class DisabledEvent(BaseStandardEvent):
     kind: Literal[StandardEventKind.DISABLED] = StandardEventKind.DISABLED
 
 
-@final
 class ConnectedEvent(BaseStandardEvent):
     kind: Literal[StandardEventKind.CONNECTED] = StandardEventKind.CONNECTED
 
 
-@final
 class DisconnectedEvent(BaseStandardEvent):
     kind: Literal[StandardEventKind.DISCONNECTED] = StandardEventKind.DISCONNECTED
 
 
-@final
 class ConnectionLostEvent(BaseStandardEvent):
     kind: Literal[StandardEventKind.CONNECTION_LOST] = StandardEventKind.CONNECTION_LOST
 
 
-@final
 class ConnectFailedEvent(BaseStandardEvent):
     kind: Literal[StandardEventKind.CONNECT_FAILED] = StandardEventKind.CONNECT_FAILED
 
 
-@final
+ConnectionEvent = ConnectedEvent | DisconnectedEvent | ConnectionLostEvent | ConnectFailedEvent
+
+
 class MessageSentEvent(BaseStandardEvent):
     kind: Literal[StandardEventKind.MESSAGE_SENT] = StandardEventKind.MESSAGE_SENT
     message: Message
 
 
-@final
 class MessageReceivedEvent(BaseStandardEvent):
     kind: Literal[StandardEventKind.MESSAGE_RECEIVED] = StandardEventKind.MESSAGE_RECEIVED
     message: Message
 
 
-@final
+MessageEvent = MessageSentEvent | MessageReceivedEvent
+
+
 class AlertEvent(BaseStandardEvent):
     kind: Literal[StandardEventKind.ALERT] = StandardEventKind.ALERT
     alert: Alert
 
 
-@final
 class LogEvent(BaseStandardEvent):
     kind: Literal[StandardEventKind.LOG] = StandardEventKind.LOG
     entry: LogEntry
 
 
+class RoutineStartedEvent(BaseStandardEvent):
+    kind: Literal[StandardEventKind.ROUTINE_STARTED] = StandardEventKind.ROUTINE_STARTED
+    routine: str
+
+
+class RoutineStoppedEvent(BaseStandardEvent):
+    kind: Literal[StandardEventKind.ROUTINE_STOPPED] = StandardEventKind.ROUTINE_STOPPED
+    routine: str
+
+
+class RoutineCompletedEvent(BaseStandardEvent):
+    kind: Literal[StandardEventKind.ROUTINE_COMPLETED] = StandardEventKind.ROUTINE_COMPLETED
+    routine: str
+
+
+class RoutineCancelledEvent(BaseStandardEvent):
+    kind: Literal[StandardEventKind.ROUTINE_CANCELLED] = StandardEventKind.ROUTINE_CANCELLED
+    routine: str
+
+
+class RoutineExceptionEvent(BaseStandardEvent):
+    kind: Literal[StandardEventKind.ROUTINE_EXCEPTION] = StandardEventKind.ROUTINE_EXCEPTION
+    routine: str
+
+
+class RoutineRestartingEvent(BaseStandardEvent):
+    kind: Literal[StandardEventKind.ROUTINE_RESTARTED] = StandardEventKind.ROUTINE_RESTARTED
+    routine: str
+    delay: PositiveTimeDelta
+
+
+class RoutineRestartedEvent(BaseStandardEvent):
+    kind: Literal[StandardEventKind.ROUTINE_RESTARTED] = StandardEventKind.ROUTINE_RESTARTED
+    routine: str
+
+
+RoutineEvent = (
+    RoutineStartedEvent
+    | RoutineStoppedEvent
+    | RoutineCompletedEvent
+    | RoutineExceptionEvent
+    | RoutineRestartedEvent
+)
+
 StandardEvent = (
     StartedEvent
     | StoppedEvent
-    | ConnectedEvent
-    | DisconnectedEvent
-    | ConnectionLostEvent
-    | ConnectFailedEvent
-    | MessageSentEvent
-    | MessageReceivedEvent
+    | ConnectionEvent
+    | MessageEvent
     | AlertEvent
     | LogEvent
+    | RoutineEvent
 )

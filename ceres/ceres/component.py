@@ -1,6 +1,7 @@
 import asyncio
 import inspect
 import traceback
+from asyncio import CancelledError
 from asyncio import Queue as AsyncQueue
 from dataclasses import field
 from datetime import timedelta
@@ -36,6 +37,7 @@ from pydantic import (
     ConfigDict,
     Extra,
     Field,
+    PositiveFloat,
     ValidationError,
     root_validator,
     schema_of,
@@ -67,7 +69,19 @@ from ceres.errors import (
     ProcedureInvalidArgsError,
     ProcedureNotSubscribableError,
 )
-from ceres.events import AlertEvent, DisabledEvent, EnabledEvent, Event
+from ceres.events import (
+    AlertEvent,
+    DisabledEvent,
+    EnabledEvent,
+    Event,
+    RoutineCancelledEvent,
+    RoutineCompletedEvent,
+    RoutineExceptionEvent,
+    RoutineRestartedEvent,
+    RoutineRestartingEvent,
+    RoutineStartedEvent,
+    RoutineStoppedEvent,
+)
 from ceres.exceptions import ProcedureException
 from ceres.filter import ComponentFilter, ComponentFilterArgs
 from ceres.internal.database.entities import ComponentEntity
@@ -75,6 +89,7 @@ from ceres.internal.scheduler import Scheduler
 from ceres.internal.utilities import (
     awaitify,
     cached,
+    decode_td,
     get_function_name,
     get_inner_function,
     lenient_isinstance,
@@ -156,7 +171,7 @@ class Component(Object):
             _Listener(
                 component=self,
                 binding=binding,
-                handler=getattr(self, binding.function),
+                handler=getattr(self, binding.method),
             )
             for binding in self.get_listener_bindings()
         ]
@@ -618,17 +633,40 @@ class Component(Object):
         await asyncio.gather(*(processor.run() for processor in self.__listeners))
 
     async def __process_routine(self, binding: "RoutineBinding") -> None:
-        routine = getattr(self, binding.function, None)
+        routine = getattr(self, binding.method, None)
         if routine is None:
             return
 
+        self.emit(RoutineStartedEvent, routine=binding.method)
+        if type(self).__name__ == "RunsForever":
+            self.log.info(f"Running routine '{binding.method}' forever...")
+
         try:
-            await routine()
-        except Exception:
-            self.log.error(
-                f"An exception occurred while running routine '{strify(binding.function)}': "
-                f"{strify(traceback.format_exc())}"
-            )
+            while True:
+                try:
+                    await routine()
+                    self.emit(RoutineCompletedEvent, routine=binding.method)
+                    if binding.restart == RoutineRestartPolicy.ON_COMPLETED:
+                        break
+                except Exception:
+                    self.emit(RoutineExceptionEvent, routine=binding.method)
+                    if binding.restart == RoutineRestartPolicy.ON_EXCEPTION:
+                        break
+
+                if binding.restart == RoutineRestartPolicy.NEVER:
+                    break
+
+                self.emit(
+                    RoutineRestartingEvent,
+                    routine=binding.method,
+                    delay=binding.restart_delay,
+                )
+                await asyncio.sleep(binding.restart_delay.total_seconds())
+                self.emit(RoutineRestartedEvent, routine=binding.method)
+        except CancelledError:
+            self.emit(RoutineCancelledEvent, routine=binding.method)
+        finally:
+            self.emit(RoutineStoppedEvent, routine=binding.method)
 
     async def __process_routines(self) -> None:
         await asyncio.gather(
@@ -660,7 +698,7 @@ class Component(Object):
 
         if (
             (binding := self.get_procedure_bindings().get(procedure)) is None
-            or (method := getattr(self, binding.function, None)) is None
+            or (method := getattr(self, binding.method, None)) is None
             or not inspect.ismethod(method)
         ):
             raise ProcedureException(ProcedureDoesNotExistError())
@@ -787,7 +825,7 @@ class ComponentGroup(Sequence[Component]):
     )
 
     def __init__(self, components: Iterable[Component]):
-        self.__components = tuple(uniquify(components, key=lambda component: component.address))
+        self.__components = tuple(uniquify(components, key=lambda component: id(component.unref())))
         self.__identities: set[int] | None = None
 
     def __repr__(self) -> str:
@@ -859,22 +897,22 @@ class ComponentGroup(Sequence[Component]):
 
 class ListenerBinding(ImmutableDataObject):
     name: Name
-    function: Name
+    method: Name
     event: type | UnionType
     local: bool
     reference: Sequence[str]
     address: AddressSelector | None
 
 
-_ListenerReturn = None | Awaitable[None]
-_ListenerFunctionT = TypeVar(
-    "_ListenerFunctionT",
-    bound=Callable[[Any], _ListenerReturn] | Callable[[Any, Any], _ListenerReturn],
+_ListenerMethodReturn = None | Awaitable[None]
+_ListenerMethod = (
+    Callable[[Any], _ListenerMethodReturn] | Callable[[Any, Any], _ListenerMethodReturn]
 )
+_ListenerMethodTransform = Callable[[_ListenerMethod], _ListenerMethod]
 
 
 @overload
-def on(function: _ListenerFunctionT) -> _ListenerFunctionT:
+def on(method: _ListenerMethod) -> _ListenerMethod:
     ...
 
 
@@ -885,19 +923,19 @@ def on(
     local: bool = False,
     reference: str | Sequence[str] = "self",
     address: str | AddressSelector | Sequence[str | AddressSelector] | None = None,
-) -> Callable[[_ListenerFunctionT], _ListenerFunctionT]:
+) -> _ListenerMethodTransform:
     ...
 
 
 @validate_arguments(config={"arbitrary_types_allowed": True})
 def on(
-    function: _ListenerFunctionT | None = None,
+    method: _ListenerMethod | None = None,
     *,
     event: type | UnionType | None = None,
     local: bool = False,
     reference: str | Sequence[str] | None = None,
     address: str | AddressSelector | Sequence[str | AddressSelector] | None = None,
-) -> _ListenerFunctionT | Callable[[_ListenerFunctionT], _ListenerFunctionT]:
+) -> _ListenerMethod | _ListenerMethodTransform:
     if reference is None:
         reference = []
     if isinstance(reference, str):
@@ -909,15 +947,13 @@ def on(
 
         address = AddressSelector("|".join(str(current) for current in address))
 
-    def on(
-        function: Callable[[Any], _ListenerReturn] | Callable[[Any, _EventT], _ListenerReturn]
-    ) -> Any:
-        signature = inspect.signature(function)
+    def on(method: _ListenerMethod) -> _ListenerMethod:
+        signature = inspect.signature(method)
 
         assigned_event_type = event
 
         if assigned_event_type is None:
-            hints = get_type_hints(function)
+            hints = get_type_hints(method)
             parameters = list(signature.parameters.values())
             if len(parameters) > 1:
                 event_parameter = parameters[1]
@@ -927,10 +963,10 @@ def on(
             assigned_event_type = Event
 
         _bind(
-            function,
+            method,
             ListenerBinding(
-                name=_get_bound_name(function),
-                function=get_function_name(function),
+                name=_get_bound_name(method),
+                method=get_function_name(method),
                 reference=tuple(reference),
                 address=address,
                 local=local,
@@ -938,12 +974,12 @@ def on(
             ),
         )
 
-        return function
+        return method
 
-    if function is None:
+    if method is None:
         return on
 
-    return on(function)
+    return on(method)
 
 
 class ProcedureKind(str, Enum):
@@ -968,7 +1004,7 @@ class ProcedureOutputInfo(ImmutableDataObject):
 class _ProcedureBinding(ImmutableDataObject):
     name: str
     kind: ProcedureKind
-    function: str
+    method: str
     live: bool
     args: ProcedureArgsInfo | None
     output: ProcedureOutputInfo
@@ -991,7 +1027,7 @@ _T = TypeVar("_T", bound=Awaitable[Any] | AsyncIterable[Any])
 
 
 @overload
-def query(function: Callable[_P, _T]) -> Callable[_P, _T]:
+def query(method: Callable[_P, _T]) -> Callable[_P, _T]:
     ...
 
 
@@ -1005,17 +1041,17 @@ def query(
 
 @validate_arguments
 def query(
-    function: Callable[_P, _T] | None = None,
+    method: Callable[_P, _T] | None = None,
     *,
     poll: float | timedelta = timedelta(seconds=5),
 ) -> Callable[_P, _T] | Callable[[Callable[_P, _T]], Callable[_P, _T]]:
-    def query(function: Callable[_P, _T]) -> Callable[_P, _T]:
-        validated = _validate_procedure(function, ProcedureKind.QUERY)
+    def query(method: Callable[_P, _T]) -> Callable[_P, _T]:
+        validated = _validate_procedure(method, ProcedureKind.QUERY)
         _bind(
-            function,
+            method,
             QueryBinding(
-                name=_get_bound_name(function),
-                function=get_function_name(function),
+                name=_get_bound_name(method),
+                method=get_function_name(method),
                 args=validated.args,
                 output=validated.output,
                 live=validated.live,
@@ -1023,16 +1059,16 @@ def query(
             ),
         )
 
-        return function
+        return method
 
-    if function is None:
+    if method is None:
         return query
 
-    return query(function)
+    return query(method)
 
 
 @overload
-def action(function: Callable[_P, _T]) -> Callable[_P, _T]:
+def action(method: Callable[_P, _T]) -> Callable[_P, _T]:
     ...
 
 
@@ -1043,27 +1079,27 @@ def action() -> Callable[[Callable[_P, _T]], Callable[_P, _T]]:
 
 @validate_arguments
 def action(
-    function: Callable[_P, _T] | None = None,
+    method: Callable[_P, _T] | None = None,
 ) -> Callable[_P, _T] | Callable[[Callable[_P, _T]], Callable[_P, _T]]:
-    def action(function: Callable[_P, _T]) -> Callable[_P, _T]:
-        validated = _validate_procedure(function, ProcedureKind.ACTION)
+    def action(method: Callable[_P, _T]) -> Callable[_P, _T]:
+        validated = _validate_procedure(method, ProcedureKind.ACTION)
         _bind(
-            function,
+            method,
             ActionBinding(
-                name=_get_bound_name(function),
-                function=get_function_name(function),
+                name=_get_bound_name(method),
+                method=get_function_name(method),
                 args=validated.args,
                 output=validated.output,
                 live=validated.live,
             ),
         )
 
-        return function
+        return method
 
-    if function is None:
+    if method is None:
         return action
 
-    return action(function)
+    return action(method)
 
 
 def _remove_extra_args(current: Any) -> bool:
@@ -1110,18 +1146,18 @@ class _ValidatedProcedureInfo(ImmutableDataObject):
 
 
 def _validate_procedure(
-    function: Callable[..., Any],
+    method: Callable[..., Any],
     kind: ProcedureKind,
 ) -> _ValidatedProcedureInfo:
-    signature = inspect.signature(function)
+    signature = inspect.signature(method)
     parameters = [*signature.parameters.values()]
     if not parameters or parameters[0].name != "self":
-        raise ValueError(f"{kind} {strify(function)} must have 'self' as its first parameter")
+        raise ValueError(f"{kind} {strify(method)} must have 'self' as its first parameter")
     if any(parameter.kind == Parameter.POSITIONAL_ONLY for parameter in parameters[1:]):
-        raise ValueError(f"{kind} {strify(function)} cannot have positional-only arguments")
+        raise ValueError(f"{kind} {strify(method)} cannot have positional-only arguments")
 
     validation_config: Any = ConfigDict(extra=Extra.forbid)
-    validated = ValidatedFunction(function, validation_config)
+    validated = ValidatedFunction(method, validation_config)
     args_model = validated.model
     args_json_schema = _get_args_schema(args_model)
     args_info = ProcedureArgsInfo(
@@ -1131,18 +1167,16 @@ def _validate_procedure(
         ),
     )
 
-    hints = get_type_hints(function)
+    hints = get_type_hints(method)
     if "return" not in hints:
-        raise ValueError(f"return type of {kind} {strify(function)} must be specified")
+        raise ValueError(f"return type of {kind} {strify(method)} must be specified")
 
     output_hint = hints["return"]
 
-    live = inspect.isasyncgenfunction(function)
+    live = inspect.isasyncgenfunction(method)
 
     if live:
-        error = ValueError(
-            f"return type of live {kind} {strify(function)} must be AsyncIterable[T]"
-        )
+        error = ValueError(f"return type of live {kind} {strify(method)} must be AsyncIterable[T]")
 
         try:
             if output_hint.__name__ != "AsyncIterable":
@@ -1156,7 +1190,7 @@ def _validate_procedure(
         output_json_schema = _get_output_schema(output_hint)
     except Exception as exception:
         raise ValueError(
-            f"output type of {kind} {strify(function)} must be serializable as a JSON object: "
+            f"output type of {kind} {strify(method)} must be serializable as a JSON object: "
             f"{exception}"
         )
 
@@ -1174,22 +1208,69 @@ def _validate_procedure(
 _BINDINGS_ATTRIBUTE = "__bindings__"
 
 
+class RoutineRestartPolicy(str, Enum):
+    NEVER = "never"
+    ALWAYS = "always"
+    ON_COMPLETED = "on-completed"
+    ON_EXCEPTION = "on-exception"
+
+
+RoutineRestartPolicyLiteral = Literal[
+    "never",
+    "always",
+    "on-completed",
+    "on-exception",
+]
+
+
 class RoutineBinding(ImmutableDataObject):
-    function: Name
+    method: Name
+    restart: RoutineRestartPolicy
+    restart_delay: PositiveTimeDelta
 
 
-_RoutineReturn = Awaitable[None]
+_RoutineMethodReturn = Awaitable[None]
+_RoutineMethod = Callable[[Any], _RoutineMethodReturn]
+_RoutineMethodHandler = Callable[[_RoutineMethod], _RoutineMethod]
 
 
-def routine(function: Callable[[Any], _RoutineReturn]) -> Callable[[Any], _RoutineReturn]:
-    _bind(
-        function,
-        RoutineBinding(
-            function=get_function_name(function),
-        ),
-    )
+@overload
+def routine(
+    *,
+    restart: RoutineRestartPolicy | RoutineRestartPolicyLiteral = RoutineRestartPolicy.NEVER,
+    restart_delay: PositiveFloat | PositiveTimeDelta = timedelta(seconds=1),
+) -> _RoutineMethodHandler:
+    ...
 
-    return function
+
+@overload
+def routine(method: _RoutineMethod) -> _RoutineMethod:
+    ...
+
+
+@validate_arguments(config={"arbitrary_types_allowed": True})
+def routine(
+    method: _RoutineMethod | None = None,
+    *,
+    restart: RoutineRestartPolicy | RoutineRestartPolicyLiteral = RoutineRestartPolicy.NEVER,
+    restart_delay: PositiveFloat | PositiveTimeDelta = timedelta(seconds=1),
+) -> _RoutineMethod | _RoutineMethodHandler:
+    def routine(method: _RoutineMethod) -> _RoutineMethod:
+        _bind(
+            method,
+            RoutineBinding(
+                method=get_function_name(method),
+                restart=RoutineRestartPolicy(restart),
+                restart_delay=decode_td(restart_delay),
+            ),
+        )
+
+        return method
+
+    if method is None:
+        return routine
+
+    return routine(method)
 
 
 def _get_bound_name(function: Callable[..., Any]) -> str:
@@ -1202,20 +1283,20 @@ def _get_normalized_name(name: str) -> Name:
 
 @runtime_checkable
 class Binding(Protocol):
-    function: str
+    method: str
 
 
 _BindingT = TypeVar("_BindingT", bound=Binding)
 
 
-def get_function_bindings(
-    function: Callable[..., Any],
+def get_method_bindings(
+    method: Callable[..., Any],
     binding_cls: type[_BindingT],
 ) -> tuple[_BindingT, ...]:
-    function = get_inner_function(function)
+    method = get_inner_function(method)
     output: list[_BindingT] = []
 
-    if values := getattr(function, _BINDINGS_ATTRIBUTE, None):
+    if values := getattr(method, _BINDINGS_ATTRIBUTE, None):
         if isinstance(values, Iterable):
             for value in values:
                 if isinstance(value, binding_cls):
@@ -1224,9 +1305,9 @@ def get_function_bindings(
     return tuple(output)
 
 
-def _bind(function: Callable[..., object], binding: Binding) -> None:
-    function = get_inner_function(function)
-    bindings: Sequence[Binding] | None = getattr(function, _BINDINGS_ATTRIBUTE, None)
+def _bind(method: Callable[..., object], binding: Binding) -> None:
+    method = get_inner_function(method)
+    bindings: Sequence[Binding] | None = getattr(method, _BINDINGS_ATTRIBUTE, None)
 
     if not isinstance(bindings, Sequence):
         bindings = []
@@ -1236,7 +1317,7 @@ def _bind(function: Callable[..., object], binding: Binding) -> None:
     else:
         bindings = [*bindings, binding]
 
-    setattr(function, _BINDINGS_ATTRIBUTE, bindings)
+    setattr(method, _BINDINGS_ATTRIBUTE, bindings)
 
 
 def get_bindings(component_cls: type[Component], binding_cls: type[_BindingT]) -> list[_BindingT]:
@@ -1247,10 +1328,10 @@ def get_bindings(component_cls: type[Component], binding_cls: type[_BindingT]) -
             if not callable(member):
                 continue
 
-            for binding in get_function_bindings(member, binding_cls):
-                bindings[binding.function] = binding
+            for binding in get_method_bindings(member, binding_cls):
+                bindings[binding.method] = binding
 
-    return sorted(bindings.values(), key=lambda current: current.function)
+    return sorted(bindings.values(), key=lambda current: current.method)
 
 
 @final

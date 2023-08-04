@@ -3,10 +3,9 @@ from typing import Annotated, Any, Callable, Literal
 
 from pydantic import Field
 
+from ceres.component import QueryBinding, get_method_bindings
 from ceres.data import DataObject, ImmutableDataObject, Name
-from ceres.component import get_function_bindings
 from ceres.internal.utilities import strify
-from ceres.component import QueryBinding
 
 
 class LayoutKind(str, Enum):
@@ -23,7 +22,7 @@ class LayoutDisplay(DataObject):
 
     def __init__(self, title: str, query: Name | Callable[..., Any], **kwargs: Any) -> None:
         if not isinstance(query, str):
-            bindings = get_function_bindings(query, QueryBinding)
+            bindings = get_method_bindings(query, QueryBinding)
             if not bindings:
                 raise ValueError(f"function {strify(query)} has no query binding")
 
