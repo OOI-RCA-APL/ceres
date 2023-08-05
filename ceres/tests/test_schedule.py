@@ -79,12 +79,12 @@ def test_interval_schedule(schedule: IntervalSchedule, expected: list[timedelta]
     trigger = schedule.as_trigger()
     start = trigger.start
     now = start - timedelta(seconds=1)
-    assert trigger.next(now=now) == start
+    assert trigger.get_next_fire_time(now=now) == start
 
     now = start
 
     for delay in expected:
-        next = trigger.next(now=now + timedelta(milliseconds=1))
+        next = trigger.get_next_fire_time(now=now + timedelta(milliseconds=1))
         assert next is not None
         assert next == now + delay
         now = next

@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Literal, Mapping, Sequence
 
 import yaml
-from pydantic import Field, SecretStr, ValidationError, parse_obj_as, validator
+from pydantic import Field, SecretStr, ValidationError, parse_obj_as, root_validator, validator
 from typing_extensions import Self, override
 from yaml import MarkedYAMLError, YAMLError
 
@@ -29,6 +29,7 @@ from ceres.internal.utilities import lenient_issubclass, show_td
 from ceres.loaded import Loader
 from ceres.logs import Log
 from ceres.result import Fail, Ok, Result
+from ceres.schedule import Schedule
 from ceres.timing import utc
 from ceres.validation import ValidationProblem
 
@@ -42,19 +43,37 @@ class ConfigObject(ImmutableDataObject):
     pass
 
 
-class _ComponentConfigMixin(ImmutableDataObject):
+class _ComponentConfigMixin(ConfigObject):
     name: Name
+
+
+class JobConfig(ConfigObject):
+    name: Name
+    action: Name
+    args: Mapping[Name, Any] | None = None
+    schedule: Schedule = Field(discriminator="kind")
+
+    @root_validator(pre=True)
+    def _default_name_to_action(cls, values: dict[str, Any]) -> Any:
+        if "name" not in values and "action" in values:
+            values["name"] = values["action"]
+
+        return values
 
 
 class ComponentConfig(Loader, _ComponentConfigMixin):
     cls_path: ClassPath = Field(
         default_factory=lambda: ClassPath("ceres.component.Component"), alias="class"
     )
+    jobs: Sequence[JobConfig] = ()
     components: Sequence["ComponentConfig"] = ()
 
     def create(self, *, args: Sequence[Any] | Mapping[str, Any] | None = None) -> Component:
         component: Component = super().create(args=args)
         component.__config__ = self
+        for job in self.jobs:
+            # TODO: Validated job arguments.
+            component.add_job(job.name, job.schedule, job.action, job.args)
         return component
 
     @override

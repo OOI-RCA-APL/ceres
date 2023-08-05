@@ -194,12 +194,12 @@ class Connection(Component, ABC):
             self.log.info("Disconnected.")
 
     @routine
-    async def __update(self) -> None:
+    async def routine__process_connection(self) -> None:
         while True:
             trigger = self.reconnect_settings.schedule.as_trigger()
 
             while not await self.connect():
-                next = trigger.next()
+                next = trigger.get_next_fire_time()
                 if next is None:
                     break
 

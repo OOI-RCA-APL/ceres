@@ -1,12 +1,11 @@
 import asyncio
 import inspect
 import traceback
+import warnings
 from asyncio import CancelledError
 from asyncio import Queue as AsyncQueue
-from dataclasses import field
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from enum import Enum
-from functools import partial
 from inspect import Parameter
 from string import ascii_lowercase
 from types import MappingProxyType, UnionType
@@ -32,17 +31,20 @@ from typing import (
 from uuid import UUID
 from weakref import WeakValueDictionary, ref
 
+from apscheduler.job import Job as InternalJob
+from apscheduler.jobstores.base import JobLookupError
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.base import BaseTrigger
 from pydantic import (
     BaseModel,
     ConfigDict,
     Extra,
     Field,
+    NonNegativeInt,
     PositiveFloat,
     ValidationError,
-    root_validator,
     schema_of,
     validate_arguments,
-    validator,
 )
 from pydantic.decorator import ValidatedFunction
 from pydantic.typing import get_args
@@ -74,6 +76,13 @@ from ceres.events import (
     DisabledEvent,
     EnabledEvent,
     Event,
+    JobCancelledEvent,
+    JobCompletedEvent,
+    JobExceptionEvent,
+    JobRetryEvent,
+    JobRetryPendingEvent,
+    JobStartedEvent,
+    JobStoppedEvent,
     RoutineCancelledEvent,
     RoutineCompletedEvent,
     RoutineExceptionEvent,
@@ -85,7 +94,6 @@ from ceres.events import (
 from ceres.exceptions import ProcedureException
 from ceres.filter import ComponentFilter, ComponentFilterArgs
 from ceres.internal.database.entities import ObjectEntity
-from ceres.internal.scheduler import Scheduler
 from ceres.internal.utilities import (
     awaitify,
     cached,
@@ -103,7 +111,7 @@ from ceres.level import Level
 from ceres.logs import LogEntry
 from ceres.message import Message
 from ceres.object import Object, Status
-from ceres.schedule import Schedule
+from ceres.schedule import Schedule, Trigger
 from ceres.validation import ValidationProblem
 
 if TYPE_CHECKING:
@@ -120,20 +128,80 @@ _EventP = ParamSpec("_EventP")
 
 Item = Message | Alert | LogEntry
 
+warnings.filterwarnings(
+    action="ignore",
+    module="apscheduler",
+    message=r".*localize method is no longer necessary.*",
+)
 
-class Job(ImmutableDataObject):
-    name: Name
-    action: Name
-    args: Mapping[Name, Any] | None = None
-    schedule: Schedule = Field(discriminator="kind")
-    enabled: bool = True
 
-    @root_validator(pre=True)
-    def _default_name_to_action(cls, values: dict[str, Any]) -> Any:
-        if "name" not in values and "action" in values:
-            values["name"] = values["action"]
+class Job:
+    def __init__(
+        self,
+        *,
+        internal: InternalJob,
+        schedule: Schedule,
+        action: Name,
+        args: Mapping[str, Any] | None,
+        retries: int,
+        retry_delay: timedelta,
+    ) -> None:
+        self.__internal = internal
+        self.__schedule = schedule
+        self.__action = action
+        self.__args = args
+        self.__retries = retries
+        self.__retry_delay = retry_delay
 
-        return values
+    @property
+    def name(self) -> Name:
+        return self.__internal.name
+
+    @property
+    def schedule(self) -> Schedule:
+        return self.__schedule
+
+    @property
+    def action(self) -> Name:
+        return self.__action
+
+    @property
+    def args(self) -> Mapping[str, Any] | None:
+        return self.__args
+
+    @property
+    def retries(self) -> int:
+        return self.__retries
+
+    @property
+    def retry_delay(self) -> timedelta:
+        return self.__retry_delay
+
+    @property
+    def next_run_time(self) -> datetime | None:
+        return self.__internal.next_run_time
+
+    def get_run_times(
+        self,
+        start: datetime | None = None,
+        *,
+        end: datetime | None = None,
+        count: int | None = None,
+    ) -> Iterable[datetime]:
+        yield from self.__schedule.as_trigger().get_fire_times(start, end=end, count=count)
+
+
+class _TriggerAdapter(BaseTrigger):
+    def __init__(self, inner: Trigger) -> None:
+        super().__init__()
+        self.__inner = inner
+
+    def get_next_fire_time(  # type: ignore
+        self,
+        previous_fire_time: datetime | None,
+        now: datetime,
+    ) -> datetime | None:
+        return self.__inner.get_next_fire_time(previous_fire_time, now)
 
 
 @dataclass_transform(
@@ -142,25 +210,13 @@ class Job(ImmutableDataObject):
 )
 class Component(Object):
     name: Final[Name] = Field(default_factory=lambda: randstr(ascii_lowercase, 8))
-    jobs: Final[Sequence[Job]] = field(default_factory=list)
-
-    @validator("jobs")
-    def _validate_jobs(cls, jobs: Sequence[Job]) -> Sequence[Job]:
-        seen: set[str] = set()
-
-        for job in jobs:
-            if job.name in seen:
-                raise ValueError(f"duplicate job '{job.name}', give the job a unique 'name' value")
-
-            seen.add(job.name)
-
-        return jobs
 
     def __post_init_post_parse__(self) -> None:
         super().__post_init_post_parse__()
 
         self.__parent: ref[Component] | None = None
-        self.__scheduler = Scheduler()
+        self.__scheduler = AsyncIOScheduler(timezone=timezone.utc)
+        self.__jobs: dict[str, Job] = {}
         self.__referencers: WeakValueDictionary[int, Component] = WeakValueDictionary()
         self.__components: dict[Name, Component] = {}
         self.__config__: "ComponentConfig | None" = None
@@ -216,6 +272,15 @@ class Component(Object):
 
     @final
     @classmethod
+    def get_query_binding(cls, name: Callable[..., Any] | str) -> "QueryBinding | None":
+        procedure = cls.get_procedure_binding(name)
+        if not isinstance(procedure, QueryBinding):
+            return None
+
+        return procedure
+
+    @final
+    @classmethod
     def get_action_bindings(cls) -> Mapping[str, "ActionBinding"]:
         return {
             name: binding
@@ -225,8 +290,25 @@ class Component(Object):
 
     @final
     @classmethod
+    def get_action_binding(cls, name: Callable[..., Any] | str) -> "ActionBinding | None":
+        procedure = cls.get_procedure_binding(name)
+        if not isinstance(procedure, ActionBinding):
+            return None
+
+        return procedure
+
+    @final
+    @classmethod
     def get_procedure_bindings(cls) -> Mapping[str, "ProcedureBinding"]:
         return _get_procedure_bindings(cls)
+
+    @final
+    @classmethod
+    def get_procedure_binding(cls, name: Callable[..., Any] | str) -> "ProcedureBinding | None":
+        if isinstance(name, str):
+            return cls.get_procedure_bindings().get(name)
+
+        return get_method_binding(name, ProcedureBinding)
 
     @property
     @override
@@ -353,10 +435,6 @@ class Component(Object):
     @server.setter
     def server(self, server: Server) -> None:
         self.__server = server
-
-    @property
-    def scheduler(self) -> Scheduler:
-        return self.__scheduler
 
     @property
     def components(self) -> "ComponentGroup":
@@ -576,32 +654,102 @@ class Component(Object):
         self.emit(AlertEvent, alert=alert)
         return alert
 
-    def schedule_job(
+    @validate_arguments(config={"arbitrary_types_allowed": True})
+    def add_job(
         self,
-        function: Callable[[], Any],
+        name: Name,
         schedule: Schedule,
-        name: str | None = None,
+        action: Callable[..., Any] | Name,
+        args: Mapping[Name, Any] | None = None,
+        retries: NonNegativeInt = 0,
+        retry_delay: PositiveFloat | PositiveTimeDelta = timedelta(seconds=5),
+    ) -> Job:
+        binding = self.get_action_binding(action)
+        if binding is None:
+            raise ValueError(f"action '{action}' does not exist on {strify(type(self))}")
+
+        retry_delay = decode_td(retry_delay)
+
+        async def callback() -> None:
+            await self.__process_job(
+                name=name,
+                action=binding.name,
+                args=args,
+                retries=retries,
+                retry_delay=retry_delay,
+            )
+
+        internal: InternalJob = self.__scheduler.add_job(
+            callback,
+            trigger=_TriggerAdapter(schedule.as_trigger()),
+            name=name,
+            id=name,
+        )
+
+        job = Job(
+            internal=internal,
+            schedule=schedule,
+            action=binding.name,
+            args=args,
+            retries=retries,
+            retry_delay=retry_delay,
+        )
+
+        self.__jobs[name] = job
+        return job
+
+    async def __process_job(
+        self,
+        name: Name,
+        action: Name,
+        args: Mapping[str, Any] | None,
+        retries: NonNegativeInt,
+        retry_delay: PositiveTimeDelta,
     ) -> None:
-        self.__scheduler.schedule(function, schedule, name=name)
+        self.emit(JobStartedEvent, job=name)
+        retry = 0
 
-    def unschedule_job(self, name: str | Callable[[], Any]) -> None:
-        self.__scheduler.unschedule(name)
-
-    def __start_scheduler(self) -> None:
-        self.__scheduler.start()
-
-        async def run(job: Job) -> None:
-            self.log.info(f"Running job '{job.name}'...")
+        while True:
             try:
-                await self.call(job.action, job.args)
-            except ProcedureException as exception:
-                self.log.error(
-                    f"An error occurred while running job '{job.name}': {strify(exception.error)}"
-                )
+                await self.call(action, args)
+                self.emit(JobCompletedEvent, job=name)
+                break
+            except CancelledError:
+                self.emit(JobCancelledEvent, job=name)
+                break
+            except Exception:
+                self.emit(JobExceptionEvent, job=name)
+                if retry >= retries:
+                    break
 
-        for job in self.jobs:
-            self.log.info(f"Scheduling job '{job.name}' on {job.schedule}.")
-            self.schedule_job(partial(run, job), job.schedule, name=job.name)
+                self.emit(JobRetryPendingEvent, job=name, delay=retry_delay)
+                retry += 1
+                await asyncio.sleep(retry_delay.total_seconds())
+                self.emit(JobRetryEvent, job=name)
+
+        self.emit(JobStoppedEvent, job=name)
+
+    def get_jobs(self) -> list[Job]:
+        return list(self.__jobs.values())
+
+    def get_job(self, name: Name) -> Job | None:
+        return self.__jobs.get(name)
+
+    def remove_job(self, name: Name) -> Job | None:
+        job = self.__jobs.pop(name, None)
+
+        try:
+            self.__scheduler.remove_job(name)
+        except JobLookupError:
+            pass
+
+        return job
+
+    def clear_jobs(self) -> None:
+        self.__jobs.clear()
+        for job in self.__scheduler.get_jobs():
+            job: InternalJob = job
+            self.__scheduler.remove_job(job.id)
 
     def start(
         self,
@@ -621,7 +769,7 @@ class Component(Object):
     async def __run__(self) -> None:
         await self.sync_with_database()
 
-        self.__start_scheduler()
+        self.__scheduler.start()
 
         await asyncio.gather(
             super().__run__(),
@@ -679,8 +827,9 @@ class Component(Object):
             self.log.info(f"Stopping '{component.address}'...")
             await component.stop()
 
-        self.__scheduler.stop()
-        self.__scheduler = Scheduler()
+        if self.__scheduler.running:
+            self.__scheduler.shutdown()
+
         await self.flush()
         if self.__database is not None:
             await self.__database.dispose()
@@ -793,8 +942,9 @@ class Component(Object):
         await self.database.init()
         return self.database.session()
 
+    # TODO: Get rid of this.
     async def sync_with_database(self) -> UUID:
-        id = await self.get_id(self.address)
+        id = await self.get_id()
         self.__enabled = await self.__get_enabled_in_database()
         return id
 
@@ -1002,7 +1152,7 @@ class ProcedureOutputInfo(ImmutableDataObject):
 
 
 class _ProcedureBinding(ImmutableDataObject):
-    name: str
+    name: Name
     kind: ProcedureKind
     method: str
     live: bool
@@ -1303,6 +1453,17 @@ def get_method_bindings(
                     output.append(value)
 
     return tuple(output)
+
+
+def get_method_binding(
+    method: Callable[..., Any],
+    binding_cls: type[_BindingT],
+) -> _BindingT | None:
+    bindings = get_method_bindings(method, binding_cls)
+    if bindings:
+        return bindings[0]
+
+    return None
 
 
 def _bind(method: Callable[..., object], binding: Binding) -> None:

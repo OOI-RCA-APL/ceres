@@ -33,6 +33,15 @@ class StandardEventKind(str, Enum):
     ROUTINE_EXCEPTION = "routine-exception"
     ROUTINE_RESTARTING = "routine-restarting"
     ROUTINE_RESTARTED = "routine-restarted"
+    JOB_ADDED = "job-added"
+    JOB_REMOVED = "job-removed"
+    JOB_STARTED = "job-started"
+    JOB_STOPPED = "job-stopped"
+    JOB_COMPLETED = "job-completed"
+    JOB_CANCELLED = "job-cancelled"
+    JOB_EXCEPTION = "job-exception"
+    JOB_RETRY_PENDING = "job-retry-pending"
+    JOB_RETRY = "job-retry"
 
 
 class Event(ImmutableDataObject):
@@ -153,12 +162,74 @@ RoutineEvent = (
     | RoutineRestartedEvent
 )
 
+
+class JobAddedEvent(BaseStandardEvent):
+    kind: Literal[StandardEventKind.JOB_ADDED] = StandardEventKind.JOB_ADDED
+    job: str
+
+
+class JobRemovedEvent(BaseStandardEvent):
+    kind: Literal[StandardEventKind.JOB_REMOVED] = StandardEventKind.JOB_REMOVED
+    job: str
+
+
+class JobStartedEvent(BaseStandardEvent):
+    kind: Literal[StandardEventKind.JOB_STARTED] = StandardEventKind.JOB_STARTED
+    job: str
+
+
+class JobStoppedEvent(BaseStandardEvent):
+    kind: Literal[StandardEventKind.JOB_STOPPED] = StandardEventKind.JOB_STOPPED
+    job: str
+
+
+class JobCompletedEvent(BaseStandardEvent):
+    kind: Literal[StandardEventKind.JOB_COMPLETED] = StandardEventKind.JOB_COMPLETED
+    job: str
+
+
+class JobCancelledEvent(BaseStandardEvent):
+    kind: Literal[StandardEventKind.JOB_CANCELLED] = StandardEventKind.JOB_CANCELLED
+    job: str
+
+
+class JobExceptionEvent(BaseStandardEvent):
+    kind: Literal[StandardEventKind.JOB_EXCEPTION] = StandardEventKind.JOB_EXCEPTION
+    job: str
+
+
+class JobRetryPendingEvent(BaseStandardEvent):
+    kind: Literal[StandardEventKind.JOB_RETRY_PENDING] = StandardEventKind.JOB_RETRY_PENDING
+    job: str
+    delay: PositiveTimeDelta
+
+
+class JobRetryEvent(BaseStandardEvent):
+    kind: Literal[StandardEventKind.JOB_RETRY_PENDING] = StandardEventKind.JOB_RETRY_PENDING
+    job: str
+
+
+JobEvent = (
+    JobAddedEvent
+    | JobRemovedEvent
+    | JobStartedEvent
+    | JobStoppedEvent
+    | JobCompletedEvent
+    | JobCancelledEvent
+    | JobExceptionEvent
+    | JobRetryPendingEvent
+    | JobRetryEvent
+)
+
 StandardEvent = (
     StartedEvent
     | StoppedEvent
+    | EnabledEvent
+    | DisabledEvent
     | ConnectionEvent
     | MessageEvent
     | AlertEvent
     | LogEvent
     | RoutineEvent
+    | JobEvent
 )
