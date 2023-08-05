@@ -120,7 +120,9 @@ class MessageOrder(str, Enum):
 
 
 class MessageFilterArgs(ObjectFilterArgs, total=False):
-    search: str | None
+    search_timestamp: str | None
+    search_address: str | None
+    search: bytes | None
     search_case_sensitive: bool
     within: PositiveTimeDelta | None
     after: DateTime | None
@@ -135,7 +137,9 @@ class MessageFilterArgs(ObjectFilterArgs, total=False):
 
 
 class MessageFilter(ObjectFilter[Message]):
-    search: str | None = None
+    search_timestamp: str | None = None
+    search_address: str | None = None
+    search: bytes | None = None
     search_case_sensitive: bool = False
     within: PositiveTimeDelta | None = None
     after: DateTime | None = None
@@ -153,17 +157,21 @@ class MessageFilter(ObjectFilter[Message]):
         if not super().matches(obj, root):
             return False
 
+        if self.search_timestamp is not None:
+            if self.search_timestamp not in _format_timestamp(obj.timestamp):
+                return False
+
+        if self.search_address is not None:
+            if self.search_address not in obj.address:
+                return False
+
         if self.search is not None:
-            search = self.search
-            timestamp = _format_timestamp(obj.timestamp)
-            direction = obj.direction
+            search_content = self.search
             content = obj.content
-
             if not self.search_case_sensitive:
-                search = search.lower()
-                content = content.lower()
-
-            if not (search in timestamp or search.encode() in content or search in direction):
+                search_content = search_content.lower()
+                content = obj.content.lower()
+            if search_content not in content:
                 return False
 
         if self.within is not None:

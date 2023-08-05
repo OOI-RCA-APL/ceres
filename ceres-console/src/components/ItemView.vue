@@ -17,6 +17,7 @@ import ItemViewLogEntry from '@/components/ItemViewLogEntry.vue'
 import ItemViewMessage from '@/components/ItemViewMessage.vue'
 import SectionCard from '@/components/SectionCard.vue'
 import icons from '@/icons'
+import moment, { Moment } from 'moment'
 import { QVirtualScroll, useQuasar } from 'quasar'
 import { computed, nextTick, onMounted, watch, watchEffect } from 'vue'
 
@@ -70,7 +71,7 @@ const itemHeight = 31
 const itemLoadSizeInitial = $computed(() => Math.min(itemsVisible + 250, 1000))
 const itemLoadSize = $computed(() => Math.min(itemsVisible + 100, 1000))
 const itemSliceSize = 250
-const itemCullThreshold = $computed(() => itemsVisible + 250)
+const itemCullThreshold = $computed(() => itemsVisible + 500)
 const itemCullCount = $computed(() => itemsVisible + 100)
 
 let search = $ref('')
@@ -86,6 +87,8 @@ const container = $computed(() => {
 const isShowingAll = $computed(() => search.length === 0)
 
 let items = $shallowRef<Item[]>([])
+let itemsStreamed = $shallowRef<Item[]>([])
+let lastLoadedCurrent = $shallowRef<Moment | null>(null)
 
 const earliestItemTimestamp = $computed(() => items[0]?.timestamp ?? null)
 
@@ -117,11 +120,15 @@ function updateContainerInfo() {
 async function onScroll() {
   updateContainerInfo()
 
-  if (!isNearTop()) {
+  if (isExhausted || isDoingInitialLoad || isLoadingCurrent || isLoadingPrevious) {
     return
   }
 
-  if (isExhausted || isDoingInitialLoad || isLoadingCurrent || isLoadingPrevious) {
+  if (lastLoadedCurrent != null && moment.utc().diff(lastLoadedCurrent) < 1000) {
+    return
+  }
+
+  if (!isNearTop()) {
     return
   }
 
@@ -198,11 +205,12 @@ async function appendItems(appended: Item[]) {
   if (follow) {
     if (items.length > itemCullThreshold) {
       items = items.slice(items.length - itemCullCount, items.length)
-      await forceScrollToBottom(250)
+      await forceScrollToBottom(100)
     } else {
       scroll?.refresh(items.length + 1)
     }
   }
+
   await nextTick()
 }
 
@@ -220,6 +228,7 @@ async function loadPrevious() {
 }
 
 async function loadCurrent() {
+  items = []
   const results: Item[] = await get({
     address: selector,
     search: search === '' ? undefined : search,
@@ -228,8 +237,10 @@ async function loadCurrent() {
   })
 
   isExhausted = results.length === 0
-  items = []
-  await appendItems(results.reverse())
+  const appended = [...results.reverse(), ...itemsStreamed]
+  itemsStreamed = []
+  await appendItems(appended)
+  lastLoadedCurrent = moment.utc()
 }
 
 useStream(
@@ -238,7 +249,11 @@ useStream(
     search: search === '' ? undefined : search,
   })),
   async (item: Item) => {
-    await appendItems([item])
+    if (isLoadingCurrent) {
+      itemsStreamed = [...itemsStreamed, item]
+    } else {
+      await appendItems([item])
+    }
   }
 )
 
@@ -248,7 +263,14 @@ function scrollToBottom() {
   }
 }
 
+async function onScrollToBottomClicked() {
+  items = items.slice(items.length - itemCullCount, items.length)
+  await nextTick()
+  await forceScrollToBottom(100)
+}
+
 async function forceScrollToBottom(duration = 500, interval = 50) {
+  scrollToBottom()
   const id = setInterval(() => {
     scrollToBottom()
   }, interval)
@@ -310,10 +332,11 @@ async function onSend(data: string) {
         <q-input
           v-model="search"
           class="item-view-search-input"
-          :debounce="250"
+          :debounce="500"
           dense
           filled
           input-class="monospace-md"
+          :loading="isLoadingCurrent"
         >
           <template #prepend>
             <q-icon name="search" size="20px" />
@@ -348,26 +371,30 @@ async function onSend(data: string) {
           round
           size="sm"
           :style="{
-            right: isShowingVerticalScrollBar ? '12px' : '4px',
-            bottom: isShowingHorizontalScrollBar ? '12px' : '4px',
+            right: isShowingVerticalScrollBar ? '20px' : '4px',
+            bottom: isShowingHorizontalScrollBar ? '20px' : '4px',
           }"
-          @click="scrollToBottom"
+          @click="onScrollToBottomClicked"
         >
           <q-tooltip class="bg-primary text-white">Latest</q-tooltip>
         </q-btn>
       </transition>
     </div>
-    <div v-else-if="!isDoingInitialLoad" class="col-grow items-center justify-center row">
-      <span class="self-empty-message-text text-italic">
-        <template v-if="isShowingAll">
-          No {{ kind.replace('log-entry', 'log entrie') }}s were found.
-        </template>
-        <template v-else>
-          No matching {{ kind.replace('log-entry', 'log entrie') }}s were found.
-        </template>
-      </span>
+    <div v-else class="col-grow items-center justify-center row">
+      <template v-if="isLoadingCurrent">
+        <q-spinner-gears color="primary" size="24px" />
+      </template>
+      <template v-else>
+        <span class="self-empty-message-text text-italic">
+          <template v-if="isShowingAll">
+            No {{ kind.replace('log-entry', 'log entrie') }}s were found.
+          </template>
+          <template v-else>
+            No matching {{ kind.replace('log-entry', 'log entrie') }}s were found.
+          </template>
+        </span>
+      </template>
     </div>
-    <q-space v-else />
     <div v-if="kind === 'message' && showCommandInput">
       <q-separator />
       <command-input :address="address" @send="onSend" />

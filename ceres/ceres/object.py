@@ -503,36 +503,42 @@ class Object(ValidatedDataclass, Tasklet):
             .where(MessageEntity.object_id.in_(ids))
         )
 
+        if filter.search_timestamp is not None:
+            statement = statement.where(
+                _like(
+                    _format_timestamp(self.database.kind, MessageEntity.timestamp),
+                    "%" + escape_like_expression(filter.search_timestamp) + "%",
+                    filter.search_case_sensitive,
+                )
+            )
+
+        if filter.search_address is not None:
+            statement = statement.where(
+                _like(
+                    ObjectEntity.address,
+                    "%" + escape_like_expression(filter.search_address) + "%",
+                    filter.search_case_sensitive,
+                )
+            )
+
         if filter.search is not None:
-            pattern = "%" + escape_like_expression(filter.search) + "%"
+            pattern = b"%" + escape_like_expression(filter.search) + b"%"
             match self.database.kind:
                 case DatabaseKind.SQLITE:
                     statement = statement.where(
                         _like(
-                            _sqlite_format_timestamp(MessageEntity.timestamp),
+                            MessageEntity.content,
                             pattern,
                             filter.search_case_sensitive,
                         )
-                        | _like(MessageEntity.direction, pattern, filter.search_case_sensitive)
-                        | _like(
-                            MessageEntity.content,
-                            pattern.encode("utf-8"),
-                            filter.search_case_sensitive,
-                        ),
                     )
                 case DatabaseKind.POSTGRES:
                     statement = statement.where(
                         _like(
-                            _pg_format_timestamp(MessageEntity.timestamp),
-                            pattern,
+                            func.encode(MessageEntity.content, "escape"),
+                            pattern.decode("unicode-escape"),
                             filter.search_case_sensitive,
                         )
-                        | _like(MessageEntity.direction, pattern, filter.search_case_sensitive)
-                        | _like(
-                            func.encode(MessageEntity.content, "escape"),
-                            pattern.encode("utf-8").decode("unicode-escape"),
-                            filter.search_case_sensitive,
-                        ),
                     )
 
         if filter.within is not None:
@@ -635,31 +641,22 @@ class Object(ValidatedDataclass, Tasklet):
 
         if filter.search is not None:
             pattern = "%" + escape_like_expression(filter.search) + "%"
-            match self.database.kind:
-                case DatabaseKind.SQLITE:
-                    statement = statement.where(
-                        _like(
-                            _sqlite_format_timestamp(AlertEntity.timestamp),
-                            pattern,
-                            filter.search_case_sensitive,
-                        )
-                        | _like(AlertEntity.level, pattern, filter.search_case_sensitive)
-                        | _like(AlertEntity.code, pattern, filter.search_case_sensitive)
-                        | _like(AlertEntity.info, pattern, filter.search_case_sensitive),
-                    )
-                case DatabaseKind.POSTGRES:
-                    statement = statement.where(
-                        _like(
-                            _pg_format_timestamp(AlertEntity.timestamp),
-                            pattern,
-                            filter.search_case_sensitive,
-                        )
-                        | _like(AlertEntity.level, pattern, filter.search_case_sensitive)
-                        | _like(AlertEntity.code, pattern, filter.search_case_sensitive)
-                        | _like(
-                            cast(AlertEntity.info, Text), pattern, filter.search_case_sensitive
-                        ),
-                    )
+            statement = statement.where(
+                _like(
+                    _format_timestamp(self.database.kind, AlertEntity.timestamp),
+                    pattern,
+                    filter.search_case_sensitive,
+                )
+                | _like(AlertEntity.level, pattern, filter.search_case_sensitive)
+                | _like(AlertEntity.code, pattern, filter.search_case_sensitive)
+                | _like(
+                    cast(AlertEntity.info, Text)
+                    if self.database.kind == DatabaseKind.POSTGRES
+                    else AlertEntity.info,
+                    pattern,
+                    filter.search_case_sensitive,
+                ),
+            )
 
         if filter.within is not None:
             statement = statement.where(AlertEntity.timestamp >= utc() - filter.within)
@@ -764,35 +761,19 @@ class Object(ValidatedDataclass, Tasklet):
 
         if filter.search is not None:
             pattern = "%" + escape_like_expression(filter.search) + "%"
-            match self.database.kind:
-                case DatabaseKind.SQLITE:
-                    statement = statement.where(
-                        _like(
-                            _sqlite_format_timestamp(LogEntryEntity.timestamp),
-                            pattern,
-                            filter.search_case_sensitive,
-                        )
-                        | _like(LogEntryEntity.level, pattern, filter.search_case_sensitive)
-                        | _like(
-                            LogEntryEntity.content,
-                            pattern,
-                            filter.search_case_sensitive,
-                        ),
-                    )
-                case DatabaseKind.POSTGRES:
-                    statement = statement.where(
-                        _like(
-                            _pg_format_timestamp(LogEntryEntity.timestamp),
-                            pattern,
-                            filter.search_case_sensitive,
-                        )
-                        | _like(LogEntryEntity.level, pattern, filter.search_case_sensitive)
-                        | _like(
-                            LogEntryEntity.content,
-                            pattern,
-                            filter.search_case_sensitive,
-                        ),
-                    )
+            statement = statement.where(
+                _like(
+                    _format_timestamp(self.database.kind, LogEntryEntity.timestamp),
+                    pattern,
+                    filter.search_case_sensitive,
+                )
+                | _like(LogEntryEntity.level, pattern, filter.search_case_sensitive)
+                | _like(
+                    LogEntryEntity.content,
+                    pattern,
+                    filter.search_case_sensitive,
+                ),
+            )
 
         if filter.within is not None:
             statement = statement.where(LogEntryEntity.timestamp >= utc() - filter.within)
@@ -940,9 +921,9 @@ def _like(
     return expression.ilike(pattern)
 
 
-def _sqlite_format_timestamp(timestamp: SQLColumnExpression[datetime]) -> Any:
-    return func.strftime("%Y-%m-%d %H:%M:%f", func.julianday(timestamp))
-
-
-def _pg_format_timestamp(timestamp: SQLColumnExpression[datetime]) -> Any:
-    return func.to_char(timestamp, "YYYY-MM-DD HH24:MI:SS.MS")
+def _format_timestamp(dialect: DatabaseKind, timestamp: SQLColumnExpression[datetime]) -> Any:
+    match dialect:
+        case DatabaseKind.SQLITE:
+            return func.strftime("%Y-%m-%d %H:%M:%f", func.julianday(timestamp))
+        case DatabaseKind.POSTGRES:
+            return func.to_char(timestamp, "YYYY-MM-DD HH24:MI:SS.MS")
