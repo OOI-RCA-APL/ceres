@@ -5,14 +5,13 @@ from typing import (
     Any,
     Generic,
     Protocol,
-    Self,
     Sequence,
     TypedDict,
     TypeVar,
 )
 
 from pydantic import Extra, Field
-from typing_extensions import override
+from typing_extensions import Self, override
 
 from ceres.address import Address, AddressSelector
 from ceres.alert import Alert

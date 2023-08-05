@@ -4,9 +4,9 @@ from asyncio import FIRST_COMPLETED
 from asyncio import Event as AsyncEvent
 from enum import Enum
 from pathlib import Path
-from typing import Self, Sequence
+from typing import Sequence
 
-from typing_extensions import Unpack, override
+from typing_extensions import Self, Unpack, override
 
 from ceres.address import Address, AddressSelector, DynamicAddress
 from ceres.component import Component, ComponentGroup
