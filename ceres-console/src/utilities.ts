@@ -1,5 +1,6 @@
 import moment, { Duration } from 'moment'
-import { computed, isRef, Ref } from 'vue'
+import { debounce } from 'quasar'
+import { computed, ComputedRef, isRef, Ref, shallowRef, watch } from 'vue'
 
 export type Plain = string | number | boolean | null | { [property: string]: Plain } | Plain[]
 export type MaybeRef<T> = Ref<T> | T
@@ -117,4 +118,16 @@ export function displayTimeDelta(
 
   const isApproximate = Number(displayedValue) !== unitValue
   return `${isApproximate ? '~' : ''}${displayedValue}${long ? ' ' : ''}${unit}`
+}
+
+export function debouncedComputed<T>(factory: () => T, delay: number): ComputedRef<T> {
+  const result: Ref<T> = shallowRef(factory())
+  watch(
+    computed(() => factory()),
+    debounce((update) => {
+      result.value = update
+    }, delay)
+  )
+
+  return computed(() => result.value)
 }

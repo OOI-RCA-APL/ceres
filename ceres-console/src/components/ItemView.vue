@@ -17,9 +17,12 @@ import ItemViewLogEntry from '@/components/ItemViewLogEntry.vue'
 import ItemViewMessage from '@/components/ItemViewMessage.vue'
 import SectionCard from '@/components/SectionCard.vue'
 import icons from '@/icons'
+import { debouncedComputed } from '@/utilities'
+import { useWindowFocus } from '@vueuse/core'
+import _ from 'lodash'
 import moment, { Moment } from 'moment'
-import { QVirtualScroll, useQuasar } from 'quasar'
-import { computed, nextTick, onMounted, watch, watchEffect } from 'vue'
+import { QVirtualScroll, debounce, useQuasar } from 'quasar'
+import { computed, nextTick, onMounted, reactive, watch, watchEffect } from 'vue'
 
 type Item = Readonly<Alert | Message | LogEntry>
 
@@ -68,13 +71,18 @@ if (info == null) {
 
 const itemsVisible = $computed(() => Math.ceil(containerInfo.clientHeight / itemHeight))
 const itemHeight = 31
-const itemLoadSizeInitial = $computed(() => Math.min(itemsVisible + 250, 1000))
-const itemLoadSize = $computed(() => Math.min(itemsVisible + 100, 1000))
+const itemLoadSizeInitial = $computed(() => Math.min(itemsVisible + 50, 1000))
+const itemLoadSize = $computed(() => Math.min(itemsVisible + 25, 1000))
 const itemSliceSize = 250
 const itemCullThreshold = $computed(() => itemsVisible + 500)
 const itemCullCount = $computed(() => itemsVisible + 100)
 
-let search = $ref('')
+let filter = reactive({ search: '' })
+let filterKey = $ref(0)
+watch(filter, () => {
+  filterKey++
+})
+
 let scroll = $shallowRef<QVirtualScroll | null>(null)
 const container = $computed(() => {
   if (scroll == null) {
@@ -84,18 +92,18 @@ const container = $computed(() => {
   return scroll.$el as HTMLDivElement
 })
 
-const isShowingAll = $computed(() => search.length === 0)
-
 let items = $shallowRef<Item[]>([])
 let itemsStreamed = $shallowRef<Item[]>([])
 let lastLoadedCurrent = $shallowRef<Moment | null>(null)
 
 const earliestItemTimestamp = $computed(() => items[0]?.timestamp ?? null)
 
+const isWindowFocused = $(useWindowFocus())
+const isShowingAll = $computed(() => filter.search.length === 0)
+
 let isExhausted = $ref(false)
-let isDoingInitialLoad = $ref(true)
 let isLoadingPrevious = $ref(false)
-let isLoadingCurrent = $ref(false)
+let isLoadingCurrent = $ref(true)
 
 let containerInfo = $ref({
   scrollHeight: 0,
@@ -120,11 +128,11 @@ function updateContainerInfo() {
 async function onScroll() {
   updateContainerInfo()
 
-  if (isExhausted || isDoingInitialLoad || isLoadingCurrent || isLoadingPrevious) {
+  if (isExhausted || isLoadingCurrent || isLoadingPrevious || !isWindowFocused) {
     return
   }
 
-  if (lastLoadedCurrent != null && moment.utc().diff(lastLoadedCurrent) < 1000) {
+  if (lastLoadedCurrent == null || moment.utc().diff(lastLoadedCurrent) < 1000) {
     return
   }
 
@@ -132,12 +140,8 @@ async function onScroll() {
     return
   }
 
-  try {
-    isLoadingPrevious = true
-    await loadPrevious()
-  } finally {
-    isLoadingPrevious = false
-  }
+  isLoadingPrevious = true
+  await loadPrevious()
 }
 
 watchEffect((onCleanup) => {
@@ -215,47 +219,57 @@ async function appendItems(appended: Item[]) {
 }
 
 async function loadPrevious() {
-  const results: Item[] = await get({
-    address: selector,
-    search: search === '' ? undefined : search,
-    before: earliestItemTimestamp == null ? undefined : earliestItemTimestamp.format(),
-    order: 'new-to-old',
-    limit: itemLoadSize,
-  })
+  isLoadingPrevious = true
 
-  isExhausted = results.length === 0
-  await prependItems(results.reverse())
+  const key = filterKey
+  try {
+    const results: Item[] = await get({
+      address: selector,
+      search: filter.search === '' ? undefined : filter.search,
+      before: earliestItemTimestamp == null ? undefined : earliestItemTimestamp.format(),
+      order: 'new-to-old',
+      limit: itemLoadSize,
+    })
+
+    if (key !== filterKey) {
+      return
+    }
+
+    isExhausted = results.length === 0
+    await prependItems(results.reverse())
+  } finally {
+    isLoadingPrevious = false
+  }
 }
 
 async function loadCurrent() {
+  isLoadingCurrent = true
   items = []
-  const results: Item[] = await get({
-    address: selector,
-    search: search === '' ? undefined : search,
-    order: 'new-to-old',
-    limit: itemLoadSizeInitial,
-  })
-
-  isExhausted = results.length === 0
-  const appended = [...results.reverse(), ...itemsStreamed]
   itemsStreamed = []
-  await appendItems(appended)
-  lastLoadedCurrent = moment.utc()
-}
 
-useStream(
-  computed(() => ({
-    address: selector,
-    search: search === '' ? undefined : search,
-  })),
-  async (item: Item) => {
-    if (isLoadingCurrent) {
-      itemsStreamed = [...itemsStreamed, item]
-    } else {
-      await appendItems([item])
+  const key = filterKey
+  try {
+    const results: Item[] = await get({
+      address: selector,
+      search: filter.search === '' ? undefined : filter.search,
+      order: 'new-to-old',
+      limit: itemLoadSizeInitial,
+    })
+
+    if (key !== filterKey) {
+      return
     }
+
+    isExhausted = results.length === 0
+    const appended = [...results.reverse(), ...itemsStreamed]
+    await appendItems(appended)
+    lastLoadedCurrent = moment.utc()
+    await forceScrollToBottom()
+    updateContainerInfo()
+  } finally {
+    isLoadingCurrent = false
   }
-)
+}
 
 function scrollToBottom() {
   if (scroll != null) {
@@ -280,36 +294,37 @@ async function forceScrollToBottom(duration = 500, interval = 50) {
 }
 
 onMounted(async () => {
-  try {
-    try {
-      isDoingInitialLoad = true
-      isLoadingCurrent = true
-      await loadCurrent()
-    } finally {
-      isLoadingCurrent = false
+  await loadCurrent()
+})
+
+const debouncedLoadCurrent = debounce(loadCurrent, 250)
+
+watch($$(filterKey), async () => {
+  items = []
+  itemsStreamed = []
+  isLoadingCurrent = true
+  debouncedLoadCurrent()
+})
+
+const debouncedFilter = debouncedComputed(() => _.cloneDeep(filter), 250)
+
+useStream(
+  computed(() => ({
+    address: selector,
+    search: debouncedFilter.value.search === '' ? undefined : debouncedFilter.value.search,
+  })),
+  async (item: Item, filter) => {
+    if (filter.search != filter.search) {
+      return
     }
-  } finally {
-    void delay(1000).then(() => {
-      isDoingInitialLoad = false
-    })
-  }
 
-  forceScrollToBottom()
-})
-
-watch([computed(() => search)], async () => {
-  if (isDoingInitialLoad) {
-    return
+    if (isLoadingCurrent) {
+      itemsStreamed = [...itemsStreamed, item]
+    } else {
+      await appendItems([item])
+    }
   }
-
-  try {
-    isLoadingCurrent = true
-    await loadCurrent()
-    forceScrollToBottom()
-  } finally {
-    isLoadingCurrent = false
-  }
-})
+)
 
 async function onSend(data: string) {
   const result = await sendMessage(address, data)
@@ -330,13 +345,11 @@ async function onSend(data: string) {
       <q-space class="gt-sm" />
       <div class="col-grow q-ml-sm self-search-input-container">
         <q-input
-          v-model="search"
+          v-model="filter.search"
           class="item-view-search-input"
-          :debounce="500"
           dense
           filled
           input-class="monospace-md"
-          :loading="isLoadingCurrent"
         >
           <template #prepend>
             <q-icon name="search" size="20px" />
@@ -344,27 +357,38 @@ async function onSend(data: string) {
         </q-input>
       </div>
     </template>
-    <div v-if="items.length" class="col-grow self-virtual-scroll-container">
-      <q-virtual-scroll
-        ref="scroll"
-        v-slot="{ item }"
-        class="fit item-view-virtual-scroll self-virtual-scroll"
-        dense
-        flat
-        :items="items"
-        separator="cell"
-        square
-        type="table"
-        :virtual-scroll-item-size="itemHeight"
-        :virtual-scroll-slice-size="itemSliceSize"
+    <div class="col-grow self-virtual-scroll-container">
+      <transition
+        appear
+        enter-active-class="animated fadeIn fast"
+        leave-active-class="animated fadeOut fast"
       >
-        <item-view-message v-if="kind === 'message'" :key="(item as Message).id" :message="item" />
-        <item-view-alert v-else-if="kind === 'alert'" :key="(item as Alert).id" :alert="item" />
-        <item-view-log-entry v-else :key="(item as LogEntry).id" :entry="item" />
-      </q-virtual-scroll>
+        <q-virtual-scroll
+          v-if="items.length"
+          ref="scroll"
+          v-slot="{ item }"
+          class="fit item-view-virtual-scroll self-virtual-scroll"
+          dense
+          flat
+          :items="items"
+          separator="cell"
+          square
+          type="table"
+          :virtual-scroll-item-size="itemHeight"
+          :virtual-scroll-slice-size="itemSliceSize"
+        >
+          <item-view-message
+            v-if="kind === 'message'"
+            :key="(item as Message).id"
+            :message="item"
+          />
+          <item-view-alert v-else-if="kind === 'alert'" :key="(item as Alert).id" :alert="item" />
+          <item-view-log-entry v-else :key="(item as LogEntry).id" :entry="item" />
+        </q-virtual-scroll>
+      </transition>
       <transition appear enter-active-class="animated fadeIn" leave-active-class="animated fadeOut">
         <q-btn
-          v-if="!isDoingInitialLoad && !isAtBottomComputed"
+          v-if="!isLoadingCurrent && !isAtBottomComputed"
           class="absolute-bottom-right"
           color="primary"
           :icon="icons.arrowDownward"
@@ -379,21 +403,29 @@ async function onSend(data: string) {
           <q-tooltip class="bg-primary text-white">Latest</q-tooltip>
         </q-btn>
       </transition>
-    </div>
-    <div v-else class="col-grow items-center justify-center row">
-      <template v-if="isLoadingCurrent">
-        <q-spinner-gears color="primary" size="24px" />
-      </template>
-      <template v-else>
-        <span class="self-empty-message-text text-italic">
-          <template v-if="isShowingAll">
-            No {{ kind.replace('log-entry', 'log entrie') }}s were found.
-          </template>
-          <template v-else>
-            No matching {{ kind.replace('log-entry', 'log entrie') }}s were found.
-          </template>
+      <transition-group
+        appear
+        enter-active-class="animated fadeIn fast"
+        leave-active-class="animated fadeOut fast"
+      >
+        <div
+          v-if="isLoadingCurrent"
+          key="spinner"
+          class="absolute-center items-center justify-center row"
+        >
+          <q-spinner-orbit color="primary" size="24px" />
+        </div>
+        <span v-else-if="items.length === 0" key="empty" class="absolute-center">
+          <span class="self-empty-message-text text-italic">
+            <template v-if="isShowingAll">
+              No {{ kind.replace('log-entry', 'log entrie') }}s were found.
+            </template>
+            <template v-else>
+              No matching {{ kind.replace('log-entry', 'log entrie') }}s were found.
+            </template>
+          </span>
         </span>
-      </template>
+      </transition-group>
     </div>
     <div v-if="kind === 'message' && showCommandInput">
       <q-separator />
