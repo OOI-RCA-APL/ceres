@@ -299,7 +299,7 @@ onMounted(async () => {
   await loadCurrent()
 })
 
-const debouncedLoadCurrent = debounce(loadCurrent, 250)
+const debouncedLoadCurrent = debounce(loadCurrent, 200)
 
 watch($$(filterKey), async () => {
   items = []
@@ -308,7 +308,7 @@ watch($$(filterKey), async () => {
   debouncedLoadCurrent()
 })
 
-const debouncedFilter = debouncedComputed(() => _.cloneDeep(filter), 250)
+const debouncedFilter = debouncedComputed(() => _.cloneDeep(filter), 200)
 
 useStream(
   computed(() => ({
