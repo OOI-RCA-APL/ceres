@@ -491,16 +491,13 @@ class Object(ValidatedDataclass, Tasklet):
         filter = MessageFilter(**kwargs).with_defaults(filter)
 
         ids = await self.__get_ids(filter.address)
-        statement = (
-            select(
-                MessageEntity.id,
-                ObjectEntity.address,
-                MessageEntity.timestamp,
-                MessageEntity.direction,
-                MessageEntity.content,
-            )
-            .join(ObjectEntity)
-            .where(MessageEntity.object_id.in_(ids))
+
+        statement = select(
+            MessageEntity.id,
+            MessageEntity.object_id,
+            MessageEntity.timestamp,
+            MessageEntity.direction,
+            MessageEntity.content,
         )
 
         if filter.search_timestamp is not None:
@@ -578,6 +575,19 @@ class Object(ValidatedDataclass, Tasklet):
         if filter.order is None and order_by is None:
             statement = statement.order_by(MessageEntity.timestamp)
 
+        statement = statement.where(MessageEntity.object_id.in_(ids)).cte()
+        statement = (
+            select(
+                statement.columns.id,
+                ObjectEntity.address,
+                statement.columns.timestamp,
+                statement.columns.direction,
+                statement.columns.content,
+            )
+            .select_from(statement)
+            .join(ObjectEntity, statement.columns.object_id == ObjectEntity.id)
+        )
+
         async with await self.__init_database_session() as session:
             rows = await session.execute(statement)
 
@@ -626,17 +636,13 @@ class Object(ValidatedDataclass, Tasklet):
         filter = AlertFilter(**kwargs).with_defaults(filter)
 
         ids = await self.__get_ids(filter.address)
-        statement = (
-            select(
-                AlertEntity.id,
-                ObjectEntity.address,
-                AlertEntity.timestamp,
-                AlertEntity.level,
-                AlertEntity.code,
-                AlertEntity.info,
-            )
-            .join(ObjectEntity)
-            .where(ObjectEntity.id.in_(ids))
+        statement = select(
+            AlertEntity.id,
+            AlertEntity.object_id,
+            AlertEntity.timestamp,
+            AlertEntity.level,
+            AlertEntity.code,
+            AlertEntity.info,
         )
 
         if filter.search is not None:
@@ -699,6 +705,20 @@ class Object(ValidatedDataclass, Tasklet):
         if filter.order is None and order_by is None:
             statement = statement.order_by(AlertEntity.timestamp)
 
+        statement = statement.where(AlertEntity.object_id.in_(ids)).cte()
+        statement = (
+            select(
+                statement.columns.id,
+                ObjectEntity.address,
+                statement.columns.timestamp,
+                statement.columns.level,
+                statement.columns.code,
+                statement.columns.info,
+            )
+            .select_from(statement)
+            .join(ObjectEntity, statement.columns.object_id == ObjectEntity.id)
+        )
+
         async with await self.__init_database_session() as session:
             rows = await session.execute(statement)
 
@@ -747,16 +767,12 @@ class Object(ValidatedDataclass, Tasklet):
         filter = LogEntryFilter(**kwargs).with_defaults(filter)
 
         ids = await self.__get_ids(filter.address)
-        statement = (
-            select(
-                LogEntryEntity.id,
-                ObjectEntity.address,
-                LogEntryEntity.timestamp,
-                LogEntryEntity.level,
-                LogEntryEntity.content,
-            )
-            .join(ObjectEntity)
-            .where(ObjectEntity.id.in_(ids))
+        statement = select(
+            LogEntryEntity.id,
+            LogEntryEntity.object_id,
+            LogEntryEntity.timestamp,
+            LogEntryEntity.level,
+            LogEntryEntity.content,
         )
 
         if filter.search is not None:
@@ -814,6 +830,19 @@ class Object(ValidatedDataclass, Tasklet):
 
         if filter.order is None and order_by is None:
             statement = statement.order_by(LogEntryEntity.timestamp)
+
+        statement = statement.where(LogEntryEntity.object_id.in_(ids)).cte()
+        statement = (
+            select(
+                statement.columns.id,
+                ObjectEntity.address,
+                statement.columns.timestamp,
+                statement.columns.level,
+                statement.columns.content,
+            )
+            .select_from(statement)
+            .join(ObjectEntity, statement.columns.object_id == ObjectEntity.id)
+        )
 
         async with await self.__init_database_session() as session:
             rows = await session.execute(statement)

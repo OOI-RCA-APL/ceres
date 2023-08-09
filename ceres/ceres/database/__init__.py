@@ -1,6 +1,5 @@
 from asyncio import Lock as AsyncLock
-from textwrap import dedent
-from typing import Any, Callable, TypeVar, cast, final
+from typing import Callable, TypeVar, cast, final
 from uuid import UUID, uuid4
 
 from sqlalchemy import Connection, inspect, text
@@ -10,7 +9,6 @@ from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
 )
-from sqlalchemy.sql.elements import TextClause
 from typing_extensions import Self
 
 from ceres.config import (
@@ -102,24 +100,6 @@ class Database:
 
     async def dispose(self) -> None:
         await self.__engine.dispose()
-
-    def compile(
-        self,
-        command: str,
-        parameters: dict[str, Any] = {},
-    ) -> str:
-        return str(
-            text(dedent(command).strip())
-            .bindparams(**parameters)
-            .compile(self.__engine.sync_engine, compile_kwargs={"literal_binds": True})
-        )
-
-    def sql(
-        self,
-        command: str,
-        parameters: dict[str, Any] = {},
-    ) -> TextClause:
-        return text(self.compile(command, parameters))
 
     async def init(self) -> None:
         async with self.__init_lock:
