@@ -71,7 +71,7 @@ if (info == null) {
 
 const itemsVisible = $computed(() => Math.ceil(containerInfo.clientHeight / itemHeight))
 const itemHeight = 31
-const itemLoadSizeInitial = $computed(() => Math.min(itemsVisible + 50, 1000))
+const itemLoadSizeInitial = $computed(() => Math.min(itemsVisible + 40, 1000))
 const itemLoadSize = $computed(() => Math.min(itemsVisible + 25, 1000))
 const itemSliceSize = 250
 const itemCullThreshold = $computed(() => itemsVisible + 500)
@@ -194,7 +194,7 @@ async function delay(milliseconds = 0) {
 async function prependItems(prepended: Item[]) {
   const scrollTop = containerInfo.scrollTop
   const height = prepended.length * itemHeight
-  items = [...prepended.map(Object.freeze), ...items] as Item[]
+  items = [...prepended, ...items] as Item[]
   scroll?.refresh(-1)
   await nextTick()
   container?.scrollTo({
@@ -205,7 +205,7 @@ async function prependItems(prepended: Item[]) {
 
 async function appendItems(appended: Item[]) {
   const follow = isAtBottom()
-  items = [...items, ...appended.map(Object.freeze)] as Item[]
+  items = [...items, ...appended] as Item[]
   if (follow) {
     if (items.length > itemCullThreshold) {
       items = items.slice(items.length - itemCullCount, items.length)
@@ -226,7 +226,7 @@ async function loadPrevious() {
     const results: Item[] = await get({
       address: selector,
       search: filter.search === '' ? undefined : filter.search,
-      before: earliestItemTimestamp == null ? undefined : earliestItemTimestamp.format(),
+      before: earliestItemTimestamp == null ? undefined : earliestItemTimestamp,
       order: 'new-to-old',
       limit: itemLoadSize,
     })
@@ -243,6 +243,8 @@ async function loadPrevious() {
 }
 
 async function loadCurrent() {
+  updateContainerInfo()
+
   isLoadingCurrent = true
   items = []
   itemsStreamed = []
@@ -358,51 +360,6 @@ async function onSend(data: string) {
       </div>
     </template>
     <div class="col-grow self-virtual-scroll-container">
-      <transition
-        appear
-        enter-active-class="animated fadeIn fast"
-        leave-active-class="animated fadeOut fast"
-      >
-        <q-virtual-scroll
-          v-if="items.length"
-          ref="scroll"
-          v-slot="{ item }"
-          class="fit item-view-virtual-scroll self-virtual-scroll"
-          dense
-          flat
-          :items="items"
-          separator="cell"
-          square
-          type="table"
-          :virtual-scroll-item-size="itemHeight"
-          :virtual-scroll-slice-size="itemSliceSize"
-        >
-          <item-view-message
-            v-if="kind === 'message'"
-            :key="(item as Message).id"
-            :message="item"
-          />
-          <item-view-alert v-else-if="kind === 'alert'" :key="(item as Alert).id" :alert="item" />
-          <item-view-log-entry v-else :key="(item as LogEntry).id" :entry="item" />
-        </q-virtual-scroll>
-      </transition>
-      <transition appear enter-active-class="animated fadeIn" leave-active-class="animated fadeOut">
-        <q-btn
-          v-if="!isLoadingCurrent && !isAtBottomComputed"
-          class="absolute-bottom-right"
-          color="primary"
-          :icon="icons.arrowDownward"
-          round
-          size="sm"
-          :style="{
-            right: isShowingVerticalScrollBar ? '20px' : '4px',
-            bottom: isShowingHorizontalScrollBar ? '20px' : '4px',
-          }"
-          @click="onScrollToBottomClicked"
-        >
-          <q-tooltip class="bg-primary text-white">Latest</q-tooltip>
-        </q-btn>
-      </transition>
       <transition-group
         appear
         enter-active-class="animated fadeIn fast"
@@ -426,6 +383,45 @@ async function onSend(data: string) {
           </span>
         </span>
       </transition-group>
+      <q-virtual-scroll
+        ref="scroll"
+        v-slot="{ item }"
+        :class="[
+          'fit',
+          'item-view-virtual-scroll',
+          'self-virtual-scroll',
+          items.length === 0 && 'self-virtual-scroll-empty',
+        ]"
+        dense
+        flat
+        :items="items"
+        separator="cell"
+        square
+        type="table"
+        :virtual-scroll-item-size="itemHeight"
+        :virtual-scroll-slice-size="itemSliceSize"
+      >
+        <item-view-message v-if="kind === 'message'" :key="(item as Message).id" :message="item" />
+        <item-view-alert v-else-if="kind === 'alert'" :key="(item as Alert).id" :alert="item" />
+        <item-view-log-entry v-else :key="(item as LogEntry).id" :entry="item" />
+      </q-virtual-scroll>
+      <transition appear enter-active-class="animated fadeIn" leave-active-class="animated fadeOut">
+        <q-btn
+          v-if="!isLoadingCurrent && !isAtBottomComputed"
+          class="absolute-bottom-right"
+          color="primary"
+          :icon="icons.arrowDownward"
+          round
+          size="sm"
+          :style="{
+            right: isShowingVerticalScrollBar ? '20px' : '4px',
+            bottom: isShowingHorizontalScrollBar ? '20px' : '4px',
+          }"
+          @click="onScrollToBottomClicked"
+        >
+          <q-tooltip class="bg-primary text-white">Latest</q-tooltip>
+        </q-btn>
+      </transition>
     </div>
     <div v-if="kind === 'message' && showCommandInput">
       <q-separator />
@@ -442,6 +438,12 @@ async function onSend(data: string) {
 
 .self-virtual-scroll {
   overscroll-behavior: contain;
+  opacity: 1;
+  transition: opacity 0.25s ease-out;
+}
+
+.self-virtual-scroll-empty {
+  opacity: 0;
 }
 
 .self-search-input-container {

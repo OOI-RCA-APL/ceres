@@ -6,9 +6,7 @@ export const NameStrModel = Zod.string().regex(/[a-zA-Z\-\_][a-zA-Z0-9\-\_]*/)
 export const EmailStrModel = Zod.string().regex(/.+@.+/)
 export const NonEmptyStrModel = Zod.string().regex(/.+/)
 
-const DateTimeModel = Zod.string()
-  .refine((value) => moment.utc(value).isValid())
-  .transform((value) => Object.freeze(moment.utc(value)))
+const DateTimeModel = Zod.string().refine((value) => moment.utc(value).isValid())
 
 export type Status = Zod.infer<typeof StatusModel>
 export const StatusModel = Zod.object({

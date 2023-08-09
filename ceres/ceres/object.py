@@ -924,6 +924,6 @@ def _like(
 def _format_timestamp(dialect: DatabaseKind, timestamp: SQLColumnExpression[datetime]) -> Any:
     match dialect:
         case DatabaseKind.SQLITE:
-            return func.strftime("%Y-%m-%d %H:%M:%f", func.julianday(timestamp))
+            return timestamp
         case DatabaseKind.POSTGRES:
-            return func.to_char(timestamp, "YYYY-MM-DD HH24:MI:SS.MS")
+            return func.to_char(timestamp, "YYYY-MM-DD HH24:MI:SS.US")
