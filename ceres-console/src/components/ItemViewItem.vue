@@ -10,7 +10,7 @@ const { item } = defineProps<{
   <q-tr :class="[$style.root, 'no-wrap', 'item-view-item']" no-hover>
     <q-td auto-width>
       <span :class="$style.timestamp">
-        {{ item.timestamp.format('YYYY-MM-DD HH:mm:ss.SSS') }}
+        {{ item.timestamp.replace('T', ' ').replace('+00:00', '') }}
       </span>
     </q-td>
     <q-td auto-width class="monospace-sm">{{ item.address }}</q-td>

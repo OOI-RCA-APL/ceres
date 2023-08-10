@@ -13,7 +13,7 @@ from pydantic import BaseModel, parse_obj_as
 from typer import Argument, Option
 
 from ceres.address import AddressSelector
-from ceres.component import ComponentQuery, ComponentStatus
+from ceres.component import ComponentFilter
 from ceres.config import Config
 from ceres.data import jsonify, simplify
 from ceres.exceptions import ServerException
@@ -23,7 +23,6 @@ from ceres.internal.app import (
     DownResult,
     EnableResult,
     GetStatusesQueryParameters,
-    HealthResult,
     StartResult,
     StopResult,
     UpResult,
@@ -35,15 +34,15 @@ from ceres.internal.cli.exceptions import (
 )
 from ceres.internal.cli.shared import (
     AsyncTyper,
-    ConfigOption,
     ConfigPathOption,
+    ProjectOption,
     strbool,
     write,
     write_table,
 )
 from ceres.internal.cli.subcommands.database import database
 from ceres.internal.cli.subcommands.service import service
-from ceres.internal.context import ProjectContext
+from ceres.internal.project import Project
 from ceres.internal.utilities import (
     ensure_event_loop,
     set_current_process_name,
@@ -51,6 +50,7 @@ from ceres.internal.utilities import (
     syncify,
     temporary_signal_handler,
 )
+from ceres.object import Status
 from ceres.result import Fail, Ok
 from ceres.server import Server
 from ceres.threading import spawn
@@ -89,8 +89,9 @@ async def run(
                 case Ok():
                     pass
                 case Fail() as fail:
-                    write(fail)
-                    pass
+                    raise CLIInvalidConfigException(
+                        f"Failed to load configuration. {jsonify(fail, indent=2)}"
+                    )
 
             exiting = AsyncEvent()
 
@@ -235,13 +236,12 @@ _T = TypeVar("_T")
 
 
 class APIClient:
-    def __init__(self, config: Config) -> None:
-        assert config.path is not None
-        self.__config = config
+    def __init__(self, project: Project) -> None:
+        self.project = project
 
     async def online(self) -> bool:
         try:
-            await self.get("/health", result=HealthResult)
+            await self.get("/status", result=Status)
         except Exception:
             return False
 
@@ -256,14 +256,13 @@ class APIClient:
         params: BaseModel | Mapping[str, object] | None = None,
         result: type[_T],
     ) -> _T:
-        context = ProjectContext(self.__config)
         path = "/api/" + path.lstrip("/")
-        path = f"http+unix://{str(context.socket).replace('/', '%2F')}{path}"
+        path = f"http+unix://{str(self.project.socket_path).replace('/', '%2F')}{path}"
 
         if isinstance(params, BaseModel):
             params = {key: str(value) for key, value in params.dict(exclude_defaults=True).items()}
 
-        async with ClientSession(connector=UnixConnector(str(context.socket))) as session:
+        async with ClientSession(connector=UnixConnector(str(self.project.socket_path))) as session:
             async with session.request(
                 method,
                 path,
@@ -293,11 +292,11 @@ class APIClient:
 
 
 @main.command()
-async def reload(*, config: Config = ConfigOption()) -> None:
+async def reload(*, project: Project = ProjectOption()) -> None:
     """
     Apply configuration changes while the engine is running.
     """
-    client = APIClient(config)
+    client = APIClient(project)
     try:
         await client.post("/reload")
     except ClientError:
@@ -320,16 +319,15 @@ AddressPatternInput = Annotated[
 @main.command()
 async def status(
     addresses: list[str] = [":all"],
-    config: Config = ConfigOption(),
+    project: Project = ProjectOption(),
 ) -> None:
-    client = APIClient(config)
-    project = ProjectContext(config)
+    client = APIClient(project)
     address = AddressSelector("|".join(addresses) if addresses else ":all")
     try:
         statuses = await client.get(
             "/statuses",
             params=GetStatusesQueryParameters(address=address),
-            result=list[ComponentStatus],
+            result=list[Status],
         )
     except ClientError:
         statuses = None
@@ -342,10 +340,10 @@ async def status(
         table.add_column("Port")
         table.add_column("Socket")
         table.add_row(
-            str(project.path),
+            str(project.directory),
             strbool(running),
             str(project.port or "(Disabled)"),
-            str(project.socket),
+            str(project.socket_path),
         )
 
     if not running:
@@ -364,60 +362,60 @@ async def status(
 
 
 @main.command()
-async def start(addresses: list[str], config: Config = ConfigOption()) -> None:
-    client = APIClient(config)
+async def start(addresses: list[str], project: Project = ProjectOption()) -> None:
+    client = APIClient(project)
     address = AddressSelector("|".join(addresses))
-    query = ComponentQuery(address=address)
+    query = ComponentFilter(address=address)
     result = await client.post("/start", query, parse=StartResult)
 
     write(result)
 
 
 @main.command()
-async def stop(addresses: list[str], config: Config = ConfigOption()) -> None:
-    client = APIClient(config)
+async def stop(addresses: list[str], project: Project = ProjectOption()) -> None:
+    client = APIClient(project)
     address = AddressSelector("|".join(addresses))
-    query = ComponentQuery(address=address)
+    query = ComponentFilter(address=address)
     result = await client.post("/stop", query, parse=StopResult)
 
     write(result)
 
 
 @main.command()
-async def enable(addresses: list[str], config: Config = ConfigOption()) -> None:
-    client = APIClient(config)
+async def enable(addresses: list[str], project: Project = ProjectOption()) -> None:
+    client = APIClient(project)
     address = AddressSelector("|".join(addresses))
-    query = ComponentQuery(address=address)
+    query = ComponentFilter(address=address)
     result = await client.post("/enable", query, parse=EnableResult)
 
     write(result)
 
 
 @main.command()
-async def disable(addresses: list[str], config: Config = ConfigOption()) -> None:
-    client = APIClient(config)
+async def disable(addresses: list[str], project: Project = ProjectOption()) -> None:
+    client = APIClient(project)
     address = AddressSelector("|".join(addresses))
-    query = ComponentQuery(address=address)
+    query = ComponentFilter(address=address)
     result = await client.post("/disable", query, parse=DisableResult)
 
     write(result)
 
 
 @main.command()
-async def up(addresses: list[str], config: Config = ConfigOption()) -> None:
-    client = APIClient(config)
+async def up(addresses: list[str], project: Project = ProjectOption()) -> None:
+    client = APIClient(project)
     address = AddressSelector("|".join(addresses))
-    query = ComponentQuery(address=address)
+    query = ComponentFilter(address=address)
     result = await client.post("/up", query, parse=UpResult)
 
     write(result)
 
 
 @main.command()
-async def down(addresses: list[str], config: Config = ConfigOption()) -> None:
-    client = APIClient(config)
+async def down(addresses: list[str], project: Project = ProjectOption()) -> None:
+    client = APIClient(project)
     address = AddressSelector("|".join(addresses))
-    query = ComponentQuery(address=address)
+    query = ComponentFilter(address=address)
     result = await client.post("/down", query, parse=DownResult)
 
     write(result)

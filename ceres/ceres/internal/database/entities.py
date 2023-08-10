@@ -1,15 +1,21 @@
+import re
 from datetime import datetime
-from typing import Any, final
+from textwrap import dedent
+from typing import Any, Iterable
 from uuid import UUID
 
 from sqlalchemy import (
     JSON,
     Boolean,
-    ColumnElement,
+    ClauseElement,
+    Engine,
+    FetchedValue,
     ForeignKey,
     Index,
+    Integer,
     LargeBinary,
     PrimaryKeyConstraint,
+    Table,
     Text,
 )
 from sqlalchemy.ext.associationproxy import AssociationProxy, association_proxy
@@ -21,7 +27,9 @@ from sqlalchemy.orm import (
     mapped_column,
     relationship,
 )
-from sqlalchemy.sql.roles import ExpressionElementRole
+from sqlalchemy.schema import CreateIndex, CreateTable
+from sqlalchemy.sql import expression
+from typing_extensions import final
 
 from ceres.address import Address
 from ceres.internal.database.types import (
@@ -35,130 +43,167 @@ from ceres.level import Level
 from ceres.message import MessageDirection
 
 
-class Entity(MappedAsDataclass, DeclarativeBase):
+def _compile_to_sql_statement(engine: Engine, element: ClauseElement) -> str:
+    statement = re.sub(
+        r"[\n\r]+\t",
+        "\n    ",
+        dedent(str(element.compile(engine)).strip()),
+    )
+
+    if not statement.endswith(";"):
+        statement += ";"
+
+    return statement
+
+
+class Entity(MappedAsDataclass, DeclarativeBase, kw_only=True):
     __abstract__ = True
     __mapper_args__ = {
         "eager_defaults": True,
     }
+
+    @staticmethod
+    def get_entity_classes() -> list[type["Entity"]]:
+        classes: list[type[Entity]] = [
+            ComponentEntity,
+            BinEntity,
+            MessageEntity,
+            AlertEntity,
+            LogEntryEntity,
+        ]
+
+        classes.extend(
+            mapper.class_
+            for mapper in Entity.registry.mappers
+            if mapper.class_ not in classes and issubclass(mapper.class_, Entity)
+        )
+
+        return classes
+
+    @classmethod
+    def get_entity_table(cls) -> Table:
+        assert isinstance(cls.__table__, Table)
+        return cls.__table__
+
+    @classmethod
+    def get_entity_ddl(cls, engine: Engine) -> Iterable[str]:
+        table = cls.get_entity_table()
+        yield _compile_to_sql_statement(engine, CreateTable(table, if_not_exists=True))
+        for index in sorted(table.indexes, key=lambda index: str(index.name)):
+            yield _compile_to_sql_statement(engine, CreateIndex(index, if_not_exists=True))
 
     def values(self) -> dict[str, Any]:
         return {name: getattr(self, name) for name in self.__table__.columns.keys()}
 
 
 @final
-class ComponentEntity(Entity):
+class ComponentEntity(Entity, kw_only=True):
     __tablename__ = "components"
-    id: Mapped[UUID] = mapped_column(UUIDMapper)
-    address: Mapped[Address] = mapped_column(AddressMapper)
-    enabled: Mapped[bool] = mapped_column(Boolean, default=False)
 
-    __table_args__ = (
-        PrimaryKeyConstraint("id", name=f"pk_{__tablename__}"),
-        Index(f"uq_{__tablename__}__address", "address", unique=True),
-    )
+    address: Mapped[Address] = mapped_column(AddressMapper)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default=expression.false())
+
+    __table_args__ = (PrimaryKeyConstraint("address", name=f"pk_{__tablename__}"),)
 
 
 @final
-class MessageEntity(Entity):
+class BinEntity(Entity, kw_only=True):
+    __tablename__ = "bins"
+
+    id: Mapped[int] = mapped_column(
+        Integer,
+        autoincrement=True,
+        server_default=FetchedValue(),
+        default=None,
+    )
+    address: Mapped[Address] = mapped_column(AddressMapper)
+
+    __table_args__ = (
+        PrimaryKeyConstraint("id", name=f"pk_{__tablename__}"),
+        Index(f"ix_{__tablename__}__address", "address", unique=True),
+    )
+
+
+class ItemEntity(Entity, kw_only=True):
+    __abstract__ = True
+
+    id: Mapped[UUID] = mapped_column(UUIDMapper, sort_order=-3000)
+
+    @declared_attr
+    def bin_id(cls) -> Mapped[int]:
+        return mapped_column(
+            Integer,
+            ForeignKey(
+                BinEntity.id,
+                name=f"fk_{cls.__tablename__}__bin_id__{BinEntity.__tablename__}",
+            ),
+            sort_order=-2000,
+        )
+
+    @declared_attr
+    def bin(cls) -> Mapped[BinEntity]:
+        return relationship(BinEntity, lazy="joined")
+
+    @declared_attr  # type: ignore
+    def address(cls) -> AssociationProxy[Address]:
+        return association_proxy("bin", "address")
+
+    timestamp: Mapped[datetime] = mapped_column(DateTimeMapper, sort_order=-1000)
+
+    @declared_attr
+    def __table_args__(cls) -> Any:
+        return (
+            PrimaryKeyConstraint("id", name=f"pk_{cls.__tablename__}"),
+            Index(f"ix_{cls.__tablename__}__bin_id", "bin_id"),
+            Index(f"ix_{cls.__tablename__}__bin_id__timestamp", "bin_id", "timestamp"),
+            Index(f"ix_{cls.__tablename__}__timestamp", "timestamp"),
+        )
+
+
+@final
+class MessageEntity(ItemEntity, kw_only=True):
     __tablename__ = "messages"
 
-    id: Mapped[UUID] = mapped_column(UUIDMapper)
-    component_id: Mapped[UUID] = mapped_column(
-        UUIDMapper,
-        ForeignKey(
-            ComponentEntity.id,
-            name=f"fk_{__tablename__}__component_id__{ComponentEntity.__tablename__}",
-        ),
-    )
-    timestamp: Mapped[datetime] = mapped_column(DateTimeMapper)
     direction: Mapped[MessageDirection] = mapped_column(EnumMapper(MessageDirection))
     content: Mapped[bytes] = mapped_column(LargeBinary)
 
     @declared_attr
-    def component(cls) -> Mapped[ComponentEntity]:
-        return relationship(ComponentEntity, lazy="joined")
-
-    @declared_attr  # type: ignore
-    def address(cls) -> AssociationProxy[Address]:
-        return association_proxy("component", "address")
-
-    __table_args__ = (
-        PrimaryKeyConstraint("id", name=f"pk_{__tablename__}"),
-        EnumConstraint("direction", MessageDirection, name=f"ck_{__tablename__}__direction"),
-        Index(f"ix_{__tablename__}__component_id", "component_id"),
-        Index(f"ix_{__tablename__}__component_id__timestamp", "component_id", "timestamp"),
-        Index(f"ix_{__tablename__}__timestamp", "timestamp"),
-        Index(f"ix_{__tablename__}__content", "content"),
-    )
+    def __table_args__(cls) -> Any:
+        return (
+            *super().__table_args__,
+            EnumConstraint("direction", MessageDirection, f"ck_{cls.__tablename__}__direction"),
+            Index(f"ix_{cls.__tablename__}__content", "content"),
+        )
 
 
 @final
-class AlertEntity(Entity):
+class AlertEntity(ItemEntity, kw_only=True):
     __tablename__ = "alerts"
 
-    id: Mapped[UUID] = mapped_column(UUIDMapper)
-    component_id: Mapped[UUID] = mapped_column(
-        UUIDMapper,
-        ForeignKey(
-            ComponentEntity.id,
-            name=f"fk_{__tablename__}__component_id__{ComponentEntity.__tablename__}",
-        ),
-    )
-    timestamp: Mapped[datetime] = mapped_column(DateTimeMapper)
     level: Mapped[Level] = mapped_column(EnumMapper(Level))
     code: Mapped[str] = mapped_column(Text)
     info: Mapped[dict[str, Any]] = mapped_column(JSON, default_factory=dict)
 
     @declared_attr
-    def component(cls) -> Mapped[ComponentEntity]:
-        return relationship(ComponentEntity, lazy="joined")
-
-    @declared_attr  # type: ignore
-    def address(cls) -> AssociationProxy[Address]:
-        return association_proxy("component", "address")
-
-    __table_args__ = (
-        PrimaryKeyConstraint("id", name=f"pk_{__tablename__}"),
-        EnumConstraint("level", Level, name=f"ck_{__tablename__}__level"),
-        Index(f"ix_{__tablename__}__component_id", "component_id"),
-        Index(f"ix_{__tablename__}__component_id__timestamp", "component_id", "timestamp"),
-        Index(f"ix_{__tablename__}__timestamp", "timestamp"),
-        Index(f"ix_{__tablename__}__code", "code"),
-    )
+    def __table_args__(cls) -> Any:
+        return (
+            *super().__table_args__,
+            EnumConstraint("level", Level, f"ck_{cls.__tablename__}__level"),
+            Index(f"ix_{cls.__tablename__}__code", "code"),
+        )
 
 
 @final
-class LogEntryEntity(Entity):
+class LogEntryEntity(ItemEntity, kw_only=True):
     __tablename__ = "log_entries"
 
-    id: Mapped[UUID] = mapped_column(UUIDMapper)
-    component_id: Mapped[UUID] = mapped_column(
-        UUIDMapper,
-        ForeignKey(
-            ComponentEntity.id,
-            name=f"fk_{__tablename__}__component_id__{ComponentEntity.__tablename__}",
-        ),
-    )
-    timestamp: Mapped[datetime] = mapped_column(DateTimeMapper)
     level: Mapped[Level] = mapped_column(EnumMapper(Level))
     content: Mapped[str] = mapped_column(Text)
 
     @declared_attr
-    def component(cls) -> Mapped[ComponentEntity | None]:
-        return relationship(ComponentEntity, lazy="joined")
-
-    @declared_attr  # type: ignore
-    def address(cls) -> AssociationProxy[Address]:
-        return association_proxy("component", "address")
-
-    __table_args__ = (
-        PrimaryKeyConstraint("id", name=f"pk_{__tablename__}"),
-        EnumConstraint("level", Level, name=f"ck_{__tablename__}__level"),
-        Index(f"ix_{__tablename__}__component_id", "component_id"),
-        Index(f"ix_{__tablename__}__component_id__timestamp", "component_id", "timestamp"),
-        Index(f"ix_{__tablename__}__timestamp", "timestamp"),
-    )
-
-
-WhereExpression = ColumnElement[bool] | ExpressionElementRole[bool]
-OrderByExpression = ColumnElement[Any] | ExpressionElementRole[Any]
+    def __table_args__(cls) -> Any:
+        return (
+            *super().__table_args__,
+            EnumConstraint("level", Level, name=f"ck_{cls.__tablename__}__level"),
+            Index(f"ix_{cls.__tablename__}__content", "content"),
+        )

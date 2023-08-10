@@ -8,7 +8,7 @@ from ceres.data import Name, NameType, StrPattern
 
 _NAME = NameType.regex.pattern[1:-1]
 _MODIFIER = r":(all|children|descendants|ancestors)+"
-_SEGMENT = rf"@?[a-z-A-Z_\-.]+({_MODIFIER})?|@|{_MODIFIER}"
+_SEGMENT = rf"~|@?[a-z-A-Z_\-.]+({_MODIFIER})?|@|{_MODIFIER}"
 
 
 class AddressSelector(str):
@@ -53,10 +53,17 @@ class AddressSelector(str):
 
 @lru_cache(maxsize=500)
 def _compile_selector(pattern: "AddressSelector") -> StrPattern:
+    # TODO: Handle bare :all correctly.
     segments = []
+
     for segment in pattern.split("|"):
+        if segment == "~":
+            segments.append("~")
+            continue
+
         segment = segment.strip()
 
+        # TODO: This shouldn't be happening.
         if not segment.startswith("@"):
             segment = "@" + segment
 
@@ -84,7 +91,7 @@ def _compile_selector(pattern: "AddressSelector") -> StrPattern:
 
 
 class DynamicAddress(AddressSelector):
-    regex = re.compile(rf"^@|@?{_NAME}(\.{_NAME})*$")
+    regex = re.compile(rf"^~|@|@?{_NAME}(\.{_NAME})*$")
 
     @property
     def name(self) -> Name | None:
@@ -148,18 +155,29 @@ class DynamicAddress(AddressSelector):
         return [name for name in self.split(".") if name]
 
     @property
+    def is_server(self) -> bool:
+        return self == "~"
+
+    @property
     def is_root(self) -> bool:
         return self == "@"
 
     @property
+    def is_component(self) -> bool:
+        return not self.is_server
+
+    @property
     def is_absolute(self) -> bool:
-        return self.startswith("@")
+        return self.is_server or self.startswith("@")
 
     @property
     def is_relative(self) -> bool:
         return not self.is_absolute
 
     def __truediv__(self, other: str) -> Self:
+        if self.is_server:
+            return self
+
         return type(self)(f"{self}{'.' if not self.is_root else ''}{other.strip('.')}")
 
     def relative_to(self, root: "Address") -> "DynamicAddress | None":
@@ -172,6 +190,9 @@ class DynamicAddress(AddressSelector):
         return None
 
     def as_relative(self) -> "DynamicAddress | None":
+        if self.is_server:
+            return None
+
         stripped = self.lstrip("@")
         if not stripped:
             return None
@@ -183,7 +204,11 @@ class DynamicAddress(AddressSelector):
 
 
 class Address(DynamicAddress):
-    regex = re.compile(rf"^@({_NAME}(\.{_NAME})*)*$")
+    regex = re.compile(rf"^~|@({_NAME}(\.{_NAME})*)*$")
+
+    @classmethod
+    def server(cls) -> "Address":
+        return _SERVER
 
     @classmethod
     def root(cls) -> "Address":
@@ -203,7 +228,12 @@ class Address(DynamicAddress):
         return str.__new__(cls, value)
 
     def contains(self, other: "Address") -> bool:
-        return self.is_root or self == other or other.startswith(f"{self}.")
+        if self.is_server:
+            return True
+        return other == self or (
+            (not other.is_server) and (other.startswith(f"{self}.") or self.is_root)
+        )
 
 
+_SERVER = Address("~")
 _ROOT = Address("@")

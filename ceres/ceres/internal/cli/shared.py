@@ -13,6 +13,7 @@ from typer import Option, Typer
 from ceres.config import Config, ConfigCheckKind
 from ceres.data import jsonify
 from ceres.internal.cli.exceptions import CLIInvalidConfigException
+from ceres.internal.project import Project
 from ceres.internal.utilities import syncify
 from ceres.result import Ok
 
@@ -94,6 +95,16 @@ async def get_config(
             )
 
 
+async def get_project(
+    config_path: Path | None,
+    checks: Sequence[ConfigCheckKind],
+) -> Project:
+    return Project(
+        get_config_path(config_path),
+        await get_config(config_path, checks),
+    )
+
+
 def ConfigPathOption() -> Any:
     return Option(
         None,
@@ -108,6 +119,21 @@ def ConfigPathOption() -> Any:
 def ConfigOption(*, checks: Sequence[ConfigCheckKind] = ()) -> Any:
     async def callback(config_path: Path = ConfigPathOption()) -> Config:
         return await get_config(config_path, checks)
+
+    return Option(
+        None,
+        "--config",
+        help="Provide an explicit path to a Ceres configuration file.",
+        exists=True,
+        resolve_path=True,
+        dir_okay=False,
+        callback=syncify(callback),
+    )
+
+
+def ProjectOption(*, checks: Sequence[ConfigCheckKind] = ()) -> Any:
+    async def callback(config_path: Path = ConfigPathOption()) -> Project:
+        return await get_project(config_path, checks)
 
     return Option(
         None,

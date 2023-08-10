@@ -39,10 +39,10 @@ components:
         args:
           output: ./local/output
           host:
-            connection: host-connection
+            connection: "@a3.host-connection"
           das:
             id: 2501
-            connection: das-connection
+            connection: "@a3.das-connection"
   - name: notifications
     components:
       - name: notifier
@@ -54,7 +54,7 @@ components:
       - name: dispatcher
         class: ceres.standard.ScheduledDispatcher
         args:
-          notifier: notifier
+          notifier: "@notifications.notifier"
           writer:
             class: ceres.standard.HTMLDispatchWriter
           dispatches:

@@ -4,11 +4,11 @@ from dataclasses import field
 from typing import Sequence
 
 from ceres.alert import Alert
-from ceres.component import AlertOrder, AlertQuery, Component
+from ceres.component import Component, action
 from ceres.data import ImmutableDataObject, NonBlankStr
+from ceres.filter import AlertFilter, AlertOrder
 from ceres.loaded import Loaded
-from ceres.procedure import action
-from ceres.ref import Ref
+from ceres.reference import Ref
 from ceres.roles.notifier import Notification, Notifier
 
 
@@ -16,7 +16,7 @@ class Dispatch(ImmutableDataObject):
     subject: NonBlankStr
     description: NonBlankStr | None = None
     signature: NonBlankStr | None = None
-    alerts: AlertQuery
+    alerts: AlertFilter
     recipients: Sequence[str]
 
 
@@ -38,7 +38,7 @@ class Dispatcher(Component):
     @action
     async def dispatch(self, dispatch: Dispatch) -> None:
         query = dispatch.alerts.with_defaults(
-            AlertQuery(
+            AlertFilter(
                 order=AlertOrder.NEW_TO_OLD,
                 limit=1000,
             )

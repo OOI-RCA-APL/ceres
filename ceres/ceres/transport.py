@@ -6,7 +6,7 @@ import anyio
 from pydantic.fields import Undefined, UndefinedType
 from typing_extensions import Unpack, overload
 
-from ceres.component import MessageQuery, MessageQueryArgs
+from ceres.filter import MessageFilter, MessageFilterArgs
 from ceres.internal.utilities import BytesLike, bytes_of
 from ceres.message import Message
 from ceres.roles.connection import Connection
@@ -40,7 +40,7 @@ class Transport:
         *,
         condition: Callable[[Message], bool] | None = None,
         timeout: float | timedelta | None = None,
-        **kwargs: Unpack[MessageQueryArgs],
+        **kwargs: Unpack[MessageFilterArgs],
     ) -> Message:
         ...
 
@@ -51,7 +51,7 @@ class Transport:
         condition: Callable[[Message], bool] | None = None,
         timeout: float | timedelta | None = None,
         default: _T | Callable[[], _T] | UndefinedType = Undefined,
-        **kwargs: Unpack[MessageQueryArgs],
+        **kwargs: Unpack[MessageFilterArgs],
     ) -> Message | _T:
         ...
 
@@ -61,13 +61,13 @@ class Transport:
         condition: Callable[[Message], bool] | None = None,
         timeout: float | timedelta | None = None,
         default: _T | Callable[[], _T] | UndefinedType = Undefined,
-        **kwargs: Unpack[MessageQueryArgs],
+        **kwargs: Unpack[MessageFilterArgs],
     ) -> Message | _T:
         if isinstance(timeout, timedelta):
             timeout = timeout.total_seconds()
 
         if kwargs:
-            query = MessageQuery(**kwargs)
+            query = MessageFilter(**kwargs)
         else:
             query = None
 

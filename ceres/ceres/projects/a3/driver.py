@@ -13,7 +13,7 @@ import numpy as np
 from pydantic import Field
 from typing_extensions import override
 
-from ceres.component import Component
+from ceres.component import Component, action
 from ceres.directory import Directory
 
 if TYPE_CHECKING:
@@ -24,13 +24,12 @@ else:
     from netCDF4 import Dataset
 
 from ceres.alert import Level
+from ceres.component import on
 from ceres.data import DateTime, ImmutableDataObject, PositiveTimeDelta
 from ceres.events import MessageReceivedEvent, MessageSentEvent
 from ceres.exceptions import ParseException
 from ceres.internal.utilities import BytesLike, bytes_of
-from ceres.listener import on
 from ceres.message import Message, MessageDirection
-from ceres.procedure import action
 from ceres.projects.a3.parsing import (
     BaseDASAZAParticle,
     DASAZAParticle,
@@ -47,7 +46,7 @@ from ceres.projects.a3.parsing import (
     HostSIResponse,
     parse_logged_das_message,
 )
-from ceres.ref import Ref
+from ceres.reference import Ref
 from ceres.roles.connection import Connection
 from ceres.threading import spawn
 from ceres.timing import utc
@@ -122,12 +121,12 @@ class A3Driver(Component):
         self.__job_lock = AsyncLock()
         self.__last_sequence_number: int | None = None
 
-    @on(MessageSentEvent, ["host.connection", "das.connection"])
-    def __on_message_sent(self, event: MessageSentEvent) -> None:
+    @on(reference=("host.connection", "das.connection"))
+    def on__message_sent(self, event: MessageSentEvent) -> None:
         self.log.info(f"Sent: {event.message}")
 
-    @on(MessageReceivedEvent, ["host.connection", "das.connection"])
-    def __on_message_received(self, event: MessageReceivedEvent) -> None:
+    @on(reference=("host.connection", "das.connection"))
+    def on__message_received(self, event: MessageReceivedEvent) -> None:
         self.log.info(f"Received: {event.message}")
 
     async def __use_job_lock(self, priority: int, message: str | None = None) -> AsyncLock:
@@ -298,6 +297,7 @@ class A3Driver(Component):
         self.log.info("Sync host job completed successfully.")
         return None
 
+    @action
     async def sync_das(self) -> JobIncomplete | None:
         if not self.das.connection or not self.das.connection.connected:
             return self.__job_incomplete("No DAS connection is active to run the sync DAS job.")

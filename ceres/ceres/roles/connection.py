@@ -9,7 +9,7 @@ from typing import AsyncIterable
 from pydantic import Field
 from typing_extensions import override
 
-from ceres.component import Component
+from ceres.component import Component, action, query, routine
 from ceres.data import ImmutableDataObject
 from ceres.events import (
     ConnectedEvent,
@@ -21,8 +21,6 @@ from ceres.events import (
 )
 from ceres.exceptions import ConnectionLostException
 from ceres.message import Message, MessageDirection
-from ceres.procedure import action, query
-from ceres.routine import routine
 from ceres.schedule import IntervalSchedule
 from ceres.stream import Stream
 from ceres.timing import utc
@@ -196,12 +194,12 @@ class Connection(Component, ABC):
             self.log.info("Disconnected.")
 
     @routine
-    async def __update(self) -> None:
+    async def routine__process_connection(self) -> None:
         while True:
             trigger = self.reconnect_settings.schedule.as_trigger()
 
             while not await self.connect():
-                next = trigger.next()
+                next = trigger.get_next_fire_time()
                 if next is None:
                     break
 

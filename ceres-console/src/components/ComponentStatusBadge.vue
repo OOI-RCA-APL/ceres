@@ -1,12 +1,12 @@
 <script lang="ts" setup>
 import { Address } from '@/address'
-import { disable, enable, start, stop, useComponentStatuses } from '@/api/operations'
+import { disable, enable, start, stop, useStatuses } from '@/api/operations'
 
 const { address } = defineProps<{
   address: Address
 }>()
 
-const statuses = useComponentStatuses()
+const statuses = useStatuses()
 const status = $computed(() => ({
   running: statuses.get(address)?.running ?? null,
   enabled: statuses.get(address)?.enabled ?? null,

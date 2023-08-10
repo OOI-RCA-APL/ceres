@@ -122,6 +122,7 @@ function onBackspace() {
     label-slot
     :mask="mask"
     :placeholder="format(defaultValue)"
+    spellcheck="false"
     :suffix="suffix"
     :type="inputType"
     @blur="onBlur"

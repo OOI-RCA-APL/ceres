@@ -2,12 +2,6 @@ export class Address {
   private value: string
 
   constructor(value: string | Address) {
-    if (typeof value === 'string') {
-      if (!value.startsWith('@')) {
-        throw new Error('Address must start with "@"')
-      }
-    }
-
     this.value = value.toString().trim()
   }
 

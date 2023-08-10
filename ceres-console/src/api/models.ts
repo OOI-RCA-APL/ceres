@@ -6,12 +6,10 @@ export const NameStrModel = Zod.string().regex(/[a-zA-Z\-\_][a-zA-Z0-9\-\_]*/)
 export const EmailStrModel = Zod.string().regex(/.+@.+/)
 export const NonEmptyStrModel = Zod.string().regex(/.+/)
 
-const DateTimeModel = Zod.string()
-  .refine((value) => moment.utc(value).isValid())
-  .transform((value) => Object.freeze(moment.utc(value)))
+const DateTimeModel = Zod.string().refine((value) => moment.utc(value).isValid())
 
-export type ComponentStatus = Zod.infer<typeof ComponentStatusModel>
-export const ComponentStatusModel = Zod.object({
+export type Status = Zod.infer<typeof StatusModel>
+export const StatusModel = Zod.object({
   address: Zod.string().transform(Address.parse),
   running: Zod.boolean(),
   enabled: Zod.boolean(),
@@ -148,7 +146,7 @@ export type LayoutDisplay = Zod.infer<typeof LayoutDisplayModel>
 export const LayoutDisplayModel = Zod.object({
   kind: Zod.literal('display'),
   title: Zod.string(),
-  procedure: Zod.string(),
+  query: Zod.string(),
 })
 
 export type LayoutRow = {

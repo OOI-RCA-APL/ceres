@@ -11,11 +11,11 @@ from typing import Literal, final
 from pydantic import Field, validator
 from typing_extensions import override
 
+from ceres.component import routine
 from ceres.data import ImmutableDataObject, PositiveTimeDelta
 from ceres.events import ConnectionLostEvent, MessageReceivedEvent
 from ceres.internal.utilities import ensure_event_loop, show_td
 from ceres.roles.connection import Connection
-from ceres.routine import routine
 
 
 @dataclass(kw_only=True, frozen=True)

@@ -1,6 +1,5 @@
-from ceres.component import Component
+from ceres.component import Component, query
 from ceres.layout import Layout
-from ceres.procedure import query
 
 
 class UI(Component):

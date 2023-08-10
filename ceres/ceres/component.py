@@ -1,79 +1,69 @@
 import asyncio
 import inspect
 import traceback
-from asyncio import Event as AsyncEvent
-from asyncio import Lock as AsyncLock
-from collections import deque
-from collections.abc import Sequence
-from dataclasses import dataclass, field
-from datetime import datetime
+import warnings
+from asyncio import CancelledError
+from asyncio import Queue as AsyncQueue
+from datetime import datetime, timedelta, timezone
 from enum import Enum
-from functools import partial
-from itertools import groupby
+from inspect import Parameter
 from string import ascii_lowercase
-from types import MappingProxyType
+from types import MappingProxyType, UnionType
 from typing import (
     TYPE_CHECKING,
     Any,
     AsyncIterable,
+    Awaitable,
     Callable,
     Final,
-    Generic,
     Iterable,
     Iterator,
+    Literal,
     Mapping,
     ParamSpec,
     Protocol,
-    TypedDict,
+    Sequence,
     TypeVar,
     final,
-    overload,
+    get_type_hints,
+    runtime_checkable,
 )
-from uuid import UUID, uuid4
 from weakref import WeakValueDictionary, ref
 
+from apscheduler.job import Job as InternalJob
+from apscheduler.jobstores.base import JobLookupError
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.base import BaseTrigger
 from pydantic import (
+    BaseModel,
     ConfigDict,
     Extra,
     Field,
+    NonNegativeInt,
+    PositiveFloat,
     ValidationError,
-    root_validator,
+    schema_of,
     validate_arguments,
-    validator,
 )
 from pydantic.decorator import ValidatedFunction
+from pydantic.typing import get_args
 from sqlalchemy import (
-    BinaryExpression,
-    ColumnElement,
-    SQLColumnExpression,
-    Text,
-    cast,
-    func,
     select,
-    update,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.sql.roles import ExpressionElementRole
-from typing_extensions import Self, Unpack, dataclass_transform, override
+from typing_extensions import Self, Unpack, dataclass_transform, overload, override
 
 from ceres.address import Address, AddressSelector, DynamicAddress
 from ceres.alert import Alert
-from ceres.config import ComponentConfig, DatabaseKind
+from ceres.config import ComponentConfig
 from ceres.data import (
     VALIDATED_DATACLASS_FIELD_SPECIFIERS,
-    BytesPattern,
-    DataObject,
-    DateTime,
     ImmutableDataObject,
     Name,
     PositiveTimeDelta,
-    StrPattern,
-    ValidatedDataclass,
-    jsonify,
 )
 from ceres.database import Database
 from ceres.errors import (
-    ComponentReferenceInvalidError,
     ProcedureDoesNotExistError,
     ProcedureInternalError,
     ProcedureInvalidArgsError,
@@ -84,29 +74,31 @@ from ceres.events import (
     DisabledEvent,
     EnabledEvent,
     Event,
-    LogEvent,
-    MessageReceivedEvent,
-    MessageSentEvent,
-    StartedEvent,
-    StoppedEvent,
+    JobCancelledEvent,
+    JobCompletedEvent,
+    JobExceptionEvent,
+    JobRetryEvent,
+    JobRetryPendingEvent,
+    JobStartedEvent,
+    JobStoppedEvent,
+    RoutineCancelledEvent,
+    RoutineCompletedEvent,
+    RoutineExceptionEvent,
+    RoutineRestartedEvent,
+    RoutineRestartingEvent,
+    RoutineStartedEvent,
+    RoutineStoppedEvent,
 )
 from ceres.exceptions import ProcedureException
-from ceres.internal.binding import get_bindings
-from ceres.internal.database.entities import (
-    AlertEntity,
-    ComponentEntity,
-    LogEntryEntity,
-    MessageEntity,
-)
-from ceres.internal.events import EventProcessor
-from ceres.internal.scheduler import Scheduler
-from ceres.internal.tasklet import Tasklet
+from ceres.filter import ComponentFilter, ComponentFilterArgs
+from ceres.internal.database.entities import ComponentEntity
 from ceres.internal.utilities import (
     awaitify,
     cached,
-    chunkify,
-    dictify,
-    escape_like_expression,
+    decode_td,
+    get_function_name,
+    get_inner_function,
+    get_session,
     lenient_isinstance,
     randstr,
     setattr_internal,
@@ -115,480 +107,149 @@ from ceres.internal.utilities import (
     uniquify,
 )
 from ceres.level import Level
-from ceres.listener import ListenerBinding
-from ceres.logs import Log, LogEntry
-from ceres.message import Message, MessageDirection
-from ceres.procedure import (
-    ActionBinding,
-    ProcedureBinding,
-    QueryBinding,
-)
-from ceres.routine import RoutineBinding
-from ceres.schedule import Schedule
-from ceres.stream import Stream, WriteStream
-from ceres.timing import utc
+from ceres.logs import LogEntry
+from ceres.message import Message
+from ceres.object import Object, Status
+from ceres.schedule import Schedule, Trigger
 from ceres.validation import ValidationProblem
 
 if TYPE_CHECKING:
+    from ceres.reference import Reference
     from ceres.server import Server
 else:
-    Server = "Server"
+    Server = object
+    Reference = object
 
 _ComponentT = TypeVar("_ComponentT", bound="Component")
 _EventT = TypeVar("_EventT", bound=Event)
 _EventP = ParamSpec("_EventP")
 
-WhereExpression = ColumnElement[bool] | ExpressionElementRole[bool]
-OrderByExpression = ColumnElement[Any] | ExpressionElementRole[Any]
-
-
-class Query(ImmutableDataObject):
-    class Config(ImmutableDataObject.Config):
-        extra = Extra.ignore
-
-    def with_defaults(self, defaults: Self) -> Self:
-        update: dict[str, Any] = {}
-
-        for attribute in self.__fields__:
-            current = getattr(self, attribute, None)
-            if current is not None:
-                continue
-            default = getattr(defaults, attribute, None)
-            if default is None:
-                continue
-
-            update[attribute] = default
-
-        return self.copy(update=update)
-
-
-class Addressable(Protocol):
-    @property
-    def address(self) -> Address:
-        ...
-
-
-_ObjectT = TypeVar("_ObjectT", bound=Addressable)
-
-
-class ObjectQueryArgs(TypedDict, total=False):
-    address: AddressSelector | None
-
-
-class ObjectQuery(Generic[_ObjectT], Query):
-    address: AddressSelector | None = None
-
-    def matches(self, obj: _ObjectT, root: Address) -> bool:
-        if not root.contains(obj.address):
-            return False
-
-        if self.address is not None:
-            if not self.address.matches(obj.address, root):
-                return False
-
-        return True
-
-
-class ComponentQueryArgs(ObjectQueryArgs, total=False):
-    enabled: bool | None
-    running: bool | None
-
-
-class ComponentQuery(ObjectQuery["Component"]):
-    enabled: bool | None = None
-    running: bool | None = None
-
-    @override
-    def matches(self, obj: "Component", root: Address) -> bool:
-        if not super().matches(obj, root):
-            return False
-
-        if self.enabled is not None and obj.enabled != self.enabled:
-            return False
-
-        if self.running is not None and obj.running != self.running:
-            return False
-
-        return True
-
-
-class ComponentStatus(ImmutableDataObject):
-    address: Address
-    running: bool
-    enabled: bool
-
-
-class MessageOrder(str, Enum):
-    OLD_TO_NEW = "old-to-new"
-    NEW_TO_OLD = "new-to-old"
-
-
-class MessageQueryArgs(ObjectQueryArgs, total=False):
-    search: str | None
-    search_case_sensitive: bool
-    within: PositiveTimeDelta | None
-    after: DateTime | None
-    before: DateTime | None
-    direction: MessageDirection | None
-    prefix: bytes | None
-    suffix: bytes | None
-    regex: BytesPattern | None
-    order: MessageOrder | None
-    limit: int | None
-    offset: int | None
-
-
-class MessageQuery(ObjectQuery[Message]):
-    search: str | None = None
-    search_case_sensitive: bool = False
-    within: PositiveTimeDelta | None = None
-    after: DateTime | None = None
-    before: DateTime | None = None
-    direction: MessageDirection | None = None
-    prefix: bytes | None = None
-    suffix: bytes | None = None
-    regex: BytesPattern | None = None
-    order: MessageOrder | None = None
-    limit: int | None = Field(default=None, ge=0)
-    offset: int | None = Field(default=None, ge=0)
-
-    @override
-    def matches(self, obj: Message, root: Address) -> bool:
-        if not super().matches(obj, root):
-            return False
-
-        if self.search is not None:
-            search = self.search
-            timestamp = _format_timestamp(obj.timestamp)
-            direction = obj.direction
-            content = obj.content
-
-            if not self.search_case_sensitive:
-                search = search.lower()
-                content = content.lower()
-
-            if not (search in timestamp or search.encode() in content or search in direction):
-                return False
-
-        if self.within is not None:
-            if obj.timestamp < utc() - self.within:
-                return False
-        if self.after is not None:
-            if obj.timestamp < self.after:
-                return False
-        if self.before is not None:
-            if obj.timestamp >= self.before:
-                return False
-
-        if self.direction is not None:
-            if obj.direction != self.direction:
-                return False
-
-        if self.prefix is not None:
-            if not obj.content.startswith(self.prefix):
-                return False
-        if self.suffix is not None:
-            if not obj.content.endswith(self.suffix):
-                return False
-        if self.regex is not None:
-            if not self.regex.match(obj.content):
-                return False
-
-        return True
-
-
-class AlertOrder(str, Enum):
-    OLD_TO_NEW = "old-to-new"
-    NEW_TO_OLD = "new-to-old"
-
-
-class AlertQueryArgs(TypedDict, total=False):
-    search: str | None
-    search_case_sensitive: bool
-    within: PositiveTimeDelta | None
-    after: DateTime | None
-    before: DateTime | None
-    level: Level | Sequence[Level] | None
-    code: str | Sequence[str] | None
-    code_regex: StrPattern | None
-    order: AlertOrder | None
-    limit: int | None
-    offset: int | None
-
-
-class AlertQuery(ObjectQuery[Alert]):
-    search: str | None = None
-    search_case_sensitive: bool = False
-    within: PositiveTimeDelta | None = None
-    after: DateTime | None = None
-    before: DateTime | None = None
-    level: Level | Sequence[Level] | None = None
-    code: str | Sequence[str] | None = None
-    code_regex: StrPattern | None = None
-    order: AlertOrder | None = None
-    limit: int | None = Field(default=None, ge=0)
-    offset: int | None = Field(default=None, ge=0)
-
-    @override
-    def matches(self, obj: Alert, root: Address) -> bool:
-        if not super().matches(obj, root):
-            return False
-
-        if self.search is not None:
-            search = self.search
-            timestamp = _format_timestamp(obj.timestamp)
-            level = obj.level
-            code = obj.code
-            info = jsonify(obj.info)
-
-            if self.search_case_sensitive:
-                search = search.lower()
-                code = code.lower()
-                info = info.lower()
-
-            if not (search in timestamp or search in level or search in code or search in info):
-                return False
-
-        if self.within is not None:
-            if obj.timestamp < utc() - self.within:
-                return False
-        if self.after is not None:
-            if obj.timestamp < self.after:
-                return False
-        if self.before is not None:
-            if obj.timestamp >= self.before:
-                return False
-
-        if self.level is not None:
-            if isinstance(self.level, Level):
-                if obj.level != self.level:
-                    return False
-            else:
-                if obj.level not in self.level:
-                    return False
-
-        if self.code is not None:
-            if isinstance(self.code, str):
-                if obj.code != self.code:
-                    return False
-            else:
-                if obj.code not in self.code:
-                    return False
-
-        if self.code_regex is not None:
-            if not self.code_regex.match(obj.code):
-                return False
-
-        return True
-
-
-class LogEntryOrder(str, Enum):
-    OLD_TO_NEW = "old-to-new"
-    NEW_TO_OLD = "new-to-old"
-
-
-class LogEntryQueryArgs(TypedDict, total=False):
-    search: str | None
-    search_case_sensitive: bool
-    within: PositiveTimeDelta | None
-    after: DateTime | None
-    before: DateTime | None
-    level: Level | Sequence[Level] | None
-    prefix: str | None
-    suffix: str | None
-    regex: StrPattern | None
-    order: LogEntryOrder | None
-    limit: int | None
-    offset: int | None
-
-
-class LogEntryQuery(ObjectQuery[LogEntry]):
-    search: str | None = None
-    search_case_sensitive: bool = False
-    within: PositiveTimeDelta | None = None
-    after: DateTime | None = None
-    before: DateTime | None = None
-    level: Level | Sequence[Level] | None = None
-    prefix: str | None = None
-    suffix: str | None = None
-    regex: StrPattern | None = None
-    order: LogEntryOrder | None = None
-    limit: int | None = Field(default=None, ge=0)
-    offset: int | None = Field(default=None, ge=0)
-
-    @override
-    def matches(self, obj: LogEntry, root: Address) -> bool:
-        if not super().matches(obj, root):
-            return False
-
-        if self.search is not None:
-            search = self.search
-            timestamp = _format_timestamp(obj.timestamp)
-            level = obj.level
-            content = obj.content
-
-            if not self.search_case_sensitive:
-                search = search.lower()
-                content = content.lower()
-
-            if not (search in timestamp or search in level or search in content):
-                return False
-
-        if self.within is not None:
-            if obj.timestamp < utc() - self.within:
-                return False
-        if self.after is not None:
-            if obj.timestamp < self.after:
-                return False
-        if self.before is not None:
-            if obj.timestamp >= self.before:
-                return False
-
-        if self.prefix is not None:
-            if not obj.content.startswith(self.prefix):
-                return False
-        if self.suffix is not None:
-            if not obj.content.endswith(self.suffix):
-                return False
-        if self.regex is not None:
-            if not self.regex.match(obj.content):
-                return False
-
-        return True
-
-
-class StatisticsQueryArgs(TypedDict, total=False):
-    root: DynamicAddress | None
-    within: PositiveTimeDelta | None
-    after: DateTime | None
-    before: DateTime | None
-
-
-class StatisticsQuery(Query):
-    root: DynamicAddress | None = None
-    within: PositiveTimeDelta | None = None
-    after: DateTime | None = None
-    before: DateTime | None = None
-
-
-class LevelStatistics(DataObject):
-    level: Level
-    count: int = Field(ge=0)
-
-
-class AlertStatistics(DataObject):
-    count: int = 0
-    levels: list[LevelStatistics] = Field(default_factory=list)
-
-
-class Statistics(DataObject):
-    address: Address
-    alerts: AlertStatistics = Field(default_factory=AlertStatistics)
-
 
 Item = Message | Alert | LogEntry
 
-
-class Job(ImmutableDataObject):
-    name: Name
-    action: Name
-    args: Mapping[Name, Any] | None = None
-    schedule: Schedule = Field(discriminator="kind")
-    enabled: bool = True
-
-    @root_validator(pre=True)
-    def _default_name_to_action(cls, values: dict[str, Any]) -> Any:
-        if "name" not in values and "action" in values:
-            values["name"] = values["action"]
-
-        return values
+warnings.filterwarnings(
+    action="ignore",
+    module="apscheduler",
+    message=r".*localize method is no longer necessary.*",
+)
 
 
-@dataclass
-class _Flush:
-    items: Sequence[Item]
-    event: AsyncEvent = field(default_factory=AsyncEvent)
+class Job:
+    def __init__(
+        self,
+        *,
+        internal: InternalJob,
+        schedule: Schedule,
+        action: Name,
+        args: Mapping[str, Any] | None,
+        retries: int,
+        retry_delay: timedelta,
+    ) -> None:
+        self.__internal = internal
+        self.__schedule = schedule
+        self.__action = action
+        self.__args = args
+        self.__retries = retries
+        self.__retry_delay = retry_delay
+
+    @property
+    def name(self) -> Name:
+        return self.__internal.name
+
+    @property
+    def schedule(self) -> Schedule:
+        return self.__schedule
+
+    @property
+    def action(self) -> Name:
+        return self.__action
+
+    @property
+    def args(self) -> Mapping[str, Any] | None:
+        return self.__args
+
+    @property
+    def retries(self) -> int:
+        return self.__retries
+
+    @property
+    def retry_delay(self) -> timedelta:
+        return self.__retry_delay
+
+    @property
+    def next_run_time(self) -> datetime | None:
+        return self.__internal.next_run_time
+
+    def get_run_times(
+        self,
+        start: datetime | None = None,
+        *,
+        end: datetime | None = None,
+        count: int | None = None,
+    ) -> Iterable[datetime]:
+        yield from self.__schedule.as_trigger().get_fire_times(start, end=end, count=count)
+
+
+class _TriggerAdapter(BaseTrigger):
+    def __init__(self, inner: Trigger) -> None:
+        super().__init__()
+        self.__inner = inner
+
+    def get_next_fire_time(  # type: ignore
+        self,
+        previous_fire_time: datetime | None,
+        now: datetime,
+    ) -> datetime | None:
+        return self.__inner.get_next_fire_time(previous_fire_time, now)
 
 
 @dataclass_transform(
     kw_only_default=True,
     field_specifiers=VALIDATED_DATACLASS_FIELD_SPECIFIERS,
 )
-class Component(ValidatedDataclass, Tasklet):
+class Component(Object):
     name: Final[Name] = Field(default_factory=lambda: randstr(ascii_lowercase, 8))
-    jobs: Final[Sequence[Job]] = field(default_factory=list)
-
-    @validator("jobs")
-    def _validate_jobs(cls, jobs: Sequence[Job]) -> Sequence[Job]:
-        seen: set[str] = set()
-
-        for job in jobs:
-            if job.name in seen:
-                raise ValueError(f"duplicate job '{job.name}', give the job a unique 'name' value")
-
-            seen.add(job.name)
-
-        return jobs
 
     def __post_init_post_parse__(self) -> None:
+        super().__post_init_post_parse__()
+
         self.__parent: ref[Component] | None = None
-        self.__events: WriteStream[Event] = WriteStream()
-        self.__scheduler = Scheduler()
+        self.__scheduler = AsyncIOScheduler(timezone=timezone.utc)
+        self.__jobs: dict[str, Job] = {}
         self.__referencers: WeakValueDictionary[int, Component] = WeakValueDictionary()
-        self.__log = Log(lambda: self.address)
-        self.__log.add_handler(self.__handle_log_entry)
         self.__components: dict[Name, Component] = {}
         self.__config__: "ComponentConfig | None" = None
         self.__enabled = False
-
-        self.__event_processors = [
-            EventProcessor(
+        self.__server: Server | None = None
+        self.__database: Database | None = None
+        self.__listeners = [
+            _Listener(
+                component=self,
                 binding=binding,
-                handler=getattr(self, binding.function),
-                log=self.log,
+                handler=getattr(self, binding.method),
             )
             for binding in self.get_listener_bindings()
         ]
-        self.__server: Server | None = None
-        self.__local_database: Database | None = None
-        self.__mapping: dict[Address, UUID] | None = None
-        self.__mapping_lock = AsyncLock()
-        self.__flush_buffer: list[Item] = []
-        self.__flushes: deque[_Flush] = deque()
-        self.__flushed = AsyncEvent()
-        self.__flushed.set()
 
-        self.__sync_referencers()
+        self.sync_component_references()
         self.__setup__()
 
     def __setup__(self) -> None:
         pass
 
-    def __handle_log_entry(self, entry: LogEntry) -> None:
-        self.emit(LogEvent, entry=entry)
-
-    def __sync_referencers(self) -> None:
-        for referencer in list(self.__referencers.values()):
-            if id(self) not in {id(other) for other in referencer.get_referencers()}:
-                self.__referencers.pop(id(referencer))
-
-        referenced = self.get_referencers()
-        for component in referenced:
-            component.__referencers[id(self)] = self
-
     @final
     @classmethod
-    def get_listener_bindings(cls) -> Sequence[ListenerBinding]:
+    def get_listener_bindings(cls) -> Sequence["ListenerBinding"]:
         return _get_listener_bindings(cls)
 
     @final
     @classmethod
-    def get_routine_bindings(cls) -> Sequence[RoutineBinding]:
+    def get_routine_bindings(cls) -> Sequence["RoutineBinding"]:
         return _get_routine_bindings(cls)
 
     @final
     @classmethod
-    def get_query_bindings(cls) -> Mapping[str, QueryBinding]:
+    def get_query_bindings(cls) -> Mapping[str, "QueryBinding"]:
         return {
             name: binding
             for name, binding in cls.get_procedure_bindings().items()
@@ -597,7 +258,16 @@ class Component(ValidatedDataclass, Tasklet):
 
     @final
     @classmethod
-    def get_action_bindings(cls) -> Mapping[str, ActionBinding]:
+    def get_query_binding(cls, name: Callable[..., Any] | str) -> "QueryBinding | None":
+        procedure = cls.get_procedure_binding(name)
+        if not isinstance(procedure, QueryBinding):
+            return None
+
+        return procedure
+
+    @final
+    @classmethod
+    def get_action_bindings(cls) -> Mapping[str, "ActionBinding"]:
         return {
             name: binding
             for name, binding in cls.get_procedure_bindings().items()
@@ -606,26 +276,104 @@ class Component(ValidatedDataclass, Tasklet):
 
     @final
     @classmethod
-    def get_procedure_bindings(cls) -> Mapping[str, ProcedureBinding]:
+    def get_action_binding(cls, name: Callable[..., Any] | str) -> "ActionBinding | None":
+        procedure = cls.get_procedure_binding(name)
+        if not isinstance(procedure, ActionBinding):
+            return None
+
+        return procedure
+
+    @final
+    @classmethod
+    def get_procedure_bindings(cls) -> Mapping[str, "ProcedureBinding"]:
         return _get_procedure_bindings(cls)
 
+    @final
+    @classmethod
+    def get_procedure_binding(cls, name: Callable[..., Any] | str) -> "ProcedureBinding | None":
+        if isinstance(name, str):
+            return cls.get_procedure_bindings().get(name)
+
+        return get_method_binding(name, ProcedureBinding)
+
     @property
+    @override
+    def __object_parent__(self) -> Object | None:
+        if self.parent is not None:
+            return self.parent
+
+        return self.server
+
+    @property
+    @override
+    def __object_descendants__(self) -> Sequence[Object]:
+        return list(self.get_components())
+
+    @property
+    @override
+    @final
+    def __object_database__(self) -> Database:
+        if self.parent is not None:
+            return self.parent.__object_database__
+        if self.server is not None:
+            return self.server.__object_database__
+        if self.__database is None:
+            self.__database = Database()
+
+        return self.__database
+
+    @override
+    async def __object_sync__(self, session: AsyncSession | None = None) -> None:
+        async with await get_session(self.__object_database__, session) as session:
+            await super().__object_sync__(session)
+            self.__enabled = await self.__get_enabled_in_database(session)
+
+    @property
+    @override
     def address(self) -> Address:
         if self.parent is not None:
             return self.parent.address / self.name
 
-        return Address("@")
+        return Address.root()
 
     @property
     def enabled(self) -> bool:
         return self.__enabled
 
+    @property
+    @override
+    def settled(self) -> bool:
+        if not self.running:
+            return True
+
+        return super().settled and all(processor.idle for processor in self.__listeners)
+
+    @override
+    async def settle(self) -> None:
+        while not self.settled:
+            await asyncio.gather(
+                super().settle(),
+                *(listener.settle() for listener in self.__listeners),
+            )
+
+    @override
+    def handle(self, event: Event) -> None:
+        super().handle(event)
+
+        if not self.running or self.stopping:
+            return
+
+        for listener in self.__listeners:
+            listener.handle(event)
+
     async def enable(self) -> None:
-        await self.__set_enabled_in_database(True)
+        async with await self.__object_database__.init() as session:
+            await self.__set_enabled_in_database(session, True)
         self.__enabled = True
 
     async def disable(self) -> None:
-        await self.__set_enabled_in_database(False)
+        async with await self.__object_database__.init() as session:
+            await self.__set_enabled_in_database(session, False)
         self.__enabled = False
 
     async def up(self) -> None:
@@ -636,24 +384,33 @@ class Component(ValidatedDataclass, Tasklet):
         await self.disable()
         await self.stop()
 
-    async def __get_enabled_in_database(self) -> bool:
-        async with await self.__init_database_session() as session:
-            return (
-                await session.scalar(
-                    select(ComponentEntity.enabled).where(ComponentEntity.address == self.address)
-                )
-                or False
-            )
+    async def __get_enabled_in_database(self, session: AsyncSession) -> bool:
+        enabled = await session.scalar(
+            select(ComponentEntity.enabled).where(ComponentEntity.address == self.address)
+        )
 
-    async def __set_enabled_in_database(self, enabled: bool) -> None:
-        async with await self.__init_database_session() as session:
-            await session.execute(
-                update(ComponentEntity)
-                .where(ComponentEntity.address == self.address)
-                .values(enabled=enabled)
-            )
+        if enabled is None:
+            return False
 
-            await session.commit()
+        return enabled
+
+    async def __set_enabled_in_database(self, session: AsyncSession, enabled: bool) -> None:
+        if self.__object_database__.kind == "sqlite":
+            from sqlalchemy.dialects.sqlite import insert
+        else:
+            from sqlalchemy.dialects.postgresql import insert
+
+        await self.__object_sync__(session)
+        await session.execute(
+            insert(ComponentEntity)
+            .values(
+                address=self.address,
+                enabled=enabled,
+            )
+            .on_conflict_do_update(set_={"enabled": enabled})
+        )
+
+        await session.commit()
 
         if enabled:
             self.emit(EnabledEvent)
@@ -661,6 +418,8 @@ class Component(ValidatedDataclass, Tasklet):
             self.emit(DisabledEvent)
 
     @property
+    @override
+    @final
     def root(self) -> "Component":
         current: Component | None = self
         while current.parent is not None:
@@ -669,6 +428,7 @@ class Component(ValidatedDataclass, Tasklet):
         return current
 
     @property
+    @final
     def parent(self) -> "Component | None":
         if self.__parent is None:
             return None
@@ -676,90 +436,66 @@ class Component(ValidatedDataclass, Tasklet):
         return self.__parent()
 
     @property
-    def database(self) -> Database:
-        if self.parent is not None:
-            return self.parent.database
-        if self.server is not None:
-            return self.server.database
-
-        if self.__local_database is None:
-            self.__local_database = Database()
-
-        return self.__local_database
-
-    @property
-    def local_database(self) -> Database | None:
-        return self.__local_database
-
-    def bind_server(self, server: Server) -> None:
-        self.__server = server
-
-    @property
-    def server(self) -> "Server | None":
+    @override
+    @final
+    def server(self) -> Server | None:
         if self.parent is not None:
             return self.parent.server
+        if self.__server is not None:
+            return self.__server
 
-        return self.__server
+        return None
 
-    @property
-    def scheduler(self) -> Scheduler:
-        return self.__scheduler
-
-    @property
-    def log(self) -> Log:
-        return self.__log
-
-    @property
-    def events(self) -> Stream[Event]:
-        return self.__events.view()
+    @server.setter
+    def server(self, server: Server) -> None:
+        self.__server = server
 
     @property
     def components(self) -> "ComponentGroup":
         return ComponentGroup(self.__components.values())
 
-    @property
-    def settled(self) -> bool:
-        if not self.running:
-            return True
-
-        return (
-            all(processor.idle for processor in self.__event_processors) and self.__flushed.is_set()
-        )
-
-    async def settle(self) -> None:
-        await self.flush()
-
-        while not self.settled:
-            await asyncio.gather(
-                *(processor.wait_until_empty() for processor in self.__event_processors),
-                self.__flushed.wait(),
-            )
-
     def unref(self) -> Self:
         return self
 
-    def assign_references(
-        self,
-        components: Mapping[str, Self],
-    ) -> ComponentReferenceInvalidError | None:
-        from ceres.ref import get_references
+    def sync_component_references(self) -> tuple[list[Reference], list[Reference]]:
+        resolved: list[Reference] = []
+        unresolved: list[Reference] = []
 
-        for reference in get_references(self):
-            component = components.get(reference.__component_name__)
-            if component is None:
-                return ComponentReferenceInvalidError(
-                    message=(
-                        f"reference to component '{reference}' of type "
-                        f"{strify(reference.__component_cls__)} is required and specified by "
-                        f"{strify(type(self))}, but it hasn't loaded yet or failed to load"
-                    )
-                )
+        for reference in self.get_component_references():
+            reference.__reference_root__ = self
 
-            reference.__component_instance__ = component
+            if reference.unref() is not None:
+                resolved.append(reference)
+            else:
+                unresolved.append(reference)
 
-        self.__sync_referencers()
+        for referencer in list(self.__referencers.values()):
+            if id(self) not in {
+                id(other.unref()) for other in referencer.get_component_references()
+            }:
+                self.__referencers.pop(id(referencer))
 
-    def get_referencers(self, alias: str | None = None) -> Sequence[Self]:
+        for component in self.get_referenced_components():
+            component.__referencers[id(self)] = self
+
+        return resolved, unresolved
+
+    def get_component_references(self) -> list[Reference]:
+        from ceres.reference import Reference
+
+        references: list[Reference] = []
+
+        def visit(obj: Any) -> bool:
+            if isinstance(obj, Reference):
+                references.append(obj)
+                return False
+
+            return True
+
+        traverse(self, visit)
+        return references
+
+    def get_referenced_components(self, alias: str | None = None) -> "ComponentGroup":
         components: list[Component] = []
         root = self
 
@@ -770,7 +506,7 @@ class Component(ValidatedDataclass, Tasklet):
                     break
 
         if root is None:
-            return components
+            return ComponentGroup(components)
 
         def visit(obj: Any) -> bool:
             if lenient_isinstance(obj, Component):
@@ -782,7 +518,7 @@ class Component(ValidatedDataclass, Tasklet):
             return True
 
         traverse(root, visit)
-        return components
+        return ComponentGroup(components)
 
     def add_component(
         self,
@@ -790,33 +526,36 @@ class Component(ValidatedDataclass, Tasklet):
         /,
         name: Name | None = None,
     ) -> _ComponentT:
-        if component is self or component in self.get_ancestors():
+        if component is self or component in self.get_ancestor_components():
             raise ValueError("component cannot contain itself")
 
         if isinstance(name, str):
             setattr_internal(Component, component, "name", name)
 
         self.__components[component.name] = component
-        component.detach()
+        component.remove_component()
         component.__parent = ref(self)  # type: ignore
+        component.sync_component_references()
 
         return component
 
-    def detach(self) -> None:
-        if self.parent is None:
+    def remove_component(self, address: str | DynamicAddress | None = None) -> "Component | None":
+        if address is None:
+            if self.parent is not None:
+                removed = self.parent.__components.pop(self.name, None)
+                self.__parent = None
+                if removed is not None:
+                    removed.sync_component_references()
+
             return
 
-        self.parent.__components.pop(self.name, None)
-        self.__parent = None
-
-    def remove_component(self, address: str | DynamicAddress | None, /) -> "Component | None":
         component = self.get_component(address)
         if component is not None:
-            component.detach()
+            component.remove_component()
 
         return component
 
-    def get_component(self, address: str | DynamicAddress | None, /) -> "Component | None":
+    def get_component(self, address: str | DynamicAddress | None = None, /) -> "Component | None":
         if not address:
             return self
 
@@ -835,24 +574,27 @@ class Component(ValidatedDataclass, Tasklet):
 
         return current
 
+    @override
     def get_components(
         self,
-        __query: ComponentQuery | AddressSelector | None = None,
+        filter: ComponentFilter | AddressSelector | None = None,
         /,
         *,
         inclusive: bool = False,
-        **kwargs: Unpack[ComponentQueryArgs],
+        **kwargs: Unpack[ComponentFilterArgs],
     ) -> "ComponentGroup":
         components: list[Component] = []
 
-        query = ComponentQuery(**kwargs)
-        if isinstance(__query, ComponentQuery):
-            query = __query.with_defaults(query)
-        elif isinstance(__query, AddressSelector):
-            query = ComponentQuery(**{**query.dict(), "address": __query})  # type: ignore
+        overrides = ComponentFilter(**kwargs)
+        if isinstance(filter, ComponentFilter):
+            filter = filter.with_overrides(overrides)
+        elif isinstance(filter, AddressSelector):
+            filter = ComponentFilter(**{**overrides.dict(), "address": filter})  # type: ignore
+        else:
+            filter = overrides
 
         def traverse(current: Component) -> None:
-            if (inclusive or current is not self) and query.matches(current, self.address):
+            if (inclusive or current is not self) and filter.matches(current, self.address):
                 components.append(current)
 
             for component in current.__components.values():
@@ -862,7 +604,25 @@ class Component(ValidatedDataclass, Tasklet):
 
         return ComponentGroup(components)
 
-    def get_ancestors(self, *, inclusive: bool = False) -> "ComponentGroup":
+    @overload
+    async def get_status(self, address: str | DynamicAddress) -> Status | None:
+        ...
+
+    @overload
+    async def get_status(self, address: None = None) -> Status:
+        ...
+
+    async def get_status(self, address: str | DynamicAddress | None = None) -> Status | None:
+        if address is None:
+            return Status(
+                address=self.address,
+                running=self.running,
+                enabled=self.enabled,
+            )
+
+        return await super().get_status(address)
+
+    def get_ancestor_components(self, *, inclusive: bool = False) -> "ComponentGroup":
         ancestors: list[Component] = []
 
         current: Component | None = self if inclusive else self.parent
@@ -885,44 +645,13 @@ class Component(ValidatedDataclass, Tasklet):
         return self.propagate(event_cls(*args, **kwargs))
 
     def propagate(self, event: _EventT) -> _EventT:
-        # Handle "self" events.
-        self.handle_event(event)
-        # Send the event to all components have a reference to this one.
+        super().propagate(event)
+
         for referencer in self.__referencers.values():
-            referencer.handle_event(event)
-        # Add the event to the outgoing event stream.
-        self.__events.put(event)
-        # Pass the event up to the containing unit if it exists.
-        if self.parent is not None:
-            self.parent.propagate(event)
-        else:
-            # Otherwise, store any related items in the database.
-            match event:
-                case MessageSentEvent() | MessageReceivedEvent():
-                    self.store(event.message)
-                case AlertEvent():
-                    self.store(event.alert)
-                case LogEvent():
-                    self.store(event.entry)
-                case _:
-                    pass
+            if referencer.root is not self.root:
+                referencer.handle(event)
 
         return event
-
-    def handle_event(self, event: Event) -> None:
-        if not self.running or self.stopping:
-            return
-
-        for processor in self.__event_processors:
-            if not lenient_isinstance(event, processor.binding.event_cls):
-                continue
-
-            for alias in processor.binding.sources:
-                if (alias == "self" and self.address == event.address) or any(
-                    component.address == event.address for component in self.get_referencers(alias)
-                ):
-                    processor.put(event)
-                    break
 
     def alert(
         self,
@@ -939,32 +668,102 @@ class Component(ValidatedDataclass, Tasklet):
         self.emit(AlertEvent, alert=alert)
         return alert
 
-    def schedule_job(
+    @validate_arguments(config={"arbitrary_types_allowed": True})
+    def add_job(
         self,
-        function: Callable[[], Any],
+        name: Name,
         schedule: Schedule,
-        name: str | None = None,
+        action: Callable[..., Any] | Name,
+        args: Mapping[Name, Any] | None = None,
+        retries: NonNegativeInt = 0,
+        retry_delay: PositiveFloat | PositiveTimeDelta = timedelta(seconds=5),
+    ) -> Job:
+        binding = self.get_action_binding(action)
+        if binding is None:
+            raise ValueError(f"action '{action}' does not exist on {strify(type(self))}")
+
+        retry_delay = decode_td(retry_delay)
+
+        async def callback() -> None:
+            await self.__process_job(
+                name=name,
+                action=binding.name,
+                args=args,
+                retries=retries,
+                retry_delay=retry_delay,
+            )
+
+        internal: InternalJob = self.__scheduler.add_job(
+            callback,
+            trigger=_TriggerAdapter(schedule.as_trigger()),
+            name=name,
+            id=name,
+        )
+
+        job = Job(
+            internal=internal,
+            schedule=schedule,
+            action=binding.name,
+            args=args,
+            retries=retries,
+            retry_delay=retry_delay,
+        )
+
+        self.__jobs[name] = job
+        return job
+
+    async def __process_job(
+        self,
+        name: Name,
+        action: Name,
+        args: Mapping[str, Any] | None,
+        retries: NonNegativeInt,
+        retry_delay: PositiveTimeDelta,
     ) -> None:
-        self.__scheduler.schedule(function, schedule, name=name)
+        self.emit(JobStartedEvent, job=name)
+        retry = 0
 
-    def unschedule_job(self, name: str | Callable[[], Any]) -> None:
-        self.__scheduler.unschedule(name)
-
-    def __start_scheduler(self) -> None:
-        self.__scheduler.start()
-
-        async def run(job: Job) -> None:
-            self.log.info(f"Running job '{job.name}'...")
+        while True:
             try:
-                await self.call(job.action, job.args)
-            except ProcedureException as exception:
-                self.log.error(
-                    f"An error occurred while running job '{job.name}': {strify(exception.error)}"
-                )
+                await self.call(action, args)
+                self.emit(JobCompletedEvent, job=name)
+                break
+            except CancelledError:
+                self.emit(JobCancelledEvent, job=name)
+                break
+            except Exception:
+                self.emit(JobExceptionEvent, job=name)
+                if retry >= retries:
+                    break
 
-        for job in self.jobs:
-            self.log.info(f"Scheduling job '{job.name}' on {job.schedule}.")
-            self.schedule_job(partial(run, job), job.schedule, name=job.name)
+                self.emit(JobRetryPendingEvent, job=name, delay=retry_delay)
+                retry += 1
+                await asyncio.sleep(retry_delay.total_seconds())
+                self.emit(JobRetryEvent, job=name)
+
+        self.emit(JobStoppedEvent, job=name)
+
+    def get_jobs(self) -> list[Job]:
+        return list(self.__jobs.values())
+
+    def get_job(self, name: Name) -> Job | None:
+        return self.__jobs.get(name)
+
+    def remove_job(self, name: Name) -> Job | None:
+        job = self.__jobs.pop(name, None)
+
+        try:
+            self.__scheduler.remove_job(name)
+        except JobLookupError:
+            pass
+
+        return job
+
+    def clear_jobs(self) -> None:
+        self.__jobs.clear()
+        for job in self.__scheduler.get_jobs():
+            job: InternalJob = job
+            self.__scheduler.remove_job(job.id)
 
     def start(
         self,
@@ -972,7 +771,7 @@ class Component(ValidatedDataclass, Tasklet):
         on_completed: Callable[[Self], None] | None = None,
         on_exception: Callable[[Self, BaseException], None] | None = None,
     ) -> None:
-        for component in reversed(self.get_ancestors()):
+        for component in reversed(self.get_ancestor_components()):
             component.start()
 
         super().start(
@@ -982,43 +781,59 @@ class Component(ValidatedDataclass, Tasklet):
 
     @override
     async def __run__(self) -> None:
-        await self.sync_with_database()
+        await self.__object_sync__()
 
-        self.__start_scheduler()
-        self.emit(StartedEvent)
+        self.__scheduler.start()
 
         await asyncio.gather(
-            self.__process_flush(),
-            self.__process_routines(),
+            super().__run__(),
             self.__process_events(),
+            self.__process_routines(),
         )
 
-    async def __process_routine(self, binding: RoutineBinding) -> None:
-        routine = getattr(self, binding.function, None)
+    async def __process_events(self) -> None:
+        await asyncio.gather(*(processor.run() for processor in self.__listeners))
+
+    async def __process_routine(self, binding: "RoutineBinding") -> None:
+        routine = getattr(self, binding.method, None)
         if routine is None:
             return
 
-        try:
-            await routine()
-        except Exception:
-            self.log.error(
-                f"An exception occurred while running routine '{strify(binding.function)}': "
-                f"{strify(traceback.format_exc())}"
-            )
+        self.emit(RoutineStartedEvent, routine=binding.method)
+        if type(self).__name__ == "RunsForever":
+            self.log.info(f"Running routine '{binding.method}' forever...")
 
-    async def __process_flush(self) -> None:
-        while True:
-            if self.__flush_buffer:
-                await self.flush()
-            await asyncio.sleep(0.1)
+        try:
+            while True:
+                try:
+                    await routine()
+                    self.emit(RoutineCompletedEvent, routine=binding.method)
+                    if binding.restart == RoutineRestartPolicy.ON_COMPLETED:
+                        break
+                except Exception:
+                    self.emit(RoutineExceptionEvent, routine=binding.method)
+                    if binding.restart == RoutineRestartPolicy.ON_EXCEPTION:
+                        break
+
+                if binding.restart == RoutineRestartPolicy.NEVER:
+                    break
+
+                self.emit(
+                    RoutineRestartingEvent,
+                    routine=binding.method,
+                    delay=binding.restart_delay,
+                )
+                await asyncio.sleep(binding.restart_delay.total_seconds())
+                self.emit(RoutineRestartedEvent, routine=binding.method)
+        except CancelledError:
+            self.emit(RoutineCancelledEvent, routine=binding.method)
+        finally:
+            self.emit(RoutineStoppedEvent, routine=binding.method)
 
     async def __process_routines(self) -> None:
         await asyncio.gather(
             *(self.__process_routine(binding) for binding in self.get_routine_bindings())
         )
-
-    async def __process_events(self) -> None:
-        await asyncio.gather(*(processor.run() for processor in self.__event_processors))
 
     @override
     async def __stop__(self) -> None:
@@ -1026,16 +841,15 @@ class Component(ValidatedDataclass, Tasklet):
             self.log.info(f"Stopping '{component.address}'...")
             await component.stop()
 
-        self.__scheduler.stop()
-        self.__scheduler = Scheduler()
-        await self.flush()
-        if self.__local_database is not None:
-            await self.__local_database.dispose()
-            self.__local_database = None
+        if self.__scheduler.running:
+            self.__scheduler.shutdown()
 
-    @override
-    async def __done__(self) -> None:
-        self.emit(StoppedEvent)
+        await self.flush()
+        if self.__database is not None:
+            await self.__database.dispose()
+            self.__database = None
+
+        await super().__stop__()
 
     async def __invoke(
         self,
@@ -1047,7 +861,7 @@ class Component(ValidatedDataclass, Tasklet):
 
         if (
             (binding := self.get_procedure_bindings().get(procedure)) is None
-            or (method := getattr(self, binding.function, None)) is None
+            or (method := getattr(self, binding.method, None)) is None
             or not inspect.ismethod(method)
         ):
             raise ProcedureException(ProcedureDoesNotExistError())
@@ -1138,649 +952,41 @@ class Component(ValidatedDataclass, Tasklet):
                 ProcedureInternalError(traceback=traceback.format_exception(exception))
             )
 
-    async def __init_database_session(self) -> AsyncSession:
-        await self.database.init()
-        return self.database.session()
-
-    async def sync_with_database(self) -> UUID:
-        id = await self.root.assign_component_id(self.address)
-        self.__enabled = await self.__get_enabled_in_database()
-        return id
-
-    async def assign_component_id(
-        self,
-        address: Address,
-        default: UUID | None = None,
-    ) -> UUID:
-        if self.__mapping is not None:
-            id = self.__mapping.get(address)
-            if id is not None:
-                return id
-
-        async with await self.__init_database_session() as session:
-            mapping = await self.__get_or_load_mapping(session)
-            id = mapping.get(address)
-            if id is not None:
-                return id
-
-            if id is None:
-                id = await session.scalar(
-                    select(ComponentEntity.id).where(ComponentEntity.address == address),
-                )
-
-            if id is None:
-                id = default or uuid4()
-                component = ComponentEntity(id=id, address=address)
-
-                session.add(component)
-                await session.commit()
-
-            mapping[address] = id
-            return id
-
-    @final
-    def store(self, item: Item) -> None:
-        # If the component has a parent, defer to the parent component.
-        if self.parent is not None:
-            self.parent.store(item)
-            return
-
-        if not isinstance(item, Item):
-            raise TypeError(f"unsupported item type: {type(item)}")
-
-        # Add the item to the flush buffer and clear the flushed event.
-        self.__flush_buffer.append(item)
-        self.__flushed.clear()
-
-    @final
-    async def flush(self) -> None:
-        # Keep track of all pending flushes.
-        pending = tuple(self.__flushes)
-
-        # If there's no items in the buffer, wait for the latest flush to complete.
-        if not self.__flush_buffer:
-            if pending:
-                await pending[-1].event.wait()
-
-            # Otherwise return, there's nothing to wait for.
-            return
-
-        # Register the flush request.
-        flush = _Flush(items=tuple(self.__flush_buffer))
-        self.__flushes.append(flush)
-
-        # Clear the buffer.
-        self.__flush_buffer = []
-
-        try:
-            # Wait for the previous flush to complete.
-            if pending:
-                await pending[-1].event.wait()
-
-            async with await self.__init_database_session() as session:
-                # Pick the number of items to insert in a single query based on the database kind.
-                match self.database.kind:
-                    case DatabaseKind.SQLITE:
-                        from sqlalchemy.dialects.sqlite import insert
-
-                        chunk_size = 500
-
-                    case DatabaseKind.POSTGRES:
-                        from sqlalchemy.dialects.postgresql import insert  # noqa
-
-                        chunk_size = 1000
-
-                # Group items by item class.
-                for model_cls, model in groupby(flush.items, type):
-                    # Determine the entity class of item.
-                    if issubclass(model_cls, Message):
-                        entity_cls = MessageEntity
-                    elif issubclass(model_cls, Alert):
-                        entity_cls = AlertEntity
-                    elif issubclass(model_cls, LogEntry):
-                        entity_cls = LogEntryEntity
-                    else:
-                        continue
-
-                    # Insert items in chunks.
-                    for chunk in chunkify(model, chunk_size):
-                        values: list[dict[str, Any]] = []
-
-                        for model in chunk:
-                            # Convert the model to a dictionary, replacing the "address" field with
-                            # the "component_id".
-                            data = dictify(model)
-                            data.pop("address", None)
-                            data["component_id"] = await self.assign_component_id(model.address)
-                            values.append(data)
-
-                        await session.execute(
-                            insert(entity_cls).on_conflict_do_nothing(),
-                            values,
-                        )
-
-                await session.commit()
-        finally:
-            # Notify the flush is complete.
-            flush.event.set()
-            # Remove it from the queue.
-            self.__flushes.popleft()
-            # If there are items no items remaining in the buffer and no pending flushes, set
-            # the "flushed" event.
-            if not self.__flush_buffer and not self.__flushes:
-                self.__flushed.set()
-
-    async def __get_component_ids(self, query: ComponentQuery) -> list[UUID]:
-        return [
-            await self.assign_component_id(component.address)
-            for component in self.get_components(query, inclusive=True)
-        ]
-
-    async def get_status(self) -> ComponentStatus:
-        return ComponentStatus(
-            address=self.address,
-            running=self.running,
-            enabled=self.enabled,
-        )
-
-    async def get_statuses(
-        self,
-        query: ComponentQuery | None = None,
-        **kwargs: Unpack[ComponentQueryArgs],
-    ) -> list[ComponentStatus]:
-        if query is not None:
-            query = query.with_defaults(ComponentQuery(**kwargs))
-        else:
-            query = ComponentQuery(**kwargs)
-
-        return [
-            await component.get_status() for component in self.get_components(query, inclusive=True)
-        ]
-
-    async def get_messages(
-        self,
-        query: MessageQuery | None = None,
-        *,
-        where: Callable[[type[MessageEntity]], WhereExpression] | None = None,
-        order_by: Callable[[type[MessageEntity]], OrderByExpression] | None = None,
-        **kwargs: Unpack[MessageQueryArgs],
-    ) -> list[Message]:
-        if query is not None:
-            query = query.with_defaults(MessageQuery(**kwargs))
-        else:
-            query = MessageQuery(**kwargs)
-
-        ids = await self.__get_component_ids(ComponentQuery(address=query.address))
-        statement = (
-            select(
-                MessageEntity.id,
-                ComponentEntity.address,
-                MessageEntity.timestamp,
-                MessageEntity.direction,
-                MessageEntity.content,
-            )
-            .join(ComponentEntity)
-            .where(MessageEntity.component_id.in_(ids))
-        )
-
-        if query.search is not None:
-            pattern = "%" + escape_like_expression(query.search) + "%"
-            match self.database.kind:
-                case DatabaseKind.SQLITE:
-                    statement = statement.where(
-                        _like(
-                            _sqlite_format_timestamp(MessageEntity.timestamp),
-                            pattern,
-                            query.search_case_sensitive,
-                        )
-                        | _like(MessageEntity.direction, pattern, query.search_case_sensitive)
-                        | _like(
-                            MessageEntity.content,
-                            pattern.encode("utf-8"),
-                            query.search_case_sensitive,
-                        ),
-                    )
-                case DatabaseKind.POSTGRES:
-                    statement = statement.where(
-                        _like(
-                            _pg_format_timestamp(MessageEntity.timestamp),
-                            pattern,
-                            query.search_case_sensitive,
-                        )
-                        | _like(MessageEntity.direction, pattern, query.search_case_sensitive)
-                        | _like(
-                            func.encode(MessageEntity.content, "escape"),
-                            pattern.encode("utf-8").decode("unicode-escape"),
-                            query.search_case_sensitive,
-                        ),
-                    )
-
-        if query.within is not None:
-            statement = statement.where(MessageEntity.timestamp >= utc() - query.within)
-        if query.after is not None:
-            statement = statement.where(MessageEntity.timestamp >= query.after)
-        if query.before is not None:
-            statement = statement.where(MessageEntity.timestamp < query.before)
-        if query.direction is not None:
-            statement = statement.where(MessageEntity.direction == query.direction)
-        if query.prefix is not None:
-            statement = statement.where(
-                MessageEntity.content.like(escape_like_expression(query.prefix) + b"%"),
-            )
-        if query.suffix is not None:
-            statement = statement.where(
-                MessageEntity.content.like(b"%" + escape_like_expression(query.suffix)),
-            )
-
-        if query.order is not None:
-            match query.order:
-                case MessageOrder.OLD_TO_NEW:
-                    statement = statement.order_by(MessageEntity.timestamp)
-                case MessageOrder.NEW_TO_OLD:
-                    statement = statement.order_by(MessageEntity.timestamp.desc())
-
-        if query.limit is not None:
-            statement = statement.limit(query.limit)
-        if query.offset is not None and query.offset > 0:
-            statement = statement.offset(query.offset)
-
-        if where is not None:
-            statement = statement.where(where(MessageEntity))
-        if order_by is not None:
-            statement = statement.order_by(order_by(MessageEntity))
-
-        if query.order is None and order_by is None:
-            statement = statement.order_by(MessageEntity.timestamp)
-
-        async with await self.__init_database_session() as session:
-            rows = await session.execute(statement)
-
-        return [Message.construct(**row._asdict()) for row in rows]  # type: ignore
-
-    async def get_message(
-        self,
-        query: MessageQuery | None = None,
-        *,
-        where: Callable[[type[MessageEntity]], WhereExpression] | None = None,
-        order_by: Callable[[type[MessageEntity]], OrderByExpression] | None = None,
-        **kwargs: Unpack[MessageQueryArgs],
-    ) -> Message | None:
-        messages = await self.get_messages(
-            query,
-            where=where,
-            order_by=order_by,
-            **{**kwargs, "limit": 1},
-        )
-
-        return messages[0] if messages else None
-
-    async def get_alerts(
-        self,
-        query: AlertQuery | None = None,
-        *,
-        where: Callable[[type[AlertEntity]], WhereExpression] | None = None,
-        order_by: Callable[[type[AlertEntity]], OrderByExpression] | None = None,
-        **kwargs: Unpack[AlertQueryArgs],
-    ) -> list[Alert]:
-        if query is not None:
-            query = query.with_defaults(AlertQuery(**kwargs))
-        else:
-            query = AlertQuery(**kwargs)
-
-        ids = await self.__get_component_ids(ComponentQuery(address=query.address))
-        statement = (
-            select(
-                AlertEntity.id,
-                ComponentEntity.address,
-                AlertEntity.timestamp,
-                AlertEntity.level,
-                AlertEntity.code,
-                AlertEntity.info,
-            )
-            .join(ComponentEntity)
-            .where(ComponentEntity.id.in_(ids))
-        )
-
-        if query.search is not None:
-            pattern = "%" + escape_like_expression(query.search) + "%"
-            match self.database.kind:
-                case DatabaseKind.SQLITE:
-                    statement = statement.where(
-                        _like(
-                            _sqlite_format_timestamp(AlertEntity.timestamp),
-                            pattern,
-                            query.search_case_sensitive,
-                        )
-                        | _like(AlertEntity.level, pattern, query.search_case_sensitive)
-                        | _like(AlertEntity.code, pattern, query.search_case_sensitive)
-                        | _like(AlertEntity.info, pattern, query.search_case_sensitive),
-                    )
-                case DatabaseKind.POSTGRES:
-                    statement = statement.where(
-                        _like(
-                            _pg_format_timestamp(AlertEntity.timestamp),
-                            pattern,
-                            query.search_case_sensitive,
-                        )
-                        | _like(AlertEntity.level, pattern, query.search_case_sensitive)
-                        | _like(AlertEntity.code, pattern, query.search_case_sensitive)
-                        | _like(cast(AlertEntity.info, Text), pattern, query.search_case_sensitive),
-                    )
-
-        if query.within is not None:
-            statement = statement.where(AlertEntity.timestamp >= utc() - query.within)
-        if query.after is not None:
-            statement = statement.where(AlertEntity.timestamp >= query.after)
-        if query.before is not None:
-            statement = statement.where(AlertEntity.timestamp < query.before)
-        if query.level is not None:
-            if isinstance(query.level, Level):
-                statement = statement.where(AlertEntity.level == query.level)
-            else:
-                statement = statement.where(AlertEntity.level.in_(query.level))
-        if query.code is not None:
-            if isinstance(query.code, str):
-                statement = statement.where(AlertEntity.code == query.code)
-            else:
-                statement = statement.where(AlertEntity.code.in_(query.code))
-        if query.code_regex is not None:
-            statement = statement.where(AlertEntity.code.regexp_match(query.code_regex))
-
-        if query.order is not None:
-            match query.order:
-                case AlertOrder.OLD_TO_NEW:
-                    statement = statement.order_by(AlertEntity.timestamp)
-                case AlertOrder.NEW_TO_OLD:
-                    statement = statement.order_by(AlertEntity.timestamp.desc())
-        elif order_by is None:
-            statement = statement.order_by(AlertEntity.timestamp)
-
-        if query.limit is not None:
-            statement = statement.limit(query.limit)
-        if query.offset is not None and query.offset > 0:
-            statement = statement.offset(query.offset)
-
-        if where is not None:
-            statement = statement.where(where(AlertEntity))
-        if order_by is not None:
-            statement = statement.order_by(order_by(AlertEntity))
-
-        if query.order is None and order_by is None:
-            statement = statement.order_by(AlertEntity.timestamp)
-
-        async with await self.__init_database_session() as session:
-            rows = await session.execute(statement)
-
-        return [Alert.construct(**row._asdict()) for row in rows]  # type: ignore
-
-    async def get_alert(
-        self,
-        query: AlertQuery | None = None,
-        *,
-        where: Callable[[type[AlertEntity]], WhereExpression] | None = None,
-        order_by: Callable[[type[AlertEntity]], OrderByExpression] | None = None,
-        **kwargs: Unpack[AlertQueryArgs],
-    ) -> Alert | None:
-        alerts = await self.get_alerts(
-            query,
-            where=where,
-            order_by=order_by,
-            **{**kwargs, "limit": 1},
-        )
-
-        return alerts[0] if alerts else None
-
-    async def get_log_entries(
-        self,
-        query: LogEntryQuery | None = None,
-        *,
-        where: Callable[[type[LogEntryEntity]], WhereExpression] | None = None,
-        order_by: Callable[[type[LogEntryEntity]], OrderByExpression] | None = None,
-        **kwargs: Unpack[LogEntryQueryArgs],
-    ) -> list[LogEntry]:
-        if query is not None:
-            query = query.with_defaults(LogEntryQuery(**kwargs))
-        else:
-            query = LogEntryQuery(**kwargs)
-
-        ids = await self.__get_component_ids(ComponentQuery(address=query.address))
-        statement = (
-            select(
-                LogEntryEntity.id,
-                ComponentEntity.address,
-                LogEntryEntity.timestamp,
-                LogEntryEntity.level,
-                LogEntryEntity.content,
-            )
-            .join(ComponentEntity)
-            .where(ComponentEntity.id.in_(ids))
-        )
-
-        if query.search is not None:
-            pattern = "%" + escape_like_expression(query.search) + "%"
-            match self.database.kind:
-                case DatabaseKind.SQLITE:
-                    statement = statement.where(
-                        _like(
-                            _sqlite_format_timestamp(LogEntryEntity.timestamp),
-                            pattern,
-                            query.search_case_sensitive,
-                        )
-                        | _like(LogEntryEntity.level, pattern, query.search_case_sensitive)
-                        | _like(
-                            LogEntryEntity.content,
-                            pattern,
-                            query.search_case_sensitive,
-                        ),
-                    )
-                case DatabaseKind.POSTGRES:
-                    statement = statement.where(
-                        _like(
-                            _pg_format_timestamp(LogEntryEntity.timestamp),
-                            pattern,
-                            query.search_case_sensitive,
-                        )
-                        | _like(LogEntryEntity.level, pattern, query.search_case_sensitive)
-                        | _like(
-                            LogEntryEntity.content,
-                            pattern,
-                            query.search_case_sensitive,
-                        ),
-                    )
-
-        if query.within is not None:
-            statement = statement.where(LogEntryEntity.timestamp >= utc() - query.within)
-        if query.after is not None:
-            statement = statement.where(LogEntryEntity.timestamp >= query.after)
-        if query.before is not None:
-            statement = statement.where(LogEntryEntity.timestamp < query.before)
-        if query.level is not None:
-            if isinstance(query.level, Level):
-                statement = statement.where(LogEntryEntity.level == query.level)
-            else:
-                statement = statement.where(LogEntryEntity.level.in_(query.level))
-        if query.prefix is not None:
-            statement = statement.where(
-                LogEntryEntity.content.like(escape_like_expression(query.prefix) + "%"),
-            )
-        if query.suffix is not None:
-            statement = statement.where(
-                LogEntryEntity.content.like("%" + escape_like_expression(query.suffix)),
-            )
-
-        if query.order is not None:
-            match query.order:
-                case LogEntryOrder.OLD_TO_NEW:
-                    statement = statement.order_by(LogEntryEntity.timestamp)
-                case LogEntryOrder.NEW_TO_OLD:
-                    statement = statement.order_by(LogEntryEntity.timestamp.desc())
-
-        if query.limit is not None:
-            statement = statement.limit(query.limit)
-        if query.offset is not None and query.offset > 0:
-            statement = statement.offset(query.offset)
-
-        if where is not None:
-            statement = statement.where(where(LogEntryEntity))
-        if order_by is not None:
-            statement = statement.order_by(order_by(LogEntryEntity))
-
-        if query.order is None and order_by is None:
-            statement = statement.order_by(LogEntryEntity.timestamp)
-
-        async with await self.__init_database_session() as session:
-            rows = await session.execute(statement)
-
-        return [LogEntry.construct(**row._asdict()) for row in rows]  # type: ignore
-
-    async def get_log_entry(
-        self,
-        query: LogEntryQuery | None = None,
-        *,
-        where: Callable[[type[LogEntryEntity]], WhereExpression] | None = None,
-        order_by: Callable[[type[LogEntryEntity]], OrderByExpression] | None = None,
-        **kwargs: Unpack[LogEntryQueryArgs],
-    ) -> LogEntry | None:
-        alerts = await self.get_log_entries(
-            query,
-            where=where,
-            order_by=order_by,
-            **{**kwargs, "limit": 1},
-        )
-
-        return alerts[0] if alerts else None
-
-    async def get_statistics(
-        self,
-        query: StatisticsQuery | None = None,
-        **kwargs: Unpack[StatisticsQueryArgs],
-    ) -> list[Statistics]:
-        if self.parent is not None:
-            kwargs = {"root": self.address, **kwargs}
-
-        if query is not None:
-            query = query.with_defaults(StatisticsQuery(**kwargs))
-        else:
-            query = StatisticsQuery(**kwargs)
-
-        if self.parent is not None:
-            return await self.root.get_statistics(query, **kwargs)
-
-        root = self.address if query.root is None else self.address / query.root
-        addresses = [component.address for component in self.get_components()]
-
-        statement = (
-            select(ComponentEntity.address, AlertEntity.level, func.count("*"))
-            .where(
-                AlertEntity.address.in_(addresses)
-                & (_address_contains(root, ComponentEntity.address))
-            )
-            .join(ComponentEntity)
-            .group_by(ComponentEntity.address, AlertEntity.level)
-        )
-
-        if query.within is not None:
-            statement = statement.where(AlertEntity.timestamp >= utc() - query.within)
-        if query.after is not None:
-            statement = statement.where(AlertEntity.timestamp >= query.after)
-        if query.before is not None:
-            statement = statement.where(AlertEntity.timestamp < query.before)
-
-        results: dict[Address, Statistics] = {}
-
-        async with self.database.session() as session:
-            for address, level, count in await session.execute(statement):
-                address: Address
-                for ancestor in address.path:
-                    if not root.contains(ancestor):
-                        continue
-
-                    current = results.setdefault(ancestor, Statistics(address=ancestor))
-                    current.alerts.count += count
-                    for entry in current.alerts.levels:
-                        if entry.level == level:
-                            entry.count += count
-                            break
-                    else:
-                        current.alerts.levels.append(LevelStatistics(level=level, count=count))
-                        current.alerts.levels.sort(key=lambda entry: entry.level)
-
-        return list(results.values())
-
-    async def __generate_mapping(self, session: AsyncSession) -> dict[Address, UUID]:
-        return dict(
-            tuple(row)
-            for row in await session.execute(
-                select(ComponentEntity.address, ComponentEntity.id),
-            )
-        )
-
-    async def __get_or_load_mapping(self, session: AsyncSession) -> dict[Address, UUID]:
-        async with self.__mapping_lock:
-            if self.__mapping is None:
-                self.__mapping = await self.__generate_mapping(session)
-
-        return self.__mapping
-
 
 @cached
-def _get_listener_bindings(cls: type[Component]) -> Sequence[ListenerBinding]:
+def _get_listener_bindings(cls: type[Component]) -> Sequence["ListenerBinding"]:
     return get_bindings(cls, ListenerBinding)
 
 
 @cached
-def _get_routine_bindings(cls: type[Component]) -> Sequence[RoutineBinding]:
+def _get_routine_bindings(cls: type[Component]) -> Sequence["RoutineBinding"]:
     return get_bindings(cls, RoutineBinding)
 
 
 @cached
-def _get_procedure_bindings(cls: type[_ComponentT]) -> Mapping[Name, ProcedureBinding]:
-    return MappingProxyType(
-        {
-            binding.name: binding
-            for binding in sorted(
-                get_bindings(cls, ProcedureBinding),
-                key=lambda current: current.name,
-            )
-        }
-    )
+def _get_procedure_bindings(cls: type[_ComponentT]) -> Mapping[Name, "ProcedureBinding"]:
+    queries = get_bindings(cls, QueryBinding)
+    actions = get_bindings(cls, ActionBinding)
+    procedures = sorted([*queries, *actions], key=lambda current: current.name)
 
-
-def _like(
-    expression: SQLColumnExpression[Any],
-    pattern: str | bytes,
-    case_sensitive: bool = False,
-) -> BinaryExpression[bool]:
-    if case_sensitive:
-        return expression.like(pattern)
-    return expression.ilike(pattern)
-
-
-def _format_timestamp(timestamp: datetime) -> str:
-    return timestamp.strftime("%Y-%m-%d %H:%M:%f")[:-3]
-
-
-def _sqlite_format_timestamp(timestamp: SQLColumnExpression[datetime]) -> Any:
-    return func.strftime("%Y-%m-%d %H:%M:%f", func.julianday(timestamp))
-
-
-def _pg_format_timestamp(timestamp: SQLColumnExpression[datetime]) -> Any:
-    return func.to_char(timestamp, "YYYY-MM-DD HH24:MI:SS.MS")
-
-
-def _address_contains(
-    root: Address,
-    expression: SQLColumnExpression[Address],
-) -> bool | SQLColumnExpression[bool]:
-    if root.is_root:
-        return True
-
-    return (expression == root) | expression.like(f"{root}.%")
+    return MappingProxyType({binding.name: binding for binding in procedures})
 
 
 class ComponentGroup(Sequence[Component]):
+    __slots__ = (
+        "__components",
+        "__identities",
+    )
+
     def __init__(self, components: Iterable[Component]):
-        self.components = tuple(uniquify(components, key=lambda component: component.address))
+        self.__components = tuple(uniquify(components, key=lambda component: id(component.unref())))
+        self.__identities: set[int] | None = None
+
+    def __repr__(self) -> str:
+        return f"{type(self).__name__}({repr(list(self.__components))})"
+
+    def __str__(self) -> str:
+        return repr(self)
 
     @overload
     def __getitem__(self, __index: int) -> Component:
@@ -1791,47 +997,587 @@ class ComponentGroup(Sequence[Component]):
         ...
 
     def __getitem__(self, __index: int | slice) -> "Component | Self":  # type: ignore
-        value = self.components[__index]
+        value = self.__components[__index]
         if isinstance(value, tuple):
             return type(self)(value)
 
         return value
 
     def __len__(self) -> int:
-        return len(self.components)
+        return len(self.__components)
 
     def __iter__(self) -> Iterator[Component]:
-        return iter(self.components)
+        return iter(self.__components)
 
-    def __contains__(self, __object: object) -> bool:
-        return __object in self.components
+    def __contains__(self, other: object) -> bool:
+        if self.__identities is None:
+            self.__identities = {id(component.unref()) for component in self.__components}
+
+        if isinstance(other, Component):
+            other = other.unref()
+
+        return id(other) in self.__identities
 
     def reversed(self) -> Self:
-        return type(self)(reversed(self.components))
+        return type(self)(reversed(self.__components))
 
     def start(self) -> None:
-        for component in self.components:
+        for component in self.__components:
             component.start()
 
     async def stop(self) -> None:
-        for component in reversed(self.components):
+        for component in reversed(self.__components):
             await component.stop()
 
     async def enable(self) -> None:
-        for component in self.components:
+        for component in self.__components:
             await component.enable()
 
     async def disable(self) -> None:
-        for component in reversed(self.components):
+        for component in reversed(self.__components):
             await component.disable()
 
     async def up(self) -> None:
-        for component in self.components:
+        for component in self.__components:
             await component.up()
 
     async def down(self) -> None:
-        for component in reversed(self.components):
+        for component in reversed(self.__components):
             await component.down()
 
     def __or__(self, __other: "ComponentGroup") -> Self:
-        return type(self)(uniquify((*self.components, *__other.components)))
+        return type(self)(uniquify((*self.__components, *__other.__components)))
+
+
+class ListenerBinding(ImmutableDataObject):
+    name: Name
+    method: Name
+    event: type | UnionType
+    local: bool
+    reference: Sequence[str]
+    address: AddressSelector | None
+
+
+_ListenerMethodReturn = None | Awaitable[None]
+_ListenerMethod = (
+    Callable[[Any], _ListenerMethodReturn] | Callable[[Any, Any], _ListenerMethodReturn]
+)
+_ListenerMethodTransform = Callable[[_ListenerMethod], _ListenerMethod]
+
+
+@overload
+def on(method: _ListenerMethod) -> _ListenerMethod:
+    ...
+
+
+@overload
+def on(
+    *,
+    event: type | UnionType | None = None,
+    local: bool = False,
+    reference: str | Sequence[str] = "self",
+    address: str | AddressSelector | Sequence[str | AddressSelector] | None = None,
+) -> _ListenerMethodTransform:
+    ...
+
+
+@validate_arguments(config={"arbitrary_types_allowed": True})
+def on(
+    method: _ListenerMethod | None = None,
+    *,
+    event: type | UnionType | None = None,
+    local: bool = False,
+    reference: str | Sequence[str] | None = None,
+    address: str | AddressSelector | Sequence[str | AddressSelector] | None = None,
+) -> _ListenerMethod | _ListenerMethodTransform:
+    if reference is None:
+        reference = []
+    if isinstance(reference, str):
+        reference = [reference]
+
+    if address is not None:
+        if isinstance(address, (str, DynamicAddress)):
+            address = [address]
+
+        address = AddressSelector("|".join(str(current) for current in address))
+
+    def on(method: _ListenerMethod) -> _ListenerMethod:
+        signature = inspect.signature(method)
+
+        assigned_event_type = event
+
+        if assigned_event_type is None:
+            hints = get_type_hints(method)
+            parameters = list(signature.parameters.values())
+            if len(parameters) > 1:
+                event_parameter = parameters[1]
+                assigned_event_type = hints.get(event_parameter.name)
+
+        if assigned_event_type is None:
+            assigned_event_type = Event
+
+        _bind(
+            method,
+            ListenerBinding(
+                name=_get_bound_name(method),
+                method=get_function_name(method),
+                reference=tuple(reference),
+                address=address,
+                local=local,
+                event=assigned_event_type,
+            ),
+        )
+
+        return method
+
+    if method is None:
+        return on
+
+    return on(method)
+
+
+class ProcedureKind(str, Enum):
+    QUERY = "query"
+    ACTION = "action"
+
+
+class ProcedureSchemas(ImmutableDataObject):
+    args: Mapping[str, Any] | None
+    output: Mapping[str, Any]
+
+
+class ProcedureArgsInfo(ImmutableDataObject):
+    json_schema: Mapping[str, Any]
+    required: bool
+
+
+class ProcedureOutputInfo(ImmutableDataObject):
+    json_schema: Mapping[str, Any]
+
+
+class _ProcedureBinding(ImmutableDataObject):
+    name: Name
+    kind: ProcedureKind
+    method: str
+    live: bool
+    args: ProcedureArgsInfo | None
+    output: ProcedureOutputInfo
+
+
+class QueryBinding(_ProcedureBinding):
+    kind: Literal[ProcedureKind.QUERY] = ProcedureKind.QUERY
+    poll: PositiveTimeDelta = timedelta(seconds=1)
+
+
+class ActionBinding(_ProcedureBinding):
+    kind: Literal[ProcedureKind.ACTION] = ProcedureKind.ACTION
+
+
+ProcedureBinding = QueryBinding | ActionBinding
+
+
+_P = ParamSpec("_P")
+_T = TypeVar("_T", bound=Awaitable[Any] | AsyncIterable[Any])
+
+
+@overload
+def query(method: Callable[_P, _T]) -> Callable[_P, _T]:
+    ...
+
+
+@overload
+def query(
+    *,
+    poll: float | timedelta = ...,
+) -> Callable[[Callable[_P, _T]], Callable[_P, _T]]:
+    ...
+
+
+@validate_arguments
+def query(
+    method: Callable[_P, _T] | None = None,
+    *,
+    poll: float | timedelta = timedelta(seconds=5),
+) -> Callable[_P, _T] | Callable[[Callable[_P, _T]], Callable[_P, _T]]:
+    def query(method: Callable[_P, _T]) -> Callable[_P, _T]:
+        validated = _validate_procedure(method, ProcedureKind.QUERY)
+        _bind(
+            method,
+            QueryBinding(
+                name=_get_bound_name(method),
+                method=get_function_name(method),
+                args=validated.args,
+                output=validated.output,
+                live=validated.live,
+                poll=poll if isinstance(poll, timedelta) else timedelta(seconds=poll),
+            ),
+        )
+
+        return method
+
+    if method is None:
+        return query
+
+    return query(method)
+
+
+@overload
+def action(method: Callable[_P, _T]) -> Callable[_P, _T]:
+    ...
+
+
+@overload
+def action() -> Callable[[Callable[_P, _T]], Callable[_P, _T]]:
+    ...
+
+
+@validate_arguments
+def action(
+    method: Callable[_P, _T] | None = None,
+) -> Callable[_P, _T] | Callable[[Callable[_P, _T]], Callable[_P, _T]]:
+    def action(method: Callable[_P, _T]) -> Callable[_P, _T]:
+        validated = _validate_procedure(method, ProcedureKind.ACTION)
+        _bind(
+            method,
+            ActionBinding(
+                name=_get_bound_name(method),
+                method=get_function_name(method),
+                args=validated.args,
+                output=validated.output,
+                live=validated.live,
+            ),
+        )
+
+        return method
+
+    if method is None:
+        return action
+
+    return action(method)
+
+
+def _remove_extra_args(current: Any) -> bool:
+    if isinstance(current, dict) and current.get("type") == "object":
+        properties = current.get("properties")
+        if isinstance(properties, dict):
+            for key in list(properties):
+                if isinstance(key, str) and (key.startswith("v__") or key == "self"):
+                    del properties[key]
+            args_property = properties.get("args")
+            if isinstance(args_property, dict):
+                if args_property.get("type") == "array" and args_property.get("items") == {}:
+                    del properties["args"]
+
+            kwargs_property = properties.get("kwargs")
+            if isinstance(kwargs_property, dict):
+                if kwargs_property.get("type") == "object" and kwargs_property.get("items") is None:
+                    del properties["kwargs"]
+
+            required = current.get("required")
+            if isinstance(required, list):
+                if "self" in required:
+                    required.remove("self")
+                if not required:
+                    del current["required"]
+
+    return True
+
+
+def _get_args_schema(model: type[BaseModel]) -> Mapping[str, Any]:
+    schema = schema_of(model)
+    traverse(schema, _remove_extra_args)
+    return schema
+
+
+def _get_output_schema(hint: Any) -> Mapping[str, Any]:
+    return schema_of(hint)
+
+
+class _ValidatedProcedureInfo(ImmutableDataObject):
+    args: ProcedureArgsInfo | None
+    output: ProcedureOutputInfo
+    live: bool
+
+
+def _validate_procedure(
+    method: Callable[..., Any],
+    kind: ProcedureKind,
+) -> _ValidatedProcedureInfo:
+    signature = inspect.signature(method)
+    parameters = [*signature.parameters.values()]
+    if not parameters or parameters[0].name != "self":
+        raise ValueError(f"{kind} {strify(method)} must have 'self' as its first parameter")
+    if any(parameter.kind == Parameter.POSITIONAL_ONLY for parameter in parameters[1:]):
+        raise ValueError(f"{kind} {strify(method)} cannot have positional-only arguments")
+
+    validation_config: Any = ConfigDict(extra=Extra.forbid)
+    validated = ValidatedFunction(method, validation_config)
+    args_model = validated.model
+    args_json_schema = _get_args_schema(args_model)
+    args_info = ProcedureArgsInfo(
+        json_schema=args_json_schema,
+        required=any(
+            field.required and not field.name == "self" for field in args_model.__fields__.values()
+        ),
+    )
+
+    hints = get_type_hints(method)
+    if "return" not in hints:
+        raise ValueError(f"return type of {kind} {strify(method)} must be specified")
+
+    output_hint = hints["return"]
+
+    live = inspect.isasyncgenfunction(method)
+
+    if live:
+        error = ValueError(f"return type of live {kind} {strify(method)} must be AsyncIterable[T]")
+
+        try:
+            if output_hint.__name__ != "AsyncIterable":
+                raise error
+
+            output_hint = get_args(output_hint)[0]
+        except Exception:
+            raise error
+
+    try:
+        output_json_schema = _get_output_schema(output_hint)
+    except Exception as exception:
+        raise ValueError(
+            f"output type of {kind} {strify(method)} must be serializable as a JSON object: "
+            f"{exception}"
+        )
+
+    output_info = ProcedureOutputInfo(
+        json_schema=output_json_schema,
+    )
+
+    return _ValidatedProcedureInfo(
+        args=args_info,
+        output=output_info,
+        live=live,
+    )
+
+
+_BINDINGS_ATTRIBUTE = "__bindings__"
+
+
+class RoutineRestartPolicy(str, Enum):
+    NEVER = "never"
+    ALWAYS = "always"
+    ON_COMPLETED = "on-completed"
+    ON_EXCEPTION = "on-exception"
+
+
+RoutineRestartPolicyLiteral = Literal[
+    "never",
+    "always",
+    "on-completed",
+    "on-exception",
+]
+
+
+class RoutineBinding(ImmutableDataObject):
+    method: Name
+    restart: RoutineRestartPolicy
+    restart_delay: PositiveTimeDelta
+
+
+_RoutineMethodReturn = Awaitable[None]
+_RoutineMethod = Callable[[Any], _RoutineMethodReturn]
+_RoutineMethodHandler = Callable[[_RoutineMethod], _RoutineMethod]
+
+
+@overload
+def routine(
+    *,
+    restart: RoutineRestartPolicy | RoutineRestartPolicyLiteral = RoutineRestartPolicy.NEVER,
+    restart_delay: PositiveFloat | PositiveTimeDelta = timedelta(seconds=1),
+) -> _RoutineMethodHandler:
+    ...
+
+
+@overload
+def routine(method: _RoutineMethod) -> _RoutineMethod:
+    ...
+
+
+@validate_arguments(config={"arbitrary_types_allowed": True})
+def routine(
+    method: _RoutineMethod | None = None,
+    *,
+    restart: RoutineRestartPolicy | RoutineRestartPolicyLiteral = RoutineRestartPolicy.NEVER,
+    restart_delay: PositiveFloat | PositiveTimeDelta = timedelta(seconds=1),
+) -> _RoutineMethod | _RoutineMethodHandler:
+    def routine(method: _RoutineMethod) -> _RoutineMethod:
+        _bind(
+            method,
+            RoutineBinding(
+                method=get_function_name(method),
+                restart=RoutineRestartPolicy(restart),
+                restart_delay=decode_td(restart_delay),
+            ),
+        )
+
+        return method
+
+    if method is None:
+        return routine
+
+    return routine(method)
+
+
+def _get_bound_name(function: Callable[..., Any]) -> str:
+    return _get_normalized_name(get_function_name(function))
+
+
+def _get_normalized_name(name: str) -> Name:
+    return name.replace("_", "-").strip().strip("-")
+
+
+@runtime_checkable
+class Binding(Protocol):
+    method: str
+
+
+_BindingT = TypeVar("_BindingT", bound=Binding)
+
+
+def get_method_bindings(
+    method: Callable[..., Any],
+    binding_cls: type[_BindingT],
+) -> tuple[_BindingT, ...]:
+    method = get_inner_function(method)
+    output: list[_BindingT] = []
+
+    if values := getattr(method, _BINDINGS_ATTRIBUTE, None):
+        if isinstance(values, Iterable):
+            for value in values:
+                if isinstance(value, binding_cls):
+                    output.append(value)
+
+    return tuple(output)
+
+
+def get_method_binding(
+    method: Callable[..., Any],
+    binding_cls: type[_BindingT],
+) -> _BindingT | None:
+    bindings = get_method_bindings(method, binding_cls)
+    if bindings:
+        return bindings[0]
+
+    return None
+
+
+def _bind(method: Callable[..., object], binding: Binding) -> None:
+    method = get_inner_function(method)
+    bindings: Sequence[Binding] | None = getattr(method, _BINDINGS_ATTRIBUTE, None)
+
+    if not isinstance(bindings, Sequence):
+        bindings = []
+
+    if isinstance(bindings, list):
+        bindings.append(binding)
+    else:
+        bindings = [*bindings, binding]
+
+    setattr(method, _BINDINGS_ATTRIBUTE, bindings)
+
+
+def get_bindings(component_cls: type[Component], binding_cls: type[_BindingT]) -> list[_BindingT]:
+    bindings: dict[str, _BindingT] = {}
+
+    for cls in reversed(component_cls.__mro__):
+        for member in vars(cls).values():
+            if not callable(member):
+                continue
+
+            for binding in get_method_bindings(member, binding_cls):
+                bindings[binding.method] = binding
+
+    return sorted(bindings.values(), key=lambda current: current.method)
+
+
+@final
+class _Listener:
+    __slots__ = (
+        "__component",
+        "__binding",
+        "__handler",
+        "__handler_arity",
+        "__queue",
+    )
+
+    def __init__(
+        self,
+        *,
+        component: Component,
+        binding: ListenerBinding,
+        handler: Callable[[Event], None | Awaitable[None]] | Callable[[], None | Awaitable[None]],
+    ) -> None:
+        self.__component = component
+        self.__binding = binding
+        self.__handler = handler
+        self.__handler_arity = len(inspect.signature(self.__handler).parameters)
+        self.__queue: AsyncQueue[Event] = AsyncQueue()
+
+    @property
+    def idle(self) -> bool:
+        return self.__queue._finished.is_set()  # type: ignore
+
+    def clear(self) -> None:
+        while not self.__queue.empty():
+            self.__queue.get_nowait()
+            self.__queue.task_done()
+
+    def handles(self, event: Event) -> bool:
+        if not lenient_isinstance(event, self.__binding.event):
+            return False
+
+        if self.__binding.local:
+            if event.address == self.__component.address:
+                return True
+
+        if self.__binding.reference:
+            for alias in self.__binding.reference:
+                if self.__component.address == event.address or any(
+                    component.address == event.address
+                    for component in self.__component.get_referenced_components(alias)
+                ):
+                    return True
+
+        if self.__binding.address is not None:
+            if self.__binding.address.matches(event.address, self.__component.address):
+                return True
+
+        return False
+
+    def handle(self, event: Event) -> bool:
+        if not self.handles(event):
+            return False
+
+        self.__queue.put_nowait(event)
+        return True
+
+    async def run(self) -> None:
+        while True:
+            event = await self.__queue.get()
+
+            try:
+                result = self.__handler(*[event][: self.__handler_arity])
+                if inspect.iscoroutine(result):
+                    await result
+            except Exception:
+                self.__component.log.error(
+                    f"An exception occurred while processing event {event}: "
+                    f"{traceback.format_exc()}"
+                )
+            finally:
+                self.__queue.task_done()
+
+    async def settle(self) -> None:
+        if self.__queue.empty():
+            return
+
+        await self.__queue.join()

@@ -119,18 +119,36 @@ class Trigger:
     __slots__ = ()
 
     @abstractmethod
-    def next(self, previous: datetime | None, now: datetime) -> datetime | None:
+    def get_next_fire_time(self, previous: datetime | None, now: datetime) -> datetime | None:
         ...
 
-    def iterate(self, start: datetime, end: datetime) -> Iterable[datetime]:
-        current = start
+    def get_fire_times(
+        self,
+        start: datetime | None = None,
+        *,
+        end: datetime | None = None,
+        count: int | None = None,
+    ) -> Iterable[datetime]:
+        if start is None:
+            start = utc()
 
-        while current < end:
-            current = self.next(None, start)
+        current = start
+        current_count = 0
+
+        while True:
+            if end is not None:
+                if current >= end:
+                    break
+            if count is not None:
+                if current_count > count:
+                    break
+
+            current = self.get_next_fire_time(None, start)
             if current is None:
                 break
 
             yield current
+            current_count += 1
 
 
 class CronTrigger(Trigger):
@@ -139,21 +157,11 @@ class CronTrigger(Trigger):
         self.__schedule = schedule
         self.__inner = InternalCronTrigger.from_crontab(schedule.crontab, timezone=dt.timezone.utc)
 
-    def get_next_fire_time(
-        self,
-        previous_fire_time: datetime | None = None,
-        now: datetime | None = None,
-    ) -> datetime | None:
-        if now is None:
-            now = utc()
-
-        return self.__inner.get_next_fire_time(previous_fire_time, now)
-
     @property
     def schedule(self) -> CronSchedule:
         return self.__schedule
 
-    def next(
+    def get_next_fire_time(
         self,
         previous: datetime | None = None,
         now: datetime | None = None,
@@ -183,7 +191,7 @@ class IntervalTrigger(Trigger):
     def schedule(self) -> IntervalSchedule:
         return self.__schedule
 
-    def next(
+    def get_next_fire_time(
         self,
         previous: datetime | None = None,
         now: datetime | None = None,
@@ -204,7 +212,7 @@ class OrTrigger(Trigger):
     def schedule(self) -> OrSchedule:
         return self.__schedule
 
-    def next(
+    def get_next_fire_time(
         self,
         previous: datetime | None = None,
         now: datetime | None = None,
@@ -214,7 +222,7 @@ class OrTrigger(Trigger):
 
         minimum: datetime | None = None
         for trigger in self.__triggers:
-            current = trigger.next(previous, now)
+            current = trigger.get_next_fire_time(previous, now)
             if current is None:
                 continue
             if current >= now and current < minimum:

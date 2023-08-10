@@ -1,9 +1,8 @@
 from abc import abstractmethod
 from typing import Iterable
 
-from ceres.component import Component
+from ceres.component import Component, action
 from ceres.data import ImmutableDataObject, NonBlankStr
-from ceres.procedure import action
 
 
 class Notification(ImmutableDataObject):
@@ -13,8 +12,8 @@ class Notification(ImmutableDataObject):
 
 
 class Notifier(Component):
-    @action
     @abstractmethod
+    @action
     async def notify(
         self,
         notification: Notification,

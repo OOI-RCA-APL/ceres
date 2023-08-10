@@ -1,10 +1,9 @@
 from dataclasses import field
-from functools import partial
 from typing import Sequence
 
 from pydantic import Field
-from typing_extensions import override
 
+from ceres.component import routine
 from ceres.roles.dispatcher import Dispatch, Dispatcher
 from ceres.schedule import Schedule
 
@@ -16,13 +15,12 @@ class ScheduledDispatch(Dispatch):
 class ScheduledDispatcher(Dispatcher):
     dispatches: Sequence[ScheduledDispatch] = field(default_factory=list)
 
-    @override
-    async def __run__(self) -> None:
+    @routine
+    async def routine__setup_dispatch_jobs(self) -> None:
         for dispatch in self.dispatches:
-            self.schedule_job(
-                partial(self.dispatch, dispatch),
+            self.add_job(
+                f"dispatch-{dispatch.subject}",
                 dispatch.schedule,
-                name=f"dispatch-{dispatch.subject}",
+                self.dispatch,
+                args={"dispatch": dispatch},
             )
-
-        await super().__run__()

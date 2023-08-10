@@ -1,16 +1,26 @@
-from dataclasses import field
-from typing import Any
+import asyncio
+from collections import defaultdict
+from datetime import timedelta
+from typing import TYPE_CHECKING, Any, TypeVar
 
 import pytest
 
-from ceres import Component, Event, Level, Ref, on, query
+from ceres import Component, Event, Level, Ref, action, on, query
+from ceres.component import ComponentGroup, RoutineBinding, RoutineRestartPolicy, routine
 from ceres.errors import (
     ProcedureDoesNotExistError,
     ProcedureInternalError,
     ProcedureInvalidArgsError,
 )
+from ceres.events import (
+    RoutineCancelledEvent,
+    RoutineCompletedEvent,
+    RoutineExceptionEvent,
+    RoutineRestartedEvent,
+    RoutineStartedEvent,
+    RoutineStoppedEvent,
+)
 from ceres.exceptions import ProcedureException
-from ceres.procedure import action
 from ceres.validation import ValidationProblem
 
 
@@ -29,15 +39,16 @@ async def test_event_listeners() -> None:
     class Receiver(Component):
         emitter: Ref[Emitter]
 
-        received_emitter_events: list[EmitterEvent] = field(default_factory=list)
-        received_self_events: list[SelfEvent] = field(default_factory=list)
+        def __setup__(self) -> None:
+            self.received_emitter_events: list[EmitterEvent] = []
+            self.received_self_events: list[SelfEvent] = []
 
-        @on(EmitterEvent, "emitter")
-        def _on_other_event(self, event: EmitterEvent) -> None:
+        @on(reference="emitter")
+        def on__other_event(self, event: EmitterEvent) -> None:
             self.received_emitter_events.append(event)
 
-        @on(SelfEvent)
-        def _on_self_event(self, event: SelfEvent) -> None:
+        @on(local=True)
+        def on__self_event(self, event: SelfEvent) -> None:
             self.received_self_events.append(event)
 
     emitter = Emitter()
@@ -53,6 +64,9 @@ async def test_event_listeners() -> None:
 
     await receiver.settle()
     await emitter.settle()
+    await receiver.stop()
+    await emitter.stop()
+
     assert [(type(event), event.value) for event in receiver.received_emitter_events] == [
         (EmitterEvent, 0),
         (EmitterEvent, 1),
@@ -179,3 +193,125 @@ async def test_component_procedure_internal_error(decorator: Any) -> None:
 
     assert isinstance(context.value.error, ProcedureInternalError)
     assert any('raise Exception("whoops")' in line for line in context.value.error.traceback)
+
+
+_EventT = TypeVar("_EventT", bound=Event)
+
+
+class RoutineComponent(Component):
+    def __setup__(self) -> None:
+        super().__setup__()
+        self.count = 0
+        self.emitted: defaultdict[type[Event], list[Event]] = defaultdict(list)
+
+    if not TYPE_CHECKING:
+
+        def emit(self, *args, **kwargs) -> _EventT:
+            event = super().emit(*args, **kwargs)
+            self.emitted[type(event)].append(event)
+            return event
+
+
+async def test_routines() -> None:
+    class RunsOnce(RoutineComponent):
+        @routine
+        async def main(self) -> None:
+            self.count += 1
+
+    assert RunsOnce.get_routine_bindings() == [
+        RoutineBinding(
+            method="main",
+            restart=RoutineRestartPolicy.NEVER,
+            restart_delay=timedelta(seconds=1),
+        ),
+    ]
+
+    class RunsForever(RoutineComponent):
+        @routine
+        async def main(self) -> None:
+            while True:
+                self.count += 1
+                await asyncio.sleep(0.001)
+
+    assert RunsForever.get_routine_bindings() == [
+        RoutineBinding(
+            method="main",
+            restart=RoutineRestartPolicy.NEVER,
+            restart_delay=timedelta(seconds=1),
+        ),
+    ]
+
+    class RestartsForever(RoutineComponent):
+        @routine(restart="always", restart_delay=0.01)
+        async def main(self) -> None:
+            self.count += 1
+
+    assert RestartsForever.get_routine_bindings() == [
+        RoutineBinding(
+            method="main",
+            restart=RoutineRestartPolicy.ALWAYS,
+            restart_delay=timedelta(seconds=0.01),
+        ),
+    ]
+
+    class CrashesForever(RoutineComponent):
+        @routine(restart="always", restart_delay=0.01)
+        async def main(self) -> None:
+            self.count += 1
+            raise Exception("whoops")
+
+    assert CrashesForever.get_routine_bindings() == [
+        RoutineBinding(
+            method="main",
+            restart=RoutineRestartPolicy.ALWAYS,
+            restart_delay=timedelta(seconds=0.01),
+        ),
+    ]
+
+    components = ComponentGroup(
+        [
+            runs_forever := RunsForever(),
+            runs_once := RunsOnce(),
+            restarts_forever := RestartsForever(),
+            crashes_forever := CrashesForever(),
+        ]
+    )
+
+    components.start()
+
+    await asyncio.sleep(0.25)
+
+    await components.stop()
+
+    assert runs_once.count == 1
+    assert len(runs_once.emitted[RoutineStartedEvent]) == 1
+    assert len(runs_once.emitted[RoutineStoppedEvent]) == 1
+    assert len(runs_once.emitted[RoutineCompletedEvent]) == 1
+    assert len(runs_once.emitted[RoutineCancelledEvent]) == 0
+    assert len(runs_once.emitted[RoutineExceptionEvent]) == 0
+    assert len(runs_once.emitted[RoutineRestartedEvent]) == 0
+
+    assert 1 < runs_forever.count < 10000
+    assert len(runs_forever.emitted[RoutineStartedEvent]) == 1
+    assert len(runs_forever.emitted[RoutineStoppedEvent]) == 1
+    assert len(runs_forever.emitted[RoutineCompletedEvent]) == 0
+    assert len(runs_forever.emitted[RoutineCancelledEvent]) == 1
+    assert len(runs_forever.emitted[RoutineExceptionEvent]) == 0
+    assert len(runs_forever.emitted[RoutineRestartedEvent]) == 0
+
+    assert 1 < restarts_forever.count < 10000
+    assert len(restarts_forever.emitted[RoutineStartedEvent]) == 1
+    assert len(restarts_forever.emitted[RoutineStoppedEvent]) == 1
+    assert 1 < len(restarts_forever.emitted[RoutineCompletedEvent]) < 10000
+    assert len(restarts_forever.emitted[RoutineCancelledEvent]) == 1
+    assert len(restarts_forever.emitted[RoutineExceptionEvent]) == 0
+    assert 1 < len(restarts_forever.emitted[RoutineRestartedEvent]) < 10000
+
+    # TODO: Fix in CI for Python 3.10.
+    assert 1 < crashes_forever.count < 10000
+    assert len(crashes_forever.emitted[RoutineStartedEvent]) == 1
+    assert len(crashes_forever.emitted[RoutineStoppedEvent]) == 1
+    assert len(crashes_forever.emitted[RoutineCompletedEvent]) == 0
+    assert len(crashes_forever.emitted[RoutineCancelledEvent]) == 1
+    assert 1 < len(crashes_forever.emitted[RoutineExceptionEvent]) < 10000
+    assert 1 < len(crashes_forever.emitted[RoutineRestartedEvent]) < 10000

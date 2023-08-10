@@ -5,8 +5,6 @@ import {
   ComponentConfig,
   ComponentInfo,
   ComponentInfoModel,
-  ComponentStatus,
-  ComponentStatusModel,
   Config,
   ConfigModel,
   LayoutModel,
@@ -19,6 +17,8 @@ import {
   ResultModel,
   Statistics,
   StatisticsModel,
+  Status,
+  StatusModel,
 } from '@/api/models'
 import { DisplayInfoModel } from '@/display'
 import { getter } from '@/getter'
@@ -105,77 +105,80 @@ function getWebSocketURI(relative: string) {
   return `${protocol}://${hostname}${port}${relative}`
 }
 
-export function useComponentStatusesStream(
+export function useStatusesStream(
   params: MaybeRef<{
     address?: Address
-    search?: string
   }>,
-  onReceive: (message: ComponentStatus[]) => unknown
+  onReceive: (message: Status[]) => unknown
 ) {
   useStream(
     computed(() =>
-      getWebSocketURI(
-        `/api/component-statuses${createQueryParams(isRef(params) ? params.value : params)}`
-      )
+      getWebSocketURI(`/api/statuses${createQueryParams(isRef(params) ? params.value : params)}`)
     ),
+    params,
     // eslint-disable-next-line @typescript-eslint/ban-ts-comment
     // @ts-ignore
-    Zod.array(ComponentStatusModel),
+    Zod.array(StatusModel),
     onReceive
   )
 }
 
+type ItemStreamFilter = {
+  address?: Address
+  search?: string
+}
+
 export function useMessageStream(
-  params: MaybeRef<{
-    address?: Address
-    search?: string
-  }>,
-  onReceive: (message: Message) => unknown
+  filter: MaybeRef<ItemStreamFilter>,
+  onReceive: (message: Message, params: ItemStreamFilter) => unknown,
+  options?: MaybeRef<UseStreamOptions>
 ) {
   useStream(
     computed(() =>
-      getWebSocketURI(`/api/messages${createQueryParams(isRef(params) ? params.value : params)}`)
+      getWebSocketURI(`/api/messages${createQueryParams(isRef(filter) ? filter.value : filter)}`)
     ),
+    filter,
     // eslint-disable-next-line @typescript-eslint/ban-ts-comment
     // @ts-ignore
     MessageModel,
-    onReceive
+    onReceive,
+    options
   )
 }
 
 export function useAlertStream(
-  params: MaybeRef<{
-    address?: Address
-    search?: string
-  }>,
-  onReceive: (alert: Alert) => unknown
+  filter: MaybeRef<ItemStreamFilter>,
+  onReceive: (alert: Alert, params: ItemStreamFilter) => unknown,
+  options?: MaybeRef<UseStreamOptions>
 ) {
   useStream(
     computed(() =>
-      getWebSocketURI(`/api/alerts${createQueryParams(isRef(params) ? params.value : params)}`)
+      getWebSocketURI(`/api/alerts${createQueryParams(isRef(filter) ? filter.value : filter)}`)
     ),
+    filter,
     // eslint-disable-next-line @typescript-eslint/ban-ts-comment
     // @ts-ignore
     AlertModel,
-    onReceive
+    onReceive,
+    options
   )
 }
 
 export function useLogEntryStream(
-  params: MaybeRef<{
-    address?: Address
-    search?: string
-  }>,
-  onReceive: (entry: LogEntry) => unknown
+  filter: MaybeRef<ItemStreamFilter>,
+  onReceive: (entry: LogEntry, params: ItemStreamFilter) => unknown,
+  options?: MaybeRef<UseStreamOptions>
 ) {
   useStream(
     computed(() =>
-      getWebSocketURI(`/api/log-entries${createQueryParams(isRef(params) ? params.value : params)}`)
+      getWebSocketURI(`/api/log-entries${createQueryParams(isRef(filter) ? filter.value : filter)}`)
     ),
+    filter,
     // eslint-disable-next-line @typescript-eslint/ban-ts-comment
     // @ts-ignore
     LogEntryModel,
-    onReceive
+    onReceive,
+    options
   )
 }
 
@@ -276,14 +279,14 @@ export const useStatistics = defineStore('statistics', () => {
   }
 })
 
-export const useComponentStatuses = defineStore('component-statuses', () => {
-  const statuses = ref<Record<string, ComponentStatus>>({})
+export const useStatuses = defineStore('statuses', () => {
+  const statuses = ref<Record<string, Status>>({})
 
-  useComponentStatusesStream({}, (next) => {
+  useStatusesStream({}, (next) => {
     statuses.value = Object.fromEntries(next.map((status) => [status.address.toString(), status]))
   })
 
-  function get(address: Address): ComponentStatus | null {
+  function get(address: Address): Status | null {
     return statuses.value[address.toString()] ?? null
   }
 
@@ -356,12 +359,19 @@ function createQueryParams(values: Record<string, unknown>): string {
   return text
 }
 
-function useStream<TModel extends ZodTypeAny>(
+type UseStreamOptions = {
+  disable?: boolean
+}
+
+function useStream<TModel extends ZodTypeAny, TContext>(
   url: MaybeRef<string | URL>,
+  context: MaybeRef<TContext>,
   model: TModel,
-  onMessage: (message: Zod.infer<TModel>) => unknown
+  onMessage: (message: Zod.infer<TModel>, context: TContext) => unknown,
+  options: MaybeRef<UseStreamOptions> = {}
 ) {
   const urlRef = computed(() => unref(url))
+  const optionsRef = computed(() => unref(options))
   function createSocket(url: string | URL, onDisconnect: () => unknown) {
     const socket = new WebSocket(urlRef.value)
     socket.addEventListener('open', () => {
@@ -379,7 +389,7 @@ function useStream<TModel extends ZodTypeAny>(
 
       const result = model.safeParse(data)
       if (result.success) {
-        onMessage(result.data)
+        onMessage(result.data, unref(context))
       } else {
         console.error(url, model, data, result.error)
       }
@@ -401,7 +411,7 @@ function useStream<TModel extends ZodTypeAny>(
     let mounted = true
 
     function onDisconnect() {
-      socket.close()
+      socket?.close()
       setTimeout(() => {
         if (mounted) {
           socket = createSocket(urlRef.value, onDisconnect)
@@ -409,9 +419,13 @@ function useStream<TModel extends ZodTypeAny>(
       }, 3000)
     }
 
-    let socket = createSocket(urlRef.value, onDisconnect)
+    let socket = optionsRef.value.disable ? null : createSocket(urlRef.value, onDisconnect)
 
     function onUnload() {
+      if (socket == null) {
+        return
+      }
+
       if (socket.readyState == WebSocket.OPEN) {
         socket.close()
       }
@@ -422,24 +436,27 @@ function useStream<TModel extends ZodTypeAny>(
     onCleanup(() => {
       mounted = false
       window.removeEventListener('unload', onUnload)
-      socket.close()
+      if (socket != null) {
+        socket.close()
+      }
     })
   })
 }
 
 export function useDisplayStream<TModel extends ZodTypeAny>(
   address: MaybeRef<Address>,
-  procedure: MaybeRef<string>,
+  query: MaybeRef<string>,
   args: MaybeRef<Record<string, unknown>>,
   onDisplay: (message: Zod.infer<TModel>) => unknown
 ) {
   return useStream(
     computed(() =>
       getWebSocketURI(
-        `/api/components/${unref(address)}/procedures/${unref(procedure)}/subscribe?args=` +
+        `/api/components/${unref(address)}/procedures/${unref(query)}/subscribe?args=` +
           encodeURIComponent(JSON.stringify(unref(args)))
       )
     ),
+    args,
     // eslint-disable-next-line @typescript-eslint/ban-ts-comment
     // @ts-ignore
     DisplayInfoModel,

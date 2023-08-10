@@ -4,12 +4,12 @@ from asyncio import FIRST_COMPLETED
 from asyncio import Event as AsyncEvent
 from enum import Enum
 from pathlib import Path
-from typing import Sequence, final
+from typing import Sequence
 
-from typing_extensions import override
+from typing_extensions import Self, Unpack, override
 
-from ceres.address import Address
-from ceres.component import Component
+from ceres.address import Address, AddressSelector, DynamicAddress
+from ceres.component import Component, ComponentGroup
 from ceres.config import Config
 from ceres.data import ImmutableDataObject
 from ceres.database import Database
@@ -21,11 +21,11 @@ from ceres.errors import (
     ReloadError,
 )
 from ceres.exceptions import DatabaseInitException
-from ceres.internal.context import ProjectContext
-from ceres.internal.tasklet import Tasklet
+from ceres.filter import ComponentFilter, ComponentFilterArgs
+from ceres.internal.project import Project
 from ceres.internal.utilities import sleep_forever, strify, uniquify
 from ceres.internal.uvicorn import Uvicorn, UvicornConfig
-from ceres.logs import Log
+from ceres.object import Object
 from ceres.result import Fail, Ok, Result
 
 
@@ -40,32 +40,73 @@ class Action(ImmutableDataObject):
     address: Address
 
 
-@final
-class Server(Tasklet):
-    def __init__(self, config_path: Path) -> None:
-        self.__config_path = config_path
-        match Config.read(config_path):
+class Server(Object, kw_only=False):
+    config_path: Path
+
+    def __post_init_post_parse__(self) -> None:
+        super().__post_init_post_parse__()
+
+        match Config.read(self.config_path):
             case Ok(config):
                 self.__config: Config = config
             case Fail(errors):
                 raise ValueError(str(errors))
 
         self.__database = Database(self.__config.database)
-        self.__root = self.__config.create()
-        self.__root.bind_server(self)
         self.__reloading = AsyncEvent()
         self.__reloaded_config: Config | None = None
-
         self.__port_uvicorn: Uvicorn | None = None
         self.__uds_uvicorn: Uvicorn | None = None
+
+        self.__root = self.__config.create()
+        self.root = self.__root
+
+        assert self.root.server is self
+        assert self.root.__object_database__ is self.__object_database__
 
         from ceres.internal.app import App
 
         self.__app = App(self)
+        self.__setup__()
+
+    def __setup__(self) -> None:
+        pass
 
     @property
-    def config_path(self) -> Path:
-        return self.__config_path
+    @override
+    def __object_parent__(self) -> Object | None:
+        return None
+
+    @property
+    @override
+    def __object_descendants__(self) -> Sequence[Object]:
+        return [self.root, *self.get_components()]
+
+    @property
+    @override
+    def __object_database__(self) -> Database:
+        return self.__database
+
+    @property
+    @override
+    def address(self) -> Address:
+        return Address.server()
+
+    @property
+    @override
+    def root(self) -> Component:
+        return self.__root
+
+    @root.setter
+    def root(self, root: Component) -> None:
+        root = root.unref()
+        self.__root = root
+        self.__root.server = self
+
+    @property
+    @override
+    def server(self) -> Self:
+        return self
 
     @property
     def config(self) -> Config:
@@ -73,74 +114,71 @@ class Server(Tasklet):
 
     @property
     def project_directory(self) -> Directory:
-        return Directory(self.__config_path.parent)
+        return Directory(self.config_path.parent)
 
     @property
     def local_directory(self) -> Directory:
         return self.project_directory.subdir("local")
 
-    @property
-    def database(self) -> Database:
-        return self.__database
-
-    @property
-    def root(self) -> Component:
-        return self.__root
-
-    @property
-    def log(self) -> Log:
-        return self.__root.log
-
     @override
     async def __run__(self) -> None:
         self.local_directory.create()
+        await self.__load_database()
+        await self.__object_sync__()
 
-        await self.load_database()
+        async def process() -> None:
+            started = False
 
-        started = False
+            while True:
+                if started:
+                    await self.__reloading.wait()
+                    await self.__execute_reload()
 
-        while True:
-            if started:
-                await self.__reloading.wait()
-                await self.__execute_reload()
+                started = True
+                self.__reloading.clear()
 
-            started = True
-            self.__reloading.clear()
+                self.__start_uds_uvicorn()
+                self.__start_port_uvicorn()
 
-            self.__start_uds_uvicorn()
-            self.__start_port_uvicorn()
+                async def start_enabled() -> None:
+                    await asyncio.sleep(0)
+                    async with await self.__object_database__.init() as session:
+                        for component in self.get_components():
+                            await component.__object_sync__(session)
+                            if component.enabled and not component.running:
+                                self.log.info(
+                                    f"Starting enabled component '{component.address}'..."
+                                )
+                                component.start()
 
-            async def start_enabled() -> None:
-                await asyncio.sleep(0)
-                for component in self.root.get_components(inclusive=True):
-                    await component.sync_with_database()
-                    if component.enabled and not component.running:
-                        self.log.info(f"Starting enabled component '{component.address}'...")
-                        component.start()
+                    await sleep_forever()
 
-                await sleep_forever()
+                tasks = [
+                    asyncio.create_task(start_enabled(), name="start-enabled"),
+                    asyncio.create_task(self.__reloading.wait(), name="reload-wait"),
+                    asyncio.create_task(self.wait_until_stopping(), name="wait-until-stopping"),
+                ]
 
-            tasks = [
-                asyncio.create_task(start_enabled(), name="start-enabled"),
-                asyncio.create_task(self.__reloading.wait(), name="reload-wait"),
-                asyncio.create_task(self.wait_until_stopping(), name="wait-until-stopping"),
-            ]
+                try:
+                    await asyncio.wait(tasks, return_when=FIRST_COMPLETED)
+                finally:
+                    for task in tasks:
+                        if not task.cancelled():
+                            if task.done():
+                                try:
+                                    task.result()
+                                except Exception:
+                                    self.log.error(traceback.format_exc())
+                            else:
+                                task.cancel()
+                    if self.stopping:
+                        self.log.info("Exit signal received, stopping...")
+                        break
 
-            try:
-                await asyncio.wait(tasks, return_when=FIRST_COMPLETED)
-            finally:
-                for task in tasks:
-                    if not task.cancelled():
-                        if task.done():
-                            try:
-                                task.result()
-                            except Exception:
-                                self.log.error(traceback.format_exc())
-                        else:
-                            task.cancel()
-                if self.stopping:
-                    self.log.info("Exit signal received, stopping...")
-                    break
+        await asyncio.gather(
+            super().__run__(),
+            process(),
+        )
 
     @override
     async def __stop__(self) -> None:
@@ -148,24 +186,41 @@ class Server(Tasklet):
         await self.__stop_port_uvicorn()
 
         await self.root.stop()
+        await self.__database.dispose()
+        await super().__stop__()
 
     async def load(self) -> "Result[Config, list[ConfigError]]":
-        match await Config.load(self.__config_path, log=self.log):
+        match await Config.load(self.config_path, log=self.log):
             case Ok(config) as ok:
                 self.__config = config
-                await self.load_database()
-                await self.load_components()
+                await self.__load_database()
+                await self.__load_components()
                 return ok
             case Fail() as fail:
                 return fail
+
+    @override
+    def get_component(self, address: str | DynamicAddress | None = None, /) -> Component | None:
+        return self.root.get_component(address)
+
+    @override
+    def get_components(
+        self,
+        filter: ComponentFilter | AddressSelector | None = None,
+        /,
+        *,
+        inclusive: bool = False,
+        **kwargs: Unpack[ComponentFilterArgs],
+    ) -> "ComponentGroup":
+        return self.root.get_components(filter, inclusive=True, **kwargs)
 
     async def reload(self) -> Result[Config, ReloadError]:
         if self.__reloading.is_set():
             return Fail(ReloadAlreadyActiveError())
 
-        self.log.info(f"Reloading configuration from '{self.__config_path}'...")
+        self.log.info(f"Reloading configuration from '{self.config_path}'...")
 
-        match await Config.load(self.__config_path, log=self.log):
+        match await Config.load(self.config_path, log=self.log):
             case Ok(config):
                 self.log.info("Queueing reload...")
                 self.__reloading.set()
@@ -175,11 +230,11 @@ class Server(Tasklet):
                 self.log.error("Reload failed, found errors in configuration.")
                 return Fail(ReloadConfigInvalidError(errors=errors))
 
-    async def load_database(self) -> None:
-        if not await self.database.tables():
+    async def __load_database(self) -> None:
+        if not await self.__object_database__.tables():
             self.log.info("Database appears empty, initializing database...")
             try:
-                await self.database.init()
+                await self.__object_database__.init()
                 self.log.info("Database initialized successfully.")
             except Exception as exception:
                 self.log.error("Database initialization failed.")
@@ -218,7 +273,7 @@ class Server(Tasklet):
                     "Database configuration modified, reloading database and components..."
                 )
                 try:
-                    running = self.root.get_components(inclusive=True, running=True)
+                    running = self.get_components(running=True)
                     await self.root.stop()
                     await self.__database.dispose()
                     self.__database = Database(self.config.database)
@@ -253,7 +308,8 @@ class Server(Tasklet):
 
         self.log.info("Reload completed.")
 
-    async def load_components(self) -> None:
+    async def __load_components(self) -> None:
+        await self.__object_sync__()
         await self.__load_component(Address.root())
 
     async def __load_component(self, address: Address) -> Component | None:
@@ -264,45 +320,38 @@ class Server(Tasklet):
             if config is None:
                 return None
 
-        component = self.root.get_component(address)
-        id = await self.root.assign_component_id(address)
+        component = self.get_component(address)
 
         if component is None:
             try:
                 component = config.create()
                 if address.is_root:
-                    self.__root = component
-                    component.bind_server(self)
+                    self.root = component
                 else:
-                    parent = self.root.get_component(address.parent)
+                    parent = self.get_component(address.parent)
                     if parent is not None:
                         parent.add_component(component)
-                        component.assign_references(
-                            {sibling.name: sibling for sibling in parent.components}
-                        )
-
-                await component.sync_with_database()
-                self.log.info(f"Loaded '{address}' as {strify(type(component))} with ID '{id}'.")
 
             except Exception:
-                self.root.log.error(f"Failed to load '{address}': {traceback.format_exc()}")
+                self.log.error(f"Failed to load '{address}': {traceback.format_exc()}")
                 return
+
+        await component.__object_sync__()
+        self.log.info(f"Loaded '{address}' as {strify(type(component))}.")
 
         for child in config.components:
             await self.__load_component(address / child.name)
 
     async def __execute_actions(self, actions: Sequence[Action]) -> None:
-        running = [
-            other.address for other in self.root.get_components(inclusive=True) if other.running
-        ]
+        running = [other.address for other in self.get_components() if other.running]
         for action in actions:
-            component = self.root.get_component(action.address)
+            component = self.get_component(action.address)
 
             if action.kind == ActionKind.REMOVE:
                 if component is not None:
                     self.log.info(f"Removing '{action.address}'...")
                     await component.stop()
-                    component.detach()
+                    component.remove_component()
                     self.log.info(f"Removed '{action.address}'.")
             else:
                 if action.kind == ActionKind.CREATE:
@@ -314,12 +363,12 @@ class Server(Tasklet):
                     if component is not None:
                         self.log.info(f"Recreating '{action.address}'...")
                         await component.stop()
-                        component.detach()
+                        component.remove_component()
                         await self.__load_component(action.address)
                         self.log.info(f"Recreated '{action.address}'.")
 
         for address in running:
-            component = self.root.get_component(address)
+            component = self.get_component(address)
             if component is not None and not component.running:
                 self.log.info(f"Starting '{address}'...")
                 component.start()
@@ -327,17 +376,17 @@ class Server(Tasklet):
         created = [
             action
             for action in actions
-            if action.kind == ActionKind.CREATE and action.address in self.root.components
+            if action.kind == ActionKind.CREATE and self.get_component(action.address) is not None
         ]
         recreated = [
             action
             for action in actions
-            if action.kind == ActionKind.RECREATE and action.address in self.root.components
+            if action.kind == ActionKind.RECREATE and self.get_component(action.address) is not None
         ]
         removed = [
             action
             for action in actions
-            if action.kind == ActionKind.REMOVE and action.address not in self.root.components
+            if action.kind == ActionKind.REMOVE and self.get_component(action.address) is None
         ]
 
         if created:
@@ -383,11 +432,11 @@ class Server(Tasklet):
         return actions
 
     def __create_uds_uvicorn(self) -> Uvicorn:
-        context = ProjectContext(self.__config)
+        context = Project(self.config_path, self.__config)
         return Uvicorn(
             UvicornConfig(
                 app=self.__app,
-                uds=str(context.socket),
+                uds=str(context.socket_path),
                 loop="none",
             )
         )

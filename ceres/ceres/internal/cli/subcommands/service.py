@@ -1,6 +1,9 @@
-from ceres.config import Config, ConfigCheckKind
-from ceres.internal.cli.service import get_service
-from ceres.internal.cli.shared import AsyncTyper, ConfigOption, write, write_table
+import sys
+
+from ceres.config import ConfigCheckKind
+from ceres.internal.cli.service import LaunchDService, Service, SystemDService
+from ceres.internal.cli.shared import AsyncTyper, ProjectOption, write, write_table
+from ceres.internal.project import Project
 
 service = AsyncTyper(
     name="service",
@@ -10,24 +13,24 @@ service = AsyncTyper(
 
 
 @service.command()
-def start(config: Config = ConfigOption(checks=ConfigCheckKind.all())) -> None:
-    service = get_service(config)
+def start(project: Project = ProjectOption(checks=ConfigCheckKind.all())) -> None:
+    service = _get_service(project)
     write(f"All checks passed. Starting service {service.name!r} at {service.location!r}...")
     service.start()
     write("Service started successfully.")
 
 
 @service.command()
-def stop(config: Config = ConfigOption(checks=[])) -> None:
-    service = get_service(config)
+def stop(project: Project = ProjectOption(checks=[])) -> None:
+    service = _get_service(project)
     write(f"Stopping service {service.name!r} at {service.location}...")
     service.stop()
     write("Service stopped successfully.")
 
 
 @service.command()
-def status(config: Config = ConfigOption(checks=[])) -> None:
-    service = get_service(config)
+def status(project: Project = ProjectOption(checks=[])) -> None:
+    service = _get_service(project)
 
     with write_table() as table:
         table.add_column("Name")
@@ -40,3 +43,12 @@ def status(config: Config = ConfigOption(checks=[])) -> None:
             service.state.value.title(),
             service.location,
         )
+
+
+def _get_service(project: Project) -> Service:
+    if sys.platform == "linux":
+        return SystemDService(project, silent=False)
+    if sys.platform == "darwin":
+        return LaunchDService(project, silent=False)
+
+    raise NotImplementedError(f"unsupported platform: {sys.platform}")

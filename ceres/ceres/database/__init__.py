@@ -1,18 +1,14 @@
-import re
 from asyncio import Lock as AsyncLock
-from textwrap import dedent
-from typing import Any, Callable, Iterable, TypeVar, cast, final
+from typing import Callable, TypeVar, cast, final
 from uuid import UUID, uuid4
 
-from sqlalchemy import ClauseElement, Connection, Table, inspect, text
+from sqlalchemy import Connection, inspect, text
 from sqlalchemy.ext.asyncio import (
     AsyncConnection,
     AsyncEngine,
     AsyncSession,
     async_sessionmaker,
 )
-from sqlalchemy.schema import CreateIndex, CreateTable
-from sqlalchemy.sql.elements import TextClause
 from typing_extensions import Self
 
 from ceres.config import (
@@ -86,21 +82,10 @@ class Database:
 
     @property
     def ddl(self) -> list[str]:
-        def compile(element: ClauseElement) -> str:
-            return re.sub(
-                r"[\n\r]+\t",
-                "\n    ",
-                dedent(str(element.compile(self.__engine.sync_engine)).strip()),
-            )
-
-        def get_table_ddl(table: Table) -> Iterable[str]:
-            yield compile(CreateTable(table, if_not_exists=True))
-            for index in sorted(table.indexes, key=lambda index: str(index.name)):
-                yield compile(CreateIndex(index, if_not_exists=True))
-
         commands: list[str] = []
-        for table in Entity.metadata.tables.values():
-            commands.extend(get_table_ddl(table))
+
+        for cls in Entity.get_entity_classes():
+            commands.extend(cls.get_entity_ddl(self.__engine.sync_engine))
 
         return commands
 
@@ -116,34 +101,21 @@ class Database:
     async def dispose(self) -> None:
         await self.__engine.dispose()
 
-    def compile(
-        self,
-        command: str,
-        parameters: dict[str, Any] = {},
-    ) -> str:
-        return str(
-            text(dedent(command).strip())
-            .bindparams(**parameters)
-            .compile(self.__engine.sync_engine, compile_kwargs={"literal_binds": True})
-        )
+    async def init(self) -> AsyncSession:
+        if self.__completed_init_successfully:
+            return self.session()
 
-    def sql(
-        self,
-        command: str,
-        parameters: dict[str, Any] = {},
-    ) -> TextClause:
-        return text(self.compile(command, parameters))
-
-    async def init(self) -> None:
         async with self.__init_lock:
             if self.__completed_init_successfully:
-                return
+                return self.session()
 
             async with self.begin() as connection:
                 for statement in self.ddl:
                     await connection.execute(text(statement))
 
             self.__completed_init_successfully = True
+
+        return self.session()
 
     async def tables(self) -> list[str]:
         return await self.__run_sync(lambda connection: inspect(connection).get_table_names())

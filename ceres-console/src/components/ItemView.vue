@@ -17,8 +17,12 @@ import ItemViewLogEntry from '@/components/ItemViewLogEntry.vue'
 import ItemViewMessage from '@/components/ItemViewMessage.vue'
 import SectionCard from '@/components/SectionCard.vue'
 import icons from '@/icons'
-import { QVirtualScroll, useQuasar } from 'quasar'
-import { computed, nextTick, onMounted, watch, watchEffect } from 'vue'
+import { debouncedComputed } from '@/utilities'
+import { useWindowFocus } from '@vueuse/core'
+import _ from 'lodash'
+import moment, { Moment } from 'moment'
+import { QVirtualScroll, debounce, useQuasar } from 'quasar'
+import { computed, nextTick, onMounted, reactive, watch, watchEffect } from 'vue'
 
 type Item = Readonly<Alert | Message | LogEntry>
 
@@ -67,13 +71,18 @@ if (info == null) {
 
 const itemsVisible = $computed(() => Math.ceil(containerInfo.clientHeight / itemHeight))
 const itemHeight = 31
-const itemLoadSizeInitial = $computed(() => Math.min(itemsVisible + 250, 1000))
-const itemLoadSize = $computed(() => Math.min(itemsVisible + 100, 1000))
+const itemLoadSizeInitial = $computed(() => Math.min(itemsVisible + 40, 1000))
+const itemLoadSize = $computed(() => Math.min(itemsVisible + 25, 1000))
 const itemSliceSize = 250
-const itemCullThreshold = $computed(() => itemsVisible + 250)
+const itemCullThreshold = $computed(() => itemsVisible + 500)
 const itemCullCount = $computed(() => itemsVisible + 100)
 
-let search = $ref('')
+let filter = reactive({ search: '' })
+let filterKey = $ref(0)
+watch(filter, () => {
+  filterKey++
+})
+
 let scroll = $shallowRef<QVirtualScroll | null>(null)
 const container = $computed(() => {
   if (scroll == null) {
@@ -83,16 +92,18 @@ const container = $computed(() => {
   return scroll.$el as HTMLDivElement
 })
 
-const isShowingAll = $computed(() => search.length === 0)
-
 let items = $shallowRef<Item[]>([])
+let itemsStreamed = $shallowRef<Item[]>([])
+let lastLoadedCurrent = $shallowRef<Moment | null>(null)
 
 const earliestItemTimestamp = $computed(() => items[0]?.timestamp ?? null)
 
+const isWindowFocused = $(useWindowFocus())
+const isShowingAll = $computed(() => filter.search.length === 0)
+
 let isExhausted = $ref(false)
-let isDoingInitialLoad = $ref(true)
 let isLoadingPrevious = $ref(false)
-let isLoadingCurrent = $ref(false)
+let isLoadingCurrent = $ref(true)
 
 let containerInfo = $ref({
   scrollHeight: 0,
@@ -117,20 +128,20 @@ function updateContainerInfo() {
 async function onScroll() {
   updateContainerInfo()
 
+  if (isExhausted || isLoadingCurrent || isLoadingPrevious || !isWindowFocused) {
+    return
+  }
+
+  if (lastLoadedCurrent == null || moment.utc().diff(lastLoadedCurrent) < 1000) {
+    return
+  }
+
   if (!isNearTop()) {
     return
   }
 
-  if (isExhausted || isDoingInitialLoad || isLoadingCurrent || isLoadingPrevious) {
-    return
-  }
-
-  try {
-    isLoadingPrevious = true
-    await loadPrevious()
-  } finally {
-    isLoadingPrevious = false
-  }
+  isLoadingPrevious = true
+  await loadPrevious()
 }
 
 watchEffect((onCleanup) => {
@@ -183,7 +194,7 @@ async function delay(milliseconds = 0) {
 async function prependItems(prepended: Item[]) {
   const scrollTop = containerInfo.scrollTop
   const height = prepended.length * itemHeight
-  items = [...prepended.map(Object.freeze), ...items] as Item[]
+  items = [...prepended, ...items] as Item[]
   scroll?.refresh(-1)
   await nextTick()
   container?.scrollTo({
@@ -194,53 +205,86 @@ async function prependItems(prepended: Item[]) {
 
 async function appendItems(appended: Item[]) {
   const follow = isAtBottom()
-  items = [...items, ...appended.map(Object.freeze)] as Item[]
+  let resort = false
+  if (appended.length > 0 && items.length > 0) {
+    if (appended[appended.length - 1].timestamp < items[items.length - 1].timestamp) {
+      resort = true
+    }
+  }
+
+  let buffer = [...items, ...appended] as Item[]
+  if (resort) {
+    buffer = _.sortBy(buffer, (item) => item.timestamp)
+  }
+
+  items = buffer
+
   if (follow) {
     if (items.length > itemCullThreshold) {
       items = items.slice(items.length - itemCullCount, items.length)
-      await forceScrollToBottom(250)
+      await forceScrollToBottom(100)
     } else {
       scroll?.refresh(items.length + 1)
     }
   }
+
   await nextTick()
 }
 
 async function loadPrevious() {
-  const results: Item[] = await get({
-    address: selector,
-    search: search === '' ? undefined : search,
-    before: earliestItemTimestamp == null ? undefined : earliestItemTimestamp.format(),
-    order: 'new-to-old',
-    limit: itemLoadSize,
-  })
+  isLoadingPrevious = true
 
-  isExhausted = results.length === 0
-  await prependItems(results.reverse())
+  const key = filterKey
+  try {
+    const results: Item[] = await get({
+      address: selector,
+      search: filter.search === '' ? undefined : filter.search,
+      before: earliestItemTimestamp == null ? undefined : earliestItemTimestamp,
+      order: 'new-to-old',
+      limit: itemLoadSize,
+    })
+
+    if (key !== filterKey) {
+      return
+    }
+
+    isExhausted = results.length === 0
+    await prependItems(results.reverse())
+  } finally {
+    isLoadingPrevious = false
+  }
 }
 
 async function loadCurrent() {
-  const results: Item[] = await get({
-    address: selector,
-    search: search === '' ? undefined : search,
-    order: 'new-to-old',
-    limit: itemLoadSizeInitial,
-  })
+  updateContainerInfo()
 
-  isExhausted = results.length === 0
+  isLoadingCurrent = true
   items = []
-  await appendItems(results.reverse())
-}
+  itemsStreamed = []
 
-useStream(
-  computed(() => ({
-    address: selector,
-    search: search === '' ? undefined : search,
-  })),
-  async (item: Item) => {
-    await appendItems([item])
+  const key = filterKey
+  try {
+    const results: Item[] = await get({
+      address: selector,
+      search: filter.search === '' ? undefined : filter.search,
+      order: 'new-to-old',
+      limit: itemLoadSizeInitial,
+    })
+
+    if (key !== filterKey) {
+      return
+    }
+
+    isExhausted = results.length === 0
+    const appended = [...results.reverse(), ...itemsStreamed]
+    await appendItems(appended)
+    lastLoadedCurrent = moment.utc()
+    await forceScrollToBottom()
+    updateContainerInfo()
+  } finally {
+    isLoadingCurrent = false
   }
-)
+}
 
 function scrollToBottom() {
   if (scroll != null) {
@@ -248,7 +292,14 @@ function scrollToBottom() {
   }
 }
 
+async function onScrollToBottomClicked() {
+  items = items.slice(items.length - itemCullCount, items.length)
+  await nextTick()
+  await forceScrollToBottom(250)
+}
+
 async function forceScrollToBottom(duration = 500, interval = 50) {
+  scrollToBottom()
   const id = setInterval(() => {
     scrollToBottom()
   }, interval)
@@ -258,36 +309,37 @@ async function forceScrollToBottom(duration = 500, interval = 50) {
 }
 
 onMounted(async () => {
-  try {
-    try {
-      isDoingInitialLoad = true
-      isLoadingCurrent = true
-      await loadCurrent()
-    } finally {
-      isLoadingCurrent = false
+  await loadCurrent()
+})
+
+const debouncedLoadCurrent = debounce(loadCurrent, 750)
+
+watch($$(filterKey), async () => {
+  items = []
+  itemsStreamed = []
+  isLoadingCurrent = true
+  debouncedLoadCurrent()
+})
+
+const debouncedFilter = debouncedComputed(() => _.cloneDeep(filter), 750)
+
+useStream(
+  computed(() => ({
+    address: selector,
+    search: debouncedFilter.value.search === '' ? undefined : debouncedFilter.value.search,
+  })),
+  async (item: Item, filter) => {
+    if (filter.search != filter.search) {
+      return
     }
-  } finally {
-    void delay(1000).then(() => {
-      isDoingInitialLoad = false
-    })
-  }
 
-  forceScrollToBottom()
-})
-
-watch([computed(() => search)], async () => {
-  if (isDoingInitialLoad) {
-    return
+    if (isLoadingCurrent) {
+      itemsStreamed = [...itemsStreamed, item]
+    } else {
+      await appendItems([item])
+    }
   }
-
-  try {
-    isLoadingCurrent = true
-    await loadCurrent()
-    forceScrollToBottom()
-  } finally {
-    isLoadingCurrent = false
-  }
-})
+)
 
 async function onSend(data: string) {
   const result = await sendMessage(address, data)
@@ -308,12 +360,12 @@ async function onSend(data: string) {
       <q-space class="gt-sm" />
       <div class="col-grow q-ml-sm self-search-input-container">
         <q-input
-          v-model="search"
+          v-model="filter.search"
           class="item-view-search-input"
-          :debounce="250"
           dense
           filled
           input-class="monospace-md"
+          spellcheck="false"
         >
           <template #prepend>
             <q-icon name="search" size="20px" />
@@ -321,11 +373,39 @@ async function onSend(data: string) {
         </q-input>
       </div>
     </template>
-    <div v-if="items.length" class="col-grow self-virtual-scroll-container">
+    <div class="col-grow self-virtual-scroll-container">
+      <transition-group
+        appear
+        enter-active-class="animated fadeIn fast"
+        leave-active-class="animated fadeOut fast"
+      >
+        <div
+          v-if="isLoadingCurrent"
+          key="spinner"
+          class="absolute-center items-center justify-center row"
+        >
+          <q-spinner-orbit color="primary" size="24px" />
+        </div>
+        <span v-else-if="items.length === 0" key="empty" class="absolute-center">
+          <span class="self-empty-message-text text-italic">
+            <template v-if="isShowingAll">
+              No {{ kind.replace('log-entry', 'log entrie') }}s were found.
+            </template>
+            <template v-else>
+              No matching {{ kind.replace('log-entry', 'log entrie') }}s were found.
+            </template>
+          </span>
+        </span>
+      </transition-group>
       <q-virtual-scroll
         ref="scroll"
         v-slot="{ item }"
-        class="fit item-view-virtual-scroll self-virtual-scroll"
+        :class="[
+          'fit',
+          'item-view-virtual-scroll',
+          'self-virtual-scroll',
+          items.length === 0 && 'self-virtual-scroll-empty',
+        ]"
         dense
         flat
         :items="items"
@@ -341,33 +421,22 @@ async function onSend(data: string) {
       </q-virtual-scroll>
       <transition appear enter-active-class="animated fadeIn" leave-active-class="animated fadeOut">
         <q-btn
-          v-if="!isDoingInitialLoad && !isAtBottomComputed"
+          v-if="!isLoadingCurrent && !isAtBottomComputed"
           class="absolute-bottom-right"
           color="primary"
           :icon="icons.arrowDownward"
           round
           size="sm"
           :style="{
-            right: isShowingVerticalScrollBar ? '12px' : '4px',
-            bottom: isShowingHorizontalScrollBar ? '12px' : '4px',
+            right: isShowingVerticalScrollBar ? '20px' : '4px',
+            bottom: isShowingHorizontalScrollBar ? '20px' : '4px',
           }"
-          @click="scrollToBottom"
+          @click="onScrollToBottomClicked"
         >
           <q-tooltip class="bg-primary text-white">Latest</q-tooltip>
         </q-btn>
       </transition>
     </div>
-    <div v-else-if="!isDoingInitialLoad" class="col-grow items-center justify-center row">
-      <span class="self-empty-message-text text-italic">
-        <template v-if="isShowingAll">
-          No {{ kind.replace('log-entry', 'log entrie') }}s were found.
-        </template>
-        <template v-else>
-          No matching {{ kind.replace('log-entry', 'log entrie') }}s were found.
-        </template>
-      </span>
-    </div>
-    <q-space v-else />
     <div v-if="kind === 'message' && showCommandInput">
       <q-separator />
       <command-input :address="address" @send="onSend" />
@@ -383,6 +452,12 @@ async function onSend(data: string) {
 
 .self-virtual-scroll {
   overscroll-behavior: contain;
+  opacity: 1;
+  transition: opacity 0.25s ease-out;
+}
+
+.self-virtual-scroll-empty {
+  opacity: 0;
 }
 
 .self-search-input-container {
