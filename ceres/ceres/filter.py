@@ -120,9 +120,7 @@ class MessageOrder(str, Enum):
 
 
 class MessageFilterArgs(ObjectFilterArgs, total=False):
-    search_timestamp: str | None
-    search_address: str | None
-    search: bytes | None
+    search: str | None
     search_case_sensitive: bool
     within: PositiveTimeDelta | None
     after: DateTime | None
@@ -137,9 +135,7 @@ class MessageFilterArgs(ObjectFilterArgs, total=False):
 
 
 class MessageFilter(ObjectFilter[Message]):
-    search_timestamp: str | None = None
-    search_address: str | None = None
-    search: bytes | None = None
+    search: str | None = None
     search_case_sensitive: bool = False
     within: PositiveTimeDelta | None = None
     after: DateTime | None = None
@@ -157,21 +153,21 @@ class MessageFilter(ObjectFilter[Message]):
         if not super().matches(obj, root):
             return False
 
-        if self.search_timestamp is not None:
-            if self.search_timestamp not in _format_timestamp(obj.timestamp):
-                return False
-
-        if self.search_address is not None:
-            if self.search_address not in obj.address:
-                return False
-
         if self.search is not None:
-            search_content = self.search
+            search = self.search
+            address = obj.address
+            timestamp = _format_timestamp(obj.timestamp)
+            direction = obj.direction
             content = obj.content
             if not self.search_case_sensitive:
-                search_content = search_content.lower()
+                search = search.lower()
                 content = obj.content.lower()
-            if search_content not in content:
+            if not (
+                search in address
+                or search in timestamp
+                or search in direction
+                or search.encode() in content
+            ):
                 return False
 
         if self.within is not None:
@@ -376,4 +372,4 @@ class StatisticsFilter(Filter):
 
 
 def _format_timestamp(timestamp: datetime) -> str:
-    return timestamp.strftime("%Y-%m-%d %H:%M:%f")[:-3]
+    return timestamp.strftime("%Y-%m-%d %H:%M:%f")

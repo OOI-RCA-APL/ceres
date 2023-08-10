@@ -205,7 +205,20 @@ async function prependItems(prepended: Item[]) {
 
 async function appendItems(appended: Item[]) {
   const follow = isAtBottom()
-  items = [...items, ...appended] as Item[]
+  let resort = false
+  if (appended.length > 0 && items.length > 0) {
+    if (appended[appended.length - 1].timestamp < items[items.length - 1].timestamp) {
+      resort = true
+    }
+  }
+
+  let buffer = [...items, ...appended] as Item[]
+  if (resort) {
+    buffer = _.sortBy(buffer, (item) => item.timestamp)
+  }
+
+  items = buffer
+
   if (follow) {
     if (items.length > itemCullThreshold) {
       items = items.slice(items.length - itemCullCount, items.length)
@@ -282,7 +295,7 @@ function scrollToBottom() {
 async function onScrollToBottomClicked() {
   items = items.slice(items.length - itemCullCount, items.length)
   await nextTick()
-  await forceScrollToBottom(100)
+  await forceScrollToBottom(250)
 }
 
 async function forceScrollToBottom(duration = 500, interval = 50) {
@@ -299,7 +312,7 @@ onMounted(async () => {
   await loadCurrent()
 })
 
-const debouncedLoadCurrent = debounce(loadCurrent, 200)
+const debouncedLoadCurrent = debounce(loadCurrent, 750)
 
 watch($$(filterKey), async () => {
   items = []
@@ -308,7 +321,7 @@ watch($$(filterKey), async () => {
   debouncedLoadCurrent()
 })
 
-const debouncedFilter = debouncedComputed(() => _.cloneDeep(filter), 200)
+const debouncedFilter = debouncedComputed(() => _.cloneDeep(filter), 750)
 
 useStream(
   computed(() => ({
@@ -352,6 +365,7 @@ async function onSend(data: string) {
           dense
           filled
           input-class="monospace-md"
+          spellcheck="false"
         >
           <template #prepend>
             <q-icon name="search" size="20px" />

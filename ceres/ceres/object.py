@@ -483,14 +483,15 @@ class Object(ValidatedDataclass, Tasklet):
         self,
         filter: MessageFilter | None = None,
         /,
-        *,
-        where: Callable[[type[MessageEntity]], SQLColumnExpression[bool]] | None = None,
-        order_by: Callable[[type[MessageEntity]], SQLColumnExpression[Any]] | None = None,
         **kwargs: Unpack[MessageFilterArgs],
     ) -> list[Message]:
         filter = MessageFilter(**kwargs).with_defaults(filter)
 
-        ids = await self.__get_ids(filter.address)
+        ids = await self.__get_ids(
+            filter.address,
+            filter.search,
+            filter.search_case_sensitive,
+        )
 
         statement = select(
             MessageEntity.id,
@@ -500,43 +501,32 @@ class Object(ValidatedDataclass, Tasklet):
             MessageEntity.content,
         )
 
-        if filter.search_timestamp is not None:
+        if filter.search:
+            pattern = "%" + escape_like_expression(filter.search) + "%"
             statement = statement.where(
-                _like(
+                MessageEntity.object_id.in_(ids)
+                | _like(
                     _format_timestamp(self.database.kind, MessageEntity.timestamp),
-                    "%" + escape_like_expression(filter.search_timestamp) + "%",
+                    pattern,
                     filter.search_case_sensitive,
                 )
-            )
-
-        if filter.search_address is not None:
-            statement = statement.where(
-                _like(
-                    ObjectEntity.address,
-                    "%" + escape_like_expression(filter.search_address) + "%",
-                    filter.search_case_sensitive,
-                )
-            )
-
-        if filter.search is not None:
-            pattern = b"%" + escape_like_expression(filter.search) + b"%"
-            match self.database.kind:
-                case DatabaseKind.SQLITE:
-                    statement = statement.where(
-                        _like(
-                            MessageEntity.content,
-                            pattern,
-                            filter.search_case_sensitive,
-                        )
+                | _like(MessageEntity.direction, pattern, filter.search_case_sensitive)
+                | (
+                    _like(
+                        MessageEntity.content,
+                        pattern.encode(),
+                        filter.search_case_sensitive,
                     )
-                case DatabaseKind.POSTGRES:
-                    statement = statement.where(
-                        _like(
-                            func.encode(MessageEntity.content, "escape"),
-                            pattern.decode("unicode-escape"),
-                            filter.search_case_sensitive,
-                        )
+                    if self.database.kind == DatabaseKind.SQLITE
+                    else _like(
+                        func.encode(MessageEntity.content, "escape"),
+                        pattern.encode("utf-8").decode("unicode-escape"),
+                        filter.search_case_sensitive,
                     )
+                ),
+            )
+        else:
+            statement = statement.where(MessageEntity.object_id.in_(ids))
 
         if filter.within is not None:
             statement = statement.where(MessageEntity.timestamp >= utc() - filter.within)
@@ -555,28 +545,19 @@ class Object(ValidatedDataclass, Tasklet):
                 MessageEntity.content.like(b"%" + escape_like_expression(filter.suffix)),
             )
 
-        if filter.order is not None:
-            match filter.order:
-                case MessageOrder.OLD_TO_NEW:
-                    statement = statement.order_by(MessageEntity.timestamp)
-                case MessageOrder.NEW_TO_OLD:
-                    statement = statement.order_by(MessageEntity.timestamp.desc())
+        match filter.order:
+            case None | MessageOrder.OLD_TO_NEW:
+                statement = statement.order_by(MessageEntity.timestamp)
+            case MessageOrder.NEW_TO_OLD:
+                statement = statement.order_by(MessageEntity.timestamp.desc())
 
         if filter.limit is not None:
             statement = statement.limit(filter.limit)
         if filter.offset is not None and filter.offset > 0:
             statement = statement.offset(filter.offset)
 
-        if where is not None:
-            statement = statement.where(where(MessageEntity))
-        if order_by is not None:
-            statement = statement.order_by(order_by(MessageEntity))
-
-        if filter.order is None and order_by is None:
-            statement = statement.order_by(MessageEntity.timestamp)
-
-        statement = statement.where(MessageEntity.object_id.in_(ids)).cte()
-        statement = (
+        statement = statement.cte()
+        joined = (
             select(
                 statement.columns.id,
                 ObjectEntity.address,
@@ -588,8 +569,14 @@ class Object(ValidatedDataclass, Tasklet):
             .join(ObjectEntity, statement.columns.object_id == ObjectEntity.id)
         )
 
+        match filter.order:
+            case None | MessageOrder.OLD_TO_NEW:
+                joined = joined.order_by(statement.columns.timestamp)
+            case MessageOrder.NEW_TO_OLD:
+                joined = joined.order_by(statement.columns.timestamp.desc())
+
         async with await self.__init_database_session() as session:
-            rows = await session.execute(statement)
+            rows = await session.execute(joined)
 
         return [Message.construct(**row._asdict()) for row in rows]  # type: ignore
 
@@ -610,32 +597,25 @@ class Object(ValidatedDataclass, Tasklet):
         self,
         filter: MessageFilter | None = None,
         /,
-        *,
-        where: Callable[[type[MessageEntity]], SQLColumnExpression[bool]] | None = None,
-        order_by: Callable[[type[MessageEntity]], SQLColumnExpression[Any]] | None = None,
         **kwargs: Unpack[MessageFilterArgs],
     ) -> Message | None:
-        messages = await self.get_messages(
-            filter,
-            where=where,
-            order_by=order_by,
-            **{**kwargs, "limit": 1},
-        )
-
+        messages = await self.get_messages(filter, **{**kwargs, "limit": 1})
         return messages[0] if messages else None
 
     async def get_alerts(
         self,
         filter: AlertFilter | None = None,
         /,
-        *,
-        where: Callable[[type[AlertEntity]], SQLColumnExpression[bool]] | None = None,
-        order_by: Callable[[type[AlertEntity]], SQLColumnExpression[Any]] | None = None,
         **kwargs: Unpack[AlertFilterArgs],
     ) -> list[Alert]:
         filter = AlertFilter(**kwargs).with_defaults(filter)
 
-        ids = await self.__get_ids(filter.address)
+        ids = await self.__get_ids(
+            filter.address,
+            filter.search,
+            filter.search_case_sensitive,
+        )
+
         statement = select(
             AlertEntity.id,
             AlertEntity.object_id,
@@ -648,7 +628,8 @@ class Object(ValidatedDataclass, Tasklet):
         if filter.search is not None:
             pattern = "%" + escape_like_expression(filter.search) + "%"
             statement = statement.where(
-                _like(
+                AlertEntity.object_id.in_(ids)
+                | _like(
                     _format_timestamp(self.database.kind, AlertEntity.timestamp),
                     pattern,
                     filter.search_case_sensitive,
@@ -663,6 +644,8 @@ class Object(ValidatedDataclass, Tasklet):
                     filter.search_case_sensitive,
                 ),
             )
+        else:
+            statement = statement.where(AlertEntity.object_id.in_(ids))
 
         if filter.within is not None:
             statement = statement.where(AlertEntity.timestamp >= utc() - filter.within)
@@ -683,30 +666,19 @@ class Object(ValidatedDataclass, Tasklet):
         if filter.code_regex is not None:
             statement = statement.where(AlertEntity.code.regexp_match(filter.code_regex))
 
-        if filter.order is not None:
-            match filter.order:
-                case AlertOrder.OLD_TO_NEW:
-                    statement = statement.order_by(AlertEntity.timestamp)
-                case AlertOrder.NEW_TO_OLD:
-                    statement = statement.order_by(AlertEntity.timestamp.desc())
-        elif order_by is None:
-            statement = statement.order_by(AlertEntity.timestamp)
+        match filter.order:
+            case None | AlertOrder.OLD_TO_NEW:
+                statement = statement.order_by(AlertEntity.timestamp)
+            case AlertOrder.NEW_TO_OLD:
+                statement = statement.order_by(AlertEntity.timestamp.desc())
 
         if filter.limit is not None:
             statement = statement.limit(filter.limit)
         if filter.offset is not None and filter.offset > 0:
             statement = statement.offset(filter.offset)
 
-        if where is not None:
-            statement = statement.where(where(AlertEntity))
-        if order_by is not None:
-            statement = statement.order_by(order_by(AlertEntity))
-
-        if filter.order is None and order_by is None:
-            statement = statement.order_by(AlertEntity.timestamp)
-
-        statement = statement.where(AlertEntity.object_id.in_(ids)).cte()
-        statement = (
+        statement = statement.cte()
+        joined = (
             select(
                 statement.columns.id,
                 ObjectEntity.address,
@@ -719,8 +691,14 @@ class Object(ValidatedDataclass, Tasklet):
             .join(ObjectEntity, statement.columns.object_id == ObjectEntity.id)
         )
 
+        match filter.order:
+            case None | AlertOrder.OLD_TO_NEW:
+                joined = joined.order_by(statement.columns.timestamp)
+            case AlertOrder.NEW_TO_OLD:
+                joined = joined.order_by(statement.columns.timestamp.desc())
+
         async with await self.__init_database_session() as session:
-            rows = await session.execute(statement)
+            rows = await session.execute(joined)
 
         return [Alert.construct(**row._asdict()) for row in rows]  # type: ignore
 
@@ -741,32 +719,28 @@ class Object(ValidatedDataclass, Tasklet):
         self,
         filter: AlertFilter | None = None,
         /,
-        *,
-        where: Callable[[type[AlertEntity]], SQLColumnExpression[bool]] | None = None,
-        order_by: Callable[[type[AlertEntity]], SQLColumnExpression[Any]] | None = None,
         **kwargs: Unpack[AlertFilterArgs],
     ) -> Alert | None:
         alerts = await self.get_alerts(
             filter,
-            where=where,
-            order_by=order_by,
             **{**kwargs, "limit": 1},
         )
-
         return alerts[0] if alerts else None
 
     async def get_log_entries(
         self,
         filter: LogEntryFilter | None = None,
         /,
-        *,
-        where: Callable[[type[LogEntryEntity]], SQLColumnExpression[bool]] | None = None,
-        order_by: Callable[[type[LogEntryEntity]], SQLColumnExpression[Any]] | None = None,
         **kwargs: Unpack[LogEntryFilterArgs],
     ) -> list[LogEntry]:
         filter = LogEntryFilter(**kwargs).with_defaults(filter)
 
-        ids = await self.__get_ids(filter.address)
+        ids = await self.__get_ids(
+            filter.address,
+            filter.search,
+            filter.search_case_sensitive,
+        )
+
         statement = select(
             LogEntryEntity.id,
             LogEntryEntity.object_id,
@@ -778,7 +752,8 @@ class Object(ValidatedDataclass, Tasklet):
         if filter.search is not None:
             pattern = "%" + escape_like_expression(filter.search) + "%"
             statement = statement.where(
-                _like(
+                LogEntryEntity.object_id.in_(ids)
+                | _like(
                     _format_timestamp(self.database.kind, LogEntryEntity.timestamp),
                     pattern,
                     filter.search_case_sensitive,
@@ -790,6 +765,8 @@ class Object(ValidatedDataclass, Tasklet):
                     filter.search_case_sensitive,
                 ),
             )
+        else:
+            statement = statement.where(LogEntryEntity.object_id.in_(ids))
 
         if filter.within is not None:
             statement = statement.where(LogEntryEntity.timestamp >= utc() - filter.within)
@@ -811,28 +788,19 @@ class Object(ValidatedDataclass, Tasklet):
                 LogEntryEntity.content.like("%" + escape_like_expression(filter.suffix)),
             )
 
-        if filter.order is not None:
-            match filter.order:
-                case LogEntryOrder.OLD_TO_NEW:
-                    statement = statement.order_by(LogEntryEntity.timestamp)
-                case LogEntryOrder.NEW_TO_OLD:
-                    statement = statement.order_by(LogEntryEntity.timestamp.desc())
+        match filter.order:
+            case None | LogEntryOrder.OLD_TO_NEW:
+                statement = statement.order_by(LogEntryEntity.timestamp)
+            case LogEntryOrder.NEW_TO_OLD:
+                statement = statement.order_by(LogEntryEntity.timestamp.desc())
 
         if filter.limit is not None:
             statement = statement.limit(filter.limit)
         if filter.offset is not None and filter.offset > 0:
             statement = statement.offset(filter.offset)
 
-        if where is not None:
-            statement = statement.where(where(LogEntryEntity))
-        if order_by is not None:
-            statement = statement.order_by(order_by(LogEntryEntity))
-
-        if filter.order is None and order_by is None:
-            statement = statement.order_by(LogEntryEntity.timestamp)
-
-        statement = statement.where(LogEntryEntity.object_id.in_(ids)).cte()
-        statement = (
+        statement = statement.cte()
+        joined = (
             select(
                 statement.columns.id,
                 ObjectEntity.address,
@@ -844,8 +812,14 @@ class Object(ValidatedDataclass, Tasklet):
             .join(ObjectEntity, statement.columns.object_id == ObjectEntity.id)
         )
 
+        match filter.order:
+            case None | LogEntryOrder.OLD_TO_NEW:
+                joined = joined.order_by(statement.columns.timestamp)
+            case LogEntryOrder.NEW_TO_OLD:
+                joined = joined.order_by(statement.columns.timestamp.desc())
+
         async with await self.__init_database_session() as session:
-            rows = await session.execute(statement)
+            rows = await session.execute(joined)
 
         return [LogEntry.construct(**row._asdict()) for row in rows]  # type: ignore
 
@@ -866,18 +840,9 @@ class Object(ValidatedDataclass, Tasklet):
         self,
         filter: LogEntryFilter | None = None,
         /,
-        *,
-        where: Callable[[type[LogEntryEntity]], SQLColumnExpression[bool]] | None = None,
-        order_by: Callable[[type[LogEntryEntity]], SQLColumnExpression[Any]] | None = None,
         **kwargs: Unpack[LogEntryFilterArgs],
     ) -> LogEntry | None:
-        alerts = await self.get_log_entries(
-            filter,
-            where=where,
-            order_by=order_by,
-            **{**kwargs, "limit": 1},
-        )
-
+        alerts = await self.get_log_entries(filter, **{**kwargs, "limit": 1})
         return alerts[0] if alerts else None
 
     async def get_statistics(
@@ -924,17 +889,44 @@ class Object(ValidatedDataclass, Tasklet):
 
         return list(results.values())
 
-    async def __get_ids(self, address: AddressSelector | None) -> list[UUID]:
-        return [await self.get_id(address) for address in self.__get_addresses(address)]
+    async def __get_ids(
+        self,
+        address: AddressSelector | None,
+        search: str | None = None,
+        search_case_sensitive: bool = False,
+    ) -> list[UUID]:
+        return [
+            await self.get_id(address)
+            for address in self.__get_addresses(address, search, search_case_sensitive)
+        ]
 
-    def __get_addresses(self, address: AddressSelector | None) -> list[Address]:
+    def __get_addresses(
+        self,
+        address: AddressSelector | None,
+        search: str | None = None,
+        search_case_sensitive: bool = False,
+    ) -> list[Address]:
         ids: list[Address] = []
 
-        if address is None or address.matches(self.address):
+        if (address is None or address.matches(self.address)) and (
+            search is None
+            or (
+                search in self.address
+                if search_case_sensitive
+                else search.lower() in self.address.lower()
+            )
+        ):
             ids.append(self.address)
 
         ids.extend(
-            component.address for component in self.get_components(address=address, inclusive=False)
+            component.address
+            for component in self.get_components(address=address, inclusive=False)
+            if search is None
+            or (
+                search in component.address
+                if search_case_sensitive
+                else search.lower() in component.address.lower()
+            )
         )
 
         return ids
