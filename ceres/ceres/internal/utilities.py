@@ -585,8 +585,10 @@ def uniquify(iterable: Iterable[_T], key: Callable[[_T], Hashable] | None = None
         seen.add(identity)
         yield value
 
+
 if TYPE_CHECKING:
     from ceres.database import Database
+
 
 async def get_session(database: "Database", session: AsyncSession | None) -> AsyncSession:
     if session is None:
