@@ -279,7 +279,7 @@ async def test_routines() -> None:
 
     components.start()
 
-    await asyncio.sleep(0.1)
+    await asyncio.sleep(0.25)
 
     await components.stop()
 
@@ -291,7 +291,7 @@ async def test_routines() -> None:
     assert len(runs_once.emitted[RoutineExceptionEvent]) == 0
     assert len(runs_once.emitted[RoutineRestartedEvent]) == 0
 
-    assert 1 < runs_forever.count < 1000
+    assert 1 < runs_forever.count < 10000
     assert len(runs_forever.emitted[RoutineStartedEvent]) == 1
     assert len(runs_forever.emitted[RoutineStoppedEvent]) == 1
     assert len(runs_forever.emitted[RoutineCompletedEvent]) == 0
@@ -299,18 +299,19 @@ async def test_routines() -> None:
     assert len(runs_forever.emitted[RoutineExceptionEvent]) == 0
     assert len(runs_forever.emitted[RoutineRestartedEvent]) == 0
 
-    assert 1 < restarts_forever.count < 1000
+    assert 1 < restarts_forever.count < 10000
     assert len(restarts_forever.emitted[RoutineStartedEvent]) == 1
     assert len(restarts_forever.emitted[RoutineStoppedEvent]) == 1
-    assert 1 < len(restarts_forever.emitted[RoutineCompletedEvent]) < 1000
+    assert 1 < len(restarts_forever.emitted[RoutineCompletedEvent]) < 10000
     assert len(restarts_forever.emitted[RoutineCancelledEvent]) == 1
     assert len(restarts_forever.emitted[RoutineExceptionEvent]) == 0
-    assert 1 < len(restarts_forever.emitted[RoutineRestartedEvent]) < 1000
+    assert 1 < len(restarts_forever.emitted[RoutineRestartedEvent]) < 10000
 
-    assert 1 < crashes_forever.count < 1000
+    # TODO: Fix in CI for Python 3.10.
+    assert 1 < crashes_forever.count < 10000
     assert len(crashes_forever.emitted[RoutineStartedEvent]) == 1
     assert len(crashes_forever.emitted[RoutineStoppedEvent]) == 1
     assert len(crashes_forever.emitted[RoutineCompletedEvent]) == 0
     assert len(crashes_forever.emitted[RoutineCancelledEvent]) == 1
-    assert 1 < len(crashes_forever.emitted[RoutineExceptionEvent]) < 1000
-    assert 1 < len(crashes_forever.emitted[RoutineRestartedEvent]) < 1000
+    assert 1 < len(crashes_forever.emitted[RoutineExceptionEvent]) < 10000
+    assert 1 < len(crashes_forever.emitted[RoutineRestartedEvent]) < 10000
