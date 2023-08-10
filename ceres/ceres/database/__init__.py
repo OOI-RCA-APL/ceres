@@ -101,16 +101,21 @@ class Database:
     async def dispose(self) -> None:
         await self.__engine.dispose()
 
-    async def init(self) -> None:
+    async def init(self) -> AsyncSession:
+        if self.__completed_init_successfully:
+            return self.session()
+
         async with self.__init_lock:
             if self.__completed_init_successfully:
-                return
+                return self.session()
 
             async with self.begin() as connection:
                 for statement in self.ddl:
                     await connection.execute(text(statement))
 
             self.__completed_init_successfully = True
+
+        return self.session()
 
     async def tables(self) -> list[str]:
         return await self.__run_sync(lambda connection: inspect(connection).get_table_names())

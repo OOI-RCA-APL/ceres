@@ -28,7 +28,6 @@ from typing import (
     get_type_hints,
     runtime_checkable,
 )
-from uuid import UUID
 from weakref import WeakValueDictionary, ref
 
 from apscheduler.job import Job as InternalJob
@@ -50,7 +49,6 @@ from pydantic.decorator import ValidatedFunction
 from pydantic.typing import get_args
 from sqlalchemy import (
     select,
-    update,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing_extensions import Self, Unpack, dataclass_transform, overload, override
@@ -93,7 +91,7 @@ from ceres.events import (
 )
 from ceres.exceptions import ProcedureException
 from ceres.filter import ComponentFilter, ComponentFilterArgs
-from ceres.internal.database.entities import ObjectEntity
+from ceres.internal.database.entities import ComponentEntity
 from ceres.internal.utilities import (
     awaitify,
     cached,
@@ -238,19 +236,6 @@ class Component(Object):
     def __setup__(self) -> None:
         pass
 
-    @property
-    @override
-    def __container__(self) -> Object | None:
-        if self.parent is not None:
-            return self.parent
-
-        return self.server
-
-    @property
-    @override
-    def __contained__(self) -> Sequence[Object]:
-        return list(self.get_components())
-
     @final
     @classmethod
     def get_listener_bindings(cls) -> Sequence["ListenerBinding"]:
@@ -312,6 +297,37 @@ class Component(Object):
 
     @property
     @override
+    def __object_parent__(self) -> Object | None:
+        if self.parent is not None:
+            return self.parent
+
+        return self.server
+
+    @property
+    @override
+    def __object_descendants__(self) -> Sequence[Object]:
+        return list(self.get_components())
+
+    @property
+    @override
+    @final
+    def __object_database__(self) -> Database:
+        if self.parent is not None:
+            return self.parent.__object_database__
+        if self.server is not None:
+            return self.server.__object_database__
+        if self.__database is None:
+            self.__database = Database()
+
+        return self.__database
+
+    @override
+    async def __object_sync__(self, session: AsyncSession) -> None:
+        await super().__object_sync__(session)
+        self.__enabled = await self.__get_enabled_in_database(session)
+
+    @property
+    @override
     def address(self) -> Address:
         if self.parent is not None:
             return self.parent.address / self.name
@@ -349,11 +365,13 @@ class Component(Object):
             listener.handle(event)
 
     async def enable(self) -> None:
-        await self.__set_enabled_in_database(True)
+        async with await self.__object_database__.init() as session:
+            await self.__set_enabled_in_database(session, True)
         self.__enabled = True
 
     async def disable(self) -> None:
-        await self.__set_enabled_in_database(False)
+        async with await self.__object_database__.init() as session:
+            await self.__set_enabled_in_database(session, False)
         self.__enabled = False
 
     async def up(self) -> None:
@@ -364,26 +382,33 @@ class Component(Object):
         await self.disable()
         await self.stop()
 
-    async def __get_enabled_in_database(self) -> bool:
-        async with await self.__init_database_session() as session:
-            enabled = await session.scalar(
-                select(ObjectEntity.enabled).where(ObjectEntity.address == self.address)
+    async def __get_enabled_in_database(self, session: AsyncSession) -> bool:
+        enabled = await session.scalar(
+            select(ComponentEntity.enabled).where(ComponentEntity.address == self.address)
+        )
+
+        if enabled is None:
+            return False
+
+        return enabled
+
+    async def __set_enabled_in_database(self, session: AsyncSession, enabled: bool) -> None:
+        if self.__object_database__.kind == "sqlite":
+            from sqlalchemy.dialects.sqlite import insert
+        else:
+            from sqlalchemy.dialects.postgresql import insert
+
+        await self.__object_sync__(session)
+        await session.execute(
+            insert(ComponentEntity)
+            .values(
+                address=self.address,
+                enabled=enabled,
             )
+            .on_conflict_do_update(set_={"enabled": enabled})
+        )
 
-            if enabled is None:
-                return False
-
-            return enabled
-
-    async def __set_enabled_in_database(self, enabled: bool) -> None:
-        async with await self.__init_database_session() as session:
-            await session.execute(
-                update(ObjectEntity)
-                .where(ObjectEntity.address == self.address)
-                .values(enabled=enabled)
-            )
-
-            await session.commit()
+        await session.commit()
 
         if enabled:
             self.emit(EnabledEvent)
@@ -407,19 +432,6 @@ class Component(Object):
             return None
 
         return self.__parent()
-
-    @property
-    @override
-    @final
-    def database(self) -> Database:
-        if self.parent is not None:
-            return self.parent.database
-        if self.server is not None:
-            return self.server.database
-        if self.__database is None:
-            self.__database = Database()
-
-        return self.__database
 
     @property
     @override
@@ -767,7 +779,8 @@ class Component(Object):
 
     @override
     async def __run__(self) -> None:
-        await self.sync_with_database()
+        async with await self.__object_database__.init() as session:
+            await self.__object_sync__(session)
 
         self.__scheduler.start()
 
@@ -937,16 +950,6 @@ class Component(Object):
             raise ProcedureException(
                 ProcedureInternalError(traceback=traceback.format_exception(exception))
             )
-
-    async def __init_database_session(self) -> AsyncSession:
-        await self.database.init()
-        return self.database.session()
-
-    # TODO: Get rid of this.
-    async def sync_with_database(self) -> UUID:
-        id = await self.get_id()
-        self.__enabled = await self.__get_enabled_in_database()
-        return id
 
 
 @cached

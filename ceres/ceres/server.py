@@ -62,7 +62,7 @@ class Server(Object, kw_only=False):
         self.root = self.__root
 
         assert self.root.server is self
-        assert self.root.database is self.database
+        assert self.root.__object_database__ is self.__object_database__
 
         from ceres.internal.app import App
 
@@ -74,13 +74,18 @@ class Server(Object, kw_only=False):
 
     @property
     @override
-    def __container__(self) -> Object | None:
+    def __object_parent__(self) -> Object | None:
         return None
 
     @property
     @override
-    def __contained__(self) -> Sequence[Object]:
+    def __object_descendants__(self) -> Sequence[Object]:
         return [self.root, *self.get_components()]
+
+    @property
+    @override
+    def __object_database__(self) -> Database:
+        return self.__database
 
     @property
     @override
@@ -97,11 +102,6 @@ class Server(Object, kw_only=False):
         root = root.unref()
         self.__root = root
         self.__root.server = self
-
-    @property
-    @override
-    def database(self) -> Database:
-        return self.__database
 
     @property
     @override
@@ -141,11 +141,14 @@ class Server(Object, kw_only=False):
 
                 async def start_enabled() -> None:
                     await asyncio.sleep(0)
-                    for component in self.get_components():
-                        await component.sync_with_database()
-                        if component.enabled and not component.running:
-                            self.log.info(f"Starting enabled component '{component.address}'...")
-                            component.start()
+                    async with await self.__object_database__.init() as session:
+                        for component in self.get_components():
+                            await component.__object_sync__(session)
+                            if component.enabled and not component.running:
+                                self.log.info(
+                                    f"Starting enabled component '{component.address}'..."
+                                )
+                                component.start()
 
                     await sleep_forever()
 
@@ -227,10 +230,10 @@ class Server(Object, kw_only=False):
                 return Fail(ReloadConfigInvalidError(errors=errors))
 
     async def __load_database(self) -> None:
-        if not await self.database.tables():
+        if not await self.__object_database__.tables():
             self.log.info("Database appears empty, initializing database...")
             try:
-                await self.database.init()
+                await self.__object_database__.init()
                 self.log.info("Database initialized successfully.")
             except Exception as exception:
                 self.log.error("Database initialization failed.")
@@ -316,7 +319,6 @@ class Server(Object, kw_only=False):
                 return None
 
         component = self.get_component(address)
-        id = await self.get_id(address)
 
         if component is None:
             try:
@@ -328,8 +330,9 @@ class Server(Object, kw_only=False):
                     if parent is not None:
                         parent.add_component(component)
 
-                await component.sync_with_database()
-                self.log.info(f"Loaded '{address}' as {strify(type(component))} with ID '{id}'.")
+                async with await self.__object_database__.init() as session:
+                    await component.__object_sync__(session)
+                self.log.info(f"Loaded '{address}' as {strify(type(component))}.")
 
             except Exception:
                 self.log.error(f"Failed to load '{address}': {traceback.format_exc()}")

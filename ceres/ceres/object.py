@@ -2,7 +2,7 @@ import asyncio
 from abc import abstractmethod
 from asyncio import Event as AsyncEvent
 from asyncio import Lock as AsyncLock
-from collections import deque
+from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from datetime import datetime
 from itertools import groupby
@@ -68,10 +68,10 @@ from ceres.filter import (
     StatisticsFilterArgs,
 )
 from ceres.internal.database.entities import (
+    AddressEntity,
     AlertEntity,
     LogEntryEntity,
     MessageEntity,
-    ObjectEntity,
 )
 from ceres.internal.tasklet import Tasklet
 from ceres.internal.utilities import chunkify, dictify, escape_like_expression
@@ -132,7 +132,7 @@ class Object(ValidatedDataclass, Tasklet):
         self.__events: WriteStream[Event] = WriteStream()
         self.__log = Log(self)
 
-        self.__mapping: dict[Address, UUID] | None = None
+        self.__mapping: defaultdict[Address, list[UUID]] | None = None
         self.__mapping_lock = AsyncLock()
         self.__flush_buffer: list[Item] = []
         self.__flushes: deque[_Flush] = deque()
@@ -141,13 +141,21 @@ class Object(ValidatedDataclass, Tasklet):
 
     @property
     @abstractmethod
-    def __container__(self) -> "Object | None":
+    def __object_parent__(self) -> "Object | None":
         return ...
 
     @property
     @abstractmethod
-    def __contained__(self) -> Sequence["Object"]:
+    def __object_descendants__(self) -> Sequence["Object"]:
         return ...
+
+    @property
+    @abstractmethod
+    def __object_database__(self) -> Database:
+        ...
+
+    async def __object_sync__(self, session: AsyncSession) -> None:
+        await self.get_address_id()
 
     @property
     @abstractmethod
@@ -157,11 +165,6 @@ class Object(ValidatedDataclass, Tasklet):
     @property
     @abstractmethod
     def root(self) -> Component:
-        ...
-
-    @property
-    @abstractmethod
-    def database(self) -> Database:
         ...
 
     @property
@@ -205,7 +208,7 @@ class Object(ValidatedDataclass, Tasklet):
         self.__events.put(event)
 
         # If there is no containing object, store and disperse the event ourselves.
-        if self.__container__ is None:
+        if self.__object_parent__ is None:
             match event:
                 case MessageSentEvent() | MessageReceivedEvent():
                     self.store(event.message)
@@ -217,11 +220,11 @@ class Object(ValidatedDataclass, Tasklet):
                     pass
 
             self.handle(event)
-            for contained in self.__contained__:
+            for contained in self.__object_descendants__:
                 contained.handle(event)
         # Otherwise propagate the event to the containing object.
         else:
-            self.__container__.propagate(event)
+            self.__object_parent__.propagate(event)
 
         return event
 
@@ -246,6 +249,9 @@ class Object(ValidatedDataclass, Tasklet):
 
     @override
     async def __run__(self) -> None:
+        async with await self.__object_database__.init() as session:
+            await self.__object_sync__(session)
+
         self.emit(StartedEvent)
 
         await self.__process_flush()
@@ -264,41 +270,53 @@ class Object(ValidatedDataclass, Tasklet):
     async def __done__(self) -> None:
         self.emit(StoppedEvent)
 
-    async def get_id(
+    async def get_address_id(
         self,
         address: Address | None = None,
         default: UUID | None = None,
     ) -> UUID:
+        ids = await self.get_address_ids(address, default)
+        return ids[0]
+
+    async def get_address_ids(
+        self,
+        address: Address | None = None,
+        default: UUID | None = None,
+    ) -> list[UUID]:
         if address is None:
             address = self.address
-        if self.__container__ is not None:
-            return await self.__container__.get_id(address, default=default)
+        if self.__object_parent__ is not None:
+            return await self.__object_parent__.get_address_ids(address, default=default)
 
         if self.__mapping is not None:
-            id = self.__mapping.get(address)
-            if id is not None:
-                return id
+            ids = self.__mapping.get(address)
+            if ids:
+                return list(ids)
 
-        async with await self.__init_database_session() as session:
+        async with await self.__object_database__.init() as session:
             mapping = await self.__get_or_load_mapping(session)
-            id = mapping.get(address)
-            if id is not None:
-                return id
+            ids = mapping.get(address)
+            if ids:
+                return list(ids)
 
-            if id is None:
-                id = await session.scalar(
-                    select(ObjectEntity.id).where(ObjectEntity.address == address),
+            ids = list(
+                await session.scalars(
+                    select(AddressEntity.id).where(AddressEntity.address == address),
                 )
+            )
 
-            if id is None:
+            if not ids:
                 id = default or uuid4()
-                obj = ObjectEntity(id=id, address=address)
 
-                session.add(obj)
+                entity = AddressEntity(id=id, address=address)
+
+                session.add(entity)
                 await session.commit()
 
-            mapping[address] = id
-            return id
+                ids.append(id)
+                mapping[address] = ids
+
+            return list(ids)
 
     def store(self, item: Item) -> None:
         if not isinstance(item, Item):
@@ -332,9 +350,9 @@ class Object(ValidatedDataclass, Tasklet):
             if pending:
                 await pending[-1].event.wait()
 
-            async with await self.__init_database_session() as session:
+            async with await self.__object_database__.init() as session:
                 # Pick the number of items to insert in a single query based on the database kind.
-                match self.database.kind:
+                match self.__object_database__.kind:
                     case DatabaseKind.SQLITE:
                         from sqlalchemy.dialects.sqlite import insert
 
@@ -366,7 +384,7 @@ class Object(ValidatedDataclass, Tasklet):
                             # the "component_id".
                             data = dictify(model)
                             data.pop("address", None)
-                            data["object_id"] = await self.get_id(model.address)
+                            data["address_id"] = await self.get_address_id(model.address)
                             values.append(data)
 
                         await session.execute(
@@ -385,24 +403,24 @@ class Object(ValidatedDataclass, Tasklet):
             if not self.__flush_buffer and not self.__flushes:
                 self.__flushed.set()
 
-    async def __generate_mapping(self, session: AsyncSession) -> dict[Address, UUID]:
-        return dict(
-            tuple(row)
-            for row in await session.execute(
-                select(ObjectEntity.address, ObjectEntity.id),
-            )
-        )
+    async def __generate_mapping(self, session: AsyncSession) -> defaultdict[Address, list[UUID]]:
+        mapping: defaultdict[Address, list[UUID]] = defaultdict(list)
+        for address, id in await session.execute(
+            select(AddressEntity.address, AddressEntity.id),
+        ):
+            mapping[address].append(id)
 
-    async def __get_or_load_mapping(self, session: AsyncSession) -> dict[Address, UUID]:
+        return mapping
+
+    async def __get_or_load_mapping(
+        self,
+        session: AsyncSession,
+    ) -> defaultdict[Address, list[UUID]]:
         async with self.__mapping_lock:
             if self.__mapping is None:
                 self.__mapping = await self.__generate_mapping(session)
 
         return self.__mapping
-
-    async def __init_database_session(self) -> AsyncSession:
-        await self.database.init()
-        return self.database.session()
 
     def get_object(self, address: str | DynamicAddress | None, /) -> "Object | None":
         if address is None:
@@ -495,7 +513,7 @@ class Object(ValidatedDataclass, Tasklet):
 
         statement = select(
             MessageEntity.id,
-            MessageEntity.object_id,
+            MessageEntity.address_id,
             MessageEntity.timestamp,
             MessageEntity.direction,
             MessageEntity.content,
@@ -504,9 +522,9 @@ class Object(ValidatedDataclass, Tasklet):
         if filter.search:
             pattern = "%" + escape_like_expression(filter.search) + "%"
             statement = statement.where(
-                MessageEntity.object_id.in_(ids)
+                MessageEntity.address_id.in_(ids)
                 | _like(
-                    _format_timestamp(self.database.kind, MessageEntity.timestamp),
+                    _format_timestamp(self.__object_database__.kind, MessageEntity.timestamp),
                     pattern,
                     filter.search_case_sensitive,
                 )
@@ -517,7 +535,7 @@ class Object(ValidatedDataclass, Tasklet):
                         pattern.encode(),
                         filter.search_case_sensitive,
                     )
-                    if self.database.kind == DatabaseKind.SQLITE
+                    if self.__object_database__.kind == DatabaseKind.SQLITE
                     else _like(
                         func.encode(MessageEntity.content, "escape"),
                         pattern.encode("utf-8").decode("unicode-escape"),
@@ -526,7 +544,7 @@ class Object(ValidatedDataclass, Tasklet):
                 ),
             )
         else:
-            statement = statement.where(MessageEntity.object_id.in_(ids))
+            statement = statement.where(MessageEntity.address_id.in_(ids))
 
         if filter.within is not None:
             statement = statement.where(MessageEntity.timestamp >= utc() - filter.within)
@@ -560,13 +578,13 @@ class Object(ValidatedDataclass, Tasklet):
         joined = (
             select(
                 statement.columns.id,
-                ObjectEntity.address,
+                AddressEntity.address,
                 statement.columns.timestamp,
                 statement.columns.direction,
                 statement.columns.content,
             )
             .select_from(statement)
-            .join(ObjectEntity, statement.columns.object_id == ObjectEntity.id)
+            .join(AddressEntity, statement.columns.address_id == AddressEntity.id)
         )
 
         match filter.order:
@@ -575,7 +593,7 @@ class Object(ValidatedDataclass, Tasklet):
             case MessageOrder.NEW_TO_OLD:
                 joined = joined.order_by(statement.columns.timestamp.desc())
 
-        async with await self.__init_database_session() as session:
+        async with await self.__object_database__.init() as session:
             rows = await session.execute(joined)
 
         return [Message.construct(**row._asdict()) for row in rows]  # type: ignore
@@ -618,7 +636,7 @@ class Object(ValidatedDataclass, Tasklet):
 
         statement = select(
             AlertEntity.id,
-            AlertEntity.object_id,
+            AlertEntity.address_id,
             AlertEntity.timestamp,
             AlertEntity.level,
             AlertEntity.code,
@@ -628,9 +646,9 @@ class Object(ValidatedDataclass, Tasklet):
         if filter.search is not None:
             pattern = "%" + escape_like_expression(filter.search) + "%"
             statement = statement.where(
-                AlertEntity.object_id.in_(ids)
+                AlertEntity.address_id.in_(ids)
                 | _like(
-                    _format_timestamp(self.database.kind, AlertEntity.timestamp),
+                    _format_timestamp(self.__object_database__.kind, AlertEntity.timestamp),
                     pattern,
                     filter.search_case_sensitive,
                 )
@@ -638,14 +656,14 @@ class Object(ValidatedDataclass, Tasklet):
                 | _like(AlertEntity.code, pattern, filter.search_case_sensitive)
                 | _like(
                     cast(AlertEntity.info, Text)
-                    if self.database.kind == DatabaseKind.POSTGRES
+                    if self.__object_database__.kind == DatabaseKind.POSTGRES
                     else AlertEntity.info,
                     pattern,
                     filter.search_case_sensitive,
                 ),
             )
         else:
-            statement = statement.where(AlertEntity.object_id.in_(ids))
+            statement = statement.where(AlertEntity.address_id.in_(ids))
 
         if filter.within is not None:
             statement = statement.where(AlertEntity.timestamp >= utc() - filter.within)
@@ -681,14 +699,14 @@ class Object(ValidatedDataclass, Tasklet):
         joined = (
             select(
                 statement.columns.id,
-                ObjectEntity.address,
+                AddressEntity.address,
                 statement.columns.timestamp,
                 statement.columns.level,
                 statement.columns.code,
                 statement.columns.info,
             )
             .select_from(statement)
-            .join(ObjectEntity, statement.columns.object_id == ObjectEntity.id)
+            .join(AddressEntity, statement.columns.address_id == AddressEntity.id)
         )
 
         match filter.order:
@@ -697,7 +715,7 @@ class Object(ValidatedDataclass, Tasklet):
             case AlertOrder.NEW_TO_OLD:
                 joined = joined.order_by(statement.columns.timestamp.desc())
 
-        async with await self.__init_database_session() as session:
+        async with await self.__object_database__.init() as session:
             rows = await session.execute(joined)
 
         return [Alert.construct(**row._asdict()) for row in rows]  # type: ignore
@@ -743,7 +761,7 @@ class Object(ValidatedDataclass, Tasklet):
 
         statement = select(
             LogEntryEntity.id,
-            LogEntryEntity.object_id,
+            LogEntryEntity.address_id,
             LogEntryEntity.timestamp,
             LogEntryEntity.level,
             LogEntryEntity.content,
@@ -752,9 +770,9 @@ class Object(ValidatedDataclass, Tasklet):
         if filter.search is not None:
             pattern = "%" + escape_like_expression(filter.search) + "%"
             statement = statement.where(
-                LogEntryEntity.object_id.in_(ids)
+                LogEntryEntity.address_id.in_(ids)
                 | _like(
-                    _format_timestamp(self.database.kind, LogEntryEntity.timestamp),
+                    _format_timestamp(self.__object_database__.kind, LogEntryEntity.timestamp),
                     pattern,
                     filter.search_case_sensitive,
                 )
@@ -766,7 +784,7 @@ class Object(ValidatedDataclass, Tasklet):
                 ),
             )
         else:
-            statement = statement.where(LogEntryEntity.object_id.in_(ids))
+            statement = statement.where(LogEntryEntity.address_id.in_(ids))
 
         if filter.within is not None:
             statement = statement.where(LogEntryEntity.timestamp >= utc() - filter.within)
@@ -803,13 +821,13 @@ class Object(ValidatedDataclass, Tasklet):
         joined = (
             select(
                 statement.columns.id,
-                ObjectEntity.address,
+                AddressEntity.address,
                 statement.columns.timestamp,
                 statement.columns.level,
                 statement.columns.content,
             )
             .select_from(statement)
-            .join(ObjectEntity, statement.columns.object_id == ObjectEntity.id)
+            .join(AddressEntity, statement.columns.address_id == AddressEntity.id)
         )
 
         match filter.order:
@@ -818,7 +836,7 @@ class Object(ValidatedDataclass, Tasklet):
             case LogEntryOrder.NEW_TO_OLD:
                 joined = joined.order_by(statement.columns.timestamp.desc())
 
-        async with await self.__init_database_session() as session:
+        async with await self.__object_database__.init() as session:
             rows = await session.execute(joined)
 
         return [LogEntry.construct(**row._asdict()) for row in rows]  # type: ignore
@@ -855,10 +873,10 @@ class Object(ValidatedDataclass, Tasklet):
 
         addresses = self.__get_addresses(filter.address)
         statement = (
-            select(ObjectEntity.address, AlertEntity.level, func.count("*"))
+            select(AddressEntity.address, AlertEntity.level, func.count("*"))
             .where(AlertEntity.address.in_(addresses))
-            .join(ObjectEntity)
-            .group_by(ObjectEntity.address, AlertEntity.level)
+            .join(AddressEntity)
+            .group_by(AddressEntity.address, AlertEntity.level)
         )
 
         if filter.within is not None:
@@ -870,7 +888,7 @@ class Object(ValidatedDataclass, Tasklet):
 
         results: dict[Address, Statistics] = {}
 
-        async with self.database.session() as session:
+        async with await self.__object_database__.init() as session:
             for address, level, count in await session.execute(statement):
                 address: Address
                 for ancestor in address.path:
@@ -895,10 +913,11 @@ class Object(ValidatedDataclass, Tasklet):
         search: str | None = None,
         search_case_sensitive: bool = False,
     ) -> list[UUID]:
-        return [
-            await self.get_id(address)
-            for address in self.__get_addresses(address, search, search_case_sensitive)
-        ]
+        ids: list[UUID] = []
+        for address in self.__get_addresses(address, search, search_case_sensitive):
+            ids.extend(await self.get_address_ids(address))
+
+        return ids
 
     def __get_addresses(
         self,
