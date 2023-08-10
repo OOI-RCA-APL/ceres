@@ -15,7 +15,6 @@ from typing import (
     Sequence,
     TypeVar,
 )
-from uuid import UUID, uuid4
 
 from pydantic import Field
 from sqlalchemy import (
@@ -68,13 +67,13 @@ from ceres.filter import (
     StatisticsFilterArgs,
 )
 from ceres.internal.database.entities import (
-    AddressEntity,
     AlertEntity,
+    BinEntity,
     LogEntryEntity,
     MessageEntity,
 )
 from ceres.internal.tasklet import Tasklet
-from ceres.internal.utilities import chunkify, dictify, escape_like_expression
+from ceres.internal.utilities import chunkify, dictify, escape_like_expression, get_session
 from ceres.level import Level
 from ceres.logs import Log, LogEntry
 from ceres.message import Message
@@ -132,7 +131,7 @@ class Object(ValidatedDataclass, Tasklet):
         self.__events: WriteStream[Event] = WriteStream()
         self.__log = Log(self)
 
-        self.__mapping: defaultdict[Address, list[UUID]] | None = None
+        self.__mapping: defaultdict[Address, list[int]] | None = None
         self.__mapping_lock = AsyncLock()
         self.__flush_buffer: list[Item] = []
         self.__flushes: deque[_Flush] = deque()
@@ -154,8 +153,9 @@ class Object(ValidatedDataclass, Tasklet):
     def __object_database__(self) -> Database:
         ...
 
-    async def __object_sync__(self, session: AsyncSession) -> None:
-        await self.get_address_id()
+    async def __object_sync__(self, session: AsyncSession | None = None) -> None:
+        async with await get_session(self.__object_database__, session) as session:
+            await self.__get_or_create_bin_id(session)
 
     @property
     @abstractmethod
@@ -249,9 +249,6 @@ class Object(ValidatedDataclass, Tasklet):
 
     @override
     async def __run__(self) -> None:
-        async with await self.__object_database__.init() as session:
-            await self.__object_sync__(session)
-
         self.emit(StartedEvent)
 
         await self.__process_flush()
@@ -269,54 +266,6 @@ class Object(ValidatedDataclass, Tasklet):
     @override
     async def __done__(self) -> None:
         self.emit(StoppedEvent)
-
-    async def get_address_id(
-        self,
-        address: Address | None = None,
-        default: UUID | None = None,
-    ) -> UUID:
-        ids = await self.get_address_ids(address, default)
-        return ids[0]
-
-    async def get_address_ids(
-        self,
-        address: Address | None = None,
-        default: UUID | None = None,
-    ) -> list[UUID]:
-        if address is None:
-            address = self.address
-        if self.__object_parent__ is not None:
-            return await self.__object_parent__.get_address_ids(address, default=default)
-
-        if self.__mapping is not None:
-            ids = self.__mapping.get(address)
-            if ids:
-                return list(ids)
-
-        async with await self.__object_database__.init() as session:
-            mapping = await self.__get_or_load_mapping(session)
-            ids = mapping.get(address)
-            if ids:
-                return list(ids)
-
-            ids = list(
-                await session.scalars(
-                    select(AddressEntity.id).where(AddressEntity.address == address),
-                )
-            )
-
-            if not ids:
-                id = default or uuid4()
-
-                entity = AddressEntity(id=id, address=address)
-
-                session.add(entity)
-                await session.commit()
-
-                ids.append(id)
-                mapping[address] = ids
-
-            return list(ids)
 
     def store(self, item: Item) -> None:
         if not isinstance(item, Item):
@@ -384,7 +333,10 @@ class Object(ValidatedDataclass, Tasklet):
                             # the "component_id".
                             data = dictify(model)
                             data.pop("address", None)
-                            data["address_id"] = await self.get_address_id(model.address)
+                            data["bin_id"] = await self.__get_or_create_bin_id(
+                                session,
+                                model.address,
+                            )
                             values.append(data)
 
                         await session.execute(
@@ -403,19 +355,16 @@ class Object(ValidatedDataclass, Tasklet):
             if not self.__flush_buffer and not self.__flushes:
                 self.__flushed.set()
 
-    async def __generate_mapping(self, session: AsyncSession) -> defaultdict[Address, list[UUID]]:
-        mapping: defaultdict[Address, list[UUID]] = defaultdict(list)
+    async def __generate_mapping(self, session: AsyncSession) -> defaultdict[Address, list[int]]:
+        mapping: defaultdict[Address, list[int]] = defaultdict(list)
         for address, id in await session.execute(
-            select(AddressEntity.address, AddressEntity.id),
+            select(BinEntity.address, BinEntity.id),
         ):
             mapping[address].append(id)
 
         return mapping
 
-    async def __get_or_load_mapping(
-        self,
-        session: AsyncSession,
-    ) -> defaultdict[Address, list[UUID]]:
+    async def __get_or_load_mapping(self, session: AsyncSession) -> defaultdict[Address, list[int]]:
         async with self.__mapping_lock:
             if self.__mapping is None:
                 self.__mapping = await self.__generate_mapping(session)
@@ -505,7 +454,7 @@ class Object(ValidatedDataclass, Tasklet):
     ) -> list[Message]:
         filter = MessageFilter(**kwargs).with_defaults(filter)
 
-        ids = await self.__get_ids(
+        ids = await self.__get_recursive_bin_ids(
             filter.address,
             filter.search,
             filter.search_case_sensitive,
@@ -513,7 +462,7 @@ class Object(ValidatedDataclass, Tasklet):
 
         statement = select(
             MessageEntity.id,
-            MessageEntity.address_id,
+            MessageEntity.bin_id,
             MessageEntity.timestamp,
             MessageEntity.direction,
             MessageEntity.content,
@@ -522,7 +471,7 @@ class Object(ValidatedDataclass, Tasklet):
         if filter.search:
             pattern = "%" + escape_like_expression(filter.search) + "%"
             statement = statement.where(
-                MessageEntity.address_id.in_(ids)
+                MessageEntity.bin_id.in_(ids)
                 | _like(
                     _format_timestamp(self.__object_database__.kind, MessageEntity.timestamp),
                     pattern,
@@ -544,7 +493,7 @@ class Object(ValidatedDataclass, Tasklet):
                 ),
             )
         else:
-            statement = statement.where(MessageEntity.address_id.in_(ids))
+            statement = statement.where(MessageEntity.bin_id.in_(ids))
 
         if filter.within is not None:
             statement = statement.where(MessageEntity.timestamp >= utc() - filter.within)
@@ -578,13 +527,13 @@ class Object(ValidatedDataclass, Tasklet):
         joined = (
             select(
                 statement.columns.id,
-                AddressEntity.address,
+                BinEntity.address,
                 statement.columns.timestamp,
                 statement.columns.direction,
                 statement.columns.content,
             )
             .select_from(statement)
-            .join(AddressEntity, statement.columns.address_id == AddressEntity.id)
+            .join(BinEntity, statement.columns.bin_id == BinEntity.id)
         )
 
         match filter.order:
@@ -628,7 +577,7 @@ class Object(ValidatedDataclass, Tasklet):
     ) -> list[Alert]:
         filter = AlertFilter(**kwargs).with_defaults(filter)
 
-        ids = await self.__get_ids(
+        ids = await self.__get_recursive_bin_ids(
             filter.address,
             filter.search,
             filter.search_case_sensitive,
@@ -636,7 +585,7 @@ class Object(ValidatedDataclass, Tasklet):
 
         statement = select(
             AlertEntity.id,
-            AlertEntity.address_id,
+            AlertEntity.bin_id,
             AlertEntity.timestamp,
             AlertEntity.level,
             AlertEntity.code,
@@ -646,7 +595,7 @@ class Object(ValidatedDataclass, Tasklet):
         if filter.search is not None:
             pattern = "%" + escape_like_expression(filter.search) + "%"
             statement = statement.where(
-                AlertEntity.address_id.in_(ids)
+                AlertEntity.bin_id.in_(ids)
                 | _like(
                     _format_timestamp(self.__object_database__.kind, AlertEntity.timestamp),
                     pattern,
@@ -663,7 +612,7 @@ class Object(ValidatedDataclass, Tasklet):
                 ),
             )
         else:
-            statement = statement.where(AlertEntity.address_id.in_(ids))
+            statement = statement.where(AlertEntity.bin_id.in_(ids))
 
         if filter.within is not None:
             statement = statement.where(AlertEntity.timestamp >= utc() - filter.within)
@@ -699,14 +648,14 @@ class Object(ValidatedDataclass, Tasklet):
         joined = (
             select(
                 statement.columns.id,
-                AddressEntity.address,
+                BinEntity.address,
                 statement.columns.timestamp,
                 statement.columns.level,
                 statement.columns.code,
                 statement.columns.info,
             )
             .select_from(statement)
-            .join(AddressEntity, statement.columns.address_id == AddressEntity.id)
+            .join(BinEntity, statement.columns.bin_id == BinEntity.id)
         )
 
         match filter.order:
@@ -753,7 +702,7 @@ class Object(ValidatedDataclass, Tasklet):
     ) -> list[LogEntry]:
         filter = LogEntryFilter(**kwargs).with_defaults(filter)
 
-        ids = await self.__get_ids(
+        ids = await self.__get_recursive_bin_ids(
             filter.address,
             filter.search,
             filter.search_case_sensitive,
@@ -761,7 +710,7 @@ class Object(ValidatedDataclass, Tasklet):
 
         statement = select(
             LogEntryEntity.id,
-            LogEntryEntity.address_id,
+            LogEntryEntity.bin_id,
             LogEntryEntity.timestamp,
             LogEntryEntity.level,
             LogEntryEntity.content,
@@ -770,7 +719,7 @@ class Object(ValidatedDataclass, Tasklet):
         if filter.search is not None:
             pattern = "%" + escape_like_expression(filter.search) + "%"
             statement = statement.where(
-                LogEntryEntity.address_id.in_(ids)
+                LogEntryEntity.bin_id.in_(ids)
                 | _like(
                     _format_timestamp(self.__object_database__.kind, LogEntryEntity.timestamp),
                     pattern,
@@ -784,7 +733,7 @@ class Object(ValidatedDataclass, Tasklet):
                 ),
             )
         else:
-            statement = statement.where(LogEntryEntity.address_id.in_(ids))
+            statement = statement.where(LogEntryEntity.bin_id.in_(ids))
 
         if filter.within is not None:
             statement = statement.where(LogEntryEntity.timestamp >= utc() - filter.within)
@@ -821,13 +770,13 @@ class Object(ValidatedDataclass, Tasklet):
         joined = (
             select(
                 statement.columns.id,
-                AddressEntity.address,
+                BinEntity.address,
                 statement.columns.timestamp,
                 statement.columns.level,
                 statement.columns.content,
             )
             .select_from(statement)
-            .join(AddressEntity, statement.columns.address_id == AddressEntity.id)
+            .join(BinEntity, statement.columns.bin_id == BinEntity.id)
         )
 
         match filter.order:
@@ -873,10 +822,10 @@ class Object(ValidatedDataclass, Tasklet):
 
         addresses = self.__get_addresses(filter.address)
         statement = (
-            select(AddressEntity.address, AlertEntity.level, func.count("*"))
+            select(BinEntity.address, AlertEntity.level, func.count("*"))
             .where(AlertEntity.address.in_(addresses))
-            .join(AddressEntity)
-            .group_by(AddressEntity.address, AlertEntity.level)
+            .join(BinEntity)
+            .group_by(BinEntity.address, AlertEntity.level)
         )
 
         if filter.within is not None:
@@ -907,15 +856,61 @@ class Object(ValidatedDataclass, Tasklet):
 
         return list(results.values())
 
-    async def __get_ids(
+    async def __get_or_create_bin_id(
+        self,
+        session: AsyncSession,
+        address: Address | None = None,
+    ) -> int:
+        ids = await self.__get_or_create_bin_ids(session, address)
+        return ids[0]
+
+    async def __get_or_create_bin_ids(
+        self,
+        session: AsyncSession,
+        address: Address | None = None,
+    ) -> list[int]:
+        if address is None:
+            address = self.address
+        if self.__object_parent__ is not None:
+            return await self.__object_parent__.__get_or_create_bin_ids(session, address)
+
+        if self.__mapping is not None:
+            ids = self.__mapping.get(address)
+            if ids:
+                return list(ids)
+
+        mapping = await self.__get_or_load_mapping(session)
+        ids = mapping.get(address)
+        if ids:
+            return list(ids)
+
+        ids = list(
+            await session.scalars(
+                select(BinEntity.id).where(BinEntity.address == address),
+            )
+        )
+
+        if not ids:
+            entity = BinEntity(address=address)
+
+            session.add(entity)
+            await session.commit()
+
+            ids.append(entity.id)
+
+        mapping[address] = ids
+        return list(ids)
+
+    async def __get_recursive_bin_ids(
         self,
         address: AddressSelector | None,
         search: str | None = None,
         search_case_sensitive: bool = False,
-    ) -> list[UUID]:
-        ids: list[UUID] = []
-        for address in self.__get_addresses(address, search, search_case_sensitive):
-            ids.extend(await self.get_address_ids(address))
+    ) -> list[int]:
+        ids: list[int] = []
+        async with await self.__object_database__.init() as session:
+            for address in self.__get_addresses(address, search, search_case_sensitive):
+                ids.extend(await self.__get_or_create_bin_ids(session, address))
 
         return ids
 

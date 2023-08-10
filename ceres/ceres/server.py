@@ -124,6 +124,7 @@ class Server(Object, kw_only=False):
     async def __run__(self) -> None:
         self.local_directory.create()
         await self.__load_database()
+        await self.__object_sync__()
 
         async def process() -> None:
             started = False
@@ -308,6 +309,7 @@ class Server(Object, kw_only=False):
         self.log.info("Reload completed.")
 
     async def __load_components(self) -> None:
+        await self.__object_sync__()
         await self.__load_component(Address.root())
 
     async def __load_component(self, address: Address) -> Component | None:
@@ -330,13 +332,12 @@ class Server(Object, kw_only=False):
                     if parent is not None:
                         parent.add_component(component)
 
-                async with await self.__object_database__.init() as session:
-                    await component.__object_sync__(session)
-                self.log.info(f"Loaded '{address}' as {strify(type(component))}.")
-
             except Exception:
                 self.log.error(f"Failed to load '{address}': {traceback.format_exc()}")
                 return
+
+        await component.__object_sync__()
+        self.log.info(f"Loaded '{address}' as {strify(type(component))}.")
 
         for child in config.components:
             await self.__load_component(address / child.name)

@@ -38,6 +38,8 @@ import rich
 from pydantic import BaseModel, parse_obj_as
 from typing_extensions import Self, overload
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 
 def strify(value: object) -> str:
     try:
@@ -582,3 +584,11 @@ def uniquify(iterable: Iterable[_T], key: Callable[[_T], Hashable] | None = None
 
         seen.add(identity)
         yield value
+
+if TYPE_CHECKING:
+    from ceres.database import Database
+
+async def get_session(database: "Database", session: AsyncSession | None) -> AsyncSession:
+    if session is None:
+        return await database.init()
+    return session

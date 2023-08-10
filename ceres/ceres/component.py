@@ -98,6 +98,7 @@ from ceres.internal.utilities import (
     decode_td,
     get_function_name,
     get_inner_function,
+    get_session,
     lenient_isinstance,
     randstr,
     setattr_internal,
@@ -322,9 +323,10 @@ class Component(Object):
         return self.__database
 
     @override
-    async def __object_sync__(self, session: AsyncSession) -> None:
-        await super().__object_sync__(session)
-        self.__enabled = await self.__get_enabled_in_database(session)
+    async def __object_sync__(self, session: AsyncSession | None = None) -> None:
+        async with await get_session(self.__object_database__, session) as session:
+            await super().__object_sync__(session)
+            self.__enabled = await self.__get_enabled_in_database(session)
 
     @property
     @override
@@ -779,8 +781,7 @@ class Component(Object):
 
     @override
     async def __run__(self) -> None:
-        async with await self.__object_database__.init() as session:
-            await self.__object_sync__(session)
+        await self.__object_sync__()
 
         self.__scheduler.start()
 

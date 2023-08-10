@@ -9,8 +9,10 @@ from sqlalchemy import (
     Boolean,
     ClauseElement,
     Engine,
+    FetchedValue,
     ForeignKey,
     Index,
+    Integer,
     LargeBinary,
     PrimaryKeyConstraint,
     Table,
@@ -63,8 +65,8 @@ class Entity(MappedAsDataclass, DeclarativeBase, kw_only=True):
     @staticmethod
     def get_entity_classes() -> list[type["Entity"]]:
         classes: list[type[Entity]] = [
-            AddressEntity,
             ComponentEntity,
+            BinEntity,
             MessageEntity,
             AlertEntity,
             LogEntryEntity,
@@ -95,20 +97,7 @@ class Entity(MappedAsDataclass, DeclarativeBase, kw_only=True):
 
 
 @final
-class AddressEntity(Entity):
-    __tablename__ = "addresses"
-
-    id: Mapped[UUID] = mapped_column(UUIDMapper)
-    address: Mapped[Address] = mapped_column(AddressMapper)
-
-    __table_args__ = (
-        PrimaryKeyConstraint("id", name=f"pk_{__tablename__}"),
-        Index(f"ix_{__tablename__}__address", "address", unique=True),
-    )
-
-
-@final
-class ComponentEntity(Entity):
+class ComponentEntity(Entity, kw_only=True):
     __tablename__ = "components"
 
     address: Mapped[Address] = mapped_column(AddressMapper)
@@ -117,29 +106,47 @@ class ComponentEntity(Entity):
     __table_args__ = (PrimaryKeyConstraint("address", name=f"pk_{__tablename__}"),)
 
 
-class ItemEntity(Entity):
+@final
+class BinEntity(Entity, kw_only=True):
+    __tablename__ = "bins"
+
+    id: Mapped[int] = mapped_column(
+        Integer,
+        autoincrement=True,
+        server_default=FetchedValue(),
+        default=None,
+    )
+    address: Mapped[Address] = mapped_column(AddressMapper)
+
+    __table_args__ = (
+        PrimaryKeyConstraint("id", name=f"pk_{__tablename__}"),
+        Index(f"ix_{__tablename__}__address", "address", unique=True),
+    )
+
+
+class ItemEntity(Entity, kw_only=True):
     __abstract__ = True
 
     id: Mapped[UUID] = mapped_column(UUIDMapper, sort_order=-3000)
 
     @declared_attr
-    def address_id(cls) -> Mapped[UUID]:
+    def bin_id(cls) -> Mapped[int]:
         return mapped_column(
-            UUIDMapper,
+            Integer,
             ForeignKey(
-                AddressEntity.id,
-                name=f"fk_{cls.__tablename__}__address_id__{AddressEntity.__tablename__}",
+                BinEntity.id,
+                name=f"fk_{cls.__tablename__}__bin_id__{BinEntity.__tablename__}",
             ),
             sort_order=-2000,
         )
 
     @declared_attr
-    def address_entity(cls) -> Mapped[AddressEntity]:
-        return relationship(AddressEntity, lazy="joined")
+    def bin(cls) -> Mapped[BinEntity]:
+        return relationship(BinEntity, lazy="joined")
 
     @declared_attr  # type: ignore
     def address(cls) -> AssociationProxy[Address]:
-        return association_proxy("address_entity", "address")
+        return association_proxy("bin", "address")
 
     timestamp: Mapped[datetime] = mapped_column(DateTimeMapper, sort_order=-1000)
 
@@ -147,14 +154,14 @@ class ItemEntity(Entity):
     def __table_args__(cls) -> Any:
         return (
             PrimaryKeyConstraint("id", name=f"pk_{cls.__tablename__}"),
-            Index(f"ix_{cls.__tablename__}__address_id", "address_id"),
-            Index(f"ix_{cls.__tablename__}__address_id__timestamp", "address_id", "timestamp"),
+            Index(f"ix_{cls.__tablename__}__bin_id", "bin_id"),
+            Index(f"ix_{cls.__tablename__}__bin_id__timestamp", "bin_id", "timestamp"),
             Index(f"ix_{cls.__tablename__}__timestamp", "timestamp"),
         )
 
 
 @final
-class MessageEntity(ItemEntity):
+class MessageEntity(ItemEntity, kw_only=True):
     __tablename__ = "messages"
 
     direction: Mapped[MessageDirection] = mapped_column(EnumMapper(MessageDirection))
@@ -170,7 +177,7 @@ class MessageEntity(ItemEntity):
 
 
 @final
-class AlertEntity(ItemEntity):
+class AlertEntity(ItemEntity, kw_only=True):
     __tablename__ = "alerts"
 
     level: Mapped[Level] = mapped_column(EnumMapper(Level))
@@ -187,7 +194,7 @@ class AlertEntity(ItemEntity):
 
 
 @final
-class LogEntryEntity(ItemEntity):
+class LogEntryEntity(ItemEntity, kw_only=True):
     __tablename__ = "log_entries"
 
     level: Mapped[Level] = mapped_column(EnumMapper(Level))
