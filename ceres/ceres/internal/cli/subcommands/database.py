@@ -31,7 +31,7 @@ async def init(*, config: Config = ConfigOption(checks=[])) -> None:
         raise CLIDatabaseUnreachableException("Failed to connect to database.")
 
     print("<PENDING>")
-    await schema(config=config)
+    await ddl(config=config)
     print("</PENDING>")
 
     if await database.tables():
@@ -129,7 +129,75 @@ async def dump(
 
 
 @database.command()
-async def schema(*, config: Config = ConfigOption(checks=[])) -> None:
+async def load(
+    path: Path = Argument(
+        help="Path to load data from.",
+        resolve_path=True,
+        dir_okay=False,
+        exists=True,
+    ),
+    config: Config = ConfigOption(checks=[]),
+) -> None:
+    """
+    Load all data into the project database as from an SQLite dump. Only supported for SQLite.
+    """
+    database = Database(config.database)
+
+    if database.kind != DatabaseKind.SQLITE:
+        raise CLIDatabaseUnreachableException(
+            "Database loading is currently only supported for SQLite."
+        )
+
+    try:
+        async with database.connect():
+            pass
+    except Exception:
+        raise CLIDatabaseUnreachableException("Failed to connect to database.")
+
+    if not await database.tables():
+        raise CLIDatabaseUnreachableException("Database appears uninitialized, exiting.")
+
+    start = utc()
+
+    write(f"Loading data from '{path}'...")
+    await database.load(path)
+
+    duration = utc() - start
+
+    size = ByteSize(path.stat().st_size).human_readable()
+    write(f"Loaded {size} of data from {path} in {show_td(duration)}.")
+
+
+@database.command()
+async def clear(config: Config = ConfigOption(checks=[])) -> None:
+    """
+    Clear all data from the project database.
+    """
+    database = Database(config.database)
+
+    try:
+        async with database.connect():
+            pass
+    except Exception:
+        raise CLIDatabaseUnreachableException("Failed to connect to database.")
+
+    if not await database.tables():
+        raise CLIDatabaseUnreachableException("Database appears uninitialized, exiting.")
+
+    if not get_yes_no("Clear all data from the project database?", default=False):
+        write("Database has not been modified. Exiting.")
+        return
+
+    start = utc()
+
+    await database.clear()
+
+    duration = utc() - start
+    write(f"Cleared all data from database in {show_td(duration)}.")
+
+
+@database.command()
+async def ddl(*, config: Config = ConfigOption(checks=[])) -> None:
     """
     Show DDL commands used to create required tables in the project database.
     """

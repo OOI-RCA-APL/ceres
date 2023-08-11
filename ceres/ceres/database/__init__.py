@@ -3,7 +3,7 @@ from os import PathLike
 from typing import Callable, TypeVar, cast, final
 from uuid import UUID, uuid4
 
-from sqlalchemy import Connection, inspect, text
+from sqlalchemy import Connection, delete, inspect, text
 from sqlalchemy.ext.asyncio import (
     AsyncConnection,
     AsyncEngine,
@@ -126,6 +126,13 @@ class Database:
 
     async def load(self, path: PathLike[str]) -> None:
         return await self.__adapter.load(path)
+
+    async def clear(self) -> None:
+        async with self.begin() as connection:
+            for cls in reversed(Entity.get_entity_classes()):
+                await connection.execute(delete(cls))
+
+            await connection.commit()
 
     async def tables(self) -> list[str]:
         return await self.__run_sync(lambda connection: inspect(connection).get_table_names())

@@ -16,6 +16,7 @@ from typing_extensions import override
 
 from ceres.address import Address
 from ceres.config import DatabaseConfig, PostgresDatabaseConfig, SQLiteDatabaseConfig
+from ceres.internal.database.entities import AlertDumpEntity, BinEntity
 from ceres.internal.utilities import achunkify
 from ceres.threading import spawn
 
@@ -141,6 +142,91 @@ class DatabaseAdapter(Generic[ConfigT], ABC):
 
             await destination_connection.commit()
 
+    async def _load(
+        self,
+        source_engine: AsyncEngine,
+        destination_engine: AsyncEngine,
+    ) -> None:
+        from ceres.internal.database.entities import (
+            AlertEntity,
+            ComponentDumpEntity,
+            ComponentEntity,
+            Entity,
+            LogEntryDumpEntity,
+            LogEntryEntity,
+            MessageDumpEntity,
+            MessageEntity,
+        )
+
+        async with destination_engine.begin() as destination_connection:
+            for cls in Entity.get_entity_classes():
+                for statement in cls.get_entity_ddl(destination_engine.sync_engine):
+                    await destination_connection.execute(text(statement))
+
+            async with source_engine.begin() as source_connection:
+                from sqlalchemy.dialects.sqlite import insert
+
+                incoming_addresses = sorted(
+                    {
+                        *list(await source_connection.scalars(select(ComponentDumpEntity.address))),
+                        *list(await source_connection.scalars(select(MessageDumpEntity.address))),
+                        *list(await source_connection.scalars(select(AlertDumpEntity.address))),
+                        *list(await source_connection.scalars(select(LogEntryDumpEntity.address))),
+                    }
+                )
+
+                current_addresses: dict[Address, int] = {}
+                for address, bin_id in await destination_connection.execute(
+                    select(BinEntity.address, BinEntity.id)
+                ):
+                    current_addresses[address] = bin_id
+
+                for address in incoming_addresses:
+                    if address not in current_addresses:
+                        bin_id = await destination_connection.scalar(
+                            insert(BinEntity).values({"address": address}).returning(BinEntity.id)
+                        )
+                        assert bin_id is not None
+
+                        current_addresses[address] = bin_id
+
+                for source_component in await source_connection.execute(
+                    select(*ComponentDumpEntity.get_entity_columns())
+                ):
+                    destination_component = source_component._asdict()
+                    await destination_connection.execute(
+                        insert(ComponentEntity.get_entity_dump_cls())
+                        .values(destination_component)
+                        .on_conflict_do_update(set_=destination_component)
+                    )
+
+                for item_cls in (MessageEntity, AlertEntity, LogEntryEntity):
+                    item_columns = item_cls.get_entity_columns()
+                    item_dump_cls = item_cls.get_entity_dump_cls()
+                    item_dump_columns = item_dump_cls.get_entity_columns()
+
+                    async for source_items in achunkify(
+                        await source_connection.stream(select(*item_dump_columns)),
+                        500,
+                    ):
+
+                        destination_items: list[dict[str, Any]] = []
+                        for source_item in source_items:
+                            destination_item = source_item._asdict()
+                            destination_item["bin_id"] = current_addresses[
+                                destination_item.pop("address")
+                            ]
+                            destination_items.append(destination_item)
+
+                        statement = insert(item_cls).values(destination_items)
+                        await destination_connection.execute(
+                            statement.on_conflict_do_update(
+                                set_={key: statement.excluded[key] for key in item_columns.keys()}
+                            )
+                        )
+
+            await destination_connection.commit()
+
 
 @final
 class SQLiteDatabaseAdapter(DatabaseAdapter[SQLiteDatabaseConfig]):
@@ -259,16 +345,15 @@ class SQLiteDatabaseAdapter(DatabaseAdapter[SQLiteDatabaseConfig]):
             self.__add_essential_listeners(source_engine)
             self.__add_essential_listeners(destination_engine)
 
-            await self._dump(
-                source_engine,
-                destination_engine,
-                path,
-                update=update,
-            )
+            await self._dump(source_engine, destination_engine, path, update=update)
 
     @override
     async def load(self, path: PathLike[str]) -> None:
-        raise NotImplementedError()
+        destination_engine = self.create_engine()
+        source_engine = create_async_engine(f"sqlite+aiosqlite:///{path}")
+        self.__add_essential_listeners(source_engine)
+
+        await self._load(source_engine, destination_engine)
 
     def __get_path(self) -> Path:
         # If a path is provided, create an database at the provided path.
