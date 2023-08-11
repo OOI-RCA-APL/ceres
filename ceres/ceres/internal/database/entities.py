@@ -1,13 +1,14 @@
 import re
 from datetime import datetime
 from textwrap import dedent
-from typing import Any, Iterable
+from typing import TYPE_CHECKING, Any, ClassVar, Iterable
 from uuid import UUID
 
 from sqlalchemy import (
     JSON,
     Boolean,
     ClauseElement,
+    Column,
     Engine,
     FetchedValue,
     ForeignKey,
@@ -29,7 +30,9 @@ from sqlalchemy.orm import (
 )
 from sqlalchemy.schema import CreateIndex, CreateTable
 from sqlalchemy.sql import expression
-from typing_extensions import final
+from typing_extensions import final, override
+
+from sqlalchemy.sql.base import ReadOnlyColumnCollection
 
 from ceres.address import Address
 from ceres.internal.database.types import (
@@ -56,34 +59,17 @@ def _compile_to_sql_statement(engine: Engine, element: ClauseElement) -> str:
     return statement
 
 
-class Entity(MappedAsDataclass, DeclarativeBase, kw_only=True):
-    __abstract__ = True
-    __mapper_args__ = {
-        "eager_defaults": True,
-    }
-
-    @staticmethod
-    def get_entity_classes() -> list[type["Entity"]]:
-        classes: list[type[Entity]] = [
-            ComponentEntity,
-            BinEntity,
-            MessageEntity,
-            AlertEntity,
-            LogEntryEntity,
-        ]
-
-        classes.extend(
-            mapper.class_
-            for mapper in Entity.registry.mappers
-            if mapper.class_ not in classes and issubclass(mapper.class_, Entity)
-        )
-
-        return classes
+class _EntityMethods:
+    if TYPE_CHECKING:
+        __table__: ClassVar[Table]
 
     @classmethod
     def get_entity_table(cls) -> Table:
-        assert isinstance(cls.__table__, Table)
         return cls.__table__
+
+    @classmethod
+    def get_entity_columns(cls) -> ReadOnlyColumnCollection[str, Column[Any]]:
+        return cls.get_entity_table().columns
 
     @classmethod
     def get_entity_ddl(cls, engine: Engine) -> Iterable[str]:
@@ -96,6 +82,44 @@ class Entity(MappedAsDataclass, DeclarativeBase, kw_only=True):
         return {name: getattr(self, name) for name in self.__table__.columns.keys()}
 
 
+class DumpEntity(_EntityMethods, MappedAsDataclass, DeclarativeBase, kw_only=True):
+    __abstract__ = True
+    __mapper_args__ = {
+        "eager_defaults": True,
+    }
+
+
+class Entity(_EntityMethods, MappedAsDataclass, DeclarativeBase, kw_only=True):
+    __abstract__ = True
+    __mapper_args__ = {
+        "eager_defaults": True,
+    }
+
+    @staticmethod
+    def get_entity_classes() -> list[type["Entity"]]:
+        return [
+            ComponentEntity,
+            BinEntity,
+            MessageEntity,
+            AlertEntity,
+            LogEntryEntity,
+        ]
+
+    @classmethod
+    def get_entity_dump_cls(cls) -> type[DumpEntity] | None:
+        return None
+
+
+@final
+class ComponentDumpEntity(DumpEntity, kw_only=True):
+    __tablename__ = "components"
+
+    address: Mapped[Address] = mapped_column(AddressMapper)
+    enabled: Mapped[bool] = mapped_column(Boolean)
+
+    __table_args__ = (PrimaryKeyConstraint("address", name=f"pk_{__tablename__}"),)
+
+
 @final
 class ComponentEntity(Entity, kw_only=True):
     __tablename__ = "components"
@@ -104,6 +128,11 @@ class ComponentEntity(Entity, kw_only=True):
     enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default=expression.false())
 
     __table_args__ = (PrimaryKeyConstraint("address", name=f"pk_{__tablename__}"),)
+
+    @override
+    @classmethod
+    def get_entity_dump_cls(cls) -> type[ComponentDumpEntity]:
+        return ComponentDumpEntity
 
 
 @final
@@ -124,6 +153,18 @@ class BinEntity(Entity, kw_only=True):
     )
 
 
+class ItemDumpEntity(DumpEntity, kw_only=True):
+    __abstract__ = True
+
+    id: Mapped[UUID] = mapped_column(UUIDMapper, sort_order=-3000)
+    address: Mapped[Address] = mapped_column(AddressMapper, sort_order=-2000)
+    timestamp: Mapped[datetime] = mapped_column(DateTimeMapper, sort_order=-1000)
+
+    @declared_attr
+    def __table_args__(cls) -> Any:
+        return (PrimaryKeyConstraint("id", name=f"pk_{cls.__tablename__}"),)
+
+
 class ItemEntity(Entity, kw_only=True):
     __abstract__ = True
 
@@ -140,6 +181,8 @@ class ItemEntity(Entity, kw_only=True):
             sort_order=-2000,
         )
 
+    timestamp: Mapped[datetime] = mapped_column(DateTimeMapper, sort_order=-1000)
+
     @declared_attr
     def bin(cls) -> Mapped[BinEntity]:
         return relationship(BinEntity, lazy="joined")
@@ -147,8 +190,6 @@ class ItemEntity(Entity, kw_only=True):
     @declared_attr  # type: ignore
     def address(cls) -> AssociationProxy[Address]:
         return association_proxy("bin", "address")
-
-    timestamp: Mapped[datetime] = mapped_column(DateTimeMapper, sort_order=-1000)
 
     @declared_attr
     def __table_args__(cls) -> Any:
@@ -161,8 +202,17 @@ class ItemEntity(Entity, kw_only=True):
 
 
 @final
+class MessageDumpEntity(ItemDumpEntity, kw_only=True):
+    __tablename__ = "messages"
+
+    direction: Mapped[MessageDirection] = mapped_column(EnumMapper(MessageDirection))
+    content: Mapped[bytes] = mapped_column(LargeBinary)
+
+
+@final
 class MessageEntity(ItemEntity, kw_only=True):
     __tablename__ = "messages"
+    __dump__ = MessageDumpEntity
 
     direction: Mapped[MessageDirection] = mapped_column(EnumMapper(MessageDirection))
     content: Mapped[bytes] = mapped_column(LargeBinary)
@@ -175,10 +225,25 @@ class MessageEntity(ItemEntity, kw_only=True):
             Index(f"ix_{cls.__tablename__}__content", "content"),
         )
 
+    @override
+    @classmethod
+    def get_entity_dump_cls(cls) -> type[MessageDumpEntity]:
+        return MessageDumpEntity
+
+
+@final
+class AlertDumpEntity(ItemDumpEntity, kw_only=True):
+    __tablename__ = "alerts"
+
+    level: Mapped[Level] = mapped_column(EnumMapper(Level))
+    code: Mapped[str] = mapped_column(Text)
+    info: Mapped[dict[str, Any]] = mapped_column(JSON)
+
 
 @final
 class AlertEntity(ItemEntity, kw_only=True):
     __tablename__ = "alerts"
+    __dump__ = AlertDumpEntity
 
     level: Mapped[Level] = mapped_column(EnumMapper(Level))
     code: Mapped[str] = mapped_column(Text)
@@ -192,10 +257,24 @@ class AlertEntity(ItemEntity, kw_only=True):
             Index(f"ix_{cls.__tablename__}__code", "code"),
         )
 
+    @override
+    @classmethod
+    def get_entity_dump_cls(cls) -> type[AlertDumpEntity]:
+        return AlertDumpEntity
+
+
+@final
+class LogEntryDumpEntity(ItemDumpEntity, kw_only=True):
+    __tablename__ = "log_entries"
+
+    level: Mapped[Level] = mapped_column(EnumMapper(Level))
+    content: Mapped[str] = mapped_column(Text)
+
 
 @final
 class LogEntryEntity(ItemEntity, kw_only=True):
     __tablename__ = "log_entries"
+    __dump__ = LogEntryDumpEntity
 
     level: Mapped[Level] = mapped_column(EnumMapper(Level))
     content: Mapped[str] = mapped_column(Text)
@@ -207,3 +286,8 @@ class LogEntryEntity(ItemEntity, kw_only=True):
             EnumConstraint("level", Level, name=f"ck_{cls.__tablename__}__level"),
             Index(f"ix_{cls.__tablename__}__content", "content"),
         )
+
+    @override
+    @classmethod
+    def get_entity_dump_cls(cls) -> type[LogEntryDumpEntity]:
+        return LogEntryDumpEntity

@@ -14,6 +14,7 @@ from types import NoneType, UnionType
 from typing import (
     TYPE_CHECKING,
     Any,
+    AsyncIterable,
     Awaitable,
     ByteString,
     Callable,
@@ -36,9 +37,8 @@ import pydantic
 import pydantic.utils
 import rich
 from pydantic import BaseModel, parse_obj_as
-from typing_extensions import Self, overload
-
 from sqlalchemy.ext.asyncio import AsyncSession
+from typing_extensions import Self, overload
 
 
 def strify(value: object) -> str:
@@ -556,12 +556,27 @@ class CacheDict(OrderedDict[_K, _V]):
         return val
 
 
-def chunkify(iterable: Iterable[_T], size: int) -> Iterable[tuple[_T]]:
-    if not isinstance(iterable, tuple):
-        iterable = tuple(iterable)
+def chunkify(iterable: Iterable[_T], size: int) -> Iterable[Sequence[_T]]:
+    current: list[_T] = []
+    for item in iterable:
+        current.append(item)
+        if len(current) >= size:
+            yield tuple(current)
+            current.clear()
 
-    for i in range(0, len(iterable), size):
-        yield iterable[i : i + size]
+    if current:
+        yield tuple(current)
+
+async def achunkify(iterable: AsyncIterable[_T], size: int) -> AsyncIterable[Sequence[_T]]:
+    current: list[_T] = []
+    async for item in iterable:
+        current.append(item)
+        if len(current) >= size:
+            yield tuple(current)
+            current.clear()
+
+    if current:
+        yield tuple(current)
 
 
 def _hash(value: object) -> Hashable:

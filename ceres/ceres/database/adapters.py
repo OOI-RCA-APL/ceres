@@ -1,17 +1,23 @@
+import sqlite3
 import traceback
 from abc import ABC, abstractmethod
+from os import PathLike
 from pathlib import Path
 from sqlite3 import Connection as SQLiteConnection
-from tempfile import gettempdir
+from tempfile import NamedTemporaryFile, gettempdir
 from typing import Any, Generic, TypeVar, final
 from uuid import UUID
 
-from sqlalchemy import QueuePool, event
+from sqlalchemy import QueuePool, event, select, text
 from sqlalchemy.engine import Connection
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+from typing_extensions import override
 
+from ceres.address import Address
 from ceres.config import DatabaseConfig, PostgresDatabaseConfig, SQLiteDatabaseConfig
+from ceres.internal.utilities import achunkify
+from ceres.threading import spawn
 
 ConfigT = TypeVar("ConfigT", bound=DatabaseConfig, covariant=True)
 
@@ -43,16 +49,103 @@ class DatabaseAdapter(Generic[ConfigT], ABC):
             **self.get_engine_config(),
         )
 
+    async def dump(self, path: PathLike[str], *, update: bool = False) -> None:
+        raise NotImplementedError()
+
+    async def load(self, path: PathLike[str]) -> None:
+        raise NotImplementedError()
+
+    async def clone(self, path: PathLike[str]) -> None:
+        raise NotImplementedError()
+
+    async def _dump(
+        self,
+        source_engine: AsyncEngine,
+        destination_engine: AsyncEngine,
+        destination_path: Path,
+        *,
+        update: bool = False,
+    ) -> None:
+        from ceres.internal.database.entities import (
+            AlertEntity,
+            BinEntity,
+            ComponentEntity,
+            Entity,
+            LogEntryEntity,
+            MessageEntity,
+        )
+
+        if not update:
+            if destination_path.exists():
+                destination_path.unlink()
+
+        async with destination_engine.begin() as destination_connection:
+            for cls in Entity.get_entity_classes():
+                dump_cls = cls.get_entity_dump_cls()
+                if dump_cls is None:
+                    continue
+
+                for statement in dump_cls.get_entity_ddl(destination_engine.sync_engine):
+                    await destination_connection.execute(text(statement))
+
+            async with source_engine.begin() as source_connection:
+                if not update:
+                    await destination_connection.execute(text("PRAGMA foreign_keys = OFF"))
+
+                for connection in (source_connection, destination_connection):
+                    await connection.execute(text("PRAGMA syncronous = 0"))
+                    await connection.execute(text("PRAGMA locking_mode = EXCLUSIVE"))
+
+                bins: dict[int, Address] = {}
+                for bin_id, address in await source_connection.execute(
+                    select(BinEntity.id, BinEntity.address)
+                ):
+                    bins[bin_id] = address
+
+                from sqlalchemy.dialects.sqlite import insert
+
+                for source_component in await source_connection.execute(
+                    select(*ComponentEntity.get_entity_columns())
+                ):
+                    destination_component = source_component._asdict()
+                    await destination_connection.execute(
+                        insert(ComponentEntity.get_entity_dump_cls())
+                        .values(destination_component)
+                        .on_conflict_do_update(set_=destination_component)
+                    )
+
+                for item_cls in (MessageEntity, AlertEntity, LogEntryEntity):
+                    item_columns = item_cls.get_entity_columns()
+                    item_dump_cls = item_cls.get_entity_dump_cls()
+                    item_dump_columns = item_dump_cls.get_entity_columns()
+
+                    async for source_items in achunkify(
+                        await source_connection.stream(select(*item_columns)),
+                        500,
+                    ):
+
+                        destination_items: list[dict[str, Any]] = []
+                        for source_item in source_items:
+                            destination_item = source_item._asdict()
+                            destination_item["address"] = bins[destination_item.pop("bin_id")]
+                            destination_items.append(destination_item)
+
+                        statement = insert(item_dump_cls).values(destination_items)
+                        await destination_connection.execute(
+                            statement.on_conflict_do_update(
+                                set_={
+                                    key: statement.excluded[key] for key in item_dump_columns.keys()
+                                }
+                            )
+                        )
+
+            await destination_connection.commit()
+
 
 @final
 class SQLiteDatabaseAdapter(DatabaseAdapter[SQLiteDatabaseConfig]):
     def get_engine_url(self) -> str:
-        # If a path is provided, create an database at the provided path.
-        if self.config.path is not None:
-            return f"sqlite+aiosqlite:///{self.config.path.resolve()}"
-
-        # Otherwise create a temporary on-disk database.
-        return f"sqlite+aiosqlite:///{self.__get_temporary_path()}"
+        return f"sqlite+aiosqlite:///{self.__get_path()}"
 
     def __del__(self) -> None:
         if self.config.path is not None or not self.__get_temporary_path().exists():
@@ -78,16 +171,7 @@ class SQLiteDatabaseAdapter(DatabaseAdapter[SQLiteDatabaseConfig]):
 
     def create_engine(self) -> AsyncEngine:
         engine = super().create_engine()
-
-        # https://docs.sqlalchemy.org/en/latest/core/events.html#sqlalchemy.events.DialectEvents.do_connect
-        @event.listens_for(engine.sync_engine, "do_connect")
-        def do_connect(*args: object) -> None:
-            # Create the directory containing the database file if it doesn't already exist.
-            if self.config.path is not None:
-                try:
-                    self.config.path.parent.mkdir(parents=True, exist_ok=True)
-                except Exception:
-                    traceback.print_exc()
+        self.__add_essential_listeners(engine)
 
         # https://docs.sqlalchemy.org/en/latest/core/events.html#sqlalchemy.events.PoolEvents.first_connect
         @event.listens_for(engine.sync_engine, "first_connect")
@@ -98,6 +182,30 @@ class SQLiteDatabaseAdapter(DatabaseAdapter[SQLiteDatabaseConfig]):
             # https://www.sqlite.org/pragma.html#pragma_auto_vacuum
             # https://www.sqlite.org/pragma.html#pragma_incremental_vacuum
             connection.execute("PRAGMA auto_vacuum = INCREMENTAL")
+
+        # https://docs.sqlalchemy.org/en/20/core/events.html#sqlalchemy.events.PoolEvents.close
+        @event.listens_for(engine.sync_engine, "close")
+        def close(connection: SQLiteConnection, *args: object) -> None:
+            # Run optimize every time we close a database connection.
+            # https://www.sqlite.org/lang_analyze.html
+            try:
+                connection.execute("PRAGMA analysis_limit = 500")
+                connection.execute("PRAGMA optimize")
+            except OperationalError:
+                pass
+
+        return engine
+
+    def __add_essential_listeners(self, engine: AsyncEngine) -> None:
+        # https://docs.sqlalchemy.org/en/latest/core/events.html#sqlalchemy.events.DialectEvents.do_connect
+        @event.listens_for(engine.sync_engine, "do_connect")
+        def do_connect(*args: object) -> None:
+            # Create the directory containing the database file if it doesn't already exist.
+            if self.config.path is not None:
+                try:
+                    self.config.path.parent.mkdir(parents=True, exist_ok=True)
+                except Exception:
+                    traceback.print_exc()
 
         # https://docs.sqlalchemy.org/en/20/core/events.html#sqlalchemy.events.PoolEvents.connect
         @event.listens_for(engine.sync_engine, "connect")
@@ -120,18 +228,55 @@ class SQLiteDatabaseAdapter(DatabaseAdapter[SQLiteDatabaseConfig]):
             # https://docs.sqlalchemy.org/en/latest/dialects/sqlite.html#serializable-isolation-savepoints-transactional-ddl
             connection.exec_driver_sql("BEGIN IMMEDIATE")
 
-        # https://docs.sqlalchemy.org/en/20/core/events.html#sqlalchemy.events.PoolEvents.close
-        @event.listens_for(engine.sync_engine, "close")
-        def close(connection: SQLiteConnection, *args: object) -> None:
-            # Run optimize every time we close a database connection.
-            # https://www.sqlite.org/lang_analyze.html
-            try:
-                connection.execute("PRAGMA analysis_limit = 500")
-                connection.execute("PRAGMA optimize")
-            except OperationalError:
-                pass
+    @override
+    async def clone(self, path: PathLike[str]) -> None:
+        path = Path(path).absolute()
 
-        return engine
+        if path.exists():
+            path.unlink()
+
+        def execute() -> None:
+            with sqlite3.connect(self.__get_path()) as source_connection:
+                with sqlite3.connect(path) as temporary_connection:
+                    source_connection.backup(temporary_connection)
+
+        await spawn(execute)
+
+    @override
+    async def dump(self, path: PathLike[str], *, update: bool = False) -> None:
+        path = Path(path).absolute()
+
+        if not update:
+            if path.exists():
+                path.unlink()
+
+        with NamedTemporaryFile(prefix="ceres", suffix=".sqlite.temporary") as temporary_file:
+            temporary_path = Path(temporary_file.name)
+            await self.clone(temporary_path)
+
+            source_engine = create_async_engine(f"sqlite+aiosqlite:///{temporary_path}")
+            destination_engine = create_async_engine(f"sqlite+aiosqlite:///{path}")
+            self.__add_essential_listeners(source_engine)
+            self.__add_essential_listeners(destination_engine)
+
+            await self._dump(
+                source_engine,
+                destination_engine,
+                path,
+                update=update,
+            )
+
+    @override
+    async def load(self, path: PathLike[str]) -> None:
+        raise NotImplementedError()
+
+    def __get_path(self) -> Path:
+        # If a path is provided, create an database at the provided path.
+        if self.config.path is not None:
+            return self.config.path.absolute()
+
+        # Otherwise create a temporary on-disk database.
+        return self.__get_temporary_path()
 
     def __get_temporary_path(self) -> Path:
         return Path(gettempdir()) / f"ceres-{self.id}.sqlite"

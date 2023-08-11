@@ -60,6 +60,7 @@ ignore = ["F402"]
 include = ["ceres", "tests"]
 reportImportCycles = false
 reportMissingTypeStubs = false
+reportPrivateUsage = false
 reportUnknownArgumentType = false
 reportUnknownLambdaType = false
 reportUnknownMemberType = false

@@ -1,4 +1,5 @@
 from asyncio import Lock as AsyncLock
+from os import PathLike
 from typing import Callable, TypeVar, cast, final
 from uuid import UUID, uuid4
 
@@ -116,6 +117,15 @@ class Database:
             self.__completed_init_successfully = True
 
         return self.session()
+
+    async def clone(self, path: PathLike[str]) -> None:
+        return await self.__adapter.clone(path)
+
+    async def dump(self, path: PathLike[str], *, update: bool = False) -> None:
+        return await self.__adapter.dump(path, update=update)
+
+    async def load(self, path: PathLike[str]) -> None:
+        return await self.__adapter.load(path)
 
     async def tables(self) -> list[str]:
         return await self.__run_sync(lambda connection: inspect(connection).get_table_names())

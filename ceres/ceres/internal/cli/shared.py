@@ -49,7 +49,7 @@ def __disabled_chdir__(*args: Any, **kwargs: Any) -> None:
     warnings.warn("Changing directory is disabled while running Ceres.")
 
 
-def disable_chdir():
+def disable_chdir() -> None:
     os.chdir = __disabled_chdir__
 
 
@@ -66,13 +66,14 @@ def get_config_path(config_path: Path | None) -> Path:
 
         for possibility in possibilities:
             if possibility.is_file():
-                config_path = possibility.absolute()
+                config_path = possibility
                 break
         else:
             raise CLIInvalidConfigException(
                 f"Must be in a directory containing one of: {possibilities}"
             )
 
+    config_path = config_path.absolute()
     chdir(config_path.parent)
     disable_chdir()
     return config_path
