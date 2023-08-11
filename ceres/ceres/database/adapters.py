@@ -16,7 +16,7 @@ from typing_extensions import override
 
 from ceres.address import Address
 from ceres.config import DatabaseConfig, PostgresDatabaseConfig, SQLiteDatabaseConfig
-from ceres.internal.database.entities import AlertDumpEntity, BinEntity
+from ceres.internal.database.entities import AlertDumpEntity, BinEntity, Entity
 from ceres.internal.utilities import achunkify
 from ceres.threading import spawn
 
@@ -58,89 +58,6 @@ class DatabaseAdapter(Generic[ConfigT], ABC):
 
     async def clone(self, path: PathLike[str]) -> None:
         raise NotImplementedError()
-
-    async def _dump(
-        self,
-        source_engine: AsyncEngine,
-        destination_engine: AsyncEngine,
-        destination_path: Path,
-        *,
-        update: bool = False,
-    ) -> None:
-        from ceres.internal.database.entities import (
-            AlertEntity,
-            BinEntity,
-            ComponentEntity,
-            Entity,
-            LogEntryEntity,
-            MessageEntity,
-        )
-
-        if not update:
-            if destination_path.exists():
-                destination_path.unlink()
-
-        async with destination_engine.begin() as destination_connection:
-            for cls in Entity.get_entity_classes():
-                dump_cls = cls.get_entity_dump_cls()
-                if dump_cls is None:
-                    continue
-
-                for statement in dump_cls.get_entity_ddl(destination_engine.sync_engine):
-                    await destination_connection.execute(text(statement))
-
-            async with source_engine.begin() as source_connection:
-                if not update:
-                    await destination_connection.execute(text("PRAGMA foreign_keys = OFF"))
-
-                for connection in (source_connection, destination_connection):
-                    await connection.execute(text("PRAGMA syncronous = 0"))
-                    await connection.execute(text("PRAGMA locking_mode = EXCLUSIVE"))
-
-                bins: dict[int, Address] = {}
-                for bin_id, address in await source_connection.execute(
-                    select(BinEntity.id, BinEntity.address)
-                ):
-                    bins[bin_id] = address
-
-                from sqlalchemy.dialects.sqlite import insert
-
-                for source_component in await source_connection.execute(
-                    select(*ComponentEntity.get_entity_columns())
-                ):
-                    destination_component = source_component._asdict()
-                    await destination_connection.execute(
-                        insert(ComponentEntity.get_entity_dump_cls())
-                        .values(destination_component)
-                        .on_conflict_do_update(set_=destination_component)
-                    )
-
-                for item_cls in (MessageEntity, AlertEntity, LogEntryEntity):
-                    item_columns = item_cls.get_entity_columns()
-                    item_dump_cls = item_cls.get_entity_dump_cls()
-                    item_dump_columns = item_dump_cls.get_entity_columns()
-
-                    async for source_items in achunkify(
-                        await source_connection.stream(select(*item_columns)),
-                        500,
-                    ):
-
-                        destination_items: list[dict[str, Any]] = []
-                        for source_item in source_items:
-                            destination_item = source_item._asdict()
-                            destination_item["address"] = bins[destination_item.pop("bin_id")]
-                            destination_items.append(destination_item)
-
-                        statement = insert(item_dump_cls).values(destination_items)
-                        await destination_connection.execute(
-                            statement.on_conflict_do_update(
-                                set_={
-                                    key: statement.excluded[key] for key in item_dump_columns.keys()
-                                }
-                            )
-                        )
-
-            await destination_connection.commit()
 
     async def _load(
         self,
@@ -345,7 +262,65 @@ class SQLiteDatabaseAdapter(DatabaseAdapter[SQLiteDatabaseConfig]):
             self.__add_essential_listeners(source_engine)
             self.__add_essential_listeners(destination_engine)
 
-            await self._dump(source_engine, destination_engine, path, update=update)
+            async with destination_engine.begin() as destination_connection:
+                for cls in Entity.get_entity_classes():
+                    dump_cls = cls.get_entity_dump_cls()
+                    if dump_cls is None:
+                        continue
+
+                    for statement in dump_cls.get_entity_ddl(destination_engine.sync_engine):
+                        await destination_connection.execute(text(statement))
+
+                await destination_connection.commit()
+
+            async with source_engine.begin() as source_connection:
+                await source_connection.execute(
+                    text("ATTACH DATABASE :path AS output"), {"path": str(path)}
+                )
+
+                await source_connection.execute(
+                    text(
+                        """
+                        INSERT INTO output.components (address, enabled)
+                        SELECT address, enabled FROM components;
+                        """
+                    )
+                )
+
+                await source_connection.execute(
+                    text(
+                        """
+                        INSERT INTO output.messages (id, address, timestamp, direction, content)
+                        SELECT main.messages.id, address, timestamp, direction, content
+                        FROM main.messages
+                        JOIN main.bins ON main.messages.bin_id = main.bins.id
+                        """
+                    )
+                )
+
+                await source_connection.execute(
+                    text(
+                        """
+                        INSERT INTO output.alerts (id, address, timestamp, level, code, info)
+                        SELECT main.alerts.id, address, timestamp, level, code, info
+                        FROM main.alerts
+                        JOIN main.bins ON main.alerts.bin_id = main.bins.id
+                        """
+                    )
+                )
+
+                await source_connection.execute(
+                    text(
+                        """
+                        INSERT INTO output.log_entries (id, address, timestamp, level, content)
+                        SELECT main.log_entries.id, address, timestamp, level, content
+                        FROM main.log_entries
+                        JOIN main.bins ON main.log_entries.bin_id = main.bins.id
+                        """
+                    )
+                )
+
+                await source_connection.commit()
 
     @override
     async def load(self, path: PathLike[str]) -> None:
