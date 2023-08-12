@@ -99,14 +99,9 @@ async def dump(
     config: Config = ConfigOption(checks=[]),
 ) -> None:
     """
-    Dump all data in the project database as a simplified SQLite file. Only supported for SQLite.
+    Dump all data in the project database as a simplified SQLite file.
     """
     database = Database(config.database)
-
-    if database.kind != DatabaseKind.SQLITE:
-        raise CLIDatabaseUnreachableException(
-            "Database dumping is currently only supported for SQLite."
-        )
 
     try:
         async with database.connect():

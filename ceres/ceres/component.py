@@ -407,7 +407,10 @@ class Component(Object):
                 address=self.address,
                 enabled=enabled,
             )
-            .on_conflict_do_update(set_={"enabled": enabled})
+            .on_conflict_do_update(
+                index_elements=[ComponentEntity.address],
+                set_={"enabled": enabled},
+            )
         )
 
         await session.commit()

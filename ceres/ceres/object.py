@@ -340,7 +340,9 @@ class Object(ValidatedDataclass, Tasklet):
                             values.append(data)
 
                         await session.execute(
-                            insert(entity_cls).on_conflict_do_nothing(),
+                            insert(entity_cls).on_conflict_do_nothing(
+                                index_elements=[entity_cls.id]
+                            ),
                             values,
                         )
 

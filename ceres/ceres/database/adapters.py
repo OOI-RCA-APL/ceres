@@ -1,4 +1,5 @@
 import sqlite3
+import subprocess
 import traceback
 from abc import ABC, abstractmethod
 from os import PathLike
@@ -6,13 +7,13 @@ from pathlib import Path
 from sqlite3 import Connection as SQLiteConnection
 from tempfile import NamedTemporaryFile, gettempdir
 from typing import Any, Generic, TypeVar, final
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import QueuePool, event, text
 from sqlalchemy.engine import Connection
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
-from typing_extensions import override
+from typing_extensions import LiteralString, override
 
 from ceres.config import DatabaseConfig, PostgresDatabaseConfig, SQLiteDatabaseConfig
 from ceres.internal.database.entities import Entity
@@ -341,3 +342,97 @@ class PostgresDatabaseAdapter(DatabaseAdapter[PostgresDatabaseConfig]):
             "pool_recycle": 60 * 5,  # Recreate connections after five minutes.
             **self.config.engine,
         }
+
+    @override
+    async def dump(self, path: PathLike[str], *, update: bool = False) -> None:
+        path = Path(path).absolute()
+        if not update:
+            if path.exists():
+                path.unlink(missing_ok=True)
+
+        import psycopg
+
+        self.create_engine()
+        destination_engine = SQLiteDatabaseAdapter(
+            uuid4(), SQLiteDatabaseConfig(path=path)
+        ).create_engine()
+
+        async with destination_engine.begin() as destination_connection:
+            for cls in Entity.get_entity_classes():
+                dump_cls = cls.get_entity_dump_cls()
+                if dump_cls is None:
+                    continue
+
+                for statement in dump_cls.get_entity_ddl(destination_engine.sync_engine):
+                    await destination_connection.execute(text(statement))
+
+            await destination_connection.commit()
+
+        await destination_engine.dispose()
+
+        url = self.get_engine_url().replace("+psycopg", "")
+
+        async with await psycopg.AsyncConnection.connect(url) as connection:
+            cursor = connection.cursor()
+
+            async def run_copy(table: LiteralString, statement: LiteralString) -> None:
+                with NamedTemporaryFile(prefix="ceres", suffix=".csv.temporary") as temporary:
+                    some = False
+                    async with cursor.copy(statement) as copy:
+                        async for row in copy:
+                            temporary.write(row)
+                            some = True
+
+                    temporary.flush()
+
+                    if some:
+                        subprocess.run(
+                            f"sqlite3 {path} '.import --csv {temporary.name} {table}'",
+                            shell=True,
+                            check=True,
+                        )
+
+            await run_copy(
+                "components",
+                "COPY (SELECT address, enabled::TEXT FROM components) TO STDOUT WITH (FORMAT CSV)",
+            )
+
+            timestamp = "to_char(timestamp, 'YYYY-MM-DD HH24:MI:SS.US')"
+
+            await run_copy(
+                "messages",
+                f"""
+                COPY (
+                    SELECT
+                        messages.id,
+                        address,
+                        {timestamp},
+                        direction,
+                        encode(content, 'escape')
+                    FROM messages
+                    JOIN bins ON messages.bin_id = bins.id
+                ) TO STDOUT WITH (FORMAT CSV)
+                """,
+            )
+
+            await run_copy(
+                "alerts",
+                f"""
+                COPY (
+                    SELECT alerts.id, address, {timestamp}, level, code, info
+                    FROM alerts
+                    JOIN bins ON alerts.bin_id = bins.id
+                ) TO STDOUT WITH (FORMAT CSV)
+                """,
+            )
+
+            await run_copy(
+                "log_entries",
+                f"""
+                COPY (
+                    SELECT log_entries.id, address, {timestamp}, level, content
+                    FROM log_entries
+                    JOIN bins ON log_entries.bin_id = bins.id
+                ) TO STDOUT WITH (FORMAT CSV)
+                """,
+            )
