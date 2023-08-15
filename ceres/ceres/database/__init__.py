@@ -532,7 +532,7 @@ class Database:
 
                 continue
 
-            if segment == "@":
+            if segment.startswith("@"):
                 if segment.endswith(":all"):
                     conditions.append(address != "~")
                 elif segment.endswith(":descendants"):
