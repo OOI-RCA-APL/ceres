@@ -5,6 +5,7 @@ import math
 import random
 import re
 import signal
+import textwrap
 from asyncio import AbstractEventLoop
 from collections import OrderedDict
 from contextlib import contextmanager
@@ -36,6 +37,7 @@ from typing import (
 import pydantic
 import pydantic.utils
 import rich
+import sqlparse
 from pydantic import BaseModel, parse_obj_as
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing_extensions import Self, overload
@@ -567,6 +569,7 @@ def chunkify(iterable: Iterable[_T], size: int) -> Iterable[Sequence[_T]]:
     if current:
         yield tuple(current)
 
+
 async def achunkify(iterable: AsyncIterable[_T], size: int) -> AsyncIterable[Sequence[_T]]:
     current: list[_T] = []
     async for item in iterable:
@@ -609,3 +612,21 @@ async def get_session(database: "Database", session: AsyncSession | None) -> Asy
     if session is None:
         return await database.init()
     return session
+
+
+def sqlstmt(statement: str, *, indent: int = 0) -> str:
+    statement = textwrap.dedent(statement).strip()
+    sqlparse.format(statement, keyword_case="upper").strip()
+    statement = statement.rstrip(";")
+    statement += ";"
+    if indent:
+        statement = textwrap.indent(statement, " " * (indent * 4))
+    return statement
+
+
+def sqlexpr(statement: str, *, indent: int = 0) -> str:
+    statement = textwrap.dedent(statement).strip()
+    sqlparse.format(statement, keyword_case="upper").strip()
+    if indent:
+        statement = textwrap.indent(statement, " " * (indent * 4))
+    return statement

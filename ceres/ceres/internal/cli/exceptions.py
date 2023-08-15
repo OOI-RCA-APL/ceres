@@ -1,4 +1,8 @@
-from click import ClickException as CLIException
+from click import ClickException
+
+
+class CLIException(ClickException):
+    pass
 
 
 class CLIInvalidConfigException(CLIException):

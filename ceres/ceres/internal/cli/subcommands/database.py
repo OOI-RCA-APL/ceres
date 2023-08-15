@@ -3,9 +3,10 @@ from pathlib import Path
 from pydantic import ByteSize
 from typer import Argument, Option
 
-from ceres.config import Config, DatabaseKind
+from ceres.config import Config
 from ceres.database import Database
-from ceres.internal.cli.exceptions import CLIDatabaseUnreachableException
+from ceres.database.adapters import DataFormat, TableOption
+from ceres.internal.cli.exceptions import CLIDatabaseUnreachableException, CLIException
 from ceres.internal.cli.shared import AsyncTyper, ConfigOption, get_yes_no, write
 from ceres.internal.utilities import show_td
 from ceres.timing import utc
@@ -48,59 +49,21 @@ async def init(*, config: Config = ConfigOption(checks=[])) -> None:
 
 
 @database.command()
-async def clone(
-    path: Path = Argument(
-        help="Path to clone database to.",
-        resolve_path=True,
-        dir_okay=False,
-        writable=True,
-    ),
-    config: Config = ConfigOption(checks=[]),
-) -> None:
-    """
-    Copy the project database into a functional SQLite file. Only supported for SQLite databases.
-    """
-    database = Database(config.database)
-
-    if database.kind != DatabaseKind.SQLITE:
-        raise CLIDatabaseUnreachableException(
-            "Database cloning is currently only supported for SQLite."
-        )
-
-    try:
-        async with database.connect():
-            pass
-    except Exception:
-        raise CLIDatabaseUnreachableException("Failed to connect to database.")
-
-    if not await database.tables():
-        raise CLIDatabaseUnreachableException("Database appears uninitialized, exiting.")
-
-    start = utc()
-
-    write(f"Cloning database to '{path}'...")
-    await database.clone(path)
-
-    duration = utc() - start
-    size = ByteSize(path.stat().st_size).human_readable()
-
-    write(f"Cloned database to {path} in {show_td(duration)}. Database size is {size}.")
-
-
-@database.command()
 async def dump(
+    table: TableOption = Argument(help="Table(s) to dump."),
     path: Path = Argument(
-        help="Path to dump data to.",
         resolve_path=True,
-        dir_okay=False,
         writable=True,
+        help="Path to dump data to.",
     ),
-    update: bool = Option(False, help="Update an existing dump file."),
+    format: DataFormat = Option(None, help="Format to dump data as."),
     config: Config = ConfigOption(checks=[]),
 ) -> None:
     """
-    Dump all data in the project database as a simplified SQLite file.
+    Dump all data in the project database to one or more files.
     """
+
+    format = _infer_data_format(format, path)
     database = Database(config.database)
 
     try:
@@ -113,35 +76,40 @@ async def dump(
         raise CLIDatabaseUnreachableException("Database appears uninitialized, exiting.")
 
     start = utc()
+    match format:
+        case DataFormat.CSV:
+            write("Dumping data as CSV...")
+        case DataFormat.SQLITE:
+            write("Dumping data as SQLite...")
 
-    write(f"Dumping database to '{path}'...")
-    await database.dump(path, update=update)
+    await database.dump(table, path, format)
 
     duration = utc() - start
-    size = ByteSize(path.stat().st_size).human_readable()
 
-    write(f"Dumped database to {path} in {show_td(duration)}. File size is {size}.")
+    match format:
+        case DataFormat.CSV:
+            write(f"Dump to CSV completed in {show_td(duration)}.")
+        case DataFormat.SQLITE:
+            size = ByteSize(path.stat().st_size).human_readable()
+            write(f"Dumped {size} to SQLite in {show_td(duration)}.")
 
 
 @database.command()
 async def load(
+    table: TableOption = Argument(help="Table(s) to load data into."),
     path: Path = Argument(
-        help="Path to load data from.",
         resolve_path=True,
-        dir_okay=False,
-        exists=True,
+        writable=True,
+        help="Path to load data from.",
     ),
+    format: DataFormat = Option(None, help="Data format to read files as."),
     config: Config = ConfigOption(checks=[]),
 ) -> None:
     """
-    Load all data into the project database as from an SQLite dump. Only supported for SQLite.
+    Load data into the project database.
     """
+    format = _infer_data_format(format, path)
     database = Database(config.database)
-
-    if database.kind != DatabaseKind.SQLITE:
-        raise CLIDatabaseUnreachableException(
-            "Database loading is currently only supported for SQLite."
-        )
 
     try:
         async with database.connect():
@@ -153,14 +121,22 @@ async def load(
         raise CLIDatabaseUnreachableException("Database appears uninitialized, exiting.")
 
     start = utc()
+    match format:
+        case DataFormat.CSV:
+            write("Loading data as CSV...")
+        case DataFormat.SQLITE:
+            write("Loading data as SQLite...")
 
-    write(f"Loading data from '{path}'...")
-    await database.load(path)
+    await database.load(table, path, format)
 
     duration = utc() - start
 
-    size = ByteSize(path.stat().st_size).human_readable()
-    write(f"Loaded {size} of data from {path} in {show_td(duration)}.")
+    match format:
+        case DataFormat.CSV:
+            write(f"Load from CSV completed in {show_td(duration)}.")
+        case DataFormat.SQLITE:
+            size = ByteSize(path.stat().st_size).human_readable()
+            write(f"Load of {size} of data from SQLite completed in {show_td(duration)}.")
 
 
 @database.command()
@@ -200,3 +176,14 @@ async def ddl(*, config: Config = ConfigOption(checks=[])) -> None:
 
     for statement in database.ddl:
         write(statement)
+
+
+def _infer_data_format(format: DataFormat | None, path: Path) -> DataFormat:
+    if format is not None:
+        return format
+    if path.suffix == ".csv":
+        return DataFormat.CSV
+    if path.suffix in (".db", ".sqlite", ".sqlite3"):
+        return DataFormat.SQLITE
+
+    raise CLIException(f"Could not infer data format from path extension: {path}")

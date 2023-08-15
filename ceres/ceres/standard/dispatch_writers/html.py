@@ -51,10 +51,7 @@ class HTMLDispatchWriter(DispatchWriter):
         index = create_index()
 
         for level, by_level in groupby(
-            sorted(
-                alerts,
-                key=lambda alert: -list(Level).index(alert.level),
-            ),
+            sorted(alerts, key=lambda alert: alert.level, reverse=True),
             key=lambda alert: alert.level,
         ):
             for key, by_key in groupby(

@@ -1,7 +1,8 @@
-import sqlite3
+import shutil
 import subprocess
 import traceback
 from abc import ABC, abstractmethod
+from enum import Enum
 from os import PathLike
 from pathlib import Path
 from sqlite3 import Connection as SQLiteConnection
@@ -16,10 +17,31 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from typing_extensions import LiteralString, override
 
 from ceres.config import DatabaseConfig, PostgresDatabaseConfig, SQLiteDatabaseConfig
+from ceres.directory import Directory
 from ceres.internal.database.entities import Entity
-from ceres.threading import spawn
+from ceres.internal.utilities import sqlexpr, sqlstmt
 
 ConfigT = TypeVar("ConfigT", bound=DatabaseConfig, covariant=True)
+
+
+class DataFormat(str, Enum):
+    CSV = "csv"
+    SQLITE = "sqlite"
+
+
+class TableOption(str, Enum):
+    ALL = "all"
+    COMPONENTS = "components"
+    MESSAGES = "messages"
+    ALERTS = "alerts"
+    LOG_ENTRIES = "log-entries"
+
+    @property
+    def table_name(self) -> str:
+        if self == TableOption.LOG_ENTRIES:
+            return "log_entries"
+
+        return self.value
 
 
 class DatabaseAdapter(Generic[ConfigT], ABC):
@@ -49,14 +71,35 @@ class DatabaseAdapter(Generic[ConfigT], ABC):
             **self.get_engine_config(),
         )
 
-    async def dump(self, path: PathLike[str], *, update: bool = False) -> None:
-        raise NotImplementedError()
+    async def dump(self, table: TableOption, path: str | PathLike[str], format: DataFormat) -> None:
+        match format:
+            case DataFormat.CSV:
+                return await self._dump_csv(table, path)
+            case DataFormat.SQLITE:
+                return await self._dump_sqlite(table, path)
 
-    async def load(self, path: PathLike[str]) -> None:
-        raise NotImplementedError()
+    async def load(self, table: TableOption, path: str | PathLike[str], format: DataFormat) -> None:
+        match format:
+            case DataFormat.CSV:
+                return await self._load_csv(table, path)
+            case DataFormat.SQLITE:
+                return await self._load_sqlite(table, path)
 
-    async def clone(self, path: PathLike[str]) -> None:
-        raise NotImplementedError()
+    @abstractmethod
+    async def _dump_csv(self, table: TableOption, path: str | PathLike[str]) -> None:
+        ...
+
+    @abstractmethod
+    async def _load_csv(self, table: TableOption, path: str | PathLike[str]) -> None:
+        ...
+
+    @abstractmethod
+    async def _dump_sqlite(self, table: TableOption, path: str | PathLike[str]) -> None:
+        ...
+
+    @abstractmethod
+    async def _load_sqlite(self, table: TableOption, path: str | PathLike[str]) -> None:
+        ...
 
 
 @final
@@ -146,171 +189,139 @@ class SQLiteDatabaseAdapter(DatabaseAdapter[SQLiteDatabaseConfig]):
             connection.exec_driver_sql("BEGIN IMMEDIATE")
 
     @override
-    async def clone(self, path: PathLike[str]) -> None:
+    async def _load_csv(self, table: TableOption, path: str | PathLike[str]) -> None:
         path = Path(path).absolute()
 
-        if path.exists():
-            path.unlink()
+        destination_engine = self.create_engine()
+        await Entity.create_all(destination_engine)
+        await destination_engine.dispose()
 
-        def execute() -> None:
-            with sqlite3.connect(self.__get_path()) as source_connection:
-                with sqlite3.connect(path) as temporary_connection:
-                    source_connection.backup(temporary_connection)
-
-        await spawn(execute)
+        for table_name, path in _get_csv_dump_paths(table, path):
+            try:
+                subprocess.run(
+                    [
+                        "sqlite3",
+                        str(self.__get_path()),
+                        ".mode csv",
+                        f".import '{path}' {table_name}",
+                    ],
+                    check=True,
+                    capture_output=True,
+                )
+            except Exception as exception:
+                raise RuntimeError(
+                    f"failed to load CSV file '{path}' into table '{table}': {exception}"
+                ) from exception
 
     @override
-    async def dump(self, path: PathLike[str], *, update: bool = False) -> None:
-        path = Path(path).absolute()
+    async def _dump_csv(self, table: TableOption, path: str | PathLike[str]) -> None:
+        try:
+            subprocess.run(
+                [
+                    "sqlite3",
+                    str(self.__get_path()),
+                    ".mode csv",
+                    f".output '{path}'",
+                    f"SELECT * FROM {table.table_name};",
+                ],
+                check=True,
+                capture_output=True,
+            )
+        except Exception as exception:
+            raise RuntimeError(
+                f"failed to dump table '{table}' to CSV file '{path}': {exception}"
+            ) from exception
 
-        if not update:
-            if path.exists():
-                path.unlink()
+    async def _copy_sqlite(
+        self,
+        table: TableOption,
+        source_engine: AsyncEngine,
+        destination: Path,
+    ) -> None:
+        async with source_engine.begin() as source_connection:
+            await source_connection.execute(
+                text("ATTACH DATABASE :path AS output"), {"path": str(destination)}
+            )
 
-        with NamedTemporaryFile(prefix="ceres", suffix=".sqlite.temporary") as temporary_file:
-            temporary_path = Path(temporary_file.name)
-            await self.clone(temporary_path)
-
-            source_engine = create_async_engine(f"sqlite+aiosqlite:///{temporary_path}")
-            destination_engine = create_async_engine(f"sqlite+aiosqlite:///{path}")
-            self.__add_essential_listeners(source_engine)
-            self.__add_essential_listeners(destination_engine)
-
-            async with destination_engine.begin() as destination_connection:
-                for cls in Entity.get_entity_classes():
-                    dump_cls = cls.get_entity_dump_cls()
-                    if dump_cls is None:
-                        continue
-
-                    for statement in dump_cls.get_entity_ddl(destination_engine.sync_engine):
-                        await destination_connection.execute(text(statement))
-
-                await destination_connection.commit()
-
-            async with source_engine.begin() as source_connection:
-                await source_connection.execute(
-                    text("ATTACH DATABASE :path AS output"), {"path": str(path)}
-                )
-
+            if table in (TableOption.ALL, TableOption.COMPONENTS):
                 await source_connection.execute(
                     text(
                         """
                         INSERT INTO output.components (address, enabled)
                         SELECT address, enabled
-                        FROM components
+                        FROM main.components
                         """
                     )
                 )
 
+            if table in (TableOption.ALL, TableOption.MESSAGES):
                 await source_connection.execute(
                     text(
                         """
                         INSERT INTO output.messages (id, address, timestamp, direction, content)
-                        SELECT main.messages.id, address, timestamp, direction, content
+                        SELECT id, address, timestamp, direction, content
                         FROM main.messages
-                        JOIN main.bins ON main.messages.bin_id = main.bins.id
-                        """
+                        """  # noqa: E501
                     )
                 )
 
+            if table in (TableOption.ALL, TableOption.ALERTS):
                 await source_connection.execute(
                     text(
                         """
                         INSERT INTO output.alerts (id, address, timestamp, level, code, info)
-                        SELECT main.alerts.id, address, timestamp, level, code, info
+                        SELECT id, address, timestamp, level, code, info
                         FROM main.alerts
-                        JOIN main.bins ON main.alerts.bin_id = main.bins.id
                         """
                     )
                 )
 
+            if table in (TableOption.ALL, TableOption.LOG_ENTRIES):
                 await source_connection.execute(
                     text(
                         """
                         INSERT INTO output.log_entries (id, address, timestamp, level, content)
-                        SELECT main.log_entries.id, address, timestamp, level, content
+                        SELECT id, address, timestamp, level, content
                         FROM main.log_entries
-                        JOIN main.bins ON main.log_entries.bin_id = main.bins.id
-                        """
+                        """  # noqa: E501
                     )
                 )
 
-                await source_connection.commit()
+            await source_connection.commit()
 
     @override
-    async def load(self, path: PathLike[str]) -> None:
-        destination_engine = self.create_engine()
+    async def _dump_sqlite(self, table: TableOption, path: str | PathLike[str]) -> None:
+        path = Path(path).absolute()
+        _remove(path)
+
+        source_engine = self.create_engine()
+        destination_engine = create_async_engine(f"sqlite+aiosqlite:///{path}")
+        self.__add_essential_listeners(destination_engine)
+
+        try:
+            await Entity.create_all(source_engine)
+            await Entity.create_all(destination_engine)
+            await self._copy_sqlite(table, source_engine, path)
+        finally:
+            await source_engine.dispose()
+            await destination_engine.dispose()
+
+    @override
+    async def _load_sqlite(self, table: TableOption, path: str | PathLike[str]) -> None:
+        path = Path(path).absolute()
+
         source_engine = create_async_engine(f"sqlite+aiosqlite:///{path}")
         self.__add_essential_listeners(source_engine)
 
-        async with destination_engine.begin() as destination_connection:
-            for cls in Entity.get_entity_classes():
-                for statement in cls.get_entity_ddl(destination_engine.sync_engine):
-                    await destination_connection.execute(text(statement))
+        destination_engine = self.create_engine()
 
-            await destination_connection.commit()
-
-        async with source_engine.begin() as source_connection:
-            await source_connection.execute(
-                text("ATTACH DATABASE :path AS output"), {"path": str(self.__get_path())}
-            )
-
-            await source_connection.execute(
-                text(
-                    """
-                    INSERT OR REPLACE INTO output.components (address, enabled)
-                    SELECT address, enabled
-                    FROM main.components
-                    """
-                )
-            )
-
-            await source_connection.execute(
-                text(
-                    """
-                    INSERT OR REPLACE INTO output.bins (address)
-                    SELECT address FROM main.components
-                    UNION SELECT DISTINCT address FROM main.messages
-                    UNION SELECT DISTINCT address FROM main.alerts
-                    UNION SELECT DISTINCT address FROM main.log_entries
-                    """
-                )
-            )
-
-            await source_connection.execute(
-                text(
-                    """
-                    INSERT OR REPLACE INTO output.messages (id, bin_id, timestamp, direction, content)
-                    SELECT main.messages.id, output.bins.id, timestamp, direction, content
-                    FROM main.messages
-                    JOIN output.bins ON main.messages.address = output.bins.address
-                    """  # noqa: E501
-                )
-            )
-
-            await source_connection.execute(
-                text(
-                    """
-                    INSERT OR REPLACE INTO output.alerts (id, bin_id, timestamp, level, code, info)
-                    SELECT main.alerts.id, output.bins.id, timestamp, level, code, info
-                    FROM main.alerts
-                    JOIN output.bins ON main.alerts.address = output.bins.address
-                    """
-                )
-            )
-
-            await source_connection.execute(
-                text(
-                    """
-                    INSERT OR REPLACE INTO output.log_entries (id, bin_id, timestamp, level, content)
-                    SELECT main.log_entries.id, output.bins.id, timestamp, level, content
-                    FROM main.log_entries
-                    JOIN output.bins ON main.log_entries.address = output.bins.address
-                    """  # noqa: E501
-                )
-            )
-
-            await source_connection.commit()
+        try:
+            await Entity.create_all(source_engine)
+            await Entity.create_all(destination_engine)
+            await self._copy_sqlite(table, source_engine, self.__get_path())
+        finally:
+            await source_engine.dispose()
+            await destination_engine.dispose()
 
     def __get_path(self) -> Path:
         # If a path is provided, create an database at the provided path.
@@ -344,95 +355,158 @@ class PostgresDatabaseAdapter(DatabaseAdapter[PostgresDatabaseConfig]):
         }
 
     @override
-    async def dump(self, path: PathLike[str], *, update: bool = False) -> None:
+    async def _dump_csv(self, table: TableOption, path: str | PathLike[str]) -> None:
         path = Path(path).absolute()
-        if not update:
-            if path.exists():
-                path.unlink(missing_ok=True)
+        _remove(path)
+
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if table == TableOption.ALL:
+            path.mkdir()
 
         import psycopg
 
-        self.create_engine()
-        destination_engine = SQLiteDatabaseAdapter(
-            uuid4(), SQLiteDatabaseConfig(path=path)
-        ).create_engine()
+        source_engine = self.create_engine()
 
-        async with destination_engine.begin() as destination_connection:
-            for cls in Entity.get_entity_classes():
-                dump_cls = cls.get_entity_dump_cls()
-                if dump_cls is None:
-                    continue
-
-                for statement in dump_cls.get_entity_ddl(destination_engine.sync_engine):
-                    await destination_connection.execute(text(statement))
-
-            await destination_connection.commit()
-
-        await destination_engine.dispose()
+        await Entity.create_all(source_engine)
 
         url = self.get_engine_url().replace("+psycopg", "")
 
         async with await psycopg.AsyncConnection.connect(url) as connection:
             cursor = connection.cursor()
 
-            async def run_copy(table: LiteralString, statement: LiteralString) -> None:
-                with NamedTemporaryFile(prefix="ceres", suffix=".csv.temporary") as temporary:
-                    some = False
+            async def write(
+                destination: Path,
+                statement: LiteralString,
+            ) -> None:
+                statement = sqlstmt(
+                    f"""
+COPY (
+    {sqlexpr(statement, indent=1)}
+) TO STDOUT WITH (FORMAT CSV)
+"""
+                )  # type: ignore
+
+                with destination.open("wb") as stream:
                     async with cursor.copy(statement) as copy:
                         async for row in copy:
-                            temporary.write(row)
-                            some = True
+                            stream.write(row)
 
-                    temporary.flush()
-
-                    if some:
-                        subprocess.run(
-                            f"sqlite3 {path} '.import --csv {temporary.name} {table}'",
-                            shell=True,
-                            check=True,
-                        )
-
-            await run_copy(
-                "components",
-                "COPY (SELECT address, enabled::TEXT FROM components) TO STDOUT WITH (FORMAT CSV)",
-            )
+                    stream.flush()
 
             timestamp = "to_char(timestamp, 'YYYY-MM-DD HH24:MI:SS.US')"
 
-            await run_copy(
-                "messages",
-                f"""
-                COPY (
+            if table in (TableOption.ALL, TableOption.COMPONENTS):
+                await write(
+                    path if table == TableOption.COMPONENTS else path / "components.csv",
+                    """
+                    SELECT address, enabled::TEXT
+                    FROM components
+                    """,
+                )
+            if table in (TableOption.ALL, TableOption.MESSAGES):
+                await write(
+                    path if table == TableOption.MESSAGES else path / "messages.csv",
+                    f"""
                     SELECT
-                        messages.id,
+                        id,
                         address,
                         {timestamp},
                         direction,
                         encode(content, 'escape')
                     FROM messages
-                    JOIN bins ON messages.bin_id = bins.id
-                ) TO STDOUT WITH (FORMAT CSV)
-                """,
-            )
+                    """,
+                )
 
-            await run_copy(
-                "alerts",
-                f"""
-                COPY (
-                    SELECT alerts.id, address, {timestamp}, level, code, info
-                    FROM alerts
-                    JOIN bins ON alerts.bin_id = bins.id
-                ) TO STDOUT WITH (FORMAT CSV)
-                """,
-            )
+            if table in (TableOption.ALL, TableOption.ALERTS):
+                await write(
+                    path if table == TableOption.ALERTS else path / "alerts.csv",
+                    f"""
+                    SELECT id, address, {timestamp}, level, code, info FROM alerts
+                    """,
+                )
 
-            await run_copy(
-                "log_entries",
-                f"""
-                COPY (
-                    SELECT log_entries.id, address, {timestamp}, level, content
-                    FROM log_entries
-                    JOIN bins ON log_entries.bin_id = bins.id
-                ) TO STDOUT WITH (FORMAT CSV)
-                """,
-            )
+            if table in (TableOption.ALL, TableOption.LOG_ENTRIES):
+                await write(
+                    path if table == TableOption.LOG_ENTRIES else path / "log-entries.csv",
+                    f"""
+                    SELECT id, address, {timestamp}, level, content FROM log_entries
+                    """,
+                )
+
+    @override
+    async def _load_csv(self, table: TableOption, path: str | PathLike[str]) -> None:
+        path = Path(path).absolute()
+        paths = _get_csv_dump_paths(table, path)
+
+        from psycopg import AsyncConnection
+
+        destination_engine = self.create_engine()
+        await Entity.create_all(destination_engine)
+        await destination_engine.dispose()
+
+        url = self.get_engine_url().replace("+psycopg", "")
+
+        async with await AsyncConnection.connect(url) as connection:
+            await connection.execute("BEGIN")
+            cursor = connection.cursor()
+
+            for table_name, path in paths:
+                async with cursor.copy(
+                    f"COPY {table_name} FROM STDIN (FORMAT CSV)"  # type: ignore
+                ) as copy:
+                    with path.open() as stream:
+                        while chunk := stream.read(1024):
+                            await copy.write(chunk)
+
+            await connection.execute("COMMIT")
+
+    @override
+    async def _load_sqlite(self, table: TableOption, path: str | PathLike[str]) -> None:
+        path = Path(path).absolute()
+
+        source_adapter = SQLiteDatabaseAdapter(uuid4(), SQLiteDatabaseConfig(path=path))
+        if table == TableOption.ALL:
+            temporary_directory = Directory()
+            temporary_path = temporary_directory.path
+        else:
+            temporary_file = NamedTemporaryFile()
+            temporary_path = temporary_file.name
+
+        await source_adapter._dump_csv(table, temporary_path)
+        await self._load_csv(table, temporary_path)
+
+    @override
+    async def _dump_sqlite(self, table: TableOption, path: str | PathLike[str]) -> None:
+        path = Path(path).absolute()
+        _remove(path)
+
+        destination_adapter = SQLiteDatabaseAdapter(uuid4(), SQLiteDatabaseConfig(path=path))
+
+        if table == TableOption.ALL:
+            temporary_directory = Directory()
+            temporary_path = temporary_directory.path
+        else:
+            temporary_file = NamedTemporaryFile()
+            temporary_path = temporary_file.name
+
+        await self._dump_csv(table, temporary_path)
+        await destination_adapter._load_csv(table, temporary_path)
+
+
+def _get_csv_dump_paths(table: TableOption, path: Path) -> list[tuple[str, Path]]:
+    if table == TableOption.ALL:
+        return [
+            ("components", path / "components.csv"),
+            ("messages", path / "messages.csv"),
+            ("alerts", path / "alerts.csv"),
+            ("log_entries", path / "log-entries.csv"),
+        ]
+
+    return [(table.table_name, path)]
+
+
+def _remove(path: Path) -> None:
+    if path.is_dir():
+        shutil.rmtree(path, True)
+    else:
+        path.unlink(missing_ok=True)

@@ -18,7 +18,13 @@ from ceres.config import (
     PostgresDatabaseConfig,
     SQLiteDatabaseConfig,
 )
-from ceres.database.adapters import DatabaseAdapter, PostgresDatabaseAdapter, SQLiteDatabaseAdapter
+from ceres.database.adapters import (
+    DataFormat,
+    DatabaseAdapter,
+    PostgresDatabaseAdapter,
+    SQLiteDatabaseAdapter,
+    TableOption,
+)
 from ceres.internal.database.entities import Entity
 
 _T = TypeVar("_T")
@@ -118,14 +124,11 @@ class Database:
 
         return self.session()
 
-    async def clone(self, path: PathLike[str]) -> None:
-        return await self.__adapter.clone(path)
+    async def dump(self, table: TableOption, path: str | PathLike[str], format: DataFormat) -> None:
+        return await self.__adapter.dump(table, path, format)
 
-    async def dump(self, path: PathLike[str], *, update: bool = False) -> None:
-        return await self.__adapter.dump(path, update=update)
-
-    async def load(self, path: PathLike[str]) -> None:
-        return await self.__adapter.load(path)
+    async def load(self, table: TableOption, path: str | PathLike[str], format: DataFormat) -> None:
+        return await self.__adapter.load(table, path, format)
 
     async def clear(self) -> None:
         async with self.begin() as connection:
