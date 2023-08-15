@@ -197,7 +197,7 @@ class Database:
     ) -> list[Message]:
         filter = MessageFilter(**kwargs).with_defaults(filter)
 
-        statement = select(MessageEntity.__table__.columns)
+        statement = select(*MessageEntity.__table__.columns.values())
 
         if filter.address is not None:
             statement = statement.where(
@@ -264,7 +264,7 @@ class Database:
         async with await self.init() as session:
             rows = await session.execute(statement)
 
-        return [Message.construct(**row._mapping) for row in rows]  # type: ignore
+        return [Message(**row._mapping) for row in rows]  # type: ignore
 
     async def get_message(
         self,
@@ -283,7 +283,7 @@ class Database:
     ) -> list[Alert]:
         filter = AlertFilter(**kwargs).with_defaults(filter)
 
-        statement = select(AlertEntity.__table__.columns)
+        statement = select(*AlertEntity.__table__.columns.values())
 
         if filter.address is not None:
             statement = statement.where(
@@ -347,7 +347,7 @@ class Database:
         async with await self.init() as session:
             rows = await session.execute(statement)
 
-        return [Alert.construct(**row._mapping) for row in rows]  # type: ignore
+        return [Alert(**row._mapping) for row in rows]  # type: ignore
 
     async def get_alert(
         self,
@@ -366,7 +366,7 @@ class Database:
     ) -> list[LogEntry]:
         filter = LogEntryFilter(**kwargs).with_defaults(filter)
 
-        statement = select(LogEntryEntity.__table__.columns)
+        statement = select(*LogEntryEntity.__table__.columns.values())
 
         if filter.address is not None:
             statement = statement.where(
@@ -428,7 +428,7 @@ class Database:
         async with await self.init() as session:
             rows = await session.execute(statement)
 
-        return [LogEntry.construct(**row._mapping) for row in rows]  # type: ignore
+        return [LogEntry(**row._mapping) for row in rows]  # type: ignore
 
     async def get_log_entry(
         self,
