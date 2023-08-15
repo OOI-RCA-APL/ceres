@@ -18,16 +18,26 @@ class AddressSelector(str):
     def __get_validators__(cls) -> Any:
         yield cls.validate
 
-    def __new__(cls, obj: str, /) -> Self:
+    @property
+    def segments(self) -> Sequence["AddressSelector"]:
+        return [AddressSelector(segment) for segment in self.split("|")]
+
+    def __new__(cls, obj: str | Sequence[str], /) -> Self:
         if isinstance(obj, cls):
             return obj
 
         return str.__new__(cls, cls.validate(obj))
 
     @classmethod
-    def validate(cls, value: str) -> Self:
+    def validate(cls, value: Any) -> Self:
         if isinstance(value, cls):
             return value
+
+        if not isinstance(value, str):
+            if not (isinstance(value, Sequence) and all(isinstance(item, str) for item in value)):
+                raise TypeError(f"{value!r} must be a string or sequence of strings")
+
+            value = "|".join(value)
 
         if cls.regex.match(value) is None:
             raise ValueError(f"{value!r} must match regex {cls.regex.pattern}")
@@ -92,6 +102,12 @@ def _compile_selector(pattern: "AddressSelector") -> StrPattern:
 
 class DynamicAddress(AddressSelector):
     regex = re.compile(rf"^~|@|@?{_NAME}(\.{_NAME})*$")
+
+    def __new__(cls, obj: str, /) -> Self:
+        if isinstance(obj, cls):
+            return obj
+
+        return str.__new__(cls, cls.validate(obj))
 
     @property
     def name(self) -> Name | None:
@@ -216,7 +232,7 @@ class Address(DynamicAddress):
 
     @override
     @classmethod
-    def validate(cls, value: str) -> Self:
+    def validate(cls, value: Any) -> Self:
         if isinstance(value, cls):
             return value
 

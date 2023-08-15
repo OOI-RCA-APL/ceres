@@ -3,7 +3,6 @@ from abc import abstractmethod
 from asyncio import Event as AsyncEvent
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import datetime
 from itertools import groupby
 from typing import (
     TYPE_CHECKING,
@@ -15,15 +14,6 @@ from typing import (
     TypeVar,
 )
 
-from pydantic import Field
-from sqlalchemy import (
-    BinaryExpression,
-    SQLColumnExpression,
-    Text,
-    cast,
-    func,
-    select,
-)
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing_extensions import ParamSpec, Unpack, dataclass_transform, overload, override
 
@@ -32,11 +22,13 @@ from ceres.alert import Alert
 from ceres.config import DatabaseKind
 from ceres.data import (
     VALIDATED_DATACLASS_FIELD_SPECIFIERS,
-    DataObject,
     ImmutableDataObject,
     ValidatedDataclass,
 )
+from ceres.database import AlertStatistics as AlertStatistics
 from ceres.database import Database
+from ceres.database import LevelStatistics as LevelStatistics
+from ceres.database import Statistics as Statistics
 from ceres.events import (
     AlertEvent,
     ConnectedEvent,
@@ -53,30 +45,22 @@ from ceres.events import (
 from ceres.filter import (
     AlertFilter,
     AlertFilterArgs,
-    AlertOrder,
     ComponentFilter,
     ComponentFilterArgs,
     LogEntryFilter,
     LogEntryFilterArgs,
-    LogEntryOrder,
     MessageFilter,
     MessageFilterArgs,
-    MessageOrder,
     StatisticsFilter,
     StatisticsFilterArgs,
 )
-from ceres.internal.database.entities import (
-    AlertEntity,
-    LogEntryEntity,
-    MessageEntity,
-)
+from ceres.internal.database.entities import AlertEntity, LogEntryEntity, MessageEntity
 from ceres.internal.tasklet import Tasklet
-from ceres.internal.utilities import chunkify, dictify, escape_like_expression
+from ceres.internal.utilities import chunkify, dictify
 from ceres.level import Level
 from ceres.logs import Log, LogEntry
 from ceres.message import Message
 from ceres.stream import Stream, WriteStream
-from ceres.timing import utc
 
 if TYPE_CHECKING:
     from ceres.component import Component, ComponentGroup
@@ -91,21 +75,6 @@ _EventT = TypeVar("_EventT", bound=Event)
 _EventP = ParamSpec("_EventP")
 
 Item = Message | Alert | LogEntry
-
-
-class LevelStatistics(DataObject):
-    level: Level
-    count: int = Field(ge=0)
-
-
-class AlertStatistics(DataObject):
-    count: int = 0
-    levels: list[LevelStatistics] = Field(default_factory=list)
-
-
-class Statistics(DataObject):
-    address: Address
-    alerts: AlertStatistics = Field(default_factory=AlertStatistics)
 
 
 class Status(ImmutableDataObject):
@@ -422,73 +391,17 @@ class Object(ValidatedDataclass, Tasklet):
         **kwargs: Unpack[MessageFilterArgs],
     ) -> list[Message]:
         filter = MessageFilter(**kwargs).with_defaults(filter)
+        addresses = self.__get_addresses(filter.address)
+        filter = filter.with_defaults(MessageFilter(address=AddressSelector(addresses)))
+        return await self.__object_database__.get_messages(filter)
 
-        statement = select(MessageEntity.__table__.columns)
-        addresses = self.__get_addresses(
-            filter.address,
-            filter.search,
-            filter.search_case_sensitive,
-        )
-
-        if filter.search:
-            pattern = "%" + escape_like_expression(filter.search) + "%"
-            statement = statement.where(
-                MessageEntity.address.in_(addresses)
-                | _like(
-                    _format_timestamp(self.__object_database__.kind, MessageEntity.timestamp),
-                    pattern,
-                    filter.search_case_sensitive,
-                )
-                | _like(MessageEntity.direction, pattern, filter.search_case_sensitive)
-                | (
-                    _like(
-                        MessageEntity.content,
-                        pattern.encode(),
-                        filter.search_case_sensitive,
-                    )
-                    if self.__object_database__.kind == DatabaseKind.SQLITE
-                    else _like(
-                        func.encode(MessageEntity.content, "escape"),
-                        pattern.encode("utf-8").decode("unicode-escape"),
-                        filter.search_case_sensitive,
-                    )
-                ),
-            )
-        else:
-            statement = statement.where(MessageEntity.address.in_(addresses))
-
-        if filter.within is not None:
-            statement = statement.where(MessageEntity.timestamp >= utc() - filter.within)
-        if filter.after is not None:
-            statement = statement.where(MessageEntity.timestamp >= filter.after)
-        if filter.before is not None:
-            statement = statement.where(MessageEntity.timestamp < filter.before)
-        if filter.direction is not None:
-            statement = statement.where(MessageEntity.direction == filter.direction)
-        if filter.prefix is not None:
-            statement = statement.where(
-                MessageEntity.content.like(escape_like_expression(filter.prefix) + b"%"),
-            )
-        if filter.suffix is not None:
-            statement = statement.where(
-                MessageEntity.content.like(b"%" + escape_like_expression(filter.suffix)),
-            )
-
-        match filter.order:
-            case None | MessageOrder.OLD_TO_NEW:
-                statement = statement.order_by(MessageEntity.timestamp)
-            case MessageOrder.NEW_TO_OLD:
-                statement = statement.order_by(MessageEntity.timestamp.desc())
-
-        if filter.limit is not None:
-            statement = statement.limit(filter.limit)
-        if filter.offset is not None and filter.offset > 0:
-            statement = statement.offset(filter.offset)
-
-        async with await self.__object_database__.init() as session:
-            rows = await session.execute(statement)
-
-        return [Message.construct(**row._mapping) for row in rows]  # type: ignore
+    async def get_message(
+        self,
+        filter: MessageFilter | None = None,
+        /,
+        **kwargs: Unpack[MessageFilterArgs],
+    ) -> Message | None:
+        return await self.__object_database__.get_message(filter, **kwargs)
 
     async def stream_messages(
         self,
@@ -503,15 +416,6 @@ class Object(ValidatedDataclass, Tasklet):
         ):
             yield event.message
 
-    async def get_message(
-        self,
-        filter: MessageFilter | None = None,
-        /,
-        **kwargs: Unpack[MessageFilterArgs],
-    ) -> Message | None:
-        messages = await self.get_messages(filter, **{**kwargs, "limit": 1})
-        return messages[0] if messages else None
-
     async def get_alerts(
         self,
         filter: AlertFilter | None = None,
@@ -519,70 +423,17 @@ class Object(ValidatedDataclass, Tasklet):
         **kwargs: Unpack[AlertFilterArgs],
     ) -> list[Alert]:
         filter = AlertFilter(**kwargs).with_defaults(filter)
+        addresses = self.__get_addresses(filter.address)
+        filter = filter.with_defaults(AlertFilter(address=AddressSelector(addresses)))
+        return await self.__object_database__.get_alerts(filter)
 
-        statement = select(AlertEntity.__table__.columns)
-        addresses = self.__get_addresses(
-            filter.address,
-            filter.search,
-            filter.search_case_sensitive,
-        )
-
-        if filter.search is not None:
-            pattern = "%" + escape_like_expression(filter.search) + "%"
-            statement = statement.where(
-                AlertEntity.address.in_(addresses)
-                | _like(
-                    _format_timestamp(self.__object_database__.kind, AlertEntity.timestamp),
-                    pattern,
-                    filter.search_case_sensitive,
-                )
-                | _like(AlertEntity.level, pattern, filter.search_case_sensitive)
-                | _like(AlertEntity.code, pattern, filter.search_case_sensitive)
-                | _like(
-                    cast(AlertEntity.info, Text)
-                    if self.__object_database__.kind == DatabaseKind.POSTGRES
-                    else AlertEntity.info,
-                    pattern,
-                    filter.search_case_sensitive,
-                ),
-            )
-        else:
-            statement = statement.where(AlertEntity.address.in_(addresses))
-
-        if filter.within is not None:
-            statement = statement.where(AlertEntity.timestamp >= utc() - filter.within)
-        if filter.after is not None:
-            statement = statement.where(AlertEntity.timestamp >= filter.after)
-        if filter.before is not None:
-            statement = statement.where(AlertEntity.timestamp < filter.before)
-        if filter.level is not None:
-            if isinstance(filter.level, Level):
-                statement = statement.where(AlertEntity.level == filter.level)
-            else:
-                statement = statement.where(AlertEntity.level.in_(filter.level))
-        if filter.code is not None:
-            if isinstance(filter.code, str):
-                statement = statement.where(AlertEntity.code == filter.code)
-            else:
-                statement = statement.where(AlertEntity.code.in_(filter.code))
-        if filter.code_regex is not None:
-            statement = statement.where(AlertEntity.code.regexp_match(filter.code_regex))
-
-        match filter.order:
-            case None | AlertOrder.OLD_TO_NEW:
-                statement = statement.order_by(AlertEntity.timestamp)
-            case AlertOrder.NEW_TO_OLD:
-                statement = statement.order_by(AlertEntity.timestamp.desc())
-
-        if filter.limit is not None:
-            statement = statement.limit(filter.limit)
-        if filter.offset is not None and filter.offset > 0:
-            statement = statement.offset(filter.offset)
-
-        async with await self.__object_database__.init() as session:
-            rows = await session.execute(statement)
-
-        return [Alert.construct(**row._mapping) for row in rows]  # type: ignore
+    async def get_alert(
+        self,
+        filter: AlertFilter | None = None,
+        /,
+        **kwargs: Unpack[AlertFilterArgs],
+    ) -> Alert | None:
+        return await self.__object_database__.get_alert(filter, **kwargs)
 
     async def stream_alerts(
         self,
@@ -597,18 +448,6 @@ class Object(ValidatedDataclass, Tasklet):
         ):
             yield event.alert
 
-    async def get_alert(
-        self,
-        filter: AlertFilter | None = None,
-        /,
-        **kwargs: Unpack[AlertFilterArgs],
-    ) -> Alert | None:
-        alerts = await self.get_alerts(
-            filter,
-            **{**kwargs, "limit": 1},
-        )
-        return alerts[0] if alerts else None
-
     async def get_log_entries(
         self,
         filter: LogEntryFilter | None = None,
@@ -616,68 +455,17 @@ class Object(ValidatedDataclass, Tasklet):
         **kwargs: Unpack[LogEntryFilterArgs],
     ) -> list[LogEntry]:
         filter = LogEntryFilter(**kwargs).with_defaults(filter)
+        addresses = self.__get_addresses(filter.address)
+        filter = filter.with_defaults(LogEntryFilter(address=AddressSelector(addresses)))
+        return await self.__object_database__.get_log_entries(filter)
 
-        statement = select(LogEntryEntity.__table__.columns)
-        addresses = self.__get_addresses(
-            filter.address,
-            filter.search,
-            filter.search_case_sensitive,
-        )
-
-        if filter.search is not None:
-            pattern = "%" + escape_like_expression(filter.search) + "%"
-            statement = statement.where(
-                LogEntryEntity.address.in_(addresses)
-                | _like(
-                    _format_timestamp(self.__object_database__.kind, LogEntryEntity.timestamp),
-                    pattern,
-                    filter.search_case_sensitive,
-                )
-                | _like(LogEntryEntity.level, pattern, filter.search_case_sensitive)
-                | _like(
-                    LogEntryEntity.content,
-                    pattern,
-                    filter.search_case_sensitive,
-                ),
-            )
-        else:
-            statement = statement.where(LogEntryEntity.address.in_(addresses))
-
-        if filter.within is not None:
-            statement = statement.where(LogEntryEntity.timestamp >= utc() - filter.within)
-        if filter.after is not None:
-            statement = statement.where(LogEntryEntity.timestamp >= filter.after)
-        if filter.before is not None:
-            statement = statement.where(LogEntryEntity.timestamp < filter.before)
-        if filter.level is not None:
-            if isinstance(filter.level, Level):
-                statement = statement.where(LogEntryEntity.level == filter.level)
-            else:
-                statement = statement.where(LogEntryEntity.level.in_(filter.level))
-        if filter.prefix is not None:
-            statement = statement.where(
-                LogEntryEntity.content.like(escape_like_expression(filter.prefix) + "%"),
-            )
-        if filter.suffix is not None:
-            statement = statement.where(
-                LogEntryEntity.content.like("%" + escape_like_expression(filter.suffix)),
-            )
-
-        match filter.order:
-            case None | LogEntryOrder.OLD_TO_NEW:
-                statement = statement.order_by(LogEntryEntity.timestamp)
-            case LogEntryOrder.NEW_TO_OLD:
-                statement = statement.order_by(LogEntryEntity.timestamp.desc())
-
-        if filter.limit is not None:
-            statement = statement.limit(filter.limit)
-        if filter.offset is not None and filter.offset > 0:
-            statement = statement.offset(filter.offset)
-
-        async with await self.__object_database__.init() as session:
-            rows = await session.execute(statement)
-
-        return [LogEntry.construct(**row._mapping) for row in rows]  # type: ignore
+    async def get_log_entry(
+        self,
+        filter: LogEntryFilter | None = None,
+        /,
+        **kwargs: Unpack[LogEntryFilterArgs],
+    ) -> LogEntry | None:
+        return await self.__object_database__.get_log_entry(filter, **kwargs)
 
     async def stream_log_entries(
         self,
@@ -692,15 +480,6 @@ class Object(ValidatedDataclass, Tasklet):
         ):
             yield event.entry
 
-    async def get_log_entry(
-        self,
-        filter: LogEntryFilter | None = None,
-        /,
-        **kwargs: Unpack[LogEntryFilterArgs],
-    ) -> LogEntry | None:
-        alerts = await self.get_log_entries(filter, **{**kwargs, "limit": 1})
-        return alerts[0] if alerts else None
-
     async def get_statistics(
         self,
         filter: StatisticsFilter | None = None,
@@ -708,87 +487,24 @@ class Object(ValidatedDataclass, Tasklet):
         **kwargs: Unpack[StatisticsFilterArgs],
     ) -> list[Statistics]:
         filter = StatisticsFilter(**kwargs).with_defaults(filter)
-
         addresses = self.__get_addresses(filter.address)
-        statement = (
-            select(AlertEntity.address, AlertEntity.level, func.count("*"))
-            .where(AlertEntity.address.in_(addresses))
-            .group_by(AlertEntity.address, AlertEntity.level)
-        )
-
-        if filter.within is not None:
-            statement = statement.where(AlertEntity.timestamp >= utc() - filter.within)
-        if filter.after is not None:
-            statement = statement.where(AlertEntity.timestamp >= filter.after)
-        if filter.before is not None:
-            statement = statement.where(AlertEntity.timestamp < filter.before)
-
-        results: dict[Address, Statistics] = {}
-
-        async with await self.__object_database__.init() as session:
-            for address, level, count in await session.execute(statement):
-                address: Address
-                for ancestor in address.path:
-                    if not self.address.contains(ancestor):
-                        continue
-
-                    current = results.setdefault(ancestor, Statistics(address=ancestor))
-                    current.alerts.count += count
-                    for entry in current.alerts.levels:
-                        if entry.level == level:
-                            entry.count += count
-                            break
-                    else:
-                        current.alerts.levels.append(LevelStatistics(level=level, count=count))
-                        current.alerts.levels.sort(key=lambda entry: entry.level)
-
-        return list(results.values())
-
-    def __get_addresses(
-        self,
-        address: AddressSelector | None,
-        search: str | None = None,
-        search_case_sensitive: bool = False,
-    ) -> list[Address]:
-        ids: list[Address] = []
-
-        if (address is None or address.matches(self.address)) and (
-            search is None
-            or (
-                search in self.address
-                if search_case_sensitive
-                else search.lower() in self.address.lower()
-            )
-        ):
-            ids.append(self.address)
-
-        ids.extend(
-            component.address
-            for component in self.get_components(address=address, inclusive=False)
-            if search is None
-            or (
-                search in component.address
-                if search_case_sensitive
-                else search.lower() in component.address.lower()
+        filter = filter.with_defaults(
+            StatisticsFilter(
+                root=self.address,
+                address=AddressSelector(addresses),
             )
         )
 
-        return ids
+        return await self.__object_database__.get_statistics(filter)
 
+    def __get_addresses(self, address: AddressSelector | None) -> list[Address]:
+        addresses: list[Address] = []
 
-def _like(
-    expression: SQLColumnExpression[Any],
-    pattern: str | bytes,
-    case_sensitive: bool = False,
-) -> BinaryExpression[bool]:
-    if case_sensitive:
-        return expression.like(pattern)
-    return expression.ilike(pattern)
+        if address is None or address.matches(self.address):
+            addresses.append(self.address)
 
+        addresses.extend(
+            component.address for component in self.get_components(address=address, inclusive=False)
+        )
 
-def _format_timestamp(dialect: DatabaseKind, timestamp: SQLColumnExpression[datetime]) -> Any:
-    match dialect:
-        case DatabaseKind.SQLITE:
-            return timestamp
-        case DatabaseKind.POSTGRES:
-            return func.to_char(timestamp, "YYYY-MM-DD HH24:MI:SS.US")
+        return addresses

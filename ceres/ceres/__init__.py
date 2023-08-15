@@ -18,6 +18,7 @@ from ceres.data import jsonify as jsonify
 from ceres.data import simplify as simplify
 from ceres.database import Database as Database
 from ceres.database import DatabaseAdapter as DatabaseAdapter
+from ceres.database import Statistics as Statistics
 from ceres.directory import Directory as Directory
 from ceres.events import Event as Event
 from ceres.events import StandardEvent as StandardEvent
@@ -37,7 +38,6 @@ from ceres.loaded import Loaded as Loaded
 from ceres.loaded import Loader as Loader
 from ceres.message import Message as Message
 from ceres.message import MessageDirection as MessageDirection
-from ceres.object import Statistics as Statistics
 from ceres.object import Status as Status
 from ceres.parsing import Parser as Parser
 from ceres.reference import Ref as Ref

@@ -365,6 +365,7 @@ class StatisticsFilterArgs(TypedDict, total=False):
 
 
 class StatisticsFilter(Filter):
+    root: Address | None = None
     address: AddressSelector | None = None
     within: PositiveTimeDelta | None = None
     after: DateTime | None = None
