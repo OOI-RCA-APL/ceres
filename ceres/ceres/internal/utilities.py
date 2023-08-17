@@ -83,7 +83,7 @@ def dictify(obj: object) -> dict[str, Any]:
         if is_dataclass_instance(obj):
             return dataclasses.asdict(obj)
         if isinstance(obj, BaseModel):
-            return {key: getattr(obj, key) for key in obj.__fields__.keys() if includes(key)}
+            return {key: getattr(obj, key) for key in obj.model_fields.keys() if includes(key)}
         if isinstance(obj, type):
             return {key: getattr(obj, key) for key in dir(obj) if includes(key)}
         slots: tuple[str, ...] | None = getattr(obj, "__slots__", None)

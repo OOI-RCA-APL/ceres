@@ -4,14 +4,13 @@ import traceback
 from abc import ABC
 from datetime import date, datetime, timedelta, timezone
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Callable, Literal, Mapping, cast
+from typing import TYPE_CHECKING, Any, Callable, Literal, cast
 
 import pydantic
 import pydantic.generics
 from pydantic import (
     BaseModel,
     ConfigDict,
-    Extra,
     Field,
     GetCoreSchemaHandler,
     GetJsonSchemaHandler,
@@ -165,7 +164,9 @@ class ClassPath:
         source_type: Any,
         handler: GetCoreSchemaHandler,
     ) -> CoreSchema:
-        return core_schema.no_info_after_validator_function(cls, handler(Any))
+        return core_schema.no_info_after_validator_function(
+            cls, handler(Any), serialization=core_schema.to_string_ser_schema()
+        )
 
     def __get_pydantic_json_schema__(
         self,
@@ -233,20 +234,12 @@ else:
     PositiveTimeDelta = PositiveTimeDeltaType
     NonNegativeTimeDelta = NonNegativeTimeDeltaType
 
-JSON_ENCODERS: Mapping[type[object], Callable[[Any], Any]] = MappingProxyType(
-    {
-        ClassPath: str,
-    }
-)
-
 
 class DataObject(BaseModel, ABC):
     model_config = ConfigDict(
         populate_by_name=True,
         arbitrary_types_allowed=True,
-        extra=Extra.forbid,
-        json_encoders=dict(JSON_ENCODERS),
-        # validate_assignment=True,
+        extra="forbid",
     )
 
     def __str__(self) -> str:

@@ -39,7 +39,7 @@ class Filter(ImmutableDataObject):
 
         update: dict[str, Any] = {}
 
-        for attribute in overrides.__fields_set__:
+        for attribute in overrides.model_fields_set:
             update[attribute] = getattr(overrides, attribute)
 
         return self.model_copy(update=update)
@@ -50,8 +50,8 @@ class Filter(ImmutableDataObject):
 
         update: dict[str, Any] = {}
 
-        for attribute in defaults.__fields_set__:
-            if attribute not in self.__fields_set__:
+        for attribute in defaults.model_fields_set:
+            if attribute not in self.model_fields_set:
                 update[attribute] = getattr(defaults, attribute)
 
         return self.model_copy(update=update)

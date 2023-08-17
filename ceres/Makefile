@@ -7,7 +7,7 @@ install:
 update:
 	poetry update
 test:
-	poetry run pytest
+	poetry run pytest -vv
 lint:
 	poetry run sh -c "black --check . && ruff check . && pyright ."
 fix:
