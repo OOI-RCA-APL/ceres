@@ -168,8 +168,8 @@ async def test_component_procedure_invalid_args_error(decorator: Any) -> None:
         problems=[
             ValidationProblem(
                 location=["right"],
-                message="field required",
-                kind="value_error.missing",
+                message="Missing required argument",
+                kind="missing_argument",
             )
         ],
     )

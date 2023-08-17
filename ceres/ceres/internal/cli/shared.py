@@ -185,7 +185,7 @@ def write(
 def write_table(title: str | None = None):
     table = Table(title=title, box=rich.box.SQUARE, title_justify="left")
     yield table
-    rich.print(table)
+    write(table)
 
 
 def strbool(value: bool) -> str:

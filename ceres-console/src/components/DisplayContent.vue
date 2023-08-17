@@ -49,12 +49,14 @@ const emit = defineEmits<{
         <div key="placeholder" :class="$style.placeholder" />
       </template>
       <transition appear enter-active-class="animated fadeIn" leave-active-class="animated fadeOut">
-        <div
-          v-if="isLoading || info == null"
-          key="spinner"
-          :class="[$style.spinnerContainer, info == null ? 'absolute-center' : 'absolute-top-left']"
-        >
-          <q-spinner :class="$style.spinner" color="primary" size="18px" />
+        <div :class="[$style.spinnerContainer, info != null && $style.spinnerContainerRefresh]">
+          <q-spinner-orbit
+            v-if="isLoading || info == null"
+            key="spinner"
+            :class="$style.spinner"
+            color="primary"
+            size="18px"
+          />
         </div>
       </transition>
     </div>
@@ -75,13 +77,18 @@ const emit = defineEmits<{
 }
 
 .spinnerContainer {
-  width: 18px;
-  height: 18px;
-  margin: 4px 8px;
+  width: 16px;
+  height: 16px;
+  position: absolute;
+  left: auto;
+  right: auto;
+  top: auto;
+  bottom: auto;
 }
 
-.spinner {
-  transform: translate(-50%, -50%);
+.spinnerContainer.spinnerContainerRefresh {
+  left: 4px;
+  top: -26px;
 }
 
 .placeholder {

@@ -8,11 +8,11 @@ from getpass import getuser
 from pathlib import Path
 from typing import Any, Sequence
 
-import rich
 from typing_extensions import override
 
 from ceres.data import DataObject
 from ceres.internal.cli.exceptions import CLIServiceConfigException
+from ceres.internal.cli.shared import write
 from ceres.internal.project import Project
 
 if sys.platform == "darwin":
@@ -71,7 +71,7 @@ class Service(ABC):
 
     def _log(self, message: Any) -> None:
         if not self.__silent:
-            rich.print(message)
+            write(message)
 
     @property
     @abstractmethod

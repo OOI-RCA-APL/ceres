@@ -94,7 +94,7 @@ class _Flush:
     field_specifiers=VALIDATED_DATACLASS_FIELD_SPECIFIERS,
 )
 class Object(ValidatedDataclass, Tasklet):
-    def __post_init_post_parse__(self) -> None:
+    def __post_init__(self) -> None:
         self.__events: WriteStream[Event] = WriteStream()
         self.__log = Log(self)
 

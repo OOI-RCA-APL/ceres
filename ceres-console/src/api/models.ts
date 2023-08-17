@@ -7,6 +7,7 @@ export const EmailStrModel = Zod.string().regex(/.+@.+/)
 export const NonEmptyStrModel = Zod.string().regex(/.+/)
 
 const DateTimeModel = Zod.string().refine((value) => moment.utc(value).isValid())
+const TimeDeltaModel = Zod.string().refine((value) => moment.duration(value).isValid())
 
 export type Status = Zod.infer<typeof StatusModel>
 export const StatusModel = Zod.object({
@@ -94,8 +95,8 @@ export const DatabaseKindModel = Zod.enum(['sqlite', 'postgres'])
 
 export type DatabaseRetryConfig = Zod.infer<typeof DatabaseRetryConfigModel>
 export const DatabaseRetryConfigModel = Zod.object({
-  timeout: Zod.number().default(15),
-  interval: Zod.number().default(3),
+  timeout: TimeDeltaModel.default('PT15S'),
+  interval: TimeDeltaModel.default('PT1S'),
 })
 
 const BaseDatabaseConfig = Zod.object({

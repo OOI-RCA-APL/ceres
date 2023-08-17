@@ -25,6 +25,7 @@ from typing import (
     Sequence,
     TypeVar,
     final,
+    get_args,
     get_type_hints,
     runtime_checkable,
 )
@@ -35,21 +36,15 @@ from apscheduler.jobstores.base import JobLookupError
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.base import BaseTrigger
 from pydantic import (
-    BaseModel,
     ConfigDict,
-    Extra,
     Field,
     NonNegativeInt,
     PositiveFloat,
+    TypeAdapter,
     ValidationError,
-    schema_of,
-    validate_arguments,
 )
-from pydantic.decorator import ValidatedFunction
-from pydantic.typing import get_args
-from sqlalchemy import (
-    select,
-)
+from pydantic.json_schema import GenerateJsonSchema
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing_extensions import Self, Unpack, dataclass_transform, overload, override
 
@@ -95,6 +90,7 @@ from ceres.internal.database.entities import ComponentEntity
 from ceres.internal.utilities import (
     awaitify,
     cached,
+    create_validated_function,
     decode_td,
     get_function_name,
     get_inner_function,
@@ -105,6 +101,7 @@ from ceres.internal.utilities import (
     strify,
     traverse,
     uniquify,
+    validated_function,
 )
 from ceres.level import Level
 from ceres.logs import LogEntry
@@ -210,9 +207,8 @@ class _TriggerAdapter(BaseTrigger):
 class Component(Object):
     name: Final[Name] = Field(default_factory=lambda: randstr(ascii_lowercase, 8))
 
-    def __post_init_post_parse__(self) -> None:
-        super().__post_init_post_parse__()
-
+    def __post_init__(self) -> None:
+        super().__post_init__()
         self.__parent: ref[Component] | None = None
         self.__scheduler = AsyncIOScheduler(timezone=timezone.utc)
         self.__jobs: dict[str, Job] = {}
@@ -592,7 +588,7 @@ class Component(Object):
         if isinstance(filter, ComponentFilter):
             filter = filter.with_overrides(overrides)
         elif isinstance(filter, AddressSelector):
-            filter = ComponentFilter(**{**overrides.dict(), "address": filter})  # type: ignore
+            filter = ComponentFilter(address=filter).with_overrides(overrides)
         else:
             filter = overrides
 
@@ -671,7 +667,7 @@ class Component(Object):
         self.emit(AlertEvent, alert=alert)
         return alert
 
-    @validate_arguments(config={"arbitrary_types_allowed": True})
+    @validated_function
     def add_job(
         self,
         name: Name,
@@ -869,22 +865,19 @@ class Component(Object):
         ):
             raise ProcedureException(ProcedureDoesNotExistError())
 
-        config: Any = ConfigDict(
-            allow_population_by_field_name=True,
-            arbitrary_types_allowed=True,
-            extra=Extra.forbid,
-        )
+        validated = create_validated_function(method)
 
         try:
-            ValidatedFunction(method, config).init_model_instance(**args)
+            return await awaitify(validated(**args))
         except ValidationError as error:
-            raise ProcedureException(
-                ProcedureInvalidArgsError(problems=ValidationProblem.extract(error))
-            )
+            if method.__name__ in error.title:
+                raise ProcedureException(
+                    ProcedureInvalidArgsError(problems=ValidationProblem.extract(error))
+                )
 
-        try:
-            return await awaitify(validate_arguments(config=config)(method)(**args))
+            raise
         except Exception as exception:
+            traceback.print_exc()
             raise ProcedureException(
                 ProcedureInternalError(traceback=traceback.format_exception(exception))
             )
@@ -1084,7 +1077,7 @@ def on(
     ...
 
 
-@validate_arguments(config={"arbitrary_types_allowed": True})
+@validated_function
 def on(
     method: _ListenerMethod | None = None,
     *,
@@ -1196,7 +1189,7 @@ def query(
     ...
 
 
-@validate_arguments
+@validated_function
 def query(
     method: Callable[_P, _T] | None = None,
     *,
@@ -1234,7 +1227,7 @@ def action() -> Callable[[Callable[_P, _T]], Callable[_P, _T]]:
     ...
 
 
-@validate_arguments
+@validated_function
 def action(
     method: Callable[_P, _T] | None = None,
 ) -> Callable[_P, _T] | Callable[[Callable[_P, _T]], Callable[_P, _T]]:
@@ -1286,16 +1279,6 @@ def _remove_extra_args(current: Any) -> bool:
     return True
 
 
-def _get_args_schema(model: type[BaseModel]) -> Mapping[str, Any]:
-    schema = schema_of(model)
-    traverse(schema, _remove_extra_args)
-    return schema
-
-
-def _get_output_schema(hint: Any) -> Mapping[str, Any]:
-    return schema_of(hint)
-
-
 class _ValidatedProcedureInfo(ImmutableDataObject):
     args: ProcedureArgsInfo | None
     output: ProcedureOutputInfo
@@ -1313,15 +1296,17 @@ def _validate_procedure(
     if any(parameter.kind == Parameter.POSITIONAL_ONLY for parameter in parameters[1:]):
         raise ValueError(f"{kind} {strify(method)} cannot have positional-only arguments")
 
-    validation_config: Any = ConfigDict(extra=Extra.forbid)
-    validated = ValidatedFunction(method, validation_config)
-    args_model = validated.model
-    args_json_schema = _get_args_schema(args_model)
+    validated = create_validated_function(method, config=ConfigDict(arbitrary_types_allowed=False))
+    core_schema = validated.__pydantic_core_schema__
+    args_json_schema = GenerateJsonSchema().generate(core_schema)
+    traverse(args_json_schema, _remove_extra_args)
+    required = list(args_json_schema["properties"].get("required", []))
+    if "self" in required:
+        required.remove("self")
+
     args_info = ProcedureArgsInfo(
         json_schema=args_json_schema,
-        required=any(
-            field.required and not field.name == "self" for field in args_model.__fields__.values()
-        ),
+        required=bool(required),
     )
 
     hints = get_type_hints(method)
@@ -1344,7 +1329,7 @@ def _validate_procedure(
             raise error
 
     try:
-        output_json_schema = _get_output_schema(output_hint)
+        output_json_schema = TypeAdapter(output_hint).json_schema()
     except Exception as exception:
         raise ValueError(
             f"output type of {kind} {strify(method)} must be serializable as a JSON object: "
@@ -1405,7 +1390,7 @@ def routine(method: _RoutineMethod) -> _RoutineMethod:
     ...
 
 
-@validate_arguments(config={"arbitrary_types_allowed": True})
+@validated_function
 def routine(
     method: _RoutineMethod | None = None,
     *,

@@ -1,5 +1,6 @@
 from datetime import datetime
 from enum import Enum
+from re import Pattern
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -10,19 +11,12 @@ from typing import (
     TypeVar,
 )
 
-from pydantic import Extra, Field
+from pydantic import ConfigDict, Field
 from typing_extensions import Self, override
 
 from ceres.address import Address, AddressSelector
 from ceres.alert import Alert
-from ceres.data import (
-    BytesPattern,
-    DateTime,
-    ImmutableDataObject,
-    PositiveTimeDelta,
-    StrPattern,
-    jsonify,
-)
+from ceres.data import DateTime, ImmutableDataObject, PositiveTimeDelta, jsonify
 from ceres.level import Level
 from ceres.logs import LogEntry
 from ceres.message import Message, MessageDirection
@@ -37,8 +31,7 @@ Item = Message | Alert | LogEntry
 
 
 class Filter(ImmutableDataObject):
-    class Config(ImmutableDataObject.Config):
-        extra = Extra.ignore
+    model_config = ConfigDict(extra="ignore")
 
     def with_overrides(self, overrides: Self | None) -> Self:
         if overrides is None:
@@ -46,10 +39,10 @@ class Filter(ImmutableDataObject):
 
         update: dict[str, Any] = {}
 
-        for attribute in overrides.__fields_set__:
+        for attribute in overrides.model_fields_set:
             update[attribute] = getattr(overrides, attribute)
 
-        return self.copy(update=update)
+        return self.model_copy(update=update)
 
     def with_defaults(self, defaults: Self | None) -> Self:
         if defaults is None:
@@ -57,11 +50,11 @@ class Filter(ImmutableDataObject):
 
         update: dict[str, Any] = {}
 
-        for attribute in defaults.__fields_set__:
-            if attribute not in self.__fields_set__:
+        for attribute in defaults.model_fields_set:
+            if attribute not in self.model_fields_set:
                 update[attribute] = getattr(defaults, attribute)
 
-        return self.copy(update=update)
+        return self.model_copy(update=update)
 
 
 class Addressable(Protocol):
@@ -128,7 +121,7 @@ class MessageFilterArgs(ObjectFilterArgs, total=False):
     direction: MessageDirection | None
     prefix: bytes | None
     suffix: bytes | None
-    regex: BytesPattern | None
+    regex: Pattern[bytes] | None
     order: MessageOrder | None
     limit: int | None
     offset: int | None
@@ -143,7 +136,7 @@ class MessageFilter(ObjectFilter[Message]):
     direction: MessageDirection | None = None
     prefix: bytes | None = None
     suffix: bytes | None = None
-    regex: BytesPattern | None = None
+    regex: Pattern[bytes] | None = None
     order: MessageOrder | None = None
     limit: int | None = Field(default=None, ge=0)
     offset: int | None = Field(default=None, ge=0)
@@ -210,7 +203,7 @@ class AlertFilterArgs(TypedDict, total=False):
     before: DateTime | None
     level: Level | Sequence[Level] | None
     code: str | Sequence[str] | None
-    code_regex: StrPattern | None
+    code_regex: Pattern[str] | None
     order: AlertOrder | None
     limit: int | None
     offset: int | None
@@ -224,7 +217,7 @@ class AlertFilter(ObjectFilter[Alert]):
     before: DateTime | None = None
     level: Level | Sequence[Level] | None = None
     code: str | Sequence[str] | None = None
-    code_regex: StrPattern | None = None
+    code_regex: Pattern[str] | None = None
     order: AlertOrder | None = None
     limit: int | None = Field(default=None, ge=0)
     offset: int | None = Field(default=None, ge=0)
@@ -296,7 +289,7 @@ class LogEntryFilterArgs(TypedDict, total=False):
     level: Level | Sequence[Level] | None
     prefix: str | None
     suffix: str | None
-    regex: StrPattern | None
+    regex: Pattern[str] | None
     order: LogEntryOrder | None
     limit: int | None
     offset: int | None
@@ -311,7 +304,7 @@ class LogEntryFilter(ObjectFilter[LogEntry]):
     level: Level | Sequence[Level] | None = None
     prefix: str | None = None
     suffix: str | None = None
-    regex: StrPattern | None = None
+    regex: Pattern[str] | None = None
     order: LogEntryOrder | None = None
     limit: int | None = Field(default=None, ge=0)
     offset: int | None = Field(default=None, ge=0)

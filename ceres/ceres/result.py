@@ -1,7 +1,5 @@
 from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar
 
-from pydantic.generics import GenericModel
-
 from ceres.data import ImmutableDataObject
 
 _ValueT = TypeVar("_ValueT", covariant=True)
@@ -28,7 +26,7 @@ class _Result:
         return value  # type: ignore
 
 
-class Ok(ImmutableDataObject, GenericModel, Generic[_ValueT], _Result):
+class Ok(ImmutableDataObject, Generic[_ValueT], _Result):
     ok: Literal[True] = True
     value: _ValueT
 
@@ -44,7 +42,7 @@ class Ok(ImmutableDataObject, GenericModel, Generic[_ValueT], _Result):
         return True
 
 
-class Fail(ImmutableDataObject, GenericModel, Generic[_ErrorT], _Result):
+class Fail(ImmutableDataObject, Generic[_ErrorT], _Result):
     ok: Literal[False] = False
     error: _ErrorT
 

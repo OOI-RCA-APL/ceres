@@ -1,7 +1,7 @@
 from typing import Any, Mapping
 from uuid import UUID, uuid4
 
-from pydantic import Field, validator
+from pydantic import Field, field_validator
 
 from ceres.address import Address
 from ceres.data import DateTime, ImmutableDataObject, jsonify
@@ -17,7 +17,7 @@ class Alert(ImmutableDataObject):
     code: str
     info: Mapping[str, Any] = Field(default_factory=dict)
 
-    @validator("info")
+    @field_validator("info")
     def _validate_info(cls, value: Mapping[str, Any]) -> Mapping[str, Any]:
         try:
             jsonify(value)

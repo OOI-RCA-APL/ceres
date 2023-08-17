@@ -9,7 +9,9 @@ from typing import (
     cast,
 )
 
-from pydantic import parse_obj_as
+from pydantic import GetCoreSchemaHandler, TypeAdapter
+from pydantic_core import CoreSchema
+from pydantic_core.core_schema import no_info_after_validator_function
 from typing_extensions import Self
 
 from ceres.address import Address, DynamicAddress
@@ -335,8 +337,12 @@ class Reference:
         return GenericReference
 
     @classmethod
-    def __get_validators__(cls):
-        yield cls.validate
+    def __get_pydantic_core_schema__(
+        cls,
+        source_type: Any,
+        handler: GetCoreSchemaHandler,
+    ) -> CoreSchema:
+        return no_info_after_validator_function(cls.validate, handler(Any))
 
     @classmethod
     def validate(cls, value: Any) -> Self | None:
@@ -346,8 +352,7 @@ class Reference:
             return cls(value)
 
         return cls(
-            parse_obj_as(
-                cls.__reference_constraint__ or Component,  # type: ignore
+            TypeAdapter(cls.__reference_constraint__ or Component).validate_python(  # type: ignore
                 value,
             )
         )

@@ -9,7 +9,7 @@ import anyio
 from aiohttp import ClientError, ClientSession, UnixConnector
 from anyio.abc import TaskGroup
 from click import ParamType
-from pydantic import BaseModel, parse_obj_as
+from pydantic import BaseModel, TypeAdapter
 from typer import Argument, Option
 
 from ceres.address import AddressSelector
@@ -260,7 +260,9 @@ class APIClient:
         path = f"http+unix://{str(self.project.socket_path).replace('/', '%2F')}{path}"
 
         if isinstance(params, BaseModel):
-            params = {key: str(value) for key, value in params.dict(exclude_defaults=True).items()}
+            params = {
+                key: str(value) for key, value in params.model_dump(exclude_defaults=True).items()
+            }
 
         async with ClientSession(connector=UnixConnector(str(self.project.socket_path))) as session:
             async with session.request(
@@ -269,7 +271,7 @@ class APIClient:
                 json=simplify(data),
                 params=params,
             ) as response:
-                return parse_obj_as(result, await response.json())
+                return TypeAdapter(result).validate_python(await response.json())
 
     async def get(
         self,

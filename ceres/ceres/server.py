@@ -43,8 +43,8 @@ class Action(ImmutableDataObject):
 class Server(Object, kw_only=False):
     config_path: Path
 
-    def __post_init_post_parse__(self) -> None:
-        super().__post_init_post_parse__()
+    def __post_init__(self) -> None:
+        super().__post_init__()
 
         match Config.read(self.config_path):
             case Ok(config):
@@ -414,8 +414,10 @@ class Server(Object, kw_only=False):
         assert config is not None
 
         include = {"name", "cls_path", "class", "args"}
-        old = {} if component.__config__ is None else component.__config__.dict(include=include)
-        new = config.dict(include=include)
+        old = (
+            {} if component.__config__ is None else component.__config__.model_dump(include=include)
+        )
+        new = config.model_dump(include=include)
 
         if old != new:
             return [Action(kind=ActionKind.RECREATE, address=address)]

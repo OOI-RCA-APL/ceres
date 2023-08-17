@@ -8,7 +8,7 @@ from datetime import timedelta
 from enum import Enum
 from typing import Literal, final
 
-from pydantic import Field, validator
+from pydantic import Field, field_validator
 from typing_extensions import override
 
 from ceres.component import routine
@@ -44,7 +44,7 @@ class TCPKeepAlive(ImmutableDataObject):
     interval: PositiveTimeDelta
     count: int = Field(ge=1)
 
-    @validator("idle", "interval")
+    @field_validator("idle", "interval")
     def _validate_timedeltas(cls, value: timedelta) -> timedelta:
         if value.microseconds != 0:
             raise ValueError("sub-second interval resolution is not allowed")

@@ -3,7 +3,6 @@ from datetime import timedelta
 from typing import Callable, TypeVar
 
 import anyio
-from pydantic.fields import Undefined, UndefinedType
 from typing_extensions import Unpack, overload
 
 from ceres.filter import MessageFilter, MessageFilterArgs
@@ -50,7 +49,7 @@ class Transport:
         *,
         condition: Callable[[Message], bool] | None = None,
         timeout: float | timedelta | None = None,
-        default: _T | Callable[[], _T] | UndefinedType = Undefined,
+        default: _T | Callable[[], _T] = ...,
         **kwargs: Unpack[MessageFilterArgs],
     ) -> Message | _T:
         ...
@@ -60,7 +59,7 @@ class Transport:
         *,
         condition: Callable[[Message], bool] | None = None,
         timeout: float | timedelta | None = None,
-        default: _T | Callable[[], _T] | UndefinedType = Undefined,
+        default: _T | Callable[[], _T] = ...,
         **kwargs: Unpack[MessageFilterArgs],
     ) -> Message | _T:
         if isinstance(timeout, timedelta):
@@ -72,7 +71,7 @@ class Transport:
             query = None
 
         def fail() -> _T:
-            if default is Undefined:
+            if default is ...:
                 raise TimeoutError()
             if callable(default):
                 return default()

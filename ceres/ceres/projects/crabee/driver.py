@@ -144,7 +144,7 @@ class CrabeeDriver(UI):
         self.alert(Level.ERROR, "connection/connect-failed")
 
     def __check_data_message(self, message: CrabeeParticle) -> None:
-        for name in self.checks.__fields__.keys():
+        for name in self.checks.model_fields.keys():
             validator = getattr(self.checks, name, None)
             if not isinstance(validator, Check):
                 continue

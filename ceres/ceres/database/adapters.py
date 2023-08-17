@@ -172,6 +172,8 @@ class SQLiteDatabaseAdapter(DatabaseAdapter[SQLiteDatabaseConfig]):
         def connect(connection: SQLiteConnection, *args: object) -> None:
             # Enable a 30 second busy timeout.
             connection.execute("PRAGMA busy_timeout = 30000")
+            # Increase cache size to improve performance.
+            connection.execute("PRAGMA cache_size = -64000")
             # Clear the isolation level to stop "pysqlite" from:
             #   1. Automatically emitting "BEGIN"
             #   2. Automatically emitting "COMMIT" before any DDL
