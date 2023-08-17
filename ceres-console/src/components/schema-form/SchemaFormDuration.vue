@@ -1,12 +1,12 @@
 <script lang="ts" setup>
 import SchemaFormInput from '@/components/schema-form/SchemaFormInput.vue'
 import { SchemaForm, SchemaObject, SchemaPath } from '@/schema-form'
-import { displayTimeDelta, parseTimeDelta } from '@/utilities'
+import { displayDuration, parseDuration } from '@/utilities'
 
 const { modelValue, form, path } = defineProps<{
   modelValue: unknown
   form: SchemaForm
-  schema: SchemaObject & { type: 'number'; format: 'time-delta' }
+  schema: SchemaObject & { type: 'string'; format: 'duration' }
   path: SchemaPath
 }>()
 
@@ -24,19 +24,22 @@ function resolve(value: unknown) {
   }
 
   try {
-    return parseTimeDelta(value as any).asSeconds()
+    return parseDuration(value as any).toISOString()
   } catch {
     return undefined
   }
 }
 
 function format(value: unknown) {
-  const resolved = resolve(value)
-  if (resolved == null) {
+  if (value == null) {
     return ''
   }
 
-  return String(resolved)
+  try {
+    return displayDuration(parseDuration(value as any))
+  } catch {
+    return ''
+  }
 }
 
 const presets = [
@@ -63,14 +66,14 @@ const presets = [
     :presets="presets"
     :resolve="resolve"
     :schema="schema"
-    schema-type="time-delta"
+    schema-type="duration"
     suffix="second(s)"
     @update:model-value="(modelValue) => emit('update:modelValue', modelValue)"
   >
     <template v-if="resolvedOrDefault" #label-append>
       <span class="q-mx-xs">{{ '⸱' }}</span>
       <span>
-        {{ displayTimeDelta(resolvedOrDefault, { decimals: 3 }) }}
+        {{ displayDuration(resolvedOrDefault, { decimals: 3 }) }}
       </span>
     </template>
   </schema-form-input>

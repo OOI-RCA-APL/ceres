@@ -87,7 +87,7 @@ class Layout(ImmutableDataObject):
 
 def _update_forward_refs() -> None:
     for _current in [LayoutDisplay, LayoutRow, LayoutColumn, LayoutCarousel]:
-        _current.update_forward_refs()
+        _current.model_rebuild()
 
 
 _update_forward_refs()

@@ -8,6 +8,10 @@ from uuid import uuid4
 
 from typing_extensions import Self
 
+from pydantic import GetCoreSchemaHandler
+from pydantic_core import CoreSchema
+from pydantic_core.core_schema import no_info_after_validator_function
+
 if TYPE_CHECKING:
     from _typeshed import OpenBinaryMode as OpenBinaryMode
     from _typeshed import OpenTextMode as OpenTextMode
@@ -46,8 +50,12 @@ class Directory(PathLike[str]):
         self.__temporary = temporary
 
     @classmethod
-    def __get_validators__(cls):
-        yield cls.validate
+    def __get_pydantic_core_schema__(
+        cls,
+        source_type: Any,
+        handler: GetCoreSchemaHandler,
+    ) -> CoreSchema:
+        return no_info_after_validator_function(cls.validate, handler(Any))
 
     @classmethod
     def validate(cls, value: Any) -> Self:

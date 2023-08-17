@@ -3,12 +3,12 @@ import math
 from abc import abstractmethod
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping, Sequence
+from typing import TYPE_CHECKING, Iterable, Literal, Sequence
 
 from apscheduler.triggers.cron import CronTrigger as InternalCronTrigger
 from apscheduler.triggers.interval import IntervalTrigger as BaseInternalIntervalTrigger
 from apscheduler.util import normalize
-from pydantic import PositiveFloat, validator
+from pydantic import FieldValidationInfo, PositiveFloat, field_validator
 
 from ceres.data import DateTime, ImmutableDataObject, PositiveTimeDelta
 from ceres.timing import utc
@@ -35,7 +35,7 @@ class CronSchedule(BaseSchedule):
     kind: Literal[ScheduleKind.CRON] = ScheduleKind.CRON
     crontab: str
 
-    @validator("crontab")
+    @field_validator("crontab")
     def _validate_crontab(cls, value: str) -> str:
         try:
             InternalCronTrigger.from_crontab(value)
@@ -57,20 +57,20 @@ class IntervalSchedule(BaseSchedule):
     min: PositiveTimeDelta | None = None
     max: PositiveTimeDelta | None = None
 
-    @validator("interval")
+    @field_validator("interval")
     def _validate_interval(cls, value: timedelta) -> timedelta:
         if value.microseconds != 0:
             raise ValueError("sub-second interval resolution is not allowed")
 
         return value
 
-    @validator("min")
+    @field_validator("min")
     def _validate_min(
         cls,
         min: float | None,
-        values: Mapping[str, Any],
+        info: FieldValidationInfo,
     ) -> float | None:
-        interval = values.get("interval")
+        interval = info.data.get("interval")
         if min is None or interval is None:
             return None
         if min > interval:
@@ -78,13 +78,13 @@ class IntervalSchedule(BaseSchedule):
 
         return min
 
-    @validator("max")
+    @field_validator("max")
     def _validate_max(
         cls,
         max: float | None,
-        values: Mapping[str, Any],
+        info: FieldValidationInfo,
     ) -> float | None:
-        interval = values.get("interval")
+        interval = info.data.get("interval")
         if max is None or interval is None:
             return None
         if max < interval:
@@ -112,7 +112,7 @@ class OrSchedule(BaseSchedule):
 
 Schedule = CronSchedule | IntervalSchedule | OrSchedule  # type: ignore
 
-OrSchedule.update_forward_refs()
+OrSchedule.model_rebuild()
 
 
 class Trigger:

@@ -1,4 +1,3 @@
-from types import MappingProxyType
 from typing import (
     TYPE_CHECKING,
     Annotated,
@@ -8,18 +7,32 @@ from typing import (
     TypeVar,
 )
 
-from pydantic import Field, root_validator, validate_arguments
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    GetCoreSchemaHandler,
+    model_validator,
+)
+from pydantic.validate_call import validate_call
+from pydantic_core import CoreSchema
+from pydantic_core.core_schema import no_info_after_validator_function
 from typing_extensions import Self
 
 from ceres.data import ClassPath, ImmutableDataObject
-from ceres.internal.utilities import get_model, is_mapping, lenient_isinstance
+from ceres.internal.utilities import (
+    is_mapping,
+    is_pydantic_dataclass_type,
+    lenient_isinstance,
+    lenient_issubclass,
+)
 
 _T = TypeVar("_T")
 
 
 class Loader(ImmutableDataObject):
     cls_path: ClassPath = Field(alias="class")
-    args: Sequence[Any] | Mapping[str, Any] = ()
+    args: Mapping[str, Any] = Field(default_factory=dict)
 
     @property
     def cls(self) -> type:
@@ -29,81 +42,46 @@ class Loader(ImmutableDataObject):
     def _get_extra_kwarg_names(cls) -> Sequence[str]:
         return []
 
-    @root_validator(pre=True)
-    def _pre_validate(cls, values: dict[str, Any]) -> dict[str, Any]:
-        required = {field.alias for field in cls.__fields__.values() if field.alias != "extra"}
-
-        extra: dict[str, Any] = {}
-        for field_name in tuple(values.keys()):
-            if field_name not in required:
-                extra[field_name] = values.pop(field_name)
-
-        args = values.get("args", {})
-
-        if is_mapping(args):
-            values["args"] = {**args, **extra}
-        else:
-            if extra:
-                raise ValueError("positional args are not allowed")
-
-        return values
-
-    @root_validator
-    def _validate(cls, values: dict[str, Any]) -> dict[str, Any]:
-        if "cls_path" not in values:
-            return values
-
-        extra = {name: values[name] for name in cls._get_extra_kwarg_names()}
-        args = values.get("args", {})
-        if is_mapping(args):
-            args = {**args, **extra}
-
-        cls._load_obj(values["cls_path"].cls, args)
-
-        return values
-
-    def create(self, *, args: Sequence[Any] | Mapping[str, Any] | None = None) -> Any:
+    @model_validator(mode="after")
+    def _validate(self) -> Self:
         extra = {name: getattr(self, name) for name in self._get_extra_kwarg_names()}
+        args = {**self.args, **extra}
+        self._load_obj(self.cls_path.cls, args)
+        return self
 
-        if args is not None:
-            if not is_mapping(args):
-                applied_args = args
-            elif is_mapping(self.args):
-                applied_args = {**args, **self.args, **extra}
-            else:
-                applied_args = args
-        else:
-            if is_mapping(self.args):
-                applied_args = {**self.args, **extra}
-            else:
-                applied_args = self.args
+    def create(self, *, args: Mapping[str, Any] | None = None) -> Any:
+        if args is None:
+            args = {}
 
-        return self._load_obj(
-            self.cls_path.cls,
-            applied_args,
-        )
+        extra = {name: getattr(self, name) for name in self._get_extra_kwarg_names()}
+        args = {**self.args, **extra, **args}
+
+        return self._load_obj(self.cls_path.cls, args)
 
     @classmethod
     def _load_obj(
         cls,
         target: type,
-        args: Sequence[Any] | Mapping[str, Any] = MappingProxyType({}),
+        args: Mapping[str, Any] | None = None,
     ) -> Any:
-        model = get_model(target)
+        if args is None:
+            args = {}
 
-        if model is not None:
+        if lenient_issubclass(target, BaseModel) or is_pydantic_dataclass_type(target):
             if is_mapping(args):
-                model.validate(args)
                 instance = target(**args)
             else:
                 instance = target(*args)
         else:
             instance = object.__new__(target)
-            init = validate_arguments(target.__init__)
-            if is_mapping(args):
-                init(instance, **args)
-            else:
-                init(instance, *args)
+            if target.__init__ is not object.__init__:
+                init = validate_call(config=ConfigDict(arbitrary_types_allowed=True))(
+                    target.__init__
+                )
+                if is_mapping(args):
+                    init(instance, **args)
+                else:
+                    init(instance, *args)
 
         return instance
 
@@ -131,8 +109,12 @@ class LoadedType:
         return Specialized
 
     @classmethod
-    def __get_validators__(cls):
-        yield cls.validate
+    def __get_pydantic_core_schema__(
+        cls,
+        source_type: Any,
+        handler: GetCoreSchemaHandler,
+    ) -> CoreSchema:
+        return no_info_after_validator_function(cls.validate, handler(Any))
 
     @classmethod
     def validate(cls, value: Any) -> Any:
@@ -142,7 +124,7 @@ class LoadedType:
         if lenient_isinstance(value, Loader):
             loader = value
         else:
-            loader = Loader.parse_obj(value)
+            loader = Loader.model_validate(value)
 
         instance = loader.create()
         if not lenient_isinstance(instance, cls.cls):

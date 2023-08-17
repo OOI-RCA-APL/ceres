@@ -8,7 +8,14 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Literal, Mapping, Sequence
 
 import yaml
-from pydantic import Field, SecretStr, ValidationError, parse_obj_as, root_validator, validator
+from pydantic import (
+    Field,
+    FieldValidationInfo,
+    SecretStr,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 from typing_extensions import Self, override
 from yaml import MarkedYAMLError, YAMLError
 
@@ -53,7 +60,7 @@ class JobConfig(ConfigObject):
     args: Mapping[Name, Any] | None = None
     schedule: Schedule = Field(discriminator="kind")
 
-    @root_validator(pre=True)
+    @model_validator(mode="before")
     def _default_name_to_action(cls, values: dict[str, Any]) -> Any:
         if "name" not in values and "action" in values:
             values["name"] = values["action"]
@@ -65,10 +72,10 @@ class ComponentConfig(Loader, _ComponentConfigMixin):
     cls_path: ClassPath = Field(
         default_factory=lambda: ClassPath("ceres.component.Component"), alias="class"
     )
-    jobs: Sequence[JobConfig] = ()
-    components: Sequence["ComponentConfig"] = ()
+    jobs: Sequence[JobConfig] = Field(default_factory=list)
+    components: Sequence["ComponentConfig"] = Field(default_factory=list)
 
-    def create(self, *, args: Sequence[Any] | Mapping[str, Any] | None = None) -> Component:
+    def create(self, *, args: Mapping[str, Any] | None = None) -> Component:
         component: Component = super().create(args=args)
         component.__config__ = self
         for job in self.jobs:
@@ -81,7 +88,7 @@ class ComponentConfig(Loader, _ComponentConfigMixin):
     def _get_extra_kwarg_names(cls) -> Sequence[str]:
         return [*super()._get_extra_kwarg_names(), "name"]
 
-    @validator("cls_path")
+    @field_validator("cls_path")
     def _validate_cls_path(cls, value: ClassPath) -> ClassPath:
         from ceres.component import Component
 
@@ -90,13 +97,13 @@ class ComponentConfig(Loader, _ComponentConfigMixin):
 
         return value
 
-    @validator("components", check_fields=False)
+    @field_validator("components", check_fields=False)
     def _validate_components(
         cls,
         components: Sequence["ComponentConfig"],
-        values: Mapping[str, Any],
+        info: FieldValidationInfo,
     ) -> Sequence["ComponentConfig"]:
-        name: str = values.get("name", "<ERROR>")
+        name: str = info.data.get("name", "<ERROR>")
         for component_name, group in itertools.groupby(
             components,
             lambda component: component.name,
@@ -109,7 +116,7 @@ class ComponentConfig(Loader, _ComponentConfigMixin):
         return components
 
 
-ComponentConfig.update_forward_refs()
+ComponentConfig.model_rebuild()
 
 
 class ServiceConfig(ConfigObject):
@@ -166,9 +173,6 @@ class ConfigCheckKind(str, Enum):
 
 
 class Config(ComponentConfig):
-    class Config(ComponentConfig.Config):
-        underscore_attrs_are_private = True
-
     name: Name = "root"
     service: ServiceConfig | None = None
     server: ServerConfig = Field(default_factory=ServerConfig)
@@ -178,7 +182,7 @@ class Config(ComponentConfig):
     def read(cls, source: Path | Mapping[str, object] | Self) -> "Result[Self, list[ConfigError]]":
         try:
             if isinstance(source, Mapping):
-                instance = cls.__from_data(source)
+                instance = cls.model_validate(source)
             elif isinstance(source, Path):
                 try:
                     path = source.resolve()
@@ -212,7 +216,7 @@ class Config(ComponentConfig):
                         ]
                     )
 
-                instance = cls.__from_data(data, path)
+                instance = cls.model_validate(data)
             else:
                 instance = source
         except ValidationError as error:
@@ -236,7 +240,7 @@ class Config(ComponentConfig):
 
         try:
             if isinstance(source, Mapping):
-                instance = cls.__from_data(source)
+                instance = cls.model_validate(source)
             elif isinstance(source, Path):
                 try:
                     path = source.resolve()
@@ -270,7 +274,7 @@ class Config(ComponentConfig):
                         ]
                     )
 
-                instance = cls.__from_data(data, path)
+                instance = cls.model_validate(data)
             else:
                 instance = source
         except ValidationError as error:
@@ -294,16 +298,6 @@ class Config(ComponentConfig):
             return Fail(errors)
 
         return Ok(instance)
-
-    @classmethod
-    def __from_data(cls, data: Any, path: Path | None = None) -> Self:
-        try:
-            instance = parse_obj_as(cls, data)
-        except Exception:
-            traceback.print_exc()
-            raise
-
-        return instance
 
     @classmethod
     async def __check_database(

@@ -34,13 +34,14 @@ from typing import (
     cast,
 )
 
-import pydantic
-import pydantic.utils
 import rich
 import sqlparse
-from pydantic import BaseModel, parse_obj_as
+from pydantic import BaseModel, ConfigDict, TypeAdapter
+from pydantic.fields import FieldInfo
+from pydantic.validate_call import validate_call
+from pydantic_core import CoreSchema, SchemaSerializer, SchemaValidator
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing_extensions import Self, overload
+from typing_extensions import overload
 
 
 def strify(value: object) -> str:
@@ -79,7 +80,7 @@ def dictify(obj: object) -> dict[str, Any]:
     try:
         if is_mapping(obj):
             return dict(obj)
-        if is_dataclass(obj):
+        if is_dataclass_instance(obj):
             return dataclasses.asdict(obj)
         if isinstance(obj, BaseModel):
             return {key: getattr(obj, key) for key in obj.__fields__.keys() if includes(key)}
@@ -100,65 +101,68 @@ class DataclassLike(Protocol):
 
 
 class PydanticDataclassLike(DataclassLike, Protocol):
-    __pydantic_run_validation__: ClassVar[bool]
-    __post_init_post_parse__: Any
-    __pydantic_initialised__: ClassVar[bool]
-    __pydantic_model__: ClassVar[type[BaseModel]]
-    __pydantic_validate_values__: ClassVar[Callable[[DataclassLike], None]]
-    __pydantic_has_field_info_default__: ClassVar[bool]
+    __pydantic_config__: ClassVar[ConfigDict]
+    __pydantic_complete__: ClassVar[bool]
+    __pydantic_core_schema__: ClassVar[CoreSchema]
+    __pydantic_decorators__: ClassVar[Any]
+    __pydantic_fields__: ClassVar[dict[str, FieldInfo]]
+    __pydantic_serializer__: ClassVar[SchemaSerializer]
+    __pydantic_validator__: ClassVar[SchemaValidator]
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        ...
 
 
-def is_dataclass(obj: object) -> TypeGuard[DataclassLike]:
+def is_dataclass_instance(obj: object) -> TypeGuard[DataclassLike]:
+    return not isinstance(obj, type) and is_dataclass(obj)
+
+
+def is_dataclass_type(obj: object) -> TypeGuard[DataclassLike]:
+    return isinstance(obj, type) and is_dataclass(obj)
+
+
+def is_dataclass(obj: object) -> TypeGuard[DataclassLike | type[DataclassLike]]:
     return dataclasses.is_dataclass(obj)
 
 
-def is_pydantic_dataclass(obj: object) -> TypeGuard[PydanticDataclassLike]:
-    return dataclasses.is_dataclass(obj) and hasattr(obj, "__pydantic_model__")
+def is_pydantic_dataclass_type(obj: object) -> TypeGuard[type[PydanticDataclassLike]]:
+    return isinstance(obj, type) and is_pydantic_dataclass(obj)
+
+
+def is_pydantic_dataclass_instance(obj: object) -> TypeGuard[PydanticDataclassLike]:
+    return not isinstance(obj, type) and is_pydantic_dataclass(obj)
+
+
+def is_pydantic_dataclass(
+    obj: object,
+) -> TypeGuard[PydanticDataclassLike | type[PydanticDataclassLike]]:
+    return dataclasses.is_dataclass(obj) and hasattr(obj, "__pydantic_core_schema__")
 
 
 ModelLike = BaseModel | PydanticDataclassLike
 
 
-def get_model(obj: Any) -> type[BaseModel] | None:
-    if not lenient_isinstance(obj, type):
-        obj = type(obj)
-
-    try:
-        return pydantic.utils.get_model(cast(Any, obj))
-    except Exception:
-        return None
-
-
 def has_field(obj: Any, name: str, type: Any = None) -> bool:
     name = snakecase(name)
 
-    if dataclasses.is_dataclass(obj):
+    if is_dataclass_instance(obj):
         return any(
             field.name == name and (type is None or is_subtype(field.type, type))
             for field in dataclasses.fields(obj)
         )
+
     if isinstance(obj, BaseModel) or issubclass(obj, BaseModel):
-        return any(
-            field.name == name and (type is None or is_subtype(field.outer_type_, type))
-            for field in obj.__fields__.values()
-        )
+        field = obj.model_fields.get(name)
+        if field is None:
+            return False
+        if type is None:
+            return True
+        if field.annotation is None:
+            return False
+
+        return is_subtype(field.annotation, type)
 
     return False
-
-
-class ValidateByType:
-    @classmethod
-    def __get_validators__(cls) -> Iterable[Callable[[Any], Self]]:
-        if hasattr(super(), "__get_validators__"):
-            yield from super().__get_validators__()  # type: ignore
-        yield cls.__validate
-
-    @classmethod
-    def __validate(cls, value: Any) -> Self:
-        if not isinstance(value, cls):
-            raise ValueError(f"must be an instance of {strify(cls)}, got {strify(type(value))}")
-
-        return value
 
 
 def unwrap(value: _T | None) -> _T:
@@ -213,8 +217,6 @@ def show_td(value: timedelta) -> str:
 def decode_td(value: str | timedelta | int | float | Any) -> timedelta:
     if isinstance(value, timedelta):
         return value
-    if isinstance(value, (int, float)):
-        return timedelta(seconds=value)
 
     def get_exception() -> ValueError:
         return ValueError(
@@ -222,49 +224,64 @@ def decode_td(value: str | timedelta | int | float | Any) -> timedelta:
             "'ms', 's', 'm', 'h' or 'd'."
         )
 
-    if not isinstance(value, str):
-        raise get_exception()
+    if isinstance(value, str):
+        try:
+            return TypeAdapter(timedelta).validate_python(value)
+        except Exception:
+            pass
 
-    try:
-        return parse_obj_as(timedelta, value)
-    except Exception:
-        pass
+        try:
+            value = int(value)
+            return timedelta(seconds=value)
+        except Exception:
+            pass
 
-    value = str(value).strip().lower()
+        try:
+            value = float(value)
+            return timedelta(seconds=value)
+        except Exception:
+            pass
 
-    if value.endswith("us"):
-        decoded_unit = "us"
-    elif value.endswith("ms"):
-        decoded_unit = "ms"
-    elif value.endswith("s"):
-        decoded_unit = "s"
-    elif value.endswith("m"):
-        decoded_unit = "m"
-    elif value.endswith("h"):
-        decoded_unit = "h"
-    elif value.endswith("d"):
-        decoded_unit = "d"
-    else:
-        raise get_exception()
+        value = str(value).strip().lower()
 
-    try:
-        decoded_value = float(value[: -len(decoded_unit)])
-    except Exception:
-        raise get_exception()
+        if value.endswith("us"):
+            decoded_unit = "us"
+        elif value.endswith("ms"):
+            decoded_unit = "ms"
+        elif value.endswith("s"):
+            decoded_unit = "s"
+        elif value.endswith("m"):
+            decoded_unit = "m"
+        elif value.endswith("h"):
+            decoded_unit = "h"
+        elif value.endswith("d"):
+            decoded_unit = "d"
+        else:
+            raise get_exception()
 
-    match decoded_unit:
-        case "us":
-            return timedelta(microseconds=decoded_value)
-        case "ms":
-            return timedelta(milliseconds=decoded_value)
-        case "s":
-            return timedelta(seconds=decoded_value)
-        case "m":
-            return timedelta(minutes=decoded_value)
-        case "h":
-            return timedelta(hours=decoded_value)
-        case "d":
-            return timedelta(days=decoded_value)
+        try:
+            decoded_value = float(value[: -len(decoded_unit)])
+        except Exception:
+            raise get_exception()
+
+        match decoded_unit:
+            case "us":
+                return timedelta(microseconds=decoded_value)
+            case "ms":
+                return timedelta(milliseconds=decoded_value)
+            case "s":
+                return timedelta(seconds=decoded_value)
+            case "m":
+                return timedelta(minutes=decoded_value)
+            case "h":
+                return timedelta(hours=decoded_value)
+            case "d":
+                return timedelta(days=decoded_value)
+
+    if isinstance(value, (int, float)):
+        return timedelta(seconds=value)
+
+    raise get_exception()
 
 
 def is_subtype(subtype: type | UnionType, base: type | UnionType) -> bool:
@@ -353,12 +370,14 @@ def traverse(
     if obj is None:
         return
 
-    if isinstance(obj, BaseModel) or is_dataclass(obj):
-        model = get_model(obj)
-        if model is not None:
-            for name in model.__fields__.keys():
-                element = getattr(obj, name, None)
-                traverse(element, visit, seen)
+    if isinstance(obj, BaseModel):
+        for name in obj.model_fields.keys():
+            element = getattr(obj, name, None)
+            traverse(element, visit, seen)
+    elif is_dataclass_instance(obj):
+        for name in obj.__dataclass_fields__.keys():
+            element = getattr(obj, name, None)
+            traverse(element, visit, seen)
     elif is_mapping(obj):
         for key, value in obj.items():
             traverse(key, visit, seen)
@@ -630,3 +649,57 @@ def sqlexpr(statement: str, *, indent: int = 0) -> str:
     if indent:
         statement = textwrap.indent(statement, " " * (indent * 4))
     return statement
+
+
+_CallableT = TypeVar("_CallableT", bound=Callable[..., Any])
+
+if TYPE_CHECKING:
+    from pydantic._internal._validate_call import ValidateCallWrapper
+else:
+    ValidateCallWrapper = object
+
+DEFAULT_VALIDATED_FUNCTION_CONFIG = ConfigDict(
+    arbitrary_types_allowed=True,
+    populate_by_name=True,
+    extra="forbid",
+)
+
+
+def create_validated_function(
+    __func: Callable[..., Any],
+    *,
+    config: ConfigDict | None = None,
+    validate_return: bool = False,
+) -> ValidateCallWrapper:
+    config = {
+        **DEFAULT_VALIDATED_FUNCTION_CONFIG,
+        **(config or {}),
+    }
+    return validate_call(config=config, validate_return=validate_return)(__func)  # type: ignore
+
+
+@overload
+def validated_function(
+    *,
+    config: ConfigDict | None = None,
+    validate_return: bool = False,
+) -> Callable[[_CallableT], _CallableT]:
+    ...
+
+
+@overload
+def validated_function(__func: _CallableT) -> _CallableT:
+    ...
+
+
+def validated_function(
+    __func: _CallableT | None = None,
+    *,
+    config: ConfigDict | None = None,
+    validate_return: bool = False,
+) -> _CallableT | Callable[[_CallableT], _CallableT]:
+    config = {
+        **DEFAULT_VALIDATED_FUNCTION_CONFIG,
+        **(config or {}),
+    }
+    return validate_call(config=config, validate_return=validate_return)(__func)  # type: ignore

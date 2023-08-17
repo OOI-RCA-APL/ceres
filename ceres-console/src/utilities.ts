@@ -21,7 +21,7 @@ export function hash(str: string): string {
   return new Uint32Array([result])[0].toString(36)
 }
 
-export function parseTimeDelta(value: string | number | Duration): Duration {
+export function parseDuration(value: string | number | Duration): Duration {
   function getException() {
     return new Error(
       'Invalid time-delta value.' +
@@ -30,21 +30,27 @@ export function parseTimeDelta(value: string | number | Duration): Duration {
     )
   }
 
+  if (moment.isDuration(value)) {
+    return value
+  }
+
   if (typeof value === 'string' && value.trim() === '') {
     throw getException()
   }
+
   if (typeof value === 'number') {
     return moment.duration(value, 'seconds')
   }
   if (!Number.isNaN(Number(value))) {
     return moment.duration(Number(value), 'seconds')
   }
-  if (moment.isDuration(value)) {
-    return value
-  }
 
   if (typeof value !== 'string') {
     throw getException()
+  }
+
+  if (value.startsWith('P') && moment.duration(value).isValid()) {
+    return moment.duration(value)
   }
 
   value = value.trim().toLowerCase()
@@ -71,18 +77,14 @@ export function parseTimeDelta(value: string | number | Duration): Duration {
   throw getException()
 }
 
-export function displayTimeDelta(
-  value: number | Duration,
+export function displayDuration(
+  value: string | Duration,
   options?: { decimals?: number; long?: boolean }
 ): string {
   const decimals = options?.decimals
   const long = options?.long ?? false
 
-  if (typeof value === 'number') {
-    value = moment.duration(value, 'seconds')
-  }
-
-  const delta = value
+  const delta = moment.duration(value)
   if (delta.asMilliseconds() === 0) {
     return '0'
   }

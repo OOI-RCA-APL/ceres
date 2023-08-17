@@ -1,22 +1,30 @@
 import re
 from functools import lru_cache
+from re import Pattern
 from typing import Any, Sequence
 
+from pydantic import GetCoreSchemaHandler
+from pydantic_core import CoreSchema
+from pydantic_core.core_schema import no_info_after_validator_function
 from typing_extensions import Self, override
 
-from ceres.data import Name, NameType, StrPattern
+from ceres.data import NAME_TYPE_PATTERN, Name
 
-_NAME = NameType.regex.pattern[1:-1]
+_NAME = NAME_TYPE_PATTERN[1:-1]
 _MODIFIER = r":(all|children|descendants|ancestors)+"
 _SEGMENT = rf"~|@?[a-z-A-Z_\-.]+({_MODIFIER})?|@|{_MODIFIER}"
 
 
 class AddressSelector(str):
-    regex: StrPattern = re.compile(rf"^{_SEGMENT}(\|{_SEGMENT})*$")
+    regex = re.compile(rf"^{_SEGMENT}(\|{_SEGMENT})*$")
 
     @classmethod
-    def __get_validators__(cls) -> Any:
-        yield cls.validate
+    def __get_pydantic_core_schema__(
+        cls,
+        source_type: Any,
+        handler: GetCoreSchemaHandler,
+    ) -> CoreSchema:
+        return no_info_after_validator_function(cls.validate, handler(str))
 
     @property
     def segments(self) -> Sequence["AddressSelector"]:
@@ -57,12 +65,12 @@ class AddressSelector(str):
     def __or__(self, other: "AddressSelector") -> "AddressSelector":
         return AddressSelector(f"{self}|{other}")
 
-    def compile(self) -> StrPattern:
+    def compile(self) -> Pattern[str]:
         return _compile_selector(self)
 
 
 @lru_cache(maxsize=500)
-def _compile_selector(pattern: "AddressSelector") -> StrPattern:
+def _compile_selector(pattern: "AddressSelector") -> Pattern[str]:
     # TODO: Handle bare :all correctly.
     segments = []
 

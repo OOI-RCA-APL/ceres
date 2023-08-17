@@ -4,13 +4,13 @@ import SchemaFormArray from '@/components/schema-form/SchemaFormArray.vue'
 import SchemaFormBoolean from '@/components/schema-form/SchemaFormBoolean.vue'
 import SchemaFormDate from '@/components/schema-form/SchemaFormDate.vue'
 import SchemaFormDateTime from '@/components/schema-form/SchemaFormDateTime.vue'
+import SchemaFormDuration from '@/components/schema-form/SchemaFormDuration.vue'
 import SchemaFormEnum from '@/components/schema-form/SchemaFormEnum.vue'
 import SchemaFormInteger from '@/components/schema-form/SchemaFormInteger.vue'
 import SchemaFormNodeToggle from '@/components/schema-form/SchemaFormNodeToggle.vue'
 import SchemaFormNumber from '@/components/schema-form/SchemaFormNumber.vue'
 import SchemaFormObject from '@/components/schema-form/SchemaFormObject.vue'
 import SchemaFormString from '@/components/schema-form/SchemaFormString.vue'
-import SchemaFormTimeDelta from '@/components/schema-form/SchemaFormTimeDelta.vue'
 import { isEmptyObjectSchema, isType, SchemaForm, SchemaPath } from '@/schema-form'
 
 const { modelValue, form, path } = defineProps<{
@@ -66,21 +66,21 @@ function update(value: unknown) {
         <schema-form-integer v-bind="forward" @update:model-value="update" />
       </template>
       <template v-else-if="is('number')">
-        <schema-form-time-delta
-          v-if="schema.format === 'time-delta'"
-          v-bind="forward"
-          @update:model-value="update"
-        />
-        <schema-form-number v-else v-bind="forward" @update:model-value="update" />
+        <schema-form-number v-bind="forward" @update:model-value="update" />
       </template>
       <template v-else-if="is('string')">
-        <schema-form-date
-          v-if="schema.format === 'date'"
+        <schema-form-date-time
+          v-if="schema.format === 'date-time'"
           v-bind="forward"
           @update:model-value="update"
         />
-        <schema-form-date-time
-          v-else-if="schema.format === 'date-time'"
+        <schema-form-date
+          v-else-if="schema.format === 'date'"
+          v-bind="forward"
+          @update:model-value="update"
+        />
+        <schema-form-duration
+          v-else-if="schema.format === 'duration'"
           v-bind="forward"
           @update:model-value="update"
         />

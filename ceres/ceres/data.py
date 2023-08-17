@@ -1,96 +1,71 @@
 import importlib
 import json
-import re
 import traceback
 from abc import ABC
 from datetime import date, datetime, timedelta, timezone
-from re import Pattern
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Annotated, Any, Callable, ForwardRef, Mapping, cast
+from typing import TYPE_CHECKING, Any, Callable, Literal, Mapping, cast
 
 import pydantic
 import pydantic.generics
 from pydantic import (
-    BaseConfig,
     BaseModel,
     ConfigDict,
-    ConstrainedStr,
     Extra,
     Field,
-    parse_obj_as,
+    GetCoreSchemaHandler,
+    GetJsonSchemaHandler,
+    TypeAdapter,
+    constr,
 )
 from pydantic.fields import FieldInfo
-from pydantic.json import pydantic_encoder
-from typing_extensions import Self, dataclass_transform, override
+from pydantic.json_schema import JsonSchemaValue
+from pydantic_core import CoreSchema, core_schema
+from pydantic_core.core_schema import no_info_before_validator_function
+from typing_extensions import Self, dataclass_transform
 
 from ceres.internal.utilities import (
     PydanticDataclassLike,
     decode_td,
-    dictify,
-    is_pydantic_dataclass,
+    is_pydantic_dataclass_type,
     strify,
 )
 
 
 def jsonify(obj: object, **kwargs: Any) -> str:
-    default = kwargs.get("default")
-
-    return json.dumps(
-        obj,
-        default=default if default is not None else pydantic_encoder,
-        **kwargs,
-    )
+    return TypeAdapter(type(obj)).dump_json(obj, **kwargs).decode()
 
 
 def simplify(obj: object) -> Any:
     return json.loads(jsonify(obj))
 
 
-class NameType(ConstrainedStr):
-    regex: Pattern[str] = re.compile(r"^[a-zA-Z_\-][a-zA-Z0-9_\-]*$")
+NAME_TYPE_PATTERN = r"^[a-zA-Z_\-][a-zA-Z0-9_\-]*$"
 
-
-class NonEmptyStrType(ConstrainedStr):
-    min_length = 1
-
-
-class NonBlankStrType(ConstrainedStr):
-    min_length = 1
-
-    @override
-    @classmethod
-    def validate(cls, value: Any) -> str:
-        validated = super().validate(value)
-        if not validated.strip():
-            raise ValueError("must not be blank")
-
-        return validated
+NameType = constr(pattern=NAME_TYPE_PATTERN)
+NonEmptyStrType = constr(min_length=1)
+NonBlankStrType = constr(min_length=1, pattern=r".*\S.*")
 
 
 class DateType(date):
-    @classmethod
-    def __get_validators__(cls):
-        yield cls.validate
-
-    @classmethod
-    def validate(cls, value: Any) -> date | None:
-        if value is None:
-            return None
-
-        return parse_obj_as(date, value)
+    pass
 
 
 class DateTimeType(datetime):
     @classmethod
-    def __get_validators__(cls):
-        yield cls.validate
+    def __get_pydantic_core_schema__(
+        cls,
+        source_type: Any,
+        handler: GetCoreSchemaHandler,
+    ) -> CoreSchema:
+        return no_info_before_validator_function(cls.validate, handler(datetime))
 
     @classmethod
     def validate(cls, value: Any) -> datetime | None:
         if value is None:
             return None
 
-        timestamp = parse_obj_as(datetime | date, value)
+        timestamp = TypeAdapter(datetime | date).validate_python(value)
         if not isinstance(timestamp, datetime):
             return datetime(
                 year=timestamp.year,
@@ -107,8 +82,12 @@ class DateTimeType(datetime):
 
 class TimeDeltaType(timedelta):
     @classmethod
-    def __get_validators__(cls):
-        yield cls.validate
+    def __get_pydantic_core_schema__(
+        cls,
+        source_type: Any,
+        handler: GetCoreSchemaHandler,
+    ) -> CoreSchema:
+        return no_info_before_validator_function(cls.validate, handler(Any))
 
     @classmethod
     def validate(cls, value: Any) -> timedelta | None:
@@ -180,6 +159,23 @@ def _load_cls_from_cls_path(path: str) -> type:
 class ClassPath:
     __slots__ = ("__text",)
 
+    @classmethod
+    def __get_pydantic_core_schema__(
+        cls,
+        source_type: Any,
+        handler: GetCoreSchemaHandler,
+    ) -> CoreSchema:
+        return core_schema.no_info_after_validator_function(cls, handler(Any))
+
+    def __get_pydantic_json_schema__(
+        self,
+        core_schema: CoreSchema,
+        handler: GetJsonSchemaHandler,
+    ) -> JsonSchemaValue:
+        json_schema = handler(core_schema)
+        json_schema["type"] = "string"
+        return json_schema
+
     def __init__(self, obj: str | type | Self, /) -> None:  # type: ignore
         if isinstance(obj, ClassPath):
             cls = obj.cls
@@ -217,14 +213,6 @@ class ClassPath:
     def cls(self) -> type:
         return _load_cls_from_cls_path(self.__text)
 
-    @classmethod
-    def __get_validators__(cls):
-        yield cls
-
-    @classmethod
-    def __modify_schema__(cls, field_schema: dict[str, Any]):
-        field_schema.update(type="string")
-
 
 if TYPE_CHECKING:
     Name = str
@@ -235,8 +223,6 @@ if TYPE_CHECKING:
     TimeDelta = timedelta
     PositiveTimeDelta = timedelta
     NonNegativeTimeDelta = timedelta
-    BytesPattern = Pattern[bytes]
-    StrPattern = Pattern[str]
 else:
     Name = NameType
     NonEmptyStr = NonEmptyStrType
@@ -246,10 +232,8 @@ else:
     TimeDelta = TimeDeltaType
     PositiveTimeDelta = PositiveTimeDeltaType
     NonNegativeTimeDelta = NonNegativeTimeDeltaType
-    BytesPattern = Annotated[Pattern, Field(regex=b".*")]
-    StrPattern = Annotated[Pattern, Field(regex=".*")]
 
-JSON_ENCODERS: Mapping[type[Any] | str | ForwardRef, Callable[..., Any]] = MappingProxyType(
+JSON_ENCODERS: Mapping[type[object], Callable[[Any], Any]] = MappingProxyType(
     {
         ClassPath: str,
     }
@@ -257,21 +241,20 @@ JSON_ENCODERS: Mapping[type[Any] | str | ForwardRef, Callable[..., Any]] = Mappi
 
 
 class DataObject(BaseModel, ABC):
-    class Config(BaseConfig):
-        allow_population_by_field_name = True
-        arbitrary_types_allowed = True
-        extra = Extra.forbid
-        json_encoders = dict(JSON_ENCODERS)
-        orm_mode = True
-        validate_assignment = True
+    model_config = ConfigDict(
+        populate_by_name=True,
+        arbitrary_types_allowed=True,
+        extra=Extra.forbid,
+        json_encoders=dict(JSON_ENCODERS),
+        # validate_assignment=True,
+    )
 
     def __str__(self) -> str:
         return super().__repr__()
 
 
 class ImmutableDataObject(DataObject, ABC):
-    class Config(DataObject.Config):
-        frozen = True
+    model_config = ConfigDict(frozen=True)
 
 
 VALIDATED_DATACLASS_FIELD_SPECIFIERS: tuple[Callable[..., Any], type[FieldInfo]] = (
@@ -279,7 +262,7 @@ VALIDATED_DATACLASS_FIELD_SPECIFIERS: tuple[Callable[..., Any], type[FieldInfo]]
     FieldInfo,
 )
 VALIDATED_DATACLASS_DEFAULT_CONFIG = cast(
-    ConfigDict, MappingProxyType(ConfigDict(**DataObject.Config.__dict__))
+    ConfigDict, MappingProxyType(ConfigDict(**DataObject.model_config))
 )
 
 
@@ -291,7 +274,7 @@ class ValidatedDataclass(ABC, PydanticDataclassLike):  # type: ignore
     def __init_subclass__(
         cls,
         *,
-        init: bool = True,
+        init: Literal[False] = False,
         repr: bool = True,
         eq: bool = True,
         order: bool = False,
@@ -305,24 +288,19 @@ class ValidatedDataclass(ABC, PydanticDataclassLike):  # type: ignore
         inherited_config = ConfigDict()
 
         for base in reversed(cls.__bases__):
-            if is_pydantic_dataclass(base):
-                inherited_config.update(
-                    cast(ConfigDict, dictify(base.__pydantic_model__.__config__))
-                )
+            if is_pydantic_dataclass_type(base):
+                inherited_config.update(base.__pydantic_config__)
 
         config = ConfigDict(
             **{
                 **VALIDATED_DATACLASS_DEFAULT_CONFIG,
                 **inherited_config,
-                **ConfigDict(
-                    title=cls.__qualname__,
-                ),
+                **ConfigDict(title=cls.__qualname__),
                 **(config or ConfigDict()),
             }
         )
 
         pydantic.dataclasses.dataclass(
-            cls,
             init=init,
             repr=repr,
             eq=eq,
@@ -332,4 +310,4 @@ class ValidatedDataclass(ABC, PydanticDataclassLike):  # type: ignore
             config=config,
             validate_on_init=validate_on_init,
             kw_only=kw_only,
-        )
+        )(cls)

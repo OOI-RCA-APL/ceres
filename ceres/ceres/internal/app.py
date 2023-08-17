@@ -1,4 +1,5 @@
 import asyncio
+import json
 import traceback
 from asyncio import CancelledError
 from dataclasses import dataclass
@@ -40,14 +41,14 @@ from fastapi import (
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from pydantic import Field, Json
+from pydantic import Field, Json, TypeAdapter
 from starlette.requests import HTTPConnection
 from starlette.status import HTTP_400_BAD_REQUEST, HTTP_404_NOT_FOUND
 from websockets.exceptions import ConnectionClosed
 
 from ceres.address import Address
 from ceres.alert import Alert, Level
-from ceres.component import Component, Status
+from ceres.component import Component, ProcedureBinding, Status
 from ceres.config import ComponentConfig, Config
 from ceres.data import ImmutableDataObject, Name, jsonify
 from ceres.errors import (
@@ -70,7 +71,6 @@ from ceres.internal.utilities import strify
 from ceres.logs import LogEntry
 from ceres.message import Message
 from ceres.object import Statistics
-from ceres.component import ProcedureBinding
 from ceres.result import Fail, Ok, Result
 
 if TYPE_CHECKING:
@@ -109,7 +109,7 @@ class ComponentInfo(ImmutableDataObject):
     procedures: Sequence[ProcedureBinding]
 
 
-ComponentInfo.update_forward_refs()
+ComponentInfo.model_rebuild()
 
 api = APIRouter()
 
@@ -142,6 +142,27 @@ async def _use_current_socket(socket: WebSocket) -> AsyncIterator[Socket]:
 
 
 CurrentSocket = Annotated[Socket, Depends(_use_current_socket)]
+
+
+def _get_procedure_query_args(
+    query_args: Annotated[Json[Any], Query(alias="args")] = None,
+) -> Mapping[str, object]:
+    adapter = TypeAdapter(Mapping[str, object])
+
+    try:
+        if query_args is None:
+            return {}
+        if isinstance(query_args, str):
+            return adapter.validate_json(query_args)
+        return adapter.validate_python(query_args)
+    except Exception:
+        raise HTTPException(
+            HTTP_400_BAD_REQUEST,
+            "'args' query parameter must be unspecified, null or a valid JSON object",
+        )
+
+
+CurrentProcedureQueryArgs = Annotated[Mapping[str, object], Depends(_get_procedure_query_args)]
 
 
 @api.get("/config", tags=["server"])
@@ -248,7 +269,7 @@ async def down(server: CurrentServer, filter: ComponentFilter) -> DownResult:
 async def get_component(server: CurrentServer, address: Address) -> ComponentInfo:
     component_config = server.config.get_component(address)
     if component_config is not None and type(component_config) is not ComponentConfig:
-        component_config = ComponentConfig.parse_obj(
+        component_config = ComponentConfig.model_validate(
             {
                 "name": component_config.name,
                 "class": component_config.cls_path,
@@ -421,13 +442,22 @@ async def call(
     server: CurrentServer,
     address: Address,
     procedure: Name,
-    query_args: Json[Any] = Query(None, alias="args"),
+    query_args: CurrentProcedureQueryArgs,
     body_args: Mapping[Name, object] | None = Body(None),
 ) -> Result[Any | None, ProcedureError]:
+    if isinstance(query_args, str):
+        try:
+            query_args = json.loads(query_args)
+        except Exception:
+            raise HTTPException(
+                HTTP_400_BAD_REQUEST,
+                "'args' query parameter must be unspecified, null or a valid JSON object",
+            )
+
     if not isinstance(query_args, Mapping | None):
         raise HTTPException(
             HTTP_400_BAD_REQUEST,
-            "'input' query parameter must be unspecified, null or a valid JSON object",
+            "'args' query parameter must be unspecified, null or a valid JSON object",
         )
 
     args = {}
@@ -451,15 +481,9 @@ async def subscribe(
     server: CurrentServer,
     address: Address,
     procedure: Name,
-    query_args: Json[Any] = Query(None, alias="args"),
+    query_args: CurrentProcedureQueryArgs,
 ) -> None:
     await socket.accept()
-    if not isinstance(query_args, Mapping | None):
-        await socket.close(
-            code=1008,
-            reason="'input' query parameter must be unspecified, null or a valid JSON object",
-        )
-        return
 
     args = {}
     args.update(query_args or {})
