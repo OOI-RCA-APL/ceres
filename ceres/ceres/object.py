@@ -291,12 +291,7 @@ class Object(ValidatedDataclass, Tasklet):
                     # Insert items in chunks.
                     for chunk in chunkify(model, chunk_size):
                         values = [dictify(model) for model in chunk]
-                        await session.execute(
-                            insert(entity_cls).on_conflict_do_nothing(
-                                index_elements=[entity_cls.id]
-                            ),
-                            values,
-                        )
+                        await session.execute(insert(entity_cls), values)
 
                 await session.commit()
         finally:

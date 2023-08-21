@@ -4,13 +4,17 @@ import { Item } from '@/api/models'
 const { item } = defineProps<{
   item: Item
 }>()
+
+const timestamp = $computed(() =>
+  item.timestamp.replace('T', ' ').replace('Z', '').replace('+00:00', '')
+)
 </script>
 
 <template>
   <q-tr :class="[$style.root, 'no-wrap', 'item-view-item']" no-hover>
     <q-td auto-width>
       <span :class="$style.timestamp">
-        {{ item.timestamp.replace('T', ' ').replace('+00:00', '') }}
+        {{ timestamp }}
       </span>
     </q-td>
     <q-td auto-width class="monospace-sm">{{ item.address }}</q-td>

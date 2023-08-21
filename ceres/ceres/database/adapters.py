@@ -217,22 +217,29 @@ class SQLiteDatabaseAdapter(DatabaseAdapter[SQLiteDatabaseConfig]):
 
     @override
     async def _dump_csv(self, table: TableOption, path: str | PathLike[str]) -> None:
-        try:
-            subprocess.run(
-                [
-                    "sqlite3",
-                    str(self.__get_path()),
-                    ".mode csv",
-                    f".output '{path}'",
-                    f"SELECT * FROM {table.table_name};",
-                ],
-                check=True,
-                capture_output=True,
-            )
-        except Exception as exception:
-            raise RuntimeError(
-                f"failed to dump table '{table}' to CSV file '{path}': {exception}"
-            ) from exception
+        path = Path(path).absolute()
+        _remove(path)
+
+        if table == TableOption.ALL:
+            path.mkdir(parents=True, exist_ok=True)
+
+        for table_name, path in _get_csv_dump_paths(table, Path(path)):
+            try:
+                subprocess.run(
+                    [
+                        "sqlite3",
+                        str(self.__get_path()),
+                        ".mode csv",
+                        f".output '{path}'",
+                        f"SELECT * FROM {table_name};",
+                    ],
+                    check=True,
+                    capture_output=True,
+                )
+            except Exception as exception:
+                raise RuntimeError(
+                    f"failed to dump table '{table}' to CSV file '{path}': {exception}"
+                ) from exception
 
     async def _copy_sqlite(
         self,
@@ -301,7 +308,6 @@ class SQLiteDatabaseAdapter(DatabaseAdapter[SQLiteDatabaseConfig]):
         self.__add_essential_listeners(destination_engine)
 
         try:
-            await Entity.create_all(source_engine)
             await Entity.create_all(destination_engine)
             await self._copy_sqlite(table, source_engine, path)
         finally:
@@ -318,7 +324,6 @@ class SQLiteDatabaseAdapter(DatabaseAdapter[SQLiteDatabaseConfig]):
         destination_engine = self.create_engine()
 
         try:
-            await Entity.create_all(source_engine)
             await Entity.create_all(destination_engine)
             await self._copy_sqlite(table, source_engine, self.__get_path())
         finally:
@@ -366,10 +371,6 @@ class PostgresDatabaseAdapter(DatabaseAdapter[PostgresDatabaseConfig]):
             path.mkdir()
 
         import psycopg
-
-        source_engine = self.create_engine()
-
-        await Entity.create_all(source_engine)
 
         url = self.get_engine_url().replace("+psycopg", "")
 
