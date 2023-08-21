@@ -40,7 +40,6 @@ from pydantic import (
     Field,
     NonNegativeInt,
     PositiveFloat,
-    TypeAdapter,
     ValidationError,
 )
 from pydantic.json_schema import GenerateJsonSchema
@@ -95,6 +94,7 @@ from ceres.internal.utilities import (
     get_function_name,
     get_inner_function,
     get_session,
+    get_type_adapter,
     lenient_isinstance,
     randstr,
     setattr_internal,
@@ -1329,7 +1329,7 @@ def _validate_procedure(
             raise error
 
     try:
-        output_json_schema = TypeAdapter(output_hint).json_schema()
+        output_json_schema = get_type_adapter(output_hint).json_schema()
     except Exception as exception:
         raise ValueError(
             f"output type of {kind} {strify(method)} must be serializable as a JSON object: "

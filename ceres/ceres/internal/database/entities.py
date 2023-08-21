@@ -74,7 +74,7 @@ class Entity(MappedAsDataclass, DeclarativeBase, kw_only=True):
     }
 
     if TYPE_CHECKING:
-        __tablename__: str
+        __tablename__: ClassVar[str]  # type: ignore
         __table__: ClassVar[Table]
 
     @staticmethod

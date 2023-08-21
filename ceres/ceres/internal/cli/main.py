@@ -9,7 +9,7 @@ import anyio
 from aiohttp import ClientError, ClientSession, UnixConnector
 from anyio.abc import TaskGroup
 from click import ParamType
-from pydantic import BaseModel, TypeAdapter
+from pydantic import BaseModel
 from typer import Argument, Option
 
 from ceres.address import AddressSelector
@@ -45,6 +45,7 @@ from ceres.internal.cli.subcommands.service import service
 from ceres.internal.project import Project
 from ceres.internal.utilities import (
     ensure_event_loop,
+    get_type_adapter,
     set_current_process_name,
     strify,
     syncify,
@@ -271,7 +272,7 @@ class APIClient:
                 json=simplify(data),
                 params=params,
             ) as response:
-                return TypeAdapter(result).validate_python(await response.json())
+                return get_type_adapter(result).validate_python(await response.json())
 
     async def get(
         self,

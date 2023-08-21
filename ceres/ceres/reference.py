@@ -9,14 +9,19 @@ from typing import (
     cast,
 )
 
-from pydantic import GetCoreSchemaHandler, TypeAdapter
+from pydantic import GetCoreSchemaHandler
 from pydantic_core import CoreSchema
 from pydantic_core.core_schema import no_info_after_validator_function
 from typing_extensions import Self
 
 from ceres.address import Address, DynamicAddress
 from ceres.component import Component
-from ceres.internal.utilities import lenient_isinstance, lenient_issubclass, strify
+from ceres.internal.utilities import (
+    get_type_adapter,
+    lenient_isinstance,
+    lenient_issubclass,
+    strify,
+)
 
 _reference_static_cls_generic_cache: dict[type | None, type["Reference"]] = {}
 _reference_dynamic_cls_generic_cache: dict[tuple[type | None, type], type["Reference"]] = {}
@@ -352,9 +357,9 @@ class Reference:
             return cls(value)
 
         return cls(
-            TypeAdapter(cls.__reference_constraint__ or Component).validate_python(  # type: ignore
+            get_type_adapter(cls.__reference_constraint__ or Component).validate_python(
                 value,
-            )
+            )  # type: ignore
         )
 
     def __init__(

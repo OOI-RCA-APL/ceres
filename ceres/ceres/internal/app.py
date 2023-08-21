@@ -41,7 +41,7 @@ from fastapi import (
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from pydantic import Field, Json, TypeAdapter
+from pydantic import Field, Json
 from starlette.requests import HTTPConnection
 from starlette.status import HTTP_400_BAD_REQUEST, HTTP_404_NOT_FOUND
 from websockets.exceptions import ConnectionClosed
@@ -67,7 +67,7 @@ from ceres.filter import (
 )
 from ceres.internal import logs
 from ceres.internal.console import ConsoleFiles
-from ceres.internal.utilities import strify
+from ceres.internal.utilities import get_type_adapter, strify
 from ceres.logs import LogEntry
 from ceres.message import Message
 from ceres.object import Statistics
@@ -147,7 +147,7 @@ CurrentSocket = Annotated[Socket, Depends(_use_current_socket)]
 def _get_procedure_query_args(
     query_args: Annotated[Json[Any], Query(alias="args")] = None,
 ) -> Mapping[str, object]:
-    adapter = TypeAdapter(Mapping[str, object])
+    adapter = get_type_adapter(Mapping[str, object])
 
     try:
         if query_args is None:

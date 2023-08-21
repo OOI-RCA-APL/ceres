@@ -1,7 +1,8 @@
 import asyncio
+import traceback
 from abc import abstractmethod
 from asyncio import Event as AsyncEvent
-from collections import deque
+from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from itertools import groupby
 from typing import (
@@ -9,11 +10,13 @@ from typing import (
     Any,
     AsyncIterable,
     Callable,
+    Iterable,
     Mapping,
     Sequence,
     TypeVar,
 )
 
+from sqlalchemy import insert, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing_extensions import ParamSpec, Unpack, dataclass_transform, overload, override
 
@@ -54,9 +57,14 @@ from ceres.filter import (
     StatisticsFilter,
     StatisticsFilterArgs,
 )
-from ceres.internal.database.entities import AlertEntity, LogEntryEntity, MessageEntity
+from ceres.internal.database.entities import (
+    InternalAlertEntity,
+    InternalBinEntity,
+    InternalLogEntryEntity,
+    InternalMessageEntity,
+)
 from ceres.internal.tasklet import Tasklet
-from ceres.internal.utilities import chunkify, dictify
+from ceres.internal.utilities import chunkify, get_type_adapter
 from ceres.level import Level
 from ceres.logs import Log, LogEntry
 from ceres.message import Message
@@ -75,6 +83,7 @@ _EventT = TypeVar("_EventT", bound=Event)
 _EventP = ParamSpec("_EventP")
 
 Item = Message | Alert | LogEntry
+_ItemT = TypeVar("_ItemT", bound=Item)
 
 
 class Status(ImmutableDataObject):
@@ -219,7 +228,7 @@ class Object(ValidatedDataclass, Tasklet):
 
     async def __process_flush(self) -> None:
         while True:
-            if self.__flush_buffer:
+            if self.__flush_buffer and not self.__flushes:
                 await self.flush()
             await asyncio.sleep(0.1)
 
@@ -239,61 +248,110 @@ class Object(ValidatedDataclass, Tasklet):
         self.__flush_buffer.append(item)
         self.__flushed.clear()
 
+    async def __create_bins(
+        self,
+        session: AsyncSession,
+        items: Iterable[Item],
+    ) -> Mapping[Address, int]:
+        addresses = sorted({model.address for model in items})
+        bins = {
+            address: id
+            for address, id in await session.execute(
+                select(InternalBinEntity.address, InternalBinEntity.id)
+                .group_by(InternalBinEntity.address)
+                .order_by(InternalBinEntity.id)
+            )
+        }
+
+        for address in addresses:
+            if address not in bins:
+                id = await session.scalar(
+                    insert(InternalBinEntity).returning(InternalBinEntity.id),
+                    {"address": address},
+                )
+                bins[address] = id
+
+        return bins
+
+    async def __create_items_by_cls(
+        self,
+        session: AsyncSession,
+        item_cls: type[_ItemT],
+        items: list[_ItemT],
+        bins: Mapping[Address, int],
+    ) -> None:
+        if not items:
+            return
+
+        match self.__object_database__.kind:
+            case DatabaseKind.SQLITE:
+                from sqlalchemy.dialects.sqlite import insert
+
+                chunk_size = 500
+
+            case DatabaseKind.POSTGRES:
+                from sqlalchemy.dialects.postgresql import insert
+
+                chunk_size = 1000
+
+        if item_cls is Message:
+            entity_cls = InternalMessageEntity
+        elif item_cls is Alert:
+            entity_cls = InternalAlertEntity
+        elif item_cls is LogEntry:
+            entity_cls = InternalLogEntryEntity
+        else:
+            raise TypeError(f"unsupported item type: {item_cls}")
+
+        values: list[dict[str, Any]] = get_type_adapter(list[item_cls]).dump_python(items)
+        for value in values:
+            value["bin_id"] = bins[value.pop("address")]
+
+        for chunk in chunkify(values, chunk_size):
+            await session.execute(insert(entity_cls), chunk)
+
+    async def __create_items(self, session: AsyncSession, items: Iterable[Item]) -> None:
+        bins = await self.__create_bins(session, items)
+        by_type: defaultdict[type[Item], list[Item]] = defaultdict(list)
+        for model_cls, group in groupby(items, type):
+            by_type[model_cls] = list(group)  # type: ignore
+
+        await asyncio.gather(
+            self.__create_items_by_cls(session, Message, by_type[Message], bins),
+            self.__create_items_by_cls(session, Alert, by_type[Alert], bins),
+            self.__create_items_by_cls(session, LogEntry, by_type[LogEntry], bins),
+        )
+
     async def flush(self) -> None:
-        # Keep track of all pending flushes.
-        pending = tuple(self.__flushes)
+        # Get the previous flush object if there is one.
+        previous = self.__flushes[-1] if self.__flushes else None
 
         # If there's no items in the buffer, wait for the latest flush to complete.
         if not self.__flush_buffer:
-            if pending:
-                await pending[-1].event.wait()
+            if previous:
+                await previous.event.wait()
 
             # Otherwise return, there's nothing to wait for.
             return
 
         # Register the flush request.
-        flush = _Flush(items=tuple(self.__flush_buffer))
-        self.__flushes.append(flush)
-
+        flush = _Flush(items=self.__flush_buffer)
         # Clear the buffer.
         self.__flush_buffer = []
+        self.__flushes.append(flush)
 
         try:
             # Wait for the previous flush to complete.
-            if pending:
-                await pending[-1].event.wait()
+            if previous:
+                await previous.event.wait()
 
+            # Group items by item class.
             async with await self.__object_database__.init() as session:
-                # Pick the number of items to insert in a single query based on the database kind.
-                match self.__object_database__.kind:
-                    case DatabaseKind.SQLITE:
-                        from sqlalchemy.dialects.sqlite import insert
-
-                        chunk_size = 500
-
-                    case DatabaseKind.POSTGRES:
-                        from sqlalchemy.dialects.postgresql import insert  # noqa
-
-                        chunk_size = 1000
-
-                # Group items by item class.
-                for model_cls, model in groupby(flush.items, type):
-                    # Determine the entity class of item.
-                    if issubclass(model_cls, Message):
-                        entity_cls = MessageEntity
-                    elif issubclass(model_cls, Alert):
-                        entity_cls = AlertEntity
-                    elif issubclass(model_cls, LogEntry):
-                        entity_cls = LogEntryEntity
-                    else:
-                        continue
-
-                    # Insert items in chunks.
-                    for chunk in chunkify(model, chunk_size):
-                        values = [dictify(model) for model in chunk]
-                        await session.execute(insert(entity_cls), values)
-
+                await self.__create_items(session, flush.items)
                 await session.commit()
+        except Exception:
+            traceback.print_exc()
+            raise
         finally:
             # Notify the flush is complete.
             flush.event.set()

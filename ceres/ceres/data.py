@@ -14,7 +14,6 @@ from pydantic import (
     Field,
     GetCoreSchemaHandler,
     GetJsonSchemaHandler,
-    TypeAdapter,
     constr,
 )
 from pydantic.fields import FieldInfo
@@ -26,13 +25,14 @@ from typing_extensions import Self, dataclass_transform
 from ceres.internal.utilities import (
     PydanticDataclassLike,
     decode_td,
+    get_type_adapter,
     is_pydantic_dataclass_type,
     strify,
 )
 
 
 def jsonify(obj: object, **kwargs: Any) -> str:
-    return TypeAdapter(type(obj)).dump_json(obj, **kwargs).decode()
+    return get_type_adapter(type(obj)).dump_json(obj, **kwargs).decode()
 
 
 def simplify(obj: object) -> Any:
@@ -64,7 +64,7 @@ class DateTimeType(datetime):
         if value is None:
             return None
 
-        timestamp = TypeAdapter(datetime | date).validate_python(value)
+        timestamp = get_type_adapter(datetime | date).validate_python(value)
         if not isinstance(timestamp, datetime):
             return datetime(
                 year=timestamp.year,

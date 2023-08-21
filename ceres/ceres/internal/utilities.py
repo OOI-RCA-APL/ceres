@@ -10,7 +10,7 @@ from asyncio import AbstractEventLoop
 from collections import OrderedDict
 from contextlib import contextmanager
 from datetime import timedelta
-from functools import cache, wraps
+from functools import lru_cache, wraps
 from types import NoneType, UnionType
 from typing import (
     TYPE_CHECKING,
@@ -226,7 +226,7 @@ def decode_td(value: str | timedelta | int | float | Any) -> timedelta:
 
     if isinstance(value, str):
         try:
-            return TypeAdapter(timedelta).validate_python(value)
+            return get_type_adapter(timedelta).validate_python(value)
         except Exception:
             pass
 
@@ -475,8 +475,28 @@ def dbg(value: _T) -> _T:
 _FunctionT = TypeVar("_FunctionT", bound=Callable[..., Any])
 
 
+@overload
+def cached(
+    function: None = None, *, max_size: int | None = None
+) -> Callable[[_FunctionT], _FunctionT]:
+    ...
+
+
+@overload
 def cached(function: _FunctionT) -> _FunctionT:
-    return cast(_FunctionT, cache(function))
+    ...
+
+
+def cached(
+    function: _FunctionT | None = None, *, max_size: int | None = None
+) -> _FunctionT | Callable[[_FunctionT], _FunctionT]:
+    def cached(function: _FunctionT) -> _FunctionT:
+        return lru_cache(maxsize=max_size)(function)  # type: ignore
+
+    if function is None:
+        return cached
+
+    return cached(function)
 
 
 def get_function_name(function: Callable[..., Any]) -> str:
@@ -703,3 +723,8 @@ def validated_function(
         **(config or {}),
     }
     return validate_call(config=config, validate_return=validate_return)(__func)  # type: ignore
+
+
+@cached(max_size=500)
+def get_type_adapter(type_: type[_T]) -> TypeAdapter[_T]:
+    return TypeAdapter(type_)
