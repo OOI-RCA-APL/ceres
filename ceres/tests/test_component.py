@@ -279,7 +279,7 @@ async def test_routines() -> None:
 
     components.start()
 
-    await asyncio.sleep(0.25)
+    await asyncio.sleep(0.5)
 
     await components.stop()
 
