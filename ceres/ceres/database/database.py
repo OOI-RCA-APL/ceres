@@ -512,48 +512,40 @@ class Database:
         conditions: list[ColumnElement[bool]] = []
 
         for segment in selector.segments:
-            if (
-                not segment.endswith(":all")
-                and not segment.endswith(":descendants")
-                and not segment.endswith(":children")
-            ):
+            if ":" not in segment:
                 conditions.append(address == segment)
-
                 continue
+            if segment != "~" and not segment.startswith("@"):
+                segment = AddressSelector("@" + segment)
 
-            if segment.startswith("~"):
-                if segment.endswith(":all"):
+            base, modifier = segment.split(":")
+
+            if base == "~":
+                if modifier == "all":
                     conditions.append(expression.true())
-                elif segment.endswith(":descendants"):
+                elif modifier == "descendants":
                     conditions.append(address != "~")
-                elif segment.endswith(":children"):
+                elif modifier == "children":
                     conditions.append(address == "@")
 
                 continue
 
-            if segment.startswith("@"):
-                if segment.endswith(":all"):
+            if base == "@":
+                if modifier == "all":
                     conditions.append(address != "~")
-                elif segment.endswith(":descendants"):
+                elif modifier == "descendants":
                     conditions.append(address != "~")
                     conditions.append(address != "@")
-                elif segment.endswith(":children"):
+                elif modifier == "children":
                     conditions.append(address.like("@_%"))
 
                 continue
 
-            if not segment.startswith("@"):
-                segment = AddressSelector("@" + segment)
-
-            base = (
-                segment.removesuffix(":all").removesuffix(":descendants").removesuffix(":children")
-            )
-
-            if segment.endswith(":all"):
+            if modifier == "all":
                 conditions.append((address == base) | address.startswith(f"{base}."))
-            elif segment.endswith(":descendants"):
+            elif modifier == "descendants":
                 conditions.append(address.startswith(f"{base}."))
-            elif segment.endswith(":children"):
+            elif modifier == "children":
                 conditions.append(address.startswith(f"{base}.") & address.not_like(f"{base}.%."))
 
         return or_(*conditions)
