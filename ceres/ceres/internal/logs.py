@@ -2,8 +2,6 @@ import logging
 from dataclasses import dataclass, field
 from logging import Formatter, Handler, Logger
 
-from rich.logging import RichHandler
-
 from ceres.data import ImmutableDataObject
 
 
@@ -40,6 +38,8 @@ def setup(config: LogConfig | None = None) -> None:
     )
 
     def create_handler(formatter: Formatter) -> Handler:
+        from rich.logging import RichHandler
+
         handler = RichHandler(
             show_level=False,
             show_path=False,

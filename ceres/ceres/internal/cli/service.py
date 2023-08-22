@@ -1,4 +1,3 @@
-import plistlib
 import subprocess
 import sys
 import traceback
@@ -14,12 +13,6 @@ from ceres.data import DataObject
 from ceres.internal.cli.exceptions import CLIServiceConfigException
 from ceres.internal.cli.shared import write
 from ceres.internal.project import Project
-
-if sys.platform == "darwin":
-    import launchd
-    import launchd.cmd
-else:
-    launchd: Any = None
 
 
 class ServiceState(str, Enum):
@@ -224,6 +217,8 @@ class LaunchDService(Service):
 
     @property
     def path(self) -> Path:
+        import launchd
+
         return Path(launchd.plist.compute_filename(self.label, launchd.plist.USER))
 
     @property
@@ -232,6 +227,8 @@ class LaunchDService(Service):
 
     @override
     def create(self) -> None:
+        import plistlib
+
         current = plistlib.loads(self.path.read_text().encode()) if self.path.exists() else None
         data = {
             "Label": self.label,
@@ -247,6 +244,8 @@ class LaunchDService(Service):
             data["StandardErrorPath"] = str(self.stderr)
 
         if current != data:
+            import launchd
+
             launchd.plist.write(self.label, data)
             return
 
@@ -264,6 +263,8 @@ class LaunchDService(Service):
         log_output: bool = True,
     ) -> bytes | Exception | None:
         try:
+            import launchd.cmd
+
             output = launchd.cmd.launchctl(*(str(segment) for segment in command))
             if log_output and output.strip():
                 self._log(output)

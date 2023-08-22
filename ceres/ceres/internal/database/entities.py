@@ -4,7 +4,6 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any, ClassVar, Iterable
 from uuid import UUID
 
-import sqlparse
 from sqlalchemy import (
     JSON,
     Boolean,
@@ -46,6 +45,8 @@ from ceres.message import MessageDirection
 
 def _sql(statement: str, *, indent: int = 0) -> str:
     statement = textwrap.dedent(statement).strip()
+    import sqlparse
+
     sqlparse.format(statement, keyword_case="upper").strip()
     statement = statement.rstrip(";")
     statement += ";"

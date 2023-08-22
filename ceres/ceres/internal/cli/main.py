@@ -6,27 +6,17 @@ from pathlib import Path
 from typing import Annotated, Any, Mapping, TypeVar
 
 import anyio
-from aiohttp import ClientError, ClientSession, UnixConnector
 from anyio.abc import TaskGroup
 from click import ParamType
 from pydantic import BaseModel
 from typer import Argument, Option
 
 from ceres.address import AddressSelector
-from ceres.component import ComponentFilter
 from ceres.config import Config
 from ceres.data import jsonify, simplify
 from ceres.exceptions import ServerException
+from ceres.filter import ComponentFilter
 from ceres.internal import logs
-from ceres.internal.app import (
-    DisableResult,
-    DownResult,
-    EnableResult,
-    GetStatusesQueryParameters,
-    StartResult,
-    StopResult,
-    UpResult,
-)
 from ceres.internal.cli.exceptions import (
     CLIEngineNotRunningException,
     CLIInvalidConfigException,
@@ -169,10 +159,13 @@ async def _run_watch(
     all: bool,
 ) -> None:
     async def main() -> None:
+        import importlib.util
+
         from watchfiles import PythonFilter, awatch
         from watchfiles.run import CombinedProcess, start_process
 
-        import ceres
+        ceres = importlib.util.find_spec("ceres")
+        assert ceres is not None and ceres.origin is not None
 
         async def start() -> CombinedProcess:
             target = _run_sync
@@ -192,7 +185,7 @@ async def _run_watch(
                 # Watch for changes in the project directory.
                 config_path.parent,
                 # Watch for changes in "ceres" itself.
-                Path(ceres.__file__).parent,
+                Path(ceres.origin).parent,
                 watch_filter=PythonFilter(
                     # Ignore changes to this module in particular.
                     ignore_paths=[__file__],
@@ -265,6 +258,8 @@ class APIClient:
                 key: str(value) for key, value in params.model_dump(exclude_defaults=True).items()
             }
 
+        from aiohttp import ClientSession, UnixConnector
+
         async with ClientSession(connector=UnixConnector(str(self.project.socket_path))) as session:
             async with session.request(
                 method,
@@ -299,7 +294,10 @@ async def reload(*, project: Project = ProjectOption()) -> None:
     """
     Apply configuration changes while the engine is running.
     """
+    from aiohttp import ClientError
+
     client = APIClient(project)
+
     try:
         await client.post("/reload")
     except ClientError:
@@ -324,8 +322,13 @@ async def status(
     addresses: list[str] = [":all"],
     project: Project = ProjectOption(),
 ) -> None:
+    from aiohttp import ClientError
+
+    from ceres.internal.app import GetStatusesQueryParameters
+
     client = APIClient(project)
     address = AddressSelector("|".join(addresses) if addresses else ":all")
+
     try:
         statuses = await client.get(
             "/statuses",
@@ -369,6 +372,8 @@ async def start(addresses: list[str], project: Project = ProjectOption()) -> Non
     client = APIClient(project)
     address = AddressSelector("|".join(addresses))
     query = ComponentFilter(address=address)
+    from ceres.internal.app import StartResult
+
     result = await client.post("/start", query, parse=StartResult)
 
     write(result)
@@ -379,6 +384,8 @@ async def stop(addresses: list[str], project: Project = ProjectOption()) -> None
     client = APIClient(project)
     address = AddressSelector("|".join(addresses))
     query = ComponentFilter(address=address)
+    from ceres.internal.app import StopResult
+
     result = await client.post("/stop", query, parse=StopResult)
 
     write(result)
@@ -389,6 +396,8 @@ async def enable(addresses: list[str], project: Project = ProjectOption()) -> No
     client = APIClient(project)
     address = AddressSelector("|".join(addresses))
     query = ComponentFilter(address=address)
+    from ceres.internal.app import EnableResult
+
     result = await client.post("/enable", query, parse=EnableResult)
 
     write(result)
@@ -399,6 +408,8 @@ async def disable(addresses: list[str], project: Project = ProjectOption()) -> N
     client = APIClient(project)
     address = AddressSelector("|".join(addresses))
     query = ComponentFilter(address=address)
+    from ceres.internal.app import DisableResult
+
     result = await client.post("/disable", query, parse=DisableResult)
 
     write(result)
@@ -409,6 +420,8 @@ async def up(addresses: list[str], project: Project = ProjectOption()) -> None:
     client = APIClient(project)
     address = AddressSelector("|".join(addresses))
     query = ComponentFilter(address=address)
+    from ceres.internal.app import UpResult
+
     result = await client.post("/up", query, parse=UpResult)
 
     write(result)
@@ -419,6 +432,8 @@ async def down(addresses: list[str], project: Project = ProjectOption()) -> None
     client = APIClient(project)
     address = AddressSelector("|".join(addresses))
     query = ComponentFilter(address=address)
+    from ceres.internal.app import DownResult
+
     result = await client.post("/down", query, parse=DownResult)
 
     write(result)

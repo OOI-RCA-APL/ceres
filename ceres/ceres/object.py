@@ -16,8 +16,6 @@ from typing import (
     TypeVar,
 )
 
-from sqlalchemy import insert, select
-from sqlalchemy.ext.asyncio import AsyncSession
 from typing_extensions import ParamSpec, Unpack, dataclass_transform, overload, override
 
 from ceres.address import Address, AddressSelector, DynamicAddress
@@ -28,10 +26,6 @@ from ceres.data import (
     ImmutableDataObject,
     ValidatedDataclass,
 )
-from ceres.database import AlertStatistics as AlertStatistics
-from ceres.database import Database
-from ceres.database import LevelStatistics as LevelStatistics
-from ceres.database import Statistics as Statistics
 from ceres.events import (
     AlertEvent,
     ConnectedEvent,
@@ -57,12 +51,6 @@ from ceres.filter import (
     StatisticsFilter,
     StatisticsFilterArgs,
 )
-from ceres.internal.database.entities import (
-    InternalAlertEntity,
-    InternalBinEntity,
-    InternalLogEntryEntity,
-    InternalMessageEntity,
-)
 from ceres.internal.tasklet import Tasklet
 from ceres.internal.utilities import chunkify, get_type_adapter
 from ceres.level import Level
@@ -71,13 +59,20 @@ from ceres.message import Message
 from ceres.stream import Stream, WriteStream
 
 if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
+
     from ceres.component import Component, ComponentGroup
+    from ceres.database.database import Database, Statistics
     from ceres.server import Server
 else:
+    AsyncSession = object
+
     Component = object
     ComponentGroup = object
-    Status = object
     Server = object
+    Database = object
+    Statistics = object
+
 
 _EventT = TypeVar("_EventT", bound=Event)
 _EventP = ParamSpec("_EventP")
@@ -254,6 +249,10 @@ class Object(ValidatedDataclass, Tasklet):
         items: Iterable[Item],
     ) -> Mapping[Address, int]:
         addresses = sorted({model.address for model in items})
+        from sqlalchemy import insert, select
+
+        from ceres.internal.database.entities import InternalBinEntity
+
         bins = {
             address: id
             for address, id in await session.execute(
@@ -293,6 +292,12 @@ class Object(ValidatedDataclass, Tasklet):
                 from sqlalchemy.dialects.postgresql import insert
 
                 chunk_size = 1000
+
+        from ceres.internal.database.entities import (
+            InternalAlertEntity,
+            InternalLogEntryEntity,
+            InternalMessageEntity,
+        )
 
         if item_cls is Message:
             entity_cls = InternalMessageEntity

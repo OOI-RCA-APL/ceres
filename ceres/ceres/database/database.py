@@ -39,11 +39,10 @@ from ceres.config import (
 from ceres.data import DataObject
 from ceres.database.adapters import (
     DatabaseAdapter,
-    DataFormat,
     PostgresDatabaseAdapter,
     SQLiteDatabaseAdapter,
-    TableOption,
 )
+from ceres.database.enums import DataFormat, TableOption
 from ceres.filter import (
     AlertFilter,
     AlertFilterArgs,

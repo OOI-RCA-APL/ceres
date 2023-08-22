@@ -4,8 +4,7 @@ from pydantic import ByteSize
 from typer import Argument, Option
 
 from ceres.config import Config
-from ceres.database import Database
-from ceres.database.adapters import DataFormat, TableOption
+from ceres.database.enums import DataFormat, TableOption
 from ceres.internal.cli.exceptions import CLIDatabaseUnreachableException, CLIException
 from ceres.internal.cli.shared import AsyncTyper, ConfigOption, get_yes_no, write
 from ceres.internal.utilities import show_td
@@ -18,12 +17,18 @@ database = AsyncTyper(
 )
 
 
+def _get_database(config: Config):
+    from ceres.database.database import Database
+
+    return Database(config.database)
+
+
 @database.command()
 async def init(*, config: Config = ConfigOption(checks=[])) -> None:
     """
     Create all required tables in the project database.
     """
-    database = Database(config.database)
+    database = _get_database(config)
 
     try:
         async with database.connect():
@@ -64,7 +69,7 @@ async def dump(
     """
 
     format = _infer_data_format(format, path)
-    database = Database(config.database)
+    database = _get_database(config)
 
     try:
         async with database.connect():
@@ -109,7 +114,7 @@ async def load(
     Load data into the project database.
     """
     format = _infer_data_format(format, path)
-    database = Database(config.database)
+    database = _get_database(config)
 
     try:
         async with database.connect():
@@ -144,7 +149,7 @@ async def clear(config: Config = ConfigOption(checks=[])) -> None:
     """
     Clear all data from the project database.
     """
-    database = Database(config.database)
+    database = _get_database(config)
 
     try:
         async with database.connect():
@@ -172,7 +177,7 @@ async def ddl(*, config: Config = ConfigOption(checks=[])) -> None:
     """
     Show DDL commands used to create required tables in the project database.
     """
-    database = Database(config.database)
+    database = _get_database(config)
 
     for statement in database.ddl:
         write(statement)

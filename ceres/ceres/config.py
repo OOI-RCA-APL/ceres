@@ -305,7 +305,7 @@ class Config(ComponentConfig):
         config: Self,
         log: Callable[[object], None],
     ) -> list[ConfigDatabaseError]:
-        from ceres.database import Database
+        from ceres.database.database import Database
 
         log("Checking database configuration...")
 

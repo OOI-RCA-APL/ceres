@@ -2,7 +2,6 @@ import shutil
 import subprocess
 import traceback
 from abc import ABC, abstractmethod
-from enum import Enum
 from os import PathLike
 from pathlib import Path
 from sqlite3 import Connection as SQLiteConnection
@@ -17,31 +16,12 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from typing_extensions import LiteralString, override
 
 from ceres.config import DatabaseConfig, PostgresDatabaseConfig, SQLiteDatabaseConfig
+from ceres.database.enums import DataFormat, TableOption
 from ceres.directory import Directory
 from ceres.internal.database.entities import Entity
 from ceres.internal.utilities import sqlexpr, sqlstmt
 
 ConfigT = TypeVar("ConfigT", bound=DatabaseConfig, covariant=True)
-
-
-class DataFormat(str, Enum):
-    CSV = "csv"
-    SQLITE = "sqlite"
-
-
-class TableOption(str, Enum):
-    ALL = "all"
-    COMPONENTS = "components"
-    MESSAGES = "messages"
-    ALERTS = "alerts"
-    LOG_ENTRIES = "log-entries"
-
-    @property
-    def table_name(self) -> str:
-        if self == TableOption.LOG_ENTRIES:
-            return "log_entries"
-
-        return self.value
 
 
 class DatabaseAdapter(Generic[ConfigT], ABC):

@@ -5,9 +5,6 @@ from functools import wraps
 from pathlib import Path
 from typing import IO, TYPE_CHECKING, Any, Sequence
 
-import rich
-import rich.box
-from rich.table import Table
 from typer import Option, Typer
 
 from ceres.config import Config, ConfigCheckKind
@@ -83,6 +80,8 @@ async def get_config(
     config_path: Path | None,
     checks: Sequence[ConfigCheckKind],
 ) -> Config:
+    import rich
+
     match await Config.load(
         get_config_path(config_path),
         log=rich.print,
@@ -172,6 +171,8 @@ def write(
     file: IO[str] | None = None,
     flush: bool = False,
 ):
+    import rich
+
     rich.print(
         *args,
         sep=sep,
@@ -183,6 +184,9 @@ def write(
 
 @contextmanager
 def write_table(title: str | None = None):
+    import rich.box
+    from rich.table import Table
+
     table = Table(title=title, box=rich.box.SQUARE, title_justify="left")
     yield table
     write(table)

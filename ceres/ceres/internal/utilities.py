@@ -34,13 +34,10 @@ from typing import (
     cast,
 )
 
-import rich
-import sqlparse
 from pydantic import BaseModel, ConfigDict, TypeAdapter
 from pydantic.fields import FieldInfo
 from pydantic.validate_call import validate_call
 from pydantic_core import CoreSchema, SchemaSerializer, SchemaValidator
-from sqlalchemy.ext.asyncio import AsyncSession
 from typing_extensions import overload
 
 
@@ -468,6 +465,8 @@ def set_current_process_name(name: str) -> None:
 
 
 def dbg(value: _T) -> _T:
+    import rich
+
     rich.print(value)
     return value
 
@@ -644,7 +643,12 @@ def uniquify(iterable: Iterable[_T], key: Callable[[_T], Hashable] | None = None
 
 
 if TYPE_CHECKING:
-    from ceres.database import Database
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from ceres.database.database import Database
+else:
+    Database = object
+    AsyncSession = object
 
 
 async def get_session(database: "Database", session: AsyncSession | None) -> AsyncSession:
@@ -655,6 +659,8 @@ async def get_session(database: "Database", session: AsyncSession | None) -> Asy
 
 def sqlstmt(statement: str, *, indent: int = 0) -> str:
     statement = textwrap.dedent(statement).strip()
+    import sqlparse
+
     sqlparse.format(statement, keyword_case="upper").strip()
     statement = statement.rstrip(";")
     statement += ";"
@@ -665,6 +671,8 @@ def sqlstmt(statement: str, *, indent: int = 0) -> str:
 
 def sqlexpr(statement: str, *, indent: int = 0) -> str:
     statement = textwrap.dedent(statement).strip()
+    import sqlparse
+
     sqlparse.format(statement, keyword_case="upper").strip()
     if indent:
         statement = textwrap.indent(statement, " " * (indent * 4))

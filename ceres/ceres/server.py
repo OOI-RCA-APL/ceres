@@ -4,15 +4,13 @@ from asyncio import FIRST_COMPLETED
 from asyncio import Event as AsyncEvent
 from enum import Enum
 from pathlib import Path
-from typing import Sequence
+from typing import TYPE_CHECKING, Sequence
 
 from typing_extensions import Self, Unpack, override
 
 from ceres.address import Address, AddressSelector, DynamicAddress
-from ceres.component import Component, ComponentGroup
 from ceres.config import Config
 from ceres.data import ImmutableDataObject
-from ceres.database import Database
 from ceres.directory import Directory
 from ceres.errors import (
     ConfigError,
@@ -27,6 +25,14 @@ from ceres.internal.utilities import sleep_forever, strify, uniquify
 from ceres.internal.uvicorn import Uvicorn, UvicornConfig
 from ceres.object import Object
 from ceres.result import Fail, Ok, Result
+
+if TYPE_CHECKING:
+    from ceres.component import Component, ComponentGroup
+    from ceres.database.database import Database
+else:
+    Component = object
+    ComponentGroup = object
+    Database = object
 
 
 class ActionKind(str, Enum):
@@ -51,6 +57,8 @@ class Server(Object, kw_only=False):
                 self.__config: Config = config
             case Fail(errors):
                 raise ValueError(str(errors))
+
+        from ceres.database.database import Database
 
         self.__database = Database(self.__config.database)
         self.__reloading = AsyncEvent()
@@ -211,7 +219,7 @@ class Server(Object, kw_only=False):
         *,
         inclusive: bool = False,
         **kwargs: Unpack[ComponentFilterArgs],
-    ) -> "ComponentGroup":
+    ) -> ComponentGroup:
         return self.root.get_components(filter, inclusive=True, **kwargs)
 
     async def reload(self) -> Result[Config, ReloadError]:
@@ -276,6 +284,8 @@ class Server(Object, kw_only=False):
                     running = self.get_components(running=True)
                     await self.root.stop()
                     await self.__database.dispose()
+                    from ceres.database.database import Database
+
                     self.__database = Database(self.config.database)
                     running.start()
                 except Exception:

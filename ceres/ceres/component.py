@@ -56,7 +56,7 @@ from ceres.data import (
     Name,
     PositiveTimeDelta,
 )
-from ceres.database import Database
+from ceres.database.database import Database
 from ceres.errors import (
     ProcedureDoesNotExistError,
     ProcedureInternalError,
