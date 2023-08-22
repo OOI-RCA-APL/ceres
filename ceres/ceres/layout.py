@@ -3,12 +3,13 @@ from typing import Annotated, Any, Callable, Literal
 
 from pydantic import Field
 
-from ceres.data import DataObject, ImmutableDataObject, Name
+from ceres.data import Color, DataObject, ImmutableDataObject, Name
 from ceres.internal.utilities import strify
 
 
 class LayoutKind(str, Enum):
     DISPLAY = "display"
+    BUTTON = "button"
     ROW = "row"
     COLUMN = "column"
     CAROUSEL = "carousel"
@@ -30,6 +31,38 @@ class LayoutDisplay(DataObject):
             query = binding.name
 
         super().__init__(**{"title": title, "query": query, **kwargs})
+
+
+class LayoutButton(DataObject):
+    kind: Literal[LayoutKind.BUTTON] = LayoutKind.BUTTON
+    title: str
+    action: Name
+    color: Color | None = None
+
+    def __init__(
+        self,
+        title: str,
+        action: Name | Callable[..., Any],
+        color: Color | None = None,
+        **kwargs: Any,
+    ) -> None:
+        if not isinstance(action, str):
+            from ceres.component import ActionBinding, get_method_binding
+
+            binding = get_method_binding(action, ActionBinding)
+            if not binding:
+                raise ValueError(f"function {strify(action)} has no action binding")
+
+            action = binding.name
+
+        super().__init__(
+            **{
+                "title": title,
+                "action": action,
+                "color": color,
+                **kwargs,
+            }
+        )
 
 
 class LayoutRow(DataObject):
@@ -70,7 +103,7 @@ class LayoutCarousel(DataObject):
 
 
 LayoutNode = Annotated[  # type: ignore
-    LayoutDisplay | LayoutRow | LayoutColumn | LayoutCarousel,
+    LayoutDisplay | LayoutButton | LayoutRow | LayoutColumn | LayoutCarousel,
     Field(discriminator="kind"),
 ]
 LayoutContainerNode = Annotated[
@@ -86,9 +119,9 @@ class Layout(ImmutableDataObject):
         super().__init__(**{"body": body, **kwargs})
 
 
-def _update_forward_refs() -> None:
-    for _current in [LayoutDisplay, LayoutRow, LayoutColumn, LayoutCarousel]:
-        _current.model_rebuild()
+def __update_forward_refs() -> None:
+    for current in [LayoutDisplay, LayoutButton, LayoutRow, LayoutColumn, LayoutCarousel]:
+        current.model_rebuild()
 
 
-_update_forward_refs()
+__update_forward_refs()

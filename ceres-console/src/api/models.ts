@@ -150,6 +150,14 @@ export const LayoutDisplayModel = Zod.object({
   query: Zod.string(),
 })
 
+export type LayoutButton = Zod.infer<typeof LayoutButtonModel>
+export const LayoutButtonModel = Zod.object({
+  kind: Zod.literal('button'),
+  title: Zod.string(),
+  action: Zod.string(),
+  color: Zod.string().optional().nullable(),
+})
+
 export type LayoutRow = {
   kind: 'row'
   children: LayoutNode[]
@@ -179,12 +187,13 @@ export type LayoutCarousel = {
 export const LayoutCarouselModel: Zod.ZodType<LayoutCarousel> = Zod.object({
   kind: Zod.literal('carousel'),
   children: Zod.lazy(() => Zod.array(LayoutNodeModel)),
-  height: Zod.union([Zod.string(), Zod.number(), Zod.null()]).optional().default(null),
+  height: Zod.union([Zod.string(), Zod.number()]).optional().nullable(),
 })
 
 export type LayoutNode = Zod.infer<typeof LayoutNodeModel>
 export const LayoutNodeModel = Zod.union([
   LayoutDisplayModel,
+  LayoutButtonModel,
   LayoutColumnModel,
   LayoutRowModel,
   LayoutCarouselModel,

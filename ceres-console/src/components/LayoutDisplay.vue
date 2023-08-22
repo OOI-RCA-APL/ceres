@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { ComponentInfo, LayoutDisplay } from '@/api/models'
 import { useDisplayStream } from '@/api/operations'
-import DisplayContent from '@/components/DisplayContent.vue'
+import LayoutDisplayContent from '@/components/LayoutDisplayContent.vue'
 import SchemaForm from '@/components/schema-form/SchemaForm.vue'
 import { DisplayInfo } from '@/display'
 import { LayoutPath } from '@/layout'
@@ -87,7 +87,7 @@ const configButtonColor = $computed(() => {
     :class="[$q.dark.isActive && $style.dark, 'column', 'full-height', 'relative-position']"
     flat
   >
-    <display-content
+    <layout-display-content
       :display="display"
       :info="info"
       title-clickable
@@ -95,7 +95,7 @@ const configButtonColor = $computed(() => {
     />
     <q-dialog v-if="form" v-model="isShowingDialog" full-width>
       <q-card bordered :class="[$style.dialogContainer, $q.dark.isActive && 'no-shadow']">
-        <display-content :display="display" :info="info" :is-loading="isLoading" />
+        <layout-display-content :display="display" :info="info" :is-loading="isLoading" />
         <q-separator />
         <template v-if="!form.isEmpty">
           <div class="q-pt-sm q-px-sm">

@@ -3,9 +3,8 @@ from enum import Enum
 from typing import Literal, Mapping, Sequence, TypeAlias
 
 from pydantic import StrictBool, StrictFloat, StrictInt, StrictStr
-from pydantic_extra_types.color import Color
 
-from ceres.data import ImmutableDataObject
+from ceres.data import Color, ImmutableDataObject
 
 
 class ConsoleColor(Color, Enum):
