@@ -52,7 +52,7 @@ from ceres.filter import (
     StatisticsFilterArgs,
 )
 from ceres.internal.tasklet import Tasklet
-from ceres.internal.utilities import chunkify, get_type_adapter
+from ceres.internal.utilities import get_type_adapter
 from ceres.level import Level
 from ceres.logs import Log, LogEntry
 from ceres.message import Message
@@ -286,12 +286,8 @@ class Object(ValidatedDataclass, Tasklet):
             case DatabaseKind.SQLITE:
                 from sqlalchemy.dialects.sqlite import insert
 
-                chunk_size = 500
-
             case DatabaseKind.POSTGRES:
                 from sqlalchemy.dialects.postgresql import insert
-
-                chunk_size = 1000
 
         from ceres.internal.database.entities import (
             InternalAlertEntity,
@@ -312,8 +308,7 @@ class Object(ValidatedDataclass, Tasklet):
         for value in values:
             value["bin_id"] = bins[value.pop("address")]
 
-        for chunk in chunkify(values, chunk_size):
-            await session.execute(insert(entity_cls), chunk)
+        await session.execute(insert(entity_cls).on_conflict_do_nothing(), values)
 
     async def __create_items(self, session: AsyncSession, items: Iterable[Item]) -> None:
         bins = await self.__create_bins(session, items)
