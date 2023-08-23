@@ -262,7 +262,7 @@ class Database:
         async with await self.init() as session:
             rows = await session.execute(statement)
 
-        return [Message(**row._mapping) for row in rows]  # type: ignore
+        return [Message.model_validate(row, from_attributes=True) for row in rows]
 
     async def get_message(
         self,
@@ -353,7 +353,7 @@ class Database:
         async with await self.init() as session:
             rows = await session.execute(statement)
 
-        return [Alert(**row._mapping) for row in rows]  # type: ignore
+        return [Alert.model_validate(row, from_attributes=True) for row in rows]
 
     async def get_alert(
         self,
@@ -438,7 +438,7 @@ class Database:
         async with await self.init() as session:
             rows = await session.execute(statement)
 
-        return [LogEntry(**row._mapping) for row in rows]  # type: ignore
+        return [LogEntry.model_validate(row, from_attributes=True) for row in rows]
 
     async def get_log_entry(
         self,
