@@ -444,9 +444,12 @@ class Object(ValidatedDataclass, Tasklet):
         **kwargs: Unpack[MessageFilterArgs],
     ) -> list[Message]:
         filter = MessageFilter(**kwargs).with_defaults(filter)
-        addresses = self.__get_addresses(filter.address)
-        filter = filter.with_defaults(MessageFilter(address=AddressSelector(addresses)))
-        return await self.__object_database__.get_messages(filter)
+        if filter.address is None:
+            filter = filter.with_defaults(
+                MessageFilter(address=AddressSelector(self.__get_addresses()))
+            )
+
+        return await self.__object_database__.get_messages(filter, relative_to=self.address)
 
     async def get_message(
         self,
@@ -454,7 +457,11 @@ class Object(ValidatedDataclass, Tasklet):
         /,
         **kwargs: Unpack[MessageFilterArgs],
     ) -> Message | None:
-        return await self.__object_database__.get_message(filter, **kwargs)
+        return await self.__object_database__.get_message(
+            filter,
+            **kwargs,
+            relative_to=self.address,
+        )
 
     async def stream_messages(
         self,
@@ -465,7 +472,7 @@ class Object(ValidatedDataclass, Tasklet):
         filter = MessageFilter(**kwargs).with_defaults(filter)
 
         async for event in self.events.of(MessageSentEvent | MessageReceivedEvent).filter(
-            lambda event: filter.matches(event.message),
+            lambda event: filter.matches(event.message, self.address),
         ):
             yield event.message
 
@@ -476,9 +483,12 @@ class Object(ValidatedDataclass, Tasklet):
         **kwargs: Unpack[AlertFilterArgs],
     ) -> list[Alert]:
         filter = AlertFilter(**kwargs).with_defaults(filter)
-        addresses = self.__get_addresses(filter.address)
-        filter = filter.with_defaults(AlertFilter(address=AddressSelector(addresses)))
-        return await self.__object_database__.get_alerts(filter)
+        if filter.address is None:
+            filter = filter.with_defaults(
+                AlertFilter(address=AddressSelector(self.__get_addresses()))
+            )
+
+        return await self.__object_database__.get_alerts(filter, relative_to=self.address)
 
     async def get_alert(
         self,
@@ -486,7 +496,7 @@ class Object(ValidatedDataclass, Tasklet):
         /,
         **kwargs: Unpack[AlertFilterArgs],
     ) -> Alert | None:
-        return await self.__object_database__.get_alert(filter, **kwargs)
+        return await self.__object_database__.get_alert(filter, **kwargs, relative_to=self.address)
 
     async def stream_alerts(
         self,
@@ -497,7 +507,7 @@ class Object(ValidatedDataclass, Tasklet):
         filter = AlertFilter(**kwargs).with_defaults(filter)
 
         async for event in self.events.of(AlertEvent).filter(
-            lambda event: filter.matches(event.alert)
+            lambda event: filter.matches(event.alert, self.address)
         ):
             yield event.alert
 
@@ -508,9 +518,12 @@ class Object(ValidatedDataclass, Tasklet):
         **kwargs: Unpack[LogEntryFilterArgs],
     ) -> list[LogEntry]:
         filter = LogEntryFilter(**kwargs).with_defaults(filter)
-        addresses = self.__get_addresses(filter.address)
-        filter = filter.with_defaults(LogEntryFilter(address=AddressSelector(addresses)))
-        return await self.__object_database__.get_log_entries(filter)
+        if filter.address is None:
+            filter = filter.with_defaults(
+                LogEntryFilter(address=AddressSelector(self.__get_addresses()))
+            )
+
+        return await self.__object_database__.get_log_entries(filter, relative_to=self.address)
 
     async def get_log_entry(
         self,
@@ -518,7 +531,11 @@ class Object(ValidatedDataclass, Tasklet):
         /,
         **kwargs: Unpack[LogEntryFilterArgs],
     ) -> LogEntry | None:
-        return await self.__object_database__.get_log_entry(filter, **kwargs)
+        return await self.__object_database__.get_log_entry(
+            filter,
+            **kwargs,
+            relative_to=self.address,
+        )
 
     async def stream_log_entries(
         self,
@@ -529,7 +546,7 @@ class Object(ValidatedDataclass, Tasklet):
         filter = LogEntryFilter(**kwargs).with_defaults(filter)
 
         async for event in self.events.of(LogEvent).filter(
-            lambda event: filter.matches(event.entry)
+            lambda event: filter.matches(event.entry, self.address)
         ):
             yield event.entry
 
@@ -550,10 +567,10 @@ class Object(ValidatedDataclass, Tasklet):
 
         return await self.__object_database__.get_statistics(filter)
 
-    def __get_addresses(self, address: AddressSelector | None) -> list[Address]:
+    def __get_addresses(self, address: AddressSelector | None = None) -> list[Address]:
         addresses: list[Address] = []
 
-        if address is None or address.matches(self.address):
+        if address is None or address.matches(self.address, self.address):
             addresses.append(self.address)
 
         addresses.extend(

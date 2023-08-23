@@ -7,7 +7,6 @@ from uuid import UUID, uuid4
 from pydantic import Field
 from sqlalchemy import (
     BinaryExpression,
-    ColumnElement,
     Connection,
     SQLColumnExpression,
     Text,
@@ -15,7 +14,6 @@ from sqlalchemy import (
     delete,
     func,
     inspect,
-    or_,
     select,
     text,
 )
@@ -25,10 +23,9 @@ from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
 )
-from sqlalchemy.sql import expression
 from typing_extensions import Self, Unpack
 
-from ceres.address import Address, AddressSelector
+from ceres.address import Address
 from ceres.alert import Alert
 from ceres.config import (
     DatabaseConfig,
@@ -192,6 +189,8 @@ class Database:
         self,
         filter: MessageFilter | None = None,
         /,
+        *,
+        relative_to: Address = Address.root(),
         **kwargs: Unpack[MessageFilterArgs],
     ) -> list[Message]:
         filter = MessageFilter(**kwargs).with_defaults(filter)
@@ -200,7 +199,7 @@ class Database:
 
         if filter.address is not None:
             statement = statement.where(
-                self.__address_selector_matches(MessageEntity.address, filter.address)
+                filter.address.matches_expression(MessageEntity.address, relative_to),
             )
 
         if filter.search:
@@ -269,15 +268,23 @@ class Database:
         self,
         filter: MessageFilter | None = None,
         /,
+        *,
+        relative_to: Address = Address.root(),
         **kwargs: Unpack[MessageFilterArgs],
     ) -> Message | None:
-        messages = await self.get_messages(filter, **{**kwargs, "limit": 1})
+        messages = await self.get_messages(
+            filter,
+            **{**kwargs, "limit": 1},
+            relative_to=relative_to,
+        )
         return messages[0] if messages else None
 
     async def get_alerts(
         self,
         filter: AlertFilter | None = None,
         /,
+        *,
+        relative_to: Address = Address.root(),
         **kwargs: Unpack[AlertFilterArgs],
     ) -> list[Alert]:
         filter = AlertFilter(**kwargs).with_defaults(filter)
@@ -286,7 +293,7 @@ class Database:
 
         if filter.address is not None:
             statement = statement.where(
-                self.__address_selector_matches(AlertEntity.address, filter.address)
+                filter.address.matches_expression(AlertEntity.address, relative_to)
             )
 
         if filter.search is not None:
@@ -352,15 +359,19 @@ class Database:
         self,
         filter: AlertFilter | None = None,
         /,
+        *,
+        relative_to: Address = Address.root(),
         **kwargs: Unpack[AlertFilterArgs],
     ) -> Alert | None:
-        alerts = await self.get_alerts(filter, **{**kwargs, "limit": 1})
+        alerts = await self.get_alerts(filter, **{**kwargs, "limit": 1}, relative_to=relative_to)
         return alerts[0] if alerts else None
 
     async def get_log_entries(
         self,
         filter: LogEntryFilter | None = None,
         /,
+        *,
+        relative_to: Address = Address.root(),
         **kwargs: Unpack[LogEntryFilterArgs],
     ) -> list[LogEntry]:
         filter = LogEntryFilter(**kwargs).with_defaults(filter)
@@ -369,7 +380,7 @@ class Database:
 
         if filter.address is not None:
             statement = statement.where(
-                self.__address_selector_matches(LogEntryEntity.address, filter.address)
+                filter.address.matches_expression(LogEntryEntity.address, relative_to)
             )
 
         if filter.search is not None:
@@ -433,15 +444,23 @@ class Database:
         self,
         filter: LogEntryFilter | None = None,
         /,
+        *,
+        relative_to: Address = Address.root(),
         **kwargs: Unpack[LogEntryFilterArgs],
     ) -> LogEntry | None:
-        alerts = await self.get_log_entries(filter, **{**kwargs, "limit": 1})
+        alerts = await self.get_log_entries(
+            filter,
+            **{**kwargs, "limit": 1},
+            relative_to=relative_to,
+        )
         return alerts[0] if alerts else None
 
     async def get_statistics(
         self,
         filter: StatisticsFilter | None = None,
         /,
+        *,
+        relative_to: Address = Address.root(),
         **kwargs: Unpack[StatisticsFilterArgs],
     ) -> list[Statistics]:
         filter = StatisticsFilter(**kwargs).with_defaults(filter)
@@ -480,7 +499,7 @@ class Database:
         return list(
             result
             for result in results.values()
-            if filter.address is None or filter.address.matches(result.address)
+            if filter.address is None or filter.address.matches(result.address, relative_to)
         )
 
     async def __run_sync(self, callback: Callable[[Connection], _T]) -> _T:
@@ -503,49 +522,3 @@ class Database:
         if case_sensitive:
             return expression.like(pattern)
         return expression.ilike(pattern)
-
-    def __address_selector_matches(
-        self,
-        address: SQLColumnExpression[Address],
-        selector: AddressSelector,
-    ) -> ColumnElement[bool]:
-        conditions: list[ColumnElement[bool]] = []
-
-        for segment in selector.segments:
-            if ":" not in segment:
-                conditions.append(address == segment)
-                continue
-            if segment != "~" and not segment.startswith("@"):
-                segment = AddressSelector("@" + segment)
-
-            base, modifier = segment.split(":")
-
-            if base == "~":
-                if modifier == "all":
-                    conditions.append(expression.true())
-                elif modifier == "descendants":
-                    conditions.append(address != "~")
-                elif modifier == "children":
-                    conditions.append(address == "@")
-
-                continue
-
-            if base == "@":
-                if modifier == "all":
-                    conditions.append(address != "~")
-                elif modifier == "descendants":
-                    conditions.append(address != "~")
-                    conditions.append(address != "@")
-                elif modifier == "children":
-                    conditions.append(address.like("@_%"))
-
-                continue
-
-            if modifier == "all":
-                conditions.append((address == base) | address.startswith(f"{base}."))
-            elif modifier == "descendants":
-                conditions.append(address.startswith(f"{base}."))
-            elif modifier == "children":
-                conditions.append(address.startswith(f"{base}.") & address.not_like(f"{base}.%."))
-
-        return or_(*conditions)

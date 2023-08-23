@@ -1,18 +1,22 @@
 import re
-from functools import lru_cache
-from re import Pattern
-from typing import Any, Sequence
+from typing import TYPE_CHECKING, Any, Sequence
 
 from pydantic import GetCoreSchemaHandler
 from pydantic_core import CoreSchema
 from pydantic_core.core_schema import no_info_after_validator_function
 from typing_extensions import Self, override
 
+if TYPE_CHECKING:
+    from sqlalchemy import ColumnElement, SQLColumnExpression
+else:
+    SQLColumnExpression = object
+    ColumnElement = object
+
 from ceres.data import NAME_TYPE_PATTERN, Name
 
 _NAME = NAME_TYPE_PATTERN[1:-1]
-_MODIFIER = r":(all|children|descendants|ancestors)+"
-_SEGMENT = rf"~|@?[a-z-A-Z_\-.]+({_MODIFIER})?|@|{_MODIFIER}"
+_MODIFIER = r":(all|children|descendants)"
+_SEGMENT = rf"\~({_MODIFIER})?|@?[a-z-A-Z_\-.]+({_MODIFIER})?|@|{_MODIFIER}"
 
 
 class AddressSelector(str):
@@ -55,57 +59,121 @@ class AddressSelector(str):
     def __repr__(self) -> str:
         return f"{type(self).__name__}({repr(str(self))})"
 
-    def matches(self, address: "DynamicAddress", root: "Address | None" = None) -> bool:
-        resolved = address.relative_to(root) if root is not None else address
-        if resolved is None:
-            return False
-
-        return self.compile().match(resolved) is not None
-
     def __or__(self, other: "AddressSelector") -> "AddressSelector":
         return AddressSelector(f"{self}|{other}")
 
-    def compile(self) -> Pattern[str]:
-        return _compile_selector(self)
+    def as_absolute(self, root: "Address") -> "AddressSelector":
+        segments: list[str] = []
 
+        if root.is_server:
+            root = Address.root()
 
-@lru_cache(maxsize=500)
-def _compile_selector(pattern: "AddressSelector") -> Pattern[str]:
-    # TODO: Handle bare :all correctly.
-    segments = []
-
-    for segment in pattern.split("|"):
-        if segment == "~":
-            segments.append("~")
-            continue
-
-        segment = segment.strip()
-
-        # TODO: This shouldn't be happening.
-        if not segment.startswith("@"):
-            segment = "@" + segment
-
-        segment.replace(".", r"\.")
-
-        if segment.endswith(":all"):
-            segment = segment[: -len(":all")]
-            if segment == "@":
-                segment += r".*"
+        for segment in self.segments:
+            if segment.startswith(":"):
+                segments.append(root + segment)
+            elif segment.startswith("~") or segment.startswith("@"):
+                segments.append(segment)
             else:
-                segment += r"($|\..+)"
-        elif segment.endswith(":children"):
-            segment = segment[: -len(":children")]
-            segment += r"[^.]+$" if segment == "@" else r"\.[^.]+$"
-        elif segment.endswith(":descendants"):
-            segment = segment[: -len(":descendants")]
-            segment += r".+" if segment == "@" else r"\..+$"
-        elif segment.endswith(":ancestors"):
-            address = DynamicAddress(segment[: -len(":ancestors")])
-            segment = ("(" + "|".join(address.ancestors) + ")").replace(".", r"\.")
+                if segment == "~" or segment == "@":
+                    segments.append(root + segment)
+                else:
+                    segments.append(root + "." + segment)
 
-        segments.append(segment)
+        return AddressSelector(segments)
 
-    return re.compile("^" + "|".join(segments) + "$")
+    def matches(self, address: "Address", root: "Address") -> bool:
+        address = Address(address)
+        self = self.as_absolute(root)
+
+        for segment in self.segments:
+            if ":" not in segment:
+                if address == segment:
+                    return True
+
+            base, modifier = segment.split(":")
+
+            if base == "~":
+                if modifier == "all":
+                    return True
+                elif modifier == "descendants":
+                    if address != "~":
+                        return True
+                elif modifier == "children":
+                    if address == "@":
+                        return True
+
+                continue
+
+            if base == "@":
+                if modifier == "all":
+                    if address != "~":
+                        return True
+                elif modifier == "descendants":
+                    if address != "~" and address != "@":
+                        return True
+                elif modifier == "children":
+                    return address.startswith("@") and len(address) > 1
+
+                continue
+
+            if modifier == "all":
+                if address == base or address.startswith(base + "."):
+                    return True
+            elif modifier == "descendants":
+                if address.startswith(f"{base}."):
+                    return True
+            elif modifier == "children":
+                if address.startswith(f"{base}.") and address[len(base) + 2 :].count(".") == 0:
+                    return True
+
+        return False
+
+    def matches_expression(
+        self,
+        address: "SQLColumnExpression[Address]",
+        root: "Address",
+    ) -> "ColumnElement[bool]":
+        from sqlalchemy.sql import expression, or_
+
+        self = self.as_absolute(root)
+
+        conditions: list[ColumnElement[bool]] = []
+
+        for segment in self.segments:
+            if ":" not in segment:
+                conditions.append(address == segment)
+                continue
+
+            base, modifier = segment.split(":")
+
+            if base == "~":
+                if modifier == "all":
+                    conditions.append(expression.true())
+                elif modifier == "descendants":
+                    conditions.append(address != "~")
+                elif modifier == "children":
+                    conditions.append(address == "@")
+
+                continue
+
+            if base == "@":
+                if modifier == "all":
+                    conditions.append(address != "~")
+                elif modifier == "descendants":
+                    conditions.append(address.like("@_%"))
+                elif modifier == "children":
+                    conditions.append(address.like("@_%") & address.not_like("%.%"))
+
+                continue
+
+            if modifier == "all":
+                conditions.append((address == base) | address.startswith(f"{base}."))
+            elif modifier == "descendants":
+                conditions.append(address.startswith(f"{base}."))
+            elif modifier == "children":
+                conditions.append(address.startswith(f"{base}.") & address.not_like(f"{base}.%."))
+
+        return or_(*conditions)
 
 
 class DynamicAddress(AddressSelector):
@@ -204,14 +272,12 @@ class DynamicAddress(AddressSelector):
 
         return type(self)(f"{self}{'.' if not self.is_root else ''}{other.strip('.')}")
 
-    def relative_to(self, root: "Address") -> "DynamicAddress | None":
+    def as_absolute(self, root: "Address") -> "Address":
+        root = Address(root)
         if self.is_absolute:
-            return self
+            return Address(self)
 
-        if self.startswith(root):
-            return DynamicAddress(self[len(root) :])
-
-        return None
+        return root / self
 
     def as_relative(self) -> "DynamicAddress | None":
         if self.is_server:
@@ -222,9 +288,6 @@ class DynamicAddress(AddressSelector):
             return None
 
         return DynamicAddress(stripped)
-
-    def as_absolute(self) -> "Address":
-        return Address(self)
 
 
 class Address(DynamicAddress):
@@ -243,11 +306,15 @@ class Address(DynamicAddress):
     def validate(cls, value: Any) -> Self:
         if isinstance(value, cls):
             return value
+        if not isinstance(value, str):
+            raise TypeError(f"{value!r} must be an instance of {str}")
+
+        original = value
 
         if cls.regex.match(value) is None:
             value = "@" + value
         if cls.regex.match(value) is None:
-            raise ValueError(f"{value!r} must match regex {cls.regex.pattern}")
+            raise ValueError(f"{original!r} must match regex {cls.regex.pattern}")
 
         return str.__new__(cls, value)
 
