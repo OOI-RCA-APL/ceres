@@ -66,8 +66,10 @@ class BaseStandardEvent(Event, ABC):
 class StartedEvent(BaseStandardEvent):
     kind: Literal[StandardEventKind.STARTED] = StandardEventKind.STARTED
 
+
 class StoppingEvent(BaseStandardEvent):
     kind: Literal[StandardEventKind.STOPPING] = StandardEventKind.STOPPING
+
 
 class StoppedEvent(BaseStandardEvent):
     kind: Literal[StandardEventKind.STOPPED] = StandardEventKind.STOPPED
@@ -80,11 +82,14 @@ class EnabledEvent(BaseStandardEvent):
 class DisabledEvent(BaseStandardEvent):
     kind: Literal[StandardEventKind.DISABLED] = StandardEventKind.DISABLED
 
+
 class ConnectingEvent(BaseStandardEvent):
     kind: Literal[StandardEventKind.CONNECTING] = StandardEventKind.CONNECTING
 
+
 class ConnectedEvent(BaseStandardEvent):
     kind: Literal[StandardEventKind.CONNECTED] = StandardEventKind.CONNECTED
+
 
 class DisconnectingEvent(BaseStandardEvent):
     kind: Literal[StandardEventKind.DISCONNECTING] = StandardEventKind.DISCONNECTING
@@ -102,7 +107,13 @@ class ConnectFailedEvent(BaseStandardEvent):
     kind: Literal[StandardEventKind.CONNECT_FAILED] = StandardEventKind.CONNECT_FAILED
 
 
-ConnectionEvent = ConnectedEvent | DisconnectedEvent |DisconnectingEvent | ConnectionLostEvent | ConnectFailedEvent
+ConnectionEvent = (
+    ConnectedEvent
+    | DisconnectedEvent
+    | DisconnectingEvent
+    | ConnectionLostEvent
+    | ConnectFailedEvent
+)
 
 
 class MessageSentEvent(BaseStandardEvent):
