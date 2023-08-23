@@ -14,7 +14,7 @@ class CrabeeSimulator(Component):
     interval: PositiveTimeDelta = timedelta(seconds=1)
 
     @routine
-    async def __send_messages(self) -> None:
+    async def routine__send_messages(self) -> None:
         while True:
             self.log.info(f"Creating listener on port {self.port}...")
             server = await asyncio.start_server(
