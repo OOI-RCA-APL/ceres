@@ -218,7 +218,6 @@ class DynamicAddress(AddressSelector):
 
     @property
     def path(self) -> Sequence[Self]:
-        self = self.as_relative()
         path: list[Self] = []
         current = self
 
@@ -253,10 +252,6 @@ class DynamicAddress(AddressSelector):
     @property
     def is_root(self) -> bool:
         return self == "@"
-
-    @property
-    def is_component(self) -> bool:
-        return not self.is_server
 
     @property
     def is_absolute(self) -> bool:
