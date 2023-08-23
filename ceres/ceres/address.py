@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Any, Sequence
 from pydantic import GetCoreSchemaHandler
 from pydantic_core import CoreSchema
 from pydantic_core.core_schema import no_info_after_validator_function
-from typing_extensions import Self, override
+from typing_extensions import Literal, Self, override
 
 if TYPE_CHECKING:
     from sqlalchemy import ColumnElement, SQLColumnExpression
@@ -16,7 +16,7 @@ from ceres.data import NAME_TYPE_PATTERN, Name
 
 _NAME = NAME_TYPE_PATTERN[1:-1]
 _MODIFIER = r":(all|children|descendants)"
-_SEGMENT = rf"\~({_MODIFIER})?|@?[a-z-A-Z_\-.]+({_MODIFIER})?|@|{_MODIFIER}"
+_SEGMENT = rf"\~({_MODIFIER})?|@?[a-z-A-Z_\-.]+({_MODIFIER})?|@({_MODIFIER})?|{_MODIFIER}"
 
 
 class AddressSelector(str):
@@ -267,6 +267,7 @@ class DynamicAddress(AddressSelector):
         return not self.is_absolute
 
     def __truediv__(self, other: str) -> Self:
+        other = DynamicAddress(other)
         if self.is_server:
             return self
 
@@ -289,6 +290,32 @@ class DynamicAddress(AddressSelector):
 
         return DynamicAddress(stripped)
 
+    @property
+    def base(self) -> str | None:
+        if ":" not in self:
+            return str(self)
+
+        return self[: self.rindex(":")] or None
+
+    @property
+    def modifier(self) -> str | None:
+        if ":" not in self:
+            return None
+
+        return self[self.rindex(":") + 1 :]
+
+    def modify(self, modifier: Literal["all", "descendants", "children"]) -> AddressSelector:
+        return AddressSelector(f"{self.base or ''}:{modifier}")
+
+    def all(self) -> AddressSelector:
+        return self.modify("all")
+
+    def descendants(self) -> AddressSelector:
+        return self.modify("descendants")
+
+    def children(self) -> AddressSelector:
+        return self.modify("children")
+
 
 class Address(DynamicAddress):
     regex = re.compile(rf"^~|@({_NAME}(\.{_NAME})*)*$")
@@ -309,12 +336,8 @@ class Address(DynamicAddress):
         if not isinstance(value, str):
             raise TypeError(f"{value!r} must be an instance of {str}")
 
-        original = value
-
         if cls.regex.match(value) is None:
-            value = "@" + value
-        if cls.regex.match(value) is None:
-            raise ValueError(f"{original!r} must match regex {cls.regex.pattern}")
+            raise ValueError(f"{value!r} must match regex {cls.regex.pattern}")
 
         return str.__new__(cls, value)
 

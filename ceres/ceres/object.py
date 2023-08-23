@@ -445,9 +445,7 @@ class Object(ValidatedDataclass, Tasklet):
     ) -> list[Message]:
         filter = MessageFilter(**kwargs).with_defaults(filter)
         if filter.address is None:
-            filter = filter.with_defaults(
-                MessageFilter(address=AddressSelector(self.__get_addresses()))
-            )
+            filter = filter.with_defaults(MessageFilter(address=self.address.all()))
 
         return await self.__object_database__.get_messages(filter, relative_to=self.address)
 
@@ -484,9 +482,7 @@ class Object(ValidatedDataclass, Tasklet):
     ) -> list[Alert]:
         filter = AlertFilter(**kwargs).with_defaults(filter)
         if filter.address is None:
-            filter = filter.with_defaults(
-                AlertFilter(address=AddressSelector(self.__get_addresses()))
-            )
+            filter = filter.with_defaults(AlertFilter(address=self.address.all()))
 
         return await self.__object_database__.get_alerts(filter, relative_to=self.address)
 
@@ -519,9 +515,7 @@ class Object(ValidatedDataclass, Tasklet):
     ) -> list[LogEntry]:
         filter = LogEntryFilter(**kwargs).with_defaults(filter)
         if filter.address is None:
-            filter = filter.with_defaults(
-                LogEntryFilter(address=AddressSelector(self.__get_addresses()))
-            )
+            filter = filter.with_defaults(LogEntryFilter(address=self.address.all()))
 
         return await self.__object_database__.get_log_entries(filter, relative_to=self.address)
 
@@ -557,24 +551,11 @@ class Object(ValidatedDataclass, Tasklet):
         **kwargs: Unpack[StatisticsFilterArgs],
     ) -> list[Statistics]:
         filter = StatisticsFilter(**kwargs).with_defaults(filter)
-        addresses = self.__get_addresses(filter.address)
         filter = filter.with_defaults(
             StatisticsFilter(
                 root=self.address,
-                address=AddressSelector(addresses),
+                address=self.address.all(),
             )
         )
 
         return await self.__object_database__.get_statistics(filter)
-
-    def __get_addresses(self, address: AddressSelector | None = None) -> list[Address]:
-        addresses: list[Address] = []
-
-        if address is None or address.matches(self.address, self.address):
-            addresses.append(self.address)
-
-        addresses.extend(
-            component.address for component in self.get_components(address=address, inclusive=False)
-        )
-
-        return addresses
