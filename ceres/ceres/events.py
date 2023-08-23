@@ -15,6 +15,7 @@ from ceres.timing import utc
 
 class StandardEventKind(str, Enum):
     STARTED = "started"
+    STOPPING = "stopping"
     STOPPED = "stopped"
     ENABLED = "enabled"
     DISABLED = "disabled"
@@ -65,6 +66,8 @@ class BaseStandardEvent(Event, ABC):
 class StartedEvent(BaseStandardEvent):
     kind: Literal[StandardEventKind.STARTED] = StandardEventKind.STARTED
 
+class StoppingEvent(BaseStandardEvent):
+    kind: Literal[StandardEventKind.STOPPING] = StandardEventKind.STOPPING
 
 class StoppedEvent(BaseStandardEvent):
     kind: Literal[StandardEventKind.STOPPED] = StandardEventKind.STOPPED

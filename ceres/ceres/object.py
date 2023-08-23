@@ -38,6 +38,7 @@ from ceres.events import (
     MessageSentEvent,
     StartedEvent,
     StoppedEvent,
+    StoppingEvent,
 )
 from ceres.filter import (
     AlertFilter,
@@ -229,6 +230,7 @@ class Object(ValidatedDataclass, Tasklet):
 
     @override
     async def __stop__(self) -> None:
+        self.emit(StoppingEvent)
         await self.flush()
 
     @override
@@ -539,11 +541,9 @@ class Object(ValidatedDataclass, Tasklet):
     ) -> AsyncIterable[LogEntry]:
         filter = LogEntryFilter(**kwargs).with_defaults(filter)
 
-        # async for event in self.events.of(LogEvent).filter(
-        #     lambda event: filter.matches(event.entry, self.address)
-        # ):
-        #     yield event.entry
-        async for event in self.events.of(LogEvent):
+        async for event in self.events.of(LogEvent).filter(
+            lambda event: filter.matches(event.entry, self.address)
+        ):
             yield event.entry
 
     async def get_statistics(
