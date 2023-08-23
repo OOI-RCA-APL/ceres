@@ -54,7 +54,7 @@ from ceres.filter import (
     StatisticsFilterArgs,
 )
 from ceres.internal.database.entities import AlertEntity, Entity, LogEntryEntity, MessageEntity
-from ceres.internal.utilities import escape_like_expression
+from ceres.internal.utilities import escape_like_expression, get_type_adapter
 from ceres.level import Level
 from ceres.logs import LogEntry
 from ceres.message import Message
@@ -262,7 +262,7 @@ class Database:
         async with await self.init() as session:
             rows = await session.execute(statement)
 
-        return [Message.model_validate(row, from_attributes=True) for row in rows]
+        return get_type_adapter(list[Message]).validate_python(rows, from_attributes=True)
 
     async def get_message(
         self,
@@ -353,7 +353,7 @@ class Database:
         async with await self.init() as session:
             rows = await session.execute(statement)
 
-        return [Alert.model_validate(row, from_attributes=True) for row in rows]
+        return get_type_adapter(list[Alert]).validate_python(rows, from_attributes=True)
 
     async def get_alert(
         self,
@@ -438,7 +438,7 @@ class Database:
         async with await self.init() as session:
             rows = await session.execute(statement)
 
-        return [LogEntry.model_validate(row, from_attributes=True) for row in rows]
+        return get_type_adapter(list[LogEntry]).validate_python(rows, from_attributes=True)
 
     async def get_log_entry(
         self,
