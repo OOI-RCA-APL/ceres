@@ -133,7 +133,7 @@ class TCPConnection(Connection):
             return None
 
     @routine
-    async def __process_disconnect(self) -> None:
+    async def routine__process_disconnect(self) -> None:
         condition = self.disconnect_settings
         if condition is None:
             return
