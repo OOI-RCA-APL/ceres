@@ -4,7 +4,7 @@ from asyncio import FIRST_COMPLETED
 from asyncio import Event as AsyncEvent
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Sequence
+from typing import TYPE_CHECKING, Sequence, TypeVar
 
 from typing_extensions import Self, Unpack, override
 
@@ -18,6 +18,7 @@ from ceres.errors import (
     ReloadConfigInvalidError,
     ReloadError,
 )
+from ceres.events import Event, LogEvent
 from ceres.exceptions import DatabaseInitException
 from ceres.filter import ComponentFilter, ComponentFilterArgs
 from ceres.internal.project import Project
@@ -33,6 +34,8 @@ else:
     Component = object
     ComponentGroup = object
     Database = object
+
+_EventT = TypeVar("_EventT", bound=Event)
 
 
 class ActionKind(str, Enum):
@@ -154,9 +157,6 @@ class Server(Object, kw_only=False):
                         for component in self.get_components():
                             await component.__object_sync__(session)
                             if component.enabled and not component.running:
-                                self.log.info(
-                                    f"Starting enabled component '{component.address}'..."
-                                )
                                 component.start()
 
                     await sleep_forever()
@@ -206,6 +206,16 @@ class Server(Object, kw_only=False):
                 return ok
             case Fail() as fail:
                 return fail
+
+    @override
+    def propagate(self, event: _EventT) -> _EventT:
+        if not isinstance(event, LogEvent):
+            self.log.derive(event.address).info(
+                "Event({event})",
+                event=event.model_dump_json(exclude={"id", "timestamp"}),
+            )
+
+        return super().propagate(event)
 
     @override
     def get_component(self, address: str | DynamicAddress | None = None, /) -> Component | None:

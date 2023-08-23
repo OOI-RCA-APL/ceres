@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Callable, Protocol, Sequence, TypeAlias
 from uuid import UUID, uuid4
 
 from pydantic import Field
+from typing_extensions import Self
 
 from ceres.address import Address
 from ceres.data import DateTime, ImmutableDataObject
@@ -34,9 +35,21 @@ LogHandlerFunction: TypeAlias = Callable[[LogEntry], object]
 
 
 class Log:
-    def __init__(self, target: "Object | Address | Callable[[], Address]", /) -> None:
+    __slots__ = (
+        "__weakref__",
+        "__target",
+        "__emitter",
+        "__handlers",
+    )
+
+    def __init__(
+        self,
+        target: "Object | Address | Callable[[], Address]",
+        emitter: "Object | None" = None,
+    ) -> None:
         self.__target = target
-        self.__handlers: list[LogHandler | LogHandlerFunction] = []
+        self.__emitter = emitter
+        self.__handlers: tuple[LogHandler | LogHandlerFunction, ...] = ()
 
     @property
     def address(self) -> Address:
@@ -51,15 +64,13 @@ class Log:
 
     @property
     def handlers(self) -> Sequence[LogHandler | LogHandlerFunction]:
-        return list(self.__handlers)
+        return self.__handlers
 
     @property
     def base(self) -> Logger:
         return logs.get(self.address)
 
     def write(self, level: Level, content: object, *args: object, **kwargs: object) -> LogEntry:
-        from ceres.object import Object
-
         if not isinstance(content, str):
             content = str(content)
         if args or kwargs:
@@ -73,10 +84,10 @@ class Log:
             content=content,
         )
 
-        if isinstance(self.__target, Object):
+        if self.__emitter is not None:
             from ceres.events import LogEvent
 
-            self.__target.emit(LogEvent, entry=entry)
+            self.__emitter.emit(LogEvent, entry=entry)
 
         for handler in self.__handlers:
             if callable(handler):
@@ -101,12 +112,24 @@ class Log:
     def critical(self, content: object, *args: object, **kwargs: object) -> None:
         self.write(Level.CRITICAL, content, *args, **kwargs)
 
+    def derive(self, target: "Object | Address | Callable[[], Address]", /) -> Self:
+        derived = type(self)(target, self.__emitter)
+        derived.__handlers = self.__handlers
+        return derived
+
     def add_handler(self, handler: LogHandler | LogHandlerFunction) -> None:
-        if handler not in self.__handlers:
-            self.__handlers.append(handler)
+        if handler in self.__handlers:
+            return
+
+        self.__handlers = tuple([*self.__handlers, handler])
 
     def remove_handler(self, handler: LogHandler | LogHandlerFunction) -> None:
+        if handler not in self.__handlers:
+            return
+
         try:
-            self.__handlers.remove(handler)
+            self.__handlers = tuple(
+                [current for current in self.__handlers if current is not handler]
+            )
         except ValueError:
             pass

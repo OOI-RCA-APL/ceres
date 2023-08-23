@@ -100,7 +100,7 @@ class _Flush:
 class Object(ValidatedDataclass, Tasklet):
     def __post_init__(self) -> None:
         self.__events: WriteStream[Event] = WriteStream()
-        self.__log = Log(self)
+        self.__log = Log(self, self)
 
         self.__flush_buffer: list[Item] = []
         self.__flushes: deque[_Flush] = deque()
@@ -539,9 +539,11 @@ class Object(ValidatedDataclass, Tasklet):
     ) -> AsyncIterable[LogEntry]:
         filter = LogEntryFilter(**kwargs).with_defaults(filter)
 
-        async for event in self.events.of(LogEvent).filter(
-            lambda event: filter.matches(event.entry, self.address)
-        ):
+        # async for event in self.events.of(LogEvent).filter(
+        #     lambda event: filter.matches(event.entry, self.address)
+        # ):
+        #     yield event.entry
+        async for event in self.events.of(LogEvent):
             yield event.entry
 
     async def get_statistics(

@@ -18,8 +18,10 @@ class StandardEventKind(str, Enum):
     STOPPED = "stopped"
     ENABLED = "enabled"
     DISABLED = "disabled"
+    CONNECTING = "connecting"
     CONNECTED = "connected"
     DISCONNECTED = "disconnected"
+    DISCONNECTING = "disconnecting"
     CONNECTION_LOST = "connection-lost"
     CONNECT_FAILED = "connect-failed"
     MESSAGE_SENT = "message-sent"
@@ -75,9 +77,14 @@ class EnabledEvent(BaseStandardEvent):
 class DisabledEvent(BaseStandardEvent):
     kind: Literal[StandardEventKind.DISABLED] = StandardEventKind.DISABLED
 
+class ConnectingEvent(BaseStandardEvent):
+    kind: Literal[StandardEventKind.CONNECTING] = StandardEventKind.CONNECTING
 
 class ConnectedEvent(BaseStandardEvent):
     kind: Literal[StandardEventKind.CONNECTED] = StandardEventKind.CONNECTED
+
+class DisconnectingEvent(BaseStandardEvent):
+    kind: Literal[StandardEventKind.DISCONNECTING] = StandardEventKind.DISCONNECTING
 
 
 class DisconnectedEvent(BaseStandardEvent):
@@ -92,7 +99,7 @@ class ConnectFailedEvent(BaseStandardEvent):
     kind: Literal[StandardEventKind.CONNECT_FAILED] = StandardEventKind.CONNECT_FAILED
 
 
-ConnectionEvent = ConnectedEvent | DisconnectedEvent | ConnectionLostEvent | ConnectFailedEvent
+ConnectionEvent = ConnectedEvent | DisconnectedEvent |DisconnectingEvent | ConnectionLostEvent | ConnectFailedEvent
 
 
 class MessageSentEvent(BaseStandardEvent):

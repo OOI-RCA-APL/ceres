@@ -837,7 +837,6 @@ class Component(Object):
     @override
     async def __stop__(self) -> None:
         for component in reversed(self.components):
-            self.log.info(f"Stopping '{component.address}'...")
             await component.stop()
 
         if self.__scheduler.running:

@@ -14,8 +14,10 @@ from ceres.data import ImmutableDataObject
 from ceres.events import (
     ConnectedEvent,
     ConnectFailedEvent,
+    ConnectingEvent,
     ConnectionLostEvent,
     DisconnectedEvent,
+    DisconnectingEvent,
     MessageReceivedEvent,
     MessageSentEvent,
 )
@@ -102,7 +104,7 @@ class Connection(Component, ABC):
         if self.__state == ConnectionState.CONNECTED:
             return True
 
-        self.log.info(f"Connecting to '{self.target}'...")
+        self.emit(ConnectingEvent)
         self.__state = ConnectionState.CONNECTING
 
         try:
@@ -115,11 +117,9 @@ class Connection(Component, ABC):
         if connected:
             self.__state = ConnectionState.CONNECTED
             self.emit(ConnectedEvent)
-            self.log.info("Connected successfully.")
         else:
             self.__state = ConnectionState.DISCONNECTED
             self.emit(ConnectFailedEvent)
-            self.log.error("Failed to connect.")
 
         return self.connected
 
@@ -165,7 +165,6 @@ class Connection(Component, ABC):
 
         if data is None:
             if self.connected:
-                self.log.error("Connection was lost.")
                 self.emit(ConnectionLostEvent)
                 await self.disconnect()
 
@@ -184,14 +183,13 @@ class Connection(Component, ABC):
         if self.__state == ConnectionState.DISCONNECTED:
             return
 
-        self.log.info("Disconnecting...")
+        self.emit(DisconnectingEvent)
 
         try:
             await self._try_disconnect()
         finally:
             self.__state = ConnectionState.DISCONNECTED
             self.emit(DisconnectedEvent)
-            self.log.info("Disconnected.")
 
     @routine
     async def routine__process_connection(self) -> None:

@@ -175,7 +175,6 @@ class CrabeeDriver(UI):
             message = CrabeeParticle.parse(event.message)
             self.__data_message_stream.put(message)
             self.__last_data_message_received = message
-            self.log.info(message)
             self.__check_data_message(message)
 
             file = message.source.timestamp.strftime("%Y/%m/%y-%m-%d.csv")
