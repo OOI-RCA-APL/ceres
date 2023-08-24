@@ -105,7 +105,7 @@ class SQLiteDatabaseAdapter(DatabaseAdapter[SQLiteDatabaseConfig]):
             "poolclass": QueuePool,
             "pool_size": 10,  # Keep a maximum of ten connections alive continuously.
             "max_overflow": -1,  # Allow an infinite number of connections to be created if needed.
-            "pool_recycle": 60,  # Recreate connections after one minute.
+            "pool_recycle": 15 * 60,  # Recreate connections after fifteen minutes.
             **self.config.engine,
         }
 
@@ -129,7 +129,7 @@ class SQLiteDatabaseAdapter(DatabaseAdapter[SQLiteDatabaseConfig]):
             # Run optimize every time we close a database connection.
             # https://www.sqlite.org/lang_analyze.html
             try:
-                connection.execute("PRAGMA analysis_limit = 500")
+                connection.execute("PRAGMA analysis_limit = 1000")
                 connection.execute("PRAGMA optimize")
             except OperationalError:
                 pass
