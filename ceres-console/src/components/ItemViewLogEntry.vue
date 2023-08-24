@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { LogEntry } from '@/api/models'
-
 import ItemViewItem from '@/components/ItemViewItem.vue'
+import TextContent from '@/components/TextContent.vue'
 
 const { entry } = defineProps<{
   entry: LogEntry
@@ -33,9 +33,7 @@ const levelColor = $computed(() => {
       </q-chip>
     </q-td>
     <q-td>
-      <span :class="$style.content">
-        {{ JSON.stringify(entry.content) }}
-      </span>
+      <text-content :class="$style.content" :text="entry.content" />
     </q-td>
   </item-view-item>
 </template>

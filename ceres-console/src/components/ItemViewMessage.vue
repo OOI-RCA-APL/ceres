@@ -1,6 +1,7 @@
 <script lang="ts" setup>
 import { Message } from '@/api/models'
 import ItemViewItem from '@/components/ItemViewItem.vue'
+import TextContent from '@/components/TextContent.vue'
 
 const { message } = defineProps<{
   message: Message
@@ -26,9 +27,7 @@ const directionColor = $computed(() => {
       </q-chip>
     </q-td>
     <q-td>
-      <span :class="$style.content">
-        {{ JSON.stringify(message.content) }}
-      </span>
+      <text-content :class="$style.content" :text="message.content" />
     </q-td>
   </item-view-item>
 </template>
