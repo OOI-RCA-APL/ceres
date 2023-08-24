@@ -217,7 +217,10 @@ class LaunchDService(Service):
 
     @property
     def path(self) -> Path:
-        import launchd
+        if sys.platform == "darwin":
+            import launchd
+        else:
+            raise NotImplementedError()
 
         return Path(launchd.plist.compute_filename(self.label, launchd.plist.USER))
 
@@ -227,7 +230,12 @@ class LaunchDService(Service):
 
     @override
     def create(self) -> None:
-        import plistlib
+        if sys.platform == "darwin":
+            import plistlib
+
+            import launchd
+        else:
+            raise NotImplementedError()
 
         current = plistlib.loads(self.path.read_text().encode()) if self.path.exists() else None
         data = {
@@ -244,8 +252,6 @@ class LaunchDService(Service):
             data["StandardErrorPath"] = str(self.stderr)
 
         if current != data:
-            import launchd
-
             launchd.plist.write(self.label, data)
             return
 
@@ -263,7 +269,10 @@ class LaunchDService(Service):
         log_output: bool = True,
     ) -> bytes | Exception | None:
         try:
-            import launchd.cmd
+            if sys.platform == "darwin":
+                import launchd.cmd
+            else:
+                raise NotImplementedError()
 
             output = launchd.cmd.launchctl(*(str(segment) for segment in command))
             if log_output and output.strip():
