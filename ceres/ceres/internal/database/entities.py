@@ -99,20 +99,23 @@ class Entity(MappedAsDataclass, DeclarativeBase, kw_only=True):
 
     @classmethod
     async def create_all(cls, bind: AsyncEngine | AsyncConnection) -> None:
-        match bind:
-            case AsyncEngine():
-                engine = bind.sync_engine
-                connection = await bind.connect()
-            case AsyncConnection():
-                engine = bind.sync_engine
-                connection = bind
-
-        async with connection.begin():
+        async def execute(connection: AsyncConnection) -> None:
+            nonlocal cls
             for cls in cls.get_entity_classes():
-                for statement in cls.get_entity_ddl(engine):
+                for statement in cls.get_entity_ddl(bind.sync_engine):
                     await connection.execute(text(statement))
 
             await connection.commit()
+
+        if isinstance(bind, AsyncEngine):
+            async with bind.begin() as connection:
+                await execute(connection)
+        else:
+            if not bind.in_transaction():
+                async with bind.begin():
+                    await execute(bind)
+            else:
+                await execute(bind)
 
     def values(self) -> dict[str, Any]:
         return {name: getattr(self, name) for name in self.__table__.columns.keys()}
