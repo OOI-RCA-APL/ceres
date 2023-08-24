@@ -90,6 +90,8 @@ class AddressSelector(str):
                 if address == segment:
                     return True
 
+                continue
+
             base, modifier = segment.split(":")
 
             if base == "~":
