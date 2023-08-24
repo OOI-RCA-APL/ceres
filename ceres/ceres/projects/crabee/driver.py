@@ -125,7 +125,7 @@ class CrabeeDriver(UI):
         self.__data_message_stream: WriteStream[CrabeeParticle] = WriteStream()
 
     @routine
-    async def do__fetch_last_data_message(self) -> None:
+    async def routine__fetch_last_data_message(self) -> None:
         if messages := await self.connection.get_messages(
             order=MessageOrder.NEW_TO_OLD,
             limit=1,

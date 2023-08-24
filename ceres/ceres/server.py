@@ -211,8 +211,9 @@ class Server(Object, kw_only=False):
     def propagate(self, event: _EventT) -> _EventT:
         if not isinstance(event, LogEvent):
             self.log.derive(event.address).info(
-                "Event({event})",
-                event=event.model_dump_json(exclude={"id", "timestamp"}),
+                "[event] [{kind}] {event}",
+                kind=event.kind,
+                event=event.model_dump_json(exclude={"id", "timestamp", "address", "kind"}),
             )
 
         return super().propagate(event)

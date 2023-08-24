@@ -1,6 +1,6 @@
 from abc import ABC
 from enum import Enum
-from typing import TYPE_CHECKING, Literal, cast
+from typing import TYPE_CHECKING, Literal, Sequence, cast
 from uuid import UUID, uuid4
 
 from pydantic import Field
@@ -45,6 +45,10 @@ class StandardEventKind(str, Enum):
     JOB_EXCEPTION = "job-exception"
     JOB_RETRY_PENDING = "job-retry-pending"
     JOB_RETRY = "job-retry"
+    PROCEDURE_CALLED = "procedure-called"
+    PROCEDURE_COMPLETED = "procedure-completed"
+    PROCEDURE_EXCEPTION = "procedure-exception"
+    DATABASE_EXCEPTION = "database-exception"
 
 
 class Event(ImmutableDataObject):
@@ -162,6 +166,7 @@ class RoutineCancelledEvent(BaseStandardEvent):
 class RoutineExceptionEvent(BaseStandardEvent):
     kind: Literal[StandardEventKind.ROUTINE_EXCEPTION] = StandardEventKind.ROUTINE_EXCEPTION
     routine: str
+    traceback: Sequence[str]
 
 
 class RoutineRestartingEvent(BaseStandardEvent):
@@ -217,6 +222,7 @@ class JobCancelledEvent(BaseStandardEvent):
 class JobExceptionEvent(BaseStandardEvent):
     kind: Literal[StandardEventKind.JOB_EXCEPTION] = StandardEventKind.JOB_EXCEPTION
     job: str
+    traceback: Sequence[str]
 
 
 class JobRetryPendingEvent(BaseStandardEvent):
@@ -242,6 +248,33 @@ JobEvent = (
     | JobRetryEvent
 )
 
+
+class ProcedureCalledEvent(BaseStandardEvent):
+    kind: Literal[StandardEventKind.PROCEDURE_CALLED] = StandardEventKind.PROCEDURE_CALLED
+    procedure: str
+
+
+class ProcedureCompletedEvent(BaseStandardEvent):
+    kind: Literal[StandardEventKind.PROCEDURE_COMPLETED] = StandardEventKind.PROCEDURE_COMPLETED
+    procedure: str
+
+
+class ProcedureExceptionEvent(BaseStandardEvent):
+    kind: Literal[StandardEventKind.PROCEDURE_EXCEPTION] = StandardEventKind.PROCEDURE_EXCEPTION
+    procedure: str
+    traceback: Sequence[str]
+
+
+ProcedureEvent = ProcedureCalledEvent | ProcedureCompletedEvent | ProcedureExceptionEvent
+
+
+class DatabaseExceptionEvent(BaseStandardEvent):
+    kind: Literal[StandardEventKind.DATABASE_EXCEPTION] = StandardEventKind.DATABASE_EXCEPTION
+    traceback: Sequence[str]
+
+
+DatabaseEvent = DatabaseExceptionEvent
+
 StandardEvent = (
     StartedEvent
     | StoppedEvent
@@ -253,4 +286,10 @@ StandardEvent = (
     | LogEvent
     | RoutineEvent
     | JobEvent
+    | ProcedureEvent
+    | DatabaseEvent
+)
+
+ExceptionEvent = (
+    RoutineExceptionEvent | JobExceptionEvent | ProcedureExceptionEvent | DatabaseExceptionEvent
 )

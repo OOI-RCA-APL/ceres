@@ -736,3 +736,9 @@ def validated_function(
 @cached(max_size=500)
 def get_type_adapter(type_: type[_T]) -> TypeAdapter[_T]:
     return TypeAdapter(type_)
+
+
+def get_traceback(exception: BaseException) -> list[str]:
+    import traceback
+
+    return traceback.format_exception(exception)

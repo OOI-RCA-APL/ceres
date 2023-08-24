@@ -32,7 +32,7 @@ from ceres.errors import (
     ConfigReadError,
     ConfigValidationError,
 )
-from ceres.internal.utilities import lenient_issubclass, show_td
+from ceres.internal.utilities import get_traceback, lenient_issubclass, show_td
 from ceres.loaded import Loader
 from ceres.logs import Log
 from ceres.result import Fail, Ok, Result
@@ -369,7 +369,7 @@ class Config(ComponentConfig):
                             component=address,
                             error=ComponentInitExceptionError(
                                 message="an exception occurred while loading this component",
-                                traceback=traceback.format_exception(exception),
+                                traceback=get_traceback(exception),
                             ),
                         )
                     )

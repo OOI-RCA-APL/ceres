@@ -1,5 +1,4 @@
 import asyncio
-import traceback
 from abc import abstractmethod
 from asyncio import Event as AsyncEvent
 from collections import defaultdict, deque
@@ -16,6 +15,7 @@ from typing import (
     TypeVar,
 )
 
+from sqlalchemy.exc import DatabaseError
 from typing_extensions import ParamSpec, Unpack, dataclass_transform, overload, override
 
 from ceres.address import Address, AddressSelector, DynamicAddress
@@ -29,6 +29,7 @@ from ceres.data import (
 from ceres.events import (
     AlertEvent,
     ConnectedEvent,
+    DatabaseExceptionEvent,
     DisabledEvent,
     DisconnectedEvent,
     EnabledEvent,
@@ -53,7 +54,7 @@ from ceres.filter import (
     StatisticsFilterArgs,
 )
 from ceres.internal.tasklet import Tasklet
-from ceres.internal.utilities import get_type_adapter
+from ceres.internal.utilities import get_traceback, get_type_adapter
 from ceres.level import Level
 from ceres.logs import Log, LogEntry
 from ceres.message import Message
@@ -90,7 +91,7 @@ class Status(ImmutableDataObject):
 
 @dataclass
 class _Flush:
-    items: Sequence[Item]
+    items: list[Item]
     event: AsyncEvent = field(default_factory=AsyncEvent)
 
 
@@ -225,7 +226,11 @@ class Object(ValidatedDataclass, Tasklet):
     async def __process_flush(self) -> None:
         while True:
             if self.__flush_buffer and not self.__flushes:
-                await self.flush()
+                try:
+                    await self.flush()
+                except Exception:
+                    await asyncio.sleep(1)
+
             await asyncio.sleep(0.1)
 
     @override
@@ -351,11 +356,16 @@ class Object(ValidatedDataclass, Tasklet):
             async with await self.__object_database__.init() as session:
                 await self.__create_items(session, flush.items)
                 await session.commit()
-        except Exception:
-            traceback.print_exc()
-            raise
+        except DatabaseError as exception:
+            if len(self.__flushes) > 1:
+                next = self.__flushes[1].items
+            else:
+                next = self.__flush_buffer
+
+            next[0:0] = flush.items
+            self.emit(DatabaseExceptionEvent, traceback=get_traceback(exception))
         finally:
-            # Notify the flush is complete.
+            # Notify the flush attempt is over.
             flush.event.set()
             # Remove it from the queue.
             self.__flushes.popleft()

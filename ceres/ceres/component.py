@@ -75,6 +75,9 @@ from ceres.events import (
     JobRetryPendingEvent,
     JobStartedEvent,
     JobStoppedEvent,
+    ProcedureCalledEvent,
+    ProcedureCompletedEvent,
+    ProcedureExceptionEvent,
     RoutineCancelledEvent,
     RoutineCompletedEvent,
     RoutineExceptionEvent,
@@ -94,6 +97,7 @@ from ceres.internal.utilities import (
     get_function_name,
     get_inner_function,
     get_session,
+    get_traceback,
     get_type_adapter,
     lenient_isinstance,
     randstr,
@@ -730,8 +734,8 @@ class Component(Object):
             except CancelledError:
                 self.emit(JobCancelledEvent, job=name)
                 break
-            except Exception:
-                self.emit(JobExceptionEvent, job=name)
+            except Exception as exception:
+                self.emit(JobExceptionEvent, job=name, traceback=get_traceback(exception))
                 if retry >= retries:
                     break
 
@@ -809,8 +813,12 @@ class Component(Object):
                     self.emit(RoutineCompletedEvent, routine=binding.method)
                     if binding.restart == RoutineRestartPolicy.ON_COMPLETED:
                         break
-                except Exception:
-                    self.emit(RoutineExceptionEvent, routine=binding.method)
+                except Exception as exception:
+                    self.emit(
+                        RoutineExceptionEvent,
+                        routine=binding.method,
+                        traceback=get_traceback(exception),
+                    )
                     if binding.restart == RoutineRestartPolicy.ON_EXCEPTION:
                         break
 
@@ -867,6 +875,7 @@ class Component(Object):
         validated = create_validated_function(method)
 
         try:
+            self.emit(ProcedureCalledEvent, procedure=procedure)
             return await awaitify(validated(**args))
         except ValidationError as error:
             if method.__name__ in error.title:
@@ -876,10 +885,9 @@ class Component(Object):
 
             raise
         except Exception as exception:
-            traceback.print_exc()
-            raise ProcedureException(
-                ProcedureInternalError(traceback=traceback.format_exception(exception))
-            )
+            traceback = get_traceback(exception)
+            self.emit(ProcedureExceptionEvent, procedure=procedure, traceback=traceback)
+            raise ProcedureException(ProcedureInternalError(traceback=list(traceback)))
 
     async def call(
         self,
@@ -908,9 +916,11 @@ class Component(Object):
                         last = output
                     return last
         except Exception as exception:
-            raise ProcedureException(
-                ProcedureInternalError(traceback=traceback.format_exception(exception))
-            )
+            traceback = get_traceback(exception)
+            self.emit(ProcedureExceptionEvent, procedure=procedure, traceback=traceback)
+            raise ProcedureException(ProcedureInternalError(traceback=list(traceback)))
+        finally:
+            self.emit(ProcedureCompletedEvent, procedure=procedure)
 
     async def subscribe(
         self,
@@ -929,23 +939,18 @@ class Component(Object):
                     yield await self.__invoke(procedure, args)
                     await asyncio.sleep(binding.poll.total_seconds())
             except Exception as exception:
-                self.log.error(
-                    f"An exception occurred in procedure '{procedure}': {traceback.format_exc()}"
-                )
-                raise ProcedureException(
-                    ProcedureInternalError(traceback=traceback.format_exception(exception))
-                )
+                traceback = get_traceback(exception)
+                self.emit(ProcedureExceptionEvent, procedure=procedure, traceback=traceback)
+                raise ProcedureException(ProcedureInternalError(traceback=list(traceback)))
 
         try:
-            async for output in result:
-                yield output
+            if result is not None:
+                async for output in result:
+                    yield output
         except Exception as exception:
-            self.log.error(
-                f"An exception occurred in procedure '{procedure}': {traceback.format_exc()}"
-            )
-            raise ProcedureException(
-                ProcedureInternalError(traceback=traceback.format_exception(exception))
-            )
+            traceback = get_traceback(exception)
+            self.emit(ProcedureExceptionEvent, procedure=procedure, traceback=traceback)
+            raise ProcedureException(ProcedureInternalError(traceback=list(traceback)))
 
 
 @cached
