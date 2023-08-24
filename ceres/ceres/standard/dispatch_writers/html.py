@@ -1,6 +1,5 @@
 from collections import defaultdict
 from datetime import datetime
-from itertools import groupby
 from typing import Any, Iterable, Sequence, final
 
 from typing_extensions import override
@@ -8,6 +7,7 @@ from typing_extensions import override
 from ceres.address import Address
 from ceres.alert import Alert, Level
 from ceres.data import jsonify
+from ceres.internal.utilities import group_by
 from ceres.roles.dispatcher import Dispatch, DispatchWriter
 from ceres.roles.notifier import Notification
 from ceres.standard.markdown import markdown
@@ -50,11 +50,11 @@ class HTMLDispatchWriter(DispatchWriter):
 
         index = create_index()
 
-        for level, by_level in groupby(
+        for level, by_level in group_by(
             sorted(alerts, key=lambda alert: alert.level, reverse=True),
             key=lambda alert: alert.level,
         ):
-            for key, by_key in groupby(
+            for key, by_key in group_by(
                 sorted(by_level, key=lambda alert: -alert.timestamp.timestamp()),
                 lambda alert: (alert.address, alert.code, jsonify(alert.info)),
             ):

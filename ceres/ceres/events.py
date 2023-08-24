@@ -47,6 +47,7 @@ class StandardEventKind(str, Enum):
     JOB_RETRY = "job-retry"
     PROCEDURE_CALLED = "procedure-called"
     PROCEDURE_COMPLETED = "procedure-completed"
+    PROCEDURE_CANCELLED = "procedure-cancelled"
     PROCEDURE_EXCEPTION = "procedure-exception"
     DATABASE_EXCEPTION = "database-exception"
 
@@ -256,6 +257,11 @@ class ProcedureCalledEvent(BaseStandardEvent):
 
 class ProcedureCompletedEvent(BaseStandardEvent):
     kind: Literal[StandardEventKind.PROCEDURE_COMPLETED] = StandardEventKind.PROCEDURE_COMPLETED
+    procedure: str
+
+
+class ProcedureCancelledEvent(BaseStandardEvent):
+    kind: Literal[StandardEventKind.PROCEDURE_CANCELLED] = StandardEventKind.PROCEDURE_CANCELLED
     procedure: str
 
 

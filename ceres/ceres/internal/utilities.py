@@ -7,7 +7,7 @@ import re
 import signal
 import textwrap
 from asyncio import AbstractEventLoop
-from collections import OrderedDict
+from collections import OrderedDict, defaultdict
 from contextlib import contextmanager
 from datetime import timedelta
 from functools import lru_cache, wraps
@@ -640,6 +640,14 @@ def uniquify(iterable: Iterable[_T], key: Callable[[_T], Hashable] | None = None
 
         seen.add(identity)
         yield value
+
+
+def group_by(iterable: Iterable[_V], key: Callable[[_V], _K]) -> Iterable[tuple[_K, list[_V]]]:
+    groups: defaultdict[_K, list[_V]] = defaultdict(list)
+    for value in iterable:
+        groups[key(value)].append(value)
+    for item in groups.items():
+        yield item
 
 
 if TYPE_CHECKING:

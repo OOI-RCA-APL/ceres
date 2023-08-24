@@ -1,5 +1,4 @@
 import asyncio
-import itertools
 import traceback
 from datetime import timedelta
 from enum import Enum
@@ -32,7 +31,7 @@ from ceres.errors import (
     ConfigReadError,
     ConfigValidationError,
 )
-from ceres.internal.utilities import get_traceback, lenient_issubclass, show_td
+from ceres.internal.utilities import get_traceback, group_by, lenient_issubclass, show_td
 from ceres.loaded import Loader
 from ceres.logs import Log
 from ceres.result import Fail, Ok, Result
@@ -104,7 +103,7 @@ class ComponentConfig(Loader, _ComponentConfigMixin):
         info: FieldValidationInfo,
     ) -> Sequence["ComponentConfig"]:
         name: str = info.data.get("name", "<ERROR>")
-        for component_name, group in itertools.groupby(
+        for component_name, group in group_by(
             components,
             lambda component: component.name,
         ):

@@ -3,7 +3,6 @@ from abc import abstractmethod
 from asyncio import Event as AsyncEvent
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
-from itertools import groupby
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -54,7 +53,7 @@ from ceres.filter import (
     StatisticsFilterArgs,
 )
 from ceres.internal.tasklet import Tasklet
-from ceres.internal.utilities import get_traceback, get_type_adapter
+from ceres.internal.utilities import get_traceback, get_type_adapter, group_by
 from ceres.level import Level
 from ceres.logs import Log, LogEntry
 from ceres.message import Message
@@ -320,7 +319,7 @@ class Object(ValidatedDataclass, Tasklet):
     async def __create_items(self, session: AsyncSession, items: Iterable[Item]) -> None:
         bins = await self.__create_bins(session, items)
         by_type: defaultdict[type[Item], list[Item]] = defaultdict(list)
-        for model_cls, group in groupby(items, type):
+        for model_cls, group in group_by(items, type):
             by_type[model_cls] = list(group)  # type: ignore
 
         await asyncio.gather(

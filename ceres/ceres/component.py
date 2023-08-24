@@ -76,6 +76,7 @@ from ceres.events import (
     JobStartedEvent,
     JobStoppedEvent,
     ProcedureCalledEvent,
+    ProcedureCancelledEvent,
     ProcedureCompletedEvent,
     ProcedureExceptionEvent,
     RoutineCancelledEvent,
@@ -877,6 +878,9 @@ class Component(Object):
         try:
             self.emit(ProcedureCalledEvent, procedure=procedure)
             return await awaitify(validated(**args))
+        except CancelledError:
+            self.emit(ProcedureCancelledEvent, procedure=procedure)
+            raise
         except ValidationError as error:
             if method.__name__ in error.title:
                 raise ProcedureException(
@@ -898,6 +902,7 @@ class Component(Object):
         binding = self.get_procedure_bindings()[procedure]
 
         if not binding.live:
+            self.emit(ProcedureCompletedEvent, procedure=procedure)
             return result
 
         try:
@@ -938,6 +943,9 @@ class Component(Object):
                 while True:
                     yield await self.__invoke(procedure, args)
                     await asyncio.sleep(binding.poll.total_seconds())
+            except CancelledError:
+                self.emit(ProcedureCancelledEvent, procedure=procedure)
+                raise
             except Exception as exception:
                 traceback = get_traceback(exception)
                 self.emit(ProcedureExceptionEvent, procedure=procedure, traceback=traceback)
@@ -947,6 +955,10 @@ class Component(Object):
             if result is not None:
                 async for output in result:
                     yield output
+            self.emit(ProcedureCompletedEvent, procedure=procedure)
+        except CancelledError:
+            self.emit(ProcedureCancelledEvent, procedure=procedure)
+            raise
         except Exception as exception:
             traceback = get_traceback(exception)
             self.emit(ProcedureExceptionEvent, procedure=procedure, traceback=traceback)
