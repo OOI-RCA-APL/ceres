@@ -297,18 +297,24 @@ export const useStatuses = defineStore('statuses', () => {
 
 async function get<TModel extends ZodTypeAny>(
   url: string | URL,
-  model: TModel
+  model: TModel,
+  options?: RequestInit
 ): Promise<Zod.infer<TModel>> {
-  const response = await fetch(url)
+  const response = await fetch(url, options)
+  if (response.status >= 400) {
+    throw Error(`GET ${url} ${await response.text()}`)
+  }
+
   const json = await response.json()
   return await model.parseAsync(json)
 }
 
 async function getOrNull<TModel extends ZodTypeAny>(
   url: string | URL,
-  model: TModel
+  model: TModel,
+  options?: RequestInit
 ): Promise<Zod.infer<TModel> | null> {
-  const response = await fetch(url)
+  const response = await fetch(url, options)
   if (response.status >= 400) {
     return null
   }
@@ -320,7 +326,8 @@ async function getOrNull<TModel extends ZodTypeAny>(
 async function post<TModel extends ZodTypeAny>(
   url: string | URL,
   model: TModel,
-  data?: unknown
+  data?: unknown,
+  options?: RequestInit
 ): Promise<Zod.infer<TModel>> {
   const response = await fetch(url, {
     method: 'POST',
@@ -328,7 +335,12 @@ async function post<TModel extends ZodTypeAny>(
       'Content-Type': 'application/json',
     },
     body: data != null ? JSON.stringify(data) : undefined,
+    ...options,
   })
+
+  if (response.status >= 400) {
+    throw Error(`POST ${url} ${await response.text()}`)
+  }
 
   const json = await response.json()
   return await model.parseAsync(json)
