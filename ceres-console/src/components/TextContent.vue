@@ -11,26 +11,27 @@ function isSpecialCharacter(character: string) {
 }
 
 const chunks = $computed(() => {
-  const result = []
-  let current: string[] = []
+  const chunks = []
+  let buffer = ''
+
   for (const character of text) {
     if (isSpecialCharacter(character)) {
-      if (current.length > 0) {
-        result.push({ type: 'text', value: current.join('') })
-        current = []
+      if (buffer.length > 0) {
+        chunks.push({ type: 'text', value: buffer })
+        buffer = ''
       }
 
-      result.push({ type: 'special', value: character })
+      chunks.push({ type: 'special', value: character })
     } else {
-      current.push(character)
+      buffer += character
     }
   }
 
-  if (current.length > 0) {
-    result.push({ type: 'text', value: current.join('') })
+  if (buffer.length > 0) {
+    chunks.push({ type: 'text', value: buffer })
   }
 
-  return result
+  return chunks
 })
 </script>
 
