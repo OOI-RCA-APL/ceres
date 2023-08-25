@@ -38,7 +38,6 @@ from ceres.events import (
     MessageSentEvent,
     StartedEvent,
     StoppedEvent,
-    StoppingEvent,
 )
 from ceres.filter import (
     AlertFilter,
@@ -233,13 +232,14 @@ class Object(ValidatedDataclass, Tasklet):
             await asyncio.sleep(0.1)
 
     @override
+    @abstractmethod
     async def __stop__(self) -> None:
-        self.emit(StoppingEvent)
-        await self.flush()
+        ...
 
     @override
+    @abstractmethod
     async def __done__(self) -> None:
-        self.emit(StoppedEvent)
+        ...
 
     def store(self, item: Item) -> None:
         if not isinstance(item, Item):

@@ -18,7 +18,7 @@ from ceres.errors import (
     ReloadConfigInvalidError,
     ReloadError,
 )
-from ceres.events import Event, LogEvent
+from ceres.events import Event, LogEvent, StoppedEvent, StoppingEvent
 from ceres.exceptions import DatabaseInitException
 from ceres.filter import ComponentFilter, ComponentFilterArgs
 from ceres.internal.project import Project
@@ -190,12 +190,16 @@ class Server(Object, kw_only=False):
 
     @override
     async def __stop__(self) -> None:
+        self.emit(StoppingEvent)
         await self.__stop_uds_uvicorn()
         await self.__stop_port_uvicorn()
-
         await self.root.stop()
+
+    @override
+    async def __done__(self) -> None:
+        self.emit(StoppedEvent)
+        await self.flush()
         await self.__database.dispose()
-        await super().__stop__()
 
     async def load(self) -> "Result[Config, list[ConfigError]]":
         match await Config.load(self.config_path, log=self.log):

@@ -86,6 +86,8 @@ from ceres.events import (
     RoutineRestartingEvent,
     RoutineStartedEvent,
     RoutineStoppedEvent,
+    StoppedEvent,
+    StoppingEvent,
 )
 from ceres.exceptions import ProcedureException
 from ceres.filter import ComponentFilter, ComponentFilterArgs
@@ -835,6 +837,7 @@ class Component(Object):
                 self.emit(RoutineRestartedEvent, routine=binding.method)
         except CancelledError:
             self.emit(RoutineCancelledEvent, routine=binding.method)
+            raise
         finally:
             self.emit(RoutineStoppedEvent, routine=binding.method)
 
@@ -845,18 +848,21 @@ class Component(Object):
 
     @override
     async def __stop__(self) -> None:
+        self.emit(StoppingEvent)
         for component in reversed(self.components):
             await component.stop()
 
         if self.__scheduler.running:
             self.__scheduler.shutdown()
 
+    @override
+    async def __done__(self) -> None:
+        self.emit(StoppedEvent)
         await self.flush()
+
         if self.__database is not None:
             await self.__database.dispose()
             self.__database = None
-
-        await super().__stop__()
 
     async def __invoke(
         self,
