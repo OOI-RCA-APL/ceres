@@ -16,11 +16,11 @@ from pydantic import (
     GetJsonSchemaHandler,
     constr,
 )
-from pydantic_extra_types.color import Color as Color
 from pydantic.fields import FieldInfo
 from pydantic.json_schema import JsonSchemaValue
 from pydantic_core import CoreSchema, core_schema
 from pydantic_core.core_schema import no_info_before_validator_function
+from pydantic_extra_types.color import Color as Color
 from typing_extensions import Self, dataclass_transform
 
 from ceres.internal.utilities import (

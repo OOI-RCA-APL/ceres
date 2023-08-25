@@ -6,7 +6,8 @@ const { text } = defineProps<{
 }>()
 
 function isSpecialCharacter(character: string) {
-  return character < ' '
+  const code = character.charCodeAt(0)
+  return code < 32 || (code >= 127 && code <= 159)
 }
 
 const chunks = $computed(() => {
