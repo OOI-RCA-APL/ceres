@@ -1,19 +1,5 @@
 // Global SCSS Styling
 
-body {
-  background-color: $grey-1;
-}
-
-@media (prefers-color-scheme: dark) {
-  body {
-    background-color: $grey-10;
-  }
-}
-
-body.body--dark {
-  background-color: $grey-10;
-}
-
 .wrapper-link {
   color: unset;
   display: contents;
