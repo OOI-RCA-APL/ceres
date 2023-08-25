@@ -373,11 +373,13 @@ class Component(Object):
         async with await self.__object_database__.init() as session:
             await self.__set_enabled_in_database(session, True)
         self.__enabled = True
+        self.emit(EnabledEvent)
 
     async def disable(self) -> None:
         async with await self.__object_database__.init() as session:
             await self.__set_enabled_in_database(session, False)
         self.__enabled = False
+        self.emit(DisabledEvent)
 
     async def up(self) -> None:
         await self.enable()
@@ -417,11 +419,6 @@ class Component(Object):
         )
 
         await session.commit()
-
-        if enabled:
-            self.emit(EnabledEvent)
-        else:
-            self.emit(DisabledEvent)
 
     @property
     @override
