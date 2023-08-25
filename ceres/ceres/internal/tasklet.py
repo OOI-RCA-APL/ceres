@@ -85,8 +85,10 @@ class Tasklet(ABC):
                         if on_exception:
                             on_exception(self, exception)
             finally:
-                task_run.cancel()
-                task_wait_until_stopping.cancel()
+                while not task_run.done() or not task_wait_until_stopping.done():
+                    task_run.cancel()
+                    task_wait_until_stopping.cancel()
+                    await asyncio.sleep(0.025)
 
                 try:
                     await self.__stop__()
