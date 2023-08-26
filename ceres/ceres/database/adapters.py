@@ -20,6 +20,7 @@ from ceres.database.enums import DataFormat, TableOption
 from ceres.directory import Directory
 from ceres.internal.database.entities import Entity
 from ceres.internal.utilities import sqlexpr, sqlstmt
+from ceres.threading import spawn
 
 ConfigT = TypeVar("ConfigT", bound=DatabaseConfig, covariant=True)
 
@@ -221,75 +222,127 @@ class SQLiteDatabaseAdapter(DatabaseAdapter[SQLiteDatabaseConfig]):
                     f"failed to dump table '{table}' to CSV file '{path}': {exception}"
                 ) from exception
 
-    async def _copy_sqlite(
+    async def __copy_sqlite(
         self,
         table: TableOption,
-        source_engine: AsyncEngine,
-        destination: Path,
+        source: Path,
+        destination_engine: AsyncEngine,
+        create: bool,
     ) -> None:
-        async with source_engine.begin() as source_connection:
-            await source_connection.execute(
-                text("ATTACH DATABASE :path AS output"), {"path": str(destination)}
+        async with destination_engine.connect() as destination_connection:
+            if create:
+                await destination_connection.execute(text("PRAGMA synchronous = OFF"))
+                await destination_connection.execute(text("PRAGMA journal_mode = WAL"))
+                await destination_connection.execute(text("PRAGMA foreign_keys = OFF"))
+                await destination_connection.execute(text("PRAGMA cache_size = -128000"))
+
+            await destination_connection.execute(
+                text("ATTACH DATABASE :path AS source"), {"path": str(source)}
             )
 
             if table in (TableOption.ALL, TableOption.COMPONENTS):
-                await source_connection.execute(
+                await destination_connection.execute(
                     text(
                         """
-                        INSERT INTO output.components (address, enabled)
+                        INSERT INTO main.components (address, enabled)
                         SELECT address, enabled
-                        FROM main.components
+                        FROM source.components
+                        """
+                    )
+                )
+
+            if table in (
+                TableOption.ALL,
+                TableOption.MESSAGES,
+                TableOption.ALERTS,
+                TableOption.LOG_ENTRIES,
+            ):
+                await destination_connection.execute(
+                    text(
+                        """
+                        INSERT INTO main.__bins (address)
+                        SELECT address FROM source.__bins
+                        WHERE address NOT IN (SELECT address FROM main.__bins)
                         """
                     )
                 )
 
             if table in (TableOption.ALL, TableOption.MESSAGES):
-                await source_connection.execute(
+                await destination_connection.execute(
                     text(
                         """
-                        INSERT INTO output.messages (id, address, timestamp, direction, content)
-                        SELECT id, address, timestamp, direction, content
-                        FROM main.messages
+                        INSERT INTO main.__messages (id, bin_id, timestamp, direction, content)
+                        SELECT source.messages.id, main.__bins.id, timestamp, direction, content
+                        FROM source.messages
+                        JOIN main.__bins ON source.messages.address = main.__bins.address
                         """  # noqa: E501
                     )
                 )
 
             if table in (TableOption.ALL, TableOption.ALERTS):
-                await source_connection.execute(
+                await destination_connection.execute(
                     text(
                         """
-                        INSERT INTO output.alerts (id, address, timestamp, level, code, info)
-                        SELECT id, address, timestamp, level, code, info
-                        FROM main.alerts
+                        INSERT INTO main.__alerts (id, bin_id, timestamp, level, code, info)
+                        SELECT source.alerts.id, main.__bins.id, timestamp, level, code, info
+                        FROM source.alerts
+                        JOIN main.__bins ON source.alerts.address = main.__bins.address
                         """
                     )
                 )
 
             if table in (TableOption.ALL, TableOption.LOG_ENTRIES):
-                await source_connection.execute(
+                await destination_connection.execute(
                     text(
                         """
-                        INSERT INTO output.log_entries (id, address, timestamp, level, content)
-                        SELECT id, address, timestamp, level, content
-                        FROM main.log_entries
+                        INSERT INTO main.__log_entries (id, bin_id, timestamp, level, content)
+                        SELECT source.log_entries.id, main.__bins.id, timestamp, level, content
+                        FROM source.log_entries
+                        JOIN main.__bins ON source.log_entries.address = main.__bins.address
                         """  # noqa: E501
                     )
                 )
 
-            await source_connection.commit()
+            await destination_connection.commit()
+
+            if create:
+                await destination_connection.execute(text("PRAGMA synchronous = FULL"))
+                await destination_connection.execute(text("PRAGMA journal_mode = DELETE"))
+                await destination_connection.commit()
 
     @override
     async def _dump_sqlite(self, table: TableOption, path: str | PathLike[str]) -> None:
         path = Path(path).absolute()
         _remove(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+        if table == TableOption.ALL:
+
+            def execute() -> None:
+                subprocess.run(
+                    [
+                        "sqlite3",
+                        str(self.__get_path()),
+                        f".backup '{path}'",
+                    ],
+                    check=True,
+                    capture_output=True,
+                )
+
+            await spawn(execute)
+            return
 
         source_engine = self.create_engine()
         destination_engine = create_async_engine(f"sqlite+aiosqlite:///{path}")
-        self.__add_essential_listeners(destination_engine)
 
         try:
             await Entity.create_all(destination_engine)
-            await self._copy_sqlite(table, source_engine, path)
+            await self.__copy_sqlite(
+                table,
+                source=self.__get_path(),
+                destination_engine=destination_engine,
+                create=True,
+            )
         finally:
             await source_engine.dispose()
             await destination_engine.dispose()
@@ -305,7 +358,12 @@ class SQLiteDatabaseAdapter(DatabaseAdapter[SQLiteDatabaseConfig]):
 
         try:
             await Entity.create_all(destination_engine)
-            await self._copy_sqlite(table, source_engine, self.__get_path())
+            await self.__copy_sqlite(
+                table,
+                source=path,
+                destination_engine=destination_engine,
+                create=False,
+            )
         finally:
             await source_engine.dispose()
             await destination_engine.dispose()
