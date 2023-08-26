@@ -139,8 +139,15 @@ class DatabaseRetryConfig(ConfigObject):
     interval: PositiveTimeDelta = timedelta(seconds=3)
 
 
+class DatabaseConfigHooks(ConfigObject):
+    init: Sequence[str] | None = None
+    connect: Sequence[str] | None = None
+    close: Sequence[str] | None = None
+
+
 class BaseDatabaseConfig(ConfigObject):
     kind: DatabaseKind
+    hooks: DatabaseConfigHooks = Field(default_factory=DatabaseConfigHooks)
     engine: Mapping[str, Any] = Field(default_factory=dict)
     retry: DatabaseRetryConfig = DatabaseRetryConfig()
 

@@ -58,11 +58,6 @@ else:
     __export("ceres.database.database", ["Database", "Statistics"])
 
 if TYPE_CHECKING:
-    from ceres.database.adapters import DatabaseAdapter as DatabaseAdapter
-else:
-    __export("ceres.database.adapters", ["DatabaseAdapter"])
-
-if TYPE_CHECKING:
     from ceres.directory import Directory as Directory
 else:
     __export("ceres.directory", ["Directory"])
