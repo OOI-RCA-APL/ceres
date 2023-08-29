@@ -1,4 +1,3 @@
-from enum import Enum
 from typing import Annotated, Any
 from uuid import UUID, uuid4
 
@@ -6,10 +5,11 @@ from pydantic import BeforeValidator, Field, PlainSerializer
 
 from ceres.address import Address
 from ceres.data import DateTime, ImmutableDataObject
+from ceres.internal.utilities import StrEnum
 from ceres.timing import utc
 
 
-class MessageDirection(str, Enum):
+class MessageDirection(StrEnum):
     SEND = "send"
     RECEIVE = "receive"
 

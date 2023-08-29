@@ -1,5 +1,4 @@
 from abc import ABC
-from enum import Enum
 from typing import TYPE_CHECKING, Literal, Sequence, cast
 from uuid import UUID, uuid4
 
@@ -8,12 +7,13 @@ from pydantic import Field
 from ceres.address import Address
 from ceres.alert import Alert
 from ceres.data import DateTime, ImmutableDataObject, PositiveTimeDelta
+from ceres.internal.utilities import StrEnum
 from ceres.logs import LogEntry
 from ceres.message import Message
 from ceres.timing import utc
 
 
-class StandardEventKind(str, Enum):
+class StandardEventKind(StrEnum):
     STARTED = "started"
     STOPPING = "stopping"
     STOPPED = "stopped"

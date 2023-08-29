@@ -1,12 +1,17 @@
-from enum import Enum
+from ceres.internal.utilities import StrEnum
 
 
-class DataFormat(str, Enum):
+class DatabaseKind(StrEnum):
+    SQLITE = "sqlite"
+    POSTGRES = "postgres"
+
+
+class DataFormat(StrEnum):
     CSV = "csv"
     SQLITE = "sqlite"
 
 
-class TableOption(str, Enum):
+class TableOption(StrEnum):
     ALL = "all"
     COMPONENTS = "components"
     MESSAGES = "messages"

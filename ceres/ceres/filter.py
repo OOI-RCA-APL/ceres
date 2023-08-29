@@ -1,5 +1,4 @@
 from datetime import datetime
-from enum import Enum
 from re import Pattern
 from typing import (
     TYPE_CHECKING,
@@ -17,6 +16,7 @@ from typing_extensions import Self, override
 from ceres.address import Address, AddressSelector
 from ceres.alert import Alert
 from ceres.data import DateTime, ImmutableDataObject, PositiveTimeDelta, jsonify
+from ceres.internal.utilities import StrEnum
 from ceres.level import Level
 from ceres.logs import LogEntry
 from ceres.message import Message, MessageDirection
@@ -107,7 +107,7 @@ class ComponentFilter(ObjectFilter["Component"]):
         return True
 
 
-class MessageOrder(str, Enum):
+class MessageOrder(StrEnum):
     OLD_TO_NEW = "old-to-new"
     NEW_TO_OLD = "new-to-old"
 
@@ -190,7 +190,7 @@ class MessageFilter(ObjectFilter[Message]):
         return True
 
 
-class AlertOrder(str, Enum):
+class AlertOrder(StrEnum):
     OLD_TO_NEW = "old-to-new"
     NEW_TO_OLD = "new-to-old"
 
@@ -275,7 +275,7 @@ class AlertFilter(ObjectFilter[Alert]):
         return True
 
 
-class LogEntryOrder(str, Enum):
+class LogEntryOrder(StrEnum):
     OLD_TO_NEW = "old-to-new"
     NEW_TO_OLD = "new-to-old"
 

@@ -3,7 +3,6 @@ import traceback
 from abc import ABC, abstractmethod
 from dataclasses import field
 from datetime import timedelta
-from enum import Enum
 from typing import AsyncIterable
 
 from pydantic import Field
@@ -22,6 +21,7 @@ from ceres.events import (
     MessageSentEvent,
 )
 from ceres.exceptions import ConnectionLostException
+from ceres.internal.utilities import StrEnum
 from ceres.message import Message, MessageDirection
 from ceres.schedule import IntervalSchedule
 from ceres.stream import Stream
@@ -38,7 +38,7 @@ class ReconnectSettings(ImmutableDataObject):
     )
 
 
-class ConnectionState(str, Enum):
+class ConnectionState(StrEnum):
     DISCONNECTED = "disconnected"
     CONNECTING = "connecting"
     CONNECTED = "connected"

@@ -5,7 +5,6 @@ import warnings
 from asyncio import CancelledError
 from asyncio import Queue as AsyncQueue
 from datetime import datetime, timedelta, timezone
-from enum import Enum
 from inspect import Parameter
 from string import ascii_lowercase
 from types import MappingProxyType, UnionType
@@ -93,6 +92,7 @@ from ceres.exceptions import ProcedureException
 from ceres.filter import ComponentFilter, ComponentFilterArgs
 from ceres.internal.database.entities import ComponentEntity
 from ceres.internal.utilities import (
+    StrEnum,
     awaitify,
     cached,
     create_validated_function,
@@ -118,8 +118,8 @@ from ceres.schedule import Schedule, Trigger
 from ceres.validation import ValidationProblem
 
 if TYPE_CHECKING:
-    from ceres.reference import Reference
     from ceres.engine import Engine
+    from ceres.reference import Reference
 else:
     Engine = object
     Reference = object
@@ -1151,7 +1151,7 @@ def on(
     return on(method)
 
 
-class ProcedureKind(str, Enum):
+class ProcedureKind(StrEnum):
     QUERY = "query"
     ACTION = "action"
 
@@ -1369,7 +1369,7 @@ def _validate_procedure(
 _BINDINGS_ATTRIBUTE = "__bindings__"
 
 
-class RoutineRestartPolicy(str, Enum):
+class RoutineRestartPolicy(StrEnum):
     NEVER = "never"
     ALWAYS = "always"
     ON_COMPLETED = "on-completed"

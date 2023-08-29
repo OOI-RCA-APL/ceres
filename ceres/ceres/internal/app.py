@@ -3,7 +3,6 @@ import json
 import traceback
 from asyncio import CancelledError
 from dataclasses import dataclass
-from enum import Enum
 from http.client import responses
 from typing import (
     TYPE_CHECKING,
@@ -67,7 +66,7 @@ from ceres.filter import (
 )
 from ceres.internal import logs
 from ceres.internal.console import ConsoleFiles
-from ceres.internal.utilities import get_type_adapter, strify
+from ceres.internal.utilities import StrEnum, get_type_adapter, strify
 from ceres.logs import LogEntry
 from ceres.message import Message
 from ceres.object import Statistics
@@ -79,7 +78,7 @@ else:
     Engine = object
 
 
-class ComponentRole(str, Enum):
+class ComponentRole(StrEnum):
     CONNECTION = "connection"
     UI = "ui"
 

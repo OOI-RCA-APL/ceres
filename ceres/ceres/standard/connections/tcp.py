@@ -5,7 +5,6 @@ import traceback
 from asyncio import StreamReader, StreamWriter
 from dataclasses import dataclass
 from datetime import timedelta
-from enum import Enum
 from typing import Literal, final
 
 from pydantic import Field, field_validator
@@ -14,7 +13,7 @@ from typing_extensions import override
 from ceres.component import routine
 from ceres.data import ImmutableDataObject, PositiveTimeDelta
 from ceres.events import ConnectionLostEvent, MessageReceivedEvent
-from ceres.internal.utilities import ensure_event_loop, show_td
+from ceres.internal.utilities import StrEnum, ensure_event_loop, show_td
 from ceres.roles.connection import Connection
 
 
@@ -24,7 +23,7 @@ class _Stream:
     writer: StreamWriter
 
 
-class TCPDisconnectVerifyKind(str, Enum):
+class TCPDisconnectVerifyKind(StrEnum):
     RECONNECT = "reconnect"
 
 

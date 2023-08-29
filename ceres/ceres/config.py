@@ -1,7 +1,6 @@
 import asyncio
 import traceback
 from datetime import timedelta
-from enum import Enum
 from logging import Logger
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Literal, Mapping, Sequence
@@ -19,7 +18,14 @@ from typing_extensions import Self, override
 from yaml import MarkedYAMLError, YAMLError
 
 from ceres.address import Address, DynamicAddress
-from ceres.data import ClassPath, ImmutableDataObject, Name, NonBlankStr, PositiveTimeDelta
+from ceres.data import (
+    ClassPath,
+    ImmutableDataObject,
+    Name,
+    NonBlankStr,
+    PositiveTimeDelta,
+)
+from ceres.database.enums import DatabaseKind
 from ceres.errors import (
     ComponentInitExceptionError,
     ComponentReferenceInvalidError,
@@ -31,7 +37,7 @@ from ceres.errors import (
     ConfigReadError,
     ConfigValidationError,
 )
-from ceres.internal.utilities import get_traceback, group_by, lenient_issubclass, show_td
+from ceres.internal.utilities import StrEnum, get_traceback, group_by, lenient_issubclass, show_td
 from ceres.loaded import Loader
 from ceres.logs import Log
 from ceres.result import Fail, Ok, Result
@@ -129,11 +135,6 @@ class ServerConfig(ConfigObject):
     port: int | None = None
 
 
-class DatabaseKind(str, Enum):
-    SQLITE = "sqlite"
-    POSTGRES = "postgres"
-
-
 class DatabaseRetryConfig(ConfigObject):
     timeout: PositiveTimeDelta = timedelta(seconds=15)
     interval: PositiveTimeDelta = timedelta(seconds=3)
@@ -169,7 +170,7 @@ class PostgresDatabaseConfig(BaseDatabaseConfig):
 DatabaseConfig = SQLiteDatabaseConfig | PostgresDatabaseConfig
 
 
-class ConfigCheckKind(str, Enum):
+class ConfigCheckKind(StrEnum):
     DATABASE = "database"
     COMPONENTS = "components"
 

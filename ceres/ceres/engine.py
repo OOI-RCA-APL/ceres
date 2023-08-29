@@ -2,7 +2,6 @@ import asyncio
 import traceback
 from asyncio import FIRST_COMPLETED
 from asyncio import Event as AsyncEvent
-from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Sequence, TypeVar
 
@@ -11,6 +10,7 @@ from typing_extensions import Self, Unpack, override
 from ceres.address import Address, AddressSelector, DynamicAddress
 from ceres.config import Config
 from ceres.data import ImmutableDataObject
+from ceres.internal.utilities import StrEnum
 from ceres.directory import Directory
 from ceres.errors import (
     ConfigError,
@@ -38,7 +38,7 @@ else:
 _EventT = TypeVar("_EventT", bound=Event)
 
 
-class ActionKind(str, Enum):
+class ActionKind(StrEnum):
     CREATE = "create"
     RECREATE = "recreate"
     REMOVE = "remove"

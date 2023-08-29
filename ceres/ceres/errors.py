@@ -1,8 +1,8 @@
-from enum import Enum
 from typing import Literal, Sequence
 
 from ceres.address import Address
 from ceres.data import DataObject, ImmutableDataObject
+from ceres.internal.utilities import StrEnum
 from ceres.validation import ValidationProblem
 
 
@@ -10,7 +10,7 @@ class Error(ImmutableDataObject):
     kind: str
 
 
-class ComponentErrorKind(str, Enum):
+class ComponentErrorKind(StrEnum):
     CLASS_INVALID = "component-class-invalid-error"
     MODULE_NOT_FOUND = "component-module-not-found-error"
     MODULE_EXCEPTION = "component-module-exception-error"
@@ -73,7 +73,7 @@ ComponentError = (
 )
 
 
-class ConfigErrorKind(str, Enum):
+class ConfigErrorKind(StrEnum):
     READ_ERROR = "config-read-error"
     PARSE_ERROR = "config-parse-error"
     VALIDATION_ERROR = "config-validation-error"
@@ -128,7 +128,7 @@ ConfigError = (
 )
 
 
-class ReloadErrorKind(str, Enum):
+class ReloadErrorKind(StrEnum):
     CONFIG_INVALID = "reload-config-invalid-error"
     ALREADY_ACTIVE = "reload-already-active-error"
 
@@ -149,7 +149,7 @@ class ReloadAlreadyActiveError(BaseReloadError):
 ReloadError = ReloadConfigInvalidError | ReloadAlreadyActiveError
 
 
-class ProcedureErrorKind(str, Enum):
+class ProcedureErrorKind(StrEnum):
     UNIT_DOES_NOT_EXIST = "procedure-unit-does-not-exist-error"
     COMPONENT_DOES_NOT_EXIST = "procedure-component-does-not-exist-error"
     COMPONENT_NOT_LOADED = "procedure-component-not-loaded-error"

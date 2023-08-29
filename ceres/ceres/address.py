@@ -6,15 +6,17 @@ from pydantic_core import CoreSchema
 from pydantic_core.core_schema import no_info_after_validator_function
 from typing_extensions import Literal, Self, override
 
+from ceres.internal.utilities import NAME_PATTERN
+
 if TYPE_CHECKING:
     from sqlalchemy import ColumnElement, SQLColumnExpression
 else:
     SQLColumnExpression = object
     ColumnElement = object
 
-from ceres.data import NAME_TYPE_PATTERN, Name
+from ceres.data import Name
 
-_NAME = NAME_TYPE_PATTERN[1:-1]
+_NAME = NAME_PATTERN[1:-1]
 _MODIFIER = r":(all|children|descendants)"
 _SEGMENT = rf"\~({_MODIFIER})?|@?[a-z-A-Z_\-.]+({_MODIFIER})?|@({_MODIFIER})?|{_MODIFIER}"
 

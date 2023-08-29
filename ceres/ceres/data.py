@@ -4,26 +4,28 @@ import traceback
 from abc import ABC
 from datetime import date, datetime, timedelta, timezone
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Callable, Literal, cast
+from typing import Annotated, Any, Callable, Literal, cast
 
 import pydantic
 import pydantic.generics
 from pydantic import (
+    AfterValidator,
     BaseModel,
+    BeforeValidator,
     ConfigDict,
     Field,
     GetCoreSchemaHandler,
     GetJsonSchemaHandler,
-    constr,
+    StringConstraints,
 )
 from pydantic.fields import FieldInfo
 from pydantic.json_schema import JsonSchemaValue
 from pydantic_core import CoreSchema, core_schema
-from pydantic_core.core_schema import no_info_before_validator_function
 from pydantic_extra_types.color import Color as Color
 from typing_extensions import Self, dataclass_transform
 
 from ceres.internal.utilities import (
+    NAME_PATTERN,
     PydanticDataclassLike,
     decode_td,
     get_type_adapter,
@@ -40,87 +42,77 @@ def simplify(obj: object) -> Any:
     return json.loads(jsonify(obj))
 
 
-NAME_TYPE_PATTERN = r"^[a-zA-Z_\-][a-zA-Z0-9_\-]*$"
-
-NameType = constr(pattern=NAME_TYPE_PATTERN)
-NonEmptyStrType = constr(min_length=1)
-NonBlankStrType = constr(min_length=1, pattern=r".*\S.*")
+Name = Annotated[str, StringConstraints(pattern=NAME_PATTERN)]
+NonEmptyStr = Annotated[str, StringConstraints(min_length=1)]
+NonBlankStr = Annotated[str, StringConstraints(min_length=1, pattern=r".*\S.*")]
 
 
-class DateType(date):
-    pass
+def __validate_date(value: date | None) -> date | None:
+    return value
 
 
-class DateTimeType(datetime):
-    @classmethod
-    def __get_pydantic_core_schema__(
-        cls,
-        source_type: Any,
-        handler: GetCoreSchemaHandler,
-    ) -> CoreSchema:
-        return no_info_before_validator_function(cls.validate, handler(datetime))
+Date = Annotated[date, AfterValidator(__validate_date)]
 
-    @classmethod
-    def validate(cls, value: Any) -> datetime | None:
-        if value is None:
-            return None
 
-        timestamp = get_type_adapter(datetime | date).validate_python(value)
-        if not isinstance(timestamp, datetime):
+def __validate_datetime(value: object) -> datetime | None:
+    if value is None:
+        return None
+
+    if isinstance(value, datetime):
+        instance = value
+    else:
+        instance = get_type_adapter(datetime | date).validate_python(value)
+        if not isinstance(instance, datetime):
             return datetime(
-                year=timestamp.year,
-                month=timestamp.month,
-                day=timestamp.day,
+                year=instance.year,
+                month=instance.month,
+                day=instance.day,
                 tzinfo=timezone.utc,
             )
 
-        if timestamp.tzinfo is None:
-            return timestamp.replace(tzinfo=timezone.utc)
+    if instance.tzinfo is None:
+        return instance.replace(tzinfo=timezone.utc)
 
-        return timestamp.astimezone(timezone.utc)
-
-
-class TimeDeltaType(timedelta):
-    @classmethod
-    def __get_pydantic_core_schema__(
-        cls,
-        source_type: Any,
-        handler: GetCoreSchemaHandler,
-    ) -> CoreSchema:
-        return no_info_before_validator_function(cls.validate, handler(Any))
-
-    @classmethod
-    def validate(cls, value: Any) -> timedelta | None:
-        if value is None:
-            return None
-
-        return decode_td(value)
+    return instance.astimezone(timezone.utc)
 
 
-class PositiveTimeDeltaType(TimeDeltaType):
-    @classmethod
-    def validate(cls, value: Any) -> timedelta | None:
-        duration = super().validate(value)
-        if duration is None:
-            return None
-
-        if duration <= timedelta():
-            raise ValueError("must be greater than zero")
-
-        return duration
+DateTime = Annotated[datetime, AfterValidator(__validate_datetime)]
 
 
-class NonNegativeTimeDeltaType(TimeDeltaType):
-    @classmethod
-    def validate(cls, value: Any) -> timedelta | None:
-        duration = super().validate(value)
-        if duration is None:
-            return None
+def __validate_timedelta(value: Any) -> timedelta | None:
+    if value is None:
+        return None
 
-        if duration < timedelta():
-            raise ValueError("must be greater than or equal to zero")
+    return decode_td(value)
 
-        return duration
+
+TimeDelta = Annotated[timedelta, BeforeValidator(__validate_timedelta)]
+
+__ZERO_TIMEDELTA = timedelta()
+
+
+def __validate_positive_timedelta(value: object) -> timedelta | None:
+    delta = __validate_timedelta(value)
+    if delta is None:
+        return None
+
+    assert delta > __ZERO_TIMEDELTA, "must be greater than zero"
+    return delta
+
+
+PositiveTimeDelta = Annotated[timedelta, BeforeValidator(__validate_positive_timedelta)]
+
+
+def __validate_non_negative_timedelta(value: object) -> timedelta | None:
+    delta = __validate_timedelta(value)
+    if delta is None:
+        return None
+
+    assert delta >= __ZERO_TIMEDELTA, "must be greater than or equal to zero"
+    return delta
+
+
+NonNegativeTimeDelta = Annotated[timedelta, BeforeValidator(__validate_non_negative_timedelta)]
 
 
 def _get_cls_path(cls: type) -> str:
@@ -214,26 +206,6 @@ class ClassPath:
     @property
     def cls(self) -> type:
         return _load_cls_from_cls_path(self.__text)
-
-
-if TYPE_CHECKING:
-    Name = str
-    NonEmptyStr = str
-    NonBlankStr = str
-    Date = date
-    DateTime = datetime
-    TimeDelta = timedelta
-    PositiveTimeDelta = timedelta
-    NonNegativeTimeDelta = timedelta
-else:
-    Name = NameType
-    NonEmptyStr = NonEmptyStrType
-    NonBlankStr = NonBlankStrType
-    Date = DateType
-    DateTime = DateTimeType
-    TimeDelta = TimeDeltaType
-    PositiveTimeDelta = PositiveTimeDeltaType
-    NonNegativeTimeDelta = NonNegativeTimeDeltaType
 
 
 class DataObject(BaseModel, ABC):

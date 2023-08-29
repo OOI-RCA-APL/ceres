@@ -5,6 +5,7 @@ from typing import Literal, Mapping, Sequence, TypeAlias
 from pydantic import StrictBool, StrictFloat, StrictInt, StrictStr
 
 from ceres.data import Color, ImmutableDataObject
+from ceres.internal.utilities import StrEnum
 
 
 class ConsoleColor(Color, Enum):
@@ -21,7 +22,7 @@ class ConsoleColor(Color, Enum):
 AtomicValue: TypeAlias = StrictBool | StrictInt | StrictFloat | Decimal | StrictStr
 
 
-class DisplayKind(str, Enum):
+class DisplayKind(StrEnum):
     VALUE = "value"
     STATE = "state"
     GAUGE = "gauge"

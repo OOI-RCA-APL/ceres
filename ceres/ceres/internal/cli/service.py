@@ -2,7 +2,6 @@ import subprocess
 import sys
 import traceback
 from abc import ABC, abstractmethod
-from enum import Enum
 from getpass import getuser
 from pathlib import Path
 from typing import Any, Sequence
@@ -13,9 +12,10 @@ from ceres.data import DataObject
 from ceres.internal.cli.exceptions import CLIServiceConfigException
 from ceres.internal.cli.shared import write
 from ceres.internal.project import Project
+from ceres.internal.utilities import StrEnum
 
 
-class ServiceState(str, Enum):
+class ServiceState(StrEnum):
     RUNNING = "running"
     STOPPED = "stopped"
 

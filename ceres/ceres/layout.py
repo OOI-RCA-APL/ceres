@@ -1,13 +1,12 @@
-from enum import Enum
 from typing import Annotated, Any, Callable, Literal
 
 from pydantic import Field
 
 from ceres.data import Color, DataObject, ImmutableDataObject, Name
-from ceres.internal.utilities import strify
+from ceres.internal.utilities import StrEnum, strify
 
 
-class LayoutKind(str, Enum):
+class LayoutKind(StrEnum):
     DISPLAY = "display"
     BUTTON = "button"
     ROW = "row"

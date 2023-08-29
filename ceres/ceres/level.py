@@ -1,8 +1,9 @@
-from enum import Enum
 from typing import Any
 
+from ceres.internal.utilities import StrEnum
 
-class Level(str, Enum):
+
+class Level(StrEnum):
     DEBUG = "debug"
     INFO = "info"
     WARNING = "warning"

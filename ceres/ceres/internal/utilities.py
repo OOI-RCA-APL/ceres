@@ -5,6 +5,7 @@ import math
 import random
 import re
 import signal
+import sys
 import textwrap
 from asyncio import AbstractEventLoop
 from collections import OrderedDict, defaultdict
@@ -39,6 +40,8 @@ from pydantic.fields import FieldInfo
 from pydantic.validate_call import validate_call
 from pydantic_core import CoreSchema, SchemaSerializer, SchemaValidator
 from typing_extensions import overload
+
+NAME_PATTERN = r"^[a-zA-Z_\-][a-zA-Z0-9_\-]*$"
 
 
 def strify(value: object) -> str:
@@ -750,3 +753,15 @@ def get_traceback(exception: BaseException) -> list[str]:
     import traceback
 
     return traceback.format_exception(exception)
+
+
+if sys.version_info >= (3, 11):
+    from enum import StrEnum as BaseStrEnum
+else:
+    from backports.strenum import StrEnum as BaseStrEnum
+
+
+class StrEnum(BaseStrEnum):
+    @staticmethod
+    def _generate_next_value_(name: str, *args: Any, **kwargs: Any) -> str:
+        return name.lower().replace("_", "-")

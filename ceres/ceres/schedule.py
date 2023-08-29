@@ -2,7 +2,6 @@ import datetime as dt
 import math
 from abc import abstractmethod
 from datetime import datetime, timedelta
-from enum import Enum
 from typing import TYPE_CHECKING, Iterable, Literal, Sequence
 
 from apscheduler.triggers.cron import CronTrigger as InternalCronTrigger
@@ -11,10 +10,11 @@ from apscheduler.util import normalize
 from pydantic import FieldValidationInfo, PositiveFloat, field_validator
 
 from ceres.data import DateTime, ImmutableDataObject, PositiveTimeDelta
+from ceres.internal.utilities import StrEnum
 from ceres.timing import utc
 
 
-class ScheduleKind(str, Enum):
+class ScheduleKind(StrEnum):
     CRON = "cron"
     INTERVAL = "interval"
     OR = "or"

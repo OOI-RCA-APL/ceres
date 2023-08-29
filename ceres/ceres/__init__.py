@@ -34,9 +34,8 @@ else:
 if TYPE_CHECKING:
     from ceres.config import Config as Config
     from ceres.config import ConfigCheckKind as ConfigCheckKind
-    from ceres.config import DatabaseKind as DatabaseKind
 else:
-    __export("ceres.config", ["Config", "ConfigCheckKind", "DatabaseKind"])
+    __export("ceres.config", ["Config", "ConfigCheckKind"])
 
 
 if TYPE_CHECKING:
@@ -54,8 +53,9 @@ else:
 if TYPE_CHECKING:
     from ceres.database.database import Database as Database
     from ceres.database.database import Statistics as Statistics
+    from ceres.database.enums import DatabaseKind as DatabaseKind
 else:
-    __export("ceres.database.database", ["Database", "Statistics"])
+    __export("ceres.database.database", ["Database", "Statistics", "DatabaseKind"])
 
 if TYPE_CHECKING:
     from ceres.directory import Directory as Directory
