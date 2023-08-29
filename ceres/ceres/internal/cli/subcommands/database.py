@@ -83,9 +83,9 @@ async def dump(
     start = utc()
     match format:
         case DataFormat.CSV:
-            write("Dumping data as CSV...")
+            write("Dumping data to CSV...")
         case DataFormat.SQLITE:
-            write("Dumping data as SQLite...")
+            write("Dumping data to SQLite...")
 
     await database.dump(table, path, format)
 
@@ -128,9 +128,9 @@ async def load(
     start = utc()
     match format:
         case DataFormat.CSV:
-            write("Loading data as CSV...")
+            write("Loading data from CSV...")
         case DataFormat.SQLITE:
-            write("Loading data as SQLite...")
+            write("Loading data from SQLite...")
 
     await database.load(table, path, format)
 
@@ -191,4 +191,7 @@ def _infer_data_format(format: DataFormat | None, path: Path) -> DataFormat:
     if path.suffix in (".db", ".sqlite", ".sqlite3"):
         return DataFormat.SQLITE
 
-    raise CLIException(f"Could not infer data format from path extension: {path}")
+    raise CLIException(
+        f"Could not infer data format from file extension: {path.suffix!r}. "
+        + "Try specifying the '--format' option."
+    )

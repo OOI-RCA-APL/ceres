@@ -101,7 +101,7 @@ class Database:
 
         self.__id = uuid4()
         self.__config = config
-        self.__engine = self.create_engine()
+        self.__engine = self._create_engine()
         self.__init_lock = AsyncLock()
         self.__completed_init_successfully = False
 
@@ -159,8 +159,11 @@ class Database:
     async def _load_sqlite(self, table: TableOption, path: str | PathLike[str]) -> None:
         ...
 
-    def create_engine(self) -> AsyncEngine:
-        engine = create_async_engine(self.url, **self._get_engine_config())
+    def _create_base_engine(self) -> AsyncEngine:
+        return create_async_engine(self.url, **self._get_engine_config())
+
+    def _create_engine(self) -> AsyncEngine:
+        engine = self._create_base_engine()
 
         self._pre_configure_engine(engine)
 
@@ -605,7 +608,7 @@ class SQLiteDatabase(Database):
     @property
     @override
     def url(self) -> str:
-        return f"sqlite+aiosqlite:///{self.__get_path()}"
+        return f"sqlite+aiosqlite:///{self.path}"
 
     def __del__(self) -> None:
         if self.config.path is not None or not self.__get_temporary_path().exists():
@@ -671,54 +674,58 @@ class SQLiteDatabase(Database):
 
     @override
     async def _load_csv(self, table: TableOption, path: str | PathLike[str]) -> None:
-        path = Path(path).absolute()
+        def execute() -> None:
+            nonlocal path
+            path = Path(path).absolute()
 
-        destination_engine = self.create_engine()
-        await Entity.create_all(destination_engine)
-        await destination_engine.dispose()
-
-        for table_name, path in _get_csv_dump_paths(table, path):
-            try:
-                subprocess.run(
+            for table_name, path in _get_csv_dump_paths(table, path):
+                result = subprocess.run(
                     [
                         "sqlite3",
-                        str(self.__get_path()),
+                        str(self.path),
                         ".mode csv",
                         f".import '{path}' {table_name}",
                     ],
-                    check=True,
                     capture_output=True,
                 )
-            except Exception as exception:
-                raise RuntimeError(
-                    f"failed to load CSV file '{path}' into table '{table}': {exception}"
-                ) from exception
+
+                if result.returncode != 0:
+                    raise RuntimeError(
+                        f"Failed to load CSV file '{path}' into table '{table}'. "
+                        + f"{result.stderr.decode('latin-1')}"
+                    )
+
+        await spawn(execute)
 
     @override
     async def _dump_csv(self, table: TableOption, path: str | PathLike[str]) -> None:
-        path = Path(path).absolute()
-        _remove(path)
+        def execute() -> None:
+            nonlocal path
+            path = Path(path).absolute()
+            _remove(path)
 
-        if table == TableOption.ALL:
-            path.mkdir(parents=True, exist_ok=True)
+            if table == TableOption.ALL:
+                path.mkdir(parents=True, exist_ok=True)
 
-        for table_name, path in _get_csv_dump_paths(table, Path(path)):
-            try:
-                subprocess.run(
+            for table_name, path in _get_csv_dump_paths(table, Path(path)):
+                result = subprocess.run(
                     [
                         "sqlite3",
-                        str(self.__get_path()),
+                        str(self.path),
                         ".mode csv",
                         f".output '{path}'",
                         f"SELECT * FROM {table_name};",
                     ],
-                    check=True,
                     capture_output=True,
                 )
-            except Exception as exception:
-                raise RuntimeError(
-                    f"failed to dump table '{table}' to CSV file '{path}': {exception}"
-                ) from exception
+
+                if result.returncode != 0:
+                    raise RuntimeError(
+                        f"Failed to dump table '{table}' to CSV file '{path}'. "
+                        + f"{result.stderr.decode('latin-1')}"
+                    )
+
+        await spawn(execute)
 
     async def __copy(
         self,
@@ -817,15 +824,21 @@ class SQLiteDatabase(Database):
         if table == TableOption.ALL:
 
             def execute() -> None:
-                subprocess.run(
+                result = subprocess.run(
                     [
                         "sqlite3",
-                        str(self.__get_path()),
+                        str(self.path),
                         f".backup '{path}'",
                     ],
                     check=True,
                     capture_output=True,
                 )
+
+                if result.returncode != 0:
+                    raise RuntimeError(
+                        f"Failed to dump database to SQLite file '{path}'. "
+                        + f"{result.stderr.decode('latin-1')}"
+                    )
 
             await spawn(execute)
             return
@@ -836,7 +849,7 @@ class SQLiteDatabase(Database):
             await Entity.create_all(destination_engine)
             await self.__copy(
                 table,
-                source=self.__get_path(),
+                source=self.path,
                 destination_engine=destination_engine,
                 create=True,
             )
@@ -846,19 +859,16 @@ class SQLiteDatabase(Database):
     @override
     async def _load_sqlite(self, table: TableOption, path: str | PathLike[str]) -> None:
         path = Path(path).absolute()
-        source_engine = create_async_engine(f"sqlite+aiosqlite:///{path}")
 
-        try:
-            await self.__copy(
-                table,
-                source=path,
-                destination_engine=self.engine,
-                create=False,
-            )
-        finally:
-            await source_engine.dispose()
+        await self.__copy(
+            table,
+            source=path,
+            destination_engine=self.engine,
+            create=False,
+        )
 
-    def __get_path(self) -> Path:
+    @property
+    def path(self) -> Path:
         # If a path is provided, create an database at the provided path.
         if self.config.path is not None:
             return self.config.path.absolute()
