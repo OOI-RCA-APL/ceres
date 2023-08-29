@@ -63,13 +63,13 @@ if TYPE_CHECKING:
 
     from ceres.component import Component, ComponentGroup
     from ceres.database.database import Database, Statistics
-    from ceres.server import Server
+    from ceres.engine import Engine
 else:
     AsyncSession = object
 
     Component = object
     ComponentGroup = object
-    Server = object
+    Engine = object
     Database = object
     Statistics = object
 
@@ -137,7 +137,7 @@ class Object(ValidatedDataclass, Tasklet):
 
     @property
     @abstractmethod
-    def server(self) -> Server | None:
+    def engine(self) -> Engine | None:
         ...
 
     @property
@@ -378,8 +378,8 @@ class Object(ValidatedDataclass, Tasklet):
             return self
 
         address = DynamicAddress(address)
-        if address.is_server:
-            return self.server
+        if address.is_engine:
+            return self.engine
 
         return self.get_component(address)
 

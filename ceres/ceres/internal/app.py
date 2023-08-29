@@ -74,9 +74,9 @@ from ceres.object import Statistics
 from ceres.result import Fail, Ok, Result
 
 if TYPE_CHECKING:
-    from ceres.server import Server
+    from ceres.engine import Engine
 else:
-    Server = object
+    Engine = object
 
 
 class ComponentRole(str, Enum):
@@ -114,12 +114,12 @@ ComponentInfo.model_rebuild()
 api = APIRouter()
 
 
-def _get_current_server(connection: HTTPConnection) -> Server:
+def _get_current_engine(connection: HTTPConnection) -> Engine:
     assert isinstance(connection.app, App)
-    return connection.app.server
+    return connection.app.engine
 
 
-CurrentServer = Annotated[Server, Depends(_get_current_server)]
+CurrentEngine = Annotated[Engine, Depends(_get_current_engine)]
 
 
 @dataclass
@@ -165,17 +165,17 @@ def _get_procedure_query_args(
 CurrentProcedureQueryArgs = Annotated[Mapping[str, object], Depends(_get_procedure_query_args)]
 
 
-@api.get("/config", tags=["server"])
-async def get_config(server: CurrentServer) -> Config:
-    return server.config
+@api.get("/config", tags=["engine"])
+async def get_config(engine: CurrentEngine) -> Config:
+    return engine.config
 
 
-@api.post("/reload", tags=["server"])
+@api.post("/reload", tags=["engine"])
 async def reload(
-    server: CurrentServer,
+    engine: CurrentEngine,
     response: Response,
 ) -> Result[Config, ReloadError]:
-    match await server.reload():
+    match await engine.reload():
         case Ok(config):
             return Ok(config)
         case Fail(error):
@@ -188,8 +188,8 @@ class StartResult(ImmutableDataObject):
 
 
 @api.post("/start", tags=["components"])
-async def start(server: CurrentServer, filter: ComponentFilter) -> StartResult:
-    stopped = server.get_components(filter, running=False)
+async def start(engine: CurrentEngine, filter: ComponentFilter) -> StartResult:
+    stopped = engine.get_components(filter, running=False)
     stopped.start()
     return StartResult(started=[component.address for component in stopped])
 
@@ -199,8 +199,8 @@ class StopResult(ImmutableDataObject):
 
 
 @api.post("/stop", tags=["components"])
-async def stop(server: CurrentServer, filter: ComponentFilter) -> StopResult:
-    running = server.get_components(filter, running=True)
+async def stop(engine: CurrentEngine, filter: ComponentFilter) -> StopResult:
+    running = engine.get_components(filter, running=True)
     await running.stop()
     return StopResult(stopped=[component.address for component in running])
 
@@ -210,8 +210,8 @@ class EnableResult(ImmutableDataObject):
 
 
 @api.post("/enable", tags=["components"])
-async def enable(server: CurrentServer, filter: ComponentFilter) -> EnableResult:
-    disabled = server.get_components(filter, enabled=False)
+async def enable(engine: CurrentEngine, filter: ComponentFilter) -> EnableResult:
+    disabled = engine.get_components(filter, enabled=False)
     await disabled.enable()
     return EnableResult(enabled=[component.address for component in disabled])
 
@@ -221,8 +221,8 @@ class DisableResult(ImmutableDataObject):
 
 
 @api.post("/disable", tags=["components"])
-async def disable(server: CurrentServer, filter: ComponentFilter) -> DisableResult:
-    enabled = server.get_components(filter, enabled=True)
+async def disable(engine: CurrentEngine, filter: ComponentFilter) -> DisableResult:
+    enabled = engine.get_components(filter, enabled=True)
     await enabled.disable()
     return DisableResult(disabled=[component.address for component in enabled])
 
@@ -233,11 +233,11 @@ class UpResult(ImmutableDataObject):
 
 
 @api.post("/up", tags=["components"])
-async def up(server: CurrentServer, filter: ComponentFilter) -> UpResult:
-    disabled = server.get_components(filter, enabled=False)
+async def up(engine: CurrentEngine, filter: ComponentFilter) -> UpResult:
+    disabled = engine.get_components(filter, enabled=False)
     await disabled.enable()
 
-    stopped = server.get_components(filter, running=False)
+    stopped = engine.get_components(filter, running=False)
     stopped.start()
 
     return UpResult(
@@ -252,11 +252,11 @@ class DownResult(ImmutableDataObject):
 
 
 @api.post("/down", tags=["components"])
-async def down(server: CurrentServer, filter: ComponentFilter) -> DownResult:
-    enabled = server.get_components(filter, enabled=True)
+async def down(engine: CurrentEngine, filter: ComponentFilter) -> DownResult:
+    enabled = engine.get_components(filter, enabled=True)
     await enabled.disable()
 
-    running = server.get_components(filter, running=True)
+    running = engine.get_components(filter, running=True)
     await running.stop()
 
     return DownResult(
@@ -266,8 +266,8 @@ async def down(server: CurrentServer, filter: ComponentFilter) -> DownResult:
 
 
 @api.get("/components/{address}", tags=["components"])
-async def get_component(server: CurrentServer, address: Address) -> ComponentInfo:
-    component_config = server.config.get_component(address)
+async def get_component(engine: CurrentEngine, address: Address) -> ComponentInfo:
+    component_config = engine.config.get_component(address)
     if component_config is not None and type(component_config) is not ComponentConfig:
         component_config = ComponentConfig.model_validate(
             {
@@ -278,13 +278,13 @@ async def get_component(server: CurrentServer, address: Address) -> ComponentInf
             }
         )
 
-    component_cls = server.config.get_component_cls(address)
+    component_cls = engine.config.get_component_cls(address)
     if component_config is None or component_cls is None:
         raise HTTPException(HTTP_404_NOT_FOUND)
 
     children: list[ComponentInfo] = []
     for child_config in component_config.components:
-        children.append(await get_component(server, address / child_config.name))
+        children.append(await get_component(engine, address / child_config.name))
 
     try:
         info = ComponentInfo(
@@ -302,8 +302,8 @@ async def get_component(server: CurrentServer, address: Address) -> ComponentInf
 
 
 @api.get("/status/{address}?", tags=["status"])
-async def get_status(server: CurrentServer, address: Address | None = None) -> Status:
-    status = await server.get_status(address)
+async def get_status(engine: CurrentEngine, address: Address | None = None) -> Status:
+    status = await engine.get_status(address)
     if status is None:
         raise HTTPException(HTTP_404_NOT_FOUND)
 
@@ -316,10 +316,10 @@ class GetStatusesQueryParameters(ComponentFilter):
 
 @api.get("/statuses", tags=["status"])
 async def get_statuses(
-    server: CurrentServer,
+    engine: CurrentEngine,
     filter: Annotated[GetStatusesQueryParameters, Depends()],
 ) -> list[Status]:
-    return await server.get_statuses(filter)
+    return await engine.get_statuses(filter)
 
 
 class StreamStatusesQueryParameters(GetStatusesQueryParameters):
@@ -329,10 +329,10 @@ class StreamStatusesQueryParameters(GetStatusesQueryParameters):
 @api.websocket("/statuses")
 async def stream_statuses(
     socket: CurrentSocket,
-    server: CurrentServer,
+    engine: CurrentEngine,
     filter: Annotated[StreamStatusesQueryParameters, Depends()],
 ) -> None:
-    async for statuses in server.stream_statuses(filter):
+    async for statuses in engine.stream_statuses(filter):
         await socket.send(statuses)
 
 
@@ -343,10 +343,10 @@ class GetMessagesQueryParameters(MessageFilter):
 
 @api.get("/messages", tags=["messages"])
 async def get_messages(
-    server: CurrentServer,
+    engine: CurrentEngine,
     filter: Annotated[GetMessagesQueryParameters, Depends()],
 ) -> list[Message]:
-    return await server.get_messages(filter)
+    return await engine.get_messages(filter)
 
 
 class StreamMessagesQueryParameters(GetMessagesQueryParameters):
@@ -356,10 +356,10 @@ class StreamMessagesQueryParameters(GetMessagesQueryParameters):
 @api.websocket("/messages")
 async def stream_messages(
     socket: CurrentSocket,
-    server: CurrentServer,
+    engine: CurrentEngine,
     filter: Annotated[StreamMessagesQueryParameters, Depends()],
 ) -> None:
-    async for message in server.stream_messages(filter):
+    async for message in engine.stream_messages(filter):
         await socket.send(message)
 
 
@@ -372,10 +372,10 @@ class GetAlertsQueryParameters(AlertFilter):
 
 @api.get("/alerts", tags=["alerts"])
 async def get_alerts(
-    server: CurrentServer,
+    engine: CurrentEngine,
     filter: Annotated[GetAlertsQueryParameters, Depends()],
 ) -> list[Alert]:
-    return await server.get_alerts(filter)
+    return await engine.get_alerts(filter)
 
 
 class StreamAlertsQueryParameters(GetAlertsQueryParameters):
@@ -385,10 +385,10 @@ class StreamAlertsQueryParameters(GetAlertsQueryParameters):
 @api.websocket("/alerts")
 async def stream_alerts(
     socket: CurrentSocket,
-    server: CurrentServer,
+    engine: CurrentEngine,
     filter: Annotated[StreamAlertsQueryParameters, Depends()],
 ) -> None:
-    async for alert in server.stream_alerts(filter):
+    async for alert in engine.stream_alerts(filter):
         await socket.send(alert)
 
 
@@ -400,10 +400,10 @@ class GetLogEntriesQueryParameters(LogEntryFilter):
 
 @api.get("/log-entries", tags=["logs"])
 async def get_log_entries(
-    server: CurrentServer,
+    engine: CurrentEngine,
     filter: Annotated[GetLogEntriesQueryParameters, Depends()],
 ) -> list[LogEntry]:
-    return await server.get_log_entries(filter)
+    return await engine.get_log_entries(filter)
 
 
 class StreamLogEntriesQueryParameters(GetLogEntriesQueryParameters):
@@ -413,10 +413,10 @@ class StreamLogEntriesQueryParameters(GetLogEntriesQueryParameters):
 @api.websocket("/log-entries")
 async def stream_log_entries(
     socket: CurrentSocket,
-    server: CurrentServer,
+    engine: CurrentEngine,
     filter: Annotated[StreamLogEntriesQueryParameters, Depends()],
 ) -> None:
-    async for entry in server.stream_log_entries(filter):
+    async for entry in engine.stream_log_entries(filter):
         await socket.send(entry)
 
 
@@ -426,10 +426,10 @@ class GetStatisticsQueryParameters(StatisticsFilter):
 
 @api.get("/statistics", tags=["data"])
 async def get_statistics(
-    server: CurrentServer,
+    engine: CurrentEngine,
     filter: Annotated[GetStatisticsQueryParameters, Depends()],
 ) -> list[Statistics]:
-    return await server.get_statistics(filter)
+    return await engine.get_statistics(filter)
 
 
 @api.api_route(
@@ -439,7 +439,7 @@ async def get_statistics(
 )
 async def call(
     request: Request,
-    server: CurrentServer,
+    engine: CurrentEngine,
     address: Address,
     procedure: Name,
     query_args: CurrentProcedureQueryArgs,
@@ -467,7 +467,7 @@ async def call(
     args.pop("args", None)
 
     try:
-        component = server.root.get_component(address)
+        component = engine.root.get_component(address)
         if component is None:
             return Fail(ProcedureComponentDoesNotExistError())
         return Ok(await component.call(procedure, args))
@@ -478,7 +478,7 @@ async def call(
 @api.websocket("/components/{address}/procedures/{procedure}/subscribe")
 async def subscribe(
     socket: WebSocket,
-    server: CurrentServer,
+    engine: CurrentEngine,
     address: Address,
     procedure: Name,
     query_args: CurrentProcedureQueryArgs,
@@ -490,7 +490,7 @@ async def subscribe(
     args.update(socket.query_params)
     args.pop("args", None)
 
-    component = server.root.get_component(address)
+    component = engine.root.get_component(address)
     if component is None:
         code = 1008  # Set code for policy violation.
         reason = jsonify(Fail(ProcedureComponentDoesNotExistError()))
@@ -566,7 +566,7 @@ class LoggingMiddleware:
                         description = responses.get(status, "Unknown")
                         level = Level.INFO if status < 400 else Level.ERROR
 
-                        app.server.log.write(
+                        app.engine.log.write(
                             level,
                             f"[HTTP] {verb} {path} {host} {status} {description}",
                         )
@@ -586,7 +586,7 @@ class LoggingMiddleware:
                         client = socket["client"]
                         host = client[0] if client else "?"
 
-                        app.server.log.info(f"[WS] '{verb}' {path} {host}")
+                        app.engine.log.info(f"[WS] '{verb}' {path} {host}")
                 except Exception:
                     traceback.print_exc()
 
@@ -597,14 +597,14 @@ class LoggingMiddleware:
 
 @final
 class App(FastAPI):
-    def __init__(self, server: Server) -> None:
+    def __init__(self, engine: Engine) -> None:
         super().__init__(
             redoc_url=None,
             docs_url="/api/docs",
             openapi_url="/api/openapi.json",
         )
 
-        self.__server = server
+        self.__engine = engine
 
         @self.middleware("http")
         async def error_middleware(
@@ -614,7 +614,7 @@ class App(FastAPI):
             try:
                 return await call_next(request)
             except Exception:
-                self.server.log.error(traceback.format_exc())
+                self.engine.log.error(traceback.format_exc())
                 raise
 
         self.add_middleware(
@@ -635,5 +635,5 @@ class App(FastAPI):
         self.mount("/", ConsoleFiles(), name="console")
 
     @property
-    def server(self) -> Server:
-        return self.__server
+    def engine(self) -> Engine:
+        return self.__engine

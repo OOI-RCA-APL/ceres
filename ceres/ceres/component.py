@@ -119,9 +119,9 @@ from ceres.validation import ValidationProblem
 
 if TYPE_CHECKING:
     from ceres.reference import Reference
-    from ceres.server import Server
+    from ceres.engine import Engine
 else:
-    Server = object
+    Engine = object
     Reference = object
 
 _ComponentT = TypeVar("_ComponentT", bound="Component")
@@ -223,7 +223,7 @@ class Component(Object):
         self.__components: dict[Name, Component] = {}
         self.__config__: "ComponentConfig | None" = None
         self.__enabled = False
-        self.__server: Server | None = None
+        self.__engine: Engine | None = None
         self.__database: Database | None = None
         self.__listeners = [
             _Listener(
@@ -305,7 +305,7 @@ class Component(Object):
         if self.parent is not None:
             return self.parent
 
-        return self.server
+        return self.engine
 
     @property
     @override
@@ -318,8 +318,8 @@ class Component(Object):
     def __object_database__(self) -> Database:
         if self.parent is not None:
             return self.parent.__object_database__
-        if self.server is not None:
-            return self.server.__object_database__
+        if self.engine is not None:
+            return self.engine.__object_database__
         if self.__database is None:
             self.__database = Database()
 
@@ -441,17 +441,17 @@ class Component(Object):
     @property
     @override
     @final
-    def server(self) -> Server | None:
+    def engine(self) -> Engine | None:
         if self.parent is not None:
-            return self.parent.server
-        if self.__server is not None:
-            return self.__server
+            return self.parent.engine
+        if self.__engine is not None:
+            return self.__engine
 
         return None
 
-    @server.setter
-    def server(self, server: Server) -> None:
-        self.__server = server
+    @engine.setter
+    def engine(self, engine: Engine) -> None:
+        self.__engine = engine
 
     @property
     def components(self) -> "ComponentGroup":

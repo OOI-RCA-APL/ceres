@@ -14,7 +14,8 @@ from typer import Argument, Option
 from ceres.address import AddressSelector
 from ceres.config import Config
 from ceres.data import jsonify, simplify
-from ceres.exceptions import ServerException
+from ceres.engine import Engine
+from ceres.exceptions import EngineException
 from ceres.filter import ComponentFilter
 from ceres.internal import logs
 from ceres.internal.cli.exceptions import (
@@ -43,7 +44,6 @@ from ceres.internal.utilities import (
 )
 from ceres.object import Status
 from ceres.result import Fail, Ok
-from ceres.server import Server
 from ceres.threading import spawn
 
 main = AsyncTyper(
@@ -75,7 +75,7 @@ async def run(
             await _run_watch(config_path=config_path, all=all)
         else:
             set_current_process_name("ceres")
-            server = Server(config_path)
+            server = Engine(config_path)
             match await server.load():
                 case Ok():
                     pass
@@ -120,7 +120,7 @@ async def run(
 
             with temporary_signal_handler([signal.SIGINT, signal.SIGTERM], handle_exit_signal):
                 await main()
-    except ServerException as exception:
+    except EngineException as exception:
         raise CLIStartupException(f"Engine startup failed. {exception.message}")
 
 

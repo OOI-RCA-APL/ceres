@@ -39,8 +39,8 @@ Ceres is a Python framework for streaming data collection and monitoring. This p
 
 7. Run `ceres run --all --watch` to run the project.
 
-   - _The `--all` flag starts all components on server startup._
-   - _The `--watch` flag makes the server reload when either configuration or code are modified._
+   - _The `--all` flag starts all components on engine startup._
+   - _The `--watch` flag makes the engine reload when either configuration or code are modified._
 
 8. Go to `localhost:9000`. You should see the web console.
 
@@ -53,7 +53,7 @@ If you have an actual Crabee device available, edit `ceres.yaml` and change the 
 + host: 10.95.96.173
 ```
 
-Once `ceres.yaml` is saved, the server should reload immediately and try to connect to the device.
+Once `ceres.yaml` is saved, the engine should reload immediately and try to connect to the device.
 
 If the device is reachable, you should see logs indicating the connection was successful and messages should be printed every second, just like the simulator.
 

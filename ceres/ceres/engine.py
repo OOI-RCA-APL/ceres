@@ -49,7 +49,7 @@ class Action(ImmutableDataObject):
     address: Address
 
 
-class Server(Object, kw_only=False):
+class Engine(Object, kw_only=False):
     config_path: Path
 
     def __post_init__(self) -> None:
@@ -72,7 +72,7 @@ class Server(Object, kw_only=False):
         self.__root = self.__config.create()
         self.root = self.__root
 
-        assert self.root.server is self
+        assert self.root.engine is self
         assert self.root.__object_database__ is self.__object_database__
 
         from ceres.internal.app import App
@@ -101,7 +101,7 @@ class Server(Object, kw_only=False):
     @property
     @override
     def address(self) -> Address:
-        return Address.server()
+        return Address.engine()
 
     @property
     @override
@@ -112,11 +112,11 @@ class Server(Object, kw_only=False):
     def root(self, root: Component) -> None:
         root = root.unref()
         self.__root = root
-        self.__root.server = self
+        self.__root.engine = self
 
     @property
     @override
-    def server(self) -> Self:
+    def engine(self) -> Self:
         return self
 
     @property

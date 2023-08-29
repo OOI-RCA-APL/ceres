@@ -65,7 +65,7 @@ class AddressSelector(str):
     def as_absolute(self, root: "Address") -> "AddressSelector":
         segments: list[str] = []
 
-        if root.is_server:
+        if root.is_engine:
             root = Address.root()
 
         for segment in self.segments:
@@ -248,7 +248,7 @@ class DynamicAddress(AddressSelector):
         return [name for name in self.split(".") if name]
 
     @property
-    def is_server(self) -> bool:
+    def is_engine(self) -> bool:
         return self == "~"
 
     @property
@@ -257,7 +257,7 @@ class DynamicAddress(AddressSelector):
 
     @property
     def is_absolute(self) -> bool:
-        return self.is_server or self.startswith("@")
+        return self.is_engine or self.startswith("@")
 
     @property
     def is_relative(self) -> bool:
@@ -265,7 +265,7 @@ class DynamicAddress(AddressSelector):
 
     def __truediv__(self, other: str) -> Self:
         other = DynamicAddress(other)
-        if self.is_server:
+        if self.is_engine:
             return self
 
         return type(self)(f"{self}{'.' if not self.is_root else ''}{other.strip('.')}")
@@ -278,7 +278,7 @@ class DynamicAddress(AddressSelector):
         return root / self
 
     def as_relative(self) -> "DynamicAddress | None":
-        if self.is_server:
+        if self.is_engine:
             return None
 
         stripped = self.lstrip("@")
@@ -318,8 +318,8 @@ class Address(DynamicAddress):
     regex = re.compile(rf"^~|@({_NAME}(\.{_NAME})*)*$")
 
     @classmethod
-    def server(cls) -> "Address":
-        return _SERVER
+    def engine(cls) -> "Address":
+        return _ENGINE
 
     @classmethod
     def root(cls) -> "Address":
@@ -339,12 +339,12 @@ class Address(DynamicAddress):
         return str.__new__(cls, value)
 
     def contains(self, other: "Address") -> bool:
-        if self.is_server:
+        if self.is_engine:
             return True
         return other == self or (
-            (not other.is_server) and (other.startswith(f"{self}.") or self.is_root)
+            (not other.is_engine) and (other.startswith(f"{self}.") or self.is_root)
         )
 
 
-_SERVER = Address("~")
+_ENGINE = Address("~")
 _ROOT = Address("@")
