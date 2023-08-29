@@ -59,7 +59,13 @@ from ceres.filter import (
     StatisticsFilterArgs,
 )
 from ceres.internal.database.entities import AlertEntity, Entity, LogEntryEntity, MessageEntity
-from ceres.internal.utilities import escape_like_expression, get_type_adapter, sqlexpr, sqlstmt
+from ceres.internal.utilities import (
+    escape_like_expression,
+    get_type_adapter,
+    sqlexpr,
+    sqlstmt,
+    strlist,
+)
 from ceres.level import Level
 from ceres.logs import LogEntry
 from ceres.message import Message
@@ -167,27 +173,25 @@ class Database:
 
         self._pre_configure_engine(engine)
 
-        init, connect, disconnect = (
-            self.config.hooks.init,
-            self.config.hooks.connect,
-            self.config.hooks.close,
-        )
+        init = strlist(self.config.hooks.init)
+        connect = strlist(self.config.hooks.connect)
+        disconnect = strlist(self.config.hooks.close)
 
-        if init is not None:
+        if init:
 
             @event.listens_for(engine.sync_engine, "first_connect")
             def init_hook(connection: SQLiteConnection, *args: object) -> None:
                 for statement in init:
                     connection.execute(statement)
 
-        if connect is not None:
+        if connect:
 
             @event.listens_for(engine.sync_engine, "connect")
             def connect_hook(connection: SQLiteConnection, *args: object) -> None:
                 for statement in connect:
                     connection.execute(statement)
 
-        if disconnect is not None:
+        if disconnect:
 
             @event.listens_for(engine.sync_engine, "close")
             def close_hook(connection: SQLiteConnection, *args: object) -> None:

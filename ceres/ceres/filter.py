@@ -16,7 +16,7 @@ from typing_extensions import Self, override
 from ceres.address import Address, AddressSelector
 from ceres.alert import Alert
 from ceres.data import DateTime, ImmutableDataObject, PositiveTimeDelta, jsonify
-from ceres.internal.utilities import StrEnum
+from ceres.internal.utilities import StrEnum, as_sequence
 from ceres.level import Level
 from ceres.logs import LogEntry
 from ceres.message import Message, MessageDirection
@@ -253,20 +253,12 @@ class AlertFilter(ObjectFilter[Alert]):
                 return False
 
         if self.level is not None:
-            if isinstance(self.level, Level):
-                if obj.level != self.level:
-                    return False
-            else:
-                if obj.level not in self.level:
-                    return False
+            if obj.level not in as_sequence(self.level):
+                return False
 
         if self.code is not None:
-            if isinstance(self.code, str):
-                if obj.code != self.code:
-                    return False
-            else:
-                if obj.code not in self.code:
-                    return False
+            if obj.code not in as_sequence(self.code):
+                return False
 
         if self.code_regex is not None:
             if not self.code_regex.match(obj.code):

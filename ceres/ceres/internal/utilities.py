@@ -765,3 +765,44 @@ class StrEnum(BaseStrEnum):
     @staticmethod
     def _generate_next_value_(name: str, *args: Any, **kwargs: Any) -> str:
         return name.lower().replace("_", "-")
+
+
+def strlist(value: str | Sequence[str] | None) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, list):
+        return value
+
+    return list(value)
+
+
+def as_sequence(value: _T | Sequence[_T]) -> Sequence[_T]:
+    if not isinstance(value, str) and isinstance(value, Sequence):
+        return value
+
+    return (value,)  # type: ignore
+
+
+_O = TypeVar("_O")
+
+
+@overload
+def coalesce(value: _T | None, default: Callable[[], _O]) -> _T | _O:
+    ...
+
+
+@overload
+def coalesce(value: _T | None, default: _O) -> _T | _O:
+    ...
+
+
+def coalesce(value: object, default: object) -> object:
+    if value is None:
+        if callable(default):
+            return default()
+
+        return default
+
+    return value

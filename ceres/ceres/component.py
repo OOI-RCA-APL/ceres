@@ -106,6 +106,7 @@ from ceres.internal.utilities import (
     randstr,
     setattr_internal,
     strify,
+    strlist,
     traverse,
     uniquify,
     validated_function,
@@ -1105,10 +1106,7 @@ def on(
     reference: str | Sequence[str] | None = None,
     address: str | AddressSelector | Sequence[str | AddressSelector] | None = None,
 ) -> _ListenerMethod | _ListenerMethodTransform:
-    if reference is None:
-        reference = []
-    if isinstance(reference, str):
-        reference = [reference]
+    reference = strlist(reference)
 
     if address is not None:
         if isinstance(address, (str, DynamicAddress)):
