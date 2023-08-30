@@ -132,7 +132,7 @@ class Object(ValidatedDataclass, Tasklet):
 
     @property
     @abstractmethod
-    def root(self) -> Component:
+    def root(self) -> Component | None:
         ...
 
     @property

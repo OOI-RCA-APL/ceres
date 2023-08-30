@@ -74,6 +74,7 @@ ComponentError = (
 
 
 class ConfigErrorType(StrEnum):
+    NOT_PROVIDED = "config-not-provided-error"
     READ_ERROR = "config-read-error"
     PARSE_ERROR = "config-parse-error"
     VALIDATION_ERROR = "config-validation-error"
@@ -84,6 +85,11 @@ class ConfigErrorType(StrEnum):
 
 class BaseConfigError(Error):
     pass
+
+
+class ConfigNotProvidedError(BaseConfigError):
+    type: Literal[ConfigErrorType.NOT_PROVIDED] = ConfigErrorType.NOT_PROVIDED
+    message: str
 
 
 class ConfigReadError(BaseConfigError):
@@ -120,7 +126,8 @@ class ConfigComponentError(BaseConfigError):
 
 
 ConfigError = (
-    ConfigReadError
+    ConfigNotProvidedError
+    | ConfigReadError
     | ConfigParseError
     | ConfigValidationError
     | ConfigDatabaseError

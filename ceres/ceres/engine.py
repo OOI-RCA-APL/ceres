@@ -1,4 +1,5 @@
 import asyncio
+import os
 import traceback
 from asyncio import FIRST_COMPLETED
 from asyncio import Event as AsyncEvent
@@ -13,6 +14,7 @@ from ceres.data import ImmutableDataObject
 from ceres.directory import Directory
 from ceres.errors import (
     ConfigError,
+    ConfigNotProvidedError,
     ReloadAlreadyActiveError,
     ReloadConfigInvalidError,
     ReloadError,
@@ -49,16 +51,24 @@ class Action(ImmutableDataObject):
 
 
 class Engine(Object, kw_only=False):
-    config_path: Path
+    source: Path | Config | None
 
     def __post_init__(self) -> None:
         super().__post_init__()
 
-        match Config.read(self.config_path):
-            case Ok(config):
-                self.__config: Config = config
-            case Fail(errors):
-                raise ValueError(str(errors))
+        if self.source is None:
+            self.__config = Config()
+            self.__config_path = None
+        elif isinstance(self.source, Path):
+            self.__config_path = self.source
+            match Config.read(self.source):
+                case Ok(config):
+                    self.__config = config
+                case Fail(errors):
+                    raise ValueError(str(errors))
+        else:
+            self.__config = self.source
+            self.__config_path = None
 
         from ceres.database.database import Database
 
@@ -67,16 +77,17 @@ class Engine(Object, kw_only=False):
         self.__reloaded_config: Config | None = None
         self.__port_uvicorn: Uvicorn | None = None
         self.__uds_uvicorn: Uvicorn | None = None
-
-        self.__root = self.__config.create()
-        self.root = self.__root
-
-        assert self.root.engine is self
-        assert self.root.__object_database__ is self.__object_database__
+        self.__root: Component | None = None
 
         from ceres.internal.app import App
 
         self.__app = App(self)
+
+        if self.__config_path is not None:
+            self.__project_directory = Directory(self.__config_path.parent)
+        else:
+            self.__project_directory = Directory(os.getcwd())
+
         self.__setup__()
 
     def __setup__(self) -> None:
@@ -90,7 +101,10 @@ class Engine(Object, kw_only=False):
     @property
     @override
     def __object_descendants__(self) -> Sequence[Object]:
-        return [self.root, *self.get_components()]
+        if self.__root is None:
+            return []
+
+        return self.get_components()
 
     @property
     @override
@@ -104,7 +118,7 @@ class Engine(Object, kw_only=False):
 
     @property
     @override
-    def root(self) -> Component:
+    def root(self) -> Component | None:
         return self.__root
 
     @root.setter
@@ -123,16 +137,25 @@ class Engine(Object, kw_only=False):
         return self.__config
 
     @property
-    def project_directory(self) -> Directory:
-        return Directory(self.config_path.parent)
+    def config_path(self) -> Path | None:
+        return self.__config_path
 
     @property
-    def local_directory(self) -> Directory:
+    def project_directory(self) -> Directory | None:
+        return self.__project_directory
+
+    @property
+    def local_directory(self) -> Directory | None:
+        if self.project_directory is None:
+            return None
+
         return self.project_directory.subdir("local")
 
     @override
     async def __run__(self) -> None:
-        self.local_directory.create()
+        if self.local_directory is not None:
+            self.local_directory.create()
+
         await self.__load_database()
         await self.__object_sync__()
 
@@ -192,7 +215,8 @@ class Engine(Object, kw_only=False):
         self.emit(StoppingEvent)
         await self.__stop_uds_uvicorn()
         await self.__stop_port_uvicorn()
-        await self.root.stop()
+        if self.__root is not None:
+            await self.__root.stop()
 
     @override
     async def __done__(self) -> None:
@@ -200,15 +224,25 @@ class Engine(Object, kw_only=False):
         await self.flush()
         await self.__database.dispose()
 
-    async def load(self) -> "Result[Config, list[ConfigError]]":
-        match await Config.load(self.config_path, log=self.log):
-            case Ok(config) as ok:
-                self.__config = config
-                await self.__load_database()
-                await self.__load_components()
-                return ok
-            case Fail() as fail:
-                return fail
+    async def load(self, config: Config | None = None) -> "Result[Config, list[ConfigError]]":
+        if config is not None:
+            match await config.check(log=self.log):
+                case Ok(config):
+                    self.__config = config
+                case Fail() as fail:
+                    return fail
+        elif self.__config_path is not None:
+            match await Config.load(self.__config_path, log=self.log):
+                case Ok(config):
+                    self.__config = config
+                case Fail() as fail:
+                    return fail
+        else:
+            return Fail([ConfigNotProvidedError(message="No configuration source provided.")])
+
+        await self.__load_database()
+        await self.__load_components()
+        return Ok(self.__config)
 
     @override
     def propagate(self, event: _EventT) -> _EventT:
@@ -223,7 +257,10 @@ class Engine(Object, kw_only=False):
 
     @override
     def get_component(self, address: str | DynamicAddress | None = None, /) -> Component | None:
-        return self.root.get_component(address)
+        if self.__root is None:
+            return None
+
+        return self.__root.get_component(address)
 
     @override
     def get_components(
@@ -234,17 +271,29 @@ class Engine(Object, kw_only=False):
         inclusive: bool = False,
         **kwargs: Unpack[ComponentFilterArgs],
     ) -> ComponentGroup:
-        return self.root.get_components(filter, inclusive=True, **kwargs)
+        if self.__root is None:
+            return ComponentGroup()
 
-    async def reload(self) -> Result[Config, ReloadError]:
+        return self.__root.get_components(filter, inclusive=True, **kwargs)
+
+    async def reload(self, config: Config | None = None) -> Result[Config, ReloadError]:
         if self.__reloading.is_set():
             return Fail(ReloadAlreadyActiveError())
 
-        self.log.info(f"Reloading configuration from '{self.config_path}'...")
+        if config is not None:
+            self.log.info("Queueing reload of provided configuration...")
+            self.__reloading.set()
+            self.__reloaded_config = config
+            return Ok(config)
 
-        match await Config.load(self.config_path, log=self.log):
+        if self.__config_path is None:
+            self.log.warning("No configuration path provided, ignoring reload.")
+            return Ok(self.config)
+
+        self.log.info(f"Reloading configuration from '{self.__config_path}'...")
+        match await Config.load(self.__config_path, log=self.log):
             case Ok(config):
-                self.log.info("Queueing reload...")
+                self.log.info("Configuration parsed successfully, queueing reload...")
                 self.__reloading.set()
                 self.__reloaded_config = config
                 return Ok(config)
@@ -263,11 +312,11 @@ class Engine(Object, kw_only=False):
                 raise DatabaseInitException(str(exception))
 
     async def __execute_reload(self) -> None:
-        self.log.info("Reloading...")
+        self.log.info("Reloading configuration...")
         previous = self.config
 
         if self.__reloaded_config is None:
-            self.log.warning("No new configuration was found, ignoring reload.")
+            self.log.warning("No queued configuration was found, ignoring reload.")
             return
 
         self.__config = self.__reloaded_config
@@ -296,7 +345,9 @@ class Engine(Object, kw_only=False):
                 )
                 try:
                     running = self.get_components(running=True)
-                    await self.root.stop()
+                    if self.__root is not None:
+                        await self.__root.stop()
+
                     await self.__database.dispose()
                     from ceres.database.database import Database
 
@@ -351,6 +402,8 @@ class Engine(Object, kw_only=False):
                 component = config.create()
                 if address.is_root:
                     self.root = component
+                    assert component.engine is self
+                    assert component.__object_database__ is self.__object_database__
                 else:
                     parent = self.get_component(address.parent)
                     if parent is not None:
@@ -426,7 +479,7 @@ class Engine(Object, kw_only=False):
     def __get_component_reload_actions_for(self, address: Address) -> list[Action]:
         config = self.config.get_component(address)
 
-        component = self.root.get_component(address)
+        component = self.get_component(address)
         if component is None and config is not None:
             return [Action(type=ActionType.CREATE, address=address)]
         if component is not None and config is None:
@@ -457,19 +510,28 @@ class Engine(Object, kw_only=False):
 
         return actions
 
-    def __create_uds_uvicorn(self) -> Uvicorn:
-        context = Project(self.config_path, self.__config)
+    def __create_uds_uvicorn(self) -> Uvicorn | None:
+        if self.__config.server.socket is not None:
+            socket = self.__config.server.socket
+        elif self.__config_path is not None:
+            project = Project(self.__config_path, self.__config)
+            socket = project.socket_path
+        else:
+            return None
+
         return Uvicorn(
             UvicornConfig(
                 app=self.__app,
-                uds=str(context.socket_path),
+                uds=str(socket),
                 loop="none",
             )
         )
 
-    def __start_uds_uvicorn(self) -> Uvicorn:
+    def __start_uds_uvicorn(self) -> Uvicorn | None:
         if self.__uds_uvicorn is None:
             self.__uds_uvicorn = self.__create_uds_uvicorn()
+        if self.__uds_uvicorn is None:
+            return None
 
         if not self.__uds_uvicorn.running:
             self.__uds_uvicorn.start()

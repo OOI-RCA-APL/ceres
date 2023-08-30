@@ -994,7 +994,7 @@ class ComponentGroup(Sequence[Component]):
         "__identities",
     )
 
-    def __init__(self, components: Iterable[Component]):
+    def __init__(self, components: Iterable[Component] = ()):
         self.__components = tuple(uniquify(components, key=lambda component: id(component.unref())))
         self.__identities: set[int] | None = None
 
@@ -1026,6 +1026,9 @@ class ComponentGroup(Sequence[Component]):
         return iter(self.__components)
 
     def __contains__(self, other: object) -> bool:
+        if not self.__components:
+            return False
+
         if self.__identities is None:
             self.__identities = {id(component.unref()) for component in self.__components}
 

@@ -28,6 +28,9 @@ class Project:
 
     @property
     def socket_path(self) -> Path:
+        if self.__config.server.socket:
+            return self.__config.server.socket
+
         return Path(f"/tmp/ceres-{sha1(str(self.directory).encode()).hexdigest()}.sock")
 
     @property

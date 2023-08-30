@@ -89,7 +89,7 @@ async def run(
             async def run() -> None:
                 server.start()
                 if all:
-                    server.root.get_components().start()
+                    server.get_components().start()
 
                 await server.wait_until_stopped()
 

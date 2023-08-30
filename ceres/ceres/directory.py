@@ -6,11 +6,10 @@ from tempfile import gettempdir
 from typing import IO, TYPE_CHECKING, Any, Iterable, Union, final, overload
 from uuid import uuid4
 
-from typing_extensions import Self
-
 from pydantic import GetCoreSchemaHandler
 from pydantic_core import CoreSchema
 from pydantic_core.core_schema import no_info_after_validator_function
+from typing_extensions import Self
 
 if TYPE_CHECKING:
     from _typeshed import OpenBinaryMode as OpenBinaryMode
@@ -55,14 +54,13 @@ class Directory(PathLike[str]):
         source_type: Any,
         handler: GetCoreSchemaHandler,
     ) -> CoreSchema:
-        return no_info_after_validator_function(cls.validate, handler(Any))
+        def validate(value: str | PathLike[str]) -> Self:
+            if isinstance(value, cls):
+                return value
 
-    @classmethod
-    def validate(cls, value: Any) -> Self:
-        if isinstance(value, cls):
-            return value
+            return cls(value)
 
-        return cls(value)
+        return no_info_after_validator_function(validate, handler(str | PathLike[str]))
 
     @property
     def path(self) -> Path:

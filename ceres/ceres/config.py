@@ -1,4 +1,5 @@
 import asyncio
+import os
 import traceback
 from datetime import timedelta
 from logging import Logger
@@ -133,6 +134,22 @@ class ServiceConfig(ConfigObject):
 
 class ServerConfig(ConfigObject):
     port: int | None = None
+    socket: Path | None = None
+
+    @field_validator("socket")
+    def _validate_socket(cls, socket: Path | None) -> Path | None:
+        if socket is None:
+            return None
+
+        try:
+            resolved = Path(os.path.normpath(socket)).absolute()
+        except Exception:
+            return socket
+
+        if len(str(resolved)) > 108:
+            raise ValueError(f"resolved socket path {resolved!r} cannot exceed 108 bytes")
+
+        return socket
 
 
 class DatabaseRetryConfig(ConfigObject):
@@ -239,89 +256,56 @@ class Config(ComponentConfig):
         checks: Sequence[ConfigCheckType] = ConfigCheckType.all(),
         log: Logger | Log | Callable[[object], None] = lambda message: None,
     ) -> "Result[Self, list[ConfigError]]":
-        def log_info(message: object) -> None:
+        match cls.read(source):
+            case Ok(instance):
+                pass
+            case Fail(errors):
+                return Fail(errors)
+
+        return await instance.check(checks=checks, log=log)
+
+    async def check(
+        self,
+        *,
+        checks: Sequence[ConfigCheckType] = ConfigCheckType.all(),
+        log: Logger | Log | Callable[[object], None] = lambda message: None,
+    ) -> "Result[Self, list[ConfigError]]":
+        def __log(message: object) -> None:
             if isinstance(log, Logger | Log):
                 log.info(message)
             else:
                 log(message)
 
-        try:
-            if isinstance(source, Mapping):
-                instance = cls.model_validate(source)
-            elif isinstance(source, Path):
-                try:
-                    path = source.resolve()
-                except Exception:
-                    return Fail([ConfigReadError(message=f"path '{source}' could not be resolved")])
-
-                try:
-                    with open(path, "r") as stream:
-                        data = yaml.safe_load(stream)
-                except OSError:
-                    return Fail([ConfigReadError(message=f"failed to read file at '{path}'")])
-                except YAMLError as error:
-                    message: str | None = None
-                    location: ConfigParseErrorLocation | None = None
-
-                    if isinstance(error, MarkedYAMLError):
-                        message = error.problem
-
-                        if error.problem_mark:
-                            location = ConfigParseErrorLocation(
-                                line=error.problem_mark.line,
-                                column=error.problem_mark.column,
-                            )
-
-                    return Fail(
-                        [
-                            ConfigParseError(
-                                message=message,
-                                location=location,
-                            )
-                        ]
-                    )
-
-                instance = cls.model_validate(data)
-            else:
-                instance = source
-        except ValidationError as error:
-            return Fail([ConfigValidationError(problems=ValidationProblem.extract(error))])
-
         errors: list[ConfigError] = []
 
         if ConfigCheckType.DATABASE in checks:
-            database_errors = await cls.__check_database(instance, log_info)
+            database_errors = await self.__check_database(__log)
             errors.extend(database_errors)
             if not database_errors:
-                log_info("Database configuration is valid.")
+                __log("Database configuration is valid.")
 
         if ConfigCheckType.COMPONENTS in checks:
-            component_errors = await cls.__check_components(instance, log_info)
+            component_errors = await self.__check_components(__log)
             errors.extend(component_errors)
             if not component_errors:
-                log_info("Component configurations are valid.")
+                __log("Component configurations appear valid.")
 
         if errors:
             return Fail(errors)
 
-        return Ok(instance)
+        return Ok(self)
 
-    @classmethod
-    async def __check_database(
-        cls,
-        config: Self,
-        log: Callable[[object], None],
-    ) -> list[ConfigDatabaseError]:
+    async def __check_database(self, log: Callable[[object], None]) -> list[ConfigDatabaseError]:
         from ceres.database.database import Database
 
         log("Checking database configuration...")
 
         start = utc()
-        timeout = config.database.retry.timeout
-        interval = config.database.retry.interval
+        timeout = self.database.retry.timeout
+        interval = self.database.retry.interval
 
         while True:
-            database = Database(config.database)
+            database = Database(self.database)
 
             try:
                 async with database.connect():
@@ -350,12 +334,7 @@ class Config(ComponentConfig):
             finally:
                 await database.dispose()
 
-    @classmethod
-    async def __check_components(
-        cls,
-        config: Self,
-        log: Callable[[object], None],
-    ) -> list[ConfigComponentError]:
+    async def __check_components(self, log: Callable[[object], None]) -> list[ConfigComponentError]:
         log("Checking component configurations...")
 
         def check_component(
@@ -366,11 +345,11 @@ class Config(ComponentConfig):
             address = Address.root() if parent is None else parent.address / component_config.name
 
             if isinstance(component_config, ComponentConfig):
-                log(f"Checking '{address}'...")
-
                 try:
                     component = component_config.create()
+                    log(f"Component '{address}': OK")
                 except Exception as exception:
+                    log(f"Component '{address}': ERROR")
                     errors.append(
                         ConfigComponentError(
                             component=address,
@@ -397,7 +376,7 @@ class Config(ComponentConfig):
 
         errors: list[ConfigComponentError] = []
 
-        root = check_component(None, config, errors)
+        root = check_component(None, self, errors)
         if errors or root is None:
             return errors
 

@@ -466,7 +466,7 @@ async def call(
     args.pop("args", None)
 
     try:
-        component = engine.root.get_component(address)
+        component = engine.get_component(address)
         if component is None:
             return Fail(ProcedureComponentDoesNotExistError())
         return Ok(await component.call(procedure, args))
@@ -489,7 +489,7 @@ async def subscribe(
     args.update(socket.query_params)
     args.pop("args", None)
 
-    component = engine.root.get_component(address)
+    component = engine.get_component(address)
     if component is None:
         code = 1008  # Set code for policy violation.
         reason = jsonify(Fail(ProcedureComponentDoesNotExistError()))
