@@ -3,7 +3,7 @@ service:
 server:
   port: 9000
 database:
-  kind: sqlite
+  type: sqlite
   path: ./local/database.sqlite
 components:
   - name: a3
@@ -61,7 +61,7 @@ components:
             - subject: Alerts
               description: Within the last 30 minutes, the following alerts were reported.
               schedule:
-                kind: cron
+                type: cron
                 crontab: "* * * * *"
               alerts:
                 within: 30m

@@ -22,7 +22,7 @@ class ConsoleColor(Color, Enum):
 AtomicValue: TypeAlias = StrictBool | StrictInt | StrictFloat | Decimal | StrictStr
 
 
-class DisplayKind(StrEnum):
+class DisplayType(StrEnum):
     VALUE = "value"
     STATE = "state"
     GAUGE = "gauge"
@@ -30,11 +30,11 @@ class DisplayKind(StrEnum):
 
 
 class BaseDisplay(ImmutableDataObject):
-    kind: DisplayKind
+    type: DisplayType
 
 
 class ValueDisplay(BaseDisplay):
-    kind: Literal[DisplayKind.VALUE] = DisplayKind.VALUE
+    type: Literal[DisplayType.VALUE] = DisplayType.VALUE
     value: AtomicValue
     unit: str | None = None
     color: Color | None = None
@@ -48,7 +48,7 @@ class StateDisplay(BaseDisplay):
         icon: str | None = None
         description: str | None = None
 
-    kind: Literal[DisplayKind.STATE] = DisplayKind.STATE
+    type: Literal[DisplayType.STATE] = DisplayType.STATE
     value: AtomicValue
     options: Sequence[Option]
 
@@ -58,7 +58,7 @@ class GaugeDisplay(BaseDisplay):
         value: float
         color: Color
 
-    kind: Literal[DisplayKind.GAUGE] = DisplayKind.GAUGE
+    type: Literal[DisplayType.GAUGE] = DisplayType.GAUGE
     value: float
     unit: str | None = None
     min: float
@@ -67,7 +67,7 @@ class GaugeDisplay(BaseDisplay):
 
 
 class ChartDisplay(BaseDisplay):
-    kind: Literal[DisplayKind.CHART] = DisplayKind.CHART
+    type: Literal[DisplayType.CHART] = DisplayType.CHART
     value: Mapping[str, object]
     height: int
 

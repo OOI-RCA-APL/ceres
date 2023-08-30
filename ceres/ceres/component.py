@@ -401,7 +401,7 @@ class Component(Object):
         return enabled
 
     async def __set_enabled_in_database(self, session: AsyncSession, enabled: bool) -> None:
-        if self.__object_database__.kind == "sqlite":
+        if self.__object_database__.type == "sqlite":
             from sqlalchemy.dialects.sqlite import insert
         else:
             from sqlalchemy.dialects.postgresql import insert
@@ -1149,7 +1149,7 @@ def on(
     return on(method)
 
 
-class ProcedureKind(StrEnum):
+class ProcedureType(StrEnum):
     QUERY = "query"
     ACTION = "action"
 
@@ -1170,7 +1170,7 @@ class ProcedureOutputInfo(ImmutableDataObject):
 
 class _ProcedureBinding(ImmutableDataObject):
     name: Name
-    kind: ProcedureKind
+    type: ProcedureType
     method: str
     live: bool
     args: ProcedureArgsInfo | None
@@ -1178,12 +1178,12 @@ class _ProcedureBinding(ImmutableDataObject):
 
 
 class QueryBinding(_ProcedureBinding):
-    kind: Literal[ProcedureKind.QUERY] = ProcedureKind.QUERY
+    type: Literal[ProcedureType.QUERY] = ProcedureType.QUERY
     poll: PositiveTimeDelta = timedelta(seconds=1)
 
 
 class ActionBinding(_ProcedureBinding):
-    kind: Literal[ProcedureKind.ACTION] = ProcedureKind.ACTION
+    type: Literal[ProcedureType.ACTION] = ProcedureType.ACTION
 
 
 ProcedureBinding = QueryBinding | ActionBinding
@@ -1213,7 +1213,7 @@ def query(
     poll: float | timedelta = timedelta(seconds=5),
 ) -> Callable[_P, _T] | Callable[[Callable[_P, _T]], Callable[_P, _T]]:
     def query(method: Callable[_P, _T]) -> Callable[_P, _T]:
-        validated = _validate_procedure(method, ProcedureKind.QUERY)
+        validated = _validate_procedure(method, ProcedureType.QUERY)
         _bind(
             method,
             QueryBinding(
@@ -1249,7 +1249,7 @@ def action(
     method: Callable[_P, _T] | None = None,
 ) -> Callable[_P, _T] | Callable[[Callable[_P, _T]], Callable[_P, _T]]:
     def action(method: Callable[_P, _T]) -> Callable[_P, _T]:
-        validated = _validate_procedure(method, ProcedureKind.ACTION)
+        validated = _validate_procedure(method, ProcedureType.ACTION)
         _bind(
             method,
             ActionBinding(
@@ -1304,14 +1304,15 @@ class _ValidatedProcedureInfo(ImmutableDataObject):
 
 def _validate_procedure(
     method: Callable[..., Any],
-    kind: ProcedureKind,
+    type_: ProcedureType,
+    /,
 ) -> _ValidatedProcedureInfo:
     signature = inspect.signature(method)
     parameters = [*signature.parameters.values()]
     if not parameters or parameters[0].name != "self":
-        raise ValueError(f"{kind} {strify(method)} must have 'self' as its first parameter")
+        raise ValueError(f"{type_} {strify(method)} must have 'self' as its first parameter")
     if any(parameter.kind == Parameter.POSITIONAL_ONLY for parameter in parameters[1:]):
-        raise ValueError(f"{kind} {strify(method)} cannot have positional-only arguments")
+        raise ValueError(f"{type_} {strify(method)} cannot have positional-only arguments")
 
     validated = create_validated_function(method, config=ConfigDict(arbitrary_types_allowed=False))
     core_schema = validated.__pydantic_core_schema__
@@ -1328,14 +1329,14 @@ def _validate_procedure(
 
     hints = get_type_hints(method)
     if "return" not in hints:
-        raise ValueError(f"return type of {kind} {strify(method)} must be specified")
+        raise ValueError(f"return type of {type_} {strify(method)} must be specified")
 
     output_hint = hints["return"]
 
     live = inspect.isasyncgenfunction(method)
 
     if live:
-        error = ValueError(f"return type of live {kind} {strify(method)} must be AsyncIterable[T]")
+        error = ValueError(f"return type of live {type_} {strify(method)} must be AsyncIterable[T]")
 
         try:
             if output_hint.__name__ != "AsyncIterable":
@@ -1349,7 +1350,7 @@ def _validate_procedure(
         output_json_schema = get_type_adapter(output_hint).json_schema()
     except Exception as exception:
         raise ValueError(
-            f"output type of {kind} {strify(method)} must be serializable as a JSON object: "
+            f"output type of {type_} {strify(method)} must be serializable as a JSON object: "
             f"{exception}"
         )
 

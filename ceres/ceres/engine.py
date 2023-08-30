@@ -10,7 +10,6 @@ from typing_extensions import Self, Unpack, override
 from ceres.address import Address, AddressSelector, DynamicAddress
 from ceres.config import Config
 from ceres.data import ImmutableDataObject
-from ceres.internal.utilities import StrEnum
 from ceres.directory import Directory
 from ceres.errors import (
     ConfigError,
@@ -22,7 +21,7 @@ from ceres.events import Event, LogEvent, StoppedEvent, StoppingEvent
 from ceres.exceptions import DatabaseInitException
 from ceres.filter import ComponentFilter, ComponentFilterArgs
 from ceres.internal.project import Project
-from ceres.internal.utilities import sleep_forever, strify, uniquify
+from ceres.internal.utilities import StrEnum, sleep_forever, strify, uniquify
 from ceres.internal.uvicorn import Uvicorn, UvicornConfig
 from ceres.object import Object
 from ceres.result import Fail, Ok, Result
@@ -38,14 +37,14 @@ else:
 _EventT = TypeVar("_EventT", bound=Event)
 
 
-class ActionKind(StrEnum):
+class ActionType(StrEnum):
     CREATE = "create"
     RECREATE = "recreate"
     REMOVE = "remove"
 
 
 class Action(ImmutableDataObject):
-    kind: ActionKind
+    type: ActionType
     address: Address
 
 
@@ -215,9 +214,9 @@ class Engine(Object, kw_only=False):
     def propagate(self, event: _EventT) -> _EventT:
         if not isinstance(event, LogEvent):
             self.log.derive(event.address).info(
-                "[event] [{kind}] {event}",
-                kind=event.kind,
-                event=event.model_dump_json(exclude={"id", "timestamp", "address", "kind"}),
+                "[event] [{type}] {event}",
+                type=event.type,
+                event=event.model_dump_json(exclude={"id", "timestamp", "address", "type"}),
             )
 
         return super().propagate(event)
@@ -372,19 +371,19 @@ class Engine(Object, kw_only=False):
         for action in actions:
             component = self.get_component(action.address)
 
-            if action.kind == ActionKind.REMOVE:
+            if action.type == ActionType.REMOVE:
                 if component is not None:
                     self.log.info(f"Removing '{action.address}'...")
                     await component.stop()
                     component.remove_component()
                     self.log.info(f"Removed '{action.address}'.")
             else:
-                if action.kind == ActionKind.CREATE:
+                if action.type == ActionType.CREATE:
                     if component is None:
                         self.log.info(f"Creating '{action.address}'...")
                         await self.__load_component(action.address)
                         self.log.info(f"Created '{action.address}'.")
-                elif action.kind == ActionKind.RECREATE:
+                elif action.type == ActionType.RECREATE:
                     if component is not None:
                         self.log.info(f"Recreating '{action.address}'...")
                         await component.stop()
@@ -401,17 +400,17 @@ class Engine(Object, kw_only=False):
         created = [
             action
             for action in actions
-            if action.kind == ActionKind.CREATE and self.get_component(action.address) is not None
+            if action.type == ActionType.CREATE and self.get_component(action.address) is not None
         ]
         recreated = [
             action
             for action in actions
-            if action.kind == ActionKind.RECREATE and self.get_component(action.address) is not None
+            if action.type == ActionType.RECREATE and self.get_component(action.address) is not None
         ]
         removed = [
             action
             for action in actions
-            if action.kind == ActionKind.REMOVE and self.get_component(action.address) is None
+            if action.type == ActionType.REMOVE and self.get_component(action.address) is None
         ]
 
         if created:
@@ -429,9 +428,9 @@ class Engine(Object, kw_only=False):
 
         component = self.root.get_component(address)
         if component is None and config is not None:
-            return [Action(kind=ActionKind.CREATE, address=address)]
+            return [Action(type=ActionType.CREATE, address=address)]
         if component is not None and config is None:
-            return [Action(kind=ActionKind.REMOVE, address=address)]
+            return [Action(type=ActionType.REMOVE, address=address)]
         if component is None and config is None:
             return []
 
@@ -445,7 +444,7 @@ class Engine(Object, kw_only=False):
         new = config.model_dump(include=include)
 
         if old != new:
-            return [Action(kind=ActionKind.RECREATE, address=address)]
+            return [Action(type=ActionType.RECREATE, address=address)]
 
         actions: list[Action] = []
         children = uniquify(

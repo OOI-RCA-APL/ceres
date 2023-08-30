@@ -26,11 +26,11 @@ from ceres.validation import ValidationProblem
 
 async def test_event_listeners() -> None:
     class EmitterEvent(Event):
-        kind: str = "emitter-event"
+        type: str = "emitter-event"
         value: int
 
     class SelfEvent(Event):
-        kind: str = "self-event"
+        type: str = "self-event"
         value: int
 
     class Emitter(Component):
@@ -169,7 +169,7 @@ async def test_component_procedure_invalid_args_error(decorator: Any) -> None:
             ValidationProblem(
                 location=["right"],
                 message="Missing required argument",
-                kind="missing_argument",
+                type="missing_argument",
             )
         ],
     )

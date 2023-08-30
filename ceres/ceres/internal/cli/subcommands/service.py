@@ -1,6 +1,6 @@
 import sys
 
-from ceres.config import ConfigCheckKind
+from ceres.config import ConfigCheckType
 from ceres.internal.cli.service import LaunchDService, Service, SystemDService
 from ceres.internal.cli.shared import AsyncTyper, ProjectOption, write, write_table
 from ceres.internal.project import Project
@@ -13,7 +13,7 @@ service = AsyncTyper(
 
 
 @service.command()
-def start(project: Project = ProjectOption(checks=ConfigCheckKind.all())) -> None:
+def start(project: Project = ProjectOption(checks=ConfigCheckType.all())) -> None:
     service = _get_service(project)
     write(f"All checks passed. Starting service {service.name!r} at {service.location!r}...")
     service.start()

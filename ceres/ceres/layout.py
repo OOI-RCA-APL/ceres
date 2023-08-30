@@ -6,7 +6,7 @@ from ceres.data import Color, DataObject, ImmutableDataObject, Name
 from ceres.internal.utilities import StrEnum, strify
 
 
-class LayoutKind(StrEnum):
+class LayoutType(StrEnum):
     DISPLAY = "display"
     BUTTON = "button"
     ROW = "row"
@@ -15,7 +15,7 @@ class LayoutKind(StrEnum):
 
 
 class LayoutDisplay(DataObject):
-    kind: Literal[LayoutKind.DISPLAY] = LayoutKind.DISPLAY
+    type: Literal[LayoutType.DISPLAY] = LayoutType.DISPLAY
     title: str
     query: Name
 
@@ -33,7 +33,7 @@ class LayoutDisplay(DataObject):
 
 
 class LayoutButton(DataObject):
-    kind: Literal[LayoutKind.BUTTON] = LayoutKind.BUTTON
+    type: Literal[LayoutType.BUTTON] = LayoutType.BUTTON
     title: str
     action: Name
     color: Color | None = None
@@ -65,7 +65,7 @@ class LayoutButton(DataObject):
 
 
 class LayoutRow(DataObject):
-    kind: Literal[LayoutKind.ROW] = LayoutKind.ROW
+    type: Literal[LayoutType.ROW] = LayoutType.ROW
     children: list["LayoutNode"]
 
     def __init__(self, children: list["LayoutNode"], **kwargs: Any) -> None:
@@ -73,7 +73,7 @@ class LayoutRow(DataObject):
 
 
 class LayoutColumn(DataObject):
-    kind: Literal[LayoutKind.COLUMN] = LayoutKind.COLUMN
+    type: Literal[LayoutType.COLUMN] = LayoutType.COLUMN
     children: list["LayoutNode"]
 
     def __init__(self, children: list["LayoutNode"], **kwargs: Any) -> None:
@@ -81,7 +81,7 @@ class LayoutColumn(DataObject):
 
 
 class LayoutCarousel(DataObject):
-    kind: Literal[LayoutKind.CAROUSEL] = LayoutKind.CAROUSEL
+    type: Literal[LayoutType.CAROUSEL] = LayoutType.CAROUSEL
     children: list["LayoutNode"]
     height: int | str | None = None
 
@@ -103,11 +103,11 @@ class LayoutCarousel(DataObject):
 
 LayoutNode = Annotated[  # type: ignore
     LayoutDisplay | LayoutButton | LayoutRow | LayoutColumn | LayoutCarousel,
-    Field(discriminator="kind"),
+    Field(discriminator="type"),
 ]
 LayoutContainerNode = Annotated[
     LayoutRow | LayoutColumn | LayoutCarousel,
-    Field(discriminator="kind"),
+    Field(discriminator="type"),
 ]
 
 

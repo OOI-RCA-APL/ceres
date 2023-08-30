@@ -25,7 +25,7 @@ from ceres.data import (
     NonBlankStr,
     PositiveTimeDelta,
 )
-from ceres.database.enums import DatabaseKind
+from ceres.database.enums import DatabaseType
 from ceres.errors import (
     ComponentInitExceptionError,
     ComponentReferenceInvalidError,
@@ -63,7 +63,7 @@ class JobConfig(ConfigObject):
     name: Name
     action: Name
     args: Mapping[Name, Any] | None = None
-    schedule: Schedule = Field(discriminator="kind")
+    schedule: Schedule = Field(discriminator="type")
 
     @model_validator(mode="before")
     def _default_name_to_action(cls, values: dict[str, Any]) -> Any:
@@ -147,19 +147,19 @@ class DatabaseConfigHooks(ConfigObject):
 
 
 class BaseDatabaseConfig(ConfigObject):
-    kind: DatabaseKind
+    type: DatabaseType
     hooks: DatabaseConfigHooks = Field(default_factory=DatabaseConfigHooks)
     engine: Mapping[str, Any] = Field(default_factory=dict)
     retry: DatabaseRetryConfig = DatabaseRetryConfig()
 
 
 class SQLiteDatabaseConfig(BaseDatabaseConfig):
-    kind: Literal[DatabaseKind.SQLITE] = DatabaseKind.SQLITE
+    type: Literal[DatabaseType.SQLITE] = DatabaseType.SQLITE
     path: Path | None = None
 
 
 class PostgresDatabaseConfig(BaseDatabaseConfig):
-    kind: Literal[DatabaseKind.POSTGRES] = DatabaseKind.POSTGRES
+    type: Literal[DatabaseType.POSTGRES] = DatabaseType.POSTGRES
     host: NonBlankStr
     port: int
     database: NonBlankStr
@@ -170,12 +170,12 @@ class PostgresDatabaseConfig(BaseDatabaseConfig):
 DatabaseConfig = SQLiteDatabaseConfig | PostgresDatabaseConfig
 
 
-class ConfigCheckKind(StrEnum):
+class ConfigCheckType(StrEnum):
     DATABASE = "database"
     COMPONENTS = "components"
 
     @classmethod
-    def all(cls) -> Sequence["ConfigCheckKind"]:
+    def all(cls) -> Sequence[Self]:
         return tuple(cls)
 
 
@@ -183,7 +183,7 @@ class Config(ComponentConfig):
     name: Name = "root"
     service: ServiceConfig | None = None
     server: ServerConfig = Field(default_factory=ServerConfig)
-    database: DatabaseConfig = Field(default_factory=SQLiteDatabaseConfig, discriminator="kind")
+    database: DatabaseConfig = Field(default_factory=SQLiteDatabaseConfig, discriminator="type")
 
     @classmethod
     def read(cls, source: Path | Mapping[str, object] | Self) -> "Result[Self, list[ConfigError]]":
@@ -236,7 +236,7 @@ class Config(ComponentConfig):
         cls,
         source: Path | Mapping[str, object] | Self,
         *,
-        checks: Sequence[ConfigCheckKind] = ConfigCheckKind.all(),
+        checks: Sequence[ConfigCheckType] = ConfigCheckType.all(),
         log: Logger | Log | Callable[[object], None] = lambda message: None,
     ) -> "Result[Self, list[ConfigError]]":
         def log_info(message: object) -> None:
@@ -289,13 +289,13 @@ class Config(ComponentConfig):
 
         errors: list[ConfigError] = []
 
-        if ConfigCheckKind.DATABASE in checks:
+        if ConfigCheckType.DATABASE in checks:
             database_errors = await cls.__check_database(instance, log_info)
             errors.extend(database_errors)
             if not database_errors:
                 log_info("Database configuration is valid.")
 
-        if ConfigCheckKind.COMPONENTS in checks:
+        if ConfigCheckType.COMPONENTS in checks:
             component_errors = await cls.__check_components(instance, log_info)
             errors.extend(component_errors)
             if not component_errors:

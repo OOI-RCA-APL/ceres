@@ -9,7 +9,7 @@ from ceres.schedule import Schedule
 
 
 class ScheduledDispatch(Dispatch):
-    schedule: Schedule = Field(discriminator="kind")
+    schedule: Schedule = Field(discriminator="type")
 
 
 class ScheduledDispatcher(Dispatcher):

@@ -38,7 +38,7 @@ from ceres.address import Address
 from ceres.alert import Alert
 from ceres.config import (
     DatabaseConfig,
-    DatabaseKind,
+    DatabaseType,
     PostgresDatabaseConfig,
     SQLiteDatabaseConfig,
 )
@@ -120,8 +120,8 @@ class Database:
         return self.__config
 
     @property
-    def kind(self) -> DatabaseKind:
-        return self.__config.kind
+    def type(self) -> DatabaseType:
+        return self.__config.type
 
     @property
     def engine(self) -> AsyncEngine:
@@ -288,7 +288,7 @@ class Database:
                         pattern.encode(),
                         filter.search_case_sensitive,
                     )
-                    if self.kind == DatabaseKind.SQLITE
+                    if self.type == DatabaseType.SQLITE
                     else self.__format_like(
                         func.encode(MessageEntity.content, "escape"),
                         pattern.encode("utf-8").decode("unicode-escape"),
@@ -379,7 +379,7 @@ class Database:
                 | self.__format_like(AlertEntity.code, pattern, filter.search_case_sensitive)
                 | self.__format_like(
                     cast(AlertEntity.info, Text)
-                    if self.kind == DatabaseKind.POSTGRES
+                    if self.type == DatabaseType.POSTGRES
                     else AlertEntity.info,
                     pattern,
                     filter.search_case_sensitive,
@@ -573,10 +573,10 @@ class Database:
             return await connection.run_sync(callback)
 
     def __format_timestamp(self, timestamp: SQLColumnExpression[datetime]) -> Any:
-        match self.kind:
-            case DatabaseKind.SQLITE:
+        match self.type:
+            case DatabaseType.SQLITE:
                 return timestamp
-            case DatabaseKind.POSTGRES:
+            case DatabaseType.POSTGRES:
                 return func.to_char(timestamp, "YYYY-MM-DD HH24:MI:SS.US")
 
     def __format_like(

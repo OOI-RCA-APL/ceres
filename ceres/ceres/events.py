@@ -13,7 +13,7 @@ from ceres.message import Message
 from ceres.timing import utc
 
 
-class StandardEventKind(StrEnum):
+class StandardEventType(StrEnum):
     STARTED = "started"
     STOPPING = "stopping"
     STOPPED = "stopped"
@@ -61,55 +61,55 @@ class Event(ImmutableDataObject):
         address: Address
 
     timestamp: DateTime = Field(default_factory=utc)
-    kind: StandardEventKind | str
+    type: StandardEventType | str
 
 
 class BaseStandardEvent(Event, ABC):
-    kind: StandardEventKind
+    type: StandardEventType
 
 
 class StartedEvent(BaseStandardEvent):
-    kind: Literal[StandardEventKind.STARTED] = StandardEventKind.STARTED
+    type: Literal[StandardEventType.STARTED] = StandardEventType.STARTED
 
 
 class StoppingEvent(BaseStandardEvent):
-    kind: Literal[StandardEventKind.STOPPING] = StandardEventKind.STOPPING
+    type: Literal[StandardEventType.STOPPING] = StandardEventType.STOPPING
 
 
 class StoppedEvent(BaseStandardEvent):
-    kind: Literal[StandardEventKind.STOPPED] = StandardEventKind.STOPPED
+    type: Literal[StandardEventType.STOPPED] = StandardEventType.STOPPED
 
 
 class EnabledEvent(BaseStandardEvent):
-    kind: Literal[StandardEventKind.ENABLED] = StandardEventKind.ENABLED
+    type: Literal[StandardEventType.ENABLED] = StandardEventType.ENABLED
 
 
 class DisabledEvent(BaseStandardEvent):
-    kind: Literal[StandardEventKind.DISABLED] = StandardEventKind.DISABLED
+    type: Literal[StandardEventType.DISABLED] = StandardEventType.DISABLED
 
 
 class ConnectingEvent(BaseStandardEvent):
-    kind: Literal[StandardEventKind.CONNECTING] = StandardEventKind.CONNECTING
+    type: Literal[StandardEventType.CONNECTING] = StandardEventType.CONNECTING
 
 
 class ConnectedEvent(BaseStandardEvent):
-    kind: Literal[StandardEventKind.CONNECTED] = StandardEventKind.CONNECTED
+    type: Literal[StandardEventType.CONNECTED] = StandardEventType.CONNECTED
 
 
 class DisconnectingEvent(BaseStandardEvent):
-    kind: Literal[StandardEventKind.DISCONNECTING] = StandardEventKind.DISCONNECTING
+    type: Literal[StandardEventType.DISCONNECTING] = StandardEventType.DISCONNECTING
 
 
 class DisconnectedEvent(BaseStandardEvent):
-    kind: Literal[StandardEventKind.DISCONNECTED] = StandardEventKind.DISCONNECTED
+    type: Literal[StandardEventType.DISCONNECTED] = StandardEventType.DISCONNECTED
 
 
 class ConnectionLostEvent(BaseStandardEvent):
-    kind: Literal[StandardEventKind.CONNECTION_LOST] = StandardEventKind.CONNECTION_LOST
+    type: Literal[StandardEventType.CONNECTION_LOST] = StandardEventType.CONNECTION_LOST
 
 
 class ConnectFailedEvent(BaseStandardEvent):
-    kind: Literal[StandardEventKind.CONNECT_FAILED] = StandardEventKind.CONNECT_FAILED
+    type: Literal[StandardEventType.CONNECT_FAILED] = StandardEventType.CONNECT_FAILED
 
 
 ConnectionEvent = (
@@ -122,12 +122,12 @@ ConnectionEvent = (
 
 
 class MessageSentEvent(BaseStandardEvent):
-    kind: Literal[StandardEventKind.MESSAGE_SENT] = StandardEventKind.MESSAGE_SENT
+    type: Literal[StandardEventType.MESSAGE_SENT] = StandardEventType.MESSAGE_SENT
     message: Message
 
 
 class MessageReceivedEvent(BaseStandardEvent):
-    kind: Literal[StandardEventKind.MESSAGE_RECEIVED] = StandardEventKind.MESSAGE_RECEIVED
+    type: Literal[StandardEventType.MESSAGE_RECEIVED] = StandardEventType.MESSAGE_RECEIVED
     message: Message
 
 
@@ -135,49 +135,49 @@ MessageEvent = MessageSentEvent | MessageReceivedEvent
 
 
 class AlertEvent(BaseStandardEvent):
-    kind: Literal[StandardEventKind.ALERT] = StandardEventKind.ALERT
+    type: Literal[StandardEventType.ALERT] = StandardEventType.ALERT
     alert: Alert
 
 
 class LogEvent(BaseStandardEvent):
-    kind: Literal[StandardEventKind.LOG] = StandardEventKind.LOG
+    type: Literal[StandardEventType.LOG] = StandardEventType.LOG
     entry: LogEntry
 
 
 class RoutineStartedEvent(BaseStandardEvent):
-    kind: Literal[StandardEventKind.ROUTINE_STARTED] = StandardEventKind.ROUTINE_STARTED
+    type: Literal[StandardEventType.ROUTINE_STARTED] = StandardEventType.ROUTINE_STARTED
     routine: str
 
 
 class RoutineStoppedEvent(BaseStandardEvent):
-    kind: Literal[StandardEventKind.ROUTINE_STOPPED] = StandardEventKind.ROUTINE_STOPPED
+    type: Literal[StandardEventType.ROUTINE_STOPPED] = StandardEventType.ROUTINE_STOPPED
     routine: str
 
 
 class RoutineCompletedEvent(BaseStandardEvent):
-    kind: Literal[StandardEventKind.ROUTINE_COMPLETED] = StandardEventKind.ROUTINE_COMPLETED
+    type: Literal[StandardEventType.ROUTINE_COMPLETED] = StandardEventType.ROUTINE_COMPLETED
     routine: str
 
 
 class RoutineCancelledEvent(BaseStandardEvent):
-    kind: Literal[StandardEventKind.ROUTINE_CANCELLED] = StandardEventKind.ROUTINE_CANCELLED
+    type: Literal[StandardEventType.ROUTINE_CANCELLED] = StandardEventType.ROUTINE_CANCELLED
     routine: str
 
 
 class RoutineExceptionEvent(BaseStandardEvent):
-    kind: Literal[StandardEventKind.ROUTINE_EXCEPTION] = StandardEventKind.ROUTINE_EXCEPTION
+    type: Literal[StandardEventType.ROUTINE_EXCEPTION] = StandardEventType.ROUTINE_EXCEPTION
     routine: str
     traceback: Sequence[str]
 
 
 class RoutineRestartingEvent(BaseStandardEvent):
-    kind: Literal[StandardEventKind.ROUTINE_RESTARTED] = StandardEventKind.ROUTINE_RESTARTED
+    type: Literal[StandardEventType.ROUTINE_RESTARTED] = StandardEventType.ROUTINE_RESTARTED
     routine: str
     delay: PositiveTimeDelta
 
 
 class RoutineRestartedEvent(BaseStandardEvent):
-    kind: Literal[StandardEventKind.ROUTINE_RESTARTED] = StandardEventKind.ROUTINE_RESTARTED
+    type: Literal[StandardEventType.ROUTINE_RESTARTED] = StandardEventType.ROUTINE_RESTARTED
     routine: str
 
 
@@ -191,49 +191,49 @@ RoutineEvent = (
 
 
 class JobAddedEvent(BaseStandardEvent):
-    kind: Literal[StandardEventKind.JOB_ADDED] = StandardEventKind.JOB_ADDED
+    type: Literal[StandardEventType.JOB_ADDED] = StandardEventType.JOB_ADDED
     job: str
 
 
 class JobRemovedEvent(BaseStandardEvent):
-    kind: Literal[StandardEventKind.JOB_REMOVED] = StandardEventKind.JOB_REMOVED
+    type: Literal[StandardEventType.JOB_REMOVED] = StandardEventType.JOB_REMOVED
     job: str
 
 
 class JobStartedEvent(BaseStandardEvent):
-    kind: Literal[StandardEventKind.JOB_STARTED] = StandardEventKind.JOB_STARTED
+    type: Literal[StandardEventType.JOB_STARTED] = StandardEventType.JOB_STARTED
     job: str
 
 
 class JobStoppedEvent(BaseStandardEvent):
-    kind: Literal[StandardEventKind.JOB_STOPPED] = StandardEventKind.JOB_STOPPED
+    type: Literal[StandardEventType.JOB_STOPPED] = StandardEventType.JOB_STOPPED
     job: str
 
 
 class JobCompletedEvent(BaseStandardEvent):
-    kind: Literal[StandardEventKind.JOB_COMPLETED] = StandardEventKind.JOB_COMPLETED
+    type: Literal[StandardEventType.JOB_COMPLETED] = StandardEventType.JOB_COMPLETED
     job: str
 
 
 class JobCancelledEvent(BaseStandardEvent):
-    kind: Literal[StandardEventKind.JOB_CANCELLED] = StandardEventKind.JOB_CANCELLED
+    type: Literal[StandardEventType.JOB_CANCELLED] = StandardEventType.JOB_CANCELLED
     job: str
 
 
 class JobExceptionEvent(BaseStandardEvent):
-    kind: Literal[StandardEventKind.JOB_EXCEPTION] = StandardEventKind.JOB_EXCEPTION
+    type: Literal[StandardEventType.JOB_EXCEPTION] = StandardEventType.JOB_EXCEPTION
     job: str
     traceback: Sequence[str]
 
 
 class JobRetryPendingEvent(BaseStandardEvent):
-    kind: Literal[StandardEventKind.JOB_RETRY_PENDING] = StandardEventKind.JOB_RETRY_PENDING
+    type: Literal[StandardEventType.JOB_RETRY_PENDING] = StandardEventType.JOB_RETRY_PENDING
     job: str
     delay: PositiveTimeDelta
 
 
 class JobRetryEvent(BaseStandardEvent):
-    kind: Literal[StandardEventKind.JOB_RETRY_PENDING] = StandardEventKind.JOB_RETRY_PENDING
+    type: Literal[StandardEventType.JOB_RETRY_PENDING] = StandardEventType.JOB_RETRY_PENDING
     job: str
 
 
@@ -251,22 +251,22 @@ JobEvent = (
 
 
 class ProcedureCalledEvent(BaseStandardEvent):
-    kind: Literal[StandardEventKind.PROCEDURE_CALLED] = StandardEventKind.PROCEDURE_CALLED
+    type: Literal[StandardEventType.PROCEDURE_CALLED] = StandardEventType.PROCEDURE_CALLED
     procedure: str
 
 
 class ProcedureCompletedEvent(BaseStandardEvent):
-    kind: Literal[StandardEventKind.PROCEDURE_COMPLETED] = StandardEventKind.PROCEDURE_COMPLETED
+    type: Literal[StandardEventType.PROCEDURE_COMPLETED] = StandardEventType.PROCEDURE_COMPLETED
     procedure: str
 
 
 class ProcedureCancelledEvent(BaseStandardEvent):
-    kind: Literal[StandardEventKind.PROCEDURE_CANCELLED] = StandardEventKind.PROCEDURE_CANCELLED
+    type: Literal[StandardEventType.PROCEDURE_CANCELLED] = StandardEventType.PROCEDURE_CANCELLED
     procedure: str
 
 
 class ProcedureExceptionEvent(BaseStandardEvent):
-    kind: Literal[StandardEventKind.PROCEDURE_EXCEPTION] = StandardEventKind.PROCEDURE_EXCEPTION
+    type: Literal[StandardEventType.PROCEDURE_EXCEPTION] = StandardEventType.PROCEDURE_EXCEPTION
     procedure: str
     traceback: Sequence[str]
 
@@ -275,7 +275,7 @@ ProcedureEvent = ProcedureCalledEvent | ProcedureCompletedEvent | ProcedureExcep
 
 
 class DatabaseExceptionEvent(BaseStandardEvent):
-    kind: Literal[StandardEventKind.DATABASE_EXCEPTION] = StandardEventKind.DATABASE_EXCEPTION
+    type: Literal[StandardEventType.DATABASE_EXCEPTION] = StandardEventType.DATABASE_EXCEPTION
     traceback: Sequence[str]
 
 

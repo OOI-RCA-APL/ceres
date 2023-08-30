@@ -29,13 +29,13 @@ type Item = Readonly<Alert | Message | LogEntry>
 const {
   title = undefined,
   address,
-  kind,
+  type,
   showCommandInput = false,
 } = defineProps<{
   title?: string
   containerClass?: string | null
   address: Address
-  kind: 'alert' | 'message' | 'log-entry'
+  type: 'alert' | 'message' | 'log-entry'
   showCommandInput?: boolean
 }>()
 
@@ -43,7 +43,7 @@ const selector = $computed(() => new Address(address.toString() + ':all'))
 
 const quasar = useQuasar()
 const get = $computed(() => {
-  switch (kind) {
+  switch (type) {
     case 'message':
       return getMessages
     case 'alert':
@@ -54,7 +54,7 @@ const get = $computed(() => {
 })
 
 const useStream = $computed(() => {
-  switch (kind) {
+  switch (type) {
     case 'message':
       return useMessageStream
     case 'alert':
@@ -389,10 +389,10 @@ async function onSend(data: string) {
         <span v-else-if="items.length === 0" key="empty" class="absolute-center">
           <span class="self-empty-message-text text-italic">
             <template v-if="isShowingAll">
-              No {{ kind.replace('log-entry', 'log entrie') }}s were found.
+              No {{ type.replace('log-entry', 'log entrie') }}s were found.
             </template>
             <template v-else>
-              No matching {{ kind.replace('log-entry', 'log entrie') }}s were found.
+              No matching {{ type.replace('log-entry', 'log entrie') }}s were found.
             </template>
           </span>
         </span>
@@ -415,8 +415,8 @@ async function onSend(data: string) {
         :virtual-scroll-item-size="itemHeight"
         :virtual-scroll-slice-size="itemSliceSize"
       >
-        <item-view-message v-if="kind === 'message'" :key="(item as Message).id" :message="item" />
-        <item-view-alert v-else-if="kind === 'alert'" :key="(item as Alert).id" :alert="item" />
+        <item-view-message v-if="type === 'message'" :key="(item as Message).id" :message="item" />
+        <item-view-alert v-else-if="type === 'alert'" :key="(item as Alert).id" :alert="item" />
         <item-view-log-entry v-else :key="(item as LogEntry).id" :entry="item" />
       </q-virtual-scroll>
       <transition appear enter-active-class="animated fadeIn" leave-active-class="animated fadeOut">
@@ -437,7 +437,7 @@ async function onSend(data: string) {
         </q-btn>
       </transition>
     </div>
-    <div v-if="kind === 'message' && showCommandInput">
+    <div v-if="type === 'message' && showCommandInput">
       <q-separator />
       <command-input :address="address" @send="onSend" />
     </div>

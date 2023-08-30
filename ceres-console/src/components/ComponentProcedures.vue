@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { ComponentInfo, ProcedureKindModel } from '@/api/models'
+import { ComponentInfo, ProcedureTypeModel } from '@/api/models'
 import ComponentProcedure from '@/components/ComponentProcedure.vue'
 import SectionCard from '@/components/SectionCard.vue'
 import icons from '@/icons'
@@ -12,18 +12,18 @@ const { component } = defineProps<{
 }>()
 
 const actions = $computed(() =>
-  component.procedures.filter((procedure) => procedure.kind === 'action')
+  component.procedures.filter((procedure) => procedure.type === 'action')
 )
 const queries = $computed(() =>
-  component.procedures.filter((procedure) => procedure.kind === 'query')
+  component.procedures.filter((procedure) => procedure.type === 'query')
 )
 
-const procedures = $computed(() => (persisted.kind === 'action' ? actions : queries))
+const procedures = $computed(() => (persisted.type === 'action' ? actions : queries))
 
 const persisted = usePersisted({
   schema: ({ object, string }) =>
     object({
-      kind: ProcedureKindModel.default('action'),
+      type: ProcedureTypeModel.default('action'),
       selectedName: string().nullable().default(null),
     }),
   methods: computed(() => [
@@ -39,11 +39,11 @@ let selected = $computed(() => {
   return procedures.find((procedure) => procedure.name === persisted.selectedName) ?? null
 })
 
-function nextKind() {
-  persisted.kind = persisted.kind === 'action' ? 'query' : 'action'
+function nextType() {
+  persisted.type = persisted.type === 'action' ? 'query' : 'action'
 }
 
-const kindPlural = $computed(() => (persisted.kind === 'action' ? 'actions' : 'queries'))
+const typePlural = $computed(() => (persisted.type === 'action' ? 'actions' : 'queries'))
 
 watchEffect(() => {
   if (selected == null && procedures.length > 0) {
@@ -61,9 +61,9 @@ watchEffect(() => {
         clickable
         color="transparent"
         dense
-        :icon="persisted.kind === 'action' ? icons.switchRight : icons.switchLeft"
-        :label="upperFirst(kindPlural)"
-        @click.stop.prevent="nextKind"
+        :icon="persisted.type === 'action' ? icons.switchRight : icons.switchLeft"
+        :label="upperFirst(typePlural)"
+        @click.stop.prevent="nextType"
       />
     </template>
     <template v-if="procedures.length">
@@ -72,7 +72,7 @@ watchEffect(() => {
         class="monospace-md q-mb-sm"
         dense
         filled
-        :label="upperFirst(persisted.kind)"
+        :label="upperFirst(persisted.type)"
         :options="procedures.map((procedure) => procedure.name)"
         options-dense
         popup-content-class="no-shadow monospace-md"
@@ -83,7 +83,7 @@ watchEffect(() => {
     </template>
     <template v-else>
       <div class="items-center justify-center q-pa-sm row" :style="{ opacity: 0.5 }">
-        No available {{ kindPlural }} were found.
+        No available {{ typePlural }} were found.
       </div>
     </template>
   </section-card>

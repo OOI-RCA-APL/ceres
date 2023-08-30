@@ -28,7 +28,7 @@ let isShowingDialog = $ref(false)
 const query = $computed(
   () =>
     component.procedures.find(
-      (procedure) => procedure.kind === 'query' && procedure.name === display.query
+      (procedure) => procedure.type === 'query' && procedure.name === display.query
     ) ?? null
 )
 

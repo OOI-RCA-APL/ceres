@@ -14,7 +14,7 @@ from ceres.internal.utilities import StrEnum
 from ceres.timing import utc
 
 
-class ScheduleKind(StrEnum):
+class ScheduleType(StrEnum):
     CRON = "cron"
     INTERVAL = "interval"
     OR = "or"
@@ -32,7 +32,7 @@ class BaseSchedule(ImmutableDataObject):
 
 
 class CronSchedule(BaseSchedule):
-    kind: Literal[ScheduleKind.CRON] = ScheduleKind.CRON
+    type: Literal[ScheduleType.CRON] = ScheduleType.CRON
     crontab: str
 
     @field_validator("crontab")
@@ -49,7 +49,7 @@ class CronSchedule(BaseSchedule):
 
 
 class IntervalSchedule(BaseSchedule):
-    kind: Literal[ScheduleKind.INTERVAL] = ScheduleKind.INTERVAL
+    type: Literal[ScheduleType.INTERVAL] = ScheduleType.INTERVAL
     interval: PositiveTimeDelta
     start: DateTime | None = None
     end: DateTime | None = None
@@ -97,7 +97,7 @@ class IntervalSchedule(BaseSchedule):
 
 
 class OrSchedule(BaseSchedule):
-    kind: Literal[ScheduleKind.OR] = ScheduleKind.OR
+    type: Literal[ScheduleType.OR] = ScheduleType.OR
     schedules: Sequence["Schedule"]
 
     def __or__(self, other: "Schedule") -> "OrSchedule":

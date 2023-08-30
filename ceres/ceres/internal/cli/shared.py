@@ -7,7 +7,7 @@ from typing import IO, TYPE_CHECKING, Any, Sequence
 
 from typer import Option, Typer
 
-from ceres.config import Config, ConfigCheckKind
+from ceres.config import Config, ConfigCheckType
 from ceres.data import jsonify
 from ceres.internal.cli.exceptions import CLIInvalidConfigException
 from ceres.internal.project import Project
@@ -78,7 +78,7 @@ def get_config_path(config_path: Path | None) -> Path:
 
 async def get_config(
     config_path: Path | None,
-    checks: Sequence[ConfigCheckKind],
+    checks: Sequence[ConfigCheckType],
 ) -> Config:
     import rich
 
@@ -97,7 +97,7 @@ async def get_config(
 
 async def get_project(
     config_path: Path | None,
-    checks: Sequence[ConfigCheckKind],
+    checks: Sequence[ConfigCheckType],
 ) -> Project:
     return Project(
         get_config_path(config_path),
@@ -116,7 +116,7 @@ def ConfigPathOption() -> Any:
     )
 
 
-def ConfigOption(*, checks: Sequence[ConfigCheckKind] = ()) -> Any:
+def ConfigOption(*, checks: Sequence[ConfigCheckType] = ()) -> Any:
     async def callback(config_path: Path = ConfigPathOption()) -> Config:
         return await get_config(config_path, checks)
 
@@ -131,7 +131,7 @@ def ConfigOption(*, checks: Sequence[ConfigCheckKind] = ()) -> Any:
     )
 
 
-def ProjectOption(*, checks: Sequence[ConfigCheckKind] = ()) -> Any:
+def ProjectOption(*, checks: Sequence[ConfigCheckType] = ()) -> Any:
     async def callback(config_path: Path = ConfigPathOption()) -> Project:
         return await get_project(config_path, checks)
 

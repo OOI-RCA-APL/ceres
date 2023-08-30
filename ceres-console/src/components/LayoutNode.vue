@@ -14,23 +14,23 @@ const { node } = defineProps<{
 
 <template>
   <layout-display
-    v-if="node.kind === 'display'"
+    v-if="node.type === 'display'"
     :component="component"
     :display="node"
     :path="path"
   />
-  <layout-button v-if="node.kind === 'button'" :button="node" :component="component" />
-  <div v-else-if="node.kind === 'row'" class="q-col-gutter-sm row">
+  <layout-button v-if="node.type === 'button'" :button="node" :component="component" />
+  <div v-else-if="node.type === 'row'" class="q-col-gutter-sm row">
     <div v-for="(child, i) in node.children" :key="i" class="col">
       <layout-node :component="component" :node="child" :path="[...path, i]" />
     </div>
   </div>
-  <div v-else-if="node.kind === 'column'" class="column q-col-gutter-sm">
+  <div v-else-if="node.type === 'column'" class="column q-col-gutter-sm">
     <div v-for="(child, i) in node.children" :key="i" class="col">
       <layout-node :component="component" :node="child" :path="[...path, i]" />
     </div>
   </div>
-  <div v-else-if="node.kind === 'carousel'">
+  <div v-else-if="node.type === 'carousel'">
     <layout-carousel :component="component" :node="node" :path="path" />
   </div>
 </template>

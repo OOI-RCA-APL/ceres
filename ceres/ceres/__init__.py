@@ -23,19 +23,19 @@ else:
 
 if TYPE_CHECKING:
     from ceres.component import Component as Component
-    from ceres.component import ProcedureKind as ProcedureKind
+    from ceres.component import ProcedureType as ProcedureType
     from ceres.component import action as action
     from ceres.component import on as on
     from ceres.component import query as query
     from ceres.component import routine as routine
 else:
-    __export("ceres.component", ["Component", "ProcedureKind", "action", "on", "query", "routine"])
+    __export("ceres.component", ["Component", "ProcedureType", "action", "on", "query", "routine"])
 
 if TYPE_CHECKING:
     from ceres.config import Config as Config
-    from ceres.config import ConfigCheckKind as ConfigCheckKind
+    from ceres.config import ConfigCheckType as ConfigCheckType
 else:
-    __export("ceres.config", ["Config", "ConfigCheckKind"])
+    __export("ceres.config", ["Config", "ConfigCheckType"])
 
 
 if TYPE_CHECKING:
@@ -53,9 +53,9 @@ else:
 if TYPE_CHECKING:
     from ceres.database.database import Database as Database
     from ceres.database.database import Statistics as Statistics
-    from ceres.database.enums import DatabaseKind as DatabaseKind
+    from ceres.database.enums import DatabaseType as DatabaseType
 else:
-    __export("ceres.database.database", ["Database", "Statistics", "DatabaseKind"])
+    __export("ceres.database.database", ["Database", "Statistics", "DatabaseType"])
 
 if TYPE_CHECKING:
     from ceres.directory import Directory as Directory
@@ -65,9 +65,9 @@ else:
 if TYPE_CHECKING:
     from ceres.events import Event as Event
     from ceres.events import StandardEvent as StandardEvent
-    from ceres.events import StandardEventKind as StandardEventKind
+    from ceres.events import StandardEventType as StandardEventType
 else:
-    __export("ceres.events", ["Event", "StandardEvent", "StandardEventKind"])
+    __export("ceres.events", ["Event", "StandardEvent", "StandardEventType"])
 
 if TYPE_CHECKING:
     from ceres.exceptions import ParseException as ParseException
@@ -169,9 +169,9 @@ else:
 
 if TYPE_CHECKING:
     from ceres.schedule import Schedule as Schedule
-    from ceres.schedule import ScheduleKind as ScheduleKind
+    from ceres.schedule import ScheduleType as ScheduleType
 else:
-    __export("ceres.schedule", ["Schedule", "ScheduleKind"])
+    __export("ceres.schedule", ["Schedule", "ScheduleType"])
 
 if TYPE_CHECKING:
     from ceres.stream import Stream as Stream

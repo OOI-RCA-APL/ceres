@@ -29,7 +29,7 @@ export const BaseDisplayInfoModel = Zod.object({})
 
 export type ValueDisplayInfo = Zod.infer<typeof ValueDisplayInfoModel>
 export const ValueDisplayInfoModel = BaseDisplayInfoModel.extend({
-  kind: Zod.literal('value'),
+  type: Zod.literal('value'),
   value: AtomicValueModel,
   unit: Zod.string().nullable().default(null),
   color: Zod.string().nullable().default(null),
@@ -37,14 +37,14 @@ export const ValueDisplayInfoModel = BaseDisplayInfoModel.extend({
 
 export type StateDisplayInfo = Zod.infer<typeof StateDisplayInfoModel>
 export const StateDisplayInfoModel = BaseDisplayInfoModel.extend({
-  kind: Zod.literal('state'),
+  type: Zod.literal('state'),
   value: AtomicValueModel,
   options: Zod.array(StateModel),
 })
 
 export type GaugeDisplayInfo = Zod.infer<typeof GaugeDisplayInfoModel>
 export const GaugeDisplayInfoModel = BaseDisplayInfoModel.extend({
-  kind: Zod.literal('gauge'),
+  type: Zod.literal('gauge'),
   value: Zod.number(),
   unit: Zod.string().nullable().default(null),
   min: Zod.number(),
@@ -56,13 +56,13 @@ export const GaugeDisplayInfoModel = BaseDisplayInfoModel.extend({
 
 export type ChartDisplayInfo = Zod.infer<typeof ChartDisplayInfoModel>
 export const ChartDisplayInfoModel = BaseDisplayInfoModel.extend({
-  kind: Zod.literal('chart'),
+  type: Zod.literal('chart'),
   value: Zod.record(Zod.string(), Zod.any()),
   height: Zod.number(),
 })
 
 export type DisplayInfo = Zod.infer<typeof DisplayInfoModel>
-export const DisplayInfoModel = Zod.discriminatedUnion('kind', [
+export const DisplayInfoModel = Zod.discriminatedUnion('type', [
   ValueDisplayInfoModel,
   StateDisplayInfoModel,
   GaugeDisplayInfoModel,

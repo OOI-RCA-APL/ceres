@@ -7,10 +7,10 @@ from ceres.validation import ValidationProblem
 
 
 class Error(ImmutableDataObject):
-    kind: str
+    type: str
 
 
-class ComponentErrorKind(StrEnum):
+class ComponentErrorType(StrEnum):
     CLASS_INVALID = "component-class-invalid-error"
     MODULE_NOT_FOUND = "component-module-not-found-error"
     MODULE_EXCEPTION = "component-module-exception-error"
@@ -22,43 +22,43 @@ class ComponentErrorKind(StrEnum):
 
 
 class BaseComponentError(Error):
-    kind: ComponentErrorKind
+    type: ComponentErrorType
     message: str
 
 
 class ComponentModuleNotFoundError(BaseComponentError):
-    kind: Literal[ComponentErrorKind.MODULE_NOT_FOUND] = ComponentErrorKind.MODULE_NOT_FOUND
+    type: Literal[ComponentErrorType.MODULE_NOT_FOUND] = ComponentErrorType.MODULE_NOT_FOUND
 
 
 class ComponentModuleExceptionError(BaseComponentError):
-    kind: Literal[ComponentErrorKind.MODULE_EXCEPTION] = ComponentErrorKind.MODULE_EXCEPTION
+    type: Literal[ComponentErrorType.MODULE_EXCEPTION] = ComponentErrorType.MODULE_EXCEPTION
     traceback: Sequence[str]
 
 
 class ComponentClassNotFoundError(BaseComponentError):
-    kind: Literal[ComponentErrorKind.CLASS_NOT_FOUND] = ComponentErrorKind.CLASS_NOT_FOUND
+    type: Literal[ComponentErrorType.CLASS_NOT_FOUND] = ComponentErrorType.CLASS_NOT_FOUND
 
 
 class ComponentClassInvalidError(BaseComponentError):
-    kind: Literal[ComponentErrorKind.CLASS_INVALID] = ComponentErrorKind.CLASS_INVALID
+    type: Literal[ComponentErrorType.CLASS_INVALID] = ComponentErrorType.CLASS_INVALID
 
 
 class ComponentParametersInvalidError(BaseComponentError):
-    kind: Literal[ComponentErrorKind.PARAMETERS_INVALID] = ComponentErrorKind.PARAMETERS_INVALID
+    type: Literal[ComponentErrorType.PARAMETERS_INVALID] = ComponentErrorType.PARAMETERS_INVALID
     problems: Sequence[ValidationProblem]
 
 
 class ComponentInitExceptionError(BaseComponentError):
-    kind: Literal[ComponentErrorKind.INIT_EXCEPTION] = ComponentErrorKind.INIT_EXCEPTION
+    type: Literal[ComponentErrorType.INIT_EXCEPTION] = ComponentErrorType.INIT_EXCEPTION
     traceback: Sequence[str]
 
 
 class ComponentReferenceInvalidError(BaseComponentError):
-    kind: Literal[ComponentErrorKind.REFERENCE_INVALID] = ComponentErrorKind.REFERENCE_INVALID
+    type: Literal[ComponentErrorType.REFERENCE_INVALID] = ComponentErrorType.REFERENCE_INVALID
 
 
 class ComponentJobInvalidError(BaseComponentError):
-    kind: Literal[ComponentErrorKind.JOB_INVALID] = ComponentErrorKind.JOB_INVALID
+    type: Literal[ComponentErrorType.JOB_INVALID] = ComponentErrorType.JOB_INVALID
 
 
 ComponentError = (
@@ -73,7 +73,7 @@ ComponentError = (
 )
 
 
-class ConfigErrorKind(StrEnum):
+class ConfigErrorType(StrEnum):
     READ_ERROR = "config-read-error"
     PARSE_ERROR = "config-parse-error"
     VALIDATION_ERROR = "config-validation-error"
@@ -87,7 +87,7 @@ class BaseConfigError(Error):
 
 
 class ConfigReadError(BaseConfigError):
-    kind: Literal[ConfigErrorKind.READ_ERROR] = ConfigErrorKind.READ_ERROR
+    type: Literal[ConfigErrorType.READ_ERROR] = ConfigErrorType.READ_ERROR
     message: str
 
 
@@ -97,24 +97,24 @@ class ConfigParseErrorLocation(DataObject):
 
 
 class ConfigParseError(BaseConfigError):
-    kind: Literal[ConfigErrorKind.PARSE_ERROR] = ConfigErrorKind.PARSE_ERROR
+    type: Literal[ConfigErrorType.PARSE_ERROR] = ConfigErrorType.PARSE_ERROR
     message: str | None = None
     location: ConfigParseErrorLocation | None = None
 
 
 class ConfigValidationError(BaseConfigError):
-    kind: Literal[ConfigErrorKind.VALIDATION_ERROR] = ConfigErrorKind.VALIDATION_ERROR
+    type: Literal[ConfigErrorType.VALIDATION_ERROR] = ConfigErrorType.VALIDATION_ERROR
     problems: Sequence[ValidationProblem]
 
 
 class ConfigDatabaseError(BaseConfigError):
-    kind: Literal[ConfigErrorKind.DATABASE_ERROR] = ConfigErrorKind.DATABASE_ERROR
+    type: Literal[ConfigErrorType.DATABASE_ERROR] = ConfigErrorType.DATABASE_ERROR
     message: str
     exception: str
 
 
 class ConfigComponentError(BaseConfigError):
-    kind: Literal[ConfigErrorKind.COMPONENT_ERROR] = ConfigErrorKind.COMPONENT_ERROR
+    type: Literal[ConfigErrorType.COMPONENT_ERROR] = ConfigErrorType.COMPONENT_ERROR
     component: Address
     error: ComponentError
 
@@ -128,7 +128,7 @@ ConfigError = (
 )
 
 
-class ReloadErrorKind(StrEnum):
+class ReloadErrorType(StrEnum):
     CONFIG_INVALID = "reload-config-invalid-error"
     ALREADY_ACTIVE = "reload-already-active-error"
 
@@ -138,18 +138,18 @@ class BaseReloadError(Error):
 
 
 class ReloadConfigInvalidError(BaseReloadError):
-    kind: Literal[ReloadErrorKind.CONFIG_INVALID] = ReloadErrorKind.CONFIG_INVALID
+    type: Literal[ReloadErrorType.CONFIG_INVALID] = ReloadErrorType.CONFIG_INVALID
     errors: Sequence[ConfigError]
 
 
 class ReloadAlreadyActiveError(BaseReloadError):
-    kind: Literal[ReloadErrorKind.ALREADY_ACTIVE] = ReloadErrorKind.ALREADY_ACTIVE
+    type: Literal[ReloadErrorType.ALREADY_ACTIVE] = ReloadErrorType.ALREADY_ACTIVE
 
 
 ReloadError = ReloadConfigInvalidError | ReloadAlreadyActiveError
 
 
-class ProcedureErrorKind(StrEnum):
+class ProcedureErrorType(StrEnum):
     UNIT_DOES_NOT_EXIST = "procedure-unit-does-not-exist-error"
     COMPONENT_DOES_NOT_EXIST = "procedure-component-does-not-exist-error"
     COMPONENT_NOT_LOADED = "procedure-component-not-loaded-error"
@@ -161,42 +161,42 @@ class ProcedureErrorKind(StrEnum):
 
 
 class BaseProcedureError(Error):
-    kind: ProcedureErrorKind
+    type: ProcedureErrorType
 
 
 class ProcedureUnitDoesNotExistError(BaseProcedureError):
-    kind: Literal[ProcedureErrorKind.UNIT_DOES_NOT_EXIST] = ProcedureErrorKind.UNIT_DOES_NOT_EXIST
+    type: Literal[ProcedureErrorType.UNIT_DOES_NOT_EXIST] = ProcedureErrorType.UNIT_DOES_NOT_EXIST
 
 
 class ProcedureComponentDoesNotExistError(BaseProcedureError):
-    kind: Literal[
-        ProcedureErrorKind.COMPONENT_DOES_NOT_EXIST
-    ] = ProcedureErrorKind.COMPONENT_DOES_NOT_EXIST
+    type: Literal[
+        ProcedureErrorType.COMPONENT_DOES_NOT_EXIST
+    ] = ProcedureErrorType.COMPONENT_DOES_NOT_EXIST
 
 
 class ProcedureComponentNotLoadedError(BaseProcedureError):
-    kind: Literal[ProcedureErrorKind.COMPONENT_NOT_LOADED] = ProcedureErrorKind.COMPONENT_NOT_LOADED
+    type: Literal[ProcedureErrorType.COMPONENT_NOT_LOADED] = ProcedureErrorType.COMPONENT_NOT_LOADED
 
 
 class ProcedureDoesNotExistError(BaseProcedureError):
-    kind: Literal[ProcedureErrorKind.DOES_NOT_EXIST] = ProcedureErrorKind.DOES_NOT_EXIST
+    type: Literal[ProcedureErrorType.DOES_NOT_EXIST] = ProcedureErrorType.DOES_NOT_EXIST
 
 
 class ProcedureInvalidArgsError(BaseProcedureError):
-    kind: Literal[ProcedureErrorKind.INVALID_ARGS] = ProcedureErrorKind.INVALID_ARGS
+    type: Literal[ProcedureErrorType.INVALID_ARGS] = ProcedureErrorType.INVALID_ARGS
     problems: Sequence[ValidationProblem]
 
 
 class ProcedureNotSubscribableError(BaseProcedureError):
-    kind: Literal[ProcedureErrorKind.NOT_SUBSCRIBABLE] = ProcedureErrorKind.NOT_SUBSCRIBABLE
+    type: Literal[ProcedureErrorType.NOT_SUBSCRIBABLE] = ProcedureErrorType.NOT_SUBSCRIBABLE
 
 
 class ProcedureCancelledError(BaseProcedureError):
-    kind: Literal[ProcedureErrorKind.CANCELLED] = ProcedureErrorKind.CANCELLED
+    type: Literal[ProcedureErrorType.CANCELLED] = ProcedureErrorType.CANCELLED
 
 
 class ProcedureInternalError(BaseProcedureError):
-    kind: Literal[ProcedureErrorKind.INTERNAL] = ProcedureErrorKind.INTERNAL
+    type: Literal[ProcedureErrorType.INTERNAL] = ProcedureErrorType.INTERNAL
     traceback: Sequence[str]
 
 

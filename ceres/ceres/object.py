@@ -19,7 +19,7 @@ from typing_extensions import ParamSpec, Unpack, dataclass_transform, overload, 
 
 from ceres.address import Address, AddressSelector, DynamicAddress
 from ceres.alert import Alert
-from ceres.config import DatabaseKind
+from ceres.config import DatabaseType
 from ceres.data import (
     VALIDATED_DATACLASS_FIELD_SPECIFIERS,
     ImmutableDataObject,
@@ -288,11 +288,11 @@ class Object(ValidatedDataclass, Tasklet):
         if not items:
             return
 
-        match self.__object_database__.kind:
-            case DatabaseKind.SQLITE:
+        match self.__object_database__.type:
+            case DatabaseType.SQLITE:
                 from sqlalchemy.dialects.sqlite import insert
 
-            case DatabaseKind.POSTGRES:
+            case DatabaseType.POSTGRES:
                 from sqlalchemy.dialects.postgresql import insert
 
         from ceres.internal.database.entities import (

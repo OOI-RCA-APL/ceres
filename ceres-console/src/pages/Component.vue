@@ -68,9 +68,9 @@ const resizablePanelProps = {
         <item-view
           :address="address"
           class="full-height"
-          kind="message"
           :show-command-input="component.roles.includes('connection')"
           title="Messages"
+          type="message"
         />
       </panel-container>
       <panel-container
@@ -79,7 +79,7 @@ const resizablePanelProps = {
         name="Alerts"
         :persist="`components/${component.address}/alerts-panel-container`"
       >
-        <item-view :address="address" class="full-height" kind="alert" title="Alerts" />
+        <item-view :address="address" class="full-height" title="Alerts" type="alert" />
       </panel-container>
       <panel-container
         container-class="q-pa-sm"
@@ -87,7 +87,7 @@ const resizablePanelProps = {
         name="Logs"
         :persist="`components/${component.address}/log-entries-panel-container`"
       >
-        <item-view :address="address" class="full-height" kind="log-entry" title="Logs" />
+        <item-view :address="address" class="full-height" title="Logs" type="log-entry" />
       </panel-container>
       <panel-group
         v-if="executors.length"

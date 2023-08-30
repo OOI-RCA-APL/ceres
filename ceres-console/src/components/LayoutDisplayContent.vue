@@ -40,10 +40,10 @@ const emit = defineEmits<{
     </q-markup-table>
     <div class="col-grow items-center justify-center q-pa-xs relative-position row">
       <template v-if="info">
-        <value-display v-if="info.kind === 'value'" key="value-display" :info="info" />
-        <state-display v-else-if="info.kind === 'state'" key="state-display" :info="info" />
-        <gauge-display v-else-if="info.kind === 'gauge'" key="gauge-display" :info="info" />
-        <chart-display v-else-if="info.kind === 'chart'" key="chart-display" :info="info" />
+        <value-display v-if="info.type === 'value'" key="value-display" :info="info" />
+        <state-display v-else-if="info.type === 'state'" key="state-display" :info="info" />
+        <gauge-display v-else-if="info.type === 'gauge'" key="gauge-display" :info="info" />
+        <chart-display v-else-if="info.type === 'chart'" key="chart-display" :info="info" />
       </template>
       <template v-else>
         <div key="placeholder" :class="$style.placeholder" />

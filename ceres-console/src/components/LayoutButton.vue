@@ -13,7 +13,7 @@ let isShowingMenu = $ref(false)
 const action = $computed(
   () =>
     component.procedures.find(
-      (procedure) => procedure.kind === 'action' && procedure.name === button.action
+      (procedure) => procedure.type === 'action' && procedure.name === button.action
     ) ?? null
 )
 </script>

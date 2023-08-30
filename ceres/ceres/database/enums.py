@@ -1,7 +1,7 @@
 from ceres.internal.utilities import StrEnum
 
 
-class DatabaseKind(StrEnum):
+class DatabaseType(StrEnum):
     SQLITE = "sqlite"
     POSTGRES = "postgres"
 

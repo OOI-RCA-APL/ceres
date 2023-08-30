@@ -23,12 +23,12 @@ class _Stream:
     writer: StreamWriter
 
 
-class TCPDisconnectVerifyKind(StrEnum):
+class TCPDisconnectVerifyType(StrEnum):
     RECONNECT = "reconnect"
 
 
 class TCPDisconnectVerify(ImmutableDataObject):
-    kind: Literal[TCPDisconnectVerifyKind.RECONNECT] = TCPDisconnectVerifyKind.RECONNECT
+    type: Literal[TCPDisconnectVerifyType.RECONNECT] = TCPDisconnectVerifyType.RECONNECT
     interval: PositiveTimeDelta = timedelta(seconds=5)
     count: int = Field(ge=1)
 
@@ -167,8 +167,8 @@ class TCPConnection(Connection):
                         f"Running disconnect verification {count}/{condition.verify.count}..."
                     )
 
-                    match condition.verify.kind:
-                        case TCPDisconnectVerifyKind.RECONNECT:
+                    match condition.verify.type:
+                        case TCPDisconnectVerifyType.RECONNECT:
                             self.log.warning(
                                 f"Attempting to create another connection to {self.target} within "
                                 f"{show_td(condition.verify.interval)}..."

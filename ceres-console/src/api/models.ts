@@ -90,8 +90,8 @@ export const ServerConfigModel = Zod.object({
   port: Zod.number().nullable().default(null),
 })
 
-export type DatabaseKind = Zod.infer<typeof DatabaseKindModel>
-export const DatabaseKindModel = Zod.enum(['sqlite', 'postgres'])
+export type DatabaseType = Zod.infer<typeof DatabaseTypeModel>
+export const DatabaseTypeModel = Zod.enum(['sqlite', 'postgres'])
 
 export type DatabaseRetryConfig = Zod.infer<typeof DatabaseRetryConfigModel>
 export const DatabaseRetryConfigModel = Zod.object({
@@ -100,20 +100,20 @@ export const DatabaseRetryConfigModel = Zod.object({
 })
 
 const BaseDatabaseConfig = Zod.object({
-  kind: DatabaseKindModel,
+  type: DatabaseTypeModel,
   engine: Zod.record(Zod.string(), Zod.unknown()).default(() => ({})),
   retry: DatabaseRetryConfigModel.default(() => DatabaseRetryConfigModel.parse({})),
 })
 
 export type SQLiteDatabaseConfig = Zod.infer<typeof SQLiteDatabaseConfigModel>
 export const SQLiteDatabaseConfigModel = BaseDatabaseConfig.extend({
-  kind: Zod.literal('sqlite'),
+  type: Zod.literal('sqlite'),
   path: Zod.string().nullable().default(null),
 })
 
 export type PostgresDatabaseConfig = Zod.infer<typeof PostgresDatabaseConfigModel>
 export const PostgresDatabaseConfigModel = BaseDatabaseConfig.extend({
-  kind: Zod.literal('postgres'),
+  type: Zod.literal('postgres'),
   host: Zod.string(),
   port: Zod.number(),
   database: Zod.string(),
@@ -122,7 +122,7 @@ export const PostgresDatabaseConfigModel = BaseDatabaseConfig.extend({
 })
 
 export type DatabaseConfig = Zod.infer<typeof DatabaseConfigModel>
-export const DatabaseConfigModel = Zod.discriminatedUnion('kind', [
+export const DatabaseConfigModel = Zod.discriminatedUnion('type', [
   SQLiteDatabaseConfigModel,
   PostgresDatabaseConfigModel,
 ])
@@ -138,54 +138,54 @@ export const ConfigModel = Zod.object({
 
 export type DisplayBinding = Zod.infer<typeof DisplayBindingModel>
 export const DisplayBindingModel = Zod.object({
-  kind: Zod.literal('display'),
+  type: Zod.literal('display'),
   name: Zod.string(),
   function: Zod.string(),
 })
 
 export type LayoutDisplay = Zod.infer<typeof LayoutDisplayModel>
 export const LayoutDisplayModel = Zod.object({
-  kind: Zod.literal('display'),
+  type: Zod.literal('display'),
   title: Zod.string(),
   query: Zod.string(),
 })
 
 export type LayoutButton = Zod.infer<typeof LayoutButtonModel>
 export const LayoutButtonModel = Zod.object({
-  kind: Zod.literal('button'),
+  type: Zod.literal('button'),
   title: Zod.string(),
   action: Zod.string(),
   color: Zod.string().optional().nullable(),
 })
 
 export type LayoutRow = {
-  kind: 'row'
+  type: 'row'
   children: LayoutNode[]
 }
 
 export const LayoutRowModel: Zod.ZodType<LayoutRow> = Zod.object({
-  kind: Zod.literal('row'),
+  type: Zod.literal('row'),
   children: Zod.lazy(() => Zod.array(LayoutNodeModel)),
 })
 
 export type LayoutColumn = {
-  kind: 'column'
+  type: 'column'
   children: LayoutNode[]
 }
 
 export const LayoutColumnModel: Zod.ZodType<LayoutColumn> = Zod.object({
-  kind: Zod.literal('column'),
+  type: Zod.literal('column'),
   children: Zod.lazy(() => Zod.array(LayoutNodeModel)),
 })
 
 export type LayoutCarousel = {
-  kind: 'carousel'
+  type: 'carousel'
   children: LayoutNode[]
   height?: number | string | null
 }
 
 export const LayoutCarouselModel: Zod.ZodType<LayoutCarousel> = Zod.object({
-  kind: Zod.literal('carousel'),
+  type: Zod.literal('carousel'),
   children: Zod.lazy(() => Zod.array(LayoutNodeModel)),
   height: Zod.union([Zod.string(), Zod.number()]).optional().nullable(),
 })
@@ -204,8 +204,8 @@ export const LayoutModel = Zod.object({
   body: LayoutNodeModel,
 })
 
-export type ProcedureKind = Zod.infer<typeof ProcedureKindModel>
-export const ProcedureKindModel = Zod.enum(['query', 'action'])
+export type ProcedureType = Zod.infer<typeof ProcedureTypeModel>
+export const ProcedureTypeModel = Zod.enum(['query', 'action'])
 
 export type ProcedureArgsInfo = Zod.infer<typeof ProcedureArgsInfoModel>
 export const ProcedureArgsInfoModel = Zod.object({
@@ -220,7 +220,7 @@ export const ProcedureOutputInfoModel = Zod.object({
 
 const BaseProcedureInfoModel = Zod.object({
   name: Zod.string(),
-  kind: ProcedureKindModel,
+  type: ProcedureTypeModel,
   live: Zod.boolean(),
   args: ProcedureArgsInfoModel,
   output: ProcedureOutputInfoModel,
@@ -228,16 +228,16 @@ const BaseProcedureInfoModel = Zod.object({
 
 export type QueryInfo = Zod.infer<typeof QueryInfoModel>
 export const QueryInfoModel = BaseProcedureInfoModel.extend({
-  kind: Zod.literal('query'),
+  type: Zod.literal('query'),
 })
 
 export type ActionInfo = Zod.infer<typeof ActionInfoModel>
 export const ActionInfoModel = BaseProcedureInfoModel.extend({
-  kind: Zod.literal('action'),
+  type: Zod.literal('action'),
 })
 
 export type ProcedureInfo = Zod.infer<typeof ProcedureInfoModel>
-export const ProcedureInfoModel = Zod.discriminatedUnion('kind', [QueryInfoModel, ActionInfoModel])
+export const ProcedureInfoModel = Zod.discriminatedUnion('type', [QueryInfoModel, ActionInfoModel])
 
 export type ComponentInfo = {
   name: string

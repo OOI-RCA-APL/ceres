@@ -7,7 +7,7 @@ from ceres.data import ImmutableDataObject
 class ValidationProblem(ImmutableDataObject):
     location: list[str | int]
     message: str
-    kind: str
+    type: str
 
     @classmethod
     def extract(cls, error: ValidationError) -> list[Self]:
@@ -15,7 +15,7 @@ class ValidationProblem(ImmutableDataObject):
             ValidationProblem(
                 location=list(segment for segment in error["loc"] if segment != "__root__"),
                 message=error["msg"],
-                kind=error["type"],
+                type=error["type"],
             )
             for error in error.errors()
         ]
