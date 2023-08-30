@@ -27,25 +27,19 @@ provide(
 
 const config = useConfig()
 
-useIntervalFn(
-  async () => {
+useIntervalFn(async () => {
+  if (config.loading) {
+    return
+  }
+
+  if (config.data == null) {
     try {
-      await config.load()
+      await config.refetch()
     } catch (error) {
       console.error(error)
     }
-
-    if (config.data == null) {
-      try {
-        await config.refetch()
-      } catch (error) {
-        console.error(error)
-      }
-    }
-  },
-  1000,
-  { immediate: true }
-)
+  }
+}, 1000)
 </script>
 
 <template>

@@ -213,6 +213,7 @@ export const useConfig = defineStore('config', () => {
     data: $$(data),
     error: $$(error),
     refetch: query.refetch,
+    loading: $$(query.isLoading),
     load,
     getComponent,
   }
