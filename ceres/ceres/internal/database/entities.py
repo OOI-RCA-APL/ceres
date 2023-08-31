@@ -140,7 +140,7 @@ class InternalBinEntity(Entity, kw_only=True):
 
     __table_args__ = (
         PrimaryKeyConstraint("id", name="pk_bins"),
-        Index("ix_bins__address", "address", unique=True),
+        Index("ix_bins__address", "address"),
     )
 
 
