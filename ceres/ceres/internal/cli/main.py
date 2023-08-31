@@ -106,14 +106,12 @@ async def run(
                 )
 
                 try:
-                    if task_run.done():
-                        if not task_run.cancelled():
-                            task_run.result()
-                    else:
-                        await server.stop()
+                    await server.stop()
                 finally:
-                    task_run.cancel()
-                    task_wait_until_exiting.cancel()
+                    while not task_run.done() or not task_wait_until_exiting.done():
+                        task_run.cancel()
+                        task_wait_until_exiting.cancel()
+                        await asyncio.sleep(0.025)
 
             def handle_exit_signal(*args: Any, **kwargs: Any) -> None:
                 exiting.set()

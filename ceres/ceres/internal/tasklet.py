@@ -85,6 +85,8 @@ class Tasklet(ABC):
                         if on_exception:
                             on_exception(self, exception)
             finally:
+                self.__tasklet__.stopping.set()
+
                 while not task_run.done() or not task_wait_until_stopping.done():
                     task_run.cancel()
                     task_wait_until_stopping.cancel()
@@ -93,15 +95,14 @@ class Tasklet(ABC):
                 try:
                     await self.__stop__()
                 finally:
-                    self.__tasklet__.task = None
-                    self.__tasklet__.stopping.set()
-                    self.__tasklet__.stopped.set()
-
                     try:
                         await self.__done__()
                     finally:
                         if on_completed:
                             on_completed(self)
+
+                        self.__tasklet__.task = None
+                        self.__tasklet__.stopped.set()
 
         self.__tasklet__.task = asyncio.create_task(main(), name=str(type(self)))
 
