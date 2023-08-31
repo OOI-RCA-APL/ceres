@@ -218,8 +218,6 @@ class Engine(Object, kw_only=False):
         if self.__root is not None:
             await self.__root.stop()
 
-    @override
-    async def __done__(self) -> None:
         self.emit(StoppedEvent)
         await self.flush()
         await self.__database.dispose()

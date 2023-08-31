@@ -853,8 +853,6 @@ class Component(Object):
         if self.__scheduler.running:
             self.__scheduler.shutdown()
 
-    @override
-    async def __done__(self) -> None:
         self.emit(StoppedEvent)
         await self.flush()
 

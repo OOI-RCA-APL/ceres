@@ -36,9 +36,6 @@ class Tasklet(ABC):
     async def __stop__(self) -> None:
         ...
 
-    async def __done__(self) -> None:
-        pass
-
     @property
     def __tasklet__(self) -> TaskletInternal:
         if internal := self.__dict__.get(_INTERNAL_ATTRIBUTE_NAME):
@@ -87,22 +84,22 @@ class Tasklet(ABC):
             finally:
                 self.__tasklet__.stopping.set()
 
-                while not task_run.done() or not task_wait_until_stopping.done():
+                while True:
                     task_run.cancel()
                     task_wait_until_stopping.cancel()
+                    if task_run.done() and task_wait_until_stopping.done():
+                        break
+
                     await asyncio.sleep(0.025)
 
                 try:
                     await self.__stop__()
                 finally:
-                    try:
-                        await self.__done__()
-                    finally:
-                        if on_completed:
-                            on_completed(self)
+                    if on_completed:
+                        on_completed(self)
 
-                        self.__tasklet__.task = None
-                        self.__tasklet__.stopped.set()
+                    self.__tasklet__.task = None
+                    self.__tasklet__.stopped.set()
 
         self.__tasklet__.task = asyncio.create_task(main(), name=str(type(self)))
 

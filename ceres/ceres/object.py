@@ -236,11 +236,6 @@ class Object(ValidatedDataclass, Tasklet):
     async def __stop__(self) -> None:
         ...
 
-    @override
-    @abstractmethod
-    async def __done__(self) -> None:
-        ...
-
     def store(self, item: Item) -> None:
         if not isinstance(item, Item):
             raise TypeError(f"unsupported item type: {type(item)}")
