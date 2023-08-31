@@ -317,11 +317,9 @@ class Object(ValidatedDataclass, Tasklet):
         for model_cls, group in group_by(items, type):
             by_type[model_cls] = list(group)  # type: ignore
 
-        await asyncio.gather(
-            self.__create_items_by_cls(session, Message, by_type[Message], bins),
-            self.__create_items_by_cls(session, Alert, by_type[Alert], bins),
-            self.__create_items_by_cls(session, LogEntry, by_type[LogEntry], bins),
-        )
+        await self.__create_items_by_cls(session, Message, by_type[Message], bins)
+        await self.__create_items_by_cls(session, Alert, by_type[Alert], bins)
+        await self.__create_items_by_cls(session, LogEntry, by_type[LogEntry], bins)
 
     async def flush(self) -> None:
         # Get the previous flush object if there is one.
