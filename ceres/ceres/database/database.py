@@ -13,9 +13,9 @@ from uuid import UUID, uuid4
 
 from pydantic import Field
 from sqlalchemy import (
+    AsyncAdaptedQueuePool,
     BinaryExpression,
     Connection,
-    QueuePool,
     SQLColumnExpression,
     Text,
     cast,
@@ -627,7 +627,7 @@ class SQLiteDatabase(Database):
     @override
     def _get_engine_config(self) -> dict[str, Any]:
         return {
-            "poolclass": QueuePool,
+            "poolclass": AsyncAdaptedQueuePool,
             "pool_size": 10,  # Keep a maximum of ten connections alive continuously.
             "max_overflow": -1,  # Allow an infinite number of connections to be created if needed.
             "pool_recycle": 15 * 60,  # Recreate connections after fifteen minutes.
@@ -912,7 +912,7 @@ class PostgresDatabase(Database):
 
     def _get_engine_config(self) -> dict[str, Any]:
         return {
-            "poolclass": QueuePool,
+            "poolclass": AsyncAdaptedQueuePool,
             "pool_size": 10,  # Keep a maximum of ten connections alive continuously.
             "max_overflow": -1,  # Allow an infinite number of connections to be created if needed.
             "pool_pre_ping": True,  # Check to see if a connection has closed before use.
