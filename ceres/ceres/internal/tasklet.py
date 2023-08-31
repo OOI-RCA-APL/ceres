@@ -1,11 +1,13 @@
 import asyncio
 from abc import ABC, abstractmethod
-from asyncio import FIRST_COMPLETED, Task
 from asyncio import Event as AsyncEvent
+from asyncio import Task
 from dataclasses import dataclass, field
 from typing import Callable, cast
 
 from typing_extensions import Self
+
+from ceres.internal.utilities import cancel, wait_any
 
 
 @dataclass
@@ -62,16 +64,10 @@ class Tasklet(ABC):
         self.__tasklet__.stopped.clear()
 
         task_run = asyncio.create_task(self.__run__())
-        task_wait_until_stopping = asyncio.create_task(self.__tasklet__.stopping.wait())
+        task_exit = asyncio.create_task(self.__tasklet__.stopping.wait())
 
         async def main() -> None:
-            await asyncio.wait(
-                [
-                    task_run,
-                    task_wait_until_stopping,
-                ],
-                return_when=FIRST_COMPLETED,
-            )
+            await wait_any(task_run, task_exit)
 
             try:
                 if task_run.done():
@@ -83,14 +79,7 @@ class Tasklet(ABC):
                             on_exception(self, exception)
             finally:
                 self.__tasklet__.stopping.set()
-
-                while True:
-                    task_run.cancel()
-                    task_wait_until_stopping.cancel()
-                    if task_run.done() and task_wait_until_stopping.done():
-                        break
-
-                    await asyncio.sleep(0.025)
+                await cancel(task_run, task_exit)
 
                 try:
                     await self.__stop__()

@@ -7,7 +7,7 @@ import re
 import signal
 import sys
 import textwrap
-from asyncio import AbstractEventLoop
+from asyncio import AbstractEventLoop, Task
 from collections import OrderedDict, defaultdict
 from contextlib import contextmanager
 from datetime import timedelta
@@ -22,6 +22,7 @@ from typing import (
     Callable,
     ClassVar,
     Collection,
+    Coroutine,
     Hashable,
     Iterable,
     Iterator,
@@ -806,3 +807,44 @@ def coalesce(value: object, default: object) -> object:
         return default
 
     return value
+
+
+def sequence(start: _T, next: Callable[[_T], _T]) -> Iterator[_T]:
+    current = start
+    while True:
+        yield current
+        current = next(start)
+
+
+async def cancel(*tasks: Task[Any]) -> None:
+    for delay in sequence(0, lambda current: 0.001 if current == 0 else min(current * 2, 1)):
+        for task in tasks:
+            task.cancel()
+
+        for task in tasks:
+            if not task.done():
+                await asyncio.sleep(delay)
+                continue
+
+        break
+
+
+async def _wait_many(
+    condition: str,
+    tasks: Sequence[Task[_T] | Coroutine[Any, Any, _T]],
+) -> tuple[set[Task[_T]], set[Task[_T]]]:
+    waiting = [asyncio.create_task(task) if not isinstance(task, Task) else task for task in tasks]
+    result = await asyncio.wait(waiting, return_when=condition)
+    return result
+
+
+async def wait_any(
+    *tasks: Task[_T] | Coroutine[_T, Any, Any]
+) -> tuple[set[Task[_T]], set[Task[_T]]]:
+    return await _wait_many(asyncio.FIRST_COMPLETED, tasks)
+
+
+async def wait_all(
+    *tasks: Task[_T] | Coroutine[_T, Any, Any]
+) -> tuple[set[Task[_T]], set[Task[_T]]]:
+    return await _wait_many(asyncio.ALL_COMPLETED, tasks)

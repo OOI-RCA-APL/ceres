@@ -1,6 +1,5 @@
 import asyncio
 import signal
-from asyncio import FIRST_COMPLETED
 from asyncio import Event as AsyncEvent
 from pathlib import Path
 from typing import Annotated, Any, Mapping, TypeVar
@@ -35,12 +34,14 @@ from ceres.internal.cli.subcommands.database import database
 from ceres.internal.cli.subcommands.service import service
 from ceres.internal.project import Project
 from ceres.internal.utilities import (
+    cancel,
     ensure_event_loop,
     get_type_adapter,
     set_current_process_name,
     strify,
     syncify,
     temporary_signal_handler,
+    wait_any,
 )
 from ceres.object import Status
 from ceres.result import Fail, Ok
@@ -95,26 +96,13 @@ async def run(
 
             async def main() -> None:
                 task_run = asyncio.create_task(run())
-                task_wait_until_exiting = asyncio.create_task(exiting.wait())
-
-                await asyncio.wait(
-                    [
-                        task_run,
-                        task_wait_until_exiting,
-                    ],
-                    return_when=FIRST_COMPLETED,
-                )
+                task_exit = asyncio.create_task(exiting.wait())
+                await wait_any(task_run, task_exit)
 
                 try:
                     await server.stop()
                 finally:
-                    while True:
-                        task_run.cancel()
-                        task_wait_until_exiting.cancel()
-                        if task_run.done() and task_wait_until_exiting.done():
-                            break
-
-                        await asyncio.sleep(0.025)
+                    await cancel(task_run, task_exit)
 
             def handle_exit_signal(*args: Any, **kwargs: Any) -> None:
                 exiting.set()
