@@ -235,7 +235,7 @@ class MessageEntity(ItemEntity, kw_only=True):
             ON CONFLICT DO UPDATE SET id = new.id, timestamp = new.timestamp, direction = new.direction, content = new.content;
             """,  # noqa: E501
             """
-            DELETE FROM __messages WHERE bin_id = (SELECT id FROM __bins WHERE __bins.address = old.address);
+            DELETE FROM __messages WHERE id = old.id;
             """,  # noqa: E501
             """
             INSERT INTO __bins (address) SELECT new.address WHERE NOT EXISTS (SELECT TRUE FROM __bins WHERE address = new.address);
@@ -300,7 +300,7 @@ class AlertEntity(ItemEntity, kw_only=True):
             ON CONFLICT DO UPDATE SET id = new.id, timestamp = new.timestamp, level = new.level, code = new.code, info = new.info;
             """,  # noqa: E501
             """
-            DELETE FROM __alerts WHERE bin_id = (SELECT id FROM __bins WHERE __bins.address = old.address);
+            DELETE FROM __alerts WHERE id = old.id;
             """,  # noqa: E501
             """
             INSERT INTO __bins (address) SELECT new.address WHERE NOT EXISTS (SELECT TRUE FROM __bins WHERE address = new.address);
@@ -364,7 +364,7 @@ JOIN __bins ON __log_entries.bin_id = __bins.id;
             ON CONFLICT DO UPDATE SET id = new.id, timestamp = new.timestamp, level = new.level, content = new.content;
             """,  # noqa: E501
             """
-            DELETE FROM __log_entries WHERE bin_id = (SELECT id FROM __bins WHERE __bins.address = old.address);
+            DELETE FROM __log_entries WHERE id = old.id;
             """,  # noqa: E501
             """
             INSERT INTO __bins (address) SELECT new.address WHERE NOT EXISTS (SELECT TRUE FROM __bins WHERE address = new.address);
