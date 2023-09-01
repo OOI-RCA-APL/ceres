@@ -85,16 +85,35 @@ class Entity(MappedAsDataclass, DeclarativeBase, kw_only=True):
         ]
 
     @classmethod
-    def get_entity_ddl(cls, engine: Engine) -> Iterable[str]:
-        yield _compile(engine, CreateTable(cls.__table__, if_not_exists=True))
-        for index in sorted(cls.__table__.indexes, key=lambda index: str(index.name)):
-            yield _compile(engine, CreateIndex(index, if_not_exists=True))
+    def get_entity_ddl(
+        cls,
+        engine: Engine,
+        *,
+        table: bool = True,
+        indexes: bool = True,
+    ) -> Iterable[str]:
+        if table:
+            yield _compile(engine, CreateTable(cls.__table__, if_not_exists=True))
+
+        if indexes:
+            for index in sorted(cls.__table__.indexes, key=lambda index: str(index.name)):
+                yield _compile(engine, CreateIndex(index, if_not_exists=True))
 
     @classmethod
-    async def create_all(cls, engine: AsyncEngine) -> None:
+    async def create_all(
+        cls,
+        engine: AsyncEngine,
+        *,
+        table: bool = True,
+        indexes: bool = True,
+    ) -> None:
         async with engine.begin() as connection:
             for cls in cls.get_entity_classes():
-                for statement in cls.get_entity_ddl(engine.sync_engine):
+                for statement in cls.get_entity_ddl(
+                    engine.sync_engine,
+                    table=table,
+                    indexes=indexes,
+                ):
                     await connection.execute(text(statement))
 
             await connection.commit()

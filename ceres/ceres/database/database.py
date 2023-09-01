@@ -742,10 +742,10 @@ class SQLiteDatabase(Database):
     ) -> None:
         async with destination_engine.connect() as destination_connection:
             if create:
+                await destination_connection.execute(text("PRAGMA busy_timeout = 30000"))
                 await destination_connection.execute(text("PRAGMA synchronous = OFF"))
-                await destination_connection.execute(text("PRAGMA journal_mode = WAL"))
                 await destination_connection.execute(text("PRAGMA foreign_keys = OFF"))
-                await destination_connection.execute(text("PRAGMA cache_size = -128000"))
+                await destination_connection.execute(text("PRAGMA cache_size = -64000"))
 
             await destination_connection.execute(
                 text("ATTACH DATABASE :path AS source"), {"path": str(source)}
@@ -753,53 +753,28 @@ class SQLiteDatabase(Database):
 
             if table in (TableOption.ALL, TableOption.COMPONENTS):
                 await destination_connection.execute(
-                    text(
-                        """
-                        INSERT INTO main.components (address, enabled)
-                        SELECT address, enabled
-                        FROM source.components
-                        """
-                    )
+                    text("INSERT INTO main.components SELECT * FROM source.components")
                 )
 
             if table in (TableOption.ALL, TableOption.MESSAGES):
                 await destination_connection.execute(
-                    text(
-                        """
-                        INSERT INTO main.messages (id, address, timestamp, direction, content)
-                        SELECT id, address, timestamp, direction, content
-                        FROM source.messages
-                        """  # noqa: E501
-                    )
+                    text("INSERT INTO main.messages SELECT * FROM source.messages")
                 )
 
             if table in (TableOption.ALL, TableOption.ALERTS):
                 await destination_connection.execute(
-                    text(
-                        """
-                        INSERT INTO main.alerts (id, address, timestamp, level, code, info)
-                        SELECT id, address, timestamp, level, code, info
-                        FROM source.alerts
-                        """
-                    )
+                    text("INSERT INTO main.alerts SELECT * FROM source.alerts")
                 )
 
             if table in (TableOption.ALL, TableOption.LOG_ENTRIES):
                 await destination_connection.execute(
-                    text(
-                        """
-                        INSERT INTO main.log_entries (id, address, timestamp, level, content)
-                        SELECT id, address, timestamp, level, content
-                        FROM source.log_entries
-                        """  # noqa: E501
-                    )
+                    text("INSERT INTO main.log_entries SELECT * FROM source.log_entries")
                 )
 
             await destination_connection.commit()
 
             if create:
                 await destination_connection.execute(text("PRAGMA synchronous = FULL"))
-                await destination_connection.execute(text("PRAGMA journal_mode = DELETE"))
                 await destination_connection.commit()
 
     @override
@@ -833,13 +808,14 @@ class SQLiteDatabase(Database):
         destination_engine = create_async_engine(f"sqlite+aiosqlite:///{path}")
 
         try:
-            await Entity.create_all(destination_engine)
+            await Entity.create_all(destination_engine, table=True, indexes=False)
             await self.__copy(
                 table,
                 source=self.path,
                 destination_engine=destination_engine,
                 create=True,
             )
+            await Entity.create_all(destination_engine, table=False, indexes=True)
         finally:
             await destination_engine.dispose()
 
