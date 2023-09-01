@@ -2,59 +2,71 @@
 
 ![CI](https://github.com/OOI-RCA-APL/ceres/actions/workflows/ci.yaml/badge.svg)
 
-## About
+Ceres is a Python framework for data collection, monitoring and device control.
 
-Ceres is a Python framework for streaming data collection and monitoring. This project is in active development and is likely to change drastically. No backwards compatibility is guaranteed at this time.
+| ⚠                                                                                                                                  |
+| ---------------------------------------------------------------------------------------------------------------------------------- |
+| _This project is in active development and will likely change drastically. No backwards compatibility is guaranteed at this time._ |
 
-## Development
+## Why Ceres?
 
-### Dependencies
+Collecting data and storing somewhere is conceptually a simple task, but it quicky becomes complex as requirements change and grow, the number of data sources/projects increases, and/or command and control of external devices is required.
 
-1. [Git](https://git-scm.com)
-2. [Make](https://www.gnu.org/software/make)
-3. [Python 3.10+](https://www.python.org)
-4. [Poetry](https://python-poetry.org/docs)
-5. [NodeJS 16+](https://nodejs.org/en/download)
-6. [NPM](https://docs.npmjs.com/downloading-and-installing-node-js-and-npm)
+This ever increasing complexity is difficult to manage, and often leads to brittle, unreliable systems that are difficult to maintain. Ceres aims to solve this problem head on.
 
-### Setup
+If the following requirements are important to you, Ceres may be a good fit.
 
-1. Clone this repository.
-2. Run `make install` at project root.
-3. Also in project root, create a directory called `dev`.
+1. **Reliability**
 
-   _The `dev` directory is git-ignored._
+   Your system needs to stay alive, even in the face of external failures. The network or an external device could fail, the database could be unreachable, your code may have bugs that eventually cause a crash. These points of failure need to be contained and handled gracefully.
 
-4. Run `cp -r ./examples/crabee dev`.
+2. **Scalability**
 
-   _This will create a self-contained example project you can play with._
+   You are collecting data from many different sources simultaneously. Some may be sending data at a high rate, others may be sending data it infrequently. Your system needs to handle this without breaking a sweat.
 
-5. Go into `./dev/crabee` and run `poetry install`.
+3. **Error Reporting**
 
-   _This will install local dependencies and create a virtual environment._
+   When something _does_ go wrong, the issue needs to be automatically reported to team members quickly and actionably. They should know what happened and be provided enough information to address the problem.
 
-6. Run `poetry shell` to enter the project's virtual environment.
+4. **Accommodate Snowflakes**
 
-   _This makes `ceres` available as a command._
+   You are collecting data from multiple sources, spanning across any number of separate projects, which all have different data formats, protocols and quirks that make them all maddenly unique.
 
-7. Run `ceres run --all --watch` to run the project.
+   Writing and maintaining masses of one-off code for each data source or project is not ideal. Your system needs be flexible enough for you to accommodate these differences, but take the burden of handling common requirements off your back.
 
-   - _The `--all` flag starts all components on engine startup._
-   - _The `--watch` flag makes the engine reload when either configuration or code are modified._
+5. **Live User Interface**
 
-8. Go to `localhost:9000`. You should see the web console.
+   You need to see what the system is doing now, and/or historically. You may need to answer questions like:
 
-9. Ceres reads the `ceres.yaml` configuration file at the project root in order to function. At the moment, the project is not actually connecting to a real device, only a simulator.
+   - Are we still connected to a given device or network?
+   - When did a given connection drop? Why?
+   - What messages have we sent/received in the past week? The past year?
+   - What messages are we sending/receiving right now?
+   - What does the collected data look like? Is it valid?
+   - What errors are currently being reported?
+   - How has the data changed over time? Are there obvious trends?
+   - How much data do we have? How much are we collecting per day?
+   - Why did a given job fail? How often is it running?
 
-If you have an actual Crabee device available, edit `ceres.yaml` and change the IP address of the connection component to the IP address of the board.
+   Setting up a user interface to answer these questions for every project is a truly _massive_ amount of work that should ideally be handled _for you_.
 
-```python3
-- host: 0.0.0.0
-+ host: 10.95.96.173
-```
+6. **Testing**
 
-Once `ceres.yaml` is saved, the engine should reload immediately and try to connect to the device.
+   You need to test your system, ensuring everything is working as expected before you deploy. Individual components of your system should be testable in isolation with a good approximation of the real world setup.
 
-If the device is reachable, you should see logs indicating the connection was successful and messages should be printed every second, just like the simulator.
+7. **Deployment**
 
-If the device is not reachable, the connection component will log errors and attempt to reconnect repeatedly according to an exponential fallback interval.
+   You need the system to be cross platform and easy to deploy. You should be able to run it on your local development machine, on a server, or on a Raspberry Pi with minimal effort.
+
+8. **Configuration**
+
+   System configuration should be centralized, understandable, easy to update, reload, parse and check for correctness. It should be possible to update configuration without restarting the entire system. Deploying or reverting changes should be easy.
+
+## Documentation
+
+To learn more about Ceres, take a look at our documentation.
+
+| Page                                 | Description                                           |
+| ------------------------------------ | ----------------------------------------------------- |
+| [Overview](./docs/overview.md)       | Learn more about Ceres and how to use it effectively. |
+| [Development](./docs/development.md) | How to help improve the Ceres project itself.         |
