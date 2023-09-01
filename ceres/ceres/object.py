@@ -51,6 +51,7 @@ from ceres.filter import (
     StatisticsFilter,
     StatisticsFilterArgs,
 )
+from ceres.internal.database.entities import AlertEntity, LogEntryEntity, MessageEntity
 from ceres.internal.tasklet import Tasklet
 from ceres.internal.utilities import get_traceback, get_type_adapter, group_by
 from ceres.level import Level
@@ -244,41 +245,11 @@ class Object(ValidatedDataclass, Tasklet):
         self.__flush_buffer.append(item)
         self.__flushed.clear()
 
-    async def __create_bins(
-        self,
-        session: AsyncSession,
-        items: Iterable[Item],
-    ) -> Mapping[Address, int]:
-        addresses = sorted({model.address for model in items})
-        from sqlalchemy import insert, select
-
-        from ceres.internal.database.entities import InternalBinEntity
-
-        bins = {
-            address: id
-            for address, id in await session.execute(
-                select(InternalBinEntity.address, InternalBinEntity.id)
-                .group_by(InternalBinEntity.address)
-                .order_by(InternalBinEntity.id)
-            )
-        }
-
-        for address in addresses:
-            if address not in bins:
-                id = await session.scalar(
-                    insert(InternalBinEntity).returning(InternalBinEntity.id),
-                    {"address": address},
-                )
-                bins[address] = id
-
-        return bins
-
     async def __create_items_by_cls(
         self,
         session: AsyncSession,
         item_cls: type[_ItemT],
         items: list[_ItemT],
-        bins: Mapping[Address, int],
     ) -> None:
         if not items:
             return
@@ -290,36 +261,27 @@ class Object(ValidatedDataclass, Tasklet):
             case DatabaseType.POSTGRES:
                 from sqlalchemy.dialects.postgresql import insert
 
-        from ceres.internal.database.entities import (
-            InternalAlertEntity,
-            InternalLogEntryEntity,
-            InternalMessageEntity,
-        )
-
         if item_cls is Message:
-            entity_cls = InternalMessageEntity
+            entity_cls = MessageEntity
         elif item_cls is Alert:
-            entity_cls = InternalAlertEntity
+            entity_cls = AlertEntity
         elif item_cls is LogEntry:
-            entity_cls = InternalLogEntryEntity
+            entity_cls = LogEntryEntity
         else:
             raise TypeError(f"unsupported item type: {item_cls}")
 
         values: list[dict[str, Any]] = get_type_adapter(list[item_cls]).dump_python(items)
-        for value in values:
-            value["bin_id"] = bins[value.pop("address")]
 
         await session.execute(insert(entity_cls).on_conflict_do_nothing(), values)
 
     async def __create_items(self, session: AsyncSession, items: Iterable[Item]) -> None:
-        bins = await self.__create_bins(session, items)
         by_type: defaultdict[type[Item], list[Item]] = defaultdict(list)
         for model_cls, group in group_by(items, type):
             by_type[model_cls] = list(group)  # type: ignore
 
-        await self.__create_items_by_cls(session, Message, by_type[Message], bins)
-        await self.__create_items_by_cls(session, Alert, by_type[Alert], bins)
-        await self.__create_items_by_cls(session, LogEntry, by_type[LogEntry], bins)
+        await self.__create_items_by_cls(session, Message, by_type[Message])
+        await self.__create_items_by_cls(session, Alert, by_type[Alert])
+        await self.__create_items_by_cls(session, LogEntry, by_type[LogEntry])
 
     async def flush(self) -> None:
         # Get the previous flush object if there is one.

@@ -660,6 +660,8 @@ class SQLiteDatabase(Database):
         def connect(connection: SQLiteConnection, *args: object) -> None:
             # Enable a 30 second busy timeout.
             connection.execute("PRAGMA busy_timeout = 30000")
+            # Set like statements to be case sensitive to match Postgres.
+            connection.execute("PRAGMA case_sensitive_like = ON")
             # Clear the isolation level to stop "pysqlite" from:
             #   1. Automatically emitting "BEGIN"
             #   2. Automatically emitting "COMMIT" before any DDL
@@ -760,30 +762,13 @@ class SQLiteDatabase(Database):
                     )
                 )
 
-            if table in (
-                TableOption.ALL,
-                TableOption.MESSAGES,
-                TableOption.ALERTS,
-                TableOption.LOG_ENTRIES,
-            ):
-                await destination_connection.execute(
-                    text(
-                        """
-                        INSERT INTO main.__bins (address)
-                        SELECT address FROM source.__bins
-                        WHERE address NOT IN (SELECT address FROM main.__bins)
-                        """
-                    )
-                )
-
             if table in (TableOption.ALL, TableOption.MESSAGES):
                 await destination_connection.execute(
                     text(
                         """
-                        INSERT INTO main.__messages (id, bin_id, timestamp, direction, content)
-                        SELECT source.messages.id, main.__bins.id, timestamp, direction, content
+                        INSERT INTO main.messages (id, address, timestamp, direction, content)
+                        SELECT id, address, timestamp, direction, content
                         FROM source.messages
-                        JOIN main.__bins ON source.messages.address = main.__bins.address
                         """  # noqa: E501
                     )
                 )
@@ -792,10 +777,9 @@ class SQLiteDatabase(Database):
                 await destination_connection.execute(
                     text(
                         """
-                        INSERT INTO main.__alerts (id, bin_id, timestamp, level, code, info)
-                        SELECT source.alerts.id, main.__bins.id, timestamp, level, code, info
+                        INSERT INTO main.alerts (id, address, timestamp, level, code, info)
+                        SELECT id, address, timestamp, level, code, info
                         FROM source.alerts
-                        JOIN main.__bins ON source.alerts.address = main.__bins.address
                         """
                     )
                 )
@@ -804,10 +788,9 @@ class SQLiteDatabase(Database):
                 await destination_connection.execute(
                     text(
                         """
-                        INSERT INTO main.__log_entries (id, bin_id, timestamp, level, content)
-                        SELECT source.log_entries.id, main.__bins.id, timestamp, level, content
+                        INSERT INTO main.log_entries (id, address, timestamp, level, content)
+                        SELECT id, address, timestamp, level, content
                         FROM source.log_entries
-                        JOIN main.__bins ON source.log_entries.address = main.__bins.address
                         """  # noqa: E501
                     )
                 )
