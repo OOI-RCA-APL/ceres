@@ -2,8 +2,8 @@
 
 TODO: Documentation is a work in progress.
 
-| Page                                | Description                           |
-| ----------------------------------- | ------------------------------------- |
-| [Installation](./installation.md)   | How to install Ceres on your machine. |
-| [Configuration](./configuration.md) | How to configure a Ceres project.     |
-| [Components](./components.md)       | How to create and use components.     |
+| Page                                    | Description                                      |
+| --------------------------------------- | ------------------------------------------------ |
+| [Installing](./installing.md)           | How to install Ceres on your machine.            |
+| [Getting Started](./getting-started.md) | How to set up and run a basic project.           |
+| [Components](./components.md)           | How components work, how to create and use them. |
