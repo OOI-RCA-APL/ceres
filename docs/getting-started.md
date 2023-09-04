@@ -4,9 +4,9 @@
 
 # Getting Started
 
-It's difficult to explain how Ceres works without a concrete example, so this page will be running through a simple example project, explaining Ceres' core concepts along the way.
+It's difficult to explain how Ceres works without a concrete example, so this page will be running through a simple example, explaining Ceres' core concepts along the way.
 
-## Problem
+## The Problem
 
 Let's say we have a sensor that sends a simple message over a TCP connection every second. Each message it sends is formatted as plain text containing a temperature and humidity reading, separated by a space and terminated by a new-line character.
 
@@ -24,9 +24,9 @@ messages = [
 
 For simplicity let's say this temperature sensor is running on the our local machine and sending data back on port `4000`. Our goal is to write these temperature and humidity readings to file in CSV format, separated by day.
 
-## Simulation
+## Create a Simulator
 
-Because this isn't a real sensor, we'll have to simulate it. Create a Python script containing the following code, and run it with `python simulation.py`.
+Because this isn't a real sensor, we'll have to simulate it. Create a Python script containing the following code, and run it with `python simulator.py`.
 
 _[simulator.py](../examples/intro/intro/simulator.py)_
 
@@ -77,7 +77,7 @@ You should see this output, which means the script is running:
 Listening: localhost:4000
 ```
 
-## Project
+## Creating a Project
 
 Now, while the above script is listening on port `4000`, let's set up a Ceres project.
 
@@ -159,7 +159,7 @@ components:
       separator: "\n"
 ```
 
-### Running
+## Running the Project
 
 With our configuration file ready, we can can run project using the `ceres run --all` command.
 
@@ -231,7 +231,7 @@ Click on the `@connection` tab in the left sidebar to view the component page, t
 
 _The messages, alerts and log views can be resized by dragging their horizontal dividers._
 
-### CLI
+## CLI
 
 Open up another terminal in the project directory, enter your virtual environment, and try running the following commands.
 
@@ -268,7 +268,7 @@ _All components defined in the `components` configuration are children the root 
 
 _A component can only be running if its parent component is running. Therefor, stopping the root component will stop all components in the project._
 
-#### Start & Stop
+#### Start & Stop Commands
 
 The `start` and `stop` commands allow you to start/stop components at any time.
 
@@ -305,7 +305,7 @@ ceres start :all # Start all components.
 ceres stop :all # Stop all components.
 ```
 
-#### Enable & Disable
+#### Enable & Disable Commands
 
 The `enable` and `disable` commands allow you to enable/disable components at any time.
 
@@ -346,11 +346,18 @@ ceres enable :all # Enable all components.
 ceres disable :all # Disable all components.
 ```
 
-#### Up & Down
+#### Up & Down Commands
 
-The `up` command is synonym for running `enable`, followed by `start` on one or more components. The `down` command is the opposite, meaning `disable` followed by `stop`.
+The `up` command is synonym for running `enable`, followed by `start`. The `down` command is the opposite, meaning `disable` followed by `stop`.
 
 ```sh
 ceres up @connection # Enable and start the @connection component.
 ceres stop @connection # Disable and stop the @connection component.
+```
+
+The `up` and `down` commands also take selectors just like the other commands.
+
+```sh
+ceres up :all # Enable and start all components.
+ceres down :all # Disable and stop all components.
 ```
