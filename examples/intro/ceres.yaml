@@ -1,0 +1,12 @@
+server:
+  port: 8080
+database:
+  type: sqlite
+  path: ./local/database.sqlite
+components:
+  - name: connection
+    class: ceres.standard.TCPConnection
+    args:
+      host: localhost
+      port: 4000
+      separator: "\n"

@@ -371,6 +371,9 @@ class Component(Object):
             listener.handle(event)
 
     async def enable(self) -> None:
+        if self.parent is not None:
+            await self.parent.enable()
+
         async with await self.__object_database__.init() as session:
             await self.__set_enabled_in_database(session, True)
         self.__enabled = True

@@ -26,59 +26,70 @@ For simplicity let's say this temperature sensor is running on the our local mac
 
 ## Simulation
 
-Because this isn't a real sensor, we'll have to simulate it.
+Because this isn't a real sensor, we'll have to simulate it. Create a Python script containing the following code, and run it with `python simulation.py`.
+
+_[simulator.py](../examples/intro/intro/simulator.py)_
 
 ```python
-# simulation.py
-
 import random
 import socket
 from time import sleep
 
-host = 'localhost'
+host = "localhost"
 port = 4000
 
-server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-server.bind((host, port))
-server.listen(1)
+if __name__ == "__main__":
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server.bind((host, port))
+    server.listen(1)
 
-print(f"Listening on {host}:{port}...")
+    print(f"Listening on {host}:{port}...")
 
-try:
-    while True:
-        client, address = server.accept()
-        print(f"Accepted: {address}.")
+    try:
+        while True:
+            client, (client_host, client_port) = server.accept()
+            print(f"Accepted: {client_host}:{client_port}")
 
-        try:
-            while True:
-                temperature = round(random.uniform(15, 30), 2)
-                humidity = round(random.uniform(30, 70), 2)
-                data = f"T:{temperature} H:{humidity}".encode()
+            try:
+                while True:
+                    temperature = round(random.uniform(15, 30), 2)
+                    humidity = round(random.uniform(30, 70), 2)
+                    data = f"T:{temperature} H:{humidity}\n"
 
-                client.send(data.encode() + b'\n')
-                print(f"Sent: {data}")
-                sleep(1)
-        finally:
-            client.close()
-except KeyboardInterrupt:
-    pass
-finally:
-    server.close()
+                    client.send(data.encode())
+                    print(f"Sent: {data}")
+                    sleep(1)
+            except ConnectionError:
+                print(f"Disconnected: {client_host}:{client_port}")
+            finally:
+                client.close()
+    except KeyboardInterrupt:
+        print("Interrupted. Exiting...")
+        pass
+    finally:
+        server.close()
 ```
 
-You can run the above in your terminal using `python simulation.py`. Just leave it running for the remainder of this tutorial.
+You should see this output, which means the script is running:
+
+```txt
+Listening: localhost:4000
+```
 
 ## Project
 
-Now, let's set up a Ceres project.
+Now, while the above script is listening on port `4000`, let's set up a Ceres project.
 
-Create a directory containing a configuration file named `ceres.yaml`. The names `ceres.yml`, `ceres.json` are also supported.
+Create a project directory with a configuration file named `ceres.yaml`.
 
 ```sh
 mkdir example
 cd example
 touch ceres.yaml
 ```
+
+_The file names `ceres.yml` and `ceres.json` are also supported._
 
 ### Configuration
 
@@ -91,7 +102,7 @@ server:
   port: 8080
 ```
 
-This will tell Ceres to listen on port `8080`. The server provides a web console, and an API.
+This will tell Ceres to provide the web console and API on port `8080`.
 
 #### Database
 
@@ -101,11 +112,11 @@ database:
   path: ./database.sqlite
 ```
 
-This section declares where Ceres should store its "core" data, including component state, messages, alerts and logs. For this project, we're using an SQLite database at the root of our project.
+This tells the Ceres engine where it should store "core" data, including component state, messages, alerts and logs. For this project, we're just using a simple SQLite database at the root of the project.
 
-_The database will be created and initialized automatically, so no need to create it yourself._
+_The database will be created and initialized automatically. There's no need to create it yourself._
 
-_PostgreSQL is also supported, but for small to medium sized projects SQLite is enough._
+_PostgreSQL is also supported, but for small to medium sized projects SQLite is more than enough._
 
 #### Components
 
@@ -119,15 +130,19 @@ components:
       separator: "\n"
 ```
 
-This section declares the "components" that make up our project. Components are the core building blocks of a Ceres project. They are configurable Python objects that work together to form a robust collection system. We'll go into more detail later on.
+This section defines the "components" in our project. Components are configurable Python objects that work together to form a data collection system. They are the core building blocks of any Ceres project. We'll go into more detail later on.
 
-For now, we declare a component named `connection` as an instance of the standard, built-in component type `TCPConnection` and provide it with some configuration arguments.
+For now, we declare a component named `connection` as an instance of the standard, built-in component class `TCPConnection`, and provide it with some configuration via `args`.
 
 This component, globally addressed as `@connection`, will automatically bind to `localhost:4000`, splitting the incoming byte stream into separate messages by new-line. Each message will then be assigned a timestamp, associated with the `@connection` address, and stored in the database.
 
-#### Configuration
+_If the component cannot connect to the host/port combination, or the connection is lost for some reason, it will attempt to reconnect automatically using an exponential backoff strategy._
+
+#### Final
 
 Our full `ceres.yaml` configuration file should look like this.
+
+[ceres.yaml](../examples/intro/ceres.yaml)
 
 ```yaml
 server:
@@ -139,14 +154,14 @@ components:
   - name: connection
     class: ceres.standard.TCPConnection
     args:
-    host: localhost
-    port: 4000
-    separator: "\n"
+      host: localhost
+      port: 4000
+      separator: "\n"
 ```
 
 ### Running
 
-With our configuration file ready, we can can run project using the `ceres run` command.
+With our configuration file ready, we can can run project using the `ceres run --all` command.
 
 ```sh
 ceres run --all
@@ -154,6 +169,188 @@ ceres run --all
 
 The `run` command reads the `ceres.yaml` configuration file and starts a Ceres `Engine` class to run our project.
 
-_We need to specify the `--all` flag to make the engine run all components in the project on startup. This is useful for development. In production or with a more complex project, you'll want to use the `start`, `stop`, `enable` and `disable` commands to manage components individually._
+_The `--all` flag is used to make the engine run every components in the project on startup. This is useful for development. In production or with a more complex project, you'll likely want to use the `start`, `stop`, `enable` and `disable` commands to manage components individually._
 
-TODO
+#### Engine Output
+
+You should see the similar output to the following, which means the engine is running and the `@connection` component has connected to the simulator and is receiving messages:
+
+```txt
+[2023-09-04 15:14:23.491] [INFO] [~] Checking database configuration...
+[2023-09-04 15:14:23.500] [INFO] [~] Connected to database successfully.
+[2023-09-04 15:14:23.502] [INFO] [~] Database configuration is valid.
+[2023-09-04 15:14:23.503] [INFO] [~] Checking component configurations...
+[2023-09-04 15:14:23.504] [INFO] [~] Component '@': OK
+[2023-09-04 15:14:23.505] [INFO] [~] Component '@connection': OK
+[2023-09-04 15:14:23.506] [INFO] [~] Component configurations appear valid.
+[2023-09-04 15:14:23.526] [INFO] [~] Loaded '@' as <class 'ceres.component.Component'>.
+[2023-09-04 15:14:23.531] [INFO] [~] Loaded '@connection' as <class 'ceres.standard.connections.tcp.TCPConnection'>.
+[2023-09-04 15:14:23.537] [INFO] [~] [event] [started] {}
+[2023-09-04 15:14:23.541] [INFO] [~] Listening on socket at
+'/tmp/ceres-d03d1c6a02a932acd99ac929c5e250fabab66807.sock'.
+[2023-09-04 15:14:23.542] [INFO] [~] Listening on port 8080...
+[2023-09-04 15:14:23.576] [INFO] [@] [event] [started] {}
+[2023-09-04 15:14:23.624] [INFO] [@connection] [event] [started] {}
+[2023-09-04 15:14:23.626] [INFO] [@connection] [event] [routine-started] {"routine":"routine__process_connection"}
+[2023-09-04 15:14:23.627] [INFO] [@connection] [event] [connecting] {}
+[2023-09-04 15:14:23.629] [INFO] [@connection] [event] [routine-started] {"routine":"routine__process_disconnect"}
+[2023-09-04 15:14:23.631] [INFO] [@connection] [event] [connected] {}
+[2023-09-04 15:14:23.633] [INFO] [@connection] [event] [message-received]
+{"message":{"id":"936d4a5c-920e-4b7b-815e-fe3f516ee5d2","address":"@connection","timestamp":"2023-09-04T22:14:23.6332
+98Z","direction":"receive","content":"T:25.19 H:37.3\n"}}
+[2023-09-04 15:14:24.632] [INFO] [@connection] [event] [message-received]
+{"message":{"id":"7f871ed6-4df4-434d-9c7a-e19a1a71bcca","address":"@connection","timestamp":"2023-09-04T22:14:24.6318
+96Z","direction":"receive","content":"T:27.26 H:33.86\n"}}
+[2023-09-04 15:14:25.632] [INFO] [@connection] [event] [message-received]
+{"message":{"id":"a4fcbeb8-ba2b-4133-8c5e-1818b0c2d332","address":"@connection","timestamp":"2023-09-04T22:14:25.6326
+99Z","direction":"receive","content":"T:21.36 H:50.11\n"}}
+...
+```
+
+#### Simulator Output
+
+The simulator output should look something like this:
+
+```txt
+Accepted: 127.0.0.1:50359
+Sent: 'T:25.19 H:37.3\n'
+Sent: 'T:27.26 H:33.86\n'
+Sent: 'T:21.36 H:50.11\n'
+...
+```
+
+Notice that for every message the simulator sends, the engine receives it and logs a message received event.
+
+### Web Console
+
+Now that the engine is running, we can open the web console at [http://localhost:8080](http://localhost:8080).
+
+Click on the `@connection` tab in the left sidebar to view the component page, then click on the `Messages` tab to view the messages received by the component. The message views in the console (as well as alert and log views) supports infinite scrollback and search.
+
+![Screenshot of received messages in web console.](../images/intro/messages.png)
+
+_The messages, alerts and log views can be resized by dragging their horizontal dividers._
+
+### CLI
+
+Open up another terminal in the project directory, enter your virtual environment, and try running the following commands.
+
+#### Status
+
+The status command shows information about the state of the engine and its components.
+
+```sh
+$ ceres status
+Engine
+┌────────────────────────────┬─────────┬──────┬─────────────────────────────┐
+│ Configuration              │ Running │ Port │ Socket                      │
+├────────────────────────────┼─────────┼──────┼─────────────────────────────┤
+│ /Users/jploskey/Work/cere… │ Yes     │ 8080 │ /tmp/ceres-d03d1c6a02a932a… │
+└────────────────────────────┴─────────┴──────┴─────────────────────────────┘
+Components
+┌─────────────┬─────────┬─────────┐
+│ Address     │ Running │ Enabled │
+├─────────────┼─────────┼─────────┤
+│ @           │ Yes     │ No      │
+│ @connection │ Yes     │ No      │
+└─────────────┴─────────┴─────────┘
+```
+
+The "Engine" section of shows that the engine is running, the server is available on port `8080`, and the Unix socket the CLI uses to communicate with the engine is in the `/tmp` directory of the current machine.
+
+The "Components" section shows of the state of our components.
+
+\_You'll notice here, that that in addition to `@connection`, there is another component with the address `@`. Ceres components form a hierachical tree structure, with a generic root component at the top. For small projects, this can largely be ignored, but for larger projects, this tree structure allows components to be organized however you see fit, and be manipulated in groups.
+
+For our project, we see that `@` and `@connection` components are running but disabled, meaning that unless we run the engine using the `--all` flag, they will not be started automatically.
+
+_All components defined in the `components` configuration are children the root component._
+
+_A component can only be running if its parent component is running. Therefor, stopping the root component will stop all components in the project._
+
+#### Start & Stop
+
+The `start` and `stop` commands allow you to start/stop components at any time.
+
+To stop the `@connection` component, run the `stop` command:
+
+```sh
+ceres stop @connection
+```
+
+Do note that when using the CLI, the `@` is optional when passing addresses. Therefor you can run the same command without it:
+
+```sh
+ceres stop connection
+```
+
+After stopping the `@connection` component, the `status` command will show the `@connection` component is no longer running. However, the root component still is, though by default the root component does no processing of its own.
+
+If you did want to stop the root component, for whatever reason, you could run:
+
+```sh
+ceres stop @
+```
+
+Now, to start a component again, run the `start` command:
+
+```sh
+ceres start @connection # Starts the @connection component and the parent root component.
+```
+
+If you want to start or stop all components in the project, you can run:
+
+```sh
+ceres start :all # Start all components.
+ceres stop :all # Stop all components.
+```
+
+#### Enable & Disable
+
+The `enable` and `disable` commands allow you to enable/disable components at any time.
+
+First, let's stop the engine using `Ctrl+C`, then start it again using:
+
+```sh
+ceres run
+```
+
+You'll notice by the output of the above command, that no components are running. This is because we're not using the `--all` flag, meaning that components must be explitly enabled to run when the engine starts.
+
+If we do want a component to run on start up, use the `enable` command:
+
+```sh
+ceres enable @connection
+```
+
+The `status` command will now show both `@connection` component and the root component are enabled.
+
+Now, stop the engine using `Ctrl+C`, and restart it using `ceres run`:
+
+```sh
+ceres run
+```
+
+You'll notice that the `@connection` component is now running automatically, and the `status` command shows that both the `@connection` component and the root component are running.
+
+To disable a component, you can use the `disable` command:
+
+```sh
+ceres disable @connection
+```
+
+To enable or disable all components in the project, you can run:
+
+```sh
+ceres enable :all # Enable all components.
+ceres disable :all # Disable all components.
+```
+
+#### Up & Down
+
+The `up` command is synonym for running `enable`, followed by `start` on one or more components. The `down` command is the opposite, meaning `disable` followed by `stop`.
+
+```sh
+ceres up @connection # Enable and start the @connection component.
+ceres stop @connection # Disable and stop the @connection component.
+```

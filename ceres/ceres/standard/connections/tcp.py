@@ -13,7 +13,7 @@ from typing_extensions import override
 from ceres.component import routine
 from ceres.data import ImmutableDataObject, PositiveTimeDelta
 from ceres.events import ConnectionLostEvent, MessageReceivedEvent
-from ceres.internal.utilities import StrEnum, ensure_event_loop, show_td
+from ceres.internal.utilities import StrEnum, ensure_event_loop, show_td, sleep_forever
 from ceres.roles.connection import Connection
 
 
@@ -135,6 +135,7 @@ class TCPConnection(Connection):
     async def routine__process_disconnect(self) -> None:
         condition = self.disconnect_settings
         if condition is None:
+            await sleep_forever()
             return
 
         async def wait_for_message_received() -> None:

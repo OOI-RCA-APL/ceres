@@ -1,0 +1,16 @@
+[tool.poetry]
+name = "intro"
+version = "0.1.0"
+description = "An example of a Ceres-based project."
+authors = []
+
+[tool.poetry.dependencies]
+python = "^3.10"
+ceres = { path = "../../ceres", extras = ["all"], develop = true }
+
+[tool.poetry.scripts]
+ceres = "ceres:main"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
