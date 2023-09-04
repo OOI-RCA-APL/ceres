@@ -12,31 +12,33 @@ Ceres is a Python framework for data collection, monitoring and device control.
 
 Collecting data and storing somewhere is conceptually a simple task, but it quicky becomes complex as requirements change and grow, the number of data sources/projects increases, and/or command and control of external devices is required.
 
-This ever increasing complexity is difficult to manage, and often leads to brittle, unreliable systems that are difficult to maintain. Ceres aims to solve this problem head on.
+This increasing complexity is difficult to manage, and tends towards brittle, unreliable systems that are difficult to maintain.
 
-If the following requirements are important to you, Ceres may be a good fit.
+Ceres aims to solve this problem.
+
+### Features
 
 1. **Reliability**
 
-   Your system needs to stay alive, even in the face of external failures. The network or an external device could fail, the database could be unreachable, your code may have bugs that eventually cause a crash. These points of failure need to be contained and handled gracefully.
+   Ceres will stay alive in the face of external failures. The network or an external device could fail, the database could be unreachable, your code may have bugs that eventually cause a crash. Ceres allows these issues to be contained and handled gracefully.
 
-2. **Scalability**
+2. **Error Reporting**
 
-   You are collecting data from many different sources simultaneously. Some may be sending data at a high rate, others may be sending data it infrequently. Your system needs to handle this without breaking a sweat.
+   When something _does_ go wrong, issues can be automatically reported to team members. Your team will know what happened and be provided with information to address the problem.
 
-3. **Error Reporting**
+3. **Scalability**
 
-   When something _does_ go wrong, the issue needs to be automatically reported to team members quickly and actionably. They should know what happened and be provided enough information to address the problem.
+   Ceres allows collecting data an arbitrary number of sources simultaneously. Some may be sending data at a high rate, others may be sending data it infrequently. Ceres will handle the load.
 
-4. **Accommodate Snowflakes**
+4. **Flexibility**
 
-   You are collecting data from multiple sources, spanning across any number of separate projects, which all have different data formats, protocols and quirks that make them all maddenly unique.
+   You may be collecting data from many different sources, spanning across any number of separate projects, which all have distinct data formats, protocols and quirks that make them maddenly unique.
 
-   Writing and maintaining masses of one-off code for each data source or project is not ideal. Your system needs be flexible enough for you to accommodate these differences, but take the burden of handling common requirements off your back.
+   Writing and maintaining masses of one-off code for each data source or project is not ideal. Ceres is flexible enough to accommodate these differences, but take the burden of handling common requirements off your back.
 
-5. **Live User Interface**
+5. **Zero Boilerplate UI**
 
-   You need to see what the system is doing now, and/or historically. You may need to answer questions like:
+   The Ceres web console will show you what the system is doing now, and what has happened in the past. The web console helps answer questions like:
 
    - Are we still connected to a given device or network?
    - When did a given connection drop? Why?
@@ -48,19 +50,21 @@ If the following requirements are important to you, Ceres may be a good fit.
    - How much data do we have? How much are we collecting per day?
    - Why did a given job fail? How often is it running?
 
-   Setting up a user interface to answer these questions for every project is a truly _massive_ amount of work that should ideally be handled _for you_.
+   The web console will also allow you to control your components without touching a CLI. You can stop/start components, enable/disable components, send messages, call arbitrary procedures, and more.
+
+   Setting up a user interface to answer these questions for every project is a truly _massive_ amount of work that Ceres will handle _for you_.
 
 6. **Testing**
 
-   You need to test your system, ensuring everything is working as expected before you deploy. Individual components of your system should be testable in isolation with a good approximation of the real world setup.
+   Ceres components of are completely testable in isolation. They can be created and run in-code without any configuration files. Additionally do not have to set up and tear down external database just to run tests. If a database is not assigned to a component, it will create a temporary one automatically.
 
 7. **Deployment**
 
-   You need the system to be cross platform and easy to deploy. You should be able to run it on your local development machine, on a server, or on a Raspberry Pi with minimal effort.
+   Ceres cross platform and easy to deploy. It can run on your laptop, on a server, or on a Raspberry Pi with minimal effort.
 
 8. **Configuration**
 
-   System configuration should be centralized, understandable, easy to update, reload, parse and check for correctness. It should be possible to update configuration without restarting the entire system. Deploying or reverting changes should be easy.
+   Ceres' configuration is centralized, understandable, easy to update, reload, parse and is automatically checked for correctness. Configuration can be updated without restarting the entire system, only components with changed configurations will be recreated.
 
 ## Documentation
 
