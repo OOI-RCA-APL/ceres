@@ -1,11 +1,10 @@
 import asyncio
 import signal
+from asyncio import CancelledError
 from asyncio import Event as AsyncEvent
 from pathlib import Path
 from typing import Annotated, Any, Mapping, TypeVar
 
-import anyio
-from anyio.abc import TaskGroup
 from click import ParamType
 from pydantic import BaseModel
 from typer import Argument, Option
@@ -204,15 +203,18 @@ async def _run_watch(
             except Exception:
                 pass
 
-    group: TaskGroup | None = None
+    task = asyncio.create_task(main(), name="main")
 
-    def handle_exit_signal(*args: Any, **kwargs: Any) -> None:
-        if group is not None:
-            group.cancel_scope.cancel()
+    def handle_exit_signal(*args: object, **kwargs: object) -> None:
+        task.cancel()
 
     with temporary_signal_handler([signal.SIGINT, signal.SIGTERM], handle_exit_signal):
-        async with anyio.create_task_group() as group:
-            group.start_soon(main, name="main")
+        try:
+            await task
+        except CancelledError:
+            pass
+        finally:
+            await cancel(task)
 
 
 _T = TypeVar("_T")

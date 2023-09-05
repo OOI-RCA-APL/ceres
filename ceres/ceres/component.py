@@ -30,6 +30,7 @@ from typing import (
 )
 from weakref import WeakValueDictionary, ref
 
+from aiotools.taskgroup import TaskGroup
 from apscheduler.job import Job as InternalJob
 from apscheduler.jobstores.base import JobLookupError
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -355,10 +356,10 @@ class Component(Object):
     @override
     async def settle(self) -> None:
         while not self.settled:
-            await asyncio.gather(
-                super().settle(),
-                *(listener.settle() for listener in self.__listeners),
-            )
+            async with TaskGroup() as group:
+                group.create_task(super().settle())
+                for listener in self.__listeners:
+                    group.create_task(listener.settle())
 
     @override
     def handle(self, event: Event) -> None:
@@ -792,14 +793,15 @@ class Component(Object):
 
         self.__scheduler.start()
 
-        await asyncio.gather(
-            super().__run__(),
-            self.__process_events(),
-            self.__process_routines(),
-        )
+        async with TaskGroup() as group:
+            group.create_task(super().__run__())
+            group.create_task(self.__process_events())
+            group.create_task(self.__process_routines())
 
     async def __process_events(self) -> None:
-        await asyncio.gather(*(processor.run() for processor in self.__listeners))
+        async with TaskGroup() as group:
+            for listener in self.__listeners:
+                group.create_task(listener.run())
 
     async def __process_routine(self, binding: "RoutineBinding") -> None:
         routine = getattr(self, binding.method, None)
@@ -843,9 +845,9 @@ class Component(Object):
             self.emit(RoutineStoppedEvent, routine=binding.method)
 
     async def __process_routines(self) -> None:
-        await asyncio.gather(
-            *(self.__process_routine(binding) for binding in self.get_routine_bindings())
-        )
+        async with TaskGroup() as group:
+            for binding in self.get_routine_bindings():
+                group.create_task(self.__process_routine(binding))
 
     @override
     async def __stop__(self) -> None:

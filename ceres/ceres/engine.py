@@ -6,6 +6,7 @@ from asyncio import Event as AsyncEvent
 from pathlib import Path
 from typing import TYPE_CHECKING, Sequence, TypeVar
 
+from aiotools.taskgroup import TaskGroup
 from typing_extensions import Self, Unpack, override
 
 from ceres.address import Address, AddressSelector, DynamicAddress
@@ -205,10 +206,9 @@ class Engine(Object, kw_only=False):
                         self.log.info("Exit signal received, stopping...")
                         break
 
-        await asyncio.gather(
-            super().__run__(),
-            process(),
-        )
+        async with TaskGroup() as group:
+            group.create_task(super().__run__())
+            group.create_task(process())
 
     @override
     async def __stop__(self) -> None:

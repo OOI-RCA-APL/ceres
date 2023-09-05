@@ -4,6 +4,7 @@ from datetime import timedelta
 from random import randint
 
 import anyio
+from aiotools.taskgroup import TaskGroup
 from pydantic import NonNegativeInt
 
 from ceres import routine
@@ -56,10 +57,9 @@ class A3Simulator(Component):
             das_server = None
 
         try:
-            await asyncio.gather(
-                host_server.serve_forever() if host_server else sleep_forever(),
-                das_server.serve_forever() if das_server else sleep_forever(),
-            )
+            async with TaskGroup() as group:
+                group.create_task(host_server.serve_forever() if host_server else sleep_forever())
+                group.create_task(das_server.serve_forever() if das_server else sleep_forever())
         finally:
             if host_server is not None:
                 host_server.close()
