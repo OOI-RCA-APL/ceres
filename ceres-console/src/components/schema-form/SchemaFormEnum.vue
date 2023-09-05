@@ -1,4 +1,5 @@
 <script lang="ts" setup>
+import CommonText from '@/components/CommonText.vue'
 import { SchemaForm, SchemaObject, SchemaPath } from '@/schema-form'
 import { Plain } from '@/utilities'
 import { isEqual } from 'lodash'
@@ -42,30 +43,37 @@ function format(value: unknown) {
 
   return String(value)
 }
+
+const description = $computed(() => form.getDescription(path))
 </script>
 
 <template>
-  <q-select
-    dense
-    filled
-    input-class="monospace-md"
-    label-slot
-    :model-value="resolve(modelValue)"
-    :option-label="format"
-    :options="schema.enum"
-    options-dense
-    @update:model-value="(modelValue) => emit('update:modelValue', resolve(modelValue))"
-  >
-    <template #label>
-      <div class="monospace-md row">
-        <span>{{ title }}</span>
-        <span :class="$style.labelExtra">
-          <span class="q-mx-xs">{{ '⸱' }}</span>
-          <span>enum</span>
-        </span>
-      </div>
-    </template>
-  </q-select>
+  <div>
+    <q-select
+      dense
+      filled
+      input-class="monospace-md"
+      label-slot
+      :model-value="resolve(modelValue)"
+      :option-label="format"
+      :options="schema.enum"
+      options-dense
+      @update:model-value="(modelValue) => emit('update:modelValue', resolve(modelValue))"
+    >
+      <template #label>
+        <div class="monospace-md row">
+          <span>{{ title }}</span>
+          <span :class="$style.labelExtra">
+            <span class="q-mx-xs">{{ '⸱' }}</span>
+            <span>enum</span>
+          </span>
+        </div>
+      </template>
+    </q-select>
+    <common-text v-if="description" class="q-ml-sm q-mt-xs" variant="description">
+      {{ description }}
+    </common-text>
+  </div>
 </template>
 
 <style module>

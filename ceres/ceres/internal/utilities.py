@@ -7,6 +7,7 @@ import re
 import signal
 import sys
 import textwrap
+import typing
 from asyncio import AbstractEventLoop, Task
 from collections import OrderedDict, defaultdict
 from contextlib import contextmanager
@@ -36,7 +37,7 @@ from typing import (
     cast,
 )
 
-from pydantic import BaseModel, ConfigDict, TypeAdapter
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, create_model
 from pydantic.fields import FieldInfo
 from pydantic.validate_call import validate_call
 from pydantic_core import CoreSchema, SchemaSerializer, SchemaValidator
@@ -532,6 +533,66 @@ def get_inner_function(function: Callable[..., Any]) -> Callable[..., Any]:
     return function
 
 
+def get_args_model(
+    function: Callable[..., Any],
+    *,
+    model_name: str | None = None,
+    model_module: str | None = None,
+    model_config: ConfigDict | None = None,
+    remove_self: bool = True,
+) -> type[BaseModel]:
+    function = get_inner_function(function)
+
+    if model_name is None:
+        model_name = f"{upper_camel(function.__name__)}Args"
+    if model_config is None:
+        model_config = {}
+
+    args, _, varkw, defaults, kwonlyargs, kwonlydefaults, annotations = inspect.getfullargspec(
+        function
+    )
+
+    defaults = defaults or ()
+    args = args or []
+    kwonlyargs = kwonlyargs or []
+    kwonlydefaults = kwonlydefaults or {}
+
+    if remove_self:
+        args = [arg for arg in args if arg != "self"]
+
+    non_default_arg_count = len(args) - len(defaults)
+    defaults = (Field(),) * non_default_arg_count + defaults
+
+    parameters = {
+        param: (annotations.get(param, Any), default) for param, default in zip(args, defaults)
+    }
+    kwonly_parameters = {param: kwonlydefaults.get(param, Any) for param in kwonlyargs}
+
+    # Allow extra params if there is a **kwargs parameter in the function signature
+    if varkw:
+        model_config = {**model_config, "extra": "allow"} if varkw else model_config
+
+    model = create_model(
+        model_name,
+        **parameters,
+        **kwonly_parameters,
+        __module__=model_module or "__dynamic__",
+        __config__=model_config,
+    )
+
+    model.__doc__ = function.__doc__
+
+    return model
+
+
+def get_return_annotation(
+    function: Callable[..., Any],
+    default: Any = None,
+) -> Any:
+    hints = typing.get_type_hints(function)
+    return hints.get("return", default)
+
+
 def setattr_internal(cls: type[_T], instance: _T, name: str, value: object) -> None:
     if name.startswith("__") and not name.endswith("__"):
         name = f"_{cls.__name__}{name}"
@@ -848,3 +909,10 @@ async def wait_all(
     *tasks: Task[_T] | Coroutine[_T, Any, Any]
 ) -> tuple[set[Task[_T]], set[Task[_T]]]:
     return await _wait_many(asyncio.ALL_COMPLETED, tasks)
+
+
+def upper_camel(string: str) -> str:
+    return "".join(segment.capitalize() for segment in string.replace("_", "-").split("-"))
+
+
+Undefined = object()

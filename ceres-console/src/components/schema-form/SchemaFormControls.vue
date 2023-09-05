@@ -22,23 +22,23 @@ function reset() {
 
 <template>
   <div class="q-col-gutter-sm row">
-    <div>
+    <div class="col">
       <q-btn
+        class="full-width"
         color="primary"
         dense
         :disable="form == null || !form.canSubmit"
-        flat
         :label="submitLabel"
         :loading="form?.state === 'submitting'"
         @click="submit"
       />
     </div>
-    <div>
+    <div class="col">
       <q-btn
+        class="full-width"
         color="warning"
         dense
         :disable="form == null || form.readonly || form.isInitialValue"
-        flat
         :label="resetLabel"
         @click="reset"
       />

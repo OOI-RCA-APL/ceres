@@ -3,7 +3,7 @@ import traceback
 from abc import ABC, abstractmethod
 from dataclasses import field
 from datetime import timedelta
-from typing import AsyncIterable
+from typing import Annotated, AsyncIterable
 
 from pydantic import Field
 from typing_extensions import override
@@ -22,7 +22,7 @@ from ceres.events import (
 )
 from ceres.exceptions import ConnectionLostException
 from ceres.internal.utilities import StrEnum
-from ceres.message import Message, MessageDirection
+from ceres.message import Message, MessageContent, MessageDirection
 from ceres.schedule import IntervalSchedule
 from ceres.stream import Stream
 from ceres.timing import utc
@@ -45,6 +45,7 @@ class ConnectionState(StrEnum):
 
 
 class Connection(Component, ABC):
+    separator: bytes = b"\r\n"
     reconnect_settings: ReconnectSettings = field(default_factory=ReconnectSettings)
 
     @override
@@ -132,9 +133,29 @@ class Connection(Component, ABC):
                 yield self.__state
 
     @action
-    async def send_message(self, data: bytes) -> Message:
+    async def send_message(
+        self,
+        data: Annotated[
+            MessageContent,
+            Field(
+                description="""
+                Bytes to send over the connection. 'The connection's "separator" value is appended
+                automatically if not present.
+                """
+            ),
+        ],
+    ) -> Message:
+        """
+        Send raw data over the connection. Returns the sent message.
+
+        There is no guarantee that the message was will be received host-side, only that if this
+        action returns successfully, the data was sent.
+        """
         if not self.connected:
             raise ConnectionLostException("connection is lost")
+
+        if not data.endswith(self.separator):
+            data += self.separator
 
         try:
             sent = await self._send_data(data)

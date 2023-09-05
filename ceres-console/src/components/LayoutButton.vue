@@ -1,5 +1,6 @@
 <script lang="ts" setup>
 import { ComponentInfo, LayoutButton } from '@/api/models'
+import CommonText from '@/components/CommonText.vue'
 import ComponentProcedure from '@/components/ComponentProcedure.vue'
 import icons from '@/icons'
 
@@ -25,6 +26,7 @@ const action = $computed(
     :style="{ backgroundColor: button.color ?? undefined }"
   >
     <q-menu
+      v-if="action"
       v-model="isShowingMenu"
       anchor="bottom left"
       class="no-shadow"
@@ -32,9 +34,24 @@ const action = $computed(
       persistent
       self="top left"
     >
-      <q-card bordered class="q-pt-sm q-px-sm">
-        <component-procedure v-if="action" :component="component" :procedure="action" />
+      <q-card bordered class="q-px-sm relative-position" :class="[$style.menu, 'q-pa-sm']" flat>
+        <q-btn
+          class="absolute-top-right q-ma-sm"
+          flat
+          icon="close"
+          round
+          size="6px"
+          @click="isShowingMenu = false"
+        />
+        <common-text class="q-mb-sm" variant="th">Action / {{ button.title }}</common-text>
+        <component-procedure :component="component" :procedure="action" />
       </q-card>
     </q-menu>
   </q-btn>
 </template>
+
+<style lang="scss" module>
+.menu {
+  min-width: 300px;
+}
+</style>

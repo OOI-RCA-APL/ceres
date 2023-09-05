@@ -1,6 +1,7 @@
 <script lang="ts" setup>
 import { ComponentInfo, ProcedureInfo } from '@/api/models'
 import { call } from '@/api/operations'
+import CommonText from '@/components/CommonText.vue'
 import SchemaForm from '@/components/schema-form/SchemaForm.vue'
 import SchemaFormControls from '@/components/schema-form/SchemaFormControls.vue'
 import { useSchemaForm } from '@/schema-form'
@@ -42,22 +43,24 @@ const form = useSchemaForm({
 </script>
 
 <template>
-  <schema-form v-if="!form.isEmpty" :key="procedure.name" class="q-mb-sm" :form="form" />
-  <schema-form-controls v-if="form" class="q-mb-sm" :form="form" />
-  <q-card bordered flat title="Result">
-    <div
-      v-if="resultJson === undefined"
-      class="items-center justify-center q-pa-sm row"
-      :style="{ opacity: 0.5 }"
-    >
-      Results will be displayed here.
+  <div v-if="!form.isEmpty" class="q-mb-sm">
+    <q-card bordered class="q-pt-xs q-px-sm" flat>
+      <schema-form :key="procedure.name" class="q-mb-sm" :form="form" />
+    </q-card>
+  </div>
+  <div>
+    <schema-form-controls v-if="form" class="q-mb-sm" :form="form" />
+  </div>
+  <div>
+    <div v-if="resultJson === undefined" class="items-center justify-center q-pa-sm row">
+      <common-text variant="description">Results will be displayed here.</common-text>
     </div>
     <q-input
       v-else
       dense
       filled
       :input-class="[$style.output, 'monospace']"
-      :label="'Output - 1 second ago'"
+      label="Output"
       :loading="form.submitting"
       :model-value="resultJson"
       readonly
@@ -84,7 +87,7 @@ const form = useSchemaForm({
         </span>
       </template>
     </q-input>
-  </q-card>
+  </div>
 </template>
 
 <style module>

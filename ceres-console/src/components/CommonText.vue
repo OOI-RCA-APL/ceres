@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 defineProps<{
-  variant: 'title1' | 'title2' | 'title3' | 'body1' | 'body2' | 'th'
+  variant: 'title1' | 'title2' | 'title3' | 'body1' | 'body2' | 'th' | 'description'
 }>()
 </script>
 
@@ -49,5 +49,19 @@ defineProps<{
 .th {
   font-size: 12px;
   font-weight: 500;
+}
+
+.description {
+  font-size: 11px;
+}
+
+:global(.light) .description {
+  opacity: 0.54;
+  color: black;
+}
+
+:global(.dark) .description {
+  opacity: 0.7;
+  color: white;
 }
 </style>

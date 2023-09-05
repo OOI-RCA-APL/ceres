@@ -45,7 +45,6 @@ function toggle() {
   border-bottom-left-radius: 4px;
   border-top-left-radius: 4px;
   height: 100%;
-  opacity: 0.65;
   transition: opacity 0.5s;
   width: 4px;
 }

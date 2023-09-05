@@ -1,4 +1,5 @@
 <script lang="ts" setup>
+import CommonText from '@/components/CommonText.vue'
 import icons from '@/icons'
 import { Schema, SchemaForm, SchemaPath } from '@/schema-form'
 import { QInput, debounce } from 'quasar'
@@ -51,6 +52,7 @@ let text = $ref(format(resolvedModelValue))
 let isFocused = $ref(false)
 
 const isRequired = $computed(() => form.getRequired(path))
+const description = $computed(() => form.getDescription(path))
 const defaultValue = $computed(() => form.getDefault(path))
 const title = $computed(() => form.getLabel(path))
 const resolveText = $computed(() => resolveTextOriginal ?? resolve)
@@ -111,63 +113,68 @@ function onBackspace() {
 </script>
 
 <template>
-  <q-input
-    ref="input"
-    v-model="text"
-    :aria-required="isRequired"
-    :autogrow="autogrow"
-    dense
-    filled
-    input-class="monospace-md"
-    label-slot
-    :mask="mask"
-    :placeholder="format(defaultValue)"
-    spellcheck="false"
-    :suffix="suffix"
-    :type="inputType"
-    @blur="onBlur"
-    @focus="onFocus"
-    @keydown.backspace="onBackspace"
-  >
-    <template #label>
-      <div class="monospace-md row">
-        <span>{{ title }}</span>
-        <span :class="$style.labelExtra">
-          <span class="q-mx-xs">{{ '⸱' }}</span>
-          <span>{{ schemaType }}</span>
-          <slot name="label-append" />
-        </span>
-      </div>
-    </template>
-    <template v-if="$slots.prepend" #prepend>
-      <slot name="prepend" />
-    </template>
-    <template v-if="$slots.append || presets" #append>
-      <slot name="append" />
-      <q-btn color="primary" flat :icon="icons.settings" round size="8px" tabindex="-1">
-        <q-menu
-          class="no-shadow"
-          dense
-          transition-duration="100"
-          transition-hide="scale"
-          transition-show="scale"
-        >
-          <q-list bordered class="rounded-borders" dense>
-            <q-item
-              v-for="preset in presets"
-              :key="preset.label"
-              clickable
-              @click="emit('update:modelValue', preset.factory())"
-            >
-              <q-item-section>
-                <q-item-label>{{ preset.label }}</q-item-label>
-              </q-item-section>
-            </q-item>
-          </q-list>
-        </q-menu>
-      </q-btn>
-    </template>
-  </q-input>
+  <div>
+    <q-input
+      ref="input"
+      v-model="text"
+      :aria-required="isRequired"
+      :autogrow="autogrow"
+      dense
+      filled
+      input-class="monospace-md"
+      label-slot
+      :mask="mask"
+      :placeholder="format(defaultValue)"
+      spellcheck="false"
+      :suffix="suffix"
+      :type="inputType"
+      @blur="onBlur"
+      @focus="onFocus"
+      @keydown.backspace="onBackspace"
+    >
+      <template #label>
+        <div class="monospace-md row">
+          <span>{{ title }}</span>
+          <span :class="$style.labelExtra">
+            <span class="q-mx-xs">{{ '⸱' }}</span>
+            <span>{{ schemaType }}</span>
+            <slot name="label-append" />
+          </span>
+        </div>
+      </template>
+      <template v-if="$slots.prepend" #prepend>
+        <slot name="prepend" />
+      </template>
+      <template v-if="$slots.append || presets" #append>
+        <slot name="append" />
+        <q-btn color="primary" flat :icon="icons.settings" round size="8px" tabindex="-1">
+          <q-menu
+            class="no-shadow"
+            dense
+            transition-duration="100"
+            transition-hide="scale"
+            transition-show="scale"
+          >
+            <q-list bordered class="rounded-borders" dense>
+              <q-item
+                v-for="preset in presets"
+                :key="preset.label"
+                clickable
+                @click="emit('update:modelValue', preset.factory())"
+              >
+                <q-item-section>
+                  <q-item-label>{{ preset.label }}</q-item-label>
+                </q-item-section>
+              </q-item>
+            </q-list>
+          </q-menu>
+        </q-btn>
+      </template>
+    </q-input>
+    <common-text v-if="description" class="q-ml-sm q-mt-xs" variant="description">
+      {{ description }}
+    </common-text>
+  </div>
 </template>
 
 <style module>

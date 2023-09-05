@@ -1,6 +1,7 @@
+import Color from 'color'
 import moment, { Duration } from 'moment'
-import { debounce } from 'quasar'
-import { computed, ComputedRef, isRef, Ref, shallowRef, watch } from 'vue'
+import { colors, debounce } from 'quasar'
+import { ComputedRef, Ref, computed, isRef, shallowRef, watch } from 'vue'
 
 export type Plain = string | number | boolean | null | { [property: string]: Plain } | Plain[]
 export type MaybeRef<T> = Ref<T> | T
@@ -132,4 +133,17 @@ export function debouncedComputed<T>(factory: () => T, delay: number): ComputedR
   )
 
   return computed(() => result.value)
+}
+
+export function isLight(color: string): boolean {
+  const variable = colors.getPaletteColor(color)
+  if (variable != null) {
+    color = variable
+  }
+
+  return new Color(color).isLight()
+}
+
+export function isDark(color: string): boolean {
+  return !isLight(color)
 }

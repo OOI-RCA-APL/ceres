@@ -350,6 +350,19 @@ export function useSchemaForm({ ...options }: SchemaFormOptions) {
     return String(label)
   }
 
+  function getDescription(path: SchemaPath): string | undefined {
+    const schema = getSchema(path)
+    if (schema == null) {
+      return undefined
+    }
+
+    if (typeof schema === 'object') {
+      return schema.description
+    }
+
+    return undefined
+  }
+
   const isEmpty = computed(
     () => isEmptyObjectSchema(getSchema([])) && isEmptyObject(persisted.value)
   )
@@ -422,6 +435,7 @@ export function useSchemaForm({ ...options }: SchemaFormOptions) {
     getParentSchema: getter(() => rootSchema, getParentSchema),
     getRequired: getter(() => rootSchema, getRequired),
     getLabel: getter(() => rootSchema, getLabel),
+    getDescription: getter(() => rootSchema, getDescription),
   })
 }
 

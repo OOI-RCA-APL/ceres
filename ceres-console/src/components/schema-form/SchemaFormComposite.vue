@@ -1,5 +1,7 @@
 <script lang="ts" setup>
+import CommonText from '@/components/CommonText.vue'
 import { SchemaForm, SchemaPath } from '@/schema-form'
+import { isLight } from '@/utilities'
 import { useQuasar } from 'quasar'
 
 const { modelValue, path, form } = defineProps<{
@@ -22,8 +24,9 @@ const isRequired = $computed(() => form.getRequired(path))
 const definedColor = $computed(() => (isRequired ? 'transparent' : 'primary'))
 const undefinedColor = $computed(() => (quasar.dark.isActive ? 'grey-9' : 'grey-5'))
 
-const textColor = $computed(() => (quasar.dark.isActive || isDefined ? 'white' : undefined))
 const color = $computed(() => (isDefined ? definedColor : undefinedColor))
+const textColor = $computed(() => (isLight(color) ? 'black' : 'white'))
+const description = $computed(() => form.getDescription(path))
 
 function toggle() {
   if (isDefined) {
@@ -40,43 +43,69 @@ function toggle() {
 </script>
 
 <template>
-  <q-card :bordered="path.length > 0 || !isRequired" flat>
-    <div
-      :class="[
-        form.inline && $q.screen.gt.sm ? 'row q-pr-xs' : 'column',
-        isDefined && $style.defined,
-      ]"
-    >
-      <template v-if="title">
-        <div :class="[$style.titleContainer, 'q-py-xs', 'row']">
-          <q-chip
-            :class="[$style.title, 'monospace-md']"
-            :clickable="!isRequired"
-            :color="color"
-            dense
-            :ripple="!isRequired"
-            :text-color="textColor"
-            @click="toggle"
+  <div>
+    <q-card :bordered="path.length > 0 || !isRequired" flat>
+      <div
+        :class="[
+          form.inline && $q.screen.gt.sm ? 'row q-pr-xs' : 'column',
+          isDefined && $style.defined,
+        ]"
+      >
+        <template v-if="title || description">
+          <div
+            :class="[
+              $style.titleContainer,
+              title != null && $style.titleContainerTitled,
+              'row',
+              'q-mb-xs',
+            ]"
           >
-            {{ title }}
-          </q-chip>
-        </div>
-        <q-separator v-if="modelValue != null" />
-      </template>
-      <slot />
-    </div>
-  </q-card>
+            <div>
+              <q-chip
+                v-if="title"
+                :class="[$style.title, 'monospace-sm', 'q-mr-sm']"
+                :clickable="!isRequired"
+                :color="color"
+                dense
+                :ripple="!isRequired"
+                :text-color="textColor"
+                @click="toggle"
+              >
+                {{ title }}
+              </q-chip>
+            </div>
+            <div>
+              <common-text v-if="description" :class="$style.description" variant="description">
+                {{ description }}
+              </common-text>
+            </div>
+          </div>
+          <q-separator v-if="modelValue != null && title" />
+        </template>
+        <slot />
+      </div>
+    </q-card>
+  </div>
 </template>
 
 <style lang="scss" module>
 .titleContainer {
-  min-height: 40px;
-  opacity: 0.75;
+  margin-bottom: 8px;
+}
+
+.titleContainerTitled {
+  margin-top: 8px;
+  margin-left: 12px;
 }
 
 .title {
-  margin-top: 6px;
-  margin-left: 10px;
+  padding: 0px 8px;
+  outline: 1px solid grey;
+  margin-left: 0;
+}
+
+.description {
+  margin-top: 4px;
 }
 
 :not(.defined) .title:focus {

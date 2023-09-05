@@ -35,14 +35,7 @@ from apscheduler.job import Job as InternalJob
 from apscheduler.jobstores.base import JobLookupError
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.base import BaseTrigger
-from pydantic import (
-    ConfigDict,
-    Field,
-    NonNegativeInt,
-    PositiveFloat,
-    ValidationError,
-)
-from pydantic.json_schema import GenerateJsonSchema
+from pydantic import Field, NonNegativeInt, PositiveFloat, ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing_extensions import Self, Unpack, dataclass_transform, overload, override
@@ -94,12 +87,15 @@ from ceres.filter import ComponentFilter, ComponentFilterArgs
 from ceres.internal.database.entities import ComponentEntity
 from ceres.internal.utilities import (
     StrEnum,
+    Undefined,
     awaitify,
     cached,
     create_validated_function,
     decode_td,
+    get_args_model,
     get_function_name,
     get_inner_function,
+    get_return_annotation,
     get_session,
     get_traceback,
     get_type_adapter,
@@ -1174,7 +1170,7 @@ class ProcedureOutputInfo(ImmutableDataObject):
     json_schema: Mapping[str, Any]
 
 
-class _ProcedureBinding(ImmutableDataObject):
+class __BaseProcedureBinding(ImmutableDataObject):
     name: Name
     type: ProcedureType
     method: str
@@ -1183,12 +1179,12 @@ class _ProcedureBinding(ImmutableDataObject):
     output: ProcedureOutputInfo
 
 
-class QueryBinding(_ProcedureBinding):
+class QueryBinding(__BaseProcedureBinding):
     type: Literal[ProcedureType.QUERY] = ProcedureType.QUERY
     poll: PositiveTimeDelta = timedelta(seconds=1)
 
 
-class ActionBinding(_ProcedureBinding):
+class ActionBinding(__BaseProcedureBinding):
     type: Literal[ProcedureType.ACTION] = ProcedureType.ACTION
 
 
@@ -1219,15 +1215,15 @@ def query(
     poll: float | timedelta = timedelta(seconds=5),
 ) -> Callable[_P, _T] | Callable[[Callable[_P, _T]], Callable[_P, _T]]:
     def query(method: Callable[_P, _T]) -> Callable[_P, _T]:
-        validated = _validate_procedure(method, ProcedureType.QUERY)
+        info = __get_procedure_method_info(method, ProcedureType.QUERY)
         _bind(
             method,
             QueryBinding(
                 name=_get_bound_name(method),
                 method=get_function_name(method),
-                args=validated.args,
-                output=validated.output,
-                live=validated.live,
+                args=info.args,
+                output=info.output,
+                live=info.live,
                 poll=poll if isinstance(poll, timedelta) else timedelta(seconds=poll),
             ),
         )
@@ -1255,7 +1251,7 @@ def action(
     method: Callable[_P, _T] | None = None,
 ) -> Callable[_P, _T] | Callable[[Callable[_P, _T]], Callable[_P, _T]]:
     def action(method: Callable[_P, _T]) -> Callable[_P, _T]:
-        validated = _validate_procedure(method, ProcedureType.ACTION)
+        validated = __get_procedure_method_info(method, ProcedureType.ACTION)
         _bind(
             method,
             ActionBinding(
@@ -1275,69 +1271,34 @@ def action(
     return action(method)
 
 
-def _remove_extra_args(current: Any) -> bool:
-    if isinstance(current, dict) and current.get("type") == "object":
-        properties = current.get("properties")
-        if isinstance(properties, dict):
-            for key in list(properties):
-                if isinstance(key, str) and (key.startswith("v__") or key == "self"):
-                    del properties[key]
-            args_property = properties.get("args")
-            if isinstance(args_property, dict):
-                if args_property.get("type") == "array" and args_property.get("items") == {}:
-                    del properties["args"]
-
-            kwargs_property = properties.get("kwargs")
-            if isinstance(kwargs_property, dict):
-                if kwargs_property.get("type") == "object" and kwargs_property.get("items") is None:
-                    del properties["kwargs"]
-
-            required = current.get("required")
-            if isinstance(required, list):
-                if "self" in required:
-                    required.remove("self")
-                if not required:
-                    del current["required"]
-
-    return True
-
-
-class _ValidatedProcedureInfo(ImmutableDataObject):
+class __ProcedureMethodInfo(ImmutableDataObject):
+    name: str
+    method: str
     args: ProcedureArgsInfo | None
     output: ProcedureOutputInfo
     live: bool
 
 
-def _validate_procedure(
+def __get_procedure_method_info(
     method: Callable[..., Any],
     type_: ProcedureType,
     /,
-) -> _ValidatedProcedureInfo:
+) -> __ProcedureMethodInfo:
+    method = get_inner_function(method)
     signature = inspect.signature(method)
+
     parameters = [*signature.parameters.values()]
     if not parameters or parameters[0].name != "self":
         raise ValueError(f"{type_} {strify(method)} must have 'self' as its first parameter")
     if any(parameter.kind == Parameter.POSITIONAL_ONLY for parameter in parameters[1:]):
         raise ValueError(f"{type_} {strify(method)} cannot have positional-only arguments")
 
-    validated = create_validated_function(method, config=ConfigDict(arbitrary_types_allowed=False))
-    core_schema = validated.__pydantic_core_schema__
-    args_json_schema = GenerateJsonSchema().generate(core_schema)
-    traverse(args_json_schema, _remove_extra_args)
-    required = list(args_json_schema["properties"].get("required", []))
-    if "self" in required:
-        required.remove("self")
+    args_json_schema = get_args_model(method).model_json_schema()
+    args_required = len(args_json_schema.get("properties", {}).get("required", [])) > 0
 
-    args_info = ProcedureArgsInfo(
-        json_schema=args_json_schema,
-        required=bool(required),
-    )
-
-    hints = get_type_hints(method)
-    if "return" not in hints:
+    output_annotation = get_return_annotation(method, Undefined)
+    if output_annotation is Undefined:
         raise ValueError(f"return type of {type_} {strify(method)} must be specified")
-
-    output_hint = hints["return"]
 
     live = inspect.isasyncgenfunction(method)
 
@@ -1345,28 +1306,31 @@ def _validate_procedure(
         error = ValueError(f"return type of live {type_} {strify(method)} must be AsyncIterable[T]")
 
         try:
-            if output_hint.__name__ != "AsyncIterable":
+            if output_annotation.__name__ != "AsyncIterable":
                 raise error
 
-            output_hint = get_args(output_hint)[0]
+            output_annotation = get_args(output_annotation)[0]
         except Exception:
             raise error
 
     try:
-        output_json_schema = get_type_adapter(output_hint).json_schema()
+        output_json_schema = get_type_adapter(output_annotation).json_schema()
     except Exception as exception:
         raise ValueError(
             f"output type of {type_} {strify(method)} must be serializable as a JSON object: "
             f"{exception}"
         )
 
-    output_info = ProcedureOutputInfo(
-        json_schema=output_json_schema,
-    )
-
-    return _ValidatedProcedureInfo(
-        args=args_info,
-        output=output_info,
+    return __ProcedureMethodInfo(
+        name=_get_bound_name(method),
+        method=get_function_name(method),
+        args=ProcedureArgsInfo(
+            json_schema=args_json_schema,
+            required=args_required,
+        ),
+        output=ProcedureOutputInfo(
+            json_schema=output_json_schema,
+        ),
         live=live,
     )
 

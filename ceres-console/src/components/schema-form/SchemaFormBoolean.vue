@@ -1,4 +1,5 @@
 <script lang="ts" setup>
+import CommonText from '@/components/CommonText.vue'
 import { SchemaForm, SchemaObject, SchemaPath } from '@/schema-form'
 
 const { modelValue, form, path } = defineProps<{
@@ -27,22 +28,31 @@ if (value !== modelValue) {
 
 const isRequired = $computed(() => form.getRequired(path))
 const label = $computed(() => form.getLabel(path))
+const description = $computed(() => form.getDescription(path))
 </script>
 
 <template>
-  <q-checkbox
-    :aria-required="isRequired"
-    :class="[$style.root, 'q-ml-xs']"
-    :keep-color="true"
-    :label="label"
-    :model-value="value"
-    size="xs"
-    @update:model-value="(modelValue) => emit('update:modelValue', resolve(modelValue))"
-  />
+  <div :class="$style.root">
+    <q-checkbox
+      :aria-required="isRequired"
+      :class="$style.checkbox"
+      dense
+      :keep-color="true"
+      :label="label"
+      :model-value="value"
+      size="xs"
+      @update:model-value="(modelValue) => emit('update:modelValue', resolve(modelValue))"
+    />
+    <common-text v-if="description" class="q-mt-xs" variant="description">
+      {{ description }}
+    </common-text>
+  </div>
 </template>
 
 <style module>
 .root {
+  padding-top: 8px;
+  padding-left: 12px;
   min-height: 40px;
 }
 </style>
