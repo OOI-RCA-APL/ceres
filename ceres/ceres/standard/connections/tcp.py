@@ -56,7 +56,6 @@ class TCPConnection(Connection):
     host: str
     port: int
     timeout: PositiveTimeDelta = timedelta(seconds=5)
-    separator: bytes = b"\r\n"
     disconnect_settings: TCPDisconnectSettings | None = None
     keep_alive: TCPKeepAlive | None = None
 
@@ -108,9 +107,6 @@ class TCPConnection(Connection):
     async def _send_data(self, data: bytes) -> bytes | None:
         if not self.__stream:
             return None
-
-        if not data.endswith(self.separator):
-            data += self.separator
 
         try:
             self.__stream.writer.write(data)
