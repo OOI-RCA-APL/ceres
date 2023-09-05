@@ -3,6 +3,7 @@ from asyncio import StreamReader, StreamWriter
 from datetime import timedelta
 from random import randint
 
+import anyio
 from pydantic import NonNegativeInt
 
 from ceres import routine
@@ -84,9 +85,7 @@ class A3Simulator(Component):
                 f"%{self.das.id},PRS,2,15,5,514,{randint(14000, 15000)}.{randint(0, 9999):2},2.8339*1D",  # noqa: E501
             ]
 
-            import anyio
-
-            async with anyio.move_on_after(self.das.sampling_interval.total_seconds()):
+            with anyio.move_on_after(self.das.sampling_interval.total_seconds()):
                 for message in messages:
                     try:
                         writer.write(message.encode() + b"\r\n")

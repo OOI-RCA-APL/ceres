@@ -77,7 +77,7 @@ class Transport:
                 return default()
             return default  # type: ignore
 
-        async with anyio.move_on_after(timeout):
+        with anyio.move_on_after(timeout):
             async for message in self.__connection.received:
                 if condition is not None:
                     if not condition(message):
