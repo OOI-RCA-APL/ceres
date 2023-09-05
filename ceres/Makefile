@@ -3,7 +3,7 @@ build: install
 	cd ../ceres-console && make build
 	poetry build
 install:
-	poetry install --extras all
+	poetry install
 update:
 	poetry update
 test:

@@ -6,7 +6,7 @@ authors = []
 
 [tool.poetry.dependencies]
 python = "^3.10"
-ceres = { path = "../../ceres", extras = ["all"], develop = true }
+ceres = { path = "../../ceres", develop = true }
 
 [tool.poetry.scripts]
 ceres = "ceres:main"
