@@ -9,6 +9,7 @@ import { computed, reactive, ref, unref } from 'vue'
 export type SchemaObject = BaseSchemaObject & {
   $ref?: string
   type?: string | string[]
+  anyOf?: Schema[]
   title?: string
   properties?: Record<string, Schema>
   prefixItems?: Schema[]
@@ -445,13 +446,17 @@ export function isSchemaForm(value: unknown): value is SchemaForm {
   return value != null && typeof value === 'object' && 'schema' in value && 'validator' in value
 }
 
-export function isType(schema: Schema, type: string) {
+export function isType(schema: Schema, type: string): boolean {
   if (typeof schema === 'boolean' || schema === undefined) {
     return false
   }
 
   if (Array.isArray(schema.type)) {
     return schema.type.length === 1 && schema.type[0] === type
+  }
+
+  if (schema.anyOf) {
+    return schema.anyOf.some((schema) => isType(schema, type))
   }
 
   return schema.type === type

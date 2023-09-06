@@ -41,6 +41,24 @@ function is(type: string) {
   return isType(schema, type)
 }
 
+function isFormat(format: string) {
+  if (schema == null) {
+    return false
+  }
+
+  if (typeof schema === 'boolean') {
+    return false
+  }
+
+  if (schema.format === format) {
+    return true
+  }
+
+  if (schema.anyOf) {
+    return schema.anyOf.some((option) => typeof option === 'object' && option.format === format)
+  }
+}
+
 function update(value: unknown) {
   emit('update:modelValue', value)
 }
@@ -70,17 +88,17 @@ function update(value: unknown) {
       </template>
       <template v-else-if="is('string')">
         <schema-form-date-time
-          v-if="schema.format === 'date-time'"
+          v-if="isFormat('date-time')"
           v-bind="forward"
           @update:model-value="update"
         />
         <schema-form-date
-          v-else-if="schema.format === 'date'"
+          v-else-if="isFormat('date')"
           v-bind="forward"
           @update:model-value="update"
         />
         <schema-form-duration
-          v-else-if="schema.format === 'duration'"
+          v-else-if="isFormat('duration')"
           v-bind="forward"
           @update:model-value="update"
         />
