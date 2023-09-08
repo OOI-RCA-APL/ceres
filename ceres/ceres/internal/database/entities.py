@@ -141,7 +141,11 @@ class ItemEntity(Entity, kw_only=True):
 
     @declared_attr
     def __table_args__(cls) -> Any:
-        return (PrimaryKeyConstraint("id", name=f"pk_{cls.__tablename__}"),)
+        return (
+            PrimaryKeyConstraint("id", name=f"pk_{cls.__tablename__}"),
+            Index(f"ix_{cls.__tablename__}__address", "address"),
+            Index(f"ix_{cls.__tablename__}__timestamp", "timestamp"),
+        )
 
 
 @final
@@ -156,10 +160,6 @@ class MessageEntity(ItemEntity, kw_only=True):
         return (
             *super().__table_args__,
             EnumConstraint("direction", MessageDirection, f"ck_{cls.__tablename__}__direction"),
-            Index(
-                f"ix_{cls.__tablename__}__timestamp__address__direction__content__id",
-                *["timestamp", "address", "direction", "content", "id"],
-            ),
             Index(f"ix_{cls.__tablename__}__content", "content"),
         )
 
@@ -177,10 +177,6 @@ class AlertEntity(ItemEntity, kw_only=True):
         return (
             *super().__table_args__,
             EnumConstraint("level", Level, f"ck_{cls.__tablename__}__level"),
-            Index(
-                f"ix_{cls.__tablename__}__timestamp__address__level__code__info__id",
-                *["timestamp", "address", "level", "code", "info", "id"],
-            ),
             Index(f"ix_{cls.__tablename__}__code", "code"),
         )
 
@@ -197,9 +193,5 @@ class LogEntryEntity(ItemEntity, kw_only=True):
         return (
             *super().__table_args__,
             EnumConstraint("level", Level, name=f"ck_{cls.__tablename__}__level"),
-            Index(
-                f"ix_{cls.__tablename__}__timestamp__address__level__content__id",
-                *["timestamp", "address", "level", "content", "id"],
-            ),
             Index(f"ix_{cls.__tablename__}__content", "content"),
         )

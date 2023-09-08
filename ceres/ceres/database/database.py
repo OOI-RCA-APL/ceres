@@ -864,7 +864,7 @@ class PostgresDatabase(Database):
     @override
     def url(self) -> str:
         return (
-            "postgresql+psycopg://"
+            "postgresql+asyncpg://"
             + f"{self.config.user}:{self.config.password.get_secret_value()}"
             + f"@{self.config.host}:{self.config.port}/{self.config.database}"
         )
