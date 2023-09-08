@@ -10,7 +10,6 @@ from typing import (
     Callable,
     Iterable,
     Mapping,
-    Sequence,
     TypeVar,
 )
 
@@ -115,7 +114,7 @@ class Object(ValidatedDataclass, Tasklet):
 
     @property
     @abstractmethod
-    def __object_descendants__(self) -> Sequence["Object"]:
+    def __object_descendants__(self) -> Iterable["Object"]:
         return ...
 
     @property

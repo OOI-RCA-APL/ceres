@@ -4,7 +4,7 @@ import traceback
 from asyncio import FIRST_COMPLETED
 from asyncio import Event as AsyncEvent
 from pathlib import Path
-from typing import TYPE_CHECKING, Sequence, TypeVar
+from typing import TYPE_CHECKING, Iterable, Sequence, TypeVar
 
 from aiotools.taskgroup import TaskGroup
 from typing_extensions import Self, Unpack, override
@@ -101,10 +101,7 @@ class Engine(Object, kw_only=False):
 
     @property
     @override
-    def __object_descendants__(self) -> Sequence[Object]:
-        if self.__root is None:
-            return []
-
+    def __object_descendants__(self) -> Iterable[Object]:
         return self.get_components()
 
     @property
@@ -270,6 +267,8 @@ class Engine(Object, kw_only=False):
         **kwargs: Unpack[ComponentFilterArgs],
     ) -> ComponentGroup:
         if self.__root is None:
+            from ceres.component import ComponentGroup
+
             return ComponentGroup()
 
         return self.__root.get_components(filter, inclusive=True, **kwargs)

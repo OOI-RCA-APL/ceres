@@ -19,6 +19,8 @@ class StandardEventType(StrEnum):
     STOPPED = "stopped"
     ENABLED = "enabled"
     DISABLED = "disabled"
+    ADDED = "added"
+    REMOVED = "removed"
     CONNECTING = "connecting"
     CONNECTED = "connected"
     DISCONNECTED = "disconnected"
@@ -86,6 +88,14 @@ class EnabledEvent(BaseStandardEvent):
 
 class DisabledEvent(BaseStandardEvent):
     type: Literal[StandardEventType.DISABLED] = StandardEventType.DISABLED
+
+
+class AddedEvent(BaseStandardEvent):
+    type: Literal[StandardEventType.ADDED] = StandardEventType.ADDED
+
+
+class RemovedEvent(BaseStandardEvent):
+    type: Literal[StandardEventType.REMOVED] = StandardEventType.REMOVED
 
 
 class ConnectingEvent(BaseStandardEvent):
@@ -286,6 +296,8 @@ StandardEvent = (
     | StoppedEvent
     | EnabledEvent
     | DisabledEvent
+    | AddedEvent
+    | RemovedEvent
     | ConnectionEvent
     | MessageEvent
     | AlertEvent

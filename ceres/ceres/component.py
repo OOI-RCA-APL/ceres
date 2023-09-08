@@ -57,6 +57,7 @@ from ceres.errors import (
     ProcedureNotSubscribableError,
 )
 from ceres.events import (
+    AddedEvent,
     AlertEvent,
     DisabledEvent,
     EnabledEvent,
@@ -72,6 +73,7 @@ from ceres.events import (
     ProcedureCancelledEvent,
     ProcedureCompletedEvent,
     ProcedureExceptionEvent,
+    RemovedEvent,
     RoutineCancelledEvent,
     RoutineCompletedEvent,
     RoutineExceptionEvent,
@@ -307,8 +309,8 @@ class Component(Object):
 
     @property
     @override
-    def __object_descendants__(self) -> Sequence[Object]:
-        return list(self.get_components())
+    def __object_descendants__(self) -> Iterable[Object]:
+        return self.get_components()
 
     @property
     @override
@@ -533,25 +535,36 @@ class Component(Object):
         if component is self or component in self.get_ancestor_components():
             raise ValueError("component cannot contain itself")
 
-        if isinstance(name, str):
+        component.remove_component()
+
+        name = name or component.name
+        self.remove_component(name)
+
+        if component.name != name:
             setattr_internal(Component, component, "name", name)
 
         self.__components[component.name] = component
-        component.remove_component()
         component.__parent = ref(self)  # type: ignore
         component.sync_component_references()
+        component.emit(AddedEvent)
 
         return component
 
     def remove_component(self, address: str | DynamicAddress | None = None) -> "Component | None":
         if address is None:
-            if self.parent is not None:
-                removed = self.parent.__components.pop(self.name, None)
-                self.__parent = None
-                if removed is not None:
-                    removed.sync_component_references()
+            if self.parent is None:
+                return self
 
-            return
+            current = self.parent.__components.get(self.name)
+
+            if current is not None and current is self:
+                self.emit(RemovedEvent)
+                self.parent.__components.pop(self.name, None)
+                current.sync_component_references()
+
+            self.__parent = None
+
+            return self
 
         component = self.get_component(address)
         if component is not None:
