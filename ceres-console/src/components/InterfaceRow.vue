@@ -28,10 +28,25 @@ const childClass = $computed(() => {
 </script>
 
 <template>
-  <div class="q-col-gutter-sm row" :style="style">
+  <div :class="[$style.root, '']" :style="style">
     <div v-for="(child, i) in element.children" :key="i" :class="childClass">
-      <interface-element :component="component" :element="child" :path="[...path, i]" />
+      <interface-element
+        class="full-width"
+        :component="component"
+        :element="child"
+        :path="[...path, i]"
+      />
     </div>
   </div>
 </template>
-@/interface
+
+<style lang="scss" module>
+.root {
+  display: flex;
+  flex-direction: row;
+}
+
+.root > *:not(:last-child) {
+  padding-right: 8px;
+}
+</style>

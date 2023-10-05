@@ -24,7 +24,7 @@ from ceres.exceptions import ParseException
 from ceres.roles.interface import Interface
 from ceres.stream import WriteStream
 from ceres.threading import spawn
-from ceres.ui import Carousel, Chart, Column, Display, PaletteColor, Row, Sizing, State, Value
+from ceres.ui import Carousel, Chart, Column, Display, PaletteColor, Row, State, Value
 
 
 class CrabeeParticle(ImmutableDataObject):
@@ -212,7 +212,6 @@ class CrabeeDriver(Interface):
         return Column(
             children=[
                 Row(
-                    sizing=Sizing.GROW,
                     children=[
                         Display(title="Temperature 1", source=self.render_temperature_1),
                         Display(title="Temperature 2", source=self.render_temperature_2),
@@ -220,7 +219,6 @@ class CrabeeDriver(Interface):
                     ],
                 ),
                 Row(
-                    sizing=Sizing.GROW,
                     children=[
                         Display(title="Pressure", source=self.render_pressure),
                         Display(title="Pitch", source=self.render_pitch),
@@ -228,7 +226,6 @@ class CrabeeDriver(Interface):
                     ],
                 ),
                 Row(
-                    sizing=Sizing.GROW,
                     children=[
                         Display(title="Humidity", source=self.render_humidity),
                         Display(title="Leak 1", source=self.render_leak_1),

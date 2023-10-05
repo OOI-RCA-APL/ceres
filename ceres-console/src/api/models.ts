@@ -172,12 +172,14 @@ export const StateElementOptionModel = Zod.object({
 })
 
 type BoxElement = {
+  sizing: Sizing
   justify: Justify
   align: Align
   children: Element[]
 }
 
 const BoxModelElement = {
+  sizing: SizingModel.default('grow'),
   justify: JustifyModel.default('start'),
   align: AlignModel.default('start'),
   children: Zod.lazy(() => Zod.array(ElementModel)),
@@ -185,12 +187,10 @@ const BoxModelElement = {
 
 export type RowElement = {
   type: 'row'
-  sizing: Sizing
 } & BoxElement
 
 export const RowElementModel = Zod.object({
   type: Zod.literal('row'),
-  sizing: SizingModel.default('shrink'),
   ...BoxModelElement,
 }) as Zod.ZodType<RowElement>
 

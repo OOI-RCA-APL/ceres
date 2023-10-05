@@ -91,7 +91,7 @@ class Button(_BaseElement):
 
 class Row(_BaseElement):
     type: Literal[ElementType.ROW] = ElementType.ROW
-    sizing: Sizing = Sizing.SHRINK
+    sizing: Sizing = Sizing.GROW
     justify: Justify = Justify.START
     align: Align = Align.START
     children: list["Element"]
@@ -99,6 +99,7 @@ class Row(_BaseElement):
 
 class Column(_BaseElement):
     type: Literal[ElementType.COLUMN] = ElementType.COLUMN
+    sizing: Sizing = Sizing.GROW
     justify: Justify = Justify.START
     align: Align = Align.START
     children: list["Element"]

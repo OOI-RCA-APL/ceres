@@ -14,7 +14,7 @@ export const useResize = defineStore('resize', () => {
       } else {
         state.key += 1
       }
-    }, 100)
+    }, 250)
 
     window.addEventListener('resize', onResize)
     onCleanup(() => {
