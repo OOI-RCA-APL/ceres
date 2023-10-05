@@ -163,7 +163,7 @@ else:
     __export("ceres.roles.notifier", ["Notification", "Notifier"])
 
 if TYPE_CHECKING:
-    from ceres.roles.ui import UI as UI
+    from ceres.roles.interface import Interface as Interface
 else:
     __export("ceres.roles.ui", ["UI"])
 

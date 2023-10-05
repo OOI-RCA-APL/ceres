@@ -28,6 +28,8 @@ const object = $computed(() => {
   return modelValue as Record<string, unknown>
 })
 
+const properties = $computed(() => Object.keys(schema.properties ?? {}))
+
 if (object !== modelValue) {
   emit('update:modelValue', object)
 }
@@ -64,7 +66,7 @@ function onUpdate(property: string, subvalue: unknown) {
         (path.length > 0 || !isRequired) && 'q-pa-sm',
       ]"
     >
-      <div v-for="property in Object.keys(schema.properties ?? {})" :key="property">
+      <div v-for="property in properties" :key="property">
         <schema-form-node
           :form="form"
           :model-value="object[property]"
@@ -72,6 +74,7 @@ function onUpdate(property: string, subvalue: unknown) {
           @update:model-value="(subvalue) => onUpdate(property, subvalue)"
         />
       </div>
+      <div v-if="properties.length" :style="{ height: '2px' }" />
     </div>
   </schema-form-composite>
 </template>

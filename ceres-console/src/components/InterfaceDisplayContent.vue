@@ -1,19 +1,20 @@
 <script lang="ts" setup>
-import { LayoutDisplay } from '@/api/models'
-import ChartDisplay from '@/components/displays/ChartDisplay.vue'
-import GaugeDisplay from '@/components/displays/GaugeDisplay.vue'
-import StateDisplay from '@/components/displays/StateDisplay.vue'
-import ValueDisplay from '@/components/displays/ValueDisplay.vue'
-import { DisplayInfo } from '@/display'
+import { ComponentInfo, DisplayElement, Element } from '@/api/models'
+import InterfaceElement from '@/components/InterfaceElement.vue'
+import { InterfacePath } from '@/interface'
 
 const {
+  component,
   display,
-  info,
+  element,
+  path,
   titleClickable = false,
   isLoading = false,
 } = defineProps<{
-  display: LayoutDisplay
-  info: DisplayInfo | null
+  component: ComponentInfo
+  display: DisplayElement
+  element: Element | null
+  path: InterfacePath
   titleClickable?: boolean
   isLoading?: boolean
 }>()
@@ -39,19 +40,16 @@ const emit = defineEmits<{
       </thead>
     </q-markup-table>
     <div class="col-grow items-center justify-center q-pa-xs relative-position row">
-      <template v-if="info">
-        <value-display v-if="info.type === 'value'" key="value-display" :info="info" />
-        <state-display v-else-if="info.type === 'state'" key="state-display" :info="info" />
-        <gauge-display v-else-if="info.type === 'gauge'" key="gauge-display" :info="info" />
-        <chart-display v-else-if="info.type === 'chart'" key="chart-display" :info="info" />
+      <template v-if="element">
+        <interface-element :component="component" :element="element" :path="path" />
       </template>
       <template v-else>
         <div key="placeholder" :class="$style.placeholder" />
       </template>
       <transition appear enter-active-class="animated fadeIn" leave-active-class="animated fadeOut">
-        <div :class="[$style.spinnerContainer, info != null && $style.spinnerContainerRefresh]">
+        <div :class="[$style.spinnerContainer, element != null && $style.spinnerContainerRefresh]">
           <q-spinner-orbit
-            v-if="isLoading || info == null"
+            v-if="isLoading || element == null"
             key="spinner"
             :class="$style.spinner"
             color="primary"
@@ -95,3 +93,4 @@ const emit = defineEmits<{
   min-height: 27px;
 }
 </style>
+@/interface

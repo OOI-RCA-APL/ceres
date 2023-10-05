@@ -7,7 +7,7 @@ import {
   ComponentInfoModel,
   Config,
   ConfigModel,
-  LayoutModel,
+  ElementModel,
   LevelStatistics,
   LogEntry,
   LogEntryModel,
@@ -20,7 +20,6 @@ import {
   Status,
   StatusModel,
 } from '@/api/models'
-import { DisplayInfoModel } from '@/display'
 import { getter } from '@/getter'
 import { useSettings } from '@/settings'
 import { useIntervalFn } from '@vueuse/core'
@@ -456,11 +455,11 @@ function useStream<TModel extends ZodTypeAny, TContext>(
   })
 }
 
-export function useDisplayStream<TModel extends ZodTypeAny>(
+export function useElementStream<TModel extends ZodTypeAny>(
   address: MaybeRef<Address>,
   query: MaybeRef<string>,
   args: MaybeRef<Record<string, unknown>>,
-  onDisplay: (message: Zod.infer<TModel>) => unknown
+  onMessage: (message: Zod.infer<TModel>) => unknown
 ) {
   return useStream(
     computed(() =>
@@ -472,8 +471,8 @@ export function useDisplayStream<TModel extends ZodTypeAny>(
     args,
     // eslint-disable-next-line @typescript-eslint/ban-ts-comment
     // @ts-ignore
-    DisplayInfoModel,
-    onDisplay
+    ElementModel,
+    onMessage
   )
 }
 
@@ -528,11 +527,11 @@ export async function sendMessage(address: Address, data: string): Promise<SendM
   )
 }
 
-export type GetLayoutResult = Zod.infer<typeof GetLayoutResultModel>
-const GetLayoutResultModel = createResultType(LayoutModel, BaseFailModel)
+export type RenderResult = Zod.infer<typeof RenderResultModel>
+const RenderResultModel = createResultType(ElementModel, BaseFailModel)
 
-export async function getLayout(address: Address): Promise<GetLayoutResult> {
-  return await get(`/api/components/${address}/procedures/get-layout/call`, GetLayoutResultModel)
+export async function render(address: Address): Promise<RenderResult> {
+  return await get(`/api/components/${address}/procedures/render/call`, RenderResultModel)
 }
 
 export async function start(address: Address) {

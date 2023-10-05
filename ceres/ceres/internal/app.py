@@ -80,7 +80,7 @@ else:
 
 class ComponentRole(StrEnum):
     CONNECTION = "connection"
-    UI = "ui"
+    INTERFACE = "interface"
 
 
 def _get_component_roles(component: Component | type[Component]) -> Sequence[ComponentRole]:
@@ -88,13 +88,13 @@ def _get_component_roles(component: Component | type[Component]) -> Sequence[Com
         component = type(component)
 
     from ceres.roles.connection import Connection
-    from ceres.roles.ui import UI
+    from ceres.roles.interface import Interface
 
     roles: list[ComponentRole] = []
     if issubclass(component, Connection):
         roles.append(ComponentRole.CONNECTION)
-    if issubclass(component, UI):
-        roles.append(ComponentRole.UI)
+    if issubclass(component, Interface):
+        roles.append(ComponentRole.INTERFACE)
 
     return roles
 

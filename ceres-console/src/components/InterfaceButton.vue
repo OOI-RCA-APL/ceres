@@ -1,12 +1,11 @@
 <script lang="ts" setup>
-import { ComponentInfo, LayoutButton } from '@/api/models'
-import CommonText from '@/components/CommonText.vue'
+import { ButtonElement, ComponentInfo } from '@/api/models'
 import ComponentProcedure from '@/components/ComponentProcedure.vue'
 import icons from '@/icons'
 
-const { component, button } = defineProps<{
+const { component, element } = defineProps<{
   component: ComponentInfo
-  button: LayoutButton
+  element: ButtonElement
 }>()
 
 let isShowingMenu = $ref(false)
@@ -14,16 +13,17 @@ let isShowingMenu = $ref(false)
 const action = $computed(
   () =>
     component.procedures.find(
-      (procedure) => procedure.type === 'action' && procedure.name === button.action
+      (procedure) => procedure.type === 'action' && procedure.name === element.action
     ) ?? null
 )
 </script>
 
 <template>
   <q-btn
+    dense
     :icon="isShowingMenu ? icons.arrowUp : icons.arrowDown"
-    :label="button.title"
-    :style="{ backgroundColor: button.color ?? undefined }"
+    :label="element.title"
+    :style="{ backgroundColor: element.color ?? undefined }"
   >
     <q-menu
       v-if="action"
@@ -36,14 +36,16 @@ const action = $computed(
     >
       <q-card bordered class="q-px-sm relative-position" :class="[$style.menu, 'q-pa-sm']" flat>
         <q-btn
-          class="absolute-top-right q-ma-sm"
+          class="absolute-top-right q-ma-xs"
           flat
           icon="close"
           round
-          size="6px"
+          size="8px"
           @click="isShowingMenu = false"
         />
-        <common-text class="q-mb-sm" variant="th">Action / {{ button.title }}</common-text>
+        <div class="items-center q-mb-sm q-ml-xs row">
+          <div class="monospace-lg">{{ component.address }}::{{ element.action }}</div>
+        </div>
         <component-procedure :component="component" :procedure="action" />
       </q-card>
     </q-menu>

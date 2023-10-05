@@ -4,8 +4,8 @@ import { getComponent } from '@/api/operations'
 import ComponentProcedures from '@/components/ComponentProcedures.vue'
 import ComponentStatusBadge from '@/components/ComponentStatusBadge.vue'
 import FullPage from '@/components/FullPage.vue'
+import Interface from '@/components/Interface.vue'
 import ItemView from '@/components/ItemView.vue'
-import Layout from '@/components/Layout.vue'
 import Panel from '@/components/Panel.vue'
 import PanelContainer from '@/components/PanelContainer.vue'
 import PanelGroup from '@/components/PanelGroup.vue'
@@ -39,7 +39,9 @@ const title = $computed(() => {
 const children = $computed(() => component?.components ?? [])
 const components = $computed(() => (component == null ? [] : [component, ...children]))
 const executors = $computed(() => components.filter((component) => component.procedures.length > 0))
-const uis = $computed(() => components.filter((component) => component.roles.includes('ui')))
+const interfaces = $computed(() =>
+  components.filter((component) => component.roles.includes('interface'))
+)
 
 const resizablePanelProps = {
   defaultHeight: 300,
@@ -117,22 +119,22 @@ const resizablePanelProps = {
         </panel>
       </panel-group>
       <panel-group
-        v-if="uis.length"
-        :panels="uis.map((current) => current.address.toString())"
+        v-if="interfaces.length"
+        :panels="interfaces.map((current) => current.address.toString())"
         :persist="`components/${component.address}/displays-panel-group`"
         title="UI"
       >
         <template #tabs>
           <panel-tab
-            v-for="ui in uis"
+            v-for="ui in interfaces"
             :key="ui.address.toString()"
             :name="ui.address.toString()"
             :title="ui.address.toString() + '/ui'"
           />
         </template>
-        <panel v-for="ui in uis" :key="ui.address.toString()" :name="ui.address.toString()">
+        <panel v-for="ui in interfaces" :key="ui.address.toString()" :name="ui.address.toString()">
           <div>
-            <layout :component="ui" />
+            <interface :component="ui" />
           </div>
         </panel>
       </panel-group>

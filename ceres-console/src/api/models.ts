@@ -71,7 +71,7 @@ export const StatisticsModel = Zod.object({
 })
 
 export type ComponentRole = Zod.infer<typeof ComponentRoleModel>
-export const ComponentRoleModel = Zod.enum(['connection', 'ui'])
+export const ComponentRoleModel = Zod.enum(['connection', 'interface'])
 
 export type ComponentConfig = {
   name: string
@@ -136,73 +136,170 @@ export const ConfigModel = Zod.object({
   database: DatabaseConfigModel,
 })
 
-export type DisplayBinding = Zod.infer<typeof DisplayBindingModel>
-export const DisplayBindingModel = Zod.object({
-  type: Zod.literal('display'),
-  name: Zod.string(),
-  function: Zod.string(),
-})
-
-export type LayoutDisplay = Zod.infer<typeof LayoutDisplayModel>
-export const LayoutDisplayModel = Zod.object({
-  type: Zod.literal('display'),
-  title: Zod.string(),
-  query: Zod.string(),
-})
-
-export type LayoutButton = Zod.infer<typeof LayoutButtonModel>
-export const LayoutButtonModel = Zod.object({
+export type ButtonElement = Zod.infer<typeof ButtonElementModel>
+export const ButtonElementModel = Zod.object({
   type: Zod.literal('button'),
   title: Zod.string(),
   action: Zod.string(),
   color: Zod.string().optional().nullable(),
 })
 
-export type LayoutRow = {
+export type Justify = Zod.infer<typeof JustifyModel>
+export const JustifyModel = Zod.enum(['start', 'center', 'end', 'space-between', 'space-evenly'])
+
+export type Align = Zod.infer<typeof AlignModel>
+export const AlignModel = Zod.enum(['start', 'center', 'end'])
+
+export type Sizing = Zod.infer<typeof SizingModel>
+export const SizingModel = Zod.enum(['shrink', 'grow'])
+
+export type AtomicValue = Zod.infer<typeof AtomicValueModel>
+export const AtomicValueModel = Zod.union([Zod.boolean(), Zod.number(), Zod.string()])
+
+export type ColorStop = Zod.infer<typeof ColorStopModel>
+export const ColorStopModel = Zod.object({
+  value: Zod.number(),
+  color: Zod.string(),
+})
+
+export type StateElementOption = Zod.infer<typeof StateElementOptionModel>
+export const StateElementOptionModel = Zod.object({
+  value: AtomicValueModel,
+  label: Zod.string(),
+  color: Zod.string(),
+  icon: Zod.string().nullable().default(null),
+  description: Zod.string().nullable().default(null),
+})
+
+type BoxElement = {
+  justify: Justify
+  align: Align
+  children: Element[]
+}
+
+const BoxModelElement = {
+  justify: JustifyModel.default('start'),
+  align: AlignModel.default('start'),
+  children: Zod.lazy(() => Zod.array(ElementModel)),
+}
+
+export type RowElement = {
   type: 'row'
-  children: LayoutNode[]
-}
+  sizing: Sizing
+} & BoxElement
 
-export const LayoutRowModel: Zod.ZodType<LayoutRow> = Zod.object({
+export const RowElementModel = Zod.object({
   type: Zod.literal('row'),
-  children: Zod.lazy(() => Zod.array(LayoutNodeModel)),
-})
+  sizing: SizingModel.default('shrink'),
+  ...BoxModelElement,
+}) as Zod.ZodType<RowElement>
 
-export type LayoutColumn = {
+export type ColumnElement = {
   type: 'column'
-  children: LayoutNode[]
-}
+} & BoxElement
 
-export const LayoutColumnModel: Zod.ZodType<LayoutColumn> = Zod.object({
+export const ColumnElementModel = Zod.object({
   type: Zod.literal('column'),
-  children: Zod.lazy(() => Zod.array(LayoutNodeModel)),
-})
+  ...BoxModelElement,
+}) as Zod.ZodType<ColumnElement>
 
-export type LayoutCarousel = {
+export type CarouselElement = {
   type: 'carousel'
-  children: LayoutNode[]
+  children: Element[]
   height?: number | string | null
 }
 
-export const LayoutCarouselModel: Zod.ZodType<LayoutCarousel> = Zod.object({
+export const CarouselElementModel = Zod.object({
   type: Zod.literal('carousel'),
-  children: Zod.lazy(() => Zod.array(LayoutNodeModel)),
   height: Zod.union([Zod.string(), Zod.number()]).optional().nullable(),
+  children: Zod.lazy(() => Zod.array(ElementModel)),
+}) as Zod.ZodType<CarouselElement>
+
+export type ValueElement = Zod.infer<typeof ValueElementModel>
+export const ValueElementModel = Zod.object({
+  type: Zod.literal('value'),
+  value: AtomicValueModel,
+  unit: Zod.string().nullable().default(null),
+  color: Zod.string().nullable().default(null),
 })
 
-export type LayoutNode = Zod.infer<typeof LayoutNodeModel>
-export const LayoutNodeModel = Zod.union([
-  LayoutDisplayModel,
-  LayoutButtonModel,
-  LayoutColumnModel,
-  LayoutRowModel,
-  LayoutCarouselModel,
-])
-
-export type Layout = Zod.infer<typeof LayoutModel>
-export const LayoutModel = Zod.object({
-  body: LayoutNodeModel,
+export type StateElement = Zod.infer<typeof StateElementModel>
+export const StateElementModel = Zod.object({
+  type: Zod.literal('state'),
+  value: AtomicValueModel,
+  options: Zod.array(StateElementOptionModel),
 })
+
+export type GaugeElement = Zod.infer<typeof GaugeElementModel>
+export const GaugeElementModel = Zod.object({
+  type: Zod.literal('gauge'),
+  value: Zod.number(),
+  unit: Zod.string().nullable().default(null),
+  min: Zod.number(),
+  max: Zod.number(),
+  color: Zod.union([Zod.array(ColorStopModel), Zod.string()])
+    .nullable()
+    .default(null),
+})
+
+export type ChartElement = Zod.infer<typeof ChartElementModel>
+export const ChartElementModel = Zod.object({
+  type: Zod.literal('chart'),
+  value: Zod.record(Zod.string(), Zod.any()),
+  height: Zod.number(),
+})
+
+export type DisplayElement = Zod.infer<typeof DisplayElementModel>
+export const DisplayElementModel = Zod.object({
+  type: Zod.literal('display'),
+  title: Zod.string(),
+  source: Zod.string(),
+})
+
+export function createColorStops(
+  value: number,
+  color: ColorStop[] | string | undefined | null,
+  darkMode: boolean
+) {
+  if (color == null) {
+    color = darkMode ? 'white' : 'black'
+  }
+
+  if (typeof color === 'string') {
+    return [
+      [0, color],
+      [value, color],
+    ]
+  }
+
+  const max = Math.max(...color.map((entry) => entry.value))
+  return color.map((stop) => [stop.value / max, stop.color])
+}
+
+export type Element =
+  | ButtonElement
+  | RowElement
+  | ColumnElement
+  | CarouselElement
+  | ValueElement
+  | StateElement
+  | GaugeElement
+  | ChartElement
+  | DisplayElement
+
+export const ElementModel: Zod.ZodType<Element> = Zod.discriminatedUnion('type', [
+  ButtonElementModel,
+  RowElementModel,
+  ColumnElementModel,
+  CarouselElementModel,
+  ValueElementModel,
+  StateElementModel,
+  GaugeElementModel,
+  ChartElementModel,
+  DisplayElementModel,
+] as any)
+
+export type ElementType = Element['type']
 
 export type ProcedureType = Zod.infer<typeof ProcedureTypeModel>
 export const ProcedureTypeModel = Zod.enum(['query', 'action'])

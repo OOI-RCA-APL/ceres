@@ -1,34 +1,33 @@
 <script lang="ts" setup>
-import { ComponentInfo, LayoutDisplay } from '@/api/models'
-import { useDisplayStream } from '@/api/operations'
-import LayoutDisplayContent from '@/components/LayoutDisplayContent.vue'
+import { ComponentInfo, DisplayElement, Element } from '@/api/models'
+import { useElementStream } from '@/api/operations'
+import InterfaceDisplayContent from '@/components/InterfaceDisplayContent.vue'
 import SchemaForm from '@/components/schema-form/SchemaForm.vue'
-import { DisplayInfo } from '@/display'
-import { LayoutPath } from '@/layout'
+import { InterfacePath } from '@/interface'
 import { useSchemaForm } from '@/schema-form'
 import { debounce } from 'quasar'
 import { computed, watch } from 'vue'
 
 const {
   component,
-  display,
+  element,
   path,
   noConfig = false,
 } = defineProps<{
   component: ComponentInfo
-  display: LayoutDisplay
-  path: LayoutPath
+  element: DisplayElement
+  path: InterfacePath
   noConfig?: boolean
 }>()
 
-let info: DisplayInfo | null = $shallowRef(null)
+let rendered: Element | null = $shallowRef(null)
 let isLoading = $ref(true)
 let isShowingDialog = $ref(false)
 
 const query = $computed(
   () =>
     component.procedures.find(
-      (procedure) => procedure.type === 'query' && procedure.name === display.query
+      (procedure) => procedure.type === 'query' && procedure.name === element.source
     ) ?? null
 )
 
@@ -59,12 +58,12 @@ watch(
   }, 250)
 )
 
-useDisplayStream(
+useElementStream(
   component.address,
-  display.query,
+  element.source,
   computed(() => args),
   (current) => {
-    info = current
+    rendered = current
     isLoading = false
   }
 )
@@ -87,15 +86,23 @@ const configButtonColor = $computed(() => {
     :class="[$q.dark.isActive && $style.dark, 'column', 'full-height', 'relative-position']"
     flat
   >
-    <layout-display-content
-      :display="display"
-      :info="info"
+    <interface-display-content
+      :component="component"
+      :display="element"
+      :element="rendered"
+      :path="path"
       title-clickable
       @title-click="isShowingDialog = !isShowingDialog"
     />
     <q-dialog v-if="form" v-model="isShowingDialog" full-width>
       <q-card bordered :class="[$style.dialogContainer, $q.dark.isActive && 'no-shadow']">
-        <layout-display-content :display="display" :info="info" :is-loading="isLoading" />
+        <interface-display-content
+          :component="component"
+          :display="element"
+          :element="rendered"
+          :is-loading="isLoading"
+          :path="path"
+        />
         <q-separator />
         <template v-if="!form.isEmpty">
           <div class="q-pt-sm q-px-sm">

@@ -1,12 +1,14 @@
 <script lang="ts" setup>
+import { StateElement } from '@/api/models'
 import CommonText from '@/components/CommonText.vue'
-import { StateDisplayInfo } from '@/display'
 
-const { info } = defineProps<{
-  info: StateDisplayInfo
+const { element } = defineProps<{
+  element: StateElement
 }>()
 
-const selected = $computed(() => info.options.find((state) => state.value === info.value ?? null))
+const selected = $computed(() =>
+  element.options.find((state) => state.value === element.value ?? null)
+)
 </script>
 
 <template>
@@ -41,7 +43,7 @@ const selected = $computed(() => info.options.find((state) => state.value === in
           <q-markup-table bordered :class="$style.optionsTable" dense flat separator="cell">
             <tbody>
               <q-tr
-                v-for="option in info.options"
+                v-for="option in element.options"
                 :key="String(option.value) + typeof option.value"
               >
                 <q-th class="text-capitalize text-right">

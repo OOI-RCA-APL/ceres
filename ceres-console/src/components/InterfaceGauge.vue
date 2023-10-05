@@ -1,11 +1,11 @@
 <script lang="ts" setup>
+import { GaugeElement } from '@/api/models'
 import { Option } from '@/chart'
 import Chart from '@/components/Chart.vue'
-import { GaugeDisplayInfo } from '@/display'
 import { useQuasar } from 'quasar'
 
-const { info } = defineProps<{
-  info: GaugeDisplayInfo
+const { element } = defineProps<{
+  element: GaugeElement
 }>()
 
 const quasar = useQuasar()
@@ -29,15 +29,15 @@ const segments = $computed(() => {
       data: [size],
     }
   }
-  if (info.color == null) {
-    return [createSegment('transparent', info.max)]
+  if (element.color == null) {
+    return [createSegment('transparent', element.max)]
   }
 
-  if (typeof info.color === 'string') {
-    return [createSegment(info.color, info.max)]
+  if (typeof element.color === 'string') {
+    return [createSegment(element.color, element.max)]
   }
 
-  const stops = info.color
+  const stops = element.color
 
   return stops.map((stop, i) => {
     const previous = stops[i - 1] ?? null
@@ -59,15 +59,15 @@ const options = $computed(
       yAxis: {
         show: true,
         boundaryGap: false,
-        data: [info.unit],
+        data: [element.unit],
         axisLabel: {
           color: quasar.dark.isActive ? 'white' : 'black',
         },
       },
       xAxis: {
         type: 'value',
-        min: info.min,
-        max: info.max,
+        min: element.min,
+        max: element.max,
         axisLabel: {
           fontFamily: 'Roboto',
           opacity: 1,
@@ -89,14 +89,14 @@ const options = $computed(
           },
           symbolSize: [10, 10],
           symbolOffset: ['0%', '41%'],
-          data: [info.value],
+          data: [element.value],
           label: {
             fontFamily: 'Roboto',
             opacity: 1,
             show: true,
             offset: [0, -25],
             color: quasar.dark.isActive ? 'white' : 'black',
-            formatter: `{c}${info.unit ?? ''}`,
+            formatter: `{c}${element.unit ?? ''}`,
           },
         },
         ...segments,

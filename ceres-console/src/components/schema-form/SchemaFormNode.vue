@@ -11,7 +11,7 @@ import SchemaFormNodeToggle from '@/components/schema-form/SchemaFormNodeToggle.
 import SchemaFormNumber from '@/components/schema-form/SchemaFormNumber.vue'
 import SchemaFormObject from '@/components/schema-form/SchemaFormObject.vue'
 import SchemaFormString from '@/components/schema-form/SchemaFormString.vue'
-import { isEmptyObjectSchema, isType, SchemaForm, SchemaPath } from '@/schema-form'
+import { isType, SchemaForm, SchemaPath } from '@/schema-form'
 
 const { modelValue, form, path } = defineProps<{
   modelValue: unknown
@@ -68,7 +68,7 @@ function update(value: unknown) {
   <template v-if="schema == null">
     Unable to resolve schema definition at path: {{ JSON.stringify(path) }}
   </template>
-  <template v-else-if="isEmptyObjectSchema(schema)" />
+  <!-- <template v-else-if="isEmptyObjectSchema(schema)" /> -->
   <template v-else>
     <div class="relative-position">
       <template v-if="typeof schema === 'boolean'">

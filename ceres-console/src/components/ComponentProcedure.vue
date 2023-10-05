@@ -43,16 +43,16 @@ const form = useSchemaForm({
 </script>
 
 <template>
-  <div v-if="!form.isEmpty" class="q-mb-sm">
-    <q-card bordered class="q-pt-xs q-px-sm" flat>
-      <schema-form :key="procedure.name" class="q-mb-sm" :form="form" />
+  <div v-if="!form.isEmpty || form.getDescription([]) != null" class="q-mb-sm">
+    <q-card bordered class="q-px-sm q-py-xs" flat>
+      <schema-form :key="procedure.name" :form="form" />
     </q-card>
   </div>
   <div>
     <schema-form-controls v-if="form" class="q-mb-sm" :form="form" />
   </div>
   <div>
-    <div v-if="resultJson === undefined" class="items-center justify-center q-pa-sm row">
+    <div v-if="resultJson === undefined" class="items-center justify-center q-pa-xs row">
       <common-text variant="description">Results will be displayed here.</common-text>
     </div>
     <q-input
@@ -61,7 +61,6 @@ const form = useSchemaForm({
       filled
       :input-class="[$style.output, 'monospace']"
       label="Output"
-      :loading="form.submitting"
       :model-value="resultJson"
       readonly
       :rows="8"

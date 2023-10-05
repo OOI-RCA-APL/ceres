@@ -44,6 +44,11 @@ ul {
   white-space: pre;
 }
 
+.monospace-lg.monospace-lg {
+  @extend .monospace;
+  font-size: 13px;
+}
+
 .monospace-md.monospace-md {
   @extend .monospace;
   font-size: 12px;

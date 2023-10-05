@@ -3,12 +3,12 @@ import { SchemaForm } from '@/schema-form'
 
 const props = defineProps<{
   form?: SchemaForm | null
-  submitLabel?: string
+  executeLabel?: string
   resetLabel?: string
 }>()
 
 const form = $computed(() => props.form)
-const submitLabel = $computed(() => props.submitLabel ?? 'Submit')
+const executeLabel = $computed(() => props.executeLabel ?? 'Execute')
 const resetLabel = $computed(() => props.resetLabel ?? 'Reset')
 
 function submit() {
@@ -28,12 +28,12 @@ function reset() {
         color="primary"
         dense
         :disable="form == null || !form.canSubmit"
-        :label="submitLabel"
+        :label="executeLabel"
         :loading="form?.state === 'submitting'"
         @click="submit"
       />
     </div>
-    <div class="col">
+    <div v-if="form == null || !form.isEmpty" class="col">
       <q-btn
         class="full-width"
         color="warning"

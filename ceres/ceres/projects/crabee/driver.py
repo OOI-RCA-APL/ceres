@@ -17,19 +17,14 @@ from ceres import (
     utc,
 )
 from ceres.component import on, query, routine
-from ceres.console import ChartDisplay, ConsoleColor, StateDisplay, ValueDisplay
 from ceres.data import DateTime, TimeDelta
 from ceres.directory import Directory
-from ceres.events import (
-    ConnectFailedEvent,
-    ConnectionLostEvent,
-    MessageReceivedEvent,
-)
+from ceres.events import ConnectFailedEvent, ConnectionLostEvent, MessageReceivedEvent
 from ceres.exceptions import ParseException
-from ceres.layout import Layout, LayoutCarousel, LayoutColumn, LayoutDisplay, LayoutRow
-from ceres.roles.ui import UI
+from ceres.roles.interface import Interface
 from ceres.stream import WriteStream
 from ceres.threading import spawn
+from ceres.ui import Carousel, Chart, Column, Display, PaletteColor, Row, Sizing, State, Value
 
 
 class CrabeeParticle(ImmutableDataObject):
@@ -113,7 +108,7 @@ class Checks(ImmutableDataObject):
     leak_2: Check | None = None
 
 
-class CrabeeDriver(UI):
+class CrabeeDriver(Interface):
     output: Directory
     connection: Ref[Connection]
     checks: Checks = Field(default_factory=Checks)
@@ -213,99 +208,103 @@ class CrabeeDriver(UI):
 
     @override
     @query
-    async def get_layout(self) -> Layout:
-        return Layout(
-            LayoutColumn(
-                [
-                    LayoutRow(
-                        [
-                            LayoutDisplay("Temperature 1", self.display_temperature_1),
-                            LayoutDisplay("Temperature 2", self.display_temperature_2),
-                            LayoutDisplay("Temperature 3", self.display_temperature_3),
-                        ]
-                    ),
-                    LayoutRow(
-                        [
-                            LayoutDisplay("Pressure", self.display_pressure),
-                            LayoutDisplay("Pitch", self.display_pitch),
-                            LayoutDisplay("Roll", self.display_roll),
-                        ],
-                    ),
-                    LayoutRow(
-                        [
-                            LayoutDisplay("Humidity", self.display_humidity),
-                            LayoutDisplay("Leak 1", self.display_leak_1),
-                            LayoutDisplay("Leak 2", self.display_leak_2),
-                        ],
-                    ),
-                    LayoutCarousel(
-                        [
-                            LayoutDisplay("Temperature History", self.display_temperature_history),
-                            LayoutDisplay("Pressure History", self.display_pressure_history),
-                            LayoutDisplay("Humidity History", self.display_humidity_history),
-                            LayoutDisplay("Incline History", self.display_incline_history),
-                        ],
-                        height=300,
-                    ),
-                ]
-            )
+    async def render(self) -> Column:
+        return Column(
+            children=[
+                Row(
+                    sizing=Sizing.GROW,
+                    children=[
+                        Display(title="Temperature 1", source=self.render_temperature_1),
+                        Display(title="Temperature 2", source=self.render_temperature_2),
+                        Display(title="Temperature 3", source=self.render_temperature_3),
+                    ],
+                ),
+                Row(
+                    sizing=Sizing.GROW,
+                    children=[
+                        Display(title="Pressure", source=self.render_pressure),
+                        Display(title="Pitch", source=self.render_pitch),
+                        Display(title="Roll", source=self.render_roll),
+                    ],
+                ),
+                Row(
+                    sizing=Sizing.GROW,
+                    children=[
+                        Display(title="Humidity", source=self.render_humidity),
+                        Display(title="Leak 1", source=self.render_leak_1),
+                        Display(title="Leak 2", source=self.render_leak_2),
+                    ],
+                ),
+                Carousel(
+                    height=300,
+                    children=[
+                        Display(
+                            title="Temperature History",
+                            source=self.render_temperature_history,
+                        ),
+                        Display(title="Pressure History", source=self.render_pressure_history),
+                        Display(title="Humidity History", source=self.render_humidity_history),
+                        Display(title="Incline History", source=self.render_incline_history),
+                    ],
+                ),
+            ]
         )
 
     @query
-    async def display_temperature_1(self) -> AsyncIterable[ValueDisplay]:
+    async def render_temperature_1(self) -> AsyncIterable[Value]:
         async for message in self._get_data_messages():
-            yield ValueDisplay(value=message.temperature_1, unit="°C")
+            yield Value(value=message.temperature_1, unit="°C")
 
     @query
-    async def display_temperature_2(self) -> AsyncIterable[ValueDisplay]:
+    async def render_temperature_2(self) -> AsyncIterable[Value]:
         async for message in self._get_data_messages():
-            yield ValueDisplay(value=message.temperature_2, unit="°C")
+            yield Value(value=message.temperature_2, unit="°C")
 
     @query
-    async def display_temperature_3(self) -> AsyncIterable[ValueDisplay]:
+    async def render_temperature_3(self) -> AsyncIterable[Value]:
         async for message in self._get_data_messages():
-            yield ValueDisplay(value=message.temperature_3, unit="°C")
+            yield Value(value=message.temperature_3, unit="°C")
 
     @query
-    async def display_pressure(self) -> AsyncIterable[ValueDisplay]:
+    async def render_pressure(self) -> AsyncIterable[Value]:
         async for message in self._get_data_messages():
-            yield ValueDisplay(value=message.pressure, unit="mbars")
+            yield Value(value=message.pressure, unit="mbars")
 
     @query
-    async def display_humidity(self) -> AsyncIterable[ValueDisplay]:
+    async def render_humidity(self) -> AsyncIterable[Value]:
         async for message in self._get_data_messages():
-            yield ValueDisplay(value=message.humidity, unit="%")
+            yield Value(value=message.humidity, unit="%")
 
     @query
-    async def display_pitch(self) -> AsyncIterable[ValueDisplay]:
+    async def render_pitch(self) -> AsyncIterable[Value]:
         async for message in self._get_data_messages():
-            yield ValueDisplay(value=message.pitch, unit="°")
+            yield Value(value=message.pitch, unit="°")
 
     @query
-    async def display_roll(self) -> AsyncIterable[ValueDisplay]:
+    async def render_roll(self) -> AsyncIterable[Value]:
         async for message in self._get_data_messages():
-            yield ValueDisplay(value=message.roll, unit="°")
+            yield Value(value=message.roll, unit="°")
 
     @query
-    async def display_leak_1(self) -> AsyncIterable[StateDisplay]:
+    async def render_leak_1(self) -> AsyncIterable[State]:
         async for message in self._get_data_messages():
             yield self.__display_leak(message.leak_1)
 
     @query
-    async def display_leak_2(self) -> AsyncIterable[StateDisplay]:
+    async def render_leak_2(self) -> AsyncIterable[State]:
         async for message in self._get_data_messages():
             yield self.__display_leak(message.leak_2)
 
     @query
-    async def display_temperature_history(
+    async def render_temperature_history(
         self,
         start: DateTime | None = None,
         duration: TimeDelta = timedelta(hours=1),
-    ) -> AsyncIterable[ChartDisplay]:
+    ) -> AsyncIterable[Chart]:
         while True:
             messages = await self.__get_particles(start, duration)
 
-            yield ChartDisplay(
+            yield Chart(
                 value={
                     "legend": {"show": True},
                     "tooltip": {"trigger": "axis"},
@@ -353,15 +352,15 @@ class CrabeeDriver(UI):
             await asyncio.sleep(10)
 
     @query
-    async def display_pressure_history(
+    async def render_pressure_history(
         self,
         start: DateTime | None = None,
         duration: TimeDelta = timedelta(hours=1),
-    ) -> AsyncIterable[ChartDisplay]:
+    ) -> AsyncIterable[Chart]:
         while True:
             messages = await self.__get_particles(start, duration)
 
-            yield ChartDisplay(
+            yield Chart(
                 value={
                     "legend": {"show": True},
                     "tooltip": {"trigger": "axis"},
@@ -391,15 +390,15 @@ class CrabeeDriver(UI):
             await asyncio.sleep(10)
 
     @query
-    async def display_humidity_history(
+    async def render_humidity_history(
         self,
         start: DateTime | None = None,
         duration: TimeDelta = timedelta(hours=1),
-    ) -> AsyncIterable[ChartDisplay]:
+    ) -> AsyncIterable[Chart]:
         while True:
             messages = await self.__get_particles(start, duration)
 
-            yield ChartDisplay(
+            yield Chart(
                 value={
                     "legend": {"show": True},
                     "tooltip": {"trigger": "axis"},
@@ -432,15 +431,15 @@ class CrabeeDriver(UI):
             await asyncio.sleep(10)
 
     @query
-    async def display_incline_history(
+    async def render_incline_history(
         self,
         start: DateTime | None = None,
         duration: TimeDelta = timedelta(hours=1),
-    ) -> AsyncIterable[ChartDisplay]:
+    ) -> AsyncIterable[Chart]:
         while True:
             messages = await self.__get_particles(start, duration)
 
-            yield ChartDisplay(
+            yield Chart(
                 value={
                     "legend": {"show": True},
                     "tooltip": {"trigger": "axis"},
@@ -508,20 +507,20 @@ class CrabeeDriver(UI):
         await spawn(parse)
         return particles
 
-    def __display_leak(self, leak: bool) -> StateDisplay:
-        return StateDisplay(
+    def __display_leak(self, leak: bool) -> State:
+        return State(
             value=leak,
             options=[
-                StateDisplay.Option(
+                State.Option(
                     value=False,
                     label="None",
-                    color=ConsoleColor.POSITIVE,
+                    color=PaletteColor.POSITIVE,
                     description="No leak is currently being detected.",
                 ),
-                StateDisplay.Option(
+                State.Option(
                     value=True,
                     label="Leaking",
-                    color=ConsoleColor.NEGATIVE,
+                    color=PaletteColor.NEGATIVE,
                     description="A leak has been detected and is ongoing.",
                 ),
             ],
