@@ -24,9 +24,9 @@ from sqlalchemy.orm import (
     declared_attr,
     mapped_column,
 )
-from sqlalchemy.schema import CreateIndex, CreateTable
+from sqlalchemy.schema import CreateIndex, CreateTable, SchemaItem
 from sqlalchemy.sql import expression
-from typing_extensions import final
+from typing_extensions import final, override
 
 from ceres.address import Address
 from ceres.internal.database.types import (
@@ -121,6 +121,21 @@ class Entity(MappedAsDataclass, DeclarativeBase, kw_only=True):
     def values(self) -> dict[str, Any]:
         return {name: getattr(self, name) for name in self.__table__.columns.keys()}
 
+    @declared_attr
+    def __table_args__(cls) -> Any:
+        return (
+            *cls.__get_table_args__(),
+            cls.__get_table_kwargs__(),
+        )
+
+    @classmethod
+    def __get_table_args__(cls) -> tuple[SchemaItem, ...]:
+        return ()
+
+    @classmethod
+    def __get_table_kwargs__(cls) -> dict[str, Any]:
+        return {}
+
 
 @final
 class ComponentEntity(Entity, kw_only=True):
@@ -129,7 +144,13 @@ class ComponentEntity(Entity, kw_only=True):
     address: Mapped[Address] = mapped_column(AddressMapper)
     enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default=expression.false())
 
-    __table_args__ = (PrimaryKeyConstraint("address", name=f"pk_{__tablename__}"),)
+    @classmethod
+    @override
+    def __get_table_args__(cls) -> tuple[SchemaItem, ...]:
+        return (
+            *super().__get_table_args__(),
+            PrimaryKeyConstraint("address", name=f"pk_{cls.__tablename__}"),
+        )
 
 
 class ItemEntity(Entity, kw_only=True):
@@ -139,9 +160,11 @@ class ItemEntity(Entity, kw_only=True):
     address: Mapped[Address] = mapped_column(AddressMapper, sort_order=-2000)
     timestamp: Mapped[datetime] = mapped_column(DateTimeMapper, sort_order=-1000)
 
-    @declared_attr
-    def __table_args__(cls) -> Any:
+    @classmethod
+    @override
+    def __get_table_args__(cls) -> tuple[SchemaItem, ...]:
         return (
+            *super().__get_table_args__(),
             PrimaryKeyConstraint("id", name=f"pk_{cls.__tablename__}"),
             Index(f"ix_{cls.__tablename__}__address", "address"),
             Index(f"ix_{cls.__tablename__}__timestamp", "timestamp"),
@@ -155,10 +178,11 @@ class MessageEntity(ItemEntity, kw_only=True):
     direction: Mapped[MessageDirection] = mapped_column(EnumMapper(MessageDirection))
     content: Mapped[bytes] = mapped_column(LargeBinary)
 
-    @declared_attr
-    def __table_args__(cls) -> Any:
+    @classmethod
+    @override
+    def __get_table_args__(cls) -> tuple[SchemaItem, ...]:
         return (
-            *super().__table_args__,
+            *super().__get_table_args__(),
             EnumConstraint("direction", MessageDirection, f"ck_{cls.__tablename__}__direction"),
             Index(f"ix_{cls.__tablename__}__content", "content"),
         )
@@ -172,10 +196,11 @@ class AlertEntity(ItemEntity, kw_only=True):
     code: Mapped[str] = mapped_column(Text)
     info: Mapped[dict[str, Any]] = mapped_column(JSON, default_factory=dict)
 
-    @declared_attr
-    def __table_args__(cls) -> Any:
+    @classmethod
+    @override
+    def __get_table_args__(cls) -> tuple[SchemaItem, ...]:
         return (
-            *super().__table_args__,
+            *super().__get_table_args__(),
             EnumConstraint("level", Level, f"ck_{cls.__tablename__}__level"),
             Index(f"ix_{cls.__tablename__}__code", "code"),
         )
@@ -188,10 +213,11 @@ class LogEntryEntity(ItemEntity, kw_only=True):
     level: Mapped[Level] = mapped_column(EnumMapper(Level))
     content: Mapped[str] = mapped_column(Text)
 
-    @declared_attr
-    def __table_args__(cls) -> Any:
+    @classmethod
+    @override
+    def __get_table_args__(cls) -> tuple[SchemaItem, ...]:
         return (
-            *super().__table_args__,
+            *super().__get_table_args__(),
             EnumConstraint("level", Level, name=f"ck_{cls.__tablename__}__level"),
             Index(f"ix_{cls.__tablename__}__content", "content"),
         )
