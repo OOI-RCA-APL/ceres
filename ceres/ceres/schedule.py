@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Iterable, Literal, Sequence
 from apscheduler.triggers.cron import CronTrigger as InternalCronTrigger
 from apscheduler.triggers.interval import IntervalTrigger as BaseInternalIntervalTrigger
 from apscheduler.util import normalize
-from pydantic import FieldValidationInfo, PositiveFloat, field_validator
+from pydantic import PositiveFloat, ValidationInfo, field_validator
 
 from ceres.data import DateTime, ImmutableDataObject, PositiveTimeDelta
 from ceres.internal.utilities import StrEnum
@@ -68,7 +68,7 @@ class IntervalSchedule(BaseSchedule):
     def _validate_min(
         cls,
         min: float | None,
-        info: FieldValidationInfo,
+        info: ValidationInfo,
     ) -> float | None:
         interval = info.data.get("interval")
         if min is None or interval is None:
@@ -82,7 +82,7 @@ class IntervalSchedule(BaseSchedule):
     def _validate_max(
         cls,
         max: float | None,
-        info: FieldValidationInfo,
+        info: ValidationInfo,
     ) -> float | None:
         interval = info.data.get("interval")
         if max is None or interval is None:

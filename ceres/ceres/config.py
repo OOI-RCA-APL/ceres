@@ -9,9 +9,9 @@ from typing import TYPE_CHECKING, Any, Callable, Literal, Mapping, Sequence
 import yaml
 from pydantic import (
     Field,
-    FieldValidationInfo,
     SecretStr,
     ValidationError,
+    ValidationInfo,
     field_validator,
     model_validator,
 )
@@ -107,7 +107,7 @@ class ComponentConfig(Loader, _ComponentConfigMixin):
     def _validate_components(
         cls,
         components: Sequence["ComponentConfig"],
-        info: FieldValidationInfo,
+        info: ValidationInfo,
     ) -> Sequence["ComponentConfig"]:
         name: str = info.data.get("name", "<ERROR>")
         for component_name, group in group_by(
