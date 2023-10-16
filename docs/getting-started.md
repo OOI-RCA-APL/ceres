@@ -4,11 +4,11 @@
 
 # Getting Started
 
-It's difficult to explain how Ceres works without a concrete example, so this page will be running through a simple example, explaining Ceres' core concepts along the way.
+This section will explain the core concepts of Ceres using a simple example project.
 
 ## The Problem
 
-Let's say we have a sensor that sends a simple message over a TCP connection every second. Each message it sends is formatted as plain text containing a temperature and humidity reading, separated by a space and terminated by a new-line character.
+Let's say we have a sensor that sends a simple message over a TCP connection every second. Each message is formatted as plain text containing a temperature and humidity reading, separated by a space and terminated by a new-line character.
 
 ```python
 # Example message bytes.
@@ -245,7 +245,7 @@ Engine
 ┌────────────────────────────┬─────────┬──────┬─────────────────────────────┐
 │ Configuration              │ Running │ Port │ Socket                      │
 ├────────────────────────────┼─────────┼──────┼─────────────────────────────┤
-│ /Users/jploskey/Work/cere… │ Yes     │ 8080 │ /tmp/ceres-d03d1c6a02a932a… │
+│ /home/jploskey/cere…       │ Yes     │ 8080 │ /tmp/ceres-d03d1c6a02a932a… │
 └────────────────────────────┴─────────┴──────┴─────────────────────────────┘
 Components
 ┌─────────────┬─────────┬─────────┐
@@ -260,7 +260,7 @@ The "Engine" section of shows that the engine is running, the server is availabl
 
 The "Components" section shows of the state of our components.
 
-\_You'll notice here, that that in addition to `@connection`, there is another component with the address `@`. Ceres components form a hierachical tree structure, with a generic root component at the top. For small projects, this can largely be ignored, but for larger projects, this tree structure allows components to be organized however you see fit, and be manipulated in groups.
+\_You'll notice here, that that in addition to `@connection`, there is another component with the address `@`. Ceres components form a hierachical tree structure, with a generic root component at the top. For small projects, this structure can mostly be ignored, but for larger projects, this hierarchical structure allows components to be organized into groups.
 
 For our project, we see that `@` and `@connection` components are running but disabled, meaning that unless we run the engine using the `--all` flag, they will not be started automatically.
 
