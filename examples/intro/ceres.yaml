@@ -10,3 +10,8 @@ components:
       host: localhost
       port: 4000
       separator: "\n"
+  - name: driver
+    class: intro.driver.Driver
+    args:
+      connection: "@connection"
+      out: ./local/messages.csv

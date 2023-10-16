@@ -167,7 +167,7 @@ With our configuration file ready, we can can run project using the `ceres run -
 ceres run --all
 ```
 
-The `run` command reads the `ceres.yaml` configuration file and starts a Ceres `Engine` class to run our project.
+The `run` command reads the `ceres.yaml` configuration file in the working directory, and starts a Ceres `Engine` class to run that configuration.
 
 _The `--all` flag is used to make the engine run every components in the project on startup. This is useful for development. In production or with a more complex project, you'll likely want to use the `start`, `stop`, `enable` and `disable` commands to manage components individually._
 
@@ -175,7 +175,7 @@ _The `--all` flag is used to make the engine run every components in the project
 
 You should see the similar output to the following, which means the engine is running and the `@connection` component has connected to the simulator and is receiving messages:
 
-```txt
+```log
 [2023-09-04 15:14:23.491] [INFO] [~] Checking database configuration...
 [2023-09-04 15:14:23.500] [INFO] [~] Connected to database successfully.
 [2023-09-04 15:14:23.502] [INFO] [~] Database configuration is valid.
@@ -361,3 +361,115 @@ The `up` and `down` commands also take selectors just like the other commands.
 ceres up :all # Enable and start all components.
 ceres down :all # Disable and stop all components.
 ```
+
+## Custom Components
+
+So far we've only used the built-in `TCPConnection` component to receive raw messages from the simulator. Now let's get to the interesting part, and create our own components. In your project directory, create a Python module named `intro` with the following structure:
+
+```
+intro/
+├── __init__.py
+├── driver.py
+```
+
+_The `__init__.py` file is required to make the `intro` directory a Python module we can import from._
+
+Add the following code to `driver.py`:
+
+```python
+import csv
+from datetime import datetime
+from pathlib import Path
+
+from ceres import Component, Connection, Message, Ref, on
+from ceres.data import DataObject
+from ceres.events import MessageReceivedEvent
+from ceres.parsing import Parser
+
+
+class Driver(Component):
+    connection: Ref[Connection]
+    out: Path
+
+    @on(reference="connection", event=MessageReceivedEvent)
+    async def __on_message(self, event: MessageReceivedEvent) -> None:
+        data = MessageData.parse(event.message)
+
+        self.out.parent.mkdir(parents=True, exist_ok=True)
+        with self.out.open("a+") as file:
+            writer = csv.writer(file)
+            row = [
+                data.timestamp.isoformat(),
+                data.temperature,
+                data.humidity,
+            ]
+
+            self.log.info(row)
+            writer.writerow(row)
+
+
+class MessageData(DataObject):
+    timestamp: datetime
+    temperature: float
+    humidity: float
+
+    @classmethod
+    def parse(cls, message: Message) -> "MessageData":
+        parser = Parser(message.content)
+        parser.eat(b"T:")
+        temperature = parser.eat_float()
+        parser.eat_space()
+        parser.eat(b"H:")
+        humidity = parser.eat_float()
+
+        return MessageData(
+            timestamp=message.timestamp,
+            temperature=temperature,
+            humidity=humidity,
+        )
+```
+
+Then, register the component in `ceres.yaml`, alongside the connection component:
+
+```yaml
+components:
+  - name: connection
+    class: ceres.standard.TCPConnection
+    args:
+      host: localhost
+      port: 4000
+      separator: "\n"
+  - name: driver
+    class: intro.driver.Driver
+    args:
+      connection: "@connection"
+      out: ./local/messages.csv
+```
+
+There are many things to unpack here, but let's start with the `Driver` class.
+
+1. `Driver` inherits from `Component`. This is required.
+2. All subclasses of `Component` are actually [Pydantic dataclasses](https://docs.pydantic.dev/latest/concepts/dataclasses), meaning attributes defined in a component's class body are per-instance fields, assignable as arguments to the class constructor.
+3. Values assigned in the `args` of a component's configuration are passed to the component's constructor, and subsequently validated according to the type hints of each field.
+
+   As such, the component section of the above `ceres.yaml` file is equivalent to:
+
+   ```python
+   from ceres.standard import TCPConnection
+
+   from intro.driver import Driver
+
+   connection = TCPConnection(
+      host="localhost",
+      port=4000,
+      separator="\n"
+   )
+
+   driver = Driver(
+      connection=connection,
+      out=Path("./messages.csv")
+   )
+   ```
+
+   - The `connection` field is defined as a `Ref[Connection]`, meaning a "reference" to a `Connection` component. Within `ceres.yaml`, addresses of components can be passed to reference fields, and Ceres will assign the component automatically on load.
+   - The `out` specifies the CSV file to write data to.
