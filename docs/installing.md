@@ -4,10 +4,36 @@
 
 # Installing
 
+There is no PyPi package for Ceres due to access restrictions, so for now, Ceres must be installed from GitHub.
+
 ## Prerequisites
 
 - [Python 3.10+](https://www.python.org/downloads/)
 - [Pip](https://pip.pypa.io/en/stable/installing/), [Poetry](https://python-poetry.org/docs/#installation) or another package manager.
+
+## Deploy Keys
+
+_You do not need to do this on a development machine._
+
+If you are deploying Ceres on a server, and don't want to use the GitHub SSH key of a specific user to install it, you'll need to create or request a [GitHub deploy key](https://docs.github.com/en/rest/deploy-keys/deploy-keys?apiVersion=2022-11-28) for the repository.
+
+_Shoot an email to either jploskey@uw.edu or krosburg@uw.edu to request a deploy key if you can't create one yourself._
+
+Once you have a deploy key, you'll need to set up your server to use it. Edit your user's SSH config at `~/.ssh/config` to include the following:
+
+```txt
+Host ceres.github.com
+        Hostname github.com
+        IdentityFile=~/.ssh/<ceres-deploy-key>
+```
+
+Then, configure Git to use `ceres.github.com` rather than `github.com` for the Ceres repository:
+
+```sh
+git config --global url.'git@cer
+es.github.com:OOI-RCA-APL/ceres.git'.insteadOf 'git@gith
+ub.com:OOI-RCA-APL/ceres.git'
+```
 
 ## Pip
 
