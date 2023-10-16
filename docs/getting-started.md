@@ -391,7 +391,7 @@ class Driver(Component):
     connection: Ref[Connection]
     out: Path
 
-    @on(reference="connection", event=MessageReceivedEvent)
+    @on(reference="connection")
     async def __on_message(self, event: MessageReceivedEvent) -> None:
         data = MessageData.parse(event.message)
 
@@ -446,13 +446,13 @@ components:
       out: ./local/messages.csv
 ```
 
-There are many things to unpack here, but let's start with the `Driver` class.
+There are many things to unpack here, so lets go through them one by one:
 
-1. `Driver` inherits from `Component`. This is required.
-2. All subclasses of `Component` are actually [Pydantic dataclasses](https://docs.pydantic.dev/latest/concepts/dataclasses), meaning attributes defined in a component's class body are per-instance fields, assignable as arguments to the class constructor.
-3. Values assigned in the `args` of a component's configuration are passed to the component's constructor, and subsequently validated according to the type hints of each field.
+1. The `Driver` class inherits from `Component`. This is required.
+2. All subclasses of `Component` are actually [Pydantic dataclasses](https://docs.pydantic.dev/latest/concepts/dataclasses), meaning attributes defined in a component's class body are per-instance fields, assignable by arguments in the class's constructor.
+3. Values assigned in a component's `args` configuration are passed directly to the component's constructor, and subsequently validated according to the type hints of the associated field.
 
-   As such, the component section of the above `ceres.yaml` file is equivalent to:
+   The component section of the above `ceres.yaml` file is equivalent to:
 
    ```python
    from ceres.standard import TCPConnection
@@ -471,5 +471,14 @@ There are many things to unpack here, but let's start with the `Driver` class.
    )
    ```
 
-   - The `connection` field is defined as a `Ref[Connection]`, meaning a "reference" to a `Connection` component. Within `ceres.yaml`, addresses of components can be passed to reference fields, and Ceres will assign the component automatically on load.
-   - The `out` specifies the CSV file to write data to.
+4. The `connection` field is defined as a `Ref[Connection]`, meaning it accepts a "reference" to a `Connection` component. Within `ceres.yaml`, addresses of components can be passed to reference fields and Ceres will assign the component automatically on load.
+5. The `out` field accepts a file system path the driver will write to.
+6. The `Driver` component defines an event listener called `__on_message` using the `@on` decorator. `__on_message` will be invoked whenever a `MessageReceivedEvent` is emitted by the component _assigned to the field_ `connection`, which in the above configuration is our `TCPConnection` `@connection`.
+
+   _At runtime, `Driver` can use `self.connection` to access the connection component instance. For example, the driver could execute `await self.connection.send(b"abc")` to send data to the device over TCP._
+
+7. `MessageData` is a structured representation of the data received from a single message. Here, a `MessageData` can be parsed from a `Message` using the `parse` class method, and we use that method to extract data from each message and write it to file.
+
+   _`DataObject` is simply a subclass of Pydantic's [`BaseModel`](https://docs.pydantic.dev/latest/concepts/models/) with different default settings, though more functionality may be added over time._
+
+8. The `MessageData` class's `parse` method creates a `Parser` instance to read data linearly from the message's content. You can parse messages however you'd like. This example just happens to use `Parser`, which is available to you if you need it.
