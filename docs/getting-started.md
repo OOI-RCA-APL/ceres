@@ -481,4 +481,4 @@ There are many things to unpack here, so lets go through them one by one:
 
    _`DataObject` is simply a subclass of Pydantic's [`BaseModel`](https://docs.pydantic.dev/latest/concepts/models/) with different default settings, though more functionality may be added over time._
 
-8. The `MessageData` class's `parse` method creates a `Parser` instance to read data linearly from the message's content. You can parse messages however you'd like. This example just happens to use `Parser`, which is available to you if you need it.
+8. The `parse` method of `MessageData` uses the `Parser` class to parse data from message content. You don't _need_ to use `Parser` to do this, but it's available to you if you want it.
