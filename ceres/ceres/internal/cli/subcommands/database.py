@@ -4,7 +4,7 @@ from pydantic import ByteSize
 from typer import Argument, Option
 
 from ceres.config import Config
-from ceres.database.enums import DataFormat, TableOption
+from ceres.database.enums import DataFormat, DataType
 from ceres.internal.cli.exceptions import CLIDatabaseUnreachableException, CLIException
 from ceres.internal.cli.shared import AsyncTyper, ConfigOption, get_yes_no, write
 from ceres.internal.utilities import show_td
@@ -40,7 +40,7 @@ async def init(*, config: Config = ConfigOption(checks=[])) -> None:
     await ddl(config=config)
     print("</PENDING>")
 
-    if await database.tables():
+    if await database.initialized():
         confirm = "Database is not empty, execute above commands anyway?"
     else:
         confirm = "Database appears uninitialized. Execute above commands now?"
@@ -55,17 +55,18 @@ async def init(*, config: Config = ConfigOption(checks=[])) -> None:
 
 @database.command()
 async def dump(
-    table: TableOption = Argument(help="Table(s) to dump."),
+    data_type: DataType = Argument(help="Data type to dump to file."),
     path: Path = Argument(
         resolve_path=True,
         writable=True,
         help="Path to dump data to.",
     ),
+    *,
     format: DataFormat = Option(None, help="Format to dump data as."),
     config: Config = ConfigOption(checks=[]),
 ) -> None:
     """
-    Dump all data in the project database to one or more files.
+    Dump data in the project database to file.
     """
 
     format = _infer_data_format(format, path)
@@ -77,7 +78,7 @@ async def dump(
     except Exception:
         raise CLIDatabaseUnreachableException("Failed to connect to database.")
 
-    if not await database.tables():
+    if not await database.initialized():
         raise CLIDatabaseUnreachableException("Database appears uninitialized, exiting.")
 
     start = utc()
@@ -87,7 +88,7 @@ async def dump(
         case DataFormat.SQLITE:
             write("Dumping data to SQLite...")
 
-    await database.dump(table, path, format)
+    await database.dump(data_type, path, format)
 
     duration = utc() - start
 
@@ -101,13 +102,14 @@ async def dump(
 
 @database.command()
 async def load(
-    table: TableOption = Argument(help="Table(s) to load data into."),
+    data_type: DataType = Argument(help="Data type to load from file."),
     path: Path = Argument(
         resolve_path=True,
         writable=True,
         help="Path to load data from.",
     ),
-    format: DataFormat = Option(None, help="Data format to read files as."),
+    *,
+    format: DataFormat = Option(None, help="Data format to read the file as."),
     config: Config = ConfigOption(checks=[]),
 ) -> None:
     """
@@ -122,7 +124,7 @@ async def load(
     except Exception:
         raise CLIDatabaseUnreachableException("Failed to connect to database.")
 
-    if not await database.tables():
+    if not await database.initialized():
         raise CLIDatabaseUnreachableException("Database appears uninitialized, exiting.")
 
     start = utc()
@@ -132,7 +134,7 @@ async def load(
         case DataFormat.SQLITE:
             write("Loading data from SQLite...")
 
-    await database.load(table, path, format)
+    await database.load(data_type, path, format)
 
     duration = utc() - start
 
@@ -157,7 +159,7 @@ async def clear(config: Config = ConfigOption(checks=[])) -> None:
     except Exception:
         raise CLIDatabaseUnreachableException("Failed to connect to database.")
 
-    if not await database.tables():
+    if not await database.initialized():
         raise CLIDatabaseUnreachableException("Database appears uninitialized, exiting.")
 
     if not get_yes_no("Clear all data from the project database?", default=False):

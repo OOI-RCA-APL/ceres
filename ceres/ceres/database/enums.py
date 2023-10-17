@@ -11,16 +11,15 @@ class DataFormat(StrEnum):
     SQLITE = "sqlite"
 
 
-class TableOption(StrEnum):
-    ALL = "all"
+class DataType(StrEnum):
     COMPONENTS = "components"
     MESSAGES = "messages"
     ALERTS = "alerts"
-    LOG_ENTRIES = "log-entries"
+    LOGS = "logs"
 
     @property
-    def table_name(self) -> str:
-        if self == TableOption.LOG_ENTRIES:
+    def table(self) -> str:
+        if self == DataType.LOGS:
             return "log_entries"
 
         return self.value

@@ -1,5 +1,6 @@
+import csv
 import shutil
-import subprocess
+import sqlite3
 import traceback
 from abc import abstractmethod
 from asyncio import Lock as AsyncLock
@@ -8,7 +9,7 @@ from os import PathLike
 from pathlib import Path
 from sqlite3 import Connection as SQLiteConnection
 from tempfile import NamedTemporaryFile, gettempdir
-from typing import Any, Callable, TypeVar, final
+from typing import Any, Callable, Iterable, Mapping, TypeVar, final
 from uuid import UUID, uuid4
 
 from pydantic import Field
@@ -32,7 +33,7 @@ from sqlalchemy.ext.asyncio import (
     AsyncSession,
     create_async_engine,
 )
-from typing_extensions import LiteralString, Self, Unpack, override
+from typing_extensions import Self, Unpack, override
 
 from ceres.address import Address
 from ceres.alert import Alert
@@ -43,8 +44,7 @@ from ceres.config import (
     SQLiteDatabaseConfig,
 )
 from ceres.data import DataObject
-from ceres.database.enums import DataFormat, TableOption
-from ceres.directory import Directory
+from ceres.database.enums import DataFormat, DataType
 from ceres.filter import (
     AlertFilter,
     AlertFilterArgs,
@@ -58,14 +58,14 @@ from ceres.filter import (
     StatisticsFilter,
     StatisticsFilterArgs,
 )
-from ceres.internal.database.entities import AlertEntity, Entity, LogEntryEntity, MessageEntity
-from ceres.internal.utilities import (
-    escape_like_expression,
-    get_type_adapter,
-    sqlexpr,
-    sqlstmt,
-    strlist,
+from ceres.internal.database.entities import (
+    AlertEntity,
+    ComponentEntity,
+    Entity,
+    LogEntryEntity,
+    MessageEntity,
 )
+from ceres.internal.utilities import escape_like_expression, get_type_adapter, strlist
 from ceres.level import Level
 from ceres.logs import LogEntry
 from ceres.message import Message
@@ -150,19 +150,27 @@ class Database:
         ...
 
     @abstractmethod
-    async def _dump_csv(self, table: TableOption, path: str | PathLike[str]) -> None:
+    async def _dump_csv(self, data_type: DataType, path: str | PathLike[str]) -> None:
         ...
 
     @abstractmethod
-    async def _load_csv(self, table: TableOption, path: str | PathLike[str]) -> None:
+    async def _load_csv(self, data_type: DataType, path: str | PathLike[str]) -> None:
         ...
 
     @abstractmethod
-    async def _dump_sqlite(self, table: TableOption, path: str | PathLike[str]) -> None:
+    async def _dump_sqlite(self, data_type: DataType, path: str | PathLike[str]) -> None:
         ...
 
     @abstractmethod
-    async def _load_sqlite(self, table: TableOption, path: str | PathLike[str]) -> None:
+    async def _load_sqlite(self, data_type: DataType, path: str | PathLike[str]) -> None:
+        ...
+
+    @abstractmethod
+    async def backup(self, path: str | PathLike[str]) -> None:
+        ...
+
+    @abstractmethod
+    async def restore(self, path: str | PathLike[str]) -> None:
         ...
 
     def _create_base_engine(self) -> AsyncEngine:
@@ -200,22 +208,6 @@ class Database:
 
         return engine
 
-    async def dump(self, table: TableOption, path: str | PathLike[str], format: DataFormat) -> None:
-        await self.init()
-        match format:
-            case DataFormat.CSV:
-                return await self._dump_csv(table, path)
-            case DataFormat.SQLITE:
-                return await self._dump_sqlite(table, path)
-
-    async def load(self, table: TableOption, path: str | PathLike[str], format: DataFormat) -> None:
-        await self.init()
-        match format:
-            case DataFormat.CSV:
-                return await self._load_csv(table, path)
-            case DataFormat.SQLITE:
-                return await self._load_sqlite(table, path)
-
     def session(self) -> AsyncSession:
         return AsyncSession(self.__engine, expire_on_commit=False)
 
@@ -248,8 +240,34 @@ class Database:
 
             await connection.commit()
 
-    async def tables(self) -> list[str]:
-        return await self.__run_sync(lambda connection: inspect(connection).get_table_names())
+    async def dump(
+        self,
+        data_type: DataType,
+        path: str | PathLike[str],
+        format: DataFormat,
+    ) -> None:
+        await self.init()
+        match format:
+            case DataFormat.CSV:
+                return await self._dump_csv(data_type, path)
+            case DataFormat.SQLITE:
+                return await self._dump_sqlite(data_type, path)
+
+    async def load(
+        self,
+        data_type: DataType,
+        path: str | PathLike[str],
+        format: DataFormat,
+    ) -> None:
+        await self.init()
+        match format:
+            case DataFormat.CSV:
+                return await self._load_csv(data_type, path)
+            case DataFormat.SQLITE:
+                return await self._load_sqlite(data_type, path)
+
+    async def initialized(self) -> bool:
+        return await self.__run_sync(lambda connection: bool(inspect(connection).get_table_names()))
 
     async def get_messages(
         self,
@@ -614,6 +632,15 @@ class SQLiteDatabase(Database):
     def url(self) -> str:
         return f"sqlite+aiosqlite:///{self.path}"
 
+    @property
+    def path(self) -> Path:
+        # If a path is provided, create an database at the provided path.
+        if self.config.path is not None:
+            return self.config.path.absolute()
+
+        # Otherwise create a temporary on-disk database.
+        return self.__get_temporary_path()
+
     def __del__(self) -> None:
         if self.config.path is not None or not self.__get_temporary_path().exists():
             return
@@ -671,6 +698,8 @@ class SQLiteDatabase(Database):
             # https://docs.sqlalchemy.org/en/latest/dialects/sqlite.html#foreign-key-support
             connection.execute("PRAGMA foreign_keys = ON")
 
+            _sqlite_create_functions(connection)
+
         # https://docs.sqlalchemy.org/en/20/core/events.html#sqlalchemy.events.ConnectionEvents.begin
         @event.listens_for(engine.sync_engine, "begin")
         def begin(connection: Connection) -> None:
@@ -679,63 +708,72 @@ class SQLiteDatabase(Database):
             connection.exec_driver_sql("BEGIN IMMEDIATE")
 
     @override
-    async def _load_csv(self, table: TableOption, path: str | PathLike[str]) -> None:
+    async def backup(self, path: str | PathLike[str]) -> None:
+        path = _prepare_write_path(path)
+
         def execute() -> None:
-            nonlocal path
-            path = Path(path).absolute()
-
-            for table_name, path in _get_csv_dump_paths(table, path):
-                result = subprocess.run(
-                    [
-                        "sqlite3",
-                        str(self.path),
-                        ".mode csv",
-                        f".import '{path}' {table_name}",
-                    ],
-                    capture_output=True,
-                )
-
-                if result.returncode != 0:
-                    raise RuntimeError(
-                        f"Failed to load CSV file '{path}' into table '{table}'. "
-                        + f"{result.stderr.decode('latin-1')}"
-                    )
+            with sqlite3.connect(self.path) as source:
+                _sqlite_create_functions(source)
+                with sqlite3.connect(path) as destination:
+                    source.backup(destination)
 
         await spawn(execute)
 
     @override
-    async def _dump_csv(self, table: TableOption, path: str | PathLike[str]) -> None:
+    async def restore(self, path: str | PathLike[str]) -> None:
+        for table in DataType:
+            await self._load_sqlite(table, path)
+
+    @override
+    async def _load_csv(
+        self,
+        data_type: DataType,
+        path: str | PathLike[str],
+    ) -> None:
+        path = _prepare_read_path(path)
+
         def execute() -> None:
-            nonlocal path
-            path = Path(path).absolute()
-            _remove(path)
+            with sqlite3.connect(self.path) as connection:
+                connection.execute("BEGIN")
 
-            if table == TableOption.ALL:
-                path.mkdir(parents=True, exist_ok=True)
+                columns = _get_columns_joined(data_type)
+                values = ", ".join("?" * len(_get_columns(data_type)))
+                statement = f"INSERT INTO {data_type.table} ({columns}) VALUES ({values})"
 
-            for table_name, path in _get_csv_dump_paths(table, Path(path)):
-                result = subprocess.run(
-                    [
-                        "sqlite3",
-                        str(self.path),
-                        ".mode csv",
-                        f".output '{path}'",
-                        f"SELECT * FROM {table_name};",
-                    ],
-                    capture_output=True,
+                for record in _get_csv_records(data_type, path):
+                    connection.execute(statement, record)
+
+                connection.execute("COMMIT")
+
+        await spawn(execute)
+
+    @override
+    async def _dump_csv(self, data_type: DataType, path: str | PathLike[str]) -> None:
+        path = _prepare_write_path(path)
+
+        def execute() -> None:
+            with sqlite3.connect(self.path) as connection:
+                _sqlite_create_functions(connection)
+
+                columns = _get_columns_joined(
+                    data_type,
+                    {
+                        DataType.MESSAGES: {"content": "decode(content, 'latin-1')"},
+                    },
                 )
 
-                if result.returncode != 0:
-                    raise RuntimeError(
-                        f"Failed to dump table '{table}' to CSV file '{path}'. "
-                        + f"{result.stderr.decode('latin-1')}"
-                    )
+                query = f"SELECT {columns} FROM {data_type.table}"
+
+                with path.open("w") as stream:
+                    writer = csv.writer(stream)
+                    rows = connection.execute(query)
+                    writer.writerows(rows)
 
         await spawn(execute)
 
     async def __copy(
         self,
-        table: TableOption,
+        data_type: DataType,
         source: Path,
         destination_engine: AsyncEngine,
         create: bool,
@@ -751,25 +789,9 @@ class SQLiteDatabase(Database):
                 text("ATTACH DATABASE :path AS source"), {"path": str(source)}
             )
 
-            if table in (TableOption.ALL, TableOption.COMPONENTS):
-                await destination_connection.execute(
-                    text("INSERT INTO main.components SELECT * FROM source.components")
-                )
-
-            if table in (TableOption.ALL, TableOption.MESSAGES):
-                await destination_connection.execute(
-                    text("INSERT INTO main.messages SELECT * FROM source.messages")
-                )
-
-            if table in (TableOption.ALL, TableOption.ALERTS):
-                await destination_connection.execute(
-                    text("INSERT INTO main.alerts SELECT * FROM source.alerts")
-                )
-
-            if table in (TableOption.ALL, TableOption.LOG_ENTRIES):
-                await destination_connection.execute(
-                    text("INSERT INTO main.log_entries SELECT * FROM source.log_entries")
-                )
+            await destination_connection.execute(
+                text(f"INSERT INTO main.{data_type.table} SELECT * FROM source.{data_type.table}")
+            )
 
             await destination_connection.commit()
 
@@ -778,39 +800,15 @@ class SQLiteDatabase(Database):
                 await destination_connection.commit()
 
     @override
-    async def _dump_sqlite(self, table: TableOption, path: str | PathLike[str]) -> None:
-        path = Path(path).absolute()
-        _remove(path)
-        path.parent.mkdir(parents=True, exist_ok=True)
-
-        if table == TableOption.ALL:
-
-            def execute() -> None:
-                result = subprocess.run(
-                    [
-                        "sqlite3",
-                        str(self.path),
-                        f".backup '{path}'",
-                    ],
-                    check=True,
-                    capture_output=True,
-                )
-
-                if result.returncode != 0:
-                    raise RuntimeError(
-                        f"Failed to dump database to SQLite file '{path}'. "
-                        + f"{result.stderr.decode('latin-1')}"
-                    )
-
-            await spawn(execute)
-            return
+    async def _dump_sqlite(self, data_type: DataType, path: str | PathLike[str]) -> None:
+        path = _prepare_write_path(path)
 
         destination_engine = create_async_engine(f"sqlite+aiosqlite:///{path}")
 
         try:
             await Entity.create_all(destination_engine, table=True, indexes=False)
             await self.__copy(
-                table,
+                data_type,
                 source=self.path,
                 destination_engine=destination_engine,
                 create=True,
@@ -820,24 +818,15 @@ class SQLiteDatabase(Database):
             await destination_engine.dispose()
 
     @override
-    async def _load_sqlite(self, table: TableOption, path: str | PathLike[str]) -> None:
-        path = Path(path).absolute()
+    async def _load_sqlite(self, data_type: DataType, path: str | PathLike[str]) -> None:
+        path = _prepare_read_path(path)
 
         await self.__copy(
-            table,
+            data_type,
             source=path,
             destination_engine=self.engine,
             create=False,
         )
-
-    @property
-    def path(self) -> Path:
-        # If a path is provided, create an database at the provided path.
-        if self.config.path is not None:
-            return self.config.path.absolute()
-
-        # Otherwise create a temporary on-disk database.
-        return self.__get_temporary_path()
 
     def __get_temporary_path(self) -> Path:
         return Path(gettempdir()) / f"ceres-{self.id}.sqlite"
@@ -880,146 +869,101 @@ class PostgresDatabase(Database):
         }
 
     @override
-    async def _dump_csv(self, table: TableOption, path: str | PathLike[str]) -> None:
-        path = Path(path).absolute()
-        _remove(path)
-
-        path.parent.mkdir(parents=True, exist_ok=True)
-        if table == TableOption.ALL:
-            path.mkdir()
-
-        import psycopg
-
-        url = self.url.replace("+psycopg", "")
-
-        async with await psycopg.AsyncConnection.connect(url) as connection:
-            cursor = connection.cursor()
-
-            async def write(
-                destination: Path,
-                statement: LiteralString,
-            ) -> None:
-                statement = sqlstmt(
-                    f"""
-COPY (
-    {sqlexpr(statement, indent=1)}
-) TO STDOUT WITH (FORMAT CSV)
-"""
-                )  # type: ignore
-
-                with destination.open("wb") as stream:
-                    async with cursor.copy(statement) as copy:
-                        async for row in copy:
-                            stream.write(row)
-
-                    stream.flush()
-
-            timestamp = "to_char(timestamp, 'YYYY-MM-DD HH24:MI:SS.US')"
-
-            if table in (TableOption.ALL, TableOption.COMPONENTS):
-                await write(
-                    path if table == TableOption.COMPONENTS else path / "components.csv",
-                    """
-                    SELECT address, enabled::TEXT
-                    FROM components
-                    """,
-                )
-            if table in (TableOption.ALL, TableOption.MESSAGES):
-                await write(
-                    path if table == TableOption.MESSAGES else path / "messages.csv",
-                    f"""
-                    SELECT
-                        id,
-                        address,
-                        {timestamp},
-                        direction,
-                        encode(content, 'escape')
-                    FROM messages
-                    """,
-                )
-
-            if table in (TableOption.ALL, TableOption.ALERTS):
-                await write(
-                    path if table == TableOption.ALERTS else path / "alerts.csv",
-                    f"""
-                    SELECT id, address, {timestamp}, level, code, info FROM alerts
-                    """,
-                )
-
-            if table in (TableOption.ALL, TableOption.LOG_ENTRIES):
-                await write(
-                    path if table == TableOption.LOG_ENTRIES else path / "log-entries.csv",
-                    f"""
-                    SELECT id, address, {timestamp}, level, content FROM log_entries
-                    """,
-                )
-
-    @override
-    async def _load_csv(self, table: TableOption, path: str | PathLike[str]) -> None:
-        path = Path(path).absolute()
-        paths = _get_csv_dump_paths(table, path)
-
-        from psycopg import AsyncConnection
-
-        url = self.url.replace("+psycopg", "")
-
-        async with await AsyncConnection.connect(url) as connection:
-            await connection.execute("BEGIN")
-            cursor = connection.cursor()
-
-            for table_name, path in paths:
-                async with cursor.copy(
-                    f"COPY {table_name} FROM STDIN (FORMAT CSV)"  # type: ignore
-                ) as copy:
-                    with path.open() as stream:
-                        while chunk := stream.read(1024):
-                            await copy.write(chunk)
-
-            await connection.execute("COMMIT")
-
-    @override
-    async def _load_sqlite(self, table: TableOption, path: str | PathLike[str]) -> None:
-        path = Path(path).absolute()
-
-        source_adapter = SQLiteDatabase(SQLiteDatabaseConfig(path=path))
-        if table == TableOption.ALL:
-            temporary_directory = Directory()
-            temporary_path = temporary_directory.path
-        else:
-            temporary_file = NamedTemporaryFile()
-            temporary_path = temporary_file.name
-
-        await source_adapter._dump_csv(table, temporary_path)
-        await self._load_csv(table, temporary_path)
-
-    @override
-    async def _dump_sqlite(self, table: TableOption, path: str | PathLike[str]) -> None:
-        path = Path(path).absolute()
-        _remove(path)
+    async def backup(self, path: str | PathLike[str]) -> None:
+        path = _prepare_write_path(path)
 
         destination_adapter = Database(SQLiteDatabaseConfig(path=path))
 
-        if table == TableOption.ALL:
-            temporary_directory = Directory()
-            temporary_path = temporary_directory.path
-        else:
-            temporary_file = NamedTemporaryFile()
+        for table in DataType:
+            with NamedTemporaryFile() as temporary_file:
+                temporary_path = temporary_file.name
+
+                await self._dump_csv(table, temporary_path)
+                await destination_adapter._load_csv(table, temporary_path)
+
+    @override
+    async def restore(self, path: str | PathLike[str]) -> None:
+        for table in DataType:
+            await self._load_sqlite(table, path)
+
+    @override
+    async def _dump_csv(self, data_type: DataType, path: str | PathLike[str]) -> None:
+        path = _prepare_write_path(path)
+
+        import asyncpg
+
+        url = self.url.replace("+asyncpg", "")
+        connection: asyncpg.Connection = await asyncpg.connect(url)
+
+        try:
+            timestamp = "to_char(timestamp, 'YYYY-MM-DD HH24:MI:SS.US')"
+
+            async with connection.transaction():
+                columns = _get_columns_joined(
+                    data_type,
+                    {
+                        DataType.COMPONENTS: {
+                            "enabled": "enabled::TEXT",
+                        },
+                        DataType.MESSAGES: {
+                            "timestamp": timestamp,
+                            "content": "encode(content, 'latin-1')",
+                        },
+                        DataType.ALERTS: {
+                            "timestamp": timestamp,
+                        },
+                        DataType.LOGS: {
+                            "timestamp": timestamp,
+                        },
+                    },
+                )
+                query = f"""SELECT {columns} FROM {data_type.table}"""
+
+                await connection.copy_from_query(query, output=path, format="csv")
+        finally:
+            await connection.close()
+
+    @override
+    async def _load_csv(self, data_type: DataType, path: str | PathLike[str]) -> None:
+        path = _prepare_read_path(path)
+
+        url = self.url.replace("+asyncpg", "")
+
+        import asyncpg
+        from asyncpg import Connection
+
+        connection: Connection = await asyncpg.connect(url)  # type: ignore
+
+        try:
+            async with connection.transaction():
+                await connection.copy_records_to_table(
+                    data_type.table,
+                    records=_get_csv_records(data_type, path),
+                )
+        finally:
+            await connection.close()
+
+    @override
+    async def _load_sqlite(self, data_type: DataType, path: str | PathLike[str]) -> None:
+        path = _prepare_read_path(path)
+
+        source_database = SQLiteDatabase(SQLiteDatabaseConfig(path=path))
+        with NamedTemporaryFile() as temporary_file:
             temporary_path = temporary_file.name
 
-        await self._dump_csv(table, temporary_path)
-        await destination_adapter._load_csv(table, temporary_path)
+            await source_database._dump_csv(data_type, temporary_path)
+            await self._load_csv(data_type, temporary_path)
 
+    @override
+    async def _dump_sqlite(self, data_type: DataType, path: str | PathLike[str]) -> None:
+        path = _prepare_write_path(path)
 
-def _get_csv_dump_paths(table: TableOption, path: Path) -> list[tuple[str, Path]]:
-    if table == TableOption.ALL:
-        return [
-            ("components", path / "components.csv"),
-            ("messages", path / "messages.csv"),
-            ("alerts", path / "alerts.csv"),
-            ("log_entries", path / "log-entries.csv"),
-        ]
+        destination_adapter = Database(SQLiteDatabaseConfig(path=path))
+        with NamedTemporaryFile() as temporary_file:
+            temporary_path = temporary_file.name
 
-    return [(table.table_name, path)]
+            await self._dump_csv(data_type, temporary_path)
+            await destination_adapter._load_csv(data_type, temporary_path)
 
 
 def _remove(path: Path) -> None:
@@ -1027,3 +971,81 @@ def _remove(path: Path) -> None:
         shutil.rmtree(path, True)
     else:
         path.unlink(missing_ok=True)
+
+
+def _prepare_write_path(path: str | PathLike[str]) -> Path:
+    path = Path(path).absolute()
+    _remove(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _prepare_read_path(path: str | PathLike[str]) -> Path:
+    path = Path(path).absolute()
+    return path
+
+
+def _get_csv_records(data_type: DataType, path: Path) -> Iterable[tuple[Any, ...]]:
+    import csv
+
+    row: list[Any]
+
+    with open(path, encoding="utf-8", errors="ignore") as stream:
+        for row in csv.reader(stream, delimiter=",", lineterminator="\n", quotechar='"'):
+            row = list(row)
+            row[2] = datetime.fromisoformat(row[2])
+            if data_type == DataType.MESSAGES:
+                row[4] = row[4].encode("latin-1", errors="ignore")
+
+            yield tuple(row)
+
+
+def _decode(value: bytes, encoding: str) -> str:
+    if isinstance(value, str):  # type: ignore
+        return value
+
+    return value.decode(encoding)
+
+
+def _encode(value: str, encoding: str) -> bytes:
+    if isinstance(value, bytes):
+        return value
+
+    return value.encode(encoding)
+
+
+def _sqlite_create_functions(connection: SQLiteConnection) -> None:
+    sqlite3.enable_callback_tracebacks(True)
+    connection.create_function("decode", 2, _decode)
+    connection.create_function("encode", 2, _encode)
+
+
+_Replace = Mapping[DataType, Mapping[str, str]]
+
+
+def _get_columns_joined(data_type: DataType, replace: _Replace = {}) -> str:
+    return ", ".join(_get_columns(data_type, replace))
+
+
+def _get_columns(data_type: DataType, replace: _Replace = {}) -> list[str]:
+    columns = list(_get_entity_cls(data_type).__table__.columns.keys())
+    replaced = replace.get(data_type, {})
+    if replaced:
+        for i, column in enumerate(columns):
+            columns[i] = replaced.get(column, column)
+
+    return columns
+
+
+def _get_entity_cls(data_type: DataType) -> type[Entity]:
+    match data_type:
+        case DataType.COMPONENTS:
+            return ComponentEntity
+        case DataType.MESSAGES:
+            return MessageEntity
+        case DataType.ALERTS:
+            return AlertEntity
+        case DataType.LOGS:
+            return LogEntryEntity
+
+    raise ValueError(data_type)

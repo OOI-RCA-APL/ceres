@@ -299,7 +299,7 @@ class Engine(Object, kw_only=False):
                 return Fail(ReloadConfigInvalidError(errors=errors))
 
     async def __load_database(self) -> None:
-        if not await self.__object_database__.tables():
+        if not await self.__object_database__.initialized():
             self.log.info("Database appears empty, initializing database...")
             try:
                 await self.__object_database__.init()
