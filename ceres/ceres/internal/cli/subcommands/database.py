@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from click import Choice
 from pydantic import ByteSize
 from typer import Argument, Option
 
@@ -17,18 +18,12 @@ database = AsyncTyper(
 )
 
 
-def _get_database(config: Config):
-    from ceres.database.database import Database
-
-    return Database(config.database)
-
-
 @database.command()
 async def init(*, config: Config = ConfigOption(checks=[])) -> None:
     """
     Create all required tables in the project database.
     """
-    database = _get_database(config)
+    database = await _get_database(config)
 
     try:
         async with database.connect():
@@ -55,95 +50,93 @@ async def init(*, config: Config = ConfigOption(checks=[])) -> None:
 
 @database.command()
 async def dump(
-    data_type: DataType = Argument(help="Data type to dump to file."),
     path: Path = Argument(
+        dir_okay=False,
         resolve_path=True,
         writable=True,
-        help="Path to dump data to.",
+        help="File path to write to.",
     ),
     *,
+    data_type: list[DataType] = Option(
+        [],
+        click_type=Choice([current.value for current in DataType]),
+        help="Data type to dump to file.",
+    ),
     format: DataFormat = Option(None, help="Format to dump data as."),
     config: Config = ConfigOption(checks=[]),
 ) -> None:
     """
     Dump data in the project database to file.
     """
+    format = _guess_format(format, path)
 
-    format = _infer_data_format(format, path)
-    database = _get_database(config)
+    if format == DataFormat.CSV:
+        if not data_type:
+            raise CLIException("Dumping to CSV requires '--data-type' to be specified.")
+        elif len(data_type) != 1:
+            raise CLIException("Dumping to CSV requires exactly one '--data-type' to be specified.")
 
-    try:
-        async with database.connect():
-            pass
-    except Exception:
-        raise CLIDatabaseUnreachableException("Failed to connect to database.")
+    data_type = list(DataType) if not data_type else [DataType(current) for current in data_type]
 
-    if not await database.initialized():
-        raise CLIDatabaseUnreachableException("Database appears uninitialized, exiting.")
-
+    database = await _get_database(config, initialized=True)
     start = utc()
+
     match format:
         case DataFormat.CSV:
             write("Dumping data to CSV...")
+            await database.dump_csv(path, data_type[0])
         case DataFormat.SQLITE:
             write("Dumping data to SQLite...")
-
-    await database.dump(data_type, path, format)
+            await database.dump_sqlite(path, data_type)
 
     duration = utc() - start
-
-    match format:
-        case DataFormat.CSV:
-            write(f"Dump to CSV completed in {show_td(duration)}.")
-        case DataFormat.SQLITE:
-            size = ByteSize(path.stat().st_size).human_readable()
-            write(f"Dumped {size} to SQLite in {show_td(duration)}.")
+    write(f"Dump completed in {show_td(duration)}.")
 
 
 @database.command()
 async def load(
-    data_type: DataType = Argument(help="Data type to load from file."),
     path: Path = Argument(
+        dir_okay=False,
         resolve_path=True,
-        writable=True,
-        help="Path to load data from.",
+        readable=True,
+        help="File path to read data from.",
     ),
     *,
+    data_type: list[DataType] = Option(
+        [],
+        click_type=Choice([current.value for current in DataType]),
+        help="Data type(s) to load from file.",
+    ),
     format: DataFormat = Option(None, help="Data format to read the file as."),
     config: Config = ConfigOption(checks=[]),
 ) -> None:
     """
     Load data into the project database.
     """
-    format = _infer_data_format(format, path)
-    database = _get_database(config)
+    format = _guess_format(format, path)
+    if format == DataFormat.CSV:
+        if not data_type:
+            raise CLIException("Loading from CSV requires '--data-type' to be specified.")
+        elif len(data_type) != 1:
+            raise CLIException(
+                "Loading from CSV requires exactly one '--data-type' to be specified."
+            )
 
-    try:
-        async with database.connect():
-            pass
-    except Exception:
-        raise CLIDatabaseUnreachableException("Failed to connect to database.")
+    data_type = list(DataType) if not data_type else [DataType(current) for current in data_type]
 
-    if not await database.initialized():
-        raise CLIDatabaseUnreachableException("Database appears uninitialized, exiting.")
-
+    database = await _get_database(config, initialized=True)
     start = utc()
+
     match format:
         case DataFormat.CSV:
             write("Loading data from CSV...")
+            await database.load_csv(path, data_type[0])
         case DataFormat.SQLITE:
             write("Loading data from SQLite...")
-
-    await database.load(data_type, path, format)
+            await database.load_sqlite(path, data_type)
 
     duration = utc() - start
-
-    match format:
-        case DataFormat.CSV:
-            write(f"Load from CSV completed in {show_td(duration)}.")
-        case DataFormat.SQLITE:
-            size = ByteSize(path.stat().st_size).human_readable()
-            write(f"Load of {size} of data from SQLite completed in {show_td(duration)}.")
+    write(f"Load completed in {show_td(duration)}.")
 
 
 @database.command()
@@ -151,16 +144,7 @@ async def clear(config: Config = ConfigOption(checks=[])) -> None:
     """
     Clear all data from the project database.
     """
-    database = _get_database(config)
-
-    try:
-        async with database.connect():
-            pass
-    except Exception:
-        raise CLIDatabaseUnreachableException("Failed to connect to database.")
-
-    if not await database.initialized():
-        raise CLIDatabaseUnreachableException("Database appears uninitialized, exiting.")
+    database = await _get_database(config, initialized=True)
 
     if not get_yes_no("Clear all data from the project database?", default=False):
         write("Database has not been modified. Exiting.")
@@ -179,13 +163,31 @@ async def ddl(*, config: Config = ConfigOption(checks=[])) -> None:
     """
     Show DDL commands used to create required tables in the project database.
     """
-    database = _get_database(config)
+    database = await _get_database(config)
 
     for statement in database.ddl:
         write(statement)
 
 
-def _infer_data_format(format: DataFormat | None, path: Path) -> DataFormat:
+async def _get_database(config: Config, *, initialized: bool = False):
+    from ceres.database.database import Database
+
+    database = Database(config.database)
+
+    try:
+        async with database.connect():
+            pass
+    except Exception:
+        raise CLIDatabaseUnreachableException("Failed to connect to database.")
+
+    if initialized:
+        if not await database.initialized():
+            raise CLIDatabaseUnreachableException("Database appears uninitialized, exiting.")
+
+    return database
+
+
+def _guess_format(format: DataFormat | None, path: Path) -> DataFormat:
     if format is not None:
         return format
     if path.suffix == ".csv":
@@ -197,3 +199,7 @@ def _infer_data_format(format: DataFormat | None, path: Path) -> DataFormat:
         f"Could not infer data format from file extension: {path.suffix!r}. "
         + "Try specifying the '--format' option."
     )
+
+
+def _get_size(path: Path) -> str:
+    return ByteSize(path.stat().st_size).human_readable()

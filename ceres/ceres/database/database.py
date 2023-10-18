@@ -5,11 +5,10 @@ import traceback
 from abc import abstractmethod
 from asyncio import Lock as AsyncLock
 from datetime import datetime
-from os import PathLike
 from pathlib import Path
 from sqlite3 import Connection as SQLiteConnection
 from tempfile import NamedTemporaryFile, gettempdir
-from typing import Any, Callable, Iterable, Mapping, TypeVar, final
+from typing import Any, Callable, Iterable, Mapping, Sequence, TypeVar, final
 from uuid import UUID, uuid4
 
 from pydantic import Field
@@ -44,7 +43,7 @@ from ceres.config import (
     SQLiteDatabaseConfig,
 )
 from ceres.data import DataObject
-from ceres.database.enums import DataFormat, DataType
+from ceres.database.enums import DataType
 from ceres.filter import (
     AlertFilter,
     AlertFilterArgs,
@@ -65,7 +64,7 @@ from ceres.internal.database.entities import (
     LogEntryEntity,
     MessageEntity,
 )
-from ceres.internal.utilities import escape_like_expression, get_type_adapter, strlist
+from ceres.internal.utilities import PathLike, escape_like_expression, get_type_adapter, strlist
 from ceres.level import Level
 from ceres.logs import LogEntry
 from ceres.message import Message
@@ -150,27 +149,27 @@ class Database:
         ...
 
     @abstractmethod
-    async def _dump_csv(self, data_type: DataType, path: str | PathLike[str]) -> None:
+    async def dump_csv(self, path: PathLike, data_type: DataType) -> None:
         ...
 
     @abstractmethod
-    async def _load_csv(self, data_type: DataType, path: str | PathLike[str]) -> None:
+    async def load_csv(self, path: PathLike, data_type: DataType) -> None:
         ...
 
     @abstractmethod
-    async def _dump_sqlite(self, data_type: DataType, path: str | PathLike[str]) -> None:
+    async def dump_sqlite(
+        self,
+        path: PathLike,
+        data_types: Sequence[DataType] | None = None,
+    ) -> None:
         ...
 
     @abstractmethod
-    async def _load_sqlite(self, data_type: DataType, path: str | PathLike[str]) -> None:
-        ...
-
-    @abstractmethod
-    async def backup(self, path: str | PathLike[str]) -> None:
-        ...
-
-    @abstractmethod
-    async def restore(self, path: str | PathLike[str]) -> None:
+    async def load_sqlite(
+        self,
+        path: PathLike,
+        data_types: Sequence[DataType] | None = None,
+    ) -> None:
         ...
 
     def _create_base_engine(self) -> AsyncEngine:
@@ -239,32 +238,6 @@ class Database:
                 await connection.execute(delete(cls))
 
             await connection.commit()
-
-    async def dump(
-        self,
-        data_type: DataType,
-        path: str | PathLike[str],
-        format: DataFormat,
-    ) -> None:
-        await self.init()
-        match format:
-            case DataFormat.CSV:
-                return await self._dump_csv(data_type, path)
-            case DataFormat.SQLITE:
-                return await self._dump_sqlite(data_type, path)
-
-    async def load(
-        self,
-        data_type: DataType,
-        path: str | PathLike[str],
-        format: DataFormat,
-    ) -> None:
-        await self.init()
-        match format:
-            case DataFormat.CSV:
-                return await self._load_csv(data_type, path)
-            case DataFormat.SQLITE:
-                return await self._load_sqlite(data_type, path)
 
     async def initialized(self) -> bool:
         return await self.__run_sync(lambda connection: bool(inspect(connection).get_table_names()))
@@ -708,28 +681,7 @@ class SQLiteDatabase(Database):
             connection.exec_driver_sql("BEGIN IMMEDIATE")
 
     @override
-    async def backup(self, path: str | PathLike[str]) -> None:
-        path = _prepare_write_path(path)
-
-        def execute() -> None:
-            with sqlite3.connect(self.path) as source:
-                _sqlite_create_functions(source)
-                with sqlite3.connect(path) as destination:
-                    source.backup(destination)
-
-        await spawn(execute)
-
-    @override
-    async def restore(self, path: str | PathLike[str]) -> None:
-        for table in DataType:
-            await self._load_sqlite(table, path)
-
-    @override
-    async def _load_csv(
-        self,
-        data_type: DataType,
-        path: str | PathLike[str],
-    ) -> None:
+    async def load_csv(self, path: PathLike, data_type: DataType) -> None:
         path = _prepare_read_path(path)
 
         def execute() -> None:
@@ -748,7 +700,7 @@ class SQLiteDatabase(Database):
         await spawn(execute)
 
     @override
-    async def _dump_csv(self, data_type: DataType, path: str | PathLike[str]) -> None:
+    async def dump_csv(self, path: PathLike, data_type: DataType) -> None:
         path = _prepare_write_path(path)
 
         def execute() -> None:
@@ -773,11 +725,14 @@ class SQLiteDatabase(Database):
 
     async def __copy(
         self,
-        data_type: DataType,
+        data_types: Sequence[DataType] | None,
         source: Path,
         destination_engine: AsyncEngine,
         create: bool,
     ) -> None:
+        if data_types is None:
+            data_types = list(DataType)
+
         async with destination_engine.connect() as destination_connection:
             if create:
                 await destination_connection.execute(text("PRAGMA busy_timeout = 30000"))
@@ -789,9 +744,10 @@ class SQLiteDatabase(Database):
                 text("ATTACH DATABASE :path AS source"), {"path": str(source)}
             )
 
-            await destination_connection.execute(
-                text(f"INSERT INTO main.{data_type.table} SELECT * FROM source.{data_type.table}")
-            )
+            for type in data_types:
+                await destination_connection.execute(
+                    text(f"INSERT INTO main.{type.table} SELECT * FROM source.{type.table}")
+                )
 
             await destination_connection.commit()
 
@@ -800,29 +756,51 @@ class SQLiteDatabase(Database):
                 await destination_connection.commit()
 
     @override
-    async def _dump_sqlite(self, data_type: DataType, path: str | PathLike[str]) -> None:
+    async def dump_sqlite(
+        self,
+        path: PathLike,
+        data_types: Sequence[DataType] | None = None,
+    ) -> None:
+        if data_types is None:
+            data_types = list(DataType)
+
+        if set(data_types) == set(DataType):
+
+            def execute() -> None:
+                with sqlite3.connect(self.path) as source:
+                    _sqlite_create_functions(source)
+                    with sqlite3.connect(path) as destination:
+                        source.backup(destination)
+
+            await spawn(execute)
+            return
+
         path = _prepare_write_path(path)
 
         destination_engine = create_async_engine(f"sqlite+aiosqlite:///{path}")
 
         try:
-            await Entity.create_all(destination_engine, table=True, indexes=False)
+            await Entity.create_all(destination_engine, tables=True, indexes=False)
             await self.__copy(
-                data_type,
+                data_types,
                 source=self.path,
                 destination_engine=destination_engine,
                 create=True,
             )
-            await Entity.create_all(destination_engine, table=False, indexes=True)
+            await Entity.create_all(destination_engine, tables=False, indexes=True)
         finally:
             await destination_engine.dispose()
 
     @override
-    async def _load_sqlite(self, data_type: DataType, path: str | PathLike[str]) -> None:
+    async def load_sqlite(
+        self,
+        path: PathLike,
+        data_types: Sequence[DataType] | None = None,
+    ) -> None:
         path = _prepare_read_path(path)
 
         await self.__copy(
-            data_type,
+            data_types,
             source=path,
             destination_engine=self.engine,
             create=False,
@@ -869,25 +847,7 @@ class PostgresDatabase(Database):
         }
 
     @override
-    async def backup(self, path: str | PathLike[str]) -> None:
-        path = _prepare_write_path(path)
-
-        destination_adapter = Database(SQLiteDatabaseConfig(path=path))
-
-        for table in DataType:
-            with NamedTemporaryFile() as temporary_file:
-                temporary_path = temporary_file.name
-
-                await self._dump_csv(table, temporary_path)
-                await destination_adapter._load_csv(table, temporary_path)
-
-    @override
-    async def restore(self, path: str | PathLike[str]) -> None:
-        for table in DataType:
-            await self._load_sqlite(table, path)
-
-    @override
-    async def _dump_csv(self, data_type: DataType, path: str | PathLike[str]) -> None:
+    async def dump_csv(self, path: PathLike, data_type: DataType) -> None:
         path = _prepare_write_path(path)
 
         import asyncpg
@@ -924,7 +884,7 @@ class PostgresDatabase(Database):
             await connection.close()
 
     @override
-    async def _load_csv(self, data_type: DataType, path: str | PathLike[str]) -> None:
+    async def load_csv(self, path: PathLike, data_type: DataType) -> None:
         path = _prepare_read_path(path)
 
         url = self.url.replace("+asyncpg", "")
@@ -944,26 +904,38 @@ class PostgresDatabase(Database):
             await connection.close()
 
     @override
-    async def _load_sqlite(self, data_type: DataType, path: str | PathLike[str]) -> None:
-        path = _prepare_read_path(path)
+    async def dump_sqlite(
+        self,
+        path: PathLike,
+        data_types: Sequence[DataType] | None = None,
+    ) -> None:
+        if data_types is None:
+            data_types = list(DataType)
 
-        source_database = SQLiteDatabase(SQLiteDatabaseConfig(path=path))
-        with NamedTemporaryFile() as temporary_file:
-            temporary_path = temporary_file.name
-
-            await source_database._dump_csv(data_type, temporary_path)
-            await self._load_csv(data_type, temporary_path)
-
-    @override
-    async def _dump_sqlite(self, data_type: DataType, path: str | PathLike[str]) -> None:
         path = _prepare_write_path(path)
 
-        destination_adapter = Database(SQLiteDatabaseConfig(path=path))
-        with NamedTemporaryFile() as temporary_file:
-            temporary_path = temporary_file.name
+        destination = Database(SQLiteDatabaseConfig(path=path))
+        for data_type in data_types:
+            with NamedTemporaryFile() as temporary:
+                await self.dump_csv(temporary.name, data_type)
+                await destination.load_csv(temporary.name, data_type)
 
-            await self._dump_csv(data_type, temporary_path)
-            await destination_adapter._load_csv(data_type, temporary_path)
+    @override
+    async def load_sqlite(
+        self,
+        path: PathLike,
+        data_types: Sequence[DataType] | None = None,
+    ) -> None:
+        if data_types is None:
+            data_types = list(DataType)
+
+        path = _prepare_read_path(path)
+
+        source = SQLiteDatabase(SQLiteDatabaseConfig(path=path))
+        for data_type in data_types:
+            with NamedTemporaryFile() as temporary:
+                await source.dump_csv(temporary.name, data_type)
+                await self.load_csv(temporary.name, data_type)
 
 
 def _remove(path: Path) -> None:
@@ -973,14 +945,14 @@ def _remove(path: Path) -> None:
         path.unlink(missing_ok=True)
 
 
-def _prepare_write_path(path: str | PathLike[str]) -> Path:
+def _prepare_write_path(path: PathLike) -> Path:
     path = Path(path).absolute()
     _remove(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     return path
 
 
-def _prepare_read_path(path: str | PathLike[str]) -> Path:
+def _prepare_read_path(path: PathLike) -> Path:
     path = Path(path).absolute()
     return path
 

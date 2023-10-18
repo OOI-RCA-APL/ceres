@@ -13,6 +13,7 @@ from collections import OrderedDict, defaultdict
 from contextlib import contextmanager
 from datetime import timedelta
 from functools import lru_cache, wraps
+from os import PathLike as _BasePathLike
 from types import NoneType, UnionType
 from typing import (
     TYPE_CHECKING,
@@ -916,3 +917,5 @@ def upper_camel(string: str) -> str:
 
 
 Undefined = object()
+
+PathLike = str | _BasePathLike[str]

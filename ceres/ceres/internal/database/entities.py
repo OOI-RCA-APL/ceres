@@ -104,14 +104,14 @@ class Entity(MappedAsDataclass, DeclarativeBase, kw_only=True):
         cls,
         engine: AsyncEngine,
         *,
-        table: bool = True,
+        tables: bool = True,
         indexes: bool = True,
     ) -> None:
         async with engine.begin() as connection:
             for cls in cls.get_entity_classes():
                 for statement in cls.get_entity_ddl(
                     engine.sync_engine,
-                    table=table,
+                    table=tables,
                     indexes=indexes,
                 ):
                     await connection.execute(text(statement))
