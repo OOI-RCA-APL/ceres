@@ -84,7 +84,7 @@ class Entity(MappedAsDataclass, DeclarativeBase, kw_only=True):
     @staticmethod
     def get_entity_classes() -> list[type["Entity"]]:
         return [
-            ComponentEntity,
+            StoreEntity,
             MessageEntity,
             AlertEntity,
             LogEntryEntity,
@@ -180,8 +180,8 @@ class Entity(MappedAsDataclass, DeclarativeBase, kw_only=True):
 
 
 @final
-class ComponentEntity(Entity, kw_only=True):
-    __tablename__ = "components"
+class StoreEntity(Entity, kw_only=True):
+    __tablename__ = "stores"
 
     address: Mapped[Address] = mapped_column(AddressMapper)
     enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default=expression.false())
