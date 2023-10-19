@@ -11,15 +11,22 @@ class DataFormat(StrEnum):
     SQLITE = "sqlite"
 
 
-class DataType(StrEnum):
-    COMPONENTS = "components"
-    MESSAGES = "messages"
-    ALERTS = "alerts"
-    LOGS = "logs"
+class ItemType(StrEnum):
+    STORE = "store"
+    MESSAGE = "message"
+    ALERT = "alert"
+    LOG_ENTRY = "log-entry"
 
     @property
     def table(self) -> str:
-        if self == DataType.LOGS:
-            return "log_entries"
+        match self:
+            case ItemType.STORE:
+                return "stores"
+            case ItemType.MESSAGE:
+                return "messages"
+            case ItemType.ALERT:
+                return "alerts"
+            case ItemType.LOG_ENTRY:
+                return "log_entries"
 
-        return self.value
+        raise ValueError(self)

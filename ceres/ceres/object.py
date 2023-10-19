@@ -209,7 +209,7 @@ class Object(ValidatedDataclass, Tasklet):
             address=self.address,
             level=level,
             code=code,
-            info=info if info is not None else {},
+            info=dict(info) if info is not None else {},
         )
 
         self.emit(AlertEvent, alert=alert)

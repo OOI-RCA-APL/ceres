@@ -8,10 +8,20 @@ from datetime import datetime
 from pathlib import Path
 from sqlite3 import Connection as SQLiteConnection
 from tempfile import NamedTemporaryFile, gettempdir
-from typing import Any, Callable, Iterable, Mapping, Sequence, TypeVar, final
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Iterable,
+    Iterator,
+    Mapping,
+    Sequence,
+    TypeVar,
+    final,
+)
 from uuid import UUID, uuid4
 
-from pydantic import Field
+from pydantic import Field, ValidationError
 from sqlalchemy import (
     AsyncAdaptedQueuePool,
     BinaryExpression,
@@ -42,8 +52,9 @@ from ceres.config import (
     PostgresDatabaseConfig,
     SQLiteDatabaseConfig,
 )
-from ceres.data import DataObject
-from ceres.database.enums import DataType
+from ceres.data import DataObject, jsonify
+from ceres.database.enums import ItemType
+from ceres.exceptions import DatabaseLoadException
 from ceres.filter import (
     AlertFilter,
     AlertFilterArgs,
@@ -59,10 +70,10 @@ from ceres.filter import (
 )
 from ceres.internal.database.entities import (
     AlertEntity,
-    ComponentEntity,
     Entity,
     LogEntryEntity,
     MessageEntity,
+    StoreEntity,
 )
 from ceres.internal.utilities import (
     PathLike,
@@ -73,6 +84,7 @@ from ceres.internal.utilities import (
 from ceres.level import Level
 from ceres.logs import LogEntry
 from ceres.message import Message
+from ceres.store import Store
 from ceres.threading import spawn
 from ceres.timing import utc
 
@@ -136,7 +148,7 @@ class Database:
         commands: list[str] = []
 
         for cls in Entity.get_entity_classes():
-            commands.extend(cls.get_entity_ddl(self.__engine.sync_engine))
+            commands.extend(cls.get_ddl(self.__engine.sync_engine))
 
         return commands
 
@@ -154,18 +166,18 @@ class Database:
         ...
 
     @abstractmethod
-    async def dump_csv(self, path: PathLike, data_type: DataType) -> None:
+    async def dump_csv(self, path: PathLike, item_type: ItemType) -> None:
         ...
 
     @abstractmethod
-    async def load_csv(self, path: PathLike, data_type: DataType) -> None:
+    async def load_csv(self, path: PathLike, item_type: ItemType) -> None:
         ...
 
     @abstractmethod
     async def dump_sqlite(
         self,
         path: PathLike,
-        data_types: Sequence[DataType] | None = None,
+        item_types: Sequence[ItemType] | None = None,
     ) -> None:
         ...
 
@@ -173,7 +185,7 @@ class Database:
     async def load_sqlite(
         self,
         path: PathLike,
-        data_types: Sequence[DataType] | None = None,
+        item_types: Sequence[ItemType] | None = None,
     ) -> None:
         ...
 
@@ -686,7 +698,7 @@ class SQLiteDatabase(Database):
             connection.exec_driver_sql("BEGIN IMMEDIATE")
 
     @override
-    async def load_csv(self, path: PathLike, data_type: DataType) -> None:
+    async def load_csv(self, path: PathLike, item_type: ItemType) -> None:
         path = _prepare_read_path(path)
 
         await self.init()
@@ -695,19 +707,23 @@ class SQLiteDatabase(Database):
             with sqlite3.connect(self.path) as connection:
                 connection.execute("BEGIN")
 
-                columns = _get_columns_joined(data_type)
-                values = ", ".join("?" * len(_get_columns(data_type)))
-                statement = f"INSERT INTO {data_type.table} ({columns}) VALUES ({values})"
+                columns = _get_columns_joined(item_type)
+                placeholders = ", ".join(":" + column for column in _get_columns(item_type))
+                statement = f"INSERT INTO {item_type.table} ({columns}) VALUES ({placeholders})"
 
-                for record in _get_csv_records(data_type, path):
-                    connection.execute(statement, record)
+                for item in _read_csv_items(path, _get_item_cls(item_type)):
+                    id = item.__dict__.get("id")
+                    if id is not None:
+                        item.__dict__["id"] = str(id)
+
+                    connection.execute(statement, item.__dict__)
 
                 connection.execute("COMMIT")
 
         await spawn(execute)
 
     @override
-    async def dump_csv(self, path: PathLike, data_type: DataType) -> None:
+    async def dump_csv(self, path: PathLike, item_type: ItemType) -> None:
         path = _prepare_write_path(path)
 
         await self.init()
@@ -716,31 +732,34 @@ class SQLiteDatabase(Database):
             with sqlite3.connect(self.path) as connection:
                 _sqlite_create_functions(connection)
 
-                columns = _get_columns_joined(
-                    data_type,
+                header = _get_columns(item_type)
+                selects = _get_columns_joined(
+                    item_type,
                     {
-                        DataType.MESSAGES: {"content": "decode(content, 'latin-1')"},
+                        ItemType.MESSAGE: {"content": "decode(content, 'latin-1')"},
                     },
                 )
 
-                query = f"SELECT {columns} FROM {data_type.table}"
+                query = f"SELECT {selects} FROM {item_type.table}"
 
-                with path.open("w") as stream:
-                    writer = csv.writer(stream)
-                    rows = connection.execute(query)
-                    writer.writerows(rows)
+                with path.open("w") as output:
+                    writer = csv.writer(output)
+                    # Write header.
+                    writer.writerow(header)
+                    # Write rows directly from the cursor.
+                    writer.writerows(connection.execute(query))
 
         await spawn(execute)
 
     async def __copy(
         self,
-        data_types: Sequence[DataType] | None,
+        item_types: Sequence[ItemType] | None,
         source: Path,
         destination_engine: AsyncEngine,
         create: bool,
     ) -> None:
-        if data_types is None:
-            data_types = list(DataType)
+        if item_types is None:
+            item_types = list(ItemType)
 
         async with destination_engine.connect() as destination_connection:
             if create:
@@ -753,7 +772,7 @@ class SQLiteDatabase(Database):
                 text("ATTACH DATABASE :path AS source"), {"path": str(source)}
             )
 
-            for type in data_types:
+            for type in item_types:
                 await destination_connection.execute(
                     text(f"INSERT INTO main.{type.table} SELECT * FROM source.{type.table}")
                 )
@@ -768,14 +787,14 @@ class SQLiteDatabase(Database):
     async def dump_sqlite(
         self,
         path: PathLike,
-        data_types: Sequence[DataType] | None = None,
+        item_types: Sequence[ItemType] | None = None,
     ) -> None:
-        if data_types is None:
-            data_types = list(DataType)
+        if item_types is None:
+            item_types = list(ItemType)
 
         await self.init()
 
-        if set(data_types) == set(DataType):
+        if set(item_types) == set(ItemType):
 
             def execute() -> None:
                 with sqlite3.connect(self.path) as source:
@@ -791,14 +810,14 @@ class SQLiteDatabase(Database):
         destination_engine = create_async_engine(f"sqlite+aiosqlite:///{path}")
 
         try:
-            await Entity.create_all(destination_engine, tables=True, indexes=False)
+            await _execute_ddl(destination_engine, tables=True, indexes=False)
             await self.__copy(
-                data_types,
+                item_types,
                 source=self.path,
                 destination_engine=destination_engine,
                 create=True,
             )
-            await Entity.create_all(destination_engine, tables=False, indexes=True)
+            await _execute_ddl(destination_engine, tables=False, indexes=True)
         finally:
             await destination_engine.dispose()
 
@@ -806,14 +825,14 @@ class SQLiteDatabase(Database):
     async def load_sqlite(
         self,
         path: PathLike,
-        data_types: Sequence[DataType] | None = None,
+        item_types: Sequence[ItemType] | None = None,
     ) -> None:
         path = _prepare_read_path(path)
 
         await self.init()
 
         await self.__copy(
-            data_types,
+            item_types,
             source=path,
             destination_engine=self.engine,
             create=False,
@@ -860,7 +879,7 @@ class PostgresDatabase(Database):
         }
 
     @override
-    async def dump_csv(self, path: PathLike, data_type: DataType) -> None:
+    async def dump_csv(self, path: PathLike, item_type: ItemType) -> None:
         path = _prepare_write_path(path)
 
         await self.init()
@@ -871,35 +890,40 @@ class PostgresDatabase(Database):
         connection: asyncpg.Connection = await asyncpg.connect(url)
 
         try:
-            timestamp = "to_char(timestamp, 'YYYY-MM-DD HH24:MI:SS.US')"
+            timestamp = "to_char(timestamp, 'YYYY-MM-DD HH24:MI:SS.US') as timestamp"
 
             async with connection.transaction():
                 columns = _get_columns_joined(
-                    data_type,
+                    item_type,
                     {
-                        DataType.COMPONENTS: {
-                            "enabled": "enabled::TEXT",
+                        ItemType.STORE: {
+                            "enabled": "enabled::TEXT as enabled",
                         },
-                        DataType.MESSAGES: {
+                        ItemType.MESSAGE: {
                             "timestamp": timestamp,
-                            "content": "convert_from(content, 'latin-1')",
+                            "content": "convert_from(content, 'latin-1') as content",
                         },
-                        DataType.ALERTS: {
+                        ItemType.ALERT: {
                             "timestamp": timestamp,
                         },
-                        DataType.LOGS: {
+                        ItemType.LOG_ENTRY: {
                             "timestamp": timestamp,
                         },
                     },
                 )
-                query = f"""SELECT {columns} FROM {data_type.table}"""
+                query = f"""SELECT {columns} FROM {item_type.table}"""
 
-                await connection.copy_from_query(query, output=path, format="csv")
+                await connection.copy_from_query(
+                    query,
+                    output=path,
+                    format="csv",
+                    header=True,
+                )
         finally:
             await connection.close()
 
     @override
-    async def load_csv(self, path: PathLike, data_type: DataType) -> None:
+    async def load_csv(self, path: PathLike, item_type: ItemType) -> None:
         path = _prepare_read_path(path)
 
         await self.init()
@@ -912,24 +936,36 @@ class PostgresDatabase(Database):
         connection: Connection = await asyncpg.connect(url)  # type: ignore
 
         try:
-            entity = _get_entity_cls(data_type)
+            entity = _get_entity_cls(item_type)
             temporary = "__temporary__" + uuid4().hex.replace("-", "")
 
             async with connection.transaction():
                 await connection.execute(
-                    entity.get_entity_table_ddl(
+                    entity.get_table_ddl(
                         self.engine.sync_engine,
                         name=temporary,
                         temporary=True,
                     )
                 )
 
-                await connection.copy_records_to_table(
-                    data_type.table,
-                    records=_get_csv_records(data_type, path),
+                def _get_fields(item: Item):
+                    fields = item.__dict__
+                    if item_type == ItemType.ALERT:
+                        fields["info"] = jsonify(fields["info"])
+                    return fields
+
+                records = (
+                    tuple(_get_fields(item).values())
+                    for item in _read_csv_items(path, _get_item_cls(item_type))
                 )
 
-                await connection.execute(f"INSERT INTO {data_type.table} SELECT * FROM {temporary}")
+                await connection.copy_records_to_table(
+                    temporary,
+                    columns=_get_columns(item_type),
+                    records=records,
+                )
+
+                await connection.execute(f"INSERT INTO {item_type.table} SELECT * FROM {temporary}")
         finally:
             await connection.close()
 
@@ -937,39 +973,39 @@ class PostgresDatabase(Database):
     async def dump_sqlite(
         self,
         path: PathLike,
-        data_types: Sequence[DataType] | None = None,
+        item_types: Sequence[ItemType] | None = None,
     ) -> None:
-        if data_types is None:
-            data_types = list(DataType)
+        if item_types is None:
+            item_types = list(ItemType)
 
         path = _prepare_write_path(path)
 
         await self.init()
 
         destination = Database(SQLiteDatabaseConfig(path=path))
-        for data_type in data_types:
+        for item_type in item_types:
             with NamedTemporaryFile() as temporary:
-                await self.dump_csv(temporary.name, data_type)
-                await destination.load_csv(temporary.name, data_type)
+                await self.dump_csv(temporary.name, item_type)
+                await destination.load_csv(temporary.name, item_type)
 
     @override
     async def load_sqlite(
         self,
         path: PathLike,
-        data_types: Sequence[DataType] | None = None,
+        item_types: Sequence[ItemType] | None = None,
     ) -> None:
-        if data_types is None:
-            data_types = list(DataType)
+        if item_types is None:
+            item_types = list(ItemType)
 
         path = _prepare_read_path(path)
 
         await self.init()
 
         source = SQLiteDatabase(SQLiteDatabaseConfig(path=path))
-        for data_type in data_types:
+        for item_type in item_types:
             with NamedTemporaryFile() as temporary:
-                await source.dump_csv(temporary.name, data_type)
-                await self.load_csv(temporary.name, data_type)
+                await source.dump_csv(temporary.name, item_type)
+                await self.load_csv(temporary.name, item_type)
 
 
 def _remove(path: Path) -> None:
@@ -991,20 +1027,40 @@ def _prepare_read_path(path: PathLike) -> Path:
     return path
 
 
-def _get_csv_records(data_type: DataType, path: Path) -> Iterable[Sequence[Any]]:
-    row: list[Any]
-
+def _read_csv_rows(path: Path) -> Iterator[Any]:
     with open(path, encoding="utf-8", errors="ignore") as stream:
         for row in csv.reader(stream, delimiter=",", lineterminator="\n", quotechar='"'):
-            row = list(row)
-            if data_type == DataType.COMPONENTS:
-                row[1] = row[1].lower() == "false"
-            if data_type in (DataType.MESSAGES, DataType.ALERTS, DataType.LOGS):
-                row[2] = datetime.fromisoformat(row[2])
-            if data_type == DataType.MESSAGES:
-                row[4] = row[4].encode("latin-1", errors="ignore")
+            yield row
 
-            yield tuple(row)
+
+if TYPE_CHECKING:
+    from ceres.component import Item
+else:
+    Item = object
+
+_ItemT = TypeVar("_ItemT", bound=Item)
+
+
+def _read_csv_items(path: Path, item_cls: type[_ItemT]) -> Iterable[_ItemT]:
+    rows = _read_csv_rows(path)
+    columns = list(item_cls.model_fields.keys())
+    header = next(rows)
+
+    if set(header) != set(columns):
+        raise ValueError(f"Expected CSV header columns to include {columns}, got: {header}")
+
+    for row in rows:
+        while len(row) < len(columns):
+            row.append("")
+
+        fields = {column: row[index] for index, column in enumerate(header) if row[index] != ""}
+
+        try:
+            item = item_cls.model_validate(fields)
+        except ValidationError as error:
+            raise DatabaseLoadException(f"Invalid CSV row: {error}") from error
+
+        yield item
 
 
 def _decode(value: bytes, encoding: str) -> str:
@@ -1027,16 +1083,16 @@ def _sqlite_create_functions(connection: SQLiteConnection) -> None:
     connection.create_function("encode", 2, _encode)
 
 
-_Replace = Mapping[DataType, Mapping[str, str]]
+_Replace = Mapping[ItemType, Mapping[str, str]]
 
 
-def _get_columns_joined(data_type: DataType, replace: _Replace = {}) -> str:
-    return ", ".join(_get_columns(data_type, replace))
+def _get_columns_joined(item_type: ItemType, replace: _Replace = {}) -> str:
+    return ", ".join(_get_columns(item_type, replace))
 
 
-def _get_columns(data_type: DataType, replace: _Replace = {}) -> list[str]:
-    columns = list(_get_entity_cls(data_type).__table__.columns.keys())
-    replaced = replace.get(data_type, {})
+def _get_columns(item_type: ItemType, replace: _Replace = {}) -> list[str]:
+    columns = list(_get_entity_cls(item_type).__table__.columns.keys())
+    replaced = replace.get(item_type, {})
     if replaced:
         for i, column in enumerate(columns):
             columns[i] = replaced.get(column, column)
@@ -1044,15 +1100,47 @@ def _get_columns(data_type: DataType, replace: _Replace = {}) -> list[str]:
     return columns
 
 
-def _get_entity_cls(data_type: DataType) -> type[Entity]:
-    match data_type:
-        case DataType.COMPONENTS:
-            return ComponentEntity
-        case DataType.MESSAGES:
+def _get_entity_cls(item_type: ItemType) -> type[Entity]:
+    match item_type:
+        case ItemType.STORE:
+            return StoreEntity
+        case ItemType.MESSAGE:
             return MessageEntity
-        case DataType.ALERTS:
+        case ItemType.ALERT:
             return AlertEntity
-        case DataType.LOGS:
+        case ItemType.LOG_ENTRY:
             return LogEntryEntity
 
-    raise ValueError(data_type)
+    raise ValueError(item_type)
+
+
+def _get_item_cls(item_type: ItemType) -> type[Item]:
+    match item_type:
+        case ItemType.STORE:
+            return Store
+        case ItemType.MESSAGE:
+            return Message
+        case ItemType.ALERT:
+            return Alert
+        case ItemType.LOG_ENTRY:
+            return LogEntry
+
+    raise ValueError(item_type)
+
+
+async def _execute_ddl(
+    engine: AsyncEngine,
+    *,
+    tables: bool = True,
+    indexes: bool = True,
+) -> None:
+    async with engine.begin() as connection:
+        for cls in Entity.get_entity_classes():
+            for statement in cls.get_ddl(
+                engine.sync_engine,
+                table=tables,
+                indexes=indexes,
+            ):
+                await connection.execute(text(statement))
+
+        await connection.commit()

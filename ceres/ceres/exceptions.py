@@ -15,7 +15,7 @@ class ConfigCheckFailedException(EngineException):
     pass
 
 
-class DatabaseInitException(EngineException):
+class EngineDatabaseInitFailedException(EngineException):
     pass
 
 
@@ -49,3 +49,15 @@ class ProcedureException(CeresException):
     def __init__(self, error: ProcedureError) -> None:
         super().__init__("error occurred while running procedure")
         self.error = error
+
+
+class DatabaseException(CeresException):
+    pass
+
+
+class DatabaseDumpException(EngineException):
+    pass
+
+
+class DatabaseLoadException(EngineException):
+    pass

@@ -15,7 +15,6 @@ from sqlalchemy import (
     PrimaryKeyConstraint,
     Table,
     Text,
-    text,
 )
 from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlalchemy.orm import (
@@ -91,7 +90,7 @@ class Entity(MappedAsDataclass, DeclarativeBase, kw_only=True):
         ]
 
     @classmethod
-    def get_entity_ddl(
+    def get_ddl(
         cls,
         dialect: Dialect | Engine | AsyncEngine,
         *,
@@ -100,12 +99,12 @@ class Entity(MappedAsDataclass, DeclarativeBase, kw_only=True):
         if_not_exists: bool = True,
     ) -> Iterable[str]:
         if table:
-            yield cls.get_entity_table_ddl(dialect, if_not_exists=if_not_exists)
+            yield cls.get_table_ddl(dialect, if_not_exists=if_not_exists)
         if indexes:
-            yield from cls.get_entity_index_ddl(dialect, if_not_exists=if_not_exists)
+            yield from cls.get_index_ddl(dialect, if_not_exists=if_not_exists)
 
     @classmethod
-    def get_entity_table_ddl(
+    def get_table_ddl(
         cls,
         dialect: Dialect | Engine | AsyncEngine,
         *,
@@ -132,7 +131,7 @@ class Entity(MappedAsDataclass, DeclarativeBase, kw_only=True):
         return statement
 
     @classmethod
-    def get_entity_index_ddl(
+    def get_index_ddl(
         cls,
         dialect: Dialect | Engine | AsyncEngine,
         *,
@@ -140,25 +139,6 @@ class Entity(MappedAsDataclass, DeclarativeBase, kw_only=True):
     ) -> Iterable[str]:
         for index in sorted(cls.__table__.indexes, key=lambda index: str(index.name)):
             yield _compile(dialect, CreateIndex(index, if_not_exists=if_not_exists))
-
-    @classmethod
-    async def create_all(
-        cls,
-        engine: AsyncEngine,
-        *,
-        tables: bool = True,
-        indexes: bool = True,
-    ) -> None:
-        async with engine.begin() as connection:
-            for cls in cls.get_entity_classes():
-                for statement in cls.get_entity_ddl(
-                    engine.sync_engine,
-                    table=tables,
-                    indexes=indexes,
-                ):
-                    await connection.execute(text(statement))
-
-            await connection.commit()
 
     def values(self) -> dict[str, Any]:
         return {name: getattr(self, name) for name in self.__table__.columns.keys()}

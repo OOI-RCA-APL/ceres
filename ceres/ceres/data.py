@@ -115,6 +115,25 @@ def __validate_non_negative_timedelta(value: object) -> timedelta | None:
 NonNegativeTimeDelta = Annotated[timedelta, BeforeValidator(__validate_non_negative_timedelta)]
 
 
+def __pre_validate_json_object(value: object) -> object:
+    if isinstance(value, str | bytes):
+        return json.loads(value)
+
+    return value
+
+
+def __pre_validate_json_array(value: object) -> object:
+    if isinstance(value, str | bytes):
+        return json.loads(value)
+
+    return value
+
+
+JSON = None | bool | int | float | str | dict[str, Any] | list[Any]
+JSONDict = Annotated[dict[str, Any], BeforeValidator(__pre_validate_json_object)]
+JSONList = Annotated[list[Any], BeforeValidator(__pre_validate_json_array)]
+
+
 def _get_cls_path(cls: type) -> str:
     module: str | None = cls.__module__
     if module is None or module == str.__module__:  # type: ignore

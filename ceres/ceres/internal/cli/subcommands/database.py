@@ -5,7 +5,7 @@ from pydantic import ByteSize
 from typer import Argument, Option
 
 from ceres.config import Config
-from ceres.database.enums import DataFormat, DataType
+from ceres.database.enums import DataFormat, ItemType
 from ceres.internal.cli.exceptions import CLIDatabaseUnreachableException, CLIException
 from ceres.internal.cli.shared import AsyncTyper, ConfigOption, get_yes_no, write
 from ceres.internal.utilities import show_td
@@ -57,9 +57,9 @@ async def dump(
         help="File path to write to.",
     ),
     *,
-    data_type: list[DataType] = Option(
+    item_type: list[ItemType] = Option(
         [],
-        click_type=Choice([current.value for current in DataType]),
+        click_type=Choice([current.value for current in ItemType]),
         help="Data type to dump to file.",
     ),
     format: DataFormat = Option(None, help="Format to dump data as."),
@@ -71,12 +71,12 @@ async def dump(
     format = _guess_format(format, path)
 
     if format == DataFormat.CSV:
-        if not data_type:
-            raise CLIException("Dumping to CSV requires '--data-type' to be specified.")
-        elif len(data_type) != 1:
-            raise CLIException("Dumping to CSV requires exactly one '--data-type' to be specified.")
+        if not item_type:
+            raise CLIException("Dumping to CSV requires '--item-type' to be specified.")
+        elif len(item_type) != 1:
+            raise CLIException("Dumping to CSV requires exactly one '--item-type' to be specified.")
 
-    data_type = list(DataType) if not data_type else [DataType(current) for current in data_type]
+    item_type = list(ItemType) if not item_type else [ItemType(current) for current in item_type]
 
     database = await _get_database(config, initialized=True)
     start = utc()
@@ -84,10 +84,10 @@ async def dump(
     match format:
         case DataFormat.CSV:
             write("Dumping data to CSV...")
-            await database.dump_csv(path, data_type[0])
+            await database.dump_csv(path, item_type[0])
         case DataFormat.SQLITE:
             write("Dumping data to SQLite...")
-            await database.dump_sqlite(path, data_type)
+            await database.dump_sqlite(path, item_type)
 
     duration = utc() - start
     write(f"Dump completed in {show_td(duration)}.")
@@ -102,9 +102,9 @@ async def load(
         help="File path to read data from.",
     ),
     *,
-    data_type: list[DataType] = Option(
+    item_type: list[ItemType] = Option(
         [],
-        click_type=Choice([current.value for current in DataType]),
+        click_type=Choice([current.value for current in ItemType]),
         help="Data type(s) to load from file.",
     ),
     format: DataFormat = Option(None, help="Data format to read the file as."),
@@ -115,14 +115,14 @@ async def load(
     """
     format = _guess_format(format, path)
     if format == DataFormat.CSV:
-        if not data_type:
-            raise CLIException("Loading from CSV requires '--data-type' to be specified.")
-        elif len(data_type) != 1:
+        if not item_type:
+            raise CLIException("Loading from CSV requires '--item-type' to be specified.")
+        elif len(item_type) != 1:
             raise CLIException(
-                "Loading from CSV requires exactly one '--data-type' to be specified."
+                "Loading from CSV requires exactly one '--item-type' to be specified."
             )
 
-    data_type = list(DataType) if not data_type else [DataType(current) for current in data_type]
+    item_type = list(ItemType) if not item_type else [ItemType(current) for current in item_type]
 
     database = await _get_database(config, initialized=True)
     start = utc()
@@ -130,10 +130,10 @@ async def load(
     match format:
         case DataFormat.CSV:
             write("Loading data from CSV...")
-            await database.load_csv(path, data_type[0])
+            await database.load_csv(path, item_type[0])
         case DataFormat.SQLITE:
             write("Loading data from SQLite...")
-            await database.load_sqlite(path, data_type)
+            await database.load_sqlite(path, item_type)
 
     duration = utc() - start
     write(f"Load completed in {show_td(duration)}.")

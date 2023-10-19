@@ -21,7 +21,7 @@ from ceres.errors import (
     ReloadError,
 )
 from ceres.events import Event, LogEvent, StoppedEvent, StoppingEvent
-from ceres.exceptions import DatabaseInitException
+from ceres.exceptions import EngineDatabaseInitFailedException
 from ceres.filter import ComponentFilter, ComponentFilterArgs
 from ceres.internal.project import Project
 from ceres.internal.utilities import StrEnum, sleep_forever, strify, uniquify
@@ -306,7 +306,7 @@ class Engine(Object, kw_only=False):
                 self.log.info("Database initialized successfully.")
             except Exception as exception:
                 self.log.error("Database initialization failed.")
-                raise DatabaseInitException(str(exception))
+                raise EngineDatabaseInitFailedException(str(exception))
 
     async def __execute_reload(self) -> None:
         self.log.info("Reloading configuration...")

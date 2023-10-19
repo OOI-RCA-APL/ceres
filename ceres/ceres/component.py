@@ -86,7 +86,7 @@ from ceres.events import (
 )
 from ceres.exceptions import ProcedureException
 from ceres.filter import ComponentFilter, ComponentFilterArgs
-from ceres.internal.database.entities import ComponentEntity
+from ceres.internal.database.entities import StoreEntity
 from ceres.internal.utilities import (
     StrEnum,
     Undefined,
@@ -115,6 +115,7 @@ from ceres.logs import LogEntry
 from ceres.message import Message
 from ceres.object import Object, Status
 from ceres.schedule import Schedule, Trigger
+from ceres.store import Store
 from ceres.validation import ValidationProblem
 
 if TYPE_CHECKING:
@@ -129,7 +130,8 @@ _EventT = TypeVar("_EventT", bound=Event)
 _EventP = ParamSpec("_EventP")
 
 
-Item = Message | Alert | LogEntry
+Record = Message | Alert | LogEntry
+Item = Store | Record
 
 warnings.filterwarnings(
     action="ignore",
@@ -394,7 +396,7 @@ class Component(Object):
 
     async def __get_enabled_in_database(self, session: AsyncSession) -> bool:
         enabled = await session.scalar(
-            select(ComponentEntity.enabled).where(ComponentEntity.address == self.address)
+            select(StoreEntity.enabled).where(StoreEntity.address == self.address)
         )
 
         if enabled is None:
@@ -410,13 +412,13 @@ class Component(Object):
 
         await self.__object_sync__(session)
         await session.execute(
-            insert(ComponentEntity)
+            insert(StoreEntity)
             .values(
                 address=self.address,
                 enabled=enabled,
             )
             .on_conflict_do_update(
-                index_elements=[ComponentEntity.address],
+                index_elements=[StoreEntity.address],
                 set_={"enabled": enabled},
             )
         )
@@ -680,7 +682,7 @@ class Component(Object):
             address=self.address,
             level=level,
             code=code,
-            info=info if info is not None else {},
+            info=dict(info) if info is not None else {},
         )
         self.emit(AlertEvent, alert=alert)
         return alert
