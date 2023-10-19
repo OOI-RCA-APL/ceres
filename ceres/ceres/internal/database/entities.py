@@ -8,6 +8,7 @@ from sqlalchemy import (
     JSON,
     Boolean,
     ClauseElement,
+    Dialect,
     Engine,
     Index,
     LargeBinary,
@@ -52,8 +53,13 @@ def _sql(statement: str, *, indent: int = 0) -> str:
     return statement
 
 
-def _compile(engine: Engine, element: ClauseElement) -> str:
-    statement = str(element.compile(engine))
+def _compile(dialect: AsyncEngine | Engine | Dialect, element: ClauseElement) -> str:
+    if isinstance(dialect, Engine):
+        dialect = dialect.dialect
+    elif isinstance(dialect, AsyncEngine):
+        dialect = dialect.sync_engine.dialect
+
+    statement = str(element.compile(dialect=dialect))
     statement = re.sub(
         r"[\n\r]+\t",
         "\n    ",
@@ -87,17 +93,53 @@ class Entity(MappedAsDataclass, DeclarativeBase, kw_only=True):
     @classmethod
     def get_entity_ddl(
         cls,
-        engine: Engine,
+        dialect: Dialect | Engine | AsyncEngine,
         *,
         table: bool = True,
         indexes: bool = True,
+        if_not_exists: bool = True,
     ) -> Iterable[str]:
         if table:
-            yield _compile(engine, CreateTable(cls.__table__, if_not_exists=True))
-
+            yield cls.get_entity_table_ddl(dialect, if_not_exists=if_not_exists)
         if indexes:
-            for index in sorted(cls.__table__.indexes, key=lambda index: str(index.name)):
-                yield _compile(engine, CreateIndex(index, if_not_exists=True))
+            yield from cls.get_entity_index_ddl(dialect, if_not_exists=if_not_exists)
+
+    @classmethod
+    def get_entity_table_ddl(
+        cls,
+        dialect: Dialect | Engine | AsyncEngine,
+        *,
+        name: str | None = None,
+        temporary: bool = False,
+        if_not_exists: bool = True,
+    ) -> str:
+        statement = _compile(dialect, CreateTable(cls.__table__, if_not_exists=if_not_exists))
+
+        if name:
+            if if_not_exists:
+                statement = statement.replace(
+                    f"CREATE TABLE IF NOT EXISTS {cls.__tablename__}",
+                    f"CREATE TABLE IF NOT EXISTS {name}",
+                )
+            else:
+                statement = statement.replace(
+                    f"CREATE TABLE {cls.__tablename__}",
+                    f"CREATE TABLE {name}",
+                )
+        if temporary:
+            statement = statement.replace("CREATE TABLE", "CREATE TEMPORARY TABLE")
+
+        return statement
+
+    @classmethod
+    def get_entity_index_ddl(
+        cls,
+        dialect: Dialect | Engine | AsyncEngine,
+        *,
+        if_not_exists: bool = True,
+    ) -> Iterable[str]:
+        for index in sorted(cls.__table__.indexes, key=lambda index: str(index.name)):
+            yield _compile(dialect, CreateIndex(index, if_not_exists=if_not_exists))
 
     @classmethod
     async def create_all(

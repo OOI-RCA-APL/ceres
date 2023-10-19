@@ -64,7 +64,12 @@ from ceres.internal.database.entities import (
     LogEntryEntity,
     MessageEntity,
 )
-from ceres.internal.utilities import PathLike, escape_like_expression, get_type_adapter, strlist
+from ceres.internal.utilities import (
+    PathLike,
+    escape_like_expression,
+    get_type_adapter,
+    strlist,
+)
 from ceres.level import Level
 from ceres.logs import LogEntry
 from ceres.message import Message
@@ -684,6 +689,8 @@ class SQLiteDatabase(Database):
     async def load_csv(self, path: PathLike, data_type: DataType) -> None:
         path = _prepare_read_path(path)
 
+        await self.init()
+
         def execute() -> None:
             with sqlite3.connect(self.path) as connection:
                 connection.execute("BEGIN")
@@ -702,6 +709,8 @@ class SQLiteDatabase(Database):
     @override
     async def dump_csv(self, path: PathLike, data_type: DataType) -> None:
         path = _prepare_write_path(path)
+
+        await self.init()
 
         def execute() -> None:
             with sqlite3.connect(self.path) as connection:
@@ -764,6 +773,8 @@ class SQLiteDatabase(Database):
         if data_types is None:
             data_types = list(DataType)
 
+        await self.init()
+
         if set(data_types) == set(DataType):
 
             def execute() -> None:
@@ -798,6 +809,8 @@ class SQLiteDatabase(Database):
         data_types: Sequence[DataType] | None = None,
     ) -> None:
         path = _prepare_read_path(path)
+
+        await self.init()
 
         await self.__copy(
             data_types,
@@ -850,6 +863,8 @@ class PostgresDatabase(Database):
     async def dump_csv(self, path: PathLike, data_type: DataType) -> None:
         path = _prepare_write_path(path)
 
+        await self.init()
+
         import asyncpg
 
         url = self.url.replace("+asyncpg", "")
@@ -867,7 +882,7 @@ class PostgresDatabase(Database):
                         },
                         DataType.MESSAGES: {
                             "timestamp": timestamp,
-                            "content": "encode(content, 'latin-1')",
+                            "content": "convert_from(content, 'latin-1')",
                         },
                         DataType.ALERTS: {
                             "timestamp": timestamp,
@@ -887,6 +902,8 @@ class PostgresDatabase(Database):
     async def load_csv(self, path: PathLike, data_type: DataType) -> None:
         path = _prepare_read_path(path)
 
+        await self.init()
+
         url = self.url.replace("+asyncpg", "")
 
         import asyncpg
@@ -895,11 +912,24 @@ class PostgresDatabase(Database):
         connection: Connection = await asyncpg.connect(url)  # type: ignore
 
         try:
+            entity = _get_entity_cls(data_type)
+            temporary = "__temporary__" + uuid4().hex.replace("-", "")
+
             async with connection.transaction():
+                await connection.execute(
+                    entity.get_entity_table_ddl(
+                        self.engine.sync_engine,
+                        name=temporary,
+                        temporary=True,
+                    )
+                )
+
                 await connection.copy_records_to_table(
                     data_type.table,
                     records=_get_csv_records(data_type, path),
                 )
+
+                await connection.execute(f"INSERT INTO {data_type.table} SELECT * FROM {temporary}")
         finally:
             await connection.close()
 
@@ -913,6 +943,8 @@ class PostgresDatabase(Database):
             data_types = list(DataType)
 
         path = _prepare_write_path(path)
+
+        await self.init()
 
         destination = Database(SQLiteDatabaseConfig(path=path))
         for data_type in data_types:
@@ -930,6 +962,8 @@ class PostgresDatabase(Database):
             data_types = list(DataType)
 
         path = _prepare_read_path(path)
+
+        await self.init()
 
         source = SQLiteDatabase(SQLiteDatabaseConfig(path=path))
         for data_type in data_types:
@@ -957,15 +991,16 @@ def _prepare_read_path(path: PathLike) -> Path:
     return path
 
 
-def _get_csv_records(data_type: DataType, path: Path) -> Iterable[tuple[Any, ...]]:
-    import csv
-
+def _get_csv_records(data_type: DataType, path: Path) -> Iterable[Sequence[Any]]:
     row: list[Any]
 
     with open(path, encoding="utf-8", errors="ignore") as stream:
         for row in csv.reader(stream, delimiter=",", lineterminator="\n", quotechar='"'):
             row = list(row)
-            row[2] = datetime.fromisoformat(row[2])
+            if data_type == DataType.COMPONENTS:
+                row[1] = row[1].lower() == "false"
+            if data_type in (DataType.MESSAGES, DataType.ALERTS, DataType.LOGS):
+                row[2] = datetime.fromisoformat(row[2])
             if data_type == DataType.MESSAGES:
                 row[4] = row[4].encode("latin-1", errors="ignore")
 
