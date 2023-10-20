@@ -77,6 +77,10 @@ class Service(ABC):
         ...
 
     @abstractmethod
+    def generate(self) -> bytes:
+        ...
+
+    @abstractmethod
     def create(self) -> None:
         ...
 
@@ -117,7 +121,22 @@ class SystemDService(Service):
 
     @override
     def create(self) -> None:
-        current = self.path.read_text() if self.path.exists() else None
+        current = self.path.read_bytes() if self.path.exists() else None
+        data = self.generate()
+
+        if current != data:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            self.path.write_bytes(data)
+            self._execute(["daemon-reload", "--user"])
+
+        self._execute(["enable", "--user", self.label])
+
+    @override
+    def delete(self) -> None:
+        self.path.unlink(missing_ok=True)
+
+    @override
+    def generate(self) -> bytes:
         data = f"""\
 [Unit]
 Description="{self.label}"
@@ -132,20 +151,34 @@ WantedBy=default.target
 """
 
         if self.stdout:
-            data += f"StandardOutput=file:{self.stdout}\n"
+            data += f"StandardOutput=append:{self.stdout}\n"
         if self.stderr:
-            data += f"StandardError=file:{self.stderr}\n"
+            data += f"StandardError=append:{self.stderr}\n"
 
-        if current != data:
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            self.path.write_text(data)
-            self._execute(["service-reload", "--user"])
+        return data.encode()
 
+    @override
+    def start(self) -> None:
+        if self.state == ServiceState.RUNNING:
+            return
+
+        self.create()
+        self._execute(["daemon-reload", "--user"])
+        self._execute(["start", "--user", self.label])
         self._execute(["enable", "--user", self.label])
 
     @override
-    def delete(self) -> None:
-        self.path.unlink(missing_ok=True)
+    def stop(self) -> None:
+        if self.state == ServiceState.STOPPED:
+            return
+
+        try:
+            self._execute(["stop", "--user", self.label])
+            self._execute(["disable", "--user", self.label])
+        except Exception:
+            traceback.print_exc()
+
+        self.delete()
 
     def _execute(
         self,
@@ -168,29 +201,6 @@ WantedBy=default.target
                 self._log(result.stdout)
 
         return result.returncode
-
-    @override
-    def start(self) -> None:
-        if self.state == ServiceState.RUNNING:
-            return
-
-        self.create()
-        self._execute(["service-reload", "--user"])
-        self._execute(["start", "--user", self.label])
-        self._execute(["enable", "--user", self.label])
-
-    @override
-    def stop(self) -> None:
-        if self.state == ServiceState.STOPPED:
-            return
-
-        try:
-            self._execute(["stop", "--user", self.label])
-            self._execute(["disable", "--user", self.label])
-        except Exception:
-            traceback.print_exc()
-
-        self.delete()
 
 
 class LaunchDService(Service):
@@ -229,6 +239,15 @@ class LaunchDService(Service):
         return "user/501/" + self.label
 
     @override
+    def generate(self) -> bytes:
+        if sys.platform == "darwin":
+            import plistlib
+        else:
+            raise NotImplementedError()
+
+        return plistlib.dumps(self._generate_plist_data())
+
+    @override
     def create(self) -> None:
         if sys.platform == "darwin":
             import plistlib
@@ -237,7 +256,11 @@ class LaunchDService(Service):
         else:
             raise NotImplementedError()
 
-        current = plistlib.loads(self.path.read_text().encode()) if self.path.exists() else None
+        try:
+            current = plistlib.loads(self.path.read_text().encode()) if self.path.exists() else None
+        except Exception:
+            current = None
+
         data = {
             "Label": self.label,
             "UserName": self.user,
@@ -260,6 +283,50 @@ class LaunchDService(Service):
     @override
     def delete(self) -> None:
         self.path.unlink(missing_ok=True)
+
+    @override
+    def start(self) -> None:
+        if self.state == ServiceState.RUNNING:
+            return
+
+        self.create()
+        self._execute(["load", "-w", self.path])
+        self._execute(["enable", self.target])
+        self._enable_linger()
+
+        try:
+            self._execute(["start", self.target], log_output=False)
+        except Exception:
+            pass
+
+    @override
+    def stop(self) -> None:
+        if self.state == ServiceState.STOPPED:
+            return
+
+        try:
+            self._execute(["unload", "-w", self.path])
+        except Exception:
+            traceback.print_exc()
+
+        self.delete()
+
+    def _enable_linger(self) -> None:
+        # result = subprocess.run(
+        #     ["loginctl", "show-user", self.user, "--property=Linger"],
+        #     capture_output=True,
+        # )
+        # enabled = result.returncode == 0 and b"Linger=yes" in result.stdout
+        # if enabled:
+        #     return
+
+        write(f"Enabling linger for user: {self.user!r}")
+        result = subprocess.run(["loginctl", "enable-linger", self.user])
+        if result.returncode != 0:
+            write(
+                f"WARNING: Failed to enable loginctl linger for user {self.user!r}. "
+                f"Execute 'loginctl enable-linger {self.user}' to persist the service after logout."
+            )
 
     def _execute(
         self,
@@ -288,28 +355,18 @@ class LaunchDService(Service):
 
         return None
 
-    @override
-    def start(self) -> None:
-        if self.state == ServiceState.RUNNING:
-            return
+    def _generate_plist_data(self) -> dict[str, Any]:
+        data = {
+            "Label": self.label,
+            "UserName": self.user,
+            "ProgramArguments": [sys.executable, "-m", "ceres", "run"],
+            "WorkingDirectory": str(self.project.directory),
+            "RunAtLoad": True,
+        }
 
-        self.create()
-        self._execute(["load", "-w", self.path])
-        self._execute(["enable", self.target])
+        if self.stdout:
+            data["StandardOutPath"] = str(self.stdout)
+        if self.stderr:
+            data["StandardErrorPath"] = str(self.stderr)
 
-        try:
-            self._execute(["start", self.target], log_output=False)
-        except Exception:
-            pass
-
-    @override
-    def stop(self) -> None:
-        if self.state == ServiceState.STOPPED:
-            return
-
-        try:
-            self._execute(["unload", "-w", self.path])
-        except Exception:
-            traceback.print_exc()
-
-        self.delete()
+        return data

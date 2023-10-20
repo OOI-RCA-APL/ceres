@@ -13,11 +13,18 @@ service = AsyncTyper(
 
 
 @service.command()
+def generate(project: Project = ProjectOption(checks=[])) -> None:
+    service = _get_service(project)
+    sys.stdout.buffer.write(service.generate())  # type: ignore
+    sys.stdout.flush()
+
+
+@service.command()
 def start(project: Project = ProjectOption(checks=ConfigCheckType.all())) -> None:
     service = _get_service(project)
     write(f"All checks passed. Starting service {service.name!r} at {service.location!r}...")
     service.start()
-    write("Service started successfully.")
+    write("Service started and enabled successfully.")
 
 
 @service.command()
@@ -25,7 +32,7 @@ def stop(project: Project = ProjectOption(checks=[])) -> None:
     service = _get_service(project)
     write(f"Stopping service {service.name!r} at {service.location}...")
     service.stop()
-    write("Service stopped successfully.")
+    write("Service stopped and disabled successfully.")
 
 
 @service.command()
