@@ -24,7 +24,7 @@ def start(project: Project = ProjectOption(checks=ConfigCheckType.all())) -> Non
     service = _get_service(project)
     write(f"All checks passed. Starting service {service.name!r} at {service.location!r}...")
     service.start()
-    write("Service started and enabled successfully.")
+    write("Service started successfully.")
 
 
 @service.command()
@@ -32,7 +32,7 @@ def stop(project: Project = ProjectOption(checks=[])) -> None:
     service = _get_service(project)
     write(f"Stopping service {service.name!r} at {service.location}...")
     service.stop()
-    write("Service stopped and disabled successfully.")
+    write("Service stopped successfully.")
 
 
 @service.command()
