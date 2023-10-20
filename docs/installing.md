@@ -30,9 +30,7 @@ Host ceres.github.com
 Then, configure Git to use `ceres.github.com` rather than `github.com` for the Ceres repository:
 
 ```sh
-git config --global url.'git@cer
-es.github.com:OOI-RCA-APL/ceres.git'.insteadOf 'git@gith
-ub.com:OOI-RCA-APL/ceres.git'
+git config --global url.'git@ceres.github.com:OOI-RCA-APL/ceres.git'.insteadOf 'git@github.com:OOI-RCA-APL/ceres.git'
 ```
 
 ## Pip
