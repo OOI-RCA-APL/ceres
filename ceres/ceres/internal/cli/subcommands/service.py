@@ -1,26 +1,50 @@
+from pathlib import Path
 import sys
+from typing import Optional
+
+from typer import Argument
 
 from ceres.config import ConfigCheckType
 from ceres.internal.cli.service import LaunchDService, Service, SystemDService
-from ceres.internal.cli.shared import AsyncTyper, ProjectOption, write, write_table
+from ceres.internal.cli.shared import CLIRouter, ProjectOption, write, write_table
 from ceres.internal.project import Project
 
-service = AsyncTyper(
+router = CLIRouter(
     name="service",
-    no_args_is_help=True,
-    add_completion=False,
+    help="Manage a user-level SystemD or LaunchD background service for this project.",
 )
 
 
-@service.command()
-def generate(project: Project = ProjectOption(checks=[])) -> None:
+@router.command()
+def generate(
+    path: Optional[Path] = Argument(
+        None,
+        dir_okay=False,
+        resolve_path=True,
+        writable=True,
+        help="File path to write to. Standard output is used if not specified.",
+    ),
+    *,
+    project: Project = ProjectOption(checks=[]),
+) -> None:
+    """
+    Generate a service definition file for this project.
+    """
     service = _get_service(project)
-    sys.stdout.buffer.write(service.generate())  # type: ignore
-    sys.stdout.flush()
+    defintition = service.generate()
+
+    if path is None:
+        sys.stdout.buffer.write(defintition)  # type: ignore
+        sys.stdout.flush()
+    else:
+        path.write_bytes(defintition)
 
 
-@service.command()
+@router.command()
 def start(project: Project = ProjectOption(checks=ConfigCheckType.all())) -> None:
+    """
+    Start the background service, creating and/or updating the service file as needed.
+    """
     service = _get_service(project)
     write("All checks passed.")
     write(f"Starting service {service.name!r} at {service.location!r}...")
@@ -28,16 +52,22 @@ def start(project: Project = ProjectOption(checks=ConfigCheckType.all())) -> Non
     write("Service started successfully.")
 
 
-@service.command()
+@router.command()
 def stop(project: Project = ProjectOption(checks=[])) -> None:
+    """
+    Stop the background service, deleting the service file afterwards.
+    """
     service = _get_service(project)
     write(f"Stopping service {service.name!r} at {service.location}...")
     service.stop()
     write("Service stopped successfully.")
 
 
-@service.command()
+@router.command()
 def status(project: Project = ProjectOption(checks=[])) -> None:
+    """
+    Show the status of the background service.
+    """
     service = _get_service(project)
 
     with write_table() as table:

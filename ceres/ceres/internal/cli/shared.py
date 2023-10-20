@@ -15,7 +15,16 @@ from ceres.internal.utilities import syncify
 from ceres.result import Ok
 
 
-class AsyncTyper(Typer):
+class CLIRouter(Typer):
+    def __init__(self, *, name: str, help: str | None = None):
+        super().__init__(
+            name=name,
+            help=help,
+            add_completion=False,
+            no_args_is_help=True,
+            rich_markup_mode="markdown",
+        )
+
     if not TYPE_CHECKING:
 
         @wraps(Typer.command)
@@ -187,7 +196,7 @@ def write_table(title: str | None = None):
     import rich.box
     from rich.table import Table
 
-    table = Table(title=title, box=rich.box.SQUARE, title_justify="left")
+    table = Table(title=title, box=rich.box.ROUNDED, title_justify="left")
     yield table
     write(table)
 

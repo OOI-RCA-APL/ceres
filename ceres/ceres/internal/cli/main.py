@@ -22,15 +22,15 @@ from ceres.internal.cli.exceptions import (
     CLIStartupException,
 )
 from ceres.internal.cli.shared import (
-    AsyncTyper,
+    CLIRouter,
     ConfigPathOption,
     ProjectOption,
     strbool,
     write,
     write_table,
 )
-from ceres.internal.cli.subcommands.database import database
-from ceres.internal.cli.subcommands.service import service
+from ceres.internal.cli.subcommands.database import router as database
+from ceres.internal.cli.subcommands.service import router as service
 from ceres.internal.project import Project
 from ceres.internal.utilities import (
     cancel,
@@ -45,18 +45,26 @@ from ceres.internal.utilities import (
 from ceres.object import Status
 from ceres.result import Fail, Ok
 from ceres.threading import spawn
+from ceres.version import VERSION
 
-main = AsyncTyper(
+router = CLIRouter(
     name="ceres",
-    no_args_is_help=True,
-    add_completion=False,
+    help=f"Ceres CLI — Package Version {VERSION}",
 )
 
-main.add_typer(database)
-main.add_typer(service)
+router.add_typer(database)
+router.add_typer(service)
 
 
-@main.command()
+@router.command()
+def version() -> None:
+    """
+    Show the current Ceres version number.
+    """
+    write(VERSION)
+
+
+@router.command()
 async def run(
     *,
     config_path: Path = ConfigPathOption(),
@@ -112,10 +120,10 @@ async def run(
         raise CLIStartupException(f"Engine startup failed. {exception.message}")
 
 
-@main.command()
+@router.command()
 async def check(*, config_path: Path = ConfigPathOption()) -> None:
     """
-    Check project configuration for correctness.
+    Validate project configuration (ceres.yaml) for errors.
     """
     match await Config.load(config_path, log=write):
         case Ok():
@@ -126,7 +134,7 @@ async def check(*, config_path: Path = ConfigPathOption()) -> None:
             )
 
 
-@main.callback()
+@router.callback()
 def setup() -> None:
     ensure_event_loop()
     logs.setup()
@@ -280,10 +288,10 @@ class APIClient:
         return await self.request("POST", path, data=data, params=params, result=parse)
 
 
-@main.command()
+@router.command()
 async def reload(*, project: Project = ProjectOption()) -> None:
     """
-    Apply configuration changes while the engine is running.
+    Apply configuration changes.
     """
     from aiohttp import ClientError
 
@@ -308,14 +316,24 @@ AddressPatternInput = Annotated[
 ]
 
 
-@main.command()
+@router.command()
 async def status(
-    addresses: list[str] = [":all"],
+    addresses: list[str] = Argument(
+        None,
+        help="Addresses of components to show the status of.",
+    ),
+    *,
     project: Project = ProjectOption(),
 ) -> None:
+    """
+    Show engine and component statuses.
+    """
     from aiohttp import ClientError
 
     from ceres.internal.app import GetStatusesQueryParameters
+
+    if not addresses:
+        addresses = [":all"]
 
     client = APIClient(project)
     address = AddressSelector("|".join(addresses) if addresses else ":all")
@@ -358,8 +376,17 @@ async def status(
             )
 
 
-@main.command()
-async def start(addresses: list[str], project: Project = ProjectOption()) -> None:
+@router.command()
+async def start(
+    addresses: list[str] = Argument(
+        help="Addresses of components to start.",
+    ),
+    *,
+    project: Project = ProjectOption(),
+) -> None:
+    """
+    Start components at the provided address(s).
+    """
     client = APIClient(project)
     address = AddressSelector("|".join(addresses))
     query = ComponentFilter(address=address)
@@ -370,8 +397,17 @@ async def start(addresses: list[str], project: Project = ProjectOption()) -> Non
     write(result)
 
 
-@main.command()
-async def stop(addresses: list[str], project: Project = ProjectOption()) -> None:
+@router.command()
+async def stop(
+    addresses: list[str] = Argument(
+        help="Addresses of components to stop.",
+    ),
+    *,
+    project: Project = ProjectOption(),
+) -> None:
+    """
+    Stop components at the provided address(s).
+    """
     client = APIClient(project)
     address = AddressSelector("|".join(addresses))
     query = ComponentFilter(address=address)
@@ -382,8 +418,17 @@ async def stop(addresses: list[str], project: Project = ProjectOption()) -> None
     write(result)
 
 
-@main.command()
-async def enable(addresses: list[str], project: Project = ProjectOption()) -> None:
+@router.command()
+async def enable(
+    addresses: list[str] = Argument(
+        help="Addresses of components to enable.",
+    ),
+    *,
+    project: Project = ProjectOption(),
+) -> None:
+    """
+    Enable components at the provided address(s).
+    """
     client = APIClient(project)
     address = AddressSelector("|".join(addresses))
     query = ComponentFilter(address=address)
@@ -394,8 +439,17 @@ async def enable(addresses: list[str], project: Project = ProjectOption()) -> No
     write(result)
 
 
-@main.command()
-async def disable(addresses: list[str], project: Project = ProjectOption()) -> None:
+@router.command()
+async def disable(
+    addresses: list[str] = Argument(
+        help="Addresses of components to disable.",
+    ),
+    *,
+    project: Project = ProjectOption(),
+) -> None:
+    """
+    Disable components at the provided address(s).
+    """
     client = APIClient(project)
     address = AddressSelector("|".join(addresses))
     query = ComponentFilter(address=address)
@@ -406,8 +460,17 @@ async def disable(addresses: list[str], project: Project = ProjectOption()) -> N
     write(result)
 
 
-@main.command()
-async def up(addresses: list[str], project: Project = ProjectOption()) -> None:
+@router.command()
+async def up(
+    addresses: list[str] = Argument(
+        help="Addresses of components to start and enable.",
+    ),
+    *,
+    project: Project = ProjectOption(),
+) -> None:
+    """
+    Start and enable components at the provided address(s).
+    """
     client = APIClient(project)
     address = AddressSelector("|".join(addresses))
     query = ComponentFilter(address=address)
@@ -418,8 +481,17 @@ async def up(addresses: list[str], project: Project = ProjectOption()) -> None:
     write(result)
 
 
-@main.command()
-async def down(addresses: list[str], project: Project = ProjectOption()) -> None:
+@router.command()
+async def down(
+    addresses: list[str] = Argument(
+        help="Addresses of components to stop and disable.",
+    ),
+    *,
+    project: Project = ProjectOption(),
+) -> None:
+    """
+    Stop and disable components at the provided address(s).
+    """
     client = APIClient(project)
     address = AddressSelector("|".join(addresses))
     query = ComponentFilter(address=address)

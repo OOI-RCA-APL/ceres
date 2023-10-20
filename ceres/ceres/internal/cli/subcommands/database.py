@@ -1,27 +1,26 @@
 from pathlib import Path
+from typing import Optional
 
 from click import Choice
-from pydantic import ByteSize
 from typer import Argument, Option
 
 from ceres.config import Config
 from ceres.database.enums import DataFormat, ItemType
 from ceres.internal.cli.exceptions import CLIDatabaseUnreachableException, CLIException
-from ceres.internal.cli.shared import AsyncTyper, ConfigOption, get_yes_no, write
+from ceres.internal.cli.shared import CLIRouter, ConfigOption, get_yes_no, write
 from ceres.internal.utilities import show_td
 from ceres.timing import utc
 
-database = AsyncTyper(
+router = CLIRouter(
     name="database",
-    no_args_is_help=True,
     help="Manage the project database.",
 )
 
 
-@database.command()
+@router.command()
 async def init(*, config: Config = ConfigOption(checks=[])) -> None:
     """
-    Create all required tables in the project database.
+    Initialize the database, creating tables and indexes as needed.
     """
     database = await _get_database(config)
 
@@ -48,7 +47,7 @@ async def init(*, config: Config = ConfigOption(checks=[])) -> None:
     await database.dispose()
 
 
-@database.command()
+@router.command()
 async def dump(
     path: Path = Argument(
         dir_okay=False,
@@ -60,13 +59,24 @@ async def dump(
     item_type: list[ItemType] = Option(
         [],
         click_type=Choice([current.value for current in ItemType]),
-        help="Data type to dump to file.",
+        help=(
+            """
+            Data type(s) to dump.
+            * For **--format csv**, a single **--item-type** is *required*.
+            * For **--format sqlite**, if **--item-type** is *omitted*, *all* item types will be
+            dumped to the SQLite database. If **--item-type** is specified *one or more times*,
+            *only* those item types will be dumped.
+            """
+        ),
     ),
-    format: DataFormat = Option(None, help="Format to dump data as."),
+    format: Optional[DataFormat] = Option(
+        None,
+        help="File format to dump as. This is inferred from the file extension if possible.",
+    ),
     config: Config = ConfigOption(checks=[]),
 ) -> None:
     """
-    Dump data in the project database to file.
+    Dump data from the database into a CSV or SQLite file.
     """
     format = _guess_format(format, path)
 
@@ -93,7 +103,7 @@ async def dump(
     write(f"Dump completed in {show_td(duration)}.")
 
 
-@database.command()
+@router.command()
 async def load(
     path: Path = Argument(
         dir_okay=False,
@@ -105,13 +115,24 @@ async def load(
     item_type: list[ItemType] = Option(
         [],
         click_type=Choice([current.value for current in ItemType]),
-        help="Data type(s) to load from file.",
+        help=(
+            """
+            Data type(s) to load.
+            * For **--format csv**, a single **--item-type** is *required*.
+            * For **--format sqlite**, if **--item-type** is *omitted*, *all* item types will be
+            loaded from the SQLite database. If **--item-type** is specified *one or more times*,
+            *only* those item types will be loaded.
+            """
+        ),
     ),
-    format: DataFormat = Option(None, help="Data format to read the file as."),
+    format: DataFormat = Option(
+        None,
+        help="File format to read as. This is inferred from the file extension if possible.",
+    ),
     config: Config = ConfigOption(checks=[]),
 ) -> None:
     """
-    Load data into the project database.
+    Load data into the database from a CSV or SQLite file.
     """
     format = _guess_format(format, path)
     if format == DataFormat.CSV:
@@ -139,10 +160,10 @@ async def load(
     write(f"Load completed in {show_td(duration)}.")
 
 
-@database.command()
+@router.command()
 async def clear(config: Config = ConfigOption(checks=[])) -> None:
     """
-    Clear all data from the project database.
+    Remove all data from the database. Tables and indexes are not removed, only truncated.
     """
     database = await _get_database(config, initialized=True)
 
@@ -158,10 +179,10 @@ async def clear(config: Config = ConfigOption(checks=[])) -> None:
     write(f"Cleared all data from database in {show_td(duration)}.")
 
 
-@database.command()
+@router.command()
 async def ddl(*, config: Config = ConfigOption(checks=[])) -> None:
     """
-    Show DDL commands used to create required tables in the project database.
+    Show DDL commands used to initialize the database.
     """
     database = await _get_database(config)
 
@@ -199,7 +220,3 @@ def _guess_format(format: DataFormat | None, path: Path) -> DataFormat:
         f"Could not infer data format from file extension: {path.suffix!r}. "
         + "Try specifying the '--format' option."
     )
-
-
-def _get_size(path: Path) -> str:
-    return ByteSize(path.stat().st_size).human_readable()

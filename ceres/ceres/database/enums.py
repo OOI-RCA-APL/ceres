@@ -12,21 +12,21 @@ class DataFormat(StrEnum):
 
 
 class ItemType(StrEnum):
-    STORE = "store"
     MESSAGE = "message"
     ALERT = "alert"
     LOG_ENTRY = "log-entry"
+    STORE = "store"
 
     @property
     def table(self) -> str:
         match self:
-            case ItemType.STORE:
-                return "stores"
             case ItemType.MESSAGE:
                 return "messages"
             case ItemType.ALERT:
                 return "alerts"
             case ItemType.LOG_ENTRY:
                 return "log_entries"
+            case ItemType.STORE:
+                return "stores"
 
         raise ValueError(self)
