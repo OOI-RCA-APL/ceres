@@ -549,6 +549,7 @@ class Engine(Object, kw_only=False):
         return Uvicorn(
             UvicornConfig(
                 app=self.__app,
+                host=self.__config.server.host,
                 port=self.__config.server.port,
                 loop="none",
             )

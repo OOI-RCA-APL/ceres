@@ -1,6 +1,7 @@
 import asyncio
 import os
 import traceback
+from pydantic import IPvAnyAddress
 from datetime import timedelta
 from logging import Logger
 from pathlib import Path
@@ -38,7 +39,14 @@ from ceres.errors import (
     ConfigReadError,
     ConfigValidationError,
 )
-from ceres.internal.utilities import StrEnum, get_traceback, group_by, lenient_issubclass, show_td
+from ceres.internal.utilities import (
+    StrEnum,
+    get_traceback,
+    get_type_adapter,
+    group_by,
+    lenient_issubclass,
+    show_td,
+)
 from ceres.loaded import Loader
 from ceres.logs import Log
 from ceres.result import Fail, Ok, Result
@@ -133,8 +141,14 @@ class ServiceConfig(ConfigObject):
 
 
 class ServerConfig(ConfigObject):
+    host: str = "::"  # Bind to all addresses on IPV6 and IPV4 by default.
     port: int | None = None
     socket: Path | None = None
+
+    @field_validator("host")
+    def _validate_host(cls, host: str) -> str:
+        get_type_adapter(IPvAnyAddress).validate_python(host)
+        return host
 
     @field_validator("socket")
     def _validate_socket(cls, socket: Path | None) -> Path | None:
