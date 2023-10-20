@@ -166,6 +166,7 @@ WantedBy=default.target
         self._execute(["daemon-reload", "--user"])
         self._execute(["start", "--user", self.label])
         self._execute(["enable", "--user", self.label])
+        self.__enable_linger()
 
     @override
     def stop(self) -> None:
@@ -201,6 +202,15 @@ WantedBy=default.target
                 self._log(result.stdout)
 
         return result.returncode
+
+    def __enable_linger(self) -> None:
+        write(f"Enabling linger for user: {self.user!r}")
+        result = subprocess.run(["loginctl", "enable-linger", self.user])
+        if result.returncode != 0:
+            write(
+                f"WARNING: Failed to enable loginctl linger for user {self.user!r}. "
+                f"Execute 'loginctl enable-linger {self.user}' to persist the service after logout."
+            )
 
 
 class LaunchDService(Service):
@@ -292,7 +302,6 @@ class LaunchDService(Service):
         self.create()
         self._execute(["load", "-w", self.path])
         self._execute(["enable", self.target])
-        self._enable_linger()
 
         try:
             self._execute(["start", self.target], log_output=False)
@@ -310,15 +319,6 @@ class LaunchDService(Service):
             traceback.print_exc()
 
         self.delete()
-
-    def _enable_linger(self) -> None:
-        write(f"Enabling linger for user: {self.user!r}")
-        result = subprocess.run(["loginctl", "enable-linger", self.user])
-        if result.returncode != 0:
-            write(
-                f"WARNING: Failed to enable loginctl linger for user {self.user!r}. "
-                f"Execute 'loginctl enable-linger {self.user}' to persist the service after logout."
-            )
 
     def _execute(
         self,
