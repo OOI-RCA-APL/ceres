@@ -30,7 +30,7 @@ Host ceres.github.com
 Then, configure Git to use `ceres.github.com` rather than `github.com` for the Ceres repository:
 
 ```sh
-git config --global url.'git@ceres.github.com:OOI-RCA-APL/ceres.git'.insteadOf 'git@github.com:OOI-RCA-APL/ceres.git'
+git config --global url.'ssh://git@ceres.github.com/OOI-RCA-APL/ceres.git'.insteadOf 'ssh://git@github.com/OOI-RCA-APL/ceres.git'
 ```
 
 ## Pip
@@ -38,7 +38,7 @@ git config --global url.'git@ceres.github.com:OOI-RCA-APL/ceres.git'.insteadOf '
 To install Ceres globally using Pip, run the following commands.
 
 ```sh
-pip install git+https://github.com/OOI-RCA-APL/ceres.git#subdirectory=ceres # Install from Github.
+pip3 install git+ssh://git@github.com/OOI-RCA-APL/ceres.git#subdirectory=ceres # Install from Github.
 ceres --help # The "ceres" command should now be available everywhere.
 ```
 
@@ -48,7 +48,7 @@ To install Ceres locally in a Poetry project's virtual environment, run the foll
 
 ```sh
 poetry init # Create a Poetry project if it doesn't exist.
-poetry add git+https://github.com/OOI-RCA-APL/ceres.git#subdirectory=ceres # Install from Github.
+poetry add git+ssh://git@github.com/OOI-RCA-APL/ceres.git#subdirectory=ceres # Install from Github.
 poetry shell # Enter the virtual environment.
 ceres --help # The "ceres" command should now be available while in the virtual environment.
 ```
