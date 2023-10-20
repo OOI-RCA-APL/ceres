@@ -204,11 +204,11 @@ WantedBy=default.target
         return result.returncode
 
     def __enable_linger(self) -> None:
-        write(f"Enabling linger for user: {self.user!r}")
+        write(f"Enabling loginctl linger for user {self.user!r}...")
         result = subprocess.run(["loginctl", "enable-linger", self.user])
         if result.returncode != 0:
             write(
-                f"WARNING: Failed to enable loginctl linger for user {self.user!r}. "
+                f"WARNING: Failed to enable loginctl linger. "
                 f"Execute 'loginctl enable-linger {self.user}' to persist the service after logout."
             )
 

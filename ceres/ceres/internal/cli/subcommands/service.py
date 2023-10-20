@@ -22,7 +22,8 @@ def generate(project: Project = ProjectOption(checks=[])) -> None:
 @service.command()
 def start(project: Project = ProjectOption(checks=ConfigCheckType.all())) -> None:
     service = _get_service(project)
-    write(f"All checks passed. Starting service {service.name!r} at {service.location!r}...")
+    write("All checks passed.")
+    write(f"Starting service {service.name!r} at {service.location!r}...")
     service.start()
     write("Service started successfully.")
 
