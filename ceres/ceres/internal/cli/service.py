@@ -312,14 +312,6 @@ class LaunchDService(Service):
         self.delete()
 
     def _enable_linger(self) -> None:
-        # result = subprocess.run(
-        #     ["loginctl", "show-user", self.user, "--property=Linger"],
-        #     capture_output=True,
-        # )
-        # enabled = result.returncode == 0 and b"Linger=yes" in result.stdout
-        # if enabled:
-        #     return
-
         write(f"Enabling linger for user: {self.user!r}")
         result = subprocess.run(["loginctl", "enable-linger", self.user])
         if result.returncode != 0:
