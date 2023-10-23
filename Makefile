@@ -1,22 +1,25 @@
 .PHONY: *
-build:
-	cd ./ceres && make build
-dev:
-	cd ./ceres-console && make dev
+build: install
+	cd console && make build
+	poetry build
 install:
-	cd ./ceres && make install
-	cd ./ceres-console && make install
+	poetry install
+	cd console && make install
 update:
-	cd ./ceres && make update
-	cd ./ceres-console && make update
-lint:
-	cd ./ceres && make lint
-	cd ./ceres-console && make lint
-fix:
-	cd ./ceres && make fix
-	cd ./ceres-console && make fix
+	poetry update
+	cd console && make update
 test:
-	cd ./ceres && make test
+	poetry run pytest -vv
+lint:
+	poetry run sh -c "black --check . && ruff check . && pyright ."
+	cd console && make lint
+fix:
+	poetry run sh -c "black . && ruff check --fix ."
+	cd console && make fix
 clean:
-	cd ./ceres && make clean
-	cd ./ceres-console && make clean
+	rm -rf ./*/**/__pycache__
+	rm -rf ./*/**/.mypy_cache
+	rm -rf ./*/**/.pytest_cache
+	rm -rf ./dist
+	rm -rf ./ceres/static
+	cd console && make clean
