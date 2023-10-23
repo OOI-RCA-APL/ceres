@@ -8,9 +8,6 @@ on:
       - main
 jobs:
   main:
-    defaults:
-      run:
-        working-directory: ./ceres
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false

@@ -17,11 +17,11 @@
 
    _The `dev` directory is git-ignored._
 
-4. Run `cp -r ./examples/crabee dev`.
+4. Run `cp -r ./examples/intro dev`.
 
    _This will create a self-contained example project you can play with._
 
-5. Go into `./dev/crabee` and run `poetry install`.
+5. Go into `./dev/intro` and run `poetry install`.
 
    _This will install local dependencies and create a virtual environment._
 
@@ -34,19 +34,4 @@
    - _The `--all` flag starts all components on engine startup._
    - _The `--watch` flag makes the engine reload when either configuration or code are modified._
 
-8. Go to `localhost:9000`. You should see the web console.
-
-9. Ceres reads the `ceres.yaml` configuration file at the project root in order to function. At the moment, the project is not actually connecting to a real device, only a simulator.
-
-If you have an actual Crabee device available, edit `ceres.yaml` and change the IP address of the connection component to the IP address of the board.
-
-```python3
-- host: 0.0.0.0
-+ host: 10.95.96.173
-```
-
-Once `ceres.yaml` is saved, the engine should reload immediately and try to connect to the device.
-
-If the device is reachable, you should see logs indicating the connection was successful and messages should be printed every second, just like the simulator.
-
-If the device is not reachable, the connection component will log errors and attempt to reconnect repeatedly according to an exponential fallback interval.
+8. See the [Getting Started](./getting-started.md) documentation to continue.
