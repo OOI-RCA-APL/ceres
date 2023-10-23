@@ -1,15 +1,12 @@
 [tool.poetry]
 name = "intro"
 version = "0.1.0"
-description = "An example of a Ceres-based project."
-authors = []
+description = "APL - Ceres Intro"
+authors = ["Jake Ploskey <jploskey@uw.edu>"]
 
 [tool.poetry.dependencies]
 python = "^3.10"
-ceres = { path = "../../ceres", develop = true }
-
-[tool.poetry.scripts]
-ceres = "ceres:main"
+ceres = { path = "../..", develop = true }
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
