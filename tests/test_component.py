@@ -124,12 +124,55 @@ async def test_component_procedure_with_args(decorator: Any) -> None:
     assert await component.call("add", {"left": 1, "right": 2}) == 3
 
 
-@pytest.mark.parametrize(["decorator"], [[query], [action]])
-async def test_component_procedure_with_default_args(decorator: Any) -> None:
+@pytest.mark.parametrize(
+    ["decorator", "kwonly"],
+    [
+        [query, False],
+        [query, True],
+        [action, False],
+        [action, True],
+    ],
+)
+async def test_component_procedure_with_kwonly_args(decorator: Any, kwonly: bool) -> None:
     class Test(Component):
-        @decorator
-        async def add(self, left: int = 1, right: int = 2) -> int:
-            return left + right
+        if kwonly:
+
+            @decorator
+            async def add(self, *, left: int, right: int) -> int:
+                return left + right
+
+        else:
+
+            @decorator
+            async def add(self, left: int, right: int) -> int:
+                return left + right
+
+    component = Test()
+    assert await component.call("add", {"left": 1, "right": 2}) == 3
+
+
+@pytest.mark.parametrize(
+    ["decorator", "kwonly"],
+    [
+        [query, False],
+        [query, True],
+        [action, False],
+        [action, True],
+    ],
+)
+async def test_component_procedure_with_default_args(decorator: Any, kwonly: bool) -> None:
+    class Test(Component):
+        if kwonly:
+
+            @decorator
+            async def add(self, *, left: int = 1, right: int = 2) -> int:
+                return left + right
+
+        else:
+
+            @decorator
+            async def add(self, left: int = 1, right: int = 2) -> int:
+                return left + right
 
     component = Test()
     assert await component.call("add") == 3

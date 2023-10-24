@@ -550,36 +550,48 @@ def get_args_model(
     if model_config is None:
         model_config = {}
 
-    args, _, varkw, defaults, kwonlyargs, kwonlydefaults, annotations = inspect.getfullargspec(
-        function
-    )
+    (
+        position_parameter_names,
+        _,
+        kwargs_parameter_name,
+        positional_parameter_defaults,
+        keyword_only_parameter_names,
+        keyword_only_parameter_defaults,
+        annotations,
+    ) = inspect.getfullargspec(function)
 
-    defaults = defaults or ()
-    args = args or []
-    kwonlyargs = kwonlyargs or []
-    kwonlydefaults = kwonlydefaults or {}
+    position_parameter_names = position_parameter_names or []
+    positional_parameter_defaults = positional_parameter_defaults or ()
+    keyword_only_parameter_names = keyword_only_parameter_names or []
+    keyword_only_parameter_defaults = keyword_only_parameter_defaults or {}
 
     if remove_self:
-        args = [arg for arg in args if arg != "self"]
+        position_parameter_names = [arg for arg in position_parameter_names if arg != "self"]
 
-    non_default_arg_count = len(args) - len(defaults)
-    defaults = (Field(),) * non_default_arg_count + defaults
+    positional_parameter_defaults = (Field(),) * (
+        len(position_parameter_names) - len(positional_parameter_defaults)
+    ) + positional_parameter_defaults
 
-    parameters = {
-        param: (annotations.get(param, Any), default) for param, default in zip(args, defaults)
+    positional_parameters = {
+        name: (annotations.get(name, Any), default)
+        for name, default in zip(position_parameter_names, positional_parameter_defaults)
     }
-    kwonly_parameters = {param: kwonlydefaults.get(param, Any) for param in kwonlyargs}
+    keyword_only_parameters = {
+        name: (annotations.get(name, Any), keyword_only_parameter_defaults.get(name, Field()))
+        for name in keyword_only_parameter_names
+    }
 
-    # Allow extra params if there is a **kwargs parameter in the function signature
-    if varkw:
-        model_config = {**model_config, "extra": "allow"} if varkw else model_config
+    parameters: dict[str, Any] = {**positional_parameters, **keyword_only_parameters}
+
+    # Allow extra arguments if there is a `**kwargs` parameter in the function signature.
+    if kwargs_parameter_name:
+        model_config = {**model_config, "extra": "allow"} if kwargs_parameter_name else model_config
 
     model = create_model(
         model_name,
-        **parameters,
-        **kwonly_parameters,
-        __module__=model_module or "__dynamic__",
         __config__=model_config,
+        __module__=model_module or "__dynamic__",
+        **parameters,
     )
 
     model.__doc__ = function.__doc__
