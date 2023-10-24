@@ -21,7 +21,7 @@ from typing import (
 )
 from uuid import UUID, uuid4
 
-from pydantic import Field, ValidationError
+from pydantic import ValidationError
 from sqlalchemy import (
     AsyncAdaptedQueuePool,
     BinaryExpression,
@@ -46,14 +46,9 @@ from typing_extensions import Self, Unpack, override
 
 from ceres.address import Address
 from ceres.alert import Alert
-from ceres.config import (
-    DatabaseConfig,
-    DatabaseType,
-    PostgresDatabaseConfig,
-    SQLiteDatabaseConfig,
-)
-from ceres.data import DataObject, jsonify
-from ceres.database.enums import ItemType
+from ceres.config import DatabaseConfig, PostgresDatabaseConfig, SQLiteDatabaseConfig
+from ceres.data import jsonify
+from ceres.database.enums import DatabaseType, ItemType
 from ceres.exceptions import DatabaseLoadException
 from ceres.filter import (
     AlertFilter,
@@ -84,27 +79,12 @@ from ceres.internal.utilities import (
 from ceres.level import Level
 from ceres.logs import LogEntry
 from ceres.message import Message
+from ceres.statistics import LevelStatistics, Statistics
 from ceres.store import Store
 from ceres.threading import spawn
 from ceres.timing import utc
 
 _T = TypeVar("_T")
-ConfigT = TypeVar("ConfigT", bound=DatabaseConfig, covariant=True)
-
-
-class LevelStatistics(DataObject):
-    level: Level
-    count: int = Field(ge=0)
-
-
-class AlertStatistics(DataObject):
-    count: int = 0
-    levels: list[LevelStatistics] = Field(default_factory=list)
-
-
-class Statistics(DataObject):
-    address: Address
-    alerts: AlertStatistics = Field(default_factory=AlertStatistics)
 
 
 class Database:

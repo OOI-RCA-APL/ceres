@@ -54,10 +54,15 @@ else:
 
 if TYPE_CHECKING:
     from ceres.database.database import Database as Database
-    from ceres.database.database import Statistics as Statistics
-    from ceres.database.enums import DatabaseType as DatabaseType
 else:
-    __export("ceres.database.database", ["Database", "Statistics", "DatabaseType"])
+    __export("ceres.database.database", ["Database"])
+
+if TYPE_CHECKING:
+    from ceres.database.enums import DatabaseType as DatabaseType
+    from ceres.database.enums import DataFormat as DataFormat
+    from ceres.database.enums import ItemType as ItemType
+else:
+    __export("ceres.database.enums", ["DatabaseType", "DataFormat", "ItemType"])
 
 if TYPE_CHECKING:
     from ceres.directory import Directory as Directory
@@ -179,6 +184,11 @@ if TYPE_CHECKING:
     from ceres.schedule import ScheduleType as ScheduleType
 else:
     __export("ceres.schedule", ["Schedule", "ScheduleType"])
+
+if TYPE_CHECKING:
+    from ceres.statistics import Statistics as Statistics
+else:
+    __export("ceres.statistics", ["Statistics"])
 
 if TYPE_CHECKING:
     from ceres.stream import Stream as Stream
