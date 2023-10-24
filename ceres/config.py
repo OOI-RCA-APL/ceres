@@ -67,6 +67,13 @@ class ConfigObject(ImmutableDataObject):
 class _ComponentConfigMixin(ConfigObject):
     name: Name
 
+    @field_validator("name")
+    def _validate_name(cls, name: Name) -> Name:
+        if name == "all":
+            raise ValueError("'all' is disallowed a component name")
+
+        return name
+
 
 class JobConfig(ConfigObject):
     name: Name

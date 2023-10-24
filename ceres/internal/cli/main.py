@@ -333,10 +333,10 @@ async def status(
     from ceres.internal.app import GetStatusesQueryParameters
 
     if not addresses:
-        addresses = [":all"]
+        addresses = ["all"]
 
     client = APIClient(project)
-    address = AddressSelector("|".join(addresses) if addresses else ":all")
+    address = AddressSelector("|".join(addresses) if addresses else "all")
 
     try:
         statuses = await client.get(

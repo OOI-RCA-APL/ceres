@@ -36,6 +36,16 @@ class AddressSelector(str):
     def segments(self) -> Sequence["AddressSelector"]:
         return [AddressSelector(segment) for segment in self.split("|")]
 
+    def _get_normalized_segments(self) -> Sequence["AddressSelector"]:
+        segments: list[AddressSelector] = []
+        for segment in self.split("|"):
+            if segment == "all":
+                segment = ":all"
+
+            segments.append(AddressSelector(segment))
+
+        return segments
+
     def __new__(cls, obj: str | Sequence[str], /) -> Self:
         if isinstance(obj, cls):
             return obj
@@ -70,7 +80,7 @@ class AddressSelector(str):
         if root.is_engine:
             root = Address.root()
 
-        for segment in self.segments:
+        for segment in self._get_normalized_segments():
             if segment.startswith(":"):
                 segments.append(root + segment)
             elif segment.startswith("~") or segment.startswith("@"):
@@ -87,7 +97,7 @@ class AddressSelector(str):
         address = Address(address)
         self = self.as_absolute(root)
 
-        for segment in self.segments:
+        for segment in self._get_normalized_segments():
             if ":" not in segment:
                 if address == segment:
                     return True
@@ -143,7 +153,7 @@ class AddressSelector(str):
 
         conditions: list[ColumnElement[bool]] = []
 
-        for segment in self.segments:
+        for segment in self._get_normalized_segments():
             if ":" not in segment:
                 conditions.append(address == segment)
                 continue
@@ -188,6 +198,21 @@ class DynamicAddress(AddressSelector):
             return obj
 
         return str.__new__(cls, cls.validate(obj))
+
+    @override
+    @classmethod
+    def validate(cls, value: Any) -> Self:
+        if isinstance(value, cls):
+            return value
+        if not isinstance(value, str):
+            raise TypeError(f"{value!r} must be an instance of {str}")
+        if value == "all":
+            raise ValueError(f"{value!r} cannot be used as an address")
+
+        if cls.regex.match(value) is None:
+            raise ValueError(f"{value!r} must match regex {cls.regex.pattern}")
+
+        return str.__new__(cls, value)
 
     @property
     def name(self) -> Name | None:
@@ -291,17 +316,12 @@ class DynamicAddress(AddressSelector):
 
     @property
     def base(self) -> str | None:
+        if self == "all":
+            return None
         if ":" not in self:
             return str(self)
 
         return self[: self.rindex(":")] or None
-
-    @property
-    def modifier(self) -> str | None:
-        if ":" not in self:
-            return None
-
-        return self[self.rindex(":") + 1 :]
 
     def modify(self, modifier: Literal["all", "descendants", "children"]) -> AddressSelector:
         return AddressSelector(f"{self.base or ''}:{modifier}")
@@ -326,19 +346,6 @@ class Address(DynamicAddress):
     @classmethod
     def root(cls) -> "Address":
         return _ROOT
-
-    @override
-    @classmethod
-    def validate(cls, value: Any) -> Self:
-        if isinstance(value, cls):
-            return value
-        if not isinstance(value, str):
-            raise TypeError(f"{value!r} must be an instance of {str}")
-
-        if cls.regex.match(value) is None:
-            raise ValueError(f"{value!r} must match regex {cls.regex.pattern}")
-
-        return str.__new__(cls, value)
 
     def contains(self, other: "Address") -> bool:
         if self.is_engine:

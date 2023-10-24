@@ -301,8 +301,8 @@ ceres start @connection # Starts the @connection component and the parent root c
 If you want to start or stop all components in the project, you can run:
 
 ```sh
-ceres start :all # Start all components.
-ceres stop :all # Stop all components.
+ceres start all # Start all components.
+ceres stop all # Stop all components.
 ```
 
 #### Enable & Disable Commands
@@ -342,8 +342,8 @@ ceres disable @connection
 To enable or disable all components in the project, you can run:
 
 ```sh
-ceres enable :all # Enable all components.
-ceres disable :all # Disable all components.
+ceres enable all # Enable all components.
+ceres disable all # Disable all components.
 ```
 
 #### Up & Down Commands
@@ -358,8 +358,8 @@ ceres stop @connection # Disable and stop the @connection component.
 The `up` and `down` commands also take selectors just like the other commands.
 
 ```sh
-ceres up :all # Enable and start all components.
-ceres down :all # Disable and stop all components.
+ceres up all # Enable and start all components.
+ceres down all # Disable and stop all components.
 ```
 
 #### Service Commands
