@@ -304,8 +304,8 @@ export type ElementType = Element['type']
 export type ProcedureType = Zod.infer<typeof ProcedureTypeModel>
 export const ProcedureTypeModel = Zod.enum(['query', 'action'])
 
-export type ProcedureArgsInfo = Zod.infer<typeof ProcedureArgsInfoModel>
-export const ProcedureArgsInfoModel = Zod.object({
+export type ProcedureArgsInfo = Zod.infer<typeof ProcedureArgumentsInfoModel>
+export const ProcedureArgumentsInfoModel = Zod.object({
   json_schema: Zod.record(Zod.string(), Zod.any()),
   required: Zod.boolean(),
 })
@@ -319,7 +319,7 @@ const BaseProcedureInfoModel = Zod.object({
   name: Zod.string(),
   type: ProcedureTypeModel,
   live: Zod.boolean(),
-  args: ProcedureArgsInfoModel,
+  arguments: ProcedureArgumentsInfoModel,
   output: ProcedureOutputInfoModel,
 })
 

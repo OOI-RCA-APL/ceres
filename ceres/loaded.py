@@ -32,7 +32,7 @@ _T = TypeVar("_T")
 
 class Loader(ImmutableDataObject):
     cls_path: ClassPath = Field(alias="class")
-    args: Mapping[str, Any] = Field(default_factory=dict)
+    arguments: Mapping[str, Any] = Field(default_factory=dict, validation_alias="args")
 
     @property
     def cls(self) -> type:
@@ -45,43 +45,43 @@ class Loader(ImmutableDataObject):
     @model_validator(mode="after")
     def _validate(self) -> Self:
         extra = {name: getattr(self, name) for name in self._get_extra_kwarg_names()}
-        args = {**self.args, **extra}
-        self._load_obj(self.cls_path.cls, args)
+        arguments = {**self.arguments, **extra}
+        self._load_obj(self.cls_path.cls, arguments)
         return self
 
-    def create(self, *, args: Mapping[str, Any] | None = None) -> Any:
-        if args is None:
-            args = {}
+    def create(self, arguments: Mapping[str, Any] | None = None) -> Any:
+        if arguments is None:
+            arguments = {}
 
         extra = {name: getattr(self, name) for name in self._get_extra_kwarg_names()}
-        args = {**self.args, **extra, **args}
+        arguments = {**self.arguments, **extra, **arguments}
 
-        return self._load_obj(self.cls_path.cls, args)
+        return self._load_obj(self.cls_path.cls, arguments)
 
     @classmethod
     def _load_obj(
         cls,
         target: type,
-        args: Mapping[str, Any] | None = None,
+        arguments: Mapping[str, Any] | None = None,
     ) -> Any:
-        if args is None:
-            args = {}
+        if arguments is None:
+            arguments = {}
 
         if lenient_issubclass(target, BaseModel) or is_pydantic_dataclass_type(target):
-            if is_mapping(args):
-                instance = target(**args)
+            if is_mapping(arguments):
+                instance = target(**arguments)
             else:
-                instance = target(*args)
+                instance = target(*arguments)
         else:
             instance = object.__new__(target)
             if target.__init__ is not object.__init__:
                 init = validate_call(config=ConfigDict(arbitrary_types_allowed=True))(
                     target.__init__
                 )
-                if is_mapping(args):
-                    init(instance, **args)
+                if is_mapping(arguments):
+                    init(instance, **arguments)
                 else:
-                    init(instance, *args)
+                    init(instance, *arguments)
 
         return instance
 

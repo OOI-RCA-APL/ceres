@@ -53,7 +53,7 @@ from ceres.database.database import Database
 from ceres.errors import (
     ProcedureDoesNotExistError,
     ProcedureInternalError,
-    ProcedureInvalidArgsError,
+    ProcedureInvalidArgumentsError,
     ProcedureNotSubscribableError,
 )
 from ceres.events import (
@@ -147,14 +147,14 @@ class Job:
         internal: InternalJob,
         schedule: Schedule,
         action: Name,
-        args: Mapping[str, Any] | None,
+        arguments: Mapping[str, Any] | None,
         retries: int,
         retry_delay: timedelta,
     ) -> None:
         self.__internal = internal
         self.__schedule = schedule
         self.__action = action
-        self.__args = args
+        self.__arguments = arguments
         self.__retries = retries
         self.__retry_delay = retry_delay
 
@@ -171,8 +171,8 @@ class Job:
         return self.__action
 
     @property
-    def args(self) -> Mapping[str, Any] | None:
-        return self.__args
+    def arguments(self) -> Mapping[str, Any] | None:
+        return self.__arguments
 
     @property
     def retries(self) -> int:
@@ -693,7 +693,7 @@ class Component(Object):
         name: Name,
         schedule: Schedule,
         action: Callable[..., Any] | Name,
-        args: Mapping[Name, Any] | None = None,
+        arguments: Mapping[Name, Any] | None = None,
         retries: NonNegativeInt = 0,
         retry_delay: PositiveFloat | PositiveTimeDelta = timedelta(seconds=5),
     ) -> Job:
@@ -707,7 +707,7 @@ class Component(Object):
             await self.__process_job(
                 name=name,
                 action=binding.name,
-                args=args,
+                arguments=arguments,
                 retries=retries,
                 retry_delay=retry_delay,
             )
@@ -723,7 +723,7 @@ class Component(Object):
             internal=internal,
             schedule=schedule,
             action=binding.name,
-            args=args,
+            arguments=arguments,
             retries=retries,
             retry_delay=retry_delay,
         )
@@ -735,7 +735,7 @@ class Component(Object):
         self,
         name: Name,
         action: Name,
-        args: Mapping[str, Any] | None,
+        arguments: Mapping[str, Any] | None,
         retries: NonNegativeInt,
         retry_delay: PositiveTimeDelta,
     ) -> None:
@@ -744,7 +744,7 @@ class Component(Object):
 
         while True:
             try:
-                await self.call(action, args)
+                await self.call(action, arguments)
                 self.emit(JobCompletedEvent, job=name)
                 break
             except CancelledError:
@@ -879,10 +879,10 @@ class Component(Object):
     async def __invoke(
         self,
         procedure: str,
-        args: Mapping[Name, Any] | None = None,
+        arguments: Mapping[Name, Any] | None = None,
     ) -> Any:
-        if args is None:
-            args = {}
+        if arguments is None:
+            arguments = {}
 
         if (
             (binding := self.get_procedure_bindings().get(procedure)) is None
@@ -895,14 +895,14 @@ class Component(Object):
 
         try:
             self.emit(ProcedureCalledEvent, procedure=procedure)
-            return await awaitify(validated(**args))
+            return await awaitify(validated(**arguments))
         except CancelledError:
             self.emit(ProcedureCancelledEvent, procedure=procedure)
             raise
         except ValidationError as error:
             if method.__name__ in error.title:
                 raise ProcedureException(
-                    ProcedureInvalidArgsError(problems=ValidationProblem.extract(error))
+                    ProcedureInvalidArgumentsError(problems=ValidationProblem.extract(error))
                 )
 
             raise
@@ -914,9 +914,9 @@ class Component(Object):
     async def call(
         self,
         procedure: str,
-        args: Mapping[Name, Any] | None = None,
+        arguments: Mapping[Name, Any] | None = None,
     ) -> object | None:
-        result = await self.__invoke(procedure, args)
+        result = await self.__invoke(procedure, arguments)
         binding = self.get_procedure_bindings()[procedure]
 
         if not binding.live:
@@ -948,9 +948,9 @@ class Component(Object):
     async def subscribe(
         self,
         procedure: str,
-        args: Mapping[Name, Any] | None = None,
+        arguments: Mapping[Name, Any] | None = None,
     ) -> AsyncIterable[object | None]:
-        result = await self.__invoke(procedure, args)
+        result = await self.__invoke(procedure, arguments)
         binding = self.get_procedure_bindings()[procedure]
 
         if not binding.live:
@@ -959,7 +959,7 @@ class Component(Object):
 
             try:
                 while True:
-                    yield await self.__invoke(procedure, args)
+                    yield await self.__invoke(procedure, arguments)
                     await asyncio.sleep(binding.poll.total_seconds())
             except CancelledError:
                 self.emit(ProcedureCancelledEvent, procedure=procedure)
@@ -1172,11 +1172,11 @@ class ProcedureType(StrEnum):
 
 
 class ProcedureSchemas(ImmutableDataObject):
-    args: Mapping[str, Any] | None
+    arguments: Mapping[str, Any] | None
     output: Mapping[str, Any]
 
 
-class ProcedureArgsInfo(ImmutableDataObject):
+class ProcedureArgumentsInfo(ImmutableDataObject):
     json_schema: Mapping[str, Any]
     required: bool
 
@@ -1190,7 +1190,7 @@ class __BaseProcedureBinding(ImmutableDataObject):
     type: ProcedureType
     method: str
     live: bool
-    args: ProcedureArgsInfo | None
+    arguments: ProcedureArgumentsInfo | None
     output: ProcedureOutputInfo
 
 
@@ -1236,7 +1236,7 @@ def query(
             QueryBinding(
                 name=_get_bound_name(method),
                 method=get_function_name(method),
-                args=info.args,
+                arguments=info.arguments,
                 output=info.output,
                 live=info.live,
                 poll=poll if isinstance(poll, timedelta) else timedelta(seconds=poll),
@@ -1272,7 +1272,7 @@ def action(
             ActionBinding(
                 name=_get_bound_name(method),
                 method=get_function_name(method),
-                args=validated.args,
+                arguments=validated.arguments,
                 output=validated.output,
                 live=validated.live,
             ),
@@ -1289,7 +1289,7 @@ def action(
 class __ProcedureMethodInfo(ImmutableDataObject):
     name: str
     method: str
-    args: ProcedureArgsInfo | None
+    arguments: ProcedureArgumentsInfo | None
     output: ProcedureOutputInfo
     live: bool
 
@@ -1308,8 +1308,8 @@ def __get_procedure_method_info(
     if any(parameter.kind == Parameter.POSITIONAL_ONLY for parameter in parameters[1:]):
         raise ValueError(f"{type_} {strify(method)} cannot have positional-only arguments")
 
-    args_json_schema = get_args_model(method).model_json_schema()
-    args_required = len(args_json_schema.get("properties", {}).get("required", [])) > 0
+    arguments_json_schema = get_args_model(method).model_json_schema()
+    arguments_required = len(arguments_json_schema.get("properties", {}).get("required", [])) > 0
 
     output_annotation = get_return_annotation(method, Undefined)
     if output_annotation is Undefined:
@@ -1339,9 +1339,9 @@ def __get_procedure_method_info(
     return __ProcedureMethodInfo(
         name=_get_bound_name(method),
         method=get_function_name(method),
-        args=ProcedureArgsInfo(
-            json_schema=args_json_schema,
-            required=args_required,
+        arguments=ProcedureArgumentsInfo(
+            json_schema=arguments_json_schema,
+            required=arguments_required,
         ),
         output=ProcedureOutputInfo(
             json_schema=output_json_schema,

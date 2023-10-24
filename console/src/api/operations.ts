@@ -464,7 +464,7 @@ export function useElementStream<TModel extends ZodTypeAny>(
   return useStream(
     computed(() =>
       getWebSocketURI(
-        `/api/components/${unref(address)}/procedures/${unref(query)}/subscribe?args=` +
+        `/api/components/${unref(address)}/procedures/${unref(query)}/subscribe?arguments=` +
           encodeURIComponent(JSON.stringify(unref(args)))
       )
     ),
@@ -513,7 +513,7 @@ export async function call(
 ) {
   let url = `/api/components/${address}/procedures/${procedure}/call`
   if (Object.keys(args).length > 0) {
-    url += `?args=${encodeURIComponent(JSON.stringify(unref(args)))}`
+    url += `?arguments=${encodeURIComponent(JSON.stringify(unref(args)))}`
   }
 
   return await post(url, BaseResultModel)

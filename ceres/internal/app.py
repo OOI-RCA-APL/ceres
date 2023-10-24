@@ -143,25 +143,27 @@ async def _use_current_socket(socket: WebSocket) -> AsyncIterator[Socket]:
 CurrentSocket = Annotated[Socket, Depends(_use_current_socket)]
 
 
-def _get_procedure_query_args(
-    query_args: Annotated[Json[Any], Query(alias="args")] = None,
+def _get_procedure_query_arguments(
+    query_arguments: Annotated[Json[Any], Query(alias="arguments")] = None,
 ) -> Mapping[str, object]:
     adapter = get_type_adapter(Mapping[str, object])
 
     try:
-        if query_args is None:
+        if query_arguments is None:
             return {}
-        if isinstance(query_args, str):
-            return adapter.validate_json(query_args)
-        return adapter.validate_python(query_args)
+        if isinstance(query_arguments, str):
+            return adapter.validate_json(query_arguments)
+        return adapter.validate_python(query_arguments)
     except Exception:
         raise HTTPException(
             HTTP_400_BAD_REQUEST,
-            "'args' query parameter must be unspecified, null or a valid JSON object",
+            "'arguments' query parameter must be unspecified, null or a valid JSON object",
         )
 
 
-CurrentProcedureQueryArgs = Annotated[Mapping[str, object], Depends(_get_procedure_query_args)]
+CurrentProcedureQueryArguments = Annotated[
+    Mapping[str, object], Depends(_get_procedure_query_arguments)
+]
 
 
 @api.get("/config", tags=["engine"])
@@ -272,7 +274,7 @@ async def get_component(engine: CurrentEngine, address: Address) -> ComponentInf
             {
                 "name": component_config.name,
                 "class": component_config.cls_path,
-                "args": component_config.args,
+                "arguments": component_config.arguments,
                 "components": component_config.components,
             }
         )
@@ -441,35 +443,36 @@ async def call(
     engine: CurrentEngine,
     address: Address,
     procedure: Name,
-    query_args: CurrentProcedureQueryArgs,
-    body_args: Mapping[Name, object] | None = Body(None),
+    query_arguments: CurrentProcedureQueryArguments,
+    body_arguments: Mapping[Name, object] | None = Body(None),
 ) -> Result[Any | None, ProcedureError]:
-    if isinstance(query_args, str):
+    if isinstance(query_arguments, str):
         try:
-            query_args = json.loads(query_args)
+            query_arguments = json.loads(query_arguments)
         except Exception:
             raise HTTPException(
                 HTTP_400_BAD_REQUEST,
-                "'args' query parameter must be unspecified, null or a valid JSON object",
+                "'arguments' query parameter must be unspecified, null or a valid JSON object",
             )
 
-    if not isinstance(query_args, Mapping | None):
+    if not isinstance(query_arguments, Mapping | None):
         raise HTTPException(
             HTTP_400_BAD_REQUEST,
-            "'args' query parameter must be unspecified, null or a valid JSON object",
+            "'arguments' query parameter must be unspecified, null or a valid JSON object",
         )
 
-    args = {}
-    args.update(query_args or {})
-    args.update(body_args or {})
-    args.update(request.query_params)
-    args.pop("args", None)
+    arguments = {}
+    arguments.update(query_arguments or {})
+    arguments.update(body_arguments or {})
+    arguments.update(request.query_params)
+    arguments.pop("arguments", None)
+    arguments.pop("args", None)
 
     try:
         component = engine.get_component(address)
         if component is None:
             return Fail(ProcedureComponentDoesNotExistError())
-        return Ok(await component.call(procedure, args))
+        return Ok(await component.call(procedure, arguments))
     except ProcedureException as exception:
         return Fail(exception.error)
 
@@ -480,14 +483,15 @@ async def subscribe(
     engine: CurrentEngine,
     address: Address,
     procedure: Name,
-    query_args: CurrentProcedureQueryArgs,
+    query_arguments: CurrentProcedureQueryArguments,
 ) -> None:
     await socket.accept()
 
-    args = {}
-    args.update(query_args or {})
-    args.update(socket.query_params)
-    args.pop("args", None)
+    arguments = {}
+    arguments.update(query_arguments or {})
+    arguments.update(socket.query_params)
+    arguments.pop("arguments", None)
+    arguments.pop("args", None)
 
     component = engine.get_component(address)
     if component is None:
@@ -507,7 +511,7 @@ async def subscribe(
 
     async def write() -> None:
         try:
-            async for output in component.subscribe(procedure, args):
+            async for output in component.subscribe(procedure, arguments):
                 await socket.send_text(jsonify(output))
         except Exception as exception:
             if isinstance(exception, ProcedureException):

@@ -124,7 +124,7 @@ _PostgreSQL is also supported, but for small to medium sized projects SQLite is 
 components:
   - name: connection
     class: ceres.standard.TCPConnection
-    args:
+    arguments:
       host: localhost
       port: 4000
       separator: "\n"
@@ -132,7 +132,7 @@ components:
 
 This section defines the "components" in our project. Components are configurable Python objects that work together to form a data collection system. They are the core building blocks of any Ceres project. We'll go into more detail later on.
 
-For now, we declare a component named `connection` as an instance of the standard, built-in component class `TCPConnection`, and provide it with some configuration via `args`.
+For now, we declare a component named `connection` as an instance of the standard, built-in component class `TCPConnection`, and provide it with some configuration via `arguments`.
 
 This component, globally addressed as `@connection`, will automatically bind to `localhost:4000`, splitting the incoming byte stream into separate messages by new-line. Each message will then be assigned a timestamp, associated with the `@connection` address, and stored in the database.
 
@@ -153,7 +153,7 @@ database:
 components:
   - name: connection
     class: ceres.standard.TCPConnection
-    args:
+    arguments:
       host: localhost
       port: 4000
       separator: "\n"
@@ -451,13 +451,13 @@ Then, register the component in `ceres.yaml`, alongside the connection component
 components:
   - name: connection
     class: ceres.standard.TCPConnection
-    args:
+    arguments:
       host: localhost
       port: 4000
       separator: "\n"
   - name: driver
     class: intro.driver.Driver
-    args:
+    arguments:
       connection: "@connection"
       out: ./local/messages.csv
 ```
@@ -466,7 +466,7 @@ There are many things to unpack here, so lets go through them one by one:
 
 1. The `Driver` class inherits from `Component`. This is required.
 2. All subclasses of `Component` are actually [Pydantic dataclasses](https://docs.pydantic.dev/latest/concepts/dataclasses), meaning attributes defined in a component's class body are per-instance fields, assignable by arguments in the class's constructor.
-3. Values assigned in a component's `args` configuration are passed directly to the component's constructor, and subsequently validated according to the type hints of the associated field.
+3. Values assigned in a component's `arguments` configuration are passed directly to the component's constructor, and subsequently validated according to the type hints of the associated field.
 
    The component section of the above `ceres.yaml` file is equivalent to:
 

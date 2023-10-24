@@ -161,7 +161,7 @@ class ProcedureErrorType(StrEnum):
     COMPONENT_DOES_NOT_EXIST = "procedure-component-does-not-exist-error"
     COMPONENT_NOT_LOADED = "procedure-component-not-loaded-error"
     DOES_NOT_EXIST = "procedure-does-not-exist-error"
-    INVALID_ARGS = "procedure-invalid-args-error"
+    INVALID_ARGUMENTS = "procedure-invalid-arguments-error"
     NOT_SUBSCRIBABLE = "procedure-not-subscribable-error"
     CANCELLED = "procedure-cancelled-error"
     INTERNAL = "procedure-internal-error"
@@ -189,8 +189,8 @@ class ProcedureDoesNotExistError(BaseProcedureError):
     type: Literal[ProcedureErrorType.DOES_NOT_EXIST] = ProcedureErrorType.DOES_NOT_EXIST
 
 
-class ProcedureInvalidArgsError(BaseProcedureError):
-    type: Literal[ProcedureErrorType.INVALID_ARGS] = ProcedureErrorType.INVALID_ARGS
+class ProcedureInvalidArgumentsError(BaseProcedureError):
+    type: Literal[ProcedureErrorType.INVALID_ARGUMENTS] = ProcedureErrorType.INVALID_ARGUMENTS
     problems: Sequence[ValidationProblem]
 
 
@@ -213,7 +213,7 @@ ProcedureError = (
     | ProcedureComponentDoesNotExistError
     | ProcedureDoesNotExistError
     | ProcedureComponentNotLoadedError
-    | ProcedureInvalidArgsError
+    | ProcedureInvalidArgumentsError
     | ProcedureNotSubscribableError
     | ProcedureCancelledError
     | ProcedureInternalError

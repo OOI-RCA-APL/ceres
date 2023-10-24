@@ -10,7 +10,7 @@ from ceres.component import ComponentGroup, RoutineBinding, RoutineRestartPolicy
 from ceres.errors import (
     ProcedureDoesNotExistError,
     ProcedureInternalError,
-    ProcedureInvalidArgsError,
+    ProcedureInvalidArgumentsError,
 )
 from ceres.events import (
     RoutineCancelledEvent,
@@ -207,7 +207,7 @@ async def test_component_procedure_invalid_args_error(decorator: Any) -> None:
     with pytest.raises(ProcedureException) as context:
         await component.call("add", {"left": 1})
 
-    assert context.value.error == ProcedureInvalidArgsError(
+    assert context.value.error == ProcedureInvalidArgumentsError(
         problems=[
             ValidationProblem(
                 location=["right"],
@@ -229,7 +229,7 @@ async def test_component_procedure_internal_error(decorator: Any) -> None:
     with pytest.raises(ProcedureException) as context:
         await component.call("test")
 
-    assert isinstance(context.value.error, ProcedureInvalidArgsError)
+    assert isinstance(context.value.error, ProcedureInvalidArgumentsError)
 
     with pytest.raises(ProcedureException) as context:
         await component.call("test", {"left": 5, "right": 5})

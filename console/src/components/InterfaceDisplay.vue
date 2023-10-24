@@ -33,7 +33,7 @@ const query = $computed(
 
 const form = query
   ? useSchemaForm({
-      schema: computed(() => query.args.json_schema),
+      schema: computed(() => query.arguments.json_schema),
       persist: computed(() =>
         query
           ? `state/display/schema-form/${component.address}/display/${query.name}/${path.join(

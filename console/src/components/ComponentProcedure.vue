@@ -32,7 +32,7 @@ const form = useSchemaForm({
   persist: computed(
     () => `state/component-procedure/schema-form/${component.address}/procedures/${procedure.name})`
   ),
-  schema: computed(() => procedure.args.json_schema),
+  schema: computed(() => procedure.arguments.json_schema),
   async onSubmit(value) {
     sentAt = moment.utc()
     receivedAt = null

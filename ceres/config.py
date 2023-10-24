@@ -1,7 +1,6 @@
 import asyncio
 import os
 import traceback
-from pydantic import IPvAnyAddress
 from datetime import timedelta
 from logging import Logger
 from pathlib import Path
@@ -10,6 +9,7 @@ from typing import TYPE_CHECKING, Any, Callable, Literal, Mapping, Sequence
 import yaml
 from pydantic import (
     Field,
+    IPvAnyAddress,
     SecretStr,
     ValidationError,
     ValidationInfo,
@@ -71,7 +71,7 @@ class _ComponentConfigMixin(ConfigObject):
 class JobConfig(ConfigObject):
     name: Name
     action: Name
-    args: Mapping[Name, Any] | None = None
+    arguments: Mapping[Name, Any] | None = Field(None, validation_alias="args")
     schedule: Schedule = Field(discriminator="type")
 
     @model_validator(mode="before")
@@ -89,12 +89,12 @@ class ComponentConfig(Loader, _ComponentConfigMixin):
     jobs: Sequence[JobConfig] = Field(default_factory=list)
     components: Sequence["ComponentConfig"] = Field(default_factory=list)
 
-    def create(self, *, args: Mapping[str, Any] | None = None) -> Component:
-        component: Component = super().create(args=args)
+    def create(self, arguments: Mapping[str, Any] | None = None) -> Component:
+        component: Component = super().create(arguments=arguments)
         component.__config__ = self
         for job in self.jobs:
             # TODO: Validated job arguments.
-            component.add_job(job.name, job.schedule, job.action, job.args)
+            component.add_job(job.name, job.schedule, job.action, job.arguments)
         return component
 
     @override

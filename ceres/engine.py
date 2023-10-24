@@ -487,7 +487,7 @@ class Engine(Object, kw_only=False):
         assert component is not None
         assert config is not None
 
-        include = {"name", "cls_path", "class", "args"}
+        include = {"name", "cls_path", "class", "arguments"}
         old = (
             {} if component.__config__ is None else component.__config__.model_dump(include=include)
         )

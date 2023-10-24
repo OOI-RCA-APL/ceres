@@ -22,5 +22,5 @@ class ScheduledDispatcher(Dispatcher):
                 f"dispatch-{dispatch.subject}",
                 dispatch.schedule,
                 self.dispatch,
-                args={"dispatch": dispatch},
+                arguments={"dispatch": dispatch},
             )
