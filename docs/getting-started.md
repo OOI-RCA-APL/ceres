@@ -362,6 +362,22 @@ ceres up :all # Enable and start all components.
 ceres down :all # Disable and stop all components.
 ```
 
+#### Service Commands
+
+To manage Ceres as user-level background service, use the `service` command:
+
+```sh
+ceres service start # Start background process, creating a service file automatically.
+ceres service status # Check status of background process.
+ceres service stop # Stop background process, deleting the service file automatically.
+```
+
+_On Linux, the service is managed using Systemd `--user` commands, and `loginctl enable-linger` is run automatically in order to make it persist after logout._
+
+_On macOS, the service is managed using Launchd commands._
+
+_The `service` commands are currently only supported on Linux and macOS._
+
 ## Custom Components
 
 So far we've only used the built-in `TCPConnection` component to receive raw messages from the simulator. Now let's get to the interesting part, and create our own components. In your project directory, create a Python module named `intro` with the following structure:
