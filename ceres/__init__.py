@@ -1,6 +1,8 @@
 from collections import defaultdict
 from typing import TYPE_CHECKING, Iterable
 
+from ceres.version import __version__ as __version__
+
 __exports: defaultdict[str, list[str]] = defaultdict(list)
 
 
@@ -155,6 +157,11 @@ if TYPE_CHECKING:
     from ceres.roles.dispatcher import DispatchWriter as DispatchWriter
 else:
     __export("ceres.roles.dispatcher", ["Dispatch", "Dispatcher", "DispatchWriter"])
+
+if TYPE_CHECKING:
+    from ceres.roles.interface import Interface as Interface
+else:
+    __export("ceres.roles.interface", ["Interface"])
 
 if TYPE_CHECKING:
     from ceres.roles.notifier import Notification as Notification

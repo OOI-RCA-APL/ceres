@@ -45,11 +45,11 @@ from ceres.internal.utilities import (
 from ceres.object import Status
 from ceres.result import Fail, Ok
 from ceres.threading import spawn
-from ceres.version import VERSION
+from ceres.version import __version__
 
 router = CLIRouter(
     name="ceres",
-    help=f"Ceres CLI — Package Version {VERSION}",
+    help=f"Ceres CLI — Package Version {__version__}",
 )
 
 router.add_typer(database)
@@ -61,7 +61,7 @@ def version() -> None:
     """
     Show the current Ceres version number.
     """
-    write(VERSION)
+    write(__version__)
 
 
 @router.command()
