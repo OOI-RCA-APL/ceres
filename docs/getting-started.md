@@ -161,15 +161,15 @@ components:
 
 ## Running the Project
 
-With our configuration file ready, we can can run project using the `ceres run --all` command.
+With our configuration file ready, we can can run project using the `ceres run all` command.
 
 ```sh
-ceres run --all
+ceres run all
 ```
 
 The `run` command reads the `ceres.yaml` configuration file in the working directory, and starts a Ceres `Engine` class to run that configuration.
 
-_The `--all` flag is used to make the engine run every components in the project on startup. This is useful for development. In production or with a more complex project, you'll likely want to use the `start`, `stop`, `enable` and `disable` commands to manage components individually._
+_The `all` argument is used to make the engine run every components in the project on startup. This is useful for development. In production or with a more complex project, you'll likely want to use the `start`, `stop`, `enable` and `disable` commands to manage components individually._
 
 #### Engine Output
 
@@ -262,7 +262,7 @@ The "Components" section shows of the state of our components.
 
 \_You'll notice here, that that in addition to `@connection`, there is another component with the address `@`. Ceres components form a hierachical tree structure, with a generic root component at the top. For small projects, this structure can mostly be ignored, but for larger projects, this hierarchical structure allows components to be organized into groups.
 
-For our project, we see that `@` and `@connection` components are running but disabled, meaning that unless we run the engine using the `--all` flag, they will not be started automatically.
+For our project, we see that `@` and `@connection` components are running but disabled, meaning that unless we run the engine using the `all` selector, they will not be started automatically.
 
 _All components defined in the `components` configuration are children the root component._
 
@@ -315,7 +315,7 @@ First, let's stop the engine using `Ctrl+C`, then start it again using:
 ceres run
 ```
 
-You'll notice by the output of the above command, that no components are running. This is because we're not using the `--all` flag, meaning that components must be explitly enabled to run when the engine starts.
+You'll notice by the output of the above command that no components are running. This is because we're not using the `all` selector, meaning that components must be explitly enabled to run when the engine starts.
 
 If we do want a component to run on start up, use the `enable` command:
 

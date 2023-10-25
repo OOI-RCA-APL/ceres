@@ -66,9 +66,12 @@ def version() -> None:
 
 @router.command()
 async def run(
+    addresses: list[str] = Argument(
+        None,
+        help="Addresses of components to run on startup.",
+    ),
     *,
     config_path: Path = ConfigPathOption(),
-    all: bool = False,
     watch: bool = Option(
         False,
         help="Automatically restart the application on code changes.",
@@ -77,10 +80,12 @@ async def run(
     """
     Start the engine as a foreground process.
     """
+    address = AddressSelector(addresses or [])
+
     try:
         if watch:
             set_current_process_name("ceres-watch")
-            await _run_watch(config_path=config_path, all=all)
+            await _run_watch(address, config_path=config_path)
         else:
             set_current_process_name("ceres")
             server = Engine(config_path)
@@ -96,8 +101,7 @@ async def run(
 
             async def run() -> None:
                 server.start()
-                if all:
-                    server.get_components().start()
+                server.get_components(address).start()
 
                 await server.wait_until_stopped()
 
@@ -141,18 +145,18 @@ def setup() -> None:
 
 
 def _run_sync(
+    address: AddressSelector,
     *,
     config_path: Path,
     watch: bool,
-    all: bool,
 ) -> None:
-    syncify(run)(config_path=config_path, watch=watch, all=all)
+    syncify(run)(addresses=[address], config_path=config_path, watch=watch)
 
 
 async def _run_watch(
+    address: AddressSelector,
     *,
     config_path: Path,
-    all: bool,
 ) -> None:
     async def main() -> None:
         import importlib.util
@@ -166,9 +170,9 @@ async def _run_watch(
         async def start() -> CombinedProcess:
             target = _run_sync
             kwargs = {
+                "address": address,
                 "config_path": config_path,
                 "watch": False,
-                "all": all,
             }
 
             return await spawn(start_process, target, "function", (), kwargs)
@@ -336,7 +340,7 @@ async def status(
         addresses = ["all"]
 
     client = APIClient(project)
-    address = AddressSelector("|".join(addresses) if addresses else "all")
+    address = AddressSelector(addresses if addresses else "all")
 
     try:
         statuses = await client.get(
@@ -388,7 +392,7 @@ async def start(
     Start components at the provided address(s).
     """
     client = APIClient(project)
-    address = AddressSelector("|".join(addresses))
+    address = AddressSelector(addresses)
     query = ComponentFilter(address=address)
     from ceres.internal.app import StartResult
 
@@ -409,7 +413,7 @@ async def stop(
     Stop components at the provided address(s).
     """
     client = APIClient(project)
-    address = AddressSelector("|".join(addresses))
+    address = AddressSelector(addresses)
     query = ComponentFilter(address=address)
     from ceres.internal.app import StopResult
 
@@ -430,7 +434,7 @@ async def enable(
     Enable components at the provided address(s).
     """
     client = APIClient(project)
-    address = AddressSelector("|".join(addresses))
+    address = AddressSelector(addresses)
     query = ComponentFilter(address=address)
     from ceres.internal.app import EnableResult
 
@@ -451,7 +455,7 @@ async def disable(
     Disable components at the provided address(s).
     """
     client = APIClient(project)
-    address = AddressSelector("|".join(addresses))
+    address = AddressSelector(addresses)
     query = ComponentFilter(address=address)
     from ceres.internal.app import DisableResult
 
@@ -472,7 +476,7 @@ async def up(
     Start and enable components at the provided address(s).
     """
     client = APIClient(project)
-    address = AddressSelector("|".join(addresses))
+    address = AddressSelector(addresses)
     query = ComponentFilter(address=address)
     from ceres.internal.app import UpResult
 
@@ -493,7 +497,7 @@ async def down(
     Stop and disable components at the provided address(s).
     """
     client = APIClient(project)
-    address = AddressSelector("|".join(addresses))
+    address = AddressSelector(addresses)
     query = ComponentFilter(address=address)
     from ceres.internal.app import DownResult
 

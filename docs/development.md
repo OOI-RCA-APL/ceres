@@ -29,9 +29,9 @@
 
    _This makes `ceres` available as a command._
 
-7. Run `ceres run --all --watch` to run the project.
+7. Run `ceres run all --watch` to run the project.
 
-   - _The `--all` flag starts all components on engine startup._
+   - _The `all` selector makes all components run on engine startup._
    - _The `--watch` flag makes the engine reload when either configuration or code are modified._
 
 8. See the [Getting Started](./getting-started.md) documentation to continue.
