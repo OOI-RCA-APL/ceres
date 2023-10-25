@@ -86,7 +86,7 @@ class AddressSelector(str):
             elif segment.startswith("~") or segment.startswith("@"):
                 segments.append(segment)
             else:
-                if segment == "~" or segment == "@":
+                if root == "~" or root == "@":
                     segments.append(root + segment)
                 else:
                     segments.append(root + "." + segment)
