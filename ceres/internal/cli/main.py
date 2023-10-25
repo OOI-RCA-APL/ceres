@@ -80,7 +80,7 @@ async def run(
     """
     Start the engine as a foreground process.
     """
-    address = AddressSelector(addresses or [])
+    address = AddressSelector(addresses) if addresses else None
 
     try:
         if watch:
@@ -145,16 +145,16 @@ def setup() -> None:
 
 
 def _run_sync(
-    address: AddressSelector,
+    address: AddressSelector | None = None,
     *,
     config_path: Path,
     watch: bool,
 ) -> None:
-    syncify(run)(addresses=[address], config_path=config_path, watch=watch)
+    syncify(run)(addresses=[address] if address else [], config_path=config_path, watch=watch)
 
 
 async def _run_watch(
-    address: AddressSelector,
+    address: AddressSelector | None = None,
     *,
     config_path: Path,
 ) -> None:
