@@ -148,7 +148,7 @@ class ServiceConfig(ConfigObject):
 
 
 class ServerConfig(ConfigObject):
-    host: str = "::"  # Bind to all addresses on IPV6 and IPV4 by default.
+    host: str = "0.0.0.0"  # Bind to IPV4 all addresses by default
     port: int | None = None
     socket: Path | None = None
 
