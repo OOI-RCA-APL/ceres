@@ -22,8 +22,8 @@ module.exports = configure((context) => {
       }).parsed ?? {}
 
     return {
-      ceresApiPort: Number(dotenv.DEVELOPMENT_CERES_API_PORT ?? 9000),
-      ceresConsolePort: Number(dotenv.DEVELOPMENT_CERES_CONSOLE_PORT ?? 10000),
+      ceresApiPort: Number(dotenv.DEVELOPMENT_CERES_API_PORT ?? 8080),
+      ceresConsolePort: Number(dotenv.DEVELOPMENT_CERES_CONSOLE_PORT ?? 8085),
     }
   }
 

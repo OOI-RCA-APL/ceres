@@ -34,6 +34,11 @@ else:
     __export("ceres.component", ["Component", "ProcedureType", "action", "on", "query", "routine"])
 
 if TYPE_CHECKING:
+    from ceres.connectivity import Connectivity as Connectivity
+else:
+    __export("ceres.connectivity", ["Connectivity"])
+
+if TYPE_CHECKING:
     from ceres.config import Config as Config
     from ceres.config import ConfigCheckType as ConfigCheckType
 else:
@@ -152,9 +157,8 @@ else:
 
 if TYPE_CHECKING:
     from ceres.roles.connection import Connection as Connection
-    from ceres.roles.connection import ConnectionState as ConnectionState
 else:
-    __export("ceres.roles.connection", ["Connection", "ConnectionState"])
+    __export("ceres.roles.connection", ["Connection"])
 
 if TYPE_CHECKING:
     from ceres.roles.dispatcher import Dispatch as Dispatch

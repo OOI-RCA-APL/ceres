@@ -623,23 +623,11 @@ class Component(Object):
 
         return ComponentGroup(components)
 
-    @overload
-    async def get_status(self, address: str | DynamicAddress) -> Status | None:
-        ...
-
-    @overload
-    async def get_status(self, address: None = None) -> Status:
-        ...
-
-    async def get_status(self, address: str | DynamicAddress | None = None) -> Status | None:
-        if address is None:
-            return Status(
-                address=self.address,
-                running=self.running,
-                enabled=self.enabled,
-            )
-
-        return await super().get_status(address)
+    @override
+    async def get_status(self) -> Status:
+        status = await super().get_status()
+        status.enabled = self.enabled
+        return status
 
     def get_ancestor_components(self, *, inclusive: bool = False) -> "ComponentGroup":
         ancestors: list[Component] = []

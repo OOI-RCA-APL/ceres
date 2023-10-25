@@ -14,19 +14,16 @@ from typing import (
 )
 
 from sqlalchemy.exc import DatabaseError
-from typing_extensions import ParamSpec, Unpack, dataclass_transform, overload, override
+from typing_extensions import ParamSpec, Unpack, dataclass_transform, override
 
 from ceres.address import Address, AddressSelector, DynamicAddress
 from ceres.alert import Alert
 from ceres.config import DatabaseType
-from ceres.data import (
-    VALIDATED_DATACLASS_FIELD_SPECIFIERS,
-    ImmutableDataObject,
-    ValidatedDataclass,
-)
+from ceres.data import VALIDATED_DATACLASS_FIELD_SPECIFIERS, ValidatedDataclass
 from ceres.events import (
     AlertEvent,
     ConnectedEvent,
+    ConnectFailedEvent,
     DatabaseExceptionEvent,
     DisabledEvent,
     DisconnectedEvent,
@@ -56,6 +53,7 @@ from ceres.internal.utilities import get_traceback, get_type_adapter, group_by
 from ceres.level import Level
 from ceres.logs import Log, LogEntry
 from ceres.message import Message
+from ceres.status import Status
 from ceres.stream import Stream, WriteStream
 
 if TYPE_CHECKING:
@@ -79,12 +77,6 @@ _EventP = ParamSpec("_EventP")
 
 Item = Message | Alert | LogEntry
 _ItemT = TypeVar("_ItemT", bound=Item)
-
-
-class Status(ImmutableDataObject):
-    address: Address
-    running: bool
-    enabled: bool
 
 
 @dataclass
@@ -352,27 +344,11 @@ class Object(ValidatedDataclass, Tasklet):
     ) -> "ComponentGroup":
         ...
 
-    @overload
-    async def get_status(self, address: str | DynamicAddress) -> Status | None:
-        ...
-
-    @overload
-    async def get_status(self, address: None = None) -> Status:
-        ...
-
-    async def get_status(self, address: str | DynamicAddress | None = None) -> Status | None:
-        if address is None:
-            return Status(
-                address=self.address,
-                running=self.running,
-                enabled=False,
-            )
-
-        component = self.get_object(address)
-        if component is None:
-            return None
-
-        return await component.get_status()
+    async def get_status(self) -> Status:
+        return Status(
+            address=self.address,
+            running=self.running,
+        )
 
     async def get_statuses(
         self,
@@ -399,6 +375,7 @@ class Object(ValidatedDataclass, Tasklet):
             | DisabledEvent
             | ConnectedEvent
             | DisconnectedEvent
+            | ConnectFailedEvent
         ):
             yield await self.get_statuses(filter, **kwargs)
 

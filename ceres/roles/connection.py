@@ -3,12 +3,13 @@ import traceback
 from abc import ABC, abstractmethod
 from dataclasses import field
 from datetime import timedelta
-from typing import Annotated, AsyncIterable
+from typing import Annotated
 
 from pydantic import Field
 from typing_extensions import override
 
-from ceres.component import Component, action, query, routine
+from ceres.component import Component, action, routine
+from ceres.connectivity import Connectivity
 from ceres.data import ImmutableDataObject
 from ceres.events import (
     ConnectedEvent,
@@ -21,9 +22,9 @@ from ceres.events import (
     MessageSentEvent,
 )
 from ceres.exceptions import ConnectionLostException
-from ceres.internal.utilities import StrEnum
 from ceres.message import Message, MessageContent, MessageDirection
 from ceres.schedule import IntervalSchedule
+from ceres.status import Status
 from ceres.stream import Stream
 from ceres.timing import utc
 
@@ -38,12 +39,6 @@ class ReconnectSettings(ImmutableDataObject):
     )
 
 
-class ConnectionState(StrEnum):
-    DISCONNECTED = "disconnected"
-    CONNECTING = "connecting"
-    CONNECTED = "connected"
-
-
 class Connection(Component, ABC):
     separator: bytes = b"\r\n"
     reconnect_settings: ReconnectSettings = field(default_factory=ReconnectSettings)
@@ -51,7 +46,7 @@ class Connection(Component, ABC):
     @override
     def __setup__(self) -> None:
         super().__setup__()
-        self.__state = ConnectionState.DISCONNECTED
+        self.__connectivity = Connectivity.DISCONNECTED
 
     @override
     async def __stop__(self) -> None:
@@ -64,12 +59,12 @@ class Connection(Component, ABC):
         ...
 
     @property
-    def state(self) -> ConnectionState:
-        return self.__state
+    def connectivity(self) -> Connectivity:
+        return self.__connectivity
 
     @property
     def connected(self) -> bool:
-        return self.__state == ConnectionState.CONNECTED
+        return self.__connectivity == Connectivity.CONNECTED
 
     @property
     def messages(self) -> Stream[Message]:
@@ -84,6 +79,12 @@ class Connection(Component, ABC):
     @property
     def received(self) -> Stream[Message]:
         return self.events.of(MessageReceivedEvent).map(lambda event: event.message)
+
+    @override
+    async def get_status(self) -> Status:
+        status = await super().get_status()
+        status.connectivity = self.connectivity
+        return status
 
     @abstractmethod
     async def _try_connect(self) -> bool:
@@ -102,11 +103,11 @@ class Connection(Component, ABC):
         ...
 
     async def connect(self) -> bool:
-        if self.__state == ConnectionState.CONNECTED:
+        if self.__connectivity == Connectivity.CONNECTED:
             return True
 
         self.emit(ConnectingEvent)
-        self.__state = ConnectionState.CONNECTING
+        self.__connectivity = Connectivity.CONNECTING
 
         try:
             connected = await self._try_connect()
@@ -116,21 +117,13 @@ class Connection(Component, ABC):
                 self.log.error(error)
 
         if connected:
-            self.__state = ConnectionState.CONNECTED
+            self.__connectivity = Connectivity.CONNECTED
             self.emit(ConnectedEvent)
         else:
-            self.__state = ConnectionState.DISCONNECTED
+            self.__connectivity = Connectivity.DISCONNECTED
             self.emit(ConnectFailedEvent)
 
         return self.connected
-
-    @query
-    async def get_connection_state(self) -> AsyncIterable[ConnectionState]:
-        yield self.__state
-
-        async for event in self.events:
-            if isinstance(event, ConnectedEvent | DisconnectedEvent):
-                yield self.__state
 
     @action
     async def send_message(
@@ -201,7 +194,7 @@ class Connection(Component, ABC):
         return message
 
     async def disconnect(self) -> None:
-        if self.__state == ConnectionState.DISCONNECTED:
+        if self.__connectivity == Connectivity.DISCONNECTED:
             return
 
         self.emit(DisconnectingEvent)
@@ -209,7 +202,7 @@ class Connection(Component, ABC):
         try:
             await self._try_disconnect()
         finally:
-            self.__state = ConnectionState.DISCONNECTED
+            self.__connectivity = Connectivity.DISCONNECTED
             self.emit(DisconnectedEvent)
 
     @routine

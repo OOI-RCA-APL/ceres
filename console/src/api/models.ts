@@ -9,11 +9,15 @@ export const NonEmptyStrModel = Zod.string().regex(/.+/)
 const DateTimeModel = Zod.string().refine((value) => moment.utc(value).isValid())
 const TimeDeltaModel = Zod.string().refine((value) => moment.duration(value).isValid())
 
+export type Connectivity = Zod.infer<typeof ConnectivityModel>
+export const ConnectivityModel = Zod.enum(['disconnected', 'connecting', 'connected'])
+
 export type Status = Zod.infer<typeof StatusModel>
 export const StatusModel = Zod.object({
   address: Zod.string().transform(Address.parse),
   running: Zod.boolean(),
-  enabled: Zod.boolean(),
+  enabled: Zod.boolean().nullable().default(null),
+  connectivity: ConnectivityModel.nullable().default(null),
 })
 
 export type MessageDirection = Zod.infer<typeof MessageDirectionModel>

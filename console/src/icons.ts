@@ -14,6 +14,7 @@ const icons = {
   circle: 'circle',
   clearLocalStorage: 'delete_sweep',
   close: 'close',
+  connection: 'route',
   darkMode: 'dark_mode',
   dashboard: 'space_dashboard',
   delete: 'delete',

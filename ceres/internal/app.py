@@ -304,11 +304,11 @@ async def get_component(engine: CurrentEngine, address: Address) -> ComponentInf
 
 @api.get("/status/{address}?", tags=["status"])
 async def get_status(engine: CurrentEngine, address: Address | None = None) -> Status:
-    status = await engine.get_status(address)
-    if status is None:
+    component = engine.get_component(address)
+    if component is None:
         raise HTTPException(HTTP_404_NOT_FOUND)
 
-    return status
+    return await component.get_status()
 
 
 class GetStatusesQueryParameters(ComponentFilter):

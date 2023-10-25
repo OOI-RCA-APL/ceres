@@ -376,7 +376,7 @@ async def status(
             table.add_row(
                 status.address,
                 strbool(status.running),
-                strbool(status.enabled),
+                strbool(status.enabled if status.enabled is not None else False),
             )
 
 
