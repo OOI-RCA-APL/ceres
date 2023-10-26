@@ -121,7 +121,7 @@ const resizablePanelProps = {
       <panel-group
         v-if="interfaces.length"
         :panels="interfaces.map((current) => current.address.toString())"
-        :persist="`components/${component.address}/displays-panel-group`"
+        :persist="`components/${component.address}/interfaces-panel-group`"
         title="UI"
       >
         <template #tabs>

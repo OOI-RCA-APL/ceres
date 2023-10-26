@@ -1,14 +1,14 @@
 <script lang="ts" setup>
 import { Address } from '@/address'
 import { useStatistics } from '@/api/operations'
-import { useSettings } from '@/settings'
+import { usePreferences } from '@/preferences'
 import { displayDuration, useTime } from '@/time'
 
 const { address } = defineProps<{
   address?: Address
 }>()
 
-const settings = useSettings()
+const preferences = usePreferences()
 const statistics = useStatistics()
 const time = useTime()
 
@@ -56,7 +56,7 @@ const color = $computed(() => {
     <q-tooltip v-if="!isShowingMenu" :class="`bg-${color}`">
       <span class="q-mr-xs">
         {{ info.count }} {{ info.level }} alert(s) were emitted {{ subjectText }} in the last
-        {{ displayDuration(settings.statisticsDuration, { hideOne: true }) }}.
+        {{ displayDuration(preferences.statisticsDuration, { hideOne: true }) }}.
       </span>
       <span v-if="statistics.updatedAt" :class="$style.updatedAtText">
         Updated {{ displayDuration(time.now.diff(statistics.updatedAt, 's')) }} ago.

@@ -1,16 +1,16 @@
 <script lang="ts" setup>
 import { useConfig } from '@/api/operations'
-import { useSettings } from '@/settings'
+import { usePreferences } from '@/preferences'
 import { useIntervalFn } from '@vueuse/core'
 import { computed, provide, watchEffect } from 'vue'
 import { THEME_KEY } from 'vue-echarts'
 
-const settings = useSettings()
+const preferences = usePreferences()
 
 watchEffect(() => {
   const html = document.querySelector('html')
   if (html != null) {
-    if (settings.isDarkModeEnabled) {
+    if (preferences.isDarkModeEnabled) {
       html.classList.add('dark')
       html.classList.remove('light')
     } else {
@@ -22,7 +22,7 @@ watchEffect(() => {
 
 provide(
   THEME_KEY,
-  computed(() => (settings.isDarkModeEnabled ? 'dark' : undefined))
+  computed(() => (preferences.isDarkModeEnabled ? 'dark' : undefined))
 )
 
 const config = useConfig()
@@ -58,3 +58,4 @@ useIntervalFn(async () => {
     <router-view v-else key="app" />
   </transition-group>
 </template>
+@/preferences

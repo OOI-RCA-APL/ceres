@@ -217,11 +217,16 @@ class ConfigCheckType(StrEnum):
         return tuple(cls)
 
 
+class DashboardConfig(ConfigObject):
+    render: Address
+
+
 class Config(ComponentConfig):
     name: Name = "root"
     service: ServiceConfig | None = None
     server: ServerConfig = Field(default_factory=ServerConfig)
     database: DatabaseConfig = Field(default_factory=SQLiteDatabaseConfig, discriminator="type")
+    dashboard: DashboardConfig | None = None
 
     @classmethod
     def read(cls, source: Path | Mapping[str, object] | Self) -> "Result[Self, list[ConfigError]]":

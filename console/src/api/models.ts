@@ -131,6 +131,10 @@ export const DatabaseConfigModel = Zod.discriminatedUnion('type', [
   PostgresDatabaseConfigModel,
 ])
 
+export const DashboardConfigModel = Zod.object({
+  render: Zod.string().transform(Address.parse),
+})
+
 export type Config = Zod.infer<typeof ConfigModel>
 export const ConfigModel = Zod.object({
   name: NameStrModel,
@@ -138,6 +142,7 @@ export const ConfigModel = Zod.object({
   components: Zod.array(ComponentConfigModel),
   server: ServerConfigModel,
   database: DatabaseConfigModel,
+  dashboard: DashboardConfigModel.nullable().default(null),
 })
 
 export type ButtonElement = Zod.infer<typeof ButtonElementModel>

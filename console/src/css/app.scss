@@ -9,9 +9,20 @@
   text-decoration: unset;
 }
 
-.faded-clickable {
+.faded-hover {
   opacity: 0.6;
+  transition: opacity 0.15s;
+}
+
+.faded-hover:hover,
+.faded-hover:focus {
+  opacity: 1;
+}
+
+.faded-clickable {
   cursor: pointer;
+  opacity: 0.6;
+  transition: opacity 0.15s;
 }
 
 .faded-clickable:hover,

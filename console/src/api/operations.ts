@@ -21,7 +21,7 @@ import {
   StatusModel,
 } from '@/api/models'
 import { getter } from '@/getter'
-import { useSettings } from '@/settings'
+import { usePreferences } from '@/preferences'
 import { useIntervalFn } from '@vueuse/core'
 import moment from 'moment'
 import { defineStore } from 'pinia'
@@ -219,12 +219,12 @@ export const useConfig = defineStore('config', () => {
 })
 
 export const useStatistics = defineStore('statistics', () => {
-  const settings = useSettings()
+  const preferences = usePreferences()
   const query = useQuery(
     ['statistics'],
     async () =>
       await getStatistics({
-        within: settings.statisticsDuration.asSeconds(),
+        within: preferences.statisticsDuration.asSeconds(),
       })
   )
 
@@ -249,7 +249,7 @@ export const useStatistics = defineStore('statistics', () => {
   }, moment.duration(15, 's').asMilliseconds())
 
   watch(
-    computed(() => settings.statisticsDuration.asSeconds()),
+    computed(() => preferences.statisticsDuration.asSeconds()),
     async () => {
       query.refetch.value()
     }

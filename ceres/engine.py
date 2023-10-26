@@ -321,7 +321,7 @@ class Engine(Object, kw_only=False):
         changed = False
 
         if self.config.server != previous.server:
-            self.log.info("Server configuration modified, reloading server...")
+            self.log.info("Server configuration modified, reloading...")
             try:
                 await self.__stop_port_uvicorn()
                 self.__start_port_uvicorn()
