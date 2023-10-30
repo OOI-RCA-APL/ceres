@@ -147,10 +147,22 @@ class ServiceConfig(ConfigObject):
     stderr: Path | None = None
 
 
+class DashboardConfig(ConfigObject):
+    render: Address
+
+
+class ConsoleConfig(ConfigObject):
+    title: str | None = None
+    icon: Path | None = None
+    favicon: Path | None = None
+    dashboard: DashboardConfig | None = None
+
+
 class ServerConfig(ConfigObject):
     host: str = "0.0.0.0"  # Bind to IPV4 all addresses by default
     port: int | None = None
     socket: Path | None = None
+    console: ConsoleConfig | None = None
 
     @field_validator("host")
     def _validate_host(cls, host: str) -> str:
@@ -215,10 +227,6 @@ class ConfigCheckType(StrEnum):
     @classmethod
     def all(cls) -> Sequence[Self]:
         return tuple(cls)
-
-
-class DashboardConfig(ConfigObject):
-    render: Address
 
 
 class Config(ComponentConfig):

@@ -6,11 +6,11 @@ import Interface from '@/components/Interface.vue'
 const config = useConfig()
 
 const rendererQuery = useQuery('dashboard-renderer', async () => {
-  if (config.data?.dashboard?.render == null) {
+  if (config.data?.server?.console?.dashboard?.render == null) {
     return null
   }
 
-  return await getComponent(config.data.dashboard.render)
+  return await getComponent(config.data.server.console.dashboard.render)
 })
 await rendererQuery.suspense()
 

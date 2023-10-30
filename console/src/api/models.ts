@@ -89,11 +89,6 @@ export const ComponentConfigModel: Zod.ZodType<ComponentConfig> = Zod.object({
   components: Zod.lazy(() => Zod.array(ComponentConfigModel)),
 })
 
-export type ServerConfig = Zod.infer<typeof ServerConfigModel>
-export const ServerConfigModel = Zod.object({
-  port: Zod.number().nullable().default(null),
-})
-
 export type DatabaseType = Zod.infer<typeof DatabaseTypeModel>
 export const DatabaseTypeModel = Zod.enum(['sqlite', 'postgres'])
 
@@ -131,8 +126,23 @@ export const DatabaseConfigModel = Zod.discriminatedUnion('type', [
   PostgresDatabaseConfigModel,
 ])
 
+export type DashboardConfig = Zod.infer<typeof DashboardConfigModel>
 export const DashboardConfigModel = Zod.object({
   render: Zod.string().transform(Address.parse),
+})
+
+export type ConsoleConfig = Zod.infer<typeof ConsoleConfigModel>
+export const ConsoleConfigModel = Zod.object({
+  title: Zod.string().nullable().default(null),
+  icon: Zod.string().nullable().default(null),
+  favicon: Zod.string().nullable().default(null),
+  dashboard: DashboardConfigModel.nullable().default(null),
+})
+
+export type ServerConfig = Zod.infer<typeof ServerConfigModel>
+export const ServerConfigModel = Zod.object({
+  port: Zod.number().nullable().default(null),
+  console: ConsoleConfigModel.nullable().default(null),
 })
 
 export type Config = Zod.infer<typeof ConfigModel>
@@ -142,7 +152,6 @@ export const ConfigModel = Zod.object({
   components: Zod.array(ComponentConfigModel),
   server: ServerConfigModel,
   database: DatabaseConfigModel,
-  dashboard: DashboardConfigModel.nullable().default(null),
 })
 
 export type ButtonElement = Zod.infer<typeof ButtonElementModel>
