@@ -1,5 +1,5 @@
 const constants = {
-  appName: 'Ceres',
+  defaultTitle: 'Ceres',
 } as const
 
 export default constants

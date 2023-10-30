@@ -1,7 +1,9 @@
 <script lang="ts" setup>
 import { useConfig } from '@/api/operations'
+import constants from '@/constants'
 import { usePreferences } from '@/preferences'
 import { useIntervalFn } from '@vueuse/core'
+import { useMeta } from 'quasar'
 import { computed, provide, watchEffect } from 'vue'
 import { THEME_KEY } from 'vue-echarts'
 
@@ -40,6 +42,10 @@ useIntervalFn(async () => {
     }
   }
 }, 1000)
+
+useMeta(() => ({
+  title: config.data?.server?.console?.title ?? constants.defaultTitle,
+}))
 </script>
 
 <template>
