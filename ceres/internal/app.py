@@ -4,6 +4,7 @@ import traceback
 from asyncio import CancelledError
 from dataclasses import dataclass
 from http.client import responses
+from pathlib import Path
 from typing import (
     TYPE_CHECKING,
     Annotated,
@@ -40,6 +41,7 @@ from fastapi import (
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.responses import FileResponse
 from pydantic import Field, Json
 from starlette.requests import HTTPConnection
 from starlette.status import HTTP_400_BAD_REQUEST, HTTP_404_NOT_FOUND
@@ -598,6 +600,42 @@ class LoggingMiddleware:
         return await self.app(scope, receive_wrapper, send_wrapper)  # type: ignore
 
 
+root = APIRouter()
+
+
+def _get_favicon_response(
+    engine: CurrentEngine,
+    suffix: str,
+    media_type: str,
+) -> FileResponse:
+    if (
+        engine.config.server is None
+        or engine.config.server.console is None
+        or engine.config.server.console.favicon is None
+        or engine.config.server.console.favicon.suffix != suffix
+    ):
+        path = Path(__file__).parent / ("../static/console/favicon" + suffix)
+    else:
+        path = engine.config.server.console.favicon
+
+    return FileResponse(path, media_type=media_type)
+
+
+@root.get("/favicon.ico")
+def get_favicon_ico(engine: CurrentEngine) -> FileResponse:
+    return _get_favicon_response(engine, ".ico", "image/x-icon")
+
+
+@root.get("/favicon.png")
+def get_favicon_png(engine: CurrentEngine) -> FileResponse:
+    return _get_favicon_response(engine, ".png", "image/png")
+
+
+@root.get("/favicon.svg")
+def get_favicon_svg(engine: CurrentEngine) -> FileResponse:
+    return _get_favicon_response(engine, ".svg", "image/svg+xml")
+
+
 @final
 class App(FastAPI):
     def __init__(self, engine: Engine) -> None:
@@ -635,6 +673,7 @@ class App(FastAPI):
             logs.setup()
 
         self.include_router(api, prefix="/api")
+        self.include_router(root)
         self.mount("/", ConsoleFiles(), name="console")
 
     @property

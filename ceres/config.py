@@ -153,7 +153,6 @@ class DashboardConfig(ConfigObject):
 
 class ConsoleConfig(ConfigObject):
     title: str | None = None
-    icon: Path | None = None
     favicon: Path | None = None
     dashboard: DashboardConfig | None = None
 

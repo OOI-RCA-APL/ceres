@@ -1,8 +1,6 @@
 {
   "name": "ceres-console",
   "version": "0.0.1",
-  "description": "A web frontend for Ceres",
-  "productName": "Ceres",
   "author": "Jake Ploskey <jploskey@uw.edu>",
   "private": true,
   "scripts": {
