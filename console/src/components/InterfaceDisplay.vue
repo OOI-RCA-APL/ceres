@@ -27,7 +27,7 @@ let isShowingDialog = $ref(false)
 const query = $computed(
   () =>
     component.procedures.find(
-      (procedure) => procedure.type === 'query' && procedure.name === element.source
+      (procedure) => procedure.type === 'query' && procedure.name === element.query
     ) ?? null
 )
 
@@ -60,7 +60,7 @@ watch(
 
 useElementStream(
   component.address,
-  element.source,
+  element.query,
   computed(() => args),
   (current) => {
     rendered = current

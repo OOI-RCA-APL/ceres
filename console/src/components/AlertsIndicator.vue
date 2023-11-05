@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { Address } from '@/address'
-import { useStatistics } from '@/api/operations'
 import { usePreferences } from '@/preferences'
+import { useStore } from '@/store'
 import { displayDuration, useTime } from '@/time'
 
 const { address } = defineProps<{
@@ -9,7 +9,7 @@ const { address } = defineProps<{
 }>()
 
 const preferences = usePreferences()
-const statistics = useStatistics()
+const store = useStore()
 const time = useTime()
 
 let isShowingMenu = $ref(false)
@@ -27,7 +27,7 @@ const info = $computed(() => {
     return null
   }
 
-  return statistics.getAlertInfo(address)
+  return store.getStatisticsAlertLevel(address)
 })
 
 const color = $computed(() => {
@@ -58,8 +58,8 @@ const color = $computed(() => {
         {{ info.count }} {{ info.level }} alert(s) were emitted {{ subjectText }} in the last
         {{ displayDuration(preferences.statisticsDuration, { hideOne: true }) }}.
       </span>
-      <span v-if="statistics.updatedAt" :class="$style.updatedAtText">
-        Updated {{ displayDuration(time.now.diff(statistics.updatedAt, 's')) }} ago.
+      <span v-if="store.statisticsUpdatedAt" :class="$style.updatedAtText">
+        Updated {{ displayDuration(time.now.diff(store.statisticsUpdatedAt, 's')) }} ago.
       </span>
     </q-tooltip>
   </q-badge>

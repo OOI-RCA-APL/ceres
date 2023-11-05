@@ -27,5 +27,6 @@ export const useDrawer = defineStore('drawer', () => {
       get: () => state.collapsedComponents,
       set: (value) => (state.collapsedComponents = value),
     }),
+    toggle: () => (state.isOpen = !state.isOpen),
   }
 })

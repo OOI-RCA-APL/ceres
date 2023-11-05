@@ -1,7 +1,7 @@
 <script lang="ts" setup>
-import { useConfig } from '@/api/operations'
 import constants from '@/constants'
 import { usePreferences } from '@/preferences'
+import { useStore } from '@/store'
 import { useIntervalFn } from '@vueuse/core'
 import { useMeta } from 'quasar'
 import { computed, provide, watchEffect } from 'vue'
@@ -27,16 +27,16 @@ provide(
   computed(() => (preferences.isDarkModeEnabled ? 'dark' : undefined))
 )
 
-const config = useConfig()
+const store = useStore()
 
 useIntervalFn(async () => {
-  if (config.loading) {
+  if (store.isLoadingConfig) {
     return
   }
 
-  if (config.data == null) {
+  if (store.config == null) {
     try {
-      await config.refetch()
+      await store.refetchConfig()
     } catch (error) {
       console.error(error)
     }
@@ -44,7 +44,7 @@ useIntervalFn(async () => {
 }, 1000)
 
 useMeta(() => ({
-  title: config.data?.server?.console?.title ?? constants.defaultTitle,
+  title: store.config?.server?.console?.title ?? constants.defaultTitle,
 }))
 </script>
 
@@ -55,7 +55,7 @@ useMeta(() => ({
     leave-active-class="animated fadeOut"
   >
     <div
-      v-if="config.data == null"
+      v-if="store.config == null"
       key="loading"
       class="fixed-top-left items-center justify-center row window-height window-width"
     >

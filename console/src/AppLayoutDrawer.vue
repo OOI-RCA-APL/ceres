@@ -1,17 +1,18 @@
 <script lang="ts" setup>
 import AppLayoutDrawerComponent from '@/AppLayoutDrawerComponent.vue'
 import { Address } from '@/address'
-import { reload, useConfig, useMutation } from '@/api/operations'
+import { reload, useMutation } from '@/api/operations'
 import ResizeHandle from '@/components/ResizeHandle.vue'
 import { useDrawer } from '@/drawer'
 import icons from '@/icons'
 import { usePreferences } from '@/preferences'
+import { useStore } from '@/store'
 import { displayDuration } from '@/time'
 import moment from 'moment'
 import { LocalStorage, useQuasar } from 'quasar'
 import { useRoute } from 'vue-router'
 
-const config = useConfig()
+const store = useStore()
 const drawer = useDrawer()
 const quasar = useQuasar()
 const route = useRoute()
@@ -80,7 +81,7 @@ async function executeReload() {
       type: 'positive',
     })
 
-    await config.refetch()
+    await store.load()
   } else {
     quasar.notify({
       message: 'Configuration reload failed.',
@@ -127,7 +128,7 @@ async function executeReload() {
               <q-item-label>Dashboard</q-item-label>
             </q-item-section>
           </q-item>
-          <app-layout-drawer-component :address="root" :config="config.data" />
+          <app-layout-drawer-component v-if="store.config" :address="root" :config="store.config" />
         </q-list>
       </div>
       <q-separator />

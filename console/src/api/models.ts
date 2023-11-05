@@ -126,17 +126,12 @@ export const DatabaseConfigModel = Zod.discriminatedUnion('type', [
   PostgresDatabaseConfigModel,
 ])
 
-export type DashboardConfig = Zod.infer<typeof DashboardConfigModel>
-export const DashboardConfigModel = Zod.object({
-  render: Zod.string().transform(Address.parse),
-})
-
 export type ConsoleConfig = Zod.infer<typeof ConsoleConfigModel>
 export const ConsoleConfigModel = Zod.object({
   title: Zod.string().nullable().default(null),
   icon: Zod.string().nullable().default(null),
   favicon: Zod.string().nullable().default(null),
-  dashboard: DashboardConfigModel.nullable().default(null),
+  dashboard: Zod.string().transform(Address.parse).nullable().default(null),
 })
 
 export type ServerConfig = Zod.infer<typeof ServerConfigModel>
@@ -158,6 +153,7 @@ export type ButtonElement = Zod.infer<typeof ButtonElementModel>
 export const ButtonElementModel = Zod.object({
   type: Zod.literal('button'),
   title: Zod.string(),
+  address: Zod.string().transform(Address.parse),
   action: Zod.string(),
   color: Zod.string().optional().nullable(),
 })
@@ -267,11 +263,19 @@ export const ChartElementModel = Zod.object({
   height: Zod.number(),
 })
 
+export type RenderElement = Zod.infer<typeof RenderElementModel>
+export const RenderElementModel = Zod.object({
+  type: Zod.literal('display'),
+  address: Zod.string().transform(Address.parse),
+  query: Zod.string(),
+})
+
 export type DisplayElement = Zod.infer<typeof DisplayElementModel>
 export const DisplayElementModel = Zod.object({
   type: Zod.literal('display'),
   title: Zod.string(),
-  source: Zod.string(),
+  address: Zod.string().transform(Address.parse),
+  query: Zod.string(),
 })
 
 export function createColorStops(

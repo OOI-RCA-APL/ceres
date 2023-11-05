@@ -1,6 +1,5 @@
 <script lang="ts" setup>
 import { Address } from '@/address'
-import { getComponent } from '@/api/operations'
 import ComponentProcedures from '@/components/ComponentProcedures.vue'
 import ComponentStatusBadge from '@/components/ComponentStatusBadge.vue'
 import FullPage from '@/components/FullPage.vue'
@@ -10,19 +9,16 @@ import Panel from '@/components/Panel.vue'
 import PanelContainer from '@/components/PanelContainer.vue'
 import PanelGroup from '@/components/PanelGroup.vue'
 import PanelTab from '@/components/PanelTab.vue'
-import { computed } from 'vue'
-import { useQuery } from 'vue-query'
+import { useStore } from '@/store'
 
 const { address = new Address('@') } = defineProps<{
   address: Address
 }>()
 
-const query = useQuery(['getComponent', computed(() => address)], async () =>
-  address == null ? null : await getComponent(address)
-)
-await query.suspense()
+const store = useStore()
+await store.fetchComponents()
 
-const component = $computed(() => query.data?.value ?? null)
+const component = $computed(() => store.getComponent(address))
 
 const title = $computed(() => {
   if (address == null) {

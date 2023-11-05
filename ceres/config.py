@@ -147,14 +147,10 @@ class ServiceConfig(ConfigObject):
     stderr: Path | None = None
 
 
-class DashboardConfig(ConfigObject):
-    render: Address
-
-
 class ConsoleConfig(ConfigObject):
     title: str | None = None
     favicon: Path | None = None
-    dashboard: DashboardConfig | None = None
+    dashboard: Address | None = None
 
 
 class ServerConfig(ConfigObject):
@@ -233,7 +229,6 @@ class Config(ComponentConfig):
     service: ServiceConfig | None = None
     server: ServerConfig = Field(default_factory=ServerConfig)
     database: DatabaseConfig = Field(default_factory=SQLiteDatabaseConfig, discriminator="type")
-    dashboard: DashboardConfig | None = None
 
     @classmethod
     def read(cls, source: Path | Mapping[str, object] | Self) -> "Result[Self, list[ConfigError]]":

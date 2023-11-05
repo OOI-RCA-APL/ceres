@@ -1,20 +1,18 @@
 <script lang="ts" setup>
-import { getComponent, useConfig, useQuery } from '@/api/operations'
 import CommonText from '@/components/CommonText.vue'
 import Interface from '@/components/Interface.vue'
+import { useStore } from '@/store'
 
-const config = useConfig()
+const store = useStore()
+await store.fetchComponents()
 
-const rendererQuery = useQuery('dashboard-renderer', async () => {
-  if (config.data?.server?.console?.dashboard?.render == null) {
+const renderer = $computed(() => {
+  if (store.console?.dashboard == null) {
     return null
   }
 
-  return await getComponent(config.data.server.console.dashboard.render)
+  return store.getComponent(store.console.dashboard)
 })
-await rendererQuery.suspense()
-
-const renderer = $computed(() => rendererQuery.data?.value ?? null)
 </script>
 
 <template>
@@ -25,6 +23,9 @@ const renderer = $computed(() => rendererQuery.data?.value ?? null)
     <q-separator />
     <div class="q-pa-sm">
       <interface v-if="renderer != null" :component="renderer" />
+      <div v-else class="q-py-lg text-center" :style="{ opacity: 0.5 }">
+        No dashboard component configured.
+      </div>
     </div>
   </div>
 </template>
