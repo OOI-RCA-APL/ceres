@@ -609,8 +609,7 @@ def _get_favicon_response(
     media_type: str,
 ) -> FileResponse:
     if (
-        engine.config.server is None
-        or engine.config.server.console is None
+        engine.config.server.console is None
         or engine.config.server.console.favicon is None
         or engine.config.server.console.favicon.suffix != suffix
     ):
