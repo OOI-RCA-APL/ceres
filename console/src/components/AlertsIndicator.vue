@@ -1,15 +1,15 @@
 <script lang="ts" setup>
 import { Address } from '@/address'
-import { useStatistics } from '@/api/operations'
-import { useSettings } from '@/settings'
+import { usePreferences } from '@/preferences'
+import { useStore } from '@/store'
 import { displayDuration, useTime } from '@/time'
 
 const { address } = defineProps<{
   address?: Address
 }>()
 
-const settings = useSettings()
-const statistics = useStatistics()
+const preferences = usePreferences()
+const store = useStore()
 const time = useTime()
 
 let isShowingMenu = $ref(false)
@@ -27,7 +27,7 @@ const info = $computed(() => {
     return null
   }
 
-  return statistics.getAlertInfo(address)
+  return store.getStatisticsAlertLevel(address)
 })
 
 const color = $computed(() => {
@@ -56,10 +56,10 @@ const color = $computed(() => {
     <q-tooltip v-if="!isShowingMenu" :class="`bg-${color}`">
       <span class="q-mr-xs">
         {{ info.count }} {{ info.level }} alert(s) were emitted {{ subjectText }} in the last
-        {{ displayDuration(settings.statisticsDuration, { hideOne: true }) }}.
+        {{ displayDuration(preferences.statisticsDuration, { hideOne: true }) }}.
       </span>
-      <span v-if="statistics.updatedAt" :class="$style.updatedAtText">
-        Updated {{ displayDuration(time.now.diff(statistics.updatedAt, 's')) }} ago.
+      <span v-if="store.statisticsUpdatedAt" :class="$style.updatedAtText">
+        Updated {{ displayDuration(time.now.diff(store.statisticsUpdatedAt, 's')) }} ago.
       </span>
     </q-tooltip>
   </q-badge>

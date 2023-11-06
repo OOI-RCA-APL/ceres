@@ -147,10 +147,17 @@ class ServiceConfig(ConfigObject):
     stderr: Path | None = None
 
 
+class ConsoleConfig(ConfigObject):
+    title: str | None = None
+    favicon: Path | None = None
+    dashboard: Address | None = None
+
+
 class ServerConfig(ConfigObject):
     host: str = "0.0.0.0"  # Bind to IPV4 all addresses by default
     port: int | None = None
     socket: Path | None = None
+    console: ConsoleConfig | None = None
 
     @field_validator("host")
     def _validate_host(cls, host: str) -> str:

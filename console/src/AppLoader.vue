@@ -1,16 +1,18 @@
 <script lang="ts" setup>
-import { useConfig } from '@/api/operations'
-import { useSettings } from '@/settings'
+import constants from '@/constants'
+import { usePreferences } from '@/preferences'
+import { useStore } from '@/store'
 import { useIntervalFn } from '@vueuse/core'
+import { useMeta } from 'quasar'
 import { computed, provide, watchEffect } from 'vue'
 import { THEME_KEY } from 'vue-echarts'
 
-const settings = useSettings()
+const preferences = usePreferences()
 
 watchEffect(() => {
   const html = document.querySelector('html')
   if (html != null) {
-    if (settings.isDarkModeEnabled) {
+    if (preferences.isDarkModeEnabled) {
       html.classList.add('dark')
       html.classList.remove('light')
     } else {
@@ -22,24 +24,28 @@ watchEffect(() => {
 
 provide(
   THEME_KEY,
-  computed(() => (settings.isDarkModeEnabled ? 'dark' : undefined))
+  computed(() => (preferences.isDarkModeEnabled ? 'dark' : undefined))
 )
 
-const config = useConfig()
+const store = useStore()
 
 useIntervalFn(async () => {
-  if (config.loading) {
+  if (store.isLoadingConfig) {
     return
   }
 
-  if (config.data == null) {
+  if (store.config == null) {
     try {
-      await config.refetch()
+      await store.refetchConfig()
     } catch (error) {
       console.error(error)
     }
   }
 }, 1000)
+
+useMeta(() => ({
+  title: store.config?.server?.console?.title ?? constants.defaultTitle,
+}))
 </script>
 
 <template>
@@ -49,7 +55,7 @@ useIntervalFn(async () => {
     leave-active-class="animated fadeOut"
   >
     <div
-      v-if="config.data == null"
+      v-if="store.config == null"
       key="loading"
       class="fixed-top-left items-center justify-center row window-height window-width"
     >
@@ -58,3 +64,4 @@ useIntervalFn(async () => {
     <router-view v-else key="app" />
   </transition-group>
 </template>
+@/preferences

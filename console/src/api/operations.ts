@@ -2,13 +2,11 @@ import { Address } from '@/address'
 import {
   Alert,
   AlertModel,
-  ComponentConfig,
   ComponentInfo,
   ComponentInfoModel,
   Config,
   ConfigModel,
   ElementModel,
-  LevelStatistics,
   LogEntry,
   LogEntryModel,
   Message,
@@ -20,13 +18,7 @@ import {
   Status,
   StatusModel,
 } from '@/api/models'
-import { getter } from '@/getter'
-import { useSettings } from '@/settings'
-import { useIntervalFn } from '@vueuse/core'
-import moment from 'moment'
-import { defineStore } from 'pinia'
-import { computed, isRef, ref, unref, watch, watchEffect } from 'vue'
-import { useQuery } from 'vue-query'
+import { computed, isRef, unref, watchEffect } from 'vue'
 import { MaybeRef } from 'vue-query/lib/vue/types'
 import Zod, { ZodTypeAny } from 'zod'
 export * from 'vue-query'
@@ -180,120 +172,6 @@ export function useLogEntryStream(
     options
   )
 }
-
-export const useConfig = defineStore('config', () => {
-  const query = useQuery(['getConfig'], getConfig, { retry: false })
-
-  const data = $computed(() => query.data.value as Config)
-  const error = $computed(() => query.error)
-
-  async function load() {
-    await query.suspense()
-  }
-
-  function getComponent(address: Address): Config | ComponentConfig | null {
-    if (address.isRoot) {
-      return null
-    }
-
-    let current: Config | ComponentConfig | null = data
-    for (const name of address.names) {
-      if (current == null) {
-        return null
-      }
-
-      current = current.components.find((component) => component.name === name) ?? null
-    }
-
-    return current
-  }
-
-  return {
-    data: $$(data),
-    error: $$(error),
-    refetch: query.refetch,
-    loading: $$(query.isLoading),
-    load,
-    getComponent,
-  }
-})
-
-export const useStatistics = defineStore('statistics', () => {
-  const settings = useSettings()
-  const query = useQuery(
-    ['statistics'],
-    async () =>
-      await getStatistics({
-        within: settings.statisticsDuration.asSeconds(),
-      })
-  )
-
-  const mapping = computed(() => {
-    if (query.data.value == null) {
-      return {}
-    }
-
-    return Object.fromEntries(
-      query.data.value.map((statistics) => [statistics.address.toString(), statistics])
-    )
-  })
-
-  const error = computed(() => query.error.value)
-
-  async function load() {
-    await query.suspense()
-  }
-
-  useIntervalFn(async () => {
-    await query.refetch.value()
-  }, moment.duration(15, 's').asMilliseconds())
-
-  watch(
-    computed(() => settings.statisticsDuration.asSeconds()),
-    async () => {
-      query.refetch.value()
-    }
-  )
-
-  function get(address: Address): Statistics | null {
-    return mapping.value[address.toString()] ?? null
-  }
-
-  function getAlertLevel(address: Address): LevelStatistics | null {
-    const statistics = get(address)
-    if (statistics == null) {
-      return null
-    }
-
-    return statistics.alerts.levels[statistics.alerts.levels.length - 1] ?? null
-  }
-
-  return {
-    get: getter(query.data, get),
-    getAlertInfo: getter(query.data, getAlertLevel),
-    error: $$(error),
-    updatedAt: computed(() =>
-      query.dataUpdatedAt.value ? moment(query.dataUpdatedAt.value) : null
-    ),
-    load,
-  }
-})
-
-export const useStatuses = defineStore('statuses', () => {
-  const statuses = ref<Record<string, Status>>({})
-
-  useStatusesStream({}, (next) => {
-    statuses.value = Object.fromEntries(next.map((status) => [status.address.toString(), status]))
-  })
-
-  function get(address: Address): Status | null {
-    return statuses.value[address.toString()] ?? null
-  }
-
-  return {
-    get: getter(statuses, get),
-  }
-})
 
 async function get<TModel extends ZodTypeAny>(
   url: string | URL,

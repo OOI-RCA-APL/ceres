@@ -1,11 +1,13 @@
 from abc import ABC
 from decimal import Decimal
 from enum import Enum
+from types import MethodType
 from typing import Annotated, Any, Callable, Literal, Mapping, Sequence, TypeAlias
 
 from pydantic import ConfigDict, Field, StrictBool, StrictFloat, StrictInt, StrictStr
 from typing_extensions import Unpack
 
+from ceres.address import Address
 from ceres.data import Color, DataObject, ImmutableDataObject, Name
 from ceres.internal.utilities import StrEnum, strify
 
@@ -19,6 +21,7 @@ class ElementType(StrEnum):
     STATE = "state"
     GAUGE = "gauge"
     CHART = "chart"
+    RENDER = "render"
     DISPLAY = "display"
 
 
@@ -59,6 +62,7 @@ class _BaseElement(DataObject, ABC):
 class Button(_BaseElement):
     type: Literal[ElementType.BUTTON] = ElementType.BUTTON
     title: str
+    address: Address
     action: Name
     color: Color | None = None
 
@@ -66,10 +70,21 @@ class Button(_BaseElement):
         self,
         *,
         title: str,
+        address: Address | None = None,
         action: Name | Callable[..., Any],
         color: Color | None = None,
         **kwargs: Any,
     ) -> None:
+        from ceres.component import Component
+
+        if address is None:
+            if not isinstance(action, MethodType):
+                raise ValueError("address must be specified if action is not a bound method")
+            elif not isinstance(action.__self__, Component):
+                raise ValueError("method passed as action must be bound to a component")
+
+            address = action.__self__.address
+
         if not isinstance(action, str):
             from ceres.component import ActionBinding, get_method_binding
 
@@ -82,6 +97,7 @@ class Button(_BaseElement):
         super().__init__(
             **{
                 "title": title,
+                "address": address,
                 "action": action,
                 "color": color,
                 **kwargs,
@@ -164,26 +180,73 @@ class PaletteColor(Color, Enum):
     WARNING = Color("#f2c037")
 
 
-class Display(_BaseElement):
-    type: Literal[ElementType.DISPLAY] = ElementType.DISPLAY
+class _BaseRenderer(_BaseElement):
+    type: Literal[ElementType.RENDER] | Literal[ElementType.DISPLAY] = ElementType.RENDER
     title: str
-    source: Name
+    address: Address
+    query: Name
 
-    def __init__(self, *, title: str, source: Name | Callable[..., Any], **kwargs: Any) -> None:
-        if not isinstance(source, str):
+    def __init__(
+        self,
+        *,
+        address: Address | None = None,
+        query: Name | Callable[..., Any],
+        **kwargs: Any,
+    ) -> None:
+        from ceres.component import Component
+
+        if address is None:
+            if not isinstance(query, MethodType):
+                raise ValueError("address must be specified if query is not a bound method")
+            elif not isinstance(query.__self__, Component):
+                raise ValueError("method passed as query must be bound to a component")
+
+            address = query.__self__.address
+
+        if not isinstance(query, str):
             from ceres.component import QueryBinding, get_method_binding
 
-            binding = get_method_binding(source, QueryBinding)
+            binding = get_method_binding(query, QueryBinding)
             if not binding:
-                raise ValueError(f"function {strify(source)} has no query binding")
+                raise ValueError(f"function {strify(query)} has no query binding")
 
-            source = binding.name
+            query = binding.name
 
-        super().__init__(**{"title": title, "source": source, **kwargs})
+        super().__init__(
+            **{
+                "address": address,
+                "query": query,
+                **kwargs,
+            }
+        )
+
+
+class Render(_BaseRenderer):
+    type: Literal[ElementType.RENDER] = ElementType.RENDER
+
+
+class Display(_BaseRenderer):
+    type: Literal[ElementType.DISPLAY] = ElementType.DISPLAY
+    title: str
+
+    def __init__(
+        self,
+        *,
+        title: str,
+        address: Address | None = None,
+        query: Name | Callable[..., Any],
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(
+            title=title,
+            address=address,
+            query=query,
+            **kwargs,
+        )
 
 
 Element = Annotated[  # type: ignore
-    Button | Row | Column | Carousel | Value | State | Gauge | Chart | Display,
+    Button | Row | Column | Carousel | Value | State | Gauge | Chart | Render | Display,
     Field(discriminator="type"),
 ]
 

@@ -22,8 +22,8 @@ const routes: RouteRecordRaw[] = [
         }),
       },
       {
-        path: '/tools/schema-form-playground',
-        component: () => import('@/pages/tools/SchemaFormPlayground.vue'),
+        path: '/developer/schema-form-playground',
+        component: () => import('@/pages/developer/SchemaFormPlayground.vue'),
       },
       {
         path: '/:catchAll(.*)*',

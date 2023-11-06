@@ -26,8 +26,8 @@ const emit = defineEmits<{
 
 <template>
   <div :class="[$style.root, 'column']">
-    <q-markup-table dense flat separator="cell">
-      <thead :class="$style.header">
+    <q-markup-table :class="$style.header" dense flat separator="cell">
+      <thead>
         <q-tr no-hover>
           <q-th
             :class="titleClickable && 'cursor-pointer'"
@@ -67,7 +67,9 @@ const emit = defineEmits<{
 }
 
 .header {
-  background-color: $grey-2;
+  background-color: $grey-1;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
 }
 
 :global(.dark) .header {
@@ -93,4 +95,3 @@ const emit = defineEmits<{
   min-height: 27px;
 }
 </style>
-@/interface

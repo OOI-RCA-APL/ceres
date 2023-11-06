@@ -4,14 +4,15 @@ import { defineStore } from 'pinia'
 import { useQuasar } from 'quasar'
 import { computed, watchEffect } from 'vue'
 
-export const useSettings = defineStore('settings', () => {
+export const usePreferences = defineStore('preferences', () => {
   const state = usePersisted({
     schema: ({ object, number, boolean }) =>
       object({
         isDarkModeEnabled: boolean().default(true),
+        isDeveloperModeEnabled: boolean().default(false),
         statisticsDuration: number().default(60 * 30),
       }),
-    methods: [{ type: 'local-storage', key: 'store/settings' }],
+    methods: [{ type: 'local-storage', key: 'store/preferences' }],
   })
 
   const quasar = useQuasar()
@@ -23,6 +24,10 @@ export const useSettings = defineStore('settings', () => {
     isDarkModeEnabled: computed({
       get: () => state.isDarkModeEnabled,
       set: (value) => (state.isDarkModeEnabled = value),
+    }),
+    isDeveloperModeEnabled: computed({
+      get: () => state.isDeveloperModeEnabled,
+      set: (value) => (state.isDeveloperModeEnabled = value),
     }),
     statisticsDuration: computed({
       get: () => moment.duration(state.statisticsDuration, 'seconds'),
