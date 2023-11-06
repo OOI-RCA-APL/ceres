@@ -8,5 +8,5 @@ const { element } = defineProps<{
 </script>
 
 <template>
-  <chart :option="element.value" :style="{ height: `${element.height}px` }" />
+  <chart :height="element.height" :option="element.value" />
 </template>
