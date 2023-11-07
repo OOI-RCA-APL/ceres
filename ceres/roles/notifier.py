@@ -1,5 +1,10 @@
 from abc import abstractmethod
+from email.message import EmailMessage
 from typing import Iterable
+
+import aiosmtplib
+from pydantic import Field, SecretStr
+from typing_extensions import override
 
 from ceres.component import Component, action
 from ceres.data import ImmutableDataObject, NonBlankStr
@@ -20,3 +25,48 @@ class Notifier(Component):
         recipients: Iterable[NonBlankStr],
     ) -> None:
         ...
+
+
+class SMTPNotifier(Notifier):
+    host: NonBlankStr
+    port: int = Field(ge=0)
+    sender: NonBlankStr
+    username: NonBlankStr | None = None
+    password: SecretStr | None = Field(None, min_length=1)
+    use_tls: bool = False
+    use_starttls: bool = False
+
+    @override
+    async def notify(
+        self,
+        notification: Notification,
+        recipients: Iterable[NonBlankStr],
+    ) -> None:
+        recipients = list(recipients)
+        if not recipients:
+            self.log.warning("No recipients specified, skipping notification.")
+            return
+
+        message = EmailMessage()
+        message["From"] = self.sender
+        message["To"] = ",".join(recipient.strip() for recipient in recipients)
+        message["Subject"] = notification.subject
+        message.set_type(notification.content_type)
+        message.set_payload(notification.content or "", charset="utf-8")
+
+        if self.password is not None:
+            password = self.password.get_secret_value()
+        else:
+            password = None
+
+        await aiosmtplib.send(
+            message=message,
+            hostname=self.host,
+            port=self.port,
+            username=self.username,
+            password=password,
+            use_tls=self.use_tls,
+            start_tls=self.use_starttls,
+        )
+
+        self.log.info("Email notification sent successfully.")

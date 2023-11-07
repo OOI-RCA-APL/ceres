@@ -157,15 +157,19 @@ else:
 
 if TYPE_CHECKING:
     from ceres.roles.connection import Connection as Connection
+    from ceres.roles.connection import TCPConnection as TCPConnection
 else:
-    __export("ceres.roles.connection", ["Connection"])
+    __export("ceres.roles.connection", ["Connection", "TCPConnection"])
 
 if TYPE_CHECKING:
     from ceres.roles.dispatcher import Dispatch as Dispatch
     from ceres.roles.dispatcher import Dispatcher as Dispatcher
     from ceres.roles.dispatcher import DispatchWriter as DispatchWriter
+    from ceres.roles.dispatcher import HTMLDispatchWriter as HTMLDispatchWriter
 else:
-    __export("ceres.roles.dispatcher", ["Dispatch", "Dispatcher", "DispatchWriter"])
+    __export(
+        "ceres.roles.dispatcher", ["Dispatch", "Dispatcher", "DispatchWriter", "HTMLDispatchWriter"]
+    )
 
 if TYPE_CHECKING:
     from ceres.roles.interface import Interface as Interface
@@ -175,8 +179,9 @@ else:
 if TYPE_CHECKING:
     from ceres.roles.notifier import Notification as Notification
     from ceres.roles.notifier import Notifier as Notifier
+    from ceres.roles.notifier import SMTPNotifier as SMTPNotifier
 else:
-    __export("ceres.roles.notifier", ["Notification", "Notifier"])
+    __export("ceres.roles.notifier", ["Notification", "Notifier", "SMTPNotifier"])
 
 if TYPE_CHECKING:
     from ceres.roles.interface import Interface as Interface
@@ -188,17 +193,6 @@ if TYPE_CHECKING:
     from ceres.schedule import ScheduleType as ScheduleType
 else:
     __export("ceres.schedule", ["Schedule", "ScheduleType"])
-
-if TYPE_CHECKING:
-    from ceres.standard import HTMLDispatchWriter as HTMLDispatchWriter
-    from ceres.standard import ScheduledDispatcher as ScheduledDispatcher
-    from ceres.standard import SMTPNotifier as SMTPNotifier
-    from ceres.standard import TCPConnection as TCPConnection
-else:
-    __export(
-        "ceres.standard",
-        ["HTMLDispatchWriter", "ScheduledDispatcher", "SMTPNotifier", "TCPConnection"],
-    )
 
 if TYPE_CHECKING:
     from ceres.statistics import Statistics as Statistics
