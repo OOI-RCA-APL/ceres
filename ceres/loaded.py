@@ -32,7 +32,7 @@ from ceres.internal.utilities import (
 _T = TypeVar("_T")
 
 
-class Loader(Generic[_T], ImmutableDataObject):
+class Loader(ImmutableDataObject, Generic[_T]):
     cls: ImportString[type[_T]] = Field(alias="class")
     arguments: Mapping[str, Any] = Field(default_factory=dict, validation_alias="args")
 
