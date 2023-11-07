@@ -1,7 +1,5 @@
 # Overview
 
-TODO: Documentation is a work in progress.
-
 | Page                                    | Description                                      |
 | --------------------------------------- | ------------------------------------------------ |
 | [Installing](./installing.md)           | How to install Ceres on your machine.            |
