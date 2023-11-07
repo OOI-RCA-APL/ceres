@@ -260,13 +260,11 @@ The "Engine" section of shows that the engine is running, the server is availabl
 
 The "Components" section shows of the state of our components.
 
-\_You'll notice here, that that in addition to `@connection`, there is another component with the address `@`. Ceres components form a hierachical tree structure, with a generic root component at the top. For small projects, this structure can mostly be ignored, but for larger projects, this hierarchical structure allows components to be organized into groups.
+_You'll notice here, that that in addition to `@connection`, there is another component with the address `@`. Ceres components form a hierachical tree structure, with a "root" component at the top.This hierarchical structure allows components to be organized into logical groups._
 
-For our project, we see that `@` and `@connection` components are running but disabled, meaning that unless we run the engine using the `all` selector, they will not be started automatically.
+For our project, the `@` and `@connection` components are running but disabled, meaning that unless we run the engine using the `all` selector, they will not be started automatically.
 
-_All components defined in the `components` configuration are children the root component._
-
-_A component can only be running if its parent component is running. Therefor, stopping the root component will stop all components in the project._
+_A component can only run if its parent component is running. Therefor, stopping the root component will stop all components in the project._
 
 #### Start & Stop Commands
 
