@@ -181,13 +181,24 @@ else:
 if TYPE_CHECKING:
     from ceres.roles.interface import Interface as Interface
 else:
-    __export("ceres.roles.ui", ["UI"])
+    __export("ceres.roles.interface", ["Interface"])
 
 if TYPE_CHECKING:
     from ceres.schedule import Schedule as Schedule
     from ceres.schedule import ScheduleType as ScheduleType
 else:
     __export("ceres.schedule", ["Schedule", "ScheduleType"])
+
+if TYPE_CHECKING:
+    from ceres.standard import HTMLDispatchWriter as HTMLDispatchWriter
+    from ceres.standard import ScheduledDispatcher as ScheduledDispatcher
+    from ceres.standard import SMTPNotifier as SMTPNotifier
+    from ceres.standard import TCPConnection as TCPConnection
+else:
+    __export(
+        "ceres.standard",
+        ["HTMLDispatchWriter", "ScheduledDispatcher", "SMTPNotifier", "TCPConnection"],
+    )
 
 if TYPE_CHECKING:
     from ceres.statistics import Statistics as Statistics
@@ -232,3 +243,7 @@ def __getattr__(name: str) -> object:
 
     module = import_module(path, package=__package__)
     return getattr(module, name)
+
+
+if not TYPE_CHECKING:
+    __all__ = sorted(__export_mapping.keys())

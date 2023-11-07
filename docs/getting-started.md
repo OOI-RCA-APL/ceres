@@ -123,7 +123,7 @@ _PostgreSQL is also supported, but for small to medium sized projects SQLite is 
 ```yaml
 components:
   - name: connection
-    class: ceres.standard.TCPConnection
+    class: ceres.TCPConnection
     arguments:
       host: localhost
       port: 4000
@@ -152,7 +152,7 @@ database:
   path: ./local/database.sqlite
 components:
   - name: connection
-    class: ceres.standard.TCPConnection
+    class: ceres.TCPConnection
     arguments:
       host: localhost
       port: 4000
@@ -450,7 +450,7 @@ Then, register the component in `ceres.yaml`, alongside the connection component
 ```yaml
 components:
   - name: connection
-    class: ceres.standard.TCPConnection
+    class: ceres.TCPConnection
     arguments:
       host: localhost
       port: 4000
@@ -471,7 +471,7 @@ There are many things to unpack here, so lets go through them one by one:
    The component section of the above `ceres.yaml` file is equivalent to:
 
    ```python
-   from ceres.standard import TCPConnection
+   from ceres import TCPConnection
 
    from intro.driver import Driver
 
