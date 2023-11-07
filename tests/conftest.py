@@ -3,6 +3,8 @@ from typing import Iterable
 
 import pytest
 
+# Make sure we can import everything in the root module.
+from ceres import *  # noqa: F403
 from ceres.internal.utilities import ensure_event_loop
 
 

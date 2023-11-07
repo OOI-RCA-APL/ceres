@@ -7,7 +7,7 @@ database:
   path: ./local/database.sqlite
 components:
   - name: connection
-    class: ceres.standard.TCPConnection
+    class: ceres.TCPConnection
     arguments:
       host: localhost
       port: 4000

@@ -275,7 +275,7 @@ async def get_component(engine: CurrentEngine, address: Address) -> ComponentInf
         component_config = ComponentConfig.model_validate(
             {
                 "name": component_config.name,
-                "class": component_config.cls_path,
+                "class": component_config.cls,
                 "arguments": component_config.arguments,
                 "components": component_config.components,
             }

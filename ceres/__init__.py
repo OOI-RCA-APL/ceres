@@ -157,15 +157,19 @@ else:
 
 if TYPE_CHECKING:
     from ceres.roles.connection import Connection as Connection
+    from ceres.roles.connection import TCPConnection as TCPConnection
 else:
-    __export("ceres.roles.connection", ["Connection"])
+    __export("ceres.roles.connection", ["Connection", "TCPConnection"])
 
 if TYPE_CHECKING:
     from ceres.roles.dispatcher import Dispatch as Dispatch
     from ceres.roles.dispatcher import Dispatcher as Dispatcher
     from ceres.roles.dispatcher import DispatchWriter as DispatchWriter
+    from ceres.roles.dispatcher import HTMLDispatchWriter as HTMLDispatchWriter
 else:
-    __export("ceres.roles.dispatcher", ["Dispatch", "Dispatcher", "DispatchWriter"])
+    __export(
+        "ceres.roles.dispatcher", ["Dispatch", "Dispatcher", "DispatchWriter", "HTMLDispatchWriter"]
+    )
 
 if TYPE_CHECKING:
     from ceres.roles.interface import Interface as Interface
@@ -175,13 +179,14 @@ else:
 if TYPE_CHECKING:
     from ceres.roles.notifier import Notification as Notification
     from ceres.roles.notifier import Notifier as Notifier
+    from ceres.roles.notifier import SMTPNotifier as SMTPNotifier
 else:
-    __export("ceres.roles.notifier", ["Notification", "Notifier"])
+    __export("ceres.roles.notifier", ["Notification", "Notifier", "SMTPNotifier"])
 
 if TYPE_CHECKING:
     from ceres.roles.interface import Interface as Interface
 else:
-    __export("ceres.roles.ui", ["UI"])
+    __export("ceres.roles.interface", ["Interface"])
 
 if TYPE_CHECKING:
     from ceres.schedule import Schedule as Schedule
@@ -232,3 +237,7 @@ def __getattr__(name: str) -> object:
 
     module = import_module(path, package=__package__)
     return getattr(module, name)
+
+
+if not TYPE_CHECKING:
+    __all__ = sorted(__export_mapping.keys())

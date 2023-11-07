@@ -70,7 +70,7 @@ class ObjectFilterArgs(TypedDict, total=False):
     address: AddressSelector | None
 
 
-class ObjectFilter(Generic[_ObjectT], Filter):
+class ObjectFilter(Filter, Generic[_ObjectT]):
     address: AddressSelector | None = None
 
     def matches(self, obj: _ObjectT, root: Address = Address.root()) -> bool:
