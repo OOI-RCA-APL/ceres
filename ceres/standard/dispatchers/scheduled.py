@@ -19,7 +19,7 @@ class ScheduledDispatcher(Dispatcher):
     async def routine__setup_dispatch_jobs(self) -> None:
         for dispatch in self.dispatches:
             self.add_job(
-                f"dispatch-{dispatch.subject}",
+                f"dispatch-{dispatch.subject.lower().replace(' ', '-')}",
                 dispatch.schedule,
                 self.dispatch,
                 arguments={"dispatch": dispatch},

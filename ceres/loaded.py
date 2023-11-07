@@ -2,6 +2,7 @@ from typing import (
     TYPE_CHECKING,
     Annotated,
     Any,
+    Generic,
     Mapping,
     Sequence,
     TypeVar,
@@ -12,6 +13,7 @@ from pydantic import (
     ConfigDict,
     Field,
     GetCoreSchemaHandler,
+    ImportString,
     model_validator,
 )
 from pydantic.validate_call import validate_call
@@ -19,7 +21,7 @@ from pydantic_core import CoreSchema
 from pydantic_core.core_schema import no_info_after_validator_function
 from typing_extensions import Self
 
-from ceres.data import ClassPath, ImmutableDataObject
+from ceres.data import ImmutableDataObject
 from ceres.internal.utilities import (
     is_mapping,
     is_pydantic_dataclass_type,
@@ -30,13 +32,9 @@ from ceres.internal.utilities import (
 _T = TypeVar("_T")
 
 
-class Loader(ImmutableDataObject):
-    cls_path: ClassPath = Field(alias="class")
+class Loader(Generic[_T], ImmutableDataObject):
+    cls: ImportString[type[_T]] = Field(alias="class")
     arguments: Mapping[str, Any] = Field(default_factory=dict, validation_alias="args")
-
-    @property
-    def cls(self) -> type:
-        return self.cls_path.cls
 
     @classmethod
     def _get_extra_kwarg_names(cls) -> Sequence[str]:
@@ -46,7 +44,7 @@ class Loader(ImmutableDataObject):
     def _validate(self) -> Self:
         extra = {name: getattr(self, name) for name in self._get_extra_kwarg_names()}
         arguments = {**self.arguments, **extra}
-        self._load_obj(self.cls_path.cls, arguments)
+        self._load_obj(self.cls, arguments)
         return self
 
     def create(self, arguments: Mapping[str, Any] | None = None) -> Any:
@@ -56,7 +54,7 @@ class Loader(ImmutableDataObject):
         extra = {name: getattr(self, name) for name in self._get_extra_kwarg_names()}
         arguments = {**self.arguments, **extra, **arguments}
 
-        return self._load_obj(self.cls_path.cls, arguments)
+        return self._load_obj(self.cls, arguments)
 
     @classmethod
     def _load_obj(

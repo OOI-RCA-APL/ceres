@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, Callable, Literal, Mapping, Sequence
 import yaml
 from pydantic import (
     Field,
+    ImportString,
     IPvAnyAddress,
     SecretStr,
     ValidationError,
@@ -21,7 +22,6 @@ from yaml import MarkedYAMLError, YAMLError
 
 from ceres.address import Address, DynamicAddress
 from ceres.data import (
-    ClassPath,
     ImmutableDataObject,
     Name,
     NonBlankStr,
@@ -44,7 +44,6 @@ from ceres.internal.utilities import (
     get_traceback,
     get_type_adapter,
     group_by,
-    lenient_issubclass,
     show_td,
 )
 from ceres.loaded import Loader
@@ -89,10 +88,14 @@ class JobConfig(ConfigObject):
         return values
 
 
-class ComponentConfig(Loader, _ComponentConfigMixin):
-    cls_path: ClassPath = Field(
-        default_factory=lambda: ClassPath("ceres.component.Component"), alias="class"
-    )
+def _get_component_class() -> type[Component]:
+    from ceres.component import Component
+
+    return Component
+
+
+class ComponentConfig(Loader[Component], _ComponentConfigMixin):
+    cls: ImportString[type[Component]] = Field(default_factory=_get_component_class, alias="class")
     jobs: Sequence[JobConfig] = Field(default_factory=list)
     components: Sequence["ComponentConfig"] = Field(default_factory=list)
 
@@ -108,15 +111,6 @@ class ComponentConfig(Loader, _ComponentConfigMixin):
     @classmethod
     def _get_extra_kwarg_names(cls) -> Sequence[str]:
         return [*super()._get_extra_kwarg_names(), "name"]
-
-    @field_validator("cls_path")
-    def _validate_cls_path(cls, value: ClassPath) -> ClassPath:
-        from ceres.component import Component
-
-        if not lenient_issubclass(value.cls, Component):
-            raise ValueError(f"must be a subclass of {Component}")
-
-        return value
 
     @field_validator("components", check_fields=False)
     def _validate_components(
@@ -439,4 +433,4 @@ class Config(ComponentConfig):
         if config is None:
             return None
 
-        return config.cls_path.cls  # type: ignore
+        return config.cls
