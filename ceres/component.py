@@ -777,17 +777,26 @@ class Component(Object):
         *,
         on_completed: Callable[[Self], None] | None = None,
         on_exception: Callable[[Self, BaseException], None] | None = None,
+        all_enabled: bool = True,
     ) -> None:
         for component in reversed(self.get_ancestor_components()):
-            component.start()
+            component.start(all_enabled=False)
 
         super().start(
             on_completed=on_completed,
             on_exception=on_exception,
         )
 
+        if all_enabled:
+            for component in self.__components.values():
+                if component.enabled:
+                    component.start()
+
     @override
     async def __run__(self) -> None:
+        for component in reversed(self.get_ancestor_components()):
+            component.start(all_enabled=False)
+
         await self.__object_sync__()
 
         self.__scheduler.start()
