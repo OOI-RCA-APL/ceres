@@ -9,7 +9,6 @@ from typing import Any, Sequence
 from typing_extensions import override
 
 from ceres.data import DataObject
-from ceres.internal.cli.exceptions import CLIServiceConfigException
 from ceres.internal.cli.shared import write
 from ceres.internal.project import Project
 from ceres.internal.utilities import StrEnum
@@ -27,11 +26,6 @@ class ServiceStatus(DataObject):
 
 class Service(ABC):
     def __init__(self, project: Project, silent: bool = True) -> None:
-        if project.config.service is None:
-            raise CLIServiceConfigException(
-                "Service configuration is missing from the config file."
-            )
-
         self.__project = project
         self.__service_config = project.config.service
         self.__silent = silent
@@ -42,7 +36,7 @@ class Service(ABC):
 
     @property
     def name(self) -> str:
-        return self.__service_config.name
+        return self.__service_config.name or "ceres-" + self.__project.directory_hash
 
     @property
     def user(self) -> str:

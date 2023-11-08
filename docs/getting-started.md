@@ -8,7 +8,7 @@ This section will explain the core concepts of Ceres using a simple example proj
 
 ## The Problem
 
-Let's say we have a sensor that sends a simple message over a TCP connection every second. Each message is formatted as plain text containing a temperature and humidity reading, separated by a space and terminated by a new-line character.
+Let's say we have a sensor that sends a message over a TCP connection every second. Each message is formatted as plain text containing a temperature and humidity reading, separated by a space and terminated by a new-line character.
 
 ```python
 # Example message bytes.
@@ -22,7 +22,7 @@ messages = [
 ]
 ```
 
-For simplicity let's say this temperature sensor is running on the our local machine and sending data back on port `4000`. Our goal is to write these temperature and humidity readings to file in CSV format, separated by day.
+For simplicity, let's say this temperature sensor is running on the our local machine and sending data back on port `4000`. Our goal is to write these temperature and humidity readings to file in CSV format, separated by day.
 
 ## Create a Simulator
 
@@ -112,11 +112,9 @@ database:
   path: ./database.sqlite
 ```
 
-This tells the Ceres engine where it should store "core" data, including component state, messages, alerts and logs. For this project, we're just using a simple SQLite database at the root of the project.
+This tells the Ceres engine where it should store internal data, including component state, messages, alerts and logs. For this project, we're just using a simple SQLite database at the root of the project.
 
-_The database will be created and initialized automatically. There's no need to create it yourself._
-
-_PostgreSQL is also supported, but for small to medium sized projects SQLite is more than enough._
+_The database will be created and initialized automatically. There's no need to create it yourself. PostgreSQL is also supported, but for small projects SQLite is enough._
 
 #### Components
 
@@ -130,13 +128,11 @@ components:
       separator: "\n"
 ```
 
-This section defines the "components" in our project. Components are configurable Python objects that work together to form a data collection system. They are the core building blocks of any Ceres project. We'll go into more detail later on.
-
 For now, we declare a component named `connection` as an instance of the standard, built-in component class `TCPConnection`, and provide it with some configuration via `arguments`.
 
-This component, globally addressed as `@connection`, will automatically bind to `localhost:4000`, splitting the incoming byte stream into separate messages by new-line. Each message will then be assigned a timestamp, associated with the `@connection` address, and stored in the database.
+This component, globally addressed as `@connection`, will automatically bind to `localhost:4000`, and split the incoming bytes into messages by new-line. Each message will be assigned a timestamp, associated with the `@connection` address, and finally, stored in the internal database.
 
-_If the component cannot connect to the host/port combination, or the connection is lost for some reason, it will attempt to reconnect automatically using an exponential backoff strategy._
+_If the component cannot connect to the host/port combination, or the connection is lost for some reason, it will attempt to reconnect automatically using an exponential backoff._
 
 #### Final
 
@@ -167,7 +163,7 @@ With our configuration file ready, we can can run project using the `ceres run a
 ceres run all
 ```
 
-The `run` command reads the `ceres.yaml` configuration file in the working directory, and starts a Ceres `Engine` class to run that configuration.
+The `run` command reads the `ceres.yaml` configuration file in the working directory, and starts a Ceres `Engine` to run it.
 
 _The `all` argument is used to make the engine run every components in the project on startup. This is useful for development. In production or with a more complex project, you'll likely want to use the `start`, `stop`, `enable` and `disable` commands to manage components individually._
 
@@ -229,8 +225,6 @@ Click on the `@connection` tab in the left sidebar to view the component page, t
 
 ![Screenshot of received messages in web console.](../images/intro/messages.png)
 
-_The messages, alerts and log views can be resized by dragging their horizontal dividers._
-
 ## CLI
 
 Open up another terminal in the project directory, enter your virtual environment, and try running the following commands.
@@ -241,6 +235,7 @@ The status command shows information about the state of the engine and its compo
 
 ```sh
 $ ceres status
+
 Engine
 ┌────────────────────────────┬─────────┬──────┬─────────────────────────────┐
 │ Configuration              │ Running │ Port │ Socket                      │
@@ -256,44 +251,38 @@ Components
 └─────────────┴─────────┴─────────┘
 ```
 
-The "Engine" section of shows that the engine is running, the server is available on port `8080`, and the Unix socket the CLI uses to communicate with the engine is in the `/tmp` directory of the current machine.
+The `Engine` section shows that the engine is running, the server is available on port `8080`, and the Unix socket the CLI uses to communicate with the engine is in the `/tmp` directory of the current machine.
 
-The "Components" section shows of the state of our components.
+The `Components` section shows of the state of our components.
 
-_You'll notice here, that that in addition to `@connection`, there is another component with the address `@`. Ceres components form a hierachical tree structure, with a "root" component at the top.This hierarchical structure allows components to be organized into logical groups._
+_You'll notice here, that that in addition to `@connection`, there is another component with the address `@`. Tis is the "root" component. Ceres components form a tree, with one implicit component at the top. This hierarchical structure allows components to be organized into logical groups._
 
 For our project, the `@` and `@connection` components are running but disabled, meaning that unless we run the engine using the `all` selector, they will not be started automatically.
-
-_A component can only run if its parent component is running. Therefor, stopping the root component will stop all components in the project._
 
 #### Start & Stop Commands
 
 The `start` and `stop` commands allow you to start/stop components at any time.
 
-To stop the `@connection` component, run the `stop` command:
+To stop the `@connection` component, run the `stop` command.
 
 ```sh
 ceres stop @connection
 ```
 
-Do note that when using the CLI, the `@` is optional when passing addresses. Therefor you can run the same command without it:
+Do note that when using the CLI, the `@` prefix is optional. Therefor you can run the same command without it.
 
 ```sh
 ceres stop connection
 ```
 
-After stopping the `@connection` component, the `status` command will show the `@connection` component is no longer running. However, the root component still is, though by default the root component does no processing of its own.
+The `status` command will now show the `@connection` component is no longer running.
 
-If you did want to stop the root component, for whatever reason, you could run:
+_However, the root component `@`, still is. A component can only run if its parent component is running. Therefor, stopping the root component will stop all components in the project. If you did want to stop the root component for any reason, run `ceres stop @`, or `ceres stop all`._
 
-```sh
-ceres stop @
-```
-
-Now, to start a component again, run the `start` command:
+Now, to start our connection component again, run the `start` command.
 
 ```sh
-ceres start @connection # Starts the @connection component and the parent root component.
+ceres start connection # Starts the @connection component and the parent root component.
 ```
 
 If you want to start or stop all components in the project, you can run:
@@ -307,21 +296,21 @@ ceres stop all # Stop all components.
 
 The `enable` and `disable` commands allow you to enable/disable components at any time.
 
-First, let's stop the engine using `Ctrl+C`, then start it again using:
+First, let's stop the engine using `Ctrl+C`, then start it again using the `run` command.
 
 ```sh
 ceres run
 ```
 
-You'll notice by the output of the above command that no components are running. This is because we're not using the `all` selector, meaning that components must be explitly enabled to run when the engine starts.
+You'll notice, however, by the output of the above command that no components are running. This is because we're not passing the `all` selector, meaning components must be explitly enabled to run on startup.
 
-If we do want a component to run on start up, use the `enable` command:
+If you do want a component to run on startup, use the `enable` command.
 
 ```sh
-ceres enable @connection
+ceres enable connection
 ```
 
-The `status` command will now show both `@connection` component and the root component are enabled.
+The `status` command will now show `@connection` as enabled.
 
 Now, stop the engine using `Ctrl+C`, and restart it using `ceres run`:
 
@@ -329,15 +318,15 @@ Now, stop the engine using `Ctrl+C`, and restart it using `ceres run`:
 ceres run
 ```
 
-You'll notice that the `@connection` component is now running automatically, and the `status` command shows that both the `@connection` component and the root component are running.
+You'll notice that the `@connection` component is now running automatically.
 
 To disable a component, you can use the `disable` command:
 
 ```sh
-ceres disable @connection
+ceres disable connection
 ```
 
-To enable or disable all components in the project, you can run:
+To enable or disable all components in the project, you can use the `all` selector.
 
 ```sh
 ceres enable all # Enable all components.
@@ -346,11 +335,11 @@ ceres disable all # Disable all components.
 
 #### Up & Down Commands
 
-The `up` command is synonym for running `enable`, followed by `start`. The `down` command is the opposite, meaning `disable` followed by `stop`.
+The `up` command is synonym for running `enable` and `start`. The `down` command is the opposite, meaning `disable` and `stop`.
 
 ```sh
-ceres up @connection # Enable and start the @connection component.
-ceres stop @connection # Disable and stop the @connection component.
+ceres up connection # Enable and start the @connection component.
+ceres down connection # Disable and stop the @connection component.
 ```
 
 The `up` and `down` commands also take selectors just like the other commands.

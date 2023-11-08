@@ -23,6 +23,10 @@ class Project:
         return Directory(self.__config_path.parent)
 
     @property
+    def directory_hash(self) -> str:
+        return sha1(str(self.directory).encode()).hexdigest()[0:6]
+
+    @property
     def local_directory(self) -> Directory:
         return Directory(self.directory / "local")
 
@@ -31,7 +35,7 @@ class Project:
         if self.__config.server.socket:
             return self.__config.server.socket
 
-        return Path(f"/tmp/ceres-{sha1(str(self.directory).encode()).hexdigest()}.sock")
+        return Path(f"/tmp/ceres-{self.directory_hash}.sock")
 
     @property
     def port(self) -> int | None:
