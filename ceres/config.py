@@ -220,7 +220,7 @@ class ConfigCheckType(StrEnum):
 
 class Config(ComponentConfig):
     name: Name = "root"
-    service: ServiceConfig  = Field(default_factory=ServiceConfig)
+    service: ServiceConfig = Field(default_factory=ServiceConfig)
     server: ServerConfig = Field(default_factory=ServerConfig)
     database: DatabaseConfig = Field(default_factory=SQLiteDatabaseConfig, discriminator="type")
 
