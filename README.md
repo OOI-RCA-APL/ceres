@@ -13,7 +13,7 @@ Ceres is a Python framework for data collection, monitoring and device control. 
 ## Example
 
 ```python
-# ./counter.py
+# ./examples/counter/example/counter.py
 
 from asyncio import sleep
 
@@ -38,23 +38,23 @@ class Counter(Component):
 ```
 
 ```yaml
-# ./ceres.yaml
+# ./examples/counter/ceres.yaml
 # All essential configuration for your project is stored in `ceres.yaml`.
 
 # Ceres persists component state, logs, messages and alerts in this database. If this section is
 # omitted, a temporary database will be used.
 database:
   type: sqlite
-  path: ./database.sqlite # This will be created automatically.
+  path: ./local/database.sqlite # This will be created automatically.
 
 # Projects can declare any number of components, nested or otherwise.
 components:
   - name: counter-a
-    class: counter.Counter # Specify the component class by providing an import path.
+    class: example.counter.Counter # Specify the component class by providing an import path.
     arguments: # These values are passed to the component's constructor.
       initial: 5 # Start counting from 5.
   - name: counter-b
-    class: counter.Counter
+    class: example.counter.Counter
     arguments:
       initial: 100 # Start counting from 100.
       delta: -5 # Decrement by 5 every second.
@@ -86,4 +86,5 @@ To learn more about Ceres, take a look at our documentation.
 | -------------------------------------------- | --------------------------------------------- |
 | [Installing](./docs/installing.md)           | How to install Ceres on your machine.         |
 | [Getting Started](./docs/getting-started.md) | How to set up and run a basic project.        |
+| [Components](./docs/components.md)           | How components work.                          |
 | [Development](./docs/development.md)         | How to help improve the Ceres project itself. |

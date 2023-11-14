@@ -1,0 +1,23 @@
+# All essential configuration for your project is stored in `ceres.yaml`.
+
+# Ceres persists component state, logs, messages and alerts in this database. If this section is
+# omitted, a temporary database will be used.
+database:
+  type: sqlite
+  path: ./local/database.sqlite # This will be created automatically.
+
+# Projects can declare any number of components, nested or otherwise.
+components:
+  - name: counter-a
+    class: example.counter.Counter # Specify the component class by providing an import path.
+    arguments: # These values are passed to the component's constructor.
+      initial: 5 # Start counting from 5.
+  - name: counter-b
+    class: example.counter.Counter
+    arguments:
+      initial: 100 # Start counting from 100.
+      delta: -5 # Decrement by 5 every second.
+
+# The component definitions above are roughly equivalent to:
+# Counter(name="counter-a", initial=5)
+# Counter(name="counter-b", initial=100, delta=-5)
