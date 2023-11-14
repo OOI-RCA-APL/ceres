@@ -1,4 +1,5 @@
 import os
+import sys
 import warnings
 from contextlib import contextmanager
 from functools import wraps
@@ -82,6 +83,7 @@ def get_config_path(config_path: Path | None) -> Path:
     config_path = config_path.absolute()
     chdir(config_path.parent)
     disable_chdir()
+    sys.path.insert(0, str(config_path.parent))
     return config_path
 
 

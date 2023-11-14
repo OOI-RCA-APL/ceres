@@ -88,8 +88,16 @@ async def run(
             await _run_watch(address, config_path=config_path)
         else:
             set_current_process_name("ceres")
-            server = Engine(config_path)
-            match await server.load():
+            match Config.read(config_path):
+                case Ok():
+                    pass
+                case Fail(errors):
+                    raise CLIInvalidConfigException(
+                        f"Failed to load configuration. {jsonify(Fail(errors), indent=2)}"
+                    )
+
+            engine = Engine(config_path)
+            match await engine.load():
                 case Ok():
                     pass
                 case Fail() as fail:
@@ -100,10 +108,10 @@ async def run(
             exiting = AsyncEvent()
 
             async def run() -> None:
-                server.start()
-                server.get_components(address).start()
+                engine.start()
+                engine.get_components(address).start()
 
-                await server.wait_until_stopped()
+                await engine.wait_until_stopped()
 
             async def main() -> None:
                 task_run = asyncio.create_task(run())
@@ -111,7 +119,7 @@ async def run(
                 await wait_any(task_run, task_exit)
 
                 try:
-                    await server.stop()
+                    await engine.stop()
                 finally:
                     await cancel(task_run, task_exit)
 
