@@ -135,7 +135,7 @@ ComponentConfig.model_rebuild()
 
 
 class ServiceConfig(ConfigObject):
-    name: Name
+    name: Name | None = None
     user: Name | None = None
     stdout: Path | None = None
     stderr: Path | None = None
@@ -220,7 +220,7 @@ class ConfigCheckType(StrEnum):
 
 class Config(ComponentConfig):
     name: Name = "root"
-    service: ServiceConfig | None = None
+    service: ServiceConfig = Field(default_factory=ServiceConfig)
     server: ServerConfig = Field(default_factory=ServerConfig)
     database: DatabaseConfig = Field(default_factory=SQLiteDatabaseConfig, discriminator="type")
 
