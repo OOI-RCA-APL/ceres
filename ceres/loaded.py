@@ -15,8 +15,8 @@ from pydantic import (
     GetCoreSchemaHandler,
     ImportString,
     model_validator,
+    validate_call,
 )
-from pydantic.validate_call import validate_call
 from pydantic_core import CoreSchema
 from pydantic_core.core_schema import no_info_after_validator_function
 from typing_extensions import Self

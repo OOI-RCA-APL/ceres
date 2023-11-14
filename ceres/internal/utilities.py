@@ -1,6 +1,5 @@
 import asyncio
 import dataclasses
-
 import inspect
 import math
 import random
@@ -39,9 +38,8 @@ from typing import (
     cast,
 )
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, create_model
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, create_model, validate_call
 from pydantic.fields import FieldInfo
-from pydantic.validate_call import validate_call
 from pydantic_core import CoreSchema, SchemaSerializer, SchemaValidator
 from typing_extensions import overload
 
