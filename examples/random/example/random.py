@@ -13,12 +13,13 @@ class Random(Component):
     interval: TimeDelta = timedelta(seconds=1)
 
     @routine
-    async def do__print_random(self) -> None:
+    async def routine__print_random(self) -> None:
         while True:
             self.log.info(randint(self.low, self.high))  # Print the current count.
             await sleep(self.interval.total_seconds())  # Wait the configured interval.
 
 
+# This section is only included for example.
 if __name__ == "__main__":
 
     async def main() -> None:

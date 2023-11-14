@@ -1,0 +1,5 @@
+components:
+  - name: generator
+    class: example.generator.CSVNameGenerator
+    arguments:
+      output: ./output.csv
