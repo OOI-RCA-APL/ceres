@@ -75,13 +75,13 @@ else:
 _EventT = TypeVar("_EventT", bound=Event)
 _EventP = ParamSpec("_EventP")
 
-Item = Message | Alert | LogEntry
-_ItemT = TypeVar("_ItemT", bound=Item)
+Record = Message | Alert | LogEntry
+_RecordT = TypeVar("_RecordT", bound=Record)
 
 
 @dataclass
 class _Flush:
-    items: list[Item]
+    records: list[Record]
     event: AsyncEvent = field(default_factory=AsyncEvent)
 
 
@@ -94,7 +94,7 @@ class Object(ValidatedDataclass, Tasklet):
         self.__events: WriteStream[Event] = WriteStream()
         self.__log = Log(self, self)
 
-        self.__flush_buffer: list[Item] = []
+        self.__flush_buffer: list[Record] = []
         self.__flushes: deque[_Flush] = deque()
         self.__flushed = AsyncEvent()
         self.__flushed.set()
@@ -228,21 +228,21 @@ class Object(ValidatedDataclass, Tasklet):
     async def __stop__(self) -> None:
         ...
 
-    def store(self, item: Item) -> None:
-        if not isinstance(item, Item):
-            raise TypeError(f"unsupported item type: {type(item)}")
+    def store(self, record: Record) -> None:
+        if not isinstance(record, Record):
+            raise TypeError(f"unsupported record type: {type(record)}")
 
-        # Add the item to the flush buffer and clear the flushed event.
-        self.__flush_buffer.append(item)
+        # Add the record to the flush buffer and clear the flushed event.
+        self.__flush_buffer.append(record)
         self.__flushed.clear()
 
-    async def __create_items_by_cls(
+    async def __create_records_by_cls(
         self,
         session: AsyncSession,
-        item_cls: type[_ItemT],
-        items: list[_ItemT],
+        record_cls: type[_RecordT],
+        records: list[_RecordT],
     ) -> None:
-        if not items:
+        if not records:
             return
 
         match self.__object_database__.type:
@@ -252,33 +252,33 @@ class Object(ValidatedDataclass, Tasklet):
             case DatabaseType.POSTGRES:
                 from sqlalchemy.dialects.postgresql import insert
 
-        if item_cls is Message:
+        if record_cls is Message:
             entity_cls = MessageEntity
-        elif item_cls is Alert:
+        elif record_cls is Alert:
             entity_cls = AlertEntity
-        elif item_cls is LogEntry:
+        elif record_cls is LogEntry:
             entity_cls = LogEntryEntity
         else:
-            raise TypeError(f"unsupported item type: {item_cls}")
+            raise TypeError(f"unsupported record type: {record_cls}")
 
-        values: list[dict[str, Any]] = get_type_adapter(list[item_cls]).dump_python(items)
+        values: list[dict[str, Any]] = get_type_adapter(list[record_cls]).dump_python(records)
 
         await session.execute(insert(entity_cls).on_conflict_do_nothing(), values)
 
-    async def __create_items(self, session: AsyncSession, items: Iterable[Item]) -> None:
-        by_type: defaultdict[type[Item], list[Item]] = defaultdict(list)
-        for model_cls, group in group_by(items, type):
+    async def __create_records(self, session: AsyncSession, records: Iterable[Record]) -> None:
+        by_type: defaultdict[type[Record], list[Record]] = defaultdict(list)
+        for model_cls, group in group_by(records, type):
             by_type[model_cls] = list(group)  # type: ignore
 
-        await self.__create_items_by_cls(session, Message, by_type[Message])
-        await self.__create_items_by_cls(session, Alert, by_type[Alert])
-        await self.__create_items_by_cls(session, LogEntry, by_type[LogEntry])
+        await self.__create_records_by_cls(session, Message, by_type[Message])
+        await self.__create_records_by_cls(session, Alert, by_type[Alert])
+        await self.__create_records_by_cls(session, LogEntry, by_type[LogEntry])
 
     async def flush(self) -> None:
         # Get the previous flush object if there is one.
         previous = self.__flushes[-1] if self.__flushes else None
 
-        # If there's no items in the buffer, wait for the latest flush to complete.
+        # If there's no records in the buffer, wait for the latest flush to complete.
         if not self.__flush_buffer:
             if previous:
                 await previous.event.wait()
@@ -287,7 +287,7 @@ class Object(ValidatedDataclass, Tasklet):
             return
 
         # Register the flush request.
-        flush = _Flush(items=self.__flush_buffer)
+        flush = _Flush(records=self.__flush_buffer)
         # Clear the buffer.
         self.__flush_buffer = []
         self.__flushes.append(flush)
@@ -297,24 +297,23 @@ class Object(ValidatedDataclass, Tasklet):
             if previous:
                 await previous.event.wait()
 
-            # Group items by item class.
             async with await self.__object_database__.init() as session:
-                await self.__create_items(session, flush.items)
+                await self.__create_records(session, flush.records)
                 await session.commit()
         except DatabaseError as exception:
             if len(self.__flushes) > 1:
-                next = self.__flushes[1].items
+                next = self.__flushes[1].records
             else:
                 next = self.__flush_buffer
 
-            next[0:0] = flush.items
+            next[0:0] = flush.records
             self.emit(DatabaseExceptionEvent, traceback=get_traceback(exception))
         finally:
             # Notify the flush attempt is over.
             flush.event.set()
             # Remove it from the queue.
             self.__flushes.popleft()
-            # If there are items no items remaining in the buffer and no pending flushes, set
+            # If there are records no records remaining in the buffer and no pending flushes, set
             # the "flushed" event.
             if not self.__flush_buffer and not self.__flushes:
                 self.__flushed.set()

@@ -27,8 +27,6 @@ if TYPE_CHECKING:
 else:
     Component = object
 
-Item = Message | Alert | LogEntry
-
 
 class Filter(ImmutableDataObject):
     model_config = ConfigDict(extra="ignore")

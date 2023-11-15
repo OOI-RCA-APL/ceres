@@ -110,17 +110,15 @@ $ ceres run all
 
 ## Component Trees
 
-While components can be configured and run on their own, they are usually grouped together in hierarchies, similar directories in your filesystem. These hierarchies are called _component trees_.
+While components can be configured and run on their own, they are usually grouped together in hierarchies, similar to directories in your filesystem. These hierarchies are called _component trees_.
 
 Each component is conceptually a _node_, having an arbitrary number of _child_ components, and _at most_ one _parent_ component. Components _must_ have a unique `name` within their parent. This ensures each component is uniquely _addressable_ within its tree.
 
-A component's `address` describes its position in the tree, and is determined computed automatically by its name and the names of its ancestor components. A component with no parent is a _root_ component, and has the address `@`. Other addresses are relative to the root, and are defined by descending component names with `.` as a separator. _For example, the address `@a.b.c` refers to a component named `c`, which is a child of `@a.b`, which is a child of `@a`, which is ultimately the child of the root component `@`._
+A component's `address` describes its position in the tree, and is computed automatically from the component's `name` and the names of its ancestors. A component with no parent is a _root_ component, and has the address `@`. Other addresses are relative to the root, and are defined by descending component names with `.` as a separator. _For example, the address `@a.b.c` refers to a component named `c`, which is a child of `@a.b`, which is a child of `@a`, which is ultimately the child of the root component `@`._
 
-A _subtree_ of components within a larger component tree is called a _unit_. For example, if components `@a.b` and `@a.c` exist, they are part of the unit `@a`. Units are subtrees of components that usually work together to accomplish a specific task, such as interfacing with one external device to retrieve data. _Components within a unit are usually managed, started, stopped and observed together._
+A _subtree_ of components within a larger component tree is called a _unit_. For example, if components `@a.b` and `@a.c` exist, they are part of the unit `@a`. Units are subtrees of components that usually work together to accomplish a specific task, such as interfacing with one external device to retrieve data. _Components within a unit are usually managed, started, stopped and monitored together._
 
-Components _above_ a component in a tree are called its _ancestors_. Components _below_ a component in a tree are its _descendants_, or _subcomponents_.
-
-A child component can _only_ be running if its _parent_ is running. So for convenience, a component is automatically started when any of its subcomponents are started. For example, starting `@a.b` will also start `@a` and `@`. Conversely, when a component is stopped, all its descendants are too.
+Components _above_ a component in a tree are called its _ancestors_. Components _below_ a component in a tree are its _descendants_, or _subcomponents_. A child component can _only_ be running if its _parent_ is running. So for convenience, a component is automatically started when any of its subcomponents are started. For example, starting `@a.b` will also start `@a` and `@`. Conversely, when a component is stopped, all its subcomponents are too.
 
 _Enabling_ a component will cause it to started automatically when its parent starts. Ancestors of an enabled component are also implicitly enabled. All components are _disabled_ by default.
 
@@ -263,64 +261,11 @@ $ ceres run all
 
 _You can view generated names in `output.csv`._
 
-### Logs
+## Events
 
-Components can log arbitrary messages to disk for monitoring purposes. These logs are written to standard out by default, and persisted in the component's `database` for later retrieval.
+All components emit _events_. Events are simple objects with a `type`, `address` and `timestamp` that can be listened for and reacted to by other components. The component `emit` method is used to emit events by passing the event class and necessary keyword arguments. Emitted events are assigned the `address` of the component that emitted them.
 
-All log entries are assigned the address of the component that logged them, and a log `Level`. Components can log messages using their `log` property, which mirrors Python's built-in `Logger` class.
-
-#### Log Levels
-
-- `DEBUG`
-- `INFO`
-- `WARNING`
-- `ERROR`
-- `CRITICAL`
-
-#### Example
-
-```python
-from asyncio import sleep
-
-from ceres import Component, Level, LogEntry, routine
-
-class Logger(Component):
-    @routine
-    def routine__log_stuff(self) -> None:
-        i = 0
-
-        while True:
-            self.log.info("Log test {} started.", i)
-
-            self.log.debug("We're debugging. No worries.")
-            self.log.info("Wait, I have some information.")
-            self.log.warning("Something might be wrong.")
-            self.log.error("Something has gone very wrong.")
-            self.log.critical("Everything's going to explode.")
-
-            entry = self.log.info("Log test {} ended.", i)
-
-            assert isinstance(entry, LogEntry)
-            assert entry.level == Level.INFO
-            assert entry.address == self.address
-
-            i += 1
-            await self.sleep(1)
-```
-
-```yaml
-components:
-  - name: logger
-    class: example.logging.Logger
-```
-
-### Events
-
-All components emit _events_.
-
-Events are simple data objects with a `type`, `address` and `timestamp` that can be listened for and reacted to by other components. The component `emit` method is used to emit events by passing the event class and necessary keyword arguments. Emitted events are assigned the `address` of the component that emitted them.
-
-When an event is emitted, it is propagated up the component tree through all a component ancestores. Functionally, this means components inherit the events of their subcomponents, though the `address` of the emitted event is still the address of the component that originally emitted it.
+When an event is emitted, it is propagated up the component tree through all the component's ancestors. Functionally, this means components inherit the events of their subcomponents, though the `address` of the emitted event is still the address of the component that originally emitted it.
 
 All events are subclasses of `Event`. Custom events can be created by inheriting this class and assigning a new `type` literal, however custom events are not always necessary. Components emit many standard events automatically, all of which can be listened for by other components.
 
@@ -372,7 +317,7 @@ Components can register _event listeners_ using the `@on` decorator. Event liste
 - `address`: An optional address selector or selectors to listen for events from. _For example, to listen to events from a component at the address `@connection`, use `@on(address="@connection")`, or if you'd like to listen to the events of every component in the tree, use `@on(address="all")`._
 - `local`: Whether to listen for events emitted by the component itself. This will default to `True` if neither `reference` or `address` are specified, and `False` otherwise.
 
-_Event listeners are run asyncronously, separate from the original call to `emit`. Components maintain separate event queues for each event listener they have registered, and as a result, can process the events at their own pace. Calling `emit` only distributes the event to those queues, and as a result listeners are isolated, and will never crash code that emits events._
+_Event listeners are run asyncronously, separate from the original call to `emit`. Components maintain separate event queues for each event listener they have registered, and process them at their own pace. Calling `emit` only distributes the event to those queues, and as a result, listeners are isolated, and will never crash code that emits events._
 
 #### Example
 
@@ -443,4 +388,214 @@ components:
     class: example.events.EventListenerExample
     arguments:
       emitter: "@emitter" # Pass a reference to the `emitter` component.
+```
+
+## Records
+
+Components own three types of _record_ data which are persisted in the project database. These record types are _messages_, _alerts_ and _log entries_. All records include an `id`, `address` and `timestamp`.
+
+_Records are written to the database asyncronously in buffered batches, so they may not be immediately available after being emitted._
+
+### Messages
+
+Messages are a record of data sent or received by a `Connection` component.
+
+| Field       | Python Type              | Description                                                                                 |
+| ----------- | ------------------------ | ------------------------------------------------------------------------------------------- |
+| `id`        | `UUID`                   | An autogenerated UUID primary key.                                                          |
+| `address`   | `ceres:Address`          | The address of the component that sent or received the message.                             |
+| `timestamp` | `datetime`               | The timestamp at which the message was sent or received. Defaults to the current timestamp. |
+| `direction` | `ceres:MessageDirection` | Either "send" or "receive" depending on if the component sent or received a message.        |
+| `content`   | `ceres:MessageContent`   | The raw bytes of the original message.                                                      |
+
+#### Creation
+
+To persist messages for a component, the component should emit a `MessageSentEvent` or `MessageReceivedEvent` event, passing a `Message` instance as the `message` argument.
+
+```python
+from ceres import Message, MessageDirection
+from ceres.events import MessageReceivedEvent, MessageSentEvent
+
+# In a component...
+
+self.emit(
+    MessageSentEvent,
+    message=Message(address=self.address, direction=MessageDirection.SEND, content=b"SEND\n")
+)
+self.emit(
+    MessageReceivedEvent,
+    message=Message(address=self.address, direction=MessageDirection.RECEIVE, content=b"RECEIVE\n")
+)
+```
+
+#### Retrieval
+
+Messages can be retrieved using `get_messages` and `get_message`.
+
+```python
+from asyncio import sleep
+
+from ceres import Connection, Component, MessageOrder, Ref, routine
+
+class Driver(Component)
+    connection: Ref[Connection]
+
+    @routine
+    async def routine__log_connection_messages(self) -> None:
+        while True:
+            # Get the latest 10 messages sent or received by the connection component.
+            latest = await self.connection.get_messages(
+              order=MessageOrder.NEW_TO_OLD,
+              limit=10
+            )
+            self.log.info(latest)
+
+            # Alternatively, you can pass the address of `@connection`.
+            latest = await self.get_messages(
+              address="@connection",
+              order=MessageOrder.NEW_TO_OLD,
+              limit=10
+            )
+            self.log.info(latest)
+
+            # Get the oldest message sent or received by the connection component.
+            oldest = await self.connection.get_message()
+            self.log.info(oldest)
+
+            await sleep(5)
+```
+
+### Alerts
+
+Alerts are records of notable events, usually errors, which have occurred. Any component can emit alerts using its `alert` method.
+
+_Do note that emitting an alert doesn't actually send it anywhere, it will just be stored in the database. To send alerts out as notifications, use a `Dispatcher`._
+
+| Field       | Python Type      | Description                                                                      |
+| ----------- | ---------------- | -------------------------------------------------------------------------------- |
+| `id`        | `UUID`           | An autogenerated UUID primary key.                                               |
+| `address`   | `ceres:Address`  | The address of the component that emitted the alert.                             |
+| `timestamp` | `datetime`       | The timestamp at which the alert was created. Defaults to the current timestamp. |
+| `level`     | `ceres:Level`    | A level specifying the severity of the alert.                                    |
+| `code`      | `str`            | An arbitrary string which can be used to retrieve alerts of a particular type.   |
+| `info`      | `dict[str, Any]` | A JSON serializable dictionary with arbitrary values.                            |
+
+#### Creation
+
+To emit alerts for a component, the component should call the `alert` method, passing a `level`, `code` and `info` dictionary for additional information if needed.
+
+```python
+from ceres import Level
+
+# In a component...
+
+self.alert(Level.ERROR, "airlock/jammed", {"message": "The airlock is jammed.", "pressure": 200})
+self.alert(Level.INFO, "airlock/recovered", {"message": "Oh, nevermind. We're good.", "pressure": 1000})
+```
+
+#### Retrieval
+
+Alerts can be retrieved using `get_alerts()` and `get_alert()`.
+
+```python
+from asyncio import sleep
+
+from ceres import AlertOrder, Component, routine
+
+class Example(Component)
+    @routine
+    async def routine__log_alerts(self) -> None:
+        while True:
+            # Get the latest 10 alerts emitted by this component.
+            latest = await self.engine.get_alerts(
+              order=AlertOrder.NEW_TO_OLD,
+              limit=10
+            )
+
+            # Get the latest 10 alerts from the component `@other`.
+            latest = await self.get_alerts(
+              address="@other",
+              order=MessageOrder.NEW_TO_OLD,
+              limit=10
+            )
+
+            # Get the oldest alert emitted by any component in the tree.
+            oldest = await self.root.get_alert(address="all")
+            await sleep(5)
+```
+
+### Log Entries
+
+Components can log arbitrary messages to for monitoring purposes. These log entries are written to standard out by default, and persisted in the component's `database` for later analysis.
+
+| Field       | Python Type     | Description                                                                     |
+| ----------- | --------------- | ------------------------------------------------------------------------------- |
+| `id`        | `UUID`          | An autogenerated UUID primary key.                                              |
+| `address`   | `ceres:Address` | The address of the component that created the log entry.                        |
+| `timestamp` | `datetime`      | The timestamp at which the entry was logged. Defaults to the current timestamp. |
+| `level`     | `ceres:Level`   | A level specifying the severity of the log entry.                               |
+| `content`   | `str`           | An arbitrary string message.                                                    |
+
+#### Creation
+
+Components can log messages through their `log`, which mirrors Python's built-in `Logger` class.
+
+```python
+from asyncio import sleep
+
+from ceres import Component, Level, LogEntry, routine
+
+class Example(Component):
+    @routine
+    def routine__log_stuff(self) -> None:
+        i = 0
+
+        while True:
+            self.log.info("Log test {} started.", i)
+
+            self.log.debug("We're debugging. No worries.")
+            self.log.info("Wait, I have some information.")
+            self.log.warning("Something might be wrong.")
+            self.log.error("Something has gone very wrong.")
+            self.log.critical("Everything's going to explode.")
+
+            entry = self.log.info("Log test {} ended.", i)
+
+            assert isinstance(entry, LogEntry)
+            assert entry.level == Level.INFO
+            assert entry.address == self.address
+
+            i += 1
+            await self.sleep(1)
+```
+
+#### Retrieval
+
+Log entries can be retrieved using `get_log_entries()` and `get_log_entry()`.
+
+```python
+from asyncio import sleep
+
+from ceres import Address, Connection, Component, Ref, routine
+
+class Example(Component)
+    @routine
+    async def routine__get_log_entry_counts(self) -> None:
+        while True:
+            # Get the latest 10 alerts emitted by this component.
+            latest = await self.get_log_entries(
+              order=AlertOrder.NEW_TO_OLD,,
+              limit=10
+            )
+
+            # Get the latest 10 log entries from the component `@other`.
+            latest = await self.get_log_entries(
+              address="@other",
+              order=MessageOrder.NEW_TO_OLD,
+              limit=10
+            )
+
+            # Get the oldest log entry emitted by any component in the tree.
+            oldest = await self.root.get_alert(address="all")
+            await sleep(5)
 ```
