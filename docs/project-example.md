@@ -1,10 +1,4 @@
-| Previous                      | Next                          |
-| ----------------------------- | ----------------------------- |
-| [Installing](./installing.md) | [Components](./components.md) |
-
-# Getting Started
-
-This section will explain the core concepts of Ceres using a simple example project.
+# Project Example
 
 ## The Problem
 

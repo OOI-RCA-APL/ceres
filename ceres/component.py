@@ -1104,8 +1104,8 @@ def on(method: _ListenerMethod) -> _ListenerMethod:
 def on(
     *,
     event: type | UnionType | None = None,
-    local: bool = False,
-    reference: str | Sequence[str] = "self",
+    local: bool | None = None,
+    reference: str | Sequence[str] | None = None,
     address: str | AddressSelector | Sequence[str | AddressSelector] | None = None,
 ) -> _ListenerMethodTransform:
     ...
@@ -1116,7 +1116,7 @@ def on(
     method: _ListenerMethod | None = None,
     *,
     event: type | UnionType | None = None,
-    local: bool = False,
+    local: bool | None = None,
     reference: str | Sequence[str] | None = None,
     address: str | AddressSelector | Sequence[str | AddressSelector] | None = None,
 ) -> _ListenerMethod | _ListenerMethodTransform:
@@ -1127,6 +1127,9 @@ def on(
             address = [address]
 
         address = AddressSelector("|".join(str(current) for current in address))
+
+    if local is None:
+        local = len(reference) == 0 and address is None
 
     def on(method: _ListenerMethod) -> _ListenerMethod:
         signature = inspect.signature(method)

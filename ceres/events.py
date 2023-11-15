@@ -98,6 +98,11 @@ class RemovedEvent(BaseStandardEvent):
     type: Literal[StandardEventType.REMOVED] = StandardEventType.REMOVED
 
 
+LifecycleEvent = (
+    StartedEvent | StoppedEvent | EnabledEvent | DisabledEvent | AddedEvent | RemovedEvent
+)
+
+
 class ConnectingEvent(BaseStandardEvent):
     type: Literal[StandardEventType.CONNECTING] = StandardEventType.CONNECTING
 
@@ -281,7 +286,12 @@ class ProcedureExceptionEvent(BaseStandardEvent):
     traceback: Sequence[str]
 
 
-ProcedureEvent = ProcedureCalledEvent | ProcedureCompletedEvent | ProcedureExceptionEvent
+ProcedureEvent = (
+    ProcedureCalledEvent
+    | ProcedureCancelledEvent
+    | ProcedureCompletedEvent
+    | ProcedureExceptionEvent
+)
 
 
 class DatabaseExceptionEvent(BaseStandardEvent):
@@ -292,12 +302,7 @@ class DatabaseExceptionEvent(BaseStandardEvent):
 DatabaseEvent = DatabaseExceptionEvent
 
 StandardEvent = (
-    StartedEvent
-    | StoppedEvent
-    | EnabledEvent
-    | DisabledEvent
-    | AddedEvent
-    | RemovedEvent
+    LifecycleEvent
     | ConnectionEvent
     | MessageEvent
     | AlertEvent

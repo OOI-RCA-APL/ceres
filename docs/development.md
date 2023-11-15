@@ -33,5 +33,3 @@
 
    - _The `all` selector makes all components run on engine startup._
    - _The `--watch` flag makes the engine reload when either configuration or code are modified._
-
-8. See the [Getting Started](./getting-started.md) documentation to continue.

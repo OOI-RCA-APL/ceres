@@ -1,7 +1,3 @@
-| Previous                  | Next                                    |
-| ------------------------- | --------------------------------------- |
-| [README.md](../README.md) | [Getting Started](./getting-started.md) |
-
 # Installing
 
 There is no PyPi package for Ceres due to access restrictions. The package must be installed from GitHub.

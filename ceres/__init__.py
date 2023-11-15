@@ -127,6 +127,11 @@ else:
     __export("ceres.loaded", ["Loaded", "Loader"])
 
 if TYPE_CHECKING:
+    from ceres.logs import LogEntry as LogEntry
+else:
+    __export("ceres.logs", ["LogEntry"])
+
+if TYPE_CHECKING:
     from ceres.message import Message as Message
     from ceres.message import MessageDirection as MessageDirection
 else:
