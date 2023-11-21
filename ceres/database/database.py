@@ -23,6 +23,7 @@ from uuid import UUID, uuid4
 
 from pydantic import ValidationError
 from sqlalchemy import (
+    URL,
     AsyncAdaptedQueuePool,
     BinaryExpression,
     Connection,
@@ -600,7 +601,10 @@ class SQLiteDatabase(Database):
     @property
     @override
     def url(self) -> str:
-        return f"sqlite+aiosqlite:///{self.path}"
+        return URL.create(
+            "sqlite+aiosqlite",
+            database=str(self.path),
+        ).render_as_string(hide_password=False)
 
     @property
     def path(self) -> Path:
@@ -842,10 +846,15 @@ class PostgresDatabase(Database):
     @property
     @override
     def url(self) -> str:
-        return (
-            "postgresql+asyncpg://"
-            + f"{self.config.user}:{self.config.password.get_secret_value()}"
-            + f"@{self.config.host}:{self.config.port}/{self.config.database}"
+        return str(
+            URL.create(
+                "postgresql+asyncpg",
+                username=self.config.user,
+                password=self.config.password.get_secret_value(),
+                host=self.config.host,
+                port=self.config.port,
+                database=self.config.database,
+            ).render_as_string(hide_password=False)
         )
 
     def _get_engine_config(self) -> dict[str, Any]:
