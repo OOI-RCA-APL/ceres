@@ -199,8 +199,8 @@ class SQLiteDatabaseConfig(BaseDatabaseConfig):
 
 class PostgresDatabaseConfig(BaseDatabaseConfig):
     type: Literal[DatabaseType.POSTGRES] = DatabaseType.POSTGRES
-    host: NonBlankStr
-    port: int
+    host: NonBlankStr = "localhost"
+    port: int = 5432
     database: NonBlankStr
     user: NonBlankStr
     password: SecretStr
