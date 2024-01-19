@@ -91,7 +91,7 @@ class Parser:
 
         if match := regex.match(self.remaining, 0):
             group = match.group()
-            self.__index += len(group)
+            self.index += len(group)
             return group
 
         return None
