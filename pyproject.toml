@@ -65,6 +65,7 @@ reportUnknownVariableType = false
 reportUnnecessaryIsInstance = false
 reportUntypedFunctionDecorator = false
 reportUnusedFunction = false
+reportIncompatibleVariableOverride = false
 typeCheckingMode = "strict"
 useLibraryCodeForTypes = true
 

@@ -37,12 +37,7 @@ from sqlalchemy import (
     select,
     text,
 )
-from sqlalchemy.ext.asyncio import (
-    AsyncConnection,
-    AsyncEngine,
-    AsyncSession,
-    create_async_engine,
-)
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession, create_async_engine
 from typing_extensions import Self, Unpack, override
 
 from ceres.address import Address
@@ -71,12 +66,7 @@ from ceres.internal.database.entities import (
     MessageEntity,
     StoreEntity,
 )
-from ceres.internal.utilities import (
-    PathLike,
-    escape_like_expression,
-    get_type_adapter,
-    strlist,
-)
+from ceres.internal.utilities import PathLike, escape_like_expression, get_type_adapter, strlist
 from ceres.level import Level
 from ceres.logs import LogEntry
 from ceres.message import Message
@@ -89,7 +79,7 @@ _T = TypeVar("_T")
 
 
 class Database:
-    def __new__(cls, /, config: DatabaseConfig | None = None) -> Self:
+    def __new__(cls, /, config: DatabaseConfig | None = None) -> "Database":
         if cls is Database:
             match config:
                 case None | SQLiteDatabaseConfig():
@@ -520,8 +510,9 @@ class Database:
     ) -> list[Statistics]:
         filter = StatisticsFilter(**kwargs).with_defaults(filter)
 
-        statement = select(AlertEntity.address, AlertEntity.level, func.count("*")).group_by(
-            AlertEntity.address, AlertEntity.level
+        statement = select(AlertEntity.address, AlertEntity.level, func.count()).group_by(
+            AlertEntity.address,
+            AlertEntity.level,
         )
 
         if filter.within is not None:

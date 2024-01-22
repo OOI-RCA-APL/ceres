@@ -2,6 +2,7 @@ import asyncio
 import json
 import traceback
 from asyncio import CancelledError
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from http.client import responses
 from pathlib import Path
@@ -637,11 +638,17 @@ def get_favicon_svg(engine: CurrentEngine) -> FileResponse:
 
 @final
 class App(FastAPI):
-    def __init__(self, engine: Engine) -> None:
+    def __init__(self, engine: Engine, **kwargs: Any) -> None:
+        @asynccontextmanager
+        async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+            logs.setup()
+            yield
+
         super().__init__(
             redoc_url=None,
             docs_url="/api/docs",
             openapi_url="/api/openapi.json",
+            lifespan=lifespan,
         )
 
         self.__engine = engine
@@ -664,12 +671,8 @@ class App(FastAPI):
             allow_methods=["*"],
             allow_headers=["*"],
         )
-        self.add_middleware(LoggingMiddleware)
+        self.add_middleware(LoggingMiddleware)  # type: ignore
         self.add_middleware(GZipMiddleware)
-
-        @self.on_event("startup")
-        def startup() -> None:
-            logs.setup()
 
         self.include_router(api, prefix="/api")
         self.include_router(root)
