@@ -41,7 +41,7 @@ from typing import (
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, create_model, validate_call
 from pydantic.fields import FieldInfo
 from pydantic_core import CoreSchema, SchemaSerializer, SchemaValidator
-from typing_extensions import overload
+from typing_extensions import overload, override
 
 NAME_PATTERN = r"^[a-zA-Z_\-][a-zA-Z0-9_\-]*$"
 
@@ -837,8 +837,52 @@ else:
 
 class StrEnum(BaseStrEnum):
     @staticmethod
+    @override
     def _generate_next_value_(name: str, *args: Any, **kwargs: Any) -> str:
         return name.lower().replace("_", "-")
+
+    @override
+    def __str__(self) -> str:
+        return self.value
+
+
+_priority_cache: dict[tuple[type["PriorityStrEnum"], str], int] = {}
+
+
+class PriorityStrEnum(StrEnum):
+    @property
+    def priority(self) -> Any:
+        key = (type(self), self)
+        priority = _priority_cache.get(key)
+        if priority is None:
+            priority = tuple(type(self)).index(self)
+            _priority_cache[key] = priority
+
+        return priority
+
+    def __lt__(self, __x: str) -> bool:
+        if isinstance(__x, type(self)):
+            return self.priority < __x.priority
+
+        return super().__lt__(__x)
+
+    def __le__(self, __x: str) -> bool:
+        if isinstance(__x, type(self)):
+            return self.priority <= __x.priority
+
+        return super().__le__(__x)
+
+    def __gt__(self, __x: str) -> bool:
+        if isinstance(__x, type(self)):
+            return self.priority > __x.priority
+
+        return super().__gt__(__x)
+
+    def __ge__(self, __x: str) -> bool:
+        if isinstance(__x, type(self)):
+            return self.priority >= __x.priority
+
+        return super().__ge__(__x)
 
 
 def strlist(value: str | Sequence[str] | None) -> list[str]:

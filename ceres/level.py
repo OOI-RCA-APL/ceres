@@ -1,9 +1,9 @@
 from typing import Any
 
-from ceres.internal.utilities import StrEnum
+from ceres.internal.utilities import PriorityStrEnum
 
 
-class Level(StrEnum):
+class Level(PriorityStrEnum):
     DEBUG = "debug"
     INFO = "info"
     WARNING = "warning"

@@ -6,14 +6,9 @@ from typing import Annotated, Any, Callable, Literal, cast
 
 import pydantic
 import pydantic.generics
-from pydantic import (
-    AfterValidator,
-    BaseModel,
-    BeforeValidator,
-    ConfigDict,
-    Field,
-    StringConstraints,
-)
+from pydantic import AfterValidator, BaseModel, BeforeValidator, ConfigDict
+from pydantic import EmailStr as _BaseEmailStr
+from pydantic import Field, StringConstraints
 from pydantic.fields import FieldInfo
 from pydantic_extra_types.color import Color as Color
 from typing_extensions import dataclass_transform
@@ -196,3 +191,17 @@ class ValidatedDataclass(ABC, PydanticDataclassLike):  # type: ignore
             validate_on_init=validate_on_init,
             kw_only=kw_only,
         )(cls)
+
+
+UsernameStr = Annotated[
+    str,
+    StringConstraints(
+        pattern=r"[a-zA-Z\-_]{1,64}",
+        min_length=1,
+        max_length=64,
+    ),
+]
+
+PasswordStr = Annotated[str, StringConstraints(min_length=1, max_length=256)]
+
+EmailStr = _BaseEmailStr
