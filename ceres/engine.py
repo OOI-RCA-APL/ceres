@@ -10,7 +10,7 @@ from aiotools.taskgroup import TaskGroup
 from typing_extensions import Self, Unpack, override
 
 from ceres.address import Address, AddressSelector, DynamicAddress
-from ceres.config import Config
+from ceres.config import Config, ServerSSLConfig
 from ceres.data import ImmutableDataObject
 from ceres.directory import Directory
 from ceres.errors import (
@@ -546,12 +546,22 @@ class Engine(Object, kw_only=False):
         if self.__config.server.port is None:
             return None
 
+        ssl = self.__config.server.ssl or ServerSSLConfig()
+        ssl_keyfile = str(ssl.key) if ssl.key is not None else None
+        ssl_keyfile_password = ssl.key_password
+        ssl_certfile = str(ssl.cert) if ssl.cert is not None else None
+        ssl_ca_certs = str(ssl.ca_certs) if ssl.ca_certs is not None else None
+
         return Uvicorn(
             UvicornConfig(
                 app=self.__app,
                 host=self.__config.server.host,
                 port=self.__config.server.port,
                 loop="none",
+                ssl_keyfile=ssl_keyfile,
+                ssl_keyfile_password=ssl_keyfile_password,
+                ssl_certfile=ssl_certfile,
+                ssl_ca_certs=ssl_ca_certs,
             )
         )
 
