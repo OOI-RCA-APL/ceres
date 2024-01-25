@@ -23,6 +23,7 @@ from ceres.errors import (
 from ceres.events import Event, LogEvent, StoppedEvent, StoppingEvent
 from ceres.exceptions import EngineDatabaseInitFailedException
 from ceres.filter import ComponentFilter, ComponentFilterArgs, UserFilter, UserFilterArgs
+from ceres.internal.app import App
 from ceres.internal.project import Project
 from ceres.internal.utilities import StrEnum, sleep_forever, strify, uniquify
 from ceres.internal.uvicorn import Uvicorn, UvicornConfig
@@ -78,12 +79,8 @@ class Engine(Object, kw_only=False):
         self.__reloading = AsyncEvent()
         self.__reloaded_config: Config | None = None
         self.__port_uvicorn: Uvicorn | None = None
-        self.__uds_uvicorn: Uvicorn | None = None
+        self.__cli_uvicorn: Uvicorn | None = None
         self.__root: Component | None = None
-
-        from ceres.internal.app import App
-
-        self.__app = App(self)
 
         if self.__config_path is not None:
             self.__project_directory = Directory(self.__config_path.parent)
@@ -169,7 +166,7 @@ class Engine(Object, kw_only=False):
                 started = True
                 self.__reloading.clear()
 
-                self.__start_uds_uvicorn()
+                self.__start_cli_uvicorn()
                 self.__start_port_uvicorn()
 
                 async def start_enabled() -> None:
@@ -211,7 +208,7 @@ class Engine(Object, kw_only=False):
     @override
     async def __stop__(self) -> None:
         self.emit(StoppingEvent)
-        await self.__stop_uds_uvicorn()
+        await self.__stop_cli_uvicorn()
         await self.__stop_port_uvicorn()
         if self.__root is not None:
             await self.__root.stop()
@@ -342,7 +339,7 @@ class Engine(Object, kw_only=False):
             try:
                 await self.__stop_port_uvicorn()
                 self.__start_port_uvicorn()
-                self.__start_uds_uvicorn()
+                self.__start_cli_uvicorn()
             except Exception:
                 self.log.error(
                     f"An issue occurred while reloading the server: {traceback.format_exc()}"
@@ -524,7 +521,7 @@ class Engine(Object, kw_only=False):
 
         return actions
 
-    def __create_uds_uvicorn(self) -> Uvicorn | None:
+    def __create_cli_uvicorn(self) -> Uvicorn | None:
         if self.__config.server.socket is not None:
             socket = self.__config.server.socket
         elif self.__config_path is not None:
@@ -533,31 +530,33 @@ class Engine(Object, kw_only=False):
         else:
             return None
 
+        from ceres.internal.app import App
+
         return Uvicorn(
             UvicornConfig(
-                app=self.__app,
+                app=App(self, cli=True),
                 uds=str(socket),
                 loop="none",
             )
         )
 
-    def __start_uds_uvicorn(self) -> Uvicorn | None:
-        if self.__uds_uvicorn is None:
-            self.__uds_uvicorn = self.__create_uds_uvicorn()
-        if self.__uds_uvicorn is None:
+    def __start_cli_uvicorn(self) -> Uvicorn | None:
+        if self.__cli_uvicorn is None:
+            self.__cli_uvicorn = self.__create_cli_uvicorn()
+        if self.__cli_uvicorn is None:
             return None
 
-        if not self.__uds_uvicorn.running:
-            self.__uds_uvicorn.start()
-            self.log.info(f"Listening on socket at '{self.__uds_uvicorn.config.uds}'.")
+        if not self.__cli_uvicorn.running:
+            self.__cli_uvicorn.start()
+            self.log.info(f"Listening on socket at '{self.__cli_uvicorn.config.uds}'.")
 
-        return self.__uds_uvicorn
+        return self.__cli_uvicorn
 
-    async def __stop_uds_uvicorn(self) -> None:
-        if self.__uds_uvicorn is not None:
-            await self.__uds_uvicorn.stop()
-            self.log.info(f"Removing listener from socket at '{self.__uds_uvicorn.config.uds}'.")
-            self.__uds_uvicorn = None
+    async def __stop_cli_uvicorn(self) -> None:
+        if self.__cli_uvicorn is not None:
+            await self.__cli_uvicorn.stop()
+            self.log.info(f"Removing listener from socket at '{self.__cli_uvicorn.config.uds}'.")
+            self.__cli_uvicorn = None
 
     def __create_port_uvicorn(self) -> Uvicorn | None:
         if self.__config.server.port is None:
@@ -571,7 +570,7 @@ class Engine(Object, kw_only=False):
 
         return Uvicorn(
             UvicornConfig(
-                app=self.__app,
+                app=App(self),
                 host=self.__config.server.host,
                 port=self.__config.server.port,
                 loop="none",
