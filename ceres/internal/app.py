@@ -4,6 +4,7 @@ import traceback
 from asyncio import CancelledError
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from functools import partial
 from http.client import responses
 from pathlib import Path
 from typing import (
@@ -59,7 +60,15 @@ from websockets.exceptions import ConnectionClosed
 from ceres.address import Address
 from ceres.alert import Alert, Level
 from ceres.component import Component, ProcedureBinding, Status
-from ceres.config import ComponentConfig, Config, ServerAuthenticationConfig
+from ceres.config import (
+    ComponentConfig,
+    Config,
+    ConsoleConfig,
+    DatabaseConfig,
+    ServerAuthenticationConfig,
+    ServerConfig,
+    ServiceConfig,
+)
 from ceres.data import DateTime, ImmutableDataObject, Name, jsonify
 from ceres.errors import (
     ProcedureComponentDoesNotExistError,
@@ -84,7 +93,7 @@ from ceres.message import Message
 from ceres.object import Statistics
 from ceres.result import Fail, Ok, Result
 from ceres.timing import utc
-from ceres.user import PrivateUser, User
+from ceres.user import PrivateUser, User, UserRole
 
 if TYPE_CHECKING:
     from ceres.engine import Engine
@@ -250,6 +259,16 @@ async def _get_current_identity(
 CurrentIdentity = Annotated[Identity | None, Depends(_get_current_identity)]
 
 
+def _get_required_identity(identity: CurrentIdentity) -> Identity:
+    if identity is None:
+        raise HTTPException(HTTP_401_UNAUTHORIZED)
+
+    return identity
+
+
+RequireIdentity = Annotated[Identity, Depends(_get_required_identity)]
+
+
 async def _get_current_user(identity: CurrentIdentity) -> User | None:
     if identity is None:
         return None
@@ -258,6 +277,33 @@ async def _get_current_user(identity: CurrentIdentity) -> User | None:
 
 
 CurrentUser = Annotated[User | None, Depends(_get_current_user)]
+
+
+def _restrict(
+    connection: HTTPConnection,
+    engine: CurrentEngine,
+    user: CurrentUser,
+    role: UserRole,
+) -> User | None:
+    assert isinstance(connection.app, App)
+
+    if engine.config.server.authentication is None:
+        # Authentication is disabled, so allow all users.
+        return None
+    if connection.app.cli:
+        # The CLI is functionally an admin, so can do anything.
+        return None
+    if user is None or user.disabled or user.role < role:
+        # If there is no current user, the user is disabled, or the user's role is insufficient,
+        # deny access.
+        raise HTTPException(HTTP_401_UNAUTHORIZED)
+
+    return user
+
+
+RequireViewer = Annotated[User | None, Depends(partial(_restrict, role=UserRole.VIEWER))]
+RequireOperator = Annotated[User | None, Depends(partial(_restrict, role=UserRole.OPERATOR))]
+RequireAdmin = Annotated[User | None, Depends(partial(_restrict, role=UserRole.OPERATOR))]
 
 
 class MeResult(ImmutableDataObject):
@@ -312,7 +358,7 @@ class RefreshResult(Identity):
 async def refresh(
     engine: CurrentEngine,
     identity: CurrentIdentity,
-) -> LoginResult:
+) -> RefreshResult:
     authentication = engine.config.server.authentication
     if authentication is None:
         raise HTTPException(HTTP_403_FORBIDDEN)
@@ -325,23 +371,40 @@ async def refresh(
         raise HTTPException(HTTP_401_UNAUTHORIZED)
 
     identity = _create_identity(user, authentication)
-    return LoginResult(
+    return RefreshResult(
         user=identity.user,
         token=identity.token,
         expires=identity.expires,
     )
 
 
-@api.get("/config", tags=["engine"])
+@api.get("/config", tags=["config"], dependencies=[Depends(RequireOperator)])
 async def get_config(engine: CurrentEngine) -> Config:
     return engine.config
 
 
-@api.post("/reload", tags=["engine"])
-async def reload(
-    engine: CurrentEngine,
-    response: Response,
-) -> Result[Config, ReloadError]:
+@api.get("/config/service", tags=["config"], dependencies=[Depends(RequireOperator)])
+async def get_service_config(engine: CurrentEngine) -> ServiceConfig:
+    return engine.config.service
+
+
+@api.get("/config/server", tags=["config"], dependencies=[Depends(RequireOperator)])
+async def get_server_config(engine: CurrentEngine) -> ServerConfig:
+    return engine.config.server
+
+
+@api.get("/config/console", tags=["config"])
+async def get_console_config(engine: CurrentEngine) -> ConsoleConfig:
+    return engine.config.console
+
+
+@api.get("/config/database", tags=["config"], dependencies=[Depends(RequireOperator)])
+async def get_database_config(engine: CurrentEngine) -> DatabaseConfig:
+    return engine.config.database
+
+
+@api.post("/reload", tags=["engine"], dependencies=[Depends(RequireOperator)])
+async def reload(engine: CurrentEngine, response: Response) -> Result[Config, ReloadError]:
     match await engine.reload():
         case Ok(config):
             return Ok(config)
@@ -354,7 +417,7 @@ class StartResult(ImmutableDataObject):
     started: Sequence[Address]
 
 
-@api.post("/start", tags=["components"])
+@api.post("/start", tags=["components"], dependencies=[Depends(RequireOperator)])
 async def start(engine: CurrentEngine, filter: ComponentFilter) -> StartResult:
     stopped = engine.get_components(filter, running=False)
     stopped.start()
@@ -365,7 +428,7 @@ class StopResult(ImmutableDataObject):
     stopped: Sequence[Address]
 
 
-@api.post("/stop", tags=["components"])
+@api.post("/stop", tags=["components"], dependencies=[Depends(RequireOperator)])
 async def stop(engine: CurrentEngine, filter: ComponentFilter) -> StopResult:
     running = engine.get_components(filter, running=True)
     await running.stop()
@@ -376,7 +439,7 @@ class EnableResult(ImmutableDataObject):
     enabled: Sequence[Address]
 
 
-@api.post("/enable", tags=["components"])
+@api.post("/enable", tags=["components"], dependencies=[Depends(RequireOperator)])
 async def enable(engine: CurrentEngine, filter: ComponentFilter) -> EnableResult:
     disabled = engine.get_components(filter, enabled=False)
     await disabled.enable()
@@ -387,7 +450,7 @@ class DisableResult(ImmutableDataObject):
     disabled: Sequence[Address]
 
 
-@api.post("/disable", tags=["components"])
+@api.post("/disable", tags=["components"], dependencies=[Depends(RequireOperator)])
 async def disable(engine: CurrentEngine, filter: ComponentFilter) -> DisableResult:
     enabled = engine.get_components(filter, enabled=True)
     await enabled.disable()
@@ -399,7 +462,7 @@ class UpResult(ImmutableDataObject):
     started: Sequence[Address]
 
 
-@api.post("/up", tags=["components"])
+@api.post("/up", tags=["components"], dependencies=[Depends(RequireOperator)])
 async def up(engine: CurrentEngine, filter: ComponentFilter) -> UpResult:
     disabled = engine.get_components(filter, enabled=False)
     await disabled.enable()
@@ -418,7 +481,7 @@ class DownResult(ImmutableDataObject):
     stopped: Sequence[Address]
 
 
-@api.post("/down", tags=["components"])
+@api.post("/down", tags=["components"], dependencies=[Depends(RequireOperator)])
 async def down(engine: CurrentEngine, filter: ComponentFilter) -> DownResult:
     enabled = engine.get_components(filter, enabled=True)
     await enabled.disable()
@@ -772,14 +835,10 @@ def _get_favicon_response(
     suffix: str,
     media_type: str,
 ) -> FileResponse:
-    if (
-        engine.config.server.console is None
-        or engine.config.server.console.favicon is None
-        or engine.config.server.console.favicon.suffix != suffix
-    ):
+    if engine.config.console.favicon is None or engine.config.console.favicon.suffix != suffix:
         path = Path(__file__).parent / ("../static/console/favicon" + suffix)
     else:
-        path = engine.config.server.console.favicon
+        path = engine.config.console.favicon
 
     return FileResponse(path, media_type=media_type)
 
@@ -801,7 +860,10 @@ def get_favicon_svg(engine: CurrentEngine) -> FileResponse:
 
 @final
 class App(FastAPI):
-    def __init__(self, engine: Engine, **kwargs: Any) -> None:
+    def __init__(self, engine: Engine, *, cli: bool = False, **kwargs: Any) -> None:
+        self.__engine = engine
+        self.__cli = cli
+
         @asynccontextmanager
         async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             logs.setup()
@@ -813,8 +875,6 @@ class App(FastAPI):
             openapi_url="/api/openapi.json",
             lifespan=lifespan,
         )
-
-        self.__engine = engine
 
         @self.middleware("http")
         async def error_middleware(
@@ -844,3 +904,7 @@ class App(FastAPI):
     @property
     def engine(self) -> Engine:
         return self.__engine
+
+    @property
+    def cli(self) -> bool:
+        return self.__cli

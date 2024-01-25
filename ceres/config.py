@@ -6,7 +6,6 @@ from datetime import timedelta
 from logging import Logger
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Literal, Mapping, Sequence
-from sqlalchemy.orm import session
 
 import yaml
 from pydantic import (
@@ -132,12 +131,6 @@ class ServiceConfig(ConfigObject):
     stderr: Path | None = None
 
 
-class ConsoleConfig(ConfigObject):
-    title: str | None = None
-    favicon: Path | None = None
-    dashboard: Address | None = None
-
-
 class ServerSSLConfig(ConfigObject):
     key: Path | None = None
     key_password: str | None = None
@@ -157,7 +150,6 @@ class ServerConfig(ConfigObject):
     socket: Path | None = None
     ssl: ServerSSLConfig | None = None
     authentication: ServerAuthenticationConfig | None = None
-    console: ConsoleConfig | None = None
 
     @field_validator("host")
     def _validate_host(cls, host: str) -> str:
@@ -179,6 +171,10 @@ class ServerConfig(ConfigObject):
 
         return socket
 
+class ConsoleConfig(ConfigObject):
+    title: str | None = None
+    favicon: Path | None = None
+    dashboard: Address | None = None
 
 class DatabaseRetryConfig(ConfigObject):
     timeout: PositiveTimeDelta = timedelta(seconds=15)
@@ -228,6 +224,7 @@ class Config(ComponentConfig):
     name: Name = "root"
     service: ServiceConfig = Field(default_factory=ServiceConfig)
     server: ServerConfig = Field(default_factory=ServerConfig)
+    console: ConsoleConfig = Field(default_factory=ConsoleConfig)
     database: DatabaseConfig = Field(default_factory=SQLiteDatabaseConfig, discriminator="type")
 
     @classmethod
