@@ -18,7 +18,9 @@ from typing import (
     cast,
     final,
 )
+from uuid import UUID
 
+import jwt
 from asgiref.typing import (
     ASGIReceiveCallable,
     ASGIReceiveEvent,
@@ -33,6 +35,7 @@ from fastapi import (
     Body,
     Depends,
     FastAPI,
+    Header,
     HTTPException,
     Query,
     Request,
@@ -45,14 +48,19 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse
 from pydantic import Field, Json
 from starlette.requests import HTTPConnection
-from starlette.status import HTTP_400_BAD_REQUEST, HTTP_404_NOT_FOUND
+from starlette.status import (
+    HTTP_400_BAD_REQUEST,
+    HTTP_401_UNAUTHORIZED,
+    HTTP_403_FORBIDDEN,
+    HTTP_404_NOT_FOUND,
+)
 from websockets.exceptions import ConnectionClosed
 
 from ceres.address import Address
 from ceres.alert import Alert, Level
 from ceres.component import Component, ProcedureBinding, Status
-from ceres.config import ComponentConfig, Config
-from ceres.data import ImmutableDataObject, Name, jsonify
+from ceres.config import ComponentConfig, Config, ServerAuthenticationConfig
+from ceres.data import DateTime, ImmutableDataObject, Name, jsonify
 from ceres.errors import (
     ProcedureComponentDoesNotExistError,
     ProcedureError,
@@ -68,12 +76,15 @@ from ceres.filter import (
     StatisticsFilter,
 )
 from ceres.internal import logs
+from ceres.internal.auth import validate_password
 from ceres.internal.console import ConsoleFiles
 from ceres.internal.utilities import StrEnum, get_type_adapter, strify
 from ceres.logs import LogEntry
 from ceres.message import Message
 from ceres.object import Statistics
 from ceres.result import Fail, Ok, Result
+from ceres.timing import utc
+from ceres.user import PrivateUser, User
 
 if TYPE_CHECKING:
     from ceres.engine import Engine
@@ -167,6 +178,158 @@ def _get_procedure_query_arguments(
 CurrentProcedureQueryArguments = Annotated[
     Mapping[str, object], Depends(_get_procedure_query_arguments)
 ]
+
+
+class Identity(ImmutableDataObject):
+    user: User
+    token: str
+    expires: DateTime
+
+
+def _create_identity(
+    user: User,
+    authentication: ServerAuthenticationConfig,
+) -> Identity:
+    expires = utc() + authentication.duration
+    token = jwt.encode(
+        {
+            "sub": str(user.id),
+            "exp": expires,
+        },
+        authentication.secret,
+    )
+
+    return Identity(
+        user=user,
+        token=token,
+        expires=expires,
+    )
+
+
+async def _get_current_identity(
+    engine: CurrentEngine,
+    authorization: str = Header(None),
+) -> Identity | None:
+    authentication = engine.config.server.authentication
+    if authentication is None:
+        return None
+
+    if authorization.startswith("Bearer "):
+        token = authorization.removeprefix("Bearer ")
+        try:
+            info: dict[str, Any] = jwt.decode(token, secret=authentication.secret)
+        except Exception:
+            return None
+
+        id = info.get("sub")
+        expires = info.get("exp")
+        if id is None or expires is None:
+            return None
+
+        try:
+            id = UUID(id)
+        except Exception:
+            return None
+
+        try:
+            expires = get_type_adapter(DateTime).validate_python(expires)
+        except Exception:
+            return None
+
+        user = await engine.get_user(id=id)
+        if user is None:
+            return None
+
+        return Identity(
+            user=user,
+            token=token,
+            expires=expires,
+        )
+
+
+CurrentIdentity = Annotated[Identity | None, Depends(_get_current_identity)]
+
+
+async def _get_current_user(identity: CurrentIdentity) -> User | None:
+    if identity is None:
+        return None
+
+    return identity.user
+
+
+CurrentUser = Annotated[User | None, Depends(_get_current_user)]
+
+
+class MeResult(ImmutableDataObject):
+    user: PrivateUser
+    expires: DateTime
+
+
+@api.get("/me", tags=["auth"])
+async def me(identity: CurrentIdentity) -> MeResult:
+    if identity is None:
+        raise HTTPException(HTTP_401_UNAUTHORIZED)
+
+    return MeResult(
+        user=identity.user,
+        expires=identity.expires,
+    )
+
+
+class LoginResult(Identity):
+    pass
+
+
+@api.get("/login", tags=["auth"])
+async def login(
+    engine: CurrentEngine,
+    username: str,
+    password: str,
+) -> LoginResult:
+    authentication = engine.config.server.authentication
+    if authentication is None:
+        raise HTTPException(HTTP_403_FORBIDDEN)
+
+    user = await engine.get_user(username=username)
+    if user is None:
+        raise HTTPException(HTTP_401_UNAUTHORIZED)
+    if not validate_password(password, user.hash):
+        raise HTTPException(HTTP_401_UNAUTHORIZED)
+
+    identity = _create_identity(user, authentication)
+    return LoginResult(
+        user=identity.user,
+        token=identity.token,
+        expires=identity.expires,
+    )
+
+
+class RefreshResult(Identity):
+    pass
+
+
+@api.get("/refresh", tags=["auth"])
+async def refresh(
+    engine: CurrentEngine,
+    identity: CurrentIdentity,
+) -> LoginResult:
+    authentication = engine.config.server.authentication
+    if authentication is None:
+        raise HTTPException(HTTP_403_FORBIDDEN)
+
+    if identity is None:
+        raise HTTPException(HTTP_401_UNAUTHORIZED)
+
+    user = await engine.get_user(id=identity.user.id)
+    if user is None:
+        raise HTTPException(HTTP_401_UNAUTHORIZED)
+
+    identity = _create_identity(user, authentication)
+    return LoginResult(
+        user=identity.user,
+        token=identity.token,
+        expires=identity.expires,
+    )
 
 
 @api.get("/config", tags=["engine"])

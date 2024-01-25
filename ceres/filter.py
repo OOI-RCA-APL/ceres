@@ -1,14 +1,7 @@
 from datetime import datetime
 from re import Pattern
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Generic,
-    Protocol,
-    Sequence,
-    TypedDict,
-    TypeVar,
-)
+from typing import TYPE_CHECKING, Any, Generic, Protocol, Sequence, TypedDict, TypeVar
+from uuid import UUID
 
 from pydantic import ConfigDict, Field
 from typing_extensions import Self, override
@@ -53,6 +46,30 @@ class Filter(ImmutableDataObject):
                 update[attribute] = getattr(defaults, attribute)
 
         return self.model_copy(update=update)
+
+
+class UserOrder(StrEnum):
+    USERNAME = "username"
+    EMAIL = "email"
+
+
+class UserFilterArgs(TypedDict, total=False):
+    id: UUID | Sequence[UUID] | None
+    username: str | Sequence[str] | None
+    email: str | Sequence[str] | None
+    disabled: bool | None
+    limit: int | None
+    offset: int | None
+
+
+class UserFilter(Filter):
+    id: UUID | Sequence[UUID] | None = None
+    username: str | Sequence[str] | None = None
+    email: str | Sequence[str] | None = None
+    disabled: bool | None = None
+    order: UserOrder | None = None
+    limit: int | None
+    offset: int | None
 
 
 class Addressable(Protocol):

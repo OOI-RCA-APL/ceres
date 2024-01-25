@@ -58,6 +58,9 @@ from ceres.filter import (
     MessageOrder,
     StatisticsFilter,
     StatisticsFilterArgs,
+    UserFilter,
+    UserFilterArgs,
+    UserOrder,
 )
 from ceres.internal.database.entities import (
     AlertEntity,
@@ -65,8 +68,15 @@ from ceres.internal.database.entities import (
     LogEntryEntity,
     MessageEntity,
     StoreEntity,
+    UserEntity,
 )
-from ceres.internal.utilities import PathLike, escape_like_expression, get_type_adapter, strlist
+from ceres.internal.utilities import (
+    PathLike,
+    as_sequence,
+    escape_like_expression,
+    get_type_adapter,
+    strlist,
+)
 from ceres.level import Level
 from ceres.logs import LogEntry
 from ceres.message import Message
@@ -74,6 +84,7 @@ from ceres.statistics import LevelStatistics, Statistics
 from ceres.store import Store
 from ceres.threading import spawn
 from ceres.timing import utc
+from ceres.user import User
 
 _T = TypeVar("_T")
 
@@ -229,6 +240,51 @@ class Database:
 
     async def initialized(self) -> bool:
         return await self.__run_sync(lambda connection: bool(inspect(connection).get_table_names()))
+
+    async def get_users(
+        self,
+        filter: UserFilter | None = None,
+        /,
+        **kwargs: Unpack[UserFilterArgs],
+    ) -> list[User]:
+        filter = UserFilter(**kwargs).with_defaults(filter)
+
+        statement = select(*UserEntity.__table__.columns.values())
+
+        if filter.id is not None:
+            statement = statement.where(UserEntity.id.in_(as_sequence(filter.id)))
+        if filter.username is not None:
+            statement = statement.where(UserEntity.username.in_(as_sequence(filter.username)))
+        if filter.email is not None:
+            # TODO: Normalize the email addresses before searching.
+            statement = statement.where(UserEntity.email.in_(filter.email))
+        if filter.disabled is not None:
+            statement = statement.where(UserEntity.disabled == filter.disabled)
+
+        match filter.order:
+            case None | UserOrder.USERNAME:
+                statement = statement.order_by(UserEntity.username)
+            case UserOrder.EMAIL:
+                statement = statement.order_by(UserEntity.email)
+
+        if filter.limit is not None:
+            statement = statement.limit(filter.limit)
+        if filter.offset is not None and filter.offset > 0:
+            statement = statement.offset(filter.offset)
+
+        async with await self.init() as session:
+            rows = await session.execute(statement)
+
+        return get_type_adapter(list[User]).validate_python(rows, from_attributes=True)
+
+    async def get_user(
+        self,
+        filter: UserFilter | None = None,
+        /,
+        **kwargs: Unpack[UserFilterArgs],
+    ) -> User | None:
+        users = await self.get_users(filter, **{**kwargs, "limit": 1})
+        return users[0] if users else None
 
     async def get_messages(
         self,

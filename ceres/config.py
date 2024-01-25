@@ -6,6 +6,7 @@ from datetime import timedelta
 from logging import Logger
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Literal, Mapping, Sequence
+from sqlalchemy.orm import session
 
 import yaml
 from pydantic import (
@@ -22,7 +23,7 @@ from typing_extensions import Self, override
 from yaml import MarkedYAMLError, YAMLError
 
 from ceres.address import Address, DynamicAddress
-from ceres.data import ImmutableDataObject, Name, NonBlankStr, PositiveTimeDelta
+from ceres.data import ImmutableDataObject, Name, NonBlankStr, NonEmptyStr, PositiveTimeDelta
 from ceres.database.enums import DatabaseType
 from ceres.errors import (
     ComponentInitExceptionError,
@@ -145,11 +146,17 @@ class ServerSSLConfig(ConfigObject):
     ca_certs: Path | None = None
 
 
+class ServerAuthenticationConfig(ConfigObject):
+    secret: NonEmptyStr
+    duration: PositiveTimeDelta = timedelta(minutes=30)
+
+
 class ServerConfig(ConfigObject):
     host: str = "0.0.0.0"  # Bind to IPV4 all addresses by default
     port: int | None = None
     socket: Path | None = None
     ssl: ServerSSLConfig | None = None
+    authentication: ServerAuthenticationConfig | None = None
     console: ConsoleConfig | None = None
 
     @field_validator("host")

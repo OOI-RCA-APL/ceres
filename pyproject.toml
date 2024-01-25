@@ -23,6 +23,7 @@ mistune = ">=3.0.0rc5"
 psycopg = { version = "^3.1.0", extras = ["binary"] }
 pydantic = "^2.1.0"
 pydantic-extra-types = "^2.0.0"
+pyjwt = "^2.8.0"
 pyyaml = "^6.0.0"
 setproctitle = "^1.0.0"
 sqlalchemy = { version = "^2.0.0", extras = ["asyncio"] }

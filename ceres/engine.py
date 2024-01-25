@@ -22,12 +22,13 @@ from ceres.errors import (
 )
 from ceres.events import Event, LogEvent, StoppedEvent, StoppingEvent
 from ceres.exceptions import EngineDatabaseInitFailedException
-from ceres.filter import ComponentFilter, ComponentFilterArgs
+from ceres.filter import ComponentFilter, ComponentFilterArgs, UserFilter, UserFilterArgs
 from ceres.internal.project import Project
 from ceres.internal.utilities import StrEnum, sleep_forever, strify, uniquify
 from ceres.internal.uvicorn import Uvicorn, UvicornConfig
 from ceres.object import Object
 from ceres.result import Fail, Ok, Result
+from ceres.user import User
 
 if TYPE_CHECKING:
     from ceres.component import Component, ComponentGroup
@@ -272,6 +273,22 @@ class Engine(Object, kw_only=False):
             return ComponentGroup()
 
         return self.__root.get_components(filter, inclusive=True, **kwargs)
+
+    async def get_users(
+        self,
+        filter: UserFilter | None = None,
+        /,
+        **kwargs: Unpack[UserFilterArgs],
+    ) -> list[User]:
+        return await self.__database.get_users(filter, **kwargs)
+
+    async def get_user(
+        self,
+        filter: UserFilter | None = None,
+        /,
+        **kwargs: Unpack[UserFilterArgs],
+    ) -> User | None:
+        return await self.__database.get_user(filter, **kwargs)
 
     async def reload(self, config: Config | None = None) -> Result[Config, ReloadError]:
         if self.__reloading.is_set():

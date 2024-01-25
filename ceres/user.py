@@ -12,10 +12,16 @@ class UserRole(PriorityStrEnum):
     ADMIN = "admin"
 
 
-class User(ImmutableDataObject):
+class PublicUser(ImmutableDataObject):
     id: UUID = Field(default_factory=uuid4)
     username: UsernameStr
-    hash: str
     role: UserRole = UserRole.OPERATOR
     disabled: bool = False
+
+
+class PrivateUser(PublicUser):
     email: EmailStr
+
+
+class User(PrivateUser):
+    hash: str
