@@ -171,10 +171,12 @@ class ServerConfig(ConfigObject):
 
         return socket
 
+
 class ConsoleConfig(ConfigObject):
     title: str | None = None
     favicon: Path | None = None
     dashboard: Address | None = None
+
 
 class DatabaseRetryConfig(ConfigObject):
     timeout: PositiveTimeDelta = timedelta(seconds=15)

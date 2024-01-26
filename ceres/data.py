@@ -6,9 +6,16 @@ from typing import Annotated, Any, Callable, Literal, cast
 
 import pydantic
 import pydantic.generics
-from pydantic import AfterValidator, BaseModel, BeforeValidator, ConfigDict
+import yaml
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    Field,
+    StringConstraints,
+)
 from pydantic import EmailStr as _BaseEmailStr
-from pydantic import Field, StringConstraints
 from pydantic.fields import FieldInfo
 from pydantic_extra_types.color import Color as Color
 from typing_extensions import dataclass_transform
@@ -28,6 +35,10 @@ def jsonify(obj: object, **kwargs: Any) -> str:
 
 def simplify(obj: object) -> Any:
     return json.loads(jsonify(obj))
+
+
+def yamlify(obj: object, **kwargs: Any) -> str:
+    return yaml.safe_dump(simplify(obj), **kwargs)
 
 
 Name = Annotated[str, StringConstraints(pattern=NAME_PATTERN)]

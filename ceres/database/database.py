@@ -298,42 +298,6 @@ class Database:
 
         return data
 
-    async def create_message(self, data: Message | Mapping[str, Any]) -> Message:
-        if not isinstance(data, Message):
-            data = get_type_adapter(Message).validate_python(data)
-
-        entity = MessageEntity(**data.__dict__)
-
-        async with await self.init() as session:
-            session.add(entity)
-            await session.commit()
-
-        return data
-
-    async def create_alert(self, data: Alert | Mapping[str, Any]) -> Alert:
-        if not isinstance(data, Alert):
-            data = get_type_adapter(Alert).validate_python(data)
-
-        entity = AlertEntity(**data.__dict__)
-
-        async with await self.init() as session:
-            session.add(entity)
-            await session.commit()
-
-        return data
-
-    async def create_log_entry(self, data: LogEntry | Mapping[str, Any]) -> LogEntry:
-        if not isinstance(data, LogEntry):
-            data = get_type_adapter(LogEntry).validate_python(data)
-
-        entity = LogEntryEntity(**data.__dict__)
-
-        async with await self.init() as session:
-            session.add(entity)
-            await session.commit()
-
-        return data
-
     async def get_messages(
         self,
         filter: MessageFilter | None = None,
@@ -428,6 +392,18 @@ class Database:
         )
         return messages[0] if messages else None
 
+    async def create_message(self, data: Message | Mapping[str, Any]) -> Message:
+        if not isinstance(data, Message):
+            data = get_type_adapter(Message).validate_python(data)
+
+        entity = MessageEntity(**data.__dict__)
+
+        async with await self.init() as session:
+            session.add(entity)
+            await session.commit()
+
+        return data
+
     async def get_alerts(
         self,
         filter: AlertFilter | None = None,
@@ -514,6 +490,18 @@ class Database:
     ) -> Alert | None:
         alerts = await self.get_alerts(filter, **{**kwargs, "limit": 1}, relative_to=relative_to)
         return alerts[0] if alerts else None
+
+    async def create_alert(self, data: Alert | Mapping[str, Any]) -> Alert:
+        if not isinstance(data, Alert):
+            data = get_type_adapter(Alert).validate_python(data)
+
+        entity = AlertEntity(**data.__dict__)
+
+        async with await self.init() as session:
+            session.add(entity)
+            await session.commit()
+
+        return data
 
     async def get_log_entries(
         self,
@@ -603,6 +591,18 @@ class Database:
             relative_to=relative_to,
         )
         return alerts[0] if alerts else None
+
+    async def create_log_entry(self, data: LogEntry | Mapping[str, Any]) -> LogEntry:
+        if not isinstance(data, LogEntry):
+            data = get_type_adapter(LogEntry).validate_python(data)
+
+        entity = LogEntryEntity(**data.__dict__)
+
+        async with await self.init() as session:
+            session.add(entity)
+            await session.commit()
+
+        return data
 
     async def get_statistics(
         self,

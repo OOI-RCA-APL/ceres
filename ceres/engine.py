@@ -10,6 +10,7 @@ from aiotools.taskgroup import TaskGroup
 from typing_extensions import Self, Unpack, override
 
 from ceres.address import Address, AddressSelector, DynamicAddress
+from ceres.alert import Alert
 from ceres.config import Config, ServerSSLConfig
 from ceres.data import ImmutableDataObject
 from ceres.directory import Directory
@@ -28,6 +29,8 @@ from ceres.internal.auth import get_password_hash, verify_password
 from ceres.internal.project import Project
 from ceres.internal.utilities import StrEnum, sleep_forever, strify, uniquify
 from ceres.internal.uvicorn import Uvicorn, UvicornConfig
+from ceres.logs import LogEntry
+from ceres.message import Message
 from ceres.object import Object
 from ceres.result import Fail, Ok, Result
 from ceres.threading import spawn
@@ -301,11 +304,17 @@ class Engine(Object, kw_only=False):
 
         return await spawn(execute)
 
-    async def create_user(
-        self,
-        data: User | Mapping[str, Any],
-    ) -> User:
+    async def create_user(self, data: User | Mapping[str, Any]) -> User:
         return await self.__database.create_user(data)
+
+    async def create_message(self, data: Message | Mapping[str, Any]) -> Message:
+        return await self.__database.create_message(data)
+
+    async def create_alert(self, data: Alert | Mapping[str, Any]) -> Alert:
+        return await self.__database.create_alert(data)
+
+    async def create_log_entry(self, data: LogEntry | Mapping[str, Any]) -> LogEntry:
+        return await self.__database.create_log_entry(data)
 
     async def reload(self, config: Config | None = None) -> Result[Config, ReloadError]:
         if self.__reloading.is_set():
