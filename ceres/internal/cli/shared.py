@@ -10,7 +10,7 @@ from typer import Option, Typer
 
 from ceres.config import Config, ConfigCheckType
 from ceres.data import jsonify
-from ceres.internal.cli.exceptions import CLIInvalidConfigException
+from ceres.internal.cli.exceptions import CLIDatabaseUnreachableException, CLIInvalidConfigException
 from ceres.internal.project import Project
 from ceres.internal.utilities import syncify
 from ceres.result import Ok
@@ -205,3 +205,21 @@ def write_table(title: str | None = None):
 
 def strbool(value: bool) -> str:
     return "Yes" if value else "No"
+
+
+async def get_database(config: Config, *, initialized: bool = False):
+    from ceres.database.database import Database
+
+    database = Database(config.database)
+
+    try:
+        async with database.connect():
+            pass
+    except Exception:
+        raise CLIDatabaseUnreachableException("Failed to connect to database.")
+
+    if initialized:
+        if not await database.initialized():
+            raise CLIDatabaseUnreachableException("Database appears uninitialized, exiting.")
+
+    return database

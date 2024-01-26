@@ -2,7 +2,7 @@ import re
 import textwrap
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, ClassVar, Iterable
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pydantic
 from sqlalchemy import (
@@ -175,7 +175,7 @@ class Entity(
 class UserEntity(Entity, kw_only=True):
     __tablename__ = "users"
 
-    id: Mapped[UUID] = mapped_column(UUIDMapper)
+    id: Mapped[UUID] = mapped_column(UUIDMapper, default_factory=uuid4)
     username: Mapped[UsernameStr] = mapped_column(Text)
     hash: Mapped[str] = mapped_column(Text)  # A password hash created using bcrypt.
     role: Mapped[UserRole] = mapped_column(
@@ -227,7 +227,7 @@ class StoreEntity(Entity, kw_only=True):
 class ItemEntity(Entity, kw_only=True):
     __abstract__ = True
 
-    id: Mapped[UUID] = mapped_column(UUIDMapper, sort_order=-3000)
+    id: Mapped[UUID] = mapped_column(UUIDMapper, sort_order=-3000, default_factory=uuid4)
     address: Mapped[Address] = mapped_column(AddressMapper, sort_order=-2000)
     timestamp: Mapped[datetime] = mapped_column(DateTimeMapper, sort_order=-1000)
 

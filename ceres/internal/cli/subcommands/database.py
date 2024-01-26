@@ -7,7 +7,7 @@ from typer import Argument, Option
 from ceres.config import Config
 from ceres.database.enums import DataFormat, ItemType
 from ceres.internal.cli.exceptions import CLIDatabaseUnreachableException, CLIException
-from ceres.internal.cli.shared import CLIRouter, ConfigOption, get_yes_no, write
+from ceres.internal.cli.shared import CLIRouter, ConfigOption, get_database, get_yes_no, write
 from ceres.internal.utilities import show_td
 from ceres.timing import utc
 
@@ -22,7 +22,7 @@ async def init(*, config: Config = ConfigOption(checks=[])) -> None:
     """
     Initialize the database, creating tables and indexes as needed.
     """
-    database = await _get_database(config)
+    database = await get_database(config)
 
     try:
         async with database.connect():
@@ -88,7 +88,7 @@ async def dump(
 
     item_type = list(ItemType) if not item_type else [ItemType(current) for current in item_type]
 
-    database = await _get_database(config, initialized=True)
+    database = await get_database(config, initialized=True)
     start = utc()
 
     match format:
@@ -145,7 +145,7 @@ async def load(
 
     item_type = list(ItemType) if not item_type else [ItemType(current) for current in item_type]
 
-    database = await _get_database(config, initialized=True)
+    database = await get_database(config, initialized=True)
     start = utc()
 
     match format:
@@ -165,7 +165,7 @@ async def clear(config: Config = ConfigOption(checks=[])) -> None:
     """
     Remove all data from the database. Tables and indexes are not removed, only truncated.
     """
-    database = await _get_database(config, initialized=True)
+    database = await get_database(config, initialized=True)
 
     if not get_yes_no("Clear all data from the project database?", default=False):
         write("Database has not been modified. Exiting.")
@@ -184,28 +184,10 @@ async def ddl(*, config: Config = ConfigOption(checks=[])) -> None:
     """
     Show DDL commands used to initialize the database.
     """
-    database = await _get_database(config)
+    database = await get_database(config)
 
     for statement in database.ddl:
         write(statement)
-
-
-async def _get_database(config: Config, *, initialized: bool = False):
-    from ceres.database.database import Database
-
-    database = Database(config.database)
-
-    try:
-        async with database.connect():
-            pass
-    except Exception:
-        raise CLIDatabaseUnreachableException("Failed to connect to database.")
-
-    if initialized:
-        if not await database.initialized():
-            raise CLIDatabaseUnreachableException("Database appears uninitialized, exiting.")
-
-    return database
 
 
 def _guess_format(format: DataFormat | None, path: Path) -> DataFormat:

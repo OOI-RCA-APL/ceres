@@ -26,7 +26,7 @@ def validate_password_hash(hash: str) -> bool:
     return get_password_hash_algorithm(hash) is not None
 
 
-def validate_password(password: str, hash: str) -> bool:
+def verify_password(password: str, hash: str) -> bool:
     algorithm = get_password_hash_algorithm(hash)
     if algorithm is None:
         return False

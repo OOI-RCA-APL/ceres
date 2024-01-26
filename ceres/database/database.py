@@ -286,6 +286,54 @@ class Database:
         users = await self.get_users(filter, **{**kwargs, "limit": 1})
         return users[0] if users else None
 
+    async def create_user(self, data: User | Mapping[str, Any]) -> User:
+        if not isinstance(data, User):
+            data = get_type_adapter(User).validate_python(data)
+
+        entity = UserEntity(**data.__dict__)
+
+        async with await self.init() as session:
+            session.add(entity)
+            await session.commit()
+
+        return data
+
+    async def create_message(self, data: Message | Mapping[str, Any]) -> Message:
+        if not isinstance(data, Message):
+            data = get_type_adapter(Message).validate_python(data)
+
+        entity = MessageEntity(**data.__dict__)
+
+        async with await self.init() as session:
+            session.add(entity)
+            await session.commit()
+
+        return data
+
+    async def create_alert(self, data: Alert | Mapping[str, Any]) -> Alert:
+        if not isinstance(data, Alert):
+            data = get_type_adapter(Alert).validate_python(data)
+
+        entity = AlertEntity(**data.__dict__)
+
+        async with await self.init() as session:
+            session.add(entity)
+            await session.commit()
+
+        return data
+
+    async def create_log_entry(self, data: LogEntry | Mapping[str, Any]) -> LogEntry:
+        if not isinstance(data, LogEntry):
+            data = get_type_adapter(LogEntry).validate_python(data)
+
+        entity = LogEntryEntity(**data.__dict__)
+
+        async with await self.init() as session:
+            session.add(entity)
+            await session.commit()
+
+        return data
+
     async def get_messages(
         self,
         filter: MessageFilter | None = None,

@@ -85,7 +85,7 @@ from ceres.filter import (
     StatisticsFilter,
 )
 from ceres.internal import logs
-from ceres.internal.auth import validate_password
+from ceres.internal.auth import verify_password
 from ceres.internal.console import ConsoleFiles
 from ceres.internal.utilities import StrEnum, get_type_adapter, strify
 from ceres.logs import LogEntry
@@ -217,10 +217,12 @@ def _create_identity(
 
 async def _get_current_identity(
     engine: CurrentEngine,
-    authorization: str = Header(None),
+    authorization: Annotated[str | None, Header()] = None,
 ) -> Identity | None:
     authentication = engine.config.server.authentication
     if authentication is None:
+        return None
+    if authorization is None:
         return None
 
     if authorization.startswith("Bearer "):
@@ -301,9 +303,13 @@ def _restrict(
     return user
 
 
-RequireViewer = Annotated[User | None, Depends(partial(_restrict, role=UserRole.VIEWER))]
-RequireOperator = Annotated[User | None, Depends(partial(_restrict, role=UserRole.OPERATOR))]
-RequireAdmin = Annotated[User | None, Depends(partial(_restrict, role=UserRole.OPERATOR))]
+VIEWER = Depends(partial(_restrict, role=UserRole.VIEWER))
+OPERATOR = Depends(partial(_restrict, role=UserRole.OPERATOR))
+ADMIN = Depends(partial(_restrict, role=UserRole.ADMIN))
+
+RequireViewer = Annotated[User | None, VIEWER]
+RequireOperator = Annotated[User | None, OPERATOR]
+RequireAdmin = Annotated[User | None, ADMIN]
 
 
 class MeResult(ImmutableDataObject):
@@ -339,7 +345,7 @@ async def login(
     user = await engine.get_user(username=username)
     if user is None:
         raise HTTPException(HTTP_401_UNAUTHORIZED)
-    if not validate_password(password, user.hash):
+    if not verify_password(password, user.hash):
         raise HTTPException(HTTP_401_UNAUTHORIZED)
 
     identity = _create_identity(user, authentication)
@@ -378,17 +384,17 @@ async def refresh(
     )
 
 
-@api.get("/config", tags=["config"], dependencies=[Depends(RequireOperator)])
+@api.get("/config", tags=["config"], dependencies=[OPERATOR])
 async def get_config(engine: CurrentEngine) -> Config:
     return engine.config
 
 
-@api.get("/config/service", tags=["config"], dependencies=[Depends(RequireOperator)])
+@api.get("/config/service", tags=["config"], dependencies=[OPERATOR])
 async def get_service_config(engine: CurrentEngine) -> ServiceConfig:
     return engine.config.service
 
 
-@api.get("/config/server", tags=["config"], dependencies=[Depends(RequireOperator)])
+@api.get("/config/server", tags=["config"], dependencies=[OPERATOR])
 async def get_server_config(engine: CurrentEngine) -> ServerConfig:
     return engine.config.server
 
@@ -398,13 +404,16 @@ async def get_console_config(engine: CurrentEngine) -> ConsoleConfig:
     return engine.config.console
 
 
-@api.get("/config/database", tags=["config"], dependencies=[Depends(RequireOperator)])
+@api.get("/config/database", tags=["config"], dependencies=[OPERATOR])
 async def get_database_config(engine: CurrentEngine) -> DatabaseConfig:
     return engine.config.database
 
 
-@api.post("/reload", tags=["engine"], dependencies=[Depends(RequireOperator)])
-async def reload(engine: CurrentEngine, response: Response) -> Result[Config, ReloadError]:
+@api.post("/reload", tags=["engine"], dependencies=[OPERATOR])
+async def reload(
+    engine: CurrentEngine,
+    response: Response,
+) -> Result[Config, ReloadError]:
     match await engine.reload():
         case Ok(config):
             return Ok(config)
@@ -417,7 +426,7 @@ class StartResult(ImmutableDataObject):
     started: Sequence[Address]
 
 
-@api.post("/start", tags=["components"], dependencies=[Depends(RequireOperator)])
+@api.post("/start", tags=["components"], dependencies=[OPERATOR])
 async def start(engine: CurrentEngine, filter: ComponentFilter) -> StartResult:
     stopped = engine.get_components(filter, running=False)
     stopped.start()
@@ -428,7 +437,7 @@ class StopResult(ImmutableDataObject):
     stopped: Sequence[Address]
 
 
-@api.post("/stop", tags=["components"], dependencies=[Depends(RequireOperator)])
+@api.post("/stop", tags=["components"], dependencies=[OPERATOR])
 async def stop(engine: CurrentEngine, filter: ComponentFilter) -> StopResult:
     running = engine.get_components(filter, running=True)
     await running.stop()
@@ -439,7 +448,7 @@ class EnableResult(ImmutableDataObject):
     enabled: Sequence[Address]
 
 
-@api.post("/enable", tags=["components"], dependencies=[Depends(RequireOperator)])
+@api.post("/enable", tags=["components"], dependencies=[OPERATOR])
 async def enable(engine: CurrentEngine, filter: ComponentFilter) -> EnableResult:
     disabled = engine.get_components(filter, enabled=False)
     await disabled.enable()
@@ -450,7 +459,7 @@ class DisableResult(ImmutableDataObject):
     disabled: Sequence[Address]
 
 
-@api.post("/disable", tags=["components"], dependencies=[Depends(RequireOperator)])
+@api.post("/disable", tags=["components"], dependencies=[OPERATOR])
 async def disable(engine: CurrentEngine, filter: ComponentFilter) -> DisableResult:
     enabled = engine.get_components(filter, enabled=True)
     await enabled.disable()
@@ -462,7 +471,7 @@ class UpResult(ImmutableDataObject):
     started: Sequence[Address]
 
 
-@api.post("/up", tags=["components"], dependencies=[Depends(RequireOperator)])
+@api.post("/up", tags=["components"], dependencies=[OPERATOR])
 async def up(engine: CurrentEngine, filter: ComponentFilter) -> UpResult:
     disabled = engine.get_components(filter, enabled=False)
     await disabled.enable()
@@ -481,7 +490,7 @@ class DownResult(ImmutableDataObject):
     stopped: Sequence[Address]
 
 
-@api.post("/down", tags=["components"], dependencies=[Depends(RequireOperator)])
+@api.post("/down", tags=["components"], dependencies=[OPERATOR])
 async def down(engine: CurrentEngine, filter: ComponentFilter) -> DownResult:
     enabled = engine.get_components(filter, enabled=True)
     await enabled.disable()

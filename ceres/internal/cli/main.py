@@ -31,6 +31,7 @@ from ceres.internal.cli.shared import (
 )
 from ceres.internal.cli.subcommands.database import router as database
 from ceres.internal.cli.subcommands.service import router as service
+from ceres.internal.cli.subcommands.create import router as create
 from ceres.internal.project import Project
 from ceres.internal.utilities import (
     cancel,
@@ -52,6 +53,7 @@ router = CLIRouter(
     help=f"Ceres CLI — Package Version {__version__}",
 )
 
+router.add_typer(create)
 router.add_typer(database)
 router.add_typer(service)
 

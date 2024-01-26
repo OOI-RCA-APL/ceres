@@ -4,7 +4,7 @@ import traceback
 from asyncio import FIRST_COMPLETED
 from asyncio import Event as AsyncEvent
 from pathlib import Path
-from typing import TYPE_CHECKING, Iterable, Sequence, TypeVar
+from typing import TYPE_CHECKING, Any, Iterable, Mapping, Sequence, TypeVar
 
 from aiotools.taskgroup import TaskGroup
 from typing_extensions import Self, Unpack, override
@@ -24,11 +24,13 @@ from ceres.events import Event, LogEvent, StoppedEvent, StoppingEvent
 from ceres.exceptions import EngineDatabaseInitFailedException
 from ceres.filter import ComponentFilter, ComponentFilterArgs, UserFilter, UserFilterArgs
 from ceres.internal.app import App
+from ceres.internal.auth import get_password_hash, verify_password
 from ceres.internal.project import Project
 from ceres.internal.utilities import StrEnum, sleep_forever, strify, uniquify
 from ceres.internal.uvicorn import Uvicorn, UvicornConfig
 from ceres.object import Object
 from ceres.result import Fail, Ok, Result
+from ceres.threading import spawn
 from ceres.user import User
 
 if TYPE_CHECKING:
@@ -286,6 +288,24 @@ class Engine(Object, kw_only=False):
         **kwargs: Unpack[UserFilterArgs],
     ) -> User | None:
         return await self.__database.get_user(filter, **kwargs)
+
+    async def hash_password(self, password: str) -> str:
+        def execute() -> str:
+            return get_password_hash(password)
+
+        return await spawn(execute)
+
+    async def verify_password(self, password: str, hash: str) -> bool:
+        def execute() -> bool:
+            return verify_password(password, hash)
+
+        return await spawn(execute)
+
+    async def create_user(
+        self,
+        data: User | Mapping[str, Any],
+    ) -> User:
+        return await self.__database.create_user(data)
 
     async def reload(self, config: Config | None = None) -> Result[Config, ReloadError]:
         if self.__reloading.is_set():
