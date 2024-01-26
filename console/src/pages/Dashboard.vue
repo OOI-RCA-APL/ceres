@@ -7,11 +7,11 @@ const store = useStore()
 await store.fetchComponents()
 
 const renderer = $computed(() => {
-  if (store.console?.dashboard == null) {
+  if (store.config?.dashboard == null) {
     return null
   }
 
-  return store.getComponent(store.console.dashboard)
+  return store.getComponent(store.config.dashboard)
 })
 </script>
 

@@ -44,7 +44,7 @@ useIntervalFn(async () => {
 }, 1000)
 
 useMeta(() => ({
-  title: store.config?.server?.console?.title ?? constants.defaultTitle,
+  title: store.config?.title ?? constants.defaultTitle,
 }))
 </script>
 

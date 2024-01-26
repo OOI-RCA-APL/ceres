@@ -2,7 +2,7 @@ import { Address } from '@/address'
 import { ComponentConfig, ComponentInfo, LevelStatistics, Statistics, Status } from '@/api/models'
 import {
   getComponent as getComponentBase,
-  getConfig,
+  getConsoleConfig,
   getStatistics as getStatisticsBase,
   useStatusesStream,
 } from '@/api/operations'
@@ -33,36 +33,14 @@ export const useStore = defineStore('store', () => {
     return query.dataUpdatedAt.value ? Object.freeze(moment.utc(query.dataUpdatedAt.value)) : null
   }
 
-  const configQuery = useQuery(['config'], getConfig, { retry: false })
-  const configError = computed(() => componentsQuery.error.value)
+  const configQuery = useQuery(['console-config'], getConsoleConfig, { retry: false })
   const config = computed(() => configQuery.data.value ?? null)
-
-  const getComponentConfig = getter(config, function (address: Address): ComponentConfig | null {
-    if (address.isRoot) {
-      return null
-    }
-
-    let current = config.value as ComponentConfig | null
-    for (const name of address.names) {
-      if (current == null) {
-        return null
-      }
-
-      current = current.components.find((component) => component.name === name) ?? null
-    }
-
-    return current
-  })
 
   const configFields = {
     config,
-    configUpdatedAt: computed(() => getUpdatedAt(configQuery)),
-    configError,
-    getComponentConfig,
     fetchConfig: () => fetchQuery(configQuery),
     refetchConfig: () => refetchQuery(configQuery),
     isLoadingConfig: computed(() => configQuery.isLoading.value),
-    console: computed(() => config.value?.console ?? null),
   }
 
   const componentsQuery = useQuery(['components'], async () => getComponentBase(new Address('@')), {
@@ -97,11 +75,24 @@ export const useStore = defineStore('store', () => {
     return Object.values(componentMapping.value)
   })
 
+  const getComponentConfig = getter(
+    componentMapping,
+    function (address: Address): ComponentConfig | null {
+      if (address.isRoot) {
+        return null
+      }
+
+      const component = getComponent.value(address)
+      return component.config
+    }
+  )
+
   const componentFields = {
     componentRoot,
     componentsError,
     componentsUpdatedAt: computed(() => getUpdatedAt(componentsQuery)),
     getComponent,
+    getComponentConfig,
     getComponents,
     fetchComponents: () => fetchQuery(componentsQuery),
     refetchComponents: () => refetchQuery(componentsQuery),

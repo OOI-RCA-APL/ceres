@@ -17,6 +17,8 @@ import {
   StatisticsModel,
   Status,
   StatusModel,
+  ConsoleConfig,
+  ConsoleConfigModel,
 } from '@/api/models'
 import { computed, isRef, unref, watchEffect } from 'vue'
 import { MaybeRef } from 'vue-query/lib/vue/types'
@@ -29,6 +31,10 @@ export async function reload(): Promise<Result<Config>> {
 
 export async function getConfig(): Promise<Config> {
   return await get('/api/config', ConfigModel)
+}
+
+export async function getConsoleConfig(): Promise<ConsoleConfig> {
+  return await get('/api/config/console', ConsoleConfigModel)
 }
 
 export async function getComponent(address: Address): Promise<ComponentInfo | null> {

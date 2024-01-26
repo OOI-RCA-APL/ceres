@@ -25,7 +25,7 @@ const router = useRouter()
       />
       <q-toolbar-title class="cursor-pointer" @click="router.push('/')">
         <common-text variant="title1">
-          {{ store.config?.server?.console?.title ?? constants.defaultTitle }}
+          {{ store.config?.title ?? constants.defaultTitle }}
         </common-text>
       </q-toolbar-title>
       <utc-clock />
