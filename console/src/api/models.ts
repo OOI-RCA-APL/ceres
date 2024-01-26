@@ -126,6 +126,11 @@ export const DatabaseConfigModel = Zod.discriminatedUnion('type', [
   PostgresDatabaseConfigModel,
 ])
 
+export type ServerConfig = Zod.infer<typeof ServerConfigModel>
+export const ServerConfigModel = Zod.object({
+  port: Zod.number().nullable().default(null),
+})
+
 export type ConsoleConfig = Zod.infer<typeof ConsoleConfigModel>
 export const ConsoleConfigModel = Zod.object({
   title: Zod.string().nullable().default(null),
@@ -134,18 +139,13 @@ export const ConsoleConfigModel = Zod.object({
   dashboard: Zod.string().transform(Address.parse).nullable().default(null),
 })
 
-export type ServerConfig = Zod.infer<typeof ServerConfigModel>
-export const ServerConfigModel = Zod.object({
-  port: Zod.number().nullable().default(null),
-  console: ConsoleConfigModel.nullable().default(null),
-})
-
 export type Config = Zod.infer<typeof ConfigModel>
 export const ConfigModel = Zod.object({
   name: NameStrModel,
   class: Zod.string(),
   components: Zod.array(ComponentConfigModel),
   server: ServerConfigModel,
+  console: ConsoleConfigModel,
   database: DatabaseConfigModel,
 })
 

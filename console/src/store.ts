@@ -62,7 +62,7 @@ export const useStore = defineStore('store', () => {
     fetchConfig: () => fetchQuery(configQuery),
     refetchConfig: () => refetchQuery(configQuery),
     isLoadingConfig: computed(() => configQuery.isLoading.value),
-    console: computed(() => config.value?.server?.console ?? null),
+    console: computed(() => config.value?.console ?? null),
   }
 
   const componentsQuery = useQuery(['components'], async () => getComponentBase(new Address('@')), {
