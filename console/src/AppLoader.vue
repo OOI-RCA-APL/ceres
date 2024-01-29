@@ -17,11 +17,13 @@ const quasar = useQuasar()
 
 watchEffect(() => {
   const html = document.querySelector('html')
-  if (html != null) {
-    if (preferences.isDarkModeEnabled) {
+  if (preferences.isDarkModeEnabled) {
+    if (html != null) {
       html.classList.add('dark')
       html.classList.remove('light')
-    } else {
+    }
+  } else {
+    if (html != null) {
       html.classList.add('light')
       html.classList.remove('dark')
     }
