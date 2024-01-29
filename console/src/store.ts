@@ -1,9 +1,19 @@
 import { Address } from '@/address'
-import { ComponentConfig, ComponentInfo, LevelStatistics, Statistics, Status } from '@/api/models'
+import {
+  ComponentConfig,
+  ComponentInfo,
+  Identity,
+  LevelStatistics,
+  Statistics,
+  Status,
+} from '@/api/models'
 import {
   getComponent as getComponentBase,
   getConsoleConfig,
   getStatistics as getStatisticsBase,
+  postLogin,
+  postLogout,
+  postRefresh,
   useStatusesStream,
 } from '@/api/operations'
 import { getter } from '@/getter'
@@ -31,6 +41,46 @@ export const useStore = defineStore('store', () => {
 
   function getUpdatedAt(query: UseQueryReturnType<unknown, unknown>) {
     return query.dataUpdatedAt.value ? Object.freeze(moment.utc(query.dataUpdatedAt.value)) : null
+  }
+
+  const identity = ref<Identity | null>(null)
+
+  async function login(username: string, password: string) {
+    try {
+      identity.value = await postLogin({
+        username,
+        password,
+      })
+
+      return identity.value
+    } catch {
+      return null
+    }
+  }
+
+  async function refresh() {
+    try {
+      identity.value = await postRefresh()
+    } catch (error) {
+      identity.value = null
+    }
+
+    return identity.value?.user
+  }
+
+  async function logout() {
+    try {
+      await postLogout()
+      identity.value = null
+    } catch (error) {}
+  }
+
+  const authFields = {
+    login,
+    refresh,
+    logout,
+    identity: computed(() => identity.value),
+    user: computed(() => identity.value?.user ?? null),
   }
 
   const configQuery = useQuery(['console-config'], getConsoleConfig, { retry: false })
@@ -189,6 +239,7 @@ export const useStore = defineStore('store', () => {
   )
 
   return {
+    ...authFields,
     ...configFields,
     ...componentFields,
     ...statisticsFields,

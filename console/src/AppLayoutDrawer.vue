@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import AppLayoutDrawerComponent from '@/AppLayoutDrawerComponent.vue'
 import { Address } from '@/address'
-import { reload, useMutation } from '@/api/operations'
+import { postReload, useMutation } from '@/api/operations'
 import ResizeHandle from '@/components/ResizeHandle.vue'
 import { useDrawer } from '@/drawer'
 import icons from '@/icons'
@@ -50,7 +50,7 @@ function clearLocalStorage() {
 const root = new Address('@')
 
 const reloadMutation = useMutation('reload', async () => {
-  return await reload()
+  return await postReload()
 })
 
 function promptReload() {
@@ -128,7 +128,11 @@ async function executeReload() {
               <q-item-label>Dashboard</q-item-label>
             </q-item-section>
           </q-item>
-          <app-layout-drawer-component v-if="store.config" :address="root" :config="store.config" />
+          <app-layout-drawer-component
+            v-if="store.componentRoot"
+            :address="root"
+            :component="store.componentRoot"
+          />
         </q-list>
       </div>
       <q-separator />
@@ -240,6 +244,15 @@ async function executeReload() {
             </q-menu>
           </q-item>
         </template>
+        <q-separator />
+        <q-item :to="store.user == null ? '/login' : undefined">
+          <q-item-section avatar>
+            <q-icon :name="icons.user" />
+          </q-item-section>
+          <q-item-section>
+            <q-item-label>{{ store.user != null ? store.user.username : 'Login' }}</q-item-label>
+          </q-item-section>
+        </q-item>
       </q-list>
     </div>
   </q-drawer>

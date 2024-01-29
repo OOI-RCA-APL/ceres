@@ -34,6 +34,7 @@ from asgiref.typing import (
 from fastapi import (
     APIRouter,
     Body,
+    Cookie,
     Depends,
     FastAPI,
     Header,
@@ -47,7 +48,8 @@ from fastapi import (
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse
-from pydantic import Field, Json
+from jwt import InvalidTokenError
+from pydantic import Field, Json, ValidationError
 from starlette.requests import HTTPConnection
 from starlette.status import (
     HTTP_400_BAD_REQUEST,
@@ -189,10 +191,14 @@ CurrentProcedureQueryArguments = Annotated[
 ]
 
 
-class Identity(ImmutableDataObject):
-    user: User
+class PrivateIdentity(ImmutableDataObject):
+    user: PrivateUser
     token: str
     expires: DateTime
+
+
+class Identity(PrivateIdentity):
+    user: User
 
 
 def _create_identity(
@@ -206,6 +212,7 @@ def _create_identity(
             "exp": expires,
         },
         authentication.secret,
+        "HS256",
     )
 
     return Identity(
@@ -215,21 +222,48 @@ def _create_identity(
     )
 
 
+class AuthorizationCookieType(StrEnum):
+    INSECURE = "insecure"
+    SECURE = "secure"
+
+
+def _assign_authorization_cookie(
+    response: Response,
+    identity: Identity,
+    type: AuthorizationCookieType,
+) -> None:
+    secure = type == AuthorizationCookieType.SECURE
+    response.set_cookie(
+        "Authorization",
+        f"Bearer {identity.token}",
+        expires=identity.expires,
+        secure=secure,
+        httponly=secure,
+    )
+
+
 async def _get_current_identity(
     engine: CurrentEngine,
-    authorization: Annotated[str | None, Header()] = None,
+    authorization_cookie: str | None = Cookie(None, alias="Authorization"),
+    authorization_header: Annotated[str | None, Header(alias="Authorization")] = None,
 ) -> Identity | None:
     authentication = engine.config.server.authentication
     if authentication is None:
         return None
+
+    authorization = authorization_header or authorization_cookie
     if authorization is None:
         return None
 
     if authorization.startswith("Bearer "):
         token = authorization.removeprefix("Bearer ")
         try:
-            info: dict[str, Any] = jwt.decode(token, secret=authentication.secret)
-        except Exception:
+            info: Mapping[str, object] = jwt.decode(
+                token,
+                authentication.secret,
+                ["HS256"],
+            )
+        except InvalidTokenError:
             return None
 
         id = info.get("sub")
@@ -238,13 +272,13 @@ async def _get_current_identity(
             return None
 
         try:
-            id = UUID(id)
-        except Exception:
+            id = UUID(str(id))
+        except ValueError:
             return None
 
         try:
             expires = get_type_adapter(DateTime).validate_python(expires)
-        except Exception:
+        except ValidationError:
             return None
 
         user = await engine.get_user(id=id)
@@ -312,43 +346,36 @@ RequireOperator = Annotated[User | None, OPERATOR]
 RequireAdmin = Annotated[User | None, ADMIN]
 
 
-class MeResult(ImmutableDataObject):
-    user: PrivateUser
-    expires: DateTime
+class LoginInput(ImmutableDataObject):
+    username: str
+    password: str
+    cookie: AuthorizationCookieType | None = None
 
 
-@api.get("/me", tags=["auth"])
-async def me(identity: CurrentIdentity) -> MeResult:
-    if identity is None:
-        raise HTTPException(HTTP_401_UNAUTHORIZED)
-
-    return MeResult(
-        user=identity.user,
-        expires=identity.expires,
-    )
-
-
-class LoginResult(Identity):
+class LoginResult(PrivateIdentity):
     pass
 
 
-@api.get("/login", tags=["auth"])
+@api.post("/login", tags=["auth"])
 async def login(
     engine: CurrentEngine,
-    username: str,
-    password: str,
+    response: Response,
+    input: LoginInput,
 ) -> LoginResult:
     authentication = engine.config.server.authentication
     if authentication is None:
         raise HTTPException(HTTP_403_FORBIDDEN)
 
-    user = await engine.get_user(username=username)
+    user = await engine.get_user(username=input.username)
     if user is None:
         raise HTTPException(HTTP_401_UNAUTHORIZED)
-    if not verify_password(password, user.hash):
+    if not verify_password(input.password, user.hash):
         raise HTTPException(HTTP_401_UNAUTHORIZED)
 
     identity = _create_identity(user, authentication)
+    if input.cookie is not None:
+        _assign_authorization_cookie(response, identity, input.cookie)
+
     return LoginResult(
         user=identity.user,
         token=identity.token,
@@ -356,30 +383,59 @@ async def login(
     )
 
 
-class RefreshResult(Identity):
+class RefreshInput(ImmutableDataObject):
+    cookie: AuthorizationCookieType | None = None
+
+
+class RefreshResult(PrivateIdentity):
     pass
 
 
-@api.get("/refresh", tags=["auth"])
+@api.post("/refresh", tags=["auth"])
 async def refresh(
     engine: CurrentEngine,
     identity: CurrentIdentity,
+    response: Response,
+    input: RefreshInput,
 ) -> RefreshResult:
     authentication = engine.config.server.authentication
     if authentication is None:
         raise HTTPException(HTTP_403_FORBIDDEN)
-
     if identity is None:
         raise HTTPException(HTTP_401_UNAUTHORIZED)
 
-    user = await engine.get_user(id=identity.user.id)
-    if user is None:
-        raise HTTPException(HTTP_401_UNAUTHORIZED)
+    identity = _create_identity(identity.user, authentication)
+    if input.cookie is not None:
+        _assign_authorization_cookie(response, identity, input.cookie)
 
-    identity = _create_identity(user, authentication)
     return RefreshResult(
         user=identity.user,
         token=identity.token,
+        expires=identity.expires,
+    )
+
+
+@api.post("/logout", tags=["auth"])
+async def logout(response: Response, identity: CurrentIdentity) -> Identity | None:
+    response.delete_cookie("Authorization")
+    if identity is None:
+        raise HTTPException(HTTP_401_UNAUTHORIZED)
+
+    return identity
+
+
+class MeResult(ImmutableDataObject):
+    user: PrivateUser
+    expires: DateTime
+
+
+@api.get("/me", tags=["auth"])
+async def get_me(identity: CurrentIdentity) -> MeResult:
+    if identity is None:
+        raise HTTPException(HTTP_401_UNAUTHORIZED)
+
+    return MeResult(
+        user=identity.user,
         expires=identity.expires,
     )
 

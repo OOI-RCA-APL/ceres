@@ -4,12 +4,12 @@ import UtcClock from '@/components/UtcClock.vue'
 import constants from '@/constants'
 import { useDrawer } from '@/drawer'
 import icons from '@/icons'
+import { useNavigation } from '@/navigation'
 import { useStore } from '@/store'
-import { useRouter } from 'vue-router'
 
 const store = useStore()
 const drawer = useDrawer()
-const router = useRouter()
+const navigation = useNavigation()
 </script>
 
 <template>
@@ -23,7 +23,7 @@ const router = useRouter()
         style="margin-left: -2px; margin-right: 14px"
         @click="drawer.toggle()"
       />
-      <q-toolbar-title class="cursor-pointer" @click="router.push('/')">
+      <q-toolbar-title class="cursor-pointer" @click="navigation.go('/')">
         <common-text variant="title1">
           {{ store.config?.title ?? constants.defaultTitle }}
         </common-text>

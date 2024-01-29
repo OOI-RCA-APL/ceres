@@ -6,7 +6,11 @@ import {
   ComponentInfoModel,
   Config,
   ConfigModel,
+  ConsoleConfig,
+  ConsoleConfigModel,
   ElementModel,
+  Identity,
+  IdentityModel,
   LogEntry,
   LogEntryModel,
   Message,
@@ -17,16 +21,38 @@ import {
   StatisticsModel,
   Status,
   StatusModel,
-  ConsoleConfig,
-  ConsoleConfigModel,
 } from '@/api/models'
 import { computed, isRef, unref, watchEffect } from 'vue'
 import { MaybeRef } from 'vue-query/lib/vue/types'
 import Zod, { ZodTypeAny } from 'zod'
 export * from 'vue-query'
 
-export async function reload(): Promise<Result<Config>> {
+export async function postReload(): Promise<Result<Config>> {
   return await post('/api/reload', ResultModel(ConfigModel) as any)
+}
+
+function getAuthorizationCookieType() {
+  if (location.protocol.startsWith('https')) {
+    return 'secure'
+  }
+
+  return 'insecure'
+}
+
+export async function postLogin(data: { username: string; password: string }): Promise<Identity> {
+  return await post('/api/login', IdentityModel, { ...data, cookie: getAuthorizationCookieType() })
+}
+
+export async function postRefresh(): Promise<Identity> {
+  return await post('/api/refresh', IdentityModel, { cookie: getAuthorizationCookieType() })
+}
+
+export async function postLogout(): Promise<Identity> {
+  return await post('/api/logout', IdentityModel)
+}
+
+export async function getMe(): Promise<Identity> {
+  return await get('/api/me', IdentityModel)
 }
 
 export async function getConfig(): Promise<Config> {
@@ -179,12 +205,22 @@ export function useLogEntryStream(
   )
 }
 
+const defaultRequestOptions = {
+  credentials: 'include',
+  headers: {
+    'Content-Type': 'application/json',
+  },
+} as const
+
 async function get<TModel extends ZodTypeAny>(
   url: string | URL,
   model: TModel,
   options?: RequestInit
 ): Promise<Zod.infer<TModel>> {
-  const response = await fetch(url, options)
+  const response = await fetch(url, {
+    ...defaultRequestOptions,
+    ...options,
+  })
   if (response.status >= 400) {
     throw Error(`GET ${url} ${await response.text()}`)
   }
@@ -198,7 +234,10 @@ async function getOrNull<TModel extends ZodTypeAny>(
   model: TModel,
   options?: RequestInit
 ): Promise<Zod.infer<TModel> | null> {
-  const response = await fetch(url, options)
+  const response = await fetch(url, {
+    ...defaultRequestOptions,
+    ...options,
+  })
   if (response.status >= 400) {
     return null
   }
@@ -214,10 +253,8 @@ async function post<TModel extends ZodTypeAny>(
   options?: RequestInit
 ): Promise<Zod.infer<TModel>> {
   const response = await fetch(url, {
+    ...defaultRequestOptions,
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
     body: data != null ? JSON.stringify(data) : undefined,
     ...options,
   })

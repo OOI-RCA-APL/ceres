@@ -68,8 +68,8 @@ class UserFilter(Filter):
     email: str | Sequence[str] | None = None
     disabled: bool | None = None
     order: UserOrder | None = None
-    limit: int | None
-    offset: int | None
+    limit: int | None = None
+    offset: int | None = None
 
 
 class Addressable(Protocol):

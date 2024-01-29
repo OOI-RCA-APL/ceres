@@ -1,6 +1,6 @@
 import { Address } from '@/address'
 import moment from 'moment'
-import Zod, { ZodTypeAny } from 'zod'
+import Zod, { ZodTypeAny, boolean } from 'zod'
 
 export const NameStrModel = Zod.string().regex(/[a-zA-Z\-\_][a-zA-Z0-9\-\_]*/)
 export const EmailStrModel = Zod.string().regex(/.+@.+/)
@@ -18,6 +18,28 @@ export const StatusModel = Zod.object({
   running: Zod.boolean(),
   enabled: Zod.boolean().nullable().default(null),
   connectivity: ConnectivityModel.nullable().default(null),
+})
+
+export type UserRole = Zod.infer<typeof UserRoleModel>
+export const UserRoleModel = Zod.enum(['viewer', 'operator', 'admin'])
+
+export type PublicUser = Zod.infer<typeof PublicUserModel>
+export const PublicUserModel = Zod.object({
+  id: Zod.string(),
+  username: Zod.string(),
+  role: UserRoleModel,
+  disabled: Zod.boolean(),
+})
+
+export type PrivateUser = Zod.infer<typeof PrivateUserModel>
+export const PrivateUserModel = PublicUserModel.extend({
+  email: Zod.string(),
+})
+
+export type Identity = Zod.infer<typeof IdentityModel>
+export const IdentityModel = Zod.object({
+  user: PrivateUserModel,
+  expires: DateTimeModel,
 })
 
 export type MessageDirection = Zod.infer<typeof MessageDirectionModel>

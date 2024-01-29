@@ -550,6 +550,7 @@ class Component(Object):
         component.sync_component_references()
         component.emit(AddedEvent)
 
+        self.__sync_component_order()
         return component
 
     def remove_component(self, address: str | DynamicAddress | None = None) -> "Component | None":
@@ -562,6 +563,7 @@ class Component(Object):
             if current is not None and current is self:
                 self.emit(RemovedEvent)
                 self.parent.__components.pop(self.name, None)
+                self.parent.__sync_component_order()
                 current.sync_component_references()
 
             self.__parent = None
@@ -978,6 +980,24 @@ class Component(Object):
             traceback = get_traceback(exception)
             self.emit(ProcedureExceptionEvent, procedure=procedure, traceback=traceback)
             raise ProcedureException(ProcedureInternalError(traceback=list(traceback)))
+
+    def __sync_component_order(self) -> None:
+        if self.__config__ is None:
+            return
+
+        order: list[Component] = []
+        for config in self.__config__.components:
+            component = self.__components.get(config.name)
+            if component is not None:
+                order.append(component)
+
+        for component in self.__components.values():
+            if not any(current is component for current in order):
+                order.append(component)
+
+        self.__components.clear()
+        for component in order:
+            self.__components[component.name] = component
 
 
 @cached
@@ -1490,6 +1510,7 @@ def get_bindings(component_cls: type[Component], binding_cls: type[_BindingT]) -
     return sorted(bindings.values(), key=lambda current: current.method)
 
 
+
 @final
 class _Listener:
     __slots__ = (
@@ -1572,3 +1593,4 @@ class _Listener:
             return
 
         await self.__queue.join()
+
