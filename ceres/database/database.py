@@ -27,8 +27,11 @@ from sqlalchemy import (
     AsyncAdaptedQueuePool,
     BinaryExpression,
     Connection,
+    Delete,
+    Select,
     SQLColumnExpression,
     Text,
+    Update,
     cast,
     delete,
     event,
@@ -36,6 +39,7 @@ from sqlalchemy import (
     inspect,
     select,
     text,
+    update,
 )
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession, create_async_engine
 from typing_extensions import Self, Unpack, override
@@ -87,6 +91,8 @@ from ceres.timing import utc
 from ceres.user import User
 
 _T = TypeVar("_T")
+_SelectT = TypeVar("_SelectT", bound=Select[tuple[Any, ...]])
+_StatementT = TypeVar("_StatementT", bound=Select[tuple[Any, ...]] | Update | Delete)
 
 
 class Database:
@@ -241,25 +247,27 @@ class Database:
     async def initialized(self) -> bool:
         return await self.__run_sync(lambda connection: bool(inspect(connection).get_table_names()))
 
-    async def get_users(
+    def __apply_user_filter(
         self,
-        filter: UserFilter | None = None,
-        /,
-        **kwargs: Unpack[UserFilterArgs],
-    ) -> list[User]:
-        filter = UserFilter(**kwargs).with_defaults(filter)
-
-        statement = select(*UserEntity.__table__.columns.values())
-
+        statement: _StatementT,
+        filter: UserFilter,
+    ) -> _StatementT:
         if filter.id is not None:
             statement = statement.where(UserEntity.id.in_(as_sequence(filter.id)))
         if filter.username is not None:
             statement = statement.where(UserEntity.username.in_(as_sequence(filter.username)))
         if filter.email is not None:
             # TODO: Normalize the email addresses before searching.
-            statement = statement.where(UserEntity.email.in_(filter.email))
+            statement = statement.where(UserEntity.email.in_(as_sequence(filter.email)))
+        if filter.role is not None:
+            statement = statement.where(UserEntity.role.in_(as_sequence(filter.role)))
         if filter.disabled is not None:
             statement = statement.where(UserEntity.disabled == filter.disabled)
+
+        return statement
+
+    def __apply_user_select_filter(self, statement: _SelectT, filter: UserFilter) -> _SelectT:
+        statement = self.__apply_user_filter(statement, filter)
 
         match filter.order:
             case None | UserOrder.USERNAME:
@@ -271,6 +279,27 @@ class Database:
             statement = statement.limit(filter.limit)
         if filter.offset is not None and filter.offset > 0:
             statement = statement.offset(filter.offset)
+
+        return statement
+
+    async def create_user(self, data: User) -> User:
+        entity = UserEntity(**data.__dict__)
+
+        async with await self.init() as session:
+            session.add(entity)
+            await session.commit()
+
+        return data
+
+    async def get_users(
+        self,
+        filter: UserFilter | None = None,
+        /,
+        **kwargs: Unpack[UserFilterArgs],
+    ) -> list[User]:
+        filter = UserFilter(**kwargs).with_defaults(filter)
+        statement = select(*UserEntity.__table__.columns.values())
+        statement = self.__apply_user_select_filter(statement, filter)
 
         async with await self.init() as session:
             rows = await session.execute(statement)
@@ -286,17 +315,43 @@ class Database:
         users = await self.get_users(filter, **{**kwargs, "limit": 1})
         return users[0] if users else None
 
-    async def create_user(self, data: User | Mapping[str, Any]) -> User:
-        if not isinstance(data, User):
-            data = get_type_adapter(User).validate_python(data)
-
-        entity = UserEntity(**data.__dict__)
+    async def update_user(
+        self,
+        id: UUID,
+        data: User,
+    ) -> User | None:
+        statement = (
+            update(UserEntity)
+            .where(UserEntity.id == id)
+            .values(data.model_dump())
+            .returning(UserEntity)
+        )
 
         async with await self.init() as session:
-            session.add(entity)
+            results = await session.execute(statement)
+            entity = results.scalar()
             await session.commit()
 
-        return data
+        if entity is None:
+            return None
+
+        return User.model_validate(entity, from_attributes=True)
+
+    async def delete_user(
+        self,
+        id: UUID,
+    ) -> User | None:
+        statement = delete(UserEntity).where(UserEntity.id == id).returning(UserEntity)
+
+        async with await self.init() as session:
+            result = await session.execute(statement)
+            entity = result.scalar()
+            await session.commit()
+
+        if entity is None:
+            return None
+
+        return User.model_validate(entity, from_attributes=True)
 
     async def get_messages(
         self,
@@ -309,6 +364,9 @@ class Database:
         filter = MessageFilter(**kwargs).with_defaults(filter)
 
         statement = select(*MessageEntity.__table__.columns.values())
+
+        if filter.id is not None:
+            statement = statement.where(MessageEntity.id.in_(as_sequence(filter.id)))
 
         if filter.address is not None:
             statement = statement.where(
@@ -392,10 +450,7 @@ class Database:
         )
         return messages[0] if messages else None
 
-    async def create_message(self, data: Message | Mapping[str, Any]) -> Message:
-        if not isinstance(data, Message):
-            data = get_type_adapter(Message).validate_python(data)
-
+    async def create_message(self, data: Message) -> Message:
         entity = MessageEntity(**data.__dict__)
 
         async with await self.init() as session:
@@ -491,10 +546,7 @@ class Database:
         alerts = await self.get_alerts(filter, **{**kwargs, "limit": 1}, relative_to=relative_to)
         return alerts[0] if alerts else None
 
-    async def create_alert(self, data: Alert | Mapping[str, Any]) -> Alert:
-        if not isinstance(data, Alert):
-            data = get_type_adapter(Alert).validate_python(data)
-
+    async def create_alert(self, data: Alert) -> Alert:
         entity = AlertEntity(**data.__dict__)
 
         async with await self.init() as session:
@@ -592,10 +644,7 @@ class Database:
         )
         return alerts[0] if alerts else None
 
-    async def create_log_entry(self, data: LogEntry | Mapping[str, Any]) -> LogEntry:
-        if not isinstance(data, LogEntry):
-            data = get_type_adapter(LogEntry).validate_python(data)
-
+    async def create_log_entry(self, data: LogEntry) -> LogEntry:
         entity = LogEntryEntity(**data.__dict__)
 
         async with await self.init() as session:

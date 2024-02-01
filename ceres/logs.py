@@ -1,6 +1,7 @@
 import logging
+from datetime import datetime
 from logging import Logger
-from typing import TYPE_CHECKING, Callable, Protocol, Sequence, TypeAlias
+from typing import TYPE_CHECKING, Annotated, Callable, Protocol, Sequence, TypeAlias
 from uuid import UUID, uuid4
 
 from pydantic import Field
@@ -9,6 +10,7 @@ from typing_extensions import Self
 from ceres.address import Address
 from ceres.data import DateTime, ImmutableDataObject
 from ceres.internal import logs
+from ceres.internal.cli.plumbing import CLIOption
 from ceres.level import Level
 from ceres.timing import utc
 
@@ -19,11 +21,11 @@ else:
 
 
 class LogEntry(ImmutableDataObject):
-    id: UUID = Field(default_factory=uuid4)
-    address: Address
-    timestamp: DateTime = Field(default_factory=utc)
-    level: Level
-    content: str
+    id: Annotated[UUID, CLIOption(UUID)] = Field(default_factory=uuid4)
+    address: Annotated[Address, CLIOption(str)]
+    timestamp: Annotated[DateTime, CLIOption(datetime)] = Field(default_factory=utc)
+    level: Annotated[Level, CLIOption(Level)]
+    content: Annotated[str, CLIOption(str)]
 
 
 class LogHandler(Protocol):

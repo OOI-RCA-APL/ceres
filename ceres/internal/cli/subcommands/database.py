@@ -1,13 +1,19 @@
 from pathlib import Path
-from typing import Optional
+from typing import Annotated
 
 from click import Choice
-from typer import Argument, Option
 
 from ceres.config import Config
 from ceres.database.enums import DataFormat, ItemType
 from ceres.internal.cli.exceptions import CLIDatabaseUnreachableException, CLIException
-from ceres.internal.cli.shared import CLIRouter, ConfigOption, get_database, get_yes_no, write
+from ceres.internal.cli.plumbing import CLIArgument, CLIOption, CLIRouter
+from ceres.internal.cli.shared import (
+    ConfigOption,
+    Dummy,
+    get_database,
+    get_yes_no,
+    write,
+)
 from ceres.internal.utilities import show_td
 from ceres.timing import utc
 
@@ -18,7 +24,7 @@ router = CLIRouter(
 
 
 @router.command()
-async def init(*, config: Config = ConfigOption(checks=[])) -> None:
+async def init(*, config: Annotated[Config, ConfigOption(checks=[])] = Dummy()) -> None:
     """
     Initialize the database, creating tables and indexes as needed.
     """
@@ -49,31 +55,41 @@ async def init(*, config: Config = ConfigOption(checks=[])) -> None:
 
 @router.command()
 async def dump(
-    path: Path = Argument(
-        dir_okay=False,
-        resolve_path=True,
-        writable=True,
-        help="File path to write to.",
-    ),
+    path: Annotated[
+        Path,
+        CLIArgument(
+            Path,
+            dir_okay=False,
+            resolve_path=True,
+            writable=True,
+            help="File path to write to.",
+        ),
+    ],
     *,
-    item_type: list[ItemType] = Option(
-        [],
-        click_type=Choice([current.value for current in ItemType]),
-        help=(
-            """
+    item_type: Annotated[
+        list[ItemType],
+        CLIOption(
+            list[ItemType],
+            click_type=Choice([current.value for current in ItemType]),
+            help=(
+                """
             Data type(s) to dump.
             * For **--format csv**, a single **--item-type** is *required*.
             * For **--format sqlite**, if **--item-type** is *omitted*, *all* item types will be
             dumped to the SQLite database. If **--item-type** is specified *one or more times*,
             *only* those item types will be dumped.
             """
+            ),
         ),
-    ),
-    format: Optional[DataFormat] = Option(
-        None,
-        help="File format to dump as. This is inferred from the file extension if possible.",
-    ),
-    config: Config = ConfigOption(checks=[]),
+    ] = [],
+    format: Annotated[
+        DataFormat | None,
+        CLIOption(
+            DataFormat | None,
+            help="File format to dump as. This is inferred from the file extension if possible.",
+        ),
+    ] = None,
+    config: Annotated[Config, ConfigOption(checks=[])] = Dummy(),
 ) -> None:
     """
     Dump data from the database into a CSV or SQLite file.
@@ -105,31 +121,41 @@ async def dump(
 
 @router.command()
 async def load(
-    path: Path = Argument(
-        dir_okay=False,
-        resolve_path=True,
-        readable=True,
-        help="File path to read data from.",
-    ),
+    path: Annotated[
+        Path,
+        CLIArgument(
+            Path,
+            dir_okay=False,
+            resolve_path=True,
+            readable=True,
+            help="File path to read data from.",
+        ),
+    ],
     *,
-    item_type: list[ItemType] = Option(
-        [],
-        click_type=Choice([current.value for current in ItemType]),
-        help=(
-            """
+    item_type: Annotated[
+        list[ItemType],
+        CLIOption(
+            list[ItemType],
+            click_type=Choice([current.value for current in ItemType]),
+            help=(
+                """
             Data type(s) to load.
             * For **--format csv**, a single **--item-type** is *required*.
             * For **--format sqlite**, if **--item-type** is *omitted*, *all* item types will be
             loaded from the SQLite database. If **--item-type** is specified *one or more times*,
             *only* those item types will be loaded.
             """
+            ),
         ),
-    ),
-    format: DataFormat = Option(
-        None,
-        help="File format to read as. This is inferred from the file extension if possible.",
-    ),
-    config: Config = ConfigOption(checks=[]),
+    ] = [],
+    format: Annotated[
+        DataFormat | None,
+        CLIOption(
+            DataFormat | None,
+            help="File format to read as. This is inferred from the file extension if possible.",
+        ),
+    ] = None,
+    config: Annotated[Config, ConfigOption(checks=[])] = Dummy(),
 ) -> None:
     """
     Load data into the database from a CSV or SQLite file.
@@ -161,7 +187,7 @@ async def load(
 
 
 @router.command()
-async def clear(config: Config = ConfigOption(checks=[])) -> None:
+async def clear(config: Annotated[Config, ConfigOption(checks=[])] = Dummy()) -> None:
     """
     Remove all data from the database. Tables and indexes are not removed, only truncated.
     """
@@ -180,7 +206,7 @@ async def clear(config: Config = ConfigOption(checks=[])) -> None:
 
 
 @router.command()
-async def ddl(*, config: Config = ConfigOption(checks=[])) -> None:
+async def ddl(*, config: Annotated[Config, ConfigOption(checks=[])] = Dummy()) -> None:
     """
     Show DDL commands used to initialize the database.
     """

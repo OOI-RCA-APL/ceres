@@ -63,7 +63,7 @@ function notifyAccessBlocked() {
 function notifyLoggedOut() {
   quasar.notify({
     message: 'You have been signed out due to inactivity.',
-    color: 'negative',
+    color: 'warning',
   })
 }
 

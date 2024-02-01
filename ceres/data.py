@@ -214,5 +214,4 @@ UsernameStr = Annotated[
 ]
 
 PasswordStr = Annotated[str, StringConstraints(min_length=1, max_length=256)]
-
 EmailStr = _BaseEmailStr

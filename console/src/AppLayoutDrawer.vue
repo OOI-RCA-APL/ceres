@@ -42,7 +42,7 @@ function clearLocalStorage() {
       quasar.notify({
         message: 'Local storage cleared successfully.',
         icon: icons.clearLocalStorage,
-        color: 'positive',
+        type: 'positive',
       })
     })
 }

@@ -37,12 +37,13 @@ const form = useForm({
     if (identity == null) {
       quasar.notify({
         message: `Failed to log in. Incorrect username/email or password.`,
-        color: 'negative',
+        type: 'negative',
       })
     } else {
       quasar.notify({
         message: `Logged in as ${identity.user.username}.`,
-        color: 'positive',
+        type: 'positive', // 'type' is an alias for 'color
+        icon: icons.user,
       })
       if (props.redirect) {
         await navigation.go(props.redirect)

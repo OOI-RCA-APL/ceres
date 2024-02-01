@@ -1,12 +1,11 @@
-from pathlib import Path
 import sys
-from typing import Optional
-
-from typer import Argument
+from pathlib import Path
+from typing import Annotated
 
 from ceres.config import ConfigCheckType
+from ceres.internal.cli.plumbing import CLIArgument, CLIRouter
 from ceres.internal.cli.service import LaunchDService, Service, SystemDService
-from ceres.internal.cli.shared import CLIRouter, ProjectOption, write, write_table
+from ceres.internal.cli.shared import Dummy, ProjectOption, write, write_table
 from ceres.internal.project import Project
 
 router = CLIRouter(
@@ -17,15 +16,18 @@ router = CLIRouter(
 
 @router.command()
 def generate(
-    path: Optional[Path] = Argument(
-        None,
-        dir_okay=False,
-        resolve_path=True,
-        writable=True,
-        help="File path to write to. Standard output is used if not specified.",
-    ),
+    path: Annotated[
+        Path | None,
+        CLIArgument(
+            Path | None,
+            dir_okay=False,
+            resolve_path=True,
+            writable=True,
+            help="File path to write to. Standard output is used if not specified.",
+        ),
+    ] = None,
     *,
-    project: Project = ProjectOption(checks=[]),
+    project: Annotated[Project, ProjectOption(checks=[])] = Dummy(),
 ) -> None:
     """
     Generate a service definition file for this project.
@@ -41,7 +43,9 @@ def generate(
 
 
 @router.command()
-def start(project: Project = ProjectOption(checks=ConfigCheckType.all())) -> None:
+def start(
+    project: Annotated[Project, ProjectOption(checks=ConfigCheckType.all())] = Dummy()
+) -> None:
     """
     Start the background service, creating and/or updating the service file as needed.
     """
@@ -53,7 +57,7 @@ def start(project: Project = ProjectOption(checks=ConfigCheckType.all())) -> Non
 
 
 @router.command()
-def stop(project: Project = ProjectOption(checks=[])) -> None:
+def stop(project: Annotated[Project, ProjectOption(checks=[])] = Dummy()) -> None:
     """
     Stop the background service, deleting the service file afterwards.
     """
@@ -64,7 +68,7 @@ def stop(project: Project = ProjectOption(checks=[])) -> None:
 
 
 @router.command()
-def status(project: Project = ProjectOption(checks=[])) -> None:
+def status(project: Annotated[Project, ProjectOption(checks=[])] = Dummy()) -> None:
     """
     Show the status of the background service.
     """

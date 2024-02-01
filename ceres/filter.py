@@ -1,6 +1,6 @@
 from datetime import datetime
 from re import Pattern
-from typing import TYPE_CHECKING, Any, Generic, Protocol, Sequence, TypedDict, TypeVar
+from typing import TYPE_CHECKING, Annotated, Any, Generic, Protocol, Sequence, TypedDict, TypeVar
 from uuid import UUID
 
 from pydantic import ConfigDict, Field
@@ -9,11 +9,13 @@ from typing_extensions import Self, override
 from ceres.address import Address, AddressSelector
 from ceres.alert import Alert
 from ceres.data import DateTime, ImmutableDataObject, PositiveTimeDelta, jsonify
+from ceres.internal.cli.plumbing import CLIOption
 from ceres.internal.utilities import StrEnum, as_sequence
 from ceres.level import Level
 from ceres.logs import LogEntry
-from ceres.message import Message, MessageDirection
+from ceres.message import Message, MessageContent, MessageDirection
 from ceres.timing import utc
+from ceres.user import UserRole
 
 if TYPE_CHECKING:
     from ceres.component import Component
@@ -57,19 +59,49 @@ class UserFilterArgs(TypedDict, total=False):
     id: UUID | Sequence[UUID] | None
     username: str | Sequence[str] | None
     email: str | Sequence[str] | None
+    role: UserRole | Sequence[UserRole] | None
     disabled: bool | None
+    order: UserOrder | None
     limit: int | None
     offset: int | None
 
 
 class UserFilter(Filter):
-    id: UUID | Sequence[UUID] | None = None
-    username: str | Sequence[str] | None = None
-    email: str | Sequence[str] | None = None
-    disabled: bool | None = None
-    order: UserOrder | None = None
-    limit: int | None = None
-    offset: int | None = None
+    id: Annotated[UUID | Sequence[UUID] | None, CLIOption(list[UUID] | None)] = Field(
+        None,
+        description="Filter by user ID(s)",
+    )
+    username: Annotated[str | Sequence[str] | None, CLIOption(list[str] | None)] = Field(
+        None,
+        description="Filter by username(s).",
+    )
+    email: Annotated[str | Sequence[str] | None, CLIOption(list[str] | None)] = Field(
+        None,
+        description="Filter by user email(s).",
+    )
+    role: Annotated[UserRole | Sequence[UserRole] | None, CLIOption(list[UserRole] | None)] = Field(
+        None,
+        description="Filter by user role(s).",
+    )
+    disabled: Annotated[bool | None, CLIOption(bool | None)] = Field(
+        None,
+        description="Filter by disabled/enabled status.",
+    )
+    order: Annotated[UserOrder | None, CLIOption(UserOrder | None)] = Field(
+        None,
+        description="Specify order of resulting users.",
+    )
+    limit: Annotated[int | None, CLIOption(int | None)] = Field(
+        None,
+        description="Limit number of returned users.",
+        ge=0,
+        le=1000,
+    )
+    offset: Annotated[int | None, CLIOption(int | None)] = Field(
+        None,
+        description="Skip over a given number of users.",
+        ge=0,
+    )
 
 
 class Addressable(Protocol):
@@ -86,7 +118,7 @@ class ObjectFilterArgs(TypedDict, total=False):
 
 
 class ObjectFilter(Filter, Generic[_ObjectT]):
-    address: AddressSelector | None = None
+    address: Annotated[AddressSelector | None, CLIOption(str | None)] = None
 
     def matches(self, obj: _ObjectT, root: Address = Address.root()) -> bool:
         if not root.contains(obj.address):
@@ -143,18 +175,19 @@ class MessageFilterArgs(ObjectFilterArgs, total=False):
 
 
 class MessageFilter(ObjectFilter[Message]):
-    search: str | None = None
-    search_case_sensitive: bool = False
-    within: PositiveTimeDelta | None = None
-    after: DateTime | None = None
-    before: DateTime | None = None
-    direction: MessageDirection | None = None
-    prefix: bytes | None = None
-    suffix: bytes | None = None
-    regex: Pattern[bytes] | None = None
-    order: MessageOrder | None = None
-    limit: int | None = Field(default=None, ge=0)
-    offset: int | None = Field(default=None, ge=0)
+    id: Annotated[UUID | Sequence[UUID] | None, CLIOption(list[UUID])] = None
+    direction: Annotated[MessageDirection | None, CLIOption(MessageDirection | None)] = None
+    search: Annotated[str | None, CLIOption(str | None)] = None
+    search_case_sensitive: Annotated[bool, CLIOption(bool)] = False
+    within: Annotated[PositiveTimeDelta | None, CLIOption(str | None)] = None
+    after: Annotated[DateTime | None, CLIOption(datetime)] = None
+    before: Annotated[DateTime | None, CLIOption(datetime)] = None
+    prefix: Annotated[MessageContent | None, CLIOption(str | None)] = None
+    suffix: Annotated[MessageContent | None, CLIOption(str | None)] = None
+    regex: Annotated[Pattern[bytes] | None, CLIOption(str | None)] = None
+    order: Annotated[MessageOrder | None, CLIOption(MessageOrder | None)] = None
+    limit: Annotated[int | None, CLIOption(int | None)] = Field(default=None, ge=0)
+    offset: Annotated[int | None, CLIOption(int | None)] = Field(default=None, ge=0)
 
     @override
     def matches(self, obj: Message, root: Address = Address.root()) -> bool:
@@ -225,17 +258,17 @@ class AlertFilterArgs(TypedDict, total=False):
 
 
 class AlertFilter(ObjectFilter[Alert]):
-    search: str | None = None
-    search_case_sensitive: bool = False
-    within: PositiveTimeDelta | None = None
-    after: DateTime | None = None
-    before: DateTime | None = None
-    level: Level | Sequence[Level] | None = None
-    code: str | Sequence[str] | None = None
-    code_regex: Pattern[str] | None = None
-    order: AlertOrder | None = None
-    limit: int | None = Field(default=None, ge=0)
-    offset: int | None = Field(default=None, ge=0)
+    search: Annotated[str | None, CLIOption(str | None)] = None
+    search_case_sensitive: Annotated[bool, CLIOption(bool)] = False
+    within: Annotated[PositiveTimeDelta | None, CLIOption(str | None)] = None
+    after: Annotated[DateTime | None, CLIOption(datetime | None)] = None
+    before: Annotated[DateTime | None, CLIOption(datetime | None)] = None
+    level: Annotated[Level | Sequence[Level] | None, CLIOption(list[Level] | None)] = None
+    code: Annotated[str | Sequence[str] | None, CLIOption(list[str] | None)] = None
+    code_regex: Annotated[Pattern[str] | None, CLIOption(list[str] | None)] = None
+    order: Annotated[AlertOrder | None, CLIOption(AlertOrder | None)] = None
+    limit: Annotated[int | None, CLIOption(int | None)] = Field(default=None, ge=0)
+    offset: Annotated[int | None, CLIOption(int | None)] = Field(default=None, ge=0)
 
     @override
     def matches(self, obj: Alert, root: Address = Address.root()) -> bool:
@@ -303,18 +336,18 @@ class LogEntryFilterArgs(TypedDict, total=False):
 
 
 class LogEntryFilter(ObjectFilter[LogEntry]):
-    search: str | None = None
-    search_case_sensitive: bool = False
-    within: PositiveTimeDelta | None = None
-    after: DateTime | None = None
-    before: DateTime | None = None
-    level: Level | Sequence[Level] | None = None
-    prefix: str | None = None
-    suffix: str | None = None
-    regex: Pattern[str] | None = None
-    order: LogEntryOrder | None = None
-    limit: int | None = Field(default=None, ge=0)
-    offset: int | None = Field(default=None, ge=0)
+    search: Annotated[str | None, CLIOption(str | None)] = None
+    search_case_sensitive: Annotated[bool, CLIOption(bool)] = False
+    within: Annotated[PositiveTimeDelta | None, CLIOption(str | None)] = None
+    after: Annotated[DateTime | None, CLIOption(datetime | None)] = None
+    before: Annotated[DateTime | None, CLIOption(datetime | None)] = None
+    level: Annotated[Level | Sequence[Level] | None, CLIOption(list[Level] | None)] = None
+    prefix: Annotated[str | None, CLIOption(str | None)] = None
+    suffix: Annotated[str | None, CLIOption(str | None)] = None
+    regex: Annotated[Pattern[str] | None, CLIOption(str | None)] = None
+    order: Annotated[LogEntryOrder | None, CLIOption(LogEntryOrder | None)] = None
+    limit: Annotated[int | None, CLIOption(int | None)] = Field(default=None, ge=0)
+    offset: Annotated[int | None, CLIOption(int | None)] = Field(default=None, ge=0)
 
     @override
     def matches(self, obj: LogEntry, root: Address = Address.root()) -> bool:

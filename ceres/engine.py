@@ -4,7 +4,8 @@ import traceback
 from asyncio import FIRST_COMPLETED
 from asyncio import Event as AsyncEvent
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterable, Mapping, Sequence, TypeVar
+from typing import TYPE_CHECKING, Iterable, Sequence, TypeVar
+from uuid import UUID
 
 from aiotools.taskgroup import TaskGroup
 from typing_extensions import Self, Unpack, override
@@ -151,6 +152,10 @@ class Engine(Object, kw_only=False):
             return None
 
         return self.project_directory.subdir("local")
+
+    @property
+    def database(self) -> Database:
+        return self.__database
 
     @override
     async def __run__(self) -> None:
@@ -304,16 +309,22 @@ class Engine(Object, kw_only=False):
 
         return await spawn(execute)
 
-    async def create_user(self, data: User | Mapping[str, Any]) -> User:
+    async def create_user(self, data: User) -> User:
         return await self.__database.create_user(data)
 
-    async def create_message(self, data: Message | Mapping[str, Any]) -> Message:
+    async def update_user(self, id: UUID, data: User) -> User | None:
+        return await self.__database.update_user(id, data)
+
+    async def delete_user(self, id: UUID) -> User | None:
+        return await self.__database.delete_user(id)
+
+    async def create_message(self, data: Message) -> Message:
         return await self.__database.create_message(data)
 
-    async def create_alert(self, data: Alert | Mapping[str, Any]) -> Alert:
+    async def create_alert(self, data: Alert) -> Alert:
         return await self.__database.create_alert(data)
 
-    async def create_log_entry(self, data: LogEntry | Mapping[str, Any]) -> LogEntry:
+    async def create_log_entry(self, data: LogEntry) -> LogEntry:
         return await self.__database.create_log_entry(data)
 
     async def reload(self, config: Config | None = None) -> Result[Config, ReloadError]:

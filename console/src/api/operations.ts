@@ -15,6 +15,8 @@ import {
   LogEntryModel,
   Message,
   MessageModel,
+  PublicUser,
+  PublicUserModel,
   Result,
   ResultModel,
   Statistics,
@@ -65,6 +67,10 @@ export async function getConsoleConfig(): Promise<ConsoleConfig> {
 
 export async function getComponent(address: Address): Promise<ComponentInfo | null> {
   return await getOrNull(`/api/components/${address}`, ComponentInfoModel)
+}
+
+export async function getUser(id: string): Promise<PublicUser | null> {
+  return await getOrNull(`/api/users/${id}`, PublicUserModel)
 }
 
 export async function getMessages(params: {

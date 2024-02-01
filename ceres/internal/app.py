@@ -56,6 +56,7 @@ from starlette.status import (
     HTTP_401_UNAUTHORIZED,
     HTTP_403_FORBIDDEN,
     HTTP_404_NOT_FOUND,
+    HTTP_409_CONFLICT,
 )
 from websockets.exceptions import ConnectionClosed
 
@@ -85,6 +86,7 @@ from ceres.filter import (
     LogEntryFilter,
     MessageFilter,
     StatisticsFilter,
+    UserFilter,
 )
 from ceres.internal import logs
 from ceres.internal.auth import verify_password
@@ -95,7 +97,7 @@ from ceres.message import Message
 from ceres.object import Statistics
 from ceres.result import Fail, Ok, Result
 from ceres.timing import utc
-from ceres.user import PrivateUser, User, UserRole
+from ceres.user import PrivateUser, User, UserCreate, UserRole
 
 if TYPE_CHECKING:
     from ceres.engine import Engine
@@ -138,12 +140,25 @@ ComponentInfo.model_rebuild()
 api = APIRouter()
 
 
-def _get_current_engine(connection: HTTPConnection) -> Engine:
-    assert isinstance(connection.app, App)
-    return connection.app.engine
+def _get_current_app(connection: HTTPConnection) -> "App":
+    return connection.app
+
+
+CurrentApp = Annotated["App", Depends(_get_current_app)]
+
+
+def _get_current_engine(app: CurrentApp) -> Engine:
+    return app.engine
 
 
 CurrentEngine = Annotated[Engine, Depends(_get_current_engine)]
+
+
+def _get_current_cli(app: CurrentApp) -> bool:
+    return app.cli
+
+
+CurrentCLI = Annotated[bool, Depends(_get_current_cli)]
 
 
 @dataclass
@@ -313,6 +328,17 @@ async def _get_current_user(identity: CurrentIdentity) -> User | None:
 
 
 CurrentUser = Annotated[User | None, Depends(_get_current_user)]
+
+
+def _get_current_role(user: CurrentUser, cli: CurrentCLI) -> UserRole | None:
+    if cli:
+        return UserRole.ADMIN
+    if user is None:
+        return None
+    return user.role
+
+
+CurrentRole = Annotated[UserRole | None, Depends(_get_current_role)]
 
 
 def _restrict(
@@ -558,6 +584,81 @@ async def down(engine: CurrentEngine, filter: ComponentFilter) -> DownResult:
         disabled=[component.address for component in enabled],
         stopped=[component.address for component in running],
     )
+
+
+@api.get("/users/{id}", tags=["users"], dependencies=[VIEWER])
+async def get_user(engine: CurrentEngine, id: UUID) -> PrivateUser:
+    user = await engine.get_user(id=id)
+    if user is None:
+        raise HTTPException(HTTP_404_NOT_FOUND)
+
+    return user
+
+
+class GetUsersQueryParameters(UserFilter):
+    pass
+
+
+@api.get("/users", tags=["users"], dependencies=[VIEWER])
+async def get_users(
+    engine: CurrentEngine,
+    filter: Annotated[GetUsersQueryParameters, Depends()],
+) -> Sequence[PrivateUser]:
+    return await engine.get_users(filter)
+
+
+@api.post("/users", tags=["users"], dependencies=[ADMIN])
+async def create_user(engine: CurrentEngine, data: UserCreate) -> PrivateUser:
+    hash = await engine.hash_password(data.password)
+    try:
+        user = await engine.create_user(
+            User(
+                id=data.id,
+                username=data.username,
+                hash=hash,
+                email=data.email,
+                role=data.role,
+                disabled=data.disabled,
+            )
+        )
+    except Exception:
+        if (
+            await engine.get_user(id=data.id) is not None
+            or await engine.get_user(username=data.username) is not None
+        ):
+            raise HTTPException(HTTP_409_CONFLICT)
+        else:
+            raise HTTPException(HTTP_400_BAD_REQUEST)
+
+    return user
+
+
+@api.put("/users/{id}", tags=["users"], dependencies=[VIEWER])
+async def update_user(
+    engine: CurrentEngine,
+    role: CurrentRole,
+    user: CurrentUser,
+    id: UUID,
+    data: User,
+) -> PrivateUser:
+    if role is None or role < UserRole.ADMIN:
+        if user is None or id != user.id:
+            raise HTTPException(HTTP_401_UNAUTHORIZED)
+
+    updated = await engine.update_user(id, data)
+    if updated is None:
+        raise HTTPException(HTTP_404_NOT_FOUND)
+
+    return updated
+
+
+@api.delete("/users/{id}", tags=["users"], dependencies=[ADMIN])
+async def delete_user(engine: CurrentEngine, id: UUID) -> PrivateUser:
+    deleted = await engine.delete_user(id)
+    if deleted is None:
+        raise HTTPException(HTTP_404_NOT_FOUND)
+
+    return deleted
 
 
 @api.get("/components/{address}", tags=["components"])

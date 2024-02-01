@@ -1510,7 +1510,6 @@ def get_bindings(component_cls: type[Component], binding_cls: type[_BindingT]) -
     return sorted(bindings.values(), key=lambda current: current.method)
 
 
-
 @final
 class _Listener:
     __slots__ = (
@@ -1593,4 +1592,3 @@ class _Listener:
             return
 
         await self.__queue.join()
-

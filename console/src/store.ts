@@ -81,6 +81,9 @@ export const useStore = defineStore('store', () => {
     logout,
     identity: computed(() => identity.value),
     user: computed(() => identity.value?.user ?? null),
+    isAdmin: computed(() => identity.value?.user?.role === 'admin'),
+    isOperator: computed(() => ['operator', 'admin'].includes(identity.value?.user?.role ?? '')),
+    isViewer: computed(() => identity.value?.user),
   }
 
   const configQuery = useQuery(['console-config'], getConsoleConfig, { retry: false })

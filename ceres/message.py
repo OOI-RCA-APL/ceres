@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Annotated, Any
 from uuid import UUID, uuid4
 
@@ -5,6 +6,7 @@ from pydantic import BeforeValidator, Field, PlainSerializer
 
 from ceres.address import Address
 from ceres.data import DateTime, ImmutableDataObject
+from ceres.internal.cli.plumbing import CLIOption
 from ceres.internal.utilities import StrEnum
 from ceres.timing import utc
 
@@ -33,8 +35,8 @@ MessageContent = Annotated[
 
 
 class Message(ImmutableDataObject):
-    id: UUID = Field(default_factory=uuid4)
-    address: Address
-    timestamp: DateTime = Field(default_factory=utc)
-    direction: MessageDirection
-    content: MessageContent
+    id: Annotated[UUID, CLIOption(UUID | None)] = Field(default_factory=uuid4)
+    address: Annotated[Address, CLIOption(str)]
+    timestamp: Annotated[DateTime, CLIOption(datetime)] = Field(default_factory=utc)
+    direction: Annotated[MessageDirection, CLIOption(MessageDirection)]
+    content: Annotated[MessageContent, CLIOption(str)]

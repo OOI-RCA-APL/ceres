@@ -540,8 +540,9 @@ def get_args_model(
     model_module: str | None = None,
     model_config: ConfigDict | None = None,
     remove_self: bool = True,
+    inner: bool = True,
 ) -> type[BaseModel]:
-    function = get_inner_function(function)
+    function = get_inner_function(function) if inner else function
 
     if model_name is None:
         model_name = f"{upper_camel(function.__name__)}Args"

@@ -2,11 +2,10 @@ import os
 import sys
 import warnings
 from contextlib import contextmanager
-from functools import wraps
 from pathlib import Path
-from typing import IO, TYPE_CHECKING, Any, Sequence
+from typing import IO, Annotated, Any, Optional, Sequence
 
-from typer import Option, Typer
+from typer import Option
 
 from ceres.config import Config, ConfigCheckType
 from ceres.data import jsonify
@@ -14,40 +13,6 @@ from ceres.internal.cli.exceptions import CLIDatabaseUnreachableException, CLIIn
 from ceres.internal.project import Project
 from ceres.internal.utilities import syncify
 from ceres.result import Ok
-
-
-class CLIRouter(Typer):
-    def __init__(self, *, name: str, help: str | None = None):
-        super().__init__(
-            name=name,
-            help=help,
-            add_completion=False,
-            no_args_is_help=True,
-            rich_markup_mode="markdown",
-        )
-
-    if not TYPE_CHECKING:
-
-        @wraps(Typer.command)
-        def command(self, *args, **kwargs):
-            base = super()
-
-            def decorator(function):
-                base.command(*args, **kwargs)(syncify(function))
-                return function
-
-            return decorator
-
-        @wraps(Typer.callback)
-        def callback(self, *args, **kwargs):
-            base = super()
-
-            def decorator(function):
-                base.callback(*args, **kwargs)(syncify(function))
-                return function
-
-            return decorator
-
 
 chdir = os.chdir
 
@@ -60,7 +25,7 @@ def disable_chdir() -> None:
     os.chdir = __disabled_chdir__
 
 
-def get_config_path(config_path: Path | None) -> Path:
+def get_config_path(config_path: Path | None = None) -> Path:
     if config_path is None:
         possibilities = [
             Path(name)
@@ -118,8 +83,9 @@ async def get_project(
 
 def ConfigPathOption() -> Any:
     return Option(
-        None,
+        ...,
         "--config",
+        hidden=True,
         exists=True,
         resolve_path=True,
         dir_okay=False,
@@ -128,13 +94,15 @@ def ConfigPathOption() -> Any:
 
 
 def ConfigOption(*, checks: Sequence[ConfigCheckType] = ()) -> Any:
-    async def callback(config_path: Path = ConfigPathOption()) -> Config:
+    async def callback(
+        config_path: Annotated[Optional[Path], ConfigPathOption()] = None,
+    ) -> Config:
         return await get_config(config_path, checks)
 
     return Option(
-        None,
+        ...,
         "--config",
-        help="Provide an explicit path to a Ceres configuration file.",
+        hidden=True,
         exists=True,
         resolve_path=True,
         dir_okay=False,
@@ -143,18 +111,24 @@ def ConfigOption(*, checks: Sequence[ConfigCheckType] = ()) -> Any:
 
 
 def ProjectOption(*, checks: Sequence[ConfigCheckType] = ()) -> Any:
-    async def callback(config_path: Path = ConfigPathOption()) -> Project:
+    async def callback(
+        config_path: Annotated[Optional[Path], ConfigPathOption()] = None,
+    ) -> Project:
         return await get_project(config_path, checks)
 
     return Option(
-        None,
+        ...,
         "--config",
-        help="Provide an explicit path to a Ceres configuration file.",
+        hidden=True,
         exists=True,
         resolve_path=True,
         dir_okay=False,
         callback=syncify(callback),
     )
+
+
+def Dummy() -> Any:
+    return None
 
 
 def get_yes_no(prompt: str, default: bool | None = None) -> bool:

@@ -3,11 +3,11 @@ import signal
 from asyncio import CancelledError
 from asyncio import Event as AsyncEvent
 from pathlib import Path
-from typing import Annotated, Any, Mapping, TypeVar
+from typing import Annotated, Any, Mapping, Sequence, TypeVar
 
-from click import ParamType
+from click import STRING, ParamType
 from pydantic import BaseModel
-from typer import Argument, Option
+from typer import Argument
 
 from ceres.address import AddressSelector
 from ceres.config import Config
@@ -21,17 +21,19 @@ from ceres.internal.cli.exceptions import (
     CLIInvalidConfigException,
     CLIStartupException,
 )
+from ceres.internal.cli.plumbing import CLIArgument, CLIOption, CLIRouter
 from ceres.internal.cli.shared import (
-    CLIRouter,
     ConfigPathOption,
+    Dummy,
     ProjectOption,
     strbool,
     write,
     write_table,
 )
-from ceres.internal.cli.subcommands.database import router as database
-from ceres.internal.cli.subcommands.service import router as service
 from ceres.internal.cli.subcommands.create import router as create
+from ceres.internal.cli.subcommands.database import router as database
+from ceres.internal.cli.subcommands.get import router as get
+from ceres.internal.cli.subcommands.service import router as service
 from ceres.internal.project import Project
 from ceres.internal.utilities import (
     cancel,
@@ -54,6 +56,7 @@ router = CLIRouter(
 )
 
 router.add_typer(create)
+router.add_typer(get)
 router.add_typer(database)
 router.add_typer(service)
 
@@ -68,16 +71,16 @@ def version() -> None:
 
 @router.command()
 async def run(
-    addresses: list[str] = Argument(
-        None,
-        help="Addresses of components to run on startup.",
-    ),
+    addresses: Annotated[
+        Sequence[AddressSelector],
+        CLIArgument(list[str], help="Addresses of components to run on startup."),
+    ],
     *,
-    config_path: Path = ConfigPathOption(),
-    watch: bool = Option(
-        False,
-        help="Automatically restart the application on code changes.",
-    ),
+    config_path: Annotated[Path, ConfigPathOption()] = Dummy(),
+    watch: Annotated[
+        bool,
+        CLIOption(bool, help="Automatically restart the application on code changes."),
+    ] = False,
 ) -> None:
     """
     Start the engine as a foreground process.
@@ -135,7 +138,7 @@ async def run(
 
 
 @router.command()
-async def check(*, config_path: Path = ConfigPathOption()) -> None:
+async def check(*, config_path: Annotated[Path, ConfigPathOption()] = Dummy()) -> None:
     """
     Validate project configuration (ceres.yaml) for errors.
     """
@@ -303,7 +306,7 @@ class APIClient:
 
 
 @router.command()
-async def reload(*, project: Project = ProjectOption()) -> None:
+async def reload(*, project: Annotated[Project, ProjectOption()] = Dummy()) -> None:
     """
     Apply configuration changes.
     """
@@ -332,12 +335,12 @@ AddressPatternInput = Annotated[
 
 @router.command()
 async def status(
-    addresses: list[str] = Argument(
-        None,
-        help="Addresses of components to show the status of.",
-    ),
+    addresses: Annotated[
+        Sequence[AddressSelector] | None,
+        CLIArgument(list[str] | None, help="Addresses of components to show the status of."),
+    ] = None,
     *,
-    project: Project = ProjectOption(),
+    project: Annotated[Project, ProjectOption()] = Dummy(),
 ) -> None:
     """
     Show engine and component statuses.
@@ -347,7 +350,7 @@ async def status(
     from ceres.internal.app import GetStatusesQueryParameters
 
     if not addresses:
-        addresses = ["all"]
+        addresses = [AddressSelector("all")]
 
     client = APIClient(project)
     address = AddressSelector(addresses if addresses else "all")
@@ -392,17 +395,18 @@ async def status(
 
 @router.command()
 async def start(
-    addresses: list[str] = Argument(
-        help="Addresses of components to start.",
-    ),
+    addresses: Annotated[
+        Sequence[AddressSelector],
+        CLIArgument(list[str], help="Addresses of components to start."),
+    ],
     *,
-    project: Project = ProjectOption(),
+    project: Annotated[Project, ProjectOption()] = Dummy(),
 ) -> None:
     """
     Start components at the provided address(s).
     """
     client = APIClient(project)
-    address = AddressSelector(addresses)
+    address = AddressSelector(addresses or [])
     query = ComponentFilter(address=address)
     from ceres.internal.app import StartResult
 
@@ -413,11 +417,12 @@ async def start(
 
 @router.command()
 async def stop(
-    addresses: list[str] = Argument(
-        help="Addresses of components to stop.",
-    ),
+    addresses: Annotated[
+        Sequence[AddressSelector],
+        CLIArgument(list[str], help="Addresses of components to stop."),
+    ],
     *,
-    project: Project = ProjectOption(),
+    project: Annotated[Project, ProjectOption()] = Dummy(),
 ) -> None:
     """
     Stop components at the provided address(s).
@@ -434,11 +439,12 @@ async def stop(
 
 @router.command()
 async def enable(
-    addresses: list[str] = Argument(
-        help="Addresses of components to enable.",
-    ),
+    addresses: Annotated[
+        Sequence[AddressSelector],
+        CLIArgument(list[str], help="Addresses of components to enable."),
+    ],
     *,
-    project: Project = ProjectOption(),
+    project: Annotated[Project, ProjectOption()],
 ) -> None:
     """
     Enable components at the provided address(s).
@@ -455,11 +461,12 @@ async def enable(
 
 @router.command()
 async def disable(
-    addresses: list[str] = Argument(
-        help="Addresses of components to disable.",
-    ),
+    addresses: Annotated[
+        Sequence[AddressSelector],
+        CLIArgument(list[str], help="Addresses of components to disable.", click_type=STRING),
+    ],
     *,
-    project: Project = ProjectOption(),
+    project: Annotated[Project, ProjectOption()] = Dummy(),
 ) -> None:
     """
     Disable components at the provided address(s).
@@ -476,11 +483,12 @@ async def disable(
 
 @router.command()
 async def up(
-    addresses: list[str] = Argument(
-        help="Addresses of components to start and enable.",
-    ),
+    addresses: Annotated[
+        Sequence[AddressSelector],
+        CLIArgument(list[str], help="Addresses of components to start and enable."),
+    ],
     *,
-    project: Project = ProjectOption(),
+    project: Annotated[Project, ProjectOption()] = Dummy(),
 ) -> None:
     """
     Start and enable components at the provided address(s).
@@ -497,11 +505,12 @@ async def up(
 
 @router.command()
 async def down(
-    addresses: list[str] = Argument(
-        help="Addresses of components to stop and disable.",
-    ),
+    addresses: Annotated[
+        Sequence[AddressSelector],
+        CLIArgument(list[str], help="Addresses of components to stop and disable."),
+    ],
     *,
-    project: Project = ProjectOption(),
+    project: Annotated[Project, ProjectOption()] = Dummy(),
 ) -> None:
     """
     Stop and disable components at the provided address(s).

@@ -230,7 +230,7 @@ class DynamicAddress(AddressSelector):
             return None
 
         if "." in self:
-            return type(self)(self[: self.rindex(".")]) or None
+            return type(self)(self[: self.rindex(".")]) or None  # type: ignore
 
         if self.startswith("@"):
             return type(self)("@")
