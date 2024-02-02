@@ -22,7 +22,7 @@ from typing import (
 
 import click
 import click.shell_completion
-from click import ClickException
+from click import ClickException, Context
 from pydantic import BaseModel, ConfigDict, ValidationError
 from pydantic.fields import FieldInfo
 from pydantic_core import PydanticUndefined
@@ -31,6 +31,7 @@ from typer.main import lenient_issubclass
 from typer.models import ArgumentInfo, OptionInfo
 from typing_extensions import Unpack
 
+from ceres.data import ImmutableDataObject
 from ceres.internal.utilities import get_args_model, lenient_isinstance, syncify
 
 
@@ -56,25 +57,30 @@ class CLIRouter(Typer):
 
             return decorator
 
-        @wraps(Typer.callback)
-        def callback(self, *args, **kwargs):
-            base = super()
+        # @wraps(Typer.callback)
+        # def callback(self, *args, **kwargs):
+        #     base = super()
 
-            def decorator(function):
-                base.callback(*args, **kwargs)(syncify(function))
-                return function
+        #     def decorator(function):
+        #         base.callback(*args, **kwargs)(syncify(function))
+        #         base.callback(*args, **kwargs)(syncify(function))
+        #         return function
 
-            return decorator
+        #     return decorator
+
+
+CLIContext = Context
+
+
+class BaseParametersModel(ImmutableDataObject):
+    model_config = ConfigDict(arbitrary_types_allowed=True, extra="allow")
 
 
 def pydantify(function: Any) -> Any:
     signature = inspect.signature(function)
     fields_to_groups: dict[str, str] = {}
     parameters: list[Parameter] = []
-    parameters_model = get_args_model(
-        function,
-        model_config=ConfigDict(arbitrary_types_allowed=True),
-    )
+    parameters_model = get_args_model(function, model_base=BaseParametersModel)
 
     try:
         for parameter_name, parameter in signature.parameters.items():

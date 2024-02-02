@@ -1,16 +1,14 @@
 from typing import Annotated
 
-from ceres.config import Config
 from ceres.data import jsonify
-from ceres.engine import Engine
 from ceres.internal.cli.filter import (
     CLIAlertFilter,
     CLILogEntryFilter,
     CLIMessageFilter,
     CLIUserFilter,
 )
-from ceres.internal.cli.plumbing import CLIOptionGroup, CLIRouter
-from ceres.internal.cli.shared import ConfigOption, Dummy, get_database, write
+from ceres.internal.cli.plumbing import CLIContext, CLIOptionGroup, CLIRouter
+from ceres.internal.cli.shared import use_temporary_engine, write
 
 router = CLIRouter(
     name="get",
@@ -22,13 +20,12 @@ router = CLIRouter(
 async def users(
     *,
     filter: Annotated[CLIUserFilter, CLIOptionGroup()],
-    config: Annotated[Config, ConfigOption(checks=[])] = Dummy(),
+    context: CLIContext,
 ) -> None:
     """
     Retrieve users.
     """
-    await get_database(config)
-    engine = Engine(config)
+    engine = await use_temporary_engine(context)
     user = await engine.get_users(filter)
     write(jsonify(user, indent=2))
 
@@ -37,13 +34,12 @@ async def users(
 async def messages(
     *,
     filter: Annotated[CLIMessageFilter, CLIOptionGroup()],
-    config: Annotated[Config, ConfigOption(checks=[])] = Dummy(),
+    context: CLIContext,
 ) -> None:
     """
     Retrieve messages.
     """
-    await get_database(config)
-    engine = Engine(config)
+    engine = await use_temporary_engine(context)
     user = await engine.get_messages(filter)
     write(jsonify(user, indent=2))
 
@@ -52,13 +48,12 @@ async def messages(
 async def alerts(
     *,
     filter: Annotated[CLIAlertFilter, CLIOptionGroup()],
-    config: Annotated[Config, ConfigOption(checks=[])] = Dummy(),
+    context: CLIContext,
 ) -> None:
     """
     Retrieve alerts.
     """
-    await get_database(config)
-    engine = Engine(config)
+    engine = await use_temporary_engine(context)
     user = await engine.get_alerts(filter)
     write(jsonify(user, indent=2))
 
@@ -67,12 +62,11 @@ async def alerts(
 async def log_entries(
     *,
     filter: Annotated[CLILogEntryFilter, CLIOptionGroup()],
-    config: Annotated[Config, ConfigOption(checks=[])] = Dummy(),
+    context: CLIContext,
 ) -> None:
     """
     Retrieve alerts.
     """
-    await get_database(config)
-    engine = Engine(config)
+    engine = await use_temporary_engine(context)
     user = await engine.get_log_entries(filter)
     write(jsonify(user, indent=2))

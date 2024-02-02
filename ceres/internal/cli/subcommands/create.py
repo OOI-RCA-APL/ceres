@@ -1,14 +1,10 @@
 from typing import Annotated
 
 from ceres.alert import Alert
-from ceres.config import Config
 from ceres.data import PasswordStr, UsernameStr, jsonify
-from ceres.engine import Engine
-from ceres.internal.cli.plumbing import CLIOption, CLIOptionGroup, CLIRouter
+from ceres.internal.cli.plumbing import CLIContext, CLIOption, CLIOptionGroup, CLIRouter
 from ceres.internal.cli.shared import (
-    ConfigOption,
-    Dummy,
-    get_database,
+    use_temporary_engine,
     write,
 )
 from ceres.logs import LogEntry
@@ -29,13 +25,12 @@ async def user(
     email: Annotated[str, CLIOption(str)],
     role: Annotated[UserRole, CLIOption(UserRole)] = UserRole.OPERATOR,
     disabled: Annotated[bool, CLIOption(bool)] = False,
-    config: Annotated[Config, ConfigOption(checks=[])] = Dummy(),
+    context: CLIContext,
 ) -> None:
     """
     Create a user.
     """
-    await get_database(config)
-    engine = Engine(config)
+    engine = await use_temporary_engine(context)
     hash = await engine.hash_password(password)
     user = await engine.create_user(
         User(
@@ -53,13 +48,12 @@ async def user(
 async def message(
     *,
     data: Annotated[Message, CLIOptionGroup()],
-    config: Annotated[Config, ConfigOption(checks=[])] = Dummy(),
+    context: CLIContext,
 ) -> None:
     """
     Create a message.
     """
-    await get_database(config)
-    engine = Engine(config)
+    engine = await use_temporary_engine(context)
     message = await engine.create_message(data)
     write(jsonify(message, indent=2))
 
@@ -68,13 +62,12 @@ async def message(
 async def alert(
     *,
     data: Annotated[Alert, CLIOptionGroup()],
-    config: Annotated[Config, ConfigOption(checks=[])] = Dummy(),
+    context: CLIContext,
 ) -> None:
     """
     Create an alert.
     """
-    await get_database(config)
-    engine = Engine(config)
+    engine = await use_temporary_engine(context)
     alert = await engine.create_alert(data)
     write(jsonify(alert, indent=2))
 
@@ -83,12 +76,11 @@ async def alert(
 async def log_entry(
     *,
     data: Annotated[LogEntry, CLIOptionGroup()],
-    config: Annotated[Config, ConfigOption(checks=[])] = Dummy(),
+    context: CLIContext,
 ) -> None:
     """
     Create a log entry.
     """
-    await get_database(config)
-    engine = Engine(config)
+    engine = await use_temporary_engine(context)
     entry = await engine.create_log_entry(data)
     write(jsonify(entry, indent=2))

@@ -3,17 +3,10 @@ from typing import Annotated
 
 from click import Choice
 
-from ceres.config import Config
 from ceres.database.enums import DataFormat, ItemType
 from ceres.internal.cli.exceptions import CLIDatabaseUnreachableException, CLIException
-from ceres.internal.cli.plumbing import CLIArgument, CLIOption, CLIRouter
-from ceres.internal.cli.shared import (
-    ConfigOption,
-    Dummy,
-    get_database,
-    get_yes_no,
-    write,
-)
+from ceres.internal.cli.plumbing import CLIArgument, CLIContext, CLIOption, CLIRouter
+from ceres.internal.cli.shared import confirm, use_database, write
 from ceres.internal.utilities import show_td
 from ceres.timing import utc
 
@@ -24,11 +17,11 @@ router = CLIRouter(
 
 
 @router.command()
-async def init(*, config: Annotated[Config, ConfigOption(checks=[])] = Dummy()) -> None:
+async def init(*, context: CLIContext) -> None:
     """
     Initialize the database, creating tables and indexes as needed.
     """
-    database = await get_database(config)
+    database = await use_database(context)
 
     try:
         async with database.connect():
@@ -37,15 +30,15 @@ async def init(*, config: Annotated[Config, ConfigOption(checks=[])] = Dummy()) 
         raise CLIDatabaseUnreachableException("Failed to connect to database.")
 
     print("<PENDING>")
-    await ddl(config=config)
+    await ddl(context=context)
     print("</PENDING>")
 
     if await database.initialized():
-        confirm = "Database is not empty, execute above commands anyway?"
+        confirmation = "Database is not empty, execute above commands anyway?"
     else:
-        confirm = "Database appears uninitialized. Execute above commands now?"
+        confirmation = "Database appears uninitialized. Execute above commands now?"
 
-    if get_yes_no(confirm):
+    if confirm(confirmation):
         await database.init()
     else:
         write("Database has not been modified.")
@@ -89,7 +82,7 @@ async def dump(
             help="File format to dump as. This is inferred from the file extension if possible.",
         ),
     ] = None,
-    config: Annotated[Config, ConfigOption(checks=[])] = Dummy(),
+    context: CLIContext,
 ) -> None:
     """
     Dump data from the database into a CSV or SQLite file.
@@ -104,7 +97,7 @@ async def dump(
 
     item_type = list(ItemType) if not item_type else [ItemType(current) for current in item_type]
 
-    database = await get_database(config, initialized=True)
+    database = await use_database(context, initialized=True)
     start = utc()
 
     match format:
@@ -155,7 +148,7 @@ async def load(
             help="File format to read as. This is inferred from the file extension if possible.",
         ),
     ] = None,
-    config: Annotated[Config, ConfigOption(checks=[])] = Dummy(),
+    context: CLIContext,
 ) -> None:
     """
     Load data into the database from a CSV or SQLite file.
@@ -171,7 +164,7 @@ async def load(
 
     item_type = list(ItemType) if not item_type else [ItemType(current) for current in item_type]
 
-    database = await get_database(config, initialized=True)
+    database = await use_database(context, initialized=True)
     start = utc()
 
     match format:
@@ -187,13 +180,13 @@ async def load(
 
 
 @router.command()
-async def clear(config: Annotated[Config, ConfigOption(checks=[])] = Dummy()) -> None:
+async def clear(*, context: CLIContext) -> None:
     """
     Remove all data from the database. Tables and indexes are not removed, only truncated.
     """
-    database = await get_database(config, initialized=True)
+    database = await use_database(context, initialized=True)
 
-    if not get_yes_no("Clear all data from the project database?", default=False):
+    if not confirm("Clear all data from the project database?"):
         write("Database has not been modified. Exiting.")
         return
 
@@ -206,11 +199,11 @@ async def clear(config: Annotated[Config, ConfigOption(checks=[])] = Dummy()) ->
 
 
 @router.command()
-async def ddl(*, config: Annotated[Config, ConfigOption(checks=[])] = Dummy()) -> None:
+async def ddl(*, context: CLIContext) -> None:
     """
     Show DDL commands used to initialize the database.
     """
-    database = await get_database(config)
+    database = await use_database(context)
 
     for statement in database.ddl:
         write(statement)

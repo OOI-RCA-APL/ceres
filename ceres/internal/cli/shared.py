@@ -2,16 +2,18 @@ import os
 import sys
 import warnings
 from contextlib import contextmanager
+from functools import wraps
 from pathlib import Path
-from typing import IO, Annotated, Any, Optional, Sequence
+from typing import IO, Any, Callable, Sequence
 
-from typer import Option
+import typer
+from click import ParamType
 
 from ceres.config import Config, ConfigCheckType
 from ceres.data import jsonify
 from ceres.internal.cli.exceptions import CLIDatabaseUnreachableException, CLIInvalidConfigException
+from ceres.internal.cli.plumbing import CLIContext
 from ceres.internal.project import Project
-from ceres.internal.utilities import syncify
 from ceres.result import Ok
 
 chdir = os.chdir
@@ -71,82 +73,71 @@ async def get_config(
             )
 
 
-async def get_project(
-    config_path: Path | None,
-    checks: Sequence[ConfigCheckType],
-) -> Project:
+async def use_config_path(context: CLIContext) -> Path:
+    config_path = context.meta.get("config_path")
+    if config_path is None:
+        raise CLIInvalidConfigException("No `config_path` is set.")
+
+    return config_path
+
+
+async def use_config(context: CLIContext, checks: Sequence[ConfigCheckType] = ()) -> Config:
+    config_path = await use_config_path(context)
+    return await get_config(config_path, checks)
+
+
+async def use_project(context: CLIContext, checks: Sequence[ConfigCheckType] = ()) -> Project:
+    config_path = await use_config_path(context)
     return Project(
         get_config_path(config_path),
         await get_config(config_path, checks),
     )
 
 
-def ConfigPathOption() -> Any:
-    return Option(
-        ...,
-        "--config",
-        hidden=True,
-        exists=True,
-        resolve_path=True,
-        dir_okay=False,
-        callback=get_config_path,
+@wraps(typer.confirm)
+def confirm(
+    text: str,
+    default: bool | None = False,
+    abort: bool = False,
+    prompt_suffix: str = ": ",
+    show_default: bool = True,
+    err: bool = False,
+) -> bool:
+    return typer.confirm(
+        text=text,
+        default=default,
+        abort=abort,
+        prompt_suffix=prompt_suffix,
+        show_default=show_default,
+        err=err,
     )
 
 
-def ConfigOption(*, checks: Sequence[ConfigCheckType] = ()) -> Any:
-    async def callback(
-        config_path: Annotated[Optional[Path], ConfigPathOption()] = None,
-    ) -> Config:
-        return await get_config(config_path, checks)
-
-    return Option(
-        ...,
-        "--config",
-        hidden=True,
-        exists=True,
-        resolve_path=True,
-        dir_okay=False,
-        callback=syncify(callback),
+@wraps(typer.prompt)
+def prompt(
+    text: str,
+    default: Any | None = None,
+    hide_input: bool = False,
+    confirmation_prompt: bool | str = False,
+    type: ParamType | Any | None = None,
+    value_proc: Callable[[str], Any] | None = None,
+    prompt_suffix: str = ": ",
+    show_default: bool = True,
+    err: bool = False,
+    show_choices: bool = True,
+) -> Any:
+    return typer.prompt(
+        text=text,
+        default=default,
+        hide_input=hide_input,
+        confirmation_prompt=confirmation_prompt,
+        type=type,
+        value_proc=value_proc,
+        prompt_suffix=prompt_suffix,
+        show_default=show_default,
+        err=err,
+        show_choices=show_choices,
     )
-
-
-def ProjectOption(*, checks: Sequence[ConfigCheckType] = ()) -> Any:
-    async def callback(
-        config_path: Annotated[Optional[Path], ConfigPathOption()] = None,
-    ) -> Project:
-        return await get_project(config_path, checks)
-
-    return Option(
-        ...,
-        "--config",
-        hidden=True,
-        exists=True,
-        resolve_path=True,
-        dir_okay=False,
-        callback=syncify(callback),
-    )
-
-
-def Dummy() -> Any:
-    return None
-
-
-def get_yes_no(prompt: str, default: bool | None = None) -> bool:
-    while True:
-        if default is None:
-            default_indicator = "y/n"
-        elif default:
-            default_indicator = "Y/n"
-        else:
-            default_indicator = "y/N"
-
-        text = input(f"{prompt} ({default_indicator}): ").lower()
-        if default is not None and text == "":
-            return default
-        if text in ("yes", "y"):
-            return True
-        if text in ("no", "n"):
-            return False
 
 
 def write(
@@ -197,3 +188,36 @@ async def get_database(config: Config, *, initialized: bool = False):
             raise CLIDatabaseUnreachableException("Database appears uninitialized, exiting.")
 
     return database
+
+
+async def use_database(
+    context: CLIContext,
+    *,
+    initialized: bool = False,
+):
+    from ceres.database.database import Database
+
+    config = await use_config(context)
+    database = Database(config.database)
+
+    try:
+        async with database.connect():
+            pass
+    except Exception:
+        raise CLIDatabaseUnreachableException("Failed to connect to database.")
+
+    if initialized:
+        if not await database.initialized():
+            raise CLIDatabaseUnreachableException("Database appears uninitialized, exiting.")
+
+    return database
+
+
+async def use_temporary_engine(
+    context: CLIContext,
+    checks: Sequence[ConfigCheckType] = ConfigCheckType.all(),
+):
+    from ceres.engine import Engine
+
+    config = await use_config(context, checks=checks)
+    return Engine(config)

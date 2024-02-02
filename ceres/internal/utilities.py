@@ -539,6 +539,7 @@ def get_args_model(
     model_name: str | None = None,
     model_module: str | None = None,
     model_config: ConfigDict | None = None,
+    model_base: type[BaseModel] | None = None,
     remove_self: bool = True,
     inner: bool = True,
 ) -> type[BaseModel]:
@@ -546,8 +547,6 @@ def get_args_model(
 
     if model_name is None:
         model_name = f"{upper_camel(function.__name__)}Args"
-    if model_config is None:
-        model_config = {}
 
     (
         position_parameter_names,
@@ -583,13 +582,16 @@ def get_args_model(
     parameters: dict[str, Any] = {**positional_parameters, **keyword_only_parameters}
 
     # Allow extra arguments if there is a `**kwargs` parameter in the function signature.
-    if kwargs_parameter_name:
-        model_config = {**model_config, "extra": "allow"} if kwargs_parameter_name else model_config
+    if kwargs_parameter_name and model_base is None:
+        model_config = (
+            {**(model_config or {}), "extra": "allow"} if kwargs_parameter_name else model_config
+        )
 
     model = create_model(
         model_name,
         __config__=model_config,
         __module__=model_module or "__dynamic__",
+        __base__=model_base,
         **parameters,
     )
 
