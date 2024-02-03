@@ -315,11 +315,7 @@ class Database:
         users = await self.get_users(filter, **{**kwargs, "limit": 1})
         return users[0] if users else None
 
-    async def update_user(
-        self,
-        id: UUID,
-        data: User,
-    ) -> User | None:
+    async def update_user(self, id: UUID, data: User) -> User | None:
         statement = (
             update(UserEntity)
             .where(UserEntity.id == id)
@@ -337,10 +333,7 @@ class Database:
 
         return User.model_validate(entity, from_attributes=True)
 
-    async def delete_user(
-        self,
-        id: UUID,
-    ) -> User | None:
+    async def delete_user(self, id: UUID) -> User | None:
         statement = delete(UserEntity).where(UserEntity.id == id).returning(UserEntity)
 
         async with await self.init() as session:

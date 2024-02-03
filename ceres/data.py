@@ -2,7 +2,7 @@ import json
 from abc import ABC
 from datetime import date, datetime, timedelta, timezone
 from types import MappingProxyType
-from typing import Annotated, Any, Callable, Literal, cast
+from typing import Annotated, Any, Callable, Literal, NewType, cast
 
 import pydantic
 import pydantic.generics
@@ -215,3 +215,12 @@ UsernameStr = Annotated[
 
 PasswordStr = Annotated[str, StringConstraints(min_length=1, max_length=256)]
 EmailStr = _BaseEmailStr
+
+_BCRYPT_HASH_PATTERN = r"^\$2[ayb]\$.{56}$"
+
+BCryptHash = NewType(
+    "BCryptHash",
+    Annotated[str, StringConstraints(pattern=_BCRYPT_HASH_PATTERN, min_length=64, max_length=64)],
+)
+
+PasswordHash = BCryptHash

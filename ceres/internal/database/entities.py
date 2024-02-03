@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Iterable
 from uuid import UUID, uuid4
 
 import pydantic
+from pydantic import SkipValidation
 from sqlalchemy import (
     JSON,
     Boolean,
@@ -25,15 +26,13 @@ from sqlalchemy.orm import (
     MappedAsDataclass,
     declared_attr,
     mapped_column,
-    validates,
 )
 from sqlalchemy.schema import CreateIndex, CreateTable, SchemaItem
 from sqlalchemy.sql import expression
 from typing_extensions import final, override
 
 from ceres.address import Address
-from ceres.data import EmailStr, UsernameStr
-from ceres.internal.auth import validate_password_hash
+from ceres.data import EmailStr, PasswordHash, UsernameStr
 from ceres.internal.database.types import (
     AddressMapper,
     DateTimeMapper,
@@ -177,7 +176,8 @@ class UserEntity(Entity, kw_only=True):
 
     id: Mapped[UUID] = mapped_column(UUIDMapper, default_factory=uuid4)
     username: Mapped[UsernameStr] = mapped_column(Text)
-    hash: Mapped[str] = mapped_column(Text)  # A password hash created using bcrypt.
+    email: Mapped[EmailStr] = mapped_column(Text)
+    password: Mapped[SkipValidation[PasswordHash]] = mapped_column(Text)  # A `bcrypt` hash.
     role: Mapped[UserRole] = mapped_column(
         EnumMapper(UserRole),
         default=UserRole.OPERATOR,
@@ -188,7 +188,6 @@ class UserEntity(Entity, kw_only=True):
         default=False,
         server_default=expression.false(),
     )
-    email: Mapped[EmailStr] = mapped_column(Text)
 
     @classmethod
     @override
@@ -199,13 +198,6 @@ class UserEntity(Entity, kw_only=True):
             UniqueConstraint("username", name=f"uq_{cls.__tablename__}__username"),
             EnumConstraint("role", UserRole, name=f"ck_{cls.__tablename__}__role"),
         )
-
-    @validates("hash")
-    def _validate_hash(self, column: str, hash: str) -> str:
-        if not validate_password_hash(hash):
-            raise ValueError("only bcrypt hashes are supported")
-
-        return hash
 
 
 @final

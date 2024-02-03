@@ -8,12 +8,14 @@ from typing import IO, Any, Callable, Sequence
 
 import typer
 from click import ParamType
+from pydantic import field_validator
 
 from ceres.config import Config, ConfigCheckType
-from ceres.data import jsonify
+from ceres.data import ImmutableDataObject, jsonify
 from ceres.internal.cli.exceptions import CLIDatabaseUnreachableException, CLIInvalidConfigException
 from ceres.internal.cli.plumbing import CLIContext
 from ceres.internal.project import Project
+from ceres.internal.utilities import is_non_stringy_collection
 from ceres.result import Ok
 
 chdir = os.chdir
@@ -221,3 +223,12 @@ async def use_temporary_engine(
 
     config = await use_config(context, checks=checks)
     return Engine(config)
+
+
+class ValidateEmptyAsNone(ImmutableDataObject):
+    @field_validator("*")
+    def __validate_empty_as_none(cls, value: Any) -> Any:
+        if is_non_stringy_collection(value) and len(value) == 0:
+            return None
+
+        return value

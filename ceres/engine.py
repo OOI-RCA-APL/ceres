@@ -13,7 +13,7 @@ from typing_extensions import Self, Unpack, override
 from ceres.address import Address, AddressSelector, DynamicAddress
 from ceres.alert import Alert
 from ceres.config import Config, ServerSSLConfig
-from ceres.data import ImmutableDataObject
+from ceres.data import ImmutableDataObject, PasswordHash
 from ceres.directory import Directory
 from ceres.errors import (
     ConfigError,
@@ -25,7 +25,7 @@ from ceres.errors import (
 from ceres.events import Event, LogEvent, StoppedEvent, StoppingEvent
 from ceres.exceptions import EngineDatabaseInitFailedException
 from ceres.filter import ComponentFilter, ComponentFilterArgs, UserFilter, UserFilterArgs
-from ceres.internal.app import App
+from ceres.internal.app.main import App
 from ceres.internal.auth import get_password_hash, verify_password
 from ceres.internal.project import Project
 from ceres.internal.utilities import StrEnum, sleep_forever, strify, uniquify
@@ -297,13 +297,13 @@ class Engine(Object, kw_only=False):
     ) -> User | None:
         return await self.__database.get_user(filter, **kwargs)
 
-    async def hash_password(self, password: str) -> str:
-        def execute() -> str:
+    async def hash_password(self, password: str) -> PasswordHash:
+        def execute() -> PasswordHash:
             return get_password_hash(password)
 
         return await spawn(execute)
 
-    async def verify_password(self, password: str, hash: str) -> bool:
+    async def verify_password(self, password: str, hash: PasswordHash) -> bool:
         def execute() -> bool:
             return verify_password(password, hash)
 
@@ -570,7 +570,7 @@ class Engine(Object, kw_only=False):
         else:
             return None
 
-        from ceres.internal.app import App
+        from ceres.internal.app.main import App
 
         return Uvicorn(
             UvicornConfig(

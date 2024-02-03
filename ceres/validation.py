@@ -1,5 +1,4 @@
 from pydantic import ValidationError
-from typing_extensions import Self
 
 from ceres.data import ImmutableDataObject
 
@@ -10,7 +9,7 @@ class ValidationProblem(ImmutableDataObject):
     type: str
 
     @classmethod
-    def extract(cls, error: ValidationError) -> list[Self]:
+    def extract(cls, error: ValidationError) -> list["ValidationProblem"]:
         return [
             ValidationProblem(
                 location=list(segment for segment in error["loc"] if segment != "__root__"),

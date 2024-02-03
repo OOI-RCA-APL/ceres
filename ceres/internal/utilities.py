@@ -17,6 +17,7 @@ from os import PathLike as _BasePathLike
 from types import NoneType, UnionType
 from typing import (
     TYPE_CHECKING,
+    Annotated,
     Any,
     AsyncIterable,
     Awaitable,
@@ -36,6 +37,8 @@ from typing import (
     TypeGuard,
     TypeVar,
     cast,
+    get_args,
+    get_origin,
 )
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, create_model, validate_call
@@ -351,6 +354,19 @@ def is_mapping(obj: Any) -> TypeGuard[Mapping[Any, Any]]:
         return False
 
     return True
+
+
+def get_unannotated_type(type: Any) -> Any:
+    current = type
+    while True:
+        try:
+            if get_origin(current) is Annotated:
+                current = get_args(type)[0]
+                continue
+        except Exception:
+            pass
+
+        return current
 
 
 def traverse(

@@ -1,5 +1,6 @@
 import asyncio
 import signal
+import traceback
 from asyncio import CancelledError
 from asyncio import Event as AsyncEvent
 from pathlib import Path
@@ -14,7 +15,6 @@ from ceres.engine import Engine
 from ceres.exceptions import EngineException
 from ceres.filter import ComponentFilter
 from ceres.internal import logs
-from ceres.internal.cli.client import Client
 from ceres.internal.cli.exceptions import (
     CLIEngineNotRunningException,
     CLIInvalidConfigException,
@@ -29,10 +29,13 @@ from ceres.internal.cli.shared import (
     write,
     write_table,
 )
-from ceres.internal.cli.subcommands.create import router as create
-from ceres.internal.cli.subcommands.database import router as database
-from ceres.internal.cli.subcommands.get import router as get
-from ceres.internal.cli.subcommands.service import router as service
+from ceres.internal.cli.subcommands.alert import router as subcommand__alert
+from ceres.internal.cli.subcommands.database import router as subcommand__database
+from ceres.internal.cli.subcommands.log_entry import router as subcommand__log_entry
+from ceres.internal.cli.subcommands.message import router as subcommand__message
+from ceres.internal.cli.subcommands.service import router as subcommand__service
+from ceres.internal.cli.subcommands.user import router as subcommand__user
+from ceres.internal.client import Client
 from ceres.internal.utilities import (
     cancel,
     ensure_event_loop,
@@ -51,6 +54,13 @@ router = CLIRouter(
     name="ceres",
     help=f"Ceres CLI — Package Version {__version__}",
 )
+
+router.add_typer(subcommand__alert)
+router.add_typer(subcommand__database)
+router.add_typer(subcommand__log_entry)
+router.add_typer(subcommand__message)
+router.add_typer(subcommand__service)
+router.add_typer(subcommand__user)
 
 
 @router.callback(invoke_without_command=True)
@@ -80,12 +90,6 @@ def setup(
     logs.setup()
     config = get_config_path(config)
     context.meta["config_path"] = config
-
-
-router.add_typer(create)
-router.add_typer(get)
-router.add_typer(database)
-router.add_typer(service)
 
 
 @router.command()
@@ -291,7 +295,7 @@ async def status(
     """
     from aiohttp import ClientError
 
-    from ceres.internal.app import GetStatusesQueryParameters
+    from ceres.internal.app.api.routes.statuses import GetStatusesQueryParameters
 
     project = await use_project(context)
 
@@ -308,6 +312,7 @@ async def status(
             result=list[Status],
         )
     except ClientError:
+        traceback.print_exc()
         statuses = None
 
     running = statuses is not None
@@ -355,7 +360,7 @@ async def start(
     client = Client(project)
     address = AddressSelector(addresses or [])
     query = ComponentFilter(address=address)
-    from ceres.internal.app import StartResult
+    from ceres.internal.app.api import StartResult
 
     result = await client.post("/start", query, parse=StartResult)
 
@@ -378,7 +383,7 @@ async def stop(
     client = Client(project)
     address = AddressSelector(addresses)
     query = ComponentFilter(address=address)
-    from ceres.internal.app import StopResult
+    from ceres.internal.app.api import StopResult
 
     result = await client.post("/stop", query, parse=StopResult)
 
@@ -401,7 +406,7 @@ async def enable(
     client = Client(project)
     address = AddressSelector(addresses)
     query = ComponentFilter(address=address)
-    from ceres.internal.app import EnableResult
+    from ceres.internal.app.api import EnableResult
 
     result = await client.post("/enable", query, parse=EnableResult)
 
@@ -424,7 +429,7 @@ async def disable(
     client = Client(project)
     address = AddressSelector(addresses)
     query = ComponentFilter(address=address)
-    from ceres.internal.app import DisableResult
+    from ceres.internal.app.api import DisableResult
 
     result = await client.post("/disable", query, parse=DisableResult)
 
@@ -447,7 +452,7 @@ async def up(
     client = Client(project)
     address = AddressSelector(addresses)
     query = ComponentFilter(address=address)
-    from ceres.internal.app import UpResult
+    from ceres.internal.app.api import UpResult
 
     result = await client.post("/up", query, parse=UpResult)
 
@@ -470,7 +475,7 @@ async def down(
     client = Client(project)
     address = AddressSelector(addresses)
     query = ComponentFilter(address=address)
-    from ceres.internal.app import DownResult
+    from ceres.internal.app.api import DownResult
 
     result = await client.post("/down", query, parse=DownResult)
 

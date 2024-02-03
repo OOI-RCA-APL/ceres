@@ -32,7 +32,12 @@ from typer.models import ArgumentInfo, OptionInfo
 from typing_extensions import Unpack
 
 from ceres.data import ImmutableDataObject
-from ceres.internal.utilities import get_args_model, lenient_isinstance, syncify
+from ceres.internal.utilities import (
+    get_args_model,
+    get_unannotated_type,
+    lenient_isinstance,
+    syncify,
+)
 
 
 class CLIRouter(Typer):
@@ -57,16 +62,15 @@ class CLIRouter(Typer):
 
             return decorator
 
-        # @wraps(Typer.callback)
-        # def callback(self, *args, **kwargs):
-        #     base = super()
+        @wraps(Typer.callback)
+        def callback(self, *args, **kwargs):
+            base = super()
 
-        #     def decorator(function):
-        #         base.callback(*args, **kwargs)(syncify(function))
-        #         base.callback(*args, **kwargs)(syncify(function))
-        #         return function
+            def decorator(function):
+                base.callback(*args, **kwargs)(syncify(function))
+                return function
 
-        #     return decorator
+            return decorator
 
 
 CLIContext = Context
@@ -87,15 +91,19 @@ def pydantify(function: Any) -> Any:
             option_group = _get_parameter_metadata(parameter, CLIOptionGroupInfo)
             if option_group is not None:
                 group_name = parameter_name
-                group_cls: type[BaseModel] = _get_non_annotated_type(parameter.annotation)
+                group_cls: BaseModel = get_unannotated_type(parameter.annotation)
+                if not lenient_issubclass(group_cls, BaseModel):
+                    raise TypeError(
+                        f"Option group annotation `{group_name}` must be a subclass of `BaseModel`."
+                    )
                 for field_name in group_cls.model_fields.keys():
                     fields_to_groups[field_name] = group_name
                 for field_name, field in group_cls.model_fields.items():
-                    parameters.append(_get_field_parameter(field_name, field))
+                    parameters.append(_get_typer_compatible_parameter(field, field_name))
                 continue
 
             field = parameters_model.model_fields[parameter_name]
-            parameters.append(_get_field_parameter(parameter_name, field))
+            parameters.append(_get_typer_compatible_parameter(field, parameter_name))
 
         @wraps(function)
         def wrapped(*args: Any, **kwargs: Any):
@@ -123,71 +131,6 @@ def pydantify(function: Any) -> Any:
         return wrapped
     except Exception:
         traceback.print_exc()
-
-
-def _get_non_annotated_type(type: Any) -> Any:
-    current = type
-    while True:
-        if current.__name__ == "Annotated":
-            current = get_args(type)[0]
-            continue
-
-        if current.__name__ == "Sequence":
-            return list[get_args(current)[0]]  # type: ignore
-
-        if current.__name__ == "Optional" or isinstance(current, UnionType):
-            args = get_args(current)
-            if args[1] is NoneType:
-                inner = args[0]
-                if inner.__name__ == "Sequence":
-                    return list[get_args(inner)[0]]  # type: ignore
-
-        return current
-
-
-_T = TypeVar("_T")
-
-
-def _get_parameter_metadata(parameter: inspect.Parameter, metadata_type: type[_T]) -> _T | None:
-    if lenient_issubclass(parameter.default, metadata_type):
-        return parameter.default
-
-    if parameter.annotation is inspect.Parameter.empty:
-        return None
-
-    metadata = getattr(parameter.annotation, "__metadata__", None)
-    if metadata is None:
-        return None
-
-    for item in metadata:
-        if lenient_isinstance(item, metadata_type):
-            return item
-
-    return None
-
-
-def _get_field_metadata(field: FieldInfo, metadata_type: type[_T]) -> _T | None:
-    if lenient_isinstance(field.default, metadata_type):
-        return field.default
-
-    for item in field.metadata:
-        if lenient_isinstance(item, metadata_type):
-            return item
-
-    return None
-
-
-def _clean_parameter_type(type: type[Any]) -> type[Any]:
-    if get_origin(type) is UnionType:
-        args = get_args(type)
-        if any(current is NoneType for current in args):
-            other = tuple(current for current in args if current is not NoneType)
-            if len(other) == 1:
-                return Optional[other[0]]  # type: ignore
-
-            return Optional[Union[other]]  # type: ignore
-
-    return type
 
 
 class CLIOptionGroupInfo:
@@ -260,7 +203,7 @@ def CLIArgument(
     **kwargs: Unpack[CLIArgumentArgs],
 ) -> Any:
     argument = Argument(..., **kwargs)  # type: ignore
-    argument.type = _clean_parameter_type(type)
+    argument.type = _get_typer_compatible_type(type)
     return argument
 
 
@@ -269,7 +212,7 @@ def CLIOption(
     **kwargs: Unpack[CLIOptionArgs],
 ) -> Any:
     option = Option(..., **kwargs)  # type: ignore
-    option.type = _clean_parameter_type(type)
+    option.type = _get_typer_compatible_type(type)
     return option
 
 
@@ -277,13 +220,57 @@ def CLIOptionGroup() -> Any:
     return CLIOptionGroupInfo()
 
 
-VirtualDefault = (
+def _get_typer_compatible_type(type: type[Any]) -> type[Any]:
+    if get_origin(type) is UnionType:
+        args = get_args(type)
+        if any(current is NoneType for current in args):
+            other = tuple(current for current in args if current is not NoneType)
+            if len(other) == 1:
+                return Optional[other[0]]  # type: ignore
+
+            return Optional[Union[other]]  # type: ignore
+
+    return type
+
+
+_VirtualDefault = (
     ArgumentInfo | OptionInfo | FieldInfo | type(PydanticUndefined) | type(Parameter.empty)
 )
 
+_T = TypeVar("_T")
 
-def _get_argument(name: str, field: FieldInfo) -> ArgumentInfo | None:
-    argument = _get_field_metadata(field, ArgumentInfo)
+
+def _get_parameter_metadata(parameter: inspect.Parameter, metadata_type: type[_T]) -> _T | None:
+    if lenient_issubclass(parameter.default, metadata_type):
+        return parameter.default
+
+    if parameter.annotation is inspect.Parameter.empty:
+        return None
+
+    metadata = getattr(parameter.annotation, "__metadata__", None)
+    if metadata is None:
+        return None
+
+    for item in metadata:
+        if lenient_isinstance(item, metadata_type):
+            return item
+
+    return None
+
+
+def _get_typer_parameter(field: FieldInfo, parameter_type: type[_T]) -> _T | None:
+    if lenient_isinstance(field.default, parameter_type):
+        return field.default
+
+    for item in field.metadata:
+        if lenient_isinstance(item, parameter_type):
+            return item
+
+    return None
+
+
+def _create_typer_argument(field: FieldInfo) -> ArgumentInfo | None:
+    argument = _get_typer_parameter(field, ArgumentInfo)
     if argument is None:
         return None
 
@@ -291,7 +278,7 @@ def _get_argument(name: str, field: FieldInfo) -> ArgumentInfo | None:
 
     if argument.help is None:
         argument.help = field.description
-    if isinstance(field.default, VirtualDefault):
+    if isinstance(field.default, _VirtualDefault):
         argument.default = ...
         argument.show_default = False
     if field.default_factory is not None:
@@ -300,16 +287,16 @@ def _get_argument(name: str, field: FieldInfo) -> ArgumentInfo | None:
     return argument
 
 
-def _get_option(name: str, field: FieldInfo) -> OptionInfo:
-    option = _get_field_metadata(field, OptionInfo)
+def _create_typer_option(field: FieldInfo) -> OptionInfo:
+    option = _get_typer_parameter(field, OptionInfo)
     if option is not None:
         option = copy(option)
     else:
-        option = OptionInfo()
+        option = Option()
 
     if option.help is None:
         option.help = field.description
-    if isinstance(field.default, VirtualDefault):
+    if isinstance(field.default, _VirtualDefault):
         option.default = ...
         option.show_default = False
     if field.default_factory is not None:
@@ -318,19 +305,19 @@ def _get_option(name: str, field: FieldInfo) -> OptionInfo:
     return option
 
 
-def _get_field_parameter(name: str, field: FieldInfo) -> Parameter:
-    meta = _get_argument(name, field) or _get_option(name, field)
+def _get_typer_compatible_parameter(field: FieldInfo, name: str) -> Parameter:
+    meta = _create_typer_argument(field) or _create_typer_option(field)
     default = field.default if field.default is not PydanticUndefined else Parameter.empty
-    if isinstance(default, VirtualDefault):
+    if lenient_isinstance(default, _VirtualDefault):
         default = Parameter.empty
 
-    type: Any = None
+    annotation: Any = None
     if hasattr(meta, "type"):
-        type = getattr(meta, "type")
-    if type is None:
-        type = field.annotation
+        annotation = getattr(meta, "type")
+    if annotation is None:
+        annotation = field.annotation
 
-    annotation = Annotated[type, meta]
+    annotation = Annotated[annotation, meta]
 
     return Parameter(
         name=name,
