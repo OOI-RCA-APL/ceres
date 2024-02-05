@@ -69,8 +69,8 @@ function onPointerMove(event: PointerEvent) {
   }
 
   event.preventDefault()
-  drag.end.x = event.pageX
-  drag.end.y = event.pageY
+  drag.end.x = Math.max(event.pageX, 0)
+  drag.end.y = Math.max(event.pageY, 0)
   const size = clamp(drag.startModelValue + drag.end[axis] - drag.start[axis])
   emit('update:modelValue', size)
 }
@@ -81,8 +81,8 @@ function onPointerUp(event: PointerEvent) {
   }
 
   event.preventDefault()
-  drag.end.x = event.pageX
-  drag.end.y = event.pageY
+  drag.end.x = Math.max(event.pageX, 0)
+  drag.end.y = Math.max(event.pageY, 0)
 
   const size = clamp(drag.startModelValue + drag.end[axis] - drag.start[axis])
   emit('update:modelValue', size)
