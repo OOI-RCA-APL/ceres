@@ -42,19 +42,22 @@ function getAuthorizationCookieType() {
 }
 
 export async function postLogin(data: { username: string; password: string }): Promise<Identity> {
-  return await post('/api/login', IdentityModel, { ...data, cookie: getAuthorizationCookieType() })
+  return await post('/api/auth/login', IdentityModel, {
+    ...data,
+    cookie: getAuthorizationCookieType(),
+  })
 }
 
 export async function postRefresh(): Promise<Identity> {
-  return await post('/api/refresh', IdentityModel, { cookie: getAuthorizationCookieType() })
+  return await post('/api/auth/refresh', IdentityModel, { cookie: getAuthorizationCookieType() })
 }
 
 export async function postLogout(): Promise<Identity> {
-  return await post('/api/logout', IdentityModel)
+  return await post('/api/auth/logout', IdentityModel)
 }
 
 export async function getMe(): Promise<Identity> {
-  return await get('/api/me', IdentityModel)
+  return await get('/api/auth/me', IdentityModel)
 }
 
 export async function getConfig(): Promise<Config> {

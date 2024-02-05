@@ -220,7 +220,7 @@ _BCRYPT_HASH_PATTERN = r"^\$2[ayb]\$.{56}$"
 
 BCryptHash = NewType(
     "BCryptHash",
-    Annotated[str, StringConstraints(pattern=_BCRYPT_HASH_PATTERN, min_length=64, max_length=64)],
+    Annotated[str, StringConstraints(pattern=_BCRYPT_HASH_PATTERN)],
 )
 
 PasswordHash = BCryptHash

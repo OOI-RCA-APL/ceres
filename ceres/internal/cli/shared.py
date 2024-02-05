@@ -59,12 +59,13 @@ def get_config_path(config_path: Path | None = None) -> Path:
 async def get_config(
     config_path: Path | None,
     checks: Sequence[ConfigCheckType],
+    silent: bool = False,
 ) -> Config:
     import rich
 
     match await Config.load(
         get_config_path(config_path),
-        log=rich.print,
+        log=rich.print if not silent else lambda *args: None,
         checks=checks,
     ):
         case Ok(config):
@@ -83,16 +84,24 @@ async def use_config_path(context: CLIContext) -> Path:
     return config_path
 
 
-async def use_config(context: CLIContext, checks: Sequence[ConfigCheckType] = ()) -> Config:
+async def use_config(
+    context: CLIContext,
+    checks: Sequence[ConfigCheckType] = (),
+    silent: bool = False,
+) -> Config:
     config_path = await use_config_path(context)
-    return await get_config(config_path, checks)
+    return await get_config(config_path, checks, silent)
 
 
-async def use_project(context: CLIContext, checks: Sequence[ConfigCheckType] = ()) -> Project:
+async def use_project(
+    context: CLIContext,
+    checks: Sequence[ConfigCheckType] = (),
+    silent: bool = False,
+) -> Project:
     config_path = await use_config_path(context)
     return Project(
         get_config_path(config_path),
-        await get_config(config_path, checks),
+        await get_config(config_path, checks, silent),
     )
 
 
@@ -217,11 +226,16 @@ async def use_database(
 
 async def use_temporary_engine(
     context: CLIContext,
-    checks: Sequence[ConfigCheckType] = ConfigCheckType.all(),
+    checks: Sequence[ConfigCheckType] = (ConfigCheckType.DATABASE,),
+    silent: bool = True,
 ):
     from ceres.engine import Engine
 
-    config = await use_config(context, checks=checks)
+    config = await use_config(
+        context,
+        checks=checks,
+        silent=silent,
+    )
     return Engine(config)
 
 
