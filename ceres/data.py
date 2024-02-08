@@ -1,8 +1,9 @@
 import json
 from abc import ABC
 from datetime import date, datetime, timedelta, timezone
+from json import JSONDecodeError
 from types import MappingProxyType
-from typing import Annotated, Any, Callable, Literal, NewType, cast
+from typing import Annotated, Any, Callable, Literal, NewType, Sized, TypeVar, cast
 
 import pydantic
 import pydantic.generics
@@ -19,6 +20,7 @@ from pydantic import EmailStr as _BaseEmailStr
 from pydantic.fields import FieldInfo
 from pydantic_extra_types.color import Color as Color
 from typing_extensions import dataclass_transform
+from yaml import YAMLError
 
 from ceres.internal.utilities import (
     NAME_PATTERN,
@@ -114,23 +116,44 @@ def __validate_non_negative_timedelta(value: object) -> timedelta | None:
 NonNegativeTimeDelta = Annotated[timedelta, BeforeValidator(__validate_non_negative_timedelta)]
 
 
-def __pre_validate_json_object(value: object) -> object:
+def __pre_validate_from_json(value: object) -> object:
     if isinstance(value, str | bytes):
-        return json.loads(value)
+        try:
+            return json.loads(value)
+        except JSONDecodeError as error:
+            raise ValueError(f"invalid JSON: {error}")
 
     return value
 
 
-def __pre_validate_json_array(value: object) -> object:
+def __pre_validate_from_yaml(value: object) -> object:
     if isinstance(value, str | bytes):
-        return json.loads(value)
+        try:
+            return yaml.safe_load(value)
+        except YAMLError as error:
+            raise ValueError(f"invalid YAML: {error}")
 
     return value
 
+
+_T = TypeVar("_T")
+
+FromJSON = Annotated[_T, BeforeValidator(__pre_validate_from_json)]
+FromYAML = Annotated[_T, BeforeValidator(__pre_validate_from_yaml)]
+
+
+def __validate_non_empty(value: object) -> object:
+    if isinstance(value, Sized):
+        assert len(value) > 0, "cannot not be empty"
+
+    return value
+
+
+NonEmpty = Annotated[_T, AfterValidator(__validate_non_empty)]
 
 JSON = None | bool | int | float | str | dict[str, Any] | list[Any]
-JSONDict = Annotated[dict[str, Any], BeforeValidator(__pre_validate_json_object)]
-JSONList = Annotated[list[Any], BeforeValidator(__pre_validate_json_array)]
+JSONDict = FromJSON[dict[str, Any]]
+JSONList = FromJSON[list[Any]]
 
 
 class DataObject(BaseModel, ABC):

@@ -2,7 +2,7 @@ from typing import TYPE_CHECKING, Annotated
 from uuid import UUID, uuid4
 
 from pydantic import Field, model_validator
-from typing_extensions import Self
+from typing_extensions import Self, TypedDict
 
 from ceres.data import EmailStr, ImmutableDataObject, PasswordHash, PasswordStr, UsernameStr
 from ceres.internal.cli.plumbing import CLIOption
@@ -45,3 +45,11 @@ class UserCreate(__UserFields):
                 )
 
         return self
+
+
+class UserUpdate(TypedDict, total=False):
+    username: UsernameStr
+    email: EmailStr
+    password: PasswordStr
+    role: UserRole
+    disabled: bool

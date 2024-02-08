@@ -23,8 +23,7 @@ class Notifier(Component):
         self,
         notification: Notification,
         recipients: Iterable[NonBlankStr],
-    ) -> None:
-        ...
+    ) -> None: ...
 
 
 class SMTPNotifier(Notifier):

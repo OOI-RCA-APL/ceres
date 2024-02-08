@@ -224,6 +224,16 @@ async def _get_current_user(identity: CurrentIdentity) -> User | None:
 CurrentUser = Annotated[User | None, Depends(_get_current_user)]
 
 
+async def _require_current_user(user: CurrentUser) -> User:
+    if user is None:
+        raise HTTPException(HTTP_401_UNAUTHORIZED)
+
+    return user
+
+
+RequireUser = Annotated[User, Depends(_require_current_user)]
+
+
 def _get_current_role(user: CurrentUser, cli: CurrentCLI) -> UserRole | None:
     if cli:
         return UserRole.ADMIN

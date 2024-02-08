@@ -1,20 +1,26 @@
-from fastapi import APIRouter, HTTPException, Response
-from starlette.status import HTTP_401_UNAUTHORIZED, HTTP_403_FORBIDDEN
+import asyncio
 
-from ceres.data import DateTime, ImmutableDataObject
+from fastapi import APIRouter, HTTPException, Response
+from starlette.status import HTTP_400_BAD_REQUEST, HTTP_401_UNAUTHORIZED, HTTP_403_FORBIDDEN
+
+from ceres.data import DateTime, ImmutableDataObject, NonEmptyStr, PasswordStr
+from ceres.filter import UserFilter
 from ceres.internal.app.shared import (
+    VIEWER,
     AuthorizationCookieType,
     CurrentEngine,
     CurrentIdentity,
     Identity,
     PrivateIdentity,
+    RequireUser,
     assign_authorization_cookie,
     create_identity,
 )
-from ceres.internal.auth import verify_password
 from ceres.user import User
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+WRONG_PASSWORD_DELAY_SECONDS = 2.5
 
 
 class LoginInput(ImmutableDataObject):
@@ -38,9 +44,8 @@ async def login(
         raise HTTPException(HTTP_403_FORBIDDEN)
 
     user = await engine.get_user(username=input.username)
-    if user is None:
-        raise HTTPException(HTTP_401_UNAUTHORIZED)
-    if not verify_password(input.password, user.password):
+    if user is None or not await engine.verify_password(input.password, user.password):
+        await asyncio.sleep(WRONG_PASSWORD_DELAY_SECONDS)
         raise HTTPException(HTTP_401_UNAUTHORIZED)
 
     identity = create_identity(user, authentication)
@@ -109,3 +114,23 @@ async def get_me(identity: CurrentIdentity) -> MeResult:
         user=identity.user,
         expires=identity.expires,
     )
+
+
+class ChangePasswordInput(ImmutableDataObject):
+    old_password: NonEmptyStr
+    new_password: PasswordStr
+
+
+@router.post("/change-password", dependencies=[VIEWER])
+async def change_password(
+    engine: CurrentEngine,
+    user: RequireUser,
+    input: ChangePasswordInput,
+) -> User:
+    if not await engine.verify_password(input.old_password, user.password):
+        await asyncio.sleep(WRONG_PASSWORD_DELAY_SECONDS)
+        raise HTTPException(HTTP_400_BAD_REQUEST)
+
+    hash = await engine.hash_password(input.new_password)
+    await engine.update_user(UserFilter(id=user.id), {"password": hash})
+    return user

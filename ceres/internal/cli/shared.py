@@ -4,16 +4,16 @@ import warnings
 from contextlib import contextmanager
 from functools import wraps
 from pathlib import Path
-from typing import IO, Any, Callable, Sequence
+from typing import IO, Annotated, Any, Callable, Mapping, Sequence, TypeVar
 
 import typer
 from click import ParamType
-from pydantic import field_validator
+from pydantic import Field, field_validator
 
 from ceres.config import Config, ConfigCheckType
-from ceres.data import ImmutableDataObject, jsonify
+from ceres.data import FromYAML, ImmutableDataObject, NonEmpty, jsonify
 from ceres.internal.cli.exceptions import CLIDatabaseUnreachableException, CLIInvalidConfigException
-from ceres.internal.cli.plumbing import CLIContext
+from ceres.internal.cli.plumbing import CLIContext, CLIOption
 from ceres.internal.project import Project
 from ceres.internal.utilities import is_non_stringy_collection
 from ceres.result import Ok
@@ -106,7 +106,7 @@ async def use_project(
 
 
 @wraps(typer.confirm)
-def confirm(
+def get_confirmation(
     text: str,
     default: bool | None = False,
     abort: bool = False,
@@ -125,7 +125,7 @@ def confirm(
 
 
 @wraps(typer.prompt)
-def prompt(
+def get_input(
     text: str,
     default: Any | None = None,
     hide_input: bool = False,
@@ -246,3 +246,13 @@ class ValidateEmptyAsNone(ImmutableDataObject):
             return None
 
         return value
+
+
+Confirm = Annotated[bool, Field(description="Ask before executing."), CLIOption(bool)]
+
+_TFields = TypeVar("_TFields", bound=Mapping[Any, Any])
+Assign = Annotated[
+    NonEmpty[FromYAML[_TFields]],
+    Field(description="Field(s) to assign, passed as a non-empty JSON or YAML object."),
+    CLIOption(str, metavar="JSON/YAML"),
+]

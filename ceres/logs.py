@@ -2,6 +2,7 @@ import logging
 from datetime import datetime
 from logging import Logger
 from typing import TYPE_CHECKING, Annotated, Callable, Protocol, Sequence, TypeAlias
+from typing_extensions import TypedDict
 from uuid import UUID, uuid4
 
 from pydantic import Field
@@ -28,9 +29,15 @@ class LogEntry(ImmutableDataObject):
     content: Annotated[str, CLIOption(str)]
 
 
+class LogEntryUpdate(TypedDict, total=False):
+    address: Address
+    timestamp: DateTime
+    level: Level
+    content: str
+
+
 class LogHandler(Protocol):
-    def handle(self, entry: LogEntry) -> object:
-        ...
+    def handle(self, entry: LogEntry) -> object: ...
 
 
 LogHandlerFunction: TypeAlias = Callable[[LogEntry], object]

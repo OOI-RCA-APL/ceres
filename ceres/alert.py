@@ -1,5 +1,6 @@
 from datetime import datetime
 from typing import Annotated, Any, Mapping
+from typing_extensions import TypedDict
 from uuid import UUID, uuid4
 
 from pydantic import Field, field_validator
@@ -27,3 +28,11 @@ class Alert(ImmutableDataObject):
             raise ValueError("info must be a JSON serializable mapping")
 
         return value
+
+
+class AlertUpdate(TypedDict, total=False):
+    address: Address
+    timestamp: DateTime
+    level: Level
+    code: str
+    info: JSONDict

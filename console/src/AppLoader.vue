@@ -1,4 +1,5 @@
 <script lang="ts" setup>
+import { useAuth } from '@/auth'
 import constants from '@/constants'
 import { useNavigation } from '@/navigation'
 import { usePreferences } from '@/preferences'
@@ -10,6 +11,7 @@ import { useMeta, useQuasar } from 'quasar'
 import { computed, onMounted, provide, watchEffect } from 'vue'
 import { THEME_KEY } from 'vue-echarts'
 
+const auth = useAuth()
 const navigation = useNavigation()
 const store = useStore()
 const preferences = usePreferences()
@@ -73,7 +75,7 @@ function getLoginRedirectPath(redirect?: string) {
 
 async function refresh() {
   console.log('Refreshing authentication...')
-  const user = await store.refresh()
+  const user = await auth.refresh()
   if (user != null) {
     console.log('Authentication refreshed successfully.')
   } else {
@@ -83,12 +85,12 @@ async function refresh() {
 
 // If we are logged in, set a timeout to do a refresh just before the access token expires.
 watchEffect((onInvalidate) => {
-  if (store.identity?.expires == null) {
+  if (auth.identity?.expires == null) {
     return
   }
 
   const ms = moment
-    .duration(moment.utc(store.identity.expires).subtract(1, 'minute').diff(moment()))
+    .duration(moment.utc(auth.identity.expires).subtract(1, 'minute').diff(moment()))
     .asMilliseconds()
 
   const timeout = setTimeout(() => {
@@ -102,7 +104,7 @@ watchEffect((onInvalidate) => {
 
 onMounted(() => {
   const remove = navigation.router.beforeEach((to, _from, next) => {
-    if (userCanAccess(store.user, to)) {
+    if (userCanAccess(auth.user, to)) {
       next()
     } else {
       next(getLoginRedirectPath(to.fullPath))
@@ -116,13 +118,13 @@ onMounted(() => {
 })
 
 useEventListener(window, 'focus', () => {
-  const wasLoggedIn = store.user != null
+  const wasLoggedIn = auth.user != null
   void refresh().then(() => {
-    if (wasLoggedIn && store.user == null) {
+    if (wasLoggedIn && auth.user == null) {
       notifyLoggedOut()
     }
 
-    if (!userCanAccess(store.user, navigation.route)) {
+    if (!userCanAccess(auth.user, navigation.route)) {
       void navigation.replace(getLoginRedirectPath())
       notifyAccessBlocked()
     }
@@ -135,7 +137,7 @@ await refresh()
 // the loading process we haven't actually navigated to the initial route yet. As such, we can't use
 // the "current" route object from "useRoute()".
 const initialRoute = navigation.resolve(window.location.pathname)
-if (initialRoute != null && !userCanAccess(store.user, initialRoute)) {
+if (initialRoute != null && !userCanAccess(auth.user, initialRoute)) {
   await navigation.replace(getLoginRedirectPath())
   notifyAccessBlocked()
 }

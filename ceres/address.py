@@ -248,7 +248,7 @@ class DynamicAddress(AddressSelector):
     @property
     def path(self) -> Sequence[Self]:
         path: list[Self] = []
-        current = self
+        current: DynamicAddress | None = self
 
         while current is not None:
             path.append(current)

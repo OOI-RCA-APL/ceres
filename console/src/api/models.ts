@@ -23,22 +23,18 @@ export const StatusModel = Zod.object({
 export type UserRole = Zod.infer<typeof UserRoleModel>
 export const UserRoleModel = Zod.enum(['viewer', 'operator', 'admin'])
 
-export type PublicUser = Zod.infer<typeof PublicUserModel>
-export const PublicUserModel = Zod.object({
+export type User = Zod.infer<typeof UserModel>
+export const UserModel = Zod.object({
   id: Zod.string(),
   username: Zod.string(),
+  email: Zod.string(),
   role: UserRoleModel,
   disabled: Zod.boolean(),
 })
 
-export type PrivateUser = Zod.infer<typeof PrivateUserModel>
-export const PrivateUserModel = PublicUserModel.extend({
-  email: Zod.string(),
-})
-
 export type Identity = Zod.infer<typeof IdentityModel>
 export const IdentityModel = Zod.object({
-  user: PrivateUserModel,
+  user: UserModel,
   expires: DateTimeModel,
 })
 

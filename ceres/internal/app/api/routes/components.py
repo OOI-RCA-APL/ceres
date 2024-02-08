@@ -4,27 +4,14 @@ import traceback
 from asyncio import CancelledError
 from typing import Any, Mapping, Sequence
 
-from fastapi import (
-    APIRouter,
-    Body,
-    HTTPException,
-    Request,
-    WebSocket,
-)
-from starlette.status import (
-    HTTP_400_BAD_REQUEST,
-    HTTP_404_NOT_FOUND,
-)
+from fastapi import APIRouter, Body, HTTPException, Request, WebSocket
+from starlette.status import HTTP_400_BAD_REQUEST, HTTP_404_NOT_FOUND
 
 from ceres.address import Address
 from ceres.component import Component, ProcedureBinding
 from ceres.config import ComponentConfig
 from ceres.data import ImmutableDataObject, Name, jsonify
-from ceres.errors import (
-    ProcedureComponentDoesNotExistError,
-    ProcedureError,
-    ProcedureInternalError,
-)
+from ceres.errors import ProcedureComponentDoesNotExistError, ProcedureError, ProcedureInternalError
 from ceres.exceptions import ProcedureException
 from ceres.internal.app.shared import CurrentEngine, CurrentProcedureQueryArguments
 from ceres.internal.utilities import StrEnum, strify

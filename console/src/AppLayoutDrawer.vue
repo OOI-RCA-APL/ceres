@@ -2,6 +2,7 @@
 import AppLayoutDrawerComponent from '@/AppLayoutDrawerComponent.vue'
 import { Address } from '@/address'
 import { postReload, useMutation } from '@/api/operations'
+import { useAuth } from '@/auth'
 import ResizeHandle from '@/components/ResizeHandle.vue'
 import { useDrawer } from '@/drawer'
 import icons from '@/icons'
@@ -12,6 +13,7 @@ import moment from 'moment'
 import { LocalStorage, useQuasar } from 'quasar'
 import { useRoute } from 'vue-router'
 
+const auth = useAuth()
 const store = useStore()
 const drawer = useDrawer()
 const quasar = useQuasar()
@@ -245,12 +247,12 @@ async function executeReload() {
           </q-item>
         </template>
         <q-separator />
-        <q-item :to="store.user == null ? '/login' : undefined">
+        <q-item :to="auth.user == null ? '/login' : undefined">
           <q-item-section avatar>
             <q-icon :name="icons.user" />
           </q-item-section>
           <q-item-section>
-            <q-item-label>{{ store.user != null ? store.user.username : 'Login' }}</q-item-label>
+            <q-item-label>{{ auth.user != null ? auth.user.username : 'Login' }}</q-item-label>
           </q-item-section>
         </q-item>
       </q-list>

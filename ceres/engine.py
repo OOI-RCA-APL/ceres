@@ -5,13 +5,12 @@ from asyncio import FIRST_COMPLETED
 from asyncio import Event as AsyncEvent
 from pathlib import Path
 from typing import TYPE_CHECKING, Iterable, Sequence, TypeVar
-from uuid import UUID
 
 from aiotools.taskgroup import TaskGroup
 from typing_extensions import Self, Unpack, override
 
 from ceres.address import Address, AddressSelector, DynamicAddress
-from ceres.alert import Alert
+from ceres.alert import Alert, AlertUpdate
 from ceres.config import Config, ServerSSLConfig
 from ceres.data import ImmutableDataObject, PasswordHash
 from ceres.directory import Directory
@@ -24,18 +23,29 @@ from ceres.errors import (
 )
 from ceres.events import Event, LogEvent, StoppedEvent, StoppingEvent
 from ceres.exceptions import EngineDatabaseInitFailedException
-from ceres.filter import ComponentFilter, ComponentFilterArgs, UserFilter, UserFilterArgs
+from ceres.filter import (
+    AlertFilter,
+    AlertFilterArgs,
+    ComponentFilter,
+    ComponentFilterArgs,
+    LogEntryFilter,
+    LogEntryFilterArgs,
+    MessageFilter,
+    MessageFilterArgs,
+    UserFilter,
+    UserFilterArgs,
+)
 from ceres.internal.app.main import App
 from ceres.internal.auth import get_password_hash, verify_password
 from ceres.internal.project import Project
 from ceres.internal.utilities import StrEnum, sleep_forever, strify, uniquify
 from ceres.internal.uvicorn import Uvicorn, UvicornConfig
-from ceres.logs import LogEntry
-from ceres.message import Message
+from ceres.logs import LogEntry, LogEntryUpdate
+from ceres.message import Message, MessageUpdate
 from ceres.object import Object
 from ceres.result import Fail, Ok, Result
 from ceres.threading import spawn
-from ceres.user import User
+from ceres.user import User, UserUpdate
 
 if TYPE_CHECKING:
     from ceres.component import Component, ComponentGroup
@@ -281,22 +291,6 @@ class Engine(Object, kw_only=False):
 
         return self.__root.get_components(filter, inclusive=True, **kwargs)
 
-    async def get_users(
-        self,
-        filter: UserFilter | None = None,
-        /,
-        **kwargs: Unpack[UserFilterArgs],
-    ) -> list[User]:
-        return await self.__database.get_users(filter, **kwargs)
-
-    async def get_user(
-        self,
-        filter: UserFilter | None = None,
-        /,
-        **kwargs: Unpack[UserFilterArgs],
-    ) -> User | None:
-        return await self.__database.get_user(filter, **kwargs)
-
     async def hash_password(self, password: str) -> PasswordHash:
         def execute() -> PasswordHash:
             return get_password_hash(password)
@@ -309,23 +303,143 @@ class Engine(Object, kw_only=False):
 
         return await spawn(execute)
 
+    async def get_users(
+        self,
+        filter: UserFilter | None = None,
+        **kwargs: Unpack[UserFilterArgs],
+    ) -> list[User]:
+        return await self.__database.get_users(filter, **kwargs)
+
+    async def get_user(
+        self,
+        filter: UserFilter | None = None,
+        **kwargs: Unpack[UserFilterArgs],
+    ) -> User | None:
+        return await self.__database.get_user(filter, **kwargs)
+
+    async def count_users(
+        self,
+        filter: UserFilter | None = None,
+        **kwargs: Unpack[UserFilterArgs],
+    ) -> int:
+        return await self.__database.count_users(filter, **kwargs)
+
     async def create_user(self, data: User) -> User:
         return await self.__database.create_user(data)
 
-    async def update_user(self, id: UUID, data: User) -> User | None:
-        return await self.__database.update_user(id, data)
+    async def update_users(self, filter: UserFilter, assign: UserUpdate) -> int:
+        return await self.__database.update_users(filter, assign)
 
-    async def delete_user(self, id: UUID) -> User | None:
-        return await self.__database.delete_user(id)
+    async def update_user(self, filter: UserFilter, assign: UserUpdate) -> User | None:
+        return await self.__database.update_user(filter, assign)
+
+    async def delete_users(
+        self,
+        filter: UserFilter | None = None,
+        **kwargs: Unpack[UserFilterArgs],
+    ) -> int:
+        return await self.__database.delete_users(filter, **kwargs)
+
+    async def delete_user(
+        self,
+        filter: UserFilter | None = None,
+        **kwargs: Unpack[UserFilterArgs],
+    ) -> User | None:
+        return await self.__database.delete_user(filter, **kwargs)
+
+    async def count_messages(
+        self,
+        filter: MessageFilter | None = None,
+        **kwargs: Unpack[MessageFilterArgs],
+    ) -> int:
+        return await self.__database.count_messages(filter, **kwargs)
 
     async def create_message(self, data: Message) -> Message:
         return await self.__database.create_message(data)
 
-    async def create_alert(self, data: Alert) -> Alert:
-        return await self.__database.create_alert(data)
+    async def update_messages(self, filter: MessageFilter, assign: MessageUpdate) -> int:
+        return await self.__database.update_messages(filter, assign)
 
-    async def create_log_entry(self, data: LogEntry) -> LogEntry:
-        return await self.__database.create_log_entry(data)
+    async def update_message(self, filter: MessageFilter, assign: MessageUpdate) -> Message | None:
+        return await self.__database.update_message(filter, assign)
+
+    async def delete_messages(
+        self,
+        filter: MessageFilter | None = None,
+        **kwargs: Unpack[MessageFilterArgs],
+    ) -> int:
+        return await self.__database.delete_messages(filter, **kwargs)
+
+    async def delete_message(
+        self,
+        filter: MessageFilter | None = None,
+        **kwargs: Unpack[MessageFilterArgs],
+    ) -> Message | None:
+        return await self.__database.delete_message(filter, **kwargs)
+
+    async def count_alerts(
+        self,
+        filter: AlertFilter | None = None,
+        **kwargs: Unpack[AlertFilterArgs],
+    ) -> int:
+        return await self.__database.count_alerts(filter, **kwargs)
+
+    async def create_alert(self, assign: Alert) -> Alert:
+        return await self.__database.create_alert(assign)
+
+    async def update_alerts(self, filter: AlertFilter, assign: AlertUpdate) -> int:
+        return await self.__database.update_alerts(filter, assign)
+
+    async def update_alert(self, filter: AlertFilter, assign: AlertUpdate) -> Alert | None:
+        return await self.__database.update_alert(filter, assign)
+
+    async def delete_alerts(
+        self,
+        filter: AlertFilter | None = None,
+        **kwargs: Unpack[AlertFilterArgs],
+    ) -> int:
+        return await self.__database.delete_alerts(filter, **kwargs)
+
+    async def delete_alert(
+        self,
+        filter: AlertFilter | None = None,
+        **kwargs: Unpack[AlertFilterArgs],
+    ) -> Alert | None:
+        return await self.__database.delete_alert(filter, **kwargs)
+
+    async def count_log_entries(
+        self,
+        filter: LogEntryFilter | None = None,
+        **kwargs: Unpack[LogEntryFilterArgs],
+    ) -> int:
+        return await self.__database.count_log_entries(filter, **kwargs)
+
+    async def create_log_entry(self, assign: LogEntry) -> LogEntry:
+        return await self.__database.create_log_entry(assign)
+
+    async def update_log_entries(self, filter: LogEntryFilter, assign: LogEntryUpdate) -> int:
+        return await self.__database.update_log_entries(filter, assign)
+
+    async def update_log_entry(
+        self,
+        filter: LogEntryFilter,
+        assign: LogEntryUpdate,
+    ) -> LogEntry | None:
+        return await self.__database.update_log_entry(filter, assign)
+
+    async def delete_log_entries(
+        self,
+        filter: LogEntryFilter | None = None,
+        **kwargs: Unpack[LogEntryFilterArgs],
+    ) -> int:
+        return await self.__database.delete_log_entries(filter, **kwargs)
+
+    async def delete_log_entry(
+        self,
+        filter: LogEntryFilter | None = None,
+        **kwargs: Unpack[LogEntryFilterArgs],
+    ) -> LogEntry | None:
+        return await self.__database.delete_log_entry(filter, **kwargs)
 
     async def reload(self, config: Config | None = None) -> Result[Config, ReloadError]:
         if self.__reloading.is_set():

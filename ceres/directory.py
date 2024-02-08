@@ -136,8 +136,7 @@ class Directory(PathLike[str]):
         *,
         mkdirs: bool | None = None,
         **kwargs: Any,
-    ) -> IO[str]:
-        ...
+    ) -> IO[str]: ...
 
     @overload
     def open(
@@ -152,8 +151,7 @@ class Directory(PathLike[str]):
         *,
         mkdirs: bool | None = None,
         **kwargs: Any,
-    ) -> IO[bytes]:
-        ...
+    ) -> IO[bytes]: ...
 
     def open(
         self,

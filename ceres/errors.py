@@ -176,9 +176,9 @@ class ProcedureUnitDoesNotExistError(BaseProcedureError):
 
 
 class ProcedureComponentDoesNotExistError(BaseProcedureError):
-    type: Literal[
+    type: Literal[ProcedureErrorType.COMPONENT_DOES_NOT_EXIST] = (
         ProcedureErrorType.COMPONENT_DOES_NOT_EXIST
-    ] = ProcedureErrorType.COMPONENT_DOES_NOT_EXIST
+    )
 
 
 class ProcedureComponentNotLoadedError(BaseProcedureError):

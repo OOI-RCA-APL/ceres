@@ -13,7 +13,6 @@ from typing import (
     Mapping,
     Optional,
     Type,
-    TypedDict,
     TypeVar,
     Union,
     get_args,
@@ -22,6 +21,7 @@ from typing import (
 
 import click
 import click.shell_completion
+import rich
 from click import ClickException, Context
 from pydantic import BaseModel, ConfigDict, ValidationError
 from pydantic.fields import FieldInfo
@@ -29,9 +29,9 @@ from pydantic_core import PydanticUndefined
 from typer import Argument, Option, Typer
 from typer.main import lenient_issubclass
 from typer.models import ArgumentInfo, OptionInfo
-from typing_extensions import Unpack
+from typing_extensions import TypedDict, Unpack
 
-from ceres.data import ImmutableDataObject
+from ceres.data import ImmutableDataObject, jsonify
 from ceres.internal.utilities import (
     get_args_model,
     get_unannotated_type,
@@ -57,7 +57,7 @@ class CLIRouter(Typer):
             base = super()
 
             def decorator(function):
-                base.command(*args, **kwargs)(pydantify(function))
+                base.command(*args, **kwargs)(_enhance_cli_command(function))
                 return function
 
             return decorator
@@ -80,7 +80,7 @@ class BaseParametersModel(ImmutableDataObject):
     model_config = ConfigDict(arbitrary_types_allowed=True, extra="allow")
 
 
-def pydantify(function: Any) -> Any:
+def _enhance_cli_command(function: Any) -> Any:
     signature = inspect.signature(function)
     fields_to_groups: dict[str, str] = {}
     parameters: list[Parameter] = []
@@ -125,7 +125,14 @@ def pydantify(function: Any) -> Any:
             except ValidationError as error:
                 raise ClickException(_format_errors(error, fields_to_groups))
 
-            return syncify(function)(*args, **parsed.__dict__)
+            result = syncify(function)(*args, **parsed.__dict__)
+            if result is not None:
+                try:
+                    rich.print(jsonify(result, indent=2))
+                except Exception:
+                    pass
+
+            return result
 
         wrapped.__signature__ = signature.replace(parameters=parameters)  # type: ignore
         return wrapped
@@ -209,9 +216,10 @@ def CLIArgument(
 
 def CLIOption(
     type: type[Any],
+    *decls: str,
     **kwargs: Unpack[CLIOptionArgs],
 ) -> Any:
-    option = Option(..., **kwargs)  # type: ignore
+    option = Option(..., *decls, **kwargs)  # type: ignore
     option.type = _get_typer_compatible_type(type)
     return option
 

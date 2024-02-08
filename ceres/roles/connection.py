@@ -59,8 +59,7 @@ class Connection(Component, ABC):
 
     @property
     @abstractmethod
-    def target(self) -> str:
-        ...
+    def target(self) -> str: ...
 
     @property
     def connectivity(self) -> Connectivity:
@@ -91,20 +90,16 @@ class Connection(Component, ABC):
         return status
 
     @abstractmethod
-    async def _try_connect(self) -> bool:
-        ...
+    async def _try_connect(self) -> bool: ...
 
     @abstractmethod
-    async def _try_disconnect(self) -> None:
-        ...
+    async def _try_disconnect(self) -> None: ...
 
     @abstractmethod
-    async def _send_data(self, data: bytes) -> bytes | None:
-        ...
+    async def _send_data(self, data: bytes) -> bytes | None: ...
 
     @abstractmethod
-    async def _poll_data(self) -> bytes | None:
-        ...
+    async def _poll_data(self) -> bytes | None: ...
 
     async def connect(self) -> bool:
         if self.__connectivity == Connectivity.CONNECTED:

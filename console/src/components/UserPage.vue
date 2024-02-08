@@ -1,5 +1,7 @@
 <script lang="ts" setup>
 import { UserRole } from '@/api/models'
+import { useAuth } from '@/auth'
+import { useDialogs } from '@/dialogs'
 import { useForm } from '@/form'
 import icons from '@/icons'
 import { useNavigation } from '@/navigation'
@@ -18,38 +20,40 @@ const props = withDefaults(
   }
 )
 
+const auth = useAuth()
+const dialogs = useDialogs()
 const navigation = useNavigation()
 const validate = useValidate()
 const store = useStore()
 
 const id = $computed(() => props.id)
-const isAccountPage = $computed(() => id === store?.user?.id)
+const isAccountPage = $computed(() => id === auth.user?.id)
 const isShowingPassword = ref(false)
 const user = function getTitle() {
   if (isAccountPage) {
     return 'Account'
-  } else if (store.user == null) {
+  } else if (auth.user == null) {
     return 'Create User'
   } else {
-    return form.data.username.trim() || store.user.username
+    return form.data.username.trim() || auth.user.username
   }
 }
 
 function promptChangePassword() {
-  if (store.user == null) {
+  if (auth.user == null) {
     return
   }
 
-  dialogs.changePassword(store.user.id)
+  dialogs.changePassword(auth.user.id)
 }
 
 function promptDelete() {
-  if (store.user == null) {
+  if (auth.user == null) {
     return
   }
 
   async function execute() {
-    if (store.user == null) {
+    if (auth.user == null) {
       return
     }
 
@@ -73,20 +77,20 @@ function promptDelete() {
 
   dialogs
     .delete({
-      message: `Permanently delete the user "${store.user?.username}"?`,
+      message: `Permanently delete the user "${auth.user?.username}"?`,
     })
     .onOk(() => void execute())
 }
 
 async function logout() {
-  await Promise.all([navigation.go('/'), store.logout()])
+  await Promise.all([navigation.go('/'), auth.logout()])
   notify.success('You have signed out.', {
     icon: 'logout',
   })
 }
 
 const form = useForm({
-  editing: store.user == null,
+  editing: user == null,
   data: {
     id,
     username: '',
@@ -100,10 +104,10 @@ const form = useForm({
       'A username is required and can only contain letters, numbers or: ".-_".'
     ),
     email: validate.isEmail('A valid email address is required.'),
-    password: store.user ? validate.accept() : validate.isNotEmpty('A password is required.'),
+    password: auth.user ? validate.accept() : validate.isNotEmpty('A password is required.'),
   },
   async onSubmit(data) {
-    if (store.user == null) {
+    if (auth.user == null) {
       // We're registering a new user.
       return
     }
@@ -122,7 +126,7 @@ const form = useForm({
         },
       ],
       (result) => {
-        if (isAccountPage.value) {
+        if (isAccountPage) {
           notify.success('Account updated successfully.')
         } else {
           notify.success('User updated successfully.')
@@ -139,31 +143,6 @@ const form = useForm({
   },
 })
 
-function parseSettings(rawSettings: unknown): Settings {
-  let settings: Settings = _.cloneDeep(rawSettings) as Settings
-  if (settings == null || typeof settings !== 'object' || _.isArrayLike(settings)) {
-    settings = {
-      notifications: {},
-    } as Settings
-  }
-
-  if (
-    settings.notifications == null ||
-    typeof settings.notifications !== 'object' ||
-    _.isArrayLike(settings)
-  ) {
-    settings.notifications = {} as Settings['notifications']
-  }
-
-  for (const notification of Object.values(NotificationCodesEnum)) {
-    if (typeof settings.notifications[notification] !== 'boolean') {
-      settings.notifications[notification] = false
-    }
-  }
-
-  return settings
-}
-
 form.load({
   ...user,
 })
@@ -173,7 +152,7 @@ form.load({
   <card-page :title="getTitle()">
     <template #header-append>
       <q-space />
-      <q-chip :label="UserRoleCodes[form.data.roleCode].name" />
+      <q-chip :label="upperFirst(form.data.role)" />
     </template>
     <q-card-section>
       <q-form :ref="form.bind" @submit.prevent>
@@ -236,7 +215,7 @@ form.load({
             />
           </template>
         </q-input>
-        <div v-if="store.isAdmin && !isAccountPage" class="q-col-gutter-md q-mb-md row">
+        <div v-if="auth.isAdmin && !isAccountPage" class="q-col-gutter-md q-mb-md row">
           <div class="col">
             <q-select
               v-model="form.data.role"
@@ -267,7 +246,7 @@ form.load({
           <q-btn-group flat spread>
             <template v-if="form.state === 'viewing'">
               <q-btn
-                v-if="store.isAdmin && !isAccountPage"
+                v-if="auth.isAdmin && !isAccountPage"
                 color="negative"
                 flat
                 :icon="icons.delete"
@@ -288,7 +267,7 @@ form.load({
               />
             </template>
           </q-btn-group>
-          <template v-if="form.state === 'viewing' && (store.isAdmin || isAccountPage)">
+          <template v-if="form.state === 'viewing' && (auth.isAdmin || isAccountPage)">
             <q-separator class="q-my-sm" />
             <q-btn-group flat spread>
               <q-btn

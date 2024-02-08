@@ -1036,12 +1036,10 @@ class ComponentGroup(Sequence[Component]):
         return repr(self)
 
     @overload
-    def __getitem__(self, __index: int) -> Component:
-        ...
+    def __getitem__(self, __index: int) -> Component: ...
 
     @overload
-    def __getitem__(self, __index: slice) -> Self:
-        ...
+    def __getitem__(self, __index: slice) -> Self: ...
 
     def __getitem__(self, __index: int | slice) -> "Component | Self":  # type: ignore
         value = self.__components[__index]
@@ -1116,8 +1114,7 @@ _ListenerMethodTransform = Callable[[_ListenerMethod], _ListenerMethod]
 
 
 @overload
-def on(method: _ListenerMethod) -> _ListenerMethod:
-    ...
+def on(method: _ListenerMethod) -> _ListenerMethod: ...
 
 
 @overload
@@ -1127,8 +1124,7 @@ def on(
     local: bool | None = None,
     reference: str | Sequence[str] | None = None,
     address: str | AddressSelector | Sequence[str | AddressSelector] | None = None,
-) -> _ListenerMethodTransform:
-    ...
+) -> _ListenerMethodTransform: ...
 
 
 @validated_function
@@ -1231,16 +1227,14 @@ _T = TypeVar("_T", bound=Awaitable[Any] | AsyncIterable[Any])
 
 
 @overload
-def query(method: Callable[_P, _T]) -> Callable[_P, _T]:
-    ...
+def query(method: Callable[_P, _T]) -> Callable[_P, _T]: ...
 
 
 @overload
 def query(
     *,
     poll: float | timedelta = ...,
-) -> Callable[[Callable[_P, _T]], Callable[_P, _T]]:
-    ...
+) -> Callable[[Callable[_P, _T]], Callable[_P, _T]]: ...
 
 
 @validated_function
@@ -1272,13 +1266,11 @@ def query(
 
 
 @overload
-def action(method: Callable[_P, _T]) -> Callable[_P, _T]:
-    ...
+def action(method: Callable[_P, _T]) -> Callable[_P, _T]: ...
 
 
 @overload
-def action() -> Callable[[Callable[_P, _T]], Callable[_P, _T]]:
-    ...
+def action() -> Callable[[Callable[_P, _T]], Callable[_P, _T]]: ...
 
 
 @validated_function
@@ -1404,13 +1396,11 @@ def routine(
     *,
     restart: RoutineRestartPolicy | RoutineRestartPolicyLiteral = RoutineRestartPolicy.NEVER,
     restart_delay: PositiveFloat | PositiveTimeDelta = timedelta(seconds=1),
-) -> _RoutineMethodHandler:
-    ...
+) -> _RoutineMethodHandler: ...
 
 
 @overload
-def routine(method: _RoutineMethod) -> _RoutineMethod:
-    ...
+def routine(method: _RoutineMethod) -> _RoutineMethod: ...
 
 
 @validated_function

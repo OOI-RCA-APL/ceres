@@ -12,7 +12,7 @@ from starlette.status import (
 from ceres.data import PasswordHash
 from ceres.filter import UserFilter
 from ceres.internal.app.shared import ADMIN, VIEWER, CurrentEngine, CurrentRole, CurrentUser
-from ceres.user import User, UserCreate, UserRole
+from ceres.user import User, UserCreate, UserRole, UserUpdate
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -63,19 +63,19 @@ async def create_user(engine: CurrentEngine, data: UserCreate) -> User:
     return user
 
 
-@router.put("/{id}", dependencies=[VIEWER])
+@router.patch("/{id}", dependencies=[VIEWER])
 async def update_user(
     engine: CurrentEngine,
     role: CurrentRole,
     user: CurrentUser,
     id: UUID,
-    data: User,
+    assign: UserUpdate,
 ) -> User:
     if role is None or role < UserRole.ADMIN:
         if user is None or id != user.id:
             raise HTTPException(HTTP_401_UNAUTHORIZED)
 
-    updated = await engine.update_user(id, data)
+    updated = await engine.update_user(UserFilter(id=id), assign)
     if updated is None:
         raise HTTPException(HTTP_404_NOT_FOUND)
 
@@ -84,7 +84,7 @@ async def update_user(
 
 @router.delete("/{id}", dependencies=[ADMIN])
 async def delete_user(engine: CurrentEngine, id: UUID) -> User:
-    deleted = await engine.delete_user(id)
+    deleted = await engine.delete_user(id=id)
     if deleted is None:
         raise HTTPException(HTTP_404_NOT_FOUND)
 

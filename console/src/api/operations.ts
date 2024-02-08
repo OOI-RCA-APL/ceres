@@ -15,14 +15,14 @@ import {
   LogEntryModel,
   Message,
   MessageModel,
-  PublicUser,
-  PublicUserModel,
   Result,
   ResultModel,
   Statistics,
   StatisticsModel,
   Status,
   StatusModel,
+  User,
+  UserModel,
 } from '@/api/models'
 import { computed, isRef, unref, watchEffect } from 'vue'
 import { MaybeRef } from 'vue-query/lib/vue/types'
@@ -56,6 +56,14 @@ export async function postLogout(): Promise<Identity> {
   return await post('/api/auth/logout', IdentityModel)
 }
 
+export async function postChangePassword(data: { oldPassword: string; newPassword: string }) {
+  return await post('/api/auth/change-password', UserModel, data)
+}
+
+export async function patchUser(id: string, data: { password: string }) {
+  return await patch(`/api/user/${id}`, UserModel, data)
+}
+
 export async function getMe(): Promise<Identity> {
   return await get('/api/auth/me', IdentityModel)
 }
@@ -72,8 +80,8 @@ export async function getComponent(address: Address): Promise<ComponentInfo | nu
   return await getOrNull(`/api/components/${address}`, ComponentInfoModel)
 }
 
-export async function getUser(id: string): Promise<PublicUser | null> {
-  return await getOrNull(`/api/users/${id}`, PublicUserModel)
+export async function getUser(id: string): Promise<User | null> {
+  return await getOrNull(`/api/users/${id}`, UserModel)
 }
 
 export async function getMessages(params: {
@@ -270,6 +278,27 @@ async function post<TModel extends ZodTypeAny>(
 
   if (response.status >= 400) {
     throw Error(`POST ${url} ${await response.text()}`)
+  }
+
+  const json = await response.json()
+  return await model.parseAsync(json)
+}
+
+async function patch<TModel extends ZodTypeAny>(
+  url: string | URL,
+  model: TModel,
+  data?: unknown,
+  options?: RequestInit
+): Promise<Zod.infer<TModel>> {
+  const response = await fetch(url, {
+    ...defaultRequestOptions,
+    method: 'PATCH',
+    body: data != null ? JSON.stringify(data) : undefined,
+    ...options,
+  })
+
+  if (response.status >= 400) {
+    throw Error(`PATCH ${url} ${await response.text()}`)
   }
 
   const json = await response.json()

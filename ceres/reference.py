@@ -30,8 +30,7 @@ _reference_dynamic_cls_generic_cache: dict[tuple[type | None, type], type["Refer
 class ReferenceProxiedMethods:
     if TYPE_CHECKING:
 
-        def __reference_access__(self) -> Any:
-            ...
+        def __reference_access__(self) -> Any: ...
 
     def __dir__(self) -> list[str]:
         return dir(self.__reference_access__())

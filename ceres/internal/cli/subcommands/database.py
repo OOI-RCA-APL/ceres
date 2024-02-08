@@ -6,7 +6,7 @@ from click import Choice
 from ceres.database.enums import DataFormat, ItemType
 from ceres.internal.cli.exceptions import CLIDatabaseUnreachableException, CLIException
 from ceres.internal.cli.plumbing import CLIArgument, CLIContext, CLIOption, CLIRouter
-from ceres.internal.cli.shared import confirm, use_database, write
+from ceres.internal.cli.shared import get_confirmation, use_database, write
 from ceres.internal.utilities import show_td
 from ceres.timing import utc
 
@@ -38,7 +38,7 @@ async def init(*, context: CLIContext) -> None:
     else:
         confirmation = "Database appears uninitialized. Execute above commands now?"
 
-    if confirm(confirmation):
+    if get_confirmation(confirmation):
         await database.init()
     else:
         write("Database has not been modified.")
@@ -186,7 +186,7 @@ async def clear(*, context: CLIContext) -> None:
     """
     database = await use_database(context, initialized=True)
 
-    if not confirm("Clear all data from the project database?"):
+    if not get_confirmation("Clear all data from the project database?"):
         write("Database has not been modified. Exiting.")
         return
 

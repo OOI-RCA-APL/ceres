@@ -114,8 +114,7 @@ class PydanticDataclassLike(DataclassLike, Protocol):
     __pydantic_serializer__: ClassVar[SchemaSerializer]
     __pydantic_validator__: ClassVar[SchemaValidator]
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        ...
+    def __init__(self, *args: Any, **kwargs: Any) -> None: ...
 
 
 def is_dataclass_instance(obj: object) -> TypeGuard[DataclassLike]:
@@ -498,13 +497,11 @@ _FunctionT = TypeVar("_FunctionT", bound=Callable[..., Any])
 @overload
 def cached(
     function: None = None, *, max_size: int | None = None
-) -> Callable[[_FunctionT], _FunctionT]:
-    ...
+) -> Callable[[_FunctionT], _FunctionT]: ...
 
 
 @overload
-def cached(function: _FunctionT) -> _FunctionT:
-    ...
+def cached(function: _FunctionT) -> _FunctionT: ...
 
 
 def cached(
@@ -639,13 +636,11 @@ def getattr_internal(cls: type[_T], instance: _T, name: str, value: object) -> N
 
 
 @overload
-def escape_like_expression(text: str) -> str:
-    ...
+def escape_like_expression(text: str) -> str: ...
 
 
 @overload
-def escape_like_expression(text: bytes) -> bytes:
-    ...
+def escape_like_expression(text: bytes) -> bytes: ...
 
 
 def escape_like_expression(text: str | bytes) -> str | bytes:
@@ -815,13 +810,11 @@ def validated_function(
     *,
     config: ConfigDict | None = None,
     validate_return: bool = False,
-) -> Callable[[_CallableT], _CallableT]:
-    ...
+) -> Callable[[_CallableT], _CallableT]: ...
 
 
 @overload
-def validated_function(__func: _CallableT) -> _CallableT:
-    ...
+def validated_function(__func: _CallableT) -> _CallableT: ...
 
 
 def validated_function(
@@ -926,13 +919,11 @@ _O = TypeVar("_O")
 
 
 @overload
-def coalesce(value: _T | None, default: Callable[[], _O]) -> _T | _O:
-    ...
+def coalesce(value: _T | None, default: Callable[[], _O]) -> _T | _O: ...
 
 
 @overload
-def coalesce(value: _T | None, default: _O) -> _T | _O:
-    ...
+def coalesce(value: _T | None, default: _O) -> _T | _O: ...
 
 
 def coalesce(value: object, default: object) -> object:
