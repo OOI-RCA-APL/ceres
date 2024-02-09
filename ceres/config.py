@@ -12,6 +12,7 @@ from pydantic import (
     Field,
     ImportString,
     IPvAnyAddress,
+    PositiveInt,
     SecretStr,
     ValidationError,
     ValidationInfo,
@@ -35,6 +36,7 @@ from ceres.errors import (
     ConfigReadError,
     ConfigValidationError,
 )
+from ceres.internal.auth import HashAlgorithm
 from ceres.internal.utilities import StrEnum, get_traceback, get_type_adapter, group_by, show_td
 from ceres.loaded import Loader
 from ceres.logs import Log
@@ -189,11 +191,24 @@ class DatabaseConfigHooks(ConfigObject):
     close: Sequence[str] | None = None
 
 
+class BaseHashingConfig(ConfigObject):
+    algorithm: HashAlgorithm
+
+
+class BCryptHashingConfig(ConfigObject):
+    algorithm: Literal[HashAlgorithm.BCRYPT] = HashAlgorithm.BCRYPT
+    rounds: PositiveInt = 12
+
+
+HashingConfig = BCryptHashingConfig
+
+
 class BaseDatabaseConfig(ConfigObject):
     type: DatabaseType
     hooks: DatabaseConfigHooks = Field(default_factory=DatabaseConfigHooks)
     engine: Mapping[str, Any] = Field(default_factory=dict)
     retry: DatabaseRetryConfig = DatabaseRetryConfig()
+    hashing: HashingConfig = BCryptHashingConfig()
 
 
 class SQLiteDatabaseConfig(BaseDatabaseConfig):

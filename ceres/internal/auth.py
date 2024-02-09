@@ -1,34 +1,38 @@
+from typing import TYPE_CHECKING
+
 import bcrypt
 
 from ceres.data import BCryptHash, PasswordHash
 from ceres.internal.utilities import StrEnum, get_type_adapter
 
+if TYPE_CHECKING:
+    from ceres.config import HashingConfig
+else:
+    HashingConfig = object()
+
 
 class HashAlgorithm(StrEnum):
-    BCrypt = "bcrypt"
+    BCRYPT = "bcrypt"
 
 
 def get_password_hash_algorithm(hash: str) -> HashAlgorithm | None:
     try:
         get_type_adapter(BCryptHash).validate_python(hash)
-        return HashAlgorithm.BCrypt
+        return HashAlgorithm.BCRYPT
     except ValueError:
         pass
 
     return None
 
 
-def get_password_hash(
-    password: str,
-    algorithm: HashAlgorithm = HashAlgorithm.BCrypt,
-) -> PasswordHash:
-    match algorithm:
-        case HashAlgorithm.BCrypt:
-            return BCryptHash(bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode())
+def get_password_hash(password: str, config: HashingConfig) -> PasswordHash:
+    match config.algorithm:
+        case HashAlgorithm.BCRYPT:
+            return BCryptHash(
+                bcrypt.hashpw(password.encode(), bcrypt.gensalt(config.rounds)).decode()
+            )
 
-
-def validate_password_hash(hash: PasswordHash) -> bool:
-    return get_password_hash_algorithm(hash) is not None
+    raise ValueError("unsupported hashing algorithm")
 
 
 def verify_password(password: str, hash: PasswordHash) -> bool:
@@ -37,7 +41,7 @@ def verify_password(password: str, hash: PasswordHash) -> bool:
         return False
 
     match algorithm:
-        case HashAlgorithm.BCrypt:
+        case HashAlgorithm.BCRYPT:
             return bcrypt.checkpw(password.encode(), hash.encode())
 
     return False

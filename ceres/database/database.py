@@ -240,7 +240,7 @@ class Database:
 
     async def hash_password(self, password: str) -> PasswordHash:
         def execute() -> PasswordHash:
-            return get_password_hash(password)
+            return get_password_hash(password, self.config.hashing)
 
         return await spawn(execute)
 
