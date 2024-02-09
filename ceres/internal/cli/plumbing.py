@@ -211,7 +211,7 @@ class CLIOptionArgs(CLIParameterArgs, total=False):
 
 
 def CLIArgument(
-    type: type[Any],
+    type: type[Any] | Any,
     **kwargs: Unpack[CLIArgumentArgs],
 ) -> Any:
     argument = Argument(..., **kwargs)  # type: ignore
@@ -220,7 +220,7 @@ def CLIArgument(
 
 
 def CLIOption(
-    type: type[Any],
+    type: type[Any] | Any,
     *decls: str,
     **kwargs: Unpack[CLIOptionArgs],
 ) -> Any:
@@ -233,7 +233,7 @@ def CLIOptionGroup() -> Any:
     return CLIOptionGroupInfo()
 
 
-def _get_typer_compatible_type(type: type[Any]) -> type[Any]:
+def _get_typer_compatible_type(type: type[Any] | Any) -> type[Any] | Any:
     if get_origin(type) is UnionType:
         args = get_args(type)
         if any(current is NoneType for current in args):

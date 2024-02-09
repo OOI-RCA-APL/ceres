@@ -36,7 +36,6 @@ from ceres.errors import (
     ConfigReadError,
     ConfigValidationError,
 )
-from ceres.internal.auth import HashAlgorithm
 from ceres.internal.utilities import StrEnum, get_traceback, get_type_adapter, group_by, show_td
 from ceres.loaded import Loader
 from ceres.logs import Log
@@ -191,16 +190,30 @@ class DatabaseConfigHooks(ConfigObject):
     close: Sequence[str] | None = None
 
 
+class HashType(StrEnum):
+    BCRYPT = "bcrypt"
+    ARGON2 = "argon2"
+
+
 class BaseHashingConfig(ConfigObject):
-    algorithm: HashAlgorithm
+    type: HashType
 
 
-class BCryptHashingConfig(ConfigObject):
-    algorithm: Literal[HashAlgorithm.BCRYPT] = HashAlgorithm.BCRYPT
+class BCryptHashingConfig(BaseHashingConfig):
+    type: Literal[HashType.BCRYPT] = HashType.BCRYPT
     rounds: PositiveInt = 12
 
 
-HashingConfig = BCryptHashingConfig
+class Argon2HashingConfig(BaseHashingConfig):
+    type: Literal[HashType.ARGON2] = HashType.ARGON2
+    time_cost: PositiveInt = 2
+    memory_cost: PositiveInt = 19456
+    parallelism: PositiveInt = 1
+    hash_length: PositiveInt = 32
+    salt_length: PositiveInt = 16
+
+
+HashingConfig = BCryptHashingConfig | Argon2HashingConfig
 
 
 class BaseDatabaseConfig(ConfigObject):
@@ -208,7 +221,7 @@ class BaseDatabaseConfig(ConfigObject):
     hooks: DatabaseConfigHooks = Field(default_factory=DatabaseConfigHooks)
     engine: Mapping[str, Any] = Field(default_factory=dict)
     retry: DatabaseRetryConfig = DatabaseRetryConfig()
-    hashing: HashingConfig = BCryptHashingConfig()
+    hashing: HashingConfig = Field(default_factory=Argon2HashingConfig, discriminator="type")
 
 
 class SQLiteDatabaseConfig(BaseDatabaseConfig):
@@ -386,23 +399,22 @@ class Config(ComponentConfig):
         ) -> Component | None:
             address = Address.root() if parent is None else parent.address / component_config.name
 
-            if isinstance(component_config, ComponentConfig):
-                try:
-                    component = component_config.create()
-                    log(f"Component '{address}': OK")
-                except Exception as exception:
-                    log(f"Component '{address}': ERROR")
-                    errors.append(
-                        ConfigComponentError(
-                            component=address,
-                            error=ComponentInitExceptionError(
-                                message="an exception occurred while loading this component",
-                                traceback=get_traceback(exception),
-                            ),
-                        )
+            try:
+                component = component_config.create()
+                log(f"Component '{address}': OK")
+            except Exception as exception:
+                log(f"Component '{address}': ERROR")
+                errors.append(
+                    ConfigComponentError(
+                        component=address,
+                        error=ComponentInitExceptionError(
+                            message="an exception occurred while loading this component",
+                            traceback=get_traceback(exception),
+                        ),
                     )
+                )
 
-                    return None
+                return None
 
             if parent is not None:
                 parent.add_component(component)

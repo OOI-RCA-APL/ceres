@@ -274,8 +274,6 @@ class InternalIntervalTrigger(BaseInternalIntervalTrigger):
         if self.end_date is not None and now > self.end_date:
             return None
 
-        next_fire_time: datetime | None = None
-
         if now < self.start_date:
             next_fire_time = self.start_date
         else:

@@ -150,7 +150,7 @@ class Stream(AsyncIterable[_T]):
     def of(self, of: type[_O]) -> "Stream[_O]":
         return Stream(self, of=of)
 
-    def filter(self, filter: Callable[[_T], bool]) -> Self:
+    def filter(self, filter: Callable[[_T], bool]) -> "Stream[_T]":
         return Stream(self, filter=filter)
 
     def map(self, map: Callable[[_T], _O]) -> "Stream[_O]":

@@ -299,7 +299,7 @@ class Component(Object):
         if isinstance(name, str):
             return cls.get_procedure_bindings().get(name)
 
-        return get_method_binding(name, ProcedureBinding)
+        return get_method_binding(name, ProcedureBinding)  # type: ignore
 
     @property
     @override

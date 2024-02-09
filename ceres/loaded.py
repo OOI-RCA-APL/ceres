@@ -71,7 +71,7 @@ class Loader(ImmutableDataObject, Generic[_T]):
             else:
                 instance = target(*arguments)
         else:
-            instance = object.__new__(target)
+            instance = object.__new__(target)  # type: ignore
             if target.__init__ is not object.__init__:
                 init = validate_call(config=ConfigDict(arbitrary_types_allowed=True))(
                     target.__init__
@@ -90,7 +90,7 @@ _loaded_type_cache: dict[type, type["LoadedType"]] = {}
 class LoadedType:
     cls: type = object
 
-    def __class_getitem__(cls, target_cls: type, /) -> type[Self]:
+    def __class_getitem__(cls, target_cls: type, /) -> type["LoadedType"]:
         if target_cls in _loaded_type_cache:
             return _loaded_type_cache[target_cls]
 

@@ -63,7 +63,7 @@ from ceres.filter import (
     UserFilter,
     UserFilterArgs,
 )
-from ceres.internal.auth import get_password_hash, get_password_hash_algorithm, verify_password
+from ceres.internal.auth import get_password_hash, verify_password, verify_password_hash
 from ceres.internal.database.entities import (
     AlertEntity,
     Entity,
@@ -253,10 +253,10 @@ class Database:
         return await spawn(execute)
 
     async def __maybe_hash_password(self, password: str) -> PasswordHash | None:
-        if get_password_hash_algorithm(password) is None:
-            return await self.hash_password(password)
+        if verify_password_hash(password):
+            return password
 
-        return PasswordHash(password)
+        return await self.hash_password(password)
 
     async def get_users(
         self,
