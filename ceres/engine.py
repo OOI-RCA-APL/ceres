@@ -36,7 +36,6 @@ from ceres.filter import (
     UserFilterArgs,
 )
 from ceres.internal.app.main import App
-from ceres.internal.auth import get_password_hash, verify_password
 from ceres.internal.project import Project
 from ceres.internal.utilities import StrEnum, sleep_forever, strify, uniquify
 from ceres.internal.uvicorn import Uvicorn, UvicornConfig
@@ -44,8 +43,7 @@ from ceres.logs import LogEntry, LogEntryUpdate
 from ceres.message import Message, MessageUpdate
 from ceres.object import Object
 from ceres.result import Fail, Ok, Result
-from ceres.threading import spawn
-from ceres.user import User, UserUpdate
+from ceres.user import User, UserCreate, UserUpdate
 
 if TYPE_CHECKING:
     from ceres.component import Component, ComponentGroup
@@ -292,16 +290,10 @@ class Engine(Object, kw_only=False):
         return self.__root.get_components(filter, inclusive=True, **kwargs)
 
     async def hash_password(self, password: str) -> PasswordHash:
-        def execute() -> PasswordHash:
-            return get_password_hash(password)
-
-        return await spawn(execute)
+        return await self.__database.hash_password(password)
 
     async def verify_password(self, password: str, hash: PasswordHash) -> bool:
-        def execute() -> bool:
-            return verify_password(password, hash)
-
-        return await spawn(execute)
+        return await self.__database.verify_password(password, hash)
 
     async def get_users(
         self,
@@ -324,7 +316,7 @@ class Engine(Object, kw_only=False):
     ) -> int:
         return await self.__database.count_users(filter, **kwargs)
 
-    async def create_user(self, data: User) -> User:
+    async def create_user(self, data: User | UserCreate) -> User:
         return await self.__database.create_user(data)
 
     async def update_users(self, filter: UserFilter, assign: UserUpdate) -> int:

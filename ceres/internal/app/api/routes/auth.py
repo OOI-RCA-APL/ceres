@@ -1,7 +1,12 @@
 import asyncio
 
 from fastapi import APIRouter, HTTPException, Response
-from starlette.status import HTTP_400_BAD_REQUEST, HTTP_401_UNAUTHORIZED, HTTP_403_FORBIDDEN
+from starlette.status import (
+    HTTP_400_BAD_REQUEST,
+    HTTP_401_UNAUTHORIZED,
+    HTTP_403_FORBIDDEN,
+    HTTP_404_NOT_FOUND,
+)
 
 from ceres.data import DateTime, ImmutableDataObject, NonEmptyStr, PasswordStr
 from ceres.filter import UserFilter
@@ -127,10 +132,12 @@ async def change_password(
     user: RequireUser,
     input: ChangePasswordInput,
 ) -> User:
-    if not await engine.verify_password(input.old_password, user.password):
+    if not await engine.database.verify_password(input.old_password, user.password):
         await asyncio.sleep(WRONG_PASSWORD_DELAY_SECONDS)
         raise HTTPException(HTTP_400_BAD_REQUEST)
 
-    hash = await engine.hash_password(input.new_password)
-    await engine.update_user(UserFilter(id=user.id), {"password": hash})
-    return user
+    changed = await engine.update_user(UserFilter(id=user.id), {"password": input.new_password})
+    if changed is None:
+        raise HTTPException(HTTP_404_NOT_FOUND)
+
+    return changed

@@ -1,12 +1,12 @@
 from typing import TYPE_CHECKING, Annotated
 from uuid import UUID, uuid4
 
-from pydantic import Field, model_validator
-from typing_extensions import Self, TypedDict
+from pydantic import Field
+from typing_extensions import TypedDict
 
 from ceres.data import EmailStr, ImmutableDataObject, PasswordHash, PasswordStr, UsernameStr
 from ceres.internal.cli.plumbing import CLIOption
-from ceres.internal.utilities import PriorityStrEnum, get_type_adapter
+from ceres.internal.utilities import PriorityStrEnum
 
 
 class UserRole(PriorityStrEnum):
@@ -31,25 +31,12 @@ class User(__UserFields):
 
 
 class UserCreate(__UserFields):
-    password: Annotated[PasswordStr, CLIOption(str, prompt=True, hide_input=True)]
-    password_is_hashed: Annotated[bool, CLIOption(bool)] = False
-
-    @model_validator(mode="after")
-    def _validate(self) -> Self:
-        if self.password_is_hashed:
-            try:
-                get_type_adapter(PasswordHash).validate_python(self.password)
-            except ValueError:
-                raise ValueError(
-                    "`password_is_hashed` is True, but `password` is not a valid bcrypt hash."
-                )
-
-        return self
+    password: Annotated[PasswordStr | PasswordHash, CLIOption(str, prompt=True, hide_input=True)]
 
 
 class UserUpdate(TypedDict, total=False):
     username: UsernameStr
     email: EmailStr
-    password: PasswordStr
+    password: PasswordStr | PasswordHash
     role: UserRole
     disabled: bool

@@ -1,0 +1,14 @@
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: ceres
+      POSTGRES_PASSWORD: ceres
+      POSTGRES_DB: ceres
+    ports:
+      - "5432:5432"
+    volumes:
+      - ceres-postgres:/var/lib/postgresql/data
+volumes:
+  ceres-postgres:
+    name: ceres-postgres

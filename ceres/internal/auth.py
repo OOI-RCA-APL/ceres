@@ -19,14 +19,15 @@ def get_password_hash_algorithm(hash: str) -> HashAlgorithm | None:
 
 
 def get_password_hash(
-    password: str, algorithm: HashAlgorithm = HashAlgorithm.BCrypt
+    password: str,
+    algorithm: HashAlgorithm = HashAlgorithm.BCrypt,
 ) -> PasswordHash:
     match algorithm:
         case HashAlgorithm.BCrypt:
             return BCryptHash(bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode())
 
 
-def validate_password_hash(hash: str) -> bool:
+def validate_password_hash(hash: PasswordHash) -> bool:
     return get_password_hash_algorithm(hash) is not None
 
 

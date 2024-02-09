@@ -614,8 +614,10 @@ class Component(Object):
         else:
             filter = overrides
 
+        filter = filter.with_defaults(ComponentFilter(root=self.address))
+
         def traverse(current: Component) -> None:
-            if (inclusive or current is not self) and filter.matches(current, self.address):
+            if (inclusive or current is not self) and filter.matches(current):
                 components.append(current)
 
             for component in current.__components.values():

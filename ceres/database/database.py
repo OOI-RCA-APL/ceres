@@ -1,11 +1,14 @@
 import csv
+import re
 import shutil
 import sqlite3
 import traceback
 from abc import abstractmethod
 from asyncio import Lock as AsyncLock
+from contextlib import contextmanager
 from pathlib import Path
 from sqlite3 import Connection as SQLiteConnection
+from sqlite3 import IntegrityError as SQLiteIntegrityError
 from tempfile import NamedTemporaryFile, gettempdir
 from typing import (
     TYPE_CHECKING,
@@ -21,7 +24,7 @@ from typing import (
 )
 from uuid import UUID, uuid4
 
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 from sqlalchemy import (
     URL,
     AsyncAdaptedQueuePool,
@@ -37,15 +40,17 @@ from sqlalchemy import (
     text,
     update,
 )
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession, create_async_engine
 from typing_extensions import Self, Unpack, override
 
 from ceres.address import Address
 from ceres.alert import Alert, AlertUpdate
 from ceres.config import DatabaseConfig, PostgresDatabaseConfig, SQLiteDatabaseConfig
-from ceres.data import jsonify
+from ceres.data import PasswordHash, jsonify
 from ceres.database.enums import DatabaseType, ItemType
-from ceres.exceptions import DatabaseLoadException
+from ceres.errors import AlreadyExistsError, DatabaseError
+from ceres.exceptions import DatabaseLoadException, Failure
 from ceres.filter import (
     AlertFilter,
     AlertFilterArgs,
@@ -58,6 +63,7 @@ from ceres.filter import (
     UserFilter,
     UserFilterArgs,
 )
+from ceres.internal.auth import get_password_hash, get_password_hash_algorithm, verify_password
 from ceres.internal.database.entities import (
     AlertEntity,
     Entity,
@@ -66,23 +72,17 @@ from ceres.internal.database.entities import (
     StoreEntity,
     UserEntity,
 )
-from ceres.internal.utilities import (
-    PathLike,
-    get_type_adapter,
-    strlist,
-)
+from ceres.internal.utilities import PathLike, get_type_adapter, strlist
 from ceres.logs import LogEntry, LogEntryUpdate
 from ceres.message import Message, MessageUpdate
 from ceres.statistics import LevelStatistics, Statistics
 from ceres.store import Store
 from ceres.threading import spawn
 from ceres.timing import utc
-from ceres.user import User, UserUpdate
+from ceres.user import User, UserCreate, UserUpdate
 
 _T = TypeVar("_T")
-_SelectT = TypeVar("_SelectT", bound=Select[tuple[Any, ...]])
 _Statement = Select[tuple[Any, ...]] | Update | Delete
-_StatementT = TypeVar("_StatementT", bound=Select[tuple[Any, ...]] | Update | Delete)
 
 
 class Database:
@@ -199,33 +199,37 @@ class Database:
         return AsyncSession(self.__engine, expire_on_commit=False)
 
     def connect(self) -> AsyncConnection:
-        return self.__engine.connect()
+        with _wrap_database_errors():
+            return self.__engine.connect()
 
     async def dispose(self) -> None:
-        await self.__engine.dispose()
+        with _wrap_database_errors():
+            await self.__engine.dispose()
 
     async def init(self) -> AsyncSession:
-        if self.__completed_init_successfully:
-            return self.session()
-
-        async with self.__init_lock:
+        with _wrap_database_errors():
             if self.__completed_init_successfully:
                 return self.session()
 
-            async with self.__engine.begin() as connection:
-                for statement in self.ddl:
-                    await connection.execute(text(statement))
+            async with self.__init_lock:
+                if self.__completed_init_successfully:
+                    return self.session()
 
-            self.__completed_init_successfully = True
+                async with self.__engine.begin() as connection:
+                    for statement in self.ddl:
+                        await connection.execute(text(statement))
 
-        return self.session()
+                self.__completed_init_successfully = True
+
+            return self.session()
 
     async def clear(self) -> None:
-        async with self.__engine.begin() as connection:
-            for cls in reversed(Entity.get_entity_classes()):
-                await connection.execute(delete(cls))
+        with _wrap_database_errors():
+            async with self.__engine.begin() as connection:
+                for cls in reversed(Entity.get_entity_classes()):
+                    await connection.execute(delete(cls))
 
-            await connection.commit()
+                await connection.commit()
 
     async def initialized(self) -> bool:
         return await self.__run_sync(lambda connection: bool(inspect(connection).get_table_names()))
@@ -233,6 +237,26 @@ class Database:
     #
     # Users
     #
+
+    async def hash_password(self, password: str) -> PasswordHash:
+        def execute() -> PasswordHash:
+            return get_password_hash(password)
+
+        return await spawn(execute)
+
+    async def verify_password(self, password: str, hash: PasswordHash) -> bool:
+        hash = await self.__maybe_hash_password(hash)  # type: ignore
+
+        def execute() -> bool:
+            return verify_password(password, hash)
+
+        return await spawn(execute)
+
+    async def __maybe_hash_password(self, password: str) -> PasswordHash | None:
+        if get_password_hash_algorithm(password) is None:
+            return await self.hash_password(password)
+
+        return PasswordHash(password)
 
     async def get_users(
         self,
@@ -264,20 +288,25 @@ class Database:
         statement = filter.apply(statement, self.type)
         return await self.__execute_and_get_one(statement, int) or 0
 
-    async def create_user(self, data: User) -> User:
-        entity = UserEntity(**data.__dict__)
-
-        async with await self.init() as session:
-            session.add(entity)
-            await session.commit()
-
+    async def create_user(self, data: User | UserCreate) -> User:
+        fields = {**data.__dict__}
+        fields["password"] = await self.__maybe_hash_password(fields["password"])
+        data = User(**fields)
+        await self.__create(UserEntity, data)
         return data
 
     async def update_users(self, filter: UserFilter, assign: UserUpdate) -> int:
         if not assign:
             return 0
 
-        statement = update(UserEntity).values(assign)
+        fields = {**assign}
+        if "password" in fields:
+            fields["password"] = await self.__maybe_hash_password(fields["password"])
+
+        if not fields:
+            return 0
+
+        statement = update(UserEntity).values(fields)
         statement = filter.apply(statement, self.type)
         return await self.__execute_and_get_count(statement)
 
@@ -285,7 +314,11 @@ class Database:
         if not assign:
             return None
 
-        statement = update(UserEntity).values(assign).returning(UserEntity)
+        fields = {**assign}
+        if "password" in fields:
+            fields["password"] = await self.__maybe_hash_password(fields["password"])
+
+        statement = update(UserEntity).values(fields).returning(UserEntity)
         statement = filter.with_overrides(UserFilter(limit=1)).apply(statement, self.type)
         return await self.__execute_and_get_one(statement, User)
 
@@ -342,12 +375,7 @@ class Database:
         return await self.__execute_and_get_one(statement, int) or 0
 
     async def create_message(self, data: Message) -> Message:
-        entity = MessageEntity(**data.__dict__)
-
-        async with await self.init() as session:
-            session.add(entity)
-            await session.commit()
-
+        await self.__create(MessageEntity, data)
         return data
 
     async def update_messages(self, filter: MessageFilter, assign: MessageUpdate) -> int:
@@ -420,12 +448,7 @@ class Database:
         return await self.__execute_and_get_one(statement, int) or 0
 
     async def create_alert(self, data: Alert) -> Alert:
-        entity = AlertEntity(**data.__dict__)
-
-        async with await self.init() as session:
-            session.add(entity)
-            await session.commit()
-
+        await self.__create(AlertEntity, data)
         return data
 
     async def update_alerts(self, filter: AlertFilter, assign: AlertUpdate) -> int:
@@ -498,12 +521,7 @@ class Database:
         return await self.__execute_and_get_one(statement, int) or 0
 
     async def create_log_entry(self, data: LogEntry) -> LogEntry:
-        entity = LogEntryEntity(**data.__dict__)
-
-        async with await self.init() as session:
-            session.add(entity)
-            await session.commit()
-
+        await self.__create(LogEntryEntity, data)
         return data
 
     async def update_log_entries(self, filter: LogEntryFilter, assign: LogEntryUpdate) -> int:
@@ -574,23 +592,24 @@ class Database:
 
         results: dict[Address, Statistics] = {}
 
-        async with await self.init() as session:
-            for address, level, count in await session.execute(statement):
-                address: Address
-                for ancestor in address.path:
-                    if filter.root is not None:
-                        if not filter.root.contains(ancestor):
-                            continue
+        with _wrap_database_errors():
+            async with await self.init() as session:
+                for address, level, count in await session.execute(statement):
+                    address: Address
+                    for ancestor in address.path:
+                        if filter.root is not None:
+                            if not filter.root.contains(ancestor):
+                                continue
 
-                    current = results.setdefault(ancestor, Statistics(address=ancestor))
-                    current.alerts.count += count
-                    for entry in current.alerts.levels:
-                        if entry.level == level:
-                            entry.count += count
-                            break
-                    else:
-                        current.alerts.levels.append(LevelStatistics(level=level, count=count))
-                        current.alerts.levels.sort(key=lambda entry: entry.level)
+                        current = results.setdefault(ancestor, Statistics(address=ancestor))
+                        current.alerts.count += count
+                        for entry in current.alerts.levels:
+                            if entry.level == level:
+                                entry.count += count
+                                break
+                        else:
+                            current.alerts.levels.append(LevelStatistics(level=level, count=count))
+                            current.alerts.levels.sort(key=lambda entry: entry.level)
 
         return list(
             result
@@ -599,32 +618,35 @@ class Database:
         )
 
     async def __run_sync(self, callback: Callable[[Connection], _T]) -> _T:
-        async with self.connect() as connection:
-            return await connection.run_sync(callback)
+        with _wrap_database_errors():
+            async with self.connect() as connection:
+                return await connection.run_sync(callback)
 
     async def __execute_and_get_many(
         self,
         statement: _Statement,
         model: Type[_T],
     ) -> list[_T]:
-        async with await self.init() as session:
-            entities = await session.execute(statement)
-            await session.commit()
+        with _wrap_database_errors():
+            async with await self.init() as session:
+                entities = await session.execute(statement)
+                await session.commit()
 
-        if not entities:
-            return []
+            if not entities:
+                return []
 
-        return get_type_adapter(list[model]).validate_python(entities, from_attributes=True)
+            return get_type_adapter(list[model]).validate_python(entities, from_attributes=True)
 
     async def __execute_and_get_one(
         self,
         statement: _Statement,
         model: Type[_T],
     ) -> _T | None:
-        async with await self.init() as session:
-            rows = await session.execute(statement)
-            entity = rows.scalar()
-            await session.commit()
+        with _wrap_database_errors():
+            async with await self.init() as session:
+                rows = await session.execute(statement)
+                entity = rows.scalar()
+                await session.commit()
 
         if entity is None:
             return None
@@ -632,10 +654,19 @@ class Database:
         return get_type_adapter(model).validate_python(entity, from_attributes=True)
 
     async def __execute_and_get_count(self, statement: Update | Delete) -> int:
-        async with await self.init() as session:
-            rows = await session.execute(statement)
-            await session.commit()
-            return rows.rowcount
+        with _wrap_database_errors():
+            async with await self.init() as session:
+                rows = await session.execute(statement)
+                await session.commit()
+                return rows.rowcount
+
+    async def __create(self, entity_cls: Type[Entity], data: BaseModel) -> Entity:
+        entity = entity_cls(**data.__dict__)
+        with _wrap_database_errors():
+            async with await self.init() as session:
+                session.add(entity)
+                await session.commit()
+                return entity
 
 
 @final
@@ -1192,3 +1223,40 @@ async def _execute_ddl(
                 await connection.execute(text(statement))
 
         await connection.commit()
+
+
+_SQLITE_UNIQUE_ERROR_REGEX = re.compile(
+    r"UNIQUE constraint failed: ([^ ]+)\.(?P<column>[^ ]+)",
+    re.MULTILINE | re.DOTALL,
+)
+_POSTGRES_UNIQUE_ERROR_REGEX = re.compile(
+    r".*duplicate key.*\((?P<column>[^ ]+)\)=",
+    re.MULTILINE | re.DOTALL,
+)
+
+
+@contextmanager
+def _wrap_database_errors() -> Iterator[None]:
+    try:
+        yield
+    except SQLAlchemyError as exception:
+        try:
+            from sqlalchemy.dialects.postgresql.asyncpg import AsyncAdapt_asyncpg_dbapi
+
+            PostgresIntegrityError = AsyncAdapt_asyncpg_dbapi.IntegrityError
+        except ImportError:
+            PostgresIntegrityError = None
+
+        if isinstance(exception, IntegrityError):
+            if isinstance(exception.orig, SQLiteIntegrityError):
+                match = _SQLITE_UNIQUE_ERROR_REGEX.match(str(exception.orig))
+                if match is not None:
+                    raise Failure(AlreadyExistsError(field=match.group("column")))
+            elif PostgresIntegrityError is not None and isinstance(
+                exception.orig, PostgresIntegrityError
+            ):
+                match = _POSTGRES_UNIQUE_ERROR_REGEX.match(str(exception.orig))
+                if match is not None:
+                    raise Failure(AlreadyExistsError(field=match.group("column")))
+
+        raise Failure(DatabaseError(message=str(exception)))

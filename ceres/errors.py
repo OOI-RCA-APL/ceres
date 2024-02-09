@@ -218,3 +218,30 @@ ProcedureError = (
     | ProcedureCancelledError
     | ProcedureInternalError
 )
+
+
+class OperationErrorType(StrEnum):
+    ALREADY_EXISTS = "already-exists-error"
+    DOES_NOT_EXIST = "does-not-exist-error"
+    DATABASE = "database-error"
+
+
+class BaseDataError(Error):
+    type: OperationErrorType
+
+
+class DoesNotExistError(BaseDataError):
+    type: Literal[OperationErrorType.DOES_NOT_EXIST] = OperationErrorType.DOES_NOT_EXIST
+
+
+class AlreadyExistsError(BaseDataError):
+    type: Literal[OperationErrorType.ALREADY_EXISTS] = OperationErrorType.ALREADY_EXISTS
+    field: str
+
+
+class DatabaseError(BaseDataError):
+    type: Literal[OperationErrorType.DATABASE] = OperationErrorType.DATABASE
+    message: str
+
+
+OperationError = DoesNotExistError | AlreadyExistsError | DatabaseError

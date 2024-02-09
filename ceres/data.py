@@ -227,23 +227,39 @@ class ValidatedDataclass(ABC, PydanticDataclassLike):  # type: ignore
         )(cls)
 
 
+__USERNAME_PATTERN = r"[a-zA-Z\-_]+"
+
 UsernameStr = Annotated[
     str,
     StringConstraints(
-        pattern=r"[a-zA-Z\-_]{1,64}",
+        pattern=__USERNAME_PATTERN,
         min_length=1,
         max_length=64,
     ),
 ]
 
-PasswordStr = Annotated[str, StringConstraints(min_length=1, max_length=256)]
+
+def __validate_password_str(value: str) -> str:
+    bytes = len(value.encode())
+    if bytes > 72:
+        raise ValueError("password cannot exceed 72 bytes")
+
+    return value
+
+
+PasswordStr = Annotated[
+    str,
+    StringConstraints(min_length=1, max_length=32),
+    AfterValidator(__validate_password_str),
+]
+
 EmailStr = _BaseEmailStr
 
-_BCRYPT_HASH_PATTERN = r"^\$2[ayb]\$.{56}$"
+__BCRYPT_HASH_PATTERN = r"^\$2[ayb]\$.{56}$"
 
 BCryptHash = NewType(
     "BCryptHash",
-    Annotated[str, StringConstraints(pattern=_BCRYPT_HASH_PATTERN)],
+    Annotated[str, StringConstraints(pattern=__BCRYPT_HASH_PATTERN)],
 )
 
 PasswordHash = BCryptHash

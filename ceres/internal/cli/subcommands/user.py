@@ -1,6 +1,5 @@
 from typing import Annotated
 
-from ceres.data import PasswordHash
 from ceres.filter import UserFilter
 from ceres.internal.cli.plumbing import CLIContext, CLIOptionGroup, CLIRouter
 from ceres.internal.cli.shared import (
@@ -72,15 +71,7 @@ async def create(
     Create a new user.
     """
     engine = await use_temporary_engine(context)
-    hash = (
-        PasswordHash(data.password)
-        if data.password_is_hashed
-        else await engine.hash_password(data.password)
-    )
-
-    values = data.model_dump(exclude={"password_is_hashed"})
-    values["password"] = hash
-    return await engine.create_user(User(**values))
+    return await engine.create_user(data)
 
 
 @router.command()

@@ -1,4 +1,6 @@
-from ceres.errors import ProcedureError
+from typing import Generic, TypeVar
+
+from ceres.errors import Error, ProcedureError
 
 
 class CeresException(Exception):
@@ -61,3 +63,12 @@ class DatabaseDumpException(EngineException):
 
 class DatabaseLoadException(EngineException):
     pass
+
+
+_ErrorT = TypeVar("_ErrorT", bound=Error)
+
+
+class Failure(Exception, Generic[_ErrorT]):
+    def __init__(self, error: _ErrorT) -> None:
+        self.error = error
+        self.message = str(error.type)
