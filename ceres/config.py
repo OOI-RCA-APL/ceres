@@ -5,9 +5,11 @@ import traceback
 from datetime import timedelta
 from logging import Logger
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Literal, Mapping, Sequence
+from typing import TYPE_CHECKING, Annotated, Any, Callable, Literal, Mapping, Sequence
 
 import yaml
+from annotated_types import Ge, Le
+from argon2.profiles import RFC_9106_LOW_MEMORY
 from pydantic import (
     Field,
     ImportString,
@@ -206,11 +208,20 @@ class BCryptHashingConfig(BaseHashingConfig):
 
 class Argon2HashingConfig(BaseHashingConfig):
     type: Literal[HashType.ARGON2] = HashType.ARGON2
-    time_cost: PositiveInt = 2
-    memory_cost: PositiveInt = 19456
-    parallelism: PositiveInt = 1
-    hash_length: PositiveInt = 32
-    salt_length: PositiveInt = 16
+    time_cost: PositiveInt = RFC_9106_LOW_MEMORY.time_cost  # 3
+    memory_cost: Annotated[int, Ge(8)] = RFC_9106_LOW_MEMORY.memory_cost  # 65536 KiB
+    parallelism: PositiveInt = RFC_9106_LOW_MEMORY.parallelism  # 4
+    hash_length: Annotated[int, Ge(4), Le(256)] = 32  # True allowed range is 4-32768.
+    salt_length: Annotated[int, Ge(8), Le(64)] = 16  # True allowed range is 8-4096.
+
+    @field_validator("parallelism")
+    def _validate_memory_cost(cls, value: int, info: ValidationInfo) -> int:
+        print(info.data)
+        memory_cost = info.data.get("memory_cost", RFC_9106_LOW_MEMORY.memory_cost)
+        if (memory_cost / value) < 8:
+            raise ValueError("parallelism must be at least 8 times smaller than memory_cost")
+
+        return value
 
 
 HashingConfig = BCryptHashingConfig | Argon2HashingConfig
