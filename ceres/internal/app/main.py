@@ -1,8 +1,7 @@
 import traceback
-from contextlib import asynccontextmanager
 from http.client import responses
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, AsyncIterator, Awaitable, Callable, cast, final
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, cast, final
 
 from asgiref.typing import (
     ASGIReceiveCallable,
@@ -19,8 +18,6 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse
 
 from ceres.alert import Level
-from ceres.internal import logs
-
 from ceres.internal.app.api import router as router__api
 from ceres.internal.app.console import ConsoleFiles
 from ceres.internal.app.shared import CurrentEngine
@@ -55,16 +52,10 @@ class App(FastAPI):
         self.__engine = engine
         self.__cli = cli
 
-        @asynccontextmanager
-        async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-            logs.setup()
-            yield
-
         super().__init__(
             redoc_url=None,
             docs_url="/api/docs",
             openapi_url="/api/openapi.json",
-            lifespan=lifespan,
         )
 
         @self.middleware("http")

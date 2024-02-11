@@ -14,7 +14,6 @@ from ceres.data import jsonify
 from ceres.engine import Engine
 from ceres.exceptions import EngineException
 from ceres.filter import ComponentFilter
-from ceres.internal import logs
 from ceres.internal.cli.exceptions import (
     CLIEngineNotRunningException,
     CLIInvalidConfigException,
@@ -87,7 +86,6 @@ def setup(
         raise Exit()
 
     ensure_event_loop()
-    logs.setup()
     config = get_config_path(config)
     context.meta["config_path"] = config
 
