@@ -19,6 +19,7 @@ asyncpg = "^0.28.0"
 bcrypt = "^4.1.0"
 email-validator = "^2.1.0"
 fastapi = ">=0.101.1"
+hypercorn = "^0.16.0"
 jinja2 = "^3.1.0"
 mistune = ">=3.0.0rc5"
 psycopg = { version = "^3.1.0", extras = ["binary"] }
@@ -30,7 +31,6 @@ setproctitle = "^1.0.0"
 sqlalchemy = { version = "^2.0.0", extras = ["asyncio"] }
 sqlparse = ">=0.4.0"
 typer = { version = ">=0.6.0", extras = ["all"] }
-uvicorn = ">=0.14.0"
 uvloop = ">=0.17.0"
 watchfiles = ">=0.10.0"
 websockets = "^10.0.0"

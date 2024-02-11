@@ -216,7 +216,6 @@ class Argon2HashingConfig(BaseHashingConfig):
 
     @field_validator("parallelism")
     def _validate_memory_cost(cls, value: int, info: ValidationInfo) -> int:
-        print(info.data)
         memory_cost = info.data.get("memory_cost", RFC_9106_LOW_MEMORY.memory_cost)
         if (memory_cost / value) < 8:
             raise ValueError("parallelism must be at least 8 times smaller than memory_cost")
