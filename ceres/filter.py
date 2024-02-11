@@ -353,16 +353,21 @@ class MessageFilter(AddressFilter[Message], DatabaseFilter):
 
         match self.order:
             case None | MessageOrder.OLD_TO_NEW:
-                ids = ids.order_by(MessageEntity.timestamp)
+                order_by = MessageEntity.timestamp
             case MessageOrder.NEW_TO_OLD:
-                ids = ids.order_by(MessageEntity.timestamp.desc())
+                order_by = MessageEntity.timestamp.desc()
+
+        ids = ids.order_by(order_by)
 
         if self.limit is not None:
             ids = ids.limit(self.limit)
         if self.offset is not None and self.offset > 0:
             ids = ids.offset(self.offset)
 
-        return statement.where(MessageEntity.id.in_(ids))
+        if isinstance(statement, Update | Delete):
+            return statement.where(MessageEntity.id.in_(ids))
+
+        return statement.where(MessageEntity.id.in_(ids)).order_by(order_by)
 
 
 class AlertOrder(StrEnum):
@@ -497,16 +502,21 @@ class AlertFilter(AddressFilter[Alert], DatabaseFilter):
 
         match self.order:
             case None | AlertOrder.OLD_TO_NEW:
-                ids = ids.order_by(AlertEntity.timestamp)
+                order_by = AlertEntity.timestamp
             case AlertOrder.NEW_TO_OLD:
-                ids = ids.order_by(AlertEntity.timestamp.desc())
+                order_by = AlertEntity.timestamp.desc()
+
+        ids = ids.order_by(order_by)
 
         if self.limit is not None:
             ids = ids.limit(self.limit)
         if self.offset is not None and self.offset > 0:
             ids = ids.offset(self.offset)
 
-        return statement.where(AlertEntity.id.in_(ids))
+        if isinstance(statement, Update | Delete):
+            return statement.where(AlertEntity.id.in_(ids))
+
+        return statement.where(AlertEntity.id.in_(ids)).order_by(order_by)
 
 
 class LogEntryOrder(StrEnum):
@@ -635,16 +645,21 @@ class LogEntryFilter(AddressFilter[LogEntry], DatabaseFilter):
 
         match self.order:
             case None | LogEntryOrder.OLD_TO_NEW:
-                ids = ids.order_by(LogEntryEntity.timestamp)
-            case LogEntryOrder.NEW_TO_OLD:
-                ids = ids.order_by(LogEntryEntity.timestamp.desc())
+                order_by = LogEntryEntity.timestamp
+            case AlertOrder.NEW_TO_OLD:
+                order_by = LogEntryEntity.timestamp.desc()
+
+        ids = ids.order_by(order_by)
 
         if self.limit is not None:
             ids = ids.limit(self.limit)
         if self.offset is not None and self.offset > 0:
             ids = ids.offset(self.offset)
 
-        return statement.where(LogEntryEntity.id.in_(ids))
+        if isinstance(statement, Update | Delete):
+            return statement.where(LogEntryEntity.id.in_(ids))
+
+        return statement.where(LogEntryEntity.id.in_(ids)).order_by(order_by)
 
 
 class StatisticsFilterArgs(TypedDict, total=False):
