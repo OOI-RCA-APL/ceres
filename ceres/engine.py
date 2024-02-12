@@ -20,7 +20,6 @@ from ceres.errors import (
     Failure,
     ReloadAlreadyActiveError,
     ReloadConfigInvalidError,
-    ReloadError,
 )
 from ceres.events import Event, LogEvent, StoppedEvent, StoppingEvent
 from ceres.filter import (
@@ -429,19 +428,19 @@ class Engine(Object, kw_only=False):
     ) -> LogEntry | None:
         return await self.__database.delete_log_entry(filter, **kwargs)
 
-    async def reload(self, config: Config | None = None) -> Result[Config, ReloadError]:
+    async def reload(self, config: Config | None = None) -> Config:
         if self.__reloading.is_set():
-            return Fail(ReloadAlreadyActiveError())
+            raise Failure(ReloadAlreadyActiveError)
 
         if config is not None:
             self.log.info("Queueing reload of provided configuration...")
             self.__reloading.set()
             self.__reloaded_config = config
-            return Ok(config)
+            return config
 
         if self.__config_path is None:
             self.log.warning("No configuration path provided, ignoring reload.")
-            return Ok(self.config)
+            return self.config
 
         self.log.info(f"Reloading configuration from '{self.__config_path}'...")
         match await Config.load(self.__config_path, log=self.log):
@@ -449,10 +448,10 @@ class Engine(Object, kw_only=False):
                 self.log.info("Configuration parsed successfully, queueing reload...")
                 self.__reloading.set()
                 self.__reloaded_config = config
-                return Ok(config)
+                return config
             case Fail(errors):
                 self.log.error("Reload failed, found errors in configuration.")
-                return Fail(ReloadConfigInvalidError(errors=errors))
+                raise Failure(ReloadConfigInvalidError(errors=errors))
 
     async def __load_database(self) -> None:
         if not await self.__object_database__.initialized():
@@ -675,17 +674,26 @@ class Engine(Object, kw_only=False):
         config = ServerInternalConfig()
         config.loglevel = "CRITICAL"
 
-        if self.__config.server.port is not None:
-            config.bind = f"{self.__config.server.host}:{self.__config.server.port}"
-        if socket is not None:
-            config.insecure_bind = f"unix:{socket}"
-
         # SSL / HTTPS
         ssl = self.__config.server.ssl or ServerSSLConfig()
         config.keyfile = str(ssl.key) if ssl.key is not None else None
         config.keyfile_password = ssl.key_password
         config.certfile = str(ssl.cert) if ssl.cert is not None else None
         config.ca_certs = str(ssl.ca_certs) if ssl.ca_certs is not None else None
+
+        bind: list[str] = []
+        insecure_bind: list[str] = []
+
+        if self.__config.server.port is not None:
+            bind.append(f"{self.__config.server.host}:{self.__config.server.port}")
+        if socket is not None:
+            if config.ssl_enabled:
+                insecure_bind.append(f"unix:{socket}")
+            else:
+                bind.append(f"unix:{socket}")
+
+        config.bind = bind
+        config.insecure_bind = insecure_bind
 
         from ceres.internal.app.main import App
 

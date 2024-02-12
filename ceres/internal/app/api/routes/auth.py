@@ -13,11 +13,12 @@ from ceres.errors import (
 from ceres.filter import UserFilter
 from ceres.internal.app.shared import (
     VIEWER,
+    APIIdentity,
+    APIUser,
     AuthorizationCookieType,
     CurrentEngine,
     CurrentIdentity,
     Identity,
-    PrivateIdentity,
     RequireUser,
     assign_authorization_cookie,
     create_identity,
@@ -35,7 +36,7 @@ class LoginInput(ImmutableDataObject):
     cookie: AuthorizationCookieType | None = None
 
 
-class LoginResult(PrivateIdentity):
+class LoginResult(APIIdentity):
     pass
 
 
@@ -59,7 +60,7 @@ async def login(
         assign_authorization_cookie(response, identity, input.cookie)
 
     return LoginResult(
-        user=identity.user,
+        user=APIUser.model_validate(identity.user, from_attributes=True),
         token=identity.token,
         expires=identity.expires,
     )
@@ -69,17 +70,17 @@ class RefreshInput(ImmutableDataObject):
     cookie: AuthorizationCookieType | None = None
 
 
-class RefreshResult(PrivateIdentity):
+class RefreshResult(APIIdentity):
     pass
 
 
-@router.post("/refresh")
+@router.post("/refresh", response_model=RefreshResult)
 async def refresh(
     engine: CurrentEngine,
     identity: CurrentIdentity,
     response: Response,
     input: RefreshInput,
-) -> RefreshResult:
+) -> Identity:
     authentication = engine.config.server.authentication
     if authentication is None:
         raise Failure(AuthenticationDisabledError)
@@ -90,15 +91,11 @@ async def refresh(
     if input.cookie is not None:
         assign_authorization_cookie(response, identity, input.cookie)
 
-    return RefreshResult(
-        user=identity.user,
-        token=identity.token,
-        expires=identity.expires,
-    )
+    return identity
 
 
-@router.post("/logout")
-async def logout(response: Response, identity: CurrentIdentity) -> Identity | None:
+@router.post("/logout", response_model=APIIdentity)
+async def logout(response: Response, identity: CurrentIdentity) -> Identity:
     response.delete_cookie("Authorization")
     if identity is None:
         raise Failure(NotAuthenticatedError)
@@ -107,19 +104,16 @@ async def logout(response: Response, identity: CurrentIdentity) -> Identity | No
 
 
 class MeResult(ImmutableDataObject):
-    user: User
+    user: APIUser
     expires: DateTime
 
 
-@router.get("/me", tags=["auth"])
-async def get_me(identity: CurrentIdentity) -> MeResult:
+@router.get("/me", tags=["auth"], response_model=MeResult)
+async def get_me(identity: CurrentIdentity) -> Identity:
     if identity is None:
         raise Failure(NotAuthenticatedError)
 
-    return MeResult(
-        user=identity.user,
-        expires=identity.expires,
-    )
+    return identity
 
 
 class ChangePasswordInput(ImmutableDataObject):
@@ -127,12 +121,16 @@ class ChangePasswordInput(ImmutableDataObject):
     new_password: PasswordStr
 
 
-@router.post("/change-password", dependencies=[VIEWER])
+@router.post(
+    "/change-password",
+    dependencies=[VIEWER],
+    response_model=APIUser | BadCredentialsError,
+)
 async def change_password(
     engine: CurrentEngine,
     user: RequireUser,
     input: ChangePasswordInput,
-) -> User | BadCredentialsError:
+) -> User:
     if not await engine.database.verify_password(input.old_password, user.password):
         await asyncio.sleep(WRONG_PASSWORD_DELAY_SECONDS)
         raise Failure(BadCredentialsError)

@@ -1,7 +1,7 @@
 import traceback
 from http.client import responses
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Awaitable, Callable, cast, final
+from typing import TYPE_CHECKING, Awaitable, Callable, cast, final
 
 from asgiref.typing import (
     ASGIReceiveCallable,
@@ -19,11 +19,11 @@ from fastapi.responses import FileResponse
 from starlette.responses import JSONResponse
 
 from ceres.alert import Level
+from ceres.data import jsonify
 from ceres.errors import Failure
 from ceres.internal.app.api import router as router__api
 from ceres.internal.app.console import ConsoleFiles
 from ceres.internal.app.shared import CurrentEngine
-from ceres.internal.utilities import lenient_isinstance
 
 if TYPE_CHECKING:
     from ceres.engine import Engine
@@ -51,9 +51,8 @@ def get_favicon_svg(engine: CurrentEngine) -> FileResponse:
 
 @final
 class App(FastAPI):
-    def __init__(self, engine: Engine, *, cli: bool = False, **kwargs: Any) -> None:
+    def __init__(self, engine: Engine) -> None:
         self.__engine = engine
-        self.__cli = cli
 
         super().__init__(
             redoc_url=None,
@@ -68,11 +67,17 @@ class App(FastAPI):
         ) -> Response:
             try:
                 return await call_next(request)
-            except Exception as exception:
-                self.engine.log.error(traceback.format_exc())
-                if lenient_isinstance(exception, Failure):
-                    return JSONResponse(exception.error, exception.error.__error_status_code__)
+            except Failure as failure:
+                try:
+                    error = jsonify(failure.error)
+                    status = failure.error.__error_status_code__
+                except Exception:
+                    traceback.print_exc()
+                    raise
 
+                return JSONResponse(error, status)
+            except Exception:
+                self.engine.log.error(traceback.format_exc())
                 raise
 
         self.add_middleware(
@@ -92,10 +97,6 @@ class App(FastAPI):
     @property
     def engine(self) -> Engine:
         return self.__engine
-
-    @property
-    def cli(self) -> bool:
-        return self.__cli
 
 
 class LoggingMiddleware:

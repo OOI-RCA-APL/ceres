@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from functools import partial
 from typing import TYPE_CHECKING, Annotated, Any, AsyncIterator, Mapping
 from uuid import UUID
 
@@ -10,6 +9,7 @@ from fastapi import (
     Header,
     HTTPException,
     Query,
+    Request,
     Response,
     WebSocket,
     WebSocketDisconnect,
@@ -21,7 +21,7 @@ from starlette.status import HTTP_400_BAD_REQUEST, HTTP_401_UNAUTHORIZED
 from websockets.exceptions import ConnectionClosed
 
 from ceres.config import ServerAuthenticationConfig
-from ceres.data import DateTime, ImmutableDataObject, jsonify
+from ceres.data import DateTime, EmailStr, ImmutableDataObject, UsernameStr, jsonify
 from ceres.errors import Failure, NotAuthenticatedError, NotPermittedError
 from ceres.internal.utilities import StrEnum, get_type_adapter
 from ceres.timing import utc
@@ -49,8 +49,8 @@ def _get_current_engine(app: CurrentApp) -> Engine:
 CurrentEngine = Annotated[Engine, Depends(_get_current_engine)]
 
 
-def _get_current_cli(app: CurrentApp) -> bool:
-    return app.cli
+def _get_current_cli(request: Request) -> bool:
+    return request.client is None
 
 
 CurrentCLI = Annotated[bool, Depends(_get_current_cli)]
@@ -101,13 +101,27 @@ CurrentProcedureQueryArguments = Annotated[
 ]
 
 
-class PrivateIdentity(ImmutableDataObject):
-    user: User
+class APIUser(ImmutableDataObject):
+    id: UUID
+    username: UsernameStr
+    email: EmailStr
+    role: UserRole
+    disabled: bool
+
+
+APIUser.__name__ = "User"
+
+
+class APIIdentity(ImmutableDataObject):
+    user: APIUser
     token: str
     expires: DateTime
 
 
-class Identity(PrivateIdentity):
+APIIdentity.__name__ = "Identity"
+
+
+class Identity(APIIdentity):
     user: User
 
 
@@ -247,31 +261,57 @@ CurrentRole = Annotated[UserRole | None, Depends(_get_current_role)]
 
 
 def _restrict(
-    connection: HTTPConnection,
+    required: UserRole,
     engine: CurrentEngine,
     user: CurrentUser,
-    role: UserRole,
+    cli: CurrentCLI,
+    role: CurrentRole,
 ) -> User | None:
-    assert isinstance(connection.app, App)
-
     if engine.config.server.authentication is None:
         # Authentication is disabled, so allow all users.
         return None
-    if connection.app.cli:
-        # The CLI is functionally an admin, so can do anything.
+    if cli:
+        # The CLI is functionally an admin, and so can do anything.
         return None
 
     if user is None:
         raise Failure(NotAuthenticatedError)
-    if user.disabled or user.role < role:
+    if user.disabled or role is None or role < required:
         raise Failure(NotPermittedError)
 
     return user
 
 
-VIEWER = Depends(partial(_restrict, role=UserRole.VIEWER))
-OPERATOR = Depends(partial(_restrict, role=UserRole.OPERATOR))
-ADMIN = Depends(partial(_restrict, role=UserRole.ADMIN))
+def __require_viewer(
+    engine: CurrentEngine,
+    user: CurrentUser,
+    cli: CurrentCLI,
+    role: CurrentRole,
+) -> User | None:
+    return _restrict(UserRole.VIEWER, engine, user, cli, role)
+
+
+def __require_operator(
+    engine: CurrentEngine,
+    user: CurrentUser,
+    cli: CurrentCLI,
+    role: CurrentRole,
+) -> User | None:
+    return _restrict(UserRole.OPERATOR, engine, user, cli, role)
+
+
+def __require_admin(
+    engine: CurrentEngine,
+    user: CurrentUser,
+    cli: CurrentCLI,
+    role: CurrentRole,
+) -> User | None:
+    return _restrict(UserRole.ADMIN, engine, user, cli, role)
+
+
+VIEWER = Depends(__require_viewer)
+OPERATOR = Depends(__require_operator)
+ADMIN = Depends(__require_admin)
 
 RequireViewer = Annotated[User | None, VIEWER]
 RequireOperator = Annotated[User | None, OPERATOR]

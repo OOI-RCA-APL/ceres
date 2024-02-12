@@ -1,4 +1,5 @@
 import inspect
+import json
 import traceback
 from copy import copy
 from functools import wraps
@@ -352,4 +353,14 @@ def _format_errors(error: ValidationError, fields: Mapping[str, str]) -> str:
 
 
 class CLICommandFailed(ClickException):
-    pass
+    def __init__(self, message: Any) -> None:
+        try:
+            content = json.loads(message)
+            if isinstance(content, dict):
+                content.pop("__error__", None)
+
+            message = json.dumps(content)
+        except Exception:
+            message = str(message)
+
+        super().__init__(message)

@@ -13,6 +13,7 @@ from ceres.config import Config
 from ceres.data import jsonify
 from ceres.engine import Engine
 from ceres.filter import ComponentFilter
+from ceres.internal.cli.client import Client
 from ceres.internal.cli.plumbing import (
     CLIArgument,
     CLICommandFailed,
@@ -34,7 +35,6 @@ from ceres.internal.cli.subcommands.log_entry import router as subcommand__log_e
 from ceres.internal.cli.subcommands.message import router as subcommand__message
 from ceres.internal.cli.subcommands.service import router as subcommand__service
 from ceres.internal.cli.subcommands.user import router as subcommand__user
-from ceres.internal.client import Client
 from ceres.internal.utilities import (
     cancel,
     ensure_event_loop,
@@ -266,15 +266,11 @@ async def reload(*, context: CLIContext) -> None:
     """
     Apply configuration changes.
     """
-    from aiohttp import ClientError
 
     project = await use_project(context)
     client = Client(project)
 
-    try:
-        await client.post("/reload")
-    except ClientError:
-        raise CLICommandFailed("Engine is not running or not accessible at the moment.")
+    await client.post("/reload")
 
 
 @router.command()
@@ -358,7 +354,7 @@ async def start(
     query = ComponentFilter(address=address)
     from ceres.internal.app.api import StartResult
 
-    result = await client.post("/start", query, parse=StartResult)
+    result = await client.post("/start", query, result=StartResult)
 
     write(result)
 
@@ -381,7 +377,7 @@ async def stop(
     query = ComponentFilter(address=address)
     from ceres.internal.app.api import StopResult
 
-    result = await client.post("/stop", query, parse=StopResult)
+    result = await client.post("/stop", query, result=StopResult)
 
     write(result)
 
@@ -404,7 +400,7 @@ async def enable(
     query = ComponentFilter(address=address)
     from ceres.internal.app.api import EnableResult
 
-    result = await client.post("/enable", query, parse=EnableResult)
+    result = await client.post("/enable", query, result=EnableResult)
 
     write(result)
 
@@ -427,7 +423,7 @@ async def disable(
     query = ComponentFilter(address=address)
     from ceres.internal.app.api import DisableResult
 
-    result = await client.post("/disable", query, parse=DisableResult)
+    result = await client.post("/disable", query, result=DisableResult)
 
     write(result)
 
@@ -450,7 +446,7 @@ async def up(
     query = ComponentFilter(address=address)
     from ceres.internal.app.api import UpResult
 
-    result = await client.post("/up", query, parse=UpResult)
+    result = await client.post("/up", query, result=UpResult)
 
     write(result)
 
@@ -473,6 +469,6 @@ async def down(
     query = ComponentFilter(address=address)
     from ceres.internal.app.api import DownResult
 
-    result = await client.post("/down", query, parse=DownResult)
+    result = await client.post("/down", query, result=DownResult)
 
     write(result)

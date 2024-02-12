@@ -3,27 +3,22 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends
 
-from ceres.data import EmailStr, ImmutableDataObject, UsernameStr
 from ceres.errors import AlreadyExistsError, Failure, NotFoundError, NotPermittedError
 from ceres.filter import UserFilter
-from ceres.internal.app.shared import ADMIN, VIEWER, CurrentEngine, CurrentRole, CurrentUser
+from ceres.internal.app.shared import (
+    ADMIN,
+    VIEWER,
+    APIUser,
+    CurrentEngine,
+    CurrentRole,
+    CurrentUser,
+)
 from ceres.user import User, UserRole, UserUpdate
 
 router = APIRouter(prefix="/users", tags=["users"])
 
 
-class UserInfo(ImmutableDataObject):
-    id: UUID
-    username: UsernameStr
-    email: EmailStr
-    role: UserRole
-    disabled: bool
-
-
-UserInfo.__name__ = "User"
-
-
-@router.get("/{id}", dependencies=[VIEWER], response_model=UserInfo)
+@router.get("/{id}", dependencies=[VIEWER], response_model=APIUser)
 async def get_user(engine: CurrentEngine, id: UUID) -> User:
     user = await engine.get_user(id=id)
     if user is None:
@@ -36,7 +31,7 @@ class GetUsersQueryParameters(UserFilter):
     pass
 
 
-@router.get("", dependencies=[VIEWER], response_model=list[UserInfo])
+@router.get("", dependencies=[VIEWER], response_model=list[APIUser])
 async def get_users(
     engine: CurrentEngine,
     filter: Annotated[GetUsersQueryParameters, Depends()],
@@ -44,12 +39,12 @@ async def get_users(
     return await engine.get_users(filter)
 
 
-@router.post("", dependencies=[ADMIN], response_model=UserInfo | AlreadyExistsError)
+@router.post("", dependencies=[ADMIN], response_model=APIUser | AlreadyExistsError)
 async def create_user(engine: CurrentEngine, data: User) -> User:
     return await engine.create_user(data)
 
 
-@router.patch("/{id}", dependencies=[VIEWER], response_model=UserInfo)
+@router.patch("/{id}", dependencies=[VIEWER], response_model=APIUser)
 async def update_user(
     engine: CurrentEngine,
     role: CurrentRole,
@@ -68,7 +63,7 @@ async def update_user(
     return updated
 
 
-@router.delete("/{id}", dependencies=[ADMIN], response_model=UserInfo)
+@router.delete("/{id}", dependencies=[ADMIN], response_model=APIUser)
 async def delete_user(engine: CurrentEngine, id: UUID) -> User:
     deleted = await engine.delete_user(id=id)
     if deleted is None:

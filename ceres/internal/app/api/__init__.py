@@ -1,7 +1,6 @@
 from typing import Sequence
 
-from fastapi import APIRouter, Response
-from starlette.status import HTTP_400_BAD_REQUEST
+from fastapi import APIRouter
 
 from ceres.address import Address
 from ceres.config import Config
@@ -18,7 +17,6 @@ from ceres.internal.app.api.routes.statistics import router as router__statistic
 from ceres.internal.app.api.routes.statuses import router as router__statuses
 from ceres.internal.app.api.routes.users import router as router__users
 from ceres.internal.app.shared import OPERATOR, CurrentEngine
-from ceres.result import Fail, Ok, Result
 
 router = APIRouter(prefix="/api")
 
@@ -33,17 +31,14 @@ router.include_router(router__statuses)
 router.include_router(router__users)
 
 
-@router.post("/reload", tags=["engine"], dependencies=[OPERATOR])
-async def reload(
-    engine: CurrentEngine,
-    response: Response,
-) -> Result[Config, ReloadError]:
-    match await engine.reload():
-        case Ok(config):
-            return Ok(config)
-        case Fail(error):
-            response.status_code = HTTP_400_BAD_REQUEST
-            return Fail(error)
+@router.post(
+    "/reload",
+    tags=["engine"],
+    dependencies=[OPERATOR],
+    response_model=Config | ReloadError,
+)
+async def reload(engine: CurrentEngine) -> Config:
+    return await engine.reload()
 
 
 class StartResult(ImmutableDataObject):

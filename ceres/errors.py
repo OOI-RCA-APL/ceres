@@ -1,7 +1,7 @@
 from abc import ABC
-from typing import Callable, ClassVar, Generic, Literal, Sequence, TypeVar
+from typing import Any, Callable, ClassVar, Literal, Sequence
 
-from pydantic import computed_field
+from pydantic import computed_field, model_serializer
 from starlette.status import (
     HTTP_400_BAD_REQUEST,
     HTTP_401_UNAUTHORIZED,
@@ -26,6 +26,15 @@ class Error(ImmutableDataObject, ABC):
         return True
 
     type: str
+
+    @model_serializer(mode="wrap")
+    def _serialize(self, inner: Callable[[Any], Any]) -> Any:
+        result = inner(self)
+        if isinstance(result, dict):
+            result.pop("__error__", None)
+            result = {"__error__": True, **result}
+
+        return result
 
 
 class __BaseComponentError(Error, ABC):
@@ -236,31 +245,10 @@ DatabaseError = (
 )
 
 
-_ErrorT = TypeVar("_ErrorT", bound=Error)
-_failure_cls_cache: dict[type[Error], type["Failure[Error]"]] = {}
-
-
-class Failure(Exception, Generic[_ErrorT]):
-    __error_type__: _ErrorT | None = None
-
-    def __class_getitem__(cls, error_cls: type[_ErrorT]) -> type["Failure[_ErrorT]"]:
-        if error_cls in _failure_cls_cache:
-            return _failure_cls_cache[error_cls]  # type: ignore
-
-        class SpecializedFailure(Failure[error_cls]):  # type: ignore
-            pass
-
-        SpecializedFailure.__name__ = f"Failure[{error_cls.__name__}]"
-        SpecializedFailure.__qualname__ = Failure.__qualname__.replace(
-            "Failure", SpecializedFailure.__name__
-        )
-
-        return SpecializedFailure
-
-    def __init__(self, error: _ErrorT | Callable[[], _ErrorT]) -> None:
+class Failure(Exception):
+    def __init__(self, error: Error | Callable[[], Error]) -> None:
         if not lenient_isinstance(error, Error) and callable(error):
             error = error()
 
-        self.__class__ = Failure[error.__class__]
         self.error = error
         self.message = str(error.type)

@@ -3,6 +3,7 @@ from typing import Any, Mapping, TypeVar
 from pydantic import BaseModel
 
 from ceres.data import simplify
+from ceres.internal.cli.plumbing import CLICommandFailed
 from ceres.internal.project import Project
 from ceres.internal.utilities import get_type_adapter
 from ceres.status import Status
@@ -48,6 +49,14 @@ class Client:
                 json=simplify(data),
                 params=params,
             ) as response:
+                if response.status >= 400:
+                    try:
+                        content = await response.json()
+                    except Exception:
+                        content = await response.text()
+
+                    raise CLICommandFailed(content)
+
                 return get_type_adapter(result).validate_python(await response.json())
 
     async def get(
@@ -65,6 +74,6 @@ class Client:
         data: object | None = None,
         *,
         params: BaseModel | Mapping[str, object] | None = None,
-        parse: type[_T] = Any,
+        result: type[_T] = Any,
     ) -> _T:
-        return await self.request("POST", path, data=data, params=params, result=parse)
+        return await self.request("POST", path, data=data, params=params, result=result)
