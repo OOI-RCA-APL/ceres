@@ -59,7 +59,7 @@ class AddressSelector(str):
 
         if not isinstance(value, str):
             if not (isinstance(value, Sequence) and all(isinstance(item, str) for item in value)):
-                raise TypeError(f"{value!r} must be a string or sequence of strings")
+                raise ValueError(f"{value!r} must be a string or sequence of strings")
 
             value = "|".join(value)
 

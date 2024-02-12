@@ -12,8 +12,7 @@ from pydantic import Field, field_validator
 
 from ceres.config import Config, ConfigCheckType
 from ceres.data import FromYAML, ImmutableDataObject, NonEmpty, jsonify
-from ceres.internal.cli.exceptions import CLIDatabaseUnreachableException, CLIInvalidConfigException
-from ceres.internal.cli.plumbing import CLIContext, CLIOption
+from ceres.internal.cli.plumbing import CLICommandFailed, CLIContext, CLIOption
 from ceres.internal.project import Project
 from ceres.internal.utilities import is_non_stringy_collection
 from ceres.result import Ok
@@ -45,9 +44,7 @@ def get_config_path(config_path: Path | None = None) -> Path:
                 config_path = possibility
                 break
         else:
-            raise CLIInvalidConfigException(
-                f"Must be in a directory containing one of: {possibilities}"
-            )
+            raise CLICommandFailed(f"Must be in a directory containing one of: {possibilities}")
 
     config_path = config_path.absolute()
     chdir(config_path.parent)
@@ -71,15 +68,13 @@ async def get_config(
         case Ok(config):
             return config
         case fail:
-            raise CLIInvalidConfigException(
-                f"Failed to load configuration. {jsonify(fail, indent=2)}"
-            )
+            raise CLICommandFailed(f"Failed to load configuration. {jsonify(fail, indent=2)}")
 
 
 async def use_config_path(context: CLIContext) -> Path:
     config_path = context.meta.get("config_path")
     if config_path is None:
-        raise CLIInvalidConfigException("No `config_path` is set.")
+        raise CLICommandFailed("No `config_path` is set.")
 
     return config_path
 
@@ -192,11 +187,11 @@ async def get_database(config: Config, *, initialized: bool = False):
         async with database.connect():
             pass
     except Exception:
-        raise CLIDatabaseUnreachableException("Failed to connect to database.")
+        raise CLICommandFailed("Failed to connect to database.")
 
     if initialized:
         if not await database.initialized():
-            raise CLIDatabaseUnreachableException("Database appears uninitialized, exiting.")
+            raise CLICommandFailed("Database appears uninitialized, exiting.")
 
     return database
 
@@ -215,11 +210,11 @@ async def use_database(
         async with database.connect():
             pass
     except Exception:
-        raise CLIDatabaseUnreachableException("Failed to connect to database.")
+        raise CLICommandFailed("Failed to connect to database.")
 
     if initialized:
         if not await database.initialized():
-            raise CLIDatabaseUnreachableException("Database appears uninitialized, exiting.")
+            raise CLICommandFailed("Database appears uninitialized, exiting.")
 
     return database
 

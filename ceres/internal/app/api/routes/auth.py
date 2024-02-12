@@ -1,14 +1,15 @@
 import asyncio
 
-from fastapi import APIRouter, HTTPException, Response
-from starlette.status import (
-    HTTP_400_BAD_REQUEST,
-    HTTP_401_UNAUTHORIZED,
-    HTTP_403_FORBIDDEN,
-    HTTP_404_NOT_FOUND,
-)
+from fastapi import APIRouter, Response
 
 from ceres.data import DateTime, ImmutableDataObject, NonEmptyStr, PasswordStr
+from ceres.errors import (
+    AuthenticationDisabledError,
+    BadCredentialsError,
+    Failure,
+    NotAuthenticatedError,
+    NotFoundError,
+)
 from ceres.filter import UserFilter
 from ceres.internal.app.shared import (
     VIEWER,
@@ -43,15 +44,15 @@ async def login(
     engine: CurrentEngine,
     response: Response,
     input: LoginInput,
-) -> LoginResult:
+) -> LoginResult | BadCredentialsError:
     authentication = engine.config.server.authentication
     if authentication is None:
-        raise HTTPException(HTTP_403_FORBIDDEN)
+        raise Failure(AuthenticationDisabledError)
 
     user = await engine.get_user(username=input.username)
     if user is None or not await engine.verify_password(input.password, user.password):
         await asyncio.sleep(WRONG_PASSWORD_DELAY_SECONDS)
-        raise HTTPException(HTTP_401_UNAUTHORIZED)
+        raise Failure(BadCredentialsError)
 
     identity = create_identity(user, authentication)
     if input.cookie is not None:
@@ -81,9 +82,9 @@ async def refresh(
 ) -> RefreshResult:
     authentication = engine.config.server.authentication
     if authentication is None:
-        raise HTTPException(HTTP_403_FORBIDDEN)
+        raise Failure(AuthenticationDisabledError)
     if identity is None:
-        raise HTTPException(HTTP_401_UNAUTHORIZED)
+        raise Failure(NotAuthenticatedError)
 
     identity = create_identity(identity.user, authentication)
     if input.cookie is not None:
@@ -100,7 +101,7 @@ async def refresh(
 async def logout(response: Response, identity: CurrentIdentity) -> Identity | None:
     response.delete_cookie("Authorization")
     if identity is None:
-        raise HTTPException(HTTP_401_UNAUTHORIZED)
+        raise Failure(NotAuthenticatedError)
 
     return identity
 
@@ -113,7 +114,7 @@ class MeResult(ImmutableDataObject):
 @router.get("/me", tags=["auth"])
 async def get_me(identity: CurrentIdentity) -> MeResult:
     if identity is None:
-        raise HTTPException(HTTP_401_UNAUTHORIZED)
+        raise Failure(NotAuthenticatedError)
 
     return MeResult(
         user=identity.user,
@@ -131,13 +132,13 @@ async def change_password(
     engine: CurrentEngine,
     user: RequireUser,
     input: ChangePasswordInput,
-) -> User:
+) -> User | BadCredentialsError:
     if not await engine.database.verify_password(input.old_password, user.password):
         await asyncio.sleep(WRONG_PASSWORD_DELAY_SECONDS)
-        raise HTTPException(HTTP_400_BAD_REQUEST)
+        raise Failure(BadCredentialsError)
 
     changed = await engine.update_user(UserFilter(id=user.id), {"password": input.new_password})
     if changed is None:
-        raise HTTPException(HTTP_404_NOT_FOUND)
+        raise Failure(NotFoundError)
 
     return changed

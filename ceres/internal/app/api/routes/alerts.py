@@ -5,10 +5,7 @@ from pydantic import Field
 
 from ceres.alert import Alert, Level
 from ceres.filter import AlertFilter
-from ceres.internal.app.shared import (
-    CurrentEngine,
-    CurrentSocket,
-)
+from ceres.internal.app.shared import CurrentEngine, CurrentSocket
 
 router = APIRouter(prefix="/alerts", tags=["alerts"])
 

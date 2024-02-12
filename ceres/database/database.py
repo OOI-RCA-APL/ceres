@@ -49,8 +49,13 @@ from ceres.alert import Alert, AlertUpdate
 from ceres.config import DatabaseConfig, PostgresDatabaseConfig, SQLiteDatabaseConfig
 from ceres.data import PasswordHash, jsonify
 from ceres.database.enums import DatabaseType, ItemType
-from ceres.errors import AlreadyExistsError, DatabaseError
-from ceres.exceptions import DatabaseLoadException, Failure
+from ceres.errors import (
+    AlreadyExistsError,
+    DatabaseInitError,
+    DatabaseLoadError,
+    DatabaseUnexpectedError,
+    Failure,
+)
 from ceres.filter import (
     AlertFilter,
     AlertFilterArgs,
@@ -215,9 +220,12 @@ class Database:
                 if self.__completed_init_successfully:
                     return self.session()
 
-                async with self.__engine.begin() as connection:
-                    for statement in self.ddl:
-                        await connection.execute(text(statement))
+                try:
+                    async with self.__engine.begin() as connection:
+                        for statement in self.ddl:
+                            await connection.execute(text(statement))
+                except Exception as error:
+                    raise Failure(DatabaseInitError(message=str(error))) from error
 
                 self.__completed_init_successfully = True
 
@@ -1137,7 +1145,7 @@ def _read_csv_items(path: Path, item_cls: type[_ItemT]) -> Iterable[_ItemT]:
         try:
             item = item_cls.model_validate(fields)
         except ValidationError as error:
-            raise DatabaseLoadException(f"Invalid CSV row: {error}") from error
+            raise Failure(DatabaseLoadError(message=f"invalid CSV row: {error}")) from error
 
         yield item
 
@@ -1259,4 +1267,4 @@ def _wrap_database_errors() -> Iterator[None]:
                 if match is not None:
                     raise Failure(AlreadyExistsError(field=match.group("column")))
 
-        raise Failure(DatabaseError(message=str(exception)))
+        raise Failure(DatabaseUnexpectedError(message=str(exception)))

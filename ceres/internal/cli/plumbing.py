@@ -32,7 +32,7 @@ from typer.models import ArgumentInfo, OptionInfo
 from typing_extensions import TypedDict, Unpack
 
 from ceres.data import ImmutableDataObject, jsonify
-from ceres.exceptions import Failure
+from ceres.errors import Failure
 from ceres.internal.utilities import (
     get_args_model,
     get_unannotated_type,
@@ -124,12 +124,12 @@ def _enhance_cli_command(function: Any) -> Any:
             try:
                 parsed = parameters_model.model_validate(applied_kwargs)
             except ValidationError as error:
-                raise ClickException(_format_errors(error, fields_to_groups))
+                raise CLICommandFailed(_format_errors(error, fields_to_groups))
 
             try:
                 result = syncify(function)(*args, **parsed.__dict__)
             except Failure as failure:
-                raise ClickException(jsonify(failure.error, indent=2))
+                raise CLICommandFailed(jsonify(failure.error, indent=2))
 
             if result is not None:
                 try:
@@ -349,3 +349,7 @@ def _format_errors(error: ValidationError, fields: Mapping[str, str]) -> str:
         lines.append(f"- {path}: {suberror['msg']}")
 
     return "\n".join(lines)
+
+
+class CLICommandFailed(ClickException):
+    pass

@@ -4,8 +4,13 @@ from typing import Annotated
 from click import Choice
 
 from ceres.database.enums import DataFormat, ItemType
-from ceres.internal.cli.exceptions import CLIDatabaseUnreachableException, CLIException
-from ceres.internal.cli.plumbing import CLIArgument, CLIContext, CLIOption, CLIRouter
+from ceres.internal.cli.plumbing import (
+    CLIArgument,
+    CLICommandFailed,
+    CLIContext,
+    CLIOption,
+    CLIRouter,
+)
 from ceres.internal.cli.shared import get_confirmation, use_database, write
 from ceres.internal.utilities import show_td
 from ceres.timing import utc
@@ -27,7 +32,7 @@ async def init(*, context: CLIContext) -> None:
         async with database.connect():
             pass
     except Exception:
-        raise CLIDatabaseUnreachableException("Failed to connect to database.")
+        raise CLICommandFailed("Failed to connect to database.")
 
     print("<PENDING>")
     await ddl(context=context)
@@ -91,9 +96,11 @@ async def dump(
 
     if format == DataFormat.CSV:
         if not item_type:
-            raise CLIException("Dumping to CSV requires '--item-type' to be specified.")
+            raise CLICommandFailed("Dumping to CSV requires '--item-type' to be specified.")
         elif len(item_type) != 1:
-            raise CLIException("Dumping to CSV requires exactly one '--item-type' to be specified.")
+            raise CLICommandFailed(
+                "Dumping to CSV requires exactly one '--item-type' to be specified."
+            )
 
     item_type = list(ItemType) if not item_type else [ItemType(current) for current in item_type]
 
@@ -156,9 +163,9 @@ async def load(
     format = _guess_format(format, path)
     if format == DataFormat.CSV:
         if not item_type:
-            raise CLIException("Loading from CSV requires '--item-type' to be specified.")
+            raise CLICommandFailed("Loading from CSV requires '--item-type' to be specified.")
         elif len(item_type) != 1:
-            raise CLIException(
+            raise CLICommandFailed(
                 "Loading from CSV requires exactly one '--item-type' to be specified."
             )
 
@@ -217,7 +224,7 @@ def _guess_format(format: DataFormat | None, path: Path) -> DataFormat:
     if path.suffix in (".db", ".sqlite", ".sqlite3"):
         return DataFormat.SQLITE
 
-    raise CLIException(
+    raise CLICommandFailed(
         f"Could not infer data format from file extension: {path.suffix!r}. "
         + "Try specifying the '--format' option."
     )

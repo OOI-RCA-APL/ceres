@@ -3,7 +3,9 @@ from functools import lru_cache
 from re import Pattern
 from typing import Callable
 
-from ceres.exceptions import ParseException
+
+class ParseFailed(ValueError):
+    pass
 
 
 class Parser:
@@ -81,7 +83,7 @@ class Parser:
 
     def eat(self, sequence: bytes) -> None:
         if not self.try_eat(sequence):
-            raise ParseException(f"expected {repr(sequence)}, got {repr(self.remaining)}")
+            raise ParseFailed(f"expected {repr(sequence)}, got {repr(self.remaining)}")
 
     def try_eat_pattern(self, pattern: bytes) -> bytes | None:
         try:
@@ -100,7 +102,7 @@ class Parser:
         if result := self.try_eat_pattern(pattern):
             return result
 
-        raise ParseException(f"expected pattern {repr(pattern)}, got {repr(self.remaining)}")
+        raise ParseFailed(f"expected pattern {repr(pattern)}, got {repr(self.remaining)}")
 
     def try_eat_int(self) -> int | None:
         if result := self.try_eat_pattern(rb"([\+\-])?[0-9]+"):
@@ -112,7 +114,7 @@ class Parser:
         if (result := self.try_eat_int()) is not None:
             return result
 
-        raise ParseException(f"expected integer number, got {repr(self.remaining)}")
+        raise ParseFailed(f"expected integer number, got {repr(self.remaining)}")
 
     def try_eat_float(self) -> float | None:
         if result := self.try_eat_pattern(rb"[\+\-]?([0-9]*\.[0-9]+|[0-9]+)"):
@@ -124,7 +126,7 @@ class Parser:
         if (result := self.try_eat_float()) is not None:
             return result
 
-        raise ParseException(f"expected floating-point number, got {repr(self.remaining)}")
+        raise ParseFailed(f"expected floating-point number, got {repr(self.remaining)}")
 
     def try_eat_space(self) -> bytes | None:
         result: list[bytes] = []
@@ -142,7 +144,7 @@ class Parser:
         if (result := self.try_eat_space()) is not None:
             return result
 
-        raise ParseException(f"expected whitespace, got {repr(self.remaining)}")
+        raise ParseFailed(f"expected whitespace, got {repr(self.remaining)}")
 
 
 @lru_cache(maxsize=5000, typed=True)

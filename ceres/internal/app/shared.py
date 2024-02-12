@@ -22,6 +22,7 @@ from websockets.exceptions import ConnectionClosed
 
 from ceres.config import ServerAuthenticationConfig
 from ceres.data import DateTime, ImmutableDataObject, jsonify
+from ceres.errors import Failure, NotAuthenticatedError, NotPermittedError
 from ceres.internal.utilities import StrEnum, get_type_adapter
 from ceres.timing import utc
 from ceres.user import User, UserRole
@@ -96,7 +97,7 @@ def _get_procedure_query_arguments(
 
 
 CurrentProcedureQueryArguments = Annotated[
-    Mapping[str, object], Depends(_get_procedure_query_arguments)
+    Mapping[str, object] | None, Depends(_get_procedure_query_arguments)
 ]
 
 
@@ -206,7 +207,7 @@ CurrentIdentity = Annotated[Identity | None, Depends(_get_current_identity)]
 
 def _get_required_identity(identity: CurrentIdentity) -> Identity:
     if identity is None:
-        raise HTTPException(HTTP_401_UNAUTHORIZED)
+        raise Failure(NotAuthenticatedError)
 
     return identity
 
@@ -259,10 +260,11 @@ def _restrict(
     if connection.app.cli:
         # The CLI is functionally an admin, so can do anything.
         return None
-    if user is None or user.disabled or user.role < role:
-        # If there is no current user, the user is disabled, or the user's role is insufficient,
-        # deny access.
-        raise HTTPException(HTTP_401_UNAUTHORIZED)
+
+    if user is None:
+        raise Failure(NotAuthenticatedError)
+    if user.disabled or user.role < role:
+        raise Failure(NotPermittedError)
 
     return user
 

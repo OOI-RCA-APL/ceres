@@ -12,14 +12,14 @@ from ceres.address import AddressSelector
 from ceres.config import Config
 from ceres.data import jsonify
 from ceres.engine import Engine
-from ceres.exceptions import EngineException
 from ceres.filter import ComponentFilter
-from ceres.internal.cli.exceptions import (
-    CLIEngineNotRunningException,
-    CLIInvalidConfigException,
-    CLIStartupException,
+from ceres.internal.cli.plumbing import (
+    CLIArgument,
+    CLICommandFailed,
+    CLIContext,
+    CLIOption,
+    CLIRouter,
 )
-from ceres.internal.cli.plumbing import CLIArgument, CLIContext, CLIOption, CLIRouter
 from ceres.internal.cli.shared import (
     get_config_path,
     strbool,
@@ -123,7 +123,7 @@ async def _run(addresses: Sequence[AddressSelector], *, config_path: Path, watch
                 case Ok():
                     pass
                 case Fail(errors):
-                    raise CLIInvalidConfigException(
+                    raise CLICommandFailed(
                         f"Failed to load configuration. {jsonify(Fail(errors), indent=2)}"
                     )
 
@@ -132,7 +132,7 @@ async def _run(addresses: Sequence[AddressSelector], *, config_path: Path, watch
                 case Ok():
                     pass
                 case Fail() as fail:
-                    raise CLIInvalidConfigException(
+                    raise CLICommandFailed(
                         f"Failed to load configuration. {jsonify(fail, indent=2)}"
                     )
 
@@ -159,8 +159,8 @@ async def _run(addresses: Sequence[AddressSelector], *, config_path: Path, watch
 
             with temporary_signal_handler([signal.SIGINT, signal.SIGTERM], handle_exit_signal):
                 await main()
-    except EngineException as exception:
-        raise CLIStartupException(f"Engine startup failed. {exception.message}")
+    except Exception as exception:
+        raise CLICommandFailed(f"Engine startup failed. {exception}")
 
 
 def _run_sync(
@@ -258,9 +258,7 @@ async def check(*, context: CLIContext) -> None:
         case Ok():
             write("All checks passed.")
         case fail:
-            raise CLIInvalidConfigException(
-                f"Failed to load configuration. {jsonify(fail, indent=2)}"
-            )
+            raise CLICommandFailed(f"Failed to load configuration. {jsonify(fail, indent=2)}")
 
 
 @router.command()
@@ -276,7 +274,7 @@ async def reload(*, context: CLIContext) -> None:
     try:
         await client.post("/reload")
     except ClientError:
-        raise CLIEngineNotRunningException("Engine is not running or not accessible at the moment.")
+        raise CLICommandFailed("Engine is not running or not accessible at the moment.")
 
 
 @router.command()

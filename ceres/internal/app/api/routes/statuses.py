@@ -1,9 +1,9 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
-from starlette.status import HTTP_404_NOT_FOUND
+from fastapi import APIRouter, Depends
 
 from ceres.address import Address
+from ceres.errors import Failure, NotFoundError
 from ceres.filter import ComponentFilter
 from ceres.internal.app.shared import CurrentEngine, CurrentSocket
 from ceres.status import Status
@@ -15,7 +15,7 @@ router = APIRouter(prefix="/statuses", tags=["statuses"])
 async def get_status(engine: CurrentEngine, address: Address | None = None) -> Status:
     component = engine.get_component(address)
     if component is None:
-        raise HTTPException(HTTP_404_NOT_FOUND)
+        raise Failure(NotFoundError)
 
     return await component.get_status()
 

@@ -77,14 +77,8 @@ else:
 if TYPE_CHECKING:
     from ceres.events import Event as Event
     from ceres.events import StandardEvent as StandardEvent
-    from ceres.events import StandardEventType as StandardEventType
 else:
     __export("ceres.events", ["Event", "StandardEvent", "StandardEventType"])
-
-if TYPE_CHECKING:
-    from ceres.exceptions import ParseException as ParseException
-else:
-    __export("ceres.exceptions", ["ParseException"])
 
 if TYPE_CHECKING:
     from ceres.filter import AlertFilter as AlertFilter
@@ -143,9 +137,10 @@ else:
     __export("ceres.object", ["Status"])
 
 if TYPE_CHECKING:
+    from ceres.parsing import ParseFailed as ParseFailed
     from ceres.parsing import Parser as Parser
 else:
-    __export("ceres.parsing", ["Parser"])
+    __export("ceres.parsing", ["ParseFailed", "Parser"])
 
 if TYPE_CHECKING:
     from ceres.reference import Ref as Ref
@@ -162,9 +157,21 @@ else:
 
 if TYPE_CHECKING:
     from ceres.roles.connection import Connection as Connection
+    from ceres.roles.connection import ConnectionException as ConnectionException
+    from ceres.roles.connection import ConnectionInactive as ConnectionInactive
+    from ceres.roles.connection import ConnectionLost as ConnectionLost
     from ceres.roles.connection import TCPConnection as TCPConnection
 else:
-    __export("ceres.roles.connection", ["Connection", "TCPConnection"])
+    __export(
+        "ceres.roles.connection",
+        [
+            "Connection",
+            "ConnectionException",
+            "ConnectionInactive",
+            "ConnectionLost",
+            "TCPConnection",
+        ],
+    )
 
 if TYPE_CHECKING:
     from ceres.roles.dispatcher import Dispatch as Dispatch

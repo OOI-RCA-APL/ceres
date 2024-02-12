@@ -17,12 +17,12 @@ from ceres.directory import Directory
 from ceres.errors import (
     ConfigError,
     ConfigNotProvidedError,
+    Failure,
     ReloadAlreadyActiveError,
     ReloadConfigInvalidError,
     ReloadError,
 )
 from ceres.events import Event, LogEvent, StoppedEvent, StoppingEvent
-from ceres.exceptions import EngineDatabaseInitFailedException
 from ceres.filter import (
     AlertFilter,
     AlertFilterArgs,
@@ -464,9 +464,9 @@ class Engine(Object, kw_only=False):
             try:
                 await self.__object_database__.init()
                 self.log.info("Database initialized successfully.")
-            except Exception as exception:
+            except Failure:
                 self.log.error("Database initialization failed.")
-                raise EngineDatabaseInitFailedException(str(exception))
+                raise
 
     async def __execute_reload(self) -> None:
         self.log.info("Reloading configuration...")

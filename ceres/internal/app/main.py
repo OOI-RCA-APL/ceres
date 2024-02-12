@@ -16,11 +16,14 @@ from fastapi import APIRouter, FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse
+from starlette.responses import JSONResponse
 
 from ceres.alert import Level
+from ceres.errors import Failure
 from ceres.internal.app.api import router as router__api
 from ceres.internal.app.console import ConsoleFiles
 from ceres.internal.app.shared import CurrentEngine
+from ceres.internal.utilities import lenient_isinstance
 
 if TYPE_CHECKING:
     from ceres.engine import Engine
@@ -65,8 +68,11 @@ class App(FastAPI):
         ) -> Response:
             try:
                 return await call_next(request)
-            except Exception:
+            except Exception as exception:
                 self.engine.log.error(traceback.format_exc())
+                if lenient_isinstance(exception, Failure):
+                    return JSONResponse(exception.error, exception.error.__error_status_code__)
+
                 raise
 
         self.add_middleware(

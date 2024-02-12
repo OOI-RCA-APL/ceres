@@ -1,18 +1,21 @@
 import asyncio
-import json
 import traceback
 from asyncio import CancelledError
 from typing import Any, Mapping, Sequence
 
-from fastapi import APIRouter, Body, HTTPException, Request, WebSocket
-from starlette.status import HTTP_400_BAD_REQUEST, HTTP_404_NOT_FOUND
+from fastapi import APIRouter, Body, Request, WebSocket
 
 from ceres.address import Address
 from ceres.component import Component, ProcedureBinding
 from ceres.config import ComponentConfig
 from ceres.data import ImmutableDataObject, Name, jsonify
-from ceres.errors import ProcedureComponentDoesNotExistError, ProcedureError, ProcedureInternalError
-from ceres.exceptions import ProcedureException
+from ceres.errors import (
+    Failure,
+    NotFoundError,
+    ProcedureComponentDoesNotExistError,
+    ProcedureError,
+    ProcedureInternalError,
+)
 from ceres.internal.app.shared import CurrentEngine, CurrentProcedureQueryArguments
 from ceres.internal.utilities import StrEnum, strify
 from ceres.result import Fail, Ok, Result
@@ -68,7 +71,7 @@ async def get_component(engine: CurrentEngine, address: Address) -> ComponentInf
 
     component_cls = engine.config.get_component_cls(address)
     if component_config is None or component_cls is None:
-        raise HTTPException(HTTP_404_NOT_FOUND)
+        raise Failure(NotFoundError)
 
     children: list[ComponentInfo] = []
     for child_config in component_config.components:
@@ -102,21 +105,6 @@ async def call(
     query_arguments: CurrentProcedureQueryArguments,
     body_arguments: Mapping[Name, object] | None = Body(None),
 ) -> Result[Any | None, ProcedureError]:
-    if isinstance(query_arguments, str):
-        try:
-            query_arguments = json.loads(query_arguments)
-        except Exception:
-            raise HTTPException(
-                HTTP_400_BAD_REQUEST,
-                "'arguments' query parameter must be unspecified, null or a valid JSON object",
-            )
-
-    if not isinstance(query_arguments, Mapping | None):
-        raise HTTPException(
-            HTTP_400_BAD_REQUEST,
-            "'arguments' query parameter must be unspecified, null or a valid JSON object",
-        )
-
     arguments = {}
     arguments.update(query_arguments or {})
     arguments.update(body_arguments or {})
@@ -129,8 +117,11 @@ async def call(
         if component is None:
             return Fail(ProcedureComponentDoesNotExistError())
         return Ok(await component.call(procedure, arguments))
-    except ProcedureException as exception:
-        return Fail(exception.error)
+    except Failure as exception:
+        if isinstance(exception.error, ProcedureError):
+            return Fail(exception.error)
+
+        raise
 
 
 @router.websocket("/{address}/procedures/{procedure}/subscribe")
@@ -152,7 +143,7 @@ async def subscribe(
     component = engine.get_component(address)
     if component is None:
         code = 1008  # Set code for policy violation.
-        reason = jsonify(Fail(ProcedureComponentDoesNotExistError()))
+        reason = jsonify(Fail(ProcedureComponentDoesNotExistError))
         await socket.close(code, reason)
         return
 
@@ -170,7 +161,7 @@ async def subscribe(
             async for output in component.subscribe(procedure, arguments):
                 await socket.send_text(jsonify(output))
         except Exception as exception:
-            if isinstance(exception, ProcedureException):
+            if isinstance(exception, Failure) and isinstance(exception.error, ProcedureError):
                 if not isinstance(exception.error, ProcedureInternalError):
                     code = 1011  # Set code for internal error.
                 else:

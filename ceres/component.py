@@ -51,9 +51,10 @@ from ceres.data import (
 )
 from ceres.database.database import Database
 from ceres.errors import (
-    ProcedureDoesNotExistError,
+    Failure,
     ProcedureInternalError,
     ProcedureInvalidArgumentsError,
+    ProcedureNotFoundError,
     ProcedureNotSubscribableError,
 )
 from ceres.events import (
@@ -84,7 +85,6 @@ from ceres.events import (
     StoppedEvent,
     StoppingEvent,
 )
-from ceres.exceptions import ProcedureException
 from ceres.filter import ComponentFilter, ComponentFilterArgs
 from ceres.internal.database.entities import StoreEntity
 from ceres.internal.utilities import (
@@ -890,7 +890,7 @@ class Component(Object):
             or (method := getattr(self, binding.method, None)) is None
             or not inspect.ismethod(method)
         ):
-            raise ProcedureException(ProcedureDoesNotExistError())
+            raise Failure(ProcedureNotFoundError)
 
         validated = create_validated_function(method)
 
@@ -902,7 +902,7 @@ class Component(Object):
             raise
         except ValidationError as error:
             if method.__name__ in error.title:
-                raise ProcedureException(
+                raise Failure(
                     ProcedureInvalidArgumentsError(problems=ValidationProblem.extract(error))
                 )
 
@@ -910,7 +910,7 @@ class Component(Object):
         except Exception as exception:
             traceback = get_traceback(exception)
             self.emit(ProcedureExceptionEvent, procedure=procedure, traceback=traceback)
-            raise ProcedureException(ProcedureInternalError(traceback=list(traceback)))
+            raise Failure(ProcedureInternalError(traceback=list(traceback)))
 
     async def call(
         self,
@@ -942,7 +942,7 @@ class Component(Object):
         except Exception as exception:
             traceback = get_traceback(exception)
             self.emit(ProcedureExceptionEvent, procedure=procedure, traceback=traceback)
-            raise ProcedureException(ProcedureInternalError(traceback=list(traceback)))
+            raise Failure(ProcedureInternalError(traceback=list(traceback)))
         finally:
             self.emit(ProcedureCompletedEvent, procedure=procedure)
 
@@ -956,7 +956,7 @@ class Component(Object):
 
         if not binding.live:
             if isinstance(binding, ActionBinding):
-                raise ProcedureException(ProcedureNotSubscribableError())
+                raise Failure(ProcedureNotSubscribableError)
 
             try:
                 while True:
@@ -968,7 +968,7 @@ class Component(Object):
             except Exception as exception:
                 traceback = get_traceback(exception)
                 self.emit(ProcedureExceptionEvent, procedure=procedure, traceback=traceback)
-                raise ProcedureException(ProcedureInternalError(traceback=list(traceback)))
+                raise Failure(ProcedureInternalError(traceback=list(traceback)))
 
         try:
             if result is not None:
@@ -981,7 +981,7 @@ class Component(Object):
         except Exception as exception:
             traceback = get_traceback(exception)
             self.emit(ProcedureExceptionEvent, procedure=procedure, traceback=traceback)
-            raise ProcedureException(ProcedureInternalError(traceback=list(traceback)))
+            raise Failure(ProcedureInternalError(traceback=list(traceback)))
 
     def __sync_component_order(self) -> None:
         if self.__config__ is None:
