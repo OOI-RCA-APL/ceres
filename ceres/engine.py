@@ -35,7 +35,6 @@ from ceres.filter import (
     UserFilter,
     UserFilterArgs,
 )
-from ceres.internal.app.main import App
 from ceres.internal.project import Project
 from ceres.internal.server import Server, ServerInternalConfig
 from ceres.internal.utilities import StrEnum, sleep_forever, strify, uniquify
@@ -92,8 +91,7 @@ class Engine(Object, kw_only=False):
         self.__database = Database(self.__config.database)
         self.__reloading = AsyncEvent()
         self.__reloaded_config: Config | None = None
-        self.__port_server: Server | None = None
-        self.__cli_server: Server | None = None
+        self.__server: Server | None = None
         self.__root: Component | None = None
 
         if self.__config_path is not None:
@@ -184,8 +182,7 @@ class Engine(Object, kw_only=False):
                 started = True
                 self.__reloading.clear()
 
-                self.__start_cli_server()
-                self.__start_port_server()
+                self.__start_server()
 
                 async def start_enabled() -> None:
                     await asyncio.sleep(0)
@@ -226,8 +223,7 @@ class Engine(Object, kw_only=False):
     @override
     async def __stop__(self) -> None:
         self.emit(StoppingEvent)
-        await self.__stop_cli_server()
-        await self.__stop_port_server()
+        await self.__stop_server()
         if self.__root is not None:
             await self.__root.stop()
 
@@ -483,9 +479,8 @@ class Engine(Object, kw_only=False):
         if self.config.server != previous.server:
             self.log.info("Server configuration modified, reloading...")
             try:
-                await self.__stop_port_server()
-                self.__start_port_server()
-                self.__start_cli_server()
+                await self.__stop_server()
+                self.__start_server()
             except Exception:
                 self.log.error(
                     f"An issue occurred while reloading the server: {traceback.format_exc()}"
@@ -667,77 +662,54 @@ class Engine(Object, kw_only=False):
 
         return actions
 
-    def __create_cli_server(self) -> Server | None:
+    def __create_server(self) -> Server | None:
+        socket: Path | None = None
         if self.__config.server.socket is not None:
             socket = self.__config.server.socket
         elif self.__config_path is not None:
             project = Project(self.__config_path, self.__config)
             socket = project.socket_path
-        else:
+        elif self.__config.server.port is None:
             return None
+
+        config = ServerInternalConfig()
+        config.loglevel = "CRITICAL"
+
+        if self.__config.server.port is not None:
+            config.bind = f"{self.__config.server.host}:{self.__config.server.port}"
+        if socket is not None:
+            config.insecure_bind = f"unix:{socket}"
+
+        # SSL / HTTPS
+        ssl = self.__config.server.ssl or ServerSSLConfig()
+        config.keyfile = str(ssl.key) if ssl.key is not None else None
+        config.keyfile_password = ssl.key_password
+        config.certfile = str(ssl.cert) if ssl.cert is not None else None
+        config.ca_certs = str(ssl.ca_certs) if ssl.ca_certs is not None else None
 
         from ceres.internal.app.main import App
 
-        config = ServerInternalConfig()
-        config.bind = f"unix:{socket}"
-        config.loglevel = "CRITICAL"
-        return Server(config, App(self, cli=True))
+        return Server(config, App(self))
+
+    def __start_server(self) -> Server | None:
+        if self.__server is None:
+            self.__server = self.__create_server()
+
+        if self.__server is not None and not self.__server.running:
+            bind = [*self.__server.config.bind, *self.__server.config.insecure_bind]
+            self.log.info(f"Listening on {bind}...")
+            self.__server.start(on_exception=self.__on_server_exception)
+
+        return self.__server
+
+    async def __stop_server(self) -> None:
+        if self.__server is not None:
+            bind = [*self.__server.config.bind, *self.__server.config.insecure_bind]
+            self.log.info(f"Removing listeners from {bind}...")
+            await self.__server.stop()
+            self.__server = None
 
     def __on_server_exception(self, server: Server, exception: BaseException) -> None:
         self.log.error(
             f"An exception occurred while running server on {server.config.bind}: {exception}"
         )
-
-    def __start_cli_server(self) -> Server | None:
-        if self.__cli_server is None:
-            self.__cli_server = self.__create_cli_server()
-        if self.__cli_server is None:
-            return None
-
-        if not self.__cli_server.running:
-            self.__cli_server.start(on_exception=self.__on_server_exception)
-            self.log.info(f"Listening on socket at '{self.__cli_server.config.bind}'.")
-
-        return self.__cli_server
-
-    async def __stop_cli_server(self) -> None:
-        if self.__cli_server is not None:
-            await self.__cli_server.stop()
-            self.log.info(f"Removing listener from socket at '{self.__cli_server.config.bind}'.")
-            self.__cli_server = None
-
-    def __create_port_server(self) -> Server | None:
-        if self.__config.server.port is None:
-            return None
-
-        ssl = self.__config.server.ssl or ServerSSLConfig()
-        ssl_keyfile = str(ssl.key) if ssl.key is not None else None
-        ssl_keyfile_password = ssl.key_password
-        ssl_certfile = str(ssl.cert) if ssl.cert is not None else None
-        ssl_ca_certs = str(ssl.ca_certs) if ssl.ca_certs is not None else None
-
-        config = ServerInternalConfig()
-        config.bind = f"{self.__config.server.host}:{self.__config.server.port}"
-        config.keyfile = ssl_keyfile
-        config.keyfile_password = ssl_keyfile_password
-        config.certfile = ssl_certfile
-        config.ca_certs = ssl_ca_certs
-        config.loglevel = "CRITICAL"
-
-        return Server(config, App(self))
-
-    def __start_port_server(self) -> Server | None:
-        if self.__port_server is None:
-            self.__port_server = self.__create_port_server()
-
-        if self.__port_server is not None and not self.__port_server.running:
-            self.log.info(f"Listening on {self.__port_server.config.bind}...")
-            self.__port_server.start(on_exception=self.__on_server_exception)
-
-        return self.__port_server
-
-    async def __stop_port_server(self) -> None:
-        if self.__port_server is not None:
-            self.log.info(f"Removing listener from {self.__port_server.config.bind}...")
-            await self.__port_server.stop()
-            self.__port_server = None
