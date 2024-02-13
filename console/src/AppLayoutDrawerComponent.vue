@@ -33,7 +33,7 @@ function toggleExpanded() {
 </script>
 
 <template>
-  <q-item :class="[$style.root, 'items-center', 'row']" dense>
+  <q-item :class="[$style.root, 'items-center', 'row']" :dense="address.depth > 0">
     <div
       :class="[$style.iconContainer, 'items-center', 'justify-center', 'row']"
       :style="{ marginLeft: `${8 * address.depth}px` }"
@@ -48,7 +48,7 @@ function toggleExpanded() {
         @click.stop.prevent="isLeaf ? navigation.go(`/components/${address}`) : toggleExpanded()"
       >
         <q-icon v-if="isLeaf" :name="icons.circle" size="7px" />
-        <q-icon v-else :name="isExpanded ? icons.arrowDown : icons.arrowRight" size="22px" />
+        <q-icon v-else :name="isExpanded ? icons.menuDown : icons.menuRight" size="22px" />
       </q-btn>
     </div>
     <q-item-section no-wrap>

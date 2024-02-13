@@ -21,7 +21,7 @@ const action = $computed(
 <template>
   <q-btn
     dense
-    :icon="isShowingMenu ? icons.arrowUp : icons.arrowDown"
+    :icon="isShowingMenu ? icons.menuUp : icons.menuDown"
     :label="element.title"
     :style="{ backgroundColor: element.color ?? undefined }"
   >
@@ -38,7 +38,7 @@ const action = $computed(
         <q-btn
           class="absolute-top-right q-ma-xs"
           flat
-          icon="close"
+          :icon="icons.close"
           round
           size="8px"
           @click="isShowingMenu = false"

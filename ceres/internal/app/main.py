@@ -19,7 +19,7 @@ from fastapi.responses import FileResponse
 from starlette.responses import JSONResponse
 
 from ceres.alert import Level
-from ceres.data import jsonify
+from ceres.data import simplify
 from ceres.errors import Failure
 from ceres.internal.app.api import router as router__api
 from ceres.internal.app.console import ConsoleFiles
@@ -69,7 +69,7 @@ class App(FastAPI):
                 return await call_next(request)
             except Failure as failure:
                 try:
-                    error = jsonify(failure.error)
+                    error = simplify(failure.error)
                     status = failure.error.__error_status_code__
                 except Exception:
                     traceback.print_exc()

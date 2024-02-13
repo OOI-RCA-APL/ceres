@@ -1,9 +1,9 @@
 <script lang="ts" setup>
+import { useAuth } from '@/auth'
 import CardPage from '@/components/CardPage.vue'
 import { useForm } from '@/form'
 import icons from '@/icons'
 import { useNavigation } from '@/navigation'
-import { useStore } from '@/store'
 import { useValidate } from '@/validate'
 import { useQuasar } from 'quasar'
 
@@ -16,7 +16,7 @@ const props = withDefaults(
   }
 )
 
-const store = useStore()
+const auth = useAuth()
 const navigation = useNavigation()
 const validate = useValidate()
 const quasar = useQuasar()
@@ -33,7 +33,7 @@ const form = useForm({
     password: validate.isNotBlank(),
   },
   async onSubmit({ username, password }) {
-    const identity = await store.login(username, password)
+    const identity = await auth.login(username, password)
     if (identity == null) {
       quasar.notify({
         message: `Failed to log in. Incorrect username/email or password.`,

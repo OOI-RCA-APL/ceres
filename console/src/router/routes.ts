@@ -15,6 +15,37 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/pages/Login.vue'),
       },
       {
+        path: '/account',
+        meta: {
+          auth: 'viewer',
+        },
+        component: () => import('@/pages/Account.vue'),
+      },
+      {
+        path: '/users/create',
+        meta: {
+          auth: 'admin',
+        },
+        component: () => import('@/pages/CreateUser.vue'),
+      },
+      {
+        path: '/users/:id',
+        meta: {
+          auth: 'admin',
+        },
+        component: () => import('@/pages/User.vue'),
+        props: (route) => ({
+          id: parseStringOrNull(route.params.id),
+        }),
+      },
+      {
+        path: '/users',
+        meta: {
+          auth: 'admin',
+        },
+        component: () => import('@/pages/Users.vue'),
+      },
+      {
         path: '/components/@',
         redirect: '/components',
       },

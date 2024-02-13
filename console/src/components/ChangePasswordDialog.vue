@@ -55,13 +55,13 @@ const isShowingNewPassword = $ref(false)
 </script>
 
 <template>
-  <q-dialog ref="dialogRef" @hide="onDialogHide">
+  <q-dialog ref="dialogRef" persistent @hide="onDialogHide">
     <q-card class="q-dialog-plugin">
+      <div class="q-px-md">
+        <common-text element="h2" variant="title1">Change Password</common-text>
+      </div>
       <q-form :ref="form.bind" @submit="form.submit">
-        <q-card-section>
-          <common-text element="h2" variant="title1">Change Password</common-text>
-        </q-card-section>
-        <q-card-section class="q-pb-md q-pt-none">
+        <div class="q-pt-none q-px-md">
           <q-input
             v-if="isOwnPassword"
             v-model="form.data.currentPassword"
@@ -101,7 +101,7 @@ const isShowingNewPassword = $ref(false)
               />
             </template>
           </q-input>
-        </q-card-section>
+        </div>
         <q-card-actions class="justify-end">
           <q-btn v-close-popup color="grey-8" flat label="Cancel" />
           <q-btn

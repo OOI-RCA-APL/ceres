@@ -981,6 +981,13 @@ def upper_camel(string: str) -> str:
     return "".join(segment.capitalize() for segment in string.replace("_", "-").split("-"))
 
 
+def lower_camel(string: str) -> str:
+    if string == "":
+        return string
+
+    return string[0].lower() + upper_camel(string)[1:]
+
+
 Undefined = object()
 
 PathLike = str | _BasePathLike[str]

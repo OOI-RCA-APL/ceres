@@ -3,6 +3,7 @@ import { ComponentInfo, DisplayElement, Element } from '@/api/models'
 import { useElementStream } from '@/api/operations'
 import InterfaceDisplayContent from '@/components/InterfaceDisplayContent.vue'
 import SchemaForm from '@/components/schema-form/SchemaForm.vue'
+import icons from '@/icons'
 import { InterfacePath } from '@/interface'
 import { useSchemaForm } from '@/schema-form'
 import { debounce } from 'quasar'
@@ -133,7 +134,7 @@ const configButtonColor = $computed(() => {
       :class="$style.configButton"
       :color="configButtonColor"
       flat
-      icon="settings"
+      :icon="icons.settings"
       round
       size="xs"
       @click="isShowingDialog = !isShowingDialog"

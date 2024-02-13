@@ -1,89 +1,80 @@
 <script lang="ts" setup>
 import { UserRole } from '@/api/models'
+import { createUser, deleteUser, getUser, isError, updateUser } from '@/api/operations'
 import { useAuth } from '@/auth'
+import CardPage from '@/components/CardPage.vue'
 import { useDialogs } from '@/dialogs'
+import { NotFoundError } from '@/errors'
 import { useForm } from '@/form'
 import icons from '@/icons'
 import { useNavigation } from '@/navigation'
-import CardPage from '@/page-layouts/CardPage.vue'
-import { useStore } from '@/store'
+import { useNotify } from '@/notify'
 import { useValidate } from '@/validate'
-import _, { upperFirst } from 'lodash'
-import { ref } from 'vue'
+import { omit, upperFirst } from 'lodash'
 
-const props = withDefaults(
-  defineProps<{
-    id?: string | null
-  }>(),
-  {
-    id: null,
-  }
-)
+const { id = null } = defineProps<{
+  id?: string | null
+}>()
 
 const auth = useAuth()
 const dialogs = useDialogs()
 const navigation = useNavigation()
+const notify = useNotify()
 const validate = useValidate()
-const store = useStore()
 
-const id = $computed(() => props.id)
-const isAccountPage = $computed(() => id === auth.user?.id)
-const isShowingPassword = ref(false)
-const user = function getTitle() {
+const isAccountPage = $computed(() => id != null && id === auth.user?.id)
+const isShowingPassword = $ref(false)
+
+const user = id != null ? await getUser(id) : null
+if (user == null && id != null) {
+  throw new NotFoundError('user', `User ID "${id}" does not exist.`)
+}
+
+function getTitle() {
   if (isAccountPage) {
     return 'Account'
-  } else if (auth.user == null) {
+  } else if (user == null) {
     return 'Create User'
   } else {
-    return form.data.username.trim() || auth.user.username
+    return form.data.username.trim() || user.username
   }
 }
 
 function promptChangePassword() {
-  if (auth.user == null) {
+  if (user == null) {
     return
   }
 
-  dialogs.changePassword(auth.user.id)
+  dialogs.changePassword(user.id)
 }
 
 function promptDelete() {
-  if (auth.user == null) {
+  if (id == null || user == null) {
     return
-  }
-
-  async function execute() {
-    if (auth.user == null) {
-      return
-    }
-
-    guard(
-      await mutations.delete.executeMutation({
-        id: user.id,
-      }),
-      [
-        {
-          code: 'constraint-violation',
-          text: 'notes',
-          do: () => notify.error('Cannot delete a user with associated operator log entries.'),
-        },
-      ],
-      async () => {
-        notify.success('User deleted successfully.')
-        await navigation.go('/users')
-      }
-    )
   }
 
   dialogs
     .delete({
-      message: `Permanently delete the user "${auth.user?.username}"?`,
+      message: `Permanently delete the user "${user.username}"?`,
     })
-    .onOk(() => void execute())
+    .onOk(async () => {
+      if (id == null) {
+        return
+      }
+
+      const result = await deleteUser(id)
+      if (isError(result)) {
+        notify.error(`Failed to delete user. (${result.type})`)
+      } else {
+        notify.success('User deleted successfully.')
+        navigation.go('/users')
+      }
+    })
 }
 
 async function logout() {
-  await Promise.all([navigation.go('/'), auth.logout()])
+  await navigation.go('/')
+  await auth.logout()
   notify.success('You have signed out.', {
     icon: 'logout',
   })
@@ -92,54 +83,59 @@ async function logout() {
 const form = useForm({
   editing: user == null,
   data: {
-    id,
     username: '',
     email: '',
     password: '',
     disabled: false,
-    role: 'operator',
+    role: 'operator' as UserRole,
   },
   validators: {
     username: validate.isUsername(
       'A username is required and can only contain letters, numbers or: ".-_".'
     ),
     email: validate.isEmail('A valid email address is required.'),
-    password: auth.user ? validate.accept() : validate.isNotEmpty('A password is required.'),
+    password: user ? validate.accept() : validate.isNotEmpty('A password is required.'),
   },
   async onSubmit(data) {
-    if (auth.user == null) {
+    if (id == null) {
       // We're registering a new user.
+      const result = await createUser(data)
+      if (isError(result)) {
+        if (result.type === 'already-exists-error') {
+          notify.error(`User "${data.username}" already exists.`)
+        } else {
+          notify.error(`Failed to create user. (${result.type})`)
+        }
+        return
+      }
+
+      notify.success('User created successfully.')
+      navigation.go(`/users/${result.id}`)
       return
     }
 
-    guard(
-      store.user.role === 'admin'
-        ? await mutations.adminUpdate.executeMutation(_.omit(data, ['password']))
-        : await mutations.operatorUpdate.executeMutation(
-            _.omit(data, ['password', 'roleCode', 'isDisabled'])
-          ),
-      [
-        {
-          code: 'constraint-violation',
-          text: 'username',
-          do: () => notify.error('That username is taken.'),
-        },
-      ],
-      (result) => {
-        if (isAccountPage) {
-          notify.success('Account updated successfully.')
-        } else {
-          notify.success('User updated successfully.')
-        }
-
-        form.done(result.user as any)
-
-        // Refresh stored user data if the user changed their own info.
-        if (isAccountPage) {
-          void store.refresh()
-        }
+    const result = await updateUser(id, omit(data, ['password']))
+    if (isError(result)) {
+      if (result.type === 'already-exists-error') {
+        notify.error(`User "${data.username}" already exists.`)
+      } else {
+        notify.error(`Failed to update user. (${result.type})`)
       }
-    )
+      return
+    }
+
+    if (isAccountPage) {
+      notify.success('Account updated successfully.')
+    } else {
+      notify.success('User updated successfully.')
+    }
+
+    form.done(result)
+
+    // Refresh stored user data if the user changed their own info.
+    if (isAccountPage) {
+      void auth.refresh()
+    }
   },
 })
 
@@ -152,13 +148,14 @@ form.load({
   <card-page :title="getTitle()">
     <template #header-append>
       <q-space />
-      <q-chip :label="upperFirst(form.data.role)" />
+      <q-chip :color="$q.dark.isActive ? 'grey-7' : 'grey-3'" :label="upperFirst(form.data.role)" />
     </template>
-    <q-card-section>
-      <q-form :ref="form.bind" @submit.prevent>
+    <q-form :ref="form.bind" @submit.prevent>
+      <div class="q-pa-md">
         <q-input
           v-model="form.data.username"
-          class="q-mb-md"
+          class="q-mb-sm"
+          dense
           filled
           :hint="isAccountPage ? 'Your username, must be unique.' : 'The user\'s unique username.'"
           label="Username"
@@ -172,29 +169,9 @@ form.load({
           </template>
         </q-input>
         <q-input
-          v-model="form.data.email"
-          class="q-mb-md"
-          filled
-          :hint="
-            isAccountPage
-              ? 'The email address you can be reached at.'
-              : 'The email address this user can be reached at.'
-          "
-          label="Email"
-          lazy-rules
-          :readonly="form.readonly"
-          :rules="[form.validators.email]"
-          :spellcheck="false"
-          type="email"
-        >
-          <template #prepend>
-            <q-icon name="mail" />
-          </template>
-        </q-input>
-        <q-input
           v-if="user == null"
           v-model="form.data.password"
-          class="q-mb-md"
+          class="q-mb-sm"
           dense
           filled
           hint="Pick an initial password they can use to sign in."
@@ -215,8 +192,29 @@ form.load({
             />
           </template>
         </q-input>
-        <div v-if="auth.isAdmin && !isAccountPage" class="q-col-gutter-md q-mb-md row">
-          <div class="col">
+        <q-input
+          v-model="form.data.email"
+          class="q-mb-sm"
+          dense
+          filled
+          :hint="
+            isAccountPage
+              ? 'The email address you can be reached at.'
+              : 'The email address this user can be reached at.'
+          "
+          label="Email"
+          lazy-rules
+          :readonly="form.readonly"
+          :rules="[form.validators.email]"
+          :spellcheck="false"
+          type="email"
+        >
+          <template #prepend>
+            <q-icon name="mail" />
+          </template>
+        </q-input>
+        <div v-if="auth.isAdmin && !isAccountPage" class="q-col-gutter-md row">
+          <div class="col-8">
             <q-select
               v-model="form.data.role"
               dense
@@ -225,15 +223,16 @@ form.load({
               label="Role"
               :option-label="(role: UserRole) => upperFirst(role)"
               :options="['viewer', 'operator', 'admin']"
+              options-dense
               :readonly="form.readonly"
             />
           </div>
-          <div class="col">
+          <div class="col-4">
             <q-toggle
               v-model="form.data.disabled"
               color="negative"
               :disable="form.readonly"
-              label="Disable"
+              label="Disabled"
             >
               <q-tooltip class="bg-negative text-white">
                 Temporarily disable login access for this user.
@@ -241,66 +240,67 @@ form.load({
             </q-toggle>
           </div>
         </div>
-        <template v-if="user">
-          <q-separator class="q-mb-sm" />
-          <q-btn-group flat spread>
-            <template v-if="form.state === 'viewing'">
-              <q-btn
-                v-if="auth.isAdmin && !isAccountPage"
-                color="negative"
-                flat
-                :icon="icons.delete"
-                label="Delete"
-                @click="promptDelete"
-              />
-              <q-btn color="primary" flat :icon="icons.edit" label="Edit" @click="form.edit" />
-            </template>
-            <template v-else>
-              <q-btn color="grey" flat :icon="icons.cancel" label="Cancel" @click="form.discard" />
-              <q-btn
-                color="primary"
-                :disable="form.validation !== 'valid'"
-                flat
-                :icon="icons.submit"
-                label="Update"
-                @click="form.submit"
-              />
-            </template>
-          </q-btn-group>
-          <template v-if="form.state === 'viewing' && (auth.isAdmin || isAccountPage)">
-            <q-separator class="q-my-sm" />
-            <q-btn-group flat spread>
-              <q-btn
-                color="primary"
-                flat
-                icon="password"
-                label="Change Password"
-                @click="promptChangePassword"
-              />
-              <q-btn
-                v-if="isAccountPage"
-                class="col"
-                color="dark"
-                flat
-                icon="logout"
-                label="Sign Out"
-                @click="logout"
-              />
-            </q-btn-group>
+      </div>
+      <template v-if="user">
+        <q-separator />
+        <q-btn-group flat spread>
+          <template v-if="form.state === 'viewing'">
+            <q-btn
+              v-if="auth.isAdmin && !isAccountPage"
+              color="negative"
+              flat
+              :icon="icons.delete"
+              label="Delete"
+              @click="promptDelete"
+            />
+            <q-btn color="primary" flat :icon="icons.edit" label="Edit" @click="form.edit" />
           </template>
-        </template>
-        <template v-else>
-          <q-btn-group flat spread>
+          <template v-else>
+            <q-btn color="grey" flat :icon="icons.cancel" label="Cancel" @click="form.discard" />
             <q-btn
               color="primary"
               :disable="form.validation !== 'valid'"
+              flat
               :icon="icons.submit"
-              label="Create"
+              label="Update"
               @click="form.submit"
+            />
+          </template>
+        </q-btn-group>
+        <template v-if="form.state === 'viewing' && (auth.isAdmin || isAccountPage)">
+          <q-separator />
+          <q-btn-group flat spread>
+            <q-btn
+              color="primary"
+              flat
+              icon="password"
+              label="Change Password"
+              @click="promptChangePassword"
+            />
+            <q-btn
+              v-if="isAccountPage"
+              class="col"
+              color="negative"
+              flat
+              icon="logout"
+              label="Sign Out"
+              @click="logout"
             />
           </q-btn-group>
         </template>
-      </q-form>
-    </q-card-section>
+      </template>
+      <template v-else>
+        <q-btn-group flat spread>
+          <q-btn
+            color="primary"
+            :disable="form.validation !== 'valid'"
+            :icon="icons.submit"
+            label="Create"
+            :loading="form.state === 'submitting'"
+            @click="form.submit"
+          />
+        </q-btn-group>
+      </template>
+    </q-form>
   </card-page>
 </template>

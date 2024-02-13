@@ -10,13 +10,16 @@ import pydantic.generics
 import yaml
 from pydantic import (
     AfterValidator,
+    AliasChoices,
     BaseModel,
     BeforeValidator,
     ConfigDict,
     Field,
     StringConstraints,
+    alias_generators,
 )
 from pydantic import EmailStr as _BaseEmailStr
+from pydantic.aliases import AliasGenerator
 from pydantic.fields import FieldInfo
 from pydantic_extra_types.color import Color as Color
 from typing_extensions import dataclass_transform
@@ -156,11 +159,26 @@ JSONDict = FromJSON[dict[str, Any]]
 JSONList = FromJSON[list[Any]]
 
 
+def _generate_validation_alias(name: str) -> str | AliasChoices:
+    camel = alias_generators.to_camel(name)
+    if name == camel:
+        return name
+
+    return AliasChoices(name, camel)
+
+
+_alias_generator = AliasGenerator(
+    validation_alias=_generate_validation_alias,
+    alias=lambda name: name,
+)
+
+
 class DataObject(BaseModel, ABC):
     model_config = ConfigDict(
         populate_by_name=True,
         arbitrary_types_allowed=True,
         extra="forbid",
+        alias_generator=_alias_generator,
     )
 
     def __str__(self) -> str:

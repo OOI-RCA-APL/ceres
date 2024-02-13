@@ -40,7 +40,7 @@ const state = usePersisted({
       @click="state.isSelected = !state.isSelected"
     >
       <div class="row" :style="{ opacity: state.isSelected ? 1 : 0.75 }">
-        <q-icon :name="state.isSelected ? icons.arrowUp : icons.arrowDown" size="20px" />
+        <q-icon :name="state.isSelected ? icons.menuUp : icons.menuDown" size="20px" />
         {{ name }}
       </div>
       <slot name="append" />

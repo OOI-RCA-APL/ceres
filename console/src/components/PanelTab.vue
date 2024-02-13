@@ -28,7 +28,7 @@ const isSelected = $computed(() => group.isSelected(name))
     @click="group.toggle(name)"
   >
     <div class="items-center row" :style="{ opacity: isSelected ? 1 : 0.75 }">
-      <q-icon :name="isSelected ? icons.arrowUp : icons.arrowDown" size="20px" />
+      <q-icon :name="isSelected ? icons.menuUp : icons.menuDown" size="20px" />
       <template v-if="$slots.default">
         <slot />
       </template>

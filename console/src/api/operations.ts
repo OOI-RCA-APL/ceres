@@ -61,7 +61,7 @@ export async function postChangePassword(data: { oldPassword: string; newPasswor
 }
 
 export async function patchUser(id: string, data: { password: string }) {
-  return await patch(`/api/user/${id}`, UserModel, data)
+  return await patch(`/api/users/${id}`, UserModel, data)
 }
 
 export async function getMe(): Promise<Identity> {
@@ -82,6 +82,22 @@ export async function getComponent(address: Address): Promise<ComponentInfo | nu
 
 export async function getUser(id: string): Promise<User | null> {
   return await getOrNull(`/api/users/${id}`, UserModel)
+}
+
+export async function getUsers(): Promise<User[]> {
+  return await get(`/api/users`, Zod.array(UserModel))
+}
+
+export async function deleteUser(id: string): Promise<User | ErrorInfo> {
+  return await deleteOrError(`/api/users/${id}`, UserModel)
+}
+
+export async function createUser(data: Omit<User, 'id'>): Promise<User | ErrorInfo> {
+  return await postOrError(`/api/users`, UserModel, data)
+}
+
+export async function updateUser(id: string, data: Partial<User>): Promise<User | ErrorInfo> {
+  return await patchOrError(`/api/users/${id}`, UserModel, data)
 }
 
 export async function getMessages(params: {
@@ -284,6 +300,49 @@ async function post<TModel extends ZodTypeAny>(
   return await model.parseAsync(json)
 }
 
+type ErrorInfo = {
+  __error__: true
+  type: string
+}
+
+export function isError(value: unknown): value is ErrorInfo {
+  return value != null && typeof value === 'object' && (value as any)['__error__'] === true
+}
+
+async function postOrError<TModel extends ZodTypeAny>(
+  url: string | URL,
+  model: TModel,
+  data?: unknown,
+  options?: RequestInit
+): Promise<Zod.infer<TModel> | ErrorInfo> {
+  const response = await fetch(url, {
+    ...defaultRequestOptions,
+    method: 'POST',
+    body: data != null ? JSON.stringify(data) : undefined,
+    ...options,
+  })
+
+  const json = await response.json()
+  if (isError(json)) {
+    return json
+  }
+
+  return await model.parseAsync(json)
+}
+
+async function postOrNull<TModel extends ZodTypeAny>(
+  url: string | URL,
+  model: TModel,
+  data?: unknown,
+  options?: RequestInit
+): Promise<Zod.infer<TModel> | null> {
+  try {
+    return await post(url, model, data, options)
+  } catch {
+    return null
+  }
+}
+
 async function patch<TModel extends ZodTypeAny>(
   url: string | URL,
   model: TModel,
@@ -292,8 +351,8 @@ async function patch<TModel extends ZodTypeAny>(
 ): Promise<Zod.infer<TModel>> {
   const response = await fetch(url, {
     ...defaultRequestOptions,
-    method: 'PATCH',
     body: data != null ? JSON.stringify(data) : undefined,
+    method: 'PATCH',
     ...options,
   })
 
@@ -302,6 +361,46 @@ async function patch<TModel extends ZodTypeAny>(
   }
 
   const json = await response.json()
+  return await model.parseAsync(json)
+}
+
+async function patchOrError<TModel extends ZodTypeAny>(
+  url: string | URL,
+  model: TModel,
+  data?: unknown,
+  options?: RequestInit
+): Promise<Zod.infer<TModel> | ErrorInfo> {
+  const response = await fetch(url, {
+    ...defaultRequestOptions,
+    body: data != null ? JSON.stringify(data) : undefined,
+    method: 'PATCH',
+    ...options,
+  })
+
+  const json = await response.json()
+  if (isError(json)) {
+    return json
+  }
+
+  return await model.parseAsync(json)
+}
+
+async function deleteOrError<TModel extends ZodTypeAny>(
+  url: string | URL,
+  model: TModel,
+  options?: RequestInit
+): Promise<Zod.infer<TModel> | ErrorInfo> {
+  const response = await fetch(url, {
+    ...defaultRequestOptions,
+    method: 'DELETE',
+    ...options,
+  })
+
+  const json = await response.json()
+  if (isError(json)) {
+    return json
+  }
+
   return await model.parseAsync(json)
 }
 

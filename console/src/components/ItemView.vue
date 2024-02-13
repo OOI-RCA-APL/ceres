@@ -424,7 +424,7 @@ async function onSend(data: string) {
           v-if="!isLoadingCurrent && !isAtBottomComputed"
           class="absolute-bottom-right"
           color="primary"
-          :icon="icons.arrowDownward"
+          :icon="icons.arrowDown"
           round
           size="sm"
           :style="{

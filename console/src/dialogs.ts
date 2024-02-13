@@ -19,6 +19,7 @@ export function useDialogs() {
         cancel: {
           flat: true,
           label: 'Cancel',
+          color: 'grey',
         },
         ...options,
       }),

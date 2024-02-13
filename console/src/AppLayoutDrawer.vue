@@ -130,6 +130,53 @@ async function executeReload() {
               <q-item-label>Dashboard</q-item-label>
             </q-item-section>
           </q-item>
+          <q-item v-if="auth.isAdmin" clickable>
+            <q-item-section avatar>
+              <q-icon :name="icons.admin" />
+            </q-item-section>
+            <q-item-section>
+              <q-item-label>Admin</q-item-label>
+            </q-item-section>
+            <q-item-section side>
+              <q-icon :name="icons.menuRight" />
+            </q-item-section>
+            <q-menu anchor="bottom right" class="no-shadow" :offset="[8, 0]" self="bottom left">
+              <q-list bordered>
+                <q-item to="/users">
+                  <q-item-section avatar>
+                    <q-icon :name="icons.user" />
+                  </q-item-section>
+                  <q-item-section>
+                    <q-item-label>Users</q-item-label>
+                  </q-item-section>
+                </q-item>
+              </q-list>
+            </q-menu>
+          </q-item>
+          <q-item clickable>
+            <q-item-section avatar>
+              <q-icon :name="icons.configuration" />
+            </q-item-section>
+            <q-item-section>
+              <q-item-label>Configuration</q-item-label>
+            </q-item-section>
+            <q-item-section side>
+              <q-icon :name="icons.menuRight" />
+            </q-item-section>
+            <q-menu anchor="bottom right" class="no-shadow" :offset="[8, 0]" self="bottom left">
+              <q-list bordered>
+                <q-item clickable @click="promptReload">
+                  <q-item-section avatar>
+                    <q-icon :name="icons.reload" />
+                  </q-item-section>
+                  <q-item-section>
+                    <q-item-label>Reload Engine Configuration</q-item-label>
+                  </q-item-section>
+                </q-item>
+              </q-list>
+            </q-menu>
+          </q-item>
+          <q-separator />
           <app-layout-drawer-component
             v-if="store.componentRoot"
             :address="root"
@@ -141,36 +188,13 @@ async function executeReload() {
       <q-list>
         <q-item clickable>
           <q-item-section avatar>
-            <q-icon :name="icons.configuration" />
-          </q-item-section>
-          <q-item-section>
-            <q-item-label>Configuration</q-item-label>
-          </q-item-section>
-          <q-item-section side>
-            <q-icon :name="icons.arrowRight" />
-          </q-item-section>
-          <q-menu anchor="bottom right" class="no-shadow" :offset="[8, 0]" self="bottom left">
-            <q-list bordered>
-              <q-item clickable @click="promptReload">
-                <q-item-section avatar>
-                  <q-icon :name="icons.reload" />
-                </q-item-section>
-                <q-item-section>
-                  <q-item-label>Reload</q-item-label>
-                </q-item-section>
-              </q-item>
-            </q-list>
-          </q-menu>
-        </q-item>
-        <q-item clickable>
-          <q-item-section avatar>
             <q-icon :name="icons.preferences" />
           </q-item-section>
           <q-item-section>
             <q-item-label>Preferences</q-item-label>
           </q-item-section>
           <q-item-section side>
-            <q-icon :name="icons.arrowRight" />
+            <q-icon :name="icons.menuRight" />
           </q-item-section>
           <q-menu anchor="bottom right" class="no-shadow" :offset="[8, 0]" self="bottom left">
             <q-card bordered flat :style="{ minWidth: '360px' }">
@@ -222,7 +246,7 @@ async function executeReload() {
               <q-item-label>Developer</q-item-label>
             </q-item-section>
             <q-item-section side>
-              <q-icon :name="icons.arrowRight" />
+              <q-icon :name="icons.menuRight" />
             </q-item-section>
             <q-menu anchor="bottom right" class="no-shadow" :offset="[8, 0]" self="bottom left">
               <q-list bordered>
@@ -247,7 +271,7 @@ async function executeReload() {
           </q-item>
         </template>
         <q-separator />
-        <q-item :to="auth.user == null ? '/login' : undefined">
+        <q-item :to="auth.user == null ? '/login' : '/account'">
           <q-item-section avatar>
             <q-icon :name="icons.user" />
           </q-item-section>

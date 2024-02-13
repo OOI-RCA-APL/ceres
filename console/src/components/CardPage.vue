@@ -11,15 +11,14 @@ const navigation = useNavigation()
 </script>
 
 <template>
-  <q-page class="self-page">
-    <q-card bordered class="self-card" flat>
-      <div class="items-center q-pr-md row self-header">
+  <q-page :class="$style.root">
+    <q-card bordered :class="$style.card" flat>
+      <div :class="[$style.header, 'items-center q-pr-md row']">
         <q-btn
-          class="gt-xs self-back-button"
+          :class="[$style.backButton, 'gt-xs']"
           fab-mini
           flat
-          :icon="icons.arrowBack"
-          text-color="black"
+          :icon="icons.arrowLeft"
           @click="navigation.back()"
         >
           <q-tooltip>Back</q-tooltip>
@@ -33,8 +32,8 @@ const navigation = useNavigation()
   </q-page>
 </template>
 
-<style lang="scss" scoped>
-.self-page {
+<style lang="scss" module>
+.root {
   align-items: center;
   display: flex;
   flex-direction: column;
@@ -45,30 +44,30 @@ const navigation = useNavigation()
 }
 
 @media (max-width: $breakpoint-xs-max) {
-  .self-page {
+  .page {
     padding-bottom: 16px;
     padding-top: 16px;
   }
 }
 
-.self-card {
+.card {
   max-width: 440px;
   width: 100%;
 }
 
-.self-header {
+.header {
   position: relative;
 }
 
-.self-back-button {
+.backButton {
   position: absolute;
-  top: 11px;
+  top: 5px;
   left: -50px;
   opacity: 0.3;
   transition: opacity 0.25s;
 }
 
-.self-back-button:hover {
+.backButton:hover {
   opacity: 0.5;
 }
 </style>
