@@ -52,7 +52,7 @@ async def update_user(
     id: UUID,
     assign: UserUpdate,
 ) -> User:
-    if role is None or role < UserRole.ADMIN:
+    if role < UserRole.ADMIN:
         if user is None or id != user.id:
             raise Failure(NotPermittedError)
 

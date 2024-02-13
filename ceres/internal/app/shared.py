@@ -9,7 +9,6 @@ from fastapi import (
     Header,
     HTTPException,
     Query,
-    Request,
     Response,
     WebSocket,
     WebSocketDisconnect,
@@ -49,8 +48,8 @@ def _get_current_engine(app: CurrentApp) -> Engine:
 CurrentEngine = Annotated[Engine, Depends(_get_current_engine)]
 
 
-def _get_current_cli(request: Request) -> bool:
-    return request.client is None
+def _get_current_cli(connection: HTTPConnection) -> bool:
+    return connection.client is None
 
 
 CurrentCLI = Annotated[bool, Depends(_get_current_cli)]
@@ -276,7 +275,7 @@ def _restrict(
 
     if user is None:
         raise Failure(NotAuthenticatedError)
-    if user.disabled or role is None or role < required:
+    if user.disabled or role < required:
         raise Failure(NotPermittedError)
 
     return user

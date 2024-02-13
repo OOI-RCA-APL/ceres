@@ -872,25 +872,37 @@ class PriorityStrEnum(StrEnum):
 
         return priority
 
-    def __lt__(self, __x: str) -> bool:
+    def __lt__(self, __x: str | None) -> bool:
+        if __x is None:
+            return False
+
         if isinstance(__x, type(self)):
             return self.priority < __x.priority
 
         return super().__lt__(__x)
 
-    def __le__(self, __x: str) -> bool:
+    def __le__(self, __x: str | None) -> bool:
+        if __x is None:
+            return False
+
         if isinstance(__x, type(self)):
             return self.priority <= __x.priority
 
         return super().__le__(__x)
 
-    def __gt__(self, __x: str) -> bool:
+    def __gt__(self, __x: str | None) -> bool:
+        if __x is None:
+            return True
+
         if isinstance(__x, type(self)):
             return self.priority > __x.priority
 
         return super().__gt__(__x)
 
-    def __ge__(self, __x: str) -> bool:
+    def __ge__(self, __x: str | None) -> bool:
+        if __x is None:
+            return True
+
         if isinstance(__x, type(self)):
             return self.priority >= __x.priority
 

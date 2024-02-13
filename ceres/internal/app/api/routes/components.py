@@ -6,19 +6,22 @@ from typing import Any, Mapping, Sequence
 from fastapi import APIRouter, Body, Request, WebSocket
 
 from ceres.address import Address
-from ceres.component import Component, ProcedureBinding
+from ceres.component import Component, ProcedureBinding, ProcedureType
 from ceres.config import ComponentConfig
 from ceres.data import ImmutableDataObject, Name, jsonify
 from ceres.errors import (
     Failure,
     NotFoundError,
-    ProcedureComponentDoesNotExistError,
+    ProcedureComponentNotFoundError,
     ProcedureError,
     ProcedureInternalError,
+    ProcedureNotFoundError,
+    ProcedureNotPermittedError,
 )
-from ceres.internal.app.shared import CurrentEngine, CurrentProcedureQueryArguments
+from ceres.internal.app.shared import CurrentEngine, CurrentProcedureQueryArguments, CurrentRole
 from ceres.internal.utilities import StrEnum, strify
 from ceres.result import Fail, Ok, Result
+from ceres.user import UserRole
 
 
 class ComponentRole(StrEnum):
@@ -98,8 +101,9 @@ async def get_component(engine: CurrentEngine, address: Address) -> ComponentInf
     tags=["procedures"],
 )
 async def call(
-    request: Request,
     engine: CurrentEngine,
+    role: CurrentRole,
+    request: Request,
     address: Address,
     procedure: Name,
     query_arguments: CurrentProcedureQueryArguments,
@@ -115,7 +119,12 @@ async def call(
     try:
         component = engine.get_component(address)
         if component is None:
-            return Fail(ProcedureComponentDoesNotExistError())
+            return Fail(ProcedureComponentNotFoundError())
+        binding = component.get_procedure_bindings().get(procedure)
+        if binding is None:
+            return Fail(ProcedureNotFoundError())
+        if binding.type == ProcedureType.ACTION and role < UserRole.OPERATOR:
+            return Fail(ProcedureNotPermittedError())
         return Ok(await component.call(procedure, arguments))
     except Failure as exception:
         if isinstance(exception.error, ProcedureError):
@@ -128,6 +137,7 @@ async def call(
 async def subscribe(
     socket: WebSocket,
     engine: CurrentEngine,
+    role: CurrentRole,
     address: Address,
     procedure: Name,
     query_arguments: CurrentProcedureQueryArguments,
@@ -143,7 +153,20 @@ async def subscribe(
     component = engine.get_component(address)
     if component is None:
         code = 1008  # Set code for policy violation.
-        reason = jsonify(Fail(ProcedureComponentDoesNotExistError))
+        reason = jsonify(Fail(ProcedureComponentNotFoundError()))
+        await socket.close(code, reason)
+        return
+
+    binding = component.get_procedure_bindings().get(procedure)
+    if binding is None:
+        code = 1008  # Set code for policy violation.
+        reason = jsonify(Fail(ProcedureNotFoundError()))
+        await socket.close(code, reason)
+        return
+
+    if binding.type == ProcedureType.ACTION and role < UserRole.OPERATOR:
+        code = 1008  # Set code for policy violation.
+        reason = jsonify(Fail(ProcedureNotPermittedError()))
         await socket.close(code, reason)
         return
 

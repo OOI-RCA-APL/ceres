@@ -132,10 +132,8 @@ class __BaseProcedureError(Error, ABC):
     __error_status_code__: ClassVar[int] = HTTP_400_BAD_REQUEST
 
 
-class ProcedureComponentDoesNotExistError(__BaseProcedureError):
-    type: Literal["procedure-component-does-not-exist-error"] = (
-        "procedure-component-does-not-exist-error"
-    )
+class ProcedureComponentNotFoundError(__BaseProcedureError):
+    type: Literal["procedure-component-not-found-error"] = "procedure-component-not-found-error"
 
 
 class ProcedureComponentNotLoadedError(__BaseProcedureError):
@@ -144,6 +142,10 @@ class ProcedureComponentNotLoadedError(__BaseProcedureError):
 
 class ProcedureNotFoundError(__BaseProcedureError):
     type: Literal["procedure-not-found-error"] = "procedure-not-found-error"
+
+
+class ProcedureNotPermittedError(__BaseProcedureError):
+    type: Literal["procedure-not-permitted-error"] = "procedure-not-permitted-error"
 
 
 class ProcedureInvalidArgumentsError(__BaseProcedureError):
@@ -167,8 +169,9 @@ class ProcedureInternalError(__BaseProcedureError):
 
 
 ProcedureError = (
-    ProcedureComponentDoesNotExistError
+    ProcedureComponentNotFoundError
     | ProcedureNotFoundError
+    | ProcedureNotPermittedError
     | ProcedureComponentNotLoadedError
     | ProcedureInvalidArgumentsError
     | ProcedureNotSubscribableError
