@@ -44,6 +44,7 @@ from ceres.internal.utilities import (
     temporary_signal_handler,
     wait_any,
 )
+from ceres.internal.cli.subcommands.generate import router as subcommand__generate
 from ceres.object import Status
 from ceres.result import Fail, Ok
 from ceres.threading import spawn
@@ -56,6 +57,7 @@ router = CLIRouter(
 
 router.add_typer(subcommand__alert)
 router.add_typer(subcommand__database)
+router.add_typer(subcommand__generate)
 router.add_typer(subcommand__log_entry)
 router.add_typer(subcommand__message)
 router.add_typer(subcommand__service)

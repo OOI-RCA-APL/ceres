@@ -4,7 +4,7 @@ import warnings
 from contextlib import contextmanager
 from functools import wraps
 from pathlib import Path
-from typing import IO, Annotated, Any, Callable, Mapping, Sequence, TypeVar
+from typing import IO, Annotated, Any, Callable, Literal, Mapping, Sequence, TypeVar, overload
 
 import typer
 from click import ParamType
@@ -28,23 +28,36 @@ def disable_chdir() -> None:
     os.chdir = __disabled_chdir__
 
 
-def get_config_path(config_path: Path | None = None) -> Path:
+POSSIBLE_CONFIG_NAMES = [
+    "ceres.yaml",
+    "ceres.yml",
+    "ceres.json",
+]
+
+
+@overload
+def get_config_path(config_path: Path | None, required: Literal[True]) -> Path: ...
+
+
+@overload
+def get_config_path(config_path: Path | None, required: Literal[False] = False) -> Path | None: ...
+
+
+def get_config_path(config_path: Path | None = None, required: bool = False) -> Path | None:
     if config_path is None:
-        possibilities = [
-            Path(name)
-            for name in (
-                "ceres.yaml",
-                "ceres.yml",
-                "ceres.json",
-            )
-        ]
+        possibilities = [Path(name) for name in POSSIBLE_CONFIG_NAMES]
 
         for possibility in possibilities:
             if possibility.is_file():
                 config_path = possibility
                 break
         else:
-            raise CLICommandFailed(f"Must be in a directory containing one of: {possibilities}")
+            if required:
+                raise CLICommandFailed(
+                    f"Must be in a directory containing one of: {POSSIBLE_CONFIG_NAMES}"
+                )
+
+            return None
 
     config_path = config_path.absolute()
     chdir(config_path.parent)
@@ -61,7 +74,7 @@ async def get_config(
     import rich
 
     match await Config.load(
-        get_config_path(config_path),
+        get_config_path(config_path, required=True),
         log=rich.print if not silent else lambda *args: None,
         checks=checks,
     ):
@@ -74,7 +87,7 @@ async def get_config(
 async def use_config_path(context: CLIContext) -> Path:
     config_path = context.meta.get("config_path")
     if config_path is None:
-        raise CLICommandFailed("No `config_path` is set.")
+        raise CLICommandFailed(f"Must be in a directory containing one of: {POSSIBLE_CONFIG_NAMES}")
 
     return config_path
 
@@ -95,7 +108,7 @@ async def use_project(
 ) -> Project:
     config_path = await use_config_path(context)
     return Project(
-        get_config_path(config_path),
+        get_config_path(config_path, required=True),
         await get_config(config_path, checks, silent),
     )
 
