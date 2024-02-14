@@ -78,16 +78,16 @@ CurrentSocket = Annotated[Socket, Depends(_use_current_socket)]
 
 
 def _get_procedure_query_arguments(
-    query_arguments: Annotated[Json[Any], Query(alias="arguments")] = None,
+    arguments: Annotated[Json[Any], Query(alias="args")] = None,
 ) -> Mapping[str, object]:
     adapter = get_type_adapter(Mapping[str, object])
 
     try:
-        if query_arguments is None:
+        if arguments is None:
             return {}
-        if isinstance(query_arguments, str):
-            return adapter.validate_json(query_arguments)
-        return adapter.validate_python(query_arguments)
+        if isinstance(arguments, str):
+            return adapter.validate_json(arguments)
+        return adapter.validate_python(arguments)
     except Exception:
         raise HTTPException(
             HTTP_400_BAD_REQUEST,

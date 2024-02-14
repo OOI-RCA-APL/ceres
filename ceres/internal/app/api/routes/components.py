@@ -1,7 +1,7 @@
 import asyncio
 import traceback
 from asyncio import CancelledError
-from typing import Any, Mapping, Sequence
+from typing import Annotated, Any, Literal, Mapping, Sequence
 
 from fastapi import APIRouter, Body, Request, WebSocket
 
@@ -112,27 +112,58 @@ async def get_procedure(
     return binding
 
 
-@router.api_route(
-    "/{address}/procedures/{procedure}/call",
-    methods=["GET", "POST"],
-    tags=["procedures"],
-)
+@router.post("/{address}/procedures/{procedure}/call", tags=["procedures"])
 async def call(
+    engine: CurrentEngine,
+    role: CurrentRole,
+    address: Address,
+    procedure: Name,
+    arguments: Annotated[Mapping[Name, object] | None, Body()] = None,
+) -> Result[Any | None, ProcedureError]:
+    return await _call(
+        method="POST",
+        engine=engine,
+        role=role,
+        address=address,
+        procedure=procedure,
+        arguments=arguments,
+    )
+
+
+@router.get("/{address}/procedures/{procedure}/call", tags=["procedures"])
+async def call_query(
     engine: CurrentEngine,
     role: CurrentRole,
     request: Request,
     address: Address,
     procedure: Name,
     query_arguments: CurrentProcedureQueryArguments,
-    body_arguments: Mapping[Name, object] | None = Body(None),
 ) -> Result[Any | None, ProcedureError]:
     arguments = {}
     arguments.update(query_arguments or {})
-    arguments.update(body_arguments or {})
     arguments.update(request.query_params)
     arguments.pop("arguments", None)
     arguments.pop("args", None)
 
+    return await _call(
+        method="GET",
+        engine=engine,
+        role=role,
+        address=address,
+        procedure=procedure,
+        arguments=arguments,
+    )
+
+
+async def _call(
+    *,
+    method: Literal["GET", "POST"],
+    engine: CurrentEngine,
+    role: CurrentRole,
+    address: Address,
+    procedure: Name,
+    arguments: Mapping[Name, object] | None = None,
+) -> Result[Any | None, ProcedureError]:
     try:
         component = engine.get_component(address)
         if component is None:
@@ -140,8 +171,11 @@ async def call(
         binding = component.get_procedure_bindings().get(procedure)
         if binding is None:
             return Fail(ProcedureNotFoundError())
+        if method == "GET" and binding.type == ProcedureType.ACTION:
+            return Fail(ProcedureNotPermittedError())
         if binding.type == ProcedureType.ACTION and role < UserRole.OPERATOR:
             return Fail(ProcedureNotPermittedError())
+
         return Ok(await component.call(procedure, arguments))
     except Failure as exception:
         if isinstance(exception.error, ProcedureError):
