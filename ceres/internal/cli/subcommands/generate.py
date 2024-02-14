@@ -17,8 +17,8 @@ router = CLIRouter(
 
 
 class OpenAPISchemaFormat(StrEnum):
-    json = "json"
     yaml = "yaml"
+    json = "json"
 
 
 @router.command()
@@ -38,7 +38,7 @@ def openapi(
         OpenAPISchemaFormat,
         CLIOption(OpenAPISchemaFormat),
         Field(description="Specify the output file format."),
-    ] = OpenAPISchemaFormat.json,
+    ] = OpenAPISchemaFormat.yaml,
     indent: Annotated[
         NonNegativeInt,
         CLIOption(int),
@@ -54,10 +54,10 @@ def openapi(
     schema = app.openapi()
 
     match format:
-        case OpenAPISchemaFormat.json:
-            text = jsonify(schema, indent=indent)
         case OpenAPISchemaFormat.yaml:
             text = yamlify(schema, indent=indent)
+        case OpenAPISchemaFormat.json:
+            text = jsonify(schema, indent=indent)
 
     if output is not None:
         output.write_text(text)
