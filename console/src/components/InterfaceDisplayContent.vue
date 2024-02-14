@@ -1,17 +1,15 @@
 <script lang="ts" setup>
-import { ComponentInfo, DisplayElement, Element } from '@/api/models'
+import { DisplayElement, Element } from '@/api/models'
 import InterfaceElement from '@/components/InterfaceElement.vue'
 import { InterfacePath } from '@/interface'
 
 const {
-  component,
   display,
   element,
   path,
   titleClickable = false,
   isLoading = false,
 } = defineProps<{
-  component: ComponentInfo
   display: DisplayElement
   element: Element | null
   path: InterfacePath
@@ -41,7 +39,7 @@ const emit = defineEmits<{
     </q-markup-table>
     <div class="col-grow items-center justify-center q-ma-xs relative-position row">
       <template v-if="element">
-        <interface-element :component="component" :element="element" :path="path" />
+        <interface-element :element="element" :path="path" />
       </template>
       <template v-else>
         <div key="placeholder" :class="$style.placeholder" />

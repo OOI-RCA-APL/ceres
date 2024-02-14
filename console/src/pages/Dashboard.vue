@@ -1,17 +1,19 @@
 <script lang="ts" setup>
 import CommonText from '@/components/CommonText.vue'
 import Interface from '@/components/Interface.vue'
+import { useInterfaceContext } from '@/interface'
 import { useStore } from '@/store'
 
+useInterfaceContext('page/dashboard')
+
 const store = useStore()
-await store.fetchComponents()
 
 const renderer = $computed(() => {
   if (store.config?.dashboard == null) {
     return null
   }
 
-  return store.getComponent(store.config.dashboard)
+  return store.config.dashboard
 })
 </script>
 
@@ -22,7 +24,7 @@ const renderer = $computed(() => {
     </div>
     <q-separator />
     <div class="q-pa-sm">
-      <interface v-if="renderer != null" :component="renderer" />
+      <interface v-if="renderer != null" :address="renderer" />
       <div v-else class="q-py-lg text-center" :style="{ opacity: 0.5 }">
         No dashboard component configured.
       </div>

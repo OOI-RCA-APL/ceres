@@ -1,11 +1,12 @@
-from typing import Sequence
+from typing import Any, Sequence
 
 from fastapi import APIRouter
+from starlette.responses import RedirectResponse
 
 from ceres.address import Address
 from ceres.config import Config
 from ceres.data import ImmutableDataObject
-from ceres.errors import ReloadError
+from ceres.errors import Failure, NotFoundError, ReloadError
 from ceres.filter import ComponentFilter
 from ceres.internal.app.api.routes.alerts import router as router__alerts
 from ceres.internal.app.api.routes.auth import router as router__auth
@@ -29,6 +30,11 @@ router.include_router(router__messages)
 router.include_router(router__statistics)
 router.include_router(router__statuses)
 router.include_router(router__users)
+
+
+@router.get("")
+async def get_api() -> RedirectResponse:
+    return RedirectResponse(url="/api/openapi.json")
 
 
 @router.post(
@@ -121,3 +127,8 @@ async def down(engine: CurrentEngine, filter: ComponentFilter) -> DownResult:
         disabled=[component.address for component in enabled],
         stopped=[component.address for component in running],
     )
+
+
+@router.get("/{path:path}", include_in_schema=False)
+async def get_404() -> Any:
+    raise Failure(NotFoundError)

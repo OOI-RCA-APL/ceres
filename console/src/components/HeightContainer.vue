@@ -1,13 +1,13 @@
 <script lang="ts" setup>
 import ResizeHandle from '@/components/ResizeHandle.vue'
-import { usePersisted } from '@/persistence'
+import { KeyInput, usePersisted } from '@/persistence'
 import { computed } from 'vue'
 
 const { defaultHeight, persist } = defineProps<{
   defaultHeight: number
   minHeight?: number
   maxHeight?: number
-  persist?: string
+  persist?: KeyInput
 }>()
 
 const state = usePersisted({

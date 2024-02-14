@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import AppLayoutDrawerComponent from '@/AppLayoutDrawerComponent.vue'
 import { Address } from '@/address'
-import { postReload, useMutation } from '@/api/operations'
+import { isOk, postReload } from '@/api/operations'
 import { useAuth } from '@/auth'
 import ResizeHandle from '@/components/ResizeHandle.vue'
 import { useDrawer } from '@/drawer'
@@ -51,10 +51,6 @@ function clearLocalStorage() {
 
 const root = new Address('@')
 
-const reloadMutation = useMutation('reload', async () => {
-  return await postReload()
-})
-
 function promptReload() {
   quasar
     .dialog({
@@ -76,13 +72,14 @@ function promptReload() {
 }
 
 async function executeReload() {
-  const result = await reloadMutation.mutateAsync()
-  if (result.ok) {
+  const result = await postReload()
+  if (isOk(result)) {
     quasar.notify({
       message: 'Configuration reloaded successfully.',
       type: 'positive',
     })
 
+    await auth.refresh()
     await store.load()
   } else {
     quasar.notify({
@@ -97,7 +94,7 @@ async function executeReload() {
               title: 'Error Details',
               message: `
 <div class="full-width monospace-sm overflow-auto scroll" style="white-space: pre">
-  ${JSON.stringify(result.error, null, 4)}
+  ${JSON.stringify(result, null, 4)}
 </div>
               `.trim(),
               html: true,
@@ -153,7 +150,7 @@ async function executeReload() {
               </q-list>
             </q-menu>
           </q-item>
-          <q-item clickable>
+          <q-item v-if="auth.isOperator" clickable>
             <q-item-section avatar>
               <q-icon :name="icons.configuration" />
             </q-item-section>
@@ -176,12 +173,14 @@ async function executeReload() {
               </q-list>
             </q-menu>
           </q-item>
-          <q-separator />
-          <app-layout-drawer-component
-            v-if="store.componentRoot"
-            :address="root"
-            :component="store.componentRoot"
-          />
+          <template v-if="auth.user != null">
+            <q-separator />
+            <app-layout-drawer-component
+              v-if="store.componentRoot"
+              :address="root"
+              :component="store.componentRoot"
+            />
+          </template>
         </q-list>
       </div>
       <q-separator />

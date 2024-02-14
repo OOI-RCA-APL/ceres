@@ -1,6 +1,7 @@
 <script lang="ts" setup>
 import { Address } from '@/address'
 import icons from '@/icons'
+import { useInterfaceContext } from '@/interface'
 import { usePersisted } from '@/persistence'
 import { useQuasar } from 'quasar'
 import { computed, watch } from 'vue'
@@ -15,6 +16,7 @@ const emit = defineEmits<{
 }>()
 
 const quasar = useQuasar()
+const context = useInterfaceContext()
 
 const StateSchema = Zod.object({
   text: Zod.string().default(''),
@@ -26,12 +28,12 @@ let element = $ref<HTMLInputElement | null>(null)
 
 const state = usePersisted({
   schema: StateSchema,
-  methods: [
+  methods: computed(() => [
     {
       type: 'local-storage',
-      key: `state/command-input/${address}`,
+      key: [context.key, 'state', 'command-input', address],
     },
-  ],
+  ]),
 })
 
 state.historyIndex = null

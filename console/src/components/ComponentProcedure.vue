@@ -1,18 +1,23 @@
 <script lang="ts" setup>
-import { ComponentInfo, ProcedureInfo } from '@/api/models'
+import { Address } from '@/address'
+import { ProcedureInfo } from '@/api/models'
 import { call } from '@/api/operations'
 import CommonText from '@/components/CommonText.vue'
 import SchemaForm from '@/components/schema-form/SchemaForm.vue'
 import SchemaFormControls from '@/components/schema-form/SchemaFormControls.vue'
+import { useInterfaceContext } from '@/interface'
 import { useSchemaForm } from '@/schema-form'
 import { displayDuration, useTime } from '@/time'
 import moment, { Moment } from 'moment'
 import { computed } from 'vue'
 
-const { component, procedure } = defineProps<{
-  component: ComponentInfo
+const { address, procedure } = defineProps<{
+  address: Address
   procedure: ProcedureInfo
 }>()
+
+const context = useInterfaceContext()
+const time = useTime()
 
 let result = $ref<any>(undefined)
 let sentAt = $ref<Moment | null>(null)
@@ -26,17 +31,21 @@ const resultJson = $computed(() => {
   }
 })
 
-const time = useTime()
-
 const form = useSchemaForm({
-  persist: computed(
-    () => `state/component-procedure/schema-form/${component.address}/procedures/${procedure.name})`
-  ),
+  persist: computed(() => [
+    context.key,
+    'state',
+    'component-procedure',
+    'schema-form',
+    address,
+    'procedures',
+    procedure.name,
+  ]),
   schema: computed(() => procedure.arguments.json_schema),
   async onSubmit(value) {
     sentAt = moment.utc()
     receivedAt = null
-    result = await call(component.address, procedure.name, value)
+    result = await call(address, procedure.name, value)
     receivedAt = moment.utc()
   },
 })

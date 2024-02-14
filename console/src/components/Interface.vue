@@ -1,15 +1,18 @@
 <script setup lang="ts">
-import { ComponentInfo } from '@/api/models'
+import { Address } from '@/address'
 import { render, useQuery } from '@/api/operations'
 import InterfaceElement from '@/components/InterfaceElement.vue'
+import { useInterfaceContext } from '@/interface'
 import { computed } from 'vue'
 
-const { component } = defineProps<{
-  component: ComponentInfo
+const { address } = defineProps<{
+  address: Address
 }>()
 
-const query = useQuery(['render', computed(() => component.address)], async () => {
-  return await render(component.address)
+useInterfaceContext(address)
+
+const query = useQuery(['render', computed(() => address)], async () => {
+  return await render(address)
 })
 
 await query.suspense()
@@ -18,5 +21,5 @@ const result = $computed(() => query.data.value)
 </script>
 
 <template>
-  <interface-element v-if="result?.ok" :component="component" :element="result.value" :path="[]" />
+  <interface-element v-if="result?.ok" :element="result.value" :path="[]" />
 </template>

@@ -1,21 +1,26 @@
 <script lang="ts" setup>
-import { ButtonElement, ComponentInfo } from '@/api/models'
+import { ButtonElement } from '@/api/models'
+import { getComponentProcedure } from '@/api/operations'
 import ComponentProcedure from '@/components/ComponentProcedure.vue'
 import icons from '@/icons'
+import { useQuery } from 'vue-query'
 
-const { component, element } = defineProps<{
-  component: ComponentInfo
+const { element } = defineProps<{
   element: ButtonElement
 }>()
 
 let isShowingMenu = $ref(false)
 
-const action = $computed(
-  () =>
-    component.procedures.find(
-      (procedure) => procedure.type === 'action' && procedure.name === element.action
-    ) ?? null
-)
+const request = useQuery(['get-action', element.address, element.action], async () => {
+  const procedure = await getComponentProcedure(element.address, element.action)
+  if (procedure?.type === 'action') {
+    return procedure
+  }
+
+  return null
+})
+
+const action = $computed(() => request.data.value ?? null)
 </script>
 
 <template>
@@ -44,9 +49,9 @@ const action = $computed(
           @click="isShowingMenu = false"
         />
         <div class="items-center q-mb-sm q-ml-xs row">
-          <div class="monospace-lg">{{ component.address }}::{{ element.action }}</div>
+          <div class="monospace-lg">{{ element.address }}::{{ element.action }}</div>
         </div>
-        <component-procedure :component="component" :procedure="action" />
+        <component-procedure :address="element.address" :procedure="action" />
       </q-card>
     </q-menu>
   </q-btn>

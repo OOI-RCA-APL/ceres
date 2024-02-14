@@ -379,7 +379,6 @@ export const ProcedureInfoModel = Zod.discriminatedUnion('type', [QueryInfoModel
 export type ComponentInfo = {
   name: string
   address: Address
-  config: ComponentConfig
   roles: ComponentRole[]
   procedures: ProcedureInfo[]
   components: ComponentInfo[]
@@ -388,7 +387,6 @@ export type ComponentInfo = {
 export const ComponentInfoModel: Zod.ZodType<ComponentInfo> = Zod.object({
   name: Zod.string(),
   address: Zod.string().transform(Address.parse),
-  config: ComponentConfigModel,
   roles: Zod.array(ComponentRoleModel),
   procedures: Zod.array(ProcedureInfoModel),
   components: Zod.lazy(() => Zod.array(ComponentInfoModel)),

@@ -15,8 +15,8 @@ import {
   LogEntryModel,
   Message,
   MessageModel,
-  Result,
-  ResultModel,
+  ProcedureInfo,
+  ProcedureInfoModel,
   Statistics,
   StatisticsModel,
   Status,
@@ -29,8 +29,8 @@ import { MaybeRef } from 'vue-query/lib/vue/types'
 import Zod, { ZodTypeAny } from 'zod'
 export * from 'vue-query'
 
-export async function postReload(): Promise<Result<Config>> {
-  return await post('/api/reload', ResultModel(ConfigModel) as any)
+export async function postReload(): Promise<Config | ErrorInfo> {
+  return await postOrError('/api/reload', ConfigModel)
 }
 
 function getAuthorizationCookieType() {
@@ -78,6 +78,13 @@ export async function getConsoleConfig(): Promise<ConsoleConfig> {
 
 export async function getComponent(address: Address): Promise<ComponentInfo | null> {
   return await getOrNull(`/api/components/${address}`, ComponentInfoModel)
+}
+
+export async function getComponentProcedure(
+  address: Address,
+  procedure: string
+): Promise<ProcedureInfo | null> {
+  return await getOrNull(`/api/components/${address}/procedures/${procedure}`, ProcedureInfoModel)
 }
 
 export async function getUser(id: string): Promise<User | null> {
@@ -165,7 +172,8 @@ export function useStatusesStream(
   params: MaybeRef<{
     address?: Address
   }>,
-  onReceive: (message: Status[]) => unknown
+  onReceive: (message: Status[]) => unknown,
+  options: MaybeRef<UseStreamOptions> = {}
 ) {
   useStream(
     computed(() =>
@@ -175,7 +183,8 @@ export function useStatusesStream(
     // eslint-disable-next-line @typescript-eslint/ban-ts-comment
     // @ts-ignore
     Zod.array(StatusModel),
-    onReceive
+    onReceive,
+    options
   )
 }
 
@@ -309,6 +318,10 @@ export function isError(value: unknown): value is ErrorInfo {
   return value != null && typeof value === 'object' && (value as any)['__error__'] === true
 }
 
+export function isOk<T>(value: T | ErrorInfo): value is T {
+  return !isError(value)
+}
+
 async function postOrError<TModel extends ZodTypeAny>(
   url: string | URL,
   model: TModel,
@@ -328,19 +341,6 @@ async function postOrError<TModel extends ZodTypeAny>(
   }
 
   return await model.parseAsync(json)
-}
-
-async function postOrNull<TModel extends ZodTypeAny>(
-  url: string | URL,
-  model: TModel,
-  data?: unknown,
-  options?: RequestInit
-): Promise<Zod.infer<TModel> | null> {
-  try {
-    return await post(url, model, data, options)
-  } catch {
-    return null
-  }
 }
 
 async function patch<TModel extends ZodTypeAny>(

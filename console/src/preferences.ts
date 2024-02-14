@@ -12,7 +12,7 @@ export const usePreferences = defineStore('preferences', () => {
         isDeveloperModeEnabled: boolean().default(false),
         statisticsDuration: number().default(60 * 30),
       }),
-    methods: [{ type: 'local-storage', key: 'store/preferences' }],
+    methods: [{ type: 'local-storage', key: ['store', 'preferences'] }],
   })
 
   const quasar = useQuasar()

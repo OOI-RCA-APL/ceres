@@ -3,16 +3,16 @@ import AppBoundary from '@/AppBoundary.vue'
 import AppLayoutDrawer from '@/AppLayoutDrawer.vue'
 import AppLayoutHeader from '@/AppLayoutHeader.vue'
 import PageSpinner from '@/components/PageSpinner.vue'
-import { useRoute } from 'vue-router'
+import { useNavigation } from '@/navigation'
 
-const route = useRoute()
+const navigation = useNavigation()
 </script>
 
 <template>
   <q-layout view="hHh LpR fFf">
     <app-layout-header />
     <app-layout-drawer />
-    <q-page-container :key="route.path">
+    <q-page-container :key="navigation.key">
       <app-boundary>
         <suspense>
           <template #default>

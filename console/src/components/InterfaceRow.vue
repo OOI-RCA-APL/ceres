@@ -1,11 +1,10 @@
 <script lang="ts" setup>
-import { ComponentInfo, RowElement } from '@/api/models'
+import { RowElement } from '@/api/models'
 import InterfaceElement from '@/components/InterfaceElement.vue'
 import { InterfacePath } from '@/interface'
 import { StyleValue } from 'vue'
 
 const { element } = defineProps<{
-  component: ComponentInfo
   element: RowElement
   path: InterfacePath
 }>()
@@ -30,12 +29,7 @@ const childClass = $computed(() => {
 <template>
   <div :class="[$style.root, '']" :style="style">
     <div v-for="(child, i) in element.children" :key="i" :class="childClass">
-      <interface-element
-        class="full-width"
-        :component="component"
-        :element="child"
-        :path="[...path, i]"
-      />
+      <interface-element class="full-width" :element="child" :path="[...path, i]" />
     </div>
   </div>
 </template>

@@ -24,6 +24,7 @@ from ceres.errors import Failure
 from ceres.internal.app.api import router as router__api
 from ceres.internal.app.console import ConsoleFiles
 from ceres.internal.app.shared import CurrentEngine
+from ceres.version import __version__
 
 if TYPE_CHECKING:
     from ceres.engine import Engine
@@ -55,6 +56,8 @@ class App(FastAPI):
         self.__engine = engine
 
         super().__init__(
+            title="Ceres",
+            version=__version__,
             redoc_url=None,
             docs_url="/api/docs",
             openapi_url="/api/openapi.json",

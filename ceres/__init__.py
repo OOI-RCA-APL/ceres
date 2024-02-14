@@ -78,7 +78,7 @@ if TYPE_CHECKING:
     from ceres.events import Event as Event
     from ceres.events import StandardEvent as StandardEvent
 else:
-    __export("ceres.events", ["Event", "StandardEvent", "StandardEventType"])
+    __export("ceres.events", ["Event", "StandardEvent"])
 
 if TYPE_CHECKING:
     from ceres.filter import AlertFilter as AlertFilter
@@ -105,9 +105,9 @@ else:
     )
 
 if TYPE_CHECKING:
-    from ceres.internal.cli import main as main
+    from ceres.internal.cli.main import main as main
 else:
-    __export("ceres.internal.cli", ["main"])
+    __export("ceres.internal.cli.main", ["main"])
 
 if TYPE_CHECKING:
     from ceres.level import Level as Level

@@ -241,66 +241,67 @@ form.load({
           </div>
         </div>
       </div>
-      <template v-if="user">
-        <q-separator />
-        <q-btn-group flat spread>
-          <template v-if="form.state === 'viewing'">
-            <q-btn
-              v-if="auth.isAdmin && !isAccountPage"
-              color="negative"
-              flat
-              :icon="icons.delete"
-              label="Delete"
-              @click="promptDelete"
-            />
-            <q-btn color="primary" flat :icon="icons.edit" label="Edit" @click="form.edit" />
+      <q-separator />
+      <div class="q-pa-md">
+        <template v-if="user">
+          <q-btn-group flat spread>
+            <template v-if="form.state === 'viewing'">
+              <q-btn
+                v-if="auth.isAdmin && !isAccountPage"
+                color="negative"
+                flat
+                :icon="icons.delete"
+                label="Delete"
+                @click="promptDelete"
+              />
+              <q-btn color="primary" flat :icon="icons.edit" label="Edit" @click="form.edit" />
+            </template>
+            <template v-else>
+              <q-btn color="grey" flat :icon="icons.cancel" label="Cancel" @click="form.discard" />
+              <q-btn
+                color="primary"
+                :disable="form.validation !== 'valid'"
+                flat
+                :icon="icons.submit"
+                label="Update"
+                @click="form.submit"
+              />
+            </template>
+          </q-btn-group>
+          <template v-if="form.state === 'viewing' && (auth.isAdmin || isAccountPage)">
+            <q-btn-group class="q-mt-xs" flat spread>
+              <q-btn
+                color="primary"
+                flat
+                icon="password"
+                label="Change Password"
+                @click="promptChangePassword"
+              />
+              <q-btn
+                v-if="isAccountPage"
+                class="col"
+                color="negative"
+                flat
+                icon="logout"
+                label="Sign Out"
+                @click="logout"
+              />
+            </q-btn-group>
           </template>
-          <template v-else>
-            <q-btn color="grey" flat :icon="icons.cancel" label="Cancel" @click="form.discard" />
-            <q-btn
-              color="primary"
-              :disable="form.validation !== 'valid'"
-              flat
-              :icon="icons.submit"
-              label="Update"
-              @click="form.submit"
-            />
-          </template>
-        </q-btn-group>
-        <template v-if="form.state === 'viewing' && (auth.isAdmin || isAccountPage)">
-          <q-separator />
+        </template>
+        <template v-else>
           <q-btn-group flat spread>
             <q-btn
               color="primary"
-              flat
-              icon="password"
-              label="Change Password"
-              @click="promptChangePassword"
-            />
-            <q-btn
-              v-if="isAccountPage"
-              class="col"
-              color="negative"
-              flat
-              icon="logout"
-              label="Sign Out"
-              @click="logout"
+              :disable="form.validation !== 'valid'"
+              :icon="icons.submit"
+              label="Create"
+              :loading="form.state === 'submitting'"
+              @click="form.submit"
             />
           </q-btn-group>
         </template>
-      </template>
-      <template v-else>
-        <q-btn-group flat spread>
-          <q-btn
-            color="primary"
-            :disable="form.validation !== 'valid'"
-            :icon="icons.submit"
-            label="Create"
-            :loading="form.state === 'submitting'"
-            @click="form.submit"
-          />
-        </q-btn-group>
-      </template>
+      </div>
     </q-form>
   </card-page>
 </template>

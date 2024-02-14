@@ -9,11 +9,14 @@ import Panel from '@/components/Panel.vue'
 import PanelContainer from '@/components/PanelContainer.vue'
 import PanelGroup from '@/components/PanelGroup.vue'
 import PanelTab from '@/components/PanelTab.vue'
+import { useInterfaceContext } from '@/interface'
 import { useStore } from '@/store'
 
 const { address = new Address('@') } = defineProps<{
   address: Address
 }>()
+
+useInterfaceContext('page/component')
 
 const store = useStore()
 await store.fetchComponents()
@@ -130,7 +133,7 @@ const resizablePanelProps = {
         </template>
         <panel v-for="ui in interfaces" :key="ui.address.toString()" :name="ui.address.toString()">
           <div>
-            <interface :component="ui" />
+            <interface :address="ui.address" />
           </div>
         </panel>
       </panel-group>

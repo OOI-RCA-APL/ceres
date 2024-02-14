@@ -1,11 +1,12 @@
 import { Address } from '@/address'
-import { ComponentConfig, ComponentInfo, LevelStatistics, Statistics, Status } from '@/api/models'
+import { ComponentInfo, LevelStatistics, Statistics, Status } from '@/api/models'
 import {
   getComponent as getComponentBase,
   getConsoleConfig,
   getStatistics as getStatisticsBase,
   useStatusesStream,
 } from '@/api/operations'
+import { useAuth } from '@/auth'
 import { getter } from '@/getter'
 import { usePreferences } from '@/preferences'
 import { useIntervalFn } from '@vueuse/core'
@@ -15,6 +16,7 @@ import { computed, ref, watch } from 'vue'
 import { UseQueryReturnType, useQuery } from 'vue-query'
 
 export const useStore = defineStore('store', () => {
+  const auth = useAuth()
   const preferences = usePreferences()
 
   async function fetchQuery(query: UseQueryReturnType<unknown, unknown>) {
@@ -43,9 +45,19 @@ export const useStore = defineStore('store', () => {
     isLoadingConfig: computed(() => configQuery.isLoading.value),
   }
 
-  const componentsQuery = useQuery(['components'], async () => getComponentBase(new Address('@')), {
-    retry: false,
-  })
+  const componentsQuery = useQuery(
+    ['components'],
+    async () => {
+      if (auth.user == null) {
+        return null
+      }
+
+      return await getComponentBase(new Address('@'))
+    },
+    {
+      retry: false,
+    }
+  )
   const componentsError = computed(() => componentsQuery.error.value)
   const componentRoot = computed(() => componentsQuery.data.value ?? null)
 
@@ -67,32 +79,22 @@ export const useStore = defineStore('store', () => {
     return componentMapping
   })
 
-  const getComponent = getter(componentMapping, function getComponent(address: Address | string) {
-    return componentMapping.value[address.toString()] ?? null
-  })
+  const getComponent = getter(
+    componentMapping,
+    function getComponent(address: Address | string): ComponentInfo | null {
+      return componentMapping.value[address.toString()] ?? null
+    }
+  )
 
   const getComponents = getter(componentMapping, function getComponents(): ComponentInfo[] {
     return Object.values(componentMapping.value)
   })
-
-  const getComponentConfig = getter(
-    componentMapping,
-    function (address: Address): ComponentConfig | null {
-      if (address.isRoot) {
-        return null
-      }
-
-      const component = getComponent.value(address)
-      return component.config
-    }
-  )
 
   const componentFields = {
     componentRoot,
     componentsError,
     componentsUpdatedAt: computed(() => getUpdatedAt(componentsQuery)),
     getComponent,
-    getComponentConfig,
     getComponents,
     fetchComponents: () => fetchQuery(componentsQuery),
     refetchComponents: () => refetchQuery(componentsQuery),
@@ -101,7 +103,13 @@ export const useStore = defineStore('store', () => {
 
   const statisticsQuery = useQuery(
     ['store/statistics'],
-    async () => await getStatisticsBase({ within: preferences.statisticsDuration.asSeconds() }),
+    async () => {
+      if (auth.user == null) {
+        return []
+      }
+
+      return await getStatisticsBase({ within: preferences.statisticsDuration.asSeconds() })
+    },
     { retry: false }
   )
 
@@ -159,11 +167,15 @@ export const useStore = defineStore('store', () => {
 
   const statusesMapping = ref<Record<string, Status>>({})
 
-  useStatusesStream({}, (next) => {
-    statusesMapping.value = Object.fromEntries(
-      next.map((status) => [status.address.toString(), status])
-    )
-  })
+  useStatusesStream(
+    {},
+    (next) => {
+      statusesMapping.value = Object.fromEntries(
+        next.map((status) => [status.address.toString(), status])
+      )
+    },
+    computed(() => ({ disable: auth.user == null }))
+  )
 
   const getStatus = getter($$(statusesMapping), function getStatus(address: Address) {
     return statusesMapping.value[address.toString()] ?? null
@@ -173,6 +185,13 @@ export const useStore = defineStore('store', () => {
     getStatus,
   }
 
+  const isLoading = computed(
+    () =>
+      configQuery.isLoading.value ||
+      componentsQuery.isLoading.value ||
+      statisticsQuery.isLoading.value
+  )
+
   async function load() {
     await Promise.all([
       fetchQuery(configQuery),
@@ -181,11 +200,11 @@ export const useStore = defineStore('store', () => {
     ])
   }
 
-  const isLoading = computed(
-    () =>
-      configQuery.isLoading.value ||
-      componentsQuery.isLoading.value ||
-      statisticsQuery.isLoading.value
+  watch(
+    computed(() => auth.user == null),
+    async () => {
+      await load()
+    }
   )
 
   return {

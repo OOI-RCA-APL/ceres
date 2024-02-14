@@ -133,6 +133,15 @@ useEventListener(window, 'focus', () => {
 
 await refresh()
 
+try {
+  if (auth.user != null) {
+    await store.fetchComponents()
+    await store.fetchStatistics()
+  }
+} catch (error) {
+  console.error(error)
+}
+
 // Here we're getting the initial route directly from the resolve function because at this point in
 // the loading process we haven't actually navigated to the initial route yet. As such, we can't use
 // the "current" route object from "useRoute()".

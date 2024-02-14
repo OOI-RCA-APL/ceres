@@ -7,7 +7,6 @@ from fastapi import APIRouter, Body, Request, WebSocket
 
 from ceres.address import Address
 from ceres.component import Component, ProcedureBinding, ProcedureType
-from ceres.config import ComponentConfig
 from ceres.data import ImmutableDataObject, Name, jsonify
 from ceres.errors import (
     Failure,
@@ -18,7 +17,12 @@ from ceres.errors import (
     ProcedureNotFoundError,
     ProcedureNotPermittedError,
 )
-from ceres.internal.app.shared import CurrentEngine, CurrentProcedureQueryArguments, CurrentRole
+from ceres.internal.app.shared import (
+    VIEWER,
+    CurrentEngine,
+    CurrentProcedureQueryArguments,
+    CurrentRole,
+)
 from ceres.internal.utilities import StrEnum, strify
 from ceres.result import Fail, Ok, Result
 from ceres.user import UserRole
@@ -29,16 +33,16 @@ class ComponentRole(StrEnum):
     INTERFACE = "interface"
 
 
-class ComponentInfo(ImmutableDataObject):
+class APIComponent(ImmutableDataObject):
     name: Name
     address: Address
-    components: Sequence["ComponentInfo"]
-    config: ComponentConfig
+    components: Sequence["APIComponent"]
     roles: Sequence[ComponentRole]
     procedures: Sequence[ProcedureBinding]
 
 
-ComponentInfo.model_rebuild()
+APIComponent.__name__ = "Component"
+APIComponent.model_rebuild()
 
 router = APIRouter(prefix="/components", tags=["components"])
 
@@ -59,40 +63,53 @@ def _get_component_roles(component: Component | type[Component]) -> Sequence[Com
     return roles
 
 
-@router.get("/{address}")
-async def get_component(engine: CurrentEngine, address: Address) -> ComponentInfo:
-    component_config = engine.config.get_component(address)
-    if component_config is not None and type(component_config) is not ComponentConfig:
-        component_config = ComponentConfig.model_validate(
-            {
-                "name": component_config.name,
-                "class": component_config.cls,
-                "arguments": component_config.arguments,
-                "components": component_config.components,
-            }
-        )
-
-    component_cls = engine.config.get_component_cls(address)
-    if component_config is None or component_cls is None:
+@router.get("/{address}", dependencies=[VIEWER])
+async def get_component(engine: CurrentEngine, address: Address) -> APIComponent:
+    component = engine.get_component(address)
+    if component is None:
         raise Failure(NotFoundError)
 
-    children: list[ComponentInfo] = []
-    for child_config in component_config.components:
-        children.append(await get_component(engine, address / child_config.name))
+    children: list[APIComponent] = []
+    for child in component.components:
+        children.append(await get_component(engine, address / child.name))
 
     try:
-        info = ComponentInfo(
-            name=component_config.name,
+        info = APIComponent(
+            name=component.name,
             address=address,
-            config=component_config,
-            roles=_get_component_roles(component_cls),
-            procedures=list(component_cls.get_procedure_bindings().values()),
+            roles=_get_component_roles(type(component.unref())),
+            procedures=list(component.get_procedure_bindings().values()),
             components=children,
         )
         return info
     except Exception:
         traceback.print_exc()
         raise
+
+
+@router.get("/{address}/procedures", tags=["procedures"])
+async def get_procedures(engine: CurrentEngine, address: Address) -> list[ProcedureBinding]:
+    component = engine.get_component(address)
+    if component is None:
+        raise Failure(NotFoundError)
+
+    return list(component.get_procedure_bindings().values())
+
+
+@router.get("/{address}/procedures/{procedure}", tags=["procedures"])
+async def get_procedure(
+    engine: CurrentEngine,
+    address: Address,
+    procedure: Name,
+) -> ProcedureBinding:
+    component = engine.get_component(address)
+    if component is None:
+        raise Failure(NotFoundError)
+    binding = component.get_procedure_bindings().get(procedure)
+    if binding is None:
+        raise Failure(NotFoundError)
+
+    return binding
 
 
 @router.api_route(

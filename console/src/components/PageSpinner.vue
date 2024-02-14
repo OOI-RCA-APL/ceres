@@ -1,16 +1,16 @@
 <template>
-  <div :class="[$style.root, 'full-width', 'q-pb-lg', 'window-height']">
+  <div :class="[$style.root, 'q-pb-lg']">
     <q-spinner-ball color="primary" size="40px" />
   </div>
 </template>
 
-<style module>
+<style lang="scss" module>
 .root {
   align-items: center;
   display: flex;
   animation: fadeIn 1s ease-in;
   justify-content: center;
-  padding-bottom: 50vh;
+  height: calc(100vh - 64px);
 }
 
 @keyframes fadeIn {

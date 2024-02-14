@@ -1,5 +1,5 @@
 import { getter } from '@/getter'
-import { usePersisted } from '@/persistence'
+import { KeyInput, usePersisted } from '@/persistence'
 import { useTime } from '@/time'
 import { MaybePromise, MaybeRef, Plain } from '@/utilities'
 import AJV, { SchemaObject as BaseSchemaObject } from 'ajv'
@@ -29,7 +29,7 @@ export type SchemaFormOptions = {
   initial?: Plain
   editing?: boolean
   schema: MaybeRef<Schema>
-  persist?: MaybeRef<string | undefined>
+  persist?: MaybeRef<KeyInput>
   inline?: MaybeRef<boolean>
   onSubmit?: (value: any) => MaybePromise<SchemaFormState | void>
 }
@@ -57,7 +57,14 @@ function get(object: Plain | undefined, path: SchemaPath): Plain | undefined {
 export function useSchemaForm({ ...options }: SchemaFormOptions) {
   const onSubmit = options.onSubmit
   const rootSchema = computed(() => unref(options.schema))
-  const persist = computed(() => unref(options.persist))
+  const persist = computed(() => {
+    const value = unref(options.persist)
+    if (value == null) {
+      return null
+    }
+
+    return Array.isArray(value) ? value.join('/') : value
+  })
   const inline = computed(() => unref(options.inline) ?? false)
   const state = ref<SchemaFormState>(
     options.editing == null || options.editing ? 'editing' : 'viewing'

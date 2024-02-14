@@ -12,7 +12,7 @@ const state = usePersisted({
     object({
       schemaJson: Zod.string().default(() => JSON.stringify(createDefaultSchema(), null, 2)),
     }),
-  methods: [{ type: 'local-storage', key: 'state/schema-form-playground/schema' }],
+  methods: [{ type: 'local-storage', key: ['state', 'schema-form-playground', 'schema'] }],
 })
 
 const schema = $computed<any>(() => {
@@ -25,7 +25,7 @@ const schema = $computed<any>(() => {
 
 const form = useSchemaForm({
   schema: computed(() => schema),
-  persist: 'state/schema-form-playground/form',
+  persist: ['state', 'schema-form-playground', 'form'],
 })
 
 function createDefaultSchema() {

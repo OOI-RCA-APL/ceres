@@ -472,3 +472,7 @@ async def down(
     result = await client.post("/down", query, result=DownResult)
 
     write(result)
+
+
+def main() -> None:
+    router()
