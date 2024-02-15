@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { Element, ElementType } from '@/api/models'
+import type { Element, ElementType } from '@/api/elements'
 import InterfaceButton from '@/components/InterfaceButton.vue'
 import InterfaceCarousel from '@/components/InterfaceCarousel.vue'
 import InterfaceChart from '@/components/InterfaceChart.vue'

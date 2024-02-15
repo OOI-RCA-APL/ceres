@@ -1,5 +1,6 @@
 <script lang="ts" setup>
 import { Address } from '@/address'
+import { useEngine } from '@/api/engine'
 import ComponentProcedures from '@/components/ComponentProcedures.vue'
 import ComponentStatusBadge from '@/components/ComponentStatusBadge.vue'
 import FullPage from '@/components/FullPage.vue'
@@ -10,7 +11,6 @@ import PanelContainer from '@/components/PanelContainer.vue'
 import PanelGroup from '@/components/PanelGroup.vue'
 import PanelTab from '@/components/PanelTab.vue'
 import { useInterfaceContext } from '@/interface'
-import { useStore } from '@/store'
 
 const { address = new Address('@') } = defineProps<{
   address: Address
@@ -18,10 +18,8 @@ const { address = new Address('@') } = defineProps<{
 
 useInterfaceContext('page/component')
 
-const store = useStore()
-await store.fetchComponents()
-
-const component = $computed(() => store.getComponent(address))
+const engine = useEngine()
+const component = $computed(() => engine.components.get(address))
 
 const title = $computed(() => {
   if (address == null) {

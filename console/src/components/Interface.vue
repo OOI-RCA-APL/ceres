@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { Address } from '@/address'
-import { render, useQuery } from '@/api/operations'
+import { useEngine } from '@/api/engine'
 import InterfaceElement from '@/components/InterfaceElement.vue'
 import { useInterfaceContext } from '@/interface'
+import { useQuery } from '@tanstack/vue-query'
 import { computed } from 'vue'
 
 const { address } = defineProps<{
@@ -11,8 +12,13 @@ const { address } = defineProps<{
 
 useInterfaceContext(address)
 
-const query = useQuery(['render', computed(() => address)], async () => {
-  return await render(address)
+const engine = useEngine()
+
+const query = useQuery({
+  queryKey: computed(() => ['render', address]),
+  queryFn: async () => {
+    return await engine.components.render(address)
+  },
 })
 
 await query.suspense()

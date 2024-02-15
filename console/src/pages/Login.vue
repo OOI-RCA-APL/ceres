@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { useAuth } from '@/auth'
+import { useEngine } from '@/api/engine'
 import CardPage from '@/components/CardPage.vue'
 import { useForm } from '@/form'
 import icons from '@/icons'
@@ -7,7 +7,7 @@ import { useNavigation } from '@/navigation'
 import { useValidate } from '@/validate'
 import { useQuasar } from 'quasar'
 
-const props = withDefaults(
+const { redirect } = withDefaults(
   defineProps<{
     redirect?: string | null
   }>(),
@@ -16,7 +16,7 @@ const props = withDefaults(
   }
 )
 
-const auth = useAuth()
+const engine = useEngine()
 const navigation = useNavigation()
 const validate = useValidate()
 const quasar = useQuasar()
@@ -33,7 +33,7 @@ const form = useForm({
     password: validate.isNotBlank(),
   },
   async onSubmit({ username, password }) {
-    const identity = await auth.login(username, password)
+    const identity = await engine.auth.login(username, password)
     if (identity == null) {
       quasar.notify({
         message: `Failed to log in. Incorrect username/email or password.`,
@@ -45,8 +45,8 @@ const form = useForm({
         type: 'positive', // 'type' is an alias for 'color
         icon: icons.user,
       })
-      if (props.redirect) {
-        await navigation.go(props.redirect)
+      if (redirect) {
+        await navigation.go(redirect)
       } else {
         await navigation.go('/')
       }

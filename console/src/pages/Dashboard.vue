@@ -1,19 +1,20 @@
 <script lang="ts" setup>
+import { useConfig } from '@/api/config'
 import CommonText from '@/components/CommonText.vue'
 import Interface from '@/components/Interface.vue'
 import { useInterfaceContext } from '@/interface'
-import { useStore } from '@/store'
 
 useInterfaceContext('page/dashboard')
 
-const store = useStore()
+const config = useConfig()
+await config.suspense()
 
 const renderer = $computed(() => {
-  if (store.config?.dashboard == null) {
+  if (config.console.dashboard == null) {
     return null
   }
 
-  return store.config.dashboard
+  return config.console.dashboard
 })
 </script>
 

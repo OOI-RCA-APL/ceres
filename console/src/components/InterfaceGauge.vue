@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { GaugeElement } from '@/api/models'
+import { GaugeElement } from '@/api/elements'
 import { Option } from '@/chart'
 import Chart from '@/components/Chart.vue'
 import { useQuasar } from 'quasar'

@@ -1,10 +1,10 @@
 <script lang="ts" setup>
-import { useAuth } from '@/auth'
+import { useEngine } from '@/api/engine'
 import UserPage from '@/components/UserPage.vue'
 
-const auth = useAuth()
+const engine = useEngine()
 </script>
 
 <template>
-  <UserPage :id="auth.user?.id ?? null" />
+  <UserPage :id="engine.auth.user?.id ?? null" />
 </template>

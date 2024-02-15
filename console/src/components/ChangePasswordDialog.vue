@@ -1,13 +1,13 @@
 <script lang="ts" setup>
-import { AuthStore } from '@/auth'
+import { Engine } from '@/api/engine'
 import CommonText from '@/components/CommonText.vue'
 import { useForm } from '@/form'
 import { useValidate } from '@/validate'
 import { useDialogPluginComponent, useQuasar } from 'quasar'
 
-const { userId, auth } = defineProps<{
+const { userId, engine } = defineProps<{
   userId: string
-  auth: AuthStore
+  engine: Engine
 }>()
 
 defineEmits([...useDialogPluginComponent.emits])
@@ -17,7 +17,7 @@ const validate = useValidate()
 
 const { dialogRef, onDialogHide, onDialogOK } = useDialogPluginComponent()
 
-const isOwnPassword = $computed(() => userId === auth.user?.id)
+const isOwnPassword = $computed(() => userId === engine.auth.user?.id)
 
 const form = useForm({
   data: {
@@ -31,8 +31,8 @@ const form = useForm({
   },
   onSubmit: async ({ currentPassword, newPassword }) => {
     const user = isOwnPassword
-      ? await auth.changePassword(currentPassword, newPassword)
-      : await auth.assignPassword(userId, newPassword)
+      ? await engine.auth.changePassword(currentPassword, newPassword)
+      : await engine.auth.assignPassword(userId, newPassword)
 
     if (user == null) {
       quasar.notify({

@@ -1,9 +1,9 @@
-import { useAuth } from '@/auth'
+import { useEngine } from '@/api/engine'
 import ChangePasswordDialog from '@/components/ChangePasswordDialog.vue'
 import { QDialogOptions, useQuasar } from 'quasar'
 
 export function useDialogs() {
-  const auth = useAuth()
+  const engine = useEngine()
   const quasar = useQuasar()
 
   return {
@@ -28,7 +28,7 @@ export function useDialogs() {
       quasar.dialog({
         component: ChangePasswordDialog,
         componentProps: {
-          auth,
+          engine,
           userId,
         },
       }),

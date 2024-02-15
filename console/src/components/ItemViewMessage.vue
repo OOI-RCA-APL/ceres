@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { Message } from '@/api/models'
+import { Message } from '@/api/messages'
 import ItemViewItem from '@/components/ItemViewItem.vue'
 import TextContent from '@/components/TextContent.vue'
 

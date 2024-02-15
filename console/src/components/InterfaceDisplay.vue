@@ -1,11 +1,12 @@
 <script lang="ts" setup>
-import { DisplayElement, Element } from '@/api/models'
-import { getComponentProcedure, useElementStream, useQuery } from '@/api/operations'
+import { DisplayElement, Element, useElementStream } from '@/api/elements'
+import { useEngine } from '@/api/engine'
 import InterfaceDisplayContent from '@/components/InterfaceDisplayContent.vue'
 import SchemaForm from '@/components/schema-form/SchemaForm.vue'
 import icons from '@/icons'
 import { InterfacePath, useInterfaceContext } from '@/interface'
 import { useSchemaForm } from '@/schema-form'
+import { useQuery } from '@tanstack/vue-query'
 import { debounce } from 'quasar'
 import { computed, watch } from 'vue'
 
@@ -19,19 +20,23 @@ const {
   noConfig?: boolean
 }>()
 
+const engine = useEngine()
 const context = useInterfaceContext()
 
 let rendered: Element | null = $shallowRef(null)
 let isLoading = $ref(true)
 let isShowingDialog = $ref(false)
 
-const request = useQuery(['get-query', element.address, element.query], async () => {
-  const procedure = await getComponentProcedure(element.address, element.query)
-  if (procedure?.type === 'query') {
-    return procedure
-  }
+const request = useQuery({
+  queryKey: ['query', element.address, element.query],
+  queryFn: async () => {
+    const procedure = await engine.components.getProcedure(element.address, element.query)
+    if (procedure?.type === 'query') {
+      return procedure
+    }
 
-  return null
+    return null
+  },
 })
 
 await request.suspense()

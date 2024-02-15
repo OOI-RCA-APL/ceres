@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@quasar/extras": "^1.0.0",
+    "@tanstack/vue-query": "^5.20.5",
     "@types/color": "^3.0.4",
     "@types/lodash": "^4.14.0",
     "@types/validator": "^13.11.9",
@@ -29,7 +30,6 @@
     "validator": "^13.11.0",
     "vue": "^3.0.0",
     "vue-echarts": "^6.2.0",
-    "vue-query": "^1.26.0",
     "vue-router": "^4.0.0",
     "zod": "^3.18.0"
   },

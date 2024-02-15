@@ -1,9 +1,9 @@
 <script lang="ts" setup>
-import { ButtonElement } from '@/api/models'
-import { getComponentProcedure } from '@/api/operations'
+import { ButtonElement } from '@/api/elements'
+import { useEngine } from '@/api/engine'
 import ComponentProcedure from '@/components/ComponentProcedure.vue'
 import icons from '@/icons'
-import { useQuery } from 'vue-query'
+import { useQuery } from '@tanstack/vue-query'
 
 const { element } = defineProps<{
   element: ButtonElement
@@ -11,13 +11,18 @@ const { element } = defineProps<{
 
 let isShowingMenu = $ref(false)
 
-const request = useQuery(['get-action', element.address, element.action], async () => {
-  const procedure = await getComponentProcedure(element.address, element.action)
-  if (procedure?.type === 'action') {
-    return procedure
-  }
+const engine = useEngine()
 
-  return null
+const request = useQuery({
+  queryKey: ['action', element.address, element.action],
+  queryFn: async () => {
+    const procedure = await engine.components.getProcedure(element.address, element.action)
+    if (procedure?.type === 'action') {
+      return procedure
+    }
+
+    return null
+  },
 })
 
 const action = $computed(() => request.data.value ?? null)

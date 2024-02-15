@@ -7,7 +7,7 @@ import {
   createWebHistory,
 } from 'vue-router'
 
-import { UserRole } from '@/api/models'
+import { UserRole } from '@/api/users'
 import routes from '@/router/routes'
 
 export function userCanAccess(user: { role: UserRole } | null, route: RouteLocation): boolean {

@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { Address } from '@/address'
-import { ProcedureInfo } from '@/api/models'
-import { call } from '@/api/operations'
+import { ProcedureInfo } from '@/api/components'
+import { useEngine } from '@/api/engine'
 import CommonText from '@/components/CommonText.vue'
 import SchemaForm from '@/components/schema-form/SchemaForm.vue'
 import SchemaFormControls from '@/components/schema-form/SchemaFormControls.vue'
@@ -18,6 +18,7 @@ const { address, procedure } = defineProps<{
 
 const context = useInterfaceContext()
 const time = useTime()
+const engine = useEngine()
 
 let result = $ref<any>(undefined)
 let sentAt = $ref<Moment | null>(null)
@@ -45,7 +46,7 @@ const form = useSchemaForm({
   async onSubmit(value) {
     sentAt = moment.utc()
     receivedAt = null
-    result = await call(address, procedure.name, value)
+    result = await engine.components.call(address, procedure.name, value)
     receivedAt = moment.utc()
   },
 })

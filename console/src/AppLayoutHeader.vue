@@ -1,15 +1,15 @@
 <script lang="ts" setup>
+import { useConfig } from '@/api/config'
 import CommonText from '@/components/CommonText.vue'
 import UtcClock from '@/components/UtcClock.vue'
 import constants from '@/constants'
 import { useDrawer } from '@/drawer'
 import icons from '@/icons'
 import { useNavigation } from '@/navigation'
-import { useStore } from '@/store'
 
-const store = useStore()
 const drawer = useDrawer()
 const navigation = useNavigation()
+const config = useConfig()
 </script>
 
 <template>
@@ -25,7 +25,7 @@ const navigation = useNavigation()
       />
       <q-toolbar-title class="cursor-pointer" @click="navigation.go('/')">
         <common-text variant="title1">
-          {{ store.config?.title ?? constants.defaultTitle }}
+          {{ config.console.title ?? constants.defaultTitle }}
         </common-text>
       </q-toolbar-title>
       <utc-clock />

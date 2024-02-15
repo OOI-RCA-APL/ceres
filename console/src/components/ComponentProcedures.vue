@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { ComponentInfo, ProcedureTypeModel } from '@/api/models'
+import { ComponentInfo, ProcedureTypeModel } from '@/api/components'
 import ComponentProcedure from '@/components/ComponentProcedure.vue'
 import SectionCard from '@/components/SectionCard.vue'
 import icons from '@/icons'

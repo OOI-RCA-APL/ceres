@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { DisplayElement, Element } from '@/api/models'
+import { DisplayElement, Element } from '@/api/elements'
 import InterfaceElement from '@/components/InterfaceElement.vue'
 import { InterfacePath } from '@/interface'
 

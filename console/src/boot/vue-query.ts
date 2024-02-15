@@ -1,6 +1,14 @@
+import { VueQueryPlugin } from '@tanstack/vue-query'
 import { boot } from 'quasar/wrappers'
-import { VueQueryPlugin } from 'vue-query'
 
 export default boot(({ app }) => {
-  app.use(VueQueryPlugin)
+  app.use(VueQueryPlugin, {
+    queryClientConfig: {
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    },
+  })
 })

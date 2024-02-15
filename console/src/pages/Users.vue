@@ -1,12 +1,18 @@
 <script lang="ts" setup>
-import { getUsers } from '@/api/operations'
+import { useUsers } from '@/api/users'
 import CardPage from '@/components/CardPage.vue'
 import icons from '@/icons'
 import { debouncedComputed } from '@/utilities'
-import { useQuery } from 'vue-query'
+import { useQuery } from '@tanstack/vue-query'
+
+const store = useUsers()
 
 const search = $ref('')
-const query = useQuery('users', getUsers)
+const query = useQuery({
+  queryKey: ['users'],
+  queryFn: store.getAll,
+})
+
 await query.suspense()
 const users = debouncedComputed(
   () =>

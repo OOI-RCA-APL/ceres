@@ -1,7 +1,7 @@
 <script lang="ts" setup>
-import { UserRole } from '@/api/models'
-import { createUser, deleteUser, getUser, isError, updateUser } from '@/api/operations'
-import { useAuth } from '@/auth'
+import { useEngine } from '@/api/engine'
+import { isError } from '@/api/shared'
+import { UserRole } from '@/api/users'
 import CardPage from '@/components/CardPage.vue'
 import { useDialogs } from '@/dialogs'
 import { NotFoundError } from '@/errors'
@@ -16,16 +16,16 @@ const { id = null } = defineProps<{
   id?: string | null
 }>()
 
-const auth = useAuth()
 const dialogs = useDialogs()
 const navigation = useNavigation()
 const notify = useNotify()
 const validate = useValidate()
+const engine = useEngine()
 
-const isAccountPage = $computed(() => id != null && id === auth.user?.id)
+const isAccountPage = $computed(() => id != null && id === engine.auth.user?.id)
 const isShowingPassword = $ref(false)
 
-const user = id != null ? await getUser(id) : null
+const user = id != null ? await engine.users.get(id) : null
 if (user == null && id != null) {
   throw new NotFoundError('user', `User ID "${id}" does not exist.`)
 }
@@ -62,7 +62,7 @@ function promptDelete() {
         return
       }
 
-      const result = await deleteUser(id)
+      const result = await engine.users.delete(id)
       if (isError(result)) {
         notify.error(`Failed to delete user. (${result.type})`)
       } else {
@@ -74,7 +74,7 @@ function promptDelete() {
 
 async function logout() {
   await navigation.go('/')
-  await auth.logout()
+  await engine.auth.logout()
   notify.success('You have signed out.', {
     icon: 'logout',
   })
@@ -99,7 +99,7 @@ const form = useForm({
   async onSubmit(data) {
     if (id == null) {
       // We're registering a new user.
-      const result = await createUser(data)
+      const result = await engine.users.create(data)
       if (isError(result)) {
         if (result.type === 'already-exists-error') {
           notify.error(`User "${data.username}" already exists.`)
@@ -114,7 +114,7 @@ const form = useForm({
       return
     }
 
-    const result = await updateUser(id, omit(data, ['password']))
+    const result = await engine.users.update(id, omit(data, ['password']))
     if (isError(result)) {
       if (result.type === 'already-exists-error') {
         notify.error(`User "${data.username}" already exists.`)
@@ -134,7 +134,7 @@ const form = useForm({
 
     // Refresh stored user data if the user changed their own info.
     if (isAccountPage) {
-      void auth.refresh()
+      void engine.auth.refresh()
     }
   },
 })
@@ -213,7 +213,7 @@ form.load({
             <q-icon name="mail" />
           </template>
         </q-input>
-        <div v-if="auth.isAdmin && !isAccountPage" class="q-col-gutter-md row">
+        <div v-if="engine.auth.isAdmin && !isAccountPage" class="q-col-gutter-md row">
           <div class="col-8">
             <q-select
               v-model="form.data.role"
@@ -247,7 +247,7 @@ form.load({
           <q-btn-group flat spread>
             <template v-if="form.state === 'viewing'">
               <q-btn
-                v-if="auth.isAdmin && !isAccountPage"
+                v-if="engine.auth.isAdmin && !isAccountPage"
                 color="negative"
                 flat
                 :icon="icons.delete"
@@ -268,7 +268,7 @@ form.load({
               />
             </template>
           </q-btn-group>
-          <template v-if="form.state === 'viewing' && (auth.isAdmin || isAccountPage)">
+          <template v-if="form.state === 'viewing' && (engine.auth.isAdmin || isAccountPage)">
             <q-btn-group class="q-mt-xs" flat spread>
               <q-btn
                 color="primary"

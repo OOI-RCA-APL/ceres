@@ -1,20 +1,18 @@
 <script lang="ts" setup>
 import AppLayoutDrawerComponent from '@/AppLayoutDrawerComponent.vue'
 import { Address } from '@/address'
-import { isOk, postReload } from '@/api/operations'
-import { useAuth } from '@/auth'
+import { useEngine } from '@/api/engine'
+import { isOk } from '@/api/shared'
 import ResizeHandle from '@/components/ResizeHandle.vue'
 import { useDrawer } from '@/drawer'
 import icons from '@/icons'
 import { usePreferences } from '@/preferences'
-import { useStore } from '@/store'
 import { displayDuration } from '@/time'
 import moment from 'moment'
 import { LocalStorage, useQuasar } from 'quasar'
 import { useRoute } from 'vue-router'
 
-const auth = useAuth()
-const store = useStore()
+const engine = useEngine()
 const drawer = useDrawer()
 const quasar = useQuasar()
 const route = useRoute()
@@ -72,15 +70,14 @@ function promptReload() {
 }
 
 async function executeReload() {
-  const result = await postReload()
+  const result = await engine.reload()
   if (isOk(result)) {
     quasar.notify({
       message: 'Configuration reloaded successfully.',
       type: 'positive',
     })
 
-    await auth.refresh()
-    await store.load()
+    await engine.auth.refresh()
   } else {
     quasar.notify({
       message: 'Configuration reload failed.',
@@ -127,7 +124,7 @@ async function executeReload() {
               <q-item-label>Dashboard</q-item-label>
             </q-item-section>
           </q-item>
-          <q-item v-if="auth.isAdmin" clickable>
+          <q-item v-if="engine.auth.isAdmin" clickable>
             <q-item-section avatar>
               <q-icon :name="icons.admin" />
             </q-item-section>
@@ -150,7 +147,7 @@ async function executeReload() {
               </q-list>
             </q-menu>
           </q-item>
-          <q-item v-if="auth.isOperator" clickable>
+          <q-item v-if="engine.auth.isOperator" clickable>
             <q-item-section avatar>
               <q-icon :name="icons.configuration" />
             </q-item-section>
@@ -173,12 +170,12 @@ async function executeReload() {
               </q-list>
             </q-menu>
           </q-item>
-          <template v-if="auth.user != null">
+          <template v-if="engine.auth.user != null">
             <q-separator />
             <app-layout-drawer-component
-              v-if="store.componentRoot"
+              v-if="engine.components.root != null"
               :address="root"
-              :component="store.componentRoot"
+              :component="(engine.components.root as any)"
             />
           </template>
         </q-list>
@@ -270,12 +267,14 @@ async function executeReload() {
           </q-item>
         </template>
         <q-separator />
-        <q-item :to="auth.user == null ? '/login' : '/account'">
+        <q-item :to="engine.auth.user == null ? '/login' : '/account'">
           <q-item-section avatar>
             <q-icon :name="icons.user" />
           </q-item-section>
           <q-item-section>
-            <q-item-label>{{ auth.user != null ? auth.user.username : 'Login' }}</q-item-label>
+            <q-item-label>{{
+              engine.auth.user != null ? engine.auth.user.username : 'Login'
+            }}</q-item-label>
           </q-item-section>
         </q-item>
       </q-list>

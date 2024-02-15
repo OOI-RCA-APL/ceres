@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { RowElement } from '@/api/models'
+import { RowElement } from '@/api/elements'
 import InterfaceElement from '@/components/InterfaceElement.vue'
 import { InterfacePath } from '@/interface'
 import { StyleValue } from 'vue'

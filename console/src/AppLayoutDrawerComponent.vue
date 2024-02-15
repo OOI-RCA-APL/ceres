@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 import { Address } from '@/address'
-import { ComponentInfo } from '@/api/models'
+import { ComponentInfo } from '@/api/components'
 import AlertsIndicator from '@/components/AlertsIndicator.vue'
 import ComponentStatusBadge from '@/components/ComponentStatusBadge.vue'
 import { useDrawer } from '@/drawer'
