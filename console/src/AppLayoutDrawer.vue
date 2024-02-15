@@ -1,26 +1,29 @@
 <script lang="ts" setup>
 import AppLayoutDrawerComponent from '@/AppLayoutDrawerComponent.vue'
 import { Address } from '@/address'
+import { isFailure } from '@/api/client'
 import { useEngine } from '@/api/engine'
-import { isOk } from '@/api/shared'
 import ResizeHandle from '@/components/ResizeHandle.vue'
+import { useDialogs } from '@/dialogs'
 import { useDrawer } from '@/drawer'
 import icons from '@/icons'
+import { useNotify } from '@/notify'
 import { usePreferences } from '@/preferences'
 import { displayDuration } from '@/time'
 import moment from 'moment'
-import { LocalStorage, useQuasar } from 'quasar'
+import { LocalStorage } from 'quasar'
 import { useRoute } from 'vue-router'
 
 const engine = useEngine()
 const drawer = useDrawer()
-const quasar = useQuasar()
+const notify = useNotify()
+const dialogs = useDialogs()
 const route = useRoute()
 const preferences = usePreferences()
 
 function clearLocalStorage() {
-  quasar
-    .dialog({
+  dialogs
+    .show({
       title: 'Clear Local Storage',
       class: 'no-shadow',
       message:
@@ -39,10 +42,8 @@ function clearLocalStorage() {
     })
     .onOk(() => {
       LocalStorage.clear()
-      quasar.notify({
-        message: 'Local storage cleared successfully.',
+      notify.success('Local storage cleared successfully.', {
         icon: icons.clearLocalStorage,
-        type: 'positive',
       })
     })
 }
@@ -50,8 +51,8 @@ function clearLocalStorage() {
 const root = new Address('@')
 
 function promptReload() {
-  quasar
-    .dialog({
+  dialogs
+    .show({
       title: 'Confirm Reload',
       message: 'Are you sure you want to reload the engine configuration?',
       class: 'no-shadow',
@@ -65,41 +66,37 @@ function promptReload() {
       },
     })
     .onOk(async () => {
-      await executeReload()
-    })
-}
-
-async function executeReload() {
-  const result = await engine.reload()
-  if (isOk(result)) {
-    quasar.notify({
-      message: 'Configuration reloaded successfully.',
-      type: 'positive',
-    })
-
-    await engine.auth.refresh()
-  } else {
-    quasar.notify({
-      message: 'Configuration reload failed.',
-      type: 'negative',
-      actions: [
-        {
-          label: 'Details',
-          color: 'white',
-          handler: () =>
-            quasar.dialog({
-              title: 'Error Details',
-              message: `
+      try {
+        var result = await engine.reload()
+      } catch (error) {
+        if (isFailure(error)) {
+          notify.error('Configuration reload failed.', {
+            actions: [
+              {
+                label: 'Details',
+                color: 'white',
+                handler: () =>
+                  dialogs.show({
+                    title: 'Error Details',
+                    message: `
 <div class="full-width monospace-sm overflow-auto scroll" style="white-space: pre">
   ${JSON.stringify(result, null, 4)}
 </div>
               `.trim(),
-              html: true,
-            }),
-        },
-      ],
+                    html: true,
+                  }),
+              },
+            ],
+          })
+          return
+        }
+
+        throw error
+      }
+
+      notify.success('Configuration reloaded successfully.')
+      await engine.auth.refresh()
     })
-  }
 }
 </script>
 

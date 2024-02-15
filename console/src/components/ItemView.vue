@@ -11,11 +11,12 @@ import ItemViewLogEntry from '@/components/ItemViewLogEntry.vue'
 import ItemViewMessage from '@/components/ItemViewMessage.vue'
 import SectionCard from '@/components/SectionCard.vue'
 import icons from '@/icons'
+import { useNotify } from '@/notify'
 import { debouncedComputed } from '@/utilities'
 import { useWindowFocus } from '@vueuse/core'
 import _ from 'lodash'
 import moment, { Moment } from 'moment'
-import { QVirtualScroll, debounce, useQuasar } from 'quasar'
+import { QVirtualScroll, debounce } from 'quasar'
 import { computed, nextTick, onMounted, reactive, watch, watchEffect } from 'vue'
 
 const {
@@ -34,8 +35,8 @@ const {
 const selector = $computed(() => new Address(address.toString() + ':all'))
 
 const engine = useEngine()
+const notify = useNotify()
 
-const quasar = useQuasar()
 const get = $computed(() => {
   switch (type) {
     case 'message':
@@ -322,11 +323,7 @@ useStream(
     address: selector,
     search: debouncedFilter.value.search === '' ? undefined : debouncedFilter.value.search,
   })),
-  async (item: Item, filter) => {
-    if (filter.search != filter.search) {
-      return
-    }
-
+  async (item: Item) => {
     if (isLoadingCurrent) {
       itemsStreamed = [...itemsStreamed, item]
     } else {
@@ -341,10 +338,7 @@ async function onSend(data: string) {
     return
   }
 
-  quasar.notify({
-    type: 'negative',
-    message: `Message failed to send. ${JSON.stringify(result.error)}`,
-  })
+  notify.error(`Message failed to send. ${JSON.stringify(result.error)}`)
 }
 </script>
 

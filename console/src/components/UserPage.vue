@@ -1,6 +1,6 @@
 <script lang="ts" setup>
+import { isFailure } from '@/api/client'
 import { useEngine } from '@/api/engine'
-import { isError } from '@/api/shared'
 import { UserRole } from '@/api/users'
 import CardPage from '@/components/CardPage.vue'
 import { useDialogs } from '@/dialogs'
@@ -62,13 +62,9 @@ function promptDelete() {
         return
       }
 
-      const result = await engine.users.delete(id)
-      if (isError(result)) {
-        notify.error(`Failed to delete user. (${result.type})`)
-      } else {
-        notify.success('User deleted successfully.')
-        navigation.go('/users')
-      }
+      await engine.users.delete(id)
+      notify.success('User deleted successfully.')
+      navigation.go('/users')
     })
 }
 
@@ -99,38 +95,41 @@ const form = useForm({
   async onSubmit(data) {
     if (id == null) {
       // We're registering a new user.
-      const result = await engine.users.create(data)
-      if (isError(result)) {
-        if (result.type === 'already-exists-error') {
+      try {
+        var created = await engine.users.create(data)
+      } catch (error) {
+        if (isFailure(error, 'already-exists-error')) {
           notify.error(`User "${data.username}" already exists.`)
-        } else {
-          notify.error(`Failed to create user. (${result.type})`)
+          return
         }
-        return
+
+        throw error
       }
 
-      notify.success('User created successfully.')
-      navigation.go(`/users/${result.id}`)
+      notify.success(`User "${created.username}" created successfully.`)
+      navigation.go(`/users/${created.id}`)
+
       return
     }
 
-    const result = await engine.users.update(id, omit(data, ['password']))
-    if (isError(result)) {
-      if (result.type === 'already-exists-error') {
+    try {
+      var updated = await engine.users.update(id, omit(data, ['password']))
+    } catch (error) {
+      if (isFailure(error, 'already-exists-error')) {
         notify.error(`User "${data.username}" already exists.`)
-      } else {
-        notify.error(`Failed to update user. (${result.type})`)
+        return
       }
-      return
+
+      throw error
     }
 
     if (isAccountPage) {
       notify.success('Account updated successfully.')
     } else {
-      notify.success('User updated successfully.')
+      notify.success(`User "${updated.username}" updated successfully.`)
     }
 
-    form.done(result)
+    form.done(updated)
 
     // Refresh stored user data if the user changed their own info.
     if (isAccountPage) {

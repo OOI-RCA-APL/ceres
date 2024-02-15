@@ -1,16 +1,8 @@
 import { Address } from '@/address'
-import {
-  DateTimeModel,
-  ItemStreamFilter,
-  LevelModel,
-  UseStreamOptions,
-  createQueryParams,
-  get,
-  getWebSocketURI,
-  useStream,
-} from '@/api/shared'
+import { ItemStreamFilter, StreamOptions, useClient } from '@/api/client'
+import { DateTimeModel, LevelModel } from '@/api/shared'
 import { defineStore } from 'pinia'
-import { MaybeRef, computed, isRef } from 'vue'
+import { MaybeRef, computed, unref } from 'vue'
 import Zod from 'zod'
 
 export type Alert = Zod.infer<typeof AlertModel>
@@ -23,39 +15,41 @@ export const AlertModel = Zod.object({
   info: Zod.record(Zod.string(), Zod.unknown()).default(() => ({})),
 })
 
-async function getAlerts(filter: {
-  address?: Address
-  search?: string
-  within?: number
-  after?: string
-  before?: string
-  limit?: number
-  order?: 'new-to-old' | 'old-to-new'
-}): Promise<Alert[]> {
-  return await get(`/api/alerts${createQueryParams(filter)}`, Zod.array(AlertModel))
-}
-
-function useAlertStream(
-  filter: MaybeRef<ItemStreamFilter>,
-  onReceive: (alert: Alert, params: ItemStreamFilter) => unknown,
-  options?: MaybeRef<UseStreamOptions>
-) {
-  useStream(
-    computed(() =>
-      getWebSocketURI(`/api/alerts${createQueryParams(isRef(filter) ? filter.value : filter)}`)
-    ),
-    filter,
-    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-    // @ts-ignore
-    AlertModel,
-    onReceive,
-    options
-  )
-}
-
 export const useAlerts = defineStore('alerts', () => {
+  const client = useClient()
+
+  async function getAll(filter: {
+    address?: Address
+    search?: string
+    within?: number
+    after?: string
+    before?: string
+    limit?: number
+    order?: 'new-to-old' | 'old-to-new'
+  }): Promise<Alert[]> {
+    return await client.request('GET', '/api/alerts', {
+      query: filter,
+    })
+  }
+
+  function useStream(
+    filter: MaybeRef<ItemStreamFilter>,
+    onReceive: (current: Alert) => unknown,
+    options?: MaybeRef<StreamOptions>
+  ) {
+    client.useStream(
+      '/api/alerts',
+      AlertModel,
+      onReceive,
+      computed(() => ({
+        query: filter,
+        ...unref(options),
+      }))
+    )
+  }
+
   return {
-    getAll: getAlerts,
-    useStream: useAlertStream,
+    getAll,
+    useStream,
   }
 })

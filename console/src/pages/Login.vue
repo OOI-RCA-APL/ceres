@@ -4,8 +4,8 @@ import CardPage from '@/components/CardPage.vue'
 import { useForm } from '@/form'
 import icons from '@/icons'
 import { useNavigation } from '@/navigation'
+import { useNotify } from '@/notify'
 import { useValidate } from '@/validate'
-import { useQuasar } from 'quasar'
 
 const { redirect } = withDefaults(
   defineProps<{
@@ -19,7 +19,7 @@ const { redirect } = withDefaults(
 const engine = useEngine()
 const navigation = useNavigation()
 const validate = useValidate()
-const quasar = useQuasar()
+const notify = useNotify()
 
 const isShowingPassword = $ref(false)
 
@@ -35,14 +35,9 @@ const form = useForm({
   async onSubmit({ username, password }) {
     const identity = await engine.auth.login(username, password)
     if (identity == null) {
-      quasar.notify({
-        message: `Failed to log in. Incorrect username/email or password.`,
-        type: 'negative',
-      })
+      notify.error('Failed to log in. Incorrect username/email or password.')
     } else {
-      quasar.notify({
-        message: `Logged in as ${identity.user.username}.`,
-        type: 'positive', // 'type' is an alias for 'color
+      notify.success(`Logged in as "${identity.user.username}".`, {
         icon: icons.user,
       })
       if (redirect) {

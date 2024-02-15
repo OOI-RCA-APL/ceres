@@ -1,8 +1,11 @@
 import { useEngine } from '@/api/engine'
 import ChangePasswordDialog from '@/components/ChangePasswordDialog.vue'
+import { defineStore } from 'pinia'
 import { QDialogOptions, useQuasar } from 'quasar'
 
-export function useDialogs() {
+export type Dialogs = ReturnType<typeof useDialogs>
+
+export const useDialogs = defineStore('dialogs', () => {
   const engine = useEngine()
   const quasar = useQuasar()
 
@@ -23,7 +26,6 @@ export function useDialogs() {
         },
         ...options,
       }),
-
     changePassword: (userId: string) =>
       quasar.dialog({
         component: ChangePasswordDialog,
@@ -33,6 +35,4 @@ export function useDialogs() {
         },
       }),
   }
-}
-
-export type Dialogs = ReturnType<typeof useDialogs>
+})

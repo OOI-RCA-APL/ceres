@@ -1,19 +1,13 @@
 import { Address } from '@/address'
 import { useAuth } from '@/api/auth'
+import { useClient } from '@/api/client'
 import { ElementModel } from '@/api/elements'
-import {
-  BaseFailModel,
-  BaseResultModel,
-  createResultType,
-  get,
-  getOrNull,
-  post,
-} from '@/api/shared'
+import { BaseFailModel, BaseResultModel, createResultType } from '@/api/shared'
 import { getter } from '@/getter'
 import { useQuery } from '@tanstack/vue-query'
 import { defineStore } from 'pinia'
 import { MaybeRef, computed, unref } from 'vue'
-import Zod from 'zod'
+import Zod, { ZodTypeAny } from 'zod'
 
 export type ProcedureType = Zod.infer<typeof ProcedureTypeModel>
 export const ProcedureTypeModel = Zod.enum(['query', 'action'])
@@ -69,27 +63,65 @@ export const ComponentInfoModel: Zod.ZodType<ComponentInfo> = Zod.object({
   components: Zod.lazy(() => Zod.array(ComponentInfoModel)),
 }) as any
 
-async function getComponent(address: Address): Promise<ComponentInfo | null> {
-  return await getOrNull(`/api/components/${address}`, ComponentInfoModel)
-}
-
-async function getProcedure(address: Address, procedure: string): Promise<ProcedureInfo | null> {
-  return await getOrNull(`/api/components/${address}/procedures/${procedure}`, ProcedureInfoModel)
-}
-
-async function call(address: Address, procedure: string, args: MaybeRef<Record<string, any>> = {}) {
-  const url = `/api/components/${address}/procedures/${procedure}/call`
-  return await post(url, BaseResultModel, unref(args))
-}
 export type RenderResult = Zod.infer<typeof RenderResultModel>
 const RenderResultModel = createResultType(ElementModel, BaseFailModel)
 
-async function render(address: Address): Promise<RenderResult> {
-  return await get(`/api/components/${address}/procedures/render/call`, RenderResultModel)
-}
-
 export const useComponents = defineStore('components', () => {
+  const client = useClient()
   const auth = useAuth()
+
+  async function getComponent(address: Address) {
+    try {
+      return await client.get(`/api/components/${address}`, {
+        parse: ComponentInfoModel,
+      })
+    } catch {
+      return null
+    }
+  }
+
+  async function getProcedure(address: Address, procedure: string): Promise<ProcedureInfo | null> {
+    try {
+      return await client.get(`/api/components/${address}/procedures/${procedure}`, {
+        parse: ProcedureInfoModel,
+      })
+    } catch {
+      return null
+    }
+  }
+
+  async function call(
+    address: Address,
+    procedure: string,
+    args: MaybeRef<Record<string, any>> = {}
+  ) {
+    return await client.post(`/api/components/${address}/procedures/${procedure}/call`, {
+      data: unref(args),
+      parse: BaseResultModel,
+    })
+  }
+
+  function useElementStream<TModel extends ZodTypeAny>(
+    address: MaybeRef<Address>,
+    query: MaybeRef<string>,
+    args: MaybeRef<Record<string, unknown>>,
+    onMessage: (message: Zod.infer<TModel>) => unknown
+  ) {
+    return client.useStream(
+      computed(() => `/api/components/${unref(address)}/procedures/${unref(query)}/subscribe`),
+      // @ts-ignore
+      ElementModel,
+      onMessage,
+      computed(() => ({ query: { arguments: unref(args) } }))
+    )
+  }
+
+  async function render(address: Address): Promise<RenderResult> {
+    return await client.get(`/api/components/${address}/procedures/render/call`, {
+      parse: RenderResultModel,
+    })
+  }
+
   const query = useQuery({
     queryKey: computed(() => ['root-component', auth.user?.id ?? null]),
     queryFn: async () => {
@@ -137,6 +169,7 @@ export const useComponents = defineStore('components', () => {
     all,
     getProcedure,
     call,
+    useElementStream,
     render,
   }
 })

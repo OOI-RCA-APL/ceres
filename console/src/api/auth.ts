@@ -1,5 +1,6 @@
-import { DateTimeModel, post } from '@/api/shared'
-import { UserModel, useUsers } from '@/api/users'
+import { useClient } from '@/api/client'
+import { DateTimeModel } from '@/api/shared'
+import { User, UserModel, useUsers } from '@/api/users'
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import Zod from 'zod'
@@ -18,78 +19,60 @@ function getAuthorizationCookieType() {
   return 'insecure'
 }
 
-async function postLogin(data: { username: string; password: string }): Promise<Identity> {
-  return await post('/api/auth/login', IdentityModel, {
-    ...data,
-    cookie: getAuthorizationCookieType(),
-  })
-}
-
-async function postRefresh(): Promise<Identity> {
-  return await post('/api/auth/refresh', IdentityModel, { cookie: getAuthorizationCookieType() })
-}
-
-async function postLogout(): Promise<Identity> {
-  return await post('/api/auth/logout', IdentityModel)
-}
-
-async function postChangePassword(data: { oldPassword: string; newPassword: string }) {
-  return await post('/api/auth/change-password', UserModel, data)
-}
-
 export type AuthStore = ReturnType<typeof useAuth>
 
 export const useAuth = defineStore('auth', () => {
+  const client = useClient()
   const identity = ref<Identity | null>(null)
   const users = useUsers()
 
-  async function login(username: string, password: string) {
+  async function login(username: string, password: string): Promise<Identity | null> {
     try {
-      identity.value = await postLogin({
-        username,
-        password,
+      identity.value = await client.post('/api/auth/login', {
+        data: { username, password, cookie: getAuthorizationCookieType() },
+        parse: IdentityModel,
       })
-
       return identity.value
-    } catch {
+    } catch (error) {
+      console.log(error)
       return null
     }
   }
 
-  async function refresh() {
+  async function refresh(): Promise<Identity | null> {
     try {
-      identity.value = await postRefresh()
-    } catch (error) {
-      identity.value = null
-    }
-
-    return identity.value?.user
-  }
-
-  async function logout() {
-    try {
-      await postLogout()
-      identity.value = null
-    } catch (error) {}
-  }
-
-  async function changePassword(oldPassword: string, newPassword: string) {
-    try {
-      return await postChangePassword({
-        oldPassword,
-        newPassword,
+      identity.value = await client.post('/api/auth/refresh', {
+        data: { cookie: getAuthorizationCookieType() },
+        parse: IdentityModel,
       })
+      return identity.value
+    } catch (error) {
+      identity.value = null
+      return null
+    }
+  }
+
+  async function logout(): Promise<Identity | null> {
+    try {
+      const result = await client.post('/api/auth/logout', {
+        parse: IdentityModel,
+      })
+      identity.value = null
+      return result
     } catch (error) {
       return null
     }
   }
 
-  async function assignPassword(userId: string, password: string) {
-    try {
-      return await users.update(userId, { password })
-    } catch (error) {
-      return null
-    }
+  async function changePassword(oldPassword: string, newPassword: string): Promise<User | null> {
+    return await client.post('/api/auth/change-password', {
+      data: { oldPassword, newPassword },
+      parse: UserModel,
+    })
+  }
+
+  async function assignPassword(userId: string, password: string): Promise<User> {
+    return await users.update(userId, { password })
   }
 
   return {

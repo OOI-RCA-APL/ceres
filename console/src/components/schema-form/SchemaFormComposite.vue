@@ -1,8 +1,8 @@
 <script lang="ts" setup>
 import CommonText from '@/components/CommonText.vue'
+import { usePreferences } from '@/preferences'
 import { SchemaForm, SchemaPath } from '@/schema-form'
 import { isLight } from '@/utilities'
-import { useQuasar } from 'quasar'
 
 const { modelValue, path, form } = defineProps<{
   modelValue: unknown
@@ -14,7 +14,7 @@ const emit = defineEmits<{
   (emit: 'update:modelValue', value: unknown): void
 }>()
 
-const quasar = useQuasar()
+const preferences = usePreferences()
 
 const title = $computed(() => (path.length === 0 ? undefined : form.getLabel(path)))
 
@@ -22,7 +22,7 @@ const isDefined = $computed(() => modelValue !== undefined)
 const isRequired = $computed(() => form.getRequired(path))
 
 const definedColor = $computed(() => (isRequired ? 'transparent' : 'primary'))
-const undefinedColor = $computed(() => (quasar.dark.isActive ? 'grey-9' : 'grey-5'))
+const undefinedColor = $computed(() => (preferences.isDarkModeEnabled ? 'grey-9' : 'grey-5'))
 
 const color = $computed(() => (isDefined ? definedColor : undefinedColor))
 const textColor = $computed(() => (isLight(color) ? 'black' : 'white'))

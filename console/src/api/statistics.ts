@@ -1,6 +1,7 @@
 import { Address } from '@/address'
 import { useAuth } from '@/api/auth'
-import { LevelModel, createQueryParams, get } from '@/api/shared'
+import { useClient } from '@/api/client'
+import { LevelModel } from '@/api/shared'
 import { getter } from '@/getter'
 import { usePreferences } from '@/preferences'
 import { useQuery } from '@tanstack/vue-query'
@@ -27,17 +28,21 @@ export const StatisticsModel = Zod.object({
   alerts: AlertStatisticsModel,
 })
 
-export async function getStatistics(params: {
-  within?: number
-  after?: string
-  before?: string
-}): Promise<Statistics[]> {
-  return await get(`/api/statistics${createQueryParams(params)}`, Zod.array(StatisticsModel))
-}
-
 export const useStatistics = defineStore('statistics', () => {
+  const client = useClient()
   const auth = useAuth()
   const preferences = usePreferences()
+
+  async function getAll(filter: {
+    within?: number
+    after?: string
+    before?: string
+  }): Promise<Statistics[]> {
+    return await client.get(`/api/statistics`, {
+      query: filter,
+      parse: Zod.array(StatisticsModel),
+    })
+  }
 
   const query = useQuery({
     queryKey: ['statistics', auth.user?.id ?? null, preferences.statisticsDuration.asSeconds()],
@@ -46,7 +51,7 @@ export const useStatistics = defineStore('statistics', () => {
         return []
       }
 
-      return await getStatistics({ within: preferences.statisticsDuration.asSeconds() })
+      return await getAll({ within: preferences.statisticsDuration.asSeconds() })
     },
     refetchInterval: moment.duration(15, 's').asMilliseconds(),
   })

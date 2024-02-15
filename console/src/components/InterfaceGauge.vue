@@ -2,13 +2,13 @@
 import { GaugeElement } from '@/api/elements'
 import { Option } from '@/chart'
 import Chart from '@/components/Chart.vue'
-import { useQuasar } from 'quasar'
+import { usePreferences } from '@/preferences'
 
 const { element } = defineProps<{
   element: GaugeElement
 }>()
 
-const quasar = useQuasar()
+const preferences = usePreferences()
 
 const segments = $computed(() => {
   function createSegment(color: string, size: number) {
@@ -20,7 +20,7 @@ const segments = $computed(() => {
       itemStyle: {
         normal: {
           opacity: 0.7,
-          borderColor: quasar.dark.isActive ? 'white' : 'black',
+          borderColor: preferences.isDarkModeEnabled ? 'white' : 'black',
           borderRadius: 1,
           color,
         },
@@ -61,7 +61,7 @@ const options = $computed(
         boundaryGap: false,
         data: [element.unit],
         axisLabel: {
-          color: quasar.dark.isActive ? 'white' : 'black',
+          color: preferences.isDarkModeEnabled ? 'white' : 'black',
         },
       },
       xAxis: {
@@ -71,7 +71,7 @@ const options = $computed(
         axisLabel: {
           fontFamily: 'Roboto',
           opacity: 1,
-          color: quasar.dark.isActive ? 'white' : 'black',
+          color: preferences.isDarkModeEnabled ? 'white' : 'black',
         },
       },
       series: [
@@ -95,7 +95,7 @@ const options = $computed(
             opacity: 1,
             show: true,
             offset: [0, -25],
-            color: quasar.dark.isActive ? 'white' : 'black',
+            color: preferences.isDarkModeEnabled ? 'white' : 'black',
             formatter: `{c}${element.unit ?? ''}`,
           },
         },

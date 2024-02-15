@@ -1,16 +1,8 @@
 import { Address } from '@/address'
-import {
-  DateTimeModel,
-  ItemStreamFilter,
-  LevelModel,
-  UseStreamOptions,
-  createQueryParams,
-  get,
-  getWebSocketURI,
-  useStream,
-} from '@/api/shared'
+import { ItemStreamFilter, StreamOptions, useClient } from '@/api/client'
+import { DateTimeModel, LevelModel } from '@/api/shared'
 import { defineStore } from 'pinia'
-import { MaybeRef, computed, isRef } from 'vue'
+import { MaybeRef, computed, unref } from 'vue'
 import Zod from 'zod'
 
 export type LogEntry = Zod.infer<typeof LogEntryModel>
@@ -22,39 +14,42 @@ export const LogEntryModel = Zod.object({
   content: Zod.string(),
 })
 
-export async function getLogEntries(params: {
-  address?: Address
-  search?: string
-  within?: number
-  after?: string
-  before?: string
-  limit?: number
-  order?: 'new-to-old' | 'old-to-new'
-}): Promise<LogEntry[]> {
-  return await get(`/api/log-entries${createQueryParams(params)}`, Zod.array(LogEntryModel))
-}
-
-export function useLogEntryStream(
-  filter: MaybeRef<ItemStreamFilter>,
-  onReceive: (entry: LogEntry, params: ItemStreamFilter) => unknown,
-  options?: MaybeRef<UseStreamOptions>
-) {
-  useStream(
-    computed(() =>
-      getWebSocketURI(`/api/log-entries${createQueryParams(isRef(filter) ? filter.value : filter)}`)
-    ),
-    filter,
-    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-    // @ts-ignore
-    LogEntryModel,
-    onReceive,
-    options
-  )
-}
-
 export const useLogEntries = defineStore('log-entries', () => {
+  const client = useClient()
+
+  async function getAll(filter: {
+    address?: Address
+    search?: string
+    within?: number
+    after?: string
+    before?: string
+    limit?: number
+    order?: 'new-to-old' | 'old-to-new'
+  }): Promise<LogEntry[]> {
+    return await client.get(`/api/log-entries`, {
+      query: filter,
+      parse: Zod.array(LogEntryModel),
+    })
+  }
+
+  function useStream(
+    filter: MaybeRef<ItemStreamFilter>,
+    onReceive: (current: LogEntry) => unknown,
+    options?: MaybeRef<StreamOptions>
+  ) {
+    client.useStream(
+      '/api/log-entries',
+      LogEntryModel,
+      onReceive,
+      computed(() => ({
+        query: filter,
+        ...unref(options),
+      }))
+    )
+  }
+
   return {
-    getAll: getLogEntries,
-    useStream: useLogEntryStream,
+    getAll,
+    useStream,
   }
 })

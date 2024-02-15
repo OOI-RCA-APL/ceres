@@ -1,5 +1,6 @@
 <script lang="ts" setup>
-import { DisplayElement, Element, useElementStream } from '@/api/elements'
+import { DisplayElement, Element } from '@/api/elements'
+import { useEngine } from '@/api/engine'
 import InterfaceElement from '@/components/InterfaceElement.vue'
 import { InterfacePath } from '@/interface'
 
@@ -8,9 +9,11 @@ const { element, path } = defineProps<{
   path: InterfacePath
 }>()
 
+const engine = useEngine()
+
 let rendered: Element | null = $shallowRef(null)
 
-useElementStream(element.address, element.query, {}, (current) => {
+engine.components.useElementStream(element.address, element.query, {}, (current) => {
   rendered = current
 })
 </script>

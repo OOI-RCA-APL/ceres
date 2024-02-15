@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { DisplayElement, Element, useElementStream } from '@/api/elements'
+import { DisplayElement, Element } from '@/api/elements'
 import { useEngine } from '@/api/engine'
 import InterfaceDisplayContent from '@/components/InterfaceDisplayContent.vue'
 import SchemaForm from '@/components/schema-form/SchemaForm.vue'
@@ -72,7 +72,7 @@ watch(
   }, 250)
 )
 
-useElementStream(
+engine.components.useElementStream(
   element.address,
   element.query,
   computed(() => args),

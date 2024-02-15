@@ -1,20 +1,21 @@
 <script lang="ts" setup>
-import { useConfig } from '@/api/config'
+import { Address } from '@/address'
+import { useEngine } from '@/api/engine'
 import CommonText from '@/components/CommonText.vue'
 import Interface from '@/components/Interface.vue'
 import { useInterfaceContext } from '@/interface'
 
 useInterfaceContext('page/dashboard')
 
-const config = useConfig()
-await config.suspense()
+const engine = useEngine()
+await engine.config.suspense()
 
-const renderer = $computed(() => {
-  if (config.console.dashboard == null) {
+const renderer = $computed<Address | null>(() => {
+  if (engine.config.console == null) {
     return null
   }
 
-  return config.console.dashboard
+  return engine.config.console.dashboard as Address
 })
 </script>
 

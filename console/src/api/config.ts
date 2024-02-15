@@ -1,5 +1,6 @@
 import { Address } from '@/address'
-import { NameStrModel, TimeDeltaModel, get } from '@/api/shared'
+import { useClient } from '@/api/client'
+import { NameStrModel, TimeDeltaModel } from '@/api/shared'
 import { useQuery } from '@tanstack/vue-query'
 import { defineStore } from 'pinia'
 import { computed } from 'vue'
@@ -77,14 +78,18 @@ export const ConfigModel = Zod.object({
   database: DatabaseConfigModel,
 })
 
-export async function getConsoleConfig(): Promise<ConsoleConfig> {
-  return await get('/api/config/console', ConsoleConfigModel)
-}
-
 export const useConfig = defineStore('config', () => {
+  const client = useClient()
+
+  async function getConsole(): Promise<ConsoleConfig> {
+    return await client.get('/api/config/console', {
+      parse: ConsoleConfigModel,
+    })
+  }
+
   const consoleQuery = useQuery({
     queryKey: ['config'],
-    queryFn: getConsoleConfig,
+    queryFn: getConsole,
     retry: true,
   })
 

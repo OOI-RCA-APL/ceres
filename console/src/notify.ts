@@ -1,10 +1,12 @@
 import { getForegroundColor } from '@/colors'
-import { useQuasar } from 'quasar'
 import icons from '@/icons'
+import { defineStore } from 'pinia'
+import { useQuasar } from 'quasar'
 
-export function useNotify() {
+export type Notify = ReturnType<typeof useNotify>
+
+export const useNotify = defineStore('notify', () => {
   const quasar = useQuasar()
-
   type NotifyOptions = Exclude<Parameters<typeof quasar.notify>[0], string>
 
   function applyDefaults(options: NotifyOptions): NotifyOptions {
@@ -31,7 +33,6 @@ export function useNotify() {
           ...options,
         })
       ),
-
     error: (message: string, options: NotifyOptions = {}) =>
       quasar.notify(
         applyDefaults({
@@ -41,7 +42,6 @@ export function useNotify() {
           ...options,
         })
       ),
-
     info: (message: string, options: NotifyOptions = {}) =>
       quasar.notify(
         applyDefaults({
@@ -51,7 +51,6 @@ export function useNotify() {
           ...options,
         })
       ),
-
     success: (message: string, options: NotifyOptions = {}) =>
       quasar.notify(
         applyDefaults({
@@ -61,7 +60,6 @@ export function useNotify() {
           ...options,
         })
       ),
-
     warn: (message: string, options: NotifyOptions = {}) =>
       quasar.notify(
         applyDefaults({
@@ -72,4 +70,4 @@ export function useNotify() {
         })
       ),
   }
-}
+})

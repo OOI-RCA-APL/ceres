@@ -1,7 +1,5 @@
 import { Address } from '@/address'
-import { getWebSocketURI, useStream } from '@/api/shared'
-import { MaybeRef, computed, unref } from 'vue'
-import Zod, { ZodTypeAny } from 'zod'
+import Zod from 'zod'
 
 export type ButtonElement = Zod.infer<typeof ButtonElementModel>
 export const ButtonElementModel = Zod.object({
@@ -176,24 +174,3 @@ export const ElementModel: Zod.ZodType<Element> = Zod.discriminatedUnion('type',
 ] as any)
 
 export type ElementType = Element['type']
-
-export function useElementStream<TModel extends ZodTypeAny>(
-  address: MaybeRef<Address>,
-  query: MaybeRef<string>,
-  args: MaybeRef<Record<string, unknown>>,
-  onMessage: (message: Zod.infer<TModel>) => unknown
-) {
-  return useStream(
-    computed(() =>
-      getWebSocketURI(
-        `/api/components/${unref(address)}/procedures/${unref(query)}/subscribe?arguments=` +
-          encodeURIComponent(JSON.stringify(unref(args)))
-      )
-    ),
-    args,
-    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-    // @ts-ignore
-    ElementModel,
-    onMessage
-  )
-}

@@ -1,4 +1,4 @@
-import { ErrorInfo, deleteOrError, get, getOrNull, patchOrError, postOrError } from '@/api/shared'
+import { useClient } from '@/api/client'
 import { defineStore } from 'pinia'
 import Zod from 'zod'
 
@@ -15,35 +15,49 @@ export const UserModel = Zod.object({
 })
 
 export const useUsers = defineStore('users', () => {
-  async function getUser(id: string): Promise<User | null> {
-    return await getOrNull(`/api/users/${id}`, UserModel)
+  const client = useClient()
+
+  async function get(id: string): Promise<User | null> {
+    try {
+      return await client.get(`/api/users/${id}`, {
+        parse: UserModel,
+      })
+    } catch {
+      return null
+    }
   }
 
-  async function getUsers(): Promise<User[]> {
-    return await get(`/api/users`, Zod.array(UserModel))
+  async function getAll(): Promise<User[]> {
+    return await client.get(`/api/users`, {
+      parse: Zod.array(UserModel),
+    })
   }
 
-  async function deleteUser(id: string): Promise<User | ErrorInfo> {
-    return await deleteOrError(`/api/users/${id}`, UserModel)
+  async function create(data: Omit<User, 'id'> & { password: string }): Promise<User> {
+    return await client.post(`/api/users`, {
+      data: data,
+      parse: UserModel,
+    })
   }
 
-  async function updateUser(
-    id: string,
-    data: Partial<User & { password: string }>
-  ): Promise<User | ErrorInfo> {
-    return await patchOrError(`/api/users/${id}`, UserModel, data)
+  async function update(id: string, data: Partial<User & { password: string }>): Promise<User> {
+    return client.patch(`/api/users/${id}`, {
+      data,
+      parse: UserModel,
+    })
   }
 
-  async function createUser(
-    data: Omit<User, 'id'> & { password: string }
-  ): Promise<User | ErrorInfo> {
-    return await postOrError(`/api/users`, UserModel, data)
+  async function del(id: string): Promise<User> {
+    return await client.delete(`/api/users/${id}`, {
+      parse: UserModel,
+    })
   }
+
   return {
-    get: getUser,
-    getAll: getUsers,
-    create: createUser,
-    delete: deleteUser,
-    update: updateUser,
+    get,
+    getAll,
+    create,
+    delete: del,
+    update,
   }
 })

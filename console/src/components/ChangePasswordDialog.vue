@@ -2,8 +2,9 @@
 import { Engine } from '@/api/engine'
 import CommonText from '@/components/CommonText.vue'
 import { useForm } from '@/form'
+import { useNotify } from '@/notify'
 import { useValidate } from '@/validate'
-import { useDialogPluginComponent, useQuasar } from 'quasar'
+import { useDialogPluginComponent } from 'quasar'
 
 const { userId, engine } = defineProps<{
   userId: string
@@ -12,7 +13,7 @@ const { userId, engine } = defineProps<{
 
 defineEmits([...useDialogPluginComponent.emits])
 
-const quasar = useQuasar()
+const notify = useNotify()
 const validate = useValidate()
 
 const { dialogRef, onDialogHide, onDialogOK } = useDialogPluginComponent()
@@ -35,16 +36,9 @@ const form = useForm({
       : await engine.auth.assignPassword(userId, newPassword)
 
     if (user == null) {
-      quasar.notify({
-        type: 'negative',
-        message: 'Failed to change password. Current password is incorrect.',
-      })
+      notify.error('Failed to change password. Current password is incorrect')
     } else {
-      quasar.notify({
-        type: 'positive',
-        message: 'Password changed successfully.',
-      })
-
+      notify.error('Password changed successfully.')
       onDialogOK()
     }
   },
