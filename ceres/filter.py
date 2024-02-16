@@ -146,16 +146,21 @@ class UserFilter(DatabaseFilter):
 
         match self.order:
             case None | UserOrder.USERNAME:
-                ids = ids.order_by(UserEntity.username)
+                order_by = UserEntity.username
             case UserOrder.EMAIL:
-                ids = ids.order_by(UserEntity.email)
+                order_by = UserEntity.email
+
+        ids = ids.order_by(order_by)
 
         if self.limit is not None:
             ids = ids.limit(self.limit)
         if self.offset is not None and self.offset > 0:
             ids = ids.offset(self.offset)
 
-        return statement.where(UserEntity.id.in_(ids))
+        if isinstance(statement, Update | Delete):
+            return statement.where(UserEntity.id.in_(ids))
+
+        return statement.where(UserEntity.id.in_(ids)).order_by(order_by)
 
 
 class Addressable(Protocol):
