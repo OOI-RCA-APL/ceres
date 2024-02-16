@@ -13,13 +13,15 @@ from typing import (
     TypeVar,
 )
 
+from pydantic import Field
+from pydantic.fields import FieldInfo
 from sqlalchemy.exc import DatabaseError
 from typing_extensions import ParamSpec, Unpack, dataclass_transform, override
 
 from ceres.address import Address, AddressSelector, DynamicAddress
 from ceres.alert import Alert
 from ceres.config import DatabaseType
-from ceres.data import VALIDATED_DATACLASS_FIELD_SPECIFIERS, ValidatedDataclass
+from ceres.data import ValidatedDataclass
 from ceres.events import (
     AlertEvent,
     ConnectedEvent,
@@ -87,7 +89,7 @@ class _Flush:
 
 @dataclass_transform(
     kw_only_default=True,
-    field_specifiers=VALIDATED_DATACLASS_FIELD_SPECIFIERS,
+    field_specifiers=(Field, FieldInfo),
 )
 class Object(ValidatedDataclass, Tasklet):
     def __post_init__(self) -> None:

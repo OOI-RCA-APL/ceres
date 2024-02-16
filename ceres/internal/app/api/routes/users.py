@@ -2,8 +2,9 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends
+from starlette.status import HTTP_201_CREATED
 
-from ceres.errors import AlreadyExistsError, Failure, NotFoundError, NotPermittedError
+from ceres.errors import Failure, NotFoundError, NotPermittedError
 from ceres.filter import UserFilter
 from ceres.internal.app.shared import (
     ADMIN,
@@ -39,7 +40,7 @@ async def get_users(
     return await engine.get_users(filter)
 
 
-@router.post("", dependencies=[ADMIN], response_model=APIUser | AlreadyExistsError)
+@router.post("", dependencies=[ADMIN], response_model=APIUser, status_code=HTTP_201_CREATED)
 async def create_user(engine: CurrentEngine, data: User) -> User:
     return await engine.create_user(data)
 

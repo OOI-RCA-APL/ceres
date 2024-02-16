@@ -2,8 +2,7 @@ import json
 from abc import ABC
 from datetime import date, datetime, timedelta, timezone
 from json import JSONDecodeError
-from types import MappingProxyType
-from typing import Annotated, Any, Callable, Literal, NewType, Sized, TypeVar, cast
+from typing import Annotated, Any, Literal, NewType, Sized, TypeVar
 
 import pydantic
 import pydantic.generics
@@ -189,18 +188,9 @@ class ImmutableDataObject(DataObject, ABC):
     model_config = ConfigDict(frozen=True)
 
 
-VALIDATED_DATACLASS_FIELD_SPECIFIERS: tuple[Callable[..., Any], type[FieldInfo]] = (
-    Field,
-    FieldInfo,
-)
-VALIDATED_DATACLASS_DEFAULT_CONFIG = cast(
-    ConfigDict, MappingProxyType(ConfigDict(**DataObject.model_config))
-)
-
-
 @dataclass_transform(
     kw_only_default=True,
-    field_specifiers=VALIDATED_DATACLASS_FIELD_SPECIFIERS,
+    field_specifiers=(Field, FieldInfo),
 )
 class ValidatedDataclass(ABC, PydanticDataclassLike):  # type: ignore
     def __init_subclass__(
@@ -225,7 +215,7 @@ class ValidatedDataclass(ABC, PydanticDataclassLike):  # type: ignore
 
         config = ConfigDict(
             **{
-                **VALIDATED_DATACLASS_DEFAULT_CONFIG,
+                **DataObject.model_config,
                 **inherited_config,
                 **ConfigDict(title=cls.__qualname__),
                 **(config or ConfigDict()),

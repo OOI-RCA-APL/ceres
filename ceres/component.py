@@ -36,6 +36,7 @@ from apscheduler.jobstores.base import JobLookupError
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.base import BaseTrigger
 from pydantic import Field, NonNegativeInt, PositiveFloat, ValidationError
+from pydantic.fields import FieldInfo
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing_extensions import Self, Unpack, dataclass_transform, overload, override
@@ -44,7 +45,6 @@ from ceres.address import Address, AddressSelector, DynamicAddress
 from ceres.alert import Alert
 from ceres.config import ComponentConfig
 from ceres.data import (
-    VALIDATED_DATACLASS_FIELD_SPECIFIERS,
     ImmutableDataObject,
     Name,
     PositiveTimeDelta,
@@ -211,7 +211,7 @@ class _TriggerAdapter(BaseTrigger):
 
 @dataclass_transform(
     kw_only_default=True,
-    field_specifiers=VALIDATED_DATACLASS_FIELD_SPECIFIERS,
+    field_specifiers=(Field, FieldInfo),
 )
 class Component(Object):
     name: Final[Name] = Field(default_factory=lambda: randstr(ascii_lowercase, 8))

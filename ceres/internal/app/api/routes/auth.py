@@ -45,7 +45,7 @@ async def login(
     engine: CurrentEngine,
     response: Response,
     input: LoginInput,
-) -> LoginResult | BadCredentialsError:
+) -> LoginResult:
     authentication = engine.config.server.authentication
     if authentication is None:
         raise Failure(AuthenticationDisabledError)
@@ -121,11 +121,7 @@ class ChangePasswordInput(ImmutableDataObject):
     new_password: PasswordStr
 
 
-@router.post(
-    "/change-password",
-    dependencies=[VIEWER],
-    response_model=APIUser | BadCredentialsError,
-)
+@router.post("/change-password", dependencies=[VIEWER], response_model=APIUser)
 async def change_password(
     engine: CurrentEngine,
     user: RequireUser,
