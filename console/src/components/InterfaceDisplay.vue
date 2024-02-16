@@ -28,7 +28,7 @@ let isLoading = $ref(true)
 let isShowingDialog = $ref(false)
 
 const request = useQuery({
-  queryKey: ['query', element.address, element.query],
+  queryKey: computed(() => ['query', element.address, element.query]),
   queryFn: async () => {
     const procedure = await engine.components.getProcedure(element.address, element.query)
     if (procedure?.type === 'query') {

@@ -1,5 +1,6 @@
 import { Address } from '@/address'
-import { ItemStreamFilter, StreamOptions, useClient } from '@/api/client'
+import { StreamOptions, useClient } from '@/api/client'
+import { MessageFilter } from '@/api/filter'
 import { BaseFailModel, DateTimeModel, createResultType } from '@/api/shared'
 import { defineStore } from 'pinia'
 import { MaybeRef, computed, unref } from 'vue'
@@ -23,15 +24,7 @@ const SendMessageResultModel = createResultType(MessageModel, BaseFailModel)
 export const useMessages = defineStore('messages', () => {
   const client = useClient()
 
-  async function getMessages(filter: {
-    address?: Address
-    search?: string
-    within?: number
-    after?: string
-    before?: string
-    limit?: number
-    order?: 'new-to-old' | 'old-to-new'
-  }): Promise<Message[]> {
+  async function getAll(filter: MessageFilter): Promise<Message[]> {
     return await client.get('/api/messages', {
       query: filter,
       parse: Zod.array(MessageModel),
@@ -39,9 +32,9 @@ export const useMessages = defineStore('messages', () => {
   }
 
   function useStream(
-    filter: MaybeRef<ItemStreamFilter>,
+    filter: MaybeRef<MessageFilter>,
     onReceive: (current: Message) => unknown,
-    options?: MaybeRef<StreamOptions>
+    options?: MaybeRef<Omit<StreamOptions, 'query'>>
   ) {
     client.useStream(
       '/api/messages',
@@ -61,7 +54,7 @@ export const useMessages = defineStore('messages', () => {
     })
   }
   return {
-    getAll: getMessages,
+    getAll,
     useStream,
     send,
   }

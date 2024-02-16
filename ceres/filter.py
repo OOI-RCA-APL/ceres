@@ -1,26 +1,35 @@
 from abc import ABC, abstractmethod
 from datetime import datetime
-from re import Pattern
-from typing import TYPE_CHECKING, Annotated, Any, Generic, Protocol, Sequence, TypeVar
+from typing import (
+    TYPE_CHECKING,
+    Annotated,
+    Any,
+    Generic,
+    Iterable,
+    Literal,
+    Sequence,
+    TypeVar,
+)
 from uuid import UUID
 
-from pydantic import ConfigDict, Field
+from pydantic import ConfigDict, Field, NonNegativeInt
 from sqlalchemy import (
     BinaryExpression,
+    ColumnExpressionArgument,
     Delete,
     Select,
     SQLColumnExpression,
-    Text,
     Update,
-    cast,
     func,
     select,
 )
+from sqlalchemy.orm import QueryableAttribute
+from sqlalchemy.sql import expression
 from typing_extensions import Self, TypedDict, override
 
 from ceres.address import Address, AddressSelector
 from ceres.alert import Alert
-from ceres.data import DateTime, ImmutableDataObject, PositiveTimeDelta, jsonify
+from ceres.data import DateTime, ImmutableDataObject, PositiveTimeDelta
 from ceres.database.enums import DatabaseType
 from ceres.internal.cli.plumbing import CLIOption
 from ceres.internal.utilities import StrEnum, as_sequence, escape_like_expression
@@ -28,7 +37,7 @@ from ceres.level import Level
 from ceres.logs import LogEntry
 from ceres.message import Message, MessageContent, MessageDirection
 from ceres.timing import utc
-from ceres.user import UserRole
+from ceres.user import User, UserRole
 
 if TYPE_CHECKING:
     from ceres.component import Component
@@ -36,6 +45,21 @@ else:
     Component = object
 
 _StatementT = TypeVar("_StatementT", bound=Select[tuple[Any, ...]] | Update | Delete)
+
+if TYPE_CHECKING:
+    from ceres.internal.database.entities import (
+        AlertEntity,
+        LogEntryEntity,
+        MessageEntity,
+        UserEntity,
+    )
+else:
+    AlertEntity = object
+    LogEntryEntity = object
+    MessageEntity = object
+    UserEntity = object
+
+_Entity = UserEntity | MessageEntity | AlertEntity | LogEntryEntity
 
 
 class Filter(ImmutableDataObject, ABC):
@@ -68,9 +92,135 @@ class Filter(ImmutableDataObject, ABC):
         return not all(getattr(self, field, None) is None for field in self.model_fields_set)
 
 
-class DatabaseFilter(Filter):
+class ComponentFilterArgs(TypedDict, total=False):
+    root: Annotated[Address, CLIOption(str | None)]
+    address: Annotated[AddressSelector | None, CLIOption(str | None)]
+    enabled: bool | None
+    running: bool | None
+
+
+class ComponentFilter(Filter):
+    root: Annotated[Address, CLIOption(str | None)] = Address.root()
+    address: Annotated[AddressSelector | None, CLIOption(str | None)] = None
+    enabled: bool | None = None
+    running: bool | None = None
+
+    def matches(self, obj: "Component") -> bool:
+        if self.address is not None:
+            if not self.address.matches(obj.address, self.root):
+                return False
+        if self.enabled is not None and obj.enabled != self.enabled:
+            return False
+        if self.running is not None and obj.running != self.running:
+            return False
+
+        return True
+
+
+class _DatabaseFilterArgs(TypedDict, total=False):
+    id: UUID | Sequence[UUID] | None
+    limit: NonNegativeInt | None
+    offset: NonNegativeInt | None
+
+
+_ObjectT = TypeVar("_ObjectT", bound=User | Message | Alert | LogEntry)
+
+
+class _DatabaseFilter(Filter, Generic[_ObjectT], ABC):
+    search: Annotated[str | None, CLIOption(str | None)] = Field(
+        default=None,
+        description="Filter by text content.",
+    )
+    search_field: Annotated[str | Sequence[str] | None, CLIOption(list[str] | None)] = Field(
+        default=None,
+        description="Fields to search. Defaults to all.",
+    )
+    id: Annotated[UUID | Sequence[UUID] | None, CLIOption(list[UUID])] = Field(
+        default=None, description="Filter by ID(s)"
+    )
+    limit: Annotated[NonNegativeInt | None, CLIOption(int | None)] = Field(
+        default=None, description="Limit number of returned results.", ge=0
+    )
+    offset: Annotated[NonNegativeInt | None, CLIOption(int | None)] = Field(
+        default=None, description="Skip over a given number of results.", ge=0
+    )
+
     @abstractmethod
-    def apply(self, statement: _StatementT, dialect: DatabaseType) -> _StatementT: ...
+    def _get_entity_cls(self) -> type[_Entity]: ...
+
+    @abstractmethod
+    def _get_search_content(self, obj: _ObjectT) -> dict[str, str]: ...
+
+    @abstractmethod
+    def _get_database_search_content(
+        self,
+        dialect: DatabaseType,
+    ) -> dict[str, QueryableAttribute[str | bytes]]: ...
+
+    def _get_database_search_encoded_fields(self) -> set[str]:
+        return set()
+
+    def matches(self, obj: _ObjectT) -> bool:
+        if self.search is not None:
+            values = self._get_search_content(obj)
+            fields = values if self.search_field is None else as_sequence(self.search_field)
+            for field in fields:
+                value = values.get(field)
+                if value is None:
+                    continue
+
+                if self.search not in value:
+                    return False
+
+        if self.id is not None:
+            if obj.id not in as_sequence(self.id):
+                return False
+
+        return True
+
+    def _get_where(self, dialect: DatabaseType) -> Iterable[ColumnExpressionArgument[Any]]:
+        columns = self._get_entity_cls()
+        encoded = self._get_database_search_encoded_fields()
+
+        if self.search is not None:
+            pattern = "%" + escape_like_expression(self.search) + "%"
+
+            values = self._get_database_search_content(dialect)
+            fields = values if self.search_field is None else as_sequence(self.search_field)
+            condition: ColumnExpressionArgument[bool] | None = expression.false()
+
+            for field in fields:
+                value = values.get(field)
+                if value is None:
+                    continue
+
+                if field in encoded:
+                    condition |= value.like(pattern.encode("latin-1", "ignore"))
+                else:
+                    condition |= value.like(pattern)
+
+            yield condition
+
+        if self.id is not None:
+            yield columns.id.in_(as_sequence(self.id))
+
+    @abstractmethod
+    def _get_order_by(self) -> ColumnExpressionArgument[Any]: ...
+
+    def apply(self, statement: _StatementT, dialect: DatabaseType) -> _StatementT:
+        columns = self._get_entity_cls()
+        ids = (
+            select(columns.id)
+            .where(*self._get_where(dialect))
+            .order_by(self._get_order_by())
+            .limit(self.limit)
+            .offset(self.offset)
+        )
+
+        if isinstance(statement, Update | Delete):
+            return statement.where(columns.id.in_(ids))
+
+        return statement.where(columns.id.in_(ids)).order_by(self._get_order_by())
 
 
 class UserOrder(StrEnum):
@@ -89,11 +239,7 @@ class UserFilterArgs(TypedDict, total=False):
     offset: int | None
 
 
-class UserFilter(DatabaseFilter):
-    id: Annotated[UUID | Sequence[UUID] | None, CLIOption(list[UUID] | None)] = Field(
-        default=None,
-        description="Filter by user ID(s)",
-    )
+class UserFilter(_DatabaseFilter[User]):
     username: Annotated[str | Sequence[str] | None, CLIOption(list[str] | None)] = Field(
         default=None,
         description="Filter by username(s).",
@@ -114,103 +260,150 @@ class UserFilter(DatabaseFilter):
         default=None,
         description="Specify order of resulting users.",
     )
-    limit: Annotated[int | None, CLIOption(int | None)] = Field(
-        default=None,
-        description="Limit number of returned users.",
-        ge=0,
-        le=1000,
-    )
-    offset: Annotated[int | None, CLIOption(int | None)] = Field(
-        default=None,
-        description="Skip over a given number of users.",
-        ge=0,
-    )
 
     @override
-    def apply(self, statement: _StatementT, dialect: DatabaseType) -> _StatementT:
+    def _get_entity_cls(self) -> type[UserEntity]:
         from ceres.internal.database.entities import UserEntity
 
-        ids = select(UserEntity.id)
+        return UserEntity
 
-        if self.id is not None:
-            ids = ids.where(UserEntity.id.in_(as_sequence(self.id)))
+    @override
+    def _get_search_content(self, obj: User) -> dict[str, str]:
+        return {
+            "username": obj.username,
+            "email": obj.email,
+            "role": obj.role,
+        }
+
+    @override
+    def _get_database_search_content(
+        self,
+        dialect: DatabaseType,
+    ) -> dict[str, QueryableAttribute[str | bytes]]:
+        columns = self._get_entity_cls()
+
+        return {
+            "username": columns.username,
+            "email": columns.email,
+            "role": columns.role,
+        }
+
+    @override
+    def _get_where(self, dialect: DatabaseType) -> Iterable[ColumnExpressionArgument[bool]]:
+        yield from super()._get_where(dialect)
+        columns = self._get_entity_cls()
+
         if self.username is not None:
-            ids = ids.where(UserEntity.username.in_(as_sequence(self.username)))
+            yield columns.username.in_(as_sequence(self.username))
         if self.email is not None:
-            # TODO: Normalize the email addresses before searching.
-            ids = ids.where(UserEntity.email.in_(as_sequence(self.email)))
+            yield columns.email.in_(as_sequence(self.email))
         if self.role is not None:
-            ids = ids.where(UserEntity.role.in_(as_sequence(self.role)))
+            yield columns.role.in_(as_sequence(self.role))
         if self.disabled is not None:
-            ids = ids.where(UserEntity.disabled == self.disabled)
+            yield columns.disabled == self.disabled
 
+    @override
+    def _get_order_by(self) -> ColumnExpressionArgument[Any]:
+        columns = self._get_entity_cls()
         match self.order:
             case None | UserOrder.USERNAME:
-                order_by = UserEntity.username
+                return columns.username
             case UserOrder.EMAIL:
-                order_by = UserEntity.email
-
-        ids = ids.order_by(order_by)
-
-        if self.limit is not None:
-            ids = ids.limit(self.limit)
-        if self.offset is not None and self.offset > 0:
-            ids = ids.offset(self.offset)
-
-        if isinstance(statement, Update | Delete):
-            return statement.where(UserEntity.id.in_(ids))
-
-        return statement.where(UserEntity.id.in_(ids)).order_by(order_by)
+                return columns.email
 
 
-class Addressable(Protocol):
-    @property
-    def address(self) -> Address: ...
+_ItemOrderInput = Literal["old-to-new", "new-to-old"]
+_Item = Message | Alert | LogEntry
+_ItemEntity = MessageEntity | AlertEntity | LogEntryEntity
+_ItemT = TypeVar("_ItemT", bound=_Item)
 
 
-_ObjectT = TypeVar("_ObjectT", bound=Addressable)
-
-
-class AddressFilterArgs(TypedDict, total=False):
+class _ItemFilterArgs(_DatabaseFilterArgs, total=False):
+    root: Address
     address: AddressSelector | None
+    within: PositiveTimeDelta | None
+    after: DateTime | None
+    before: DateTime | None
+    order: _ItemOrderInput | None
 
 
-class AddressFilter(Filter, Generic[_ObjectT]):
+class _ItemFilter(_DatabaseFilter[_ItemT], ABC):
     root: Annotated[Address, CLIOption(str | None)] = Address.root()
     address: Annotated[AddressSelector | None, CLIOption(str | None)] = None
+    within: Annotated[PositiveTimeDelta | None, CLIOption(str | None)] = None
+    after: Annotated[DateTime | None, CLIOption(datetime)] = None
+    before: Annotated[DateTime | None, CLIOption(datetime)] = None
+    order: Annotated[_ItemOrderInput | None, CLIOption(_ItemOrderInput | None)] = None
 
-    def matches(self, obj: _ObjectT) -> bool:
-        if not self.root.contains(obj.address):
+    @override
+    def matches(self, obj: _ItemT) -> bool:  # type: ignore
+        if not super().matches(obj):
             return False
 
         if self.address is not None:
             if not self.address.matches(obj.address, self.root):
                 return False
+        if self.within is not None:
+            if obj.timestamp < utc() - self.within:
+                return False
+        if self.after is not None:
+            if obj.timestamp < self.after:
+                return False
+        if self.before is not None:
+            if obj.timestamp >= self.before:
+                return False
 
         return True
 
-
-class ComponentFilterArgs(AddressFilterArgs, total=False):
-    enabled: bool | None
-    running: bool | None
-
-
-class ComponentFilter(AddressFilter["Component"]):
-    enabled: bool | None = None
-    running: bool | None = None
+    @abstractmethod
+    def _get_entity_cls(self) -> type[_ItemEntity]: ...
 
     @override
-    def matches(self, obj: "Component") -> bool:
-        if not super().matches(obj):
-            return False
+    def _get_search_content(self, obj: _ItemT) -> dict[str, str]:
+        return {
+            "address": obj.address,
+            "timestamp": _format_timestamp(obj.timestamp),
+        }
 
-        if self.enabled is not None and obj.enabled != self.enabled:
-            return False
+    @override
+    def _get_database_search_content(
+        self,
+        dialect: DatabaseType,
+    ) -> dict[str, QueryableAttribute[str | bytes]]:
+        columns = self._get_entity_cls()
 
-        if self.running is not None and obj.running != self.running:
-            return False
+        return {
+            "address": columns.address,
+            "timestamp": _format_sql_timestamp(columns.timestamp, dialect),
+        }
 
-        return True
+    @override
+    def _get_where(self, dialect: DatabaseType) -> Iterable[ColumnExpressionArgument[bool]]:
+        yield from super()._get_where(dialect)
+        columns = self._get_entity_cls()
+
+        if self.id is not None:
+            yield columns.id.in_(as_sequence(self.id))
+        if self.address is not None:
+            yield self.address.matches_expression(columns.address, self.root)
+        if self.within is not None:
+            yield columns.timestamp >= utc() - self.within
+        if self.after is not None:
+            yield columns.timestamp >= self.after
+        if self.before is not None:
+            yield columns.timestamp < self.before
+
+    @override
+    def _get_order_by(self) -> ColumnExpressionArgument[Any]:
+        columns = self._get_entity_cls()
+
+        match self.order:
+            case None | "old-to-new":
+                return columns.timestamp
+            case "new-to-old":
+                return columns.timestamp.desc()
+
+        raise ValueError("invalid order type")
 
 
 class MessageOrder(StrEnum):
@@ -218,161 +411,85 @@ class MessageOrder(StrEnum):
     NEW_TO_OLD = "new-to-old"
 
 
-class MessageFilterArgs(AddressFilterArgs, total=False):
-    search: str | None
-    search_case_sensitive: bool
-    within: PositiveTimeDelta | None
-    after: DateTime | None
-    before: DateTime | None
+class MessageFilterArgs(_ItemFilterArgs, total=False):
     direction: MessageDirection | None
-    prefix: bytes | None
-    suffix: bytes | None
-    regex: Pattern[bytes] | None
-    order: MessageOrder | None
-    limit: int | None
-    offset: int | None
+    content_contains: MessageContent | None
+    content_prefix: MessageContent | None
+    content_suffix: MessageContent | None
+    order: MessageOrder | None  # type: ignore
 
 
-class MessageFilter(AddressFilter[Message], DatabaseFilter):
-    id: Annotated[UUID | Sequence[UUID] | None, CLIOption(list[UUID])] = None
+class MessageFilter(_ItemFilter[Message]):
     direction: Annotated[MessageDirection | None, CLIOption(MessageDirection | None)] = None
-    search: Annotated[str | None, CLIOption(str | None)] = None
-    search_case_sensitive: Annotated[bool, CLIOption(bool)] = False
-    within: Annotated[PositiveTimeDelta | None, CLIOption(str | None)] = None
-    after: Annotated[DateTime | None, CLIOption(datetime)] = None
-    before: Annotated[DateTime | None, CLIOption(datetime)] = None
-    prefix: Annotated[MessageContent | None, CLIOption(str | None)] = None
-    suffix: Annotated[MessageContent | None, CLIOption(str | None)] = None
-    regex: Annotated[Pattern[bytes] | None, CLIOption(str | None)] = None
+    content_contains: Annotated[MessageContent | None, CLIOption(str | None)] = None
+    content_prefix: Annotated[MessageContent | None, CLIOption(str | None)] = None
+    content_suffix: Annotated[MessageContent | None, CLIOption(str | None)] = None
     order: Annotated[MessageOrder | None, CLIOption(MessageOrder | None)] = None
-    limit: Annotated[int | None, CLIOption(int | None)] = Field(default=None, ge=0)
-    offset: Annotated[int | None, CLIOption(int | None)] = Field(default=None, ge=0)
 
     @override
     def matches(self, obj: Message) -> bool:
         if not super().matches(obj):
             return False
 
-        if self.search is not None:
-            search = self.search
-            address = obj.address
-            timestamp = _format_timestamp(obj.timestamp)
-            direction = obj.direction
-            content = obj.content
-            if not self.search_case_sensitive:
-                search = search.lower()
-                content = obj.content.lower()
-            if not (
-                search in address
-                or search in timestamp
-                or search in direction
-                or search.encode() in content
-            ):
-                return False
-
-        if self.within is not None:
-            if obj.timestamp < utc() - self.within:
-                return False
-        if self.after is not None:
-            if obj.timestamp < self.after:
-                return False
-        if self.before is not None:
-            if obj.timestamp >= self.before:
-                return False
-
         if self.direction is not None:
-            if obj.direction != self.direction:
+            if obj.direction not in as_sequence(self.direction):
                 return False
-
-        if self.prefix is not None:
-            if not obj.content.startswith(self.prefix):
+        if self.content_contains is not None:
+            if self.content_contains not in obj.content:
                 return False
-        if self.suffix is not None:
-            if not obj.content.endswith(self.suffix):
+        if self.content_prefix is not None:
+            if not obj.content.startswith(self.content_prefix):
                 return False
-        if self.regex is not None:
-            if not self.regex.match(obj.content):
+        if self.content_suffix is not None:
+            if not obj.content.endswith(self.content_suffix):
                 return False
 
         return True
 
     @override
-    def apply(self, statement: _StatementT, dialect: DatabaseType) -> _StatementT:
+    def _get_entity_cls(self) -> type[MessageEntity]:
         from ceres.internal.database.entities import MessageEntity
 
-        ids = select(MessageEntity.id)
+        return MessageEntity
 
-        if self.id is not None:
-            ids = ids.where(MessageEntity.id.in_(as_sequence(self.id)))
+    @override
+    def _get_search_content(self, obj: Message) -> dict[str, str]:
+        return {
+            **super()._get_search_content(obj),
+            "direction": obj.direction,
+            "content": obj.content.decode("latin-1", "ignore"),
+        }
 
-        if self.address is not None:
-            ids = ids.where(
-                self.address.matches_expression(MessageEntity.address, self.root),
-            )
+    @override
+    def _get_database_search_content(
+        self,
+        dialect: DatabaseType,
+    ) -> dict[str, QueryableAttribute[str | bytes]]:
+        columns = self._get_entity_cls()
 
-        if self.search:
-            pattern = "%" + escape_like_expression(self.search) + "%"
-            ids = ids.where(
-                _format_sql_like(
-                    MessageEntity.address,
-                    pattern,
-                    self.search_case_sensitive,
-                )
-                | _format_sql_like(
-                    _format_sql_timestamp(MessageEntity.timestamp, dialect),
-                    pattern,
-                    self.search_case_sensitive,
-                )
-                | _format_sql_like(MessageEntity.direction, pattern, self.search_case_sensitive)
-                | (
-                    _format_sql_like(
-                        MessageEntity.content,
-                        pattern.encode(),
-                        self.search_case_sensitive,
-                    )
-                    if dialect == DatabaseType.SQLITE
-                    else _format_sql_like(
-                        func.encode(MessageEntity.content, "escape"),
-                        pattern.encode("utf-8").decode("unicode-escape"),
-                        self.search_case_sensitive,
-                    )
-                ),
-            )
+        return {
+            **super()._get_database_search_content(dialect),
+            "direction": columns.direction,
+            "content": columns.content,
+        }
 
-        if self.within is not None:
-            ids = ids.where(MessageEntity.timestamp >= utc() - self.within)
-        if self.after is not None:
-            ids = ids.where(MessageEntity.timestamp >= self.after)
-        if self.before is not None:
-            ids = ids.where(MessageEntity.timestamp < self.before)
+    @override
+    def _get_database_search_encoded_fields(self) -> set[str]:
+        return {"content"}
+
+    @override
+    def _get_where(self, dialect: DatabaseType) -> Iterable[ColumnExpressionArgument[bool]]:
+        yield from super()._get_where(dialect)
+        columns = self._get_entity_cls()
+
         if self.direction is not None:
-            ids = ids.where(MessageEntity.direction == self.direction)
-        if self.prefix is not None:
-            ids = ids.where(
-                MessageEntity.content.like(escape_like_expression(self.prefix) + b"%"),
-            )
-        if self.suffix is not None:
-            ids = ids.where(
-                MessageEntity.content.like(b"%" + escape_like_expression(self.suffix)),
-            )
-
-        match self.order:
-            case None | MessageOrder.OLD_TO_NEW:
-                order_by = MessageEntity.timestamp
-            case MessageOrder.NEW_TO_OLD:
-                order_by = MessageEntity.timestamp.desc()
-
-        ids = ids.order_by(order_by)
-
-        if self.limit is not None:
-            ids = ids.limit(self.limit)
-        if self.offset is not None and self.offset > 0:
-            ids = ids.offset(self.offset)
-
-        if isinstance(statement, Update | Delete):
-            return statement.where(MessageEntity.id.in_(ids))
-
-        return statement.where(MessageEntity.id.in_(ids)).order_by(order_by)
+            yield columns.direction == self.direction
+        if self.content_contains is not None:
+            yield columns.content.like(b"%" + escape_like_expression(self.content_contains) + b"%")
+        if self.content_prefix is not None:
+            yield columns.content.like(escape_like_expression(self.content_prefix) + b"%")
+        if self.content_suffix is not None:
+            yield columns.content.like(b"%" + escape_like_expression(self.content_suffix))
 
 
 class AlertOrder(StrEnum):
@@ -380,148 +497,88 @@ class AlertOrder(StrEnum):
     NEW_TO_OLD = "new-to-old"
 
 
-class AlertFilterArgs(TypedDict, total=False):
-    search: str | None
-    search_case_sensitive: bool
-    within: PositiveTimeDelta | None
-    after: DateTime | None
-    before: DateTime | None
+class AlertFilterArgs(_ItemFilterArgs, total=False):
     level: Level | Sequence[Level] | None
     code: str | Sequence[str] | None
-    code_regex: Pattern[str] | None
-    order: AlertOrder | None
-    limit: int | None
-    offset: int | None
+    code_contains: str | None
+    code_prefix: str | None
+    code_suffix: str | None
+    order: AlertOrder | None  # type: ignore
 
 
-class AlertFilter(AddressFilter[Alert], DatabaseFilter):
-    search: Annotated[str | None, CLIOption(str | None)] = None
-    search_case_sensitive: Annotated[bool, CLIOption(bool)] = False
-    within: Annotated[PositiveTimeDelta | None, CLIOption(str | None)] = None
-    after: Annotated[DateTime | None, CLIOption(datetime | None)] = None
-    before: Annotated[DateTime | None, CLIOption(datetime | None)] = None
+class AlertFilter(_ItemFilter[Alert]):
     level: Annotated[Level | Sequence[Level] | None, CLIOption(list[Level] | None)] = None
     code: Annotated[str | Sequence[str] | None, CLIOption(list[str] | None)] = None
-    code_regex: Annotated[Pattern[str] | None, CLIOption(str | None)] = None
+    code_contains: Annotated[str | None, CLIOption(str | None)] = None
+    code_prefix: Annotated[str | None, CLIOption(str | None)] = None
+    code_suffix: Annotated[str | None, CLIOption(str | None)] = None
     order: Annotated[AlertOrder | None, CLIOption(AlertOrder | None)] = None
-    limit: Annotated[int | None, CLIOption(int | None)] = Field(default=None, ge=0)
-    offset: Annotated[int | None, CLIOption(int | None)] = Field(default=None, ge=0)
 
     @override
     def matches(self, obj: Alert) -> bool:
         if not super().matches(obj):
             return False
 
-        if self.search is not None:
-            search = self.search
-            timestamp = _format_timestamp(obj.timestamp)
-            level = obj.level
-            code = obj.code
-            info = jsonify(obj.info)
-
-            if self.search_case_sensitive:
-                search = search.lower()
-                code = code.lower()
-                info = info.lower()
-
-            if not (search in timestamp or search in level or search in code or search in info):
-                return False
-
-        if self.within is not None:
-            if obj.timestamp < utc() - self.within:
-                return False
-        if self.after is not None:
-            if obj.timestamp < self.after:
-                return False
-        if self.before is not None:
-            if obj.timestamp >= self.before:
-                return False
-
         if self.level is not None:
             if obj.level not in as_sequence(self.level):
                 return False
-
         if self.code is not None:
             if obj.code not in as_sequence(self.code):
                 return False
-
-        if self.code_regex is not None:
-            if not self.code_regex.match(obj.code):
+        if self.code_contains is not None:
+            if self.code_contains not in obj.code:
+                return False
+        if self.code_prefix is not None:
+            if not obj.code.startswith(self.code_prefix):
+                return False
+        if self.code_suffix is not None:
+            if not obj.code.endswith(self.code_suffix):
                 return False
 
         return True
 
     @override
-    def apply(self, statement: _StatementT, dialect: DatabaseType) -> _StatementT:
+    def _get_entity_cls(self) -> type[AlertEntity]:
         from ceres.internal.database.entities import AlertEntity
 
-        ids = select(AlertEntity.id)
+        return AlertEntity
 
-        if self.address is not None:
-            ids = ids.where(self.address.matches_expression(AlertEntity.address, self.root))
+    @override
+    def _get_search_content(self, obj: Alert) -> dict[str, str]:
+        return {
+            **super()._get_search_content(obj),
+            "level": obj.level,
+            "code": obj.code,
+        }
 
-        if self.search is not None:
-            pattern = "%" + escape_like_expression(self.search) + "%"
-            ids = ids.where(
-                _format_sql_like(
-                    AlertEntity.address,
-                    pattern,
-                    self.search_case_sensitive,
-                )
-                | _format_sql_like(
-                    _format_sql_timestamp(AlertEntity.timestamp, dialect),
-                    pattern,
-                    self.search_case_sensitive,
-                )
-                | _format_sql_like(AlertEntity.level, pattern, self.search_case_sensitive)
-                | _format_sql_like(AlertEntity.code, pattern, self.search_case_sensitive)
-                | _format_sql_like(
-                    (
-                        cast(AlertEntity.info, Text)
-                        if dialect == DatabaseType.POSTGRES
-                        else AlertEntity.info
-                    ),
-                    pattern,
-                    self.search_case_sensitive,
-                ),
-            )
+    @override
+    def _get_database_search_content(
+        self,
+        dialect: DatabaseType,
+    ) -> dict[str, QueryableAttribute[str | bytes]]:
+        columns = self._get_entity_cls()
 
-        if self.within is not None:
-            ids = ids.where(AlertEntity.timestamp >= utc() - self.within)
-        if self.after is not None:
-            ids = ids.where(AlertEntity.timestamp >= self.after)
-        if self.before is not None:
-            ids = ids.where(AlertEntity.timestamp < self.before)
+        return {
+            **super()._get_database_search_content(dialect),
+            "level": columns.level,
+            "code": columns.code,
+        }
+
+    @override
+    def _get_where(self, dialect: DatabaseType) -> Iterable[ColumnExpressionArgument[bool]]:
+        yield from super()._get_where(dialect)
+        columns = self._get_entity_cls()
+
         if self.level is not None:
-            if isinstance(self.level, Level):
-                ids = ids.where(AlertEntity.level == self.level)
-            else:
-                ids = ids.where(AlertEntity.level.in_(self.level))
+            yield columns.level.in_(as_sequence(self.level))
         if self.code is not None:
-            if isinstance(self.code, str):
-                ids = ids.where(AlertEntity.code == self.code)
-            else:
-                ids = ids.where(AlertEntity.code.in_(self.code))
-        if self.code_regex is not None:
-            ids = ids.where(AlertEntity.code.regexp_match(self.code_regex))
-
-        match self.order:
-            case None | AlertOrder.OLD_TO_NEW:
-                order_by = AlertEntity.timestamp
-            case AlertOrder.NEW_TO_OLD:
-                order_by = AlertEntity.timestamp.desc()
-
-        ids = ids.order_by(order_by)
-
-        if self.limit is not None:
-            ids = ids.limit(self.limit)
-        if self.offset is not None and self.offset > 0:
-            ids = ids.offset(self.offset)
-
-        if isinstance(statement, Update | Delete):
-            return statement.where(AlertEntity.id.in_(ids))
-
-        return statement.where(AlertEntity.id.in_(ids)).order_by(order_by)
+            yield columns.code.in_(as_sequence(self.code))
+        if self.code_contains is not None:
+            yield columns.code.like("%" + escape_like_expression(self.code_contains) + "%")
+        if self.code_prefix is not None:
+            yield columns.code.like(escape_like_expression(self.code_prefix) + "%")
+        if self.code_suffix is not None:
+            yield columns.code.like("%" + escape_like_expression(self.code_suffix))
 
 
 class LogEntryOrder(StrEnum):
@@ -529,142 +586,81 @@ class LogEntryOrder(StrEnum):
     NEW_TO_OLD = "new-to-old"
 
 
-class LogEntryFilterArgs(TypedDict, total=False):
-    search: str | None
-    search_case_sensitive: bool
-    within: PositiveTimeDelta | None
-    after: DateTime | None
-    before: DateTime | None
+class LogEntryFilterArgs(_ItemFilterArgs, total=False):
     level: Level | Sequence[Level] | None
-    prefix: str | None
-    suffix: str | None
-    regex: Pattern[str] | None
-    order: LogEntryOrder | None
-    limit: int | None
-    offset: int | None
+    content_contains: str | None
+    content_prefix: str | None
+    content_suffix: str | None
+    order: LogEntryOrder | None  # type: ignore
 
 
-class LogEntryFilter(AddressFilter[LogEntry], DatabaseFilter):
-    search: Annotated[str | None, CLIOption(str | None)] = None
-    search_case_sensitive: Annotated[bool, CLIOption(bool)] = False
-    within: Annotated[PositiveTimeDelta | None, CLIOption(str | None)] = None
-    after: Annotated[DateTime | None, CLIOption(datetime | None)] = None
-    before: Annotated[DateTime | None, CLIOption(datetime | None)] = None
+class LogEntryFilter(_ItemFilter[LogEntry]):
     level: Annotated[Level | Sequence[Level] | None, CLIOption(list[Level] | None)] = None
-    prefix: Annotated[str | None, CLIOption(str | None)] = None
-    suffix: Annotated[str | None, CLIOption(str | None)] = None
-    regex: Annotated[Pattern[str] | None, CLIOption(str | None)] = None
+    content_contains: Annotated[str | None, CLIOption(str | None)] = None
+    content_prefix: Annotated[str | None, CLIOption(str | None)] = None
+    content_suffix: Annotated[str | None, CLIOption(str | None)] = None
     order: Annotated[LogEntryOrder | None, CLIOption(LogEntryOrder | None)] = None
-    limit: Annotated[int | None, CLIOption(int | None)] = Field(default=None, ge=0)
-    offset: Annotated[int | None, CLIOption(int | None)] = Field(default=None, ge=0)
 
     @override
     def matches(self, obj: LogEntry) -> bool:
         if not super().matches(obj):
             return False
 
-        if self.search is not None:
-            search = self.search
-            timestamp = _format_timestamp(obj.timestamp)
-            level = obj.level
-            content = obj.content
-
-            if not self.search_case_sensitive:
-                search = search.lower()
-                content = content.lower()
-
-            if not (search in timestamp or search in level or search in content):
+        if self.level is not None:
+            if obj.level not in as_sequence(self.level):
                 return False
-
-        if self.within is not None:
-            if obj.timestamp < utc() - self.within:
+        if self.content_contains is not None:
+            if self.content_contains not in obj.content:
                 return False
-        if self.after is not None:
-            if obj.timestamp < self.after:
+        if self.content_prefix is not None:
+            if not obj.content.startswith(self.content_prefix):
                 return False
-        if self.before is not None:
-            if obj.timestamp >= self.before:
-                return False
-
-        if self.prefix is not None:
-            if not obj.content.startswith(self.prefix):
-                return False
-        if self.suffix is not None:
-            if not obj.content.endswith(self.suffix):
-                return False
-        if self.regex is not None:
-            if not self.regex.match(obj.content):
+        if self.content_suffix is not None:
+            if not obj.content.endswith(self.content_suffix):
                 return False
 
         return True
 
     @override
-    def apply(self, statement: _StatementT, dialect: DatabaseType) -> _StatementT:
+    def _get_entity_cls(self) -> type[LogEntryEntity]:
         from ceres.internal.database.entities import LogEntryEntity
 
-        ids = select(LogEntryEntity.id)
+        return LogEntryEntity
 
-        if self.address is not None:
-            ids = ids.where(self.address.matches_expression(LogEntryEntity.address, self.root))
+    @override
+    def _get_search_content(self, obj: LogEntry) -> dict[str, str]:
+        return {
+            **super()._get_search_content(obj),
+            "level": obj.level,
+            "content": obj.content,
+        }
 
-        if self.search is not None:
-            pattern = "%" + escape_like_expression(self.search) + "%"
-            ids = ids.where(
-                _format_sql_like(
-                    LogEntryEntity.address,
-                    pattern,
-                    self.search_case_sensitive,
-                )
-                | _format_sql_like(
-                    _format_sql_timestamp(LogEntryEntity.timestamp, dialect),
-                    pattern,
-                    self.search_case_sensitive,
-                )
-                | _format_sql_like(LogEntryEntity.level, pattern, self.search_case_sensitive)
-                | _format_sql_like(
-                    LogEntryEntity.content,
-                    pattern,
-                    self.search_case_sensitive,
-                ),
-            )
+    @override
+    def _get_database_search_content(
+        self,
+        dialect: DatabaseType,
+    ) -> dict[str, QueryableAttribute[str | bytes]]:
+        columns = self._get_entity_cls()
 
-        if self.within is not None:
-            ids = ids.where(LogEntryEntity.timestamp >= utc() - self.within)
-        if self.after is not None:
-            ids = ids.where(LogEntryEntity.timestamp >= self.after)
-        if self.before is not None:
-            ids = ids.where(LogEntryEntity.timestamp < self.before)
+        return {
+            **super()._get_database_search_content(dialect),
+            "level": columns.level,
+            "content": columns.content,
+        }
+
+    @override
+    def _get_where(self, dialect: DatabaseType) -> Iterable[ColumnExpressionArgument[bool]]:
+        yield from super()._get_where(dialect)
+        columns = self._get_entity_cls()
+
         if self.level is not None:
-            if isinstance(self.level, Level):
-                ids = ids.where(LogEntryEntity.level == self.level)
-            else:
-                ids = ids.where(LogEntryEntity.level.in_(self.level))
-        if self.prefix is not None:
-            ids = ids.where(
-                LogEntryEntity.content.like(escape_like_expression(self.prefix) + "%"),
-            )
-        if self.suffix is not None:
-            ids = ids.where(
-                LogEntryEntity.content.like("%" + escape_like_expression(self.suffix)),
-            )
-
-        match self.order:
-            case None | LogEntryOrder.OLD_TO_NEW:
-                order_by = LogEntryEntity.timestamp
-            case AlertOrder.NEW_TO_OLD:
-                order_by = LogEntryEntity.timestamp.desc()
-
-        ids = ids.order_by(order_by)
-
-        if self.limit is not None:
-            ids = ids.limit(self.limit)
-        if self.offset is not None and self.offset > 0:
-            ids = ids.offset(self.offset)
-
-        if isinstance(statement, Update | Delete):
-            return statement.where(LogEntryEntity.id.in_(ids))
-
-        return statement.where(LogEntryEntity.id.in_(ids)).order_by(order_by)
+            yield columns.level.in_(as_sequence(self.level))
+        if self.content_contains is not None:
+            yield columns.content.like("%" + escape_like_expression(self.content_contains) + "%")
+        if self.content_prefix is not None:
+            yield columns.content.like(escape_like_expression(self.content_prefix) + "%")
+        if self.content_suffix is not None:
+            yield columns.content.like("%" + escape_like_expression(self.content_suffix))
 
 
 class StatisticsFilterArgs(TypedDict, total=False):

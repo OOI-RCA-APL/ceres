@@ -4,6 +4,7 @@ import { useEngine } from '@/api/engine'
 import ComponentProcedure from '@/components/ComponentProcedure.vue'
 import icons from '@/icons'
 import { useQuery } from '@tanstack/vue-query'
+import { computed } from 'vue'
 
 const { element } = defineProps<{
   element: ButtonElement
@@ -14,7 +15,7 @@ let isShowingMenu = $ref(false)
 const engine = useEngine()
 
 const request = useQuery({
-  queryKey: ['action', element.address, element.action],
+  queryKey: computed(() => ['action', element.address, element.action]),
   queryFn: async () => {
     const procedure = await engine.components.getProcedure(element.address, element.action)
     if (procedure?.type === 'action') {

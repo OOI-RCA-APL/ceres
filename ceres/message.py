@@ -23,7 +23,7 @@ def _serialize_message_content_json(value: bytes) -> str:
 
 def _deserialize_message_content_json(value: Any) -> Any | None:
     if isinstance(value, str):
-        return value.encode("latin-1", "replace")
+        return value.encode("latin-1", "ignore")
 
     return value
 

@@ -1,5 +1,6 @@
 import { Address } from '@/address'
-import { ItemStreamFilter, StreamOptions, useClient } from '@/api/client'
+import { StreamOptions, useClient } from '@/api/client'
+import { LogEntryFilter } from '@/api/filter'
 import { DateTimeModel, LevelModel } from '@/api/shared'
 import { defineStore } from 'pinia'
 import { MaybeRef, computed, unref } from 'vue'
@@ -17,15 +18,7 @@ export const LogEntryModel = Zod.object({
 export const useLogEntries = defineStore('log-entries', () => {
   const client = useClient()
 
-  async function getAll(filter: {
-    address?: Address
-    search?: string
-    within?: number
-    after?: string
-    before?: string
-    limit?: number
-    order?: 'new-to-old' | 'old-to-new'
-  }): Promise<LogEntry[]> {
+  async function getAll(filter: LogEntryFilter): Promise<LogEntry[]> {
     return await client.get(`/api/log-entries`, {
       query: filter,
       parse: Zod.array(LogEntryModel),
@@ -33,9 +26,9 @@ export const useLogEntries = defineStore('log-entries', () => {
   }
 
   function useStream(
-    filter: MaybeRef<ItemStreamFilter>,
+    filter: MaybeRef<LogEntryFilter>,
     onReceive: (current: LogEntry) => unknown,
-    options?: MaybeRef<StreamOptions>
+    options?: MaybeRef<Omit<StreamOptions, 'query'>>
   ) {
     client.useStream(
       '/api/log-entries',

@@ -45,7 +45,11 @@ export const useStatistics = defineStore('statistics', () => {
   }
 
   const query = useQuery({
-    queryKey: ['statistics', auth.user?.id ?? null, preferences.statisticsDuration.asSeconds()],
+    queryKey: computed(() => [
+      'statistics',
+      auth.user?.id ?? null,
+      preferences.statisticsDuration.asSeconds(),
+    ]),
     queryFn: async () => {
       if (auth.user == null) {
         return []

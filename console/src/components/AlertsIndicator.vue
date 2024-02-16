@@ -59,7 +59,7 @@ const color = $computed(() => {
         {{ displayDuration(preferences.statisticsDuration, { hideOne: true }) }}.
       </span>
       <span v-if="engine.statistics.dataUpdatedAt" :class="$style.updatedAtText">
-        Updated {{ displayDuration(time.now.diff(engine.statistics.dataUpdatedAt, 'ms')) }} ago.
+        Updated {{ displayDuration(time.now.diff(engine.statistics.dataUpdatedAt, 's')) }} ago.
       </span>
     </q-tooltip>
   </q-badge>

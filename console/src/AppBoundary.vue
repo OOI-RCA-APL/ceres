@@ -28,7 +28,6 @@ onErrorCaptured((error) => {
     }
 
     if (error instanceof Failure) {
-      console.log(error)
       notify.error(`Action not completed. Received "${error.error.type}".`)
       return false
     }

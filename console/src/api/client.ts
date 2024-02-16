@@ -1,4 +1,3 @@
-import { Address } from '@/address'
 import { ErrorInfo, Failure } from '@/errors'
 import {
   QueryClient,
@@ -54,7 +53,6 @@ async function request<TParseModel extends ZodTypeAny = ZodAny>(
   }
 
   if (response.status >= 400) {
-    console.log(result)
     console.error(`${method} ${path}: ${response.status}`)
     throw new Failure(result as ErrorInfo)
   }
@@ -74,7 +72,6 @@ async function request<TParseModel extends ZodTypeAny = ZodAny>(
         issues: error.errors,
       })
     } else {
-      console.log(error)
       throw error
     }
   }
@@ -130,11 +127,6 @@ function getWebSocketURI(relative: string) {
   }
 
   return `${protocol}://${hostname}${port}${relative}`
-}
-
-export type ItemStreamFilter = {
-  address?: Address
-  search?: string
 }
 
 export type StreamOptions = {

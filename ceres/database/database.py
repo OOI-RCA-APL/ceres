@@ -293,7 +293,7 @@ class Database:
     ) -> int:
         filter = UserFilter(**kwargs).with_defaults(filter)
         statement = select(func.count(UserEntity.id))
-        statement = filter.apply(statement, self.type)
+        statement = filter.apply(statement, self.type).order_by(None)
         return await self.__execute_and_get_one(statement, int) or 0
 
     async def create_user(self, data: UserCreate) -> User:
@@ -379,7 +379,7 @@ class Database:
     ) -> int:
         filter = MessageFilter(**kwargs).with_defaults(filter)
         statement = select(func.count(MessageEntity.id))
-        statement = filter.apply(statement, self.type)
+        statement = filter.apply(statement, self.type).order_by(None)
         return await self.__execute_and_get_one(statement, int) or 0
 
     async def create_message(self, data: Message) -> Message:
@@ -452,7 +452,7 @@ class Database:
     ) -> int:
         filter = AlertFilter(**kwargs).with_defaults(filter)
         statement = select(func.count(AlertEntity.id))
-        statement = filter.apply(statement, self.type)
+        statement = filter.apply(statement, self.type).order_by(None)
         return await self.__execute_and_get_one(statement, int) or 0
 
     async def create_alert(self, data: Alert) -> Alert:
@@ -525,7 +525,7 @@ class Database:
     ) -> int:
         filter = LogEntryFilter(**kwargs).with_defaults(filter)
         statement = select(func.count(LogEntryEntity.id))
-        statement = filter.apply(statement, self.type)
+        statement = filter.apply(statement, self.type).order_by(None)
         return await self.__execute_and_get_one(statement, int) or 0
 
     async def create_log_entry(self, data: LogEntry) -> LogEntry:

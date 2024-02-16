@@ -1,5 +1,6 @@
 import { Address } from '@/address'
-import { ItemStreamFilter, StreamOptions, useClient } from '@/api/client'
+import { StreamOptions, useClient } from '@/api/client'
+import { AlertFilter } from '@/api/filter'
 import { DateTimeModel, LevelModel } from '@/api/shared'
 import { defineStore } from 'pinia'
 import { MaybeRef, computed, unref } from 'vue'
@@ -18,24 +19,16 @@ export const AlertModel = Zod.object({
 export const useAlerts = defineStore('alerts', () => {
   const client = useClient()
 
-  async function getAll(filter: {
-    address?: Address
-    search?: string
-    within?: number
-    after?: string
-    before?: string
-    limit?: number
-    order?: 'new-to-old' | 'old-to-new'
-  }): Promise<Alert[]> {
+  async function getAll(filter: AlertFilter): Promise<Alert[]> {
     return await client.request('GET', '/api/alerts', {
       query: filter,
     })
   }
 
   function useStream(
-    filter: MaybeRef<ItemStreamFilter>,
+    filter: MaybeRef<AlertFilter>,
     onReceive: (current: Alert) => unknown,
-    options?: MaybeRef<StreamOptions>
+    options?: MaybeRef<Omit<StreamOptions, 'query'>>
   ) {
     client.useStream(
       '/api/alerts',
