@@ -63,7 +63,7 @@ function promptDelete() {
       }
 
       await engine.users.delete(id)
-      notify.success('User deleted successfully.')
+      notify.success(`User "${user.username}" deleted successfully.`)
       navigation.go('/users')
     })
 }

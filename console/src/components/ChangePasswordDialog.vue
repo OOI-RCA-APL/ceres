@@ -38,7 +38,7 @@ const form = useForm({
     if (user == null) {
       notify.error('Failed to change password. Current password is incorrect')
     } else {
-      notify.error('Password changed successfully.')
+      notify.success(`Password for "${user.username}" changed successfully.`)
       onDialogOK()
     }
   },

@@ -51,7 +51,7 @@ const connectionColor = $computed(() => {
         $style.root,
         status.running && $style.running,
         status.enabled && $style.enabled,
-        'cursor-pointer',
+        engine.auth.isOperator && 'cursor-pointer',
       ]"
       rounded
     >
@@ -65,7 +65,13 @@ const connectionColor = $computed(() => {
           <span>{{ status.enabled ? 'Enabled' : 'Disabled' }}</span>
         </template>
       </q-tooltip>
-      <q-menu v-model="menuIsOpen" anchor="top right" class="no-shadow" :offset="[8, 0]">
+      <q-menu
+        v-if="engine.auth.isOperator"
+        v-model="menuIsOpen"
+        anchor="top right"
+        class="no-shadow"
+        :offset="[8, 0]"
+      >
         <q-list bordered class="rounded-corners" dense>
           <q-item clickable @click="status.running ? engine.stop(address) : engine.start(address)">
             <q-item-section>

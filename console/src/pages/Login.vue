@@ -35,7 +35,7 @@ const form = useForm({
   async onSubmit({ username, password }) {
     const identity = await engine.auth.login(username, password)
     if (identity == null) {
-      notify.error('Failed to log in. Incorrect username/email or password.')
+      notify.error('Failed to log in. Incorrect username or password.')
     } else {
       notify.success(`Logged in as "${identity.user.username}".`, {
         icon: icons.user,
@@ -90,6 +90,7 @@ const form = useForm({
           color="primary"
           :disable="form.validation !== 'valid'"
           label="Submit"
+          :loading="form.state === 'submitting'"
           type="submit"
         />
       </q-form>
