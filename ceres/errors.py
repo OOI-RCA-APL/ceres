@@ -8,6 +8,7 @@ from starlette.status import (
     HTTP_403_FORBIDDEN,
     HTTP_404_NOT_FOUND,
     HTTP_409_CONFLICT,
+    HTTP_422_UNPROCESSABLE_ENTITY,
     HTTP_500_INTERNAL_SERVER_ERROR,
 )
 
@@ -211,6 +212,18 @@ class AuthenticationDisabledError(Error):
     type: Literal["authentication-disabled-error"] = "authentication-disabled-error"
 
 
+class ValidationFailedError(Error):
+    __error_status_code__: ClassVar[int] = HTTP_422_UNPROCESSABLE_ENTITY
+    type: Literal["validation-failed-error"] = "validation-failed-error"
+    problems: Sequence[ValidationProblem]
+
+
+class HTTPError(Error):
+    __error_status_code__: ClassVar[int] = HTTP_500_INTERNAL_SERVER_ERROR
+    type: Literal["http-error"] = "http-error"
+    status: int
+
+
 APIError = (
     NotFoundError
     | AlreadyExistsError
@@ -218,6 +231,8 @@ APIError = (
     | NotPermittedError
     | BadCredentialsError
     | AuthenticationDisabledError
+    | ValidationFailedError
+    | HTTPError
 )
 
 

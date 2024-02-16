@@ -12,18 +12,22 @@ from asgiref.typing import (
     Scope,
     WebSocketScope,
 )
-from fastapi import APIRouter, FastAPI, Request, Response
+from fastapi import APIRouter, FastAPI, HTTPException, Request, Response
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.responses import JSONResponse
+from starlette.status import HTTP_422_UNPROCESSABLE_ENTITY
 
 from ceres.alert import Level
 from ceres.data import simplify
-from ceres.errors import Failure
+from ceres.errors import Failure, HTTPError, ValidationFailedError
 from ceres.internal.app.api import router as router__api
 from ceres.internal.app.console import ConsoleFiles
 from ceres.internal.app.shared import CurrentEngine
+from ceres.validation import ValidationProblem
 from ceres.version import __version__
 
 if TYPE_CHECKING:
@@ -82,6 +86,22 @@ class App(FastAPI):
             except Exception:
                 self.engine.log.error(traceback.format_exc())
                 raise
+
+        @self.exception_handler(StarletteHTTPException)
+        async def on_http_exception(
+            request: Request,
+            exception: HTTPException,
+        ) -> Response:
+            error = simplify(HTTPError(status=exception.status_code))
+            return JSONResponse(simplify(error), status_code=exception.status_code)
+
+        @self.exception_handler(RequestValidationError)
+        async def on_request_validation_error(
+            request: Request,
+            exception: RequestValidationError,
+        ) -> Response:
+            error = simplify(ValidationFailedError(problems=ValidationProblem.extract(exception)))
+            return JSONResponse(simplify(error), status_code=HTTP_422_UNPROCESSABLE_ENTITY)
 
         self.add_middleware(
             CORSMiddleware,

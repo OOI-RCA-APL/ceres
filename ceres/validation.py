@@ -1,3 +1,4 @@
+from fastapi.exceptions import RequestValidationError
 from pydantic import ValidationError
 
 from ceres.data import ImmutableDataObject
@@ -9,7 +10,7 @@ class ValidationProblem(ImmutableDataObject):
     type: str
 
     @classmethod
-    def extract(cls, error: ValidationError) -> list["ValidationProblem"]:
+    def extract(cls, error: ValidationError | RequestValidationError) -> list["ValidationProblem"]:
         return [
             ValidationProblem(
                 location=list(segment for segment in error["loc"] if segment != "__root__"),
