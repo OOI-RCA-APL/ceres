@@ -311,7 +311,7 @@ class Engine(Object, kw_only=False):
     ) -> int:
         return await self.__database.count_users(filter, **kwargs)
 
-    async def create_user(self, data: User | UserCreate) -> User:
+    async def create_user(self, data: UserCreate) -> User:
         return await self.__database.create_user(data)
 
     async def update_users(self, filter: UserFilter, assign: UserUpdate) -> int:

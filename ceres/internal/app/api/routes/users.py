@@ -14,7 +14,7 @@ from ceres.internal.app.shared import (
     CurrentRole,
     CurrentUser,
 )
-from ceres.user import User, UserRole, UserUpdate
+from ceres.user import User, UserCreate, UserRole, UserUpdate
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -41,7 +41,7 @@ async def get_users(
 
 
 @router.post("", dependencies=[ADMIN], response_model=APIUser, status_code=HTTP_201_CREATED)
-async def create_user(engine: CurrentEngine, data: User) -> User:
+async def create_user(engine: CurrentEngine, data: UserCreate) -> User:
     return await engine.create_user(data)
 
 

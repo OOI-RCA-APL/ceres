@@ -176,7 +176,7 @@ class UserEntity(Entity, kw_only=True):
     id: Mapped[UUID] = mapped_column(UUIDMapper, default_factory=uuid4)
     username: Mapped[UsernameStr] = mapped_column(Text)
     email: Mapped[EmailStr] = mapped_column(Text)
-    password: Mapped[PasswordHash if TYPE_CHECKING else str] = mapped_column(Text)
+    password: Mapped[PasswordHash] = mapped_column(Text)
     role: Mapped[UserRole] = mapped_column(
         EnumMapper(UserRole),
         default=UserRole.OPERATOR,

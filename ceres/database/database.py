@@ -296,7 +296,7 @@ class Database:
         statement = filter.apply(statement, self.type)
         return await self.__execute_and_get_one(statement, int) or 0
 
-    async def create_user(self, data: User | UserCreate) -> User:
+    async def create_user(self, data: UserCreate) -> User:
         fields = {**data.__dict__}
         fields["password"] = await self.__maybe_hash_password(fields["password"])
         data = User(**fields)
