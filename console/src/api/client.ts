@@ -1,4 +1,5 @@
 import { Address } from '@/address'
+import { ErrorInfo, Failure } from '@/errors'
 import {
   QueryClient,
   QueryKey,
@@ -10,7 +11,7 @@ import {
 } from '@tanstack/vue-query'
 import { defineStore } from 'pinia'
 import { MaybeRef, computed, unref, watchEffect } from 'vue'
-import { ZodAny, ZodError, ZodIssue, ZodTypeAny } from 'zod'
+import { ZodAny, ZodError, ZodTypeAny } from 'zod'
 
 export type RequestMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 export type RequestOptions<TParseModel extends ZodTypeAny = ZodAny> = {
@@ -26,30 +27,6 @@ const defaultRequestInit: RequestInit = {
   headers: {
     'Content-Type': 'application/json',
   },
-}
-
-export type APIErrorType =
-  | 'non-json-response-error'
-  | 'response-parse-error'
-  | 'not-found-error'
-  | 'already-exists-error'
-
-type BaseAPIError = {
-  __error__: true
-}
-
-export type APIError = BaseAPIError &
-  (
-    | { type: 'not-found-error' }
-    | { type: 'non-json-response-error'; message: string }
-    | { type: 'response-parse-error'; issues: ZodIssue[] }
-    | { type: string }
-  )
-
-export class Failure extends Error {
-  constructor(public error: APIError) {
-    super(error.type)
-  }
 }
 
 async function request<TParseModel extends ZodTypeAny = ZodAny>(
@@ -77,8 +54,9 @@ async function request<TParseModel extends ZodTypeAny = ZodAny>(
   }
 
   if (response.status >= 400) {
+    console.log(result)
     console.error(`${method} ${path}: ${response.status}`)
-    throw new Failure(result as APIError)
+    throw new Failure(result as ErrorInfo)
   }
 
   if (parse == null) {
@@ -347,14 +325,3 @@ declare function useQuery<
 
 // @ts-ignore
 export const useQuery = useQueryBase
-
-export function isFailure(value: any, type?: APIErrorType): value is Failure {
-  if (!(value instanceof Failure)) {
-    return false
-  }
-  if (type != null && value.error.type !== type) {
-    return false
-  }
-
-  return true
-}

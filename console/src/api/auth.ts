@@ -26,17 +26,13 @@ export const useAuth = defineStore('auth', () => {
   const identity = ref<Identity | null>(null)
   const users = useUsers()
 
-  async function login(username: string, password: string): Promise<Identity | null> {
-    try {
-      identity.value = await client.post('/api/auth/login', {
-        data: { username, password, cookie: getAuthorizationCookieType() },
-        parse: IdentityModel,
-      })
-      return identity.value
-    } catch (error) {
-      console.log(error)
-      return null
-    }
+  async function login(username: string, password: string): Promise<Identity> {
+    identity.value = await client.post('/api/auth/login', {
+      data: { username, password, cookie: getAuthorizationCookieType() },
+      parse: IdentityModel,
+    })
+
+    return identity.value
   }
 
   async function refresh(): Promise<Identity | null> {
@@ -52,16 +48,13 @@ export const useAuth = defineStore('auth', () => {
     }
   }
 
-  async function logout(): Promise<Identity | null> {
-    try {
-      const result = await client.post('/api/auth/logout', {
-        parse: IdentityModel,
-      })
-      identity.value = null
-      return result
-    } catch (error) {
-      return null
-    }
+  async function logout(): Promise<Identity> {
+    const result = await client.post('/api/auth/logout', {
+      parse: IdentityModel,
+    })
+
+    identity.value = null
+    return result
   }
 
   async function changePassword(oldPassword: string, newPassword: string): Promise<User | null> {

@@ -1,10 +1,9 @@
 <script lang="ts" setup>
-import { isFailure } from '@/api/client'
 import { useEngine } from '@/api/engine'
 import { UserRole } from '@/api/users'
 import CardPage from '@/components/CardPage.vue'
 import { useDialogs } from '@/dialogs'
-import { NotFoundError } from '@/errors'
+import { NotFoundError, guard } from '@/errors'
 import { useForm } from '@/form'
 import icons from '@/icons'
 import { useNavigation } from '@/navigation'
@@ -58,10 +57,6 @@ function promptDelete() {
       message: `Permanently delete the user "${user.username}"?`,
     })
     .onOk(async () => {
-      if (id == null) {
-        return
-      }
-
       await engine.users.delete(id)
       notify.success(`User "${user.username}" deleted successfully.`)
       navigation.go('/users')
@@ -95,33 +90,24 @@ const form = useForm({
   async onSubmit(data) {
     if (id == null) {
       // We're registering a new user.
-      try {
-        var created = await engine.users.create(data)
-      } catch (error) {
-        if (isFailure(error, 'already-exists-error')) {
-          notify.error(`User "${data.username}" already exists.`)
-          return
-        }
-
-        throw error
-      }
+      const created = await guard(engine.users.create(data), [
+        {
+          type: 'already-exists-error',
+          do: () => notify.error(`User "${data.username}" already exists.`),
+        },
+      ])
 
       notify.success(`User "${created.username}" created successfully.`)
       navigation.go(`/users/${created.id}`)
-
       return
     }
 
-    try {
-      var updated = await engine.users.update(id, omit(data, ['password']))
-    } catch (error) {
-      if (isFailure(error, 'already-exists-error')) {
-        notify.error(`User "${data.username}" already exists.`)
-        return
-      }
-
-      throw error
-    }
+    const updated = await guard(engine.users.update(id, omit(data, ['password'])), [
+      {
+        type: 'already-exists-error',
+        do: () => notify.error(`User "${data.username}" already exists.`),
+      },
+    ])
 
     if (isAccountPage) {
       notify.success('Account updated successfully.')

@@ -1,11 +1,11 @@
 <script lang="ts" setup>
 import AppLayoutDrawerComponent from '@/AppLayoutDrawerComponent.vue'
 import { Address } from '@/address'
-import { isFailure } from '@/api/client'
 import { useEngine } from '@/api/engine'
 import ResizeHandle from '@/components/ResizeHandle.vue'
 import { useDialogs } from '@/dialogs'
 import { useDrawer } from '@/drawer'
+import { guard } from '@/errors'
 import icons from '@/icons'
 import { useNotify } from '@/notify'
 import { usePreferences } from '@/preferences'
@@ -66,33 +66,26 @@ function promptReload() {
       },
     })
     .onOk(async () => {
-      try {
-        var result = await engine.reload()
-      } catch (error) {
-        if (isFailure(error)) {
-          notify.error('Configuration reload failed.', {
-            actions: [
-              {
-                label: 'Details',
-                color: 'white',
-                handler: () =>
-                  dialogs.show({
-                    title: 'Error Details',
-                    message: `
+      await guard(engine.reload(), (error) => {
+        notify.error('Configuration reload failed.', {
+          actions: [
+            {
+              label: 'Details',
+              color: 'white',
+              handler: () =>
+                dialogs.show({
+                  title: 'Error Details',
+                  message: `
 <div class="full-width monospace-sm overflow-auto scroll" style="white-space: pre">
-  ${JSON.stringify(result, null, 4)}
+  ${JSON.stringify(error, null, 4)}
 </div>
               `.trim(),
-                    html: true,
-                  }),
-              },
-            ],
-          })
-          return
-        }
-
-        throw error
-      }
+                  html: true,
+                }),
+            },
+          ],
+        })
+      })
 
       notify.success('Configuration reloaded successfully.')
       await engine.auth.refresh()
