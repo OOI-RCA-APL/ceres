@@ -118,6 +118,8 @@ class ComponentFilter(Filter):
 
 
 class _DatabaseFilterArgs(TypedDict, total=False):
+    search: str | None
+    search_field: str | Sequence[str] | None
     id: UUID | Sequence[UUID] | None
     limit: NonNegativeInt | None
     offset: NonNegativeInt | None

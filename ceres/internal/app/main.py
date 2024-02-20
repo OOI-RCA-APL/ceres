@@ -12,12 +12,19 @@ from asgiref.typing import (
     Scope,
     WebSocketScope,
 )
-from fastapi import APIRouter, FastAPI, HTTPException, Request, Response, WebSocketException
+from fastapi import (
+    APIRouter,
+    Depends,
+    FastAPI,
+    HTTPException,
+    Request,
+    Response,
+    WebSocketException,
+)
 from fastapi.dependencies.models import Dependant
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.params import Depends
 from fastapi.responses import FileResponse
 from pydantic import AliasChoices
 from starlette.exceptions import HTTPException as StarletteHTTPException

@@ -1,11 +1,9 @@
-from typing import Annotated
-
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter
 
 from ceres.address import Address
 from ceres.errors import Failure, NotFoundError
 from ceres.filter import ComponentFilter
-from ceres.internal.app.shared import CurrentEngine, CurrentSocket
+from ceres.internal.app.shared import CurrentEngine, CurrentSocket, QueryGroup
 from ceres.status import Status
 
 router = APIRouter(prefix="/statuses", tags=["statuses"])
@@ -27,7 +25,7 @@ class GetStatusesQueryParameters(ComponentFilter):
 @router.get("")
 async def get_statuses(
     engine: CurrentEngine,
-    filter: Annotated[GetStatusesQueryParameters, Depends()],
+    filter: QueryGroup[GetStatusesQueryParameters],
 ) -> list[Status]:
     return await engine.get_statuses(filter)
 
@@ -40,7 +38,7 @@ class StreamStatusesQueryParameters(GetStatusesQueryParameters):
 async def stream_statuses(
     socket: CurrentSocket,
     engine: CurrentEngine,
-    filter: Annotated[StreamStatusesQueryParameters, Depends()],
+    filter: QueryGroup[StreamStatusesQueryParameters],
 ) -> None:
     async for statuses in engine.stream_statuses(filter):
         await socket.send(statuses)

@@ -34,6 +34,7 @@ from ceres.filter import (
     UserFilter,
     UserFilterArgs,
 )
+from ceres.internal.app.main import App
 from ceres.internal.project import Project
 from ceres.internal.server import Server, ServerInternalConfig
 from ceres.internal.utilities import StrEnum, sleep_forever, strify, uniquify
@@ -694,8 +695,6 @@ class Engine(Object, kw_only=False):
 
         config.bind = bind
         config.insecure_bind = insecure_bind
-
-        from ceres.internal.app.main import App
 
         return Server(config, App(self))
 

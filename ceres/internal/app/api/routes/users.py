@@ -1,7 +1,6 @@
-from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter
 from starlette.status import HTTP_201_CREATED
 
 from ceres.errors import Failure, NotFoundError, NotPermittedError
@@ -13,6 +12,7 @@ from ceres.internal.app.shared import (
     CurrentEngine,
     CurrentRole,
     CurrentUser,
+    QueryGroup,
 )
 from ceres.user import User, UserCreate, UserRole, UserUpdate
 
@@ -35,7 +35,7 @@ class GetUsersQueryParameters(UserFilter):
 @router.get("", dependencies=[VIEWER], response_model=list[APIUser])
 async def get_users(
     engine: CurrentEngine,
-    filter: Annotated[GetUsersQueryParameters, Depends()],
+    filter: QueryGroup[GetUsersQueryParameters],
 ) -> list[User]:
     return await engine.get_users(filter)
 

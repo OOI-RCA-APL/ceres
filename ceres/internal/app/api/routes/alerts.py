@@ -1,11 +1,9 @@
-from typing import Annotated
-
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter
 from pydantic import Field
 
 from ceres.alert import Alert, Level
 from ceres.filter import AlertFilter
-from ceres.internal.app.shared import CurrentEngine, CurrentSocket
+from ceres.internal.app.shared import CurrentEngine, CurrentSocket, QueryGroup
 
 router = APIRouter(prefix="/alerts", tags=["alerts"])
 
@@ -20,7 +18,7 @@ class GetAlertsQueryParameters(AlertFilter):
 @router.get("")
 async def get_alerts(
     engine: CurrentEngine,
-    filter: Annotated[GetAlertsQueryParameters, Depends()],
+    filter: QueryGroup[GetAlertsQueryParameters],
 ) -> list[Alert]:
     return await engine.get_alerts(filter)
 
@@ -33,7 +31,7 @@ class StreamAlertsQueryParameters(GetAlertsQueryParameters):
 async def stream_alerts(
     socket: CurrentSocket,
     engine: CurrentEngine,
-    filter: Annotated[StreamAlertsQueryParameters, Depends()],
+    filter: QueryGroup[StreamAlertsQueryParameters],
 ) -> None:
     async for alert in engine.stream_alerts(filter):
         await socket.send(alert)

@@ -1,10 +1,10 @@
-from typing import Annotated
-
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter
 from pydantic import Field
+from pydantic import ValidationError as ValidationError
+from starlette.exceptions import HTTPException as HTTPException
 
 from ceres.filter import MessageFilter
-from ceres.internal.app.shared import CurrentEngine, CurrentSocket
+from ceres.internal.app.shared import CurrentEngine, CurrentSocket, QueryGroup
 from ceres.message import Message
 
 router = APIRouter(prefix="/messages", tags=["messages"])
@@ -18,7 +18,7 @@ class GetMessagesQueryParameters(MessageFilter):
 @router.get("")
 async def get_messages(
     engine: CurrentEngine,
-    filter: Annotated[GetMessagesQueryParameters, Depends()],
+    filter: QueryGroup[GetMessagesQueryParameters],
 ) -> list[Message]:
     return await engine.get_messages(filter)
 
@@ -31,7 +31,7 @@ class StreamMessagesQueryParameters(GetMessagesQueryParameters):
 async def stream_messages(
     socket: CurrentSocket,
     engine: CurrentEngine,
-    filter: Annotated[StreamMessagesQueryParameters, Depends()],
+    filter: QueryGroup[StreamMessagesQueryParameters],
 ) -> None:
     async for message in engine.stream_messages(filter):
         await socket.send(message)

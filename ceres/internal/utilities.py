@@ -1003,3 +1003,13 @@ def lower_camel(string: str) -> str:
 Undefined = object()
 
 PathLike = str | _BasePathLike[str]
+
+
+def call_partial(
+    function: Callable[_P, _T],
+    *args: _P.args,
+    **kwargs: _P.kwargs,
+) -> _T:
+    parameters = inspect.signature(function).parameters
+    applied_kwargs = {key: value for key, value in kwargs.items() if key in parameters}
+    return function(*args, **applied_kwargs)  # type: ignore

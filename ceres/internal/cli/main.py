@@ -31,6 +31,7 @@ from ceres.internal.cli.shared import (
 )
 from ceres.internal.cli.subcommands.alert import router as subcommand__alert
 from ceres.internal.cli.subcommands.database import router as subcommand__database
+from ceres.internal.cli.subcommands.generate import router as subcommand__generate
 from ceres.internal.cli.subcommands.log_entry import router as subcommand__log_entry
 from ceres.internal.cli.subcommands.message import router as subcommand__message
 from ceres.internal.cli.subcommands.service import router as subcommand__service
@@ -44,7 +45,6 @@ from ceres.internal.utilities import (
     temporary_signal_handler,
     wait_any,
 )
-from ceres.internal.cli.subcommands.generate import router as subcommand__generate
 from ceres.object import Status
 from ceres.result import Fail, Ok
 from ceres.threading import spawn

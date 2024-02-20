@@ -21,7 +21,13 @@ class LazyExport:
 
         from importlib import import_module
 
-        module = import_module(path, package=__package__)
+        try:
+            module = import_module(path, package=__package__)
+        except Exception as exception:
+            raise ImportError(
+                f"cannot import name {name} from {path} due to exception"
+            ) from exception
+
         return getattr(module, name)
 
     def __sync_mapping(self) -> dict[str, str]:
