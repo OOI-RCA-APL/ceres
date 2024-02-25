@@ -44,18 +44,6 @@ from ceres.message import MessageDirection
 from ceres.user import UserRole
 
 
-def _sql(statement: str, *, indent: int = 0) -> str:
-    statement = textwrap.dedent(statement).strip()
-    import sqlparse
-
-    sqlparse.format(statement, keyword_case="upper").strip()
-    statement = statement.rstrip(";")
-    statement += ";"
-    if indent:
-        statement = textwrap.indent(statement, " " * (indent * 4))
-    return statement
-
-
 def _compile(dialect: AsyncEngine | Engine | Dialect, element: ClauseElement) -> str:
     if isinstance(dialect, Engine):
         dialect = dialect.dialect
