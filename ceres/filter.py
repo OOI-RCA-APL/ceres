@@ -131,20 +131,25 @@ _ObjectT = TypeVar("_ObjectT", bound=User | Message | Alert | LogEntry)
 class _DatabaseFilter(Filter, Generic[_ObjectT], ABC):
     search: Annotated[str | None, CLIOption(str | None)] = Field(
         default=None,
-        description="Filter by text content.",
+        description="Filter by text content of field(s) in `search-field`.",
     )
     search_field: Annotated[str | Sequence[str] | None, CLIOption(list[str] | None)] = Field(
         default=None,
-        description="Fields to search. Defaults to all.",
+        description="Field(s) matched by `search`. Defaults to all.",
     )
     id: Annotated[UUID | Sequence[UUID] | None, CLIOption(list[UUID])] = Field(
-        default=None, description="Filter by ID(s)"
+        default=None,
+        description="Filter by ID(s).",
     )
     limit: Annotated[NonNegativeInt | None, CLIOption(int | None)] = Field(
-        default=None, description="Limit number of returned results.", ge=0
+        default=None,
+        description="Limit the number of returned results.",
+        ge=0,
     )
     offset: Annotated[NonNegativeInt | None, CLIOption(int | None)] = Field(
-        default=None, description="Skip over a given number of results.", ge=0
+        default=None,
+        description="Skip over a given number of results.",
+        ge=0,
     )
 
     @abstractmethod
@@ -330,12 +335,30 @@ class _ItemFilterArgs(_DatabaseFilterArgs, total=False):
 
 
 class _ItemFilter(_DatabaseFilter[_ItemT], ABC):
-    root: Annotated[Address, CLIOption(str | None)] = Address.root()
-    address: Annotated[AddressSelector | None, CLIOption(str | None)] = None
-    within: Annotated[PositiveTimeDelta | None, CLIOption(str | None)] = None
-    after: Annotated[DateTime | None, CLIOption(datetime)] = None
-    before: Annotated[DateTime | None, CLIOption(datetime)] = None
-    order: Annotated[_ItemOrderInput | None, CLIOption(_ItemOrderInput | None)] = None
+    address: Annotated[AddressSelector | None, CLIOption(str | None)] = Field(
+        default=None,
+        description="Filter by associated address.",
+    )
+    root: Annotated[Address, CLIOption(str | None)] = Field(
+        default=Address.root(),
+        description="The root address relative `address` selectors are mapped to.",
+    )
+    within: Annotated[PositiveTimeDelta | None, CLIOption(str | None, metavar="DURATION")] = Field(
+        default=None,
+        description="Filter by age.",
+    )
+    after: Annotated[DateTime | None, CLIOption(datetime)] = Field(
+        default=None,
+        description="Filter by minimum timestamp.",
+    )
+    before: Annotated[DateTime | None, CLIOption(datetime)] = Field(
+        default=None,
+        description="Filter by maximum timestamp.",
+    )
+    order: Annotated[_ItemOrderInput | None, CLIOption(_ItemOrderInput | None)] = Field(
+        default=None,
+        description="Specify result order.",
+    )
 
     @override
     def matches(self, obj: _ItemT) -> bool:  # type: ignore
@@ -422,11 +445,26 @@ class MessageFilterArgs(_ItemFilterArgs, total=False):
 
 
 class MessageFilter(_ItemFilter[Message]):
-    direction: Annotated[MessageDirection | None, CLIOption(MessageDirection | None)] = None
-    content_contains: Annotated[MessageContent | None, CLIOption(str | None)] = None
-    content_prefix: Annotated[MessageContent | None, CLIOption(str | None)] = None
-    content_suffix: Annotated[MessageContent | None, CLIOption(str | None)] = None
-    order: Annotated[MessageOrder | None, CLIOption(MessageOrder | None)] = None
+    direction: Annotated[MessageDirection | None, CLIOption(MessageDirection | None)] = Field(
+        default=None,
+        description="Filter by message direction.",
+    )
+    content_contains: Annotated[MessageContent | None, CLIOption(str | None)] = Field(
+        default=None,
+        description="Filter, keeping only messages with content that contains the given bytes.",
+    )
+    content_prefix: Annotated[MessageContent | None, CLIOption(str | None)] = Field(
+        default=None,
+        description="Filter, keeping only messages with content that starts with the given bytes.",
+    )
+    content_suffix: Annotated[MessageContent | None, CLIOption(str | None)] = Field(
+        default=None,
+        description="Filter, keeping only messages with content that ends with the given bytes.",
+    )
+    order: Annotated[MessageOrder | None, CLIOption(MessageOrder | None)] = Field(
+        None,
+        description="Specify result order.",
+    )
 
     @override
     def matches(self, obj: Message) -> bool:
@@ -509,12 +547,30 @@ class AlertFilterArgs(_ItemFilterArgs, total=False):
 
 
 class AlertFilter(_ItemFilter[Alert]):
-    level: Annotated[Level | Sequence[Level] | None, CLIOption(list[Level] | None)] = None
-    code: Annotated[str | Sequence[str] | None, CLIOption(list[str] | None)] = None
-    code_contains: Annotated[str | None, CLIOption(str | None)] = None
-    code_prefix: Annotated[str | None, CLIOption(str | None)] = None
-    code_suffix: Annotated[str | None, CLIOption(str | None)] = None
-    order: Annotated[AlertOrder | None, CLIOption(AlertOrder | None)] = None
+    level: Annotated[Level | Sequence[Level] | None, CLIOption(list[Level] | None)] = Field(
+        default=None,
+        description="Filter by alert level(s).",
+    )
+    code: Annotated[str | Sequence[str] | None, CLIOption(list[str] | None)] = Field(
+        default=None,
+        description="Filter by alert code(s).",
+    )
+    code_contains: Annotated[str | None, CLIOption(str | None)] = Field(
+        default=None,
+        description="Filter, keeping only alerts with codes that contain the given string.",
+    )
+    code_prefix: Annotated[str | None, CLIOption(str | None)] = Field(
+        default=None,
+        description="Filter, keeping only alerts with codes that start with the given string.",
+    )
+    code_suffix: Annotated[str | None, CLIOption(str | None)] = Field(
+        default=None,
+        description="Filter, keeping only alerts with codes that end with the given string.",
+    )
+    order: Annotated[AlertOrder | None, CLIOption(AlertOrder | None)] = Field(
+        default=None,
+        description="Specify result order.",
+    )
 
     @override
     def matches(self, obj: Alert) -> bool:
@@ -597,11 +653,26 @@ class LogEntryFilterArgs(_ItemFilterArgs, total=False):
 
 
 class LogEntryFilter(_ItemFilter[LogEntry]):
-    level: Annotated[Level | Sequence[Level] | None, CLIOption(list[Level] | None)] = None
-    content_contains: Annotated[str | None, CLIOption(str | None)] = None
-    content_prefix: Annotated[str | None, CLIOption(str | None)] = None
-    content_suffix: Annotated[str | None, CLIOption(str | None)] = None
-    order: Annotated[LogEntryOrder | None, CLIOption(LogEntryOrder | None)] = None
+    level: Annotated[Level | Sequence[Level] | None, CLIOption(list[Level] | None)] = Field(
+        default=None,
+        description="Filter by log level(s).",
+    )
+    content_contains: Annotated[str | None, CLIOption(str | None)] = Field(
+        default=None,
+        description="Filter, keeping only log entries with content that contain the given string.",
+    )
+    content_prefix: Annotated[str | None, CLIOption(str | None)] = Field(
+        default=None,
+        description="Filter, keeping only log entries with content that starts with the given string.",
+    )
+    content_suffix: Annotated[str | None, CLIOption(str | None)] = Field(
+        default=None,
+        description="Filter, keeping only log entries with content that ends with the given string.",
+    )
+    order: Annotated[LogEntryOrder | None, CLIOption(LogEntryOrder | None)] = Field(
+        default=None,
+        description="Specify result order.",
+    )
 
     @override
     def matches(self, obj: LogEntry) -> bool:
