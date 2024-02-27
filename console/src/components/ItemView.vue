@@ -141,7 +141,7 @@ async function onScroll() {
 
 watchEffect((onCleanup) => {
   const element = container
-  element?.addEventListener('scroll', onScroll)
+  element?.addEventListener('scroll', onScroll, { passive: true })
   void onScroll()
   onCleanup(() => {
     element?.removeEventListener('scroll', onScroll)
