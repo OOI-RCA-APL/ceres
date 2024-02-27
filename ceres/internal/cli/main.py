@@ -1,6 +1,5 @@
 import asyncio
 import signal
-import traceback
 from asyncio import CancelledError
 from asyncio import Event as AsyncEvent
 from pathlib import Path
@@ -306,7 +305,6 @@ async def status(
             result=list[Status],
         )
     except ClientError:
-        traceback.print_exc()
         statuses = None
 
     running = statuses is not None
