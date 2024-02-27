@@ -3,24 +3,23 @@ import { useEngine } from '@/api/engine'
 import CardPage from '@/components/CardPage.vue'
 import icons from '@/icons'
 import { debouncedComputed } from '@/utilities'
-import { useQuery } from '@tanstack/vue-query'
+import { keepPreviousData, useQuery } from '@tanstack/vue-query'
 
 const engine = useEngine()
 
 const search = $ref('')
 const query = useQuery({
-  queryKey: ['users'],
-  queryFn: engine.users.getAll,
+  queryKey: debouncedComputed(() => ['users', search], 100),
+  queryFn: async () =>
+    engine.users.getAll({
+      search,
+      search_field: ['username', 'email'],
+    }),
+  placeholderData: keepPreviousData,
 })
 
 await query.suspense()
-const users = debouncedComputed(
-  () =>
-    query.data.value?.filter(
-      (user) => user.username.includes(search) || user.email.includes(search)
-    ) ?? [],
-  100
-)
+const users = $computed(() => query.data.value ?? [])
 </script>
 
 <template>
@@ -30,7 +29,7 @@ const users = debouncedComputed(
       <q-btn flat :icon="icons.add" padding="none" round to="/users/create" />
     </template>
     <q-card-section>
-      <q-input v-model="search" class="q-mb-md" dense standout>
+      <q-input v-model="search" class="q-mb-md" dense :loading="query.isLoading.value" standout>
         <template #prepend>
           <q-icon :name="icons.search" />
         </template>

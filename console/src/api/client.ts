@@ -239,6 +239,16 @@ function createQueryParameters(values: Record<string, unknown>): string {
   const result = new URLSearchParams()
   for (const key of keys) {
     let value = values[key]
+    if (Array.isArray(value)) {
+      for (const element of value) {
+        if (element != undefined) {
+          result.append(key, String(element.valueOf()))
+        }
+      }
+
+      continue
+    }
+
     if (typeof value === 'object') {
       if (typeof value?.valueOf() === 'string') {
         value = value.valueOf()

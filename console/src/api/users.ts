@@ -1,4 +1,5 @@
 import { useClient } from '@/api/client'
+import { UserFilter } from '@/api/filter'
 import { defineStore } from 'pinia'
 import Zod from 'zod'
 
@@ -27,8 +28,9 @@ export const useUsers = defineStore('users', () => {
     }
   }
 
-  async function getAll(): Promise<User[]> {
+  async function getAll(filter?: UserFilter): Promise<User[]> {
     return await client.get(`/api/users`, {
+      query: filter,
       parse: Zod.array(UserModel),
     })
   }
