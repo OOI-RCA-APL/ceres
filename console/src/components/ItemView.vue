@@ -55,7 +55,7 @@ const useStream = $computed(() => {
     case 'alert':
       return engine.alerts.useStream
     case 'log-entry':
-      return engine.alerts.useStream
+      return engine.logs.useStream
   }
 })
 
