@@ -4,50 +4,18 @@ import warnings
 from contextlib import contextmanager
 from functools import wraps
 from pathlib import Path
-from typing import IO, TYPE_CHECKING, Any, Sequence
+from typing import IO, Annotated, Any, Callable, Literal, Mapping, Sequence, TypeVar, overload
 
-from typer import Option, Typer
+import typer
+from click import ParamType
+from pydantic import Field, field_validator
 
 from ceres.config import Config, ConfigCheckType
-from ceres.data import jsonify
-from ceres.internal.cli.exceptions import CLIInvalidConfigException
+from ceres.data import FromYAML, ImmutableDataObject, NonEmpty, jsonify
+from ceres.internal.cli.plumbing import CLICommandFailed, CLIContext, CLIOption
 from ceres.internal.project import Project
-from ceres.internal.utilities import syncify
+from ceres.internal.utilities import is_non_stringy_collection
 from ceres.result import Ok
-
-
-class CLIRouter(Typer):
-    def __init__(self, *, name: str, help: str | None = None):
-        super().__init__(
-            name=name,
-            help=help,
-            add_completion=False,
-            no_args_is_help=True,
-            rich_markup_mode="markdown",
-        )
-
-    if not TYPE_CHECKING:
-
-        @wraps(Typer.command)
-        def command(self, *args, **kwargs):
-            base = super()
-
-            def decorator(function):
-                base.command(*args, **kwargs)(syncify(function))
-                return function
-
-            return decorator
-
-        @wraps(Typer.callback)
-        def callback(self, *args, **kwargs):
-            base = super()
-
-            def decorator(function):
-                base.callback(*args, **kwargs)(syncify(function))
-                return function
-
-            return decorator
-
 
 chdir = os.chdir
 
@@ -60,25 +28,36 @@ def disable_chdir() -> None:
     os.chdir = __disabled_chdir__
 
 
-def get_config_path(config_path: Path | None) -> Path:
+POSSIBLE_CONFIG_NAMES = [
+    "ceres.yaml",
+    "ceres.yml",
+    "ceres.json",
+]
+
+
+@overload
+def get_config_path(config_path: Path | None, required: Literal[True]) -> Path: ...
+
+
+@overload
+def get_config_path(config_path: Path | None, required: Literal[False] = False) -> Path | None: ...
+
+
+def get_config_path(config_path: Path | None = None, required: bool = False) -> Path | None:
     if config_path is None:
-        possibilities = [
-            Path(name)
-            for name in (
-                "ceres.yaml",
-                "ceres.yml",
-                "ceres.json",
-            )
-        ]
+        possibilities = [Path(name) for name in POSSIBLE_CONFIG_NAMES]
 
         for possibility in possibilities:
             if possibility.is_file():
                 config_path = possibility
                 break
         else:
-            raise CLIInvalidConfigException(
-                f"Must be in a directory containing one of: {possibilities}"
-            )
+            if required:
+                raise CLICommandFailed(
+                    f"Must be in a directory containing one of: {POSSIBLE_CONFIG_NAMES}"
+                )
+
+            return None
 
     config_path = config_path.absolute()
     chdir(config_path.parent)
@@ -90,89 +69,94 @@ def get_config_path(config_path: Path | None) -> Path:
 async def get_config(
     config_path: Path | None,
     checks: Sequence[ConfigCheckType],
+    silent: bool = False,
 ) -> Config:
     import rich
 
     match await Config.load(
-        get_config_path(config_path),
-        log=rich.print,
+        get_config_path(config_path, required=True),
+        log=rich.print if not silent else lambda *args: None,
         checks=checks,
     ):
         case Ok(config):
             return config
         case fail:
-            raise CLIInvalidConfigException(
-                f"Failed to load configuration. {jsonify(fail, indent=2)}"
-            )
+            raise CLICommandFailed(f"Failed to load configuration. {jsonify(fail, indent=2)}")
 
 
-async def get_project(
-    config_path: Path | None,
-    checks: Sequence[ConfigCheckType],
+async def use_config_path(context: CLIContext) -> Path:
+    config_path = context.meta.get("config_path")
+    if config_path is None:
+        raise CLICommandFailed(f"Must be in a directory containing one of: {POSSIBLE_CONFIG_NAMES}")
+
+    return config_path
+
+
+async def use_config(
+    context: CLIContext,
+    checks: Sequence[ConfigCheckType] = (),
+    silent: bool = False,
+) -> Config:
+    config_path = await use_config_path(context)
+    return await get_config(config_path, checks, silent)
+
+
+async def use_project(
+    context: CLIContext,
+    checks: Sequence[ConfigCheckType] = (),
+    silent: bool = False,
 ) -> Project:
+    config_path = await use_config_path(context)
     return Project(
-        get_config_path(config_path),
-        await get_config(config_path, checks),
+        get_config_path(config_path, required=True),
+        await get_config(config_path, checks, silent),
     )
 
 
-def ConfigPathOption() -> Any:
-    return Option(
-        None,
-        "--config",
-        exists=True,
-        resolve_path=True,
-        dir_okay=False,
-        callback=get_config_path,
+@wraps(typer.confirm)
+def get_confirmation(
+    text: str,
+    default: bool | None = False,
+    abort: bool = False,
+    prompt_suffix: str = ": ",
+    show_default: bool = True,
+    err: bool = False,
+) -> bool:
+    return typer.confirm(
+        text=text,
+        default=default,
+        abort=abort,
+        prompt_suffix=prompt_suffix,
+        show_default=show_default,
+        err=err,
     )
 
 
-def ConfigOption(*, checks: Sequence[ConfigCheckType] = ()) -> Any:
-    async def callback(config_path: Path = ConfigPathOption()) -> Config:
-        return await get_config(config_path, checks)
-
-    return Option(
-        None,
-        "--config",
-        help="Provide an explicit path to a Ceres configuration file.",
-        exists=True,
-        resolve_path=True,
-        dir_okay=False,
-        callback=syncify(callback),
+@wraps(typer.prompt)
+def get_input(
+    text: str,
+    default: Any | None = None,
+    hide_input: bool = False,
+    confirmation_prompt: bool | str = False,
+    type: ParamType | Any | None = None,
+    value_proc: Callable[[str], Any] | None = None,
+    prompt_suffix: str = ": ",
+    show_default: bool = True,
+    err: bool = False,
+    show_choices: bool = True,
+) -> Any:
+    return typer.prompt(
+        text=text,
+        default=default,
+        hide_input=hide_input,
+        confirmation_prompt=confirmation_prompt,
+        type=type,
+        value_proc=value_proc,
+        prompt_suffix=prompt_suffix,
+        show_default=show_default,
+        err=err,
+        show_choices=show_choices,
     )
-
-
-def ProjectOption(*, checks: Sequence[ConfigCheckType] = ()) -> Any:
-    async def callback(config_path: Path = ConfigPathOption()) -> Project:
-        return await get_project(config_path, checks)
-
-    return Option(
-        None,
-        "--config",
-        help="Provide an explicit path to a Ceres configuration file.",
-        exists=True,
-        resolve_path=True,
-        dir_okay=False,
-        callback=syncify(callback),
-    )
-
-
-def get_yes_no(prompt: str, default: bool | None = None) -> bool:
-    while True:
-        if default is None:
-            default_indicator = "y/n"
-        elif default:
-            default_indicator = "Y/n"
-        else:
-            default_indicator = "y/N"
-
-        text = input(f"{prompt} ({default_indicator}): ").lower()
-        if default is not None and text == "":
-            return default
-        if text in ("yes", "y"):
-            return True
-        if text in ("no", "n"):
-            return False
 
 
 def write(
@@ -205,3 +189,78 @@ def write_table(title: str | None = None):
 
 def strbool(value: bool) -> str:
     return "Yes" if value else "No"
+
+
+async def get_database(config: Config, *, initialized: bool = False):
+    from ceres.database.database import Database
+
+    database = Database(config.database)
+
+    try:
+        async with database.connect():
+            pass
+    except Exception:
+        raise CLICommandFailed("Failed to connect to database.")
+
+    if initialized:
+        if not await database.initialized():
+            raise CLICommandFailed("Database appears uninitialized, exiting.")
+
+    return database
+
+
+async def use_database(
+    context: CLIContext,
+    *,
+    initialized: bool = False,
+):
+    from ceres.database.database import Database
+
+    config = await use_config(context)
+    database = Database(config.database)
+
+    try:
+        async with database.connect():
+            pass
+    except Exception:
+        raise CLICommandFailed("Failed to connect to database.")
+
+    if initialized:
+        if not await database.initialized():
+            raise CLICommandFailed("Database appears uninitialized, exiting.")
+
+    return database
+
+
+async def use_temporary_engine(
+    context: CLIContext,
+    checks: Sequence[ConfigCheckType] = (ConfigCheckType.DATABASE,),
+    silent: bool = True,
+):
+    from ceres.engine import Engine
+
+    config = await use_config(
+        context,
+        checks=checks,
+        silent=silent,
+    )
+    return Engine(config)
+
+
+class ValidateEmptyAsNone(ImmutableDataObject):
+    @field_validator("*")
+    def __validate_empty_as_none(cls, value: Any) -> Any:
+        if is_non_stringy_collection(value) and len(value) == 0:
+            return None
+
+        return value
+
+
+Confirm = Annotated[bool, Field(description="Ask before executing."), CLIOption(bool)]
+
+_TFields = TypeVar("_TFields", bound=Mapping[Any, Any])
+Assign = Annotated[
+    NonEmpty[FromYAML[_TFields]],
+    Field(description="Field(s) to assign, passed as a non-empty JSON or YAML object."),
+    CLIOption(str, metavar="JSON/YAML"),
+]

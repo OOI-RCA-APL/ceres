@@ -1,17 +1,21 @@
 <script lang="ts" setup>
+import { Address } from '@/address'
+import { useEngine } from '@/api/engine'
 import CommonText from '@/components/CommonText.vue'
 import Interface from '@/components/Interface.vue'
-import { useStore } from '@/store'
+import { useInterfaceContext } from '@/interface'
 
-const store = useStore()
-await store.fetchComponents()
+useInterfaceContext('page/dashboard')
 
-const renderer = $computed(() => {
-  if (store.console?.dashboard == null) {
+const engine = useEngine()
+await engine.config.suspense()
+
+const renderer = $computed<Address | null>(() => {
+  if (engine.config.console == null) {
     return null
   }
 
-  return store.getComponent(store.console.dashboard)
+  return engine.config.console.dashboard as Address
 })
 </script>
 
@@ -22,7 +26,7 @@ const renderer = $computed(() => {
     </div>
     <q-separator />
     <div class="q-pa-sm">
-      <interface v-if="renderer != null" :component="renderer" />
+      <interface v-if="renderer != null" :address="renderer" />
       <div v-else class="q-py-lg text-center" :style="{ opacity: 0.5 }">
         No dashboard component configured.
       </div>

@@ -3,39 +3,41 @@ import signal
 from asyncio import CancelledError
 from asyncio import Event as AsyncEvent
 from pathlib import Path
-from typing import Annotated, Any, Mapping, TypeVar
+from typing import Annotated, Any, Optional, Sequence
 
-from click import ParamType
-from pydantic import BaseModel
-from typer import Argument, Option
+from typer import Exit, Option
 
 from ceres.address import AddressSelector
 from ceres.config import Config
-from ceres.data import jsonify, simplify
+from ceres.data import jsonify
 from ceres.engine import Engine
-from ceres.exceptions import EngineException
 from ceres.filter import ComponentFilter
-from ceres.internal import logs
-from ceres.internal.cli.exceptions import (
-    CLIEngineNotRunningException,
-    CLIInvalidConfigException,
-    CLIStartupException,
+from ceres.internal.cli.client import Client
+from ceres.internal.cli.plumbing import (
+    CLIArgument,
+    CLICommandFailed,
+    CLIContext,
+    CLIOption,
+    CLIRouter,
 )
 from ceres.internal.cli.shared import (
-    CLIRouter,
-    ConfigPathOption,
-    ProjectOption,
+    get_config_path,
     strbool,
+    use_config_path,
+    use_project,
     write,
     write_table,
 )
-from ceres.internal.cli.subcommands.database import router as database
-from ceres.internal.cli.subcommands.service import router as service
-from ceres.internal.project import Project
+from ceres.internal.cli.subcommands.alert import router as subcommand__alert
+from ceres.internal.cli.subcommands.database import router as subcommand__database
+from ceres.internal.cli.subcommands.generate import router as subcommand__generate
+from ceres.internal.cli.subcommands.log_entry import router as subcommand__log_entry
+from ceres.internal.cli.subcommands.message import router as subcommand__message
+from ceres.internal.cli.subcommands.service import router as subcommand__service
+from ceres.internal.cli.subcommands.user import router as subcommand__user
 from ceres.internal.utilities import (
     cancel,
     ensure_event_loop,
-    get_type_adapter,
     set_current_process_name,
     strify,
     syncify,
@@ -52,34 +54,64 @@ router = CLIRouter(
     help=f"Ceres CLI — Package Version {__version__}",
 )
 
-router.add_typer(database)
-router.add_typer(service)
+router.add_typer(subcommand__alert)
+router.add_typer(subcommand__database)
+router.add_typer(subcommand__generate)
+router.add_typer(subcommand__log_entry)
+router.add_typer(subcommand__message)
+router.add_typer(subcommand__service)
+router.add_typer(subcommand__user)
 
 
-@router.command()
-def version() -> None:
-    """
-    Show the current Ceres version number.
-    """
-    write(__version__)
+@router.callback(invoke_without_command=True)
+def setup(
+    *,
+    version: Annotated[
+        bool,
+        Option("--version", help="Show the current Ceres version number."),
+    ] = False,
+    config: Annotated[
+        Optional[Path],
+        Option(
+            "--config",
+            help="Optional, explicit path to configuration file.",
+            exists=True,
+            resolve_path=True,
+            dir_okay=False,
+        ),
+    ] = None,
+    context: CLIContext,
+) -> None:
+    if version:
+        write(__version__)
+        raise Exit()
+
+    ensure_event_loop()
+    config = get_config_path(config)
+    context.meta["config_path"] = config
 
 
 @router.command()
 async def run(
-    addresses: list[str] = Argument(
-        None,
-        help="Addresses of components to run on startup.",
-    ),
+    addresses: Annotated[
+        Sequence[AddressSelector],
+        CLIArgument(list[str], help="Addresses of components to run on startup."),
+    ],
     *,
-    config_path: Path = ConfigPathOption(),
-    watch: bool = Option(
-        False,
-        help="Automatically restart the application on code changes.",
-    ),
+    watch: Annotated[
+        bool,
+        CLIOption(bool, help="Automatically restart the application on code changes."),
+    ] = False,
+    context: CLIContext,
 ) -> None:
     """
     Start the engine as a foreground process.
     """
+    config_path = await use_config_path(context)
+    await _run(addresses, config_path=config_path, watch=watch)
+
+
+async def _run(addresses: Sequence[AddressSelector], *, config_path: Path, watch: bool) -> None:
     address = AddressSelector(addresses) if addresses else None
 
     try:
@@ -92,7 +124,7 @@ async def run(
                 case Ok():
                     pass
                 case Fail(errors):
-                    raise CLIInvalidConfigException(
+                    raise CLICommandFailed(
                         f"Failed to load configuration. {jsonify(Fail(errors), indent=2)}"
                     )
 
@@ -101,7 +133,7 @@ async def run(
                 case Ok():
                     pass
                 case Fail() as fail:
-                    raise CLIInvalidConfigException(
+                    raise CLICommandFailed(
                         f"Failed to load configuration. {jsonify(fail, indent=2)}"
                     )
 
@@ -128,28 +160,8 @@ async def run(
 
             with temporary_signal_handler([signal.SIGINT, signal.SIGTERM], handle_exit_signal):
                 await main()
-    except EngineException as exception:
-        raise CLIStartupException(f"Engine startup failed. {exception.message}")
-
-
-@router.command()
-async def check(*, config_path: Path = ConfigPathOption()) -> None:
-    """
-    Validate project configuration (ceres.yaml) for errors.
-    """
-    match await Config.load(config_path, log=write):
-        case Ok():
-            write("All checks passed.")
-        case fail:
-            raise CLIInvalidConfigException(
-                f"Failed to load configuration. {jsonify(fail, indent=2)}"
-            )
-
-
-@router.callback()
-def setup() -> None:
-    ensure_event_loop()
-    logs.setup()
+    except Exception as exception:
+        raise CLICommandFailed(f"Engine startup failed. {exception}")
 
 
 def _run_sync(
@@ -158,7 +170,7 @@ def _run_sync(
     config_path: Path,
     watch: bool,
 ) -> None:
-    syncify(run)(addresses=[address] if address else [], config_path=config_path, watch=watch)
+    syncify(_run)(addresses=[address] if address else [], config_path=config_path, watch=watch)
 
 
 async def _run_watch(
@@ -237,117 +249,53 @@ async def _run_watch(
             await cancel(task)
 
 
-_T = TypeVar("_T")
-
-
-class APIClient:
-    def __init__(self, project: Project) -> None:
-        self.project = project
-
-    async def online(self) -> bool:
-        try:
-            await self.get("/status", result=Status)
-        except Exception:
-            return False
-
-        return True
-
-    async def request(
-        self,
-        method: str,
-        path: str,
-        *,
-        data: object = None,
-        params: BaseModel | Mapping[str, object] | None = None,
-        result: type[_T],
-    ) -> _T:
-        path = "/api/" + path.lstrip("/")
-        path = f"http+unix://{str(self.project.socket_path).replace('/', '%2F')}{path}"
-
-        if isinstance(params, BaseModel):
-            params = {
-                key: str(value) for key, value in params.model_dump(exclude_defaults=True).items()
-            }
-
-        from aiohttp import ClientSession, UnixConnector
-
-        async with ClientSession(connector=UnixConnector(str(self.project.socket_path))) as session:
-            async with session.request(
-                method,
-                path,
-                json=simplify(data),
-                params=params,
-            ) as response:
-                return get_type_adapter(result).validate_python(await response.json())
-
-    async def get(
-        self,
-        path: str,
-        *,
-        params: BaseModel | Mapping[str, object] | None = None,
-        result: type[_T],
-    ) -> _T:
-        return await self.request("GET", path, params=params, result=result)
-
-    async def post(
-        self,
-        path: str,
-        data: object | None = None,
-        *,
-        params: BaseModel | Mapping[str, object] | None = None,
-        parse: type[_T] = Any,
-    ) -> _T:
-        return await self.request("POST", path, data=data, params=params, result=parse)
+@router.command()
+async def check(*, context: CLIContext) -> None:
+    """
+    Validate project configuration (ceres.yaml) for errors.
+    """
+    config_path = await use_config_path(context)
+    match await Config.load(config_path, log=write):
+        case Ok():
+            write("All checks passed.")
+        case fail:
+            raise CLICommandFailed(f"Failed to load configuration. {jsonify(fail, indent=2)}")
 
 
 @router.command()
-async def reload(*, project: Project = ProjectOption()) -> None:
+async def reload(*, context: CLIContext) -> None:
     """
     Apply configuration changes.
     """
-    from aiohttp import ClientError
 
-    client = APIClient(project)
+    project = await use_project(context)
+    client = Client(project)
 
-    try:
-        await client.post("/reload")
-    except ClientError:
-        raise CLIEngineNotRunningException("Engine is not running or not accessible at the moment.")
-
-
-class AddressPatternParser(ParamType):
-    name = "AddressPattern"
-
-    def convert(self, value: str, param: object, ctx: object) -> AddressSelector:
-        return AddressSelector(value)
-
-
-AddressPatternInput = Annotated[
-    AddressSelector,
-    Argument(click_type=AddressPatternParser()),
-]
+    await client.post("/reload")
 
 
 @router.command()
 async def status(
-    addresses: list[str] = Argument(
-        None,
-        help="Addresses of components to show the status of.",
-    ),
+    addresses: Annotated[
+        Sequence[AddressSelector] | None,
+        CLIArgument(list[str] | None, help="Addresses of components to show the status of."),
+    ] = None,
     *,
-    project: Project = ProjectOption(),
+    context: CLIContext,
 ) -> None:
     """
     Show engine and component statuses.
     """
     from aiohttp import ClientError
 
-    from ceres.internal.app import GetStatusesQueryParameters
+    from ceres.internal.app.api.routes.statuses import GetStatusesQueryParameters
+
+    project = await use_project(context)
 
     if not addresses:
-        addresses = ["all"]
+        addresses = [AddressSelector("all")]
 
-    client = APIClient(project)
+    client = Client(project)
     address = AddressSelector(addresses if addresses else "all")
 
     try:
@@ -390,125 +338,141 @@ async def status(
 
 @router.command()
 async def start(
-    addresses: list[str] = Argument(
-        help="Addresses of components to start.",
-    ),
+    addresses: Annotated[
+        Sequence[AddressSelector],
+        CLIArgument(list[str], help="Addresses of components to start."),
+    ],
     *,
-    project: Project = ProjectOption(),
+    context: CLIContext,
 ) -> None:
     """
     Start components at the provided address(s).
     """
-    client = APIClient(project)
-    address = AddressSelector(addresses)
+    project = await use_project(context)
+    client = Client(project)
+    address = AddressSelector(addresses or [])
     query = ComponentFilter(address=address)
-    from ceres.internal.app import StartResult
+    from ceres.internal.app.api import StartResult
 
-    result = await client.post("/start", query, parse=StartResult)
+    result = await client.post("/start", query, result=StartResult)
 
     write(result)
 
 
 @router.command()
 async def stop(
-    addresses: list[str] = Argument(
-        help="Addresses of components to stop.",
-    ),
+    addresses: Annotated[
+        Sequence[AddressSelector],
+        CLIArgument(list[str], help="Addresses of components to stop."),
+    ],
     *,
-    project: Project = ProjectOption(),
+    context: CLIContext,
 ) -> None:
     """
     Stop components at the provided address(s).
     """
-    client = APIClient(project)
+    project = await use_project(context)
+    client = Client(project)
     address = AddressSelector(addresses)
     query = ComponentFilter(address=address)
-    from ceres.internal.app import StopResult
+    from ceres.internal.app.api import StopResult
 
-    result = await client.post("/stop", query, parse=StopResult)
+    result = await client.post("/stop", query, result=StopResult)
 
     write(result)
 
 
 @router.command()
 async def enable(
-    addresses: list[str] = Argument(
-        help="Addresses of components to enable.",
-    ),
+    addresses: Annotated[
+        Sequence[AddressSelector],
+        CLIArgument(list[str], help="Addresses of components to enable."),
+    ],
     *,
-    project: Project = ProjectOption(),
+    context: CLIContext,
 ) -> None:
     """
     Enable components at the provided address(s).
     """
-    client = APIClient(project)
+    project = await use_project(context)
+    client = Client(project)
     address = AddressSelector(addresses)
     query = ComponentFilter(address=address)
-    from ceres.internal.app import EnableResult
+    from ceres.internal.app.api import EnableResult
 
-    result = await client.post("/enable", query, parse=EnableResult)
+    result = await client.post("/enable", query, result=EnableResult)
 
     write(result)
 
 
 @router.command()
 async def disable(
-    addresses: list[str] = Argument(
-        help="Addresses of components to disable.",
-    ),
+    addresses: Annotated[
+        Sequence[AddressSelector],
+        CLIArgument(list[str], help="Addresses of components to disable."),
+    ],
     *,
-    project: Project = ProjectOption(),
+    context: CLIContext,
 ) -> None:
     """
     Disable components at the provided address(s).
     """
-    client = APIClient(project)
+    project = await use_project(context)
+    client = Client(project)
     address = AddressSelector(addresses)
     query = ComponentFilter(address=address)
-    from ceres.internal.app import DisableResult
+    from ceres.internal.app.api import DisableResult
 
-    result = await client.post("/disable", query, parse=DisableResult)
+    result = await client.post("/disable", query, result=DisableResult)
 
     write(result)
 
 
 @router.command()
 async def up(
-    addresses: list[str] = Argument(
-        help="Addresses of components to start and enable.",
-    ),
+    addresses: Annotated[
+        Sequence[AddressSelector],
+        CLIArgument(list[str], help="Addresses of components to start and enable."),
+    ],
     *,
-    project: Project = ProjectOption(),
+    context: CLIContext,
 ) -> None:
     """
     Start and enable components at the provided address(s).
     """
-    client = APIClient(project)
+    project = await use_project(context)
+    client = Client(project)
     address = AddressSelector(addresses)
     query = ComponentFilter(address=address)
-    from ceres.internal.app import UpResult
+    from ceres.internal.app.api import UpResult
 
-    result = await client.post("/up", query, parse=UpResult)
+    result = await client.post("/up", query, result=UpResult)
 
     write(result)
 
 
 @router.command()
 async def down(
-    addresses: list[str] = Argument(
-        help="Addresses of components to stop and disable.",
-    ),
+    addresses: Annotated[
+        Sequence[AddressSelector],
+        CLIArgument(list[str], help="Addresses of components to stop and disable."),
+    ],
     *,
-    project: Project = ProjectOption(),
+    context: CLIContext,
 ) -> None:
     """
     Stop and disable components at the provided address(s).
     """
-    client = APIClient(project)
+    project = await use_project(context)
+    client = Client(project)
     address = AddressSelector(addresses)
     query = ComponentFilter(address=address)
-    from ceres.internal.app import DownResult
+    from ceres.internal.app.api import DownResult
 
-    result = await client.post("/down", query, parse=DownResult)
+    result = await client.post("/down", query, result=DownResult)
 
     write(result)
+
+
+def main() -> None:
+    router()

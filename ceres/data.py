@@ -1,11 +1,12 @@
 import json
 from abc import ABC
 from datetime import date, datetime, timedelta, timezone
-from types import MappingProxyType
-from typing import Annotated, Any, Callable, Literal, cast
+from json import JSONDecodeError
+from typing import Annotated, Any, Literal, NewType, Sized, TypeVar
 
 import pydantic
 import pydantic.generics
+import yaml
 from pydantic import (
     AfterValidator,
     BaseModel,
@@ -14,9 +15,11 @@ from pydantic import (
     Field,
     StringConstraints,
 )
+from pydantic import EmailStr as _BaseEmailStr
 from pydantic.fields import FieldInfo
 from pydantic_extra_types.color import Color as Color
 from typing_extensions import dataclass_transform
+from yaml import YAMLError
 
 from ceres.internal.utilities import (
     NAME_PATTERN,
@@ -33,6 +36,10 @@ def jsonify(obj: object, **kwargs: Any) -> str:
 
 def simplify(obj: object) -> Any:
     return json.loads(jsonify(obj))
+
+
+def yamlify(obj: object, **kwargs: Any) -> str:
+    return yaml.safe_dump(simplify(obj), **kwargs)
 
 
 Name = Annotated[str, StringConstraints(pattern=NAME_PATTERN)]
@@ -108,23 +115,44 @@ def __validate_non_negative_timedelta(value: object) -> timedelta | None:
 NonNegativeTimeDelta = Annotated[timedelta, BeforeValidator(__validate_non_negative_timedelta)]
 
 
-def __pre_validate_json_object(value: object) -> object:
+def __pre_validate_from_json(value: object) -> object:
     if isinstance(value, str | bytes):
-        return json.loads(value)
+        try:
+            return json.loads(value)
+        except JSONDecodeError as error:
+            raise ValueError(f"invalid JSON: {error}")
 
     return value
 
 
-def __pre_validate_json_array(value: object) -> object:
+def __pre_validate_from_yaml(value: object) -> object:
     if isinstance(value, str | bytes):
-        return json.loads(value)
+        try:
+            return yaml.safe_load(value)
+        except YAMLError as error:
+            raise ValueError(f"invalid YAML: {error}")
 
     return value
 
+
+_T = TypeVar("_T")
+
+FromJSON = Annotated[_T, BeforeValidator(__pre_validate_from_json)]
+FromYAML = Annotated[_T, BeforeValidator(__pre_validate_from_yaml)]
+
+
+def __validate_non_empty(value: object) -> object:
+    if isinstance(value, Sized):
+        assert len(value) > 0, "cannot not be empty"
+
+    return value
+
+
+NonEmpty = Annotated[_T, AfterValidator(__validate_non_empty)]
 
 JSON = None | bool | int | float | str | dict[str, Any] | list[Any]
-JSONDict = Annotated[dict[str, Any], BeforeValidator(__pre_validate_json_object)]
-JSONList = Annotated[list[Any], BeforeValidator(__pre_validate_json_array)]
+JSONDict = FromJSON[dict[str, Any]]
+JSONList = FromJSON[list[Any]]
 
 
 class DataObject(BaseModel, ABC):
@@ -142,18 +170,9 @@ class ImmutableDataObject(DataObject, ABC):
     model_config = ConfigDict(frozen=True)
 
 
-VALIDATED_DATACLASS_FIELD_SPECIFIERS: tuple[Callable[..., Any], type[FieldInfo]] = (
-    Field,
-    FieldInfo,
-)
-VALIDATED_DATACLASS_DEFAULT_CONFIG = cast(
-    ConfigDict, MappingProxyType(ConfigDict(**DataObject.model_config))
-)
-
-
 @dataclass_transform(
     kw_only_default=True,
-    field_specifiers=VALIDATED_DATACLASS_FIELD_SPECIFIERS,
+    field_specifiers=(Field, FieldInfo),
 )
 class ValidatedDataclass(ABC, PydanticDataclassLike):  # type: ignore
     def __init_subclass__(
@@ -178,7 +197,7 @@ class ValidatedDataclass(ABC, PydanticDataclassLike):  # type: ignore
 
         config = ConfigDict(
             **{
-                **VALIDATED_DATACLASS_DEFAULT_CONFIG,
+                **DataObject.model_config,
                 **inherited_config,
                 **ConfigDict(title=cls.__qualname__),
                 **(config or ConfigDict()),
@@ -196,3 +215,48 @@ class ValidatedDataclass(ABC, PydanticDataclassLike):  # type: ignore
             validate_on_init=validate_on_init,
             kw_only=kw_only,
         )(cls)
+
+
+__USERNAME_PATTERN = r"[a-zA-Z\-_]+"
+
+UsernameStr = Annotated[
+    str,
+    StringConstraints(
+        pattern=__USERNAME_PATTERN,
+        min_length=1,
+        max_length=64,
+    ),
+]
+
+
+def __validate_password_str(value: str) -> str:
+    bytes = len(value.encode())
+    if bytes > 72:
+        raise ValueError("password cannot exceed 72 bytes")
+
+    return value
+
+
+PasswordStr = Annotated[
+    str,
+    StringConstraints(min_length=1, max_length=32),
+    AfterValidator(__validate_password_str),
+]
+
+EmailStr = _BaseEmailStr
+
+__BCRYPT_HASH_PATTERN = r"^\$2[ayb]\$.{56}$"
+
+BCryptHash = NewType(
+    "BCryptHash",
+    Annotated[str, StringConstraints(pattern=__BCRYPT_HASH_PATTERN)],
+)
+
+__ARGON2_HASH_PATTERN = r"^\$argon2(?:(?:id)|i|d)\$v=\d+\$m=\d+,t=\d+,p=\d+\$[A-Za-z0-9+/$]+$"
+
+Argon2Hash = NewType(
+    "Argon2Hash",
+    Annotated[str, StringConstraints(pattern=__ARGON2_HASH_PATTERN)],
+)
+
+PasswordHash = BCryptHash | Argon2Hash

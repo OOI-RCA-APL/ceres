@@ -11,7 +11,7 @@ module.exports = {
     'vue/setup-compiler-macros': true,
   },
   extends: ['plugin:@typescript-eslint/recommended', 'plugin:vue/vue3-recommended', 'prettier'],
-  plugins: ['@typescript-eslint', 'vue'],
+  plugins: ['@typescript-eslint', 'vue', 'unused-imports'],
   globals: {
     ga: 'readonly',
     cordova: 'readonly',
@@ -53,5 +53,6 @@ module.exports = {
     'vue/no-setup-props-destructure': 'off',
     'vue/no-template-shadow': 'off',
     'vue/static-class-names-order': 'warn',
+    'unused-imports/no-unused-imports': 'error',
   },
 }

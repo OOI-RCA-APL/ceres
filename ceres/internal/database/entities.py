@@ -2,8 +2,9 @@ import re
 import textwrap
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, ClassVar, Iterable
-from uuid import UUID
+from uuid import UUID, uuid4
 
+import pydantic
 from sqlalchemy import (
     JSON,
     Boolean,
@@ -15,6 +16,7 @@ from sqlalchemy import (
     PrimaryKeyConstraint,
     Table,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlalchemy.orm import (
@@ -29,6 +31,7 @@ from sqlalchemy.sql import expression
 from typing_extensions import final, override
 
 from ceres.address import Address
+from ceres.data import EmailStr, PasswordHash, UsernameStr
 from ceres.internal.database.types import (
     AddressMapper,
     DateTimeMapper,
@@ -38,18 +41,7 @@ from ceres.internal.database.types import (
 )
 from ceres.level import Level
 from ceres.message import MessageDirection
-
-
-def _sql(statement: str, *, indent: int = 0) -> str:
-    statement = textwrap.dedent(statement).strip()
-    import sqlparse
-
-    sqlparse.format(statement, keyword_case="upper").strip()
-    statement = statement.rstrip(";")
-    statement += ";"
-    if indent:
-        statement = textwrap.indent(statement, " " * (indent * 4))
-    return statement
+from ceres.user import UserRole
 
 
 def _compile(dialect: AsyncEngine | Engine | Dialect, element: ClauseElement) -> str:
@@ -70,7 +62,12 @@ def _compile(dialect: AsyncEngine | Engine | Dialect, element: ClauseElement) ->
     return statement
 
 
-class Entity(MappedAsDataclass, DeclarativeBase, kw_only=True):
+class Entity(
+    MappedAsDataclass,
+    DeclarativeBase,
+    dataclass_callable=pydantic.dataclasses.dataclass,
+    kw_only=True,
+):
     __abstract__ = True
     __mapper_args__ = {
         "eager_defaults": True,
@@ -83,6 +80,7 @@ class Entity(MappedAsDataclass, DeclarativeBase, kw_only=True):
     @staticmethod
     def get_entity_classes() -> list[type["Entity"]]:
         return [
+            UserEntity,
             StoreEntity,
             MessageEntity,
             AlertEntity,
@@ -160,6 +158,36 @@ class Entity(MappedAsDataclass, DeclarativeBase, kw_only=True):
 
 
 @final
+class UserEntity(Entity, kw_only=True):
+    __tablename__ = "users"
+
+    id: Mapped[UUID] = mapped_column(UUIDMapper, default_factory=uuid4)
+    username: Mapped[UsernameStr] = mapped_column(Text)
+    email: Mapped[EmailStr] = mapped_column(Text)
+    password: Mapped[PasswordHash] = mapped_column(Text)
+    role: Mapped[UserRole] = mapped_column(
+        EnumMapper(UserRole),
+        default=UserRole.OPERATOR,
+        server_default=str(UserRole.OPERATOR),
+    )
+    disabled: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        server_default=expression.false(),
+    )
+
+    @classmethod
+    @override
+    def __get_table_args__(cls) -> tuple[SchemaItem, ...]:
+        return (
+            *super().__get_table_args__(),
+            PrimaryKeyConstraint("id", name=f"pk_{cls.__tablename__}"),
+            UniqueConstraint("username", name=f"uq_{cls.__tablename__}__username"),
+            EnumConstraint("role", UserRole, name=f"ck_{cls.__tablename__}__role"),
+        )
+
+
+@final
 class StoreEntity(Entity, kw_only=True):
     __tablename__ = "stores"
 
@@ -178,7 +206,7 @@ class StoreEntity(Entity, kw_only=True):
 class ItemEntity(Entity, kw_only=True):
     __abstract__ = True
 
-    id: Mapped[UUID] = mapped_column(UUIDMapper, sort_order=-3000)
+    id: Mapped[UUID] = mapped_column(UUIDMapper, sort_order=-3000, default_factory=uuid4)
     address: Mapped[Address] = mapped_column(AddressMapper, sort_order=-2000)
     timestamp: Mapped[datetime] = mapped_column(DateTimeMapper, sort_order=-1000)
 

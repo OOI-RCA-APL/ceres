@@ -1,15 +1,15 @@
 <script lang="ts" setup>
+import { useEngine } from '@/api/engine'
 import CommonText from '@/components/CommonText.vue'
 import UtcClock from '@/components/UtcClock.vue'
 import constants from '@/constants'
 import { useDrawer } from '@/drawer'
 import icons from '@/icons'
-import { useStore } from '@/store'
-import { useRouter } from 'vue-router'
+import { useNavigation } from '@/navigation'
 
-const store = useStore()
+const engine = useEngine()
 const drawer = useDrawer()
-const router = useRouter()
+const navigation = useNavigation()
 </script>
 
 <template>
@@ -23,9 +23,9 @@ const router = useRouter()
         style="margin-left: -2px; margin-right: 14px"
         @click="drawer.toggle()"
       />
-      <q-toolbar-title class="cursor-pointer" @click="router.push('/')">
+      <q-toolbar-title class="cursor-pointer" @click="navigation.go('/')">
         <common-text variant="title1">
-          {{ store.config?.server?.console?.title ?? constants.defaultTitle }}
+          {{ engine.config.console.title ?? constants.defaultTitle }}
         </common-text>
       </q-toolbar-title>
       <utc-clock />

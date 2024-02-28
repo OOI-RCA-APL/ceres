@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { Item } from '@/api/models'
+import { Item } from '@/api/shared'
 
 const { item } = defineProps<{
   item: Item

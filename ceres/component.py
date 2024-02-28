@@ -36,6 +36,7 @@ from apscheduler.jobstores.base import JobLookupError
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.base import BaseTrigger
 from pydantic import Field, NonNegativeInt, PositiveFloat, ValidationError
+from pydantic.fields import FieldInfo
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing_extensions import Self, Unpack, dataclass_transform, overload, override
@@ -44,16 +45,16 @@ from ceres.address import Address, AddressSelector, DynamicAddress
 from ceres.alert import Alert
 from ceres.config import ComponentConfig
 from ceres.data import (
-    VALIDATED_DATACLASS_FIELD_SPECIFIERS,
     ImmutableDataObject,
     Name,
     PositiveTimeDelta,
 )
 from ceres.database.database import Database
 from ceres.errors import (
-    ProcedureDoesNotExistError,
+    Failure,
     ProcedureInternalError,
     ProcedureInvalidArgumentsError,
+    ProcedureNotFoundError,
     ProcedureNotSubscribableError,
 )
 from ceres.events import (
@@ -84,7 +85,6 @@ from ceres.events import (
     StoppedEvent,
     StoppingEvent,
 )
-from ceres.exceptions import ProcedureException
 from ceres.filter import ComponentFilter, ComponentFilterArgs
 from ceres.internal.database.entities import StoreEntity
 from ceres.internal.utilities import (
@@ -211,7 +211,7 @@ class _TriggerAdapter(BaseTrigger):
 
 @dataclass_transform(
     kw_only_default=True,
-    field_specifiers=VALIDATED_DATACLASS_FIELD_SPECIFIERS,
+    field_specifiers=(Field, FieldInfo),
 )
 class Component(Object):
     name: Final[Name] = Field(default_factory=lambda: randstr(ascii_lowercase, 8))
@@ -299,7 +299,7 @@ class Component(Object):
         if isinstance(name, str):
             return cls.get_procedure_bindings().get(name)
 
-        return get_method_binding(name, ProcedureBinding)
+        return get_method_binding(name, ProcedureBinding)  # type: ignore
 
     @property
     @override
@@ -550,6 +550,7 @@ class Component(Object):
         component.sync_component_references()
         component.emit(AddedEvent)
 
+        self.__sync_component_order()
         return component
 
     def remove_component(self, address: str | DynamicAddress | None = None) -> "Component | None":
@@ -562,6 +563,7 @@ class Component(Object):
             if current is not None and current is self:
                 self.emit(RemovedEvent)
                 self.parent.__components.pop(self.name, None)
+                self.parent.__sync_component_order()
                 current.sync_component_references()
 
             self.__parent = None
@@ -612,8 +614,10 @@ class Component(Object):
         else:
             filter = overrides
 
+        filter = filter.with_defaults(ComponentFilter(root=self.address))
+
         def traverse(current: Component) -> None:
-            if (inclusive or current is not self) and filter.matches(current, self.address):
+            if (inclusive or current is not self) and filter.matches(current):
                 components.append(current)
 
             for component in current.__components.values():
@@ -886,7 +890,7 @@ class Component(Object):
             or (method := getattr(self, binding.method, None)) is None
             or not inspect.ismethod(method)
         ):
-            raise ProcedureException(ProcedureDoesNotExistError())
+            raise Failure(ProcedureNotFoundError)
 
         validated = create_validated_function(method)
 
@@ -898,7 +902,7 @@ class Component(Object):
             raise
         except ValidationError as error:
             if method.__name__ in error.title:
-                raise ProcedureException(
+                raise Failure(
                     ProcedureInvalidArgumentsError(problems=ValidationProblem.extract(error))
                 )
 
@@ -906,7 +910,7 @@ class Component(Object):
         except Exception as exception:
             traceback = get_traceback(exception)
             self.emit(ProcedureExceptionEvent, procedure=procedure, traceback=traceback)
-            raise ProcedureException(ProcedureInternalError(traceback=list(traceback)))
+            raise Failure(ProcedureInternalError(traceback=list(traceback)))
 
     async def call(
         self,
@@ -938,7 +942,7 @@ class Component(Object):
         except Exception as exception:
             traceback = get_traceback(exception)
             self.emit(ProcedureExceptionEvent, procedure=procedure, traceback=traceback)
-            raise ProcedureException(ProcedureInternalError(traceback=list(traceback)))
+            raise Failure(ProcedureInternalError(traceback=list(traceback)))
         finally:
             self.emit(ProcedureCompletedEvent, procedure=procedure)
 
@@ -952,7 +956,7 @@ class Component(Object):
 
         if not binding.live:
             if isinstance(binding, ActionBinding):
-                raise ProcedureException(ProcedureNotSubscribableError())
+                raise Failure(ProcedureNotSubscribableError)
 
             try:
                 while True:
@@ -964,7 +968,7 @@ class Component(Object):
             except Exception as exception:
                 traceback = get_traceback(exception)
                 self.emit(ProcedureExceptionEvent, procedure=procedure, traceback=traceback)
-                raise ProcedureException(ProcedureInternalError(traceback=list(traceback)))
+                raise Failure(ProcedureInternalError(traceback=list(traceback)))
 
         try:
             if result is not None:
@@ -977,7 +981,25 @@ class Component(Object):
         except Exception as exception:
             traceback = get_traceback(exception)
             self.emit(ProcedureExceptionEvent, procedure=procedure, traceback=traceback)
-            raise ProcedureException(ProcedureInternalError(traceback=list(traceback)))
+            raise Failure(ProcedureInternalError(traceback=list(traceback)))
+
+    def __sync_component_order(self) -> None:
+        if self.__config__ is None:
+            return
+
+        order: list[Component] = []
+        for config in self.__config__.components:
+            component = self.__components.get(config.name)
+            if component is not None:
+                order.append(component)
+
+        for component in self.__components.values():
+            if not any(current is component for current in order):
+                order.append(component)
+
+        self.__components.clear()
+        for component in order:
+            self.__components[component.name] = component
 
 
 @cached
@@ -1016,12 +1038,10 @@ class ComponentGroup(Sequence[Component]):
         return repr(self)
 
     @overload
-    def __getitem__(self, __index: int) -> Component:
-        ...
+    def __getitem__(self, __index: int) -> Component: ...
 
     @overload
-    def __getitem__(self, __index: slice) -> Self:
-        ...
+    def __getitem__(self, __index: slice) -> Self: ...
 
     def __getitem__(self, __index: int | slice) -> "Component | Self":  # type: ignore
         value = self.__components[__index]
@@ -1096,8 +1116,7 @@ _ListenerMethodTransform = Callable[[_ListenerMethod], _ListenerMethod]
 
 
 @overload
-def on(method: _ListenerMethod) -> _ListenerMethod:
-    ...
+def on(method: _ListenerMethod) -> _ListenerMethod: ...
 
 
 @overload
@@ -1107,8 +1126,7 @@ def on(
     local: bool | None = None,
     reference: str | Sequence[str] | None = None,
     address: str | AddressSelector | Sequence[str | AddressSelector] | None = None,
-) -> _ListenerMethodTransform:
-    ...
+) -> _ListenerMethodTransform: ...
 
 
 @validated_function
@@ -1211,16 +1229,14 @@ _T = TypeVar("_T", bound=Awaitable[Any] | AsyncIterable[Any])
 
 
 @overload
-def query(method: Callable[_P, _T]) -> Callable[_P, _T]:
-    ...
+def query(method: Callable[_P, _T]) -> Callable[_P, _T]: ...
 
 
 @overload
 def query(
     *,
     poll: float | timedelta = ...,
-) -> Callable[[Callable[_P, _T]], Callable[_P, _T]]:
-    ...
+) -> Callable[[Callable[_P, _T]], Callable[_P, _T]]: ...
 
 
 @validated_function
@@ -1252,13 +1268,11 @@ def query(
 
 
 @overload
-def action(method: Callable[_P, _T]) -> Callable[_P, _T]:
-    ...
+def action(method: Callable[_P, _T]) -> Callable[_P, _T]: ...
 
 
 @overload
-def action() -> Callable[[Callable[_P, _T]], Callable[_P, _T]]:
-    ...
+def action() -> Callable[[Callable[_P, _T]], Callable[_P, _T]]: ...
 
 
 @validated_function
@@ -1384,13 +1398,11 @@ def routine(
     *,
     restart: RoutineRestartPolicy | RoutineRestartPolicyLiteral = RoutineRestartPolicy.NEVER,
     restart_delay: PositiveFloat | PositiveTimeDelta = timedelta(seconds=1),
-) -> _RoutineMethodHandler:
-    ...
+) -> _RoutineMethodHandler: ...
 
 
 @overload
-def routine(method: _RoutineMethod) -> _RoutineMethod:
-    ...
+def routine(method: _RoutineMethod) -> _RoutineMethod: ...
 
 
 @validated_function

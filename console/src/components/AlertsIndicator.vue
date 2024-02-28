@@ -1,15 +1,15 @@
 <script lang="ts" setup>
 import { Address } from '@/address'
+import { useEngine } from '@/api/engine'
 import { usePreferences } from '@/preferences'
-import { useStore } from '@/store'
 import { displayDuration, useTime } from '@/time'
 
 const { address } = defineProps<{
   address?: Address
 }>()
 
+const engine = useEngine()
 const preferences = usePreferences()
-const store = useStore()
 const time = useTime()
 
 let isShowingMenu = $ref(false)
@@ -27,7 +27,7 @@ const info = $computed(() => {
     return null
   }
 
-  return store.getStatisticsAlertLevel(address)
+  return engine.statistics.getLevel(address)
 })
 
 const color = $computed(() => {
@@ -58,8 +58,8 @@ const color = $computed(() => {
         {{ info.count }} {{ info.level }} alert(s) were emitted {{ subjectText }} in the last
         {{ displayDuration(preferences.statisticsDuration, { hideOne: true }) }}.
       </span>
-      <span v-if="store.statisticsUpdatedAt" :class="$style.updatedAtText">
-        Updated {{ displayDuration(time.now.diff(store.statisticsUpdatedAt, 's')) }} ago.
+      <span v-if="engine.statistics.dataUpdatedAt" :class="$style.updatedAtText">
+        Updated {{ displayDuration(time.now.diff(engine.statistics.dataUpdatedAt, 's')) }} ago.
       </span>
     </q-tooltip>
   </q-badge>

@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { ChartElement } from '@/api/models'
+import { ChartElement } from '@/api/elements'
 import Chart from '@/components/Chart.vue'
 
 const { element } = defineProps<{

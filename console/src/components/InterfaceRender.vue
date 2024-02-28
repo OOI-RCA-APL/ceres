@@ -1,22 +1,23 @@
 <script lang="ts" setup>
-import { ComponentInfo, DisplayElement, Element } from '@/api/models'
-import { useElementStream } from '@/api/operations'
+import { DisplayElement, Element } from '@/api/elements'
+import { useEngine } from '@/api/engine'
 import InterfaceElement from '@/components/InterfaceElement.vue'
 import { InterfacePath } from '@/interface'
 
-const { component, element, path } = defineProps<{
-  component: ComponentInfo
+const { element, path } = defineProps<{
   element: DisplayElement
   path: InterfacePath
 }>()
 
+const engine = useEngine()
+
 let rendered: Element | null = $shallowRef(null)
 
-useElementStream(component.address, element.query, {}, (current) => {
+engine.components.useElementStream(element.address, element.query, {}, (current) => {
   rendered = current
 })
 </script>
 
 <template>
-  <interface-element v-if="rendered" :component="component" :element="rendered" :path="path" />
+  <interface-element v-if="rendered" :element="rendered" :path="path" />
 </template>

@@ -92,8 +92,7 @@ class Stream(AsyncIterable[_T]):
     )
 
     @overload
-    def __init__(self, source: "Stream[_T] | None" = None) -> None:
-        ...
+    def __init__(self, source: "Stream[_T] | None" = None) -> None: ...
 
     @overload
     def __init__(
@@ -101,8 +100,7 @@ class Stream(AsyncIterable[_T]):
         source: "Stream[Any]",
         *,
         of: type[_T],
-    ) -> None:
-        ...
+    ) -> None: ...
 
     @overload
     def __init__(
@@ -110,8 +108,7 @@ class Stream(AsyncIterable[_T]):
         source: "Stream[_T]",
         *,
         filter: Callable[[_T], bool] | None = None,
-    ) -> None:
-        ...
+    ) -> None: ...
 
     @overload
     def __init__(
@@ -119,8 +116,7 @@ class Stream(AsyncIterable[_T]):
         source: "Stream[_I]",
         *,
         map: Callable[[_I], _T] | None = None,
-    ) -> None:
-        ...
+    ) -> None: ...
 
     def __init__(
         self,
@@ -154,7 +150,7 @@ class Stream(AsyncIterable[_T]):
     def of(self, of: type[_O]) -> "Stream[_O]":
         return Stream(self, of=of)
 
-    def filter(self, filter: Callable[[_T], bool]) -> Self:
+    def filter(self, filter: Callable[[_T], bool]) -> "Stream[_T]":
         return Stream(self, filter=filter)
 
     def map(self, map: Callable[[_T], _O]) -> "Stream[_O]":

@@ -1,16 +1,17 @@
 <script lang="ts" setup>
-import { CarouselElement, ComponentInfo } from '@/api/models'
+import { CarouselElement } from '@/api/elements'
 import InterfaceElement from '@/components/InterfaceElement.vue'
-import { InterfacePath } from '@/interface'
+import { InterfacePath, useInterfaceContext } from '@/interface'
 import { usePersisted } from '@/persistence'
 import { QCarousel } from 'quasar'
 import { computed } from 'vue'
 
-const { component, element, path } = defineProps<{
-  component: ComponentInfo
+const { element, path } = defineProps<{
   element: CarouselElement
   path: InterfacePath
 }>()
+
+const context = useInterfaceContext()
 
 const persisted = usePersisted({
   schema: ({ object, number }) =>
@@ -20,7 +21,7 @@ const persisted = usePersisted({
   methods: computed(() => [
     {
       type: 'local-storage',
-      key: `state/interface-carousel/${component.address}/${path.join('.')}`,
+      key: [context.key, 'state', 'interface-carousel', path.join('.')],
     },
   ]),
 })
@@ -56,7 +57,7 @@ const height = $computed(() => {
           class="column full-height justify-center q-pa-none"
           :name="i"
         >
-          <interface-element :component="component" :element="child" :path="[...path, i]" />
+          <interface-element :element="child" :path="[...path, i]" />
         </q-carousel-slide>
       </q-carousel>
       <div class="items-center justify-center q-py-xs row">

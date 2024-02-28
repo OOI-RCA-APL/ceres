@@ -40,8 +40,7 @@ class Transport:
         condition: Callable[[Message], bool] | None = None,
         timeout: float | timedelta | None = None,
         **kwargs: Unpack[MessageFilterArgs],
-    ) -> Message:
-        ...
+    ) -> Message: ...
 
     @overload
     async def receive(
@@ -51,8 +50,7 @@ class Transport:
         timeout: float | timedelta | None = None,
         default: _T | Callable[[], _T] = ...,
         **kwargs: Unpack[MessageFilterArgs],
-    ) -> Message | _T:
-        ...
+    ) -> Message | _T: ...
 
     async def receive(
         self,
@@ -83,7 +81,7 @@ class Transport:
                     if not condition(message):
                         return fail()
                 if query is not None:
-                    if not query.matches(message, self.__connection.address):
+                    if not query.matches(message):
                         return fail()
 
                 return message

@@ -1,21 +1,29 @@
 <script lang="ts" setup>
+import { useEngine } from '@/api/engine'
 import constants from '@/constants'
+import { useNavigation } from '@/navigation'
 import { usePreferences } from '@/preferences'
-import { useStore } from '@/store'
-import { useIntervalFn } from '@vueuse/core'
-import { useMeta } from 'quasar'
-import { computed, provide, watchEffect } from 'vue'
+import { userCanAccess } from '@/router'
+import { useEventListener } from '@vueuse/core'
+import moment from 'moment'
+import { useMeta, useQuasar } from 'quasar'
+import { computed, onMounted, provide, watchEffect } from 'vue'
 import { THEME_KEY } from 'vue-echarts'
 
+const navigation = useNavigation()
 const preferences = usePreferences()
+const quasar = useQuasar()
+const engine = useEngine()
 
 watchEffect(() => {
   const html = document.querySelector('html')
-  if (html != null) {
-    if (preferences.isDarkModeEnabled) {
+  if (preferences.isDarkModeEnabled) {
+    if (html != null) {
       html.classList.add('dark')
       html.classList.remove('light')
-    } else {
+    }
+  } else {
+    if (html != null) {
       html.classList.add('light')
       html.classList.remove('dark')
     }
@@ -27,25 +35,98 @@ provide(
   computed(() => (preferences.isDarkModeEnabled ? 'dark' : undefined))
 )
 
-const store = useStore()
+useMeta(() => ({
+  title: engine.config.console?.title ?? constants.defaultTitle,
+}))
 
-useIntervalFn(async () => {
-  if (store.isLoadingConfig) {
+await engine.config.suspense()
+
+function notifyAccessBlocked() {
+  quasar.notify({
+    message: 'You do not have access to that resource.',
+    color: 'warning',
+  })
+}
+
+function notifyLoggedOut() {
+  quasar.notify({
+    message: 'You have been signed out due to inactivity.',
+    color: 'warning',
+  })
+}
+
+function getLoginRedirectPath(redirect?: string) {
+  return `/login?redirect=${encodeURI(redirect ?? navigation.route.fullPath)}`
+}
+
+async function refresh() {
+  console.log('Refreshing authentication...')
+  const user = await engine.auth.refresh()
+  if (user != null) {
+    console.log('Authentication refreshed successfully.')
+  } else {
+    console.log('Authentication refresh failed.')
+  }
+}
+
+// If we are logged in, set a timeout to do a refresh just before the access token expires.
+watchEffect((onInvalidate) => {
+  if (engine.auth.identity?.expires == null) {
     return
   }
 
-  if (store.config == null) {
-    try {
-      await store.refetchConfig()
-    } catch (error) {
-      console.error(error)
-    }
-  }
-}, 1000)
+  const ms = moment
+    .duration(moment.utc(engine.auth.identity.expires).subtract(1, 'minute').diff(moment()))
+    .asMilliseconds()
 
-useMeta(() => ({
-  title: store.config?.server?.console?.title ?? constants.defaultTitle,
-}))
+  const timeout = setTimeout(() => {
+    void refresh()
+  }, Math.max(ms, 0))
+
+  onInvalidate(() => {
+    clearTimeout(timeout)
+  })
+})
+
+onMounted(() => {
+  const remove = navigation.router.beforeEach((to, _from, next) => {
+    if (userCanAccess(engine.auth.user, to)) {
+      next()
+    } else {
+      next(getLoginRedirectPath(to.fullPath))
+      notifyAccessBlocked()
+    }
+  })
+
+  return () => {
+    remove()
+  }
+})
+
+useEventListener(window, 'focus', () => {
+  const wasLoggedIn = engine.auth.user != null
+  void refresh().then(() => {
+    if (wasLoggedIn && engine.auth.user == null) {
+      notifyLoggedOut()
+    }
+
+    if (!userCanAccess(engine.auth.user, navigation.route)) {
+      void navigation.replace(getLoginRedirectPath())
+      notifyAccessBlocked()
+    }
+  })
+})
+
+await refresh()
+
+// Here we're getting the initial route directly from the resolve function because at this point in
+// the loading process we haven't actually navigated to the initial route yet. As such, we can't use
+// the "current" route object from "useRoute()".
+const initialRoute = navigation.resolve(window.location.pathname)
+if (initialRoute != null && !userCanAccess(engine.auth.user, initialRoute)) {
+  await navigation.replace(getLoginRedirectPath())
+  notifyAccessBlocked()
+}
 </script>
 
 <template>
@@ -55,7 +136,7 @@ useMeta(() => ({
     leave-active-class="animated fadeOut"
   >
     <div
-      v-if="store.config == null"
+      v-if="engine.config.data == null"
       key="loading"
       class="fixed-top-left items-center justify-center row window-height window-width"
     >
@@ -64,4 +145,3 @@ useMeta(() => ({
     <router-view v-else key="app" />
   </transition-group>
 </template>
-@/preferences

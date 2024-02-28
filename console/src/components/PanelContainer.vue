@@ -2,7 +2,7 @@
 import AppBoundary from '@/AppBoundary.vue'
 import HeightContainer from '@/components/HeightContainer.vue'
 import icons from '@/icons'
-import { usePersisted } from '@/persistence'
+import { KeyInput, usePersisted } from '@/persistence'
 import { computed } from 'vue'
 
 const { name, persist } = defineProps<{
@@ -10,7 +10,7 @@ const { name, persist } = defineProps<{
   defaultHeight: number
   minHeight?: number
   maxHeight?: number
-  persist?: string
+  persist?: KeyInput
   containerClass?: string
 }>()
 
@@ -40,7 +40,7 @@ const state = usePersisted({
       @click="state.isSelected = !state.isSelected"
     >
       <div class="row" :style="{ opacity: state.isSelected ? 1 : 0.75 }">
-        <q-icon :name="state.isSelected ? icons.arrowUp : icons.arrowDown" size="20px" />
+        <q-icon :name="state.isSelected ? icons.menuUp : icons.menuDown" size="20px" />
         {{ name }}
       </div>
       <slot name="append" />

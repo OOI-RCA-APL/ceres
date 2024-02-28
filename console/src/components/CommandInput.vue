@@ -1,8 +1,9 @@
 <script lang="ts" setup>
 import { Address } from '@/address'
 import icons from '@/icons'
+import { useInterfaceContext } from '@/interface'
+import { useNotify } from '@/notify'
 import { usePersisted } from '@/persistence'
-import { useQuasar } from 'quasar'
 import { computed, watch } from 'vue'
 import Zod from 'zod'
 
@@ -14,7 +15,8 @@ const emit = defineEmits<{
   (emit: 'send', command: string): void
 }>()
 
-const quasar = useQuasar()
+const context = useInterfaceContext()
+const notify = useNotify()
 
 const StateSchema = Zod.object({
   text: Zod.string().default(''),
@@ -26,12 +28,12 @@ let element = $ref<HTMLInputElement | null>(null)
 
 const state = usePersisted({
   schema: StateSchema,
-  methods: [
+  methods: computed(() => [
     {
       type: 'local-storage',
-      key: `state/command-input/${address}`,
+      key: [context.key, 'state', 'command-input', address],
     },
-  ],
+  ]),
 })
 
 state.historyIndex = null
@@ -85,11 +87,7 @@ async function submit() {
   }
 
   if (!isConnected) {
-    quasar.notify({
-      type: 'negative',
-      message: 'Command failed to send. We cannot access the device at this time.',
-    })
-
+    notify.error('Command failed to send. We cannot access the device at this time.')
     return
   }
 

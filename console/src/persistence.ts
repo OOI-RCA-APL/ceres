@@ -1,3 +1,4 @@
+import { Address } from '@/address'
 import _ from 'lodash'
 import { debounce, LocalStorage } from 'quasar'
 import { computed, isReactive, reactive, Ref, unref, watch } from 'vue'
@@ -17,7 +18,7 @@ type BasePersistenceMethod<TData extends Mapping> = {
 
 export type LocalStoragePersistenceMethod<TData extends Mapping> = {
   type: 'local-storage'
-  key: string
+  key: (Address | string)[] | Address | string
 } & BasePersistenceMethod<TData>
 
 export type URLPersistenceMethod<TData extends Mapping> = {
@@ -35,6 +36,16 @@ export type UsePersistedOptions<TData extends BaseData<TSchema>, TSchema extends
   methods: MaybeRef<PersistenceMethod<TData>[]>
 }
 
+export type KeyInput = (Address | string)[] | string | Address
+
+function resolveKey(key: KeyInput): string {
+  if (Array.isArray(key)) {
+    return key.map((part) => part.toString()).join('/')
+  }
+
+  return key.toString()
+}
+
 export function usePersisted<TData extends BaseData<TSchema>, TSchema extends BaseSchema>(
   options: UsePersistedOptions<TData, TSchema>
 ): TData {
@@ -50,7 +61,7 @@ export function usePersisted<TData extends BaseData<TSchema>, TSchema extends Ba
     for (const method of methods.value) {
       let loaded: Partial<TData> | null = null
       if (method.type === 'local-storage') {
-        loaded = readFromStorage(method.key, schema)
+        loaded = readFromStorage(resolveKey(method.key), schema)
       } else if (method.type === 'url') {
         loaded = readFromUrl(schema)
       } else {
@@ -118,7 +129,7 @@ function writeToStorage<TData extends BaseData<TSchema>, TSchema extends BaseSch
   method: LocalStoragePersistenceMethod<TData>,
   data: TData
 ) {
-  LocalStorage.set(method.key, _.pick(data, getFields(data, method)))
+  LocalStorage.set(resolveKey(method.key), _.pick(data, getFields(data, method)))
 }
 
 function readFromUrl<TData extends BaseData<TSchema>, TSchema extends BaseSchema>(

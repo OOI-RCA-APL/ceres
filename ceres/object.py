@@ -13,13 +13,15 @@ from typing import (
     TypeVar,
 )
 
+from pydantic import Field
+from pydantic.fields import FieldInfo
 from sqlalchemy.exc import DatabaseError
 from typing_extensions import ParamSpec, Unpack, dataclass_transform, override
 
 from ceres.address import Address, AddressSelector, DynamicAddress
 from ceres.alert import Alert
 from ceres.config import DatabaseType
-from ceres.data import VALIDATED_DATACLASS_FIELD_SPECIFIERS, ValidatedDataclass
+from ceres.data import ValidatedDataclass
 from ceres.events import (
     AlertEvent,
     ConnectedEvent,
@@ -87,7 +89,7 @@ class _Flush:
 
 @dataclass_transform(
     kw_only_default=True,
-    field_specifiers=VALIDATED_DATACLASS_FIELD_SPECIFIERS,
+    field_specifiers=(Field, FieldInfo),
 )
 class Object(ValidatedDataclass, Tasklet):
     def __post_init__(self) -> None:
@@ -101,36 +103,30 @@ class Object(ValidatedDataclass, Tasklet):
 
     @property
     @abstractmethod
-    def __object_parent__(self) -> "Object | None":
-        return ...
+    def __object_parent__(self) -> "Object | None": ...
 
     @property
     @abstractmethod
-    def __object_descendants__(self) -> Iterable["Object"]:
-        return ...
+    def __object_descendants__(self) -> Iterable["Object"]: ...
 
     @property
     @abstractmethod
-    def __object_database__(self) -> Database:
-        ...
+    def __object_database__(self) -> Database: ...
 
     async def __object_sync__(self, session: AsyncSession | None = None) -> None:
         pass
 
     @property
     @abstractmethod
-    def address(self) -> Address:
-        ...
+    def address(self) -> Address: ...
 
     @property
     @abstractmethod
-    def root(self) -> Component | None:
-        ...
+    def root(self) -> Component | None: ...
 
     @property
     @abstractmethod
-    def engine(self) -> Engine | None:
-        ...
+    def engine(self) -> Engine | None: ...
 
     @property
     def log(self) -> Log:
@@ -225,8 +221,7 @@ class Object(ValidatedDataclass, Tasklet):
 
     @override
     @abstractmethod
-    async def __stop__(self) -> None:
-        ...
+    async def __stop__(self) -> None: ...
 
     def store(self, record: Record) -> None:
         if not isinstance(record, Record):
@@ -329,8 +324,7 @@ class Object(ValidatedDataclass, Tasklet):
         return self.get_component(address)
 
     @abstractmethod
-    def get_component(self, address: str | DynamicAddress | None = None, /) -> Component | None:
-        ...
+    def get_component(self, address: str | DynamicAddress | None = None, /) -> Component | None: ...
 
     @abstractmethod
     def get_components(
@@ -340,8 +334,7 @@ class Object(ValidatedDataclass, Tasklet):
         *,
         inclusive: bool = False,
         **kwargs: Unpack[ComponentFilterArgs],
-    ) -> "ComponentGroup":
-        ...
+    ) -> "ComponentGroup": ...
 
     async def get_status(self) -> Status:
         return Status(
@@ -352,7 +345,6 @@ class Object(ValidatedDataclass, Tasklet):
     async def get_statuses(
         self,
         filter: ComponentFilter | None = None,
-        /,
         **kwargs: Unpack[ComponentFilterArgs],
     ) -> list[Status]:
         filter = ComponentFilter(**kwargs).with_defaults(filter)
@@ -362,7 +354,6 @@ class Object(ValidatedDataclass, Tasklet):
     async def stream_statuses(
         self,
         filter: ComponentFilter | None = None,
-        /,
         **kwargs: Unpack[ComponentFilterArgs],
     ) -> AsyncIterable[list[Status]]:
         yield await self.get_statuses(filter, **kwargs)
@@ -381,84 +372,76 @@ class Object(ValidatedDataclass, Tasklet):
     async def get_messages(
         self,
         filter: MessageFilter | None = None,
-        /,
         **kwargs: Unpack[MessageFilterArgs],
     ) -> list[Message]:
-        filter = MessageFilter(**kwargs).with_defaults(filter)
-        if filter.address is None:
-            filter = filter.with_defaults(MessageFilter(address=self.address.all()))
-
-        return await self.__object_database__.get_messages(filter, relative_to=self.address)
+        filter = MessageFilter(root=self.address, address=self.address.all()).with_overrides(filter)
+        return await self.__object_database__.get_messages(filter, **kwargs)
 
     async def get_message(
         self,
         filter: MessageFilter | None = None,
-        /,
         **kwargs: Unpack[MessageFilterArgs],
     ) -> Message | None:
-        return await self.__object_database__.get_message(
-            filter,
-            **kwargs,
-            relative_to=self.address,
-        )
+        filter = MessageFilter(root=self.address, address=self.address.all()).with_overrides(filter)
+        return await self.__object_database__.get_message(filter, **kwargs)
 
     async def stream_messages(
         self,
         filter: MessageFilter | None = None,
-        /,
         **kwargs: Unpack[MessageFilterArgs],
     ) -> AsyncIterable[Message]:
-        filter = MessageFilter(**kwargs).with_defaults(filter)
+        filter = (
+            MessageFilter(**kwargs)
+            .with_defaults(filter)
+            .with_defaults(MessageFilter(root=self.address, address=self.address.all()))
+        )
 
         async for event in self.events.of(MessageSentEvent | MessageReceivedEvent).filter(
-            lambda event: filter.matches(event.message, self.address),
+            lambda event: filter.matches(event.message),
         ):
             yield event.message
 
     async def get_alerts(
         self,
         filter: AlertFilter | None = None,
-        /,
         **kwargs: Unpack[AlertFilterArgs],
     ) -> list[Alert]:
-        filter = AlertFilter(**kwargs).with_defaults(filter)
-        if filter.address is None:
-            filter = filter.with_defaults(AlertFilter(address=self.address.all()))
-
-        return await self.__object_database__.get_alerts(filter, relative_to=self.address)
+        filter = AlertFilter(root=self.address, address=self.address.all()).with_overrides(filter)
+        return await self.__object_database__.get_alerts(filter, **kwargs)
 
     async def get_alert(
         self,
         filter: AlertFilter | None = None,
-        /,
         **kwargs: Unpack[AlertFilterArgs],
     ) -> Alert | None:
-        return await self.__object_database__.get_alert(filter, **kwargs, relative_to=self.address)
+        filter = AlertFilter(root=self.address, address=self.address.all()).with_overrides(filter)
+        return await self.__object_database__.get_alert(filter, **kwargs)
 
     async def stream_alerts(
         self,
         filter: AlertFilter | None = None,
-        /,
         **kwargs: Unpack[AlertFilterArgs],
     ) -> AsyncIterable[Alert]:
-        filter = AlertFilter(**kwargs).with_defaults(filter)
+        filter = (
+            AlertFilter(**kwargs)
+            .with_defaults(filter)
+            .with_defaults(AlertFilter(root=self.address, address=self.address.all()))
+        )
 
         async for event in self.events.of(AlertEvent).filter(
-            lambda event: filter.matches(event.alert, self.address)
+            lambda event: filter.matches(event.alert)
         ):
             yield event.alert
 
     async def get_log_entries(
         self,
         filter: LogEntryFilter | None = None,
-        /,
         **kwargs: Unpack[LogEntryFilterArgs],
     ) -> list[LogEntry]:
-        filter = LogEntryFilter(**kwargs).with_defaults(filter)
-        if filter.address is None:
-            filter = filter.with_defaults(LogEntryFilter(address=self.address.all()))
-
-        return await self.__object_database__.get_log_entries(filter, relative_to=self.address)
+        filter = LogEntryFilter(root=self.address, address=self.address.all()).with_overrides(
+            filter
+        )
+        return await self.__object_database__.get_log_entries(filter, **kwargs)
 
     async def get_log_entry(
         self,
@@ -466,11 +449,10 @@ class Object(ValidatedDataclass, Tasklet):
         /,
         **kwargs: Unpack[LogEntryFilterArgs],
     ) -> LogEntry | None:
-        return await self.__object_database__.get_log_entry(
-            filter,
-            **kwargs,
-            relative_to=self.address,
+        filter = LogEntryFilter(root=self.address, address=self.address.all()).with_overrides(
+            filter
         )
+        return await self.__object_database__.get_log_entry(filter, **kwargs)
 
     async def stream_log_entries(
         self,
@@ -478,10 +460,14 @@ class Object(ValidatedDataclass, Tasklet):
         /,
         **kwargs: Unpack[LogEntryFilterArgs],
     ) -> AsyncIterable[LogEntry]:
-        filter = LogEntryFilter(**kwargs).with_defaults(filter)
+        filter = (
+            LogEntryFilter(**kwargs)
+            .with_defaults(filter)
+            .with_defaults(LogEntryFilter(root=self.address, address=self.address.all()))
+        )
 
         async for event in self.events.of(LogEvent).filter(
-            lambda event: filter.matches(event.entry, self.address)
+            lambda event: filter.matches(event.entry)
         ):
             yield event.entry
 
@@ -491,12 +477,10 @@ class Object(ValidatedDataclass, Tasklet):
         /,
         **kwargs: Unpack[StatisticsFilterArgs],
     ) -> list[Statistics]:
-        filter = StatisticsFilter(**kwargs).with_defaults(filter)
-        filter = filter.with_defaults(
-            StatisticsFilter(
-                root=self.address,
-                address=self.address.all(),
-            )
+        filter = (
+            StatisticsFilter(**kwargs)
+            .with_defaults(filter)
+            .with_defaults(StatisticsFilter(root=self.address, address=self.address.all()))
         )
 
         return await self.__object_database__.get_statistics(filter)

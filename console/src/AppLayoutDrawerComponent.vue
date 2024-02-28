@@ -1,25 +1,25 @@
 <script lang="ts" setup>
 import { Address } from '@/address'
-import { ComponentConfig, Config } from '@/api/models'
+import { ComponentInfo } from '@/api/components'
 import AlertsIndicator from '@/components/AlertsIndicator.vue'
 import ComponentStatusBadge from '@/components/ComponentStatusBadge.vue'
 import { useDrawer } from '@/drawer'
 import icons from '@/icons'
-import { useRouter } from 'vue-router'
+import { useNavigation } from '@/navigation'
 
-const { address, config } = defineProps<{
+const { address, component } = defineProps<{
   address: Address
-  config: Config | ComponentConfig
+  component: ComponentInfo
 }>()
 
-const router = useRouter()
+const navigation = useNavigation()
 const drawer = useDrawer()
 
 const isExpanded = $computed(
   () => !drawer.collapsedComponents.some((current) => current.equals(address))
 )
 const isRoot = $computed(() => address.isRoot)
-const isLeaf = $computed(() => !isRoot && config.components.length === 0)
+const isLeaf = $computed(() => !isRoot && component.components.length === 0)
 
 function toggleExpanded() {
   if (isExpanded) {
@@ -33,7 +33,7 @@ function toggleExpanded() {
 </script>
 
 <template>
-  <q-item :class="[$style.root, 'items-center', 'row']" dense>
+  <q-item :class="[$style.root, 'items-center', 'row']" :dense="address.depth > 0">
     <div
       :class="[$style.iconContainer, 'items-center', 'justify-center', 'row']"
       :style="{ marginLeft: `${8 * address.depth}px` }"
@@ -45,16 +45,16 @@ function toggleExpanded() {
         size="xs"
         :tabindex="isLeaf ? -1 : 0"
         :to="isLeaf ? `/components/${address}` : undefined"
-        @click.stop.prevent="isLeaf ? router.push(`/components/${address}`) : toggleExpanded()"
+        @click.stop.prevent="isLeaf ? navigation.go(`/components/${address}`) : toggleExpanded()"
       >
         <q-icon v-if="isLeaf" :name="icons.circle" size="7px" />
-        <q-icon v-else :name="isExpanded ? icons.arrowDown : icons.arrowRight" size="22px" />
+        <q-icon v-else :name="isExpanded ? icons.menuDown : icons.menuRight" size="22px" />
       </q-btn>
     </div>
     <q-item-section no-wrap>
       <q-item-label class="q-ml-md text-no-wrap">
         <router-link class="wrapper-link" :to="`/components/${address}`">
-          {{ address.isRoot ? 'Components' : config.name }}
+          {{ address.isRoot ? 'Components' : component.name }}
         </router-link>
       </q-item-label>
     </q-item-section>
@@ -67,10 +67,10 @@ function toggleExpanded() {
   </q-item>
   <div v-if="!isLeaf && isExpanded">
     <app-layout-drawer-component
-      v-for="child in config.components"
+      v-for="child in component.components"
       :key="child.name"
       :address="address.append(child.name)"
-      :config="child"
+      :component="child"
     />
   </div>
 </template>

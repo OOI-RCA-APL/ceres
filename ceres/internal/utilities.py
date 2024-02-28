@@ -17,6 +17,7 @@ from os import PathLike as _BasePathLike
 from types import NoneType, UnionType
 from typing import (
     TYPE_CHECKING,
+    Annotated,
     Any,
     AsyncIterable,
     Awaitable,
@@ -36,12 +37,14 @@ from typing import (
     TypeGuard,
     TypeVar,
     cast,
+    get_args,
+    get_origin,
 )
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, create_model, validate_call
 from pydantic.fields import FieldInfo
 from pydantic_core import CoreSchema, SchemaSerializer, SchemaValidator
-from typing_extensions import overload
+from typing_extensions import overload, override
 
 NAME_PATTERN = r"^[a-zA-Z_\-][a-zA-Z0-9_\-]*$"
 
@@ -111,8 +114,7 @@ class PydanticDataclassLike(DataclassLike, Protocol):
     __pydantic_serializer__: ClassVar[SchemaSerializer]
     __pydantic_validator__: ClassVar[SchemaValidator]
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        ...
+    def __init__(self, *args: Any, **kwargs: Any) -> None: ...
 
 
 def is_dataclass_instance(obj: object) -> TypeGuard[DataclassLike]:
@@ -353,6 +355,19 @@ def is_mapping(obj: Any) -> TypeGuard[Mapping[Any, Any]]:
     return True
 
 
+def get_unannotated_type(type: Any) -> Any:
+    current = type
+    while True:
+        try:
+            if get_origin(current) is Annotated:
+                current = get_args(type)[0]
+                continue
+        except Exception:
+            pass
+
+        return current
+
+
 def traverse(
     obj: object,
     visit: Callable[[object], bool | None],
@@ -482,13 +497,11 @@ _FunctionT = TypeVar("_FunctionT", bound=Callable[..., Any])
 @overload
 def cached(
     function: None = None, *, max_size: int | None = None
-) -> Callable[[_FunctionT], _FunctionT]:
-    ...
+) -> Callable[[_FunctionT], _FunctionT]: ...
 
 
 @overload
-def cached(function: _FunctionT) -> _FunctionT:
-    ...
+def cached(function: _FunctionT) -> _FunctionT: ...
 
 
 def cached(
@@ -539,14 +552,14 @@ def get_args_model(
     model_name: str | None = None,
     model_module: str | None = None,
     model_config: ConfigDict | None = None,
+    model_base: type[BaseModel] | None = None,
     remove_self: bool = True,
+    inner: bool = True,
 ) -> type[BaseModel]:
-    function = get_inner_function(function)
+    function = get_inner_function(function) if inner else function
 
     if model_name is None:
         model_name = f"{upper_camel(function.__name__)}Args"
-    if model_config is None:
-        model_config = {}
 
     (
         position_parameter_names,
@@ -582,13 +595,16 @@ def get_args_model(
     parameters: dict[str, Any] = {**positional_parameters, **keyword_only_parameters}
 
     # Allow extra arguments if there is a `**kwargs` parameter in the function signature.
-    if kwargs_parameter_name:
-        model_config = {**model_config, "extra": "allow"} if kwargs_parameter_name else model_config
+    if kwargs_parameter_name and model_base is None:
+        model_config = (
+            {**(model_config or {}), "extra": "allow"} if kwargs_parameter_name else model_config
+        )
 
     model = create_model(
         model_name,
         __config__=model_config,
         __module__=model_module or "__dynamic__",
+        __base__=model_base,
         **parameters,
     )
 
@@ -620,13 +636,11 @@ def getattr_internal(cls: type[_T], instance: _T, name: str, value: object) -> N
 
 
 @overload
-def escape_like_expression(text: str) -> str:
-    ...
+def escape_like_expression(text: str) -> str: ...
 
 
 @overload
-def escape_like_expression(text: bytes) -> bytes:
-    ...
+def escape_like_expression(text: bytes) -> bytes: ...
 
 
 def escape_like_expression(text: str | bytes) -> str | bytes:
@@ -796,13 +810,11 @@ def validated_function(
     *,
     config: ConfigDict | None = None,
     validate_return: bool = False,
-) -> Callable[[_CallableT], _CallableT]:
-    ...
+) -> Callable[[_CallableT], _CallableT]: ...
 
 
 @overload
-def validated_function(__func: _CallableT) -> _CallableT:
-    ...
+def validated_function(__func: _CallableT) -> _CallableT: ...
 
 
 def validated_function(
@@ -837,8 +849,64 @@ else:
 
 class StrEnum(BaseStrEnum):
     @staticmethod
+    @override
     def _generate_next_value_(name: str, *args: Any, **kwargs: Any) -> str:
         return name.lower().replace("_", "-")
+
+    @override
+    def __str__(self) -> str:
+        return self.value
+
+
+_priority_cache: dict[tuple[type["PriorityStrEnum"], str], int] = {}
+
+
+class PriorityStrEnum(StrEnum):
+    @property
+    def priority(self) -> Any:
+        key = (type(self), self)
+        priority = _priority_cache.get(key)
+        if priority is None:
+            priority = tuple(type(self)).index(self)
+            _priority_cache[key] = priority
+
+        return priority
+
+    def __lt__(self, __x: str | None) -> bool:
+        if __x is None:
+            return False
+
+        if isinstance(__x, type(self)):
+            return self.priority < __x.priority
+
+        return super().__lt__(__x)
+
+    def __le__(self, __x: str | None) -> bool:
+        if __x is None:
+            return False
+
+        if isinstance(__x, type(self)):
+            return self.priority <= __x.priority
+
+        return super().__le__(__x)
+
+    def __gt__(self, __x: str | None) -> bool:
+        if __x is None:
+            return True
+
+        if isinstance(__x, type(self)):
+            return self.priority > __x.priority
+
+        return super().__gt__(__x)
+
+    def __ge__(self, __x: str | None) -> bool:
+        if __x is None:
+            return True
+
+        if isinstance(__x, type(self)):
+            return self.priority >= __x.priority
+
+        return super().__ge__(__x)
 
 
 def strlist(value: str | Sequence[str] | None) -> list[str]:
@@ -863,13 +931,11 @@ _O = TypeVar("_O")
 
 
 @overload
-def coalesce(value: _T | None, default: Callable[[], _O]) -> _T | _O:
-    ...
+def coalesce(value: _T | None, default: Callable[[], _O]) -> _T | _O: ...
 
 
 @overload
-def coalesce(value: _T | None, default: _O) -> _T | _O:
-    ...
+def coalesce(value: _T | None, default: _O) -> _T | _O: ...
 
 
 def coalesce(value: object, default: object) -> object:
@@ -927,6 +993,23 @@ def upper_camel(string: str) -> str:
     return "".join(segment.capitalize() for segment in string.replace("_", "-").split("-"))
 
 
+def lower_camel(string: str) -> str:
+    if string == "":
+        return string
+
+    return string[0].lower() + upper_camel(string)[1:]
+
+
 Undefined = object()
 
 PathLike = str | _BasePathLike[str]
+
+
+def call_partial(
+    function: Callable[_P, _T],
+    *args: _P.args,
+    **kwargs: _P.kwargs,
+) -> _T:
+    parameters = inspect.signature(function).parameters
+    applied_kwargs = {key: value for key, value in kwargs.items() if key in parameters}
+    return function(*args, **applied_kwargs)  # type: ignore

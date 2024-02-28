@@ -27,8 +27,7 @@ class BaseSchedule(ImmutableDataObject):
         return OrSchedule(schedules=[self, other])
 
     @abstractmethod
-    def as_trigger(self) -> "Trigger":
-        ...
+    def as_trigger(self) -> "Trigger": ...
 
 
 class CronSchedule(BaseSchedule):
@@ -119,8 +118,7 @@ class Trigger:
     __slots__ = ()
 
     @abstractmethod
-    def get_next_fire_time(self, previous: datetime | None, now: datetime) -> datetime | None:
-        ...
+    def get_next_fire_time(self, previous: datetime | None, now: datetime) -> datetime | None: ...
 
     def get_fire_times(
         self,
@@ -275,8 +273,6 @@ class InternalIntervalTrigger(BaseInternalIntervalTrigger):
 
         if self.end_date is not None and now > self.end_date:
             return None
-
-        next_fire_time: datetime | None = None
 
         if now < self.start_date:
             next_fire_time = self.start_date

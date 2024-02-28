@@ -59,7 +59,7 @@ class AddressSelector(str):
 
         if not isinstance(value, str):
             if not (isinstance(value, Sequence) and all(isinstance(item, str) for item in value)):
-                raise TypeError(f"{value!r} must be a string or sequence of strings")
+                raise ValueError(f"{value!r} must be a string or sequence of strings")
 
             value = "|".join(value)
 
@@ -230,7 +230,7 @@ class DynamicAddress(AddressSelector):
             return None
 
         if "." in self:
-            return type(self)(self[: self.rindex(".")]) or None
+            return type(self)(self[: self.rindex(".")]) or None  # type: ignore
 
         if self.startswith("@"):
             return type(self)("@")
@@ -248,7 +248,7 @@ class DynamicAddress(AddressSelector):
     @property
     def path(self) -> Sequence[Self]:
         path: list[Self] = []
-        current = self
+        current: DynamicAddress | None = self
 
         while current is not None:
             path.append(current)

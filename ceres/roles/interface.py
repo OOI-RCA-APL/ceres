@@ -4,5 +4,4 @@ from ceres.ui import Element
 
 class Interface(Component):
     @query
-    async def render(self) -> Element:
-        ...
+    async def render(self) -> Element: ...

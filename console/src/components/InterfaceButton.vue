@@ -1,27 +1,38 @@
 <script lang="ts" setup>
-import { ButtonElement, ComponentInfo } from '@/api/models'
+import { ButtonElement } from '@/api/elements'
+import { useEngine } from '@/api/engine'
 import ComponentProcedure from '@/components/ComponentProcedure.vue'
 import icons from '@/icons'
+import { useQuery } from '@tanstack/vue-query'
+import { computed } from 'vue'
 
-const { component, element } = defineProps<{
-  component: ComponentInfo
+const { element } = defineProps<{
   element: ButtonElement
 }>()
 
 let isShowingMenu = $ref(false)
 
-const action = $computed(
-  () =>
-    component.procedures.find(
-      (procedure) => procedure.type === 'action' && procedure.name === element.action
-    ) ?? null
-)
+const engine = useEngine()
+
+const request = useQuery({
+  queryKey: computed(() => ['action', element.address, element.action]),
+  queryFn: async () => {
+    const procedure = await engine.components.getProcedure(element.address, element.action)
+    if (procedure?.type === 'action') {
+      return procedure
+    }
+
+    return null
+  },
+})
+
+const action = $computed(() => request.data.value ?? null)
 </script>
 
 <template>
   <q-btn
     dense
-    :icon="isShowingMenu ? icons.arrowUp : icons.arrowDown"
+    :icon="isShowingMenu ? icons.menuUp : icons.menuDown"
     :label="element.title"
     :style="{ backgroundColor: element.color ?? undefined }"
   >
@@ -38,15 +49,15 @@ const action = $computed(
         <q-btn
           class="absolute-top-right q-ma-xs"
           flat
-          icon="close"
+          :icon="icons.close"
           round
           size="8px"
           @click="isShowingMenu = false"
         />
         <div class="items-center q-mb-sm q-ml-xs row">
-          <div class="monospace-lg">{{ component.address }}::{{ element.action }}</div>
+          <div class="monospace-lg">{{ element.address }}::{{ element.action }}</div>
         </div>
-        <component-procedure :component="component" :procedure="action" />
+        <component-procedure :address="element.address" :procedure="action" />
       </q-card>
     </q-menu>
   </q-btn>

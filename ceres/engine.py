@@ -10,24 +10,39 @@ from aiotools.taskgroup import TaskGroup
 from typing_extensions import Self, Unpack, override
 
 from ceres.address import Address, AddressSelector, DynamicAddress
-from ceres.config import Config
-from ceres.data import ImmutableDataObject
+from ceres.alert import Alert, AlertUpdate
+from ceres.config import Config, ServerSSLConfig
+from ceres.data import ImmutableDataObject, PasswordHash
 from ceres.directory import Directory
 from ceres.errors import (
     ConfigError,
     ConfigNotProvidedError,
+    Failure,
     ReloadAlreadyActiveError,
     ReloadConfigInvalidError,
-    ReloadError,
 )
 from ceres.events import Event, LogEvent, StoppedEvent, StoppingEvent
-from ceres.exceptions import EngineDatabaseInitFailedException
-from ceres.filter import ComponentFilter, ComponentFilterArgs
+from ceres.filter import (
+    AlertFilter,
+    AlertFilterArgs,
+    ComponentFilter,
+    ComponentFilterArgs,
+    LogEntryFilter,
+    LogEntryFilterArgs,
+    MessageFilter,
+    MessageFilterArgs,
+    UserFilter,
+    UserFilterArgs,
+)
+from ceres.internal.app.main import App
 from ceres.internal.project import Project
+from ceres.internal.server import Server, ServerInternalConfig
 from ceres.internal.utilities import StrEnum, sleep_forever, strify, uniquify
-from ceres.internal.uvicorn import Uvicorn, UvicornConfig
+from ceres.logs import LogEntry, LogEntryUpdate
+from ceres.message import Message, MessageUpdate
 from ceres.object import Object
 from ceres.result import Fail, Ok, Result
+from ceres.user import User, UserCreate, UserUpdate
 
 if TYPE_CHECKING:
     from ceres.component import Component, ComponentGroup
@@ -76,13 +91,8 @@ class Engine(Object, kw_only=False):
         self.__database = Database(self.__config.database)
         self.__reloading = AsyncEvent()
         self.__reloaded_config: Config | None = None
-        self.__port_uvicorn: Uvicorn | None = None
-        self.__uds_uvicorn: Uvicorn | None = None
+        self.__server: Server | None = None
         self.__root: Component | None = None
-
-        from ceres.internal.app import App
-
-        self.__app = App(self)
 
         if self.__config_path is not None:
             self.__project_directory = Directory(self.__config_path.parent)
@@ -149,6 +159,10 @@ class Engine(Object, kw_only=False):
 
         return self.project_directory.subdir("local")
 
+    @property
+    def database(self) -> Database:
+        return self.__database
+
     @override
     async def __run__(self) -> None:
         if self.local_directory is not None:
@@ -168,8 +182,7 @@ class Engine(Object, kw_only=False):
                 started = True
                 self.__reloading.clear()
 
-                self.__start_uds_uvicorn()
-                self.__start_port_uvicorn()
+                self.__start_server()
 
                 async def start_enabled() -> None:
                     await asyncio.sleep(0)
@@ -210,8 +223,7 @@ class Engine(Object, kw_only=False):
     @override
     async def __stop__(self) -> None:
         self.emit(StoppingEvent)
-        await self.__stop_uds_uvicorn()
-        await self.__stop_port_uvicorn()
+        await self.__stop_server()
         if self.__root is not None:
             await self.__root.stop()
 
@@ -273,19 +285,163 @@ class Engine(Object, kw_only=False):
 
         return self.__root.get_components(filter, inclusive=True, **kwargs)
 
-    async def reload(self, config: Config | None = None) -> Result[Config, ReloadError]:
+    async def hash_password(self, password: str) -> PasswordHash:
+        return await self.__database.hash_password(password)
+
+    async def verify_password(self, password: str, hash: PasswordHash) -> bool:
+        return await self.__database.verify_password(password, hash)
+
+    async def get_users(
+        self,
+        filter: UserFilter | None = None,
+        **kwargs: Unpack[UserFilterArgs],
+    ) -> list[User]:
+        return await self.__database.get_users(filter, **kwargs)
+
+    async def get_user(
+        self,
+        filter: UserFilter | None = None,
+        **kwargs: Unpack[UserFilterArgs],
+    ) -> User | None:
+        return await self.__database.get_user(filter, **kwargs)
+
+    async def count_users(
+        self,
+        filter: UserFilter | None = None,
+        **kwargs: Unpack[UserFilterArgs],
+    ) -> int:
+        return await self.__database.count_users(filter, **kwargs)
+
+    async def create_user(self, data: UserCreate) -> User:
+        return await self.__database.create_user(data)
+
+    async def update_users(self, filter: UserFilter, assign: UserUpdate) -> int:
+        return await self.__database.update_users(filter, assign)
+
+    async def update_user(self, filter: UserFilter, assign: UserUpdate) -> User | None:
+        return await self.__database.update_user(filter, assign)
+
+    async def delete_users(
+        self,
+        filter: UserFilter | None = None,
+        **kwargs: Unpack[UserFilterArgs],
+    ) -> int:
+        return await self.__database.delete_users(filter, **kwargs)
+
+    async def delete_user(
+        self,
+        filter: UserFilter | None = None,
+        **kwargs: Unpack[UserFilterArgs],
+    ) -> User | None:
+        return await self.__database.delete_user(filter, **kwargs)
+
+    async def count_messages(
+        self,
+        filter: MessageFilter | None = None,
+        **kwargs: Unpack[MessageFilterArgs],
+    ) -> int:
+        return await self.__database.count_messages(filter, **kwargs)
+
+    async def create_message(self, data: Message) -> Message:
+        return await self.__database.create_message(data)
+
+    async def update_messages(self, filter: MessageFilter, assign: MessageUpdate) -> int:
+        return await self.__database.update_messages(filter, assign)
+
+    async def update_message(self, filter: MessageFilter, assign: MessageUpdate) -> Message | None:
+        return await self.__database.update_message(filter, assign)
+
+    async def delete_messages(
+        self,
+        filter: MessageFilter | None = None,
+        **kwargs: Unpack[MessageFilterArgs],
+    ) -> int:
+        return await self.__database.delete_messages(filter, **kwargs)
+
+    async def delete_message(
+        self,
+        filter: MessageFilter | None = None,
+        **kwargs: Unpack[MessageFilterArgs],
+    ) -> Message | None:
+        return await self.__database.delete_message(filter, **kwargs)
+
+    async def count_alerts(
+        self,
+        filter: AlertFilter | None = None,
+        **kwargs: Unpack[AlertFilterArgs],
+    ) -> int:
+        return await self.__database.count_alerts(filter, **kwargs)
+
+    async def create_alert(self, assign: Alert) -> Alert:
+        return await self.__database.create_alert(assign)
+
+    async def update_alerts(self, filter: AlertFilter, assign: AlertUpdate) -> int:
+        return await self.__database.update_alerts(filter, assign)
+
+    async def update_alert(self, filter: AlertFilter, assign: AlertUpdate) -> Alert | None:
+        return await self.__database.update_alert(filter, assign)
+
+    async def delete_alerts(
+        self,
+        filter: AlertFilter | None = None,
+        **kwargs: Unpack[AlertFilterArgs],
+    ) -> int:
+        return await self.__database.delete_alerts(filter, **kwargs)
+
+    async def delete_alert(
+        self,
+        filter: AlertFilter | None = None,
+        **kwargs: Unpack[AlertFilterArgs],
+    ) -> Alert | None:
+        return await self.__database.delete_alert(filter, **kwargs)
+
+    async def count_log_entries(
+        self,
+        filter: LogEntryFilter | None = None,
+        **kwargs: Unpack[LogEntryFilterArgs],
+    ) -> int:
+        return await self.__database.count_log_entries(filter, **kwargs)
+
+    async def create_log_entry(self, assign: LogEntry) -> LogEntry:
+        return await self.__database.create_log_entry(assign)
+
+    async def update_log_entries(self, filter: LogEntryFilter, assign: LogEntryUpdate) -> int:
+        return await self.__database.update_log_entries(filter, assign)
+
+    async def update_log_entry(
+        self,
+        filter: LogEntryFilter,
+        assign: LogEntryUpdate,
+    ) -> LogEntry | None:
+        return await self.__database.update_log_entry(filter, assign)
+
+    async def delete_log_entries(
+        self,
+        filter: LogEntryFilter | None = None,
+        **kwargs: Unpack[LogEntryFilterArgs],
+    ) -> int:
+        return await self.__database.delete_log_entries(filter, **kwargs)
+
+    async def delete_log_entry(
+        self,
+        filter: LogEntryFilter | None = None,
+        **kwargs: Unpack[LogEntryFilterArgs],
+    ) -> LogEntry | None:
+        return await self.__database.delete_log_entry(filter, **kwargs)
+
+    async def reload(self, config: Config | None = None) -> Config:
         if self.__reloading.is_set():
-            return Fail(ReloadAlreadyActiveError())
+            raise Failure(ReloadAlreadyActiveError)
 
         if config is not None:
             self.log.info("Queueing reload of provided configuration...")
             self.__reloading.set()
             self.__reloaded_config = config
-            return Ok(config)
+            return config
 
         if self.__config_path is None:
             self.log.warning("No configuration path provided, ignoring reload.")
-            return Ok(self.config)
+            return self.config
 
         self.log.info(f"Reloading configuration from '{self.__config_path}'...")
         match await Config.load(self.__config_path, log=self.log):
@@ -293,10 +449,10 @@ class Engine(Object, kw_only=False):
                 self.log.info("Configuration parsed successfully, queueing reload...")
                 self.__reloading.set()
                 self.__reloaded_config = config
-                return Ok(config)
+                return config
             case Fail(errors):
                 self.log.error("Reload failed, found errors in configuration.")
-                return Fail(ReloadConfigInvalidError(errors=errors))
+                raise Failure(ReloadConfigInvalidError(errors=errors))
 
     async def __load_database(self) -> None:
         if not await self.__object_database__.initialized():
@@ -304,9 +460,9 @@ class Engine(Object, kw_only=False):
             try:
                 await self.__object_database__.init()
                 self.log.info("Database initialized successfully.")
-            except Exception as exception:
+            except Failure:
                 self.log.error("Database initialization failed.")
-                raise EngineDatabaseInitFailedException(str(exception))
+                raise
 
     async def __execute_reload(self) -> None:
         self.log.info("Reloading configuration...")
@@ -323,9 +479,8 @@ class Engine(Object, kw_only=False):
         if self.config.server != previous.server:
             self.log.info("Server configuration modified, reloading...")
             try:
-                await self.__stop_port_uvicorn()
-                self.__start_port_uvicorn()
-                self.__start_uds_uvicorn()
+                await self.__stop_server()
+                self.__start_server()
             except Exception:
                 self.log.error(
                     f"An issue occurred while reloading the server: {traceback.format_exc()}"
@@ -507,66 +662,61 @@ class Engine(Object, kw_only=False):
 
         return actions
 
-    def __create_uds_uvicorn(self) -> Uvicorn | None:
+    def __create_server(self) -> Server | None:
+        socket: Path | None = None
         if self.__config.server.socket is not None:
             socket = self.__config.server.socket
         elif self.__config_path is not None:
             project = Project(self.__config_path, self.__config)
             socket = project.socket_path
-        else:
+        elif self.__config.server.port is None:
             return None
 
-        return Uvicorn(
-            UvicornConfig(
-                app=self.__app,
-                uds=str(socket),
-                loop="none",
-            )
+        config = ServerInternalConfig()
+        config.loglevel = "CRITICAL"
+
+        # SSL / HTTPS
+        ssl = self.__config.server.ssl or ServerSSLConfig()
+        config.keyfile = str(ssl.key) if ssl.key is not None else None
+        config.keyfile_password = ssl.key_password
+        config.certfile = str(ssl.cert) if ssl.cert is not None else None
+        config.ca_certs = str(ssl.ca_certs) if ssl.ca_certs is not None else None
+
+        bind: list[str] = []
+        insecure_bind: list[str] = []
+
+        if self.__config.server.port is not None:
+            bind.append(f"{self.__config.server.host}:{self.__config.server.port}")
+        if socket is not None:
+            if config.ssl_enabled:
+                insecure_bind.append(f"unix:{socket}")
+            else:
+                bind.append(f"unix:{socket}")
+
+        config.bind = bind
+        config.insecure_bind = insecure_bind
+
+        return Server(config, App(self))
+
+    def __start_server(self) -> Server | None:
+        if self.__server is None:
+            self.__server = self.__create_server()
+
+        if self.__server is not None and not self.__server.running:
+            bind = [*self.__server.config.bind, *self.__server.config.insecure_bind]
+            self.log.info(f"Listening on {bind}...")
+            self.__server.start(on_exception=self.__on_server_exception)
+
+        return self.__server
+
+    async def __stop_server(self) -> None:
+        if self.__server is not None:
+            bind = [*self.__server.config.bind, *self.__server.config.insecure_bind]
+            self.log.info(f"Removing listeners from {bind}...")
+            await self.__server.stop()
+            self.__server = None
+
+    def __on_server_exception(self, server: Server, exception: BaseException) -> None:
+        self.log.error(
+            f"An exception occurred while running server on {server.config.bind}: {exception}"
         )
-
-    def __start_uds_uvicorn(self) -> Uvicorn | None:
-        if self.__uds_uvicorn is None:
-            self.__uds_uvicorn = self.__create_uds_uvicorn()
-        if self.__uds_uvicorn is None:
-            return None
-
-        if not self.__uds_uvicorn.running:
-            self.__uds_uvicorn.start()
-            self.log.info(f"Listening on socket at '{self.__uds_uvicorn.config.uds}'.")
-
-        return self.__uds_uvicorn
-
-    async def __stop_uds_uvicorn(self) -> None:
-        if self.__uds_uvicorn is not None:
-            await self.__uds_uvicorn.stop()
-            self.log.info(f"Removing listener from socket at '{self.__uds_uvicorn.config.uds}'.")
-            self.__uds_uvicorn = None
-
-    def __create_port_uvicorn(self) -> Uvicorn | None:
-        if self.__config.server.port is None:
-            return None
-
-        return Uvicorn(
-            UvicornConfig(
-                app=self.__app,
-                host=self.__config.server.host,
-                port=self.__config.server.port,
-                loop="none",
-            )
-        )
-
-    def __start_port_uvicorn(self) -> Uvicorn | None:
-        if self.__port_uvicorn is None:
-            self.__port_uvicorn = self.__create_port_uvicorn()
-
-        if self.__port_uvicorn is not None and not self.__port_uvicorn.running:
-            self.log.info(f"Listening on port {self.__port_uvicorn.config.port}...")
-            self.__port_uvicorn.start()
-
-        return self.__port_uvicorn
-
-    async def __stop_port_uvicorn(self) -> None:
-        if self.__port_uvicorn is not None:
-            self.log.info(f"Removing listener from port {self.__port_uvicorn.config.port}...")
-            await self.__port_uvicorn.stop()
-            self.__port_uvicorn = None

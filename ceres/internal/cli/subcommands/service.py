@@ -1,12 +1,10 @@
-from pathlib import Path
 import sys
-from typing import Optional
+from pathlib import Path
+from typing import Annotated
 
-from typer import Argument
-
-from ceres.config import ConfigCheckType
+from ceres.internal.cli.plumbing import CLIArgument, CLIContext, CLIRouter
 from ceres.internal.cli.service import LaunchDService, Service, SystemDService
-from ceres.internal.cli.shared import CLIRouter, ProjectOption, write, write_table
+from ceres.internal.cli.shared import use_project, write, write_table
 from ceres.internal.project import Project
 
 router = CLIRouter(
@@ -16,20 +14,24 @@ router = CLIRouter(
 
 
 @router.command()
-def generate(
-    path: Optional[Path] = Argument(
-        None,
-        dir_okay=False,
-        resolve_path=True,
-        writable=True,
-        help="File path to write to. Standard output is used if not specified.",
-    ),
+async def generate(
+    path: Annotated[
+        Path | None,
+        CLIArgument(
+            Path | None,
+            dir_okay=False,
+            resolve_path=True,
+            writable=True,
+            help="File path to write to. Standard output is used if not specified.",
+        ),
+    ] = None,
     *,
-    project: Project = ProjectOption(checks=[]),
+    context: CLIContext,
 ) -> None:
     """
     Generate a service definition file for this project.
     """
+    project = await use_project(context)
     service = _get_service(project)
     defintition = service.generate()
 
@@ -41,10 +43,11 @@ def generate(
 
 
 @router.command()
-def start(project: Project = ProjectOption(checks=ConfigCheckType.all())) -> None:
+async def start(context: CLIContext) -> None:
     """
     Start the background service, creating and/or updating the service file as needed.
     """
+    project = await use_project(context)
     service = _get_service(project)
     write("All checks passed.")
     write(f"Starting service {service.name!r} at {service.location!r}...")
@@ -53,10 +56,11 @@ def start(project: Project = ProjectOption(checks=ConfigCheckType.all())) -> Non
 
 
 @router.command()
-def stop(project: Project = ProjectOption(checks=[])) -> None:
+async def stop(context: CLIContext) -> None:
     """
     Stop the background service, deleting the service file afterwards.
     """
+    project = await use_project(context)
     service = _get_service(project)
     write(f"Stopping service {service.name!r} at {service.location}...")
     service.stop()
@@ -64,10 +68,11 @@ def stop(project: Project = ProjectOption(checks=[])) -> None:
 
 
 @router.command()
-def status(project: Project = ProjectOption(checks=[])) -> None:
+async def status(context: CLIContext) -> None:
     """
     Show the status of the background service.
     """
+    project = await use_project(context)
     service = _get_service(project)
 
     with write_table() as table:

@@ -42,7 +42,7 @@ module.exports = configure((context) => {
     css: ['app.scss'],
 
     // https://github.com/quasarframework/quasar/tree/dev/extras
-    extras: ['roboto-font', 'material-icons'],
+    extras: ['mdi-v7', 'material-icons', 'roboto-font'],
 
     // https://v2.quasar.dev/quasar-cli-vite/quasar-config-js#build
     build: {

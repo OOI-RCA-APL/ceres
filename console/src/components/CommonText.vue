@@ -1,13 +1,14 @@
 <script lang="ts" setup>
-defineProps<{
+const { element = 'div' } = defineProps<{
   variant: 'title1' | 'title2' | 'title3' | 'body1' | 'body2' | 'th' | 'description'
+  element?: string
 }>()
 </script>
 
 <template>
-  <div :class="$style[variant]">
+  <component :is="element" :class="$style[variant]">
     <slot />
-  </div>
+  </component>
 </template>
 
 <style module>
@@ -33,6 +34,7 @@ defineProps<{
 }
 
 .body1 {
+  font-family: 'Roboto';
   font-size: 16px;
   font-weight: 400;
   line-height: 1.5rem;
@@ -40,6 +42,7 @@ defineProps<{
 }
 
 .body2 {
+  font-family: 'Roboto';
   font-size: 14px;
   font-weight: 400;
   line-height: 1.5rem;
@@ -47,11 +50,13 @@ defineProps<{
 }
 
 .th {
+  font-family: 'Roboto';
   font-size: 12px;
   font-weight: 500;
 }
 
 .description {
+  font-family: 'Roboto';
   font-size: 11px;
 }
 

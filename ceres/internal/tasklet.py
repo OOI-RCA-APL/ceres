@@ -31,12 +31,10 @@ class Tasklet(ABC):
         return self.__tasklet__.stopping.is_set()
 
     @abstractmethod
-    async def __run__(self) -> None:
-        ...
+    async def __run__(self) -> None: ...
 
     @abstractmethod
-    async def __stop__(self) -> None:
-        ...
+    async def __stop__(self) -> None: ...
 
     @property
     def __tasklet__(self) -> TaskletInternal:

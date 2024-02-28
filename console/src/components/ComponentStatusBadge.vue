@@ -1,19 +1,19 @@
 <script lang="ts" setup>
 import { Address } from '@/address'
-import { disable, enable, start, stop } from '@/api/operations'
+import { useEngine } from '@/api/engine'
 import icons from '@/icons'
-import { useStore } from '@/store'
 import { upperFirst } from 'lodash'
 
 const { address } = defineProps<{
   address: Address
 }>()
 
-const store = useStore()
+const engine = useEngine()
+
 const status = $computed(() => ({
-  running: store.getStatus(address)?.running ?? null,
-  enabled: store.getStatus(address)?.enabled ?? null,
-  connectivity: store.getStatus(address)?.connectivity ?? null,
+  running: engine.statuses.get(address)?.running ?? null,
+  enabled: engine.statuses.get(address)?.enabled ?? null,
+  connectivity: engine.statuses.get(address)?.connectivity ?? null,
 }))
 
 let menuIsOpen = $ref(false)
@@ -51,7 +51,7 @@ const connectionColor = $computed(() => {
         $style.root,
         status.running && $style.running,
         status.enabled && $style.enabled,
-        'cursor-pointer',
+        engine.auth.isOperator && 'cursor-pointer',
       ]"
       rounded
     >
@@ -65,31 +65,40 @@ const connectionColor = $computed(() => {
           <span>{{ status.enabled ? 'Enabled' : 'Disabled' }}</span>
         </template>
       </q-tooltip>
-      <q-menu v-model="menuIsOpen" anchor="top right" class="no-shadow" :offset="[8, 0]">
+      <q-menu
+        v-if="engine.auth.isOperator"
+        v-model="menuIsOpen"
+        anchor="top right"
+        class="no-shadow"
+        :offset="[8, 0]"
+      >
         <q-list bordered class="rounded-corners" dense>
-          <q-item clickable @click="status.running ? stop(address) : start(address)">
+          <q-item clickable @click="status.running ? engine.stop(address) : engine.start(address)">
             <q-item-section>
               <q-item-label>{{ status.running ? 'Stop' : 'Start' }}</q-item-label>
             </q-item-section>
           </q-item>
-          <q-item clickable @click="status.enabled ? disable(address) : enable(address)">
+          <q-item
+            clickable
+            @click="status.enabled ? engine.disable(address) : engine.enable(address)"
+          >
             <q-item-section>
               <q-item-label>{{ status.enabled ? 'Disable' : 'Enable' }}</q-item-label>
             </q-item-section>
           </q-item>
           <q-separator />
-          <q-item clickable @click="start(address.all())">
+          <q-item clickable @click="engine.start(address.all())">
             <q-item-section>
               <q-item-label>Start All</q-item-label>
             </q-item-section>
           </q-item>
           <q-separator />
-          <q-item clickable @click="enable(address.all())">
+          <q-item clickable @click="engine.enable(address.all())">
             <q-item-section>
               <q-item-label>Enable All</q-item-label>
             </q-item-section>
           </q-item>
-          <q-item clickable @click="disable(address.all())">
+          <q-item clickable @click="engine.disable(address.all())">
             <q-item-section>
               <q-item-label>Disable All</q-item-label>
             </q-item-section>

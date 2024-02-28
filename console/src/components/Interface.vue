@@ -1,15 +1,24 @@
 <script setup lang="ts">
-import { ComponentInfo } from '@/api/models'
-import { render, useQuery } from '@/api/operations'
+import { Address } from '@/address'
+import { useEngine } from '@/api/engine'
 import InterfaceElement from '@/components/InterfaceElement.vue'
+import { useInterfaceContext } from '@/interface'
+import { useQuery } from '@tanstack/vue-query'
 import { computed } from 'vue'
 
-const { component } = defineProps<{
-  component: ComponentInfo
+const { address } = defineProps<{
+  address: Address
 }>()
 
-const query = useQuery(['render', computed(() => component.address)], async () => {
-  return await render(component.address)
+useInterfaceContext(address)
+
+const engine = useEngine()
+
+const query = useQuery({
+  queryKey: computed(() => ['render', address]),
+  queryFn: async () => {
+    return await engine.components.render(address)
+  },
 })
 
 await query.suspense()
@@ -18,5 +27,5 @@ const result = $computed(() => query.data.value)
 </script>
 
 <template>
-  <interface-element v-if="result?.ok" :component="component" :element="result.value" :path="[]" />
+  <interface-element v-if="result?.ok" :element="result.value" :path="[]" />
 </template>

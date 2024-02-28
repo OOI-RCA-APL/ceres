@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { StateElement } from '@/api/models'
+import { StateElement } from '@/api/elements'
 import CommonText from '@/components/CommonText.vue'
 
 const { element } = defineProps<{

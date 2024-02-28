@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { Alert } from '@/api/models'
+import { Alert } from '@/api/alerts'
 import ItemViewItem from '@/components/ItemViewItem.vue'
 
 const { alert } = defineProps<{

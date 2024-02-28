@@ -13,7 +13,7 @@ class Driver(Component):
     out: Path
 
     @on(reference="connection", event=MessageReceivedEvent)
-    async def __on_message(self, event: MessageReceivedEvent) -> None:
+    async def on__message(self, event: MessageReceivedEvent) -> None:
         data = MessageData.parse(event.message)
 
         self.out.parent.mkdir(parents=True, exist_ok=True)

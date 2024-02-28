@@ -1,8 +1,9 @@
 <script lang="ts" setup>
-import { ComponentInfo, ProcedureTypeModel } from '@/api/models'
+import { ComponentInfo, ProcedureTypeModel } from '@/api/components'
 import ComponentProcedure from '@/components/ComponentProcedure.vue'
 import SectionCard from '@/components/SectionCard.vue'
 import icons from '@/icons'
+import { useInterfaceContext } from '@/interface'
 import { usePersisted } from '@/persistence'
 import { upperFirst } from 'lodash'
 import { computed, watchEffect } from 'vue'
@@ -10,6 +11,8 @@ import { computed, watchEffect } from 'vue'
 const { component } = defineProps<{
   component: ComponentInfo
 }>()
+
+const context = useInterfaceContext()
 
 const actions = $computed(() =>
   component.procedures.filter((procedure) => procedure.type === 'action')
@@ -27,7 +30,10 @@ const persisted = usePersisted({
       selectedName: string().nullable().default(null),
     }),
   methods: computed(() => [
-    { type: 'local-storage', key: `state/component-procedures/${component.address}` },
+    {
+      type: 'local-storage',
+      key: [context.key, 'state', 'component-procedures', component.address],
+    },
   ]),
 })
 
@@ -78,7 +84,11 @@ watchEffect(() => {
         popup-content-class="no-shadow monospace-md"
       />
       <template v-if="selected">
-        <component-procedure :key="selected.name" :component="component" :procedure="selected" />
+        <component-procedure
+          :key="selected.name"
+          :address="component.address"
+          :procedure="selected"
+        />
       </template>
     </template>
     <template v-else>

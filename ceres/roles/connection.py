@@ -24,13 +24,24 @@ from ceres.events import (
     MessageReceivedEvent,
     MessageSentEvent,
 )
-from ceres.exceptions import ConnectionLostException
 from ceres.internal.utilities import StrEnum, ensure_event_loop, show_td, sleep_forever
 from ceres.message import Message, MessageContent, MessageDirection
 from ceres.schedule import IntervalSchedule
 from ceres.status import Status
 from ceres.stream import Stream
 from ceres.timing import utc
+
+
+class ConnectionException(Exception):
+    pass
+
+
+class ConnectionInactive(ConnectionException):
+    pass
+
+
+class ConnectionLost(ConnectionException):
+    pass
 
 
 class ReconnectSettings(ImmutableDataObject):
@@ -59,8 +70,7 @@ class Connection(Component, ABC):
 
     @property
     @abstractmethod
-    def target(self) -> str:
-        ...
+    def target(self) -> str: ...
 
     @property
     def connectivity(self) -> Connectivity:
@@ -91,20 +101,16 @@ class Connection(Component, ABC):
         return status
 
     @abstractmethod
-    async def _try_connect(self) -> bool:
-        ...
+    async def _try_connect(self) -> bool: ...
 
     @abstractmethod
-    async def _try_disconnect(self) -> None:
-        ...
+    async def _try_disconnect(self) -> None: ...
 
     @abstractmethod
-    async def _send_data(self, data: bytes) -> bytes | None:
-        ...
+    async def _send_data(self, data: bytes) -> bytes | None: ...
 
     @abstractmethod
-    async def _poll_data(self) -> bytes | None:
-        ...
+    async def _poll_data(self) -> bytes | None: ...
 
     async def connect(self) -> bool:
         if self.__connectivity == Connectivity.CONNECTED:
@@ -149,7 +155,7 @@ class Connection(Component, ABC):
         action returns successfully, the data was sent.
         """
         if not self.connected:
-            raise ConnectionLostException("connection is lost")
+            raise ConnectionInactive()
 
         if not data.endswith(self.separator):
             data += self.separator
@@ -162,7 +168,7 @@ class Connection(Component, ABC):
         if sent is None and self.connected:
             self.emit(ConnectionLostEvent)
             await self.disconnect()
-            raise ConnectionLostException("connection was lost")
+            raise ConnectionLost()
 
         message = Message(
             address=self.address,

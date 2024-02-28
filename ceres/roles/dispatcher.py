@@ -37,8 +37,7 @@ class DispatchWriter:
         self,
         dispatch: Dispatch,
         alerts: Sequence[Alert],
-    ) -> Notification:
-        ...
+    ) -> Notification: ...
 
 
 class Dispatcher(Component):

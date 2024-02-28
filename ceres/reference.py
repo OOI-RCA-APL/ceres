@@ -30,8 +30,7 @@ _reference_dynamic_cls_generic_cache: dict[tuple[type | None, type], type["Refer
 class ReferenceProxiedMethods:
     if TYPE_CHECKING:
 
-        def __reference_access__(self) -> Any:
-            ...
+        def __reference_access__(self) -> Any: ...
 
     def __dir__(self) -> list[str]:
         return dir(self.__reference_access__())
@@ -317,7 +316,7 @@ class Reference:
             )
 
         if constraint in _reference_static_cls_generic_cache:
-            return _reference_static_cls_generic_cache[constraint]
+            return _reference_static_cls_generic_cache[constraint]  # type: ignore
 
         class GenericReference(cls):  # type: ignore
             __reference_constraint__ = constraint
@@ -339,7 +338,7 @@ class Reference:
         )
 
         _reference_static_cls_generic_cache[constraint] = GenericReference
-        return GenericReference
+        return GenericReference  # type: ignore
 
     @classmethod
     def __get_pydantic_core_schema__(

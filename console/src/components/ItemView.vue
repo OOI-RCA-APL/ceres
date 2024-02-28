@@ -1,30 +1,23 @@
 <script lang="ts" setup>
 import { Address } from '@/address'
-import { Alert, ComponentInfo, LogEntry, Message } from '@/api/models'
-import {
-  getAlerts,
-  getComponent,
-  getLogEntries,
-  getMessages,
-  sendMessage,
-  useAlertStream,
-  useLogEntryStream,
-  useMessageStream,
-} from '@/api/operations'
+import { Alert } from '@/api/alerts'
+import { useEngine } from '@/api/engine'
+import { LogEntry } from '@/api/log-entries'
+import { Message } from '@/api/messages'
+import { Item } from '@/api/shared'
 import CommandInput from '@/components/CommandInput.vue'
 import ItemViewAlert from '@/components/ItemViewAlert.vue'
 import ItemViewLogEntry from '@/components/ItemViewLogEntry.vue'
 import ItemViewMessage from '@/components/ItemViewMessage.vue'
 import SectionCard from '@/components/SectionCard.vue'
 import icons from '@/icons'
+import { useNotify } from '@/notify'
 import { debouncedComputed } from '@/utilities'
 import { useWindowFocus } from '@vueuse/core'
 import _ from 'lodash'
 import moment, { Moment } from 'moment'
-import { QVirtualScroll, debounce, useQuasar } from 'quasar'
+import { QVirtualScroll, debounce } from 'quasar'
 import { computed, nextTick, onMounted, reactive, watch, watchEffect } from 'vue'
-
-type Item = Readonly<Alert | Message | LogEntry>
 
 const {
   title = undefined,
@@ -41,30 +34,32 @@ const {
 
 const selector = $computed(() => new Address(address.toString() + ':all'))
 
-const quasar = useQuasar()
+const engine = useEngine()
+const notify = useNotify()
+
 const get = $computed(() => {
   switch (type) {
     case 'message':
-      return getMessages
+      return engine.messages.getAll
     case 'alert':
-      return getAlerts
+      return engine.alerts.getAll
     case 'log-entry':
-      return getLogEntries
+      return engine.logs.getAll
   }
 })
 
 const useStream = $computed(() => {
   switch (type) {
     case 'message':
-      return useMessageStream
+      return engine.messages.useStream
     case 'alert':
-      return useAlertStream
+      return engine.alerts.useStream
     case 'log-entry':
-      return useLogEntryStream
+      return engine.logs.useStream
   }
 })
 
-const info = (await getComponent(address)) as ComponentInfo
+const info = engine.components.get(address)
 if (info == null) {
   throw new Error('Component not found')
 }
@@ -146,7 +141,7 @@ async function onScroll() {
 
 watchEffect((onCleanup) => {
   const element = container
-  element?.addEventListener('scroll', onScroll)
+  element?.addEventListener('scroll', onScroll, { passive: true })
   void onScroll()
   onCleanup(() => {
     element?.removeEventListener('scroll', onScroll)
@@ -328,11 +323,7 @@ useStream(
     address: selector,
     search: debouncedFilter.value.search === '' ? undefined : debouncedFilter.value.search,
   })),
-  async (item: Item, filter) => {
-    if (filter.search != filter.search) {
-      return
-    }
-
+  async (item: Item) => {
     if (isLoadingCurrent) {
       itemsStreamed = [...itemsStreamed, item]
     } else {
@@ -342,15 +333,12 @@ useStream(
 )
 
 async function onSend(data: string) {
-  const result = await sendMessage(address, data)
+  const result = await engine.messages.send(address, data)
   if (result.ok) {
     return
   }
 
-  quasar.notify({
-    type: 'negative',
-    message: `Message failed to send. ${JSON.stringify(result.error)}`,
-  })
+  notify.error(`Message failed to send. ${JSON.stringify(result.error)}`)
 }
 </script>
 
@@ -424,7 +412,7 @@ async function onSend(data: string) {
           v-if="!isLoadingCurrent && !isAtBottomComputed"
           class="absolute-bottom-right"
           color="primary"
-          :icon="icons.arrowDownward"
+          :icon="icons.arrowDown"
           round
           size="sm"
           :style="{

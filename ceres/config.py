@@ -1,16 +1,20 @@
 import asyncio
 import os
+import ssl
 import traceback
 from datetime import timedelta
 from logging import Logger
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Literal, Mapping, Sequence
+from typing import TYPE_CHECKING, Annotated, Any, Callable, Literal, Mapping, Sequence
 
 import yaml
+from annotated_types import Ge, Le
+from argon2.profiles import RFC_9106_LOW_MEMORY
 from pydantic import (
     Field,
     ImportString,
     IPvAnyAddress,
+    PositiveInt,
     SecretStr,
     ValidationError,
     ValidationInfo,
@@ -21,12 +25,7 @@ from typing_extensions import Self, override
 from yaml import MarkedYAMLError, YAMLError
 
 from ceres.address import Address, DynamicAddress
-from ceres.data import (
-    ImmutableDataObject,
-    Name,
-    NonBlankStr,
-    PositiveTimeDelta,
-)
+from ceres.data import ImmutableDataObject, Name, NonBlankStr, NonEmptyStr, PositiveTimeDelta
 from ceres.database.enums import DatabaseType
 from ceres.errors import (
     ComponentInitExceptionError,
@@ -39,13 +38,7 @@ from ceres.errors import (
     ConfigReadError,
     ConfigValidationError,
 )
-from ceres.internal.utilities import (
-    StrEnum,
-    get_traceback,
-    get_type_adapter,
-    group_by,
-    show_td,
-)
+from ceres.internal.utilities import StrEnum, get_traceback, get_type_adapter, group_by, show_td
 from ceres.loaded import Loader
 from ceres.logs import Log
 from ceres.result import Fail, Ok, Result
@@ -141,17 +134,25 @@ class ServiceConfig(ConfigObject):
     stderr: Path | None = None
 
 
-class ConsoleConfig(ConfigObject):
-    title: str | None = None
-    favicon: Path | None = None
-    dashboard: Address | None = None
+class ServerSSLConfig(ConfigObject):
+    key: Path | None = None
+    key_password: str | None = None
+    cert: Path | None = None
+    version: int | None = ssl.PROTOCOL_TLS_SERVER
+    ca_certs: Path | None = None
+
+
+class ServerAuthenticationConfig(ConfigObject):
+    secret: NonEmptyStr
+    duration: PositiveTimeDelta = timedelta(minutes=30)
 
 
 class ServerConfig(ConfigObject):
     host: str = "0.0.0.0"  # Bind to IPV4 all addresses by default
     port: int | None = None
     socket: Path | None = None
-    console: ConsoleConfig | None = None
+    ssl: ServerSSLConfig | None = None
+    authentication: ServerAuthenticationConfig | None = None
 
     @field_validator("host")
     def _validate_host(cls, host: str) -> str:
@@ -174,6 +175,12 @@ class ServerConfig(ConfigObject):
         return socket
 
 
+class ConsoleConfig(ConfigObject):
+    title: str | None = None
+    favicon: Path | None = None
+    dashboard: Address | None = None
+
+
 class DatabaseRetryConfig(ConfigObject):
     timeout: PositiveTimeDelta = timedelta(seconds=15)
     interval: PositiveTimeDelta = timedelta(seconds=3)
@@ -185,11 +192,46 @@ class DatabaseConfigHooks(ConfigObject):
     close: Sequence[str] | None = None
 
 
+class HashType(StrEnum):
+    BCRYPT = "bcrypt"
+    ARGON2 = "argon2"
+
+
+class BaseHashingConfig(ConfigObject):
+    type: HashType
+
+
+class BCryptHashingConfig(BaseHashingConfig):
+    type: Literal[HashType.BCRYPT] = HashType.BCRYPT
+    rounds: PositiveInt = 12
+
+
+class Argon2HashingConfig(BaseHashingConfig):
+    type: Literal[HashType.ARGON2] = HashType.ARGON2
+    time_cost: PositiveInt = RFC_9106_LOW_MEMORY.time_cost  # 3
+    memory_cost: Annotated[int, Ge(8)] = RFC_9106_LOW_MEMORY.memory_cost  # 65536 KiB
+    parallelism: PositiveInt = RFC_9106_LOW_MEMORY.parallelism  # 4
+    hash_length: Annotated[int, Ge(4), Le(256)] = 32  # True allowed range is 4-32768.
+    salt_length: Annotated[int, Ge(8), Le(64)] = 16  # True allowed range is 8-4096.
+
+    @field_validator("parallelism")
+    def _validate_memory_cost(cls, value: int, info: ValidationInfo) -> int:
+        memory_cost = info.data.get("memory_cost", RFC_9106_LOW_MEMORY.memory_cost)
+        if (memory_cost / value) < 8:
+            raise ValueError("parallelism must be at least 8 times smaller than memory_cost")
+
+        return value
+
+
+HashingConfig = BCryptHashingConfig | Argon2HashingConfig
+
+
 class BaseDatabaseConfig(ConfigObject):
     type: DatabaseType
     hooks: DatabaseConfigHooks = Field(default_factory=DatabaseConfigHooks)
     engine: Mapping[str, Any] = Field(default_factory=dict)
     retry: DatabaseRetryConfig = DatabaseRetryConfig()
+    hashing: HashingConfig = Field(default_factory=Argon2HashingConfig, discriminator="type")
 
 
 class SQLiteDatabaseConfig(BaseDatabaseConfig):
@@ -214,7 +256,7 @@ class ConfigCheckType(StrEnum):
     COMPONENTS = "components"
 
     @classmethod
-    def all(cls) -> Sequence[Self]:
+    def all(cls) -> Sequence["ConfigCheckType"]:
         return tuple(cls)
 
 
@@ -222,6 +264,7 @@ class Config(ComponentConfig):
     name: Name = "root"
     service: ServiceConfig = Field(default_factory=ServiceConfig)
     server: ServerConfig = Field(default_factory=ServerConfig)
+    console: ConsoleConfig = Field(default_factory=ConsoleConfig)
     database: DatabaseConfig = Field(default_factory=SQLiteDatabaseConfig, discriminator="type")
 
     @classmethod
@@ -366,23 +409,22 @@ class Config(ComponentConfig):
         ) -> Component | None:
             address = Address.root() if parent is None else parent.address / component_config.name
 
-            if isinstance(component_config, ComponentConfig):
-                try:
-                    component = component_config.create()
-                    log(f"Component '{address}': OK")
-                except Exception as exception:
-                    log(f"Component '{address}': ERROR")
-                    errors.append(
-                        ConfigComponentError(
-                            component=address,
-                            error=ComponentInitExceptionError(
-                                message="an exception occurred while loading this component",
-                                traceback=get_traceback(exception),
-                            ),
-                        )
+            try:
+                component = component_config.create()
+                log(f"Component '{address}': OK")
+            except Exception as exception:
+                log(f"Component '{address}': ERROR")
+                errors.append(
+                    ConfigComponentError(
+                        component=address,
+                        error=ComponentInitExceptionError(
+                            message="an exception occurred while loading this component",
+                            traceback=get_traceback(exception),
+                        ),
                     )
+                )
 
-                    return None
+                return None
 
             if parent is not None:
                 parent.add_component(component)

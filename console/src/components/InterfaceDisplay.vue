@@ -1,46 +1,60 @@
 <script lang="ts" setup>
-import { ComponentInfo, DisplayElement, Element } from '@/api/models'
-import { useElementStream } from '@/api/operations'
+import { DisplayElement, Element } from '@/api/elements'
+import { useEngine } from '@/api/engine'
 import InterfaceDisplayContent from '@/components/InterfaceDisplayContent.vue'
 import SchemaForm from '@/components/schema-form/SchemaForm.vue'
-import { InterfacePath } from '@/interface'
+import icons from '@/icons'
+import { InterfacePath, useInterfaceContext } from '@/interface'
 import { useSchemaForm } from '@/schema-form'
+import { useQuery } from '@tanstack/vue-query'
 import { debounce } from 'quasar'
 import { computed, watch } from 'vue'
 
 const {
-  component,
   element,
   path,
   noConfig = false,
 } = defineProps<{
-  component: ComponentInfo
   element: DisplayElement
   path: InterfacePath
   noConfig?: boolean
 }>()
 
+const engine = useEngine()
+const context = useInterfaceContext()
+
 let rendered: Element | null = $shallowRef(null)
 let isLoading = $ref(true)
 let isShowingDialog = $ref(false)
 
-const query = $computed(
-  () =>
-    component.procedures.find(
-      (procedure) => procedure.type === 'query' && procedure.name === element.query
-    ) ?? null
-)
+const request = useQuery({
+  queryKey: computed(() => ['query', element.address, element.query]),
+  queryFn: async () => {
+    const procedure = await engine.components.getProcedure(element.address, element.query)
+    if (procedure?.type === 'query') {
+      return procedure
+    }
 
-const form = query
+    return null
+  },
+})
+
+await request.suspense()
+
+const procedure = $computed(() => request.data.value ?? null)
+
+const form = procedure
   ? useSchemaForm({
-      schema: computed(() => query.arguments.json_schema),
-      persist: computed(() =>
-        query
-          ? `state/display/schema-form/${component.address}/display/${query.name}/${path.join(
-              '.'
-            )})`
-          : undefined
-      ),
+      schema: computed(() => procedure.arguments.json_schema),
+      persist: computed(() => [
+        context.key,
+        'state',
+        'interface-display',
+        'schema-form',
+        element.address,
+        element.query,
+        path.join('.'),
+      ]),
     })
   : null
 
@@ -58,8 +72,8 @@ watch(
   }, 250)
 )
 
-useElementStream(
-  component.address,
+engine.components.useElementStream(
+  element.address,
   element.query,
   computed(() => args),
   (current) => {
@@ -87,17 +101,15 @@ const configButtonColor = $computed(() => {
     flat
   >
     <interface-display-content
-      :component="component"
       :display="element"
       :element="rendered"
       :path="path"
       title-clickable
       @title-click="isShowingDialog = !isShowingDialog"
     />
-    <q-dialog v-if="form" v-model="isShowingDialog" full-width>
-      <q-card bordered :class="[$style.dialogContainer, $q.dark.isActive && 'no-shadow']">
+    <q-dialog v-if="form" v-model="isShowingDialog" full-width persistent>
+      <q-card bordered :class="[$q.dark.isActive && 'no-shadow']">
         <interface-display-content
-          :component="component"
           :display="element"
           :element="rendered"
           :is-loading="isLoading"
@@ -133,7 +145,7 @@ const configButtonColor = $computed(() => {
       :class="$style.configButton"
       :color="configButtonColor"
       flat
-      icon="settings"
+      :icon="icons.settings"
       round
       size="xs"
       @click="isShowingDialog = !isShowingDialog"

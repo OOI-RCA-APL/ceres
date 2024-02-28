@@ -11,7 +11,7 @@ export const useDrawer = defineStore('drawer', () => {
         isOpen: boolean().default(true),
         collapsedComponents: array(string().transform(Address.parse)).default(() => []),
       }),
-    methods: [{ type: 'local-storage', key: 'store/drawer' }],
+    methods: [{ type: 'local-storage', key: ['store', 'drawer'] }],
   })
 
   return {

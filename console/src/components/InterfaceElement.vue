@@ -1,7 +1,5 @@
-<script lang="ts"></script>
-
 <script setup lang="ts">
-import type { ComponentInfo, Element, ElementType } from '@/api/models'
+import type { Element, ElementType } from '@/api/elements'
 import InterfaceButton from '@/components/InterfaceButton.vue'
 import InterfaceCarousel from '@/components/InterfaceCarousel.vue'
 import InterfaceChart from '@/components/InterfaceChart.vue'
@@ -26,8 +24,7 @@ const componentClasses: Readonly<Record<ElementType, ComponentConstructor>> = {
   display: InterfaceDisplay,
 }
 
-const { component, element, path } = defineProps<{
-  component: ComponentInfo
+const { element, path } = defineProps<{
   element: Element
   path: InterfacePath
 }>()
@@ -37,7 +34,6 @@ const componentClass = $computed<ComponentConstructor | null>(
 )
 
 const componentProps = $computed(() => ({
-  component,
   element,
   path,
 }))

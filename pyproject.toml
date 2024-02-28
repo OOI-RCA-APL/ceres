@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "ceres"
-version = "0.6.3"
+version = "0.7.0"
 description = "APL - Ceres"
 authors = ["Jake Ploskey <jploskey@uw.edu>"]
 include = ["./ceres/**/*.py", "./ceres/static/**/*", "./ceres/py.typed"]
@@ -13,20 +13,24 @@ aiosqlite = ">=0.17.0"
 aiotools = "^1.7.0"
 anyio = "^4.0.0"
 apscheduler = "^3.9.0"
+argon2-cffi = "^23.1.0"
 asgiref = "^3.7.0"
 asyncpg = "^0.28.0"
+bcrypt = "^4.1.0"
+email-validator = "^2.1.0"
 fastapi = ">=0.101.1"
+hypercorn = "^0.16.0"
 jinja2 = "^3.1.0"
 mistune = ">=3.0.0rc5"
 psycopg = { version = "^3.1.0", extras = ["binary"] }
 pydantic = "^2.1.0"
 pydantic-extra-types = "^2.0.0"
+pyjwt = "^2.8.0"
 pyyaml = "^6.0.0"
 setproctitle = "^1.0.0"
 sqlalchemy = { version = "^2.0.0", extras = ["asyncio"] }
 sqlparse = ">=0.4.0"
 typer = { version = ">=0.6.0", extras = ["all"] }
-uvicorn = ">=0.14.0"
 uvloop = ">=0.17.0"
 watchfiles = ">=0.10.0"
 websockets = "^10.0.0"
@@ -36,11 +40,11 @@ backports-strenum = { version = "^1.2.0", python = "<3.11" }
 launchd = { version = "0.3.0", platform = "darwin" }
 
 [tool.poetry.group.dev.dependencies]
-black = "23.7.0"
+black = "24.1.1"
 pyright = "1.1.324"
 pytest = "7.4.0"
 pytest-asyncio = "0.21.1"
-ruff = "0.0.286"
+ruff = "0.2.1"
 types-pyyaml = "^6.0.12.11"
 
 [tool.poetry.scripts]
@@ -51,11 +55,11 @@ line-length = 100
 
 [tool.ruff]
 line-length = 100
-ignore = ["F402"]
+
+lint.ignore = ["F402"]
 
 [tool.pyright]
 include = ["ceres", "tests"]
-reportImportCycles = false
 reportMissingTypeStubs = false
 reportPrivateUsage = false
 reportUnknownArgumentType = false

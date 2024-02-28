@@ -1,21 +1,21 @@
+from fastapi.exceptions import RequestValidationError
 from pydantic import ValidationError
-from typing_extensions import Self
 
 from ceres.data import ImmutableDataObject
 
 
 class ValidationProblem(ImmutableDataObject):
+    type: str
     location: list[str | int]
     message: str
-    type: str
 
     @classmethod
-    def extract(cls, error: ValidationError) -> list[Self]:
+    def extract(cls, error: ValidationError | RequestValidationError) -> list["ValidationProblem"]:
         return [
             ValidationProblem(
+                type=error["type"],
                 location=list(segment for segment in error["loc"] if segment != "__root__"),
                 message=error["msg"],
-                type=error["type"],
             )
             for error in error.errors()
         ]

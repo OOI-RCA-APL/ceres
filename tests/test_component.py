@@ -8,9 +8,10 @@ import pytest
 from ceres import Component, Event, Level, Ref, action, on, query
 from ceres.component import ComponentGroup, RoutineBinding, RoutineRestartPolicy, routine
 from ceres.errors import (
-    ProcedureDoesNotExistError,
+    Failure,
     ProcedureInternalError,
     ProcedureInvalidArgumentsError,
+    ProcedureNotFoundError,
 )
 from ceres.events import (
     RoutineCancelledEvent,
@@ -20,7 +21,6 @@ from ceres.events import (
     RoutineStartedEvent,
     RoutineStoppedEvent,
 )
-from ceres.exceptions import ProcedureException
 from ceres.validation import ValidationProblem
 
 
@@ -190,10 +190,10 @@ async def test_component_procedure_does_not_exist_error(decorator: Any) -> None:
             return left + right
 
     component = Test()
-    with pytest.raises(ProcedureException) as context:
+    with pytest.raises(Failure) as context:
         await component.call("add_missing", {"left": 1, "right": 2})
 
-    assert context.value.error == ProcedureDoesNotExistError()
+    assert context.value.error == ProcedureNotFoundError()
 
 
 @pytest.mark.parametrize(["decorator"], [[query], [action]])
@@ -204,7 +204,7 @@ async def test_component_procedure_invalid_args_error(decorator: Any) -> None:
             return left + right
 
     component = Test()
-    with pytest.raises(ProcedureException) as context:
+    with pytest.raises(Failure) as context:
         await component.call("add", {"left": 1})
 
     assert context.value.error == ProcedureInvalidArgumentsError(
@@ -226,12 +226,12 @@ async def test_component_procedure_internal_error(decorator: Any) -> None:
             raise Exception("whoops")
 
     component = Test()
-    with pytest.raises(ProcedureException) as context:
+    with pytest.raises(Failure) as context:
         await component.call("test")
 
     assert isinstance(context.value.error, ProcedureInvalidArgumentsError)
 
-    with pytest.raises(ProcedureException) as context:
+    with pytest.raises(Failure) as context:
         await component.call("test", {"left": 5, "right": 5})
 
     assert isinstance(context.value.error, ProcedureInternalError)

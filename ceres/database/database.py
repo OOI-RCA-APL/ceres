@@ -1,12 +1,14 @@
 import csv
+import re
 import shutil
 import sqlite3
 import traceback
 from abc import abstractmethod
 from asyncio import Lock as AsyncLock
-from datetime import datetime
+from contextlib import contextmanager
 from pathlib import Path
 from sqlite3 import Connection as SQLiteConnection
+from sqlite3 import IntegrityError as SQLiteIntegrityError
 from tempfile import NamedTemporaryFile, gettempdir
 from typing import (
     TYPE_CHECKING,
@@ -16,66 +18,76 @@ from typing import (
     Iterator,
     Mapping,
     Sequence,
+    Type,
     TypeVar,
     final,
 )
 from uuid import UUID, uuid4
 
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 from sqlalchemy import (
     URL,
     AsyncAdaptedQueuePool,
-    BinaryExpression,
     Connection,
-    SQLColumnExpression,
-    Text,
-    cast,
+    Delete,
+    Select,
+    Update,
     delete,
     event,
     func,
     inspect,
     select,
     text,
+    update,
 )
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession, create_async_engine
 from typing_extensions import Self, Unpack, override
 
 from ceres.address import Address
-from ceres.alert import Alert
+from ceres.alert import Alert, AlertUpdate
 from ceres.config import DatabaseConfig, PostgresDatabaseConfig, SQLiteDatabaseConfig
-from ceres.data import jsonify
+from ceres.data import PasswordHash, jsonify
 from ceres.database.enums import DatabaseType, ItemType
-from ceres.exceptions import DatabaseLoadException
+from ceres.errors import (
+    AlreadyExistsError,
+    DatabaseInitError,
+    DatabaseLoadError,
+    DatabaseUnexpectedError,
+    Failure,
+)
 from ceres.filter import (
     AlertFilter,
     AlertFilterArgs,
-    AlertOrder,
     LogEntryFilter,
     LogEntryFilterArgs,
-    LogEntryOrder,
     MessageFilter,
     MessageFilterArgs,
-    MessageOrder,
     StatisticsFilter,
     StatisticsFilterArgs,
+    UserFilter,
+    UserFilterArgs,
 )
+from ceres.internal.auth import get_password_hash, verify_password, verify_password_hash
 from ceres.internal.database.entities import (
     AlertEntity,
     Entity,
     LogEntryEntity,
     MessageEntity,
     StoreEntity,
+    UserEntity,
 )
-from ceres.internal.utilities import PathLike, escape_like_expression, get_type_adapter, strlist
-from ceres.level import Level
-from ceres.logs import LogEntry
-from ceres.message import Message
+from ceres.internal.utilities import PathLike, get_type_adapter, strlist
+from ceres.logs import LogEntry, LogEntryUpdate
+from ceres.message import Message, MessageUpdate
 from ceres.statistics import LevelStatistics, Statistics
 from ceres.store import Store
 from ceres.threading import spawn
 from ceres.timing import utc
+from ceres.user import User, UserCreate, UserUpdate
 
 _T = TypeVar("_T")
+_Statement = Select[tuple[Any, ...]] | Update | Delete
 
 
 class Database:
@@ -125,40 +137,33 @@ class Database:
 
     @property
     @abstractmethod
-    def url(self) -> str:
-        ...
+    def url(self) -> str: ...
 
     @abstractmethod
-    def _get_engine_config(self) -> dict[str, Any]:
-        ...
+    def _get_engine_config(self) -> dict[str, Any]: ...
 
     @abstractmethod
-    def _pre_configure_engine(self, engine: AsyncEngine) -> None:
-        ...
+    def _pre_configure_engine(self, engine: AsyncEngine) -> None: ...
 
     @abstractmethod
-    async def dump_csv(self, path: PathLike, item_type: ItemType) -> None:
-        ...
+    async def dump_csv(self, path: PathLike, item_type: ItemType) -> None: ...
 
     @abstractmethod
-    async def load_csv(self, path: PathLike, item_type: ItemType) -> None:
-        ...
+    async def load_csv(self, path: PathLike, item_type: ItemType) -> None: ...
 
     @abstractmethod
     async def dump_sqlite(
         self,
         path: PathLike,
         item_types: Sequence[ItemType] | None = None,
-    ) -> None:
-        ...
+    ) -> None: ...
 
     @abstractmethod
     async def load_sqlite(
         self,
         path: PathLike,
         item_types: Sequence[ItemType] | None = None,
-    ) -> None:
-        ...
+    ) -> None: ...
 
     def _create_base_engine(self) -> AsyncEngine:
         return create_async_engine(self.url, **self._get_engine_config())
@@ -199,306 +204,377 @@ class Database:
         return AsyncSession(self.__engine, expire_on_commit=False)
 
     def connect(self) -> AsyncConnection:
-        return self.__engine.connect()
+        with _wrap_database_errors():
+            return self.__engine.connect()
 
     async def dispose(self) -> None:
-        await self.__engine.dispose()
+        with _wrap_database_errors():
+            await self.__engine.dispose()
 
     async def init(self) -> AsyncSession:
-        if self.__completed_init_successfully:
-            return self.session()
-
-        async with self.__init_lock:
+        with _wrap_database_errors():
             if self.__completed_init_successfully:
                 return self.session()
 
-            async with self.__engine.begin() as connection:
-                for statement in self.ddl:
-                    await connection.execute(text(statement))
+            async with self.__init_lock:
+                if self.__completed_init_successfully:
+                    return self.session()
 
-            self.__completed_init_successfully = True
+                try:
+                    async with self.__engine.begin() as connection:
+                        for statement in self.ddl:
+                            await connection.execute(text(statement))
+                except Exception as error:
+                    raise Failure(DatabaseInitError(message=str(error))) from error
 
-        return self.session()
+                self.__completed_init_successfully = True
+
+            return self.session()
 
     async def clear(self) -> None:
-        async with self.__engine.begin() as connection:
-            for cls in reversed(Entity.get_entity_classes()):
-                await connection.execute(delete(cls))
+        with _wrap_database_errors():
+            async with self.__engine.begin() as connection:
+                for cls in reversed(Entity.get_entity_classes()):
+                    await connection.execute(delete(cls))
 
-            await connection.commit()
+                await connection.commit()
 
     async def initialized(self) -> bool:
         return await self.__run_sync(lambda connection: bool(inspect(connection).get_table_names()))
 
+    #
+    # Users
+    #
+
+    async def hash_password(self, password: str) -> PasswordHash:
+        def execute() -> PasswordHash:
+            return get_password_hash(password, self.config.hashing)
+
+        return await spawn(execute)
+
+    async def verify_password(self, password: str, hash: PasswordHash) -> bool:
+        hash = await self.__maybe_hash_password(hash)  # type: ignore
+
+        def execute() -> bool:
+            return verify_password(password, hash)
+
+        return await spawn(execute)
+
+    async def __maybe_hash_password(self, password: str) -> PasswordHash | None:
+        if verify_password_hash(password):
+            return password
+
+        return await self.hash_password(password)
+
+    async def get_users(
+        self,
+        filter: UserFilter | None = None,
+        /,
+        **kwargs: Unpack[UserFilterArgs],
+    ) -> list[User]:
+        filter = UserFilter(**kwargs).with_defaults(filter)
+        statement = select(*UserEntity.__table__.columns.values())
+        statement = filter.apply(statement, self.type)
+        return await self.__execute_and_get_many(statement, User)
+
+    async def get_user(
+        self,
+        filter: UserFilter | None = None,
+        /,
+        **kwargs: Unpack[UserFilterArgs],
+    ) -> User | None:
+        users = await self.get_users(filter, **{**kwargs, "limit": 1})
+        return users[0] if users else None
+
+    async def count_users(
+        self,
+        filter: UserFilter | None = None,
+        **kwargs: Unpack[UserFilterArgs],
+    ) -> int:
+        filter = UserFilter(**kwargs).with_defaults(filter)
+        statement = select(func.count(UserEntity.id))
+        statement = filter.apply(statement, self.type).order_by(None)
+        return await self.__execute_and_get_one(statement, int) or 0
+
+    async def create_user(self, data: UserCreate) -> User:
+        fields = {**data.__dict__}
+        fields["password"] = await self.__maybe_hash_password(fields["password"])
+        data = User(**fields)
+        await self.__create(UserEntity, data)
+        return data
+
+    async def update_users(self, filter: UserFilter, assign: UserUpdate) -> int:
+        if not assign:
+            return 0
+
+        fields = {**assign}
+        if "password" in fields:
+            fields["password"] = await self.__maybe_hash_password(fields["password"])
+
+        if not fields:
+            return 0
+
+        statement = update(UserEntity).values(fields)
+        statement = filter.apply(statement, self.type)
+        return await self.__execute_and_get_count(statement)
+
+    async def update_user(self, filter: UserFilter, assign: UserUpdate) -> User | None:
+        if not assign:
+            return None
+
+        fields = {**assign}
+        if "password" in fields:
+            fields["password"] = await self.__maybe_hash_password(fields["password"])
+
+        statement = update(UserEntity).values(fields).returning(UserEntity)
+        statement = filter.with_overrides(UserFilter(limit=1)).apply(statement, self.type)
+        return await self.__execute_and_get_one(statement, User)
+
+    async def delete_users(
+        self,
+        filter: UserFilter | None = None,
+        **kwargs: Unpack[UserFilterArgs],
+    ) -> int:
+        filter = UserFilter(**kwargs).with_defaults(filter)
+        statement = delete(UserEntity)
+        statement = filter.apply(statement, self.type)
+        return await self.__execute_and_get_count(statement)
+
+    async def delete_user(
+        self,
+        filter: UserFilter | None = None,
+        **kwargs: Unpack[UserFilterArgs],
+    ) -> User | None:
+        filter = UserFilter(**kwargs).with_defaults(filter)
+        statement = delete(UserEntity).returning(UserEntity)
+        statement = filter.with_overrides(UserFilter(limit=1)).apply(statement, self.type)
+        return await self.__execute_and_get_one(statement, User)
+
+    #
+    # Messages
+    #
+
     async def get_messages(
         self,
         filter: MessageFilter | None = None,
-        /,
-        *,
-        relative_to: Address = Address.root(),
         **kwargs: Unpack[MessageFilterArgs],
     ) -> list[Message]:
         filter = MessageFilter(**kwargs).with_defaults(filter)
-
         statement = select(*MessageEntity.__table__.columns.values())
-
-        if filter.address is not None:
-            statement = statement.where(
-                filter.address.matches_expression(MessageEntity.address, relative_to),
-            )
-
-        if filter.search:
-            pattern = "%" + escape_like_expression(filter.search) + "%"
-            statement = statement.where(
-                self.__format_like(
-                    MessageEntity.address,
-                    pattern,
-                    filter.search_case_sensitive,
-                )
-                | self.__format_like(
-                    self.__format_timestamp(MessageEntity.timestamp),
-                    pattern,
-                    filter.search_case_sensitive,
-                )
-                | self.__format_like(MessageEntity.direction, pattern, filter.search_case_sensitive)
-                | (
-                    self.__format_like(
-                        MessageEntity.content,
-                        pattern.encode(),
-                        filter.search_case_sensitive,
-                    )
-                    if self.type == DatabaseType.SQLITE
-                    else self.__format_like(
-                        func.encode(MessageEntity.content, "escape"),
-                        pattern.encode("utf-8").decode("unicode-escape"),
-                        filter.search_case_sensitive,
-                    )
-                ),
-            )
-
-        if filter.within is not None:
-            statement = statement.where(MessageEntity.timestamp >= utc() - filter.within)
-        if filter.after is not None:
-            statement = statement.where(MessageEntity.timestamp >= filter.after)
-        if filter.before is not None:
-            statement = statement.where(MessageEntity.timestamp < filter.before)
-        if filter.direction is not None:
-            statement = statement.where(MessageEntity.direction == filter.direction)
-        if filter.prefix is not None:
-            statement = statement.where(
-                MessageEntity.content.like(escape_like_expression(filter.prefix) + b"%"),
-            )
-        if filter.suffix is not None:
-            statement = statement.where(
-                MessageEntity.content.like(b"%" + escape_like_expression(filter.suffix)),
-            )
-
-        match filter.order:
-            case None | MessageOrder.OLD_TO_NEW:
-                statement = statement.order_by(MessageEntity.timestamp)
-            case MessageOrder.NEW_TO_OLD:
-                statement = statement.order_by(MessageEntity.timestamp.desc())
-
-        if filter.limit is not None:
-            statement = statement.limit(filter.limit)
-        if filter.offset is not None and filter.offset > 0:
-            statement = statement.offset(filter.offset)
-
-        async with await self.init() as session:
-            rows = await session.execute(statement)
-
-        return get_type_adapter(list[Message]).validate_python(rows, from_attributes=True)
+        statement = filter.apply(statement, self.type)
+        return await self.__execute_and_get_many(statement, Message)
 
     async def get_message(
         self,
         filter: MessageFilter | None = None,
-        /,
-        *,
-        relative_to: Address = Address.root(),
         **kwargs: Unpack[MessageFilterArgs],
     ) -> Message | None:
-        messages = await self.get_messages(
-            filter,
-            **{**kwargs, "limit": 1},
-            relative_to=relative_to,
-        )
+        messages = await self.get_messages(filter, **{**kwargs, "limit": 1})
         return messages[0] if messages else None
+
+    async def count_messages(
+        self,
+        filter: MessageFilter | None = None,
+        **kwargs: Unpack[MessageFilterArgs],
+    ) -> int:
+        filter = MessageFilter(**kwargs).with_defaults(filter)
+        statement = select(func.count(MessageEntity.id))
+        statement = filter.apply(statement, self.type).order_by(None)
+        return await self.__execute_and_get_one(statement, int) or 0
+
+    async def create_message(self, data: Message) -> Message:
+        await self.__create(MessageEntity, data)
+        return data
+
+    async def update_messages(self, filter: MessageFilter, assign: MessageUpdate) -> int:
+        if not assign:
+            return 0
+
+        statement = update(MessageEntity).values(assign)
+        statement = filter.apply(statement, self.type)
+        return await self.__execute_and_get_count(statement)
+
+    async def update_message(self, filter: MessageFilter, assign: MessageUpdate) -> Message | None:
+        if not assign:
+            return None
+
+        statement = update(MessageEntity).values(assign).returning(MessageEntity)
+        statement = filter.with_overrides(MessageFilter(limit=1)).apply(statement, self.type)
+        return await self.__execute_and_get_one(statement, Message)
+
+    async def delete_messages(
+        self,
+        filter: MessageFilter | None = None,
+        **kwargs: Unpack[MessageFilterArgs],
+    ) -> int:
+        filter = MessageFilter(**kwargs).with_defaults(filter)
+        statement = delete(MessageEntity)
+        statement = filter.apply(statement, self.type)
+        return await self.__execute_and_get_count(statement)
+
+    async def delete_message(
+        self,
+        filter: MessageFilter | None = None,
+        **kwargs: Unpack[MessageFilterArgs],
+    ) -> Message | None:
+        filter = MessageFilter(**kwargs).with_defaults(filter)
+        statement = delete(MessageEntity).returning(MessageEntity)
+        statement = filter.with_overrides(MessageFilter(limit=1)).apply(statement, self.type)
+        return await self.__execute_and_get_one(statement, Message)
+
+    #
+    # Alerts
+    #
 
     async def get_alerts(
         self,
         filter: AlertFilter | None = None,
-        /,
-        *,
-        relative_to: Address = Address.root(),
         **kwargs: Unpack[AlertFilterArgs],
     ) -> list[Alert]:
         filter = AlertFilter(**kwargs).with_defaults(filter)
 
         statement = select(*AlertEntity.__table__.columns.values())
-
-        if filter.address is not None:
-            statement = statement.where(
-                filter.address.matches_expression(AlertEntity.address, relative_to)
-            )
-
-        if filter.search is not None:
-            pattern = "%" + escape_like_expression(filter.search) + "%"
-            statement = statement.where(
-                self.__format_like(
-                    AlertEntity.address,
-                    pattern,
-                    filter.search_case_sensitive,
-                )
-                | self.__format_like(
-                    self.__format_timestamp(AlertEntity.timestamp),
-                    pattern,
-                    filter.search_case_sensitive,
-                )
-                | self.__format_like(AlertEntity.level, pattern, filter.search_case_sensitive)
-                | self.__format_like(AlertEntity.code, pattern, filter.search_case_sensitive)
-                | self.__format_like(
-                    cast(AlertEntity.info, Text)
-                    if self.type == DatabaseType.POSTGRES
-                    else AlertEntity.info,
-                    pattern,
-                    filter.search_case_sensitive,
-                ),
-            )
-
-        if filter.within is not None:
-            statement = statement.where(AlertEntity.timestamp >= utc() - filter.within)
-        if filter.after is not None:
-            statement = statement.where(AlertEntity.timestamp >= filter.after)
-        if filter.before is not None:
-            statement = statement.where(AlertEntity.timestamp < filter.before)
-        if filter.level is not None:
-            if isinstance(filter.level, Level):
-                statement = statement.where(AlertEntity.level == filter.level)
-            else:
-                statement = statement.where(AlertEntity.level.in_(filter.level))
-        if filter.code is not None:
-            if isinstance(filter.code, str):
-                statement = statement.where(AlertEntity.code == filter.code)
-            else:
-                statement = statement.where(AlertEntity.code.in_(filter.code))
-        if filter.code_regex is not None:
-            statement = statement.where(AlertEntity.code.regexp_match(filter.code_regex))
-
-        match filter.order:
-            case None | AlertOrder.OLD_TO_NEW:
-                statement = statement.order_by(AlertEntity.timestamp)
-            case AlertOrder.NEW_TO_OLD:
-                statement = statement.order_by(AlertEntity.timestamp.desc())
-
-        if filter.limit is not None:
-            statement = statement.limit(filter.limit)
-        if filter.offset is not None and filter.offset > 0:
-            statement = statement.offset(filter.offset)
-
-        async with await self.init() as session:
-            rows = await session.execute(statement)
-
-        return get_type_adapter(list[Alert]).validate_python(rows, from_attributes=True)
+        statement = filter.apply(statement, self.type)
+        return await self.__execute_and_get_many(statement, Alert)
 
     async def get_alert(
         self,
         filter: AlertFilter | None = None,
-        /,
-        *,
-        relative_to: Address = Address.root(),
         **kwargs: Unpack[AlertFilterArgs],
     ) -> Alert | None:
-        alerts = await self.get_alerts(filter, **{**kwargs, "limit": 1}, relative_to=relative_to)
+        alerts = await self.get_alerts(filter, **{**kwargs, "limit": 1})
         return alerts[0] if alerts else None
+
+    async def count_alerts(
+        self,
+        filter: AlertFilter | None = None,
+        **kwargs: Unpack[AlertFilterArgs],
+    ) -> int:
+        filter = AlertFilter(**kwargs).with_defaults(filter)
+        statement = select(func.count(AlertEntity.id))
+        statement = filter.apply(statement, self.type).order_by(None)
+        return await self.__execute_and_get_one(statement, int) or 0
+
+    async def create_alert(self, data: Alert) -> Alert:
+        await self.__create(AlertEntity, data)
+        return data
+
+    async def update_alerts(self, filter: AlertFilter, assign: AlertUpdate) -> int:
+        if not assign:
+            return 0
+
+        statement = update(AlertEntity).values(assign)
+        statement = filter.apply(statement, self.type)
+        return await self.__execute_and_get_count(statement)
+
+    async def update_alert(self, filter: AlertFilter, assign: AlertUpdate) -> Alert | None:
+        if not assign:
+            return None
+
+        statement = update(AlertEntity).values(assign).returning(AlertEntity)
+        statement = filter.with_overrides(AlertFilter(limit=1)).apply(statement, self.type)
+        return await self.__execute_and_get_one(statement, Alert)
+
+    async def delete_alerts(
+        self,
+        filter: AlertFilter | None = None,
+        **kwargs: Unpack[AlertFilterArgs],
+    ) -> int:
+        filter = AlertFilter(**kwargs).with_defaults(filter)
+        statement = delete(AlertEntity)
+        statement = filter.apply(statement, self.type)
+        return await self.__execute_and_get_count(statement)
+
+    async def delete_alert(
+        self,
+        filter: AlertFilter | None = None,
+        **kwargs: Unpack[AlertFilterArgs],
+    ) -> Alert | None:
+        filter = AlertFilter(**kwargs).with_defaults(filter)
+        statement = delete(AlertEntity).returning(AlertEntity)
+        statement = filter.with_overrides(AlertFilter(limit=1)).apply(statement, self.type)
+        return await self.__execute_and_get_one(statement, Alert)
+
+    #
+    # Log Entries
+    #
 
     async def get_log_entries(
         self,
         filter: LogEntryFilter | None = None,
-        /,
-        *,
-        relative_to: Address = Address.root(),
         **kwargs: Unpack[LogEntryFilterArgs],
     ) -> list[LogEntry]:
         filter = LogEntryFilter(**kwargs).with_defaults(filter)
 
         statement = select(*LogEntryEntity.__table__.columns.values())
-
-        if filter.address is not None:
-            statement = statement.where(
-                filter.address.matches_expression(LogEntryEntity.address, relative_to)
-            )
-
-        if filter.search is not None:
-            pattern = "%" + escape_like_expression(filter.search) + "%"
-            statement = statement.where(
-                self.__format_like(
-                    LogEntryEntity.address,
-                    pattern,
-                    filter.search_case_sensitive,
-                )
-                | self.__format_like(
-                    self.__format_timestamp(LogEntryEntity.timestamp),
-                    pattern,
-                    filter.search_case_sensitive,
-                )
-                | self.__format_like(LogEntryEntity.level, pattern, filter.search_case_sensitive)
-                | self.__format_like(
-                    LogEntryEntity.content,
-                    pattern,
-                    filter.search_case_sensitive,
-                ),
-            )
-
-        if filter.within is not None:
-            statement = statement.where(LogEntryEntity.timestamp >= utc() - filter.within)
-        if filter.after is not None:
-            statement = statement.where(LogEntryEntity.timestamp >= filter.after)
-        if filter.before is not None:
-            statement = statement.where(LogEntryEntity.timestamp < filter.before)
-        if filter.level is not None:
-            if isinstance(filter.level, Level):
-                statement = statement.where(LogEntryEntity.level == filter.level)
-            else:
-                statement = statement.where(LogEntryEntity.level.in_(filter.level))
-        if filter.prefix is not None:
-            statement = statement.where(
-                LogEntryEntity.content.like(escape_like_expression(filter.prefix) + "%"),
-            )
-        if filter.suffix is not None:
-            statement = statement.where(
-                LogEntryEntity.content.like("%" + escape_like_expression(filter.suffix)),
-            )
-
-        match filter.order:
-            case None | LogEntryOrder.OLD_TO_NEW:
-                statement = statement.order_by(LogEntryEntity.timestamp)
-            case LogEntryOrder.NEW_TO_OLD:
-                statement = statement.order_by(LogEntryEntity.timestamp.desc())
-
-        if filter.limit is not None:
-            statement = statement.limit(filter.limit)
-        if filter.offset is not None and filter.offset > 0:
-            statement = statement.offset(filter.offset)
-
-        async with await self.init() as session:
-            rows = await session.execute(statement)
-
-        return get_type_adapter(list[LogEntry]).validate_python(rows, from_attributes=True)
+        statement = filter.apply(statement, self.type)
+        return await self.__execute_and_get_many(statement, LogEntry)
 
     async def get_log_entry(
         self,
         filter: LogEntryFilter | None = None,
-        /,
-        *,
-        relative_to: Address = Address.root(),
         **kwargs: Unpack[LogEntryFilterArgs],
     ) -> LogEntry | None:
-        alerts = await self.get_log_entries(
-            filter,
-            **{**kwargs, "limit": 1},
-            relative_to=relative_to,
-        )
+        alerts = await self.get_log_entries(filter, **{**kwargs, "limit": 1})
         return alerts[0] if alerts else None
+
+    async def count_log_entries(
+        self,
+        filter: LogEntryFilter | None = None,
+        **kwargs: Unpack[LogEntryFilterArgs],
+    ) -> int:
+        filter = LogEntryFilter(**kwargs).with_defaults(filter)
+        statement = select(func.count(LogEntryEntity.id))
+        statement = filter.apply(statement, self.type).order_by(None)
+        return await self.__execute_and_get_one(statement, int) or 0
+
+    async def create_log_entry(self, data: LogEntry) -> LogEntry:
+        await self.__create(LogEntryEntity, data)
+        return data
+
+    async def update_log_entries(self, filter: LogEntryFilter, assign: LogEntryUpdate) -> int:
+        if not assign:
+            return 0
+
+        statement = update(LogEntryEntity).values(assign)
+        statement = filter.apply(statement, self.type)
+        return await self.__execute_and_get_count(statement)
+
+    async def update_log_entry(
+        self,
+        filter: LogEntryFilter,
+        assign: LogEntryUpdate,
+    ) -> LogEntry | None:
+        if not assign:
+            return None
+
+        statement = update(LogEntryEntity).values(assign).returning(LogEntryEntity)
+        statement = filter.with_overrides(LogEntryFilter(limit=1)).apply(statement, self.type)
+        return await self.__execute_and_get_one(statement, LogEntry)
+
+    async def delete_log_entries(
+        self,
+        filter: LogEntryFilter | None = None,
+        **kwargs: Unpack[LogEntryFilterArgs],
+    ) -> int:
+        filter = LogEntryFilter(**kwargs).with_defaults(filter)
+        statement = delete(LogEntryEntity)
+        statement = filter.apply(statement, self.type)
+        return await self.__execute_and_get_count(statement)
+
+    async def delete_log_entry(
+        self,
+        filter: LogEntryFilter | None = None,
+        **kwargs: Unpack[LogEntryFilterArgs],
+    ) -> LogEntry | None:
+        filter = LogEntryFilter(**kwargs).with_defaults(filter)
+        statement = delete(LogEntryEntity).returning(LogEntryEntity)
+        statement = filter.with_overrides(LogEntryFilter(limit=1)).apply(statement, self.type)
+        return await self.__execute_and_get_one(statement, LogEntry)
+
+    #
+    # Statistics
+    #
 
     async def get_statistics(
         self,
@@ -524,23 +600,24 @@ class Database:
 
         results: dict[Address, Statistics] = {}
 
-        async with await self.init() as session:
-            for address, level, count in await session.execute(statement):
-                address: Address
-                for ancestor in address.path:
-                    if filter.root is not None:
-                        if not filter.root.contains(ancestor):
-                            continue
+        with _wrap_database_errors():
+            async with await self.init() as session:
+                for address, level, count in await session.execute(statement):
+                    address: Address
+                    for ancestor in address.path:
+                        if filter.root is not None:
+                            if not filter.root.contains(ancestor):
+                                continue
 
-                    current = results.setdefault(ancestor, Statistics(address=ancestor))
-                    current.alerts.count += count
-                    for entry in current.alerts.levels:
-                        if entry.level == level:
-                            entry.count += count
-                            break
-                    else:
-                        current.alerts.levels.append(LevelStatistics(level=level, count=count))
-                        current.alerts.levels.sort(key=lambda entry: entry.level)
+                        current = results.setdefault(ancestor, Statistics(address=ancestor))
+                        current.alerts.count += count
+                        for entry in current.alerts.levels:
+                            if entry.level == level:
+                                entry.count += count
+                                break
+                        else:
+                            current.alerts.levels.append(LevelStatistics(level=level, count=count))
+                            current.alerts.levels.sort(key=lambda entry: entry.level)
 
         return list(
             result
@@ -549,29 +626,59 @@ class Database:
         )
 
     async def __run_sync(self, callback: Callable[[Connection], _T]) -> _T:
-        async with self.connect() as connection:
-            return await connection.run_sync(callback)
+        with _wrap_database_errors():
+            async with self.connect() as connection:
+                return await connection.run_sync(callback)
 
-    def __format_timestamp(self, timestamp: SQLColumnExpression[datetime]) -> Any:
-        match self.type:
-            case DatabaseType.SQLITE:
-                return timestamp
-            case DatabaseType.POSTGRES:
-                return func.to_char(timestamp, "YYYY-MM-DD HH24:MI:SS.US")
-
-    def __format_like(
+    async def __execute_and_get_many(
         self,
-        expression: SQLColumnExpression[Any],
-        pattern: str | bytes,
-        case_sensitive: bool = False,
-    ) -> BinaryExpression[bool]:
-        if case_sensitive:
-            return expression.like(pattern)
-        return expression.ilike(pattern)
+        statement: _Statement,
+        model: Type[_T],
+    ) -> list[_T]:
+        with _wrap_database_errors():
+            async with await self.init() as session:
+                entities = await session.execute(statement)
+                await session.commit()
+
+            if not entities:
+                return []
+
+            return get_type_adapter(list[model]).validate_python(entities, from_attributes=True)
+
+    async def __execute_and_get_one(
+        self,
+        statement: _Statement,
+        model: Type[_T],
+    ) -> _T | None:
+        with _wrap_database_errors():
+            async with await self.init() as session:
+                rows = await session.execute(statement)
+                entity = rows.scalar()
+                await session.commit()
+
+        if entity is None:
+            return None
+
+        return get_type_adapter(model).validate_python(entity, from_attributes=True)
+
+    async def __execute_and_get_count(self, statement: Update | Delete) -> int:
+        with _wrap_database_errors():
+            async with await self.init() as session:
+                rows = await session.execute(statement)
+                await session.commit()
+                return rows.rowcount
+
+    async def __create(self, entity_cls: Type[Entity], data: BaseModel) -> Entity:
+        entity = entity_cls(**data.__dict__)
+        with _wrap_database_errors():
+            async with await self.init() as session:
+                session.add(entity)
+                await session.commit()
+                return entity
 
 
 @final
-class SQLiteDatabase(Database):
+class SQLiteDatabase(Database):  #
     @override
     def __new__(cls, /, config: SQLiteDatabaseConfig | None = None) -> Self:
         instance = object.__new__(cls)
@@ -1038,7 +1145,7 @@ def _read_csv_items(path: Path, item_cls: type[_ItemT]) -> Iterable[_ItemT]:
         try:
             item = item_cls.model_validate(fields)
         except ValidationError as error:
-            raise DatabaseLoadException(f"Invalid CSV row: {error}") from error
+            raise Failure(DatabaseLoadError(message=f"invalid CSV row: {error}")) from error
 
         yield item
 
@@ -1124,3 +1231,40 @@ async def _execute_ddl(
                 await connection.execute(text(statement))
 
         await connection.commit()
+
+
+_SQLITE_UNIQUE_ERROR_REGEX = re.compile(
+    r"UNIQUE constraint failed: ([^ ]+)\.(?P<column>[^ ]+)",
+    re.MULTILINE | re.DOTALL,
+)
+_POSTGRES_UNIQUE_ERROR_REGEX = re.compile(
+    r".*duplicate key.*\((?P<column>[^ ]+)\)=",
+    re.MULTILINE | re.DOTALL,
+)
+
+
+@contextmanager
+def _wrap_database_errors() -> Iterator[None]:
+    try:
+        yield
+    except SQLAlchemyError as exception:
+        try:
+            from sqlalchemy.dialects.postgresql.asyncpg import AsyncAdapt_asyncpg_dbapi
+
+            PostgresIntegrityError = AsyncAdapt_asyncpg_dbapi.IntegrityError
+        except ImportError:
+            PostgresIntegrityError = None
+
+        if isinstance(exception, IntegrityError):
+            if isinstance(exception.orig, SQLiteIntegrityError):
+                match = _SQLITE_UNIQUE_ERROR_REGEX.match(str(exception.orig))
+                if match is not None:
+                    raise Failure(AlreadyExistsError(field=match.group("column")))
+            elif PostgresIntegrityError is not None and isinstance(
+                exception.orig, PostgresIntegrityError
+            ):
+                match = _POSTGRES_UNIQUE_ERROR_REGEX.match(str(exception.orig))
+                if match is not None:
+                    raise Failure(AlreadyExistsError(field=match.group("column")))
+
+        raise Failure(DatabaseUnexpectedError(message=str(exception)))

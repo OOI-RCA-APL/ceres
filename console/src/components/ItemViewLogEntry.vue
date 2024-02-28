@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { LogEntry } from '@/api/models'
+import { LogEntry } from '@/api/log-entries'
 import ItemViewItem from '@/components/ItemViewItem.vue'
 import TextContent from '@/components/TextContent.vue'
 
