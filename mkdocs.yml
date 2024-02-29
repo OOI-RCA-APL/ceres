@@ -28,8 +28,6 @@ theme:
     - content.code.copy
     - announce.dismiss
 markdown_extensions:
-  - markdown_include.include:
-      base_path: docs
   - tables
   - sane_lists
   - toc:
