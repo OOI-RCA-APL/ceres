@@ -21,12 +21,13 @@ theme:
         icon: material/brightness-4
         name: Switch to system preference
   features:
-    - navigation.instant
-    - navigation.instant.progress
-    - content.tabs.link
+    - announce.dismiss
     - content.code.annotate
     - content.code.copy
-    - announce.dismiss
+    - content.tabs.link
+    - navigation.instant
+    - navigation.instant.progress
+    - toc.follow
 plugins:
   - mkdocstrings:
       default_handler: python
