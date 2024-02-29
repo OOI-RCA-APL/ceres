@@ -152,21 +152,25 @@ A component with no parent is the _root_ component, and has the address `@`. Oth
 
 ### Hierarchy Implications
 
-Any components _above_ a component (including it's parent, grandparent, and so on) are called its _ancestors_. Any components _below_ a component are its _descendants_, or _subcomponents_.
+Any components _above_ a component (including its parent, grandparent, and so on) are called its _ancestors_. Any components _below_ a component are its _descendants_, or _subcomponents_.
 
 #### Starting & Stopping
 
-A child component can only be running if its _parent_ is running. For convenience, components are automatically started when any of their subcomponents are run. For example, starting the component at `@a.b` will also start `@a` and `@`. Conversely, when a component is stopped, all its subcomponents are too.
+A child component can only be running if its parent component, and consequently all of its ancestor components, are running. For convenience, starting a given component will implicitly start all ancestors. For example, starting the component at `@a.b` will also start components `@a` and `@`.
+
+Conversely, when a given component is stopped, all its subcomponents are too.
 
 #### Enabling & Disabling
 
-_Enabling_ a component will start automatically when its parent starts. Ancestors of an enabled component will also be implicitly enabled. All components are _disabled_ by default.
+_Enabling_ a component means it will start automatically when its parent component starts. Similar to starting a component, enabling a given component will also be implicitly enable its ancestors. All components are _disabled_ by default.
 
 #### Database Inheritance
 
-Components inherit the `database` of their parent, meaning component trees implicitly store all messages, alerts and logs in the same place. _If a component has no parent, and no explicit database, a temporary one is created for it automatically._
+Components inherit the `database` object of their parent, meaning component trees implicitly store all associated data in the same place. If a component has no parent, and no explicit database is assigned, a temporary one is created automatically.
 
-Components in the base `components` list of `ceres.yaml` are implicit _children_ of a root component. The purpose of the Ceres engine itself is to manage the component tree you define in `ceres.yaml`.
+#### Configuration
+
+Components in the base `components` list of `ceres.yaml` are implicit _children_ of the root component. The purpose of the Ceres engine itself is to manage the component tree you define in `ceres.yaml`.
 
 ## Routines
 
@@ -275,11 +279,11 @@ _You can view generated names in `output.csv`._
 
 ## Events
 
-All components emit _events_. Events are simple objects with a `type`, `address` and `timestamp` that can be listened for and reacted to by other components. The component `emit` method is used to emit events by passing the event class and necessary keyword arguments. Emitted events are assigned the `address` of the component that emitted them.
+All components emit _events_. Events are simple objects with a `type`, `address` and `timestamp` that can be listened for and reacted to by other components. The component `emit` method is used to emit events by passing the event class and its constructor's keyword arguments. Emitted events are assigned the `address` of the component that emitted them.
 
-When an event is emitted, it is propagated up the component tree through all the component's ancestors. Functionally, this means components inherit the events of their subcomponents, though the `address` of the emitted event is still the address of the component that originally emitted it.
+When an event is emitted, it's propagated up the component tree through all the component's ancestors. Functionally, this means components inherit the events of their subcomponents, though the `address` of the emitted event is still the address of the component that originally emitted it.
 
-All events are subclasses of `Event`. Custom events can be created by inheriting this class and assigning a new `type` literal, however custom events are not always necessary. Components emit many standard events automatically, all of which can be listened for by other components.
+All events are subclasses of `Event`. Custom events can be created by inheriting this class and assigning a new `type`, however custom events are not always necessary. Components emit many standard events automatically, all of which can be listened for by other components.
 
 #### Standard Events
 
@@ -320,16 +324,16 @@ All events are subclasses of `Event`. Custom events can be created by inheriting
 
 #### Event Listeners
 
-Components can register _event listeners_ using the `@on` decorator. Event listeners can be used to process a component's own events or the events of other components. Events will only be processed by a component when the component is running.
+Components can register _event listeners_ using the `@on` decorator. Event listeners can be used to process a component's own events or the events of other components. Events will only be processed by a component while the component is running.
 
-###### `@on`
+###### `@on` Decorator Parameters
 
 - `event`: An event class to listen for. If `event` is not passed as an argument, the event type is determined by the type annotation of the `event` parameter in the listening method.
 - `reference`: An optional name of the reference to listen for events from. _For example, if you have a reference to a connection component like `connection: Ref[Connection]` you can listen to its events using `@on(reference="connection)"`._
 - `address`: An optional address selector or selectors to listen for events from. _For example, to listen to events from a component at the address `@connection`, use `@on(address="@connection")`, or if you'd like to listen to the events of every component in the tree, use `@on(address="all")`._
 - `local`: Whether to listen for events emitted by the component itself. This will default to `True` if neither `reference` or `address` are specified, and `False` otherwise.
 
-_Event listeners are run asyncronously, separate from the original call to `emit`. Components maintain separate event queues for each event listener they have registered, and process them at their own pace. Calling `emit` only distributes the event to those queues, and as a result, listeners are isolated, and will never crash code that emits events._
+_Event listener methods are executed asyncronously, separate from the original call to `emit`. Components maintain separate event queues for each event listener they have registered, and process them at their own pace. Calling `emit` only distributes the event to those queues, and as a result, listeners are isolated, and will never crash code that emits events._
 
 #### Example
 
@@ -404,9 +408,9 @@ components:
 
 ## Records
 
-Components own three types of _record_ data which are persisted in the project database. These record types are _messages_, _alerts_ and _log entries_. All records include an `id`, `address` and `timestamp`.
+Components own three types of _record_ data which are persisted in the project database. These record types are _messages_, _alerts_ and _log entries_.
 
-_Records are written to the database asyncronously in buffered batches, so they may not be immediately available after being emitted._
+_Records are usually written to the database asyncronously in buffered batches, so they may not be immediately available after being emitted._
 
 ### Messages
 
@@ -415,10 +419,10 @@ Messages are a record of data sent or received by a `Connection` component.
 | Field       | Python Type              | Description                                                                                 |
 | ----------- | ------------------------ | ------------------------------------------------------------------------------------------- |
 | `id`        | `UUID`                   | An autogenerated UUID primary key.                                                          |
-| `address`   | `ceres:Address`          | The address of the component that sent or received the message.                             |
+| `address`   | `ceres.Address`          | The address of the component that sent or received the message.                             |
 | `timestamp` | `datetime`               | The timestamp at which the message was sent or received. Defaults to the current timestamp. |
-| `direction` | `ceres:MessageDirection` | Either "send" or "receive" depending on if the component sent or received a message.        |
-| `content`   | `ceres:MessageContent`   | The raw bytes of the original message.                                                      |
+| `direction` | `ceres.MessageDirection` | Either "send" or "receive" depending on if the component sent or received a message.        |
+| `content`   | `ceres.MessageContent`   | The raw bytes of the original message.                                                      |
 
 #### Creation
 
@@ -486,9 +490,9 @@ _Do note that emitting an alert doesn't actually send it anywhere, it will just 
 | Field       | Python Type      | Description                                                                      |
 | ----------- | ---------------- | -------------------------------------------------------------------------------- |
 | `id`        | `UUID`           | An autogenerated UUID primary key.                                               |
-| `address`   | `ceres:Address`  | The address of the component that emitted the alert.                             |
+| `address`   | `ceres.Address`  | The address of the component that emitted the alert.                             |
 | `timestamp` | `datetime`       | The timestamp at which the alert was created. Defaults to the current timestamp. |
-| `level`     | `ceres:Level`    | A level specifying the severity of the alert.                                    |
+| `level`     | `ceres.Level`    | A level specifying the severity of the alert.                                    |
 | `code`      | `str`            | An arbitrary string which can be used to retrieve alerts of a particular type.   |
 | `info`      | `dict[str, Any]` | A JSON serializable dictionary with arbitrary values.                            |
 
@@ -543,9 +547,9 @@ Components can log arbitrary messages to for monitoring purposes. These log entr
 | Field       | Python Type     | Description                                                                     |
 | ----------- | --------------- | ------------------------------------------------------------------------------- |
 | `id`        | `UUID`          | An autogenerated UUID primary key.                                              |
-| `address`   | `ceres:Address` | The address of the component that created the log entry.                        |
+| `address`   | `ceres.Address` | The address of the component that created the log entry.                        |
 | `timestamp` | `datetime`      | The timestamp at which the entry was logged. Defaults to the current timestamp. |
-| `level`     | `ceres:Level`   | A level specifying the severity of the log entry.                               |
+| `level`     | `ceres.Level`   | A level specifying the severity of the log entry.                               |
 | `content`   | `str`           | An arbitrary string message.                                                    |
 
 #### Creation
