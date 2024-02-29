@@ -1,20 +1,17 @@
 # Ceres
 
-![CI](https://github.com/OOI-RCA-APL/ceres/actions/workflows/ci.yaml/badge.svg)
-
-Ceres is a Python framework for data collection, monitoring and device control. Ceres take concepts from tools like Systemd, Docker and Kubernetes, scales them down, and applies them to Python objects called _components_.
+Ceres is a Python framework for data collection, monitoring and device control. Ceres takes ideas from service management tools like Docker and SystemD, scales them down, and applies them to Python objects called _components_.
 
 ![architecture](./images/architecture.png)
 
-| ⚠                                                                                                                                  |
-| ---------------------------------------------------------------------------------------------------------------------------------- |
-| _This project is in active development and will likely change drastically. No backwards compatibility is guaranteed at this time._ |
+## Documentation
+
+View the full documentation for Ceres at [https://ceres-docs.jploskey.us]().
 
 ## Example
 
 ```python
 # ./examples/counter/example/counter.py
-
 from asyncio import sleep
 
 from ceres import Component, routine
