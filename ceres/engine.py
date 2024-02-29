@@ -296,6 +296,9 @@ class Engine(Object, kw_only=False):
         filter: UserFilter | None = None,
         **kwargs: Unpack[UserFilterArgs],
     ) -> list[User]:
+        """
+        Get a list of users matching the given `filter`.
+        """
         return await self.__database.get_users(filter, **kwargs)
 
     async def get_user(
@@ -303,6 +306,9 @@ class Engine(Object, kw_only=False):
         filter: UserFilter | None = None,
         **kwargs: Unpack[UserFilterArgs],
     ) -> User | None:
+        """
+        Get a user matching the given `filter`.
+        """
         return await self.__database.get_user(filter, **kwargs)
 
     async def count_users(
@@ -310,15 +316,27 @@ class Engine(Object, kw_only=False):
         filter: UserFilter | None = None,
         **kwargs: Unpack[UserFilterArgs],
     ) -> int:
+        """
+        Count users matching the given `filter`.
+        """
         return await self.__database.count_users(filter, **kwargs)
 
     async def create_user(self, data: UserCreate) -> User:
+        """
+        Create a new user in the database.
+        """
         return await self.__database.create_user(data)
 
     async def update_users(self, filter: UserFilter, assign: UserUpdate) -> int:
+        """
+        Update users matching the given `filter`. Returns the number of users updated.
+        """
         return await self.__database.update_users(filter, assign)
 
     async def update_user(self, filter: UserFilter, assign: UserUpdate) -> User | None:
+        """
+        Update a user matching the given `filter`. Returns the updated user, if found.
+        """
         return await self.__database.update_user(filter, assign)
 
     async def delete_users(
@@ -326,6 +344,9 @@ class Engine(Object, kw_only=False):
         filter: UserFilter | None = None,
         **kwargs: Unpack[UserFilterArgs],
     ) -> int:
+        """
+        Delete users matching the given `filter`. Returns the number of users deleted.
+        """
         return await self.__database.delete_users(filter, **kwargs)
 
     async def delete_user(
@@ -333,6 +354,9 @@ class Engine(Object, kw_only=False):
         filter: UserFilter | None = None,
         **kwargs: Unpack[UserFilterArgs],
     ) -> User | None:
+        """
+        Delete a user matching the given `filter`. Returns the deleted user, if found.
+        """
         return await self.__database.delete_user(filter, **kwargs)
 
     async def count_messages(
@@ -340,15 +364,27 @@ class Engine(Object, kw_only=False):
         filter: MessageFilter | None = None,
         **kwargs: Unpack[MessageFilterArgs],
     ) -> int:
+        """
+        Count messages matching the given `filter`.
+        """
         return await self.__database.count_messages(filter, **kwargs)
 
     async def create_message(self, data: Message) -> Message:
+        """
+        Create a new message in the database.
+        """
         return await self.__database.create_message(data)
 
     async def update_messages(self, filter: MessageFilter, assign: MessageUpdate) -> int:
+        """
+        Update messages matching the given `filter`. Returns the number of messages updated.
+        """
         return await self.__database.update_messages(filter, assign)
 
     async def update_message(self, filter: MessageFilter, assign: MessageUpdate) -> Message | None:
+        """
+        Update a message matching the given `filter`. Returns the updated message, if found.
+        """
         return await self.__database.update_message(filter, assign)
 
     async def delete_messages(
@@ -356,6 +392,9 @@ class Engine(Object, kw_only=False):
         filter: MessageFilter | None = None,
         **kwargs: Unpack[MessageFilterArgs],
     ) -> int:
+        """
+        Delete messages matching the given `filter`.
+        """
         return await self.__database.delete_messages(filter, **kwargs)
 
     async def delete_message(
@@ -363,6 +402,9 @@ class Engine(Object, kw_only=False):
         filter: MessageFilter | None = None,
         **kwargs: Unpack[MessageFilterArgs],
     ) -> Message | None:
+        """
+        Delete a message matching the given `filter`. Returns the deleted message, if found.
+        """
         return await self.__database.delete_message(filter, **kwargs)
 
     async def count_alerts(
@@ -370,15 +412,27 @@ class Engine(Object, kw_only=False):
         filter: AlertFilter | None = None,
         **kwargs: Unpack[AlertFilterArgs],
     ) -> int:
+        """
+        Count alerts matching the given `filter`.
+        """
         return await self.__database.count_alerts(filter, **kwargs)
 
     async def create_alert(self, assign: Alert) -> Alert:
+        """
+        Create a new alert in the database.
+        """
         return await self.__database.create_alert(assign)
 
     async def update_alerts(self, filter: AlertFilter, assign: AlertUpdate) -> int:
+        """
+        Update alerts matching the given `filter`. Returns the number of alerts updated.
+        """
         return await self.__database.update_alerts(filter, assign)
 
     async def update_alert(self, filter: AlertFilter, assign: AlertUpdate) -> Alert | None:
+        """
+        Update an alert matching the given `filter`. Returns the updated alert, if found.
+        """
         return await self.__database.update_alert(filter, assign)
 
     async def delete_alerts(
@@ -386,6 +440,9 @@ class Engine(Object, kw_only=False):
         filter: AlertFilter | None = None,
         **kwargs: Unpack[AlertFilterArgs],
     ) -> int:
+        """
+        Delete alerts matching the given `filter`. Returns the number of alerts deleted.
+        """
         return await self.__database.delete_alerts(filter, **kwargs)
 
     async def delete_alert(
@@ -393,6 +450,9 @@ class Engine(Object, kw_only=False):
         filter: AlertFilter | None = None,
         **kwargs: Unpack[AlertFilterArgs],
     ) -> Alert | None:
+        """
+        Delete an alert matching the given `filter`. Returns the deleted alert, if found.
+        """
         return await self.__database.delete_alert(filter, **kwargs)
 
     async def count_log_entries(
@@ -400,12 +460,21 @@ class Engine(Object, kw_only=False):
         filter: LogEntryFilter | None = None,
         **kwargs: Unpack[LogEntryFilterArgs],
     ) -> int:
+        """
+        Count log entries matching the given `filter`.
+        """
         return await self.__database.count_log_entries(filter, **kwargs)
 
     async def create_log_entry(self, assign: LogEntry) -> LogEntry:
+        """
+        Create a new log entry in the database.
+        """
         return await self.__database.create_log_entry(assign)
 
     async def update_log_entries(self, filter: LogEntryFilter, assign: LogEntryUpdate) -> int:
+        """
+        Update log entries matching the given `filter`. Returns the number of log entries updated.
+        """
         return await self.__database.update_log_entries(filter, assign)
 
     async def update_log_entry(
@@ -413,6 +482,9 @@ class Engine(Object, kw_only=False):
         filter: LogEntryFilter,
         assign: LogEntryUpdate,
     ) -> LogEntry | None:
+        """
+        Update a log entry matching the given `filter`. Returns the updated log entry, if found.
+        """
         return await self.__database.update_log_entry(filter, assign)
 
     async def delete_log_entries(
@@ -420,6 +492,9 @@ class Engine(Object, kw_only=False):
         filter: LogEntryFilter | None = None,
         **kwargs: Unpack[LogEntryFilterArgs],
     ) -> int:
+        """
+        Delete log entries matching the given `filter`. Returns the number of log entries deleted.
+        """
         return await self.__database.delete_log_entries(filter, **kwargs)
 
     async def delete_log_entry(
@@ -427,9 +502,17 @@ class Engine(Object, kw_only=False):
         filter: LogEntryFilter | None = None,
         **kwargs: Unpack[LogEntryFilterArgs],
     ) -> LogEntry | None:
+        """
+        Delete a log entry matching the given `filter`. Returns the deleted log entry, if found.
+        """
         return await self.__database.delete_log_entry(filter, **kwargs)
 
     async def reload(self, config: Config | None = None) -> Config:
+        """
+        Reload the engine's configuration. An optional `config` object can be provided directly to
+        reload from. If omitted, the configuration will be reloaded from the engine's configuration
+        file path.
+        """
         if self.__reloading.is_set():
             raise Failure(ReloadAlreadyActiveError)
 

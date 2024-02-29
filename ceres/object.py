@@ -50,7 +50,7 @@ from ceres.filter import (
     StatisticsFilterArgs,
 )
 from ceres.internal.database.entities import AlertEntity, LogEntryEntity, MessageEntity
-from ceres.internal.tasklet import Tasklet
+from ceres.tasklet import Tasklet
 from ceres.internal.utilities import get_traceback, get_type_adapter, group_by
 from ceres.level import Level
 from ceres.logs import Log, LogEntry
@@ -224,6 +224,12 @@ class Object(ValidatedDataclass, Tasklet):
     async def __stop__(self) -> None: ...
 
     def store(self, record: Record) -> None:
+        """
+        Store a given record in the database.
+
+        This method is syncronous because it does not write the record to the database *immediately*, but rather, buffers the record to be flushed later on.
+        """
+
         if not isinstance(record, Record):
             raise TypeError(f"unsupported record type: {type(record)}")
 
@@ -270,6 +276,12 @@ class Object(ValidatedDataclass, Tasklet):
         await self.__create_records_by_cls(session, LogEntry, by_type[LogEntry])
 
     async def flush(self) -> None:
+        """
+        Flush all buffered records to the database. To queue records to be flushed, use the `store()` method.
+
+        *This method does not generally need to be called directly in code. Records will be flushed automatically while running and just before stopping.*
+        """
+
         # Get the previous flush object if there is one.
         previous = self.__flushes[-1] if self.__flushes else None
 
@@ -314,6 +326,9 @@ class Object(ValidatedDataclass, Tasklet):
                 self.__flushed.set()
 
     def get_object(self, address: str | DynamicAddress | None, /) -> "Object | None":
+        """
+        Get an object from the tree by address.
+        """
         if address is None:
             return self
 
@@ -324,7 +339,10 @@ class Object(ValidatedDataclass, Tasklet):
         return self.get_component(address)
 
     @abstractmethod
-    def get_component(self, address: str | DynamicAddress | None = None, /) -> Component | None: ...
+    def get_component(self, address: str | DynamicAddress | None = None, /) -> Component | None:
+        """
+        Get a component from the tree by address.
+        """
 
     @abstractmethod
     def get_components(
@@ -334,9 +352,15 @@ class Object(ValidatedDataclass, Tasklet):
         *,
         inclusive: bool = False,
         **kwargs: Unpack[ComponentFilterArgs],
-    ) -> "ComponentGroup": ...
+    ) -> "ComponentGroup":
+        """
+        Get a group of components from the tree by address/filter.
+        """
 
     async def get_status(self) -> Status:
+        """
+        Get current status of the object, including address and running state.
+        """
         return Status(
             address=self.address,
             running=self.running,
@@ -347,6 +371,9 @@ class Object(ValidatedDataclass, Tasklet):
         filter: ComponentFilter | None = None,
         **kwargs: Unpack[ComponentFilterArgs],
     ) -> list[Status]:
+        """
+        Get current statuses of the components in the tree.
+        """
         filter = ComponentFilter(**kwargs).with_defaults(filter)
 
         return [await component.get_status() for component in self.get_components(filter)]
@@ -356,6 +383,9 @@ class Object(ValidatedDataclass, Tasklet):
         filter: ComponentFilter | None = None,
         **kwargs: Unpack[ComponentFilterArgs],
     ) -> AsyncIterable[list[Status]]:
+        """
+        Asyncronously yield statuses of the components in the tree whenever they change.
+        """
         yield await self.get_statuses(filter, **kwargs)
 
         async for _ in self.events.of(
@@ -374,6 +404,9 @@ class Object(ValidatedDataclass, Tasklet):
         filter: MessageFilter | None = None,
         **kwargs: Unpack[MessageFilterArgs],
     ) -> list[Message]:
+        """
+        Get messages from the database according to the given filter criteria.
+        """
         filter = MessageFilter(root=self.address, address=self.address.all()).with_overrides(filter)
         return await self.__object_database__.get_messages(filter, **kwargs)
 
@@ -382,6 +415,10 @@ class Object(ValidatedDataclass, Tasklet):
         filter: MessageFilter | None = None,
         **kwargs: Unpack[MessageFilterArgs],
     ) -> Message | None:
+        """
+        Get a message from the database according to the given filter criteria.
+        """
+
         filter = MessageFilter(root=self.address, address=self.address.all()).with_overrides(filter)
         return await self.__object_database__.get_message(filter, **kwargs)
 
@@ -390,6 +427,9 @@ class Object(ValidatedDataclass, Tasklet):
         filter: MessageFilter | None = None,
         **kwargs: Unpack[MessageFilterArgs],
     ) -> AsyncIterable[Message]:
+        """
+        Stream emitted messages according to the given filter criteria.
+        """
         filter = (
             MessageFilter(**kwargs)
             .with_defaults(filter)
@@ -406,6 +446,9 @@ class Object(ValidatedDataclass, Tasklet):
         filter: AlertFilter | None = None,
         **kwargs: Unpack[AlertFilterArgs],
     ) -> list[Alert]:
+        """
+        Get alerts from the database according to the given filter criteria.
+        """
         filter = AlertFilter(root=self.address, address=self.address.all()).with_overrides(filter)
         return await self.__object_database__.get_alerts(filter, **kwargs)
 
@@ -414,6 +457,9 @@ class Object(ValidatedDataclass, Tasklet):
         filter: AlertFilter | None = None,
         **kwargs: Unpack[AlertFilterArgs],
     ) -> Alert | None:
+        """
+        Get an alert from the database according to the given filter criteria.
+        """
         filter = AlertFilter(root=self.address, address=self.address.all()).with_overrides(filter)
         return await self.__object_database__.get_alert(filter, **kwargs)
 
@@ -422,6 +468,9 @@ class Object(ValidatedDataclass, Tasklet):
         filter: AlertFilter | None = None,
         **kwargs: Unpack[AlertFilterArgs],
     ) -> AsyncIterable[Alert]:
+        """
+        Stream emitted alerts according to the given filter criteria.
+        """
         filter = (
             AlertFilter(**kwargs)
             .with_defaults(filter)
@@ -438,6 +487,9 @@ class Object(ValidatedDataclass, Tasklet):
         filter: LogEntryFilter | None = None,
         **kwargs: Unpack[LogEntryFilterArgs],
     ) -> list[LogEntry]:
+        """
+        Get log entries from the database according to the given filter criteria.
+        """
         filter = LogEntryFilter(root=self.address, address=self.address.all()).with_overrides(
             filter
         )
@@ -449,6 +501,9 @@ class Object(ValidatedDataclass, Tasklet):
         /,
         **kwargs: Unpack[LogEntryFilterArgs],
     ) -> LogEntry | None:
+        """
+        Get a log entry from the database according to the given filter criteria.
+        """
         filter = LogEntryFilter(root=self.address, address=self.address.all()).with_overrides(
             filter
         )
@@ -460,6 +515,9 @@ class Object(ValidatedDataclass, Tasklet):
         /,
         **kwargs: Unpack[LogEntryFilterArgs],
     ) -> AsyncIterable[LogEntry]:
+        """
+        Stream emitted log entries according to the given filter criteria.
+        """
         filter = (
             LogEntryFilter(**kwargs)
             .with_defaults(filter)
@@ -477,6 +535,9 @@ class Object(ValidatedDataclass, Tasklet):
         /,
         **kwargs: Unpack[StatisticsFilterArgs],
     ) -> list[Statistics]:
+        """
+        Get statistics about running components according to the given filter criteria.
+        """
         filter = (
             StatisticsFilter(**kwargs)
             .with_defaults(filter)

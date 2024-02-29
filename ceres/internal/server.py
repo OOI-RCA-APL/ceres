@@ -5,7 +5,7 @@ from hypercorn import Config as HypercornConfig
 from hypercorn.asyncio import serve
 from typing_extensions import override
 
-from ceres.internal.tasklet import Tasklet
+from ceres.tasklet import Tasklet
 
 
 class ServerInternalConfig(HypercornConfig):

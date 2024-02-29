@@ -27,6 +27,18 @@ theme:
     - content.code.annotate
     - content.code.copy
     - announce.dismiss
+plugins:
+  - mkdocstrings:
+      default_handler: python
+      handlers:
+        python:
+          options:
+            docstring_style: sphinx
+            separate_signature: true
+            show_root_full_path: false
+            show_root_heading: true
+            show_signature_annotations: true
+            show_source: false
 markdown_extensions:
   - tables
   - sane_lists
@@ -54,3 +66,4 @@ nav:
   - Components: components.md
   - Example: example.md
   - Development: development.md
+  - API Reference: api-reference.md

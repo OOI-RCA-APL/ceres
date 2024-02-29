@@ -214,6 +214,13 @@ class _TriggerAdapter(BaseTrigger):
     field_specifiers=(Field, FieldInfo),
 )
 class Component(Object):
+    """
+    A node in the component tree that performs asyncronous work.
+
+    Components can be started and stopped, enabled or disabled, interact with other components
+    directly, or through events, and schedule actions as jobs to run on a schedule.
+    """
+
     name: Final[Name] = Field(default_factory=lambda: randstr(ascii_lowercase, 8))
 
     def __post_init__(self) -> None:
@@ -245,16 +252,26 @@ class Component(Object):
     @final
     @classmethod
     def get_listener_bindings(cls) -> Sequence["ListenerBinding"]:
+        """
+        Get all listener bindings for this component class.
+        """
         return _get_listener_bindings(cls)
 
     @final
     @classmethod
     def get_routine_bindings(cls) -> Sequence["RoutineBinding"]:
+        """
+        Get all routine bindings for this component class.
+        """
         return _get_routine_bindings(cls)
 
     @final
     @classmethod
     def get_query_bindings(cls) -> Mapping[str, "QueryBinding"]:
+        """
+        Get all query bindings for this component class. Returns a mapping of query names to query
+        bindings.
+        """
         return {
             name: binding
             for name, binding in cls.get_procedure_bindings().items()
@@ -264,6 +281,10 @@ class Component(Object):
     @final
     @classmethod
     def get_query_binding(cls, name: Callable[..., Any] | str) -> "QueryBinding | None":
+        """
+        Get a query binding for this component class by name. Returns `None` if the query binding
+        does not exist.
+        """
         procedure = cls.get_procedure_binding(name)
         if not isinstance(procedure, QueryBinding):
             return None
@@ -273,6 +294,10 @@ class Component(Object):
     @final
     @classmethod
     def get_action_bindings(cls) -> Mapping[str, "ActionBinding"]:
+        """
+        Get all action bindings for this component class. Returns a mapping of action names to
+        action bindings.
+        """
         return {
             name: binding
             for name, binding in cls.get_procedure_bindings().items()
@@ -282,6 +307,10 @@ class Component(Object):
     @final
     @classmethod
     def get_action_binding(cls, name: Callable[..., Any] | str) -> "ActionBinding | None":
+        """
+        Get an action binding for this component class by name. Returns `None` if the action binding
+        does not exist.
+        """
         procedure = cls.get_procedure_binding(name)
         if not isinstance(procedure, ActionBinding):
             return None
@@ -291,11 +320,19 @@ class Component(Object):
     @final
     @classmethod
     def get_procedure_bindings(cls) -> Mapping[str, "ProcedureBinding"]:
+        """
+        Get all procedure bindings (actions and queries) for this component class. Returns a mapping
+        of procedure names to procedure bindings.
+        """
         return _get_procedure_bindings(cls)
 
     @final
     @classmethod
     def get_procedure_binding(cls, name: Callable[..., Any] | str) -> "ProcedureBinding | None":
+        """
+        Get a procedure binding (action or query) for this component class by name. Returns `None`
+        if the procedure does not exist.
+        """
         if isinstance(name, str):
             return cls.get_procedure_bindings().get(name)
 
@@ -336,6 +373,9 @@ class Component(Object):
     @property
     @override
     def address(self) -> Address:
+        """
+        The current address of the component.
+        """
         if self.parent is not None:
             return self.parent.address / self.name
 
@@ -343,11 +383,18 @@ class Component(Object):
 
     @property
     def enabled(self) -> bool:
+        """
+        `True` if the component is enabled. Enabled components start automatically when their parent
+        starts.
+        """
         return self.__enabled
 
     @property
     @override
     def settled(self) -> bool:
+        """
+        `True` if the component is stopped or all event listeners are idle.
+        """
         if not self.running:
             return True
 
@@ -355,6 +402,9 @@ class Component(Object):
 
     @override
     async def settle(self) -> None:
+        """
+        Wait until `settled` returns `True`.
+        """
         while not self.settled:
             async with TaskGroup() as group:
                 group.create_task(super().settle())
@@ -363,6 +413,10 @@ class Component(Object):
 
     @override
     def handle(self, event: Event) -> None:
+        """
+        Handle a given event.
+        """
+
         super().handle(event)
 
         if not self.running or self.stopping:
@@ -372,6 +426,10 @@ class Component(Object):
             listener.handle(event)
 
     async def enable(self) -> None:
+        """
+        Enable the component, and implicitly, all ancestors. Enabled components start automatically
+        when their parent starts.
+        """
         if self.parent is not None:
             await self.parent.enable()
 
@@ -381,16 +439,25 @@ class Component(Object):
         self.emit(EnabledEvent)
 
     async def disable(self) -> None:
+        """
+        Disable the component.
+        """
         async with await self.__object_database__.init() as session:
             await self.__set_enabled_in_database(session, False)
         self.__enabled = False
         self.emit(DisabledEvent)
 
     async def up(self) -> None:
+        """
+        Enable and start the component.
+        """
         await self.enable()
         self.start()
 
     async def down(self) -> None:
+        """
+        Disable and stop the component.
+        """
         await self.disable()
         await self.stop()
 
@@ -438,6 +505,9 @@ class Component(Object):
     @property
     @final
     def parent(self) -> "Component | None":
+        """
+        Get the parent component of this component. Returns `None` if the component has no parent.
+        """
         if self.__parent is None:
             return None
 
@@ -447,6 +517,11 @@ class Component(Object):
     @override
     @final
     def engine(self) -> Engine | None:
+        """
+        Get the engine that the component is running under. Returns `None` if the component is not
+        running under an engine.
+        """
+
         if self.parent is not None:
             return self.parent.engine
         if self.__engine is not None:
@@ -456,10 +531,16 @@ class Component(Object):
 
     @engine.setter
     def engine(self, engine: Engine) -> None:
+        """
+        Bind the component to a given engine.
+        """
         self.__engine = engine
 
     @property
     def components(self) -> "ComponentGroup":
+        """
+        Get the child components of this component.
+        """
         return ComponentGroup(self.__components.values())
 
     def unref(self) -> Self:
@@ -534,6 +615,9 @@ class Component(Object):
         /,
         name: Name | None = None,
     ) -> _ComponentT:
+        """
+        Add a child component to this component.
+        """
         if component is self or component in self.get_ancestor_components():
             raise ValueError("component cannot contain itself")
 
@@ -554,6 +638,11 @@ class Component(Object):
         return component
 
     def remove_component(self, address: str | DynamicAddress | None = None) -> "Component | None":
+        """
+        Remove a component at the given address from the tree if it exists. If no address is given,
+        remove this component itself. The removed component is returned, or `None` if the component
+        was not found.
+        """
         if address is None:
             if self.parent is None:
                 return self
@@ -576,6 +665,7 @@ class Component(Object):
 
         return component
 
+    @override
     def get_component(self, address: str | DynamicAddress | None = None, /) -> "Component | None":
         if not address:
             return self
@@ -634,6 +724,10 @@ class Component(Object):
         return status
 
     def get_ancestor_components(self, *, inclusive: bool = False) -> "ComponentGroup":
+        """
+        Return a group of all ancestor components in ascending order. If `inclusive` is `True`,
+        include this component itself as the first component in the sequence.
+        """
         ancestors: list[Component] = []
 
         current: Component | None = self if inclusive else self.parent
@@ -650,12 +744,21 @@ class Component(Object):
         *args: _EventP.args,
         **kwargs: _EventP.kwargs,
     ) -> _EventT:
+        """
+        Construct and emit an event, assigning the address of the event to this component's address
+        if unset. Emitted events are propagated to all ancestor components and any other components
+        currently holding a reference to this component.
+        """
         if "address" not in kwargs:
             kwargs["address"] = self.address
 
         return self.propagate(event_cls(*args, **kwargs))
 
     def propagate(self, event: _EventT) -> _EventT:
+        """
+        Propagate an event to all ancestor components and any other components currently holding a
+        reference to this component.
+        """
         super().propagate(event)
 
         for referencer in self.__referencers.values():
@@ -670,6 +773,9 @@ class Component(Object):
         code: str,
         info: Mapping[str, Any] | None = None,
     ) -> Alert:
+        """
+        Emit an alert with the given `level`, `code`, and `info`.
+        """
         alert = Alert(
             address=self.address,
             level=level,
@@ -689,6 +795,9 @@ class Component(Object):
         retries: NonNegativeInt = 0,
         retry_delay: PositiveFloat | PositiveTimeDelta = timedelta(seconds=5),
     ) -> Job:
+        """
+        Register an `action` to be executed as a job on a given `schedule`.
+        """
         binding = self.get_action_binding(action)
         if binding is None:
             raise ValueError(f"action '{action}' does not exist on {strify(type(self))}")
@@ -755,12 +864,22 @@ class Component(Object):
         self.emit(JobStoppedEvent, job=name)
 
     def get_jobs(self) -> list[Job]:
+        """
+        Get a list of all registered jobs on this component.
+        """
         return list(self.__jobs.values())
 
     def get_job(self, name: Name) -> Job | None:
+        """
+        Get a registered job from this component by name. Returns `None` if the job does not exist.
+        """
         return self.__jobs.get(name)
 
     def remove_job(self, name: Name) -> Job | None:
+        """
+        Remove a registered job from this component by name. Returns the removed job, or `None` if
+        the job does not exist.
+        """
         job = self.__jobs.pop(name, None)
 
         try:
@@ -771,11 +890,15 @@ class Component(Object):
         return job
 
     def clear_jobs(self) -> None:
+        """
+        Remove all registered jobs.
+        """
         self.__jobs.clear()
         for job in self.__scheduler.get_jobs():
             job: InternalJob = job
             self.__scheduler.remove_job(job.id)
 
+    @override
     def start(
         self,
         *,
@@ -917,6 +1040,9 @@ class Component(Object):
         procedure: str,
         arguments: Mapping[Name, Any] | None = None,
     ) -> object | None:
+        """
+        Call a procedure on the component with the given `arguments`.
+        """
         result = await self.__invoke(procedure, arguments)
         binding = self.get_procedure_bindings()[procedure]
 
@@ -951,6 +1077,10 @@ class Component(Object):
         procedure: str,
         arguments: Mapping[Name, Any] | None = None,
     ) -> AsyncIterable[object | None]:
+        """
+        Subscribe to a procedure on the component with the given `arguments`. Not all procedures are
+        subscribable.
+        """
         result = await self.__invoke(procedure, arguments)
         binding = self.get_procedure_bindings()[procedure]
 
