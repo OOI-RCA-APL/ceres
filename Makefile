@@ -16,10 +16,17 @@ lint:
 fix:
 	poetry run sh -c "black . && ruff check --fix ."
 	cd console && make fix
+build-docs: install-docs
+	poetry run mkdocs build
+deploy-docs: install-docs
+	poetry run mkdocs gh-deploy --force
+install-docs:
+	poetry install --only docs
 clean:
 	rm -rf ./*/**/__pycache__
 	rm -rf ./*/**/.mypy_cache
 	rm -rf ./*/**/.pytest_cache
-	rm -rf ./dist
 	rm -rf ./ceres/static
+	rm -rf ./dist
+	rm -rf ./site
 	cd console && make clean
