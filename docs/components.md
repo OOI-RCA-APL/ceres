@@ -114,18 +114,6 @@ While components can be configured and run on their own, they are usually groupe
 
 Each component is conceptually a _node_, having an arbitrary number of _child_ components, and _at most_ one _parent_ component. Components _must_ have a unique `name` within their parent. This ensures each component is uniquely _addressable_ within its tree.
 
-A component's `address` describes its position in the tree, and is computed automatically from the component's `name` and the names of its ancestors. A component with no parent is a _root_ component, and has the address `@`. Other addresses are relative to the root, and are defined by descending component names with `.` as a separator. _For example, the address `@a.b.c` refers to a component named `c`, which is a child of `@a.b`, which is a child of `@a`, which is ultimately the child of the root component `@`._
-
-A _subtree_ of components within a larger component tree is called a _unit_. For example, if components `@a.b` and `@a.c` exist, they are part of the unit `@a`. Units are subtrees of components that usually work together to accomplish a specific task, such as interfacing with one external device to retrieve data. _Components within a unit are usually managed, started, stopped and monitored together._
-
-Components _above_ a component in a tree are called its _ancestors_. Components _below_ a component in a tree are its _descendants_, or _subcomponents_. A child component can _only_ be running if its _parent_ is running. So for convenience, a component is automatically started when any of its subcomponents are started. For example, starting `@a.b` will also start `@a` and `@`. Conversely, when a component is stopped, all its subcomponents are too.
-
-_Enabling_ a component will cause it to started automatically when its parent starts. Ancestors of an enabled component are also implicitly enabled. All components are _disabled_ by default.
-
-Components inherit the `database` of their parent, meaning component trees implicitly store all messages, alerts and logs in the same place. _If a component has no parent, and no explicit database, a temporary one is created for it automatically._
-
-Components in the base `components` list of `ceres.yaml` are implicit _children_ of a root component. The purpose of the Ceres engine itself is to manage the component tree you define in `ceres.yaml`.
-
 ### Example
 
 ```yaml
@@ -147,7 +135,7 @@ components:
           interval: 0.5s
 ```
 
-These components have addresses `@random.a` and `@random.b` respectively.
+These components are bound to addresses `@random.a` and `@random.b` respectively.
 
 ```sh
 ceres run random.a   # Run `@random.a` and its parent component `@random`.
@@ -155,6 +143,30 @@ ceres run random.b   # Run `@random.b` and its parent component `@random`.
 ceres run random:all # Run all components in the `@random` unit.
 ceres run all        # Run all components in the project, which in this case is the same as `@random:all`.
 ```
+
+### Addresses
+
+A component's `address` describes its position in the tree, and is computed automatically from the component's `name` and the names of its ancestors. In this way, component addresses are similar to file system paths, but refer to the location of a component in a tree rather than a file.
+
+A component with no parent is the _root_ component, and has the address `@`. Other addresses are relative to the root component, and defined by descending component names with `.` as a separator. For example, the address `@a.b.c` refers to a component named `c`, which is a child of `@a.b`, which is a child of `@a`, which is ultimately a child of the root component `@`.
+
+### Hierarchy Implications
+
+Any components _above_ a component (including it's parent, grandparent, and so on) are called its _ancestors_. Any components _below_ a component are its _descendants_, or _subcomponents_.
+
+#### Starting & Stopping
+
+A child component can only be running if its _parent_ is running. For convenience, components are automatically started when any of their subcomponents are run. For example, starting the component at `@a.b` will also start `@a` and `@`. Conversely, when a component is stopped, all its subcomponents are too.
+
+#### Enabling & Disabling
+
+_Enabling_ a component will start automatically when its parent starts. Ancestors of an enabled component will also be implicitly enabled. All components are _disabled_ by default.
+
+#### Database Inheritance
+
+Components inherit the `database` of their parent, meaning component trees implicitly store all messages, alerts and logs in the same place. _If a component has no parent, and no explicit database, a temporary one is created for it automatically._
+
+Components in the base `components` list of `ceres.yaml` are implicit _children_ of a root component. The purpose of the Ceres engine itself is to manage the component tree you define in `ceres.yaml`.
 
 ## Routines
 
@@ -310,7 +322,7 @@ All events are subclasses of `Event`. Custom events can be created by inheriting
 
 Components can register _event listeners_ using the `@on` decorator. Event listeners can be used to process a component's own events or the events of other components. Events will only be processed by a component when the component is running.
 
-##### `@on`
+###### `@on`
 
 - `event`: An event class to listen for. If `event` is not passed as an argument, the event type is determined by the type annotation of the `event` parameter in the listening method.
 - `reference`: An optional name of the reference to listen for events from. _For example, if you have a reference to a connection component like `connection: Ref[Connection]` you can listen to its events using `@on(reference="connection)"`._
