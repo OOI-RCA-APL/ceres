@@ -1,6 +1,8 @@
 # Project
 .env
 /dev/
+/site/
+/site.zip
 
 # Python
 __pycache__/
