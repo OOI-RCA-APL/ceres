@@ -1,0 +1,58 @@
+site_name: Ceres Docs
+repo_url: https://github.com/OOI-RCA-APL/ceres
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme)"
+      primary: blue
+      toggle:
+        icon: material/brightness-auto
+        name: Switch to light mode
+    - media: "(prefers-color-scheme: light)"
+      primary: blue
+      scheme: default
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      primary: blue
+      scheme: slate
+      toggle:
+        icon: material/brightness-4
+        name: Switch to system preference
+  features:
+    - navigation.instant
+    - navigation.instant.progress
+    - content.tabs.link
+    - content.code.annotate
+    - content.code.copy
+    - announce.dismiss
+markdown_extensions:
+  - markdown_include.include:
+      base_path: docs
+  - tables
+  - sane_lists
+  - toc:
+      permalink: true
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.extra
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.tabbed:
+      alternate_style: true
+extra:
+  version:
+    provider: mike
+watch:
+  - ceres
+nav:
+  - Home: README.md
+  - Installing: installing.md
+  - Components: components.md
+  - Example: example.md
+  - Development: development.md

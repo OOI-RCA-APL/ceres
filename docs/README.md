@@ -4,7 +4,7 @@
 
 Ceres is a Python framework for data collection, monitoring and device control. Ceres take concepts from tools like Systemd, Docker and Kubernetes, scales them down, and applies them to Python objects called _components_.
 
-![architecture](./docs/images/architecture.png)
+![architecture](./images/architecture.png)
 
 | ⚠                                                                                                                                  |
 | ---------------------------------------------------------------------------------------------------------------------------------- |
@@ -77,14 +77,3 @@ ceres status        # Check to see all components are running and enabled.
 
 ceres service stop  # Stop the background service.
 ```
-
-## Documentation
-
-To learn more about Ceres, take a look at our documentation.
-
-| Page                                 | Description                                               |
-| ------------------------------------ | --------------------------------------------------------- |
-| [Installing](./docs/installing.md)   | How to install Ceres on your machine.                     |
-| [Components](./docs/components.md)   | Learn how to create and use components.                   |
-| [Example](./docs/project-example.md) | Set up a simple example project with a common use case.   |
-| [Development](./docs/development.md) | How to help us out, and set up a development environment. |

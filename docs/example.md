@@ -1,4 +1,4 @@
-# Project Example
+# Example
 
 ## The Problem
 
@@ -18,7 +18,7 @@ messages = [
 
 For simplicity, let's say this temperature sensor is running on the our local machine and sending data back on port `4000`. Our goal is to write these temperature and humidity readings to file in CSV format, separated by day.
 
-## Create a Simulator
+## Simulator
 
 Because this isn't a real sensor, we'll have to simulate it. Create a Python script containing the following code, and run it with `python simulator.py`.
 
@@ -71,7 +71,7 @@ You should see this output, which means the script is running:
 Listening: localhost:4000
 ```
 
-## Creating a Project
+## Project Setup
 
 Now, while the above script is listening on port `4000`, let's set up a Ceres project.
 
@@ -149,7 +149,7 @@ components:
       separator: "\n"
 ```
 
-## Running the Project
+## Running
 
 With our configuration file ready, we can can run project using the `ceres run all` command.
 
@@ -217,7 +217,7 @@ Now that the engine is running, we can open the web console at [http://localhost
 
 Click on the `@connection` tab in the left sidebar to view the component page, then click on the `Messages` tab to view the messages received by the component. The message views in the console (as well as alert and log views) supports infinite scrollback and search.
 
-![Screenshot of received messages in web console.](../images/intro/messages.png)
+![Screenshot of received messages in web console.](../images/web-console-messages.png)
 
 ## CLI
 
