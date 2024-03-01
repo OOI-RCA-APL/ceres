@@ -9,6 +9,7 @@ import InterfaceGauge from '@/components/InterfaceGauge.vue'
 import InterfaceRow from '@/components/InterfaceRow.vue'
 import InterfaceState from '@/components/InterfaceState.vue'
 import InterfaceText from '@/components/InterfaceText.vue'
+import InterfaceHTML from '@/components/InterfaceHTML.vue'
 import { InterfacePath } from '@/interface'
 import { ComponentConstructor } from 'quasar'
 
@@ -19,6 +20,7 @@ const componentClasses: Readonly<Record<ElementType, ComponentConstructor>> = {
   column: InterfaceColumn,
   display: InterfaceDisplay,
   gauge: InterfaceGauge,
+  html: InterfaceHTML,
   row: InterfaceRow,
   state: InterfaceState,
   text: InterfaceText,

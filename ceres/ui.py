@@ -1,10 +1,19 @@
 from abc import ABC
 from decimal import Decimal
 from enum import Enum
+from textwrap import dedent
 from types import MethodType
-from typing import Annotated, Any, Callable, Literal, TypeAlias
+from typing import Annotated, Any, Callable, Literal, Sequence, TypeAlias
 
-from pydantic import ConfigDict, Field, StrictBool, StrictFloat, StrictInt, StrictStr
+from pydantic import (
+    ConfigDict,
+    Field,
+    StrictBool,
+    StrictFloat,
+    StrictInt,
+    StrictStr,
+    field_validator,
+)
 from typing_extensions import Unpack
 
 from ceres.address import Address
@@ -18,6 +27,7 @@ class ElementType(StrEnum):
     COLUMN = "column"
     CAROUSEL = "carousel"
     TEXT = "text"
+    HTML = "html"
     STATE = "state"
     GAUGE = "gauge"
     CHART = "chart"
@@ -112,6 +122,25 @@ class Row(_BaseElement):
     align: Align = Align.START
     children: list["Element"]
 
+    def __init__(
+        self,
+        children: Sequence["Element"],
+        *,
+        sizing: Sizing = Sizing.GROW,
+        justify: Justify = Justify.START,
+        align: Align = Align.START,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(
+            **{
+                "children": children,
+                "sizing": sizing,
+                "justify": justify,
+                "align": align,
+                **kwargs,
+            }
+        )
+
 
 class Column(_BaseElement):
     type: Literal[ElementType.COLUMN] = ElementType.COLUMN
@@ -120,11 +149,45 @@ class Column(_BaseElement):
     align: Align = Align.START
     children: list["Element"]
 
+    def __init__(
+        self,
+        children: Sequence["Element"],
+        *,
+        sizing: Sizing = Sizing.GROW,
+        justify: Justify = Justify.START,
+        align: Align = Align.START,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(
+            **{
+                "children": children,
+                "sizing": sizing,
+                "justify": justify,
+                "align": align,
+                **kwargs,
+            }
+        )
+
 
 class Carousel(_BaseElement):
     type: Literal[ElementType.CAROUSEL] = ElementType.CAROUSEL
     height: int | str | None = None
     children: list["Element"]
+
+    def __init__(
+        self,
+        children: Sequence["Element"],
+        *,
+        height: int | str | None = None,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(
+            **{
+                "children": children,
+                "height": height,
+                **kwargs,
+            }
+        )
 
 
 class TextVariant(StrEnum):
@@ -149,7 +212,7 @@ class Text(_BaseElement):
         value: Any,
         variant: TextVariant = TextVariant.BODY_2,
         *,
-        color: Color | None = None,
+        color: Color | str | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(
@@ -162,20 +225,74 @@ class Text(_BaseElement):
         )
 
 
+class HTML(_BaseElement):
+    type: Literal[ElementType.HTML] = ElementType.HTML
+    value: str
+
+    def __init__(self, value: str, **kwargs: Any) -> None:
+        super().__init__(**{"value": value, **kwargs})
+
+    @field_validator("value")
+    def _validate_value(cls, value: str) -> str:
+        from xml.etree import ElementTree
+
+        try:
+            ElementTree.fromstring(value)
+        except SyntaxError:
+            raise ValueError("must be valid HTML/XML")
+
+        return dedent(value).strip()
+
+
 AtomicValue: TypeAlias = StrictBool | StrictInt | StrictFloat | Decimal | StrictStr
 
 
 class State(_BaseElement):
-    class Option(ImmutableDataObject):
+    class Option(DataObject):
         value: AtomicValue
         label: str
         color: Color
         icon: str | None = None
         description: str | None = None
 
+        def __init__(
+            self,
+            value: AtomicValue,
+            *,
+            label: str,
+            color: Color | str,
+            icon: str | None = None,
+            description: str | None = None,
+            **kwargs: Any,
+        ) -> None:
+            super().__init__(
+                **{
+                    "value": value,
+                    "label": label,
+                    "color": color,
+                    "icon": icon,
+                    "description": description,
+                    **kwargs,
+                }
+            )
+
     type: Literal[ElementType.STATE] = ElementType.STATE
     value: AtomicValue
     options: list[Option]
+
+    def __init__(
+        self,
+        value: AtomicValue,
+        options: Sequence[Option],
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(
+            **{
+                "value": value,
+                "options": options,
+                **kwargs,
+            }
+        )
 
 
 class Gauge(_BaseElement):
@@ -183,18 +300,57 @@ class Gauge(_BaseElement):
         value: float
         color: Color
 
+        def __init__(self, value: float, color: Color | str, **kwargs: Any) -> None:
+            super().__init__(**{"value": value, "color": color, **kwargs})
+
     type: Literal[ElementType.GAUGE] = ElementType.GAUGE
     value: float
-    unit: str | None = None
     min: float
     max: float
+    unit: str | None = None
     color: list[ColorStop] | Color | None = None
+
+    def __init__(
+        self,
+        value: float,
+        min: float,
+        max: float,
+        *,
+        unit: str | None = None,
+        color: list[ColorStop] | Color | str | None = None,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(
+            **{
+                "value": value,
+                "unit": unit,
+                "min": min,
+                "max": max,
+                "color": color,
+                **kwargs,
+            }
+        )
 
 
 class Chart(_BaseElement):
     type: Literal[ElementType.CHART] = ElementType.CHART
     value: dict[str, object]
     height: int
+
+    def __init__(
+        self,
+        value: dict[str, object],
+        *,
+        height: int,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(
+            **{
+                "value": value,
+                "height": height,
+                **kwargs,
+            }
+        )
 
 
 class PaletteColor(Color, Enum):
@@ -274,7 +430,7 @@ class Display(_BaseRenderer):
 
 
 Element = Annotated[  # type: ignore
-    Button | Row | Column | Carousel | Text | State | Gauge | Chart | Render | Display,
+    Button | Row | Column | Carousel | Text | HTML | State | Gauge | Chart | Render | Display,
     Field(discriminator="type"),
 ]
 

@@ -101,6 +101,12 @@ export const TextElementModel = Zod.object({
   color: Zod.string().nullable().default(null),
 })
 
+export type HTMLElement = Zod.infer<typeof HTMLElementModel>
+export const HTMLElementModel = Zod.object({
+  type: Zod.literal('html'),
+  value: Zod.string(),
+})
+
 export type StateElement = Zod.infer<typeof StateElementModel>
 export const StateElementModel = Zod.object({
   type: Zod.literal('state'),
@@ -168,6 +174,7 @@ export type Element =
   | ColumnElement
   | CarouselElement
   | TextElement
+  | HTMLElement
   | StateElement
   | GaugeElement
   | ChartElement
@@ -179,6 +186,7 @@ export const ElementModel: Zod.ZodType<Element> = Zod.discriminatedUnion('type',
   ColumnElementModel,
   CarouselElementModel,
   TextElementModel,
+  HTMLElementModel,
   StateElementModel,
   GaugeElementModel,
   ChartElementModel,
