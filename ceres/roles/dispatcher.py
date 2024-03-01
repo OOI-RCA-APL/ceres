@@ -40,6 +40,9 @@ class DispatchWriter:
     ) -> Notification: ...
 
 
+_Index = dict[Level, dict[tuple[Address, str, str], list[Alert]]]
+
+
 class Dispatcher(Component):
     notifier: Ref[Notifier]
     writer: Loaded[DispatchWriter]
@@ -134,9 +137,7 @@ class HTMLDispatchWriter(DispatchWriter):
         def get_latest_alert_timestamp(alerts: Iterable[Alert]) -> datetime:
             return max([alert.timestamp for alert in alerts])
 
-        Index = dict[Level, dict[tuple[Address, str, str], list[Alert]]]
-
-        def create_index() -> Index:
+        def create_index() -> _Index:
             return defaultdict(create_index)  # type: ignore
 
         index = create_index()

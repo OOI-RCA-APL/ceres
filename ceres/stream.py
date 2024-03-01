@@ -147,8 +147,14 @@ class Stream(AsyncIterable[_T]):
     def view(self) -> "Stream[_T]":
         return Stream(self)
 
-    def of(self, of: type[_O]) -> "Stream[_O]":
-        return Stream(self, of=of)
+    @overload
+    def of(self, of: type[_O]) -> "Stream[_O]": ...
+
+    @overload
+    def of(self, of: _O) -> "Stream[_O]": ...
+
+    def of(self, of: _O | type[_O]) -> "Stream[_O]":
+        return Stream(self, of=of)  # type: ignore
 
     def filter(self, filter: Callable[[_T], bool]) -> "Stream[_T]":
         return Stream(self, filter=filter)

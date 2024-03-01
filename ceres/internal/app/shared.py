@@ -1,5 +1,6 @@
 import inspect
 from dataclasses import dataclass
+from datetime import datetime
 from inspect import Parameter
 from typing import TYPE_CHECKING, Annotated, Any, AsyncIterator, Mapping, TypeVar
 from uuid import UUID
@@ -203,7 +204,9 @@ async def _get_current_identity(
             return None
 
         try:
-            expires = get_type_adapter(DateTime).validate_python(expires)
+            expires = get_type_adapter(datetime if TYPE_CHECKING else DateTime).validate_python(
+                expires
+            )
         except ValidationError:
             return None
 

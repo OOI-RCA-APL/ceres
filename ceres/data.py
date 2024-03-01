@@ -2,7 +2,7 @@ import json
 from abc import ABC
 from datetime import date, datetime, timedelta, timezone
 from json import JSONDecodeError
-from typing import Annotated, Any, Literal, NewType, Sized, TypeVar
+from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Literal, NewType, Sized, TypeVar
 
 import pydantic
 import pydantic.generics
@@ -17,6 +17,7 @@ from pydantic import (
 )
 from pydantic import EmailStr as _BaseEmailStr
 from pydantic.fields import FieldInfo
+from pydantic_core import CoreSchema, SchemaSerializer, SchemaValidator
 from pydantic_extra_types.color import Color as Color
 from typing_extensions import dataclass_transform
 from yaml import YAMLError
@@ -174,7 +175,19 @@ class ImmutableDataObject(DataObject, ABC):
     kw_only_default=True,
     field_specifiers=(Field, FieldInfo),
 )
-class ValidatedDataclass(ABC, PydanticDataclassLike):  # type: ignore
+class ValidatedDataclass(ABC, PydanticDataclassLike):
+    if TYPE_CHECKING:
+        __dataclass_fields__: ClassVar[dict[str, Any]]
+        __dataclass_params__: ClassVar[Any]
+        __post_init__: Any
+        __pydantic_config__: ClassVar[ConfigDict]
+        __pydantic_complete__: ClassVar[bool]
+        __pydantic_core_schema__: ClassVar[CoreSchema]
+        __pydantic_decorators__: ClassVar[Any]
+        __pydantic_fields__: ClassVar[dict[str, FieldInfo]]
+        __pydantic_serializer__: ClassVar[SchemaSerializer]
+        __pydantic_validator__: ClassVar[SchemaValidator]
+
     def __init_subclass__(
         cls,
         *,

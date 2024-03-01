@@ -39,7 +39,7 @@ websockets = "^10.0.0"
 
 [tool.poetry.group.dev.dependencies]
 black = "24.1.1"
-pyright = "1.1.324"
+pyright = "^1.1.352"
 pytest = "7.4.0"
 pytest-asyncio = "0.21.1"
 ruff = "0.2.1"
@@ -63,6 +63,8 @@ lint.ignore = ["F402"]
 
 [tool.pyright]
 include = ["ceres", "tests"]
+reportAttributeAccessIssue = false         # TODO: Remove this once TypeForm[T] exists.
+reportIncompatibleVariableOverride = false
 reportMissingTypeStubs = false
 reportPrivateUsage = false
 reportUnknownArgumentType = false
@@ -72,7 +74,6 @@ reportUnknownVariableType = false
 reportUnnecessaryIsInstance = false
 reportUntypedFunctionDecorator = false
 reportUnusedFunction = false
-reportIncompatibleVariableOverride = false
 typeCheckingMode = "strict"
 useLibraryCodeForTypes = true
 

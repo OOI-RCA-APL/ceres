@@ -830,8 +830,16 @@ def validated_function(
     return validate_call(config=config, validate_return=validate_return)(__func)  # type: ignore
 
 
+@overload
+def get_type_adapter(type_: type[_T]) -> TypeAdapter[_T]: ...  # type: ignore
+
+
+@overload
+def get_type_adapter(type_: _T) -> TypeAdapter[_T]: ...
+
+
 @cached(max_size=500)
-def get_type_adapter(type_: type[_T]) -> TypeAdapter[_T]:
+def get_type_adapter(type_: type[_T] | _T) -> TypeAdapter[_T]:  # type: ignore
     return TypeAdapter(type_)
 
 

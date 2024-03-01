@@ -223,7 +223,7 @@ class OrTrigger(Trigger):
             current = trigger.get_next_fire_time(previous, now)
             if current is None:
                 continue
-            if current >= now and current < minimum:
+            if current >= now and (minimum is None or current < minimum):
                 minimum = current
 
         return minimum
