@@ -335,13 +335,13 @@ class Gauge(_BaseElement):
 class Chart(_BaseElement):
     type: Literal[ElementType.CHART] = ElementType.CHART
     value: dict[str, object]
-    height: int
+    height: int | str
 
     def __init__(
         self,
         value: dict[str, object],
         *,
-        height: int,
+        height: int | str,
         **kwargs: Any,
     ) -> None:
         super().__init__(

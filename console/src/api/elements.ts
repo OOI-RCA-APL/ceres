@@ -130,7 +130,7 @@ export type ChartElement = Zod.infer<typeof ChartElementModel>
 export const ChartElementModel = Zod.object({
   type: Zod.literal('chart'),
   value: Zod.record(Zod.string(), Zod.any()),
-  height: Zod.number(),
+  height: Zod.union([Zod.number(), Zod.string()]).nullable().default(null),
 })
 
 export type RenderElement = Zod.infer<typeof RenderElementModel>
