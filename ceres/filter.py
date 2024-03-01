@@ -171,13 +171,18 @@ class _DatabaseFilter(Filter, Generic[_ObjectT], ABC):
         if self.search is not None:
             values = self._get_search_content(obj)
             fields = values if self.search_field is None else as_sequence(self.search_field)
+            matched = False
             for field in fields:
                 value = values.get(field)
                 if value is None:
                     continue
 
-                if self.search not in value:
-                    return False
+                if self.search in value:
+                    matched = True
+                    break
+
+            if not matched:
+                return False
 
         if self.id is not None:
             if obj.id not in as_sequence(self.id):
