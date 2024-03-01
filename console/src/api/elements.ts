@@ -81,11 +81,23 @@ export const CarouselElementModel = Zod.object({
   children: Zod.lazy(() => Zod.array(ElementModel)),
 }) as Zod.ZodType<CarouselElement>
 
-export type ValueElement = Zod.infer<typeof ValueElementModel>
-export const ValueElementModel = Zod.object({
-  type: Zod.literal('value'),
-  value: AtomicValueModel,
-  unit: Zod.string().nullable().default(null),
+export type TextVariant = Zod.infer<typeof TextVariantModel>
+export const TextVariantModel = Zod.enum([
+  'title1',
+  'title2',
+  'title3',
+  'body1',
+  'body2',
+  'th',
+  'description',
+  'value',
+])
+
+export type TextElement = Zod.infer<typeof TextElementModel>
+export const TextElementModel = Zod.object({
+  type: Zod.literal('text'),
+  variant: TextVariantModel.default('value'),
+  value: Zod.string(),
   color: Zod.string().nullable().default(null),
 })
 
@@ -155,7 +167,7 @@ export type Element =
   | RowElement
   | ColumnElement
   | CarouselElement
-  | ValueElement
+  | TextElement
   | StateElement
   | GaugeElement
   | ChartElement
@@ -166,7 +178,7 @@ export const ElementModel: Zod.ZodType<Element> = Zod.discriminatedUnion('type',
   RowElementModel,
   ColumnElementModel,
   CarouselElementModel,
-  ValueElementModel,
+  TextElementModel,
   StateElementModel,
   GaugeElementModel,
   ChartElementModel,

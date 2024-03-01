@@ -8,20 +8,20 @@ import InterfaceDisplay from '@/components/InterfaceDisplay.vue'
 import InterfaceGauge from '@/components/InterfaceGauge.vue'
 import InterfaceRow from '@/components/InterfaceRow.vue'
 import InterfaceState from '@/components/InterfaceState.vue'
-import InterfaceValue from '@/components/InterfaceValue.vue'
+import InterfaceText from '@/components/InterfaceText.vue'
 import { InterfacePath } from '@/interface'
 import { ComponentConstructor } from 'quasar'
 
 const componentClasses: Readonly<Record<ElementType, ComponentConstructor>> = {
   button: InterfaceButton,
-  row: InterfaceRow,
-  column: InterfaceColumn,
   carousel: InterfaceCarousel,
-  value: InterfaceValue,
-  state: InterfaceState,
-  gauge: InterfaceGauge,
   chart: InterfaceChart,
+  column: InterfaceColumn,
   display: InterfaceDisplay,
+  gauge: InterfaceGauge,
+  row: InterfaceRow,
+  state: InterfaceState,
+  text: InterfaceText,
 }
 
 const { element, path } = defineProps<{

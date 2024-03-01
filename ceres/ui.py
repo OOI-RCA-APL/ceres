@@ -2,7 +2,7 @@ from abc import ABC
 from decimal import Decimal
 from enum import Enum
 from types import MethodType
-from typing import Annotated, Any, Callable, Literal, Mapping, Sequence, TypeAlias
+from typing import Annotated, Any, Callable, Literal, TypeAlias
 
 from pydantic import ConfigDict, Field, StrictBool, StrictFloat, StrictInt, StrictStr
 from typing_extensions import Unpack
@@ -17,7 +17,7 @@ class ElementType(StrEnum):
     ROW = "row"
     COLUMN = "column"
     CAROUSEL = "carousel"
-    VALUE = "value"
+    TEXT = "text"
     STATE = "state"
     GAUGE = "gauge"
     CHART = "chart"
@@ -127,14 +127,42 @@ class Carousel(_BaseElement):
     children: list["Element"]
 
 
-AtomicValue: TypeAlias = StrictBool | StrictInt | StrictFloat | Decimal | StrictStr
+class TextVariant(StrEnum):
+    TITLE_1 = "title1"
+    TITLE_2 = "title2"
+    TITLE_3 = "title3"
+    BODY_1 = "body1"
+    BODY_2 = "body2"
+    TH = "th"
+    DESCRIPTION = "description"
+    VALUE = "value"
 
 
-class Value(_BaseElement):
-    type: Literal[ElementType.VALUE] = ElementType.VALUE
-    value: AtomicValue
-    unit: str | None = None
+class Text(_BaseElement):
+    type: Literal[ElementType.TEXT] = ElementType.TEXT
+    variant: TextVariant = TextVariant.BODY_2
+    value: str
     color: Color | None = None
+
+    def __init__(
+        self,
+        value: Any,
+        variant: TextVariant = TextVariant.BODY_2,
+        *,
+        color: Color | None = None,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(
+            **{
+                "value": value,
+                "variant": variant,
+                "color": color,
+                **kwargs,
+            }
+        )
+
+
+AtomicValue: TypeAlias = StrictBool | StrictInt | StrictFloat | Decimal | StrictStr
 
 
 class State(_BaseElement):
@@ -147,7 +175,7 @@ class State(_BaseElement):
 
     type: Literal[ElementType.STATE] = ElementType.STATE
     value: AtomicValue
-    options: Sequence[Option]
+    options: list[Option]
 
 
 class Gauge(_BaseElement):
@@ -160,12 +188,12 @@ class Gauge(_BaseElement):
     unit: str | None = None
     min: float
     max: float
-    color: Sequence[ColorStop] | Color | None = None
+    color: list[ColorStop] | Color | None = None
 
 
 class Chart(_BaseElement):
     type: Literal[ElementType.CHART] = ElementType.CHART
-    value: Mapping[str, object]
+    value: dict[str, object]
     height: int
 
 
@@ -246,7 +274,7 @@ class Display(_BaseRenderer):
 
 
 Element = Annotated[  # type: ignore
-    Button | Row | Column | Carousel | Value | State | Gauge | Chart | Render | Display,
+    Button | Row | Column | Carousel | Text | State | Gauge | Chart | Render | Display,
     Field(discriminator="type"),
 ]
 

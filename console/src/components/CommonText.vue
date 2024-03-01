@@ -1,6 +1,7 @@
 <script lang="ts" setup>
+import type { TextVariant } from '@/api/elements'
 const { element = 'div' } = defineProps<{
-  variant: 'title1' | 'title2' | 'title3' | 'body1' | 'body2' | 'th' | 'description'
+  variant: TextVariant
   element?: string
 }>()
 </script>
@@ -30,7 +31,7 @@ const { element = 'div' } = defineProps<{
   font-family: 'Roboto';
   font-size: 14px;
   font-weight: 300;
-  line-height: 1em;
+  line-height: 1.5em;
 }
 
 .body1 {
@@ -58,6 +59,13 @@ const { element = 'div' } = defineProps<{
 .description {
   font-family: 'Roboto';
   font-size: 11px;
+}
+
+.value {
+  font-family: 'Roboto';
+  font-size: 18px;
+  font-weight: 300;
+  line-height: 1.5em;
 }
 
 :global(.light) .description {
