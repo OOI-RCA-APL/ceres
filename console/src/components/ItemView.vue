@@ -351,8 +351,8 @@ async function onSend(data: string) {
           v-model="filter.search"
           class="item-view-search-input"
           dense
-          filled
           input-class="monospace-md"
+          outlined
           spellcheck="false"
         >
           <template #prepend>
@@ -476,6 +476,12 @@ async function onSend(data: string) {
   position: absolute;
   top: -14px;
   width: 100%;
+  opacity: 0.75;
+}
+
+.item-view-search-input:focus-within,
+.item-view-search-input:hover {
+  opacity: 1;
 }
 
 .item-view-virtual-scroll .q-virtual-scroll__content {

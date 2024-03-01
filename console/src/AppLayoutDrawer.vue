@@ -183,7 +183,7 @@ function promptReload() {
             <q-icon :name="icons.menuRight" />
           </q-item-section>
           <q-menu anchor="bottom right" class="no-shadow" :offset="[8, 0]" self="bottom left">
-            <q-card bordered flat :style="{ minWidth: '360px' }">
+            <q-card bordered flat :style="{ minWidth: '400px' }">
               <div class="items-center justify-evenly no-wrap row">
                 <q-toggle
                   v-model="preferences.isDarkModeEnabled"
@@ -200,11 +200,10 @@ function promptReload() {
                 />
               </div>
               <q-separator />
-              <div class="q-pa-sm">
+              <div class="q-pa-md">
                 <q-select
                   v-model="preferences.statisticsDuration"
                   dense
-                  filled
                   hint="The time over which statistics, like alert counts, are calculated."
                   label="Statistics Duration"
                   :option-label="displayDuration"
@@ -217,6 +216,7 @@ function promptReload() {
                     moment.duration(1, 'd'),
                   ]"
                   options-dense
+                  outlined
                 />
               </div>
             </q-card>

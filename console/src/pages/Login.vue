@@ -62,8 +62,8 @@ const form = useForm({
           autofocus
           class="q-mb-sm"
           dense
-          filled
           label="Username"
+          outlined
         >
           <template #prepend>
             <q-icon :name="icons.user" />
@@ -73,8 +73,8 @@ const form = useForm({
           v-model="form.data.password"
           class="q-mb-sm"
           dense
-          filled
           label="Password"
+          outlined
           :type="isShowingPassword ? 'text' : 'password'"
         >
           <template #prepend>

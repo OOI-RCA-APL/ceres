@@ -133,7 +133,6 @@ form.load({
   <card-page :title="getTitle()">
     <template #header-append>
       <q-space />
-      <q-chip :color="$q.dark.isActive ? 'grey-7' : 'grey-3'" :label="upperFirst(form.data.role)" />
     </template>
     <q-form :ref="form.bind" @submit.prevent>
       <div class="q-pa-md">
@@ -141,10 +140,10 @@ form.load({
           v-model="form.data.username"
           class="q-mb-sm"
           dense
-          filled
           :hint="isAccountPage ? 'Your username, must be unique.' : 'The user\'s unique username.'"
           label="Username"
           lazy-rules
+          outlined
           :readonly="form.readonly"
           :rules="[form.validators.username]"
           :spellcheck="false"
@@ -158,11 +157,11 @@ form.load({
           v-model="form.data.password"
           class="q-mb-sm"
           dense
-          filled
           hint="Pick an initial password they can use to sign in."
           label="Password"
           lazy-rules
           no-error-icon
+          outlined
           :rules="[form.validators.password]"
           :type="isShowingPassword ? 'text' : 'password'"
         >
@@ -181,7 +180,6 @@ form.load({
           v-model="form.data.email"
           class="q-mb-sm"
           dense
-          filled
           :hint="
             isAccountPage
               ? 'The email address you can be reached at.'
@@ -189,6 +187,7 @@ form.load({
           "
           label="Email"
           lazy-rules
+          outlined
           :readonly="form.readonly"
           :rules="[form.validators.email]"
           :spellcheck="false"
@@ -198,17 +197,17 @@ form.load({
             <q-icon name="mail" />
           </template>
         </q-input>
-        <div v-if="engine.auth.isAdmin && !isAccountPage" class="q-col-gutter-md row">
+        <div v-if="engine.auth.isAdmin" class="q-col-gutter-md row">
           <div class="col-8">
             <q-select
               v-model="form.data.role"
               dense
-              filled
-              hint="Set the user's permissions."
+              hint="Set user permissions level."
               label="Role"
               :option-label="(role: UserRole) => upperFirst(role)"
               :options="['viewer', 'operator', 'admin']"
               options-dense
+              outlined
               :readonly="form.readonly"
             />
           </div>
@@ -220,7 +219,7 @@ form.load({
               label="Disabled"
             >
               <q-tooltip class="bg-negative text-white">
-                Temporarily disable login access for this user.
+                Temporarily disable login access.
               </q-tooltip>
             </q-toggle>
           </div>
@@ -229,35 +228,46 @@ form.load({
       <q-separator />
       <div class="q-pa-md">
         <template v-if="user">
-          <q-btn-group flat spread>
+          <div class="q-gutter-sm row">
             <template v-if="form.state === 'viewing'">
               <q-btn
                 v-if="engine.auth.isAdmin && !isAccountPage"
+                class="col"
                 color="negative"
-                flat
                 :icon="icons.delete"
                 label="Delete"
                 @click="promptDelete"
               />
-              <q-btn color="primary" flat :icon="icons.edit" label="Edit" @click="form.edit" />
+              <q-btn
+                class="col"
+                color="primary"
+                :icon="icons.edit"
+                label="Edit"
+                @click="form.edit"
+              />
             </template>
             <template v-else>
-              <q-btn color="grey" flat :icon="icons.cancel" label="Cancel" @click="form.discard" />
               <q-btn
+                class="col"
+                color="grey"
+                :icon="icons.cancel"
+                label="Cancel"
+                @click="form.discard"
+              />
+              <q-btn
+                class="col"
                 color="primary"
                 :disable="form.validation !== 'valid'"
-                flat
                 :icon="icons.submit"
                 label="Update"
                 @click="form.submit"
               />
             </template>
-          </q-btn-group>
+          </div>
           <template v-if="form.state === 'viewing' && (engine.auth.isAdmin || isAccountPage)">
-            <q-btn-group class="q-mt-xs" flat spread>
+            <div class="q-gutter-sm q-pt-sm row" spread>
               <q-btn
-                color="primary"
-                flat
+                color="warning"
                 icon="password"
                 label="Change Password"
                 @click="promptChangePassword"
@@ -266,12 +276,11 @@ form.load({
                 v-if="isAccountPage"
                 class="col"
                 color="negative"
-                flat
                 icon="logout"
                 label="Sign Out"
                 @click="logout"
               />
-            </q-btn-group>
+            </div>
           </template>
         </template>
         <template v-else>

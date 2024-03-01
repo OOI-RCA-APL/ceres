@@ -68,10 +68,10 @@ const form = useSchemaForm({
     <q-input
       v-else
       dense
-      filled
       :input-class="[$style.output, 'monospace']"
       label="Output"
       :model-value="resultJson"
+      outlined
       readonly
       :rows="8"
       type="textarea"

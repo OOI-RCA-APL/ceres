@@ -63,10 +63,10 @@ const isShowingNewPassword = $ref(false)
             class="q-mb-sm"
             color="primary"
             dense
-            filled
             label="Current Password"
             lazy-rules
             no-error-icon
+            outlined
             :type="isShowingCurrentPassword ? 'text' : 'password'"
           >
             <template #append>
@@ -81,10 +81,10 @@ const isShowingNewPassword = $ref(false)
             v-model="form.data.newPassword"
             color="primary"
             dense
-            filled
             label="New Password"
             lazy-rules
             no-error-icon
+            outlined
             :type="isShowingNewPassword ? 'text' : 'password'"
           >
             <template #append>
