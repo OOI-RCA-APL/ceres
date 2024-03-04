@@ -1,4 +1,4 @@
-import { Address } from '@/address'
+import { Address, AddressModel } from '@/api/address'
 import { useAuth } from '@/api/auth'
 import { useClient } from '@/api/client'
 import { ElementModel } from '@/api/elements'
@@ -57,7 +57,7 @@ export type ComponentInfo = {
 
 export const ComponentInfoModel: Zod.ZodType<ComponentInfo> = Zod.object({
   name: Zod.string(),
-  address: Zod.string().transform(Address.parse),
+  address: AddressModel,
   roles: Zod.array(ComponentRoleModel),
   procedures: Zod.array(ProcedureInfoModel),
   components: Zod.lazy(() => Zod.array(ComponentInfoModel)),
@@ -133,10 +133,10 @@ export const useComponents = defineStore('components', () => {
     },
   })
 
-  const root = computed<ComponentInfo | null>(() => query.data.value ?? null)
+  const root = $computed<ComponentInfo | null>(() => query.data.value ?? null)
 
-  const mapping = computed<Record<string, ComponentInfo>>(() => {
-    if (root.value == null) {
+  const mapping = $computed<Record<string, ComponentInfo>>(() => {
+    if (root == null) {
       return {}
     }
 
@@ -149,24 +149,21 @@ export const useComponents = defineStore('components', () => {
       }
     }
 
-    traverse(root.value)
+    traverse(root)
     return mapping
   })
 
-  const get = getter(
-    mapping,
-    function getComponent(address: Address | string): ComponentInfo | null {
-      return mapping.value[address.toString()] ?? null
-    }
-  )
+  const get = getter($$(mapping), (address: Address | string) => {
+    return mapping[address.toString()] ?? null
+  })
 
-  const all = computed(() => Object.values(mapping.value))
+  const all = $computed(() => Object.values(mapping))
 
   return {
     ...query,
-    root,
+    root: computed(() => root),
     get,
-    all,
+    all: computed(() => all),
     getProcedure,
     call,
     useElementStream,

@@ -1,4 +1,4 @@
-import { Address } from '@/address'
+import { Address } from '@/api/address'
 import { interfaceContextInjectionKey } from '@/symbols'
 import { inject, provide } from 'vue'
 

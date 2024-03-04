@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { Address } from '@/address'
+import { Address } from '@/api/address'
 import { useEngine } from '@/api/engine'
 import { usePreferences } from '@/preferences'
 import { displayDuration, useTime } from '@/time'
@@ -74,3 +74,4 @@ const color = $computed(() => {
   opacity: 0.75;
 }
 </style>
+@/api/address

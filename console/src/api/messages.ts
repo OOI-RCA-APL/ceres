@@ -1,4 +1,4 @@
-import { Address } from '@/address'
+import { Address } from '@/api/address'
 import { StreamOptions, useClient } from '@/api/client'
 import { MessageFilter } from '@/api/filter'
 import { BaseFailModel, DateTimeModel, createResultType } from '@/api/shared'

@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 import AppLayoutDrawerComponent from '@/AppLayoutDrawerComponent.vue'
-import { Address } from '@/address'
+import { Address } from '@/api/address'
 import { useEngine } from '@/api/engine'
 import ResizeHandle from '@/components/ResizeHandle.vue'
 import { useDialogs } from '@/dialogs'
@@ -283,3 +283,4 @@ function promptReload() {
   top: 0;
 }
 </style>
+@/api/address

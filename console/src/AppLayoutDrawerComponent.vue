@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { Address } from '@/address'
+import { Address } from '@/api/address'
 import { ComponentInfo } from '@/api/components'
 import AlertsIndicator from '@/components/AlertsIndicator.vue'
 import ComponentStatusBadge from '@/components/ComponentStatusBadge.vue'
@@ -88,3 +88,4 @@ function toggleExpanded() {
   min-width: 40px;
 }
 </style>
+@/api/address

@@ -1,4 +1,4 @@
-import { Address } from '@/address'
+import { Address } from '@/api/address'
 import { useAuth } from '@/api/auth'
 import { useClient } from '@/api/client'
 import { LevelModel } from '@/api/shared'
@@ -60,7 +60,7 @@ export const useStatistics = defineStore('statistics', () => {
     refetchInterval: moment.duration(15, 's').asMilliseconds(),
   })
 
-  const mapping = computed(() => {
+  const mapping = $computed(() => {
     if (query.data.value == null) {
       return {}
     }
@@ -70,11 +70,11 @@ export const useStatistics = defineStore('statistics', () => {
     )
   })
 
-  const get = getter(mapping, function getStatistics(address: Address): Statistics | null {
-    return mapping.value[address.toString()] ?? null
+  const get = getter($$(mapping), (address: Address) => {
+    return mapping[address.toString()] ?? null
   })
 
-  const getLevel = getter(get, function getAlertLevel(address: Address): LevelStatistics | null {
+  const getLevel = getter(get, (address: Address) => {
     const statistics = get.value(address)
     if (statistics == null) {
       return null

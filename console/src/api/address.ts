@@ -1,3 +1,5 @@
+import Zod from 'zod'
+
 export class Address {
   private value: string
 
@@ -65,3 +67,5 @@ export class Address {
     return new Address(this.value + ':all')
   }
 }
+
+export const AddressModel = Zod.string().transform(Address.parse)

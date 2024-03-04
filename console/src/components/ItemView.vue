@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { Address } from '@/address'
+import { Address } from '@/api/address'
 import { Alert } from '@/api/alerts'
 import { useEngine } from '@/api/engine'
 import { LogEntry } from '@/api/log-entries'
@@ -488,3 +488,4 @@ async function onSend(data: string) {
   contain: unset !important;
 }
 </style>
+@/api/address

@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { Address } from '@/address'
+import { Address } from '@/api/address'
 import { useEngine } from '@/api/engine'
 import ComponentProcedures from '@/components/ComponentProcedures.vue'
 import ComponentStatusBadge from '@/components/ComponentStatusBadge.vue'
@@ -148,3 +148,4 @@ const resizablePanelProps = {
   margin-top: 2px;
 }
 </style>
+@/api/address

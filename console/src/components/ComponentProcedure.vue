@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { Address } from '@/address'
+import { Address } from '@/api/address'
 import { ProcedureInfo } from '@/api/components'
 import { useEngine } from '@/api/engine'
 import CommonText from '@/components/CommonText.vue'
@@ -108,3 +108,4 @@ const form = useSchemaForm({
   opacity: 0.5;
 }
 </style>
+@/api/address

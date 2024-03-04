@@ -1,4 +1,4 @@
-import { Address } from '@/address'
+import { Address } from '@/api/address'
 import Zod from 'zod'
 
 export type ButtonElement = Zod.infer<typeof ButtonElementModel>

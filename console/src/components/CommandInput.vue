@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { Address } from '@/address'
+import { Address } from '@/api/address'
 import icons from '@/icons'
 import { useInterfaceContext } from '@/interface'
 import { useNotify } from '@/notify'
@@ -121,3 +121,4 @@ async function submit() {
     </q-input>
   </q-form>
 </template>
+@/api/address

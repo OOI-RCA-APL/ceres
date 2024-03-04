@@ -4,7 +4,7 @@ import { useTime } from '@/time'
 import { MaybePromise, MaybeRef, Plain } from '@/utilities'
 import AJV, { SchemaObject as BaseSchemaObject } from 'ajv'
 import { cloneDeep, isEqual } from 'lodash'
-import { computed, reactive, ref, unref } from 'vue'
+import { computed, reactive, unref } from 'vue'
 
 export type SchemaObject = BaseSchemaObject & {
   $ref?: string
@@ -56,8 +56,8 @@ function get(object: Plain | undefined, path: SchemaPath): Plain | undefined {
 
 export function useSchemaForm({ ...options }: SchemaFormOptions) {
   const onSubmit = options.onSubmit
-  const rootSchema = computed(() => unref(options.schema))
-  const persist = computed(() => {
+  const rootSchema = $computed(() => unref(options.schema))
+  const persist = $computed(() => {
     const value = unref(options.persist)
     if (value == null) {
       return null
@@ -65,8 +65,8 @@ export function useSchemaForm({ ...options }: SchemaFormOptions) {
 
     return Array.isArray(value) ? value.join('/') : value
   })
-  const inline = computed(() => unref(options.inline) ?? false)
-  const state = ref<SchemaFormState>(
+  const inline = $computed(() => unref(options.inline) ?? false)
+  let state = $ref<SchemaFormState>(
     options.editing == null || options.editing ? 'editing' : 'viewing'
   )
 
@@ -74,16 +74,16 @@ export function useSchemaForm({ ...options }: SchemaFormOptions) {
   const persisted = usePersisted({
     schema: ({ object, unknown }) =>
       object({
-        value: unknown().default(() => getInitialValue(rootSchema.value)),
+        value: unknown().default(() => getInitialValue(rootSchema)),
       }),
-    methods: computed(() => (persist.value ? [{ type: 'local-storage', key: persist.value }] : [])),
+    methods: computed(() => (persist ? [{ type: 'local-storage', key: persist }] : [])),
   })
 
   if (options.hasOwnProperty('initial')) {
     persisted.value = cloneDeep(options.initial)
   }
 
-  const ajv = computed(
+  const ajv = $computed(
     () =>
       new AJV({
         allErrors: true,
@@ -91,10 +91,10 @@ export function useSchemaForm({ ...options }: SchemaFormOptions) {
       })
   )
 
-  const compilation = computed(() => {
+  const compilation = $computed(() => {
     try {
       return {
-        validator: ajv.value.compile(rootSchema.value),
+        validator: ajv.compile(rootSchema),
         error: null,
       }
     } catch (error) {
@@ -105,15 +105,15 @@ export function useSchemaForm({ ...options }: SchemaFormOptions) {
     }
   })
 
-  const schemaError = computed(() => compilation.value.error)
-  const validator = computed(() => compilation.value.validator)
-  const validationErrors = computed(() => {
-    if (validator.value == null) {
+  const schemaError = $computed(() => compilation.error)
+  const validator = $computed(() => compilation.validator)
+  const validationErrors = $computed(() => {
+    if (validator == null) {
       return []
     }
 
-    validator.value(persisted.value)
-    return validator.value.errors ?? []
+    validator(persisted)
+    return validator.errors ?? []
   })
 
   function resolve(schema: Schema): Schema | undefined {
@@ -141,7 +141,7 @@ export function useSchemaForm({ ...options }: SchemaFormOptions) {
         return number
       })
 
-    const target = get(rootSchema.value, path)
+    const target = get(rootSchema, path)
     if (target == null || typeof target !== 'object' || Array.isArray(target)) {
       return undefined
     }
@@ -250,7 +250,7 @@ export function useSchemaForm({ ...options }: SchemaFormOptions) {
   }
 
   function getSchema(path: SchemaPath): Schema | undefined {
-    let current: Schema | undefined = rootSchema.value
+    let current: Schema | undefined = rootSchema
 
     for (const index of path) {
       if (current == null) {
@@ -371,42 +371,42 @@ export function useSchemaForm({ ...options }: SchemaFormOptions) {
     return undefined
   }
 
-  const isEmpty = computed(
+  const isEmpty = $computed(
     () => isEmptyObjectSchema(getSchema([])) && isEmptyObject(persisted.value)
   )
-  const isDefault = computed(() => isEqual(persisted.value, getDefault()))
-  const isInitialValue = computed(() => isEqual(persisted.value, getInitialValue()))
+  const isDefault = $computed(() => isEqual(persisted.value, getDefault()))
+  const isInitialValue = $computed(() => isEqual(persisted.value, getInitialValue()))
 
-  const isValidSchema = computed(() => schemaError.value == null)
-  const isValid = computed(() => isValidSchema.value && validationErrors.value.length === 0)
-  const canSubmit = computed(() => isValid.value && state.value === 'editing')
+  const isValidSchema = $computed(() => schemaError == null)
+  const isValid = $computed(() => isValidSchema && validationErrors.length === 0)
+  const canSubmit = $computed(() => isValid && state === 'editing')
 
   function reset() {
     assign(getInitialValue())
   }
 
   async function submit() {
-    if (canSubmit.value && onSubmit) {
-      state.value = 'submitting'
+    if (canSubmit && onSubmit) {
+      state = 'submitting'
       try {
-        state.value = (await onSubmit(persisted.value)) ?? 'editing'
+        state = (await onSubmit(persisted.value)) ?? 'editing'
       } catch {
-        state.value = 'editing'
+        state = 'editing'
       }
     }
   }
 
   function edit() {
-    if (state.value === 'editing') {
+    if (state === 'editing') {
       return
     }
 
-    state.value = 'editing'
+    state = 'editing'
     reset()
   }
 
   function discard() {
-    state.value = 'viewing'
+    state = 'viewing'
     reset()
   }
 
@@ -416,34 +416,34 @@ export function useSchemaForm({ ...options }: SchemaFormOptions) {
 
   return reactive({
     value: computed(() => persisted.value),
-    schema: rootSchema,
-    state: computed(() => state.value),
-    canSubmit,
-    editable: computed(() => state.value === 'editing'),
-    readonly: computed(() => state.value !== 'editing'),
-    submitting: computed(() => state.value === 'submitting'),
-    inline,
+    schema: computed(() => rootSchema),
+    state: computed(() => state),
+    canSubmit: computed(() => canSubmit),
+    editable: computed(() => state === 'editing'),
+    readonly: computed(() => state !== 'editing'),
+    submitting: computed(() => state === 'submitting'),
+    inline: computed(() => inline),
     reset,
     submit,
     edit,
     discard,
     assign,
-    isEmpty,
-    isDefault,
-    isInitialValue,
-    isValid,
-    isValidSchema,
-    validator,
-    schemaError,
-    validationErrors,
-    resolve: getter(() => rootSchema, resolve),
-    getDefault: getter(() => rootSchema, getDefault),
-    getInitialValue: getter(() => rootSchema, getInitialValue),
-    getSchema: getter(() => rootSchema, getSchema),
-    getParentSchema: getter(() => rootSchema, getParentSchema),
-    getRequired: getter(() => rootSchema, getRequired),
-    getLabel: getter(() => rootSchema, getLabel),
-    getDescription: getter(() => rootSchema, getDescription),
+    isEmpty: computed(() => isEmpty),
+    isDefault: computed(() => isDefault),
+    isInitialValue: computed(() => isInitialValue),
+    isValid: computed(() => isValid),
+    isValidSchema: computed(() => isValidSchema),
+    validator: computed(() => validator),
+    schemaError: computed(() => schemaError),
+    validationErrors: computed(() => validationErrors),
+    resolve: getter($$(rootSchema), resolve),
+    getDefault: getter($$(rootSchema), getDefault),
+    getInitialValue: getter($$(rootSchema), getInitialValue),
+    getSchema: getter($$(rootSchema), getSchema),
+    getParentSchema: getter($$(rootSchema), getParentSchema),
+    getRequired: getter($$(rootSchema), getRequired),
+    getLabel: getter($$(rootSchema), getLabel),
+    getDescription: getter($$(rootSchema), getDescription),
   })
 }
 
