@@ -34,12 +34,7 @@ function update(value: unknown) {
       Failed to generate form due to an invalid JSON schema.
     </q-banner>
     <template v-else>
-      <schema-form-node
-        :form="form"
-        :model-value="form.value"
-        :path="path"
-        @update:model-value="update"
-      />
+      <schema-form-node :form :model-value="form.value" :path @update:model-value="update" />
       <q-markup-table v-if="!form.isValid" bordered class="q-mt-sm" dense flat separator="cell">
         <thead>
           <q-tr>

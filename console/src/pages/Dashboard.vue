@@ -7,29 +7,14 @@ import Panel from '@/components/Panel.vue'
 import PanelGroup from '@/components/PanelGroup.vue'
 import PanelTab from '@/components/PanelTab.vue'
 import { useInterfaceContext } from '@/interface'
-import { usePersisted } from '@/persistence'
 
-import { computed } from 'vue'
-useInterfaceContext('page/dashboard')
+const context = useInterfaceContext('page/dashboard')
 
 const engine = useEngine()
 await engine.config.suspense()
 
 const renderer = $computed(() => {
   return engine.config.console.dashboard as Address | Address[] | null
-})
-
-const persisted = usePersisted({
-  schema: ({ object, array, string }) =>
-    object({
-      openTabs: array(string()).default(() => []),
-    }),
-  methods: computed(() => [
-    {
-      type: 'local-storage',
-      key: ['page', 'dashboard'],
-    },
-  ]),
 })
 </script>
 
@@ -48,8 +33,8 @@ const persisted = usePersisted({
     </div>
     <panel-group
       v-else-if="Array.isArray(renderer)"
-      v-model="persisted.openTabs"
       :panels="renderer.map(String)"
+      :persist="`${context.key}/panel-group`"
     >
       <template #tabs>
         <panel-tab
@@ -59,7 +44,7 @@ const persisted = usePersisted({
         />
       </template>
       <panel v-for="address in renderer" :key="address.toString()" :name="address.toString()">
-        <interface :address="address" />
+        <interface :address />
       </panel>
     </panel-group>
     <div v-else class="q-ma-sm">

@@ -44,7 +44,7 @@ const height = $computed(() => {
       <q-carousel
         v-model="persisted.index"
         animated
-        :height="height"
+        :height
         keep-alive
         swipeable
         :transition-duration="500"

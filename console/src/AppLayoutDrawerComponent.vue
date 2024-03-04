@@ -60,8 +60,8 @@ function toggleExpanded() {
     </q-item-section>
     <q-item-section side>
       <div class="items-center row">
-        <alerts-indicator :address="address" class="q-mr-xs" />
-        <component-status-badge :address="address" />
+        <alerts-indicator :address class="q-mr-xs" />
+        <component-status-badge :address />
       </div>
     </q-item-section>
   </q-item>

@@ -6,10 +6,10 @@ import InterfaceChart from '@/components/InterfaceChart.vue'
 import InterfaceColumn from '@/components/InterfaceColumn.vue'
 import InterfaceDisplay from '@/components/InterfaceDisplay.vue'
 import InterfaceGauge from '@/components/InterfaceGauge.vue'
+import InterfaceHTML from '@/components/InterfaceHTML.vue'
 import InterfaceRow from '@/components/InterfaceRow.vue'
 import InterfaceState from '@/components/InterfaceState.vue'
 import InterfaceText from '@/components/InterfaceText.vue'
-import InterfaceHTML from '@/components/InterfaceHTML.vue'
 import { InterfacePath } from '@/interface'
 import { ComponentConstructor } from 'quasar'
 
@@ -35,12 +35,17 @@ const componentClass = $computed<ComponentConstructor | null>(
   () => componentClasses[element.type] ?? null
 )
 
-const componentProps = $computed(() => ({
-  element,
-  path,
-}))
+const componentCssClass = $computed(() => element.css_class ?? undefined)
+const componentCssStyle = $computed(() => element.css_style ?? undefined)
 </script>
 
 <template>
-  <component :is="componentClass" v-if="componentClass" v-bind="componentProps" />
+  <component
+    :is="componentClass"
+    v-if="componentClass"
+    :class="componentCssClass"
+    :element
+    :path
+    :style="componentCssStyle"
+  />
 </template>

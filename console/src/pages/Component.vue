@@ -48,10 +48,10 @@ const resizablePanelProps = {
 </script>
 
 <template>
-  <full-page :title="title">
+  <full-page :title>
     <template #header-append>
       <div class="items-center q-ml-sm row">
-        <component-status-badge :address="address" :class="$style.statusBadge" />
+        <component-status-badge :address :class="$style.statusBadge" />
       </div>
     </template>
     <div v-if="component == null" class="q-pa-md">
@@ -65,7 +65,7 @@ const resizablePanelProps = {
         :persist="`components/${component.address}/messages-panel-container`"
       >
         <item-view
-          :address="address"
+          :address
           class="full-height"
           :show-command-input="component.roles.includes('connection')"
           title="Messages"
@@ -78,7 +78,7 @@ const resizablePanelProps = {
         name="Alerts"
         :persist="`components/${component.address}/alerts-panel-container`"
       >
-        <item-view :address="address" class="full-height" title="Alerts" type="alert" />
+        <item-view :address class="full-height" title="Alerts" type="alert" />
       </panel-container>
       <panel-container
         container-class="q-pa-sm"
@@ -86,7 +86,7 @@ const resizablePanelProps = {
         name="Logs"
         :persist="`components/${component.address}/log-entries-panel-container`"
       >
-        <item-view :address="address" class="full-height" title="Logs" type="log-entry" />
+        <item-view :address class="full-height" title="Logs" type="log-entry" />
       </panel-container>
       <panel-group
         v-if="executors.length"

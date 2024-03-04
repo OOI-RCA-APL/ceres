@@ -51,7 +51,7 @@ const color = $computed(() => {
 </script>
 
 <template>
-  <q-badge v-if="info" :class="$style.root" :color="color" rounded>
+  <q-badge v-if="info" :class="$style.root" :color rounded>
     {{ info.count }}{{ info.level[0].toUpperCase() }}
     <q-tooltip v-if="!isShowingMenu" :class="`bg-${color}`">
       <span class="q-mr-xs">

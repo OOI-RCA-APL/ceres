@@ -103,7 +103,7 @@ const configButtonColor = $computed(() => {
     <interface-display-content
       :display="element"
       :element="rendered"
-      :path="path"
+      :path
       title-clickable
       @title-click="isShowingDialog = !isShowingDialog"
     />
@@ -113,12 +113,12 @@ const configButtonColor = $computed(() => {
           :display="element"
           :element="rendered"
           :is-loading="isLoading"
-          :path="path"
+          :path
         />
         <q-separator />
         <template v-if="!form.isEmpty">
           <div class="q-pt-sm q-px-sm">
-            <schema-form :form="form" />
+            <schema-form :form />
           </div>
           <q-separator class="q-mt-sm" />
         </template>

@@ -3,7 +3,7 @@ from decimal import Decimal
 from enum import Enum
 from textwrap import dedent
 from types import MethodType
-from typing import Annotated, Any, Callable, Literal, Sequence, TypeAlias
+from typing import Annotated, Any, Callable, Literal, Sequence, TypeAlias, TypedDict
 
 from pydantic import (
     ConfigDict,
@@ -62,7 +62,16 @@ def __update_forward_refs() -> None:
         current.model_rebuild()
 
 
+class _BaseElementArgs(TypedDict, total=False):
+    css_style: str | dict[str, str] | None
+    css_class: str | list[str] | None
+
+
 class _BaseElement(DataObject, ABC):
+    type: ElementType
+    css_style: str | dict[str, str] | None = None
+    css_class: str | list[str] | None = None
+
     def __init_subclass__(cls, **kwargs: Unpack[ConfigDict]):
         super().__init_subclass__(**kwargs)
         _element_classes.append(cls)
@@ -83,7 +92,7 @@ class Button(_BaseElement):
         address: Address | None = None,
         action: Name | Callable[..., Any],
         color: Color | None = None,
-        **kwargs: Any,
+        **kwargs: Unpack[_BaseElementArgs],
     ) -> None:
         from ceres.component import Component
 
@@ -110,7 +119,7 @@ class Button(_BaseElement):
                 "address": address,
                 "action": action,
                 "color": color,
-                **kwargs,
+                **kwargs,  # type: ignore
             }
         )
 
@@ -129,7 +138,7 @@ class Row(_BaseElement):
         sizing: Sizing = Sizing.GROW,
         justify: Justify = Justify.START,
         align: Align = Align.START,
-        **kwargs: Any,
+        **kwargs: Unpack[_BaseElementArgs],
     ) -> None:
         super().__init__(
             **{
@@ -137,7 +146,7 @@ class Row(_BaseElement):
                 "sizing": sizing,
                 "justify": justify,
                 "align": align,
-                **kwargs,
+                **kwargs,  # type: ignore
             }
         )
 
@@ -156,7 +165,7 @@ class Column(_BaseElement):
         sizing: Sizing = Sizing.GROW,
         justify: Justify = Justify.START,
         align: Align = Align.START,
-        **kwargs: Any,
+        **kwargs: Unpack[_BaseElementArgs],
     ) -> None:
         super().__init__(
             **{
@@ -164,7 +173,7 @@ class Column(_BaseElement):
                 "sizing": sizing,
                 "justify": justify,
                 "align": align,
-                **kwargs,
+                **kwargs,  # type: ignore
             }
         )
 
@@ -179,13 +188,13 @@ class Carousel(_BaseElement):
         children: Sequence["Element"],
         *,
         height: int | str | None = None,
-        **kwargs: Any,
+        **kwargs: Unpack[_BaseElementArgs],
     ) -> None:
         super().__init__(
             **{
                 "children": children,
                 "height": height,
-                **kwargs,
+                **kwargs,  # type: ignore
             }
         )
 
@@ -213,14 +222,14 @@ class Text(_BaseElement):
         variant: TextVariant = TextVariant.BODY_2,
         *,
         color: Color | str | None = None,
-        **kwargs: Any,
+        **kwargs: Unpack[_BaseElementArgs],
     ) -> None:
         super().__init__(
             **{
                 "value": value,
                 "variant": variant,
                 "color": color,
-                **kwargs,
+                **kwargs,  # type: ignore
             }
         )
 
@@ -230,7 +239,12 @@ class HTML(_BaseElement):
     value: str
 
     def __init__(self, value: str, **kwargs: Any) -> None:
-        super().__init__(**{"value": value, **kwargs})
+        super().__init__(
+            **{
+                "value": value,
+                **kwargs,  # type: ignore
+            }
+        )
 
     @field_validator("value")
     def _validate_value(cls, value: str) -> str:
@@ -284,13 +298,13 @@ class State(_BaseElement):
         self,
         value: AtomicValue,
         options: Sequence[Option],
-        **kwargs: Any,
+        **kwargs: Unpack[_BaseElementArgs],
     ) -> None:
         super().__init__(
             **{
                 "value": value,
                 "options": options,
-                **kwargs,
+                **kwargs,  # type: ignore
             }
         )
 
@@ -318,7 +332,7 @@ class Gauge(_BaseElement):
         *,
         unit: str | None = None,
         color: list[ColorStop] | Color | str | None = None,
-        **kwargs: Any,
+        **kwargs: Unpack[_BaseElementArgs],
     ) -> None:
         super().__init__(
             **{
@@ -327,7 +341,7 @@ class Gauge(_BaseElement):
                 "min": min,
                 "max": max,
                 "color": color,
-                **kwargs,
+                **kwargs,  # type: ignore
             }
         )
 
@@ -342,13 +356,13 @@ class Chart(_BaseElement):
         value: dict[str, object],
         *,
         height: int | str,
-        **kwargs: Any,
+        **kwargs: Unpack[_BaseElementArgs],
     ) -> None:
         super().__init__(
             **{
                 "value": value,
                 "height": height,
-                **kwargs,
+                **kwargs,  # type: ignore
             }
         )
 
@@ -375,7 +389,7 @@ class _BaseRenderer(_BaseElement):
         *,
         address: Address | None = None,
         query: Name | Callable[..., Any],
-        **kwargs: Any,
+        **kwargs: Unpack[_BaseElementArgs],
     ) -> None:
         from ceres.component import Component
 
@@ -400,7 +414,7 @@ class _BaseRenderer(_BaseElement):
             **{
                 "address": address,
                 "query": query,
-                **kwargs,
+                **kwargs,  # type: ignore
             }
         )
 
@@ -419,13 +433,15 @@ class Display(_BaseRenderer):
         title: str,
         address: Address | None = None,
         query: Name | Callable[..., Any],
-        **kwargs: Any,
+        **kwargs: Unpack[_BaseElementArgs],
     ) -> None:
         super().__init__(
-            title=title,
-            address=address,
-            query=query,
-            **kwargs,
+            **{
+                "title": title,
+                "address": address,
+                "query": query,
+                **kwargs,  # type: ignore
+            }
         )
 
 

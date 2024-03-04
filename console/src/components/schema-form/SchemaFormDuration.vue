@@ -58,14 +58,14 @@ const presets = [
 
 <template>
   <schema-form-input
-    :form="form"
-    :format="format"
+    :form
+    :format
     input-type="text"
     :model-value="modelValue"
-    :path="path"
-    :presets="presets"
-    :resolve="resolve"
-    :schema="schema"
+    :path
+    :presets
+    :resolve
+    :schema
     schema-type="duration"
     suffix="second(s)"
     @update:model-value="(modelValue) => emit('update:modelValue', modelValue)"

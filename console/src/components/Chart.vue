@@ -43,7 +43,7 @@ const containerStyle = $computed(() => {
       ref="instance"
       :autoresize="{ throttle: 350 }"
       :class="$style.instance"
-      :loading="loading"
+      :loading
       :option="appliedOptions"
     />
   </div>

@@ -49,14 +49,14 @@ function format(value: unknown) {
 
 <template>
   <schema-form-input
-    :form="form"
-    :format="format"
+    :form
+    :format
     input-type="text"
     :model-value="modelValue"
-    :path="path"
-    :resolve="resolve"
+    :path
+    :resolve
     :resolve-text="resolveText"
-    :schema="schema"
+    :schema
     schema-type="JSON"
     @update:model-value="(modelValue) => emit('update:modelValue', modelValue)"
   />

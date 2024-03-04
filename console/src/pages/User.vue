@@ -7,5 +7,5 @@ defineProps<{
 </script>
 
 <template>
-  <UserPage :id="id" />
+  <UserPage :id />
 </template>

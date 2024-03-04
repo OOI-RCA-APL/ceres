@@ -54,9 +54,9 @@ function onUpdate(property: string, subvalue: unknown) {
 
 <template>
   <schema-form-composite
-    :form="form"
+    :form
     :model-value="object"
-    :path="path"
+    :path
     @update:model-value="(modelValue) => emit('update:modelValue', modelValue)"
   >
     <div
@@ -68,7 +68,7 @@ function onUpdate(property: string, subvalue: unknown) {
     >
       <div v-for="property in properties" :key="property">
         <schema-form-node
-          :form="form"
+          :form
           :model-value="object[property]"
           :path="[...path, property]"
           @update:model-value="(subvalue) => onUpdate(property, subvalue)"

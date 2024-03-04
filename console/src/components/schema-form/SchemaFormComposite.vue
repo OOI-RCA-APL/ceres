@@ -65,7 +65,7 @@ function toggle() {
                 v-if="title"
                 :class="[$style.title, 'monospace-sm', 'q-mr-sm']"
                 :clickable="!isRequired"
-                :color="color"
+                :color
                 dense
                 :ripple="!isRequired"
                 :text-color="textColor"

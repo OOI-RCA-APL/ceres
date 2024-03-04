@@ -55,11 +55,11 @@ const form = useSchemaForm({
 <template>
   <div v-if="!form.isEmpty || form.getDescription([]) != null" class="q-mb-sm">
     <q-card bordered class="q-px-sm q-py-xs" flat>
-      <schema-form :key="procedure.name" :form="form" />
+      <schema-form :key="procedure.name" :form />
     </q-card>
   </div>
   <div>
-    <schema-form-controls v-if="form" class="q-mb-sm" :form="form" />
+    <schema-form-controls v-if="form" class="q-mb-sm" :form />
   </div>
   <div>
     <div v-if="resultJson === undefined" class="items-center justify-center q-pa-xs row">

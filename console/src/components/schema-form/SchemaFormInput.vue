@@ -118,15 +118,15 @@ function onBackspace() {
       ref="input"
       v-model="text"
       :aria-required="isRequired"
-      :autogrow="autogrow"
+      :autogrow
       dense
       filled
       input-class="monospace-md"
       label-slot
-      :mask="mask"
+      :mask
       :placeholder="format(defaultValue)"
       spellcheck="false"
-      :suffix="suffix"
+      :suffix
       :type="inputType"
       @blur="onBlur"
       @focus="onFocus"

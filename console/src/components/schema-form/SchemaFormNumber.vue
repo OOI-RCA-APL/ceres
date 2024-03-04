@@ -43,13 +43,13 @@ function format(value: unknown) {
 
 <template>
   <schema-form-input
-    :form="form"
-    :format="format"
+    :form
+    :format
     input-type="number"
     :model-value="modelValue"
-    :path="path"
-    :resolve="resolve"
-    :schema="schema"
+    :path
+    :resolve
+    :schema
     schema-type="number"
     @update:model-value="(modelValue) => emit('update:modelValue', modelValue)"
   />

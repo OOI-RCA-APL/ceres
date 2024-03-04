@@ -33,13 +33,13 @@ function format(value: unknown) {
 <template>
   <schema-form-input
     autogrow
-    :form="form"
-    :format="format"
+    :form
+    :format
     input-type="text"
     :model-value="modelValue"
-    :path="path"
-    :resolve="resolve"
-    :schema="schema"
+    :path
+    :resolve
+    :schema
     schema-type="str"
     @update:model-value="(modelValue) => emit('update:modelValue', modelValue)"
   />

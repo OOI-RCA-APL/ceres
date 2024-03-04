@@ -343,7 +343,7 @@ async function onSend(data: string) {
 </script>
 
 <template>
-  <section-card :title="title">
+  <section-card :title>
     <template #header-append>
       <q-space class="gt-sm" />
       <div class="col-grow q-ml-sm self-search-input-container">
@@ -396,7 +396,7 @@ async function onSend(data: string) {
         ]"
         dense
         flat
-        :items="items"
+        :items
         separator="cell"
         square
         type="table"
@@ -427,7 +427,7 @@ async function onSend(data: string) {
     </div>
     <div v-if="type === 'message' && showCommandInput">
       <q-separator />
-      <command-input :address="address" @send="onSend" />
+      <command-input :address @send="onSend" />
     </div>
   </section-card>
 </template>

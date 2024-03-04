@@ -1,8 +1,18 @@
 import { Address } from '@/api/address'
 import Zod from 'zod'
 
+export type BaseElement = Zod.infer<typeof BaseElementModel>
+export const BaseElementModel = Zod.object({
+  css_style: Zod.union([Zod.string(), Zod.record(Zod.string(), Zod.string())])
+    .nullable()
+    .default(null),
+  css_class: Zod.union([Zod.string(), Zod.array(Zod.string())])
+    .nullable()
+    .default(null),
+})
+
 export type ButtonElement = Zod.infer<typeof ButtonElementModel>
-export const ButtonElementModel = Zod.object({
+export const ButtonElementModel = BaseElementModel.extend({
   type: Zod.literal('button'),
   title: Zod.string(),
   address: Zod.string().transform(Address.parse),
@@ -29,7 +39,7 @@ export const ColorStopModel = Zod.object({
 })
 
 export type StateElementOption = Zod.infer<typeof StateElementOptionModel>
-export const StateElementOptionModel = Zod.object({
+export const StateElementOptionModel = BaseElementModel.extend({
   value: AtomicValueModel,
   label: Zod.string(),
   color: Zod.string(),
@@ -37,7 +47,7 @@ export const StateElementOptionModel = Zod.object({
   description: Zod.string().nullable().default(null),
 })
 
-type BoxElement = {
+type BoxElement = BaseElement & {
   sizing: Sizing
   justify: Justify
   align: Align
@@ -51,31 +61,31 @@ const BoxModelElement = {
   children: Zod.lazy(() => Zod.array(ElementModel)),
 }
 
-export type RowElement = {
+export type RowElement = BoxElement & {
   type: 'row'
-} & BoxElement
+}
 
-export const RowElementModel = Zod.object({
+export const RowElementModel = BaseElementModel.extend({
   type: Zod.literal('row'),
   ...BoxModelElement,
 }) as Zod.ZodType<RowElement>
 
-export type ColumnElement = {
+export type ColumnElement = BoxElement & {
   type: 'column'
-} & BoxElement
+}
 
-export const ColumnElementModel = Zod.object({
+export const ColumnElementModel = BaseElementModel.extend({
   type: Zod.literal('column'),
   ...BoxModelElement,
 }) as Zod.ZodType<ColumnElement>
 
-export type CarouselElement = {
+export type CarouselElement = BaseElement & {
   type: 'carousel'
   children: Element[]
   height?: number | string | null
 }
 
-export const CarouselElementModel = Zod.object({
+export const CarouselElementModel = BaseElementModel.extend({
   type: Zod.literal('carousel'),
   height: Zod.union([Zod.string(), Zod.number()]).optional().nullable(),
   children: Zod.lazy(() => Zod.array(ElementModel)),
@@ -94,7 +104,7 @@ export const TextVariantModel = Zod.enum([
 ])
 
 export type TextElement = Zod.infer<typeof TextElementModel>
-export const TextElementModel = Zod.object({
+export const TextElementModel = BaseElementModel.extend({
   type: Zod.literal('text'),
   variant: TextVariantModel.default('value'),
   value: Zod.string(),
@@ -102,20 +112,20 @@ export const TextElementModel = Zod.object({
 })
 
 export type HTMLElement = Zod.infer<typeof HTMLElementModel>
-export const HTMLElementModel = Zod.object({
+export const HTMLElementModel = BaseElementModel.extend({
   type: Zod.literal('html'),
   value: Zod.string(),
 })
 
 export type StateElement = Zod.infer<typeof StateElementModel>
-export const StateElementModel = Zod.object({
+export const StateElementModel = BaseElementModel.extend({
   type: Zod.literal('state'),
   value: AtomicValueModel,
   options: Zod.array(StateElementOptionModel),
 })
 
 export type GaugeElement = Zod.infer<typeof GaugeElementModel>
-export const GaugeElementModel = Zod.object({
+export const GaugeElementModel = BaseElementModel.extend({
   type: Zod.literal('gauge'),
   value: Zod.number(),
   unit: Zod.string().nullable().default(null),
@@ -127,21 +137,21 @@ export const GaugeElementModel = Zod.object({
 })
 
 export type ChartElement = Zod.infer<typeof ChartElementModel>
-export const ChartElementModel = Zod.object({
+export const ChartElementModel = BaseElementModel.extend({
   type: Zod.literal('chart'),
   value: Zod.record(Zod.string(), Zod.any()),
   height: Zod.union([Zod.number(), Zod.string()]).nullable().default(null),
 })
 
 export type RenderElement = Zod.infer<typeof RenderElementModel>
-export const RenderElementModel = Zod.object({
+export const RenderElementModel = BaseElementModel.extend({
   type: Zod.literal('display'),
   address: Zod.string().transform(Address.parse),
   query: Zod.string(),
 })
 
 export type DisplayElement = Zod.infer<typeof DisplayElementModel>
-export const DisplayElementModel = Zod.object({
+export const DisplayElementModel = BaseElementModel.extend({
   type: Zod.literal('display'),
   title: Zod.string(),
   address: Zod.string().transform(Address.parse),
