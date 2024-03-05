@@ -371,7 +371,6 @@ class PaletteColor(Color, Enum):
     PRIMARY = Color("#0089ab")
     SECONDARY = Color("#26a69a")
     ACCENT = Color("#9c27b0")
-    DARK = Color("#1d1d1d")
     POSITIVE = Color("#21ba45")
     NEGATIVE = Color("#c10015")
     INFO = Color("#31ccec")
