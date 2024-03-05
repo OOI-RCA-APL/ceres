@@ -24,9 +24,9 @@ from starlette.status import HTTP_400_BAD_REQUEST, HTTP_401_UNAUTHORIZED
 from websockets.exceptions import ConnectionClosed
 
 from ceres.config import ServerAuthenticationConfig
-from ceres.data import DateTime, EmailStr, ImmutableDataObject, UsernameStr, jsonify
+from ceres.data import DateTime, EmailStr, ImmutableDataObject, StrEnum, UsernameStr, jsonify
 from ceres.errors import Failure, NotAuthenticatedError, NotPermittedError
-from ceres.internal.utilities import StrEnum, cached, call_partial, dictify, get_type_adapter
+from ceres.internal.utilities import cached, call_partial, dictify, get_type_adapter
 from ceres.timing import utc
 from ceres.user import User, UserRole
 

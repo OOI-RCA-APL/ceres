@@ -25,7 +25,14 @@ from typing_extensions import Self, override
 from yaml import MarkedYAMLError, YAMLError
 
 from ceres.address import Address, DynamicAddress
-from ceres.data import ImmutableDataObject, Name, NonBlankStr, NonEmptyStr, PositiveTimeDelta
+from ceres.data import (
+    ImmutableDataObject,
+    Name,
+    NonBlankStr,
+    NonEmptyStr,
+    PositiveTimeDelta,
+    StrEnum,
+)
 from ceres.database.enums import DatabaseType
 from ceres.errors import (
     ComponentInitExceptionError,
@@ -38,7 +45,7 @@ from ceres.errors import (
     ConfigReadError,
     ConfigValidationError,
 )
-from ceres.internal.utilities import StrEnum, get_traceback, get_type_adapter, group_by, show_td
+from ceres.internal.utilities import get_traceback, get_type_adapter, group_by, show_td
 from ceres.loaded import Loader
 from ceres.logs import Log
 from ceres.result import Fail, Ok, Result

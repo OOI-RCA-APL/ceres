@@ -9,8 +9,7 @@ from apscheduler.triggers.interval import IntervalTrigger as BaseInternalInterva
 from apscheduler.util import normalize
 from pydantic import PositiveFloat, ValidationInfo, field_validator
 
-from ceres.data import DateTime, ImmutableDataObject, PositiveTimeDelta
-from ceres.internal.utilities import StrEnum
+from ceres.data import DateTime, ImmutableDataObject, PositiveTimeDelta, StrEnum
 from ceres.timing import utc
 
 

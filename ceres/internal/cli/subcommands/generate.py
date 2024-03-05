@@ -5,10 +5,9 @@ from typing import Annotated
 from pydantic import Field, NonNegativeInt
 
 from ceres.config import Config
-from ceres.data import jsonify, yamlify
+from ceres.data import StrEnum, jsonify, yamlify
 from ceres.engine import Engine
 from ceres.internal.cli.plumbing import CLIOption, CLIRouter
-from ceres.internal.utilities import StrEnum
 
 router = CLIRouter(
     name="generate",

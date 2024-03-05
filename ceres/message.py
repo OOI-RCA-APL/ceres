@@ -6,9 +6,8 @@ from pydantic import BeforeValidator, Field, PlainSerializer
 from typing_extensions import TypedDict
 
 from ceres.address import Address
-from ceres.data import DateTime, ImmutableDataObject
+from ceres.data import DateTime, ImmutableDataObject, StrEnum
 from ceres.internal.cli.plumbing import CLIOption
-from ceres.internal.utilities import StrEnum
 from ceres.timing import utc
 
 

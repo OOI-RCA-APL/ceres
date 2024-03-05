@@ -8,10 +8,9 @@ from typing import Any, Sequence
 
 from typing_extensions import override
 
-from ceres.data import DataObject
+from ceres.data import DataObject, StrEnum
 from ceres.internal.cli.shared import write
 from ceres.internal.project import Project
-from ceres.internal.utilities import StrEnum
 
 
 class ServiceState(StrEnum):

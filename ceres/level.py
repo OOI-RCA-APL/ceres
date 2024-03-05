@@ -1,4 +1,4 @@
-from ceres.internal.utilities import PriorityStrEnum
+from ceres.data import PriorityStrEnum
 
 
 class Level(PriorityStrEnum):

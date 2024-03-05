@@ -13,7 +13,7 @@ from typing_extensions import override
 
 from ceres.component import Component, action, routine
 from ceres.connectivity import Connectivity
-from ceres.data import ImmutableDataObject, PositiveTimeDelta
+from ceres.data import ImmutableDataObject, PositiveTimeDelta, StrEnum
 from ceres.events import (
     ConnectedEvent,
     ConnectFailedEvent,
@@ -24,7 +24,7 @@ from ceres.events import (
     MessageReceivedEvent,
     MessageSentEvent,
 )
-from ceres.internal.utilities import StrEnum, ensure_event_loop, show_td, sleep_forever
+from ceres.internal.utilities import ensure_event_loop, show_td, sleep_forever
 from ceres.message import Message, MessageContent, MessageDirection
 from ceres.schedule import IntervalSchedule
 from ceres.status import Status

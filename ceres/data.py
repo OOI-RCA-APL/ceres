@@ -1,4 +1,5 @@
 import json
+import sys
 from abc import ABC
 from datetime import date, datetime, timedelta, timezone
 from json import JSONDecodeError
@@ -19,7 +20,7 @@ from pydantic import EmailStr as _BaseEmailStr
 from pydantic.fields import FieldInfo
 from pydantic_core import CoreSchema, SchemaSerializer, SchemaValidator
 from pydantic_extra_types.color import Color as Color
-from typing_extensions import dataclass_transform
+from typing_extensions import dataclass_transform, override
 from yaml import YAMLError
 
 from ceres.internal.utilities import (
@@ -273,3 +274,70 @@ Argon2Hash = NewType(
 )
 
 PasswordHash = BCryptHash | Argon2Hash
+
+if sys.version_info >= (3, 11):
+    from enum import StrEnum as BaseStrEnum
+else:
+    from backports.strenum import StrEnum as BaseStrEnum
+
+
+class StrEnum(BaseStrEnum):
+    @staticmethod
+    @override
+    def _generate_next_value_(name: str, *args: Any, **kwargs: Any) -> str:
+        return name.lower().replace("_", "-")
+
+    @override
+    def __str__(self) -> str:
+        return self.value
+
+
+_priority_cache: dict[tuple[type["PriorityStrEnum"], str], int] = {}
+
+
+class PriorityStrEnum(StrEnum):
+    @property
+    def priority(self) -> Any:
+        key = (type(self), self)
+        priority = _priority_cache.get(key)
+        if priority is None:
+            priority = tuple(type(self)).index(self)
+            _priority_cache[key] = priority
+
+        return priority
+
+    def __lt__(self, __x: str | None) -> bool:
+        if __x is None:
+            return False
+
+        if isinstance(__x, type(self)):
+            return self.priority < __x.priority
+
+        return super().__lt__(__x)
+
+    def __le__(self, __x: str | None) -> bool:
+        if __x is None:
+            return False
+
+        if isinstance(__x, type(self)):
+            return self.priority <= __x.priority
+
+        return super().__le__(__x)
+
+    def __gt__(self, __x: str | None) -> bool:
+        if __x is None:
+            return True
+
+        if isinstance(__x, type(self)):
+            return self.priority > __x.priority
+
+        return super().__gt__(__x)
+
+    def __ge__(self, __x: str | None) -> bool:
+        if __x is None:
+            return True
+
+        if isinstance(__x, type(self)):
+            return self.priority >= __x.priority
+
+        return super().__ge__(__x)

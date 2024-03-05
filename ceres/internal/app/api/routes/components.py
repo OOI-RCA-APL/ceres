@@ -7,7 +7,7 @@ from fastapi import APIRouter, Body, Request, WebSocket
 
 from ceres.address import Address
 from ceres.component import Component, ProcedureBinding, ProcedureType
-from ceres.data import ImmutableDataObject, Name, jsonify
+from ceres.data import ImmutableDataObject, Name, StrEnum, jsonify
 from ceres.errors import (
     Failure,
     NotFoundError,
@@ -23,7 +23,7 @@ from ceres.internal.app.shared import (
     CurrentProcedureQueryArguments,
     CurrentRole,
 )
-from ceres.internal.utilities import StrEnum, strify
+from ceres.internal.utilities import strify
 from ceres.result import Fail, Ok, Result
 from ceres.user import UserRole
 

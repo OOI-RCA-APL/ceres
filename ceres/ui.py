@@ -17,8 +17,8 @@ from pydantic import (
 from typing_extensions import Unpack
 
 from ceres.address import Address
-from ceres.data import Color, DataObject, ImmutableDataObject, Name
-from ceres.internal.utilities import StrEnum, strify
+from ceres.data import Color, DataObject, ImmutableDataObject, Name, StrEnum
+from ceres.internal.utilities import strify
 
 
 class ElementType(StrEnum):
@@ -375,7 +375,7 @@ class PaletteColor(Color, Enum):
     POSITIVE = Color("#21ba45")
     NEGATIVE = Color("#c10015")
     INFO = Color("#31ccec")
-    WARNING = Color("#f2c037")
+    WARNING = Color("#ff9d00")
 
 
 class _BaseRenderer(_BaseElement):

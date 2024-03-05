@@ -29,10 +29,10 @@ from typing_extensions import Self, TypedDict, override
 
 from ceres.address import Address, AddressSelector
 from ceres.alert import Alert
-from ceres.data import DateTime, ImmutableDataObject, PositiveTimeDelta
+from ceres.data import DateTime, ImmutableDataObject, PositiveTimeDelta, StrEnum
 from ceres.database.enums import DatabaseType
 from ceres.internal.cli.plumbing import CLIOption
-from ceres.internal.utilities import StrEnum, as_sequence, escape_like_expression
+from ceres.internal.utilities import as_sequence, escape_like_expression
 from ceres.level import Level
 from ceres.logs import LogEntry
 from ceres.message import Message, MessageContent, MessageDirection
