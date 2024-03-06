@@ -1,7 +1,7 @@
 from asyncio import Queue as AsyncQueue
 from asyncio import QueueEmpty
 from collections.abc import AsyncIterator
-from typing import Any, AsyncIterable, Callable, Literal, Sequence, TypeVar, final, overload
+from typing import Any, AsyncIterable, Callable, Literal, Sequence, TypeVar, cast, final, overload
 from weakref import WeakSet
 
 from typing_extensions import Self
@@ -21,7 +21,7 @@ class StreamReader(AsyncIterator[_T]):
 
     def __init__(self, source: "Stream[_T]") -> None:
         self._source = source
-        self._queue: AsyncQueue[_T] = AsyncQueue()
+        self._queue: "AsyncQueue[_T]" = AsyncQueue()
         self.attach()
 
     @property
@@ -91,48 +91,15 @@ class Stream(AsyncIterable[_T]):
         "__weakref__",
     )
 
-    @overload
-    def __init__(self, source: "Stream[_T] | None" = None) -> None: ...
-
-    @overload
-    def __init__(
-        self,
-        source: "Stream[Any]",
-        *,
-        of: type[_T],
-    ) -> None: ...
-
-    @overload
-    def __init__(
-        self,
-        source: "Stream[_T]",
-        *,
-        filter: Callable[[_T], bool] | None = None,
-    ) -> None: ...
-
-    @overload
-    def __init__(
-        self,
-        source: "Stream[_I]",
-        *,
-        map: Callable[[_I], _T] | None = None,
-    ) -> None: ...
-
-    def __init__(
-        self,
-        source: "Stream[Any] | None" = None,
-        of: type[Any] | None = None,
-        filter: Callable[[Any], bool] | None = None,
-        map: Callable[[Any], Any] | None = None,
-    ) -> None:
+    def __init__(self, source: "Stream[_T] | None" = None) -> None:
         self._source = source
         if source is not None:
             source._derived.add(self)
-        self._readers: WeakSet[StreamReader[_T]] = WeakSet()
-        self._derived: WeakSet[Stream[_T]] = WeakSet()
-        self._of = of
-        self._filter = filter
-        self._map = map
+        self._readers: "WeakSet[StreamReader[_T]]" = WeakSet()
+        self._derived: "WeakSet[Stream[_T]]" = WeakSet()
+        self._of: "type[_T] | None" = None
+        self._filter: "Callable[[_T], bool] | None" = None
+        self._map: "Callable[[_T], Any] | None" = None
 
     @property
     def readers(self) -> Sequence[StreamReader[_T]]:
@@ -154,13 +121,19 @@ class Stream(AsyncIterable[_T]):
     def of(self, of: _O) -> "Stream[_O]": ...
 
     def of(self, of: _O | type[_O]) -> "Stream[_O]":
-        return Stream(self, of=of)  # type: ignore
+        derived = cast(Stream[_O], Stream(self))
+        derived._of = of
+        return derived
 
     def filter(self, filter: Callable[[_T], bool]) -> "Stream[_T]":
-        return Stream(self, filter=filter)
+        derived = Stream(self)
+        derived._filter = filter
+        return derived
 
     def map(self, map: Callable[[_T], _O]) -> "Stream[_O]":
-        return Stream(self, map=map)  # type: ignore
+        derived = cast(Stream[_O], Stream(self))
+        derived._map = map
+        return derived
 
     def has_reader(self, reader: StreamReader[Any]) -> bool:
         return reader in self._readers
