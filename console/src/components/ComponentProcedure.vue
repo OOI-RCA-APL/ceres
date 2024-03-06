@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { Address } from '@/address'
+import { Address } from '@/api/address'
 import { ProcedureInfo } from '@/api/components'
 import { useEngine } from '@/api/engine'
 import CommonText from '@/components/CommonText.vue'
@@ -55,11 +55,11 @@ const form = useSchemaForm({
 <template>
   <div v-if="!form.isEmpty || form.getDescription([]) != null" class="q-mb-sm">
     <q-card bordered class="q-px-sm q-py-xs" flat>
-      <schema-form :key="procedure.name" :form="form" />
+      <schema-form :key="procedure.name" :form />
     </q-card>
   </div>
   <div>
-    <schema-form-controls v-if="form" class="q-mb-sm" :form="form" />
+    <schema-form-controls v-if="form" class="q-mb-sm" :form />
   </div>
   <div>
     <div v-if="resultJson === undefined" class="items-center justify-center q-pa-xs row">
@@ -68,10 +68,10 @@ const form = useSchemaForm({
     <q-input
       v-else
       dense
-      filled
       :input-class="[$style.output, 'monospace']"
       label="Output"
       :model-value="resultJson"
+      outlined
       readonly
       :rows="8"
       type="textarea"
@@ -108,3 +108,4 @@ const form = useSchemaForm({
   opacity: 0.5;
 }
 </style>
+@/api/address

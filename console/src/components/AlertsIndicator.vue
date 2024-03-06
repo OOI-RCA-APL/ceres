@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { Address } from '@/address'
+import { Address } from '@/api/address'
 import { useEngine } from '@/api/engine'
 import { usePreferences } from '@/preferences'
 import { displayDuration, useTime } from '@/time'
@@ -51,7 +51,7 @@ const color = $computed(() => {
 </script>
 
 <template>
-  <q-badge v-if="info" :class="$style.root" :color="color" rounded>
+  <q-badge v-if="info" :class="$style.root" :color rounded>
     {{ info.count }}{{ info.level[0].toUpperCase() }}
     <q-tooltip v-if="!isShowingMenu" :class="`bg-${color}`">
       <span class="q-mr-xs">
@@ -74,3 +74,4 @@ const color = $computed(() => {
   opacity: 0.75;
 }
 </style>
+@/api/address

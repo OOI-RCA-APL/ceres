@@ -1,4 +1,4 @@
-import { Address } from '@/address'
+import { Address } from '@/api/address'
 import { StreamOptions, useClient } from '@/api/client'
 import { LogEntryFilter } from '@/api/filter'
 import { DateTimeModel, LevelModel } from '@/api/shared'

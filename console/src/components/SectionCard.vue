@@ -15,7 +15,7 @@ const { padding = false, noBody = false } = defineProps<{
     <template v-if="title">
       <div class="items-center no-wrap q-pl-md q-pr-sm q-py-xs row">
         <template v-if="to">
-          <router-link class="wrapper-link" :to="to">
+          <router-link class="wrapper-link" :to>
             <common-text class="text-no-wrap" variant="title2">
               {{ title }}
             </common-text>

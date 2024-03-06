@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Address } from '@/address'
+import { Address } from '@/api/address'
 import { useEngine } from '@/api/engine'
 import InterfaceElement from '@/components/InterfaceElement.vue'
 import { useInterfaceContext } from '@/interface'
@@ -29,3 +29,4 @@ const result = $computed(() => query.data.value)
 <template>
   <interface-element v-if="result?.ok" :element="result.value" :path="[]" />
 </template>
+@/api/address

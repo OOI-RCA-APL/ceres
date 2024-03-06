@@ -38,7 +38,7 @@ const description = $computed(() => form.getDescription(path))
       :class="$style.checkbox"
       dense
       :keep-color="true"
-      :label="label"
+      :label
       :model-value="value"
       size="xs"
       @update:model-value="(modelValue) => emit('update:modelValue', resolve(modelValue))"

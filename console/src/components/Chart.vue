@@ -9,7 +9,7 @@ const {
   option,
 } = defineProps<{
   loading?: boolean
-  height?: number
+  height?: number | string | null
   option: Option
 }>()
 
@@ -22,9 +22,19 @@ const appliedOptions: Option = $computed(() => ({
   useUTC: true,
 }))
 
-const containerStyle = $computed(() => ({
-  height: height != null ? `${height}px` : undefined,
-}))
+const containerStyle = $computed(() => {
+  let computedHeight: string | undefined = undefined
+  if (height != null) {
+    if (typeof height === 'number') {
+      computedHeight = `${height}px`
+    } else {
+      computedHeight = height
+    }
+  }
+  return {
+    height: computedHeight,
+  }
+})
 </script>
 
 <template>
@@ -33,7 +43,7 @@ const containerStyle = $computed(() => ({
       ref="instance"
       :autoresize="{ throttle: 350 }"
       :class="$style.instance"
-      :loading="loading"
+      :loading
       :option="appliedOptions"
     />
   </div>

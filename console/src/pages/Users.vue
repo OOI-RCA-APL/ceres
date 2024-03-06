@@ -26,15 +26,22 @@ const users = $computed(() => query.data.value ?? [])
   <card-page title="Users">
     <template #header-append>
       <q-space />
-      <q-btn flat :icon="icons.add" padding="none" round to="/users/create" />
+      <q-btn flat :icon="icons.add" padding="none" round size="12px" to="/users/create" />
     </template>
     <q-card-section>
-      <q-input v-model="search" class="q-mb-md" dense :loading="query.isLoading.value" standout>
+      <q-input
+        v-model="search"
+        autofocus
+        class="q-mb-sm"
+        dense
+        :loading="query.isLoading.value"
+        outlined
+      >
         <template #prepend>
           <q-icon :name="icons.search" />
         </template>
         <template #append>
-          <q-chip :label="users.length" size="sm" />
+          <q-chip :label="users.length" outline size="sm" />
         </template>
       </q-input>
       <q-card bordered :class="$style.list" flat>

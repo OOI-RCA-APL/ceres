@@ -4,9 +4,15 @@ from uuid import UUID, uuid4
 from pydantic import Field
 from typing_extensions import TypedDict
 
-from ceres.data import EmailStr, ImmutableDataObject, PasswordHash, PasswordStr, UsernameStr
+from ceres.data import (
+    EmailStr,
+    ImmutableDataObject,
+    PasswordHash,
+    PasswordStr,
+    PriorityStrEnum,
+    UsernameStr,
+)
 from ceres.internal.cli.plumbing import CLIOption
-from ceres.internal.utilities import PriorityStrEnum
 
 
 class UserRole(PriorityStrEnum):

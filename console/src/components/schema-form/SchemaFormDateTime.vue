@@ -119,14 +119,14 @@ const presets = [
 
 <template>
   <schema-form-input
-    :form="form"
-    :format="format"
+    :form
+    :format
     input-type="text"
     :model-value="modelValue"
-    :path="path"
-    :presets="presets"
-    :resolve="resolve"
-    :schema="schema"
+    :path
+    :presets
+    :resolve
+    :schema
     schema-type="date-time"
     suffix="UTC"
     @update:model-value="(modelValue: any) => emit('update:modelValue', modelValue)"

@@ -4,7 +4,7 @@ import { providePanelGroup } from '@/panel-group'
 import { computed } from 'vue'
 
 const { panels, defaultHeight, persist } = defineProps<{
-  title: string
+  title?: string
   panels?: string[]
   defaultHeight?: number
   minHeight?: number
@@ -37,6 +37,7 @@ const group = providePanelGroup(
       ]"
     >
       <q-chip
+        v-if="title"
         :class="[$style.title, 'absolute', 'bg-transparent', 'no-shadow']"
         clickable
         dense

@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { Address } from '@/address'
+import { Address } from '@/api/address'
 import { ComponentInfo } from '@/api/components'
 import AlertsIndicator from '@/components/AlertsIndicator.vue'
 import ComponentStatusBadge from '@/components/ComponentStatusBadge.vue'
@@ -60,8 +60,8 @@ function toggleExpanded() {
     </q-item-section>
     <q-item-section side>
       <div class="items-center row">
-        <alerts-indicator :address="address" class="q-mr-xs" />
-        <component-status-badge :address="address" />
+        <alerts-indicator :address class="q-mr-xs" />
+        <component-status-badge :address />
       </div>
     </q-item-section>
   </q-item>
@@ -88,3 +88,4 @@ function toggleExpanded() {
   min-width: 40px;
 }
 </style>
+@/api/address

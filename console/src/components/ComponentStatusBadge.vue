@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { Address } from '@/address'
+import { Address } from '@/api/address'
 import { useEngine } from '@/api/engine'
 import icons from '@/icons'
 import { upperFirst } from 'lodash'
@@ -145,3 +145,4 @@ const connectionColor = $computed(() => {
   }
 }
 </style>
+@/api/address

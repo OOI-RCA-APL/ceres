@@ -15,11 +15,11 @@ const { size = '16px' } = defineProps<{
     class="cursor-pointer q-ml-sm"
     color="grey-5"
     :name="icons.help"
-    :size="size"
+    :size
     @click="isOpen = true"
   >
     <q-dialog v-model="isOpen">
-      <section-card padding style="width: 100%; max-width: 1000px" :title="title">
+      <section-card padding style="width: 100%; max-width: 1000px" :title>
         <template #header-append>
           <q-space />
           <q-btn color="grey-8" dense flat :icon="icons.close" round @click="isOpen = false" />

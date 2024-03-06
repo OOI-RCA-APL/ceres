@@ -1,5 +1,6 @@
 import inspect
 from dataclasses import dataclass
+from datetime import datetime
 from inspect import Parameter
 from typing import TYPE_CHECKING, Annotated, Any, AsyncIterator, Mapping, TypeVar
 from uuid import UUID
@@ -23,9 +24,9 @@ from starlette.status import HTTP_400_BAD_REQUEST, HTTP_401_UNAUTHORIZED
 from websockets.exceptions import ConnectionClosed
 
 from ceres.config import ServerAuthenticationConfig
-from ceres.data import DateTime, EmailStr, ImmutableDataObject, UsernameStr, jsonify
+from ceres.data import DateTime, EmailStr, ImmutableDataObject, StrEnum, UsernameStr, jsonify
 from ceres.errors import Failure, NotAuthenticatedError, NotPermittedError
-from ceres.internal.utilities import StrEnum, cached, call_partial, dictify, get_type_adapter
+from ceres.internal.utilities import cached, call_partial, dictify, get_type_adapter
 from ceres.timing import utc
 from ceres.user import User, UserRole
 
@@ -203,7 +204,9 @@ async def _get_current_identity(
             return None
 
         try:
-            expires = get_type_adapter(DateTime).validate_python(expires)
+            expires = get_type_adapter(datetime if TYPE_CHECKING else DateTime).validate_python(
+                expires
+            )
         except ValidationError:
             return None
 

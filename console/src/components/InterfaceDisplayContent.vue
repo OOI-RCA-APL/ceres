@@ -39,7 +39,7 @@ const emit = defineEmits<{
     </q-markup-table>
     <div class="col-grow items-center justify-center q-ma-xs relative-position row">
       <template v-if="element">
-        <interface-element :element="element" :path="path" />
+        <interface-element :element :path />
       </template>
       <template v-else>
         <div key="placeholder" :class="$style.placeholder" />

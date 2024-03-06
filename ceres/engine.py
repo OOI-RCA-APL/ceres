@@ -12,7 +12,7 @@ from typing_extensions import Self, Unpack, override
 from ceres.address import Address, AddressSelector, DynamicAddress
 from ceres.alert import Alert, AlertUpdate
 from ceres.config import Config, ServerSSLConfig
-from ceres.data import ImmutableDataObject, PasswordHash
+from ceres.data import ImmutableDataObject, PasswordHash, StrEnum
 from ceres.directory import Directory
 from ceres.errors import (
     ConfigError,
@@ -37,7 +37,7 @@ from ceres.filter import (
 from ceres.internal.app.main import App
 from ceres.internal.project import Project
 from ceres.internal.server import Server, ServerInternalConfig
-from ceres.internal.utilities import StrEnum, sleep_forever, strify, uniquify
+from ceres.internal.utilities import sleep_forever, strify, uniquify
 from ceres.logs import LogEntry, LogEntryUpdate
 from ceres.message import Message, MessageUpdate
 from ceres.object import Object

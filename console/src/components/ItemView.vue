@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { Address } from '@/address'
+import { Address } from '@/api/address'
 import { Alert } from '@/api/alerts'
 import { useEngine } from '@/api/engine'
 import { LogEntry } from '@/api/log-entries'
@@ -343,7 +343,7 @@ async function onSend(data: string) {
 </script>
 
 <template>
-  <section-card :title="title">
+  <section-card :title>
     <template #header-append>
       <q-space class="gt-sm" />
       <div class="col-grow q-ml-sm self-search-input-container">
@@ -351,8 +351,8 @@ async function onSend(data: string) {
           v-model="filter.search"
           class="item-view-search-input"
           dense
-          filled
           input-class="monospace-md"
+          outlined
           spellcheck="false"
         >
           <template #prepend>
@@ -396,7 +396,7 @@ async function onSend(data: string) {
         ]"
         dense
         flat
-        :items="items"
+        :items
         separator="cell"
         square
         type="table"
@@ -427,7 +427,7 @@ async function onSend(data: string) {
     </div>
     <div v-if="type === 'message' && showCommandInput">
       <q-separator />
-      <command-input :address="address" @send="onSend" />
+      <command-input :address @send="onSend" />
     </div>
   </section-card>
 </template>
@@ -476,9 +476,16 @@ async function onSend(data: string) {
   position: absolute;
   top: -14px;
   width: 100%;
+  opacity: 0.75;
+}
+
+.item-view-search-input:focus-within,
+.item-view-search-input:hover {
+  opacity: 1;
 }
 
 .item-view-virtual-scroll .q-virtual-scroll__content {
   contain: unset !important;
 }
 </style>
+@/api/address

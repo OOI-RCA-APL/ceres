@@ -30,8 +30,11 @@ class Client:
         *,
         data: object = None,
         params: BaseModel | Mapping[str, object] | None = None,
-        result: type[_T],
+        result: type[_T] | None = None,
     ) -> _T:
+        if result is None:
+            result = Any  # type: ignore
+
         path = "/api/" + path.lstrip("/")
         path = f"http+unix://{str(self.project.socket_path).replace('/', '%2F')}{path}"
 
@@ -57,7 +60,7 @@ class Client:
 
                     raise CLICommandFailed(content)
 
-                return get_type_adapter(result).validate_python(await response.json())
+                return get_type_adapter(result).validate_python(await response.json())  # type: ignore
 
     async def get(
         self,
@@ -74,6 +77,6 @@ class Client:
         data: object | None = None,
         *,
         params: BaseModel | Mapping[str, object] | None = None,
-        result: type[_T] = Any,
+        result: type[_T] | None = None,
     ) -> _T:
         return await self.request("POST", path, data=data, params=params, result=result)

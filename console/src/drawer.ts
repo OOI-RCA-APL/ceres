@@ -1,4 +1,4 @@
-import { Address } from '@/address'
+import { Address } from '@/api/address'
 import { usePersisted } from '@/persistence'
 import { defineStore } from 'pinia'
 import { computed } from 'vue'

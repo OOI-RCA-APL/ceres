@@ -29,10 +29,10 @@ from typing_extensions import Self, TypedDict, override
 
 from ceres.address import Address, AddressSelector
 from ceres.alert import Alert
-from ceres.data import DateTime, ImmutableDataObject, PositiveTimeDelta
+from ceres.data import DateTime, ImmutableDataObject, PositiveTimeDelta, StrEnum
 from ceres.database.enums import DatabaseType
 from ceres.internal.cli.plumbing import CLIOption
-from ceres.internal.utilities import StrEnum, as_sequence, escape_like_expression
+from ceres.internal.utilities import as_sequence, escape_like_expression
 from ceres.level import Level
 from ceres.logs import LogEntry
 from ceres.message import Message, MessageContent, MessageDirection
@@ -171,13 +171,18 @@ class _DatabaseFilter(Filter, Generic[_ObjectT], ABC):
         if self.search is not None:
             values = self._get_search_content(obj)
             fields = values if self.search_field is None else as_sequence(self.search_field)
+            matched = False
             for field in fields:
                 value = values.get(field)
                 if value is None:
                     continue
 
-                if self.search not in value:
-                    return False
+                if self.search in value:
+                    matched = True
+                    break
+
+            if not matched:
+                return False
 
         if self.id is not None:
             if obj.id not in as_sequence(self.id):

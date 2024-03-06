@@ -27,7 +27,7 @@ const childClass = $computed(() => {
 </script>
 
 <template>
-  <div :class="[$style.root, '']" :style="style">
+  <div :class="[$style.root, '']" :style>
     <div v-for="(child, i) in element.children" :key="i" :class="childClass">
       <interface-element class="full-width" :element="child" :path="[...path, i]" />
     </div>

@@ -48,6 +48,7 @@ from ceres.data import (
     ImmutableDataObject,
     Name,
     PositiveTimeDelta,
+    StrEnum,
 )
 from ceres.database.database import Database
 from ceres.errors import (
@@ -88,7 +89,6 @@ from ceres.events import (
 from ceres.filter import ComponentFilter, ComponentFilterArgs
 from ceres.internal.database.entities import StoreEntity
 from ceres.internal.utilities import (
-    StrEnum,
     Undefined,
     awaitify,
     cached,

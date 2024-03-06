@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { Address } from '@/address'
+import { Address } from '@/api/address'
 import icons from '@/icons'
 import { useInterfaceContext } from '@/interface'
 import { useNotify } from '@/notify'
@@ -106,13 +106,12 @@ async function submit() {
     <q-input
       :ref="(ref: any) => (element = ref?.getNativeElement() ?? null)"
       v-model="state.text"
+      borderless
       :color="isConnected ? 'primary' : 'negative'"
       dense
-      filled
       icon="send"
       input-class="monospace-md text-nowrap"
       label="Send Message"
-      square
       @keydown.down.prevent="onDownKeyPressed"
       @keydown.up.prevent="onUpKeyPressed"
     >
@@ -122,3 +121,4 @@ async function submit() {
     </q-input>
   </q-form>
 </template>
+@/api/address

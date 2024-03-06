@@ -91,7 +91,10 @@ function createPanelGroup(options?: MaybeRef<PanelGroupOptions>) {
     selectAll,
     deselectAll,
     toggleAll,
-    isSelected: getter(state, isSelected),
+    isSelected: getter(
+      computed(() => state),
+      isSelected
+    ),
     hasSelected: computed(() => state.selected.length > 0),
   })
 }

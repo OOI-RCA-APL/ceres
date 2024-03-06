@@ -94,9 +94,9 @@ def setup(
 @router.command()
 async def run(
     addresses: Annotated[
-        Sequence[AddressSelector],
-        CLIArgument(list[str], help="Addresses of components to run on startup."),
-    ],
+        Sequence[AddressSelector] | None,
+        CLIArgument(list[str] | None, help="Addresses of components to start on startup."),
+    ] = None,
     *,
     watch: Annotated[
         bool,
@@ -108,7 +108,7 @@ async def run(
     Start the engine as a foreground process.
     """
     config_path = await use_config_path(context)
-    await _run(addresses, config_path=config_path, watch=watch)
+    await _run(addresses or [], config_path=config_path, watch=watch)
 
 
 async def _run(addresses: Sequence[AddressSelector], *, config_path: Path, watch: bool) -> None:
@@ -141,7 +141,8 @@ async def _run(addresses: Sequence[AddressSelector], *, config_path: Path, watch
 
             async def run() -> None:
                 engine.start()
-                engine.get_components(address).start()
+                if address is not None:
+                    engine.get_components(address).start()
 
                 await engine.wait_until_stopped()
 

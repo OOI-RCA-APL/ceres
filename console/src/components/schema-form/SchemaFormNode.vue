@@ -116,9 +116,9 @@ function update(value: unknown) {
       <schema-form-node-toggle
         v-if="!isRequired"
         class="absolute-top-left"
-        :form="form"
+        :form
         :model-value="modelValue"
-        :path="path"
+        :path
         @update:model-value="update"
       />
     </div>

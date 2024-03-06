@@ -59,9 +59,9 @@ function onAddButtonClicked() {
 
 <template>
   <schema-form-composite
-    :form="form"
+    :form
     :model-value="array"
-    :path="path"
+    :path
     @update:model-value="(modelValue) => emit('update:modelValue', modelValue)"
   >
     <div
@@ -74,7 +74,7 @@ function onAddButtonClicked() {
     >
       <div v-for="[index, subvalue] in array.entries()" :key="index">
         <schema-form-node
-          :form="form"
+          :form
           :model-value="subvalue"
           :path="[...path, index]"
           @update:model-value="(subvalue) => onUpdate(index, subvalue)"

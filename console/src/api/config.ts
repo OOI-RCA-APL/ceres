@@ -1,4 +1,4 @@
-import { Address } from '@/address'
+import { AddressModel } from '@/api/address'
 import { useClient } from '@/api/client'
 import { NameStrModel, TimeDeltaModel } from '@/api/shared'
 import { useQuery } from '@tanstack/vue-query'
@@ -65,7 +65,9 @@ export const ConsoleConfigModel = Zod.object({
   title: Zod.string().nullable().default(null),
   icon: Zod.string().nullable().default(null),
   favicon: Zod.string().nullable().default(null),
-  dashboard: Zod.string().transform(Address.parse).nullable().default(null),
+  dashboard: Zod.union([AddressModel, Zod.array(AddressModel)])
+    .nullable()
+    .default(null),
 })
 
 export type Config = Zod.infer<typeof ConfigModel>

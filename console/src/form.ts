@@ -1,6 +1,6 @@
 import _ from 'lodash'
 import { QForm, QInput } from 'quasar'
-import { computed, reactive, ref, watch, watchEffect } from 'vue'
+import { computed, reactive, watch, watchEffect } from 'vue'
 
 export type FormState = 'viewing' | 'editing' | 'submitting' | 'submitted'
 export type FormValidationState = 'none' | 'validating' | 'valid' | 'invalid'
@@ -89,15 +89,15 @@ export function useForm<
     check,
   }) as Form<T, V>
 
-  const validations = ref(0)
-  const component = ref<QForm | null>(null)
+  let validations = $ref(0)
+  let component = $ref<QForm | null>(null)
 
   function bind(instance: QForm) {
-    component.value = instance
+    component = instance
   }
 
   function getInputs(): QInput[] {
-    return component.value?.getValidationComponents() ?? ([] as any)
+    return component?.getValidationComponents() ?? ([] as any)
   }
 
   function getInput(name?: string): QInput | null {
@@ -108,7 +108,7 @@ export function useForm<
     if (name != null) {
       getInput(name)?.focus()
     } else {
-      component.value?.focus()
+      component?.focus()
     }
   }
 
@@ -121,8 +121,8 @@ export function useForm<
     }
 
     form.load(form.stored)
-    component.value?.resetValidation()
-    component.value?.reset()
+    component?.resetValidation()
+    component?.reset()
   }
 
   async function validate() {
@@ -131,7 +131,7 @@ export function useForm<
     }
 
     form.validation = 'validating'
-    const previousValidationCount = ++validations.value
+    const previousValidationCount = ++validations
     let isValid = true
 
     for (const key of Object.keys(form.validators as FormFieldValidators<T>)) {
@@ -149,7 +149,7 @@ export function useForm<
       }
     }
 
-    if (validations.value === previousValidationCount) {
+    if (validations === previousValidationCount) {
       form.validation = isValid ? 'valid' : 'invalid'
     }
   }
@@ -209,9 +209,9 @@ export function useForm<
       return
     }
 
-    if (component.value != null) {
+    if (component != null) {
       const validator = form.validators[field]
-      const children = component.value.getValidationComponents()
+      const children = component.getValidationComponents()
       for (const child of children) {
         const rules = (child as any).rules as unknown[]
         if (typeof rules === 'object') {

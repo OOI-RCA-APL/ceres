@@ -1,4 +1,4 @@
-from ceres.internal.utilities import StrEnum
+from ceres.data import StrEnum
 
 
 class Connectivity(StrEnum):

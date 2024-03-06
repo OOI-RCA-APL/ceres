@@ -1,7 +1,7 @@
-import { computed, ComputedRef, shallowRef, watch } from 'vue'
+import { computed, ComputedRef, Ref, shallowRef, watch } from 'vue'
 
 export function getter<TFunction extends (...args: any[]) => TResult, TResult>(
-  dependencies: Parameters<typeof watch>[0],
+  dependencies: Ref<unknown>,
   fn: TFunction
 ): ComputedRef<TFunction> {
   const result = shallowRef<TFunction>(fn)

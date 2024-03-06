@@ -19,5 +19,5 @@ engine.components.useElementStream(element.address, element.query, {}, (current)
 </script>
 
 <template>
-  <interface-element v-if="rendered" :element="rendered" :path="path" />
+  <interface-element v-if="rendered" :element="rendered" :path />
 </template>

@@ -67,7 +67,7 @@ function createDefaultSchema() {
       </div>
       <div class="col">
         <section-card padding="sm" title="Form">
-          <schema-form :form="form" />
+          <schema-form :form />
         </section-card>
       </div>
       <div class="col">

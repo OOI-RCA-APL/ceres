@@ -1,4 +1,4 @@
-import { Address } from '@/address'
+import { Address } from '@/api/address'
 import { MessageDirection } from '@/api/messages'
 import { Level } from '@/api/shared'
 import { UserRole } from '@/api/users'
