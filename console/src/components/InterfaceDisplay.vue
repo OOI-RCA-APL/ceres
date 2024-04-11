@@ -30,7 +30,7 @@ let isShowingDialog = $ref(false)
 const request = useQuery({
   queryKey: computed(() => ['query', element.address, element.query]),
   queryFn: async () => {
-    const procedure = await engine.components.getProcedure(element.address, element.query)
+    const procedure = await engine.systems.getProcedure(element.address, element.query)
     if (procedure?.type === 'query') {
       return procedure
     }
@@ -72,7 +72,7 @@ watch(
   }, 250)
 )
 
-engine.components.useElementStream(
+engine.systems.useElementStream(
   element.address,
   element.query,
   computed(() => args),

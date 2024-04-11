@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import AppLayoutDrawerComponent from '@/AppLayoutDrawerComponent.vue'
+import AppLayoutDrawerSystem from '@/AppLayoutDrawerSystem.vue'
 import { Address } from '@/api/address'
 import { useEngine } from '@/api/engine'
 import ResizeHandle from '@/components/ResizeHandle.vue'
@@ -12,6 +12,7 @@ import { usePreferences } from '@/preferences'
 import { displayDuration } from '@/time'
 import moment from 'moment'
 import { LocalStorage } from 'quasar'
+import { watchEffect } from 'vue'
 import { useRoute } from 'vue-router'
 
 const engine = useEngine()
@@ -20,6 +21,10 @@ const notify = useNotify()
 const dialogs = useDialogs()
 const route = useRoute()
 const preferences = usePreferences()
+
+watchEffect(() => {
+  console.log(engine.systems.root?.name)
+})
 
 function clearLocalStorage() {
   dialogs
@@ -162,10 +167,10 @@ function promptReload() {
           </q-item>
           <template v-if="engine.auth.user != null">
             <q-separator />
-            <app-layout-drawer-component
-              v-if="engine.components.root != null"
+            <app-layout-drawer-system
+              v-if="engine.systems.root != null"
               :address="root"
-              :component="(engine.components.root as any)"
+              :system="(engine.systems.root as any)"
             />
           </template>
         </q-list>
@@ -283,4 +288,3 @@ function promptReload() {
   top: 0;
 }
 </style>
-@/api/address

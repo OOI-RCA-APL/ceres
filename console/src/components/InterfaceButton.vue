@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { ButtonElement } from '@/api/elements'
 import { useEngine } from '@/api/engine'
-import ComponentProcedure from '@/components/ComponentProcedure.vue'
+import Procedure from '@/components/Procedure.vue'
 import icons from '@/icons'
 import { useQuery } from '@tanstack/vue-query'
 import { computed } from 'vue'
@@ -17,7 +17,7 @@ const engine = useEngine()
 const request = useQuery({
   queryKey: computed(() => ['action', element.address, element.action]),
   queryFn: async () => {
-    const procedure = await engine.components.getProcedure(element.address, element.action)
+    const procedure = await engine.systems.getProcedure(element.address, element.action)
     if (procedure?.type === 'action') {
       return procedure
     }
@@ -57,7 +57,7 @@ const action = $computed(() => request.data.value ?? null)
         <div class="items-center q-mb-sm q-ml-xs row">
           <div class="monospace-lg">{{ element.address }}::{{ element.action }}</div>
         </div>
-        <component-procedure :address="element.address" :procedure="action" />
+        <procedure :address="element.address" :procedure="action" />
       </q-card>
     </q-menu>
   </q-btn>

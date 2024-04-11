@@ -2,12 +2,12 @@ import { Address } from '@/api/address'
 import { useAlerts } from '@/api/alerts'
 import { useAuth } from '@/api/auth'
 import { useClient } from '@/api/client'
-import { useComponents } from '@/api/components'
 import { Config, ConfigModel, useConfig } from '@/api/config'
 import { useLogEntries } from '@/api/log-entries'
 import { useMessages } from '@/api/messages'
 import { useStatistics } from '@/api/statistics'
 import { useStatuses } from '@/api/statuses'
+import { useSystems } from '@/api/systems'
 import { useUsers } from '@/api/users'
 import { defineStore } from 'pinia'
 
@@ -18,7 +18,7 @@ export const useEngine = defineStore('engine', () => {
 
   const alerts = useAlerts()
   const auth = useAuth()
-  const components = useComponents()
+  const systems = useSystems()
   const config = useConfig()
   const logs = useLogEntries()
   const messages = useMessages()
@@ -75,7 +75,7 @@ export const useEngine = defineStore('engine', () => {
   return {
     alerts,
     auth,
-    components,
+    systems,
     config,
     logs,
     messages,

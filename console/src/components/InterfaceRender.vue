@@ -13,7 +13,7 @@ const engine = useEngine()
 
 let rendered: Element | null = $shallowRef(null)
 
-engine.components.useElementStream(element.address, element.query, {}, (current) => {
+engine.systems.useElementStream(element.address, element.query, {}, (current) => {
   rendered = current
 })
 </script>

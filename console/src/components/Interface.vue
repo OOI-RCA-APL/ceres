@@ -17,7 +17,7 @@ const engine = useEngine()
 const query = useQuery({
   queryKey: computed(() => ['render', address]),
   queryFn: async () => {
-    return await engine.components.render(address)
+    return await engine.systems.render(address)
   },
 })
 
@@ -29,4 +29,3 @@ const result = $computed(() => query.data.value)
 <template>
   <interface-element v-if="result?.ok" :element="result.value" :path="[]" />
 </template>
-@/api/address

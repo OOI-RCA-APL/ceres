@@ -59,9 +59,9 @@ const useStream = $computed(() => {
   }
 })
 
-const info = engine.components.get(address)
+const info = engine.systems.get(address)
 if (info == null) {
-  throw new Error('Component not found')
+  throw new Error('System not found')
 }
 
 const itemsVisible = $computed(() => Math.ceil(containerInfo.clientHeight / itemHeight))
@@ -488,4 +488,3 @@ async function onSend(data: string) {
   contain: unset !important;
 }
 </style>
-@/api/address

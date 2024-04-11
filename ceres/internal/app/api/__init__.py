@@ -15,7 +15,7 @@ from ceres.internal.app.api.routes.log_entries import router as router__log_entr
 from ceres.internal.app.api.routes.messages import router as router__messages
 from ceres.internal.app.api.routes.statistics import router as router__statistics
 from ceres.internal.app.api.routes.statuses import router as router__statuses
-from ceres.internal.app.api.routes.systems import router as router__components
+from ceres.internal.app.api.routes.systems import router as router__systems
 from ceres.internal.app.api.routes.users import router as router__users
 from ceres.internal.app.shared import OPERATOR, CurrentEngine
 
@@ -23,7 +23,7 @@ router = APIRouter(prefix="/api")
 
 router.include_router(router__alerts)
 router.include_router(router__auth)
-router.include_router(router__components)
+router.include_router(router__systems)
 router.include_router(router__config)
 router.include_router(router__log_entries)
 router.include_router(router__messages)

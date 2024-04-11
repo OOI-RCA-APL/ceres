@@ -74,4 +74,3 @@ const color = $computed(() => {
   opacity: 0.75;
 }
 </style>
-@/api/address

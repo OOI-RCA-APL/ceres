@@ -9,7 +9,7 @@ export const useDrawer = defineStore('drawer', () => {
       object({
         width: number().default(200),
         isOpen: boolean().default(true),
-        collapsedComponents: array(string().transform(Address.parse)).default(() => []),
+        collapsed: array(string().transform(Address.parse)).default(() => []),
       }),
     methods: [{ type: 'local-storage', key: ['store', 'drawer'] }],
   })
@@ -23,9 +23,9 @@ export const useDrawer = defineStore('drawer', () => {
       get: () => state.isOpen,
       set: (value) => (state.isOpen = value),
     }),
-    collapsedComponents: computed({
-      get: () => state.collapsedComponents,
-      set: (value) => (state.collapsedComponents = value),
+    collapsed: computed({
+      get: () => state.collapsed,
+      set: (value) => (state.collapsed = value),
     }),
     toggle: () => (state.isOpen = !state.isOpen),
   }
