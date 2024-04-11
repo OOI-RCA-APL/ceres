@@ -471,7 +471,7 @@ class System(Node):
             if id(self) not in {id(other.unref()) for other in referencer.get_references()}:
                 self.__referencers.pop(id(referencer))
 
-        for component in self.get_referenced_components():
+        for component in self.get_referenced_systems():
             component.__referencers[id(self)] = self
 
         return resolved, unresolved
@@ -491,8 +491,8 @@ class System(Node):
         traverse(self.component, visit)
         return references
 
-    def get_referenced_components(self, alias: str | None = None) -> "SystemGroup":
-        components: list[System] = []
+    def get_referenced_systems(self, alias: str | None = None) -> "SystemGroup":
+        systems: list[System] = []
         root = self.component
 
         if alias is not None:
@@ -502,18 +502,19 @@ class System(Node):
                     break
 
         if root is None:
-            return SystemGroup(components)
+            return SystemGroup(systems)
 
         def visit(obj: Any) -> bool:
             if lenient_isinstance(obj, Component):
-                if obj is not self and obj is not root:
-                    components.append(obj.system)
+                obj = obj.unref()
+                if obj is not self and obj is not self.component:
+                    systems.append(obj.system)
                     return False
 
             return True
 
         traverse(root, visit)
-        return SystemGroup(components)
+        return SystemGroup(systems)
 
     def add(
         self,
@@ -832,7 +833,7 @@ class System(Node):
         try:
             self.__listeners = [
                 _Listener(
-                    node=self,
+                    system=self,
                     binding=binding,
                     handler=getattr(self.component, binding.method),
                 )
@@ -866,8 +867,6 @@ class System(Node):
             return
 
         self.emit(RoutineStartedEvent, routine=binding.method)
-        if type(self).__name__ == "RunsForever":
-            self.log.info(f"Running routine '{binding.method}' forever...")
 
         try:
             while True:
@@ -1134,7 +1133,7 @@ class SystemGroup(Sequence[System]):
 @final
 class _Listener:
     __slots__ = (
-        "__node",
+        "__system",
         "__binding",
         "__handler",
         "__handler_arity",
@@ -1144,11 +1143,11 @@ class _Listener:
     def __init__(
         self,
         *,
-        node: System,
+        system: System,
         binding: ListenerBinding,
         handler: Callable[[Event], None | Awaitable[None]] | Callable[[], None | Awaitable[None]],
     ) -> None:
-        self.__node = node
+        self.__system = system
         self.__binding = binding
         self.__handler = handler
         self.__handler_arity = len(inspect.signature(self.__handler).parameters)
@@ -1168,19 +1167,19 @@ class _Listener:
             return False
 
         if self.__binding.local:
-            if event.address == self.__node.address:
+            if event.address == self.__system.address:
                 return True
 
         if self.__binding.reference:
             for alias in self.__binding.reference:
-                if self.__node.address == event.address or any(
-                    component.address == event.address
-                    for component in self.__node.get_referenced_components(alias)
+                if self.__system.address == event.address or any(
+                    system.address == event.address
+                    for system in self.__system.get_referenced_systems(alias)
                 ):
                     return True
 
         if self.__binding.address is not None:
-            if self.__binding.address.matches(event.address, self.__node.address):
+            if self.__binding.address.matches(event.address, self.__system.address):
                 return True
 
         return False
@@ -1201,7 +1200,7 @@ class _Listener:
                 if inspect.iscoroutine(result):
                     await result
             except Exception:
-                self.__node.log.error(
+                self.__system.log.error(
                     f"An exception occurred while processing event {event}: "
                     f"{traceback.format_exc()}"
                 )

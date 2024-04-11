@@ -36,7 +36,7 @@ class ReferenceProxiedMethods:
         return dir(self.__reference_access__())
 
     def __str__(self) -> str:
-        return str(self.__reference_access__)
+        return self.__repr__()
 
     def __bytes__(self) -> bytes:
         return bytes(self.__reference_access__())
