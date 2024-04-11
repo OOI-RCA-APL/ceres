@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any, TypeVar
 
 import pytest
 
-from ceres import Component, Event, Level, Ref, action, on, query
+from ceres import Component, Event, Level, Ref, action, listener, query
 from ceres.component import RoutineBinding, RoutineRestartPolicy, routine
 from ceres.errors import (
     Failure,
@@ -44,11 +44,11 @@ async def test_event_listeners() -> None:
             self.received_emitter_events: list[EmitterEvent] = []
             self.received_self_events: list[SelfEvent] = []
 
-        @on(reference="emitter")
+        @listener(reference="emitter")
         def on__other_event(self, event: EmitterEvent) -> None:
             self.received_emitter_events.append(event)
 
-        @on(local=True)
+        @listener(local=True)
         def on__self_event(self, event: SelfEvent) -> None:
             self.received_self_events.append(event)
 

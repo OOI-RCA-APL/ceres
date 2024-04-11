@@ -25,14 +25,14 @@ if TYPE_CHECKING:
     from ceres.component import Component as Component
     from ceres.component import ProcedureType as ProcedureType
     from ceres.component import action as action
-    from ceres.component import on as on
+    from ceres.component import listener as listener
     from ceres.component import query as query
     from ceres.component import routine as routine
 
 __export("ceres.component", "Component")
 __export("ceres.component", "ProcedureType")
 __export("ceres.component", "action")
-__export("ceres.component", "on")
+__export("ceres.component", "listener")
 __export("ceres.component", "query")
 __export("ceres.component", "routine")
 

@@ -214,11 +214,11 @@ _ListenerMethodTransform = Callable[[_ListenerMethod], _ListenerMethod]
 
 
 @overload
-def on(method: _ListenerMethod) -> _ListenerMethod: ...
+def listener(method: _ListenerMethod) -> _ListenerMethod: ...
 
 
 @overload
-def on(
+def listener(
     *,
     event: type | UnionType | None = None,
     local: bool | None = None,
@@ -228,7 +228,7 @@ def on(
 
 
 @validated_function
-def on(
+def listener(
     method: _ListenerMethod | None = None,
     *,
     event: type | UnionType | None = None,
@@ -247,7 +247,7 @@ def on(
     if local is None:
         local = len(reference) == 0 and address is None
 
-    def on(method: _ListenerMethod) -> _ListenerMethod:
+    def listener(method: _ListenerMethod) -> _ListenerMethod:
         signature = inspect.signature(method)
 
         assigned_event_type = event
@@ -277,9 +277,9 @@ def on(
         return method
 
     if method is None:
-        return on
+        return listener
 
-    return on(method)
+    return listener(method)
 
 
 class ProcedureType(StrEnum):
