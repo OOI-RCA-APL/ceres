@@ -2,16 +2,17 @@ from types import NoneType
 from typing import Iterable, Sized, cast
 
 from ceres import Component, Reference, Stream
+from ceres.system import System
 
 
 def test_runtime_type_checks():
-    component = Component(name="test")
+    component = Component()
 
     class IterableComponent(Component):
         def __iter__(self):
             yield 1
 
-    iterable_component = IterableComponent(name="iterable")
+    iterable = IterableComponent()
 
     assert not isinstance(component, Iterable)
     assert not isinstance(Reference(component), Iterable)
@@ -20,8 +21,8 @@ def test_runtime_type_checks():
     assert not issubclass(Reference[Component], Iterable)
     assert not issubclass(Reference[Component], Sized)
 
-    assert isinstance(iterable_component, Iterable)
-    assert isinstance(Reference(iterable_component), Iterable)
+    assert isinstance(iterable, Iterable)
+    assert isinstance(Reference(iterable), Iterable)
     assert issubclass(IterableComponent, Iterable)
     assert issubclass(IterableComponent, Iterable)
     assert issubclass(Reference[IterableComponent], Iterable)
@@ -29,19 +30,15 @@ def test_runtime_type_checks():
 
 
 def test_property_proxying():
-    component = Component(name="test")
+    component = Component()
     reference = cast(Component, Reference(component))
-    assert reference.name == component.name
-    assert reference.address == component.address
-    assert reference.running == component.running
-    assert reference.get_component() is component
-    assert isinstance(reference.events, Stream)
+    assert reference.system == component.system
+    assert isinstance(reference.system.events, Stream)
 
 
 def test_reference_unref():
-    component = Component(name="test")
+    component = Component()
     reference = Reference(component)
-    assert component.unref() is component
     assert reference is not component
     assert reference.unref() is component
 
@@ -54,12 +51,10 @@ def test_unresolved_reference_is_not_instance_of_none():
 
 
 def test_reference_repr():
-    root = Component(name="root")
-    child = Component(name="child")
-
-    root.add_component(child)
+    root = System(name="root", component=Component)
+    child = System(name="child", component=Component)
 
     assert repr(Reference("address")) == "Reference('address')"
     assert repr(Reference("address")) == "Reference('address')"
-    assert repr(Reference(root)) == f"Reference({repr(root)})"
-    assert repr(Reference("child", root)) == f"Reference({repr(child)})"
+    assert repr(Reference(root.component)) == f"Reference({repr(root)})"
+    assert repr(Reference("child", root.component)) == f"Reference({repr(child.component)})"

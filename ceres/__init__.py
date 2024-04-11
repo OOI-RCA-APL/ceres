@@ -91,12 +91,12 @@ __export("ceres.events", "StandardEvent")
 if TYPE_CHECKING:
     from ceres.filter import AlertFilter as AlertFilter
     from ceres.filter import AlertOrder as AlertOrder
-    from ceres.filter import ComponentFilter as ComponentFilter
     from ceres.filter import LogEntryFilter as LogEntryFilter
     from ceres.filter import LogEntryOrder as LogEntryOrder
     from ceres.filter import MessageFilter as MessageFilter
     from ceres.filter import MessageOrder as MessageOrder
     from ceres.filter import StatisticsFilter as StatisticsFilter
+    from ceres.filter import SystemFilter as SystemFilter
 
 __export("ceres.filter", "AlertFilter")
 __export("ceres.filter", "AlertOrder")
@@ -138,9 +138,9 @@ __export("ceres.message", "Message")
 __export("ceres.message", "MessageDirection")
 
 if TYPE_CHECKING:
-    from ceres.object import Status as Status
+    from ceres.status import Status as Status
 
-__export("ceres.object", "Status")
+__export("ceres.status", "Status")
 
 if TYPE_CHECKING:
     from ceres.parsing import ParseFailed as ParseFailed
@@ -230,6 +230,11 @@ if TYPE_CHECKING:
 __export("ceres.stream", "Stream")
 __export("ceres.stream", "StreamReader")
 __export("ceres.stream", "WriteStream")
+
+if TYPE_CHECKING:
+    from ceres.system import System as System
+
+__export("ceres.system", "System")
 
 if TYPE_CHECKING:
     from ceres.threading import spawn as spawn

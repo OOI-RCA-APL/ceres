@@ -15,9 +15,9 @@ from ceres.level import Level
 from ceres.timing import utc
 
 if TYPE_CHECKING:
-    from ceres.object import Object
+    from ceres.node import Node
 else:
-    Object = object
+    Node = object
 
 
 class LogEntry(ImmutableDataObject):
@@ -52,8 +52,8 @@ class Log:
 
     def __init__(
         self,
-        target: "Object | Address | Callable[[], Address]",
-        emitter: "Object | None" = None,
+        target: "Node | Address | Callable[[], Address]",
+        emitter: "Node | None" = None,
     ) -> None:
         self.__target = target
         self.__emitter = emitter
@@ -61,9 +61,9 @@ class Log:
 
     @property
     def address(self) -> Address:
-        from ceres.object import Object
+        from ceres.node import Node
 
-        if isinstance(self.__target, Object):
+        if isinstance(self.__target, Node):
             return self.__target.address
         if callable(self.__target):
             return self.__target()
@@ -120,7 +120,7 @@ class Log:
     def critical(self, content: object, *args: object, **kwargs: object) -> None:
         self.write(Level.CRITICAL, content, *args, **kwargs)
 
-    def derive(self, target: "Object | Address | Callable[[], Address]", /) -> Self:
+    def derive(self, target: "Node | Address | Callable[[], Address]", /) -> Self:
         derived = type(self)(target, self.__emitter)
         derived.__handlers = self.__handlers
         return derived

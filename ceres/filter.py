@@ -40,9 +40,9 @@ from ceres.timing import utc
 from ceres.user import User, UserRole
 
 if TYPE_CHECKING:
-    from ceres.component import Component
+    from ceres.system import System
 else:
-    Component = object
+    System = object
 
 _StatementT = TypeVar("_StatementT", bound=Select[tuple[Any, ...]] | Update | Delete)
 
@@ -92,20 +92,20 @@ class Filter(ImmutableDataObject, ABC):
         return not all(getattr(self, field, None) is None for field in self.model_fields_set)
 
 
-class ComponentFilterArgs(TypedDict, total=False):
+class SystemFilterArgs(TypedDict, total=False):
     root: Annotated[Address, CLIOption(str | None)]
     address: Annotated[AddressSelector | None, CLIOption(str | None)]
     enabled: bool | None
     running: bool | None
 
 
-class ComponentFilter(Filter):
+class SystemFilter(Filter):
     root: Annotated[Address, CLIOption(str | None)] = Address.root()
     address: Annotated[AddressSelector | None, CLIOption(str | None)] = None
     enabled: bool | None = None
     running: bool | None = None
 
-    def matches(self, obj: "Component") -> bool:
+    def matches(self, obj: "System") -> bool:
         if self.address is not None:
             if not self.address.matches(obj.address, self.root):
                 return False

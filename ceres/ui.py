@@ -102,7 +102,7 @@ class Button(_BaseElement):
             elif not isinstance(action.__self__, Component):
                 raise ValueError("method passed as action must be bound to a component")
 
-            address = action.__self__.address
+            address = action.__self__.system.address
 
         if not isinstance(action, str):
             from ceres.component import ActionBinding, get_method_binding
@@ -398,7 +398,7 @@ class _BaseRenderer(_BaseElement):
             elif not isinstance(query.__self__, Component):
                 raise ValueError("method passed as query must be bound to a component")
 
-            address = query.__self__.address
+            address = query.__self__.system.address
 
         if not isinstance(query, str):
             from ceres.component import QueryBinding, get_method_binding

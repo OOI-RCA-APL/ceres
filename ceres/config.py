@@ -21,7 +21,7 @@ from pydantic import (
     field_validator,
     model_validator,
 )
-from typing_extensions import Self, override
+from typing_extensions import Self
 from yaml import MarkedYAMLError, YAMLError
 
 from ceres.address import Address, DynamicAddress
@@ -35,18 +35,17 @@ from ceres.data import (
 )
 from ceres.database.enums import DatabaseType
 from ceres.errors import (
-    ComponentInitExceptionError,
-    ComponentReferenceInvalidError,
-    ConfigComponentError,
     ConfigDatabaseError,
     ConfigError,
     ConfigParseError,
     ConfigParseErrorLocation,
     ConfigReadError,
+    ConfigSystemError,
     ConfigValidationError,
+    SystemInitExceptionError,
+    SystemReferenceInvalidError,
 )
 from ceres.internal.utilities import get_traceback, get_type_adapter, group_by, show_td
-from ceres.loaded import Loader
 from ceres.logs import Log
 from ceres.result import Fail, Ok, Result
 from ceres.schedule import Schedule
@@ -61,17 +60,6 @@ else:
 
 class ConfigObject(ImmutableDataObject):
     pass
-
-
-class _ComponentConfigMixin(ConfigObject):
-    name: Name
-
-    @field_validator("name")
-    def _validate_name(cls, name: Name) -> Name:
-        if name == "all":
-            raise ValueError("'all' is disallowed a component name")
-
-        return name
 
 
 class JobConfig(ConfigObject):
@@ -94,44 +82,38 @@ def _get_component_class() -> type[Component]:
     return Component
 
 
-class ComponentConfig(Loader[Component], _ComponentConfigMixin):
-    cls: ImportString[type[Component]] = Field(default_factory=_get_component_class, alias="class")
+class SystemConfig(ConfigObject):
+    name: Name
+    component: ImportString[type[Component]] = Field(default_factory=_get_component_class)
+    arguments: Mapping[str, Any] = Field(default_factory=dict, validation_alias="args")
     jobs: Sequence[JobConfig] = Field(default_factory=list)
-    components: Sequence["ComponentConfig"] = Field(default_factory=list)
+    subsystems: Sequence["SystemConfig"] = Field(default_factory=list)
 
-    def create(self, arguments: Mapping[str, Any] | None = None) -> Component:
-        component: Component = super().create(arguments=arguments)
-        component.__config__ = self
-        for job in self.jobs:
-            # TODO: Validated job arguments.
-            component.add_job(job.name, job.schedule, job.action, job.arguments)
-        return component
+    @field_validator("name")
+    def _validate_name(cls, name: Name) -> Name:
+        if name == "all":
+            raise ValueError("'all' is disallowed system name")
 
-    @override
-    @classmethod
-    def _get_extra_kwarg_names(cls) -> Sequence[str]:
-        return [*super()._get_extra_kwarg_names(), "name"]
+        return name
 
-    @field_validator("components", check_fields=False)
-    def _validate_components(
+    @field_validator("subsystems", check_fields=False)
+    def _validate_subsystems(
         cls,
-        components: Sequence["ComponentConfig"],
+        subsystems: Sequence["SystemConfig"],
         info: ValidationInfo,
-    ) -> Sequence["ComponentConfig"]:
+    ) -> Sequence["SystemConfig"]:
         name: str = info.data.get("name", "<ERROR>")
-        for component_name, group in group_by(
-            components,
-            lambda component: component.name,
+        for subsystem_name, group in group_by(
+            subsystems,
+            lambda subsystem: subsystem.name,
         ):
             if len(list(group)) > 1:
-                raise ValueError(
-                    f"duplicate subcomponent name '{component_name}' in component '{name}'"
-                )
+                raise ValueError(f"duplicate subsystem name '{subsystem_name}' in system '{name}'")
 
-        return components
+        return subsystems
 
 
-ComponentConfig.model_rebuild()
+SystemConfig.model_rebuild()
 
 
 class ServiceConfig(ConfigObject):
@@ -267,7 +249,7 @@ class ConfigCheckType(StrEnum):
         return tuple(cls)
 
 
-class Config(ComponentConfig):
+class Config(SystemConfig):
     name: Name = "root"
     service: ServiceConfig = Field(default_factory=ServiceConfig)
     server: ServerConfig = Field(default_factory=ServerConfig)
@@ -357,7 +339,7 @@ class Config(ComponentConfig):
                 __log("Database configuration is valid.")
 
         if ConfigCheckType.COMPONENTS in checks:
-            component_errors = await self.__check_components(__log)
+            component_errors = await self.__check_systems(__log)
             errors.extend(component_errors)
             if not component_errors:
                 __log("Component configurations appear valid.")
@@ -406,25 +388,26 @@ class Config(ComponentConfig):
             finally:
                 await database.dispose()
 
-    async def __check_components(self, log: Callable[[object], None]) -> list[ConfigComponentError]:
-        log("Checking component configurations...")
+    async def __check_systems(self, log: Callable[[object], None]) -> list[ConfigSystemError]:
+        log("Checking system configurations...")
+        from ceres.system import System
 
-        def check_component(
-            parent: Component | None,
-            component_config: Config | ComponentConfig,
-            errors: list[ConfigComponentError],
-        ) -> Component | None:
-            address = Address.root() if parent is None else parent.address / component_config.name
+        def check_system(
+            parent: System | None,
+            system_config: Config | SystemConfig,
+            errors: list[ConfigSystemError],
+        ) -> System | None:
+            address = Address.root() if parent is None else parent.address / system_config.name
 
             try:
-                component = component_config.create()
-                log(f"Component '{address}': OK")
+                component = System.from_config(system_config)
+                log(f"System '{address}': OK")
             except Exception as exception:
-                log(f"Component '{address}': ERROR")
+                log(f"System '{address}': ERROR")
                 errors.append(
-                    ConfigComponentError(
-                        component=address,
-                        error=ComponentInitExceptionError(
+                    ConfigSystemError(
+                        system=address,
+                        error=SystemInitExceptionError(
                             message="an exception occurred while loading this component",
                             traceback=get_traceback(exception),
                         ),
@@ -434,10 +417,10 @@ class Config(ComponentConfig):
                 return None
 
             if parent is not None:
-                parent.add_component(component)
+                parent.add(component)
 
-            for subcomponent_config in component_config.components:
-                check_component(
+            for subcomponent_config in system_config.subsystems:
+                check_system(
                     component,
                     subcomponent_config,
                     errors,
@@ -445,41 +428,41 @@ class Config(ComponentConfig):
 
             return component
 
-        errors: list[ConfigComponentError] = []
+        errors: list[ConfigSystemError] = []
 
-        root = check_component(None, self, errors)
+        root = check_system(None, self, errors)
         if errors or root is None:
             return errors
 
-        for component in root.get_components():
-            _, unresolved = component.sync_component_references()
+        for system in root.get_systems():
+            _, unresolved = system.sync_references()
             if unresolved:
                 first = next(iter(unresolved))
                 target = first.__reference_target__
                 errors.append(
-                    ConfigComponentError(
-                        component=component.address,
-                        error=ComponentReferenceInvalidError(
-                            message=f"reference to component '{target}' was not found",
+                    ConfigSystemError(
+                        system=system.address,
+                        error=SystemReferenceInvalidError(
+                            message=f"reference to component at '{target}' was not found",
                         ),
                     )
                 )
 
         return errors
 
-    def get_component(self, address: DynamicAddress) -> "ComponentConfig | None":
+    def get_system(self, address: DynamicAddress) -> "SystemConfig | None":
         current = self
         for name in address.names:
             if current is None:
                 return None
 
-            current = next((child for child in current.components if child.name == name), None)
+            current = next((child for child in current.subsystems if child.name == name), None)
 
         return current
 
-    def get_component_cls(self, address: DynamicAddress) -> type[Component] | None:
-        config = self.get_component(address)
+    def get_component_class(self, address: DynamicAddress) -> type[Component] | None:
+        config = self.get_system(address)
         if config is None:
             return None
 
-        return config.cls
+        return config.component

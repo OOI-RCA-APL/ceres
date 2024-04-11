@@ -11,7 +11,7 @@ from ceres.address import AddressSelector
 from ceres.config import Config
 from ceres.data import jsonify
 from ceres.engine import Engine
-from ceres.filter import ComponentFilter
+from ceres.filter import SystemFilter
 from ceres.internal.cli.client import Client
 from ceres.internal.cli.plumbing import (
     CLIArgument,
@@ -44,8 +44,8 @@ from ceres.internal.utilities import (
     temporary_signal_handler,
     wait_any,
 )
-from ceres.object import Status
 from ceres.result import Fail, Ok
+from ceres.status import Status
 from ceres.threading import spawn
 from ceres.version import __version__
 
@@ -142,7 +142,7 @@ async def _run(addresses: Sequence[AddressSelector], *, config_path: Path, watch
             async def run() -> None:
                 engine.start()
                 if address is not None:
-                    engine.get_components(address).start()
+                    engine.get_systems(address).start()
 
                 await engine.wait_until_stopped()
 
@@ -352,7 +352,7 @@ async def start(
     project = await use_project(context)
     client = Client(project)
     address = AddressSelector(addresses or [])
-    query = ComponentFilter(address=address)
+    query = SystemFilter(address=address)
     from ceres.internal.app.api import StartResult
 
     result = await client.post("/start", query, result=StartResult)
@@ -375,7 +375,7 @@ async def stop(
     project = await use_project(context)
     client = Client(project)
     address = AddressSelector(addresses)
-    query = ComponentFilter(address=address)
+    query = SystemFilter(address=address)
     from ceres.internal.app.api import StopResult
 
     result = await client.post("/stop", query, result=StopResult)
@@ -398,7 +398,7 @@ async def enable(
     project = await use_project(context)
     client = Client(project)
     address = AddressSelector(addresses)
-    query = ComponentFilter(address=address)
+    query = SystemFilter(address=address)
     from ceres.internal.app.api import EnableResult
 
     result = await client.post("/enable", query, result=EnableResult)
@@ -421,7 +421,7 @@ async def disable(
     project = await use_project(context)
     client = Client(project)
     address = AddressSelector(addresses)
-    query = ComponentFilter(address=address)
+    query = SystemFilter(address=address)
     from ceres.internal.app.api import DisableResult
 
     result = await client.post("/disable", query, result=DisableResult)
@@ -444,7 +444,7 @@ async def up(
     project = await use_project(context)
     client = Client(project)
     address = AddressSelector(addresses)
-    query = ComponentFilter(address=address)
+    query = SystemFilter(address=address)
     from ceres.internal.app.api import UpResult
 
     result = await client.post("/up", query, result=UpResult)
@@ -467,7 +467,7 @@ async def down(
     project = await use_project(context)
     client = Client(project)
     address = AddressSelector(addresses)
-    query = ComponentFilter(address=address)
+    query = SystemFilter(address=address)
     from ceres.internal.app.api import DownResult
 
     result = await client.post("/down", query, result=DownResult)

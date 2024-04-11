@@ -86,8 +86,14 @@ from ceres.threading import spawn
 from ceres.timing import utc
 from ceres.user import User, UserCreate, UserUpdate
 
+if TYPE_CHECKING:
+    from ceres.system import Item
+else:
+    Item = object
+
 _T = TypeVar("_T")
 _Statement = Select[tuple[Any, ...]] | Update | Delete
+_ItemT = TypeVar("_ItemT", bound=Item)
 
 
 class Database:
@@ -1118,14 +1124,6 @@ def _read_csv_rows(path: Path) -> Iterator[Any]:
     with open(path, encoding="utf-8", errors="ignore") as stream:
         for row in csv.reader(stream, delimiter=",", lineterminator="\n", quotechar='"'):
             yield row
-
-
-if TYPE_CHECKING:
-    from ceres.component import Item
-else:
-    Item = object
-
-_ItemT = TypeVar("_ItemT", bound=Item)
 
 
 def _read_csv_items(path: Path, item_cls: type[_ItemT]) -> Iterable[_ItemT]:

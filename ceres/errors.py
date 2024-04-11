@@ -38,27 +38,25 @@ class Error(ImmutableDataObject, ABC):
         return result
 
 
-class __BaseComponentError(Error, ABC):
+class __BaseSystemError(Error, ABC):
     __error_status_code__: ClassVar[int] = HTTP_500_INTERNAL_SERVER_ERROR
     message: str
 
 
-class ComponentInitExceptionError(__BaseComponentError):
-    type: Literal["component-init-exception-error"] = "component-init-exception-error"
+class SystemInitExceptionError(__BaseSystemError):
+    type: Literal["system-init-exception-error"] = "system-init-exception-error"
     traceback: Sequence[str]
 
 
-class ComponentReferenceInvalidError(__BaseComponentError):
-    type: Literal["component-reference-invalid-error"] = "component-reference-invalid-error"
+class SystemReferenceInvalidError(__BaseSystemError):
+    type: Literal["system-reference-invalid-error"] = "system-reference-invalid-error"
 
 
-class ComponentJobInvalidError(__BaseComponentError):
-    type: Literal["component-job-invalid-error"] = "component-job-invalid-error"
+class SystemJobInvalidError(__BaseSystemError):
+    type: Literal["system-job-invalid-error"] = "system-job-invalid-error"
 
 
-ComponentError = (
-    ComponentInitExceptionError | ComponentReferenceInvalidError | ComponentJobInvalidError
-)
+SystemError = SystemInitExceptionError | SystemReferenceInvalidError | SystemJobInvalidError
 
 
 class __BaseConfigError(Error, ABC):
@@ -97,10 +95,10 @@ class ConfigDatabaseError(__BaseConfigError):
     exception: str
 
 
-class ConfigComponentError(__BaseConfigError):
-    type: Literal["config-component-error"] = "config-component-error"
-    component: Address
-    error: ComponentError
+class ConfigSystemError(__BaseConfigError):
+    type: Literal["config-system-error"] = "config-system-error"
+    system: Address
+    error: SystemError
 
 
 ConfigError = (
@@ -109,7 +107,7 @@ ConfigError = (
     | ConfigParseError
     | ConfigValidationError
     | ConfigDatabaseError
-    | ConfigComponentError
+    | ConfigSystemError
 )
 
 
@@ -133,12 +131,8 @@ class __BaseProcedureError(Error, ABC):
     __error_status_code__: ClassVar[int] = HTTP_400_BAD_REQUEST
 
 
-class ProcedureComponentNotFoundError(__BaseProcedureError):
-    type: Literal["procedure-component-not-found-error"] = "procedure-component-not-found-error"
-
-
-class ProcedureComponentNotLoadedError(__BaseProcedureError):
-    type: Literal["procedure-component-not-loaded-error"] = "procedure-component-not-loaded-error"
+class ProcedureSystemNotFoundError(__BaseProcedureError):
+    type: Literal["procedure-system-not-found-error"] = "procedure-system-not-found-error"
 
 
 class ProcedureNotFoundError(__BaseProcedureError):
@@ -170,10 +164,9 @@ class ProcedureInternalError(__BaseProcedureError):
 
 
 ProcedureError = (
-    ProcedureComponentNotFoundError
+    ProcedureSystemNotFoundError
     | ProcedureNotFoundError
     | ProcedureNotPermittedError
-    | ProcedureComponentNotLoadedError
     | ProcedureInvalidArgumentsError
     | ProcedureNotSubscribableError
     | ProcedureCancelledError

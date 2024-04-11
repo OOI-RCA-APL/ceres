@@ -7,10 +7,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Iterable, Sequence, TypeVar
 
 from aiotools.taskgroup import TaskGroup
-from typing_extensions import Self, Unpack, override
+from typing_extensions import Self, Unpack, final, override
 
 from ceres.address import Address, AddressSelector, DynamicAddress
-from ceres.alert import Alert, AlertUpdate
 from ceres.config import Config, ServerSSLConfig
 from ceres.data import ImmutableDataObject, PasswordHash, StrEnum
 from ceres.directory import Directory
@@ -22,34 +21,18 @@ from ceres.errors import (
     ReloadConfigInvalidError,
 )
 from ceres.events import Event, LogEvent, StoppedEvent, StoppingEvent
-from ceres.filter import (
-    AlertFilter,
-    AlertFilterArgs,
-    ComponentFilter,
-    ComponentFilterArgs,
-    LogEntryFilter,
-    LogEntryFilterArgs,
-    MessageFilter,
-    MessageFilterArgs,
-    UserFilter,
-    UserFilterArgs,
-)
+from ceres.filter import SystemFilter, SystemFilterArgs
 from ceres.internal.app.main import App
 from ceres.internal.project import Project
 from ceres.internal.server import Server, ServerInternalConfig
 from ceres.internal.utilities import sleep_forever, strify, uniquify
-from ceres.logs import LogEntry, LogEntryUpdate
-from ceres.message import Message, MessageUpdate
-from ceres.object import Object
+from ceres.node import Node
 from ceres.result import Fail, Ok, Result
-from ceres.user import User, UserCreate, UserUpdate
+from ceres.system import System, SystemGroup
 
 if TYPE_CHECKING:
-    from ceres.component import Component, ComponentGroup
     from ceres.database.database import Database
 else:
-    Component = object
-    ComponentGroup = object
     Database = object
 
 _EventT = TypeVar("_EventT", bound=Event)
@@ -66,33 +49,33 @@ class Action(ImmutableDataObject):
     address: Address
 
 
-class Engine(Object, kw_only=False):
-    source: Path | Config | None
+@final
+class Engine(Node):
+    def __init__(self, source: Path | Config | None = None) -> None:
+        super().__init__()
 
-    def __post_init__(self) -> None:
-        super().__post_init__()
-
-        if self.source is None:
+        if source is None:
             self.__config = Config()
             self.__config_path = None
-        elif isinstance(self.source, Path):
-            self.__config_path = self.source
-            match Config.read(self.source):
+        elif isinstance(source, Path):
+            self.__config_path = source
+            match Config.read(source):
                 case Ok(config):
                     self.__config = config
                 case Fail(errors):
                     raise ValueError(str(errors))
         else:
-            self.__config = self.source
+            self.__config = source
             self.__config_path = None
 
         from ceres.database.database import Database
+        from ceres.system import System
 
         self.__database = Database(self.__config.database)
         self.__reloading = AsyncEvent()
         self.__reloaded_config: Config | None = None
         self.__server: Server | None = None
-        self.__root: Component | None = None
+        self.root = System()
 
         if self.__config_path is not None:
             self.__project_directory = Directory(self.__config_path.parent)
@@ -106,18 +89,28 @@ class Engine(Object, kw_only=False):
 
     @property
     @override
-    def __object_parent__(self) -> Object | None:
+    def __node_parent__(self) -> None:
         return None
 
     @property
     @override
-    def __object_descendants__(self) -> Iterable[Object]:
-        return self.get_components()
+    def __node_descendants__(self) -> Iterable[Node]:
+        return self.__root.get_systems(inclusive=True)
 
     @property
     @override
-    def __object_database__(self) -> Database:
-        return self.__database
+    def parent(self) -> None:
+        return None
+
+    @property
+    @override
+    def root(self) -> System | None:
+        return self.__root
+
+    @root.setter
+    def root(self, root: System) -> None:
+        self.__root = root
+        self.__root.engine = self
 
     @property
     @override
@@ -126,19 +119,13 @@ class Engine(Object, kw_only=False):
 
     @property
     @override
-    def root(self) -> Component | None:
-        return self.__root
-
-    @root.setter
-    def root(self, root: Component) -> None:
-        root = root.unref()
-        self.__root = root
-        self.__root.engine = self
+    def engine(self) -> Self:
+        return self
 
     @property
     @override
-    def engine(self) -> Self:
-        return self
+    def database(self) -> Database:
+        return self.__database
 
     @property
     def config(self) -> Config:
@@ -159,17 +146,13 @@ class Engine(Object, kw_only=False):
 
         return self.project_directory.subdir("local")
 
-    @property
-    def database(self) -> Database:
-        return self.__database
-
     @override
     async def __run__(self) -> None:
         if self.local_directory is not None:
             self.local_directory.create()
 
         await self.__load_database()
-        await self.__object_sync__()
+        await self.__node_sync__()
 
         async def process() -> None:
             started = False
@@ -186,11 +169,11 @@ class Engine(Object, kw_only=False):
 
                 async def start_enabled() -> None:
                     await asyncio.sleep(0)
-                    async with await self.__object_database__.init() as session:
-                        for component in self.get_components():
-                            await component.__object_sync__(session)
-                            if component.enabled and not component.running:
-                                component.start()
+                    async with await self.database.init() as session:
+                        for system in self.get_systems():
+                            await system.__node_sync__(session)
+                            if system.enabled and not system.running:
+                                system.start()
 
                     await sleep_forever()
 
@@ -224,8 +207,7 @@ class Engine(Object, kw_only=False):
     async def __stop__(self) -> None:
         self.emit(StoppingEvent)
         await self.__stop_server()
-        if self.__root is not None:
-            await self.__root.stop()
+        await self.__root.stop()
 
         self.emit(StoppedEvent)
         await self.flush()
@@ -248,7 +230,7 @@ class Engine(Object, kw_only=False):
             return Fail([ConfigNotProvidedError(message="No configuration source provided.")])
 
         await self.__load_database()
-        await self.__load_components()
+        await self.__load_systems()
         return Ok(self.__config)
 
     @override
@@ -263,249 +245,25 @@ class Engine(Object, kw_only=False):
         return super().propagate(event)
 
     @override
-    def get_component(self, address: str | DynamicAddress | None = None, /) -> Component | None:
-        if self.__root is None:
-            return None
-
-        return self.__root.get_component(address)
+    def get_system(self, address: str | DynamicAddress | None = None) -> System | None:
+        return self.__root.get_system(address)
 
     @override
-    def get_components(
+    def get_systems(
         self,
-        filter: ComponentFilter | AddressSelector | None = None,
+        filter: SystemFilter | AddressSelector | None = None,
         /,
         *,
         inclusive: bool = False,
-        **kwargs: Unpack[ComponentFilterArgs],
-    ) -> ComponentGroup:
-        if self.__root is None:
-            from ceres.component import ComponentGroup
-
-            return ComponentGroup()
-
-        return self.__root.get_components(filter, inclusive=True, **kwargs)
+        **kwargs: Unpack[SystemFilterArgs],
+    ) -> SystemGroup:
+        return self.__root.get_systems(filter, inclusive=True, **kwargs)
 
     async def hash_password(self, password: str) -> PasswordHash:
         return await self.__database.hash_password(password)
 
     async def verify_password(self, password: str, hash: PasswordHash) -> bool:
         return await self.__database.verify_password(password, hash)
-
-    async def get_users(
-        self,
-        filter: UserFilter | None = None,
-        **kwargs: Unpack[UserFilterArgs],
-    ) -> list[User]:
-        """
-        Get a list of users matching the given `filter`.
-        """
-        return await self.__database.get_users(filter, **kwargs)
-
-    async def get_user(
-        self,
-        filter: UserFilter | None = None,
-        **kwargs: Unpack[UserFilterArgs],
-    ) -> User | None:
-        """
-        Get a user matching the given `filter`.
-        """
-        return await self.__database.get_user(filter, **kwargs)
-
-    async def count_users(
-        self,
-        filter: UserFilter | None = None,
-        **kwargs: Unpack[UserFilterArgs],
-    ) -> int:
-        """
-        Count users matching the given `filter`.
-        """
-        return await self.__database.count_users(filter, **kwargs)
-
-    async def create_user(self, data: UserCreate) -> User:
-        """
-        Create a new user in the database.
-        """
-        return await self.__database.create_user(data)
-
-    async def update_users(self, filter: UserFilter, assign: UserUpdate) -> int:
-        """
-        Update users matching the given `filter`. Returns the number of users updated.
-        """
-        return await self.__database.update_users(filter, assign)
-
-    async def update_user(self, filter: UserFilter, assign: UserUpdate) -> User | None:
-        """
-        Update a user matching the given `filter`. Returns the updated user, if found.
-        """
-        return await self.__database.update_user(filter, assign)
-
-    async def delete_users(
-        self,
-        filter: UserFilter | None = None,
-        **kwargs: Unpack[UserFilterArgs],
-    ) -> int:
-        """
-        Delete users matching the given `filter`. Returns the number of users deleted.
-        """
-        return await self.__database.delete_users(filter, **kwargs)
-
-    async def delete_user(
-        self,
-        filter: UserFilter | None = None,
-        **kwargs: Unpack[UserFilterArgs],
-    ) -> User | None:
-        """
-        Delete a user matching the given `filter`. Returns the deleted user, if found.
-        """
-        return await self.__database.delete_user(filter, **kwargs)
-
-    async def count_messages(
-        self,
-        filter: MessageFilter | None = None,
-        **kwargs: Unpack[MessageFilterArgs],
-    ) -> int:
-        """
-        Count messages matching the given `filter`.
-        """
-        return await self.__database.count_messages(filter, **kwargs)
-
-    async def create_message(self, data: Message) -> Message:
-        """
-        Create a new message in the database.
-        """
-        return await self.__database.create_message(data)
-
-    async def update_messages(self, filter: MessageFilter, assign: MessageUpdate) -> int:
-        """
-        Update messages matching the given `filter`. Returns the number of messages updated.
-        """
-        return await self.__database.update_messages(filter, assign)
-
-    async def update_message(self, filter: MessageFilter, assign: MessageUpdate) -> Message | None:
-        """
-        Update a message matching the given `filter`. Returns the updated message, if found.
-        """
-        return await self.__database.update_message(filter, assign)
-
-    async def delete_messages(
-        self,
-        filter: MessageFilter | None = None,
-        **kwargs: Unpack[MessageFilterArgs],
-    ) -> int:
-        """
-        Delete messages matching the given `filter`.
-        """
-        return await self.__database.delete_messages(filter, **kwargs)
-
-    async def delete_message(
-        self,
-        filter: MessageFilter | None = None,
-        **kwargs: Unpack[MessageFilterArgs],
-    ) -> Message | None:
-        """
-        Delete a message matching the given `filter`. Returns the deleted message, if found.
-        """
-        return await self.__database.delete_message(filter, **kwargs)
-
-    async def count_alerts(
-        self,
-        filter: AlertFilter | None = None,
-        **kwargs: Unpack[AlertFilterArgs],
-    ) -> int:
-        """
-        Count alerts matching the given `filter`.
-        """
-        return await self.__database.count_alerts(filter, **kwargs)
-
-    async def create_alert(self, assign: Alert) -> Alert:
-        """
-        Create a new alert in the database.
-        """
-        return await self.__database.create_alert(assign)
-
-    async def update_alerts(self, filter: AlertFilter, assign: AlertUpdate) -> int:
-        """
-        Update alerts matching the given `filter`. Returns the number of alerts updated.
-        """
-        return await self.__database.update_alerts(filter, assign)
-
-    async def update_alert(self, filter: AlertFilter, assign: AlertUpdate) -> Alert | None:
-        """
-        Update an alert matching the given `filter`. Returns the updated alert, if found.
-        """
-        return await self.__database.update_alert(filter, assign)
-
-    async def delete_alerts(
-        self,
-        filter: AlertFilter | None = None,
-        **kwargs: Unpack[AlertFilterArgs],
-    ) -> int:
-        """
-        Delete alerts matching the given `filter`. Returns the number of alerts deleted.
-        """
-        return await self.__database.delete_alerts(filter, **kwargs)
-
-    async def delete_alert(
-        self,
-        filter: AlertFilter | None = None,
-        **kwargs: Unpack[AlertFilterArgs],
-    ) -> Alert | None:
-        """
-        Delete an alert matching the given `filter`. Returns the deleted alert, if found.
-        """
-        return await self.__database.delete_alert(filter, **kwargs)
-
-    async def count_log_entries(
-        self,
-        filter: LogEntryFilter | None = None,
-        **kwargs: Unpack[LogEntryFilterArgs],
-    ) -> int:
-        """
-        Count log entries matching the given `filter`.
-        """
-        return await self.__database.count_log_entries(filter, **kwargs)
-
-    async def create_log_entry(self, assign: LogEntry) -> LogEntry:
-        """
-        Create a new log entry in the database.
-        """
-        return await self.__database.create_log_entry(assign)
-
-    async def update_log_entries(self, filter: LogEntryFilter, assign: LogEntryUpdate) -> int:
-        """
-        Update log entries matching the given `filter`. Returns the number of log entries updated.
-        """
-        return await self.__database.update_log_entries(filter, assign)
-
-    async def update_log_entry(
-        self,
-        filter: LogEntryFilter,
-        assign: LogEntryUpdate,
-    ) -> LogEntry | None:
-        """
-        Update a log entry matching the given `filter`. Returns the updated log entry, if found.
-        """
-        return await self.__database.update_log_entry(filter, assign)
-
-    async def delete_log_entries(
-        self,
-        filter: LogEntryFilter | None = None,
-        **kwargs: Unpack[LogEntryFilterArgs],
-    ) -> int:
-        """
-        Delete log entries matching the given `filter`. Returns the number of log entries deleted.
-        """
-        return await self.__database.delete_log_entries(filter, **kwargs)
-
-    async def delete_log_entry(
-        self,
-        filter: LogEntryFilter | None = None,
-        **kwargs: Unpack[LogEntryFilterArgs],
-    ) -> LogEntry | None:
-        """
-        Delete a log entry matching the given `filter`. Returns the deleted log entry, if found.
-        """
-        return await self.__database.delete_log_entry(filter, **kwargs)
 
     async def reload(self, config: Config | None = None) -> Config:
         """
@@ -538,10 +296,10 @@ class Engine(Object, kw_only=False):
                 raise Failure(ReloadConfigInvalidError(errors=errors))
 
     async def __load_database(self) -> None:
-        if not await self.__object_database__.initialized():
+        if not await self.database.initialized():
             self.log.info("Database appears empty, initializing database...")
             try:
-                await self.__object_database__.init()
+                await self.database.init()
                 self.log.info("Database initialized successfully.")
             except Failure:
                 self.log.error("Database initialization failed.")
@@ -575,14 +333,10 @@ class Engine(Object, kw_only=False):
 
         try:
             if self.config.database != previous.database:
-                self.log.info(
-                    "Database configuration modified, reloading database and components..."
-                )
+                self.log.info("Database configuration modified, reloading database and systems...")
                 try:
-                    running = self.get_components(running=True)
-                    if self.__root is not None:
-                        await self.__root.stop()
-
+                    running = self.get_systems(running=True)
+                    await self.__root.stop()
                     await self.__database.dispose()
                     from ceres.database.database import Database
 
@@ -618,103 +372,105 @@ class Engine(Object, kw_only=False):
 
         self.log.info("Reload completed.")
 
-    async def __load_components(self) -> None:
-        await self.__object_sync__()
-        await self.__load_component(Address.root())
+    async def __load_systems(self) -> None:
+        await self.__node_sync__()
+        await self.__load_system(Address.root())
 
-    async def __load_component(self, address: Address) -> Component | None:
+    async def __load_system(self, address: Address) -> System | None:
         if address.is_root:
             config = self.config
         else:
-            config = self.config.get_component(address)
+            config = self.config.get_system(address)
             if config is None:
                 return None
 
-        component = self.get_component(address)
+        system = self.get_system(address)
 
-        if component is None:
+        if system is None:
             try:
-                component = config.create()
+                system = System.from_config(config)
                 if address.is_root:
-                    self.root = component
-                    assert component.engine is self
-                    assert component.__object_database__ is self.__object_database__
+                    self.root = system
+                    assert system.engine is self
+                    assert system.database is self.database
                 else:
-                    parent = self.get_component(address.parent)
+                    parent = self.get_system(address.parent)
                     if parent is not None:
-                        parent.add_component(component)
+                        parent.add(system)
 
             except Exception:
                 self.log.error(f"Failed to load '{address}': {traceback.format_exc()}")
-                return
+                return None
 
-        await component.__object_sync__()
-        self.log.info(f"Loaded '{address}' as {strify(type(component))}.")
+        await system.__node_sync__()
+        self.log.info(f"Loaded '{address}' with component type {strify(type(system.component))}.")
 
-        for child in config.components:
-            await self.__load_component(address / child.name)
+        for child in config.subsystems:
+            await self.__load_system(address / child.name)
+
+        return system
 
     async def __execute_actions(self, actions: Sequence[Action]) -> None:
-        running = [other.address for other in self.get_components() if other.running]
+        running = [other.address for other in self.get_systems() if other.running]
         for action in actions:
-            component = self.get_component(action.address)
+            system = self.get_system(action.address)
 
             if action.type == ActionType.REMOVE:
-                if component is not None:
+                if system is not None:
                     self.log.info(f"Removing '{action.address}'...")
-                    await component.stop()
-                    component.remove_component()
+                    await system.stop()
+                    system.remove()
                     self.log.info(f"Removed '{action.address}'.")
             else:
                 if action.type == ActionType.CREATE:
-                    if component is None:
+                    if system is None:
                         self.log.info(f"Creating '{action.address}'...")
-                        await self.__load_component(action.address)
+                        await self.__load_system(action.address)
                         self.log.info(f"Created '{action.address}'.")
                 elif action.type == ActionType.RECREATE:
-                    if component is not None:
+                    if system is not None:
                         self.log.info(f"Recreating '{action.address}'...")
-                        await component.stop()
-                        component.remove_component()
-                        await self.__load_component(action.address)
+                        await system.stop()
+                        system.remove()
+                        await self.__load_system(action.address)
                         self.log.info(f"Recreated '{action.address}'.")
 
         for address in running:
-            component = self.get_component(address)
-            if component is not None and not component.running:
+            system = self.get_system(address)
+            if system is not None and not system.running:
                 self.log.info(f"Starting '{address}'...")
-                component.start()
+                system.start()
 
         created = [
             action
             for action in actions
-            if action.type == ActionType.CREATE and self.get_component(action.address) is not None
+            if action.type == ActionType.CREATE and self.get_node(action.address) is not None
         ]
         recreated = [
             action
             for action in actions
-            if action.type == ActionType.RECREATE and self.get_component(action.address) is not None
+            if action.type == ActionType.RECREATE and self.get_node(action.address) is not None
         ]
         removed = [
             action
             for action in actions
-            if action.type == ActionType.REMOVE and self.get_component(action.address) is None
+            if action.type == ActionType.REMOVE and self.get_node(action.address) is None
         ]
 
         if created:
-            self.log.info(f"{len(created)} components(s) created.")
+            self.log.info(f"{len(created)} systems(s) created.")
         if recreated:
-            self.log.info(f"{len(recreated)} components(s) reloaded.")
+            self.log.info(f"{len(recreated)} systems(s) reloaded.")
         if removed:
-            self.log.info(f"{len(removed)} components(s) removed.")
+            self.log.info(f"{len(removed)} systems(s) removed.")
 
     def __get_component_reload_actions(self) -> list[Action]:
         return self.__get_component_reload_actions_for(Address.root())
 
     def __get_component_reload_actions_for(self, address: Address) -> list[Action]:
-        config = self.config.get_component(address)
+        config = self.config.get_system(address)
 
-        component = self.get_component(address)
+        component = self.get_system(address)
         if component is None and config is not None:
             return [Action(type=ActionType.CREATE, address=address)]
         if component is not None and config is None:
@@ -736,8 +492,8 @@ class Engine(Object, kw_only=False):
 
         actions: list[Action] = []
         children = uniquify(
-            [child.address for child in component.components]
-            + [component.address / child.name for child in config.components]
+            [child.address for child in component.subsystems]
+            + [component.address / child.name for child in config.subsystems]
         )
 
         for child in children:

@@ -27,7 +27,6 @@ from ceres.events import (
 from ceres.internal.utilities import ensure_event_loop, show_td, sleep_forever
 from ceres.message import Message, MessageContent, MessageDirection
 from ceres.schedule import IntervalSchedule
-from ceres.status import Status
 from ceres.stream import Stream
 from ceres.timing import utc
 
@@ -64,9 +63,8 @@ class Connection(Component, ABC):
         self.__connectivity = Connectivity.DISCONNECTED
 
     @override
-    async def __stop__(self) -> None:
-        await self.disconnect()
-        await super().__stop__()
+    def __connectivity__(self) -> Connectivity:
+        return self.__connectivity
 
     @property
     @abstractmethod
@@ -82,23 +80,17 @@ class Connection(Component, ABC):
 
     @property
     def messages(self) -> Stream[Message]:
-        return self.events.of(MessageSentEvent | MessageReceivedEvent).map(
-            lambda event: event.message
+        return self.system.events.of(MessageSentEvent | MessageReceivedEvent).map(
+            lambda event: event.message  # type: ignore
         )
 
     @property
     def sent(self) -> Stream[Message]:
-        return self.events.of(MessageSentEvent).map(lambda event: event.message)
+        return self.system.events.of(MessageSentEvent).map(lambda event: event.message)
 
     @property
     def received(self) -> Stream[Message]:
-        return self.events.of(MessageReceivedEvent).map(lambda event: event.message)
-
-    @override
-    async def get_status(self) -> Status:
-        status = await super().get_status()
-        status.connectivity = self.connectivity
-        return status
+        return self.system.events.of(MessageReceivedEvent).map(lambda event: event.message)
 
     @abstractmethod
     async def _try_connect(self) -> bool: ...
@@ -116,7 +108,7 @@ class Connection(Component, ABC):
         if self.__connectivity == Connectivity.CONNECTED:
             return True
 
-        self.emit(ConnectingEvent)
+        self.system.emit(ConnectingEvent)
         self.__connectivity = Connectivity.CONNECTING
 
         try:
@@ -124,14 +116,14 @@ class Connection(Component, ABC):
         except Exception as exception:
             connected = False
             if error := str(exception).strip():
-                self.log.error(error)
+                self.system.log.error(error)
 
         if connected:
             self.__connectivity = Connectivity.CONNECTED
-            self.emit(ConnectedEvent)
+            self.system.emit(ConnectedEvent)
         else:
             self.__connectivity = Connectivity.DISCONNECTED
-            self.emit(ConnectFailedEvent)
+            self.system.emit(ConnectFailedEvent)
 
         return self.connected
 
@@ -166,54 +158,54 @@ class Connection(Component, ABC):
             sent = None
 
         if sent is None and self.connected:
-            self.emit(ConnectionLostEvent)
+            self.system.emit(ConnectionLostEvent)
             await self.disconnect()
             raise ConnectionLost()
 
         message = Message(
-            address=self.address,
+            address=self.system.address,
             direction=MessageDirection.SEND,
             content=data,
         )
 
-        self.emit(MessageSentEvent, message=message)
+        self.system.emit(MessageSentEvent, message=message)
         return message
 
     async def __poll_message(self) -> Message | None:
         try:
             data = await self._poll_data()
         except Exception:
-            self.log.error(traceback.format_exc())
+            self.system.log.error(traceback.format_exc())
             data = None
             raise
 
         if data is None:
             if self.connected:
-                self.emit(ConnectionLostEvent)
+                self.system.emit(ConnectionLostEvent)
                 await self.disconnect()
 
             return None
 
         message = Message(
-            address=self.address,
+            address=self.system.address,
             direction=MessageDirection.RECEIVE,
             content=data,
         )
 
-        self.emit(MessageReceivedEvent, message=message)
+        self.system.emit(MessageReceivedEvent, message=message)
         return message
 
     async def disconnect(self) -> None:
         if self.__connectivity == Connectivity.DISCONNECTED:
             return
 
-        self.emit(DisconnectingEvent)
+        self.system.emit(DisconnectingEvent)
 
         try:
             await self._try_disconnect()
         finally:
             self.__connectivity = Connectivity.DISCONNECTED
-            self.emit(DisconnectedEvent)
+            self.system.emit(DisconnectedEvent)
 
     @routine
     async def routine__process_connection(self) -> None:
@@ -226,13 +218,20 @@ class Connection(Component, ABC):
                     break
 
                 delay = (next - utc()).total_seconds()
-                self.log.info(f"Reconnecting in {round(delay, 1):g} seconds...")
+                self.system.log.info(f"Reconnecting in {round(delay, 1):g} seconds...")
                 await asyncio.sleep(delay)
 
             while self.connected:
                 data = await self.__poll_message()
                 if data is None:
                     break
+
+    @routine
+    async def routine__disconnect_on_stop(self) -> None:
+        try:
+            await sleep_forever()
+        finally:
+            await self.disconnect()
 
 
 @dataclass(kw_only=True, frozen=True)
@@ -317,7 +316,7 @@ class TCPConnection(Connection):
             self.__stream.writer.close()
         except Exception as exception:
             if error := str(exception).strip():
-                self.log.error(error)
+                self.system.log.error(error)
 
         self.__stream = None
 
@@ -330,7 +329,7 @@ class TCPConnection(Connection):
             self.__stream.writer.write(data)
             await self.__stream.writer.drain()
         except Exception:
-            self.log.error(traceback.format_exc())
+            self.system.log.error(traceback.format_exc())
             return None
 
         return data
@@ -353,7 +352,7 @@ class TCPConnection(Connection):
             return
 
         async def wait_for_message_received() -> None:
-            async for event in self.events:
+            async for event in self.system.events:
                 if isinstance(event, MessageReceivedEvent):
                     return
 
@@ -368,23 +367,25 @@ class TCPConnection(Connection):
                 if not self.connected:
                     continue
 
-            self.log.warning(f"No new message has been received in {show_td(condition.idle)}.")
+            self.system.log.warning(
+                f"No new message has been received in {show_td(condition.idle)}."
+            )
 
             disconnected = True
 
             if condition.verify is None:
-                self.log.warning(
+                self.system.log.warning(
                     "No disconnect verification is set. Disconnect will happen immediately."
                 )
             else:
                 for count in range(1, condition.verify.count + 1):
-                    self.log.warning(
+                    self.system.log.warning(
                         f"Running disconnect verification {count}/{condition.verify.count}..."
                     )
 
                     match condition.verify.type:
                         case TCPDisconnectVerifyType.RECONNECT:
-                            self.log.warning(
+                            self.system.log.warning(
                                 f"Attempting to create another connection to {self.target} within "
                                 f"{show_td(condition.verify.interval)}..."
                             )
@@ -396,23 +397,23 @@ class TCPConnection(Connection):
                                     ),
                                     condition.verify.interval.total_seconds(),
                                 )
-                                self.log.info(
+                                self.system.log.info(
                                     "A second connection was created and dropped successfully. A "
                                     "disconnect has not occurred."
                                 )
                                 disconnected = False
                                 break
                             except Exception:
-                                self.log.warning("Failed to create a second connection.")
+                                self.system.log.warning("Failed to create a second connection.")
                                 continue
 
                 if disconnected:
-                    self.log.error("Disconnect verified.")
+                    self.system.log.error("Disconnect verified.")
 
             if disconnected:
                 try:
                     if self.connected:
-                        self.emit(ConnectionLostEvent)
+                        self.system.emit(ConnectionLostEvent)
                         await self.disconnect()
                 except Exception:
                     pass

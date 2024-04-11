@@ -58,16 +58,16 @@ class Dispatcher(Component):
         )
 
         try:
-            alerts = await self.root.get_alerts(query)
+            alerts = await self.system.root.get_alerts(query)
         except Exception:
-            self.log.error(
+            self.system.log.error(
                 f"An exception occurred while reading alerts for dispatch '{dispatch.subject}': "
                 f"{traceback.format_exc()}"
             )
             return
 
         if not alerts:
-            self.log.info(
+            self.system.log.info(
                 "No alerts were found that match the current filter. No notification will be "
                 "sent."
             )
@@ -75,12 +75,12 @@ class Dispatcher(Component):
 
         try:
             notification = await self.writer.write(dispatch, alerts)
-            self.log.info(
+            self.system.log.info(
                 f"Sending notification '{notification.subject}' to {len(dispatch.recipients)} "
                 f"recipients referring to {len(alerts)} alerts..."
             )
         except Exception:
-            self.log.error(
+            self.system.log.error(
                 f"An exception occurred while writing notification for dispatch "
                 f"'{dispatch.subject}': {traceback.format_exc()}"
             )
@@ -89,7 +89,7 @@ class Dispatcher(Component):
         try:
             await self.notifier.notify(notification, dispatch.recipients)
         except Exception:
-            self.log.error(
+            self.system.log.error(
                 f"An exception occurred while sending notification to dispatch "
                 f"'{dispatch.subject}': {traceback.format_exc()}"
             )
@@ -100,7 +100,7 @@ class Dispatcher(Component):
             if dispatch.schedule is None:
                 continue
 
-            self.add_job(
+            self.system.add_job(
                 f"dispatch-{dispatch.subject.lower().replace(' ', '-')}",
                 dispatch.schedule,
                 self.dispatch,

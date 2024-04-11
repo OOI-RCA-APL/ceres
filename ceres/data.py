@@ -63,7 +63,7 @@ def __validate_datetime(value: object) -> datetime | None:
     if isinstance(value, datetime):
         instance = value
     else:
-        instance = get_type_adapter(datetime | date).validate_python(value)
+        instance: datetime | date = get_type_adapter(datetime | date).validate_python(value)  # type: ignore
         if not isinstance(instance, datetime):
             return datetime(
                 year=instance.year,
@@ -263,14 +263,14 @@ __BCRYPT_HASH_PATTERN = r"^\$2[ayb]\$.{56}$"
 
 BCryptHash = NewType(
     "BCryptHash",
-    Annotated[str, StringConstraints(pattern=__BCRYPT_HASH_PATTERN)],
+    str if TYPE_CHECKING else Annotated[str, StringConstraints(pattern=__BCRYPT_HASH_PATTERN)],
 )
 
 __ARGON2_HASH_PATTERN = r"^\$argon2(?:(?:id)|i|d)\$v=\d+\$m=\d+,t=\d+,p=\d+\$[A-Za-z0-9+/$]+$"
 
 Argon2Hash = NewType(
     "Argon2Hash",
-    Annotated[str, StringConstraints(pattern=__ARGON2_HASH_PATTERN)],
+    str if TYPE_CHECKING else Annotated[str, StringConstraints(pattern=__ARGON2_HASH_PATTERN)],
 )
 
 PasswordHash = BCryptHash | Argon2Hash

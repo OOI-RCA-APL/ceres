@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any, TypeVar
 import pytest
 
 from ceres import Component, Event, Level, Ref, action, on, query
-from ceres.component import ComponentGroup, RoutineBinding, RoutineRestartPolicy, routine
+from ceres.component import RoutineBinding, RoutineRestartPolicy, routine
 from ceres.errors import (
     Failure,
     ProcedureInternalError,
@@ -21,6 +21,7 @@ from ceres.events import (
     RoutineStartedEvent,
     RoutineStoppedEvent,
 )
+from ceres.system import System
 from ceres.validation import ValidationProblem
 
 
@@ -54,18 +55,18 @@ async def test_event_listeners() -> None:
     emitter = Emitter()
     receiver = Receiver(emitter=emitter)
 
-    receiver.start()
-    emitter.start()
+    receiver.system.start()
+    emitter.system.start()
 
-    emitter.emit(EmitterEvent, value=0)
-    emitter.emit(EmitterEvent, value=1)
-    receiver.emit(SelfEvent, value=0)
-    receiver.emit(SelfEvent, value=1)
+    emitter.system.emit(EmitterEvent, value=0)
+    emitter.system.emit(EmitterEvent, value=1)
+    receiver.system.emit(SelfEvent, value=0)
+    receiver.system.emit(SelfEvent, value=1)
 
-    await receiver.settle()
-    await emitter.settle()
-    await receiver.stop()
-    await emitter.stop()
+    await receiver.system.settle()
+    await emitter.system.settle()
+    await receiver.system.stop()
+    await emitter.system.stop()
 
     assert [(type(event), event.value) for event in receiver.received_emitter_events] == [
         (EmitterEvent, 0),
@@ -76,15 +77,12 @@ async def test_event_listeners() -> None:
         (SelfEvent, 1),
     ]
 
-    await emitter.stop()
-    await receiver.stop()
+    await emitter.system.stop()
+    await receiver.system.stop()
 
 
 async def test_component_alerts() -> None:
-    class Test(Component):
-        pass
-
-    component = Test()
+    component = System()
     component.start()
 
     alerts = await component.get_alerts()
@@ -109,7 +107,7 @@ async def test_component_procedure_no_args(decorator: Any) -> None:
         async def something(self) -> int:
             return 5
 
-    component = Test()
+    component = System(Test)
     assert await component.call("something", {}) == 5
 
 
@@ -120,7 +118,7 @@ async def test_component_procedure_with_args(decorator: Any) -> None:
         async def add(self, left: int, right: int) -> int:
             return left + right
 
-    component = Test()
+    component = System(Test)
     assert await component.call("add", {"left": 1, "right": 2}) == 3
 
 
@@ -147,7 +145,7 @@ async def test_component_procedure_with_kwonly_args(decorator: Any, kwonly: bool
             async def add(self, left: int, right: int) -> int:
                 return left + right
 
-    component = Test()
+    component = System(Test)
     assert await component.call("add", {"left": 1, "right": 2}) == 3
 
 
@@ -174,7 +172,7 @@ async def test_component_procedure_with_default_args(decorator: Any, kwonly: boo
             async def add(self, left: int = 1, right: int = 2) -> int:
                 return left + right
 
-    component = Test()
+    component = System(Test)
     assert await component.call("add") == 3
     assert await component.call("add", {}) == 3
     assert await component.call("add", {"left": 5}) == 7
@@ -189,7 +187,7 @@ async def test_component_procedure_does_not_exist_error(decorator: Any) -> None:
         async def add(self, left: int, right: int) -> int:
             return left + right
 
-    component = Test()
+    component = System(Test)
     with pytest.raises(Failure) as context:
         await component.call("add_missing", {"left": 1, "right": 2})
 
@@ -203,7 +201,7 @@ async def test_component_procedure_invalid_args_error(decorator: Any) -> None:
         async def add(self, left: int, right: int) -> int:
             return left + right
 
-    component = Test()
+    component = System(Test)
     with pytest.raises(Failure) as context:
         await component.call("add", {"left": 1})
 
@@ -225,14 +223,14 @@ async def test_component_procedure_internal_error(decorator: Any) -> None:
         async def test(self, left: int, right: int) -> float:
             raise Exception("whoops")
 
-    component = Test()
+    system = System(Test)
     with pytest.raises(Failure) as context:
-        await component.call("test")
+        await system.call("test")
 
     assert isinstance(context.value.error, ProcedureInvalidArgumentsError)
 
     with pytest.raises(Failure) as context:
-        await component.call("test", {"left": 5, "right": 5})
+        await system.call("test", {"left": 5, "right": 5})
 
     assert isinstance(context.value.error, ProcedureInternalError)
     assert any('raise Exception("whoops")' in line for line in context.value.error.traceback)
@@ -311,20 +309,20 @@ async def test_routines() -> None:
         ),
     ]
 
-    components = ComponentGroup(
-        [
-            runs_forever := RunsForever(),
-            runs_once := RunsOnce(),
-            restarts_forever := RestartsForever(),
-            crashes_forever := CrashesForever(),
-        ]
-    )
+    components = [
+        runs_forever := RunsForever(),
+        runs_once := RunsOnce(),
+        restarts_forever := RestartsForever(),
+        crashes_forever := CrashesForever(),
+    ]
 
-    components.start()
+    for component in components:
+        component.system.start()
 
     await asyncio.sleep(1)
 
-    await components.stop()
+    for component in components:
+        await component.system.stop()
 
     assert runs_once.count == 1
     assert len(runs_once.emitted[RoutineStartedEvent]) == 1

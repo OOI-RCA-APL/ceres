@@ -64,7 +64,7 @@ lint.ignore = ["F402"]
 
 [tool.pyright]
 include = ["ceres", "tests"]
-reportAttributeAccessIssue = false         # TODO: Remove this once TypeForm[T] exists.
+# reportAttributeAccessIssue = false         # TODO: Remove this once TypeForm[T] exists.
 reportIncompatibleVariableOverride = false
 reportMissingTypeStubs = false
 reportPrivateUsage = false

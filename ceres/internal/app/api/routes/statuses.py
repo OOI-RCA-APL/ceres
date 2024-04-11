@@ -2,7 +2,7 @@ from fastapi import APIRouter
 
 from ceres.address import Address
 from ceres.errors import Failure, NotFoundError
-from ceres.filter import ComponentFilter
+from ceres.filter import SystemFilter
 from ceres.internal.app.shared import CurrentEngine, CurrentSocket, QueryGroup
 from ceres.status import Status
 
@@ -11,14 +11,14 @@ router = APIRouter(prefix="/statuses", tags=["statuses"])
 
 @router.get("/{address}?")
 async def get_status(engine: CurrentEngine, address: Address | None = None) -> Status:
-    component = engine.get_component(address)
+    component = engine.get_node(address)
     if component is None:
         raise Failure(NotFoundError)
 
     return await component.get_status()
 
 
-class GetStatusesQueryParameters(ComponentFilter):
+class GetStatusesQueryParameters(SystemFilter):
     pass
 
 

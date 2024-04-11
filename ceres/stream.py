@@ -7,7 +7,6 @@ from weakref import WeakSet
 from typing_extensions import Self
 
 _T = TypeVar("_T")
-_I = TypeVar("_I")
 _O = TypeVar("_O")
 
 
@@ -122,7 +121,7 @@ class Stream(AsyncIterable[_T]):
 
     def of(self, of: _O | type[_O]) -> "Stream[_O]":
         derived = cast(Stream[_O], Stream(self))
-        derived._of = of
+        derived._of = of  # type: ignore
         return derived
 
     def filter(self, filter: Callable[[_T], bool]) -> "Stream[_T]":
@@ -132,7 +131,7 @@ class Stream(AsyncIterable[_T]):
 
     def map(self, map: Callable[[_T], _O]) -> "Stream[_O]":
         derived = cast(Stream[_O], Stream(self))
-        derived._map = map
+        derived._map = map  # type: ignore
         return derived
 
     def has_reader(self, reader: StreamReader[Any]) -> bool:

@@ -24,7 +24,7 @@ _INTERNAL_ATTRIBUTE_NAME = "__tasklet__"
 class Tasklet(ABC):
     """
     Base class for objects that run as asyncio background tasks, including all instances of
-    `Object` like `Component` and `Engine`.
+    `Node`, like `Component` and `Engine`.
     """
 
     @property

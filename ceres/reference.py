@@ -465,7 +465,9 @@ class Reference:
 
         if root is not None and lenient_isinstance(target, DynamicAddress):
             root = cast(Component, root)
-            return root.get_component(target)
+            match = root.system.get_system(target)
+            if match is not None:
+                return match.component
 
         return None
 
