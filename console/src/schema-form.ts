@@ -112,7 +112,7 @@ export function useSchemaForm({ ...options }: SchemaFormOptions) {
       return []
     }
 
-    validator(persisted)
+    validator(persisted.value)
     return validator.errors ?? []
   })
 
