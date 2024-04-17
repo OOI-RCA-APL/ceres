@@ -54,7 +54,7 @@ export function usePersisted<TData extends BaseData<TSchema>, TSchema extends Ba
 
   let data = (options.data ?? schema.parse({})) as TData
   if (!isReactive(data)) {
-    data = reactive(data)
+    data = reactive(data) as TData
   }
 
   function read() {
