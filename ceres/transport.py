@@ -3,10 +3,9 @@ from datetime import timedelta
 from typing import Callable, TypeVar
 
 import anyio
-from typing_extensions import Unpack, overload
+from typing_extensions import Unpack, overload, override
 
-from ceres.filter import MessageFilter, MessageFilterArgs
-from ceres.internal.utilities import BytesLike, bytes_of
+from ceres._internal.utilities import BytesLike, bytes_of
 from ceres.message import Message
 from ceres.roles.connection import Connection
 
@@ -27,6 +26,7 @@ class Transport:
     def connection(self) -> Connection:
         return self.__connection
 
+    @override
     def __repr__(self) -> str:
         return f"{type(self).__name__}({self.__connection})"
 
@@ -39,7 +39,7 @@ class Transport:
         *,
         condition: Callable[[Message], bool] | None = None,
         timeout: float | timedelta | None = None,
-        **kwargs: Unpack[MessageFilterArgs],
+        **kwargs: Unpack[Message.FilterArgs],
     ) -> Message: ...
 
     @overload
@@ -49,7 +49,7 @@ class Transport:
         condition: Callable[[Message], bool] | None = None,
         timeout: float | timedelta | None = None,
         default: _T | Callable[[], _T] = ...,
-        **kwargs: Unpack[MessageFilterArgs],
+        **kwargs: Unpack[Message.FilterArgs],
     ) -> Message | _T: ...
 
     async def receive(
@@ -58,13 +58,13 @@ class Transport:
         condition: Callable[[Message], bool] | None = None,
         timeout: float | timedelta | None = None,
         default: _T | Callable[[], _T] = ...,
-        **kwargs: Unpack[MessageFilterArgs],
+        **kwargs: Unpack[Message.FilterArgs],
     ) -> Message | _T:
         if isinstance(timeout, timedelta):
             timeout = timeout.total_seconds()
 
         if kwargs:
-            query = MessageFilter(**kwargs)
+            query = Message.Filter(**kwargs)
         else:
             query = None
 
@@ -76,7 +76,9 @@ class Transport:
             return default  # type: ignore
 
         with anyio.move_on_after(timeout):
-            async for message in self.__connection.received:
+            async for message in self.__connection.system.messages.follow(
+                direction=Message.Direction.RECEIVE
+            ):
                 if condition is not None:
                     if not condition(message):
                         return fail()

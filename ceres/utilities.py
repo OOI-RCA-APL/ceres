@@ -1,9 +1,16 @@
 import asyncio
 from asyncio import Queue as AsyncQueue
 from dataclasses import dataclass
-from typing import Any, AsyncIterable, AsyncIterator, Generic, TypeVar, overload
+from typing import (
+    Any,
+    AsyncIterable,
+    AsyncIterator,
+    Generic,
+    TypeVar,
+    overload,
+)
 
-from ceres.internal.utilities import cancel
+from ceres._internal.utilities import cancel
 
 _EntryT = TypeVar("_EntryT", bound=tuple[Any, ...], covariant=True)
 

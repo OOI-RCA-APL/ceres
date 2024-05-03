@@ -1,3 +1,5 @@
+from typing import TYPE_CHECKING
+
 from ceres.data import StrEnum
 
 
@@ -11,22 +13,57 @@ class DataFormat(StrEnum):
     SQLITE = "sqlite"
 
 
-class ItemType(StrEnum):
+if TYPE_CHECKING:
+    from ceres.entity import BaseEntity
+else:
+    Entity = None
+
+
+class EntityType(StrEnum):
     MESSAGE = "message"
     ALERT = "alert"
     LOG_ENTRY = "log-entry"
+    USER = "user"
     STORE = "store"
 
     @property
     def table(self) -> str:
         match self:
-            case ItemType.MESSAGE:
+            case EntityType.MESSAGE:
                 return "messages"
-            case ItemType.ALERT:
+            case EntityType.ALERT:
                 return "alerts"
-            case ItemType.LOG_ENTRY:
+            case EntityType.LOG_ENTRY:
                 return "log_entries"
-            case ItemType.STORE:
+            case EntityType.USER:
+                return "users"
+            case EntityType.STORE:
                 return "stores"
+
+        raise ValueError(self)
+
+    @property
+    def cls(self) -> type["BaseEntity"]:
+        match self:
+            case EntityType.MESSAGE:
+                from ceres.message import Message
+
+                return Message
+            case EntityType.ALERT:
+                from ceres.alert import Alert
+
+                return Alert
+            case EntityType.LOG_ENTRY:
+                from ceres.logs import LogEntry
+
+                return LogEntry
+            case EntityType.USER:
+                from ceres.user import User
+
+                return User
+            case EntityType.STORE:
+                from ceres.store import Store
+
+                return Store
 
         raise ValueError(self)

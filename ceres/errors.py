@@ -12,9 +12,9 @@ from starlette.status import (
     HTTP_500_INTERNAL_SERVER_ERROR,
 )
 
+from ceres._internal.utilities import lenient_isinstance
 from ceres.address import Address
 from ceres.data import DataObject, ImmutableDataObject
-from ceres.internal.utilities import lenient_isinstance
 from ceres.validation import ValidationProblem
 
 
@@ -38,25 +38,27 @@ class Error(ImmutableDataObject, ABC):
         return result
 
 
-class __BaseSystemError(Error, ABC):
+class __BaseComponentError(Error, ABC):
     __error_status_code__: ClassVar[int] = HTTP_500_INTERNAL_SERVER_ERROR
     message: str
 
 
-class SystemInitExceptionError(__BaseSystemError):
-    type: Literal["system-init-exception-error"] = "system-init-exception-error"
+class ComponentInitExceptionError(__BaseComponentError):
+    type: Literal["component-init-exception-error"] = "component-init-exception-error"
     traceback: Sequence[str]
 
 
-class SystemReferenceInvalidError(__BaseSystemError):
-    type: Literal["system-reference-invalid-error"] = "system-reference-invalid-error"
+class ComponentReferenceInvalidError(__BaseComponentError):
+    type: Literal["component-reference-invalid-error"] = "component-reference-invalid-error"
 
 
-class SystemJobInvalidError(__BaseSystemError):
-    type: Literal["system-job-invalid-error"] = "system-job-invalid-error"
+class ComponentJobInvalidError(__BaseComponentError):
+    type: Literal["component-job-invalid-error"] = "component-job-invalid-error"
 
 
-SystemError = SystemInitExceptionError | SystemReferenceInvalidError | SystemJobInvalidError
+ComponentError = (
+    ComponentInitExceptionError | ComponentReferenceInvalidError | ComponentJobInvalidError
+)
 
 
 class __BaseConfigError(Error, ABC):
@@ -95,10 +97,10 @@ class ConfigDatabaseError(__BaseConfigError):
     exception: str
 
 
-class ConfigSystemError(__BaseConfigError):
-    type: Literal["config-system-error"] = "config-system-error"
-    system: Address
-    error: SystemError
+class ConfigComponentError(__BaseConfigError):
+    type: Literal["config-component-error"] = "config-component-error"
+    component: Address
+    error: ComponentError
 
 
 ConfigError = (
@@ -107,7 +109,7 @@ ConfigError = (
     | ConfigParseError
     | ConfigValidationError
     | ConfigDatabaseError
-    | ConfigSystemError
+    | ConfigComponentError
 )
 
 
@@ -131,8 +133,8 @@ class __BaseProcedureError(Error, ABC):
     __error_status_code__: ClassVar[int] = HTTP_400_BAD_REQUEST
 
 
-class ProcedureSystemNotFoundError(__BaseProcedureError):
-    type: Literal["procedure-system-not-found-error"] = "procedure-system-not-found-error"
+class ProcedureComponentNotFoundError(__BaseProcedureError):
+    type: Literal["procedure-component-not-found-error"] = "procedure-component-not-found-error"
 
 
 class ProcedureNotFoundError(__BaseProcedureError):
@@ -164,7 +166,7 @@ class ProcedureInternalError(__BaseProcedureError):
 
 
 ProcedureError = (
-    ProcedureSystemNotFoundError
+    ProcedureComponentNotFoundError
     | ProcedureNotFoundError
     | ProcedureNotPermittedError
     | ProcedureInvalidArgumentsError
@@ -177,6 +179,11 @@ ProcedureError = (
 class NotFoundError(Error):
     __error_status_code__: ClassVar[int] = HTTP_404_NOT_FOUND
     type: Literal["not-found-error"] = "not-found-error"
+
+
+class NotRunningError(Error):
+    __error_status_code__: ClassVar[int] = HTTP_404_NOT_FOUND
+    type: Literal["not-running-error"] = "not-running-error"
 
 
 class AlreadyExistsError(Error):
@@ -220,6 +227,7 @@ class HTTPError(Error):
 APIError = (
     NotFoundError
     | AlreadyExistsError
+    | NotRunningError
     | NotAuthenticatedError
     | NotPermittedError
     | BadCredentialsError

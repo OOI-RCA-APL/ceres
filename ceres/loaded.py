@@ -21,13 +21,13 @@ from pydantic_core import CoreSchema
 from pydantic_core.core_schema import no_info_after_validator_function
 from typing_extensions import Self
 
-from ceres.data import ImmutableDataObject
-from ceres.internal.utilities import (
+from ceres._internal.utilities import (
     is_mapping,
     is_pydantic_dataclass_type,
     lenient_isinstance,
     lenient_issubclass,
 )
+from ceres.data import ImmutableDataObject
 
 _T = TypeVar("_T")
 

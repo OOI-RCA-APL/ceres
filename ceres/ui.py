@@ -16,9 +16,9 @@ from pydantic import (
 )
 from typing_extensions import Unpack
 
+from ceres._internal.utilities import strify
 from ceres.address import Address
 from ceres.data import Color, DataObject, ImmutableDataObject, Name, StrEnum
-from ceres.internal.utilities import strify
 
 
 class ElementType(StrEnum):
@@ -105,9 +105,9 @@ class Button(_BaseElement):
             address = action.__self__.system.address
 
         if not isinstance(action, str):
-            from ceres.component import ActionBinding, get_method_binding
+            from ceres.component import ActionBinding, get_component_method_binding
 
-            binding = get_method_binding(action, ActionBinding)
+            binding = get_component_method_binding(action, ActionBinding)
             if not binding:
                 raise ValueError(f"function {strify(action)} has no action binding")
 
@@ -401,9 +401,9 @@ class _BaseRenderer(_BaseElement):
             address = query.__self__.system.address
 
         if not isinstance(query, str):
-            from ceres.component import QueryBinding, get_method_binding
+            from ceres.component import QueryBinding, get_component_method_binding
 
-            binding = get_method_binding(query, QueryBinding)
+            binding = get_component_method_binding(query, QueryBinding)
             if not binding:
                 raise ValueError(f"function {strify(query)} has no query binding")
 

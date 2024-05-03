@@ -1,31 +1,44 @@
-import logging
-from dataclasses import dataclass, field
 from datetime import datetime
-from logging import Formatter, Handler, Logger
-from typing import TYPE_CHECKING, Annotated, Callable, Protocol, Sequence, TypeAlias
+from typing import Annotated, ClassVar, Iterable, Sequence
 from uuid import UUID, uuid4
 
 from pydantic import Field
-from typing_extensions import Self, TypedDict
+from sqlalchemy import ColumnExpressionArgument, Index, Text
+from sqlalchemy.orm import Mapped, QueryableAttribute, mapped_column
+from sqlalchemy.schema import SchemaItem
+from typing_extensions import TypedDict, override
 
+from ceres._internal.cli.plumbing import CLIOption
+from ceres._internal.database.types import EnumConstraint, EnumMapper
+from ceres._internal.utilities import as_sequence, escape_like_expression
 from ceres.address import Address
-from ceres.data import DateTime, ImmutableDataObject
-from ceres.internal.cli.plumbing import CLIOption
+from ceres.data import DateTime, StrEnum
+from ceres.database.enums import DatabaseType
 from ceres.level import Level
+from ceres.record import (
+    BaseRecord,
+    BaseRecordCreate,
+    BaseRecordFilter,
+    BaseRecordFilterArgs,
+    BaseRecordRow,
+)
 from ceres.timing import utc
 
-if TYPE_CHECKING:
-    from ceres.node import Node
-else:
-    Node = object
 
+class LogEntryRow(BaseRecordRow, kw_only=True):
+    __tablename__ = "log_entries"
 
-class LogEntry(ImmutableDataObject):
-    id: Annotated[UUID, CLIOption(UUID)] = Field(default_factory=uuid4)
-    address: Annotated[Address, CLIOption(str)]
-    timestamp: Annotated[DateTime, CLIOption(datetime)] = Field(default_factory=utc)
-    level: Annotated[Level, CLIOption(Level)]
-    content: Annotated[str, CLIOption(str)]
+    level: Mapped[Level] = mapped_column(EnumMapper(Level))
+    content: Mapped[str] = mapped_column(Text)
+
+    @classmethod
+    @override
+    def __get_table_args__(cls) -> tuple[SchemaItem, ...]:
+        return (
+            *super().__get_table_args__(),
+            EnumConstraint("level", Level, name=f"ck_{cls.__tablename__}__level"),
+            Index(f"ix_{cls.__tablename__}__content", "content"),
+        )
 
 
 class LogEntryUpdate(TypedDict, total=False):
@@ -35,168 +48,117 @@ class LogEntryUpdate(TypedDict, total=False):
     content: str
 
 
-class LogHandler(Protocol):
-    def handle(self, entry: LogEntry) -> object: ...
+class LogEntryOrder(StrEnum):
+    OLD_TO_NEW = "old-to-new"
+    NEW_TO_OLD = "new-to-old"
 
 
-LogHandlerFunction: TypeAlias = Callable[[LogEntry], object]
+class LogEntryFilterArgs(BaseRecordFilterArgs, total=False):
+    level: Level | Sequence[Level] | None
+    content_contains: str | None
+    content_prefix: str | None
+    content_suffix: str | None
+    order: LogEntryOrder | None  # type: ignore
 
 
-class Log:
-    __slots__ = (
-        "__weakref__",
-        "__target",
-        "__emitter",
-        "__handlers",
+class LogEntryFilter(BaseRecordFilter["LogEntry"]):
+    level: Annotated[Level | Sequence[Level] | None, CLIOption(list[Level] | None)] = Field(
+        default=None,
+        description="Filter by log level(s).",
+    )
+    content_contains: Annotated[str | None, CLIOption(str | None)] = Field(
+        default=None,
+        description="Filter, keeping only log entries with content that contain the given string.",
+    )
+    content_prefix: Annotated[str | None, CLIOption(str | None)] = Field(
+        default=None,
+        description="Filter, keeping only log entries with content that starts with the given string.",
+    )
+    content_suffix: Annotated[str | None, CLIOption(str | None)] = Field(
+        default=None,
+        description="Filter, keeping only log entries with content that ends with the given string.",
+    )
+    order: Annotated[LogEntryOrder | None, CLIOption(LogEntryOrder | None)] = Field(
+        default=None,
+        description="Specify result order.",
     )
 
-    def __init__(
+    @override
+    def matches(self, obj: "LogEntry") -> bool:
+        if not super().matches(obj):
+            return False
+
+        if self.level is not None:
+            if obj.level not in as_sequence(self.level):
+                return False
+        if self.content_contains is not None:
+            if self.content_contains not in obj.content:
+                return False
+        if self.content_prefix is not None:
+            if not obj.content.startswith(self.content_prefix):
+                return False
+        if self.content_suffix is not None:
+            if not obj.content.endswith(self.content_suffix):
+                return False
+
+        return True
+
+    @override
+    def _get_row_cls(self) -> type[LogEntryRow]:
+        return LogEntryRow
+
+    @override
+    def _get_search_content(self, obj: "LogEntry") -> dict[str, str]:
+        return {
+            **super()._get_search_content(obj),
+            "level": obj.level,
+            "content": obj.content,
+        }
+
+    @override
+    def _get_database_search_content(
         self,
-        target: "Node | Address | Callable[[], Address]",
-        emitter: "Node | None" = None,
-    ) -> None:
-        self.__target = target
-        self.__emitter = emitter
-        self.__handlers: tuple[LogHandler | LogHandlerFunction, ...] = ()
+        dialect: DatabaseType,
+    ) -> dict[str, QueryableAttribute[str | bytes]]:
+        columns = self._get_row_cls()
 
-    @property
-    def address(self) -> Address:
-        from ceres.node import Node
+        return {
+            **super()._get_database_search_content(dialect),
+            "level": columns.level,
+            "content": columns.content,
+        }
 
-        if isinstance(self.__target, Node):
-            return self.__target.address
-        if callable(self.__target):
-            return self.__target()
+    @override
+    def _get_where(self, dialect: DatabaseType) -> Iterable[ColumnExpressionArgument[bool]]:
+        yield from super()._get_where(dialect)
+        columns = self._get_row_cls()
 
-        return self.__target
-
-    @property
-    def handlers(self) -> Sequence[LogHandler | LogHandlerFunction]:
-        return self.__handlers
-
-    @property
-    def base(self) -> Logger:
-        return _get_logger(self.address)
-
-    def write(self, level: Level, content: object, *args: object, **kwargs: object) -> LogEntry:
-        if not isinstance(content, str):
-            content = str(content)
-        if args or kwargs:
-            content = content.format(*args, **kwargs)
-
-        self.base.log(logging.getLevelName(level.value.upper()), content)
-
-        entry = LogEntry(
-            address=self.address,
-            level=level,
-            content=content,
-        )
-
-        if self.__emitter is not None:
-            from ceres.events import LogEvent
-
-            self.__emitter.emit(LogEvent, entry=entry)
-
-        for handler in self.__handlers:
-            if callable(handler):
-                handler(entry)
-            else:
-                handler.handle(entry)
-
-        return entry
-
-    def debug(self, content: object, *args: object, **kwargs: object) -> None:
-        self.write(Level.DEBUG, content, *args, **kwargs)
-
-    def info(self, content: object, *args: object, **kwargs: object) -> None:
-        self.write(Level.INFO, content, *args, **kwargs)
-
-    def warning(self, content: object, *args: object, **kwargs: object) -> None:
-        self.write(Level.WARNING, content, *args, **kwargs)
-
-    def error(self, content: object, *args: object, **kwargs: object) -> None:
-        self.write(Level.ERROR, content, *args, **kwargs)
-
-    def critical(self, content: object, *args: object, **kwargs: object) -> None:
-        self.write(Level.CRITICAL, content, *args, **kwargs)
-
-    def derive(self, target: "Node | Address | Callable[[], Address]", /) -> Self:
-        derived = type(self)(target, self.__emitter)
-        derived.__handlers = self.__handlers
-        return derived
-
-    def add_handler(self, handler: LogHandler | LogHandlerFunction) -> None:
-        if handler in self.__handlers:
-            return
-
-        self.__handlers = tuple([*self.__handlers, handler])
-
-    def remove_handler(self, handler: LogHandler | LogHandlerFunction) -> None:
-        if handler not in self.__handlers:
-            return
-
-        try:
-            self.__handlers = tuple(
-                [current for current in self.__handlers if current is not handler]
-            )
-        except ValueError:
-            pass
+        if self.level is not None:
+            yield columns.level.in_(as_sequence(self.level))
+        if self.content_contains is not None:
+            yield columns.content.like("%" + escape_like_expression(self.content_contains) + "%")
+        if self.content_prefix is not None:
+            yield columns.content.like(escape_like_expression(self.content_prefix) + "%")
+        if self.content_suffix is not None:
+            yield columns.content.like("%" + escape_like_expression(self.content_suffix))
 
 
-class LogConfig(ImmutableDataObject):
-    level: str = "INFO"
-    """
-    Set a log level for loggers.
-    """
+class LogEntryCreate(BaseRecordCreate):
+    level: Annotated[Level, CLIOption(Level)]
+    content: Annotated[str, CLIOption(str)]
 
 
-@dataclass(kw_only=True)
-class __LoggingState:
-    config: LogConfig = field(default_factory=LogConfig)
-    loggers: dict[str, Logger] = field(default_factory=dict)
+class LogEntry(BaseRecord, LogEntryCreate):
+    Order: ClassVar = LogEntryOrder
 
+    Row: ClassVar = LogEntryRow
+    Create: ClassVar = LogEntryCreate
+    Update: ClassVar = LogEntryUpdate
+    Filter: ClassVar = LogEntryFilter
+    FilterArgs: ClassVar = LogEntryFilterArgs
 
-__state = __LoggingState()
-
-
-def __setup_logging() -> None:
-    date_format = "%Y-%m-%d %H:%M:%S"
-
-    default_formatter = logging.Formatter(
-        "[%(asctime)s.%(msecs)03d] [%(levelname)s] [%(name)s] %(message)s",
-        datefmt=date_format,
-    )
-
-    def create_handler(formatter: Formatter) -> Handler:
-        from rich.logging import RichHandler
-
-        handler = RichHandler(
-            show_level=False,
-            show_path=False,
-            show_time=False,
-        )
-        handler.setFormatter(formatter)
-        return handler
-
-    default_handler = create_handler(default_formatter)
-
-    def setup_logger(name: str, handler: Handler) -> None:
-        logger = logging.getLogger(name)
-        for handler in logger.handlers:
-            handler.close()
-        logger.handlers = []
-        logger.addHandler(handler)
-        logger.setLevel(__state.config.level)
-        logger.propagate = False
-
-    for name in list(__state.loggers.keys()):
-        setup_logger(name, default_handler)
-
-
-def _get_logger(name: str) -> Logger:
-    logger = logging.getLogger(name)
-    if name not in __state.loggers:
-        __state.loggers[name] = logger
-        __setup_logging()
-
-    return logger
+    id: Annotated[UUID, CLIOption(UUID)] = Field(default_factory=uuid4)
+    address: Annotated[Address, CLIOption(str)]
+    timestamp: Annotated[DateTime, CLIOption(datetime)] = Field(default_factory=utc)
+    level: Annotated[Level, CLIOption(Level)]
+    content: Annotated[str, CLIOption(str)]

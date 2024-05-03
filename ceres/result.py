@@ -1,5 +1,7 @@
 from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar
 
+from typing_extensions import override
+
 from ceres.data import ImmutableDataObject
 
 _ValueT = TypeVar("_ValueT", covariant=True)
@@ -35,6 +37,7 @@ class Ok(ImmutableDataObject, Generic[_ValueT], _Result):
 
     __match_args__: tuple[Literal["value"]] = ("value",)  # type: ignore
 
+    @override
     def __str__(self) -> str:
         return f"Ok({self.value})"
 
@@ -51,6 +54,7 @@ class Fail(ImmutableDataObject, Generic[_ErrorT], _Result):
 
     __match_args__: tuple[Literal["error"]] = ("error",)  # type: ignore
 
+    @override
     def __str__(self) -> str:
         return f"Fail({self.error})"
 

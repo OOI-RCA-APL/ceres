@@ -8,14 +8,13 @@ from typing import Any, Iterable, Sequence, final
 from pydantic import Field
 from typing_extensions import override
 
+from ceres._internal.markdown import markdown
+from ceres._internal.templates import templates
+from ceres._internal.utilities import group_by
 from ceres.address import Address
-from ceres.alert import Alert, Level
+from ceres.alert import Alert, AlertFilter, AlertOrder, Level
 from ceres.component import Component, action, routine
 from ceres.data import ImmutableDataObject, NonBlankStr, jsonify
-from ceres.filter import AlertFilter, AlertOrder
-from ceres.internal.markdown import markdown
-from ceres.internal.templates import templates
-from ceres.internal.utilities import group_by
 from ceres.loaded import Loaded
 from ceres.reference import Ref
 from ceres.roles.notifier import Notification, Notifier
@@ -58,7 +57,7 @@ class Dispatcher(Component):
         )
 
         try:
-            alerts = await self.system.root.get_alerts(query)
+            alerts = await self.system.alerts.get_all(query)
         except Exception:
             self.system.log.error(
                 f"An exception occurred while reading alerts for dispatch '{dispatch.subject}': "

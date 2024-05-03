@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 import { Address } from '@/api/address'
-import { ProcedureInfo } from '@/api/systems'
+import { ProcedureInfo } from '@/api/components'
 import { useEngine } from '@/api/engine'
 import CommonText from '@/components/CommonText.vue'
 import SchemaForm from '@/components/schema-form/SchemaForm.vue'
@@ -46,7 +46,7 @@ const form = useSchemaForm({
   async onSubmit(value) {
     sentAt = moment.utc()
     receivedAt = null
-    result = await engine.systems.call(address, procedure.name, value)
+    result = await engine.components.call(address, procedure.name, value)
     receivedAt = moment.utc()
   },
 })

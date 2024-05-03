@@ -46,12 +46,12 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/pages/Users.vue'),
       },
       {
-        path: '/systems/@',
-        redirect: '/systems',
+        path: '/components/@',
+        redirect: '/components',
       },
       {
-        path: '/systems/:address?',
-        component: () => import('@/pages/System.vue'),
+        path: '/components/:address?',
+        component: () => import('@/pages/Component.vue'),
         props: (route) => ({
           address: parseAddressOrNull(route.params.address) ?? new Address('@'),
         }),

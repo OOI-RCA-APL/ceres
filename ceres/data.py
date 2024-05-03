@@ -23,9 +23,10 @@ from pydantic_extra_types.color import Color as Color
 from typing_extensions import dataclass_transform, override
 from yaml import YAMLError
 
-from ceres.internal.utilities import (
+from ceres._internal.utilities import (
     NAME_PATTERN,
     PydanticDataclassLike,
+    blackhole,
     decode_td,
     get_type_adapter,
     is_pydantic_dataclass_type,
@@ -143,6 +144,32 @@ FromJSON = Annotated[_T, BeforeValidator(__pre_validate_from_json)]
 FromYAML = Annotated[_T, BeforeValidator(__pre_validate_from_yaml)]
 
 
+def __validate_jsonable(value: object) -> object:
+    try:
+        jsonify(value)
+    except Exception as error:
+        raise ValueError(f"not serializable to JSON: {error}")
+
+    return value
+
+
+def __validate_yamlable(value: object) -> object:
+    try:
+        yamlify(value)
+    except Exception as error:
+        raise ValueError(f"not serializable to YAML: {error}")
+
+    return value
+
+
+JSONWriteable = Annotated[_T, AfterValidator(__validate_jsonable)]
+YAMLWriteable = Annotated[_T, AfterValidator(__validate_yamlable)]
+
+JSONDict = JSONWriteable[FromJSON[dict[str, Any]]]
+JSONList = JSONWriteable[FromJSON[list[Any]]]
+JSON = None | bool | int | float | str | JSONDict | JSONList
+
+
 def __validate_non_empty(value: object) -> object:
     if isinstance(value, Sized):
         assert len(value) > 0, "cannot not be empty"
@@ -152,10 +179,6 @@ def __validate_non_empty(value: object) -> object:
 
 NonEmpty = Annotated[_T, AfterValidator(__validate_non_empty)]
 
-JSON = None | bool | int | float | str | dict[str, Any] | list[Any]
-JSONDict = FromJSON[dict[str, Any]]
-JSONList = FromJSON[list[Any]]
-
 
 class DataObject(BaseModel, ABC):
     model_config = ConfigDict(
@@ -164,6 +187,7 @@ class DataObject(BaseModel, ABC):
         extra="forbid",
     )
 
+    @override
     def __str__(self) -> str:
         return super().__repr__()
 
@@ -210,7 +234,7 @@ class ValidatedDataclass(ABC, PydanticDataclassLike):
                 inherited_config.update(base.__pydantic_config__)
 
         config = ConfigDict(
-            **{
+            **{  # type: ignore
                 **DataObject.model_config,
                 **inherited_config,
                 **ConfigDict(title=cls.__qualname__),
@@ -260,6 +284,7 @@ PasswordStr = Annotated[
 EmailStr = _BaseEmailStr
 
 __BCRYPT_HASH_PATTERN = r"^\$2[ayb]\$.{56}$"
+blackhole(__BCRYPT_HASH_PATTERN)
 
 BCryptHash = NewType(
     "BCryptHash",
@@ -267,6 +292,7 @@ BCryptHash = NewType(
 )
 
 __ARGON2_HASH_PATTERN = r"^\$argon2(?:(?:id)|i|d)\$v=\d+\$m=\d+,t=\d+,p=\d+\$[A-Za-z0-9+/$]+$"
+blackhole(__ARGON2_HASH_PATTERN)
 
 Argon2Hash = NewType(
     "Argon2Hash",
@@ -306,6 +332,7 @@ class PriorityStrEnum(StrEnum):
 
         return priority
 
+    @override
     def __lt__(self, __x: str | None) -> bool:
         if __x is None:
             return False
@@ -315,6 +342,7 @@ class PriorityStrEnum(StrEnum):
 
         return super().__lt__(__x)
 
+    @override
     def __le__(self, __x: str | None) -> bool:
         if __x is None:
             return False
@@ -324,6 +352,7 @@ class PriorityStrEnum(StrEnum):
 
         return super().__le__(__x)
 
+    @override
     def __gt__(self, __x: str | None) -> bool:
         if __x is None:
             return True
@@ -333,6 +362,7 @@ class PriorityStrEnum(StrEnum):
 
         return super().__gt__(__x)
 
+    @override
     def __ge__(self, __x: str | None) -> bool:
         if __x is None:
             return True

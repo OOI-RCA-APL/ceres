@@ -7,7 +7,7 @@ from typing import Callable, cast
 
 from typing_extensions import Self
 
-from ceres.internal.utilities import cancel, wait_any
+from ceres._internal.utilities import cancel, wait_any
 
 
 @dataclass

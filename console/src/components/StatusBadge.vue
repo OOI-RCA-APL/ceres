@@ -104,7 +104,7 @@ const connectionColor = $computed(() => {
             </q-item-section>
           </q-item>
           <q-separator />
-          <q-item :to="`/systems/${address}`">
+          <q-item :to="`/components/${address}`">
             <q-item-section>
               <q-item-label>View</q-item-label>
             </q-item-section>

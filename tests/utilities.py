@@ -1,7 +1,7 @@
 from asyncio import sleep
 from typing import Awaitable, Callable
 
-from ceres.internal.utilities import awaitify
+from ceres._internal.utilities import awaitify
 from ceres.timing import utc
 
 

@@ -59,9 +59,9 @@ const useStream = $computed(() => {
   }
 })
 
-const info = engine.systems.get(address)
+const info = engine.components.get(address)
 if (info == null) {
-  throw new Error('System not found')
+  throw new Error('Component not found')
 }
 
 const itemsVisible = $computed(() => Math.ceil(containerInfo.clientHeight / itemHeight))

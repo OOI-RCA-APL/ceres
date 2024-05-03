@@ -430,7 +430,7 @@ To persist messages for a component, the component should emit a `MessageSentEve
 
 ```python
 from ceres import Message, MessageDirection
-from ceres.events import MessageReceivedEvent, MessageSentEvent
+from ceres.event import MessageReceivedEvent, MessageSentEvent
 
 # In a component...
 

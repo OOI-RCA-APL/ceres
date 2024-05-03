@@ -17,7 +17,7 @@ const engine = useEngine()
 const query = useQuery({
   queryKey: computed(() => ['render', address]),
   queryFn: async () => {
-    return await engine.systems.render(address)
+    return await engine.components.render(address)
   },
 })
 

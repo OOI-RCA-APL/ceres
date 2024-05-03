@@ -4,7 +4,7 @@ from collections.abc import AsyncIterator
 from typing import Any, AsyncIterable, Callable, Literal, Sequence, TypeVar, cast, final, overload
 from weakref import WeakSet
 
-from typing_extensions import Self
+from typing_extensions import Self, override
 
 _T = TypeVar("_T")
 _O = TypeVar("_O")
@@ -30,9 +30,11 @@ class StreamReader(AsyncIterator[_T]):
     def __len__(self) -> int:
         return self._queue.qsize()
 
+    @override
     async def __anext__(self) -> _T:
         return await self.get()
 
+    @override
     def __aiter__(self) -> AsyncIterator[_T]:
         self.attach()
         return self
@@ -96,7 +98,7 @@ class Stream(AsyncIterable[_T]):
             source._derived.add(self)
         self._readers: "WeakSet[StreamReader[_T]]" = WeakSet()
         self._derived: "WeakSet[Stream[_T]]" = WeakSet()
-        self._of: "type[_T] | None" = None
+        self._every: "type[_T] | None" = None
         self._filter: "Callable[[_T], bool] | None" = None
         self._map: "Callable[[_T], Any] | None" = None
 
@@ -104,6 +106,7 @@ class Stream(AsyncIterable[_T]):
     def readers(self) -> Sequence[StreamReader[_T]]:
         return list(self._readers)
 
+    @override
     def __aiter__(self) -> StreamReader[_T]:
         return self.read()
 
@@ -114,24 +117,24 @@ class Stream(AsyncIterable[_T]):
         return Stream(self)
 
     @overload
-    def of(self, of: type[_O]) -> "Stream[_O]": ...
+    def every(self, cls: type[_O], /) -> "Stream[_O]": ...
 
     @overload
-    def of(self, of: _O) -> "Stream[_O]": ...
+    def every(self, cls: _O, /) -> "Stream[_O]": ...
 
-    def of(self, of: _O | type[_O]) -> "Stream[_O]":
+    def every(self, cls: _O | type[_O], /) -> "Stream[_O]":
         derived = cast(Stream[_O], Stream(self))
-        derived._of = of  # type: ignore
+        derived._every = cls  # type: ignore
         return derived
 
-    def filter(self, filter: Callable[[_T], bool]) -> "Stream[_T]":
+    def filter(self, filter: Callable[[_T], bool], /) -> "Stream[_T]":
         derived = Stream(self)
         derived._filter = filter
         return derived
 
-    def map(self, map: Callable[[_T], _O]) -> "Stream[_O]":
+    def map(self, transform: Callable[[_T], _O], /) -> "Stream[_O]":
         derived = cast(Stream[_O], Stream(self))
-        derived._map = map  # type: ignore
+        derived._map = transform  # type: ignore
         return derived
 
     def has_reader(self, reader: StreamReader[Any]) -> bool:
@@ -145,7 +148,7 @@ class Stream(AsyncIterable[_T]):
 
     def _put(self, value: _T) -> None:
         try:
-            if self._of is not None and not isinstance(value, self._of):
+            if self._every is not None and not isinstance(value, self._every):
                 return
             if self._filter is not None and not self._filter(value):
                 return

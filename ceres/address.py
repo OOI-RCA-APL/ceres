@@ -6,7 +6,7 @@ from pydantic_core import CoreSchema
 from pydantic_core.core_schema import no_info_after_validator_function
 from typing_extensions import Literal, Self, override
 
-from ceres.internal.utilities import NAME_PATTERN
+from ceres._internal.utilities import NAME_PATTERN
 
 if TYPE_CHECKING:
     from sqlalchemy import ColumnElement, SQLColumnExpression
@@ -68,6 +68,7 @@ class AddressSelector(str):
 
         return str.__new__(cls, value)
 
+    @override
     def __repr__(self) -> str:
         return f"{type(self).__name__}({repr(str(self))})"
 
@@ -297,6 +298,7 @@ class DynamicAddress(AddressSelector):
 
         return type(self)(f"{self}{'.' if not self.is_root else ''}{other.strip('.')}")
 
+    @override
     def as_absolute(self, root: "Address") -> "Address":
         root = Address(root)
         if self.is_absolute:

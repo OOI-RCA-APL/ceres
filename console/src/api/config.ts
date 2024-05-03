@@ -6,16 +6,16 @@ import { defineStore } from 'pinia'
 import { computed } from 'vue'
 import Zod from 'zod'
 
-export type SystemConfig = {
+export type ComponentConfig = {
   name: string
-  class: string
-  subsystems: SystemConfig[]
+  component: string
+  subcomponents: ComponentConfig[]
 }
 
-export const SystemConfigModel: Zod.ZodType<SystemConfig> = Zod.object({
+export const ComponentConfigModel: Zod.ZodType<ComponentConfig> = Zod.object({
   name: NameStrModel,
-  class: Zod.string(),
-  subsystems: Zod.lazy(() => Zod.array(SystemConfigModel)),
+  component: Zod.string(),
+  subcomponents: Zod.lazy(() => Zod.array(ComponentConfigModel)),
 })
 
 export type DatabaseType = Zod.infer<typeof DatabaseTypeModel>
@@ -73,8 +73,8 @@ export const ConsoleConfigModel = Zod.object({
 export type Config = Zod.infer<typeof ConfigModel>
 export const ConfigModel = Zod.object({
   name: NameStrModel,
-  class: Zod.string(),
-  subsystems: Zod.array(SystemConfigModel),
+  component: Zod.string(),
+  subcomponents: Zod.array(ComponentConfigModel),
   server: ServerConfigModel,
   console: ConsoleConfigModel,
   database: DatabaseConfigModel,

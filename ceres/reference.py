@@ -12,16 +12,16 @@ from typing import (
 from pydantic import GetCoreSchemaHandler
 from pydantic_core import CoreSchema
 from pydantic_core.core_schema import no_info_after_validator_function
-from typing_extensions import Self
+from typing_extensions import Self, overload, override
 
-from ceres.address import Address, DynamicAddress
-from ceres.component import Component
-from ceres.internal.utilities import (
+from ceres._internal.utilities import (
     get_type_adapter,
     lenient_isinstance,
     lenient_issubclass,
     strify,
 )
+from ceres.address import Address, DynamicAddress
+from ceres.component import Component
 
 _reference_static_cls_generic_cache: dict[type | None, type["Reference"]] = {}
 _reference_dynamic_cls_generic_cache: dict[tuple[type | None, type], type["Reference"]] = {}
@@ -32,9 +32,11 @@ class ReferenceProxiedMethods:
 
         def __reference_access__(self) -> Any: ...
 
+    @override
     def __dir__(self) -> list[str]:
         return dir(self.__reference_access__())
 
+    @override
     def __str__(self) -> str:
         return self.__repr__()
 
@@ -53,6 +55,7 @@ class ReferenceProxiedMethods:
     def __floor__(self) -> Any:
         return self.__reference_access__().__floor__()
 
+    @override
     def __format__(self, __format_spec: Any) -> Any:
         return format(self.__reference_access__(), __format_spec)
 
@@ -71,9 +74,11 @@ class ReferenceProxiedMethods:
     def __le__(self, other: Any) -> Any:
         return self.__reference_access__() <= other
 
+    @override
     def __eq__(self, other: Any) -> Any:
         return self.__reference_access__() == other
 
+    @override
     def __ne__(self, other: Any) -> Any:
         return self.__reference_access__() != other
 
@@ -83,6 +88,7 @@ class ReferenceProxiedMethods:
     def __ge__(self, other: Any):
         return self.__reference_access__() >= other
 
+    @override
     def __hash__(self) -> Any:
         return hash(self.__reference_access__())
 
@@ -299,9 +305,11 @@ class ReferenceProxiedMethods:
     def __deepcopy__(self, memo: Any) -> NoReturn:
         raise NotImplementedError()
 
+    @override
     def __reduce__(self) -> NoReturn:
         raise NotImplementedError()
 
+    @override
     def __reduce_ex__(self, protocol: Any) -> NoReturn:
         raise NotImplementedError()
 
@@ -352,7 +360,9 @@ class Reference:
     def validate(cls, value: Any) -> Self | None:
         if value is None:
             return value
-        if lenient_isinstance(value, (Component, Reference, DynamicAddress, str)):
+        if isinstance(value, Reference):
+            return cls(value.__reference_target__, value.__reference_root__)
+        if isinstance(value, (Component, DynamicAddress, str)):
             return cls(value)
 
         return cls(
@@ -363,7 +373,7 @@ class Reference:
 
     def __init__(
         self,
-        target: Union[Component, "Reference", DynamicAddress, str] | None = None,
+        target: Union[Component, "Reference", DynamicAddress, str],
         root: Union[Component, "Reference"] | None = None,
     ) -> None:  # type: ignore
         if not lenient_isinstance(target, (Component, Reference, Address, str)):
@@ -379,10 +389,13 @@ class Reference:
                 raise ValueError(f"expected component, got {strify(type(target))}")
 
             if self.__reference_constraint__ is not None:
-                if not lenient_isinstance(target.unref(), self.__reference_constraint__):
+                instance = unref(target)
+                if instance is not None and not lenient_isinstance(
+                    instance, self.__reference_constraint__
+                ):
                     raise ValueError(
                         f"expected component type {strify(type(self).__reference_constraint__)}, "
-                        f"got {strify(type(target))}"
+                        f"got {strify(type(instance))}"
                     )
 
         if TYPE_CHECKING:
@@ -394,16 +407,21 @@ class Reference:
 
         self.__reference_sync_dynamic_class__()
 
+    @override
     def __repr__(self) -> str:
         argument = self.__reference_get__()
         if argument is None:
-            argument = str(self.__reference_target__)
+            if isinstance(self.__reference_target__, DynamicAddress):
+                argument = str(self.__reference_target__)
+            else:
+                argument = self.__reference_target__
 
         return f"{type(self).__name__}({repr(argument)})"
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self.__reference_get__(), name)
 
+    @override
     def __setattr__(self, name: str, value: Any) -> None:
         if hasattr(type(self), name) or hasattr(self, name):
             object.__setattr__(self, name, value)
@@ -461,22 +479,67 @@ class Reference:
         root = self.__reference_root__
 
         if not lenient_isinstance(target, DynamicAddress):
-            return target.unref()
+            return target.__unref__()
 
         if root is not None and lenient_isinstance(target, DynamicAddress):
             root = cast(Component, root)
-            match = root.system.get_system(target)
-            if match is not None:
-                return match.component
+            return root.system.get_component(target)
 
         return None
 
     def __reference_access__(self) -> Any:
-        return self.unref()
+        return self.__unref__()
 
-    def unref(self) -> Component | None:
+    def __unref__(self) -> Component | None:
         self.__reference_sync_dynamic_class__()
         return self.__reference_get__()
+
+
+_ComponentT = TypeVar("_ComponentT", bound=Component)
+
+MaybeReference = Component | Reference
+
+
+@overload
+def unref(component: _ComponentT, /) -> _ComponentT: ...
+
+
+@overload
+def unref(component: _ComponentT | None, /) -> _ComponentT | None: ...
+
+
+@overload
+def unref(component: MaybeReference | None, /) -> Component | None: ...
+
+
+def unref(component: MaybeReference | None, /) -> Component | None:
+    if component is None:
+        return None
+
+    return component.__unref__()
+
+
+@overload
+def ref(
+    target: str | DynamicAddress | Component | Reference, cast: type[_ComponentT], /
+) -> _ComponentT: ...
+
+
+@overload
+def ref(
+    target: str | DynamicAddress | Component | Reference, cast: None = None, /
+) -> Component: ...
+
+
+def ref(
+    target: str | DynamicAddress | Component | Reference,
+    constraint: type[_ComponentT] | None = None,
+    /,
+) -> _ComponentT:
+    if isinstance(target, Reference):
+        return cast(_ComponentT, target)
+
+    return cast(_ComponentT, Reference[constraint](target))
 
 
 _T = TypeVar("_T")

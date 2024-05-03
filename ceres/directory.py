@@ -3,13 +3,13 @@ import shutil
 from os import PathLike
 from pathlib import Path
 from tempfile import gettempdir
-from typing import IO, TYPE_CHECKING, Any, Iterable, Union, final, overload
+from typing import IO, TYPE_CHECKING, Any, Iterable, Union, overload
 from uuid import uuid4
 
 from pydantic import GetCoreSchemaHandler
 from pydantic_core import CoreSchema
 from pydantic_core.core_schema import no_info_after_validator_function
-from typing_extensions import Self
+from typing_extensions import Self, final, override
 
 if TYPE_CHECKING:
     from _typeshed import OpenBinaryMode as OpenBinaryMode
@@ -70,21 +70,26 @@ class Directory(PathLike[str]):
     def temporary(self) -> bool:
         return self.__temporary
 
+    @override
     def __fspath__(self) -> str:
         return self.__path.__fspath__()
 
     def __truediv__(self, path: StrPath) -> Path:
         return self.path / path
 
+    @override
     def __repr__(self) -> str:
         return f"{type(self).__name__}({repr(self.__path.__fspath__())})"
 
+    @override
     def __str__(self) -> str:
         return self.__path.__fspath__()
 
+    @override
     def __eq__(self, /, other: object) -> bool:
         return isinstance(other, Directory) and self.path == other.path
 
+    @override
     def __ne__(self, /, other: object) -> bool:
         return not self.__eq__(other)
 

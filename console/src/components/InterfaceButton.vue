@@ -17,7 +17,7 @@ const engine = useEngine()
 const request = useQuery({
   queryKey: computed(() => ['action', element.address, element.action]),
   queryFn: async () => {
-    const procedure = await engine.systems.getProcedure(element.address, element.action)
+    const procedure = await engine.components.getProcedure(element.address, element.action)
     if (procedure?.type === 'action') {
       return procedure
     }

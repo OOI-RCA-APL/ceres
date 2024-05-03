@@ -3,6 +3,7 @@ import math
 from abc import abstractmethod
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Iterable, Literal, Sequence
+from typing_extensions import override
 
 from apscheduler.triggers.cron import CronTrigger as InternalCronTrigger
 from apscheduler.triggers.interval import IntervalTrigger as BaseInternalIntervalTrigger
@@ -42,6 +43,7 @@ class CronSchedule(BaseSchedule):
 
         return value
 
+    @override
     def as_trigger(self) -> "CronTrigger":
         return CronTrigger(self)
 
@@ -90,6 +92,7 @@ class IntervalSchedule(BaseSchedule):
 
         return max
 
+    @override
     def as_trigger(self) -> "IntervalTrigger":
         return IntervalTrigger(self)
 
@@ -98,12 +101,14 @@ class OrSchedule(BaseSchedule):
     type: Literal[ScheduleType.OR] = ScheduleType.OR
     schedules: Sequence["Schedule"]
 
+    @override
     def __or__(self, other: "Schedule") -> "OrSchedule":
         if isinstance(other, OrSchedule):
             return OrSchedule(schedules=[*self.schedules, *other.schedules])
 
         return OrSchedule(schedules=[*self.schedules, other])
 
+    @override
     def as_trigger(self) -> "OrTrigger":
         return OrTrigger(self)
 
@@ -158,6 +163,7 @@ class CronTrigger(Trigger):
     def schedule(self) -> CronSchedule:
         return self.__schedule
 
+    @override
     def get_next_fire_time(
         self,
         previous: datetime | None = None,
@@ -188,6 +194,7 @@ class IntervalTrigger(Trigger):
     def schedule(self) -> IntervalSchedule:
         return self.__schedule
 
+    @override
     def get_next_fire_time(
         self,
         previous: datetime | None = None,
@@ -209,6 +216,7 @@ class OrTrigger(Trigger):
     def schedule(self) -> OrSchedule:
         return self.__schedule
 
+    @override
     def get_next_fire_time(
         self,
         previous: datetime | None = None,
@@ -262,6 +270,7 @@ class InternalIntervalTrigger(BaseInternalIntervalTrigger):
         self.max = max
         self.start_date = start_date or utc() - timedelta(microseconds=1)
 
+    @override
     def get_next_fire_time(
         self,
         previous_fire_time: datetime | None = None,

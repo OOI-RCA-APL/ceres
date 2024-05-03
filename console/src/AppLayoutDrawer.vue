@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import AppLayoutDrawerSystem from '@/AppLayoutDrawerSystem.vue'
+import AppLayoutDrawerComponent from '@/AppLayoutDrawerComponent.vue'
 import { Address } from '@/api/address'
 import { useEngine } from '@/api/engine'
 import ResizeHandle from '@/components/ResizeHandle.vue'
@@ -23,7 +23,7 @@ const route = useRoute()
 const preferences = usePreferences()
 
 watchEffect(() => {
-  console.log(engine.systems.root?.name)
+  console.log(engine.components.root?.name)
 })
 
 function clearLocalStorage() {
@@ -167,10 +167,10 @@ function promptReload() {
           </q-item>
           <template v-if="engine.auth.user != null">
             <q-separator />
-            <app-layout-drawer-system
-              v-if="engine.systems.root != null"
+            <app-layout-drawer-component
+              v-if="engine.components.root != null"
               :address="root"
-              :system="(engine.systems.root as any)"
+              :component="(engine.components.root as any)"
             />
           </template>
         </q-list>

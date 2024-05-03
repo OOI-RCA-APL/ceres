@@ -3,9 +3,9 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import Iterator, Literal, NoReturn
 
-from typing_extensions import Self
+from typing_extensions import Self, override
 
-from ceres.internal.utilities import decode_td
+from ceres._internal.utilities import decode_td
 
 
 @dataclass
@@ -150,9 +150,11 @@ class Attempts(Iterator[Attempt]):
     def exhausted(self) -> bool:
         return self.__index > self.__max
 
+    @override
     def __iter__(self) -> Self:
         return self
 
+    @override
     def __next__(self) -> Attempt:
         if self.completed or self.exhausted:
             raise StopIteration

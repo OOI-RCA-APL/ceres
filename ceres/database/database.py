@@ -1,99 +1,60 @@
 import csv
-import re
 import shutil
 import sqlite3
 import traceback
 from abc import abstractmethod
 from asyncio import Lock as AsyncLock
-from contextlib import contextmanager
+from typing import TYPE_CHECKING, Any, Iterable
+
+from sqlalchemy.ext.asyncio import AsyncSession
+from typing_extensions import Self, override
+
+from ceres._internal.database.utilities import wrap_database_errors
+from ceres.database.enums import DatabaseType
+from ceres.entity import BaseEntity, BaseEntityRow
+
+if TYPE_CHECKING:
+    from ceres.database.database import Database
+else:
+    Database = object
+
+
 from pathlib import Path
 from sqlite3 import Connection as SQLiteConnection
-from sqlite3 import IntegrityError as SQLiteIntegrityError
 from tempfile import NamedTemporaryFile, gettempdir
 from typing import (
     TYPE_CHECKING,
-    Any,
     Callable,
-    Iterable,
     Iterator,
     Mapping,
     Sequence,
-    Type,
     TypeVar,
     final,
 )
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, ValidationError
+from pydantic import ValidationError
 from sqlalchemy import (
     URL,
     AsyncAdaptedQueuePool,
     Connection,
-    Delete,
-    Select,
-    Update,
     delete,
     event,
-    func,
     inspect,
-    select,
     text,
-    update,
 )
-from sqlalchemy.exc import IntegrityError, SQLAlchemyError
-from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession, create_async_engine
-from typing_extensions import Self, Unpack, override
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, create_async_engine
 
-from ceres.address import Address
-from ceres.alert import Alert, AlertUpdate
+from ceres._internal.auth import get_password_hash, verify_password, verify_password_hash
+from ceres._internal.utilities import PathLike, strlist
 from ceres.config import DatabaseConfig, PostgresDatabaseConfig, SQLiteDatabaseConfig
 from ceres.data import PasswordHash, jsonify
-from ceres.database.enums import DatabaseType, ItemType
-from ceres.errors import (
-    AlreadyExistsError,
-    DatabaseInitError,
-    DatabaseLoadError,
-    DatabaseUnexpectedError,
-    Failure,
-)
-from ceres.filter import (
-    AlertFilter,
-    AlertFilterArgs,
-    LogEntryFilter,
-    LogEntryFilterArgs,
-    MessageFilter,
-    MessageFilterArgs,
-    StatisticsFilter,
-    StatisticsFilterArgs,
-    UserFilter,
-    UserFilterArgs,
-)
-from ceres.internal.auth import get_password_hash, verify_password, verify_password_hash
-from ceres.internal.database.entities import (
-    AlertEntity,
-    Entity,
-    LogEntryEntity,
-    MessageEntity,
-    StoreEntity,
-    UserEntity,
-)
-from ceres.internal.utilities import PathLike, get_type_adapter, strlist
-from ceres.logs import LogEntry, LogEntryUpdate
-from ceres.message import Message, MessageUpdate
-from ceres.statistics import LevelStatistics, Statistics
-from ceres.store import Store
+from ceres.database.enums import EntityType
+from ceres.errors import DatabaseInitError, DatabaseLoadError, Failure
 from ceres.threading import spawn
-from ceres.timing import utc
-from ceres.user import User, UserCreate, UserUpdate
-
-if TYPE_CHECKING:
-    from ceres.system import Item
-else:
-    Item = object
 
 _T = TypeVar("_T")
-_Statement = Select[tuple[Any, ...]] | Update | Delete
-_ItemT = TypeVar("_ItemT", bound=Item)
+_EntityT = TypeVar("_EntityT", bound=BaseEntity)
 
 
 class Database:
@@ -136,7 +97,7 @@ class Database:
     def ddl(self) -> list[str]:
         commands: list[str] = []
 
-        for cls in Entity.get_entity_classes():
+        for cls in BaseEntityRow.get_entity_row_classes():
             commands.extend(cls.get_ddl(self.__engine.sync_engine))
 
         return commands
@@ -152,23 +113,23 @@ class Database:
     def _pre_configure_engine(self, engine: AsyncEngine) -> None: ...
 
     @abstractmethod
-    async def dump_csv(self, path: PathLike, item_type: ItemType) -> None: ...
+    async def dump_csv(self, path: PathLike, entity_type: EntityType) -> None: ...
 
     @abstractmethod
-    async def load_csv(self, path: PathLike, item_type: ItemType) -> None: ...
+    async def load_csv(self, path: PathLike, entity_type: EntityType) -> None: ...
 
     @abstractmethod
     async def dump_sqlite(
         self,
         path: PathLike,
-        item_types: Sequence[ItemType] | None = None,
+        item_types: Sequence[EntityType] | None = None,
     ) -> None: ...
 
     @abstractmethod
     async def load_sqlite(
         self,
         path: PathLike,
-        item_types: Sequence[ItemType] | None = None,
+        item_types: Sequence[EntityType] | None = None,
     ) -> None: ...
 
     def _create_base_engine(self) -> AsyncEngine:
@@ -210,15 +171,15 @@ class Database:
         return AsyncSession(self.__engine, expire_on_commit=False)
 
     def connect(self) -> AsyncConnection:
-        with _wrap_database_errors():
+        with wrap_database_errors():
             return self.__engine.connect()
 
     async def dispose(self) -> None:
-        with _wrap_database_errors():
+        with wrap_database_errors():
             await self.__engine.dispose()
 
     async def init(self) -> AsyncSession:
-        with _wrap_database_errors():
+        with wrap_database_errors():
             if self.__completed_init_successfully:
                 return self.session()
 
@@ -238,9 +199,9 @@ class Database:
             return self.session()
 
     async def clear(self) -> None:
-        with _wrap_database_errors():
+        with wrap_database_errors():
             async with self.__engine.begin() as connection:
-                for cls in reversed(Entity.get_entity_classes()):
+                for cls in reversed(BaseEntityRow.get_entity_row_classes()):
                     await connection.execute(delete(cls))
 
                 await connection.commit()
@@ -266,421 +227,16 @@ class Database:
 
         return await spawn(execute)
 
-    async def __maybe_hash_password(self, password: str) -> PasswordHash | None:
+    async def __maybe_hash_password(self, password: str) -> PasswordHash:
         if verify_password_hash(password):
             return password
 
         return await self.hash_password(password)
 
-    async def get_users(
-        self,
-        filter: UserFilter | None = None,
-        /,
-        **kwargs: Unpack[UserFilterArgs],
-    ) -> list[User]:
-        filter = UserFilter(**kwargs).with_defaults(filter)
-        statement = select(*UserEntity.__table__.columns.values())
-        statement = filter.apply(statement, self.type)
-        return await self.__execute_and_get_many(statement, User)
-
-    async def get_user(
-        self,
-        filter: UserFilter | None = None,
-        /,
-        **kwargs: Unpack[UserFilterArgs],
-    ) -> User | None:
-        users = await self.get_users(filter, **{**kwargs, "limit": 1})
-        return users[0] if users else None
-
-    async def count_users(
-        self,
-        filter: UserFilter | None = None,
-        **kwargs: Unpack[UserFilterArgs],
-    ) -> int:
-        filter = UserFilter(**kwargs).with_defaults(filter)
-        statement = select(func.count(UserEntity.id))
-        statement = filter.apply(statement, self.type).order_by(None)
-        return await self.__execute_and_get_one(statement, int) or 0
-
-    async def create_user(self, data: UserCreate) -> User:
-        fields = {**data.__dict__}
-        fields["password"] = await self.__maybe_hash_password(fields["password"])
-        data = User(**fields)
-        await self.__create(UserEntity, data)
-        return data
-
-    async def update_users(self, filter: UserFilter, assign: UserUpdate) -> int:
-        if not assign:
-            return 0
-
-        fields = {**assign}
-        if "password" in fields:
-            fields["password"] = await self.__maybe_hash_password(fields["password"])
-
-        if not fields:
-            return 0
-
-        statement = update(UserEntity).values(fields)
-        statement = filter.apply(statement, self.type)
-        return await self.__execute_and_get_count(statement)
-
-    async def update_user(self, filter: UserFilter, assign: UserUpdate) -> User | None:
-        if not assign:
-            return None
-
-        fields = {**assign}
-        if "password" in fields:
-            fields["password"] = await self.__maybe_hash_password(fields["password"])
-
-        statement = update(UserEntity).values(fields).returning(UserEntity)
-        statement = filter.with_overrides(UserFilter(limit=1)).apply(statement, self.type)
-        return await self.__execute_and_get_one(statement, User)
-
-    async def delete_users(
-        self,
-        filter: UserFilter | None = None,
-        **kwargs: Unpack[UserFilterArgs],
-    ) -> int:
-        filter = UserFilter(**kwargs).with_defaults(filter)
-        statement = delete(UserEntity)
-        statement = filter.apply(statement, self.type)
-        return await self.__execute_and_get_count(statement)
-
-    async def delete_user(
-        self,
-        filter: UserFilter | None = None,
-        **kwargs: Unpack[UserFilterArgs],
-    ) -> User | None:
-        filter = UserFilter(**kwargs).with_defaults(filter)
-        statement = delete(UserEntity).returning(UserEntity)
-        statement = filter.with_overrides(UserFilter(limit=1)).apply(statement, self.type)
-        return await self.__execute_and_get_one(statement, User)
-
-    #
-    # Messages
-    #
-
-    async def get_messages(
-        self,
-        filter: MessageFilter | None = None,
-        **kwargs: Unpack[MessageFilterArgs],
-    ) -> list[Message]:
-        filter = MessageFilter(**kwargs).with_defaults(filter)
-        statement = select(*MessageEntity.__table__.columns.values())
-        statement = filter.apply(statement, self.type)
-        return await self.__execute_and_get_many(statement, Message)
-
-    async def get_message(
-        self,
-        filter: MessageFilter | None = None,
-        **kwargs: Unpack[MessageFilterArgs],
-    ) -> Message | None:
-        messages = await self.get_messages(filter, **{**kwargs, "limit": 1})
-        return messages[0] if messages else None
-
-    async def count_messages(
-        self,
-        filter: MessageFilter | None = None,
-        **kwargs: Unpack[MessageFilterArgs],
-    ) -> int:
-        filter = MessageFilter(**kwargs).with_defaults(filter)
-        statement = select(func.count(MessageEntity.id))
-        statement = filter.apply(statement, self.type).order_by(None)
-        return await self.__execute_and_get_one(statement, int) or 0
-
-    async def create_message(self, data: Message) -> Message:
-        await self.__create(MessageEntity, data)
-        return data
-
-    async def update_messages(self, filter: MessageFilter, assign: MessageUpdate) -> int:
-        if not assign:
-            return 0
-
-        statement = update(MessageEntity).values(assign)
-        statement = filter.apply(statement, self.type)
-        return await self.__execute_and_get_count(statement)
-
-    async def update_message(self, filter: MessageFilter, assign: MessageUpdate) -> Message | None:
-        if not assign:
-            return None
-
-        statement = update(MessageEntity).values(assign).returning(MessageEntity)
-        statement = filter.with_overrides(MessageFilter(limit=1)).apply(statement, self.type)
-        return await self.__execute_and_get_one(statement, Message)
-
-    async def delete_messages(
-        self,
-        filter: MessageFilter | None = None,
-        **kwargs: Unpack[MessageFilterArgs],
-    ) -> int:
-        filter = MessageFilter(**kwargs).with_defaults(filter)
-        statement = delete(MessageEntity)
-        statement = filter.apply(statement, self.type)
-        return await self.__execute_and_get_count(statement)
-
-    async def delete_message(
-        self,
-        filter: MessageFilter | None = None,
-        **kwargs: Unpack[MessageFilterArgs],
-    ) -> Message | None:
-        filter = MessageFilter(**kwargs).with_defaults(filter)
-        statement = delete(MessageEntity).returning(MessageEntity)
-        statement = filter.with_overrides(MessageFilter(limit=1)).apply(statement, self.type)
-        return await self.__execute_and_get_one(statement, Message)
-
-    #
-    # Alerts
-    #
-
-    async def get_alerts(
-        self,
-        filter: AlertFilter | None = None,
-        **kwargs: Unpack[AlertFilterArgs],
-    ) -> list[Alert]:
-        filter = AlertFilter(**kwargs).with_defaults(filter)
-
-        statement = select(*AlertEntity.__table__.columns.values())
-        statement = filter.apply(statement, self.type)
-        return await self.__execute_and_get_many(statement, Alert)
-
-    async def get_alert(
-        self,
-        filter: AlertFilter | None = None,
-        **kwargs: Unpack[AlertFilterArgs],
-    ) -> Alert | None:
-        alerts = await self.get_alerts(filter, **{**kwargs, "limit": 1})
-        return alerts[0] if alerts else None
-
-    async def count_alerts(
-        self,
-        filter: AlertFilter | None = None,
-        **kwargs: Unpack[AlertFilterArgs],
-    ) -> int:
-        filter = AlertFilter(**kwargs).with_defaults(filter)
-        statement = select(func.count(AlertEntity.id))
-        statement = filter.apply(statement, self.type).order_by(None)
-        return await self.__execute_and_get_one(statement, int) or 0
-
-    async def create_alert(self, data: Alert) -> Alert:
-        await self.__create(AlertEntity, data)
-        return data
-
-    async def update_alerts(self, filter: AlertFilter, assign: AlertUpdate) -> int:
-        if not assign:
-            return 0
-
-        statement = update(AlertEntity).values(assign)
-        statement = filter.apply(statement, self.type)
-        return await self.__execute_and_get_count(statement)
-
-    async def update_alert(self, filter: AlertFilter, assign: AlertUpdate) -> Alert | None:
-        if not assign:
-            return None
-
-        statement = update(AlertEntity).values(assign).returning(AlertEntity)
-        statement = filter.with_overrides(AlertFilter(limit=1)).apply(statement, self.type)
-        return await self.__execute_and_get_one(statement, Alert)
-
-    async def delete_alerts(
-        self,
-        filter: AlertFilter | None = None,
-        **kwargs: Unpack[AlertFilterArgs],
-    ) -> int:
-        filter = AlertFilter(**kwargs).with_defaults(filter)
-        statement = delete(AlertEntity)
-        statement = filter.apply(statement, self.type)
-        return await self.__execute_and_get_count(statement)
-
-    async def delete_alert(
-        self,
-        filter: AlertFilter | None = None,
-        **kwargs: Unpack[AlertFilterArgs],
-    ) -> Alert | None:
-        filter = AlertFilter(**kwargs).with_defaults(filter)
-        statement = delete(AlertEntity).returning(AlertEntity)
-        statement = filter.with_overrides(AlertFilter(limit=1)).apply(statement, self.type)
-        return await self.__execute_and_get_one(statement, Alert)
-
-    #
-    # Log Entries
-    #
-
-    async def get_log_entries(
-        self,
-        filter: LogEntryFilter | None = None,
-        **kwargs: Unpack[LogEntryFilterArgs],
-    ) -> list[LogEntry]:
-        filter = LogEntryFilter(**kwargs).with_defaults(filter)
-
-        statement = select(*LogEntryEntity.__table__.columns.values())
-        statement = filter.apply(statement, self.type)
-        return await self.__execute_and_get_many(statement, LogEntry)
-
-    async def get_log_entry(
-        self,
-        filter: LogEntryFilter | None = None,
-        **kwargs: Unpack[LogEntryFilterArgs],
-    ) -> LogEntry | None:
-        alerts = await self.get_log_entries(filter, **{**kwargs, "limit": 1})
-        return alerts[0] if alerts else None
-
-    async def count_log_entries(
-        self,
-        filter: LogEntryFilter | None = None,
-        **kwargs: Unpack[LogEntryFilterArgs],
-    ) -> int:
-        filter = LogEntryFilter(**kwargs).with_defaults(filter)
-        statement = select(func.count(LogEntryEntity.id))
-        statement = filter.apply(statement, self.type).order_by(None)
-        return await self.__execute_and_get_one(statement, int) or 0
-
-    async def create_log_entry(self, data: LogEntry) -> LogEntry:
-        await self.__create(LogEntryEntity, data)
-        return data
-
-    async def update_log_entries(self, filter: LogEntryFilter, assign: LogEntryUpdate) -> int:
-        if not assign:
-            return 0
-
-        statement = update(LogEntryEntity).values(assign)
-        statement = filter.apply(statement, self.type)
-        return await self.__execute_and_get_count(statement)
-
-    async def update_log_entry(
-        self,
-        filter: LogEntryFilter,
-        assign: LogEntryUpdate,
-    ) -> LogEntry | None:
-        if not assign:
-            return None
-
-        statement = update(LogEntryEntity).values(assign).returning(LogEntryEntity)
-        statement = filter.with_overrides(LogEntryFilter(limit=1)).apply(statement, self.type)
-        return await self.__execute_and_get_one(statement, LogEntry)
-
-    async def delete_log_entries(
-        self,
-        filter: LogEntryFilter | None = None,
-        **kwargs: Unpack[LogEntryFilterArgs],
-    ) -> int:
-        filter = LogEntryFilter(**kwargs).with_defaults(filter)
-        statement = delete(LogEntryEntity)
-        statement = filter.apply(statement, self.type)
-        return await self.__execute_and_get_count(statement)
-
-    async def delete_log_entry(
-        self,
-        filter: LogEntryFilter | None = None,
-        **kwargs: Unpack[LogEntryFilterArgs],
-    ) -> LogEntry | None:
-        filter = LogEntryFilter(**kwargs).with_defaults(filter)
-        statement = delete(LogEntryEntity).returning(LogEntryEntity)
-        statement = filter.with_overrides(LogEntryFilter(limit=1)).apply(statement, self.type)
-        return await self.__execute_and_get_one(statement, LogEntry)
-
-    #
-    # Statistics
-    #
-
-    async def get_statistics(
-        self,
-        filter: StatisticsFilter | None = None,
-        /,
-        *,
-        relative_to: Address = Address.root(),
-        **kwargs: Unpack[StatisticsFilterArgs],
-    ) -> list[Statistics]:
-        filter = StatisticsFilter(**kwargs).with_defaults(filter)
-
-        statement = select(AlertEntity.address, AlertEntity.level, func.count()).group_by(
-            AlertEntity.address,
-            AlertEntity.level,
-        )
-
-        if filter.within is not None:
-            statement = statement.where(AlertEntity.timestamp >= utc() - filter.within)
-        if filter.after is not None:
-            statement = statement.where(AlertEntity.timestamp >= filter.after)
-        if filter.before is not None:
-            statement = statement.where(AlertEntity.timestamp < filter.before)
-
-        results: dict[Address, Statistics] = {}
-
-        with _wrap_database_errors():
-            async with await self.init() as session:
-                for address, level, count in await session.execute(statement):
-                    address: Address
-                    for ancestor in address.path:
-                        if filter.root is not None:
-                            if not filter.root.contains(ancestor):
-                                continue
-
-                        current = results.setdefault(ancestor, Statistics(address=ancestor))
-                        current.alerts.count += count
-                        for entry in current.alerts.levels:
-                            if entry.level == level:
-                                entry.count += count
-                                break
-                        else:
-                            current.alerts.levels.append(LevelStatistics(level=level, count=count))
-                            current.alerts.levels.sort(key=lambda entry: entry.level)
-
-        return list(
-            result
-            for result in results.values()
-            if filter.address is None or filter.address.matches(result.address, relative_to)
-        )
-
     async def __run_sync(self, callback: Callable[[Connection], _T]) -> _T:
-        with _wrap_database_errors():
+        with wrap_database_errors():
             async with self.connect() as connection:
                 return await connection.run_sync(callback)
-
-    async def __execute_and_get_many(
-        self,
-        statement: _Statement,
-        model: Type[_T],
-    ) -> list[_T]:
-        with _wrap_database_errors():
-            async with await self.init() as session:
-                entities = await session.execute(statement)
-                await session.commit()
-
-            if not entities:
-                return []
-
-            return get_type_adapter(list[model]).validate_python(entities, from_attributes=True)
-
-    async def __execute_and_get_one(
-        self,
-        statement: _Statement,
-        model: Type[_T],
-    ) -> _T | None:
-        with _wrap_database_errors():
-            async with await self.init() as session:
-                rows = await session.execute(statement)
-                entity = rows.scalar()
-                await session.commit()
-
-        if entity is None:
-            return None
-
-        return get_type_adapter(model).validate_python(entity, from_attributes=True)
-
-    async def __execute_and_get_count(self, statement: Update | Delete) -> int:
-        with _wrap_database_errors():
-            async with await self.init() as session:
-                rows = await session.execute(statement)
-                await session.commit()
-                return rows.rowcount
-
-    async def __create(self, entity_cls: Type[Entity], data: BaseModel) -> Entity:
-        entity = entity_cls(**data.__dict__)
-        with _wrap_database_errors():
-            async with await self.init() as session:
-                session.add(entity)
-                await session.commit()
-                return entity
 
 
 @final
@@ -786,7 +342,7 @@ class SQLiteDatabase(Database):  #
             connection.exec_driver_sql("BEGIN IMMEDIATE")
 
     @override
-    async def load_csv(self, path: PathLike, item_type: ItemType) -> None:
+    async def load_csv(self, path: PathLike, entity_type: EntityType) -> None:
         path = _prepare_read_path(path)
 
         await self.init()
@@ -795,11 +351,11 @@ class SQLiteDatabase(Database):  #
             with sqlite3.connect(self.path) as connection:
                 connection.execute("BEGIN")
 
-                columns = _get_columns_joined(item_type)
-                placeholders = ", ".join(":" + column for column in _get_columns(item_type))
-                statement = f"INSERT INTO {item_type.table} ({columns}) VALUES ({placeholders})"
+                columns = _get_columns_joined(entity_type)
+                placeholders = ", ".join(":" + column for column in _get_columns(entity_type))
+                statement = f"INSERT INTO {entity_type.table} ({columns}) VALUES ({placeholders})"
 
-                for item in _read_csv_items(path, _get_item_cls(item_type)):
+                for item in _read_csv_items(path, entity_type.cls):
                     id = item.__dict__.get("id")
                     if id is not None:
                         item.__dict__["id"] = str(id)
@@ -811,7 +367,7 @@ class SQLiteDatabase(Database):  #
         await spawn(execute)
 
     @override
-    async def dump_csv(self, path: PathLike, item_type: ItemType) -> None:
+    async def dump_csv(self, path: PathLike, entity_type: EntityType) -> None:
         path = _prepare_write_path(path)
 
         await self.init()
@@ -820,15 +376,15 @@ class SQLiteDatabase(Database):  #
             with sqlite3.connect(self.path) as connection:
                 _sqlite_create_functions(connection)
 
-                header = _get_columns(item_type)
+                header = _get_columns(entity_type)
                 selects = _get_columns_joined(
-                    item_type,
+                    entity_type,
                     {
-                        ItemType.MESSAGE: {"content": "decode(content, 'latin-1')"},
+                        EntityType.MESSAGE: {"content": "decode(content, 'latin-1')"},
                     },
                 )
 
-                query = f"SELECT {selects} FROM {item_type.table}"
+                query = f"SELECT {selects} FROM {entity_type.table}"
 
                 with path.open("w") as output:
                     writer = csv.writer(output)
@@ -841,13 +397,13 @@ class SQLiteDatabase(Database):  #
 
     async def __copy(
         self,
-        item_types: Sequence[ItemType] | None,
+        item_types: Sequence[EntityType] | None,
         source: Path,
         destination_engine: AsyncEngine,
         create: bool,
     ) -> None:
         if item_types is None:
-            item_types = list(ItemType)
+            item_types = list(EntityType)
 
         async with destination_engine.connect() as destination_connection:
             if create:
@@ -875,14 +431,14 @@ class SQLiteDatabase(Database):  #
     async def dump_sqlite(
         self,
         path: PathLike,
-        item_types: Sequence[ItemType] | None = None,
+        item_types: Sequence[EntityType] | None = None,
     ) -> None:
         if item_types is None:
-            item_types = list(ItemType)
+            item_types = list(EntityType)
 
         await self.init()
 
-        if set(item_types) == set(ItemType):
+        if set(item_types) == set(EntityType):
 
             def execute() -> None:
                 with sqlite3.connect(self.path) as source:
@@ -913,7 +469,7 @@ class SQLiteDatabase(Database):  #
     async def load_sqlite(
         self,
         path: PathLike,
-        item_types: Sequence[ItemType] | None = None,
+        item_types: Sequence[EntityType] | None = None,
     ) -> None:
         path = _prepare_read_path(path)
 
@@ -961,6 +517,7 @@ class PostgresDatabase(Database):
             ).render_as_string(hide_password=False)
         )
 
+    @override
     def _get_engine_config(self) -> dict[str, Any]:
         return {
             "poolclass": AsyncAdaptedQueuePool,
@@ -972,7 +529,7 @@ class PostgresDatabase(Database):
         }
 
     @override
-    async def dump_csv(self, path: PathLike, item_type: ItemType) -> None:
+    async def dump_csv(self, path: PathLike, entity_type: EntityType) -> None:
         path = _prepare_write_path(path)
 
         await self.init()
@@ -987,24 +544,24 @@ class PostgresDatabase(Database):
 
             async with connection.transaction():
                 columns = _get_columns_joined(
-                    item_type,
+                    entity_type,
                     {
-                        ItemType.STORE: {
+                        EntityType.STORE: {
                             "enabled": "enabled::TEXT as enabled",
                         },
-                        ItemType.MESSAGE: {
+                        EntityType.MESSAGE: {
                             "timestamp": timestamp,
                             "content": "convert_from(content, 'latin-1') as content",
                         },
-                        ItemType.ALERT: {
+                        EntityType.ALERT: {
                             "timestamp": timestamp,
                         },
-                        ItemType.LOG_ENTRY: {
+                        EntityType.LOG_ENTRY: {
                             "timestamp": timestamp,
                         },
                     },
                 )
-                query = f"""SELECT {columns} FROM {item_type.table}"""
+                query = f"""SELECT {columns} FROM {entity_type.table}"""
 
                 await connection.copy_from_query(
                     query,
@@ -1016,7 +573,7 @@ class PostgresDatabase(Database):
             await connection.close()
 
     @override
-    async def load_csv(self, path: PathLike, item_type: ItemType) -> None:
+    async def load_csv(self, path: PathLike, entity_type: EntityType) -> None:
         path = _prepare_read_path(path)
 
         await self.init()
@@ -1029,36 +586,38 @@ class PostgresDatabase(Database):
         connection: Connection = await asyncpg.connect(url)  # type: ignore
 
         try:
-            entity = _get_entity_cls(item_type)
+            row_cls = entity_type.cls.Row
             temporary = "__temporary__" + uuid4().hex.replace("-", "")
 
             async with connection.transaction():
                 await connection.execute(
-                    entity.get_table_ddl(
+                    row_cls.get_table_ddl(
                         self.engine.sync_engine,
                         name=temporary,
                         temporary=True,
                     )
                 )
 
-                def _get_fields(item: Item):
+                def _get_fields(item: BaseEntity):
                     fields = item.__dict__
-                    if item_type == ItemType.ALERT:
+                    if entity_type == EntityType.ALERT:
                         fields["info"] = jsonify(fields["info"])
                     return fields
 
                 records = (
                     tuple(_get_fields(item).values())
-                    for item in _read_csv_items(path, _get_item_cls(item_type))
+                    for item in _read_csv_items(path, entity_type.cls)
                 )
 
                 await connection.copy_records_to_table(
                     temporary,
-                    columns=_get_columns(item_type),
+                    columns=_get_columns(entity_type),
                     records=records,
                 )
 
-                await connection.execute(f"INSERT INTO {item_type.table} SELECT * FROM {temporary}")
+                await connection.execute(
+                    f"INSERT INTO {entity_type.table} SELECT * FROM {temporary}"
+                )
         finally:
             await connection.close()
 
@@ -1066,10 +625,10 @@ class PostgresDatabase(Database):
     async def dump_sqlite(
         self,
         path: PathLike,
-        item_types: Sequence[ItemType] | None = None,
+        item_types: Sequence[EntityType] | None = None,
     ) -> None:
         if item_types is None:
-            item_types = list(ItemType)
+            item_types = list(EntityType)
 
         path = _prepare_write_path(path)
 
@@ -1085,10 +644,10 @@ class PostgresDatabase(Database):
     async def load_sqlite(
         self,
         path: PathLike,
-        item_types: Sequence[ItemType] | None = None,
+        item_types: Sequence[EntityType] | None = None,
     ) -> None:
         if item_types is None:
-            item_types = list(ItemType)
+            item_types = list(EntityType)
 
         path = _prepare_read_path(path)
 
@@ -1126,7 +685,7 @@ def _read_csv_rows(path: Path) -> Iterator[Any]:
             yield row
 
 
-def _read_csv_items(path: Path, item_cls: type[_ItemT]) -> Iterable[_ItemT]:
+def _read_csv_items(path: Path, item_cls: type[_EntityT]) -> Iterable[_EntityT]:
     rows = _read_csv_rows(path)
     columns = list(item_cls.model_fields.keys())
     header = next(rows)
@@ -1168,49 +727,21 @@ def _sqlite_create_functions(connection: SQLiteConnection) -> None:
     connection.create_function("encode", 2, _encode)
 
 
-_Replace = Mapping[ItemType, Mapping[str, str]]
+_Replace = Mapping[EntityType, Mapping[str, str]]
 
 
-def _get_columns_joined(item_type: ItemType, replace: _Replace = {}) -> str:
+def _get_columns_joined(item_type: EntityType, replace: _Replace = {}) -> str:
     return ", ".join(_get_columns(item_type, replace))
 
 
-def _get_columns(item_type: ItemType, replace: _Replace = {}) -> list[str]:
-    columns = list(_get_entity_cls(item_type).__table__.columns.keys())
-    replaced = replace.get(item_type, {})
+def _get_columns(entity_type: EntityType, replace: _Replace = {}) -> list[str]:
+    columns = list(entity_type.cls.Row.__table__.columns.keys())
+    replaced = replace.get(entity_type, {})
     if replaced:
         for i, column in enumerate(columns):
             columns[i] = replaced.get(column, column)
 
     return columns
-
-
-def _get_entity_cls(item_type: ItemType) -> type[Entity]:
-    match item_type:
-        case ItemType.STORE:
-            return StoreEntity
-        case ItemType.MESSAGE:
-            return MessageEntity
-        case ItemType.ALERT:
-            return AlertEntity
-        case ItemType.LOG_ENTRY:
-            return LogEntryEntity
-
-    raise ValueError(item_type)
-
-
-def _get_item_cls(item_type: ItemType) -> type[Item]:
-    match item_type:
-        case ItemType.STORE:
-            return Store
-        case ItemType.MESSAGE:
-            return Message
-        case ItemType.ALERT:
-            return Alert
-        case ItemType.LOG_ENTRY:
-            return LogEntry
-
-    raise ValueError(item_type)
 
 
 async def _execute_ddl(
@@ -1220,7 +751,7 @@ async def _execute_ddl(
     indexes: bool = True,
 ) -> None:
     async with engine.begin() as connection:
-        for cls in Entity.get_entity_classes():
+        for cls in BaseEntityRow.get_entity_row_classes():
             for statement in cls.get_ddl(
                 engine.sync_engine,
                 table=tables,
@@ -1229,40 +760,3 @@ async def _execute_ddl(
                 await connection.execute(text(statement))
 
         await connection.commit()
-
-
-_SQLITE_UNIQUE_ERROR_REGEX = re.compile(
-    r"UNIQUE constraint failed: ([^ ]+)\.(?P<column>[^ ]+)",
-    re.MULTILINE | re.DOTALL,
-)
-_POSTGRES_UNIQUE_ERROR_REGEX = re.compile(
-    r".*duplicate key.*\((?P<column>[^ ]+)\)=",
-    re.MULTILINE | re.DOTALL,
-)
-
-
-@contextmanager
-def _wrap_database_errors() -> Iterator[None]:
-    try:
-        yield
-    except SQLAlchemyError as exception:
-        try:
-            from sqlalchemy.dialects.postgresql.asyncpg import AsyncAdapt_asyncpg_dbapi
-
-            PostgresIntegrityError = AsyncAdapt_asyncpg_dbapi.IntegrityError
-        except ImportError:
-            PostgresIntegrityError = None
-
-        if isinstance(exception, IntegrityError):
-            if isinstance(exception.orig, SQLiteIntegrityError):
-                match = _SQLITE_UNIQUE_ERROR_REGEX.match(str(exception.orig))
-                if match is not None:
-                    raise Failure(AlreadyExistsError(field=match.group("column")))
-            elif PostgresIntegrityError is not None and isinstance(
-                exception.orig, PostgresIntegrityError
-            ):
-                match = _POSTGRES_UNIQUE_ERROR_REGEX.match(str(exception.orig))
-                if match is not None:
-                    raise Failure(AlreadyExistsError(field=match.group("column")))
-
-        raise Failure(DatabaseUnexpectedError(message=str(exception)))

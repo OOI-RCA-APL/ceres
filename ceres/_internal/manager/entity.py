@@ -1,0 +1,213 @@
+from typing import Any, Generic, TypeVar, cast
+
+from pydantic import BaseModel
+from sqlalchemy import Delete, Select, Update, delete, func, select, update
+from typing_extensions import Unpack
+
+from ceres._internal.auth import verify_password_hash
+from ceres._internal.database.utilities import wrap_database_errors
+from ceres._internal.manager.manager import BaseManager
+from ceres._internal.utilities import call_partial, get_type_adapter
+from ceres.data import PasswordHash
+from ceres.entity import BaseEntity
+
+_T = TypeVar("_T")
+_EntityT = TypeVar("_EntityT", bound=BaseEntity)
+_EntityRowT = TypeVar("_EntityRowT", bound=BaseEntity.Row)
+_EntityFilterT = TypeVar("_EntityFilterT", bound=BaseEntity.Filter[Any])
+_EntityFilterArgsT = TypeVar("_EntityFilterArgsT", bound=BaseEntity.FilterArgs)
+_EntityCreateT = TypeVar("_EntityCreateT", bound=BaseModel)
+_EntityUpdateT = TypeVar("_EntityUpdateT", bound=BaseEntity.Update)
+
+_Statement = Select[tuple[Any, ...]] | Update | Delete
+
+
+class BaseEntityManager(
+    Generic[
+        _EntityT,
+        _EntityRowT,
+        _EntityCreateT,
+        _EntityUpdateT,
+        _EntityFilterT,
+        _EntityFilterArgsT,
+    ],
+    BaseManager[_EntityT],
+):
+    async def create(self, data: _EntityCreateT) -> _EntityT:
+        result = await self._from_create(data)
+        await self._insert(result)
+        return result
+
+    async def get_all(
+        self,
+        filter: _EntityFilterT | None = None,
+        **kwargs: Unpack[_EntityFilterArgsT],  # type: ignore
+    ) -> list[_EntityT]:
+        Row = self._get_row_cls()
+
+        filter = self._apply_default_filter(filter, kwargs)
+        statement = select(*Row.__table__.columns.values())
+        statement = filter.apply(statement, self._database.type)
+        return await self._execute_and_get_many(statement, self._cls)
+
+    async def get(
+        self,
+        filter: _EntityFilterT | None = None,
+        /,
+        **kwargs: Unpack[_EntityFilterArgsT],  # type: ignore
+    ) -> _EntityT | None:
+        entities = await self.get_all(filter, **{**kwargs, "limit": 1})
+        return entities[0] if entities else None
+
+    async def update_all(self, filter: _EntityFilterT, assign: _EntityUpdateT) -> int:
+        Row = self._get_row_cls()
+        if not assign:
+            return 0
+
+        filter = self._apply_default_filter(filter)
+        statement = update(Row).values(assign)
+        statement = filter.apply(statement, self._database.type)
+        return await self._execute_and_get_count(statement)
+
+    async def update(self, filter: _EntityFilterT, assign: _EntityUpdateT) -> _EntityT | None:
+        Row = self._get_row_cls()
+        if not assign:
+            return None
+
+        filter = self._apply_default_filter(filter, {"limit": 1})
+        statement = update(Row).values(assign).returning(self._cls.Row)
+        statement = filter.apply(statement, self._database.type)  # type: ignore
+        return await self._execute_and_get_one(statement, self._cls)
+
+    async def delete_all(
+        self,
+        filter: _EntityFilterT | None = None,
+        **kwargs: Unpack[_EntityFilterArgsT],  # type: ignore
+    ) -> int:
+        Row = self._get_row_cls()
+
+        filter = self._apply_default_filter(filter, kwargs)
+        statement = delete(Row)
+        statement = filter.apply(statement, self._database.type)  # type: ignore
+        return await self._execute_and_get_count(statement)
+
+    async def delete(
+        self,
+        filter: _EntityFilterT | None = None,
+        **kwargs: Unpack[_EntityFilterArgsT],  # type: ignore
+    ) -> _EntityT | None:
+        Row = self._get_row_cls()
+
+        filter = self._apply_default_filter(filter, {**kwargs, "limit": 1})
+        statement = delete(Row).returning(Row)
+        statement = filter.apply(statement, self._database.type)
+        return await self._execute_and_get_one(statement, self._cls)
+
+    async def count(
+        self,
+        filter: _EntityFilterT | None = None,
+        **kwargs: Unpack[_EntityFilterArgsT],  # type: ignore
+    ) -> int:
+        Row = self._get_row_cls()
+
+        filter = self._apply_default_filter(filter, kwargs)
+        statement = select(func.count(Row.id))
+        statement = filter.apply(statement, self._database.type).order_by(None)
+        return await self._execute_and_get_one(statement, int) or 0
+
+    async def _execute_and_get_many(
+        self,
+        statement: _Statement,
+        result_type: type[_T],
+    ) -> list[_T]:
+        with wrap_database_errors():
+            async with await self._database.init() as session:
+                results = await session.execute(statement)
+                await session.commit()
+
+            if not results:
+                return []
+
+            return get_type_adapter(list[result_type]).validate_python(
+                results, from_attributes=True
+            )
+
+    async def _execute_and_get_one(
+        self,
+        statement: _Statement,
+        result_type: type[_T],
+    ) -> _T | None:
+        with wrap_database_errors():
+            async with await self._database.init() as session:
+                result = await session.execute(statement)
+                row = result.scalar()
+                await session.commit()
+
+        if row is None:
+            return None
+
+        return get_type_adapter(result_type).validate_python(row, from_attributes=True)
+
+    async def _execute_and_get_count(self, statement: Update | Delete) -> int:
+        with wrap_database_errors():
+            async with await self._database.init() as session:
+                result = await session.execute(statement)
+                await session.commit()
+                return result.rowcount
+
+    async def _from_create(self, data: _EntityCreateT) -> _EntityT:
+        if isinstance(data, self._cls):
+            return data
+
+        return self._cls(**data.__dict__)
+
+    async def _insert(self, data: _EntityT) -> _EntityRowT:
+        Row = self._get_row_cls()
+        row = Row(**data.__dict__)
+        with wrap_database_errors():
+            async with await self._database.init() as session:
+                session.add(row)
+                await session.commit()
+                return row
+
+    async def _maybe_hash_password(self, password: str) -> PasswordHash | None:
+        if verify_password_hash(password):
+            return password
+
+        return await self._database.hash_password(password)
+
+    def _apply_default_filter(
+        self,
+        filter: _EntityFilterT | None,
+        kwargs: Any | None = None,
+    ) -> _EntityFilterT:
+        if kwargs is None:
+            kwargs = {}
+
+        Filter = self._get_filter_cls()
+        result = Filter(**kwargs).with_defaults(filter)  # type: ignore
+        defaults = self._get_filter_defaults()
+        if defaults is not None:
+            result = result.with_defaults(defaults)  # type: ignore
+
+        return result  # type: ignore
+
+    def _get_filter_defaults(self) -> _EntityFilterT | None:
+        if self._node is None:
+            return None
+
+        Filter = self._get_filter_cls()
+        address = self._node.address
+        return call_partial(
+            Filter,  # type: ignore
+            root=address,  # type: ignore
+            address=address.all(),  # type: ignore
+        )
+
+    def _get_filter_cls(self) -> type[_EntityFilterT]:
+        Filter = self._cls.Filter
+        return cast(type[_EntityFilterT], Filter)
+
+    def _get_row_cls(self) -> type[_EntityRowT]:
+        Row = self._cls.Row
+        return cast(type[_EntityRowT], Row)

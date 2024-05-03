@@ -11,10 +11,11 @@ from typing import Annotated, Literal, final
 from pydantic import Field, field_validator
 from typing_extensions import override
 
+from ceres._internal.utilities import ensure_event_loop, show_td, sleep_forever
 from ceres.component import Component, action, routine
 from ceres.connectivity import Connectivity
 from ceres.data import ImmutableDataObject, PositiveTimeDelta, StrEnum
-from ceres.events import (
+from ceres.event import (
     ConnectedEvent,
     ConnectFailedEvent,
     ConnectingEvent,
@@ -24,10 +25,8 @@ from ceres.events import (
     MessageReceivedEvent,
     MessageSentEvent,
 )
-from ceres.internal.utilities import ensure_event_loop, show_td, sleep_forever
 from ceres.message import Message, MessageContent, MessageDirection
 from ceres.schedule import IntervalSchedule
-from ceres.stream import Stream
 from ceres.timing import utc
 
 
@@ -78,20 +77,6 @@ class Connection(Component, ABC):
     def connected(self) -> bool:
         return self.__connectivity == Connectivity.CONNECTED
 
-    @property
-    def messages(self) -> Stream[Message]:
-        return self.system.events.of(MessageSentEvent | MessageReceivedEvent).map(
-            lambda event: event.message  # type: ignore
-        )
-
-    @property
-    def sent(self) -> Stream[Message]:
-        return self.system.events.of(MessageSentEvent).map(lambda event: event.message)
-
-    @property
-    def received(self) -> Stream[Message]:
-        return self.system.events.of(MessageReceivedEvent).map(lambda event: event.message)
-
     @abstractmethod
     async def _try_connect(self) -> bool: ...
 
@@ -108,7 +93,7 @@ class Connection(Component, ABC):
         if self.__connectivity == Connectivity.CONNECTED:
             return True
 
-        self.system.emit(ConnectingEvent)
+        self.system.events.emit(ConnectingEvent)
         self.__connectivity = Connectivity.CONNECTING
 
         try:
@@ -120,10 +105,10 @@ class Connection(Component, ABC):
 
         if connected:
             self.__connectivity = Connectivity.CONNECTED
-            self.system.emit(ConnectedEvent)
+            self.system.events.emit(ConnectedEvent)
         else:
             self.__connectivity = Connectivity.DISCONNECTED
-            self.system.emit(ConnectFailedEvent)
+            self.system.events.emit(ConnectFailedEvent)
 
         return self.connected
 
@@ -158,7 +143,7 @@ class Connection(Component, ABC):
             sent = None
 
         if sent is None and self.connected:
-            self.system.emit(ConnectionLostEvent)
+            self.system.events.emit(ConnectionLostEvent)
             await self.disconnect()
             raise ConnectionLost()
 
@@ -168,7 +153,8 @@ class Connection(Component, ABC):
             content=data,
         )
 
-        self.system.emit(MessageSentEvent, message=message)
+        self.system.messages.store(message)
+        self.system.events.emit(MessageSentEvent, message=message)
         return message
 
     async def __poll_message(self) -> Message | None:
@@ -181,7 +167,7 @@ class Connection(Component, ABC):
 
         if data is None:
             if self.connected:
-                self.system.emit(ConnectionLostEvent)
+                self.system.events.emit(ConnectionLostEvent)
                 await self.disconnect()
 
             return None
@@ -192,20 +178,21 @@ class Connection(Component, ABC):
             content=data,
         )
 
-        self.system.emit(MessageReceivedEvent, message=message)
+        self.system.messages.store(message)
+        self.system.events.emit(MessageReceivedEvent, message=message)
         return message
 
     async def disconnect(self) -> None:
         if self.__connectivity == Connectivity.DISCONNECTED:
             return
 
-        self.system.emit(DisconnectingEvent)
+        self.system.events.emit(DisconnectingEvent)
 
         try:
             await self._try_disconnect()
         finally:
             self.__connectivity = Connectivity.DISCONNECTED
-            self.system.emit(DisconnectedEvent)
+            self.system.events.emit(DisconnectedEvent)
 
     @routine
     async def routine__process_connection(self) -> None:
@@ -352,7 +339,7 @@ class TCPConnection(Connection):
             return
 
         async def wait_for_message_received() -> None:
-            async for event in self.system.events:
+            async for event in self.system.events.follow().every(MessageReceivedEvent):
                 if isinstance(event, MessageReceivedEvent):
                     return
 
@@ -413,7 +400,7 @@ class TCPConnection(Connection):
             if disconnected:
                 try:
                     if self.connected:
-                        self.system.emit(ConnectionLostEvent)
+                        self.system.events.emit(ConnectionLostEvent)
                         await self.disconnect()
                 except Exception:
                     pass

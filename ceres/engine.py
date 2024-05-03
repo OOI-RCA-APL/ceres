@@ -4,12 +4,16 @@ import traceback
 from asyncio import FIRST_COMPLETED
 from asyncio import Event as AsyncEvent
 from pathlib import Path
-from typing import TYPE_CHECKING, Iterable, Sequence, TypeVar
+from typing import TYPE_CHECKING, Sequence
 
-from aiotools.taskgroup import TaskGroup
 from typing_extensions import Self, Unpack, final, override
 
+from ceres._internal.app.main import App
+from ceres._internal.project import Project
+from ceres._internal.server import Server, ServerInternalConfig
+from ceres._internal.utilities import as_component_system, sleep_forever, strify, uniquify
 from ceres.address import Address, AddressSelector, DynamicAddress
+from ceres.component import Component, ComponentFilter, ComponentFilterArgs, ComponentSystem
 from ceres.config import Config, ServerSSLConfig
 from ceres.data import ImmutableDataObject, PasswordHash, StrEnum
 from ceres.directory import Directory
@@ -20,32 +24,24 @@ from ceres.errors import (
     ReloadAlreadyActiveError,
     ReloadConfigInvalidError,
 )
-from ceres.events import Event, LogEvent, StoppedEvent, StoppingEvent
-from ceres.filter import SystemFilter, SystemFilterArgs
-from ceres.internal.app.main import App
-from ceres.internal.project import Project
-from ceres.internal.server import Server, ServerInternalConfig
-from ceres.internal.utilities import sleep_forever, strify, uniquify
+from ceres.event import StoppedEvent, StoppingEvent
 from ceres.node import Node
 from ceres.result import Fail, Ok, Result
-from ceres.system import System, SystemGroup
 
 if TYPE_CHECKING:
     from ceres.database.database import Database
 else:
     Database = object
 
-_EventT = TypeVar("_EventT", bound=Event)
 
-
-class ActionType(StrEnum):
+class ReloadActionType(StrEnum):
     CREATE = "create"
     RECREATE = "recreate"
     REMOVE = "remove"
 
 
-class Action(ImmutableDataObject):
-    type: ActionType
+class ReloadAction(ImmutableDataObject):
+    type: ReloadActionType
     address: Address
 
 
@@ -69,13 +65,12 @@ class Engine(Node):
             self.__config_path = None
 
         from ceres.database.database import Database
-        from ceres.system import System
 
         self.__database = Database(self.__config.database)
         self.__reloading = AsyncEvent()
         self.__reloaded_config: Config | None = None
         self.__server: Server | None = None
-        self.root = System()
+        self.root = Component(__with_name__="root").system
 
         if self.__config_path is not None:
             self.__project_directory = Directory(self.__config_path.parent)
@@ -89,27 +84,17 @@ class Engine(Node):
 
     @property
     @override
-    def __node_parent__(self) -> None:
+    def __container__(self) -> None:
         return None
 
     @property
     @override
-    def __node_descendants__(self) -> Iterable[Node]:
-        return self.__root.get_systems(inclusive=True)
-
-    @property
-    @override
-    def parent(self) -> None:
-        return None
-
-    @property
-    @override
-    def root(self) -> System | None:
+    def root(self) -> ComponentSystem | None:
         return self.__root
 
     @root.setter
-    def root(self, root: System) -> None:
-        self.__root = root
+    def root(self, root: ComponentSystem | Component) -> None:
+        self.__root = as_component_system(root)
         self.__root.engine = self
 
     @property
@@ -128,6 +113,7 @@ class Engine(Node):
         return self.__database
 
     @property
+    @override
     def config(self) -> Config:
         return self.__config
 
@@ -170,10 +156,10 @@ class Engine(Node):
                 async def start_enabled() -> None:
                     await asyncio.sleep(0)
                     async with await self.database.init() as session:
-                        for system in self.get_systems():
-                            await system.__node_sync__(session)
-                            if system.enabled and not system.running:
-                                system.start()
+                        for component in self.get_components():
+                            await component.system.__node_sync__(session)
+                            if component.system.enabled and not component.system.running:
+                                component.system.start()
 
                     await sleep_forever()
 
@@ -199,29 +185,27 @@ class Engine(Node):
                         self.log.info("Exit signal received, stopping...")
                         break
 
-        async with TaskGroup() as group:
-            group.create_task(super().__run__())
-            group.create_task(process())
+        await asyncio.gather(super().__run__(), process())
 
     @override
     async def __stop__(self) -> None:
-        self.emit(StoppingEvent)
+        self.events.emit(StoppingEvent)
         await self.__stop_server()
         await self.__root.stop()
 
-        self.emit(StoppedEvent)
+        self.events.emit(StoppedEvent)
         await self.flush()
         await self.__database.dispose()
 
     async def load(self, config: Config | None = None) -> "Result[Config, list[ConfigError]]":
         if config is not None:
-            match await config.check(log=self.log):
+            match await config.check(log=self.log.info):
                 case Ok(config):
                     self.__config = config
                 case Fail() as fail:
                     return fail
         elif self.__config_path is not None:
-            match await Config.load(self.__config_path, log=self.log):
+            match await Config.load(self.__config_path, log=self.log.info):
                 case Ok(config):
                     self.__config = config
                 case Fail() as fail:
@@ -230,34 +214,23 @@ class Engine(Node):
             return Fail([ConfigNotProvidedError(message="No configuration source provided.")])
 
         await self.__load_database()
-        await self.__load_systems()
+        await self.__load_components()
         return Ok(self.__config)
 
     @override
-    def propagate(self, event: _EventT) -> _EventT:
-        if not isinstance(event, LogEvent):
-            self.log.derive(event.address).info(
-                "[event] [{type}] {event}",
-                type=event.type,
-                event=event.model_dump_json(exclude={"id", "timestamp", "address", "type"}),
-            )
-
-        return super().propagate(event)
+    def get_component(self, address: str | DynamicAddress | None = None) -> Component | None:
+        return self.__root.get_component(address)
 
     @override
-    def get_system(self, address: str | DynamicAddress | None = None) -> System | None:
-        return self.__root.get_system(address)
-
-    @override
-    def get_systems(
+    def get_components(
         self,
-        filter: SystemFilter | AddressSelector | None = None,
+        filter: ComponentFilter | AddressSelector | None = None,
         /,
         *,
         inclusive: bool = False,
-        **kwargs: Unpack[SystemFilterArgs],
-    ) -> SystemGroup:
-        return self.__root.get_systems(filter, inclusive=True, **kwargs)
+        **kwargs: Unpack[ComponentFilterArgs],
+    ) -> list[Component]:
+        return self.__root.get_components(filter, inclusive=True, **kwargs)
 
     async def hash_password(self, password: str) -> PasswordHash:
         return await self.__database.hash_password(password)
@@ -285,7 +258,7 @@ class Engine(Node):
             return self.config
 
         self.log.info(f"Reloading configuration from '{self.__config_path}'...")
-        match await Config.load(self.__config_path, log=self.log):
+        match await Config.load(self.__config_path, log=self.log.info):
             case Ok(config):
                 self.log.info("Configuration parsed successfully, queueing reload...")
                 self.__reloading.set()
@@ -335,13 +308,14 @@ class Engine(Node):
             if self.config.database != previous.database:
                 self.log.info("Database configuration modified, reloading database and systems...")
                 try:
-                    running = self.get_systems(running=True)
+                    running = self.get_components(running=True)
                     await self.__root.stop()
                     await self.__database.dispose()
                     from ceres.database.database import Database
 
                     self.__database = Database(self.config.database)
-                    running.start()
+                    for component in running:
+                        component.system.start()
                 except Exception:
                     self.log.error(
                         f"An issue occurred while reloading components and database: "
@@ -372,128 +346,139 @@ class Engine(Node):
 
         self.log.info("Reload completed.")
 
-    async def __load_systems(self) -> None:
+    async def __load_components(self) -> None:
         await self.__node_sync__()
-        await self.__load_system(Address.root())
+        await self.__load_component(Address.root())
 
-    async def __load_system(self, address: Address) -> System | None:
+    async def __load_component(self, address: Address) -> Component | None:
         if address.is_root:
             config = self.config
         else:
-            config = self.config.get_system(address)
+            config = self.config.get_component(address)
             if config is None:
                 return None
 
-        system = self.get_system(address)
+        component = self.get_component(address)
 
-        if system is None:
+        if component is None:
             try:
-                system = System.from_config(config)
-                if address.is_root:
-                    self.root = system
-                    assert system.engine is self
-                    assert system.database is self.database
-                else:
-                    parent = self.get_system(address.parent)
-                    if parent is not None:
-                        parent.add(system)
-
+                component = config.create()
             except Exception:
                 self.log.error(f"Failed to load '{address}': {traceback.format_exc()}")
                 return None
 
-        await system.__node_sync__()
-        self.log.info(f"Loaded '{address}' with component type {strify(type(system.component))}.")
+            if address.is_root:
+                self.root = component.system
+                assert component.system.engine is self
+                assert component.system.database is self.database
+            else:
+                parent = as_component_system(self.get_component(address.parent))
+                if parent is not None:
+                    parent.attach(component)
 
-        for child in config.subsystems:
-            await self.__load_system(address / child.name)
+        await component.system.__node_sync__()
+        self.log.info(f"Loaded '{address}' with component type {strify(type(component))}.")
 
-        return system
+        for child in config.components:
+            await self.__load_component(address / child.name)
 
-    async def __execute_actions(self, actions: Sequence[Action]) -> None:
-        running = [other.address for other in self.get_systems() if other.running]
+        return component
+
+    async def __execute_actions(self, actions: Sequence[ReloadAction]) -> None:
+        running = [other.system.address for other in self.get_components() if other.system.running]
         for action in actions:
-            system = self.get_system(action.address)
+            component = self.get_component(action.address)
 
-            if action.type == ActionType.REMOVE:
-                if system is not None:
+            if action.type == ReloadActionType.REMOVE:
+                if component is not None:
                     self.log.info(f"Removing '{action.address}'...")
-                    await system.stop()
-                    system.remove()
+                    await component.system.stop()
+                    component.system.detach()
                     self.log.info(f"Removed '{action.address}'.")
             else:
-                if action.type == ActionType.CREATE:
-                    if system is None:
+                if action.type == ReloadActionType.CREATE:
+                    if component is None:
                         self.log.info(f"Creating '{action.address}'...")
-                        await self.__load_system(action.address)
+                        await self.__load_component(action.address)
                         self.log.info(f"Created '{action.address}'.")
-                elif action.type == ActionType.RECREATE:
-                    if system is not None:
+                elif action.type == ReloadActionType.RECREATE:
+                    if component is not None:
                         self.log.info(f"Recreating '{action.address}'...")
-                        await system.stop()
-                        system.remove()
-                        await self.__load_system(action.address)
+                        await component.system.stop()
+                        component.system.detach()
+                        await self.__load_component(action.address)
                         self.log.info(f"Recreated '{action.address}'.")
 
         for address in running:
-            system = self.get_system(address)
-            if system is not None and not system.running:
+            component = self.get_component(address)
+            if component is not None and not component.system.running:
                 self.log.info(f"Starting '{address}'...")
-                system.start()
+                component.system.start()
 
         created = [
             action
             for action in actions
-            if action.type == ActionType.CREATE and self.get_node(action.address) is not None
+            if action.type == ReloadActionType.CREATE and self.get_node(action.address) is not None
         ]
         recreated = [
             action
             for action in actions
-            if action.type == ActionType.RECREATE and self.get_node(action.address) is not None
+            if action.type == ReloadActionType.RECREATE
+            and self.get_node(action.address) is not None
         ]
         removed = [
             action
             for action in actions
-            if action.type == ActionType.REMOVE and self.get_node(action.address) is None
+            if action.type == ReloadActionType.REMOVE and self.get_node(action.address) is None
         ]
 
         if created:
-            self.log.info(f"{len(created)} systems(s) created.")
+            self.log.info(f"{len(created)} components(s) created.")
         if recreated:
-            self.log.info(f"{len(recreated)} systems(s) reloaded.")
+            self.log.info(f"{len(recreated)} components(s) reloaded.")
         if removed:
-            self.log.info(f"{len(removed)} systems(s) removed.")
+            self.log.info(f"{len(removed)} components(s) removed.")
 
-    def __get_component_reload_actions(self) -> list[Action]:
+    def __get_component_reload_actions(self) -> list[ReloadAction]:
         return self.__get_component_reload_actions_for(Address.root())
 
-    def __get_component_reload_actions_for(self, address: Address) -> list[Action]:
-        config = self.config.get_system(address)
+    def __get_component_reload_actions_for(self, address: Address) -> list[ReloadAction]:
+        component = self.get_component(address)
+        config = self.config.get_component(address)
 
-        component = self.get_system(address)
-        if component is None and config is not None:
-            return [Action(type=ActionType.CREATE, address=address)]
-        if component is not None and config is None:
-            return [Action(type=ActionType.REMOVE, address=address)]
-        if component is None and config is None:
-            return []
-
-        assert component is not None
-        assert config is not None
+        match (component, config):
+            case (None, None):
+                return []
+            case (None, config):
+                return [ReloadAction(type=ReloadActionType.CREATE, address=address)]
+            case (component, None):
+                return [ReloadAction(type=ReloadActionType.REMOVE, address=address)]
+            case (component, config):
+                pass
 
         include = {"name", "cls_path", "class", "arguments"}
         old = (
-            {} if component.__config__ is None else component.__config__.model_dump(include=include)
+            {}
+            if component.system.config is None
+            else component.system.config.model_dump(include=include)
         )
         new = config.model_dump(include=include)
 
         if old != new:
-            return [Action(type=ActionType.RECREATE, address=address)]
+            affected = [address]
+            for referencer in component.system.get_referencing_components(recursive=True):
+                if not address.contains(referencer.system.address):
+                    affected.append(referencer.system.address)
 
-        actions: list[Action] = []
+            return [
+                ReloadAction(type=ReloadActionType.RECREATE, address=address)
+                for address in affected
+            ]
+
+        actions: list[ReloadAction] = []
         children = uniquify(
-            [child.address for child in component.subsystems]
-            + [component.address / child.name for child in config.subsystems]
+            [child.address for child in component.system.children]
+            + [component.system.address / child.name for child in config.components]
         )
 
         for child in children:
@@ -542,7 +527,7 @@ class Engine(Node):
             self.__server = self.__create_server()
 
         if self.__server is not None and not self.__server.running:
-            bind = [*self.__server.config.bind, *self.__server.config.insecure_bind]
+            bind = [*self.__server._config.bind, *self.__server._config.insecure_bind]
             self.log.info(f"Listening on {bind}...")
             self.__server.start(on_exception=self.__on_server_exception)
 
@@ -550,12 +535,12 @@ class Engine(Node):
 
     async def __stop_server(self) -> None:
         if self.__server is not None:
-            bind = [*self.__server.config.bind, *self.__server.config.insecure_bind]
+            bind = [*self.__server._config.bind, *self.__server._config.insecure_bind]
             self.log.info(f"Removing listeners from {bind}...")
             await self.__server.stop()
             self.__server = None
 
     def __on_server_exception(self, server: Server, exception: BaseException) -> None:
         self.log.error(
-            f"An exception occurred while running server on {server.config.bind}: {exception}"
+            f"An exception occurred while running server on {server._config.bind}: {exception}"
         )

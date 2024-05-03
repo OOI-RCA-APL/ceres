@@ -380,7 +380,7 @@ from pathlib import Path
 
 from ceres import Component, Connection, Message, Ref, on
 from ceres.data import DataObject
-from ceres.events import MessageReceivedEvent
+from ceres.event import MessageReceivedEvent
 from ceres.parsing import Parser
 
 
