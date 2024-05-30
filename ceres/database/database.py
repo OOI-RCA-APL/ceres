@@ -50,7 +50,7 @@ from ceres._internal.utilities import PathLike, strlist
 from ceres.config import DatabaseConfig, PostgresDatabaseConfig, SQLiteDatabaseConfig
 from ceres.data import PasswordHash, jsonify
 from ceres.database.enums import EntityType
-from ceres.errors import DatabaseInitError, DatabaseLoadError, Failure
+from ceres.error import DatabaseInitError, DatabaseLoadError, Failure
 from ceres.threading import spawn
 
 _T = TypeVar("_T")

@@ -34,7 +34,7 @@ from ceres.data import (
     StrEnum,
 )
 from ceres.database.enums import DatabaseType
-from ceres.errors import (
+from ceres.error import (
     ComponentInitExceptionError,
     ComponentReferenceInvalidError,
     ConfigComponentError,

@@ -19,7 +19,7 @@ from ceres.component import (
     ProcedureType,
 )
 from ceres.data import ImmutableDataObject, Name, StrEnum, jsonify
-from ceres.errors import (
+from ceres.error import (
     Failure,
     NotFoundError,
     ProcedureComponentNotFoundError,

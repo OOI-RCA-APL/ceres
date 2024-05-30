@@ -26,7 +26,7 @@ from websockets.exceptions import ConnectionClosed
 from ceres._internal.utilities import cached, call_partial, dictify, get_type_adapter
 from ceres.config import ServerAuthenticationConfig
 from ceres.data import DateTime, EmailStr, ImmutableDataObject, StrEnum, UsernameStr, jsonify
-from ceres.errors import Failure, NotAuthenticatedError, NotPermittedError
+from ceres.error import Failure, NotAuthenticatedError, NotPermittedError
 from ceres.timing import utc
 from ceres.user import User, UserRole
 

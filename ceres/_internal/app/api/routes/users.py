@@ -12,7 +12,7 @@ from ceres._internal.app.shared import (
     CurrentUser,
     QueryGroup,
 )
-from ceres.errors import Failure, NotFoundError, NotPermittedError
+from ceres.error import Failure, NotFoundError, NotPermittedError
 from ceres.user import User, UserCreate, UserFilter, UserRole, UserUpdate
 
 router = APIRouter(prefix="/users", tags=["users"])

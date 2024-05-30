@@ -19,7 +19,7 @@ from ceres.address import Address
 from ceres.component import ComponentFilter
 from ceres.config import Config
 from ceres.data import ImmutableDataObject
-from ceres.errors import Failure, NotFoundError, ReloadError
+from ceres.error import Failure, NotFoundError, ReloadError
 
 router = APIRouter(prefix="/api")
 

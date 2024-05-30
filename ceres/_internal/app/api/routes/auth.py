@@ -15,7 +15,7 @@ from ceres._internal.app.shared import (
     create_identity,
 )
 from ceres.data import DateTime, ImmutableDataObject, NonEmptyStr, PasswordStr
-from ceres.errors import (
+from ceres.error import (
     AuthenticationDisabledError,
     BadCredentialsError,
     Failure,

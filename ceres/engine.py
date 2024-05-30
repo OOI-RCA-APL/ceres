@@ -17,7 +17,7 @@ from ceres.component import Component, ComponentFilter, ComponentFilterArgs, Com
 from ceres.config import Config, ServerSSLConfig
 from ceres.data import ImmutableDataObject, PasswordHash, StrEnum
 from ceres.directory import Directory
-from ceres.errors import (
+from ceres.error import (
     ConfigError,
     ConfigNotProvidedError,
     Failure,

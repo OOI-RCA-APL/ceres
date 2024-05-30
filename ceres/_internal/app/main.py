@@ -37,7 +37,7 @@ from ceres._internal.app.console import ConsoleFiles
 from ceres._internal.app.shared import CurrentEngine
 from ceres.alert import Level
 from ceres.data import jsonify, simplify
-from ceres.errors import Failure, HTTPError, ValidationFailedError
+from ceres.error import Failure, HTTPError, ValidationFailedError
 from ceres.validation import ValidationProblem
 from ceres.version import __version__
 

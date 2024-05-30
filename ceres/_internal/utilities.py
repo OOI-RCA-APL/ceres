@@ -687,7 +687,6 @@ class CacheDict(OrderedDict[_K, _V]):
 
         super().__init__()
 
-
     @override
     def __setitem__(self, key: _K, value: _V) -> None:
         super().__setitem__(key, value)

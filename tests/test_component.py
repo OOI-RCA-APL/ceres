@@ -13,7 +13,7 @@ from ceres.component import (
     get_component_routine_bindings,
     routine,
 )
-from ceres.errors import (
+from ceres.error import (
     Failure,
     ProcedureInternalError,
     ProcedureInvalidArgumentsError,

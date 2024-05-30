@@ -5,7 +5,7 @@ from typing import Iterator
 
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
-from ceres.errors import AlreadyExistsError, DatabaseUnexpectedError, Failure
+from ceres.error import AlreadyExistsError, DatabaseUnexpectedError, Failure
 
 _SQLITE_UNIQUE_ERROR_REGEX = re.compile(
     r"UNIQUE constraint failed: ([^ ]+)\.(?P<column>[^ ]+)",

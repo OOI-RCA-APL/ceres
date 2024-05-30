@@ -39,7 +39,7 @@ from ceres._internal.utilities import (
     syncify,
 )
 from ceres.data import ImmutableDataObject, jsonify
-from ceres.errors import Failure
+from ceres.error import Failure
 
 
 class CLIRouter(Typer):

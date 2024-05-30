@@ -3,7 +3,7 @@ from fastapi import APIRouter
 from ceres._internal.app.shared import CurrentEngine, CurrentSocket, QueryGroup
 from ceres.address import Address
 from ceres.component import ComponentFilter
-from ceres.errors import Failure, NotFoundError
+from ceres.error import Failure, NotFoundError
 from ceres.status import Status
 
 router = APIRouter(prefix="/statuses", tags=["statuses"])

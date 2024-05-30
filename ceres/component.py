@@ -81,7 +81,7 @@ from ceres.data import (
     ValidatedDataclass,
 )
 from ceres.database.database import Database
-from ceres.errors import (
+from ceres.error import (
     Failure,
     ProcedureInternalError,
     ProcedureInvalidArgumentsError,
