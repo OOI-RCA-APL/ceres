@@ -33,6 +33,7 @@ from ceres._internal.cli.subcommands.user import router as subcommand__user
 from ceres._internal.utilities import (
     cancel,
     ensure_event_loop,
+    get_traceback,
     set_current_process_name,
     strify,
     syncify,
@@ -163,7 +164,7 @@ async def _run(addresses: Sequence[AddressSelector], *, config_path: Path, watch
             with temporary_signal_handler([signal.SIGINT, signal.SIGTERM], handle_exit_signal):
                 await main()
     except Exception as exception:
-        raise CLICommandFailed(f"Engine startup failed. {exception}")
+        raise CLICommandFailed(f"Engine startup failed. {get_traceback(exception)}")
 
 
 def _run_sync(

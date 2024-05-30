@@ -1,6 +1,4 @@
-from datetime import datetime
 from typing import Annotated, ClassVar, Iterable, Sequence
-from uuid import UUID, uuid4
 
 from pydantic import Field
 from sqlalchemy import ColumnExpressionArgument, Index, Text
@@ -22,7 +20,6 @@ from ceres.record import (
     BaseRecordFilterArgs,
     BaseRecordRow,
 )
-from ceres.timing import utc
 
 
 class LogEntryRow(BaseRecordRow, kw_only=True):
@@ -157,8 +154,5 @@ class LogEntry(BaseRecord, LogEntryCreate):
     Filter: ClassVar = LogEntryFilter
     FilterArgs: ClassVar = LogEntryFilterArgs
 
-    id: Annotated[UUID, CLIOption(UUID)] = Field(default_factory=uuid4)
-    address: Annotated[Address, CLIOption(str)]
-    timestamp: Annotated[DateTime, CLIOption(datetime)] = Field(default_factory=utc)
     level: Annotated[Level, CLIOption(Level)]
     content: Annotated[str, CLIOption(str)]

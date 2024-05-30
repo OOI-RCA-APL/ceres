@@ -4,7 +4,7 @@ import ssl
 import traceback
 from datetime import timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any, Callable, Literal, Mapping, Sequence
+from typing import Annotated, Any, Callable, Literal, Mapping, Sequence
 
 import yaml
 from annotated_types import Ge, Le
@@ -23,6 +23,7 @@ from pydantic import (
 from typing_extensions import Self
 from yaml import MarkedYAMLError, YAMLError
 
+from ceres._internal.typedecs import __Component__
 from ceres._internal.utilities import get_traceback, get_type_adapter, group_by, show_td
 from ceres.address import Address, DynamicAddress
 from ceres.data import (
@@ -51,11 +52,6 @@ from ceres.schedule import Schedule
 from ceres.timing import utc
 from ceres.validation import ValidationProblem
 
-if TYPE_CHECKING:
-    from ceres.component import Component
-else:
-    Component = object
-
 
 class ConfigObject(ImmutableDataObject):
     pass
@@ -75,19 +71,17 @@ class JobConfig(ConfigObject):
         return values
 
 
-class LoggingPersistenceConfig(ConfigObject):
-    level: Level = Level.DEBUG
-
-
 class LoggingConfig(ConfigObject):
     level: Level = Level.INFO
     log_events: bool = False
-    log_messages: bool = False  # Not implemented.
-    log_alerts: bool = False  # Not implemented.
-    persist: LoggingPersistenceConfig = Field(default_factory=LoggingPersistenceConfig)
+    log_events_level: Level = Level.INFO
+    log_messages: bool = False
+    log_messages_level: Level = Level.INFO
+    log_alerts: bool = False
+    log_alerts_level: Level | None = None
 
 
-def _get_component_class() -> type[Component]:
+def _get_component_class() -> type[__Component__]:
     from ceres.component import Component
 
     return Component
@@ -95,18 +89,33 @@ def _get_component_class() -> type[Component]:
 
 class NodeConfig(ConfigObject):
     name: Name
-    cls: ImportString[type[Component]] = Field(default_factory=_get_component_class, alias="class")
+    cls: ImportString[type[__Component__]] = Field(
+        default_factory=_get_component_class,
+        alias="class",
+    )
     arguments: Mapping[str, Any] = Field(default_factory=dict, validation_alias="args")
     jobs: Sequence[JobConfig] = Field(default_factory=list)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     components: Sequence["ComponentConfig"] = Field(default_factory=list)
 
+    @field_validator("cls")
+    def _validate_cls(
+        cls,
+        value: ImportString[type[__Component__]],
+    ) -> ImportString[type[__Component__]]:
+        from ceres.component import Component
+
+        if not issubclass(value, Component):
+            raise ValueError("class must be a subclass of `ceres.component.Component`")
+
+        return value
+
     @field_validator("name")
-    def _validate_name(cls, name: Name) -> Name:
-        if name == "all":
+    def _validate_name(cls, value: Name) -> Name:
+        if value == "all":
             raise ValueError("'all' is a disallowed component name")
 
-        return name
+        return value
 
     @field_validator("components", check_fields=False)
     def _validate_children(
@@ -128,12 +137,12 @@ class NodeConfig(ConfigObject):
 
 
 class ComponentConfig(NodeConfig):
-    def create(self) -> "Component":
+    def create(self) -> __Component__:
         component = get_type_adapter(self.cls).validate_python(
             {
                 **self.arguments,
-                "__name__": self.name,
-                "__config__": self,
+                "__with_name__": self.name,
+                "__with_config__": self,
             }
         )
 
@@ -483,7 +492,7 @@ class Config(ComponentConfig):
 
         return current
 
-    def get_component_class(self, address: DynamicAddress) -> type[Component] | None:
+    def get_component_class(self, address: DynamicAddress) -> type[__Component__] | None:
         config = self.get_component(address)
         if config is None:
             return None

@@ -86,7 +86,7 @@ class Stream(AsyncIterable[_T]):
         "_source",
         "_readers",
         "_derived",
-        "_of",
+        "_every",
         "_filter",
         "_map",
         "__weakref__",
@@ -94,13 +94,14 @@ class Stream(AsyncIterable[_T]):
 
     def __init__(self, source: "Stream[_T] | None" = None) -> None:
         self._source = source
-        if source is not None:
-            source._derived.add(self)
         self._readers: "WeakSet[StreamReader[_T]]" = WeakSet()
         self._derived: "WeakSet[Stream[_T]]" = WeakSet()
         self._every: "type[_T] | None" = None
         self._filter: "Callable[[_T], bool] | None" = None
         self._map: "Callable[[_T], Any] | None" = None
+
+        if source is not None:
+            source._derived.add(self)
 
     @property
     def readers(self) -> Sequence[StreamReader[_T]]:

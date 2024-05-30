@@ -132,12 +132,6 @@ class Node(Tasklet):
         return local if local is not None else LoggingConfig()
 
     def store(self, item: __Item__, /) -> None:
-        # If the node has a containing node, delegate storage of the item to it.
-        container = self.__container__
-        if container is not None:
-            container.store(item)
-            return
-
         from ceres.alert import Alert
         from ceres.logs import LogEntry
         from ceres.message import Message
@@ -145,7 +139,14 @@ class Node(Tasklet):
         if type(item) not in (Message, Alert, LogEntry):
             raise TypeError(f"invalid item type {type(item)}")
 
-        self.__writer.add(item)
+        self.__store(item)
+
+    def __store(self, item: __Item__, /) -> None:
+        container = self.__container__
+        if container is None:
+            self.__writer.add(item)
+        else:
+            container.__store(item)
 
     async def flush(self) -> None:
         container = self.__container__

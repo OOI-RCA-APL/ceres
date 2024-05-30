@@ -5,18 +5,22 @@ if TYPE_CHECKING:
     from ceres.component import Component as __Component__
     from ceres.component import ComponentSystem as __ComponentSystem__
     from ceres.database.database import Database as __Database__
+    from ceres.engine import Engine as __Engine__
     from ceres.logs import LogEntry as __LogEntry__
     from ceres.message import Message as __Message__
     from ceres.node import Node as __Node__
+    from ceres.reference import Reference as __Reference__
     from ceres.user import User as __User__
 else:
     __Alert__ = object
     __Component__ = object
     __ComponentSystem__ = object
     __Database__ = object
+    __Engine__ = object
     __LogEntry__ = object
     __Message__ = object
     __Node__ = object
+    __Reference__ = object
     __User__ = object
 
 __Entity__ = __Alert__ | __LogEntry__ | __Message__ | __User__

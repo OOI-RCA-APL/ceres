@@ -16,7 +16,6 @@ from datetime import datetime, timedelta
 from functools import lru_cache, wraps
 from os import PathLike as _BasePathLike
 from types import NoneType, UnionType
-from typing_extensions import override
 from typing import (
     TYPE_CHECKING,
     Annotated,
@@ -53,6 +52,7 @@ from pydantic_core import CoreSchema, SchemaSerializer, SchemaValidator
 from sqlalchemy import BinaryExpression, SQLColumnExpression, func
 from sqlalchemy.util import OrderedSet as BaseOrderedSet
 from sqlalchemy.util import classproperty as _baseclassproperty
+from typing_extensions import override
 
 NAME_PATTERN = r"^[a-zA-Z_\-][a-zA-Z0-9_\-]*$"
 

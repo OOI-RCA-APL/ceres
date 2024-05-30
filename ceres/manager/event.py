@@ -10,7 +10,8 @@ from ceres._internal.manager.manager import BaseBoundManager
 from ceres._internal.typedecs import __ComponentSystem__, __Node__
 from ceres._internal.utilities import lenient_issubclass, sleep_forever
 from ceres.address import Address
-from ceres.event import Event, LogEvent
+from ceres.config import LoggingConfig
+from ceres.event import AlertEvent, Event, LogEvent, MessageEvent
 from ceres.stream import Stream, WriteStream
 
 _EventT = TypeVar("_EventT", bound=Event)
@@ -83,22 +84,23 @@ class EventManager(BaseBoundManager[Event]):
             kwargs["address"] = self._node.address
 
         event = event_cls(*args, **kwargs)
-        logging = self._node.get_resolved_logging_config()
-        if logging.log_events and not isinstance(event, LogEvent):
-            self._node.log.info(
-                "[event] [{type}] {event}",
-                type=event.type,
-                event=event.model_dump_json(exclude={"id", "timestamp", "address", "type"}),
-            )
 
-        self.propagate(event)
+        self.propagate(event, logging=self._node.get_resolved_logging_config())
         return event
 
-    def propagate(self, event: Event) -> None:
+    def propagate(self, event: Event, *, logging: LoggingConfig | None = None) -> None:
         """
         Propagate an event to all systems in the tree, any systems holding a direct or indirect
         reference to a system in the tree, and the containing engine.
         """
+        if logging is not None:
+            if logging.log_events and not isinstance(event, LogEvent):
+                self._node.log.event(logging.log_events_level, event)
+            if logging.log_messages and isinstance(event, MessageEvent):
+                self._node.log.message(logging.log_messages_level, event.message)
+            elif logging.log_alerts and isinstance(event, AlertEvent):
+                self._node.log.alert(logging.log_alerts_level or event.alert.level, event.alert)
+
         from ceres.node import Node
 
         # Add the event to the outgoing event stream.

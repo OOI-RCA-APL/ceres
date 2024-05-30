@@ -23,8 +23,6 @@ from fastapi import (
 )
 from fastapi.dependencies.models import Dependant
 from fastapi.exceptions import RequestValidationError
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse
 from pydantic import AliasChoices
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -33,7 +31,6 @@ from starlette.responses import JSONResponse
 from starlette.status import HTTP_422_UNPROCESSABLE_ENTITY, WS_1008_POLICY_VIOLATION
 
 from ceres._internal.app.api import router as router__api
-from ceres._internal.app.console import ConsoleFiles
 from ceres._internal.app.shared import CurrentEngine
 from ceres.alert import Level
 from ceres.data import jsonify, simplify
@@ -115,6 +112,9 @@ class App(FastAPI):
             error = simplify(ValidationFailedError(problems=ValidationProblem.extract(exception)))
             return JSONResponse(simplify(error), status_code=HTTP_422_UNPROCESSABLE_ENTITY)
 
+        from fastapi.middleware.cors import CORSMiddleware
+        from fastapi.middleware.gzip import GZipMiddleware
+
         self.add_middleware(
             CORSMiddleware,
             allow_origins=["*"],
@@ -127,6 +127,9 @@ class App(FastAPI):
 
         self.include_router(router__api)
         self.include_router(router)
+
+        from ceres._internal.app.console import ConsoleFiles
+
         self.mount("/", ConsoleFiles(), name="console")
 
     @property

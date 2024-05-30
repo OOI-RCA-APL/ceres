@@ -1,8 +1,8 @@
 import asyncio
 from typing import Any
 
-from hypercorn import Config as HypercornConfig
 from hypercorn.asyncio import serve
+from hypercorn.config import Config as HypercornConfig
 from typing_extensions import override
 
 from ceres.tasklet import Tasklet

@@ -45,6 +45,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing_extensions import Self, Unpack, dataclass_transform, overload, override
 
 from ceres._internal.cli.plumbing import CLIOption
+from ceres._internal.typedecs import __Reference__
 from ceres._internal.utilities import (
     OrderedWeakSet,
     Undefined,
@@ -125,10 +126,8 @@ from ceres.validation import ValidationProblem
 
 if TYPE_CHECKING:
     from ceres.engine import Engine
-    from ceres.reference import Reference
 else:
     Engine = object
-    Reference = object
 
 
 warnings.filterwarnings(
@@ -1072,11 +1071,11 @@ class ComponentSystem(Node):
         self.__sync_child_order()
         self.sync_references()
 
-    def sync_references(self) -> tuple[list[Reference], list[Reference]]:
+    def sync_references(self) -> tuple[list[__Reference__], list[__Reference__]]:
         from ceres.reference import unref
 
-        resolved: list[Reference] = []
-        unresolved: list[Reference] = []
+        resolved: list[__Reference__] = []
+        unresolved: list[__Reference__] = []
 
         references = self.get_references()
         for reference in references:
@@ -1097,7 +1096,7 @@ class ComponentSystem(Node):
         self._referencers.difference_update(discard)
         return resolved, unresolved
 
-    def get_references(self) -> list[Reference]:
+    def get_references(self) -> list[__Reference__]:
         from ceres.reference import Reference
 
         references: list[Reference] = []
@@ -1123,7 +1122,7 @@ class ComponentSystem(Node):
         return False
 
     def get_referenced_components(self, reference: str | None = None) -> list["Component"]:
-        from ceres.reference import unref
+        from ceres.reference import Reference, unref
 
         root = self.component
 
@@ -1213,14 +1212,18 @@ class ComponentSystem(Node):
             if current is not None and current is self:
                 self.events.emit(WillDetachEvent)
 
+                address_before = self.address
                 parent._children.pop(self.name, None)
                 self._parent = None
 
                 self.__propagate_tree_change()
                 parent.__propagate_tree_change()
 
-                event = self.events.emit(DetachedEvent)
-                parent.events.propagate(event)
+                parent.events.propagate(
+                    DetachedEvent(address=address_before),
+                    logging=self.get_resolved_logging_config(),
+                )
+                self.events.emit(DetachedEvent)
         finally:
             self._parent = None
 

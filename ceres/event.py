@@ -92,12 +92,18 @@ class ConnectFailedEvent(__BaseStandardEvent):
     type: Literal["connect-failed"] = "connect-failed"
 
 
+class ReconnectScheduledEvent(__BaseStandardEvent):
+    type: Literal["reconnect-scheduled"] = "reconnect-scheduled"
+    delay: PositiveTimeDelta
+
+
 ConnectionEvent = (
     ConnectedEvent
     | DisconnectedEvent
     | DisconnectingEvent
     | ConnectionLostEvent
     | ConnectFailedEvent
+    | ReconnectScheduledEvent
 )
 
 

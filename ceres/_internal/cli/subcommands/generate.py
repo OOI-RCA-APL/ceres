@@ -7,7 +7,6 @@ from pydantic import Field, NonNegativeInt
 from ceres._internal.cli.plumbing import CLIOption, CLIRouter
 from ceres.config import Config
 from ceres.data import StrEnum, jsonify, yamlify
-from ceres.engine import Engine
 
 router = CLIRouter(
     name="generate",
@@ -48,6 +47,7 @@ def openapi(
     Generate up-to-date OpenAPI schema for the Ceres Rest API.
     """
     from ceres._internal.app.main import App
+    from ceres.engine import Engine
 
     app = App(Engine(Config()))
     schema = app.openapi()

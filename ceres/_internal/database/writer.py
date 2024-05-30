@@ -27,7 +27,7 @@ class Writer:
 
     @property
     def empty(self) -> bool:
-        return bool(self._buffer) or any(bool(flush.entities) for flush in self._flushes)
+        return not self._buffer and not any(flush.entities for flush in self._flushes)
 
     @property
     def size(self) -> int:

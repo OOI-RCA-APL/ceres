@@ -24,6 +24,7 @@ from ceres.event import (
     DisconnectingEvent,
     MessageReceivedEvent,
     MessageSentEvent,
+    ReconnectScheduledEvent,
 )
 from ceres.message import Message, MessageContent, MessageDirection
 from ceres.schedule import IntervalSchedule
@@ -204,9 +205,9 @@ class Connection(Component, ABC):
                 if next is None:
                     break
 
-                delay = (next - utc()).total_seconds()
-                self.system.log.info(f"Reconnecting in {round(delay, 1):g} seconds...")
-                await asyncio.sleep(delay)
+                delay = next - utc()
+                self.system.events.emit(ReconnectScheduledEvent, delay=delay)
+                await asyncio.sleep(delay.total_seconds())
 
             while self.connected:
                 data = await self.__poll_message()

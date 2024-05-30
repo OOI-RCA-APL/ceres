@@ -1,12 +1,13 @@
 import logging
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Mapping, Sequence
 
 from typing_extensions import Unpack
 
 from ceres._internal.manager.entity import BaseEntityManager
-from ceres._internal.typedecs import __Database__, __Node__
-from ceres.event import LogEvent
+from ceres._internal.typedecs import __Alert__, __Database__, __Message__, __Node__
+from ceres.address import Address
+from ceres.event import Event, LogEvent
 from ceres.level import Level
 from ceres.logs import LogEntry, LogEntryFilter, LogEntryFilterArgs
 from ceres.stream import Stream
@@ -26,6 +27,9 @@ class LogManager(
         super().__init__(source, LogEntry)
 
 
+LogInterpolate = Mapping[str, object] | Sequence[object]
+
+
 class LiveLogManager(LogManager):
     if TYPE_CHECKING:
         _node: __Node__  # type: ignore
@@ -41,7 +45,6 @@ class LiveLogManager(LogManager):
         filter: LogEntryFilter | None = None,
         **kwargs: Unpack[LogEntryFilterArgs],
     ) -> Stream[LogEntry]:
-        assert self._node is not None
         filter = self._apply_default_filter(filter, kwargs)
         return (
             self._node.events.follow()
@@ -50,46 +53,93 @@ class LiveLogManager(LogManager):
             .filter(filter.matches)
         )
 
-    def emit(self, level: Level, content: object, *args: object, **kwargs: object) -> LogEntry:
-        if not isinstance(content, str):
-            content = str(content)
-        if args or kwargs:
-            content = content.format(*args, **kwargs)
+    def write(self, entry: LogEntry, /) -> None:
+        from ceres.event import LogEvent
 
         config = self._node.get_resolved_logging_config()
-        if level >= config.level:
+        if entry.level >= config.level:
             logger = _get_logger(self._node.address)
-            logger.log(logging.getLevelName(level.value.upper()), content)
+            logger.log(logging.getLevelName(entry.level.value.upper()), entry.content)
+            self._node.log.store(entry)
+
+        self._node.events.emit(LogEvent, entry=entry)
+
+    def emit(
+        self,
+        level: Level,
+        content: object,
+        address: Address | None = None,
+        /,
+        **kwargs: object,
+    ) -> LogEntry:
+        if not isinstance(content, str):
+            content = str(content)
+
+        if kwargs:
+            content = content.format(**kwargs)
 
         entry = LogEntry(
-            address=self._node.address,
+            address=address or self._node.address,
             level=level,
             content=content,
         )
 
-        from ceres.event import LogEvent
-
-        self._node.events.emit(LogEvent, entry=entry)
-
-        if level >= config.persist.level:
-            self._node.store(entry)
-
+        self.write(entry)
         return entry
 
-    def debug(self, content: object, *args: object, **kwargs: object) -> LogEntry:
-        return self.emit(Level.DEBUG, content, *args, **kwargs)
+    def debug(
+        self,
+        content: object,
+        address: Address | None = None,
+        /,
+        **kwargs: object,
+    ) -> LogEntry:
+        return self.emit(Level.DEBUG, content, address, **kwargs)
 
-    def info(self, content: object, *args: object, **kwargs: object) -> LogEntry:
-        return self.emit(Level.INFO, content, *args, **kwargs)
+    def info(
+        self,
+        content: object,
+        address: Address | None = None,
+        /,
+        **kwargs: object,
+    ) -> LogEntry:
+        return self.emit(Level.INFO, content, address, **kwargs)
 
-    def warning(self, content: object, *args: object, **kwargs: object) -> LogEntry:
-        return self.emit(Level.WARNING, content, *args, **kwargs)
+    def warning(
+        self,
+        content: object,
+        address: Address | None = None,
+        /,
+        **kwargs: object,
+    ) -> LogEntry:
+        return self.emit(Level.WARNING, content, address, **kwargs)
 
-    def error(self, content: object, *args: object, **kwargs: object) -> LogEntry:
-        return self.emit(Level.ERROR, content, *args, **kwargs)
+    def error(
+        self,
+        content: object,
+        address: Address | None = None,
+        /,
+        **kwargs: object,
+    ) -> LogEntry:
+        return self.emit(Level.ERROR, content, address, **kwargs)
 
-    def critical(self, content: object, *args: object, **kwargs: object) -> LogEntry:
-        return self.emit(Level.CRITICAL, content, *args, **kwargs)
+    def critical(
+        self,
+        content: object,
+        address: Address | None = None,
+        /,
+        **kwargs: object,
+    ) -> LogEntry:
+        return self.emit(Level.CRITICAL, content, address, **kwargs)
+
+    def event(self, level: Level, event: Event, /) -> None:
+        self.emit(level, "[event] {data}", event.address, data=event.model_dump_json())
+
+    def message(self, level: Level, message: __Message__, /) -> None:
+        self.emit(level, "[message] {data}", message.address, data=message.model_dump_json())
+
+    def alert(self, level: Level, alert: __Alert__, /) -> None:
+        self.emit(level, "[alert] {data}", alert.address, data=alert.model_dump_json())
 
 
 @dataclass(kw_only=True)
