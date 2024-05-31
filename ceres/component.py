@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import inspect
 import traceback
@@ -40,11 +42,10 @@ from pydantic import (
     ValidationError,
 )
 from pydantic.fields import FieldInfo
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 from typing_extensions import Self, Unpack, dataclass_transform, overload, override
 
 from ceres._internal.cli.plumbing import CLIOption
+from ceres._internal.lazy import lazy_imports
 from ceres._internal.typedecs import __Reference__
 from ceres._internal.utilities import (
     OrderedWeakSet,
@@ -123,6 +124,10 @@ from ceres.schedule import Schedule, Trigger
 from ceres.status import Status
 from ceres.store import StoreRow
 from ceres.validation import ValidationProblem
+
+with lazy_imports(__name__):
+    from sqlalchemy.ext.asyncio import AsyncSession
+    from sqlalchemy.sql import select
 
 if TYPE_CHECKING:
     from ceres.engine import Engine

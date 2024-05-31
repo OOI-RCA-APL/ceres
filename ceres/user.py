@@ -1,16 +1,14 @@
+from __future__ import annotations
+
 from typing import Annotated, Any, ClassVar, Iterable, Sequence
 from uuid import UUID, uuid4
 
 from pydantic import Field
-from sqlalchemy import Boolean, ColumnExpressionArgument, Text, UniqueConstraint
-from sqlalchemy.orm import Mapped, QueryableAttribute, mapped_column
-from sqlalchemy.schema import SchemaItem
-from sqlalchemy.sql import expression
 from typing_extensions import TypedDict, override
 
 from ceres._internal.cli.plumbing import CLIOption
 from ceres._internal.database.types import EnumConstraint, EnumMapper
-from ceres._internal.utilities import as_sequence
+from ceres._internal.lazy import lazy_imports
 from ceres.data import (
     EmailStr,
     PasswordHash,
@@ -27,6 +25,14 @@ from ceres.entity import (
     BaseEntityFilterArgs,
     BaseEntityRow,
 )
+
+with lazy_imports(__name__):
+    from sqlalchemy.orm import Mapped, QueryableAttribute, mapped_column
+    from sqlalchemy.schema import SchemaItem, UniqueConstraint
+    from sqlalchemy.sql import ColumnExpressionArgument, expression
+    from sqlalchemy.sql.sqltypes import Boolean, Text
+
+    from ceres._internal.utilities import as_sequence
 
 
 class UserRole(PriorityStrEnum):

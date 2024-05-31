@@ -1,13 +1,19 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Callable, TypeVar
 
-import anyio
 from typing_extensions import Unpack, overload, override
 
-from ceres._internal.utilities import BytesLike, bytes_of
-from ceres.message import Message
-from ceres.roles.connection import Connection
+from ceres._internal.lazy import lazy_imports
+
+with lazy_imports(__name__):
+    import anyio
+
+    from ceres._internal.utilities import BytesLike, bytes_of
+    from ceres.message import Message
+    from ceres.roles.connection import Connection
 
 _T = TypeVar("_T")
 

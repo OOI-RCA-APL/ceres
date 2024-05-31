@@ -1,9 +1,7 @@
+from __future__ import annotations
+
 import os
-import sys
-import warnings
 from contextlib import contextmanager
-from functools import wraps
-from pathlib import Path
 from typing import IO, Annotated, Any, Callable, Literal, Mapping, Sequence, TypeVar, overload
 
 import typer
@@ -11,11 +9,19 @@ from click import ParamType
 from pydantic import Field, field_validator
 
 from ceres._internal.cli.plumbing import CLICommandFailed, CLIContext, CLIOption
-from ceres._internal.project import Project
-from ceres._internal.utilities import is_non_stringy_collection
-from ceres.config import Config, ConfigCheckType
+from ceres._internal.lazy import lazy_imports
 from ceres.data import FromYAML, ImmutableDataObject, NonEmpty, jsonify
 from ceres.result import Ok
+
+with lazy_imports(__name__):
+    import sys
+    import warnings
+    from functools import wraps
+    from pathlib import Path
+
+    from ceres._internal.project import Project
+    from ceres._internal.utilities import is_non_stringy_collection
+    from ceres.config import Config, ConfigCheckType
 
 chdir = os.chdir
 
@@ -71,11 +77,9 @@ async def get_config(
     checks: Sequence[ConfigCheckType],
     silent: bool = False,
 ) -> Config:
-    import rich
-
     match await Config.load(
         get_config_path(config_path, required=True),
-        log=rich.print if not silent else lambda *args: None,
+        log=write if not silent else lambda *args: None,
         checks=checks,
     ):
         case Ok(config):

@@ -10,10 +10,13 @@ from ceres._internal.cli.plumbing import (
     CLIOption,
     CLIRouter,
 )
-from ceres._internal.cli.shared import get_confirmation, use_database, write
-from ceres._internal.utilities import show_td
+from ceres._internal.lazy import lazy_imports
 from ceres.database.enums import DataFormat, EntityType
 from ceres.timing import utc
+
+with lazy_imports(__name__):
+    from ceres._internal.cli.shared import get_confirmation, use_database, write
+    from ceres._internal.utilities import show_td
 
 router = CLIRouter(
     name="database",

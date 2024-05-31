@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import inspect
 from dataclasses import dataclass
 from datetime import datetime
@@ -5,7 +7,6 @@ from inspect import Parameter
 from typing import TYPE_CHECKING, Annotated, Any, AsyncIterator, Mapping, TypeVar
 from uuid import UUID
 
-import jwt
 from fastapi import (
     Cookie,
     Depends,
@@ -17,14 +18,11 @@ from fastapi import (
     WebSocketDisconnect,
 )
 from fastapi.requests import HTTPConnection
-from jwt import InvalidTokenError
 from pydantic import BaseModel, Json, ValidationError
 from pydantic_core import PydanticUndefined
 from starlette.status import HTTP_400_BAD_REQUEST, HTTP_401_UNAUTHORIZED
-from websockets.exceptions import ConnectionClosed
 
-from ceres._internal.utilities import cached, call_partial, dictify, get_type_adapter
-from ceres.config import ServerAuthenticationConfig
+from ceres._internal.lazy import lazy_imports
 from ceres.data import DateTime, EmailStr, ImmutableDataObject, StrEnum, UsernameStr, jsonify
 from ceres.error import Failure, NotAuthenticatedError, NotPermittedError
 from ceres.timing import utc
@@ -36,6 +34,12 @@ if TYPE_CHECKING:
 else:
     Engine = object
     App = object
+
+with lazy_imports(__name__):
+    import jwt
+
+    from ceres._internal.utilities import cached, call_partial, dictify, get_type_adapter
+    from ceres.config import ServerAuthenticationConfig
 
 
 def _get_current_app(connection: HTTPConnection) -> App:
@@ -71,6 +75,8 @@ class Socket:
 
 
 async def _use_current_socket(socket: WebSocket) -> AsyncIterator[Socket]:
+    from websockets.exceptions import ConnectionClosed
+
     try:
         await socket.accept()
         yield Socket(socket)
@@ -132,6 +138,7 @@ def create_identity(
     user: User,
     authentication: ServerAuthenticationConfig,
 ) -> Identity:
+
     expires = utc() + authentication.duration
     token = jwt.encode(
         {
@@ -174,6 +181,8 @@ async def _get_current_identity(
     authorization_cookie: str | None = Cookie(None, alias="Authorization"),
     authorization_header: Annotated[str | None, Header(alias="Authorization")] = None,
 ) -> Identity | None:
+    from jwt import InvalidTokenError
+
     authentication = engine.config.server.authentication
     if authentication is None:
         return None

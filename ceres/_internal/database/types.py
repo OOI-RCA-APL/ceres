@@ -1,14 +1,22 @@
+from __future__ import annotations
+
 from datetime import datetime, timezone
 from enum import Enum as BaseEnum
 from typing import Any, Callable
 from uuid import UUID
 
-from sqlalchemy import TIMESTAMP, CheckConstraint, Dialect, Enum, Text, TypeDecorator, Uuid
-from sqlalchemy.sql.operators import OperatorType
 from typing_extensions import override
 
-from ceres._internal.utilities import snakecase
+from ceres._internal.lazy import lazy_imports
 from ceres.address import Address
+
+with lazy_imports(__name__):
+    from sqlalchemy import TIMESTAMP, CheckConstraint, Dialect, Enum, Text, TypeDecorator
+    from sqlalchemy.sql.operators import OperatorType
+
+    from ceres._internal.utilities import snakecase
+
+from sqlalchemy.sql.sqltypes import Uuid
 
 
 def EnumMapper(cls: type[BaseEnum]) -> Enum:

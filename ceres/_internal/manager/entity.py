@@ -1,15 +1,18 @@
+from __future__ import annotations
+
 from typing import Any, Generic, TypeVar, cast
 
 from pydantic import BaseModel
-from sqlalchemy import Delete, Select, Update, delete, func, select, update
 from typing_extensions import Unpack
 
-from ceres._internal.auth import verify_password_hash
-from ceres._internal.database.utilities import wrap_database_errors
+from ceres._internal.lazy import lazy_imports
 from ceres._internal.manager.manager import BaseManager
-from ceres._internal.utilities import call_partial, get_type_adapter
-from ceres.data import PasswordHash
 from ceres.entity import BaseEntity
+
+with lazy_imports(__name__):
+    from ceres._internal.auth import verify_password_hash
+    from ceres._internal.utilities import call_partial, get_type_adapter, wrap_database_errors
+    from ceres.data import PasswordHash
 
 _T = TypeVar("_T")
 _EntityT = TypeVar("_EntityT", bound=BaseEntity)
@@ -19,7 +22,8 @@ _EntityFilterArgsT = TypeVar("_EntityFilterArgsT", bound=BaseEntity.FilterArgs)
 _EntityCreateT = TypeVar("_EntityCreateT", bound=BaseModel)
 _EntityUpdateT = TypeVar("_EntityUpdateT", bound=BaseEntity.Update)
 
-_Statement = Select[tuple[Any, ...]] | Update | Delete
+with lazy_imports(__name__):
+    from sqlalchemy.sql import Delete, Select, Update, delete, func, select, update
 
 
 class BaseEntityManager(
@@ -117,7 +121,7 @@ class BaseEntityManager(
 
     async def _execute_and_get_many(
         self,
-        statement: _Statement,
+        statement: Select[tuple[Any, ...]] | Update | Delete,
         result_type: type[_T],
     ) -> list[_T]:
         with wrap_database_errors():
@@ -134,7 +138,7 @@ class BaseEntityManager(
 
     async def _execute_and_get_one(
         self,
-        statement: _Statement,
+        statement: Select[tuple[Any, ...]] | Update | Delete,
         result_type: type[_T],
     ) -> _T | None:
         with wrap_database_errors():

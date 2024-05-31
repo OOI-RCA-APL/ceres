@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from asyncio import Queue as AsyncQueue
 from asyncio import QueueEmpty
 from collections.abc import AsyncIterator

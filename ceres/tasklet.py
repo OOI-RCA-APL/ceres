@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 from abc import ABC, abstractmethod
 from asyncio import Event as AsyncEvent
@@ -7,7 +9,10 @@ from typing import Callable, cast
 
 from typing_extensions import Self
 
-from ceres._internal.utilities import cancel, wait_any
+from ceres._internal.lazy import lazy_imports
+
+with lazy_imports(__name__):
+    from ceres._internal.utilities import cancel, wait_any
 
 
 @dataclass

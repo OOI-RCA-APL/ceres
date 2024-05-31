@@ -1,17 +1,14 @@
+from __future__ import annotations
+
 from typing import Annotated, Any, ClassVar, Iterable
 
 from pydantic import BeforeValidator, Field, PlainSerializer
-from sqlalchemy import ColumnExpressionArgument, Index, LargeBinary
-from sqlalchemy.orm import Mapped, QueryableAttribute, mapped_column
-from sqlalchemy.schema import SchemaItem
 from typing_extensions import TypedDict, override
 
 from ceres._internal.cli.plumbing import CLIOption
-from ceres._internal.database.types import EnumConstraint, EnumMapper
-from ceres._internal.utilities import as_sequence, escape_like_expression
+from ceres._internal.lazy import lazy_imports
 from ceres.address import Address
 from ceres.data import DateTime, StrEnum
-from ceres.database.enums import DatabaseType
 from ceres.record import (
     BaseRecord,
     BaseRecordCreate,
@@ -19,6 +16,16 @@ from ceres.record import (
     BaseRecordFilterArgs,
     BaseRecordRow,
 )
+
+with lazy_imports(__name__):
+    from sqlalchemy.orm import Mapped, QueryableAttribute, mapped_column
+    from sqlalchemy.schema import Index, SchemaItem
+    from sqlalchemy.sql import ColumnExpressionArgument
+    from sqlalchemy.sql.sqltypes import LargeBinary
+
+    from ceres._internal.database.types import EnumConstraint, EnumMapper
+    from ceres._internal.utilities import as_sequence, escape_like_expression
+    from ceres.database.enums import DatabaseType
 
 
 class MessageDirection(StrEnum):

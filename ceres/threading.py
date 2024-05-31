@@ -1,7 +1,13 @@
-from concurrent.futures import ThreadPoolExecutor
+from __future__ import annotations
+
 from typing import Callable, ParamSpec, TypeVar
 
-from ceres._internal.utilities import ensure_event_loop
+from ceres._internal.lazy import lazy_imports
+
+with lazy_imports(__name__):
+    from concurrent.futures import ThreadPoolExecutor
+
+    from ceres._internal.utilities import ensure_event_loop
 
 _P = ParamSpec("_P")
 _T = TypeVar("_T")

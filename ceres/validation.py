@@ -1,10 +1,11 @@
-from typing import TYPE_CHECKING
+from __future__ import annotations
 
-if TYPE_CHECKING:
-    from fastapi.exceptions import RequestValidationError as __RequestValidationError__
-    from pydantic import ValidationError as __ValidationError__
-
+from ceres._internal.lazy import lazy_imports
 from ceres.data import ImmutableDataObject
+
+with lazy_imports(__name__):
+    from fastapi.exceptions import RequestValidationError
+    from pydantic import ValidationError
 
 
 class ValidationProblem(ImmutableDataObject):
@@ -13,9 +14,7 @@ class ValidationProblem(ImmutableDataObject):
     message: str
 
     @classmethod
-    def extract(
-        cls, error: "__ValidationError__ | __RequestValidationError__"
-    ) -> list["ValidationProblem"]:
+    def extract(cls, error: ValidationError | RequestValidationError) -> list["ValidationProblem"]:
         return [
             ValidationProblem(
                 type=error["type"],

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import traceback
 from abc import abstractmethod
 from collections import defaultdict
@@ -8,7 +10,6 @@ from typing import Any, Iterable, Sequence, final
 from pydantic import Field
 from typing_extensions import override
 
-from ceres._internal.markdown import markdown
 from ceres._internal.templates import templates
 from ceres._internal.utilities import group_by
 from ceres.address import Address
@@ -157,6 +158,10 @@ class HTMLDispatchWriter(DispatchWriter):
                 group[key].sort(key=lambda alert: -alert.timestamp.timestamp())
 
         template = templates.get_template("html-email-dispatch.jinja")
+
+        from mistune import create_markdown
+
+        markdown = create_markdown()
         content = template.render(
             dispatch=dispatch,
             index=index,

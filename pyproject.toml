@@ -39,11 +39,11 @@ watchfiles = ">=0.10.0"
 websockets = "^10.0.0"
 
 [tool.poetry.group.dev.dependencies]
-black = "24.1.1"
-pyright = "^1.1.352"
+black = "^24.4.2"
+pyright = "^1.1.365"
 pytest = "7.4.0"
 pytest-asyncio = "0.21.1"
-ruff = "0.2.1"
+ruff = "^0.4.6"
 types-pyyaml = "^6.0.12.11"
 
 [tool.poetry.group.docs.dependencies]

@@ -1,18 +1,24 @@
+from __future__ import annotations
+
 import asyncio
 import inspect
 import traceback
 from asyncio import Queue as AsyncQueue
-from typing import TYPE_CHECKING, Awaitable, Callable, TypeVar
+from typing import Awaitable, Callable, TypeVar
 
 from typing_extensions import ParamSpec, override
 
+from ceres._internal.lazy import lazy_imports
 from ceres._internal.manager.manager import BaseBoundManager
-from ceres._internal.typedecs import __ComponentSystem__, __Node__
-from ceres._internal.utilities import lenient_issubclass, sleep_forever
 from ceres.address import Address
-from ceres.config import LoggingConfig
-from ceres.event import AlertEvent, Event, LogEvent, MessageEvent
-from ceres.stream import Stream, WriteStream
+
+with lazy_imports(__name__):
+    from ceres._internal.utilities import lenient_issubclass, sleep_forever
+    from ceres.component import ComponentSystem, ListenerBinding
+    from ceres.config import LoggingConfig
+    from ceres.event import AlertEvent, Event, LogEvent, MessageEvent
+    from ceres.node import Node
+    from ceres.stream import Stream, WriteStream
 
 _EventT = TypeVar("_EventT", bound=Event)
 _EventP = ParamSpec("_EventP")
@@ -23,7 +29,7 @@ class EventManager(BaseBoundManager[Event]):
 
     def __init__(
         self,
-        source: __Node__,
+        source: Node,
     ) -> None:
         super().__init__(source, Event)
         self._stream: WriteStream[Event] = WriteStream()
@@ -42,15 +48,13 @@ class EventManager(BaseBoundManager[Event]):
 
     @property
     @override
-    def _node(self) -> __Node__:
+    def _node(self) -> Node:
         node = super()._node
         assert node is not None
         return node
 
     @property
-    def _system(self) -> __ComponentSystem__ | None:
-        from ceres.component import ComponentSystem
-
+    def _system(self) -> ComponentSystem | None:
         if isinstance(self._node, ComponentSystem):
             return self._node
 
@@ -100,8 +104,6 @@ class EventManager(BaseBoundManager[Event]):
                 self._node.log.message(logging.log_messages_level, event.message)
             elif logging.log_alerts and isinstance(event, AlertEvent):
                 self._node.log.alert(logging.log_alerts_level or event.alert.level, event.alert)
-
-        from ceres.node import Node
 
         # Add the event to the outgoing event stream.
         self._stream.put(event)
@@ -161,11 +163,6 @@ class EventManager(BaseBoundManager[Event]):
         return self.listening(type(event), event.address)
 
 
-if TYPE_CHECKING:
-    from ceres.component import ListenerBinding as __ListenerBinding__
-else:
-    __ListenerBinding__ = object
-
 _ComponentEventHandler = (
     Callable[[Event], None | Awaitable[None]] | Callable[[], None | Awaitable[None]]
 )
@@ -184,9 +181,10 @@ class _Listener:
     def __init__(
         self,
         *,
-        system: __ComponentSystem__,
-        binding: __ListenerBinding__,
+        system: ComponentSystem,
+        binding: ListenerBinding,
     ) -> None:
+
         self._system = system
         self._binding = binding
         self._handler: _ComponentEventHandler = getattr(system.component, binding.method)

@@ -1,12 +1,18 @@
-import os
-from pathlib import Path
+from __future__ import annotations
 
 from fastapi.staticfiles import StaticFiles
 from typing_extensions import override
 
+from ceres._internal.lazy import lazy_imports
+
+with lazy_imports(__name__):
+    import os
+    from pathlib import Path
+
 
 class ConsoleFiles(StaticFiles):
     def __init__(self) -> None:
+
         directory = Path(__file__).parent / "../../static/console"
         directory = directory.resolve()
         directory.mkdir(mode=755, parents=True, exist_ok=True)

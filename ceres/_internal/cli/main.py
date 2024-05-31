@@ -15,14 +15,6 @@ from ceres._internal.cli.plumbing import (
     CLIOption,
     CLIRouter,
 )
-from ceres._internal.cli.shared import (
-    get_config_path,
-    strbool,
-    use_config_path,
-    use_project,
-    write,
-    write_table,
-)
 from ceres._internal.cli.subcommands.alert import router as subcommand__alert
 from ceres._internal.cli.subcommands.database import router as subcommand__database
 from ceres._internal.cli.subcommands.generate import router as subcommand__generate
@@ -30,25 +22,35 @@ from ceres._internal.cli.subcommands.log_entry import router as subcommand__log_
 from ceres._internal.cli.subcommands.message import router as subcommand__message
 from ceres._internal.cli.subcommands.service import router as subcommand__service
 from ceres._internal.cli.subcommands.user import router as subcommand__user
-from ceres._internal.utilities import (
-    cancel,
-    ensure_event_loop,
-    get_traceback,
-    set_current_process_name,
-    strify,
-    syncify,
-    temporary_signal_handler,
-    wait_any,
-)
+from ceres._internal.lazy import lazy_imports
 from ceres.address import AddressSelector
-from ceres.component import ComponentFilter
-from ceres.config import Config
-from ceres.data import jsonify
-from ceres.engine import Engine
 from ceres.result import Fail, Ok
-from ceres.status import Status
-from ceres.threading import spawn
 from ceres.version import __version__
+
+with lazy_imports(__name__):
+    from ceres._internal.cli.shared import (
+        get_config_path,
+        strbool,
+        use_config_path,
+        use_project,
+        write,
+        write_table,
+    )
+    from ceres._internal.utilities import (
+        cancel,
+        ensure_event_loop,
+        get_traceback,
+        set_current_process_name,
+        strify,
+        syncify,
+        temporary_signal_handler,
+        wait_any,
+    )
+    from ceres.component import ComponentFilter
+    from ceres.config import Config
+    from ceres.data import jsonify
+    from ceres.engine import Engine
+    from ceres.threading import spawn
 
 router = CLIRouter(
     name="ceres",
@@ -121,8 +123,9 @@ async def _run(addresses: Sequence[AddressSelector], *, config_path: Path, watch
             await _run_watch(address, config_path=config_path)
         else:
             set_current_process_name("ceres")
+
             match Config.read(config_path):
-                case Ok():
+                case Ok():  # noqa: F821
                     pass
                 case Fail(errors):
                     raise CLICommandFailed(
@@ -258,6 +261,7 @@ async def check(*, context: CLIContext) -> None:
     Validate project configuration (ceres.yaml) for errors.
     """
     config_path = await use_config_path(context)
+
     match await Config.load(config_path, log=write):
         case Ok():
             write("All checks passed.")
@@ -302,6 +306,8 @@ async def status(
     address = AddressSelector(addresses if addresses else "all")
 
     try:
+        from ceres.status import Status
+
         statuses = await client.get(
             "/statuses",
             params=GetStatusesQueryParameters(address=address),

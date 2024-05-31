@@ -1,20 +1,26 @@
+from __future__ import annotations
+
 from abc import abstractmethod
 from datetime import datetime
 from typing import Annotated, Any, ClassVar, Iterable, TypeVar
 
 from pydantic import Field
-from sqlalchemy import ColumnExpressionArgument, Index
-from sqlalchemy.orm import Mapped, QueryableAttribute, mapped_column
-from sqlalchemy.schema import SchemaItem
 from typing_extensions import Literal, override
 
 from ceres._internal.cli.plumbing import CLIOption
 from ceres._internal.database.types import DateTimeMapper
-from ceres._internal.utilities import as_sequence, format_sql_timestamp, format_timestamp
+from ceres._internal.lazy import lazy_imports
 from ceres.data import DateTime, PositiveTimeDelta
 from ceres.database.enums import DatabaseType
 from ceres.item import BaseItem, BaseItemFilter, BaseItemFilterArgs, BaseItemRow, BaseItemUpdate
 from ceres.timing import utc
+
+with lazy_imports(__name__):
+    from sqlalchemy.orm import Mapped, QueryableAttribute, mapped_column
+    from sqlalchemy.schema import Index, SchemaItem
+    from sqlalchemy.sql import ColumnExpressionArgument
+
+    from ceres._internal.utilities import as_sequence, format_sql_timestamp, format_timestamp
 
 
 class BaseRecordRow(BaseItemRow, kw_only=True):

@@ -64,8 +64,6 @@ __export("ceres.data", "ValidatedDataclass")
 __export("ceres.data", "jsonify")
 __export("ceres.data", "simplify")
 
-if TYPE_CHECKING:
-    pass
 
 __export("ceres.database.database", "Database")
 

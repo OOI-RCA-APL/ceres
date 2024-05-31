@@ -1,30 +1,16 @@
+from __future__ import annotations
+
 import csv
 import shutil
-import sqlite3
 import traceback
 from abc import abstractmethod
 from asyncio import Lock as AsyncLock
-from typing import TYPE_CHECKING, Any, Iterable
-
-from sqlalchemy.ext.asyncio import AsyncSession
-from typing_extensions import Self, override
-
-from ceres._internal.database.utilities import wrap_database_errors
-from ceres.database.enums import DatabaseType
-from ceres.entity import BaseEntity, BaseEntityRow
-
-if TYPE_CHECKING:
-    from ceres.database.database import Database
-else:
-    Database = object
-
-
 from pathlib import Path
-from sqlite3 import Connection as SQLiteConnection
 from tempfile import NamedTemporaryFile, gettempdir
 from typing import (
-    TYPE_CHECKING,
+    Any,
     Callable,
+    Iterable,
     Iterator,
     Mapping,
     Sequence,
@@ -34,27 +20,41 @@ from typing import (
 from uuid import UUID, uuid4
 
 from pydantic import ValidationError
-from sqlalchemy import (
-    URL,
-    AsyncAdaptedQueuePool,
-    Connection,
-    delete,
-    event,
-    inspect,
-    text,
-)
-from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, create_async_engine
+from typing_extensions import Self, override
 
 from ceres._internal.auth import get_password_hash, verify_password, verify_password_hash
-from ceres._internal.utilities import PathLike, strlist
+from ceres._internal.lazy import lazy_imports
+from ceres._internal.utilities import PathLike, strlist, wrap_database_errors
 from ceres.config import DatabaseConfig, PostgresDatabaseConfig, SQLiteDatabaseConfig
 from ceres.data import PasswordHash, jsonify
-from ceres.database.enums import EntityType
+from ceres.database.enums import DatabaseType, EntityType
+from ceres.entity import BaseEntity, BaseEntityRow
 from ceres.error import DatabaseInitError, DatabaseLoadError, Failure
 from ceres.threading import spawn
 
 _T = TypeVar("_T")
 _EntityT = TypeVar("_EntityT", bound=BaseEntity)
+
+with lazy_imports(__name__):
+    import sqlite3
+    from sqlite3 import Connection as SQLiteConnection
+
+    from asyncpg import Connection as AsyncPgConnection
+    from sqlalchemy import (
+        URL,
+        AsyncAdaptedQueuePool,
+        Connection,
+        delete,
+        event,
+        inspect,
+        text,
+    )
+    from sqlalchemy.ext.asyncio import (
+        AsyncConnection,
+        AsyncEngine,
+        AsyncSession,
+        create_async_engine,
+    )
 
 
 class Database:
@@ -534,10 +534,11 @@ class PostgresDatabase(Database):
 
         await self.init()
 
+        url = self.url.replace("+asyncpg", "")
+
         import asyncpg
 
-        url = self.url.replace("+asyncpg", "")
-        connection: asyncpg.Connection = await asyncpg.connect(url)
+        connection: AsyncPgConnection = await asyncpg.connect(url)
 
         try:
             timestamp = "to_char(timestamp, 'YYYY-MM-DD HH24:MI:SS.US') as timestamp"
@@ -581,9 +582,8 @@ class PostgresDatabase(Database):
         url = self.url.replace("+asyncpg", "")
 
         import asyncpg
-        from asyncpg import Connection
 
-        connection: Connection = await asyncpg.connect(url)  # type: ignore
+        connection = await asyncpg.connect(url)  # type: ignore
 
         try:
             row_cls = entity_type.cls.Row

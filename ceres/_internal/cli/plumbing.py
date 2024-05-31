@@ -1,8 +1,5 @@
-import inspect
-import json
-import traceback
-from copy import copy
-from functools import wraps
+from __future__ import annotations
+
 from inspect import Parameter
 from types import NoneType, UnionType
 from typing import (
@@ -22,7 +19,6 @@ from typing import (
 
 import click
 import click.shell_completion
-import rich
 from click import ClickException, Context
 from pydantic import BaseModel, ConfigDict, ValidationError
 from pydantic.fields import FieldInfo
@@ -32,14 +28,22 @@ from typer.main import lenient_issubclass
 from typer.models import ArgumentInfo, OptionInfo
 from typing_extensions import TypedDict, Unpack
 
-from ceres._internal.utilities import (
-    get_args_model,
-    get_unannotated_type,
-    lenient_isinstance,
-    syncify,
-)
+from ceres._internal.lazy import lazy_imports
 from ceres.data import ImmutableDataObject, jsonify
-from ceres.error import Failure
+
+with lazy_imports(__name__):
+    import inspect
+    import json
+    import traceback
+    from copy import copy
+    from functools import wraps
+
+    from ceres._internal.utilities import (
+        get_args_model,
+        get_unannotated_type,
+        lenient_isinstance,
+        syncify,
+    )
 
 
 class CLIRouter(Typer):
@@ -127,12 +131,16 @@ def _enhance_cli_command(function: Any) -> Any:
             except ValidationError as error:
                 raise CLICommandFailed(_format_errors(error, fields_to_groups))
 
+            from ceres.error import Failure
+
             try:
                 result = syncify(function)(*args, **parsed.__dict__)
             except Failure as failure:
                 raise CLICommandFailed(jsonify(failure.error, indent=2))
 
             if result is not None:
+                import rich
+
                 try:
                     rich.print(jsonify(result, indent=2))
                 except Exception:

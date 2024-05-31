@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from abc import ABC
 from typing import Any, Callable, ClassVar, Literal, Sequence
 
@@ -12,10 +14,13 @@ from starlette.status import (
     HTTP_500_INTERNAL_SERVER_ERROR,
 )
 
-from ceres._internal.utilities import lenient_isinstance
+from ceres._internal.lazy import lazy_imports
 from ceres.address import Address
 from ceres.data import DataObject, ImmutableDataObject
 from ceres.validation import ValidationProblem
+
+with lazy_imports(__name__):
+    from ceres._internal.utilities import lenient_isinstance
 
 
 class Error(ImmutableDataObject, ABC):

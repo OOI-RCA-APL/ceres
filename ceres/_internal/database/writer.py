@@ -1,14 +1,19 @@
+from __future__ import annotations
+
 from asyncio import Event as AsyncEvent
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterable
 
-from sqlalchemy.exc import DatabaseError
-from sqlalchemy.ext.asyncio import AsyncSession
+from ceres._internal.lazy import lazy_imports
+from ceres._internal.typedecs import __Entity__
 
-from ceres._internal.typedecs import __Database__, __Entity__
-from ceres._internal.utilities import get_type_adapter, group_by
-from ceres.database.enums import DatabaseType
+with lazy_imports(__name__):
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from ceres._internal.utilities import get_type_adapter, group_by
+    from ceres.database.database import Database
+    from ceres.database.enums import DatabaseType
 
 
 @dataclass(slots=True)
@@ -18,7 +23,7 @@ class Flush:
 
 
 class Writer:
-    def __init__(self, database: Callable[[], __Database__]) -> None:
+    def __init__(self, database: Callable[[], Database]) -> None:
         self._database = database
         self._buffer: list[__Entity__] = []
         self._flushes: deque[Flush] = deque()
@@ -64,6 +69,8 @@ class Writer:
         self._buffer = []
         self._flushes.append(flush)
 
+        from sqlalchemy.exc import DatabaseError
+
         try:
             # Wait for the previous flush to complete.
             if previous:
@@ -99,7 +106,7 @@ class Writer:
 
     async def __write_entities(
         self,
-        database: __Database__,
+        database: Database,
         session: AsyncSession,
         entities: Iterable[__Entity__],
     ) -> None:
@@ -112,7 +119,7 @@ class Writer:
 
     async def __write_entities_of_cls(
         self,
-        database: __Database__,
+        database: Database,
         session: AsyncSession,
         cls: type[__Entity__],
         entities: list[__Entity__],

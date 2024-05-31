@@ -1,18 +1,18 @@
+from __future__ import annotations
+
 import re
-from typing import TYPE_CHECKING, Any, Sequence
+from typing import Any, Sequence
 
 from pydantic import GetCoreSchemaHandler
 from pydantic_core import CoreSchema
 from pydantic_core.core_schema import no_info_after_validator_function
 from typing_extensions import Literal, Self, override
 
+from ceres._internal.lazy import lazy_imports
 from ceres._internal.utilities import NAME_PATTERN
 
-if TYPE_CHECKING:
-    from sqlalchemy import ColumnElement, SQLColumnExpression
-else:
-    SQLColumnExpression = object
-    ColumnElement = object
+with lazy_imports(__name__):
+    from sqlalchemy.sql.elements import ColumnElement, SQLColumnExpression
 
 from ceres.data import Name
 

@@ -1,14 +1,14 @@
+from __future__ import annotations
+
 from abc import abstractmethod
 from typing import Annotated, ClassVar, Iterable, TypeVar
 
 from pydantic import Field
-from sqlalchemy import ColumnExpressionArgument, Index
-from sqlalchemy.orm import Mapped, QueryableAttribute, mapped_column
-from sqlalchemy.schema import SchemaItem
 from typing_extensions import override
 
 from ceres._internal.cli.plumbing import CLIOption
 from ceres._internal.database.types import AddressMapper
+from ceres._internal.lazy import lazy_imports
 from ceres._internal.utilities import as_sequence
 from ceres.address import Address, AddressSelector
 from ceres.database.enums import DatabaseType
@@ -19,6 +19,11 @@ from ceres.entity import (
     BaseEntityRow,
     BaseEntityUpdate,
 )
+
+with lazy_imports(__name__):
+    from sqlalchemy.orm import Mapped, QueryableAttribute, mapped_column
+    from sqlalchemy.schema import Index, SchemaItem
+    from sqlalchemy.sql import ColumnExpressionArgument
 
 
 class BaseItemRow(BaseEntityRow, kw_only=True):

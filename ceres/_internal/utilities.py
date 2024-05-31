@@ -1,11 +1,8 @@
+from __future__ import annotations
+
 import asyncio
 import dataclasses
-import inspect
-import math
-import random
 import re
-import signal
-import textwrap
 import typing
 from asyncio import AbstractEventLoop, Task
 from asyncio import Queue as AsyncQueue
@@ -13,7 +10,6 @@ from collections import OrderedDict, defaultdict
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from functools import lru_cache, wraps
 from os import PathLike as _BasePathLike
 from types import NoneType, UnionType
 from typing import (
@@ -49,10 +45,13 @@ from weakref import WeakSet, ref
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, create_model, validate_call
 from pydantic.fields import FieldInfo
 from pydantic_core import CoreSchema, SchemaSerializer, SchemaValidator
-from sqlalchemy import BinaryExpression, SQLColumnExpression, func
 from sqlalchemy.util import OrderedSet as BaseOrderedSet
-from sqlalchemy.util import classproperty as _baseclassproperty
 from typing_extensions import override
+
+from ceres._internal.lazy import lazy_imports
+
+with lazy_imports(__name__):
+    from sqlalchemy import BinaryExpression, SQLColumnExpression, func
 
 NAME_PATTERN = r"^[a-zA-Z_\-][a-zA-Z0-9_\-]*$"
 
@@ -76,8 +75,12 @@ _T = TypeVar("_T")
 
 
 def syncify(function: Callable[_P, Awaitable[_T] | _T]) -> Callable[_P, _T]:
+    import inspect
+
     if not inspect.iscoroutinefunction(function):
         return cast(Callable[_P, _T], function)
+
+    from functools import wraps
 
     @wraps(function)
     def wrapper(*args: _P.args, **kwargs: _P.kwargs) -> Any:
@@ -87,6 +90,8 @@ def syncify(function: Callable[_P, Awaitable[_T] | _T]) -> Callable[_P, _T]:
 
 
 async def awaitify(value: Awaitable[_T] | _T) -> _T:
+    import inspect
+
     if inspect.isawaitable(value):
         return cast(_T, await value)
 
@@ -190,12 +195,16 @@ def unwrap(value: _T | None) -> _T:
 
 
 def snakecase(text: str) -> str:
+    import re
+
     text = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1_\2", text)
     text = re.sub(r"([a-z\d])([A-Z])", r"\1_\2", text)
     return text.replace("-", "_").lower()
 
 
 def randstr(characters: str, length: int) -> str:
+    import random
+
     return "".join(random.choice(characters) for _ in range(length))
 
 
@@ -438,6 +447,8 @@ else:
 
 
 async def sleep_forever() -> None:
+    import math
+
     while True:
         await asyncio.sleep(math.inf)
 
@@ -471,6 +482,8 @@ def ensure_event_loop() -> AbstractEventLoop:
 
 @contextmanager
 def temporary_signal_handler(signums: Sequence[int], handler: Callable[..., Any]) -> Iterator[None]:
+    import signal
+
     loop = get_event_loop_or_none()
     originals: dict[int, Any] = {}
 
@@ -522,6 +535,8 @@ def cached(function: _FunctionT) -> _FunctionT: ...
 def cached(
     function: _FunctionT | None = None, *, max_size: int | None = None
 ) -> _FunctionT | Callable[[_FunctionT], _FunctionT]:
+    from functools import lru_cache
+
     def cached(function: _FunctionT) -> _FunctionT:
         return lru_cache(maxsize=max_size)(function)  # type: ignore
 
@@ -571,6 +586,8 @@ def get_args_model(
     remove_self: bool = True,
     inner: bool = True,
 ) -> type[BaseModel]:
+    import inspect
+
     function = get_inner_function(function) if inner else function
 
     if model_name is None:
@@ -774,6 +791,8 @@ async def get_session(database: "Database", session: AsyncSession | None) -> Asy
 
 
 def sqlstmt(statement: str, *, indent: int = 0) -> str:
+    import textwrap
+
     statement = textwrap.dedent(statement).strip()
     import sqlparse
 
@@ -786,6 +805,8 @@ def sqlstmt(statement: str, *, indent: int = 0) -> str:
 
 
 def sqlexpr(statement: str, *, indent: int = 0) -> str:
+    import textwrap
+
     statement = textwrap.dedent(statement).strip()
     import sqlparse
 
@@ -967,6 +988,8 @@ def call_partial(
     *args: _P.args,
     **kwargs: _P.kwargs,
 ) -> _T:
+    import inspect
+
     parameters = inspect.signature(function).parameters
     applied_kwargs = {key: value for key, value in kwargs.items() if key in parameters}
     return function(*args, **applied_kwargs)  # type: ignore
@@ -1075,10 +1098,6 @@ class OrderedWeakSet(WeakSet[_T]):
 
 
 WeakRef = ref
-
-
-class classproperty(_baseclassproperty):
-    pass
 
 
 def format_timestamp(timestamp: datetime) -> str:
@@ -1215,3 +1234,46 @@ def model_apply_defaults(model: _ModelT, defaults: _ModelT | None) -> _ModelT:
 
 def model_is_empty(model: BaseModel) -> bool:
     return not all(getattr(model, field, None) is None for field in model.model_fields_set)
+
+
+_SQLITE_UNIQUE_ERROR_REGEX = re.compile(
+    r"UNIQUE constraint failed: ([^ ]+)\.(?P<column>[^ ]+)",
+    re.MULTILINE | re.DOTALL,
+)
+_POSTGRES_UNIQUE_ERROR_REGEX = re.compile(
+    r".*duplicate key.*\((?P<column>[^ ]+)\)=",
+    re.MULTILINE | re.DOTALL,
+)
+
+
+@contextmanager
+def wrap_database_errors() -> Iterator[None]:
+    from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+
+    from ceres.error import AlreadyExistsError, DatabaseUnexpectedError, Failure
+
+    try:
+        yield
+    except SQLAlchemyError as exception:
+        try:
+            from sqlalchemy.dialects.postgresql.asyncpg import AsyncAdapt_asyncpg_dbapi
+
+            PostgresIntegrityError = AsyncAdapt_asyncpg_dbapi.IntegrityError
+        except ImportError:
+            PostgresIntegrityError = None
+
+        from sqlite3 import IntegrityError as SQLiteIntegrityError
+
+        if isinstance(exception, IntegrityError):
+            if isinstance(exception.orig, SQLiteIntegrityError):
+                match = _SQLITE_UNIQUE_ERROR_REGEX.match(str(exception.orig))
+                if match is not None:
+                    raise Failure(AlreadyExistsError(field=match.group("column")))
+            elif PostgresIntegrityError is not None and isinstance(
+                exception.orig, PostgresIntegrityError
+            ):
+                match = _POSTGRES_UNIQUE_ERROR_REGEX.match(str(exception.orig))
+                if match is not None:
+                    raise Failure(AlreadyExistsError(field=match.group("column")))
+
+        raise Failure(DatabaseUnexpectedError(message=str(exception)))

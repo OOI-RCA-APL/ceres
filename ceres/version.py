@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+
 def __get_version() -> str:
     import importlib.metadata
     from pathlib import Path

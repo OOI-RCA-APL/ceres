@@ -10,7 +10,7 @@ from typing_extensions import Self, Unpack, final, override
 
 from ceres._internal.app.main import App
 from ceres._internal.project import Project
-from ceres._internal.server import Server, ServerInternalConfig
+from ceres._internal.server import Server
 from ceres._internal.utilities import as_component_system, sleep_forever, strify, uniquify
 from ceres.address import Address, AddressSelector, DynamicAddress
 from ceres.component import Component, ComponentFilter, ComponentFilterArgs, ComponentSystem
@@ -496,7 +496,9 @@ class Engine(Node):
         elif self.__config.server.port is None:
             return None
 
-        config = ServerInternalConfig()
+        from ceres._internal.server import HypercornConfig
+
+        config = HypercornConfig()
         config.loglevel = "CRITICAL"
 
         # SSL / HTTPS

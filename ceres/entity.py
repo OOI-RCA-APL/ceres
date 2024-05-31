@@ -1,5 +1,5 @@
-import re
-import textwrap
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from typing import (
     TYPE_CHECKING,
@@ -11,49 +11,49 @@ from typing import (
     TypedDict,
     TypeVar,
 )
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pydantic
-from apscheduler.job import uuid4
 from pydantic import Field, NonNegativeInt
-from sqlalchemy import (
-    ClauseElement,
-    ColumnElement,
-    ColumnExpressionArgument,
-    Delete,
-    Dialect,
-    Engine,
-    PrimaryKeyConstraint,
-    Select,
-    Table,
-    Update,
-    select,
-)
-from sqlalchemy.ext.asyncio import AsyncEngine
-from sqlalchemy.orm import (
-    DeclarativeBase,
-    Mapped,
-    MappedAsDataclass,
-    QueryableAttribute,
-    declared_attr,
-    mapped_column,
-)
-from sqlalchemy.schema import CreateIndex, CreateTable, SchemaItem
-from sqlalchemy.sql import expression
-from sqlalchemy.sql.base import ReadOnlyColumnCollection
+from sqlalchemy.orm.decl_api import DeclarativeBase, MappedAsDataclass
 from typing_extensions import Annotated
 
 from ceres._internal.cli.plumbing import CLIOption
 from ceres._internal.database.types import UUIDMapper
-from ceres._internal.utilities import as_sequence, escape_like_expression
+from ceres._internal.lazy import lazy_imports
 from ceres.data import ImmutableDataObject
 from ceres.database.enums import DatabaseType
 from ceres.filter import BaseFilter, BaseFilterArgs
+
+with lazy_imports(__name__):
+    from sqlalchemy import (
+        ClauseElement,
+        ColumnElement,
+        ColumnExpressionArgument,
+        Delete,
+        Dialect,
+        Engine,
+        PrimaryKeyConstraint,
+        Select,
+        Table,
+        Update,
+        select,
+    )
+    from sqlalchemy.ext.asyncio import AsyncEngine
+    from sqlalchemy.orm import Mapped, QueryableAttribute, declared_attr, mapped_column
+    from sqlalchemy.schema import CreateIndex, CreateTable, SchemaItem
+    from sqlalchemy.sql import expression
+    from sqlalchemy.sql.base import ReadOnlyColumnCollection
+
+    from ceres._internal.utilities import as_sequence, escape_like_expression
 
 _StatementT = TypeVar("_StatementT", bound=Select[tuple[Any, ...]] | Update | Delete)
 
 
 def _compile(dialect: AsyncEngine | Engine | Dialect, element: ClauseElement) -> str:
+    import re
+    import textwrap
+
     if isinstance(dialect, Engine):
         dialect = dialect.dialect
     elif isinstance(dialect, AsyncEngine):

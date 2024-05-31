@@ -1,14 +1,19 @@
+from __future__ import annotations
+
 from typing import ClassVar
 
-from sqlalchemy import Boolean, UniqueConstraint
-from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.schema import SchemaItem
-from sqlalchemy.sql import expression
 from typing_extensions import override
 
 from ceres._internal.database.types import AddressMapper
+from ceres._internal.lazy import lazy_imports
 from ceres.address import Address
 from ceres.entity import BaseEntity, BaseEntityRow
+
+with lazy_imports(__name__):
+    from sqlalchemy import Boolean, UniqueConstraint
+    from sqlalchemy.orm import Mapped, mapped_column
+    from sqlalchemy.schema import SchemaItem
+    from sqlalchemy.sql import expression
 
 
 class StoreRow(BaseEntityRow, kw_only=True):

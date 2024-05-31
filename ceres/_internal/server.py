@@ -1,24 +1,26 @@
+from __future__ import annotations
+
 import asyncio
 from typing import Any
 
-from hypercorn.asyncio import serve
-from hypercorn.config import Config as HypercornConfig
 from typing_extensions import override
 
+from ceres._internal.lazy import lazy_imports
 from ceres.tasklet import Tasklet
 
-
-class ServerInternalConfig(HypercornConfig):
-    pass
+with lazy_imports(__name__):
+    from hypercorn.config import Config as HypercornConfig
 
 
 class Server(Tasklet):
-    def __init__(self, config: ServerInternalConfig, app: Any) -> None:
+    def __init__(self, config: HypercornConfig, app: Any) -> None:
         self._config = config
         self._app = app
 
     @override
     async def __run__(self) -> None:
+        from hypercorn.asyncio import serve
+
         await serve(self._app, self._config, shutdown_trigger=lambda: asyncio.Future())
 
     @override

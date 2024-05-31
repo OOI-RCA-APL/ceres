@@ -1,12 +1,17 @@
+from __future__ import annotations
+
 from typing import Any, Mapping, TypeVar
 
 from pydantic import BaseModel
 
-from ceres._internal.cli.plumbing import CLICommandFailed
-from ceres._internal.project import Project
-from ceres._internal.utilities import get_type_adapter
-from ceres.data import simplify
-from ceres.status import Status
+from ceres._internal.lazy import lazy_imports
+
+with lazy_imports(__name__):
+    from ceres._internal.cli.plumbing import CLICommandFailed
+    from ceres._internal.project import Project
+    from ceres._internal.utilities import get_type_adapter
+    from ceres.data import simplify
+    from ceres.status import Status
 
 _T = TypeVar("_T")
 

@@ -1,18 +1,24 @@
-from sqlalchemy import func, select
+from __future__ import annotations
+
 from typing_extensions import Unpack
 
-from ceres._internal.database.utilities import wrap_database_errors
+from ceres._internal.lazy import lazy_imports
 from ceres._internal.manager.manager import BaseManager
-from ceres._internal.typedecs import __Database__, __Node__
-from ceres._internal.utilities import call_partial
 from ceres.address import Address
-from ceres.alert import AlertRow
 from ceres.statistics import LevelStatistics, Statistics, StatisticsFilter, StatisticsFilterArgs
 from ceres.timing import utc
 
+with lazy_imports(__name__):
+    from sqlalchemy import func, select
+
+    from ceres._internal.utilities import call_partial, wrap_database_errors
+    from ceres.alert import Alert
+    from ceres.database.database import Database
+    from ceres.node import Node
+
 
 class StatisticsManager(BaseManager[Statistics]):
-    def __init__(self, source: __Database__ | __Node__) -> None:
+    def __init__(self, source: Database | Node) -> None:
         super().__init__(source, Statistics)
 
     async def get(
@@ -40,17 +46,17 @@ class StatisticsManager(BaseManager[Statistics]):
             .with_defaults(self._get_filter_defaults())
         )
 
-        statement = select(AlertRow.address, AlertRow.level, func.count()).group_by(
-            AlertRow.address,
-            AlertRow.level,
+        statement = select(Alert.Row.address, Alert.Row.level, func.count()).group_by(
+            Alert.Row.address,
+            Alert.Row.level,
         )
 
         if filter.within is not None:
-            statement = statement.where(AlertRow.timestamp >= utc() - filter.within)
+            statement = statement.where(Alert.Row.timestamp >= utc() - filter.within)
         if filter.after is not None:
-            statement = statement.where(AlertRow.timestamp >= filter.after)
+            statement = statement.where(Alert.Row.timestamp >= filter.after)
         if filter.before is not None:
-            statement = statement.where(AlertRow.timestamp < filter.before)
+            statement = statement.where(Alert.Row.timestamp < filter.before)
 
         results: dict[Address, Statistics] = {}
 

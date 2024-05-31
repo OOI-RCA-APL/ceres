@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import operator
 from typing import (
     TYPE_CHECKING,
@@ -14,14 +16,17 @@ from pydantic_core import CoreSchema
 from pydantic_core.core_schema import no_info_after_validator_function
 from typing_extensions import Self, overload, override
 
-from ceres._internal.utilities import (
-    get_type_adapter,
-    lenient_isinstance,
-    lenient_issubclass,
-    strify,
-)
+from ceres._internal.lazy import lazy_imports
 from ceres.address import Address, DynamicAddress
-from ceres.component import Component
+
+with lazy_imports(__name__):
+    from ceres._internal.utilities import (
+        get_type_adapter,
+        lenient_isinstance,
+        lenient_issubclass,
+        strify,
+    )
+    from ceres.component import Component
 
 _reference_static_cls_generic_cache: dict[type | None, type["Reference"]] = {}
 _reference_dynamic_cls_generic_cache: dict[tuple[type | None, type], type["Reference"]] = {}

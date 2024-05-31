@@ -1,5 +1,4 @@
 import asyncio
-import socket
 import sys
 import traceback
 from abc import ABC, abstractmethod
@@ -11,7 +10,7 @@ from typing import Annotated, Literal, final
 from pydantic import Field, field_validator
 from typing_extensions import override
 
-from ceres._internal.utilities import ensure_event_loop, show_td, sleep_forever
+from ceres._internal.lazy import lazy_imports
 from ceres.component import Component, action, routine
 from ceres.connectivity import Connectivity
 from ceres.data import ImmutableDataObject, PositiveTimeDelta, StrEnum
@@ -29,6 +28,11 @@ from ceres.event import (
 from ceres.message import Message, MessageContent, MessageDirection
 from ceres.schedule import IntervalSchedule
 from ceres.timing import utc
+
+with lazy_imports(__name__):
+    import socket
+
+    from ceres._internal.utilities import ensure_event_loop, show_td, sleep_forever
 
 
 class ConnectionException(Exception):

@@ -1,16 +1,24 @@
+from __future__ import annotations
+
 import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Mapping, Sequence
 
 from typing_extensions import Unpack
 
+from ceres._internal.lazy import lazy_imports
 from ceres._internal.manager.entity import BaseEntityManager
-from ceres._internal.typedecs import __Alert__, __Database__, __Message__, __Node__
 from ceres.address import Address
-from ceres.event import Event, LogEvent
-from ceres.level import Level
 from ceres.logs import LogEntry, LogEntryFilter, LogEntryFilterArgs
-from ceres.stream import Stream
+
+with lazy_imports(__name__):
+    from ceres.alert import Alert
+    from ceres.database.database import Database
+    from ceres.event import Event, LogEvent
+    from ceres.level import Level
+    from ceres.message import Message
+    from ceres.node import Node
+    from ceres.stream import Stream
 
 
 class LogManager(
@@ -23,7 +31,7 @@ class LogManager(
         LogEntry.FilterArgs,
     ]
 ):
-    def __init__(self, source: __Database__ | __Node__) -> None:
+    def __init__(self, source: Database | Node) -> None:
         super().__init__(source, LogEntry)
 
 
@@ -32,9 +40,9 @@ LogInterpolate = Mapping[str, object] | Sequence[object]
 
 class LiveLogManager(LogManager):
     if TYPE_CHECKING:
-        _node: __Node__  # type: ignore
+        _node: Node  # type: ignore
 
-    def __init__(self, source: __Node__) -> None:
+    def __init__(self, source: Node) -> None:
         super().__init__(source)
 
     def store(self, entry: LogEntry, /) -> None:
@@ -135,10 +143,10 @@ class LiveLogManager(LogManager):
     def event(self, level: Level, event: Event, /) -> None:
         self.emit(level, "[event] {data}", event.address, data=event.model_dump_json())
 
-    def message(self, level: Level, message: __Message__, /) -> None:
+    def message(self, level: Level, message: Message, /) -> None:
         self.emit(level, "[message] {data}", message.address, data=message.model_dump_json())
 
-    def alert(self, level: Level, alert: __Alert__, /) -> None:
+    def alert(self, level: Level, alert: Alert, /) -> None:
         self.emit(level, "[alert] {data}", alert.address, data=alert.model_dump_json())
 
 

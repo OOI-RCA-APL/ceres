@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from abc import ABC
 from decimal import Decimal
 from enum import Enum
@@ -16,9 +18,12 @@ from pydantic import (
 )
 from typing_extensions import Unpack
 
-from ceres._internal.utilities import strify
+from ceres._internal.lazy import lazy_imports
 from ceres.address import Address
 from ceres.data import Color, DataObject, ImmutableDataObject, Name, StrEnum
+
+with lazy_imports(__name__):
+    from ceres._internal.utilities import strify
 
 
 class ElementType(StrEnum):

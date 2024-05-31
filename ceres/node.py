@@ -1,14 +1,16 @@
+from __future__ import annotations
+
 import asyncio
 from abc import abstractmethod
 from functools import cached_property
-from typing import TYPE_CHECKING, AsyncIterable
+from typing import AsyncIterable
 
 from pydantic import Field
 from pydantic.fields import FieldInfo
 from typing_extensions import Unpack, dataclass_transform, override
 
+from ceres._internal.lazy import lazy_imports
 from ceres._internal.typedecs import __Item__
-from ceres._internal.utilities import get_traceback, model_apply_overrides
 from ceres.address import Address, AddressSelector, DynamicAddress
 from ceres.event import (
     ConnectedEvent,
@@ -20,32 +22,23 @@ from ceres.event import (
     StartedEvent,
     StoppedEvent,
 )
-from ceres.manager.alert import LiveAlertManager
-from ceres.manager.event import EventManager
-from ceres.manager.logs import LiveLogManager
-from ceres.manager.message import LiveMessageManager
-from ceres.manager.statistic import StatisticsManager
-from ceres.manager.user import UserManager
-from ceres.status import Status
 from ceres.tasklet import Tasklet
 
-if TYPE_CHECKING:
+with lazy_imports(__name__):
     from sqlalchemy.ext.asyncio import AsyncSession
 
+    from ceres._internal.utilities import get_traceback, model_apply_overrides
     from ceres.component import Component, ComponentFilter, ComponentFilterArgs, ComponentSystem
     from ceres.config import LoggingConfig, NodeConfig
     from ceres.database.database import Database
     from ceres.engine import Engine
-else:
-    AsyncSession = object
-    Component = object
-    ComponentFilter = object
-    ComponentFilterArgs = object
-    ComponentSystem = object
-    NodeConfig = object
-    LoggingConfig = object
-    Database = object
-    Engine = object
+    from ceres.manager.alert import LiveAlertManager
+    from ceres.manager.event import EventManager
+    from ceres.manager.logs import LiveLogManager
+    from ceres.manager.message import LiveMessageManager
+    from ceres.manager.statistic import StatisticsManager
+    from ceres.manager.user import UserManager
+    from ceres.status import Status
 
 
 @dataclass_transform(

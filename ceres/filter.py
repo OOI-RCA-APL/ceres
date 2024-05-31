@@ -1,10 +1,19 @@
+from __future__ import annotations
+
 from abc import ABC
 
 from pydantic import ConfigDict
 from typing_extensions import Self, TypedDict
 
-from ceres._internal.utilities import model_apply_defaults, model_apply_overrides, model_is_empty
+from ceres._internal.lazy import lazy_imports
 from ceres.data import ImmutableDataObject
+
+with lazy_imports(__name__):
+    from ceres._internal.utilities import (
+        model_apply_defaults,
+        model_apply_overrides,
+        model_is_empty,
+    )
 
 
 class BaseFilterArgs(TypedDict, total=False):

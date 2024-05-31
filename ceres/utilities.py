@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 from asyncio import Queue as AsyncQueue
 from dataclasses import dataclass
@@ -10,7 +12,10 @@ from typing import (
     overload,
 )
 
-from ceres._internal.utilities import cancel
+from ceres._internal.lazy import lazy_imports
+
+with lazy_imports(__name__):
+    from ceres._internal.utilities import cancel
 
 _EntryT = TypeVar("_EntryT", bound=tuple[Any, ...], covariant=True)
 

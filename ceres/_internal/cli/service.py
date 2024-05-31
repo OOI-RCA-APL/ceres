@@ -1,16 +1,22 @@
-import subprocess
-import sys
-import traceback
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
-from getpass import getuser
-from pathlib import Path
 from typing import Any, Sequence
 
 from typing_extensions import override
 
-from ceres._internal.cli.shared import write
-from ceres._internal.project import Project
+from ceres._internal.lazy import lazy_imports
 from ceres.data import DataObject, StrEnum
+
+with lazy_imports(__name__):
+    import subprocess
+    import sys
+    import traceback
+    from getpass import getuser
+    from pathlib import Path
+
+    from ceres._internal.cli.shared import write
+    from ceres._internal.project import Project
 
 
 class ServiceState(StrEnum):

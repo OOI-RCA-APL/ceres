@@ -1,8 +1,13 @@
-from hashlib import sha1
-from pathlib import Path
+from __future__ import annotations
 
-from ceres.config import Config
-from ceres.directory import Directory
+from ceres._internal.lazy import lazy_imports
+
+with lazy_imports(__name__):
+    from hashlib import sha1
+    from pathlib import Path
+
+    from ceres.config import Config
+    from ceres.directory import Directory
 
 
 class Project:

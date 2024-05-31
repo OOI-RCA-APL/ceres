@@ -1,14 +1,20 @@
+from __future__ import annotations
+
 from typing import Any, Mapping
 
 from typing_extensions import Unpack
 
+from ceres._internal.lazy import lazy_imports
 from ceres._internal.manager.entity import BaseEntityManager
 from ceres._internal.manager.manager import BaseBoundManager
-from ceres._internal.typedecs import __Database__, __Node__
 from ceres.alert import Alert, AlertFilter, AlertFilterArgs
 from ceres.event import AlertEvent
 from ceres.level import Level
 from ceres.stream import Stream
+
+with lazy_imports(__name__):
+    from ceres.database.database import Database
+    from ceres.node import Node
 
 
 class AlertManager(
@@ -21,12 +27,12 @@ class AlertManager(
         Alert.FilterArgs,
     ]
 ):
-    def __init__(self, source: __Database__ | __Node__) -> None:
+    def __init__(self, source: Database | Node) -> None:
         super().__init__(source, Alert)
 
 
 class LiveAlertManager(AlertManager, BaseBoundManager[Alert]):
-    def __init__(self, source: __Node__) -> None:
+    def __init__(self, source: Node) -> None:
         super().__init__(source)
 
     def store(self, alert: Alert, /) -> None:

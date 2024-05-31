@@ -3,9 +3,12 @@ from pathlib import Path
 from typing import Annotated
 
 from ceres._internal.cli.plumbing import CLIArgument, CLIContext, CLIRouter
-from ceres._internal.cli.service import LaunchDService, Service, SystemDService
-from ceres._internal.cli.shared import use_project, write, write_table
-from ceres._internal.project import Project
+from ceres._internal.lazy import lazy_imports
+
+with lazy_imports(__name__):
+    from ceres._internal.cli.service import LaunchDService, Service, SystemDService
+    from ceres._internal.cli.shared import use_project, write, write_table
+    from ceres._internal.project import Project
 
 router = CLIRouter(
     name="service",

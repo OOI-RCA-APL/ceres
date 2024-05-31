@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 from dataclasses import dataclass
 from datetime import timedelta
@@ -5,7 +7,10 @@ from typing import Iterator, Literal, NoReturn
 
 from typing_extensions import Self, override
 
-from ceres._internal.utilities import decode_td
+from ceres._internal.lazy import lazy_imports
+
+with lazy_imports(__name__):
+    from ceres._internal.utilities import decode_td
 
 
 @dataclass

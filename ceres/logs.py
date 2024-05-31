@@ -1,13 +1,11 @@
 from typing import Annotated, ClassVar, Iterable, Sequence
 
 from pydantic import Field
-from sqlalchemy import ColumnExpressionArgument, Index, Text
-from sqlalchemy.orm import Mapped, QueryableAttribute, mapped_column
-from sqlalchemy.schema import SchemaItem
 from typing_extensions import TypedDict, override
 
 from ceres._internal.cli.plumbing import CLIOption
 from ceres._internal.database.types import EnumConstraint, EnumMapper
+from ceres._internal.lazy import lazy_imports
 from ceres._internal.utilities import as_sequence, escape_like_expression
 from ceres.address import Address
 from ceres.data import DateTime, StrEnum
@@ -20,6 +18,12 @@ from ceres.record import (
     BaseRecordFilterArgs,
     BaseRecordRow,
 )
+
+with lazy_imports(__name__):
+    from sqlalchemy.orm import Mapped, QueryableAttribute, mapped_column
+    from sqlalchemy.schema import Index, SchemaItem
+    from sqlalchemy.sql import ColumnExpressionArgument
+    from sqlalchemy.sql.sqltypes import Text
 
 
 class LogEntryRow(BaseRecordRow, kw_only=True):

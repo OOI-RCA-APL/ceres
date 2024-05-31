@@ -1,13 +1,19 @@
+from __future__ import annotations
+
 from abc import abstractmethod
-from email.message import EmailMessage
 from typing import Iterable
 
-import aiosmtplib
 from pydantic import Field, SecretStr
 from typing_extensions import override
 
+from ceres._internal.lazy import lazy_imports
 from ceres.component import Component, action
 from ceres.data import ImmutableDataObject, NonBlankStr
+
+with lazy_imports(__name__):
+    from email.message import EmailMessage
+
+    import aiosmtplib
 
 
 class Notification(ImmutableDataObject):

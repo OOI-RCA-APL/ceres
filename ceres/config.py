@@ -22,6 +22,7 @@ from pydantic import (
 )
 from typing_extensions import Self
 from yaml import MarkedYAMLError, YAMLError
+from ceres.database.enums import DatabaseType
 
 from ceres._internal.typedecs import __Component__
 from ceres._internal.utilities import get_traceback, get_type_adapter, group_by, show_td
@@ -34,7 +35,6 @@ from ceres.data import (
     PositiveTimeDelta,
     StrEnum,
 )
-from ceres.database.enums import DatabaseType
 from ceres.error import (
     ComponentInitExceptionError,
     ComponentReferenceInvalidError,

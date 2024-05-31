@@ -1,8 +1,14 @@
+from __future__ import annotations
+
 from typing_extensions import override
 
+from ceres._internal.lazy import lazy_imports
 from ceres._internal.manager.entity import BaseEntityManager
-from ceres._internal.typedecs import __Database__, __Node__
 from ceres.user import User
+
+with lazy_imports(__name__):
+    from ceres.database.database import Database
+    from ceres.node import Node
 
 
 class UserManager(
@@ -15,7 +21,7 @@ class UserManager(
         User.FilterArgs,
     ]
 ):
-    def __init__(self, source: __Database__ | __Node__) -> None:
+    def __init__(self, source: Database | Node) -> None:
         super().__init__(source, User)
 
     @override
