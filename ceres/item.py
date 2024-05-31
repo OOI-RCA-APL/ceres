@@ -110,8 +110,8 @@ class BaseItemUpdate(BaseEntityUpdate, total=False):
 
 
 class BaseItem(BaseItemCreate):
-    Row: ClassVar = BaseItemRow
-    Create: ClassVar = BaseItemCreate
-    Update: ClassVar = BaseItemUpdate
-    Filter: ClassVar = BaseItemFilter
-    FilterArgs: ClassVar = BaseItemFilterArgs
+    Row: ClassVar[type[BaseItemRow]] = BaseItemRow
+    Create: ClassVar[type[BaseItemCreate]] = BaseItemCreate
+    Update: ClassVar[type[BaseItemUpdate]] = BaseItemUpdate
+    Filter: ClassVar[type[BaseItemFilter[BaseItem]]] = BaseItemFilter
+    FilterArgs: ClassVar[type[BaseItemFilterArgs]] = BaseItemFilterArgs

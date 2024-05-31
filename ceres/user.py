@@ -172,12 +172,12 @@ class UserUpdate(TypedDict, total=False):
 
 
 class User(BaseEntity, UserCreate):
-    Order: ClassVar = UserOrder
+    Order: ClassVar[type[UserOrder]] = UserOrder
 
-    Row: ClassVar = UserRow
-    Create: ClassVar = UserCreate
-    Update: ClassVar = UserUpdate
-    Filter: ClassVar = UserFilter
-    FilterArgs: ClassVar = UserFilterArgs
+    Row: ClassVar[type[UserRow]] = UserRow
+    Create: ClassVar[type[UserCreate]] = UserCreate
+    Update: ClassVar[type[UserUpdate]] = UserUpdate
+    Filter: ClassVar[type[UserFilter]] = UserFilter
+    FilterArgs: ClassVar[type[UserFilterArgs]] = UserFilterArgs
 
     password: Annotated[PasswordHash, CLIOption(str, prompt=True, hide_input=True)]

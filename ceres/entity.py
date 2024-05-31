@@ -26,28 +26,25 @@ from ceres.database.enums import DatabaseType
 from ceres.filter import BaseFilter, BaseFilterArgs
 
 with lazy_imports(__name__):
-    from sqlalchemy import (
+    from sqlalchemy.engine import Dialect, Engine
+    from sqlalchemy.ext.asyncio import AsyncEngine
+    from sqlalchemy.orm import Mapped, QueryableAttribute, declared_attr, mapped_column
+    from sqlalchemy.schema import CreateIndex, CreateTable, PrimaryKeyConstraint, SchemaItem, Table
+    from sqlalchemy.sql import (
         ClauseElement,
         ColumnElement,
         ColumnExpressionArgument,
         Delete,
-        Dialect,
-        Engine,
-        PrimaryKeyConstraint,
         Select,
-        Table,
         Update,
+        expression,
         select,
     )
-    from sqlalchemy.ext.asyncio import AsyncEngine
-    from sqlalchemy.orm import Mapped, QueryableAttribute, declared_attr, mapped_column
-    from sqlalchemy.schema import CreateIndex, CreateTable, SchemaItem
-    from sqlalchemy.sql import expression
     from sqlalchemy.sql.base import ReadOnlyColumnCollection
 
     from ceres._internal.utilities import as_sequence, escape_like_expression
 
-_StatementT = TypeVar("_StatementT", bound=Select[tuple[Any, ...]] | Update | Delete)
+_StatementT = TypeVar("_StatementT", bound="Select[tuple[Any, ...]] | Update | Delete")
 
 
 def _compile(dialect: AsyncEngine | Engine | Dialect, element: ClauseElement) -> str:
@@ -309,8 +306,13 @@ class BaseEntityUpdate(TypedDict, total=False):
 
 
 class BaseEntity(BaseEntityCreate):
-    Row: ClassVar = BaseEntityRow
-    Create: ClassVar = BaseEntityCreate
-    Update: ClassVar = BaseEntityUpdate
-    Filter: ClassVar = BaseEntityFilter
-    FilterArgs: ClassVar = BaseEntityFilterArgs
+    Row: ClassVar[type[BaseEntityRow]] = BaseEntityRow
+    Create: ClassVar[type[BaseEntityCreate]] = BaseEntityCreate
+    Update: ClassVar[type[BaseEntityUpdate]] = BaseEntityUpdate
+
+    if TYPE_CHECKING:
+        Filter: ClassVar = BaseEntityFilter
+    else:
+        Filter: ClassVar[type[BaseEntityFilter]] = BaseEntityFilter
+
+    FilterArgs: ClassVar[type[BaseEntityFilterArgs]] = BaseEntityFilterArgs

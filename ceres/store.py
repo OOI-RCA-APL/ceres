@@ -32,7 +32,7 @@ class StoreRow(BaseEntityRow, kw_only=True):
 
 
 class Store(BaseEntity):
-    Row: ClassVar = StoreRow
+    Row: ClassVar[type[StoreRow]] = StoreRow
 
     address: Address
     enabled: bool = False

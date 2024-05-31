@@ -179,11 +179,11 @@ class MessageUpdate(TypedDict, total=False):
 
 
 class Message(BaseRecord, MessageCreate):
-    Order: ClassVar = MessageOrder
-    Direction: ClassVar = MessageDirection
+    Order: ClassVar[type[MessageOrder]] = MessageOrder
+    Direction: ClassVar[type[MessageDirection]] = MessageDirection
 
-    Row: ClassVar = MessageRow
-    Create: ClassVar = MessageCreate
-    Update: ClassVar = MessageUpdate
-    Filter: ClassVar = MessageFilter
-    FilterArgs: ClassVar = MessageFilterArgs
+    Row: ClassVar[type[MessageRow]] = MessageRow
+    Create: ClassVar[type[MessageCreate]] = MessageCreate
+    Update: ClassVar[type[MessageUpdate]] = MessageUpdate
+    Filter: ClassVar[type[MessageFilter]] = MessageFilter
+    FilterArgs: ClassVar[type[MessageFilterArgs]] = MessageFilterArgs

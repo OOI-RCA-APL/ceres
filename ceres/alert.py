@@ -174,10 +174,10 @@ class AlertUpdate(TypedDict, total=False):
 
 
 class Alert(BaseRecord, AlertCreate):
-    Order: ClassVar = AlertOrder
+    Order: ClassVar[type[AlertOrder]] = AlertOrder
 
-    Row: ClassVar = AlertRow
-    Create: ClassVar = AlertCreate
-    Update: ClassVar = AlertUpdate
-    Filter: ClassVar = AlertFilter
-    FilterArgs: ClassVar = AlertFilterArgs
+    Row: ClassVar[type[AlertRow]] = AlertRow
+    Create: ClassVar[type[AlertCreate]] = AlertCreate
+    Update: ClassVar[type[AlertUpdate]] = AlertUpdate
+    Filter: ClassVar[type[AlertFilter]] = AlertFilter
+    FilterArgs: ClassVar[type[AlertFilterArgs]] = AlertFilterArgs

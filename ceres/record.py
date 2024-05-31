@@ -144,8 +144,8 @@ class BaseRecordUpdate(BaseItemUpdate, total=False):
 
 
 class BaseRecord(BaseRecordCreate):
-    Row: ClassVar = BaseRecordRow
-    Create: ClassVar = BaseRecordCreate
-    Update: ClassVar = BaseRecordUpdate
-    Filter: ClassVar = BaseRecordFilter
-    FilterArgs: ClassVar = BaseRecordFilterArgs
+    Row: ClassVar[type[BaseRecordRow]] = BaseRecordRow
+    Create: ClassVar[type[BaseRecordCreate]] = BaseRecordCreate
+    Update: ClassVar[type[BaseRecordUpdate]] = BaseRecordUpdate
+    Filter: ClassVar[type[BaseRecordFilter[BaseRecord]]] = BaseRecordFilter
+    FilterArgs: ClassVar[type[BaseRecordFilterArgs]] = BaseRecordFilterArgs

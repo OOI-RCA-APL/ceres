@@ -150,13 +150,13 @@ class LogEntryCreate(BaseRecordCreate):
 
 
 class LogEntry(BaseRecord, LogEntryCreate):
-    Order: ClassVar = LogEntryOrder
+    Order: ClassVar[type[LogEntryOrder]] = LogEntryOrder
 
-    Row: ClassVar = LogEntryRow
-    Create: ClassVar = LogEntryCreate
-    Update: ClassVar = LogEntryUpdate
-    Filter: ClassVar = LogEntryFilter
-    FilterArgs: ClassVar = LogEntryFilterArgs
+    Row: ClassVar[type[LogEntryRow]] = LogEntryRow
+    Create: ClassVar[type[LogEntryCreate]] = LogEntryCreate
+    Update: ClassVar[type[LogEntryUpdate]] = LogEntryUpdate
+    Filter: ClassVar[type[LogEntryFilter]] = LogEntryFilter
+    FilterArgs: ClassVar[type[LogEntryFilterArgs]] = LogEntryFilterArgs
 
     level: Annotated[Level, CLIOption(Level)]
     content: Annotated[str, CLIOption(str)]
