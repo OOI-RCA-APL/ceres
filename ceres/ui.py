@@ -134,11 +134,11 @@ class Row(_BaseElement):
     sizing: Sizing = Sizing.GROW
     justify: Justify = Justify.START
     align: Align = Align.START
-    children: list["Element"]
+    children: list[Element]
 
     def __init__(
         self,
-        children: Sequence["Element"],
+        children: Sequence[Element],
         *,
         sizing: Sizing = Sizing.GROW,
         justify: Justify = Justify.START,
@@ -161,11 +161,11 @@ class Column(_BaseElement):
     sizing: Sizing = Sizing.GROW
     justify: Justify = Justify.START
     align: Align = Align.START
-    children: list["Element"]
+    children: list[Element]
 
     def __init__(
         self,
-        children: Sequence["Element"],
+        children: Sequence[Element],
         *,
         sizing: Sizing = Sizing.GROW,
         justify: Justify = Justify.START,
@@ -186,11 +186,11 @@ class Column(_BaseElement):
 class Carousel(_BaseElement):
     type: Literal[ElementType.CAROUSEL] = ElementType.CAROUSEL
     height: int | str | None = None
-    children: list["Element"]
+    children: list[Element]
 
     def __init__(
         self,
-        children: Sequence["Element"],
+        children: Sequence[Element],
         *,
         height: int | str | None = None,
         **kwargs: Unpack[_BaseElementArgs],

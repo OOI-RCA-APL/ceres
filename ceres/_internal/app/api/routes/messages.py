@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from fastapi import APIRouter
 from pydantic import Field
 from pydantic import ValidationError as ValidationError

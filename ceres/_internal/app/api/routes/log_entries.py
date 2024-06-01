@@ -1,8 +1,10 @@
+from __future__ import annotations
+
 from fastapi import APIRouter
 from pydantic import Field
 
 from ceres._internal.app.shared import CurrentEngine, CurrentSocket, QueryGroup
-from ceres.alert import Level
+from ceres.level import Level
 from ceres.logs import LogEntry, LogEntryFilter
 
 router = APIRouter(prefix="/log-entries", tags=["logs"])

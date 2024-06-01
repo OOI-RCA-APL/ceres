@@ -89,13 +89,13 @@ class Loader(ImmutableDataObject, Generic[_T]):
         return instance
 
 
-_loaded_type_cache: dict[type, type["LoadedType"]] = {}
+_loaded_type_cache: dict[type, type[LoadedType]] = {}
 
 
 class LoadedType:
     cls: type = object
 
-    def __class_getitem__(cls, target_cls: type, /) -> type["LoadedType"]:
+    def __class_getitem__(cls, target_cls: type, /) -> type[LoadedType]:
         if target_cls in _loaded_type_cache:
             return _loaded_type_cache[target_cls]
 

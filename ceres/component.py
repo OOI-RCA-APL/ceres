@@ -129,6 +129,8 @@ with lazy_imports(__name__):
     from sqlalchemy.ext.asyncio import AsyncSession
     from sqlalchemy.sql import select
 
+    from ceres.reference import Reference, unref
+
 if TYPE_CHECKING:
     from ceres.engine import Engine
 else:
@@ -175,7 +177,7 @@ class ComponentFilter(BaseFilter):
 )
 class Component(ValidatedDataclass):
     __with_name__: InitVar[Name | None] = field(default=None)
-    __with_config__: InitVar["ComponentConfig | None"] = field(default=None)
+    __with_config__: InitVar[ComponentConfig | None] = field(default=None)
 
     def __post_init__(
         self,
@@ -210,7 +212,7 @@ class Component(ValidatedDataclass):
 
 
 @cached
-def get_component_listener_bindings(cls: type[Component]) -> Sequence["ListenerBinding"]:
+def get_component_listener_bindings(cls: type[Component]) -> Sequence[ListenerBinding]:
     """
     Get all listener bindings for this component class.
     """
@@ -218,7 +220,7 @@ def get_component_listener_bindings(cls: type[Component]) -> Sequence["ListenerB
 
 
 @cached
-def get_component_routine_bindings(cls: type[Component]) -> Sequence["RoutineBinding"]:
+def get_component_routine_bindings(cls: type[Component]) -> Sequence[RoutineBinding]:
     """
     Get all routine bindings for this component class.
     """
@@ -793,7 +795,7 @@ class ComponentSystem(Node):
             name = randstr(ascii_lowercase, 8)
 
         self._name = name
-        self._config: Final["ComponentConfig | None"] = config
+        self._config: Final[ComponentConfig | None] = config
         self._jobs: Final[dict[str, Job]] = {}
         self._scheduler: Final = AsyncIOScheduler(timezone=timezone.utc)
         self._referencers: Final[OrderedWeakSet[ComponentSystem]] = OrderedWeakSet()
@@ -1008,60 +1010,60 @@ class ComponentSystem(Node):
         await session.commit()
 
     @property
-    def children(self) -> Sequence["ComponentSystem"]:
+    def children(self) -> Sequence[ComponentSystem]:
         """
         Get all children of this component system.
         """
         return list(self._children.values())
 
-    def get_listener_bindings(self) -> Sequence["ListenerBinding"]:
+    def get_listener_bindings(self) -> Sequence[ListenerBinding]:
         """
         Get all listener bindings for this component system.
         """
         return get_component_listener_bindings(type(self.component))
 
-    def get_routine_bindings(self) -> Sequence["RoutineBinding"]:
+    def get_routine_bindings(self) -> Sequence[RoutineBinding]:
         """
         Get all routine bindings for this component system.
         """
         return get_component_routine_bindings(type(self.component))
 
-    def get_query_bindings(self) -> Mapping[str, "QueryBinding"]:
+    def get_query_bindings(self) -> Mapping[str, QueryBinding]:
         """
         Get all query bindings for this component system. Returns a mapping of query names to query
         bindings.
         """
         return get_component_query_bindings(type(self.component))
 
-    def get_query_binding(self, name: str) -> "QueryBinding | None":
+    def get_query_binding(self, name: str) -> QueryBinding | None:
         """
         Get a query binding for this component system by name. Returns `None` if the query binding
         does not exist.
         """
         return get_component_query_binding(type(self.component), name)
 
-    def get_action_bindings(self) -> Mapping[str, "ActionBinding"]:
+    def get_action_bindings(self) -> Mapping[str, ActionBinding]:
         """
         Get all action bindings for this component system. Returns a mapping of action names to
         action bindings.
         """
         return get_component_action_bindings(type(self.component))
 
-    def get_action_binding(self, name: str) -> "ActionBinding | None":
+    def get_action_binding(self, name: str) -> ActionBinding | None:
         """
         Get an action binding for this component system by name. Returns `None` if the action
         binding does not exist.
         """
         return get_component_action_binding(type(self.component), name)
 
-    def get_procedure_bindings(self) -> Mapping[Name, "ProcedureBinding"]:
+    def get_procedure_bindings(self) -> Mapping[Name, ProcedureBinding]:
         """
         Get all procedure bindings (actions and queries) for this component system. Returns a
         mapping of procedure names to procedure bindings.
         """
         return get_component_procedure_bindings(type(self.component))
 
-    def get_procedure_binding(self, name: str) -> "ProcedureBinding | None":
+    def get_procedure_binding(self, name: str) -> ProcedureBinding | None:
         """
         Get a procedure binding (action or query) for this component system by name. Returns `None`
         if the procedure does not exist.
@@ -1076,11 +1078,9 @@ class ComponentSystem(Node):
         self.__sync_child_order()
         self.sync_references()
 
-    def sync_references(self) -> tuple[list[__Reference__], list[__Reference__]]:
-        from ceres.reference import unref
-
-        resolved: list[__Reference__] = []
-        unresolved: list[__Reference__] = []
+    def sync_references(self) -> tuple[list[Reference], list[Reference]]:
+        resolved: list[Reference] = []
+        unresolved: list[Reference] = []
 
         references = self.get_references()
         for reference in references:
@@ -1101,7 +1101,7 @@ class ComponentSystem(Node):
         self._referencers.difference_update(discard)
         return resolved, unresolved
 
-    def get_references(self) -> list[__Reference__]:
+    def get_references(self) -> list[Reference]:
         from ceres.reference import Reference
 
         references: list[Reference] = []
@@ -1126,7 +1126,7 @@ class ComponentSystem(Node):
 
         return False
 
-    def get_referenced_components(self, reference: str | None = None) -> list["Component"]:
+    def get_referenced_components(self, reference: str | None = None) -> list[Component]:
         from ceres.reference import Reference, unref
 
         root = self.component
@@ -1266,7 +1266,7 @@ class ComponentSystem(Node):
         /,
         *,
         inclusive: bool = False,
-        **kwargs: Unpack["ComponentFilterArgs"],
+        **kwargs: Unpack[ComponentFilterArgs],
     ) -> list[Component]:
         components: list[Component] = []
 

@@ -1,16 +1,16 @@
 from __future__ import annotations
 
+import sys
 from contextlib import contextmanager
 from threading import Lock
 from types import ModuleType, UnionType
-from typing import TYPE_CHECKING, Any, Mapping, NoReturn, Sequence
+from typing import TYPE_CHECKING, Any, Mapping, NoReturn, Sequence, TypeVar
 
-from typing_extensions import override
+from typing_extensions import overload, override
 
 
 class LazyExport:
     def __init__(self, __name__: str) -> None:
-        import sys
         from collections import defaultdict
 
         self._module = sys.modules[__name__]
@@ -342,19 +342,12 @@ class ProxiedMethods:
         raise NotImplementedError()
 
 
-_proxy_dynamic_cls_cache: dict[type, type["LazyProxy"]] = {}
+_proxy_dynamic_cls_cache: dict[type, type[LazyProxy]] = {}
 
 _undefined = object()
 
 
 class LazyProxy:
-    # __slots__ = (
-    #     "__proxy_module__",
-    #     "__proxy_proxied_attrs__",
-    #     "__proxy_target_attr__",
-    #     "__proxy_target__",
-    # )
-
     def __init__(
         self,
         module: str,
@@ -393,7 +386,7 @@ class LazyProxy:
             setattr(self.__proxy_get__(), name, value)
 
     def __instancecheck__(self, instance: Any) -> bool:
-        return isinstance(instance, self.__proxy_get__())
+        return isinstance(instance, self.__proxy_get__()) or type(self) in type(instance).__mro__
 
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
         return self.__proxy_get__()(*args, **kwargs)
@@ -407,14 +400,14 @@ class LazyProxy:
     def __getitem__(self, key: Any) -> Any:
         return self.__proxy_get__()[key]
 
-    def __proxy_sync_dynamic_class__(self) -> type["LazyProxy"]:
+    def __proxy_sync_dynamic_class__(self) -> type[LazyProxy]:
         current = self.__proxy_get_dynamic_class__()
         if self.__class__ is not current:
             self.__class__ = current
 
         return current
 
-    def __proxy_get_dynamic_class__(self) -> type["LazyProxy"]:
+    def __proxy_get_dynamic_class__(self) -> type[LazyProxy]:
         target = self.__proxy_get__()
         key = type(target)
 
@@ -513,3 +506,21 @@ def lazy_imports(name: str):
         yield
     finally:
         _current_lazy_importing_modules.remove(name)
+
+
+_T = TypeVar("_T")
+
+
+@overload
+def unlazy(value: LazyProxy) -> Any: ...
+
+
+@overload
+def unlazy(value: _T) -> _T: ...
+
+
+def unlazy(value: _T | LazyProxy) -> _T:
+    if isinstance(value, LazyProxy):
+        return value.__proxy_get__()
+
+    return value

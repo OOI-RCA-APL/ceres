@@ -1181,8 +1181,8 @@ def as_component_system(obj: "ComponentSystem | Component | None", /) -> "Compon
     return obj.system
 
 
-def as_components(objects: Iterable["ComponentSystem | Component | None"], /) -> list["Component"]:
-    components: list["Component"] = []
+def as_components(objects: Iterable[ComponentSystem | Component | None], /) -> list[Component]:
+    components: list[Component] = []
     for current in objects:
         component = as_component(current)
         if component is not None:
@@ -1192,10 +1192,10 @@ def as_components(objects: Iterable["ComponentSystem | Component | None"], /) ->
 
 
 def as_component_systems(
-    objects: Iterable["ComponentSystem | Component | None"],
+    objects: Iterable[ComponentSystem | Component | None],
     /,
-) -> list["ComponentSystem"]:
-    systems: list["ComponentSystem"] = []
+) -> list[ComponentSystem]:
+    systems: list[ComponentSystem] = []
     for current in objects:
         system = as_component_system(current)
         if system is not None:

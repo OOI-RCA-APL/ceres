@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Literal, NewType, Si
 
 import pydantic
 import pydantic.generics
-import yaml
 from pydantic import (
     AfterValidator,
     BaseModel,
@@ -23,7 +22,6 @@ from pydantic.fields import FieldInfo
 from pydantic_core import CoreSchema, SchemaSerializer, SchemaValidator
 from pydantic_extra_types.color import Color as Color
 from typing_extensions import dataclass_transform, override
-from yaml import YAMLError
 
 from ceres._internal.utilities import (
     NAME_PATTERN,
@@ -44,6 +42,8 @@ def simplify(obj: object) -> Any:
 
 
 def yamlify(obj: object, **kwargs: Any) -> str:
+    import yaml
+
     return yaml.safe_dump(simplify(obj), **kwargs)
 
 
@@ -131,6 +131,9 @@ def __pre_validate_from_json(value: object) -> object:
 
 
 def __pre_validate_from_yaml(value: object) -> object:
+    import yaml
+    from yaml import YAMLError
+
     if isinstance(value, str | bytes):
         try:
             return yaml.safe_load(value)
@@ -320,7 +323,7 @@ class StrEnum(BaseStrEnum):
         return self.value
 
 
-_priority_cache: dict[tuple[type["PriorityStrEnum"], str], int] = {}
+_priority_cache: dict[tuple[type[PriorityStrEnum], str], int] = {}
 
 
 class PriorityStrEnum(StrEnum):

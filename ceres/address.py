@@ -33,10 +33,10 @@ class AddressSelector(str):
         return no_info_after_validator_function(cls.validate, handler(str))
 
     @property
-    def segments(self) -> Sequence["AddressSelector"]:
+    def segments(self) -> Sequence[AddressSelector]:
         return [AddressSelector(segment) for segment in self.split("|")]
 
-    def _get_normalized_segments(self) -> Sequence["AddressSelector"]:
+    def _get_normalized_segments(self) -> Sequence[AddressSelector]:
         segments: list[AddressSelector] = []
         for segment in self.split("|"):
             if segment == "all":

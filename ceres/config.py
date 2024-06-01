@@ -6,7 +6,6 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Annotated, Any, Callable, Literal, Mapping, Sequence
 
-import yaml
 from annotated_types import Ge, Le
 from argon2.profiles import RFC_9106_LOW_MEMORY
 from pydantic import (
@@ -21,8 +20,6 @@ from pydantic import (
     model_validator,
 )
 from typing_extensions import Self
-from yaml import MarkedYAMLError, YAMLError
-from ceres.database.enums import DatabaseType
 
 from ceres._internal.typedecs import __Component__
 from ceres._internal.utilities import get_traceback, get_type_adapter, group_by, show_td
@@ -35,6 +32,7 @@ from ceres.data import (
     PositiveTimeDelta,
     StrEnum,
 )
+from ceres.database.enums import DatabaseType
 from ceres.error import (
     ComponentInitExceptionError,
     ComponentReferenceInvalidError,
@@ -294,6 +292,9 @@ class Config(ComponentConfig):
 
     @classmethod
     def read(cls, source: Path | Mapping[str, object] | Self) -> "Result[Self, list[ConfigError]]":
+        import yaml
+        from yaml import MarkedYAMLError, YAMLError
+
         try:
             if isinstance(source, Mapping):
                 instance = cls.model_validate(source)

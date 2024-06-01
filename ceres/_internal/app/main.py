@@ -1,17 +1,10 @@
+from __future__ import annotations
+
 import traceback
 from http.client import responses
 from pathlib import Path
-from typing import TYPE_CHECKING, Awaitable, Callable, cast, final
+from typing import Awaitable, Callable, cast, final
 
-from asgiref.typing import (
-    ASGIReceiveCallable,
-    ASGIReceiveEvent,
-    ASGISendCallable,
-    ASGISendEvent,
-    HTTPScope,
-    Scope,
-    WebSocketScope,
-)
 from fastapi import (
     APIRouter,
     Depends,
@@ -32,16 +25,25 @@ from starlette.status import HTTP_422_UNPROCESSABLE_ENTITY, WS_1008_POLICY_VIOLA
 
 from ceres._internal.app.api import router as router__api
 from ceres._internal.app.shared import CurrentEngine
-from ceres.alert import Level
-from ceres.data import jsonify, simplify
+from ceres._internal.lazy import lazy_imports
 from ceres.error import Failure, HTTPError, ValidationFailedError
+from ceres.level import Level
 from ceres.validation import ValidationProblem
 from ceres.version import __version__
 
-if TYPE_CHECKING:
+with lazy_imports(__name__):
+    from asgiref.typing import (
+        ASGIReceiveCallable,
+        ASGIReceiveEvent,
+        ASGISendCallable,
+        ASGISendEvent,
+        HTTPScope,
+        Scope,
+        WebSocketScope,
+    )
+
+    from ceres.data import jsonify, simplify
     from ceres.engine import Engine
-else:
-    Engine = object
 
 
 router = APIRouter()

@@ -1,5 +1,6 @@
 import asyncio
 import signal
+import sys
 from asyncio import CancelledError
 from asyncio import Event as AsyncEvent
 from pathlib import Path
@@ -7,7 +8,6 @@ from typing import Annotated, Any, Optional, Sequence
 
 from typer import Exit, Option
 
-from ceres._internal.cli.client import Client
 from ceres._internal.cli.plumbing import (
     CLIArgument,
     CLICommandFailed,
@@ -15,19 +15,13 @@ from ceres._internal.cli.plumbing import (
     CLIOption,
     CLIRouter,
 )
-from ceres._internal.cli.subcommands.alert import router as subcommand__alert
-from ceres._internal.cli.subcommands.database import router as subcommand__database
-from ceres._internal.cli.subcommands.generate import router as subcommand__generate
-from ceres._internal.cli.subcommands.log_entry import router as subcommand__log_entry
-from ceres._internal.cli.subcommands.message import router as subcommand__message
-from ceres._internal.cli.subcommands.service import router as subcommand__service
-from ceres._internal.cli.subcommands.user import router as subcommand__user
-from ceres._internal.lazy import lazy_imports
+from ceres._internal.lazy import lazy_imports, unlazy
 from ceres.address import AddressSelector
 from ceres.result import Fail, Ok
 from ceres.version import __version__
 
 with lazy_imports(__name__):
+    from ceres._internal.cli.client import Client
     from ceres._internal.cli.shared import (
         get_config_path,
         strbool,
@@ -56,14 +50,6 @@ router = CLIRouter(
     name="ceres",
     help=f"Ceres CLI — Package Version {__version__}",
 )
-
-router.add_typer(subcommand__alert)
-router.add_typer(subcommand__database)
-router.add_typer(subcommand__generate)
-router.add_typer(subcommand__log_entry)
-router.add_typer(subcommand__message)
-router.add_typer(subcommand__service)
-router.add_typer(subcommand__user)
 
 
 @router.callback(invoke_without_command=True)
@@ -483,5 +469,34 @@ async def down(
     write(result)
 
 
+with lazy_imports(__name__):
+    from ceres._internal.cli.subcommands.alert import router as subcommand__alert
+    from ceres._internal.cli.subcommands.database import router as subcommand__database
+    from ceres._internal.cli.subcommands.generate import router as subcommand__generate
+    from ceres._internal.cli.subcommands.log_entry import router as subcommand__log_entry
+    from ceres._internal.cli.subcommands.message import router as subcommand__message
+    from ceres._internal.cli.subcommands.service import router as subcommand__service
+    from ceres._internal.cli.subcommands.user import router as subcommand__user
+
+
 def main() -> None:
+
+    arguments = [token for token in sys.argv[1:] if not token.startswith("-")]
+    subcommand = arguments[0] if arguments else None
+    subrouters = {
+        "alert": subcommand__alert,
+        "database": subcommand__database,
+        "generate": subcommand__generate,
+        "log-entry": subcommand__log_entry,
+        "message": subcommand__message,
+        "service": subcommand__service,
+        "user": subcommand__user,
+    }
+
+    if not subcommand:
+        for subrouter in subrouters.values():
+            router.add_typer(unlazy(subrouter))
+    elif subcommand in subrouters:
+        router.add_typer(unlazy(subrouters[subcommand]))
+
     router()

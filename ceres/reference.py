@@ -28,8 +28,8 @@ with lazy_imports(__name__):
     )
     from ceres.component import Component
 
-_reference_static_cls_generic_cache: dict[type | None, type["Reference"]] = {}
-_reference_dynamic_cls_generic_cache: dict[tuple[type | None, type], type["Reference"]] = {}
+_reference_static_cls_generic_cache: dict[type | None, type[Reference]] = {}
+_reference_dynamic_cls_generic_cache: dict[tuple[type | None, type], type[Reference]] = {}
 
 
 class ReferenceProxiedMethods:
@@ -433,14 +433,14 @@ class Reference:
         else:
             setattr(self.__reference_get__(), name, value)
 
-    def __reference_sync_dynamic_class__(self) -> type["Reference"]:
+    def __reference_sync_dynamic_class__(self) -> type[Reference]:
         current = self.__reference_get_dynamic_class__()
         if self.__class__ is not current:
             self.__class__ = current
 
         return current
 
-    def __reference_get_dynamic_class__(self) -> type["Reference"]:
+    def __reference_get_dynamic_class__(self) -> type[Reference]:
         component = self.__reference_get__()
         key = (self.__reference_constraint__, type(component))
 

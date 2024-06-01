@@ -101,10 +101,10 @@ class IntervalSchedule(BaseSchedule):
 
 class OrSchedule(BaseSchedule):
     type: Literal[ScheduleType.OR] = ScheduleType.OR
-    schedules: Sequence["Schedule"]
+    schedules: Sequence[Schedule]
 
     @override
-    def __or__(self, other: "Schedule") -> "OrSchedule":
+    def __or__(self, other: Schedule) -> "OrSchedule":
         if isinstance(other, OrSchedule):
             return OrSchedule(schedules=[*self.schedules, *other.schedules])
 

@@ -24,7 +24,6 @@ class BaseManager(Generic[_ModelT], ABC):
 
     @property
     def _node(self) -> Node | None:
-
         if isinstance(self._source, Database):
             return None
 

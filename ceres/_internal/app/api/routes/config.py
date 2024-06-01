@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from fastapi import APIRouter
 
 from ceres._internal.app.shared import OPERATOR, CurrentEngine

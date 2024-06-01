@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import traceback
 from asyncio import CancelledError
@@ -11,13 +13,9 @@ from ceres._internal.app.shared import (
     CurrentProcedureQueryArguments,
     CurrentRole,
 )
-from ceres._internal.utilities import strify
+from ceres._internal.lazy import lazy_imports
 from ceres.address import Address
-from ceres.component import (
-    Component,
-    ProcedureBinding,
-    ProcedureType,
-)
+from ceres.component import Component, ProcedureBinding, ProcedureType
 from ceres.data import ImmutableDataObject, Name, StrEnum, jsonify
 from ceres.error import (
     Failure,
@@ -30,6 +28,9 @@ from ceres.error import (
 )
 from ceres.result import Fail, Ok, Result
 from ceres.user import UserRole
+
+with lazy_imports(__name__):
+    from ceres._internal.utilities import strify
 
 
 class ComponentRole(StrEnum):
