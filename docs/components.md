@@ -21,25 +21,28 @@ from ceres.data import TimeDelta
 
 
 class Random(Component):
-    start: int
-    end: int
+    low: int
+    high: int
     interval: TimeDelta = timedelta(seconds=1)
 
     @routine
     async def routine__print_random(self) -> None:
         while True:
-            self.system.log.info(randint(self.start, self.end))  # Print a random integer within the configured range.
-            await sleep(self.interval.total_seconds())  # Wait the configured interval.
+            # Print a random integer within the configured range.
+            self.system.log.info(randint(self.low, self.high))
+            # Wait the configured interval.
+            await sleep(self.interval.total_seconds())
 
 
 # This section is only included for example.
 if __name__ == "__main__":
 
     async def main() -> None:
-        component = Component(Random(low=1, high=100))
-        await component.run()
+        component = Random(low=1, high=100)
+        await component.system.run()
 
-    asyncio.run(main())  # Logs a random number between 1 and 100 every second until cancelled.
+    # Logs a random number between 1 and 100 every second until cancelled.
+    asyncio.run(main())
 ```
 
 ```
