@@ -11,8 +11,8 @@ from ceres._internal.lazy import lazy_imports
 with lazy_imports(__name__):
     import anyio
 
-    from ceres._internal.util import BytesLike
     from ceres._internal import util
+    from ceres._internal.util import BytesLike
     from ceres.message import Message
     from ceres.roles.connection import Connection
 
@@ -46,6 +46,7 @@ class Transport:
         *,
         condition: Callable[[Message], bool] | None = None,
         timeout: float | timedelta | None = None,
+        default: None = None,
         **kwargs: Unpack[Message.FilterArgs],
     ) -> Message: ...
 
@@ -55,7 +56,7 @@ class Transport:
         *,
         condition: Callable[[Message], bool] | None = None,
         timeout: float | timedelta | None = None,
-        default: _T | Callable[[], _T] = ...,
+        default: _T | Callable[[], _T],
         **kwargs: Unpack[Message.FilterArgs],
     ) -> Message | _T: ...
 
@@ -64,7 +65,7 @@ class Transport:
         *,
         condition: Callable[[Message], bool] | None = None,
         timeout: float | timedelta | None = None,
-        default: _T | Callable[[], _T] = ...,
+        default: _T | Callable[[], _T] | None = None,
         **kwargs: Unpack[Message.FilterArgs],
     ) -> Message | _T:
         if isinstance(timeout, timedelta):
