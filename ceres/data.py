@@ -23,18 +23,12 @@ from pydantic_core import CoreSchema, SchemaSerializer, SchemaValidator
 from pydantic_extra_types.color import Color as Color
 from typing_extensions import dataclass_transform, override
 
-from ceres._internal.utilities import (
-    NAME_PATTERN,
-    PydanticDataclassLike,
-    blackhole,
-    decode_td,
-    get_type_adapter,
-    is_pydantic_dataclass_type,
-)
+from ceres._internal import util
+from ceres._internal.util import NAME_PATTERN, PydanticDataclassLike
 
 
 def jsonify(obj: object, **kwargs: Any) -> str:
-    return get_type_adapter(type(obj)).dump_json(obj, **kwargs).decode()
+    return util.get_type_adapter(type(obj)).dump_json(obj, **kwargs).decode()
 
 
 def simplify(obj: object) -> Any:
@@ -66,7 +60,7 @@ def __validate_datetime(value: object) -> datetime | None:
     if isinstance(value, datetime):
         instance = value
     else:
-        instance: datetime | date = get_type_adapter(datetime | date).validate_python(value)  # type: ignore
+        instance: datetime | date = util.get_type_adapter(datetime | date).validate_python(value)  # type: ignore
         if not isinstance(instance, datetime):
             return datetime(
                 year=instance.year,
@@ -88,7 +82,7 @@ def __validate_timedelta(value: Any) -> timedelta | None:
     if value is None:
         return None
 
-    return decode_td(value)
+    return util.decode_td(value)
 
 
 TimeDelta = Annotated[timedelta, BeforeValidator(__validate_timedelta)]
@@ -235,7 +229,7 @@ class ValidatedDataclass(ABC, PydanticDataclassLike):
         inherited_config = ConfigDict()
 
         for base in reversed(cls.__bases__):
-            if is_pydantic_dataclass_type(base):
+            if util.is_pydantic_dataclass_type(base):
                 inherited_config.update(base.__pydantic_config__)
 
         config = ConfigDict(
@@ -289,7 +283,9 @@ PasswordStr = Annotated[
 EmailStr = _BaseEmailStr
 
 __BCRYPT_HASH_PATTERN = r"^\$2[ayb]\$.{56}$"
-blackhole(__BCRYPT_HASH_PATTERN)
+
+if TYPE_CHECKING:
+    util.blackhole(__BCRYPT_HASH_PATTERN)
 
 BCryptHash = NewType(
     "BCryptHash",
@@ -297,7 +293,9 @@ BCryptHash = NewType(
 )
 
 __ARGON2_HASH_PATTERN = r"^\$argon2(?:(?:id)|i|d)\$v=\d+\$m=\d+,t=\d+,p=\d+\$[A-Za-z0-9+/$]+$"
-blackhole(__ARGON2_HASH_PATTERN)
+
+if TYPE_CHECKING:
+    util.blackhole(__ARGON2_HASH_PATTERN)
 
 Argon2Hash = NewType(
     "Argon2Hash",

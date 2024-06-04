@@ -10,7 +10,7 @@ from typing_extensions import Self, override
 from ceres._internal.lazy import lazy_imports
 
 with lazy_imports(__name__):
-    from ceres._internal.utilities import decode_td
+    from ceres._internal import util
 
 
 @dataclass
@@ -33,7 +33,7 @@ class Attempt:
     ) -> None:
         self.__index = index
         self.__max = max
-        self.__interval = decode_td(interval)
+        self.__interval = util.decode_td(interval)
         self.__executed = False
         self.__failure: AttemptFailure | None = None
 
@@ -114,7 +114,7 @@ class Attempts(Iterator[Attempt]):
         self.__max = max
         self.__index = -1
         self.__last: Attempt | None = None
-        self.__interval = decode_td(interval)
+        self.__interval = util.decode_td(interval)
 
     @property
     def max(self) -> int:

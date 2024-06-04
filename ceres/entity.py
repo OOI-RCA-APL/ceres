@@ -42,7 +42,7 @@ with lazy_imports(__name__):
     )
     from sqlalchemy.sql.base import ReadOnlyColumnCollection
 
-    from ceres._internal.utilities import as_sequence, escape_like_expression
+    from ceres._internal import util
 
 _StatementT = TypeVar("_StatementT", bound="Select[tuple[Any, ...]] | Update | Delete")
 
@@ -232,7 +232,7 @@ class BaseEntityFilter(BaseFilter, Generic[_EntityT], ABC):
     def matches(self, obj: _EntityT) -> bool:
         if self.search is not None:
             values = self._get_search_content(obj)
-            fields = values if self.search_field is None else as_sequence(self.search_field)
+            fields = values if self.search_field is None else util.as_sequence(self.search_field)
             matched = False
             for field in fields:
                 value = values.get(field)
@@ -247,7 +247,7 @@ class BaseEntityFilter(BaseFilter, Generic[_EntityT], ABC):
                 return False
 
         if self.id is not None:
-            if obj.id not in as_sequence(self.id):
+            if obj.id not in util.as_sequence(self.id):
                 return False
 
         return True
@@ -257,10 +257,10 @@ class BaseEntityFilter(BaseFilter, Generic[_EntityT], ABC):
         encoded = self._get_database_search_encoded_fields()
 
         if self.search is not None:
-            pattern = "%" + escape_like_expression(self.search) + "%"
+            pattern = "%" + util.escape_like_expression(self.search) + "%"
 
             values = self._get_database_search_content(dialect)
-            fields = values if self.search_field is None else as_sequence(self.search_field)
+            fields = values if self.search_field is None else util.as_sequence(self.search_field)
             condition: ColumnExpressionArgument[bool] | None = expression.false()
 
             for field in fields:
@@ -276,7 +276,7 @@ class BaseEntityFilter(BaseFilter, Generic[_EntityT], ABC):
             yield condition
 
         if self.id is not None:
-            yield columns.id.in_(as_sequence(self.id))
+            yield columns.id.in_(util.as_sequence(self.id))
 
     def _get_order_by(self) -> ColumnExpressionArgument[Any] | None:
         return None

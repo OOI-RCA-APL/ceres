@@ -30,7 +30,7 @@ from ceres.result import Fail, Ok, Result
 from ceres.user import UserRole
 
 with lazy_imports(__name__):
-    from ceres._internal.utilities import strify
+    from ceres._internal import util
 
 
 class ComponentRole(StrEnum):
@@ -249,7 +249,7 @@ async def subscribe(
                 reason = jsonify(Fail(exception.error))
             else:
                 code = 1011  # Set code for internal error.
-                reason = jsonify(strify(exception)[0:100])
+                reason = jsonify(util.strify(exception)[0:100])
 
             await socket.close(code, reason)
         finally:

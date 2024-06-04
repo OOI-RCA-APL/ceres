@@ -10,7 +10,7 @@ from ceres._internal.manager.manager import BaseBoundManager
 from ceres.message import Message
 
 with lazy_imports(__name__):
-    from ceres._internal.utilities import blackhole
+    from ceres._internal import util
     from ceres.database.database import Database
     from ceres.node import Node
     from ceres.stream import Stream
@@ -48,7 +48,7 @@ class LiveMessageManager(MessageManager, BaseBoundManager[Message]):
         filter = self._apply_default_filter(filter, kwargs)
 
         if TYPE_CHECKING:
-            blackhole(MessageEvent)
+            util.blackhole(MessageEvent)
 
         return (
             self._node.events.follow()

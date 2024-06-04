@@ -11,11 +11,11 @@ from typing_extensions import Self, Unpack, final, override
 from ceres._internal.app.main import App
 from ceres._internal.project import Project
 from ceres._internal.server import Server
-from ceres._internal.utilities import as_component_system, sleep_forever, strify, uniquify
+from ceres._internal import util
 from ceres.address import Address, AddressSelector, DynamicAddress
 from ceres.component import Component, ComponentFilter, ComponentFilterArgs, ComponentSystem
 from ceres.config import Config, ServerSSLConfig
-from ceres.data import ImmutableDataObject, PasswordHash, StrEnum
+from ceres.data import ImmutableDataObject, PasswordHash, StrEnum, jsonify
 from ceres.directory import Directory
 from ceres.error import (
     ConfigError,
@@ -70,7 +70,8 @@ class Engine(Node):
         self.__reloading = AsyncEvent()
         self.__reloaded_config: Config | None = None
         self.__server: Server | None = None
-        self.root = Component(__with_name__="root").system
+        self.root = Component().system
+        self.root.name = "root"  # type: ignore
 
         if self.__config_path is not None:
             self.__project_directory = Directory(self.__config_path.parent)
@@ -94,7 +95,7 @@ class Engine(Node):
 
     @root.setter
     def root(self, root: ComponentSystem | Component) -> None:
-        self.__root = as_component_system(root)
+        self.__root = util.as_component_system(root)
         self.__root.engine = self
 
     @property
@@ -161,7 +162,7 @@ class Engine(Node):
                             if component.system.enabled and not component.system.running:
                                 component.system.start()
 
-                    await sleep_forever()
+                    await util.sleep_forever()
 
                 tasks = [
                     asyncio.create_task(start_enabled(), name="start-enabled"),
@@ -329,6 +330,7 @@ class Engine(Node):
             if actions := self.__get_component_reload_actions():
                 try:
                     self.log.info("Syncing component configurations...")
+                    self.log.info(f"Pending actions: {jsonify(actions, indent=2)}")
                     try:
                         await self.__execute_actions(actions)
                     except Exception:
@@ -363,8 +365,8 @@ class Engine(Node):
         if component is None:
             try:
                 component = config.create()
-            except Exception:
-                self.log.error(f"Failed to load '{address}': {traceback.format_exc()}")
+            except Failure as failure:
+                self.log.error(f"Failed to load '{address}': {failure.error}")
                 return None
 
             if address.is_root:
@@ -372,12 +374,12 @@ class Engine(Node):
                 assert component.system.engine is self
                 assert component.system.database is self.database
             else:
-                parent = as_component_system(self.get_component(address.parent))
+                parent = util.as_component_system(self.get_component(address.parent))
                 if parent is not None:
                     parent.attach(component)
 
         await component.system.__node_sync__()
-        self.log.info(f"Loaded '{address}' with component type {strify(type(component))}.")
+        self.log.info(f"Loaded '{address}' with component type {util.strify(type(component))}.")
 
         for child in config.components:
             await self.__load_component(address / child.name)
@@ -463,6 +465,7 @@ class Engine(Node):
             else component.system.config.model_dump(include=include)
         )
         new = config.model_dump(include=include)
+        print(old, new)
 
         if old != new:
             affected = [address]
@@ -476,7 +479,7 @@ class Engine(Node):
             ]
 
         actions: list[ReloadAction] = []
-        children = uniquify(
+        children = util.uniquify(
             [child.address for child in component.system.children]
             + [component.system.address / child.name for child in config.components]
         )

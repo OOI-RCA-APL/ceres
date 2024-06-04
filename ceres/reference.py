@@ -20,12 +20,7 @@ from ceres._internal.lazy import lazy_imports
 from ceres.address import Address, DynamicAddress
 
 with lazy_imports(__name__):
-    from ceres._internal.utilities import (
-        get_type_adapter,
-        lenient_isinstance,
-        lenient_issubclass,
-        strify,
-    )
+    from ceres._internal import util
     from ceres.component import Component
 
 _reference_static_cls_generic_cache: dict[type | None, type[Reference]] = {}
@@ -325,7 +320,7 @@ class Reference:
     def __class_getitem__(cls, constraint: type, /) -> type[Self]:
         if not isinstance(constraint, type):
             raise ValueError(
-                f"reference constraint must be an instance of {type}, got '{strify(constraint)}'"
+                f"reference constraint must be an instance of {type}, got '{util.strify(constraint)}'"
             )
 
         if constraint in _reference_static_cls_generic_cache:
@@ -371,7 +366,7 @@ class Reference:
             return cls(value)
 
         return cls(
-            get_type_adapter(cls.__reference_constraint__ or Component).validate_python(
+            util.get_type_adapter(cls.__reference_constraint__ or Component).validate_python(
                 value,
             )  # type: ignore
         )
@@ -381,26 +376,26 @@ class Reference:
         target: Union[Component, "Reference", DynamicAddress, str],
         root: Union[Component, "Reference"] | None = None,
     ) -> None:  # type: ignore
-        if not lenient_isinstance(target, (Component, Reference, Address, str)):
+        if not util.lenient_isinstance(target, (Component, Reference, Address, str)):
             raise ValueError(
                 f"first argument must be a component, another reference, an address or string, got "
-                f"{strify(type(target))}"
+                f"{util.strify(type(target))}"
             )
 
-        if lenient_isinstance(target, str):
+        if util.lenient_isinstance(target, str):
             target = DynamicAddress(target)
         else:
             if not isinstance(target, (Component, Reference)):
-                raise ValueError(f"expected component, got {strify(type(target))}")
+                raise ValueError(f"expected component, got {util.strify(type(target))}")
 
             if self.__reference_constraint__ is not None:
                 instance = unref(target)
-                if instance is not None and not lenient_isinstance(
+                if instance is not None and not util.lenient_isinstance(
                     instance, self.__reference_constraint__
                 ):
                     raise ValueError(
-                        f"expected component type {strify(type(self).__reference_constraint__)}, "
-                        f"got {strify(type(instance))}"
+                        f"expected component type {util.strify(type(self).__reference_constraint__)}, "
+                        f"got {util.strify(type(instance))}"
                     )
 
         if TYPE_CHECKING:
@@ -473,7 +468,7 @@ class Reference:
 
         if component is not None:
             Component.register(SpecializedReference)
-            if lenient_issubclass(type(component), Component):
+            if util.lenient_issubclass(type(component), Component):
                 type(component).register(SpecializedReference)
 
         _reference_dynamic_cls_generic_cache[key] = SpecializedReference
@@ -483,10 +478,10 @@ class Reference:
         target = self.__reference_target__
         root = self.__reference_root__
 
-        if not lenient_isinstance(target, DynamicAddress):
+        if not util.lenient_isinstance(target, DynamicAddress):
             return target.__unref__()
 
-        if root is not None and lenient_isinstance(target, DynamicAddress):
+        if root is not None and util.lenient_isinstance(target, DynamicAddress):
             root = cast(Component, root)
             return root.system.get_component(target)
 

@@ -7,7 +7,7 @@ from ceres._internal.lazy import lazy_imports
 with lazy_imports(__name__):
     from concurrent.futures import ThreadPoolExecutor
 
-    from ceres._internal.utilities import ensure_event_loop
+    from ceres._internal import util
 
 _P = ParamSpec("_P")
 _T = TypeVar("_T")
@@ -18,4 +18,4 @@ async def spawn(function: Callable[_P, _T], *args: _P.args, **kwargs: _P.kwargs)
         return function(*args, **kwargs)
 
     with ThreadPoolExecutor() as executor:
-        return await ensure_event_loop().run_in_executor(executor, run)
+        return await util.ensure_event_loop().run_in_executor(executor, run)

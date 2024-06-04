@@ -346,7 +346,7 @@ def is_iterable(obj: Any) -> TypeGuard[Iterable[Any]]:
     return True
 
 
-def is_non_stringy_iterable(obj: Any) -> TypeGuard[Iterable[Any]]:
+def is_true_iterable(obj: Any) -> TypeGuard[Iterable[Any]]:
     return not is_stringy(obj) and is_iterable(obj)
 
 
@@ -363,7 +363,7 @@ def is_collection(obj: Any) -> TypeGuard[Collection[Any]]:
     return True
 
 
-def is_non_stringy_collection(obj: Any) -> TypeGuard[Collection[Any]]:
+def is_true_collection(obj: Any) -> TypeGuard[Collection[Any]]:
     return not is_stringy(obj) and is_collection(obj)
 
 
@@ -423,7 +423,7 @@ def traverse(
         for key, value in obj.items():
             traverse(key, visit, seen)
             traverse(value, visit, seen)
-    elif is_non_stringy_collection(obj):
+    elif is_true_collection(obj):
         for value in obj:
             traverse(value, visit, seen)
 
@@ -991,8 +991,23 @@ def call_partial(
     import inspect
 
     parameters = inspect.signature(function).parameters
-    applied_kwargs = {key: value for key, value in kwargs.items() if key in parameters}
-    return function(*args, **applied_kwargs)  # type: ignore
+    arity = len(
+        [
+            current
+            for current in parameters.values()
+            if current.kind != inspect.Parameter.KEYWORD_ONLY
+        ]
+    )
+
+    applied_args = args[:arity]
+    applied_kwargs: dict[str, Any] = {}
+
+    for key, value in kwargs.items():
+        parameter = parameters.get(key)
+        if parameter is not None and parameter.kind != inspect.Parameter.POSITIONAL_ONLY:
+            applied_kwargs[key] = value
+
+    return function(*applied_args, **applied_kwargs)  # type: ignore
 
 
 _EntryT = TypeVar("_EntryT", bound=tuple[Any, ...], covariant=True)

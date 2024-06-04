@@ -3,11 +3,12 @@ from __future__ import annotations
 
 def __get_version() -> str:
     import importlib.metadata
-    from pathlib import Path
 
     try:
         return importlib.metadata.version("ceres")
     except ImportError:
+        from pathlib import Path
+
         with open(Path(__file__).parent.parent / "pyproject.toml") as file:
             for line in file:
                 if not line.startswith("version"):

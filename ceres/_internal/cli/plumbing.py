@@ -38,12 +38,7 @@ with lazy_imports(__name__):
     from copy import copy
     from functools import wraps
 
-    from ceres._internal.utilities import (
-        get_args_model,
-        get_unannotated_type,
-        lenient_isinstance,
-        syncify,
-    )
+    from ceres._internal import util
 
 
 class CLIRouter(Typer):
@@ -73,7 +68,7 @@ class CLIRouter(Typer):
             base = super()
 
             def decorator(function):
-                base.callback(*args, **kwargs)(syncify(function))
+                base.callback(*args, **kwargs)(util.syncify(function))
                 return function
 
             return decorator
@@ -90,14 +85,14 @@ def _enhance_cli_command(function: Any) -> Any:
     signature = inspect.signature(function)
     fields_to_groups: dict[str, str] = {}
     parameters: list[Parameter] = []
-    parameters_model = get_args_model(function, model_base=BaseParametersModel)
+    parameters_model = util.get_args_model(function, model_base=BaseParametersModel)
 
     try:
         for parameter_name, parameter in signature.parameters.items():
             option_group = _get_parameter_metadata(parameter, CLIOptionGroupInfo)
             if option_group is not None:
                 group_name = parameter_name
-                group_cls: BaseModel = get_unannotated_type(parameter.annotation)
+                group_cls: BaseModel = util.get_unannotated_type(parameter.annotation)
                 if not lenient_issubclass(group_cls, BaseModel):
                     raise TypeError(
                         f"Option group annotation `{group_name}` must be a subclass of `BaseModel`."
@@ -134,7 +129,7 @@ def _enhance_cli_command(function: Any) -> Any:
             from ceres.error import Failure
 
             try:
-                result = syncify(function)(*args, **parsed.__dict__)
+                result = util.syncify(function)(*args, **parsed.__dict__)
             except Failure as failure:
                 raise CLICommandFailed(jsonify(failure.error, indent=2))
 
@@ -274,18 +269,18 @@ def _get_parameter_metadata(parameter: inspect.Parameter, metadata_type: type[_T
         return None
 
     for item in metadata:
-        if lenient_isinstance(item, metadata_type):
+        if util.lenient_isinstance(item, metadata_type):
             return item
 
     return None
 
 
 def _get_typer_parameter(field: FieldInfo, parameter_type: type[_T]) -> _T | None:
-    if lenient_isinstance(field.default, parameter_type):
+    if util.lenient_isinstance(field.default, parameter_type):
         return field.default
 
     for item in field.metadata:
-        if lenient_isinstance(item, parameter_type):
+        if util.lenient_isinstance(item, parameter_type):
             return item
 
     return None
@@ -330,7 +325,7 @@ def _create_typer_option(field: FieldInfo) -> OptionInfo:
 def _get_typer_compatible_parameter(field: FieldInfo, name: str) -> Parameter:
     meta = _create_typer_argument(field) or _create_typer_option(field)
     default = field.default if field.default is not PydanticUndefined else Parameter.empty
-    if lenient_isinstance(default, _VirtualDefault):
+    if util.lenient_isinstance(default, _VirtualDefault):
         default = Parameter.empty
 
     annotation: Any = None

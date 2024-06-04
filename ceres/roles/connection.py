@@ -32,7 +32,7 @@ from ceres.timing import utc
 with lazy_imports(__name__):
     import socket
 
-    from ceres._internal.utilities import ensure_event_loop, show_td, sleep_forever
+    from ceres._internal import util
 
 
 class ConnectionException(Exception):
@@ -221,7 +221,7 @@ class Connection(Component, ABC):
     @routine
     async def routine__disconnect_on_stop(self) -> None:
         try:
-            await sleep_forever()
+            await util.sleep_forever()
         finally:
             await self.disconnect()
 
@@ -283,7 +283,7 @@ class TCPConnection(Connection):
         if self.__stream:
             return True
 
-        loop = ensure_event_loop()
+        loop = util.ensure_event_loop()
         sock = self.__create_socket()
         address = self.host, self.port
         await asyncio.wait_for(
@@ -340,7 +340,7 @@ class TCPConnection(Connection):
     async def routine__process_disconnect(self) -> None:
         condition = self.disconnect_settings
         if condition is None:
-            await sleep_forever()
+            await util.sleep_forever()
             return
 
         async def wait_for_message_received() -> None:
@@ -360,7 +360,7 @@ class TCPConnection(Connection):
                     continue
 
             self.system.log.warning(
-                f"No new message has been received in {show_td(condition.idle)}."
+                f"No new message has been received in {util.show_td(condition.idle)}."
             )
 
             disconnected = True
@@ -379,7 +379,7 @@ class TCPConnection(Connection):
                         case TCPDisconnectVerifyType.RECONNECT:
                             self.system.log.warning(
                                 f"Attempting to create another connection to {self.target} within "
-                                f"{show_td(condition.verify.interval)}..."
+                                f"{util.show_td(condition.verify.interval)}..."
                             )
                             try:
                                 await asyncio.wait_for(

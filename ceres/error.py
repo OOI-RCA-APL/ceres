@@ -20,7 +20,7 @@ from ceres.data import DataObject, ImmutableDataObject
 from ceres.validation import ValidationProblem
 
 with lazy_imports(__name__):
-    from ceres._internal.utilities import lenient_isinstance
+    from ceres._internal import util
 
 
 class Error(ImmutableDataObject, ABC):
@@ -48,6 +48,11 @@ class __BaseComponentError(Error, ABC):
     message: str
 
 
+class ComponentValidationError(__BaseComponentError):
+    type: Literal["component-validation-error"] = "component-validation-error"
+    problems: Sequence[ValidationProblem]
+
+
 class ComponentInitExceptionError(__BaseComponentError):
     type: Literal["component-init-exception-error"] = "component-init-exception-error"
     traceback: Sequence[str]
@@ -62,7 +67,10 @@ class ComponentJobInvalidError(__BaseComponentError):
 
 
 ComponentError = (
-    ComponentInitExceptionError | ComponentReferenceInvalidError | ComponentJobInvalidError
+    ComponentValidationError
+    | ComponentInitExceptionError
+    | ComponentReferenceInvalidError
+    | ComponentJobInvalidError
 )
 
 
@@ -271,7 +279,7 @@ DatabaseError = (
 
 class Failure(Exception):
     def __init__(self, error: Error | Callable[[], Error]) -> None:
-        if not lenient_isinstance(error, Error) and callable(error):
+        if not util.lenient_isinstance(error, Error) and callable(error):
             error = error()
 
         self.error = error

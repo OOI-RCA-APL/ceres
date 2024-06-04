@@ -22,9 +22,10 @@ from uuid import UUID, uuid4
 from pydantic import ValidationError
 from typing_extensions import Self, override
 
+from ceres._internal import util
 from ceres._internal.auth import get_password_hash, verify_password, verify_password_hash
 from ceres._internal.lazy import lazy_imports
-from ceres._internal.utilities import PathLike, strlist, wrap_database_errors
+from ceres._internal.util import PathLike
 from ceres.config import DatabaseConfig, PostgresDatabaseConfig, SQLiteDatabaseConfig
 from ceres.data import PasswordHash, jsonify
 from ceres.database.enums import DatabaseType, EntityType
@@ -140,9 +141,9 @@ class Database:
 
         self._pre_configure_engine(engine)
 
-        init = strlist(self.config.hooks.init)
-        connect = strlist(self.config.hooks.connect)
-        disconnect = strlist(self.config.hooks.close)
+        init = util.strlist(self.config.hooks.init)
+        connect = util.strlist(self.config.hooks.connect)
+        disconnect = util.strlist(self.config.hooks.close)
 
         if init:
 
@@ -171,15 +172,15 @@ class Database:
         return AsyncSession(self.__engine, expire_on_commit=False)
 
     def connect(self) -> AsyncConnection:
-        with wrap_database_errors():
+        with util.wrap_database_errors():
             return self.__engine.connect()
 
     async def dispose(self) -> None:
-        with wrap_database_errors():
+        with util.wrap_database_errors():
             await self.__engine.dispose()
 
     async def init(self) -> AsyncSession:
-        with wrap_database_errors():
+        with util.wrap_database_errors():
             if self.__completed_init_successfully:
                 return self.session()
 
@@ -199,7 +200,7 @@ class Database:
             return self.session()
 
     async def clear(self) -> None:
-        with wrap_database_errors():
+        with util.wrap_database_errors():
             async with self.__engine.begin() as connection:
                 for cls in reversed(BaseEntityRow.get_entity_row_classes()):
                     await connection.execute(delete(cls))
@@ -234,7 +235,7 @@ class Database:
         return await self.hash_password(password)
 
     async def __run_sync(self, callback: Callable[[Connection], _T]) -> _T:
-        with wrap_database_errors():
+        with util.wrap_database_errors():
             async with self.connect() as connection:
                 return await connection.run_sync(callback)
 

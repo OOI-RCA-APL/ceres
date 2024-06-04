@@ -32,7 +32,7 @@ with lazy_imports(__name__):
     from sqlalchemy.sql import ColumnExpressionArgument, expression
     from sqlalchemy.sql.sqltypes import Boolean, Text
 
-    from ceres._internal.utilities import as_sequence
+    from ceres._internal import util
 
 
 class UserRole(PriorityStrEnum):
@@ -136,11 +136,11 @@ class UserFilter(BaseEntityFilter["User"]):
         columns = self._get_row_cls()
 
         if self.username is not None:
-            yield columns.username.in_(as_sequence(self.username))
+            yield columns.username.in_(util.as_sequence(self.username))
         if self.email is not None:
-            yield columns.email.in_(as_sequence(self.email))
+            yield columns.email.in_(util.as_sequence(self.email))
         if self.role is not None:
-            yield columns.role.in_(as_sequence(self.role))
+            yield columns.role.in_(util.as_sequence(self.role))
         if self.disabled is not None:
             yield columns.disabled == self.disabled
 

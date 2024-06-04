@@ -38,7 +38,7 @@ else:
 with lazy_imports(__name__):
     import jwt
 
-    from ceres._internal.utilities import cached, call_partial, dictify, get_type_adapter
+    from ceres._internal import util
     from ceres.config import ServerAuthenticationConfig
 
 
@@ -90,7 +90,7 @@ CurrentSocket = Annotated[Socket, Depends(_use_current_socket)]
 def _get_procedure_query_arguments(
     arguments: Annotated[Json[Any], Query(alias="args")] = None,
 ) -> Mapping[str, object]:
-    adapter = get_type_adapter(Mapping[str, object])
+    adapter = util.get_type_adapter(Mapping[str, object])
 
     try:
         if arguments is None:
@@ -213,9 +213,9 @@ async def _get_current_identity(
             return None
 
         try:
-            expires = get_type_adapter(datetime if TYPE_CHECKING else DateTime).validate_python(
-                expires
-            )
+            expires = util.get_type_adapter(
+                datetime if TYPE_CHECKING else DateTime
+            ).validate_python(expires)
         except ValidationError:
             return None
 
@@ -332,7 +332,7 @@ RequireOperator = Annotated[User | None, OPERATOR]
 RequireAdmin = Annotated[User | None, ADMIN]
 
 
-@cached
+@util.cached
 def _as_query_parameters_dependency(model: type[BaseModel]) -> Any:
     def wrapper(*args, **kwargs):  # type: ignore
         return model(*args, **kwargs)
@@ -340,9 +340,9 @@ def _as_query_parameters_dependency(model: type[BaseModel]) -> Any:
     wrapper.__name__ = model.__name__
     parameters: list[Parameter] = []
     for name, field in model.model_fields.items():
-        assigned = dictify(field)
+        assigned = util.dictify(field)
         assigned.pop("default", None)
-        query = call_partial(Query, **assigned)
+        query = util.call_partial(Query, **assigned)
 
         parameters.append(
             Parameter(

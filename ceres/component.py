@@ -6,7 +6,8 @@ import traceback
 import warnings
 from asyncio import CancelledError
 from dataclasses import InitVar, field
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
+from functools import cached_property
 from inspect import Parameter
 from string import ascii_lowercase
 from types import MappingProxyType, UnionType
@@ -31,47 +32,12 @@ from typing import (
     runtime_checkable,
 )
 
-from apscheduler.job import Job as InternalJob
-from apscheduler.jobstores.base import JobLookupError
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from apscheduler.triggers.base import BaseTrigger
-from pydantic import (
-    Field,
-    NonNegativeInt,
-    PositiveFloat,
-    ValidationError,
-)
+from pydantic import Field, PositiveFloat, ValidationError
 from pydantic.fields import FieldInfo
 from typing_extensions import Self, Unpack, dataclass_transform, overload, override
 
 from ceres._internal.cli.plumbing import CLIOption
 from ceres._internal.lazy import lazy_imports
-from ceres._internal.typedecs import __Reference__
-from ceres._internal.utilities import (
-    OrderedWeakSet,
-    Undefined,
-    WeakRef,
-    as_component_system,
-    as_components,
-    awaitify,
-    cached,
-    create_validated_function,
-    decode_td,
-    get_args_model,
-    get_function_name,
-    get_inner_function,
-    get_return_annotation,
-    get_session,
-    get_traceback,
-    get_type_adapter,
-    lenient_isinstance,
-    randstr,
-    reprify,
-    strify,
-    strlist,
-    traverse,
-    validated_function,
-)
 from ceres.address import Address, AddressSelector, DynamicAddress
 from ceres.config import ComponentConfig
 from ceres.connectivity import Connectivity
@@ -82,7 +48,6 @@ from ceres.data import (
     StrEnum,
     ValidatedDataclass,
 )
-from ceres.database.database import Database
 from ceres.error import (
     Failure,
     ProcedureInternalError,
@@ -96,13 +61,6 @@ from ceres.event import (
     DisabledEvent,
     EnabledEvent,
     Event,
-    JobCancelledEvent,
-    JobCompletedEvent,
-    JobExceptionEvent,
-    JobRetryEvent,
-    JobRetryPendingEvent,
-    JobStartedEvent,
-    JobStoppedEvent,
     ProcedureCalledEvent,
     ProcedureCancelledEvent,
     ProcedureCompletedEvent,
@@ -120,16 +78,19 @@ from ceres.event import (
 )
 from ceres.filter import BaseFilter, BaseFilterArgs
 from ceres.node import Node
-from ceres.schedule import Schedule, Trigger
 from ceres.status import Status
-from ceres.store import StoreRow
 from ceres.validation import ValidationProblem
 
 with lazy_imports(__name__):
     from sqlalchemy.ext.asyncio import AsyncSession
     from sqlalchemy.sql import select
 
+    from ceres._internal import util
+    from ceres._internal.util import OrderedWeakSet, Undefined, WeakRef
+    from ceres.database.database import Database
+    from ceres.manager.job import JobManager
     from ceres.reference import Reference, unref
+    from ceres.store import StoreRow
 
 if TYPE_CHECKING:
     from ceres.engine import Engine
@@ -158,7 +119,7 @@ class ComponentFilter(BaseFilter):
     running: bool | None = None
 
     def matches(self, obj: "Component | ComponentSystem") -> bool:
-        system = as_component_system(obj)
+        system = util.as_component_system(obj)
 
         if self.address is not None:
             if not self.address.matches(system.address, self.root):
@@ -186,8 +147,8 @@ class Component(ValidatedDataclass):
     ) -> None:
         self.__system = ComponentSystem(
             self,
-            name=__with_name__,
-            config=__with_config__,
+            __with_name__=__with_name__,
+            __with_config__=__with_config__,
         )
         self.__setup__()
 
@@ -211,7 +172,7 @@ class Component(ValidatedDataclass):
         return self.__system
 
 
-@cached
+@util.cached
 def get_component_listener_bindings(cls: type[Component]) -> Sequence[ListenerBinding]:
     """
     Get all listener bindings for this component class.
@@ -219,7 +180,7 @@ def get_component_listener_bindings(cls: type[Component]) -> Sequence[ListenerBi
     return get_component_bindings(cls, ListenerBinding)
 
 
-@cached
+@util.cached
 def get_component_routine_bindings(cls: type[Component]) -> Sequence[RoutineBinding]:
     """
     Get all routine bindings for this component class.
@@ -227,7 +188,7 @@ def get_component_routine_bindings(cls: type[Component]) -> Sequence[RoutineBind
     return get_component_bindings(cls, RoutineBinding)
 
 
-@cached
+@util.cached
 def get_component_query_bindings(cls: type[Component]) -> Mapping[str, "QueryBinding"]:
     """
     Get all query bindings for this component class. Returns a mapping of query names to query
@@ -252,7 +213,7 @@ def get_component_query_binding(cls: type[Component], name: str) -> "QueryBindin
     return procedure
 
 
-@cached
+@util.cached
 def get_component_action_bindings(cls: type[Component]) -> Mapping[str, "ActionBinding"]:
     """
     Get all action bindings for this component class. Returns a mapping of action names to
@@ -277,7 +238,7 @@ def get_component_action_binding(cls: type[Component], name: str) -> "ActionBind
     return procedure
 
 
-@cached
+@util.cached
 def get_component_procedure_bindings(cls: type[Component]) -> Mapping[Name, "ProcedureBinding"]:
     """
     Get all procedure bindings (actions and queries) for this component class. Returns a mapping
@@ -328,7 +289,7 @@ def listener(
 ) -> _ListenerMethodTransform: ...
 
 
-@validated_function
+@util.validated_function
 def listener(
     method: _ListenerMethod | None = None,
     *,
@@ -337,7 +298,7 @@ def listener(
     reference: str | Sequence[str] | None = None,
     address: str | AddressSelector | Sequence[str | AddressSelector] | None = None,
 ) -> _ListenerMethod | _ListenerMethodTransform:
-    reference = strlist(reference)
+    reference = util.strlist(reference)
 
     if address is not None:
         if isinstance(address, (str, DynamicAddress)):
@@ -367,7 +328,7 @@ def listener(
             method,
             ListenerBinding(
                 name=_get_bound_name(method),
-                method=get_function_name(method),
+                method=util.get_function_name(method),
                 reference=tuple(reference),
                 address=address,
                 local=local,
@@ -438,7 +399,7 @@ def query(
 ) -> Callable[[Callable[_P, _T]], Callable[_P, _T]]: ...
 
 
-@validated_function
+@util.validated_function
 def query(
     method: Callable[_P, _T] | None = None,
     *,
@@ -450,7 +411,7 @@ def query(
             method,
             QueryBinding(
                 name=_get_bound_name(method),
-                method=get_function_name(method),
+                method=util.get_function_name(method),
                 arguments=info.arguments,
                 output=info.output,
                 live=info.live,
@@ -474,7 +435,7 @@ def action(method: Callable[_P, _T]) -> Callable[_P, _T]: ...
 def action() -> Callable[[Callable[_P, _T]], Callable[_P, _T]]: ...
 
 
-@validated_function
+@util.validated_function
 def action(
     method: Callable[_P, _T] | None = None,
 ) -> Callable[_P, _T] | Callable[[Callable[_P, _T]], Callable[_P, _T]]:
@@ -484,7 +445,7 @@ def action(
             method,
             ActionBinding(
                 name=_get_bound_name(method),
-                method=get_function_name(method),
+                method=util.get_function_name(method),
                 arguments=validated.arguments,
                 output=validated.output,
                 live=validated.live,
@@ -512,26 +473,28 @@ def __get_procedure_method_info(
     type_: ProcedureType,
     /,
 ) -> __ProcedureMethodInfo:
-    method = get_inner_function(method)
+    method = util.get_inner_function(method)
     signature = inspect.signature(method)
 
     parameters = [*signature.parameters.values()]
     if not parameters or parameters[0].name != "self":
-        raise ValueError(f"{type_} {strify(method)} must have 'self' as its first parameter")
+        raise ValueError(f"{type_} {util.strify(method)} must have 'self' as its first parameter")
     if any(parameter.kind == Parameter.POSITIONAL_ONLY for parameter in parameters[1:]):
-        raise ValueError(f"{type_} {strify(method)} cannot have positional-only arguments")
+        raise ValueError(f"{type_} {util.strify(method)} cannot have positional-only arguments")
 
-    arguments_json_schema = get_args_model(method).model_json_schema()
+    arguments_json_schema = util.get_args_model(method).model_json_schema()
     arguments_required = len(arguments_json_schema.get("properties", {}).get("required", [])) > 0
 
-    output_annotation = get_return_annotation(method, Undefined)
+    output_annotation = util.get_return_annotation(method, Undefined)
     if output_annotation is Undefined:
-        raise ValueError(f"return type of {type_} {strify(method)} must be specified")
+        raise ValueError(f"return type of {type_} {util.strify(method)} must be specified")
 
     live = inspect.isasyncgenfunction(method)
 
     if live:
-        error = ValueError(f"return type of live {type_} {strify(method)} must be AsyncIterable[T]")
+        error = ValueError(
+            f"return type of live {type_} {util.strify(method)} must be AsyncIterable[T]"
+        )
 
         try:
             if output_annotation.__name__ != "AsyncIterable":
@@ -542,16 +505,16 @@ def __get_procedure_method_info(
             raise error
 
     try:
-        output_json_schema = get_type_adapter(output_annotation).json_schema()
+        output_json_schema = util.get_type_adapter(output_annotation).json_schema()
     except Exception as exception:
         raise ValueError(
-            f"output type of {type_} {strify(method)} must be serializable as a JSON object: "
+            f"output type of {type_} {util.strify(method)} must be serializable as a JSON object: "
             f"{exception}"
         )
 
     return __ProcedureMethodInfo(
         name=_get_bound_name(method),
-        method=get_function_name(method),
+        method=util.get_function_name(method),
         arguments=ProcedureArgumentsInfo(
             json_schema=arguments_json_schema,
             required=arguments_required,
@@ -604,7 +567,7 @@ def routine(
 def routine(method: _RoutineMethod) -> _RoutineMethod: ...
 
 
-@validated_function
+@util.validated_function
 def routine(
     method: _RoutineMethod | None = None,
     *,
@@ -615,9 +578,9 @@ def routine(
         _bind(
             method,
             RoutineBinding(
-                method=get_function_name(method),
+                method=util.get_function_name(method),
                 restart=RoutineRestartPolicy(restart),
-                restart_delay=decode_td(restart_delay),
+                restart_delay=util.decode_td(restart_delay),
             ),
         )
 
@@ -641,7 +604,7 @@ def get_component_method_bindings(
     method: Callable[..., Any],
     binding_cls: type[_BindingT],
 ) -> Sequence[_BindingT]:
-    method = get_inner_function(method)
+    method = util.get_inner_function(method)
     output: list[_BindingT] = []
 
     if values := getattr(method, _BINDINGS_ATTRIBUTE, None):
@@ -682,7 +645,7 @@ def get_component_bindings(
 
 
 def _bind(method: Callable[..., object], binding: Binding) -> None:
-    method = get_inner_function(method)
+    method = util.get_inner_function(method)
     bindings: Sequence[Binding] | None = getattr(method, _BINDINGS_ATTRIBUTE, None)
 
     if not isinstance(bindings, Sequence):
@@ -697,7 +660,7 @@ def _bind(method: Callable[..., object], binding: Binding) -> None:
 
 
 def _get_bound_name(function: Callable[..., Any]) -> str:
-    return _get_normalized_name(get_function_name(function))
+    return _get_normalized_name(util.get_function_name(function))
 
 
 def _get_normalized_name(name: str) -> Name:
@@ -711,93 +674,22 @@ warnings.filterwarnings(
 )
 
 
-class Job:
-    def __init__(
-        self,
-        *,
-        internal: InternalJob,
-        schedule: Schedule,
-        action: Name,
-        arguments: Mapping[str, Any] | None,
-        retries: int,
-        retry_delay: timedelta,
-    ) -> None:
-        self.__internal = internal
-        self.__schedule = schedule
-        self.__action = action
-        self.__arguments = arguments
-        self.__retries = retries
-        self.__retry_delay = retry_delay
-
-    @property
-    def name(self) -> Name:
-        return self.__internal.name
-
-    @property
-    def schedule(self) -> Schedule:
-        return self.__schedule
-
-    @property
-    def action(self) -> Name:
-        return self.__action
-
-    @property
-    def arguments(self) -> Mapping[str, Any] | None:
-        return self.__arguments
-
-    @property
-    def retries(self) -> int:
-        return self.__retries
-
-    @property
-    def retry_delay(self) -> timedelta:
-        return self.__retry_delay
-
-    @property
-    def next_run_time(self) -> datetime | None:
-        return self.__internal.next_run_time
-
-    def get_run_times(
-        self,
-        start: datetime | None = None,
-        *,
-        end: datetime | None = None,
-        count: int | None = None,
-    ) -> Iterable[datetime]:
-        yield from self.__schedule.as_trigger().get_fire_times(start, end=end, count=count)
-
-
-class _TriggerAdapter(BaseTrigger):
-    def __init__(self, inner: Trigger) -> None:
-        super().__init__()
-        self.__inner = inner
-
-    def get_next_fire_time(  # type: ignore
-        self,
-        previous_fire_time: datetime | None,
-        now: datetime,
-    ) -> datetime | None:
-        return self.__inner.get_next_fire_time(previous_fire_time, now)
-
-
 @final
 class ComponentSystem(Node):
     def __init__(
         self,
         component: Component,
         *,
-        config: ComponentConfig | None = None,
-        name: Name | None = None,
+        __with_config__: ComponentConfig | None = None,
+        __with_name__: Name | None = None,
     ) -> None:
         super().__init__()
 
-        if name is None:
-            name = randstr(ascii_lowercase, 8)
+        if __with_name__ is None:
+            __with_name__ = util.randstr(ascii_lowercase, 8)
 
-        self._name = name
-        self._config: Final[ComponentConfig | None] = config
-        self._jobs: Final[dict[str, Job]] = {}
-        self._scheduler: Final = AsyncIOScheduler(timezone=timezone.utc)
+        self._name = __with_name__
+        self._config: Final[ComponentConfig | None] = __with_config__
         self._referencers: Final[OrderedWeakSet[ComponentSystem]] = OrderedWeakSet()
         self._children: Final[dict[Name, ComponentSystem]] = {}
         self._parent: WeakRef[ComponentSystem] | None = None
@@ -809,8 +701,7 @@ class ComponentSystem(Node):
 
         if self._config is not None:
             for job in self._config.jobs:
-                # TODO: Validate job arguments.
-                self.add_job(job.name, job.schedule, job.action, job.arguments)
+                self.jobs.add(job)
 
         self.sync_references()
 
@@ -820,7 +711,9 @@ class ComponentSystem(Node):
 
     @override
     def __repr__(self) -> str:
-        return f"{type(self).__name__}(name={self.name!r}, component={reprify(self.component)})"
+        return (
+            f"{type(self).__name__}(name={self.name!r}, component={util.reprify(self.component)})"
+        )
 
     @property
     @override
@@ -902,9 +795,13 @@ class ComponentSystem(Node):
 
         return self._parent()
 
+    @cached_property
+    def jobs(self) -> JobManager:
+        return JobManager(self)
+
     @override
     async def __node_sync__(self, session: AsyncSession | None = None) -> None:
-        async with await get_session(self.database, session) as session:
+        async with await util.get_session(self.database, session) as session:
             await super().__node_sync__(session)
             self._enabled = await self.__get_enabled_in_database(session)
 
@@ -1113,7 +1010,7 @@ class ComponentSystem(Node):
 
             return True
 
-        traverse(self.component, visit)
+        util.traverse(self.component, visit)
         return references
 
     def has_reference_to(self, component: Component) -> bool:
@@ -1142,7 +1039,7 @@ class ComponentSystem(Node):
             return components
 
         def visit(obj: Any) -> bool:
-            if lenient_isinstance(obj, (Component, Reference)):
+            if util.lenient_isinstance(obj, (Component, Reference)):
                 obj = unref(obj)
                 if obj is not self and obj is not self.component:
                     components.append(obj)
@@ -1150,14 +1047,14 @@ class ComponentSystem(Node):
 
             return True
 
-        traverse(root, visit)
+        util.traverse(root, visit)
         return components
 
     def get_referencing_components(self, recursive: bool = False) -> list[Component]:
         if recursive:
             return self.__get_referencing_components_recursive()
 
-        return as_components(self._referencers)
+        return util.as_components(self._referencers)
 
     def __get_referencing_components_recursive(self) -> list[Component]:
         seen: set[int] = set()
@@ -1304,7 +1201,7 @@ class ComponentSystem(Node):
         *,
         inclusive: bool = False,
     ) -> bool:
-        system = as_component_system(component)
+        system = util.as_component_system(component)
         current: ComponentSystem | None = system if inclusive else system.parent
         while current is not None:
             if current is system:
@@ -1327,124 +1224,6 @@ class ComponentSystem(Node):
             current = current.parent
 
         return ancestors
-
-    @validated_function
-    def add_job(
-        self,
-        name: Name,
-        schedule: Schedule,
-        action: Callable[..., Any] | Name,
-        arguments: Mapping[Name, Any] | None = None,
-        retries: NonNegativeInt = 0,
-        retry_delay: PositiveFloat | PositiveTimeDelta = timedelta(seconds=5),
-    ) -> Job:
-        """
-        Register an `action` to be executed as a job on a given `schedule`.
-        """
-        binding = (
-            self.get_action_binding(action)
-            if isinstance(action, str)
-            else get_component_method_binding(action, ActionBinding)
-        )
-        if binding is None:
-            raise ValueError(f"action '{action}' does not exist on {strify(type(self.component))}")
-
-        retry_delay = decode_td(retry_delay)
-
-        async def callback() -> None:
-            await self.__process_job(
-                name=name,
-                action=binding.name,
-                arguments=arguments,
-                retries=retries,
-                retry_delay=retry_delay,
-            )
-
-        internal: InternalJob = self._scheduler.add_job(
-            callback,
-            trigger=_TriggerAdapter(schedule.as_trigger()),
-            name=name,
-            id=name,
-        )
-
-        job = Job(
-            internal=internal,
-            schedule=schedule,
-            action=binding.name,
-            arguments=arguments,
-            retries=retries,
-            retry_delay=retry_delay,
-        )
-
-        self._jobs[name] = job
-        return job
-
-    async def __process_job(
-        self,
-        name: Name,
-        action: Name,
-        arguments: Mapping[str, Any] | None,
-        retries: NonNegativeInt,
-        retry_delay: PositiveTimeDelta,
-    ) -> None:
-        self.events.emit(JobStartedEvent, job=name)
-        retry = 0
-
-        while True:
-            try:
-                await self.call(action, arguments)
-                self.events.emit(JobCompletedEvent, job=name)
-                break
-            except CancelledError:
-                self.events.emit(JobCancelledEvent, job=name)
-                break
-            except Exception as exception:
-                self.events.emit(JobExceptionEvent, job=name, traceback=get_traceback(exception))
-                if retry >= retries:
-                    break
-
-                self.events.emit(JobRetryPendingEvent, job=name, delay=retry_delay)
-                retry += 1
-                await asyncio.sleep(retry_delay.total_seconds())
-                self.events.emit(JobRetryEvent, job=name)
-
-        self.events.emit(JobStoppedEvent, job=name)
-
-    @property
-    def jobs(self) -> list[Job]:
-        """
-        Get a list of all registered jobs on this system.
-        """
-        return list(self._jobs.values())
-
-    def get_job(self, name: Name) -> Job | None:
-        """
-        Get a registered job from this component by name. Returns `None` if the job does not exist.
-        """
-        return self._jobs.get(name)
-
-    def remove_job(self, name: Name) -> Job | None:
-        """
-        Remove a registered job from this component by name. Returns the removed job, or `None` if
-        the job does not exist.
-        """
-        job = self._jobs.pop(name, None)
-
-        try:
-            self._scheduler.remove_job(name)
-        except JobLookupError:
-            pass
-
-        return job
-
-    def clear_jobs(self) -> None:
-        """
-        Remove all registered jobs.
-        """
-        self._jobs.clear()
-        for job in self._scheduler.get_jobs():
-            job: InternalJob = job
-            self._scheduler.remove_job(job.id)
 
     @override
     def start(
@@ -1475,11 +1254,10 @@ class ComponentSystem(Node):
 
             await self.__node_sync__()
 
-            self._scheduler.start()
-
             await asyncio.gather(
                 super().__run__(),
                 self.__process_routines(),
+                self.jobs.process(),
             )
         except Exception:
             self.log.error("An error occurred during component system execution.", exc_info=True)
@@ -1504,7 +1282,7 @@ class ComponentSystem(Node):
                     self.events.emit(
                         RoutineExceptionEvent,
                         routine=binding.method,
-                        traceback=get_traceback(exception),
+                        traceback=util.get_traceback(exception),
                     )
                     if binding.restart == RoutineRestartPolicy.ON_EXCEPTION:
                         break
@@ -1536,9 +1314,6 @@ class ComponentSystem(Node):
         for system in reversed(self.children):
             await system.stop()
 
-        if self._scheduler.running:
-            self._scheduler.shutdown()
-
         self.events.emit(StoppedEvent)
         await self.settle()
         await self.flush()
@@ -1562,23 +1337,25 @@ class ComponentSystem(Node):
         ):
             raise Failure(ProcedureNotFoundError)
 
-        validated = create_validated_function(method)
+        validated = util.create_validated_function(method)
 
         try:
             self.events.emit(ProcedureCalledEvent, procedure=procedure)
-            return await awaitify(validated(**arguments))
+            return await util.awaitify(validated(**arguments))
         except CancelledError:
             self.events.emit(ProcedureCancelledEvent, procedure=procedure)
             raise
         except ValidationError as error:
             if method.__name__ in error.title:
                 raise Failure(
-                    ProcedureInvalidArgumentsError(problems=ValidationProblem.extract(error))
+                    ProcedureInvalidArgumentsError(
+                        problems=ValidationProblem.extract(error, arguments)
+                    )
                 )
 
             raise
         except Exception as exception:
-            traceback = get_traceback(exception)
+            traceback = util.get_traceback(exception)
             self.events.emit(ProcedureExceptionEvent, procedure=procedure, traceback=traceback)
             raise Failure(ProcedureInternalError(traceback=list(traceback)))
 
@@ -1616,7 +1393,7 @@ class ComponentSystem(Node):
                         last = output
                     return last
         except Exception as exception:
-            traceback = get_traceback(exception)
+            traceback = util.get_traceback(exception)
             self.events.emit(ProcedureExceptionEvent, procedure=procedure, traceback=traceback)
             raise Failure(ProcedureInternalError(traceback=list(traceback)))
         finally:
@@ -1648,7 +1425,7 @@ class ComponentSystem(Node):
                 self.events.emit(ProcedureCancelledEvent, procedure=procedure)
                 raise
             except Exception as exception:
-                traceback = get_traceback(exception)
+                traceback = util.get_traceback(exception)
                 self.events.emit(ProcedureExceptionEvent, procedure=procedure, traceback=traceback)
                 raise Failure(ProcedureInternalError(traceback=list(traceback)))
 
@@ -1661,7 +1438,7 @@ class ComponentSystem(Node):
             self.events.emit(ProcedureCancelledEvent, procedure=procedure)
             raise
         except Exception as exception:
-            traceback = get_traceback(exception)
+            traceback = util.get_traceback(exception)
             self.events.emit(ProcedureExceptionEvent, procedure=procedure, traceback=traceback)
             raise Failure(ProcedureInternalError(traceback=list(traceback)))
 

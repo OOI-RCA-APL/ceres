@@ -20,7 +20,7 @@ with lazy_imports(__name__):
     from sqlalchemy.schema import Index, SchemaItem
     from sqlalchemy.sql import ColumnExpressionArgument
 
-    from ceres._internal.utilities import as_sequence, format_sql_timestamp, format_timestamp
+    from ceres._internal import util
 
 
 class BaseRecordRow(BaseItemRow, kw_only=True):
@@ -91,7 +91,7 @@ class BaseRecordFilter(BaseItemFilter[_RecordT]):
     def _get_search_content(self, obj: _RecordT) -> dict[str, str]:
         return {
             **super()._get_search_content(obj),
-            "timestamp": format_timestamp(obj.timestamp),
+            "timestamp": util.format_timestamp(obj.timestamp),
         }
 
     @override
@@ -103,7 +103,7 @@ class BaseRecordFilter(BaseItemFilter[_RecordT]):
 
         return {
             **super()._get_database_search_content(dialect),
-            "timestamp": format_sql_timestamp(columns.timestamp, dialect),
+            "timestamp": util.format_sql_timestamp(columns.timestamp, dialect),
         }
 
     @override
@@ -112,7 +112,7 @@ class BaseRecordFilter(BaseItemFilter[_RecordT]):
         columns = self._get_row_cls()
 
         if self.id is not None:
-            yield columns.id.in_(as_sequence(self.id))
+            yield columns.id.in_(util.as_sequence(self.id))
         if self.address is not None:
             yield self.address.matches_expression(columns.address, self.root)
         if self.within is not None:

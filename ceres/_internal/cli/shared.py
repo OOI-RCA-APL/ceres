@@ -19,8 +19,8 @@ with lazy_imports(__name__):
     from functools import wraps
     from pathlib import Path
 
+    from ceres._internal import util
     from ceres._internal.project import Project
-    from ceres._internal.utilities import is_non_stringy_collection
     from ceres.config import Config, ConfigCheckType
 
 chdir = os.chdir
@@ -254,7 +254,7 @@ async def use_temporary_engine(
 class ValidateEmptyAsNone(ImmutableDataObject):
     @field_validator("*")
     def __validate_empty_as_none(cls, value: Any) -> Any:
-        if is_non_stringy_collection(value) and len(value) == 0:
+        if util.is_true_collection(value) and len(value) == 0:
             return None
 
         return value

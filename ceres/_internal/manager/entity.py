@@ -10,8 +10,8 @@ from ceres._internal.manager.manager import BaseManager
 from ceres.entity import BaseEntity
 
 with lazy_imports(__name__):
+    from ceres._internal import util
     from ceres._internal.auth import verify_password_hash
-    from ceres._internal.utilities import call_partial, get_type_adapter, wrap_database_errors
     from ceres.data import PasswordHash
 
 _T = TypeVar("_T")
@@ -124,7 +124,7 @@ class BaseEntityManager(
         statement: Select[tuple[Any, ...]] | Update | Delete,
         result_type: type[_T],
     ) -> list[_T]:
-        with wrap_database_errors():
+        with util.wrap_database_errors():
             async with await self._database.init() as session:
                 results = await session.execute(statement)
                 await session.commit()
@@ -132,7 +132,7 @@ class BaseEntityManager(
             if not results:
                 return []
 
-            return get_type_adapter(list[result_type]).validate_python(
+            return util.get_type_adapter(list[result_type]).validate_python(
                 results, from_attributes=True
             )
 
@@ -141,7 +141,7 @@ class BaseEntityManager(
         statement: Select[tuple[Any, ...]] | Update | Delete,
         result_type: type[_T],
     ) -> _T | None:
-        with wrap_database_errors():
+        with util.wrap_database_errors():
             async with await self._database.init() as session:
                 result = await session.execute(statement)
                 row = result.scalar()
@@ -150,10 +150,10 @@ class BaseEntityManager(
         if row is None:
             return None
 
-        return get_type_adapter(result_type).validate_python(row, from_attributes=True)
+        return util.get_type_adapter(result_type).validate_python(row, from_attributes=True)
 
     async def _execute_and_get_count(self, statement: Update | Delete) -> int:
-        with wrap_database_errors():
+        with util.wrap_database_errors():
             async with await self._database.init() as session:
                 result = await session.execute(statement)
                 await session.commit()
@@ -168,7 +168,7 @@ class BaseEntityManager(
     async def _insert(self, data: _EntityT) -> _EntityRowT:
         Row = self._get_row_cls()
         row = Row(**data.__dict__)
-        with wrap_database_errors():
+        with util.wrap_database_errors():
             async with await self._database.init() as session:
                 session.add(row)
                 await session.commit()
@@ -202,7 +202,7 @@ class BaseEntityManager(
 
         Filter = self._get_filter_cls()
         address = self._node.address
-        return call_partial(
+        return util.call_partial(
             Filter,  # type: ignore
             root=address,  # type: ignore
             address=address.all(),  # type: ignore

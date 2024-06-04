@@ -6,7 +6,7 @@ from typing_extensions import TypedDict, override
 from ceres._internal.cli.plumbing import CLIOption
 from ceres._internal.database.types import EnumConstraint, EnumMapper
 from ceres._internal.lazy import lazy_imports
-from ceres._internal.utilities import as_sequence, escape_like_expression
+from ceres._internal import util
 from ceres.address import Address
 from ceres.data import DateTime, StrEnum
 from ceres.database.enums import DatabaseType
@@ -90,7 +90,7 @@ class LogEntryFilter(BaseRecordFilter["LogEntry"]):
             return False
 
         if self.level is not None:
-            if obj.level not in as_sequence(self.level):
+            if obj.level not in util.as_sequence(self.level):
                 return False
         if self.content_contains is not None:
             if self.content_contains not in obj.content:
@@ -135,13 +135,15 @@ class LogEntryFilter(BaseRecordFilter["LogEntry"]):
         columns = self._get_row_cls()
 
         if self.level is not None:
-            yield columns.level.in_(as_sequence(self.level))
+            yield columns.level.in_(util.as_sequence(self.level))
         if self.content_contains is not None:
-            yield columns.content.like("%" + escape_like_expression(self.content_contains) + "%")
+            yield columns.content.like(
+                "%" + util.escape_like_expression(self.content_contains) + "%"
+            )
         if self.content_prefix is not None:
-            yield columns.content.like(escape_like_expression(self.content_prefix) + "%")
+            yield columns.content.like(util.escape_like_expression(self.content_prefix) + "%")
         if self.content_suffix is not None:
-            yield columns.content.like("%" + escape_like_expression(self.content_suffix))
+            yield columns.content.like("%" + util.escape_like_expression(self.content_suffix))
 
 
 class LogEntryCreate(BaseRecordCreate):

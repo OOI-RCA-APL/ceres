@@ -11,7 +11,7 @@ from ceres._internal.typedecs import __Entity__
 with lazy_imports(__name__):
     from sqlalchemy.ext.asyncio import AsyncSession
 
-    from ceres._internal.utilities import get_type_adapter, group_by
+    from ceres._internal import util
     from ceres.database.database import Database
     from ceres.database.enums import DatabaseType
 
@@ -111,7 +111,7 @@ class Writer:
         entities: Iterable[__Entity__],
     ) -> None:
         by_type: defaultdict[type[__Entity__], list[__Entity__]] = defaultdict(list)
-        for cls, group in group_by(entities, type):
+        for cls, group in util.group_by(entities, type):
             by_type[cls] = list(group)
 
         for cls, entities in by_type.items():
@@ -134,7 +134,7 @@ class Writer:
             case DatabaseType.POSTGRES:
                 from sqlalchemy.dialects.postgresql import insert
 
-        values: list[dict[str, Any]] = get_type_adapter(list[cls]).dump_python(entities)
+        values: list[dict[str, Any]] = util.get_type_adapter(list[cls]).dump_python(entities)
 
         statement = insert(cls.Row)
         pk = cls.Row.get_primary_key_columns()

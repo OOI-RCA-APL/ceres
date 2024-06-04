@@ -11,7 +11,8 @@ from ceres._internal.lazy import lazy_imports
 with lazy_imports(__name__):
     import anyio
 
-    from ceres._internal.utilities import BytesLike, bytes_of
+    from ceres._internal.util import BytesLike
+    from ceres._internal import util
     from ceres.message import Message
     from ceres.roles.connection import Connection
 
@@ -37,7 +38,7 @@ class Transport:
         return f"{type(self).__name__}({self.__connection})"
 
     async def send(self, data: BytesLike) -> Message:
-        return await self.connection.send_message(bytes_of(data))
+        return await self.connection.send_message(util.bytes_of(data))
 
     @overload
     async def receive(

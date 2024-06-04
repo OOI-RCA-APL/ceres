@@ -15,8 +15,8 @@ from ceres.database.enums import DataFormat, EntityType
 from ceres.timing import utc
 
 with lazy_imports(__name__):
+    from ceres._internal import util
     from ceres._internal.cli.shared import get_confirmation, use_database, write
-    from ceres._internal.utilities import show_td
 
 router = CLIRouter(
     name="database",
@@ -121,7 +121,7 @@ async def dump(
             await database.dump_sqlite(path, item_type)
 
     duration = utc() - start
-    write(f"Dump completed in {show_td(duration)}.")
+    write(f"Dump completed in {util.show_td(duration)}.")
 
 
 @router.command()
@@ -190,7 +190,7 @@ async def load(
             await database.load_sqlite(path, item_type)
 
     duration = utc() - start
-    write(f"Load completed in {show_td(duration)}.")
+    write(f"Load completed in {util.show_td(duration)}.")
 
 
 @router.command()
@@ -209,7 +209,7 @@ async def clear(*, context: CLIContext) -> None:
     await database.clear()
 
     duration = utc() - start
-    write(f"Cleared all data from database in {show_td(duration)}.")
+    write(f"Cleared all data from database in {util.show_td(duration)}.")
 
 
 @router.command()

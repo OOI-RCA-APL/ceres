@@ -10,18 +10,19 @@ from ceres.data import Argon2Hash, BCryptHash, PasswordHash, PasswordStr
 with lazy_imports(__name__):
     from argon2 import PasswordHasher
 
+    from ceres._internal import util
+
 
 def get_password_hash_type(hash: str) -> HashType | None:
-    from ceres._internal.utilities import get_type_adapter
 
     try:
-        get_type_adapter(BCryptHash).validate_python(hash)
+        util.get_type_adapter(BCryptHash).validate_python(hash)
         return HashType.BCRYPT
     except ValueError:
         pass
 
     try:
-        get_type_adapter(Argon2Hash).validate_python(hash)
+        util.get_type_adapter(Argon2Hash).validate_python(hash)
         return HashType.ARGON2
     except ValueError:
         pass

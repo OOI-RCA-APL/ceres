@@ -4,7 +4,7 @@ import sys
 from asyncio import CancelledError
 from asyncio import Event as AsyncEvent
 from pathlib import Path
-from typing import Annotated, Any, Optional, Sequence
+from typing import TYPE_CHECKING, Annotated, Any, Optional, Sequence
 
 from typer import Exit, Option
 
@@ -21,6 +21,7 @@ from ceres.result import Fail, Ok
 from ceres.version import __version__
 
 with lazy_imports(__name__):
+    from ceres._internal import util
     from ceres._internal.cli.client import Client
     from ceres._internal.cli.shared import (
         get_config_path,
@@ -29,16 +30,6 @@ with lazy_imports(__name__):
         use_project,
         write,
         write_table,
-    )
-    from ceres._internal.utilities import (
-        cancel,
-        ensure_event_loop,
-        get_traceback,
-        set_current_process_name,
-        strify,
-        syncify,
-        temporary_signal_handler,
-        wait_any,
     )
     from ceres.component import ComponentFilter
     from ceres.config import Config
@@ -75,7 +66,7 @@ def setup(
         write(__version__)
         raise Exit()
 
-    ensure_event_loop()
+    util.ensure_event_loop()
     config = get_config_path(config)
     context.meta["config_path"] = config
 
@@ -105,10 +96,10 @@ async def _run(addresses: Sequence[AddressSelector], *, config_path: Path, watch
 
     try:
         if watch:
-            set_current_process_name("ceres-watch")
+            util.set_current_process_name("ceres-watch")
             await _run_watch(address, config_path=config_path)
         else:
-            set_current_process_name("ceres")
+            util.set_current_process_name("ceres")
 
             match Config.read(config_path):
                 case Ok():  # noqa: F821
@@ -124,7 +115,7 @@ async def _run(addresses: Sequence[AddressSelector], *, config_path: Path, watch
                     pass
                 case Fail() as fail:
                     raise CLICommandFailed(
-                        f"Failed to load configuration. {jsonify(fail, indent=2)}"
+                        f"Failed to load engine with configuration. {jsonify(fail, indent=2)}"
                     )
 
             exiting = AsyncEvent()
@@ -140,20 +131,23 @@ async def _run(addresses: Sequence[AddressSelector], *, config_path: Path, watch
             async def main() -> None:
                 task_run = asyncio.create_task(run())
                 task_exit = asyncio.create_task(exiting.wait())
-                await wait_any(task_run, task_exit)
+                await util.wait_any(task_run, task_exit)
 
                 try:
                     await engine.stop()
                 finally:
-                    await cancel(task_run, task_exit)
+                    await util.cancel(task_run, task_exit)
 
             def handle_exit_signal(*args: Any, **kwargs: Any) -> None:
                 exiting.set()
 
-            with temporary_signal_handler([signal.SIGINT, signal.SIGTERM], handle_exit_signal):
+            with util.temporary_signal_handler([signal.SIGINT, signal.SIGTERM], handle_exit_signal):
                 await main()
     except Exception as exception:
-        raise CLICommandFailed(f"Engine startup failed. {get_traceback(exception)}")
+        if not isinstance(exception, CLICommandFailed):
+            raise CLICommandFailed(f"Engine startup failed. {util.get_traceback(exception)}")
+        else:
+            raise
 
 
 def _run_sync(
@@ -162,7 +156,7 @@ def _run_sync(
     config_path: Path,
     watch: bool,
 ) -> None:
-    syncify(_run)(addresses=[address] if address else [], config_path=config_path, watch=watch)
+    util.syncify(_run)(addresses=[address] if address else [], config_path=config_path, watch=watch)
 
 
 async def _run_watch(
@@ -211,7 +205,7 @@ async def _run_watch(
                 )
 
                 # Indicate a restart and show changed files.
-                write(f"Restarting, watch mode detected: {strify(info)}")
+                write(f"Restarting, watch mode detected: {util.strify(info)}")
 
                 # Stop the running process if necessary.
                 if process.is_alive():
@@ -232,13 +226,13 @@ async def _run_watch(
     def handle_exit_signal(*args: object, **kwargs: object) -> None:
         task.cancel()
 
-    with temporary_signal_handler([signal.SIGINT, signal.SIGTERM], handle_exit_signal):
+    with util.temporary_signal_handler([signal.SIGINT, signal.SIGTERM], handle_exit_signal):
         try:
             await task
         except CancelledError:
             pass
         finally:
-            await cancel(task)
+            await util.cancel(task)
 
 
 @router.command()
@@ -281,7 +275,10 @@ async def status(
     """
     from aiohttp import ClientError
 
-    from ceres._internal.app.api.routes.statuses import GetStatusesQueryParameters
+    if TYPE_CHECKING:
+        from ceres._internal.app.api.routes.statuses import GetStatusesQueryParameters
+    else:
+        GetStatusesQueryParameters = dict
 
     project = await use_project(context)
 

@@ -14,12 +14,16 @@ from ceres._internal.app.api.routes.statistics import router as router__statisti
 from ceres._internal.app.api.routes.statuses import router as router__statuses
 from ceres._internal.app.api.routes.users import router as router__users
 from ceres._internal.app.shared import OPERATOR, CurrentEngine
-from ceres._internal.utilities import OrderedSet
+from ceres._internal.lazy import lazy_imports
 from ceres.address import Address
 from ceres.component import ComponentFilter
 from ceres.config import Config
 from ceres.data import ImmutableDataObject
 from ceres.error import Failure, NotFoundError, ReloadError
+
+with lazy_imports(__name__):
+    from ceres._internal.util import OrderedSet
+
 
 router = APIRouter(prefix="/api")
 

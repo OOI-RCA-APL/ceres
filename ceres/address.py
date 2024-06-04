@@ -9,7 +9,7 @@ from pydantic_core.core_schema import no_info_after_validator_function
 from typing_extensions import Literal, Self, override
 
 from ceres._internal.lazy import lazy_imports
-from ceres._internal.utilities import NAME_PATTERN
+from ceres._internal.util import NAME_PATTERN
 
 with lazy_imports(__name__):
     from sqlalchemy.sql.elements import ColumnElement, SQLColumnExpression

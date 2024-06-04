@@ -17,12 +17,11 @@ from pydantic import (
     ValidationError,
     ValidationInfo,
     field_validator,
-    model_validator,
 )
 from typing_extensions import Self
 
+from ceres._internal import util
 from ceres._internal.typedecs import __Component__
-from ceres._internal.utilities import get_traceback, get_type_adapter, group_by, show_td
 from ceres.address import Address, DynamicAddress
 from ceres.data import (
     ImmutableDataObject,
@@ -34,8 +33,10 @@ from ceres.data import (
 )
 from ceres.database.enums import DatabaseType
 from ceres.error import (
+    ComponentError,
     ComponentInitExceptionError,
     ComponentReferenceInvalidError,
+    ComponentValidationError,
     ConfigComponentError,
     ConfigDatabaseError,
     ConfigError,
@@ -43,30 +44,17 @@ from ceres.error import (
     ConfigParseErrorLocation,
     ConfigReadError,
     ConfigValidationError,
+    Failure,
 )
+from ceres.job import Job
 from ceres.level import Level
 from ceres.result import Fail, Ok, Result
-from ceres.schedule import Schedule
 from ceres.timing import utc
 from ceres.validation import ValidationProblem
 
 
 class ConfigObject(ImmutableDataObject):
     pass
-
-
-class JobConfig(ConfigObject):
-    name: Name
-    action: Name
-    arguments: Mapping[Name, Any] | None = Field(None, validation_alias="args")
-    schedule: Schedule = Field(discriminator="type")
-
-    @model_validator(mode="before")
-    def _default_name_to_action(cls, values: dict[str, Any]) -> Any:
-        if "name" not in values and "action" in values:
-            values["name"] = values["action"]
-
-        return values
 
 
 class LoggingConfig(ConfigObject):
@@ -92,7 +80,7 @@ class NodeConfig(ConfigObject):
         alias="class",
     )
     arguments: Mapping[str, Any] = Field(default_factory=dict, validation_alias="args")
-    jobs: Sequence[JobConfig] = Field(default_factory=list)
+    jobs: Sequence[Job] = Field(default_factory=list)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     components: Sequence["ComponentConfig"] = Field(default_factory=list)
 
@@ -122,7 +110,7 @@ class NodeConfig(ConfigObject):
         info: ValidationInfo,
     ) -> Sequence["ComponentConfig"]:
         name: str = info.data.get("name", "<ERROR>")
-        for component_name, group in group_by(
+        for component_name, group in util.group_by(
             components,
             lambda subsystem: subsystem.name,
         ):
@@ -136,15 +124,26 @@ class NodeConfig(ConfigObject):
 
 class ComponentConfig(NodeConfig):
     def create(self) -> __Component__:
-        component = get_type_adapter(self.cls).validate_python(
-            {
+        try:
+            return self.cls(
                 **self.arguments,
-                "__with_name__": self.name,
-                "__with_config__": self,
-            }
-        )
-
-        return component
+                __with_name__=self.name,
+                __with_config__=self,
+            )
+        except ValidationError as error:
+            raise Failure(
+                ComponentValidationError(
+                    message="component configuration invalid",
+                    problems=ValidationProblem.extract(error, self.arguments),
+                )
+            )
+        except Exception as error:
+            raise Failure(
+                ComponentInitExceptionError(
+                    message="an exception occurred while loading this component",
+                    traceback=util.get_traceback(error),
+                )
+            )
 
 
 NodeConfig.model_rebuild()
@@ -179,7 +178,7 @@ class ServerConfig(ConfigObject):
 
     @field_validator("host")
     def _validate_host(cls, host: str) -> str:
-        get_type_adapter(IPvAnyAddress).validate_python(host)
+        util.get_type_adapter(IPvAnyAddress).validate_python(host)
         return host
 
     @field_validator("socket")
@@ -295,47 +294,41 @@ class Config(ComponentConfig):
         import yaml
         from yaml import MarkedYAMLError, YAMLError
 
+        if isinstance(source, Config):
+            return Ok(source)
+
+        if isinstance(source, Mapping):
+            data = source
+        elif isinstance(source, Path):
+            try:
+                path = source.resolve()
+            except Exception:
+                return Fail([ConfigReadError(message=f"path '{source}' could not be resolved")])
+
+            try:
+                with open(path, "r") as stream:
+                    data = yaml.safe_load(stream)
+            except OSError:
+                return Fail([ConfigReadError(message=f"failed to read file at '{path}'")])
+            except YAMLError as error:
+                message: str | None = None
+                location: ConfigParseErrorLocation | None = None
+
+                if isinstance(error, MarkedYAMLError):
+                    message = error.problem
+
+                    if error.problem_mark:
+                        location = ConfigParseErrorLocation(
+                            line=error.problem_mark.line,
+                            column=error.problem_mark.column,
+                        )
+
+                return Fail([ConfigParseError(message=message, location=location)])
+
         try:
-            if isinstance(source, Mapping):
-                instance = cls.model_validate(source)
-            elif isinstance(source, Path):
-                try:
-                    path = source.resolve()
-                except Exception:
-                    return Fail([ConfigReadError(message=f"path '{source}' could not be resolved")])
-
-                try:
-                    with open(path, "r") as stream:
-                        data = yaml.safe_load(stream)
-                except OSError:
-                    return Fail([ConfigReadError(message=f"failed to read file at '{path}'")])
-                except YAMLError as error:
-                    message: str | None = None
-                    location: ConfigParseErrorLocation | None = None
-
-                    if isinstance(error, MarkedYAMLError):
-                        message = error.problem
-
-                        if error.problem_mark:
-                            location = ConfigParseErrorLocation(
-                                line=error.problem_mark.line,
-                                column=error.problem_mark.column,
-                            )
-
-                    return Fail(
-                        [
-                            ConfigParseError(
-                                message=message,
-                                location=location,
-                            )
-                        ]
-                    )
-
-                instance = cls.model_validate(data)
-            else:
-                instance = source
+            instance = cls.model_validate(data)
         except ValidationError as error:
-            return Fail([ConfigValidationError(problems=ValidationProblem.extract(error))])
+            return Fail([ConfigValidationError(problems=ValidationProblem.extract(error, data))])
 
         return Ok(instance)
 
@@ -400,7 +393,7 @@ class Config(ComponentConfig):
                 elapsed = utc() - start
 
                 if elapsed > timeout:
-                    log(f"Failed to connect to database within {show_td(timeout)}.")
+                    log(f"Failed to connect to database within {util.show_td(timeout)}.")
                     await database.dispose()
                     return [
                         ConfigDatabaseError(
@@ -410,8 +403,8 @@ class Config(ComponentConfig):
                     ]
 
                 log(
-                    f"Failed to connect to database, {exception}, {show_td(elapsed)} of "
-                    f"{show_td(timeout)} timeout elapsed, retrying in {show_td(interval)}..."
+                    f"Failed to connect to database, {exception}, {util.show_td(elapsed)} of "
+                    f"{util.show_td(timeout)} timeout elapsed, retrying in {util.show_td(interval)}..."
                 )
                 await database.dispose()
                 await asyncio.sleep(interval.total_seconds())
@@ -435,14 +428,18 @@ class Config(ComponentConfig):
             try:
                 component = component_config.create()
                 log(f"Component '{address}': OK")
-            except Exception as exception:
+            except Failure as failure:
                 log(f"Component '{address}': ERROR")
                 errors.append(
                     ConfigComponentError(
                         component=address,
-                        error=ComponentInitExceptionError(
-                            message="an exception occurred while loading this component",
-                            traceback=get_traceback(exception),
+                        error=(
+                            failure.error
+                            if isinstance(failure.error, ComponentError)
+                            else ComponentInitExceptionError(
+                                message="component could not be loaded",
+                                traceback=util.get_traceback(failure),
+                            )
                         ),
                     )
                 )
@@ -453,11 +450,7 @@ class Config(ComponentConfig):
                 parent.system.attach(component, name=component_config.name)
 
             for subcomponent_config in component_config.components:
-                check(
-                    component,
-                    subcomponent_config,
-                    errors,
-                )
+                check(component, subcomponent_config, errors)
 
             return component
 

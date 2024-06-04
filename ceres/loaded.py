@@ -27,12 +27,7 @@ from ceres._internal.lazy import lazy_imports
 from ceres.data import ImmutableDataObject
 
 with lazy_imports(__name__):
-    from ceres._internal.utilities import (
-        is_mapping,
-        is_pydantic_dataclass_type,
-        lenient_isinstance,
-        lenient_issubclass,
-    )
+    from ceres._internal import util
 
 _T = TypeVar("_T")
 
@@ -70,8 +65,8 @@ class Loader(ImmutableDataObject, Generic[_T]):
         if arguments is None:
             arguments = {}
 
-        if lenient_issubclass(target, BaseModel) or is_pydantic_dataclass_type(target):
-            if is_mapping(arguments):
+        if util.lenient_issubclass(target, BaseModel) or util.is_pydantic_dataclass_type(target):
+            if util.is_mapping(arguments):
                 instance = target(**arguments)
             else:
                 instance = target(*arguments)
@@ -81,7 +76,7 @@ class Loader(ImmutableDataObject, Generic[_T]):
                 init = validate_call(config=ConfigDict(arbitrary_types_allowed=True))(
                     target.__init__
                 )
-                if is_mapping(arguments):
+                if util.is_mapping(arguments):
                     init(instance, **arguments)
                 else:
                     init(instance, *arguments)
@@ -121,16 +116,16 @@ class LoadedType:
 
     @classmethod
     def validate(cls, value: Any) -> Any:
-        if lenient_isinstance(value, cls.cls):
+        if util.lenient_isinstance(value, cls.cls):
             return value
 
-        if lenient_isinstance(value, Loader):
+        if util.lenient_isinstance(value, Loader):
             loader = value
         else:
             loader = Loader.model_validate(value)
 
         instance = loader.create()
-        if not lenient_isinstance(instance, cls.cls):
+        if not util.lenient_isinstance(instance, cls.cls):
             raise ValueError(f"must be an instance of {cls.cls}")
 
         return instance

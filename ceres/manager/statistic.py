@@ -11,7 +11,7 @@ from ceres.timing import utc
 with lazy_imports(__name__):
     from sqlalchemy import func, select
 
-    from ceres._internal.utilities import call_partial, wrap_database_errors
+    from ceres._internal import util
     from ceres.alert import Alert
     from ceres.database.database import Database
     from ceres.node import Node
@@ -60,7 +60,7 @@ class StatisticsManager(BaseManager[Statistics]):
 
         results: dict[Address, Statistics] = {}
 
-        with wrap_database_errors():
+        with util.wrap_database_errors():
             async with await self._database.init() as session:
                 for address, level, count in await session.execute(statement):
                     address: Address
@@ -90,7 +90,7 @@ class StatisticsManager(BaseManager[Statistics]):
             return None
 
         address = self._node.address
-        return call_partial(
+        return util.call_partial(
             StatisticsFilter,
             root=address,
             address=address.all(),

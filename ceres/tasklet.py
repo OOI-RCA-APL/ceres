@@ -12,7 +12,7 @@ from typing_extensions import Self
 from ceres._internal.lazy import lazy_imports
 
 with lazy_imports(__name__):
-    from ceres._internal.utilities import cancel, wait_any
+    from ceres._internal import util
 
 
 @dataclass
@@ -85,7 +85,7 @@ class Tasklet(ABC):
         task_exit = asyncio.create_task(self.__tasklet__.stopping.wait())
 
         async def main() -> None:
-            await wait_any(task_run, task_exit)
+            await util.wait_any(task_run, task_exit)
 
             try:
                 if task_run.done():
@@ -97,7 +97,7 @@ class Tasklet(ABC):
                             on_exception(self, exception)
             finally:
                 self.__tasklet__.stopping.set()
-                await cancel(task_run, task_exit)
+                await util.cancel(task_run, task_exit)
 
                 try:
                     await self.__stop__()

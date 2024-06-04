@@ -13,7 +13,7 @@ from ceres._internal.manager.manager import BaseBoundManager
 from ceres.address import Address
 
 with lazy_imports(__name__):
-    from ceres._internal.utilities import lenient_issubclass, sleep_forever
+    from ceres._internal import util
     from ceres.component import ComponentSystem, ListenerBinding
     from ceres.config import LoggingConfig
     from ceres.event import AlertEvent, Event, LogEvent, MessageEvent
@@ -63,7 +63,7 @@ class EventManager(BaseBoundManager[Event]):
     async def process(self) -> None:
         await asyncio.gather(
             *(listener.process() for listener in self._listeners),
-            sleep_forever(),
+            util.sleep_forever(),
         )
 
     async def settle(self) -> None:
@@ -240,7 +240,7 @@ class _Listener:
             self._queue.task_done()
 
     def handles(self, event_cls: type[Event], address: Address) -> bool:
-        if not lenient_issubclass(event_cls, self._binding.event):
+        if not util.lenient_issubclass(event_cls, self._binding.event):
             return False
 
         if self._binding.local:

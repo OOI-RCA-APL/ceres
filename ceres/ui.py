@@ -23,7 +23,7 @@ from ceres.address import Address
 from ceres.data import Color, DataObject, ImmutableDataObject, Name, StrEnum
 
 with lazy_imports(__name__):
-    from ceres._internal.utilities import strify
+    from ceres._internal import util
 
 
 class ElementType(StrEnum):
@@ -114,7 +114,7 @@ class Button(_BaseElement):
 
             binding = get_component_method_binding(action, ActionBinding)
             if not binding:
-                raise ValueError(f"function {strify(action)} has no action binding")
+                raise ValueError(f"function {util.strify(action)} has no action binding")
 
             action = binding.name
 
@@ -410,7 +410,7 @@ class _BaseRenderer(_BaseElement):
 
             binding = get_component_method_binding(query, QueryBinding)
             if not binding:
-                raise ValueError(f"function {strify(query)} has no query binding")
+                raise ValueError(f"function {util.strify(query)} has no query binding")
 
             query = binding.name
 

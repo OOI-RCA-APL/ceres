@@ -8,7 +8,6 @@ from typing_extensions import TypedDict, override
 from ceres._internal.cli.plumbing import CLIOption
 from ceres._internal.database.types import EnumConstraint, EnumMapper
 from ceres._internal.lazy import lazy_imports
-from ceres._internal.utilities import as_sequence, escape_like_expression
 from ceres.address import Address
 from ceres.data import DateTime, JSONDict, StrEnum, jsonify
 from ceres.database.enums import DatabaseType
@@ -26,6 +25,8 @@ with lazy_imports(__name__):
     from sqlalchemy.schema import Index, SchemaItem
     from sqlalchemy.sql import ColumnExpressionArgument
     from sqlalchemy.sql.sqltypes import JSON, Text
+
+    from ceres._internal import util
 
 
 class AlertRow(BaseRecordRow, kw_only=True):
@@ -91,10 +92,10 @@ class AlertFilter(BaseRecordFilter["Alert"]):
             return False
 
         if self.level is not None:
-            if obj.level not in as_sequence(self.level):
+            if obj.level not in util.as_sequence(self.level):
                 return False
         if self.code is not None:
-            if obj.code not in as_sequence(self.code):
+            if obj.code not in util.as_sequence(self.code):
                 return False
         if self.code_contains is not None:
             if self.code_contains not in obj.code:
@@ -139,15 +140,15 @@ class AlertFilter(BaseRecordFilter["Alert"]):
         columns = self._get_row_cls()
 
         if self.level is not None:
-            yield columns.level.in_(as_sequence(self.level))
+            yield columns.level.in_(util.as_sequence(self.level))
         if self.code is not None:
-            yield columns.code.in_(as_sequence(self.code))
+            yield columns.code.in_(util.as_sequence(self.code))
         if self.code_contains is not None:
-            yield columns.code.like("%" + escape_like_expression(self.code_contains) + "%")
+            yield columns.code.like("%" + util.escape_like_expression(self.code_contains) + "%")
         if self.code_prefix is not None:
-            yield columns.code.like(escape_like_expression(self.code_prefix) + "%")
+            yield columns.code.like(util.escape_like_expression(self.code_prefix) + "%")
         if self.code_suffix is not None:
-            yield columns.code.like("%" + escape_like_expression(self.code_suffix))
+            yield columns.code.like("%" + util.escape_like_expression(self.code_suffix))
 
 
 class AlertCreate(BaseRecordCreate):

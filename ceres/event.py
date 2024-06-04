@@ -193,8 +193,8 @@ class JobStartedEvent(__BaseStandardEvent):
     job: str
 
 
-class JobStoppedEvent(__BaseStandardEvent):
-    type: Literal["job-stopped"] = "job-stopped"
+class JobEndedEvent(__BaseStandardEvent):
+    type: Literal["job-ended"] = "job-ended"
     job: str
 
 
@@ -229,7 +229,7 @@ JobEvent = (
     JobAddedEvent
     | JobRemovedEvent
     | JobStartedEvent
-    | JobStoppedEvent
+    | JobEndedEvent
     | JobCompletedEvent
     | JobCancelledEvent
     | JobExceptionEvent

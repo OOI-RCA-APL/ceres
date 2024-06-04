@@ -24,7 +24,7 @@ with lazy_imports(__name__):
     from sqlalchemy.sql.sqltypes import LargeBinary
 
     from ceres._internal.database.types import EnumConstraint, EnumMapper
-    from ceres._internal.utilities import as_sequence, escape_like_expression
+    from ceres._internal import util
     from ceres.database.enums import DatabaseType
 
 
@@ -108,7 +108,7 @@ class MessageFilter(BaseRecordFilter["Message"]):
             return False
 
         if self.direction is not None:
-            if obj.direction not in as_sequence(self.direction):
+            if obj.direction not in util.as_sequence(self.direction):
                 return False
         if self.content_contains is not None:
             if self.content_contains not in obj.content:
@@ -159,11 +159,13 @@ class MessageFilter(BaseRecordFilter["Message"]):
         if self.direction is not None:
             yield columns.direction == self.direction
         if self.content_contains is not None:
-            yield columns.content.like(b"%" + escape_like_expression(self.content_contains) + b"%")
+            yield columns.content.like(
+                b"%" + util.escape_like_expression(self.content_contains) + b"%"
+            )
         if self.content_prefix is not None:
-            yield columns.content.like(escape_like_expression(self.content_prefix) + b"%")
+            yield columns.content.like(util.escape_like_expression(self.content_prefix) + b"%")
         if self.content_suffix is not None:
-            yield columns.content.like(b"%" + escape_like_expression(self.content_suffix))
+            yield columns.content.like(b"%" + util.escape_like_expression(self.content_suffix))
 
 
 class MessageCreate(BaseRecordCreate):

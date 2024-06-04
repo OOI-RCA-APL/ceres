@@ -14,7 +14,7 @@ with lazy_imports(__name__):
     from sqlalchemy import TIMESTAMP, CheckConstraint, Dialect, Enum, Text, TypeDecorator
     from sqlalchemy.sql.operators import OperatorType
 
-    from ceres._internal.utilities import snakecase
+    from ceres._internal import util
 
 from sqlalchemy.sql.sqltypes import Uuid
 
@@ -25,7 +25,7 @@ def EnumMapper(cls: type[BaseEnum]) -> Enum:
         values_callable=lambda enum: [current.value for current in enum],
         native_enum=False,
         create_constraint=False,
-        name=snakecase(cls.__name__),
+        name=util.snakecase(cls.__name__),
     )
 
     enum.length = None

@@ -27,7 +27,7 @@ from ceres.tasklet import Tasklet
 with lazy_imports(__name__):
     from sqlalchemy.ext.asyncio import AsyncSession
 
-    from ceres._internal.utilities import get_traceback, model_apply_overrides
+    from ceres._internal import util
     from ceres.component import Component, ComponentFilter, ComponentFilterArgs, ComponentSystem
     from ceres.config import LoggingConfig, NodeConfig
     from ceres.database.database import Database
@@ -120,7 +120,7 @@ class Node(Tasklet):
 
         container = self.__container__
         if container is not None:
-            return model_apply_overrides(container.get_resolved_logging_config(), local)
+            return util.model_apply_overrides(container.get_resolved_logging_config(), local)
 
         return local if local is not None else LoggingConfig()
 
@@ -162,7 +162,7 @@ class Node(Tasklet):
                 if not self.__writer.flushing and not self.__writer.empty:
                     await self.__writer.flush()
             except Exception as exception:
-                self.events.emit(DatabaseExceptionEvent, traceback=get_traceback(exception))
+                self.events.emit(DatabaseExceptionEvent, traceback=util.get_traceback(exception))
                 await asyncio.sleep(1)
 
             await asyncio.sleep(0.1)

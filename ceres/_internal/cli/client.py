@@ -9,7 +9,7 @@ from ceres._internal.lazy import lazy_imports
 with lazy_imports(__name__):
     from ceres._internal.cli.plumbing import CLICommandFailed
     from ceres._internal.project import Project
-    from ceres._internal.utilities import get_type_adapter
+    from ceres._internal import util
     from ceres.data import simplify
     from ceres.status import Status
 
@@ -65,7 +65,7 @@ class Client:
 
                     raise CLICommandFailed(content)
 
-                return get_type_adapter(result).validate_python(await response.json())  # type: ignore
+                return util.get_type_adapter(result).validate_python(await response.json())  # type: ignore
 
     async def get(
         self,

@@ -9,7 +9,7 @@ from typing_extensions import override
 from ceres._internal.cli.plumbing import CLIOption
 from ceres._internal.database.types import AddressMapper
 from ceres._internal.lazy import lazy_imports
-from ceres._internal.utilities import as_sequence
+from ceres._internal import util
 from ceres.address import Address, AddressSelector
 from ceres.database.enums import DatabaseType
 from ceres.entity import (
@@ -96,7 +96,7 @@ class BaseItemFilter(BaseEntityFilter[_ItemT]):
         columns = self._get_row_cls()
 
         if self.id is not None:
-            yield columns.id.in_(as_sequence(self.id))
+            yield columns.id.in_(util.as_sequence(self.id))
         if self.address is not None:
             yield self.address.matches_expression(columns.address, self.root)
 

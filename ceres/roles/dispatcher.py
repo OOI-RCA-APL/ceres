@@ -10,16 +10,20 @@ from typing import Any, Iterable, Sequence, final
 from pydantic import Field
 from typing_extensions import override
 
+from ceres._internal.lazy import lazy_imports
 from ceres._internal.templates import templates
-from ceres._internal.utilities import group_by
 from ceres.address import Address
 from ceres.alert import Alert, AlertFilter, AlertOrder, Level
 from ceres.component import Component, action, routine
 from ceres.data import ImmutableDataObject, NonBlankStr, jsonify
+from ceres.job import Job
 from ceres.loaded import Loaded
 from ceres.reference import Ref
 from ceres.roles.notifier import Notification, Notifier
 from ceres.schedule import Schedule
+
+with lazy_imports(__name__):
+    from ceres._internal import util
 
 
 class Dispatch(ImmutableDataObject):
@@ -100,11 +104,13 @@ class Dispatcher(Component):
             if dispatch.schedule is None:
                 continue
 
-            self.system.add_job(
-                f"dispatch-{dispatch.subject.lower().replace(' ', '-')}",
-                dispatch.schedule,
-                self.dispatch,
-                arguments={"dispatch": dispatch},
+            self.system.jobs.add(
+                Job(
+                    name=f"dispatch-{dispatch.subject.lower().replace(' ', '-')}",
+                    schedule=dispatch.schedule,
+                    action=self.dispatch.__name__,
+                    arguments={"dispatch": dispatch},
+                )
             )
 
 
@@ -142,11 +148,11 @@ class HTMLDispatchWriter(DispatchWriter):
 
         index = create_index()
 
-        for level, by_level in group_by(
+        for level, by_level in util.group_by(
             sorted(alerts, key=lambda alert: alert.level, reverse=True),
             key=lambda alert: alert.level,
         ):
-            for key, by_key in group_by(
+            for key, by_key in util.group_by(
                 sorted(by_level, key=lambda alert: -alert.timestamp.timestamp()),
                 lambda alert: (alert.address, alert.code, jsonify(alert.info)),
             ):

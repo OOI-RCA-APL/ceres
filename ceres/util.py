@@ -15,7 +15,7 @@ from typing import (
 from ceres._internal.lazy import lazy_imports
 
 with lazy_imports(__name__):
-    from ceres._internal.utilities import cancel
+    from ceres._internal.util import cancel
 
 _EntryT = TypeVar("_EntryT", bound=tuple[Any, ...], covariant=True)
 
