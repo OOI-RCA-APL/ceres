@@ -27,14 +27,9 @@ class LazyExport:
         if path is None:
             raise AttributeError(f"module {__name__} has no attribute {name}")
 
-        from importlib import import_module
+        import importlib
 
-        try:
-            module = import_module(path, package=__package__)
-        except Exception as exception:
-            raise ImportError(
-                f"cannot import name {name} from {path} due to exception {exception}"
-            ) from exception
+        module = importlib.import_module(path, package=__package__)
 
         return getattr(module, name)
 
