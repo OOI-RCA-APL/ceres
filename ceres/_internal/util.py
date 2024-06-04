@@ -600,9 +600,10 @@ def get_args_model(
         positional_parameter_defaults,
         keyword_only_parameter_names,
         keyword_only_parameter_defaults,
-        annotations,
+        _,
     ) = inspect.getfullargspec(function)
 
+    annotations = typing.get_type_hints(function, include_extras=True)
     position_parameter_names = position_parameter_names or []
     positional_parameter_defaults = positional_parameter_defaults or ()
     keyword_only_parameter_names = keyword_only_parameter_names or []
