@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import json
-import sys
 from abc import ABC
 from datetime import date, datetime, timedelta, timezone
+from enum import StrEnum as BaseStrEnum
 from json import JSONDecodeError
 from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Literal, NewType, Sized, TypeVar
 
@@ -303,11 +303,6 @@ Argon2Hash = NewType(
 )
 
 PasswordHash = BCryptHash | Argon2Hash
-
-if sys.version_info >= (3, 11):
-    from enum import StrEnum as BaseStrEnum
-else:
-    from backports.strenum import StrEnum as BaseStrEnum
 
 
 class StrEnum(BaseStrEnum):
