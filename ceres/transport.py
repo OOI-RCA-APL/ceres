@@ -34,7 +34,7 @@ class Transport:
         return f"{type(self).__name__}({self.__connection})"
 
     async def send(self, data: BytesLike) -> Message:
-        return await self.connection.send_message(util.bytes_of(data))
+        return await self.connection.send(util.bytes_of(data))
 
     @overload
     async def receive(

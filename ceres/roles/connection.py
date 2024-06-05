@@ -1,21 +1,32 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import sys
 import traceback
 from abc import ABC, abstractmethod
 from asyncio import StreamReader, StreamWriter
 from dataclasses import dataclass, field
 from datetime import timedelta
-from typing import Annotated, Literal, final, override
+from functools import cached_property
+from re import Match, Pattern, RegexFlag
+from typing import Annotated, Literal, Self, final, override
 
-from pydantic import Field, field_validator
+from pydantic import (
+    BeforeValidator,
+    ByteSize,
+    Field,
+    TypeAdapter,
+    field_validator,
+    model_validator,
+)
 
 from ceres._internal.lazy import lazy_imports
 from ceres.component import Component, action, routine
 from ceres.connectivity import Connectivity
 from ceres.data import ImmutableDataObject, PositiveTimeDelta, StrEnum
 from ceres.event import (
+    BufferOverflowEvent,
     ConnectedEvent,
     ConnectFailedEvent,
     ConnectingEvent,
@@ -48,7 +59,7 @@ class ConnectionLost(ConnectionException):
     pass
 
 
-class ReconnectSettings(ImmutableDataObject):
+class ConnectionReconnectSettings(ImmutableDataObject):
     schedule: IntervalSchedule = Field(
         default_factory=lambda: IntervalSchedule(
             interval=timedelta(seconds=1),
@@ -58,14 +69,87 @@ class ReconnectSettings(ImmutableDataObject):
     )
 
 
+class ConnectionBufferingSettings(ImmutableDataObject):
+    read: ByteSize = TypeAdapter(ByteSize).validate_python("1 KB")
+    limit: ByteSize = TypeAdapter(ByteSize).validate_python("100 KB")
+    drop: ByteSize = TypeAdapter(ByteSize).validate_python("50 KB")
+
+    @model_validator(mode="after")
+    def _validate(self) -> Self:
+        if self.read > self.limit:
+            raise ValueError("`read` cannot be greater than `limit`")
+        if self.drop > self.limit:
+            raise ValueError("`drop` cannot be greater than `limit`")
+
+        return self
+
+
+_VALID_REGEX_FLAGS_CHARACTERS = set(member for member in RegexFlag.__members__ if len(member) == 1)
+
+
+def __pre_validate_regex_flags(value: object) -> object:
+    if isinstance(value, str):
+        value = value.upper()
+        try:
+            return RegexFlag[value]
+        except KeyError:
+            pass
+
+        summed = RegexFlag.NOFLAG
+        for character in value:
+            try:
+                summed |= RegexFlag[character]
+            except KeyError:
+                raise ValueError(
+                    f"invalid regex flag character '{character}', must be one of: {_VALID_REGEX_FLAGS_CHARACTERS}"
+                )
+
+        return summed
+
+    return value
+
+
+RegexFlags = Annotated[RegexFlag, BeforeValidator(__pre_validate_regex_flags)]
+
+
 class Connection(Component, ABC):
-    separator: bytes = b"\r\n"
-    reconnect_settings: ReconnectSettings = field(default_factory=ReconnectSettings)
+    separator: bytes
+    regex: bytes | None = None
+    regex_flags: RegexFlags = RegexFlag.MULTILINE | RegexFlag.DOTALL
+    buffering: ConnectionBufferingSettings = field(default_factory=ConnectionBufferingSettings)
+    reconnect_settings: ConnectionReconnectSettings = field(
+        default_factory=ConnectionReconnectSettings
+    )
+
+    @model_validator(mode="after")
+    def _validate(self) -> Self:
+        if self.regex is None:
+            return self
+
+        try:
+            re.compile(self.regex, self.regex_flags)
+        except re.error as exception:
+            raise ValueError(f"invalid `regex` or `regex_flags`: {exception}")
+
+        return self
 
     @override
     def __setup__(self) -> None:
         super().__setup__()
         self.__connectivity = Connectivity.DISCONNECTED
+        self.__buffer = bytearray()
+
+    @property
+    def buffer(self) -> memoryview:
+        return memoryview(self.__buffer).toreadonly()
+
+    @cached_property
+    def __regex_pattern(self) -> Pattern[bytes]:
+        regex = self.regex
+        if regex is None:
+            regex = re.compile(b".*" + re.escape(self.separator), self.regex_flags)
+
+        return re.compile(regex, self.regex_flags)
 
     @override
     def __connectivity__(self) -> Connectivity:
@@ -84,16 +168,16 @@ class Connection(Component, ABC):
         return self.__connectivity == Connectivity.CONNECTED
 
     @abstractmethod
-    async def _try_connect(self) -> bool: ...
+    async def _connect(self) -> bool: ...
 
     @abstractmethod
-    async def _try_disconnect(self) -> None: ...
+    async def _disconnect(self) -> None: ...
 
     @abstractmethod
-    async def _send_data(self, data: bytes) -> bytes | None: ...
+    async def _send(self, data: bytes) -> bytes | None: ...
 
     @abstractmethod
-    async def _poll_data(self) -> bytes | None: ...
+    async def _receive(self, count: int) -> bytes | None: ...
 
     async def connect(self) -> bool:
         if self.__connectivity == Connectivity.CONNECTED:
@@ -103,7 +187,7 @@ class Connection(Component, ABC):
         self.__connectivity = Connectivity.CONNECTING
 
         try:
-            connected = await self._try_connect()
+            connected = await self._connect()
         except Exception as exception:
             connected = False
             if error := str(exception).strip():
@@ -119,7 +203,7 @@ class Connection(Component, ABC):
         return self.connected
 
     @action
-    async def send_message(
+    async def send(
         self,
         data: Annotated[
             MessageContent,
@@ -144,7 +228,7 @@ class Connection(Component, ABC):
             data += self.separator
 
         try:
-            sent = await self._send_data(data)
+            sent = await self._send(data)
         except Exception:
             sent = None
 
@@ -163,31 +247,6 @@ class Connection(Component, ABC):
         self.system.events.emit(MessageSentEvent, message=message)
         return message
 
-    async def __poll_message(self) -> Message | None:
-        try:
-            data = await self._poll_data()
-        except Exception:
-            self.system.log.error(traceback.format_exc())
-            data = None
-            raise
-
-        if data is None:
-            if self.connected:
-                self.system.events.emit(ConnectionLostEvent)
-                await self.disconnect()
-
-            return None
-
-        message = Message(
-            address=self.system.address,
-            direction=MessageDirection.RECEIVE,
-            content=data,
-        )
-
-        self.system.messages.store(message)
-        self.system.events.emit(MessageReceivedEvent, message=message)
-        return message
-
     async def disconnect(self) -> None:
         if self.__connectivity == Connectivity.DISCONNECTED:
             return
@@ -195,13 +254,15 @@ class Connection(Component, ABC):
         self.system.events.emit(DisconnectingEvent)
 
         try:
-            await self._try_disconnect()
+            await self._disconnect()
         finally:
             self.__connectivity = Connectivity.DISCONNECTED
             self.system.events.emit(DisconnectedEvent)
 
     @routine
     async def routine__process_connection(self) -> None:
+        regex = self.__regex_pattern
+
         while True:
             trigger = self.reconnect_settings.schedule.as_trigger()
 
@@ -215,9 +276,57 @@ class Connection(Component, ABC):
                 await asyncio.sleep(delay.total_seconds())
 
             while self.connected:
-                data = await self.__poll_message()
-                if data is None:
+                try:
+                    received = await self._receive(self.buffering.read)
+                except Exception:
+                    self.system.log.error(traceback.format_exc())
+                    received = None
+
+                # If `_receive` returns `None` or throws an exception, the connection is considered
+                # lost.
+                if received is None:
+                    if self.connected:
+                        self.system.events.emit(ConnectionLostEvent)
+                        await self.disconnect()
+
                     break
+
+                # Append received data to the buffer.
+                self.__buffer.extend(received)
+
+                # Drop data from the buffer if it exceeds the buffer size limit.
+                if len(self.__buffer) > self.buffering.limit:
+                    size = ByteSize(len(self.__buffer))
+
+                    del self.__buffer[: self.buffering.drop]
+                    self.system.events.emit(
+                        BufferOverflowEvent,
+                        size=size,
+                        limit=self.buffering.limit,
+                        dropped=self.buffering.drop,
+                    )
+
+                # Keep track of the last match processed.
+                last: Match[bytes] | None = None
+
+                # Find all matches in the buffer.
+                for match in regex.finditer(self.__buffer):
+                    last = match
+                    # Extract bytes from the match.
+                    data = match.group()
+
+                    message = Message(
+                        address=self.system.address,
+                        direction=MessageDirection.RECEIVE,
+                        content=data,
+                    )
+
+                    self.system.messages.store(message)
+                    self.system.events.emit(MessageReceivedEvent, message=message)
+
+                if last is not None:
+                    # Remove all data up to and including the last match, if any were found.
+                    del self.__buffer[: last.end()]
 
     @routine
     async def routine__disconnect_on_stop(self) -> None:
@@ -280,7 +389,7 @@ class TCPConnection(Connection):
         return f"{self.host}:{self.port}"
 
     @override
-    async def _try_connect(self) -> bool:
+    async def _connect(self) -> bool:
         if self.__stream:
             return True
 
@@ -301,7 +410,7 @@ class TCPConnection(Connection):
         return True
 
     @override
-    async def _try_disconnect(self) -> None:
+    async def _disconnect(self) -> None:
         if not self.__stream:
             return
 
@@ -314,7 +423,7 @@ class TCPConnection(Connection):
         self.__stream = None
 
     @override
-    async def _send_data(self, data: bytes) -> bytes | None:
+    async def _send(self, data: bytes) -> bytes | None:
         if not self.__stream:
             return None
 
@@ -328,12 +437,12 @@ class TCPConnection(Connection):
         return data
 
     @override
-    async def _poll_data(self) -> bytes | None:
+    async def _receive(self, count: int) -> bytes | None:
         if not self.__stream:
             return None
 
         try:
-            return await self.__stream.reader.readuntil(self.separator)
+            return await self.__stream.reader.read(count)
         except Exception:
             return None
 

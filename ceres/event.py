@@ -4,7 +4,7 @@ from abc import ABC
 from typing import TYPE_CHECKING, Literal, Sequence, cast
 from uuid import UUID, uuid4
 
-from pydantic import Field
+from pydantic import ByteSize, Field
 
 from ceres.address import Address
 from ceres.data import DateTime, ImmutableDataObject, PositiveTimeDelta
@@ -99,6 +99,13 @@ class ReconnectScheduledEvent(__BaseStandardEvent):
     delay: PositiveTimeDelta
 
 
+class BufferOverflowEvent(__BaseStandardEvent):
+    type: Literal["buffer-overflow"] = "buffer-overflow"
+    size: ByteSize
+    limit: ByteSize
+    dropped: ByteSize
+
+
 ConnectionEvent = (
     ConnectedEvent
     | DisconnectedEvent
@@ -106,6 +113,7 @@ ConnectionEvent = (
     | ConnectionLostEvent
     | ConnectFailedEvent
     | ReconnectScheduledEvent
+    | BufferOverflowEvent
 )
 
 
