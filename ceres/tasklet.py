@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import traceback
 from abc import ABC, abstractmethod
 from asyncio import Event as AsyncEvent
 from asyncio import Task
@@ -49,6 +50,9 @@ class Tasklet(ABC):
 
     @abstractmethod
     async def __stop__(self) -> None: ...
+
+    async def __post_stop__(self) -> None:
+        pass
 
     @property
     def __tasklet__(self) -> _TaskletInternal:
@@ -105,6 +109,10 @@ class Tasklet(ABC):
 
                     self.__tasklet__.task = None
                     self.__tasklet__.stopped.set()
+                    try:
+                        await self.__post_stop__()
+                    except Exception:
+                        traceback.print_exc()
 
         self.__tasklet__.task = asyncio.create_task(main(), name=str(type(self)))
 

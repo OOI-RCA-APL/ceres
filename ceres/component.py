@@ -1313,13 +1313,18 @@ class ComponentSystem(Node):
         for system in reversed(self.children):
             await system.stop()
 
-        self.events.emit(StoppedEvent)
         await self.settle()
+
+    @override
+    async def __post_stop__(self) -> None:
+        await super().__post_stop__()
         await self.flush()
 
         if self._database is not None:
             await self._database.dispose()
             self._database = None
+
+        self.events.emit(StoppedEvent)
 
     async def __invoke(
         self,

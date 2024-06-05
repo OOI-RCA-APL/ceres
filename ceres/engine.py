@@ -51,32 +51,31 @@ class Engine(Node):
         super().__init__()
 
         if source is None:
-            self.__config = Config()
-            self.__config_path = None
+            self._config = Config()
+            self._config_path = None
         elif isinstance(source, Path):
-            self.__config_path = source
+            self._config_path = source
             match Config.read(source):
                 case Ok(config):
-                    self.__config = config
+                    self._config = config
                 case Fail(errors):
                     raise ValueError(str(errors))
         else:
-            self.__config = source
-            self.__config_path = None
+            self._config = source
+            self._config_path = None
 
         from ceres.database.database import Database
 
-        self.__database = Database(self.__config.database)
-        self.__reloading = AsyncEvent()
-        self.__reloaded_config: Config | None = None
-        self.__server: Server | None = None
-        self.root = Component().system
-        self.root.name = "root"  # type: ignore
+        self._database = Database(self._config.database)
+        self._reloading = AsyncEvent()
+        self._reloaded_config: Config | None = None
+        self._server: Server | None = None
+        self.root = Component(__with_name__="root").system
 
-        if self.__config_path is not None:
-            self.__project_directory = Directory(self.__config_path.parent)
+        if self._config_path is not None:
+            self._project_directory = Directory(self._config_path.parent)
         else:
-            self.__project_directory = Directory(os.getcwd())
+            self._project_directory = Directory(os.getcwd())
 
         self.__setup__()
 
@@ -91,12 +90,12 @@ class Engine(Node):
     @property
     @override
     def root(self) -> ComponentSystem | None:
-        return self.__root
+        return self._root
 
     @root.setter
     def root(self, root: ComponentSystem | Component) -> None:
-        self.__root = util.as_component_system(root)
-        self.__root.engine = self
+        self._root = util.as_component_system(root)
+        self._root.engine = self
 
     @property
     @override
@@ -111,20 +110,20 @@ class Engine(Node):
     @property
     @override
     def database(self) -> Database:
-        return self.__database
+        return self._database
 
     @property
     @override
     def config(self) -> Config:
-        return self.__config
+        return self._config
 
     @property
     def config_path(self) -> Path | None:
-        return self.__config_path
+        return self._config_path
 
     @property
     def project_directory(self) -> Directory | None:
-        return self.__project_directory
+        return self._project_directory
 
     @property
     def local_directory(self) -> Directory | None:
@@ -146,11 +145,11 @@ class Engine(Node):
 
             while True:
                 if started:
-                    await self.__reloading.wait()
+                    await self._reloading.wait()
                     await self.__execute_reload()
 
                 started = True
-                self.__reloading.clear()
+                self._reloading.clear()
 
                 self.__start_server()
 
@@ -166,7 +165,7 @@ class Engine(Node):
 
                 tasks = [
                     asyncio.create_task(start_enabled(), name="start-enabled"),
-                    asyncio.create_task(self.__reloading.wait(), name="reload-wait"),
+                    asyncio.create_task(self._reloading.wait(), name="reload-wait"),
                     asyncio.create_task(self.wait_until_stopping(), name="wait-until-stopping"),
                 ]
 
@@ -192,23 +191,26 @@ class Engine(Node):
     async def __stop__(self) -> None:
         self.events.emit(StoppingEvent)
         await self.__stop_server()
-        await self.__root.stop()
+        await self._root.stop()
 
+    @override
+    async def __post_stop__(self) -> None:
+        await super().__post_stop__()
         self.events.emit(StoppedEvent)
         await self.flush()
-        await self.__database.dispose()
+        await self._database.dispose()
 
     async def load(self, config: Config | None = None) -> Result[Config, list[ConfigError]]:
         if config is not None:
             match await config.check(log=self.log.info):
                 case Ok(config):
-                    self.__config = config
+                    self._config = config
                 case Fail() as fail:
                     return fail
-        elif self.__config_path is not None:
-            match await Config.load(self.__config_path, log=self.log.info):
+        elif self._config_path is not None:
+            match await Config.load(self._config_path, log=self.log.info):
                 case Ok(config):
-                    self.__config = config
+                    self._config = config
                 case Fail() as fail:
                     return fail
         else:
@@ -216,11 +218,11 @@ class Engine(Node):
 
         await self.__load_database()
         await self.__load_components()
-        return Ok(self.__config)
+        return Ok(self._config)
 
     @override
     def get_component(self, address: str | DynamicAddress | None = None) -> Component | None:
-        return self.__root.get_component(address)
+        return self._root.get_component(address)
 
     @override
     def get_components(
@@ -231,13 +233,13 @@ class Engine(Node):
         inclusive: bool = False,
         **kwargs: Unpack[ComponentFilterArgs],
     ) -> list[Component]:
-        return self.__root.get_components(filter, inclusive=True, **kwargs)
+        return self._root.get_components(filter, inclusive=True, **kwargs)
 
     async def hash_password(self, password: str) -> PasswordHash:
-        return await self.__database.hash_password(password)
+        return await self._database.hash_password(password)
 
     async def verify_password(self, password: str, hash: PasswordHash) -> bool:
-        return await self.__database.verify_password(password, hash)
+        return await self._database.verify_password(password, hash)
 
     async def reload(self, config: Config | None = None) -> Config:
         """
@@ -245,25 +247,25 @@ class Engine(Node):
         reload from. If omitted, the configuration will be reloaded from the engine's configuration
         file path.
         """
-        if self.__reloading.is_set():
+        if self._reloading.is_set():
             raise Failure(ReloadAlreadyActiveError)
 
         if config is not None:
             self.log.info("Queueing reload of provided configuration...")
-            self.__reloading.set()
-            self.__reloaded_config = config
+            self._reloading.set()
+            self._reloaded_config = config
             return config
 
-        if self.__config_path is None:
+        if self._config_path is None:
             self.log.warning("No configuration path provided, ignoring reload.")
             return self.config
 
-        self.log.info(f"Reloading configuration from '{self.__config_path}'...")
-        match await Config.load(self.__config_path, log=self.log.info):
+        self.log.info(f"Reloading configuration from '{self._config_path}'...")
+        match await Config.load(self._config_path, log=self.log.info):
             case Ok(config):
                 self.log.info("Configuration parsed successfully, queueing reload...")
-                self.__reloading.set()
-                self.__reloaded_config = config
+                self._reloading.set()
+                self._reloaded_config = config
                 return config
             case Fail(errors):
                 self.log.error("Reload failed, found errors in configuration.")
@@ -283,11 +285,11 @@ class Engine(Node):
         self.log.info("Reloading configuration...")
         previous = self.config
 
-        if self.__reloaded_config is None:
+        if self._reloaded_config is None:
             self.log.warning("No queued configuration was found, ignoring reload.")
             return
 
-        self.__config = self.__reloaded_config
+        self._config = self._reloaded_config
 
         changed = False
 
@@ -310,11 +312,11 @@ class Engine(Node):
                 self.log.info("Database configuration modified, reloading database and systems...")
                 try:
                     running = self.get_components(running=True)
-                    await self.__root.stop()
-                    await self.__database.dispose()
+                    await self._root.stop()
+                    await self._database.dispose()
                     from ceres.database.database import Database
 
-                    self.__database = Database(self.config.database)
+                    self._database = Database(self.config.database)
                     for component in running:
                         component.system.start()
                 except Exception:
@@ -340,8 +342,8 @@ class Engine(Node):
             else:
                 self.log.info("No changes to component configurations.")
         finally:
-            self.__reloaded_config = None
-            self.__reloading.clear()
+            self._reloaded_config = None
+            self._reloading.clear()
 
         if not changed:
             self.log.info("No changes to configuration. Nothing to do.")
@@ -491,12 +493,12 @@ class Engine(Node):
 
     def __create_server(self) -> Server | None:
         socket: Path | None = None
-        if self.__config.server.socket is not None:
-            socket = self.__config.server.socket
-        elif self.__config_path is not None:
-            project = Project(self.__config_path, self.__config)
+        if self._config.server.socket is not None:
+            socket = self._config.server.socket
+        elif self._config_path is not None:
+            project = Project(self._config_path, self._config)
             socket = project.socket_path
-        elif self.__config.server.port is None:
+        elif self._config.server.port is None:
             return None
 
         from ceres._internal.server import HypercornConfig
@@ -505,7 +507,7 @@ class Engine(Node):
         config.loglevel = "CRITICAL"
 
         # SSL / HTTPS
-        ssl = self.__config.server.ssl or ServerSSLConfig()
+        ssl = self._config.server.ssl or ServerSSLConfig()
         config.keyfile = str(ssl.key) if ssl.key is not None else None
         config.keyfile_password = ssl.key_password
         config.certfile = str(ssl.cert) if ssl.cert is not None else None
@@ -514,8 +516,8 @@ class Engine(Node):
         bind: list[str] = []
         insecure_bind: list[str] = []
 
-        if self.__config.server.port is not None:
-            bind.append(f"{self.__config.server.host}:{self.__config.server.port}")
+        if self._config.server.port is not None:
+            bind.append(f"{self._config.server.host}:{self._config.server.port}")
         if socket is not None:
             if config.ssl_enabled:
                 insecure_bind.append(f"unix:{socket}")
@@ -528,22 +530,22 @@ class Engine(Node):
         return Server(config, App(self))
 
     def __start_server(self) -> Server | None:
-        if self.__server is None:
-            self.__server = self.__create_server()
+        if self._server is None:
+            self._server = self.__create_server()
 
-        if self.__server is not None and not self.__server.running:
-            bind = [*self.__server._config.bind, *self.__server._config.insecure_bind]
+        if self._server is not None and not self._server.running:
+            bind = [*self._server._config.bind, *self._server._config.insecure_bind]
             self.log.info(f"Listening on {bind}...")
-            self.__server.start(on_exception=self.__on_server_exception)
+            self._server.start(on_exception=self.__on_server_exception)
 
-        return self.__server
+        return self._server
 
     async def __stop_server(self) -> None:
-        if self.__server is not None:
-            bind = [*self.__server._config.bind, *self.__server._config.insecure_bind]
+        if self._server is not None:
+            bind = [*self._server._config.bind, *self._server._config.insecure_bind]
             self.log.info(f"Removing listeners from {bind}...")
-            await self.__server.stop()
-            self.__server = None
+            await self._server.stop()
+            self._server = None
 
     def __on_server_exception(self, server: Server, exception: BaseException) -> None:
         self.log.error(
