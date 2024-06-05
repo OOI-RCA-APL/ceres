@@ -290,6 +290,7 @@ class SQLiteDatabase(Database):  #
             "pool_size": 10,  # Keep a maximum of ten connections alive continuously.
             "max_overflow": -1,  # Allow an infinite number of connections to be created if needed.
             "pool_recycle": 15 * 60,  # Recreate connections after fifteen minutes.
+            "json_serializer": jsonify,  # Serialize any Pydantic compatible object to JSON.
             **self.config.engine,
         }
 
@@ -523,6 +524,7 @@ class PostgresDatabase(Database):
             "max_overflow": -1,  # Allow an infinite number of connections to be created if needed.
             "pool_pre_ping": True,  # Check to see if a connection has closed before use.
             "pool_recycle": 60 * 5,  # Recreate connections after five minutes.
+            "json_serializer": jsonify,  # Serialize any Pydantic compatible object to JSON.
             **self.config.engine,
         }
 
