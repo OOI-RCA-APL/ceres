@@ -77,9 +77,9 @@ class ConnectionBufferingSettings(ImmutableDataObject):
     @model_validator(mode="after")
     def _validate(self) -> Self:
         if self.read > self.limit:
-            raise ValueError("`read` cannot be greater than `limit`")
+            raise ValueError(f"`read` ({self.read}) cannot be greater than `limit` ({self.limit})")
         if self.drop > self.limit:
-            raise ValueError("`drop` cannot be greater than `limit`")
+            raise ValueError(f"`drop` ({self.drop}) cannot be greater than `limit` ({self.limit})")
 
         return self
 
