@@ -27,6 +27,7 @@ with lazy_imports(__name__):
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from ceres._internal import util
+    from ceres._internal.database.writer import Writer
     from ceres.component import Component, ComponentFilter, ComponentFilterArgs, ComponentSystem
     from ceres.config import LoggingConfig, NodeConfig
     from ceres.database.database import Database
@@ -108,8 +109,6 @@ class Node(Tasklet):
 
     @cached_property
     def __writer(self):
-        from ceres._internal.database.writer import Writer
-
         return Writer(lambda: self.database)
 
     def get_resolved_logging_config(self) -> LoggingConfig:
