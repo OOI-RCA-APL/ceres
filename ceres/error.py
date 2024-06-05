@@ -45,7 +45,6 @@ class Error(ImmutableDataObject, ABC):
 
 class __BaseComponentError(Error, ABC):
     __error_status_code__: ClassVar[int] = HTTP_500_INTERNAL_SERVER_ERROR
-    message: str
 
 
 class ComponentValidationError(__BaseComponentError):
@@ -60,10 +59,12 @@ class ComponentInitExceptionError(__BaseComponentError):
 
 class ComponentReferenceInvalidError(__BaseComponentError):
     type: Literal["component-reference-invalid-error"] = "component-reference-invalid-error"
+    message: str
 
 
 class ComponentJobInvalidError(__BaseComponentError):
     type: Literal["component-job-invalid-error"] = "component-job-invalid-error"
+    message: str
 
 
 ComponentError = (

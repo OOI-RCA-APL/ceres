@@ -131,17 +131,11 @@ class ComponentConfig(NodeConfig):
         except ValidationError as error:
             raise Failure(
                 ComponentValidationError(
-                    message="component configuration invalid",
                     problems=ValidationProblem.extract(error, self.arguments),
                 )
             )
         except Exception as error:
-            raise Failure(
-                ComponentInitExceptionError(
-                    message="an exception occurred while loading this component",
-                    traceback=util.get_traceback(error),
-                )
-            )
+            raise Failure(ComponentInitExceptionError(traceback=util.get_traceback(error)))
 
 
 NodeConfig.model_rebuild()
@@ -435,7 +429,6 @@ class Config(ComponentConfig):
                             failure.error
                             if isinstance(failure.error, ComponentError)
                             else ComponentInitExceptionError(
-                                message="component could not be loaded",
                                 traceback=util.get_traceback(failure),
                             )
                         ),
