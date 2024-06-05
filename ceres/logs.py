@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from typing import Annotated, ClassVar, Iterable, Sequence, TypedDict, override
 
 from pydantic import Field
@@ -84,7 +86,7 @@ class LogEntryFilter(BaseRecordFilter["LogEntry"]):
     )
 
     @override
-    def matches(self, obj: "LogEntry") -> bool:
+    def matches(self, obj: LogEntry) -> bool:
         if not super().matches(obj):
             return False
 
@@ -108,7 +110,7 @@ class LogEntryFilter(BaseRecordFilter["LogEntry"]):
         return LogEntryRow
 
     @override
-    def _get_search_content(self, obj: "LogEntry") -> dict[str, str]:
+    def _get_search_content(self, obj: LogEntry) -> dict[str, str]:
         return {
             **super()._get_search_content(obj),
             "level": obj.level,

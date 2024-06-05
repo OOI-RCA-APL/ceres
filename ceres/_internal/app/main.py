@@ -140,7 +140,7 @@ class App(FastAPI):
 
 
 class LoggingMiddleware:
-    def __init__(self, app: "App") -> None:
+    def __init__(self, app: App) -> None:
         self.app = app
 
     async def __call__(

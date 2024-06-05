@@ -6,7 +6,7 @@ from starlette.responses import RedirectResponse
 
 from ceres._internal.app.api.routes.alerts import router as router__alerts
 from ceres._internal.app.api.routes.auth import router as router__auth
-from ceres._internal.app.api.routes.components import router as router__systems
+from ceres._internal.app.api.routes.components import router as router__components
 from ceres._internal.app.api.routes.config import router as router__config
 from ceres._internal.app.api.routes.log_entries import router as router__log_entries
 from ceres._internal.app.api.routes.messages import router as router__messages
@@ -29,7 +29,7 @@ router = APIRouter(prefix="/api")
 
 router.include_router(router__alerts)
 router.include_router(router__auth)
-router.include_router(router__systems)
+router.include_router(router__components)
 router.include_router(router__config)
 router.include_router(router__log_entries)
 router.include_router(router__messages)
@@ -57,7 +57,7 @@ class StartResult(ImmutableDataObject):
     started: Sequence[Address]
 
 
-@router.post("/start", tags=["systems"], dependencies=[OPERATOR])
+@router.post("/start", tags=["components"], dependencies=[OPERATOR])
 async def start(engine: CurrentEngine, filter: ComponentFilter) -> StartResult:
     stopped = engine.get_components(filter, running=False)
     for component in stopped:
@@ -69,7 +69,7 @@ class StopResult(ImmutableDataObject):
     stopped: Sequence[Address]
 
 
-@router.post("/stop", tags=["systems"], dependencies=[OPERATOR])
+@router.post("/stop", tags=["components"], dependencies=[OPERATOR])
 async def stop(engine: CurrentEngine, filter: ComponentFilter) -> StopResult:
     running = engine.get_components(filter, running=True)
     await gather(*(component.system.stop() for component in running))
@@ -81,7 +81,7 @@ class EnableResult(ImmutableDataObject):
     enabled: Sequence[Address]
 
 
-@router.post("/enable", tags=["systems"], dependencies=[OPERATOR])
+@router.post("/enable", tags=["components"], dependencies=[OPERATOR])
 async def enable(engine: CurrentEngine, filter: ComponentFilter) -> EnableResult:
     disabled = engine.get_components(filter, enabled=False)
     await gather(*(component.system.enable() for component in disabled))
@@ -93,7 +93,7 @@ class DisableResult(ImmutableDataObject):
     disabled: Sequence[Address]
 
 
-@router.post("/disable", tags=["systems"], dependencies=[OPERATOR])
+@router.post("/disable", tags=["components"], dependencies=[OPERATOR])
 async def disable(engine: CurrentEngine, filter: ComponentFilter) -> DisableResult:
     enabled = engine.get_components(filter, enabled=True)
     await gather(*(system.system.disable() for system in enabled))
@@ -106,7 +106,7 @@ class UpResult(ImmutableDataObject):
     started: Sequence[Address]
 
 
-@router.post("/up", tags=["systems"], dependencies=[OPERATOR])
+@router.post("/up", tags=["components"], dependencies=[OPERATOR])
 async def up(engine: CurrentEngine, filter: ComponentFilter) -> UpResult:
     disabled = engine.get_components(filter, enabled=False)
     stopped = engine.get_components(filter, running=False)
@@ -124,7 +124,7 @@ class DownResult(ImmutableDataObject):
     stopped: Sequence[Address]
 
 
-@router.post("/down", tags=["systems"], dependencies=[OPERATOR])
+@router.post("/down", tags=["components"], dependencies=[OPERATOR])
 async def down(engine: CurrentEngine, filter: ComponentFilter) -> DownResult:
     enabled = engine.get_components(filter, enabled=True)
     running = engine.get_components(filter, running=True)

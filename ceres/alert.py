@@ -86,7 +86,7 @@ class AlertFilter(BaseRecordFilter["Alert"]):
     )
 
     @override
-    def matches(self, obj: "Alert") -> bool:
+    def matches(self, obj: Alert) -> bool:
         if not super().matches(obj):
             return False
 
@@ -113,7 +113,7 @@ class AlertFilter(BaseRecordFilter["Alert"]):
         return AlertRow
 
     @override
-    def _get_search_content(self, obj: "Alert") -> dict[str, str]:
+    def _get_search_content(self, obj: Alert) -> dict[str, str]:
         return {
             **super()._get_search_content(obj),
             "level": obj.level,

@@ -52,7 +52,7 @@ export type ComponentInfo = {
   address: Address
   roles: ComponentRole[]
   procedures: ProcedureInfo[]
-  subcomponents: ComponentInfo[]
+  components: ComponentInfo[]
 }
 
 export const ComponentInfoModel: Zod.ZodType<ComponentInfo> = Zod.object({
@@ -60,7 +60,7 @@ export const ComponentInfoModel: Zod.ZodType<ComponentInfo> = Zod.object({
   address: AddressModel,
   roles: Zod.array(ComponentRoleModel),
   procedures: Zod.array(ProcedureInfoModel),
-  subcomponents: Zod.lazy(() => Zod.array(ComponentInfoModel)),
+  components: Zod.lazy(() => Zod.array(ComponentInfoModel)),
 }) as any
 
 export type RenderResult = Zod.infer<typeof RenderResultModel>
@@ -144,7 +144,7 @@ export const useComponents = defineStore('components', () => {
 
     function traverse(current: ComponentInfo) {
       mapping[current.address.toString()] = current
-      for (const child of current.subcomponents) {
+      for (const child of current.components) {
         traverse(child)
       }
     }

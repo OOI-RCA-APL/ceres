@@ -120,7 +120,7 @@ class ComponentFilter(BaseFilter):
     enabled: bool | None = None
     running: bool | None = None
 
-    def matches(self, obj: "Component | ComponentSystem") -> bool:
+    def matches(self, obj: Component | ComponentSystem) -> bool:
         system = util.as_component_system(obj)
 
         if self.address is not None:
@@ -161,7 +161,7 @@ class Component(ValidatedDataclass):
         return None
 
     @final
-    def __bind__(self, bind: "ComponentSystem", /) -> None:
+    def __bind__(self, bind: ComponentSystem, /) -> None:
         self.__system = bind
 
     @final
@@ -170,7 +170,7 @@ class Component(ValidatedDataclass):
 
     @final
     @property
-    def system(self) -> "ComponentSystem":
+    def system(self) -> ComponentSystem:
         return self.__system
 
 
@@ -191,7 +191,7 @@ def get_component_routine_bindings(cls: type[Component]) -> Sequence[RoutineBind
 
 
 @util.cached
-def get_component_query_bindings(cls: type[Component]) -> Mapping[str, "QueryBinding"]:
+def get_component_query_bindings(cls: type[Component]) -> Mapping[str, QueryBinding]:
     """
     Get all query bindings for this component class. Returns a mapping of query names to query
     bindings.
@@ -203,7 +203,7 @@ def get_component_query_bindings(cls: type[Component]) -> Mapping[str, "QueryBin
     }
 
 
-def get_component_query_binding(cls: type[Component], name: str) -> "QueryBinding | None":
+def get_component_query_binding(cls: type[Component], name: str) -> QueryBinding | None:
     """
     Get a query binding for this component class by name. Returns `None` if the query binding
     does not exist.
@@ -216,7 +216,7 @@ def get_component_query_binding(cls: type[Component], name: str) -> "QueryBindin
 
 
 @util.cached
-def get_component_action_bindings(cls: type[Component]) -> Mapping[str, "ActionBinding"]:
+def get_component_action_bindings(cls: type[Component]) -> Mapping[str, ActionBinding]:
     """
     Get all action bindings for this component class. Returns a mapping of action names to
     action bindings.
@@ -228,7 +228,7 @@ def get_component_action_bindings(cls: type[Component]) -> Mapping[str, "ActionB
     }
 
 
-def get_component_action_binding(cls: type[Component], name: str) -> "ActionBinding | None":
+def get_component_action_binding(cls: type[Component], name: str) -> ActionBinding | None:
     """
     Get an action binding for this component class by name. Returns `None` if the action binding
     does not exist.
@@ -241,7 +241,7 @@ def get_component_action_binding(cls: type[Component], name: str) -> "ActionBind
 
 
 @util.cached
-def get_component_procedure_bindings(cls: type[Component]) -> Mapping[Name, "ProcedureBinding"]:
+def get_component_procedure_bindings(cls: type[Component]) -> Mapping[Name, ProcedureBinding]:
     """
     Get all procedure bindings (actions and queries) for this component class. Returns a mapping
     of procedure names to procedure bindings.
@@ -253,7 +253,7 @@ def get_component_procedure_bindings(cls: type[Component]) -> Mapping[Name, "Pro
     return MappingProxyType({binding.name: binding for binding in procedures})
 
 
-def get_component_procedure_binding(cls: type[Component], name: str) -> "ProcedureBinding | None":
+def get_component_procedure_binding(cls: type[Component], name: str) -> ProcedureBinding | None:
     """
     Get a procedure binding (action or query) for this component class by name. Returns `None`
     if the procedure does not exist.
@@ -716,7 +716,7 @@ class ComponentSystem(Node):
 
     @property
     @override
-    def __container__(self) -> "Node | None":
+    def __container__(self) -> Node | None:
         if self.parent is not None:
             return self.parent
 
@@ -777,7 +777,7 @@ class ComponentSystem(Node):
 
     @property
     @override
-    def root(self) -> "ComponentSystem":
+    def root(self) -> ComponentSystem:
         current: ComponentSystem | None = self
         while current.parent is not None:
             current = current.parent
@@ -785,7 +785,7 @@ class ComponentSystem(Node):
         return current
 
     @property
-    def parent(self) -> "ComponentSystem | None":
+    def parent(self) -> ComponentSystem | None:
         """
         Get the parent component's system if it exists, or return `None`.
         """
@@ -833,15 +833,15 @@ class ComponentSystem(Node):
     @property
     def enabled(self) -> bool:
         """
-        `True` if the component is enabled. Enabled component systems start automatically when their
-        parent starts.
+        `True` if the component is enabled. Enabled components start automatically when their parent
+        starts.
         """
         return self._enabled
 
     async def enable(self) -> None:
         """
-        Enable the component system, and implicitly, all its ancestors. Enabled component systems
-        start automatically when their parent starts.
+        Enable the component, and implicitly, all its ancestors. Enabled components start
+        automatically when their parent starts.
         """
         if self.parent is not None:
             await self.parent.enable()
@@ -853,7 +853,7 @@ class ComponentSystem(Node):
 
     async def disable(self) -> None:
         """
-        Disable the component system.
+        Disable the component.
         """
         async with await self.database.init() as session:
             await self.__set_enabled_in_database(session, False)
@@ -862,14 +862,14 @@ class ComponentSystem(Node):
 
     async def up(self) -> None:
         """
-        Enable and start the component system.
+        Enable and start the component.
         """
         await self.enable()
         self.start()
 
     async def down(self) -> None:
         """
-        Disable and stop the component system.
+        Disable and stop the component.
         """
         await self.disable()
         await self.stop()
@@ -908,61 +908,61 @@ class ComponentSystem(Node):
     @property
     def children(self) -> Sequence[ComponentSystem]:
         """
-        Get all children of this component system.
+        Get all child component systems of this component.
         """
         return list(self._children.values())
 
     def get_listener_bindings(self) -> Sequence[ListenerBinding]:
         """
-        Get all listener bindings for this component system.
+        Get all listener bindings for this component.
         """
         return get_component_listener_bindings(type(self.component))
 
     def get_routine_bindings(self) -> Sequence[RoutineBinding]:
         """
-        Get all routine bindings for this component system.
+        Get all routine bindings for this component.
         """
         return get_component_routine_bindings(type(self.component))
 
     def get_query_bindings(self) -> Mapping[str, QueryBinding]:
         """
-        Get all query bindings for this component system. Returns a mapping of query names to query
+        Get all query bindings for this component. Returns a mapping of query names to query
         bindings.
         """
         return get_component_query_bindings(type(self.component))
 
     def get_query_binding(self, name: str) -> QueryBinding | None:
         """
-        Get a query binding for this component system by name. Returns `None` if the query binding
-        does not exist.
+        Get a query binding for this component by name. Returns `None` if the query binding does not
+        exist.
         """
         return get_component_query_binding(type(self.component), name)
 
     def get_action_bindings(self) -> Mapping[str, ActionBinding]:
         """
-        Get all action bindings for this component system. Returns a mapping of action names to
-        action bindings.
+        Get all action bindings for this component. Returns a mapping of action names to action
+        bindings.
         """
         return get_component_action_bindings(type(self.component))
 
     def get_action_binding(self, name: str) -> ActionBinding | None:
         """
-        Get an action binding for this component system by name. Returns `None` if the action
-        binding does not exist.
+        Get an action binding for this component by name. Returns `None` if the action binding does
+        not exist.
         """
         return get_component_action_binding(type(self.component), name)
 
     def get_procedure_bindings(self) -> Mapping[Name, ProcedureBinding]:
         """
-        Get all procedure bindings (actions and queries) for this component system. Returns a
-        mapping of procedure names to procedure bindings.
+        Get all procedure bindings (actions and queries) for this component. Returns a mapping of
+        procedure names to procedure bindings.
         """
         return get_component_procedure_bindings(type(self.component))
 
     def get_procedure_binding(self, name: str) -> ProcedureBinding | None:
         """
-        Get a procedure binding (action or query) for this component system by name. Returns `None`
-        if the procedure does not exist.
+        Get a procedure binding (action or query) for this component by name. Returns `None` if the
+        procedure does not exist.
         """
         return get_component_procedure_binding(type(self.component), name)
 
@@ -1069,7 +1069,7 @@ class ComponentSystem(Node):
 
     def attach(
         self,
-        child: "Component | ComponentSystem",
+        child: Component | ComponentSystem,
         /,
         name: Name | None = None,
     ) -> None:
@@ -1196,7 +1196,7 @@ class ComponentSystem(Node):
 
     def contains(
         self,
-        component: "Component | ComponentSystem",
+        component: Component | ComponentSystem,
         *,
         inclusive: bool = False,
     ) -> bool:
@@ -1263,7 +1263,7 @@ class ComponentSystem(Node):
             traceback.print_exc()
             raise
 
-    async def __process_routine(self, binding: "RoutineBinding") -> None:
+    async def __process_routine(self, binding: RoutineBinding) -> None:
         routine = getattr(self.component, binding.method, None)
         if routine is None:
             return

@@ -41,7 +41,7 @@ class ComponentRole(StrEnum):
 class APIComponent(ImmutableDataObject):
     name: Name
     address: Address
-    subsystems: Sequence["APIComponent"]
+    components: Sequence[APIComponent]
     roles: Sequence[ComponentRole]
     procedures: Sequence[ProcedureBinding]
 
@@ -49,7 +49,7 @@ class APIComponent(ImmutableDataObject):
 APIComponent.__name__ = "Component"
 APIComponent.model_rebuild()
 
-router = APIRouter(prefix="/systems", tags=["systems"])
+router = APIRouter(prefix="/components", tags=["components"])
 
 
 def _get_component_roles(component: Component | type[Component]) -> Sequence[ComponentRole]:
@@ -84,7 +84,7 @@ async def get_component(engine: CurrentEngine, address: Address) -> APIComponent
             address=address,
             roles=_get_component_roles(component),
             procedures=list(component.system.get_procedure_bindings().values()),
-            subsystems=subcomponents,
+            components=subcomponents,
         )
         return info
     except Exception:

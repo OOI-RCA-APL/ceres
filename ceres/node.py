@@ -50,7 +50,7 @@ class Node(Tasklet):
 
     @property
     @abstractmethod
-    def __container__(self) -> "Node | None": ...
+    def __container__(self) -> Node | None: ...
 
     async def __node_sync__(self, session: AsyncSession | None = None) -> None:
         pass
@@ -170,7 +170,7 @@ class Node(Tasklet):
     @abstractmethod
     async def __stop__(self) -> None: ...
 
-    def get_node(self, address: str | DynamicAddress | None, /) -> "Node | None":
+    def get_node(self, address: str | DynamicAddress | None, /) -> Node | None:
         """
         Get an object from the tree by address.
         """
@@ -208,7 +208,7 @@ class Node(Tasklet):
 
     async def get_status(self) -> Status:
         """
-        Get current status of the system, including address and running state.
+        Get current status of the component, including address and running state.
         """
         return Status(
             address=self.address,
@@ -221,7 +221,7 @@ class Node(Tasklet):
         **kwargs: Unpack[ComponentFilterArgs],
     ) -> list[Status]:
         """
-        Get current statuses of systems in the tree.
+        Get current statuses of components in the tree.
         """
         return [
             await component.system.get_status()
@@ -234,7 +234,7 @@ class Node(Tasklet):
         **kwargs: Unpack[ComponentFilterArgs],
     ) -> AsyncIterable[list[Status]]:
         """
-        Asyncronously yield statuses of the systems in the tree whenever they change.
+        Asyncronously yield statuses of components in the tree whenever they change.
         """
         yield await self.get_statuses(filter, **kwargs)
 

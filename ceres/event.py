@@ -111,12 +111,12 @@ ConnectionEvent = (
 
 class MessageSentEvent(__BaseStandardEvent):
     type: Literal["message-sent"] = "message-sent"
-    message: "Message"
+    message: Message
 
 
 class MessageReceivedEvent(__BaseStandardEvent):
     type: Literal["message-received"] = "message-received"
-    message: "Message"
+    message: Message
 
 
 MessageEvent = MessageSentEvent | MessageReceivedEvent
@@ -124,12 +124,12 @@ MessageEvent = MessageSentEvent | MessageReceivedEvent
 
 class AlertEvent(__BaseStandardEvent):
     type: Literal["alert"] = "alert"
-    alert: "Alert"
+    alert: Alert
 
 
 class LogEvent(__BaseStandardEvent):
     type: Literal["log"] = "log"
-    entry: "LogEntry"
+    entry: LogEntry
 
 
 class RoutineStartedEvent(__BaseStandardEvent):

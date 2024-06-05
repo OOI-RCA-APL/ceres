@@ -8,14 +8,14 @@ import Zod from 'zod'
 
 export type ComponentConfig = {
   name: string
-  component: string
-  subcomponents: ComponentConfig[]
+  class: string
+  components: ComponentConfig[]
 }
 
 export const ComponentConfigModel: Zod.ZodType<ComponentConfig> = Zod.object({
   name: NameStrModel,
-  component: Zod.string(),
-  subcomponents: Zod.lazy(() => Zod.array(ComponentConfigModel)),
+  class: Zod.string(),
+  components: Zod.lazy(() => Zod.array(ComponentConfigModel)),
 })
 
 export type DatabaseType = Zod.infer<typeof DatabaseTypeModel>

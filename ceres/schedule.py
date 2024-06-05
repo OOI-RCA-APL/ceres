@@ -22,13 +22,13 @@ class ScheduleType(StrEnum):
 
 
 class BaseSchedule(ImmutableDataObject):
-    def __or__(self, other: "Schedule") -> "OrSchedule":
+    def __or__(self, other: Schedule) -> OrSchedule:
         assert isinstance(self, Schedule)
         assert isinstance(other, Schedule)
         return OrSchedule(schedules=[self, other])
 
     @abstractmethod
-    def as_trigger(self) -> "Trigger": ...
+    def as_trigger(self) -> Trigger: ...
 
 
 class CronSchedule(BaseSchedule):
@@ -45,7 +45,7 @@ class CronSchedule(BaseSchedule):
         return value
 
     @override
-    def as_trigger(self) -> "CronTrigger":
+    def as_trigger(self) -> CronTrigger:
         return CronTrigger(self)
 
 
@@ -94,7 +94,7 @@ class IntervalSchedule(BaseSchedule):
         return max
 
     @override
-    def as_trigger(self) -> "IntervalTrigger":
+    def as_trigger(self) -> IntervalTrigger:
         return IntervalTrigger(self)
 
 
@@ -103,14 +103,14 @@ class OrSchedule(BaseSchedule):
     schedules: Sequence[Schedule]
 
     @override
-    def __or__(self, other: Schedule) -> "OrSchedule":
+    def __or__(self, other: Schedule) -> OrSchedule:
         if isinstance(other, OrSchedule):
             return OrSchedule(schedules=[*self.schedules, *other.schedules])
 
         return OrSchedule(schedules=[*self.schedules, other])
 
     @override
-    def as_trigger(self) -> "OrTrigger":
+    def as_trigger(self) -> OrTrigger:
         return OrTrigger(self)
 
 

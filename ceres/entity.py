@@ -267,7 +267,7 @@ class BaseEntityFilter[EntityT: BaseEntity](BaseFilter, ABC):
         return None
 
     def apply[
-        StatementT: "Select[tuple[Any, ...]] | Update | Delete"
+        StatementT: Select[tuple[Any, ...]] | Update | Delete
     ](self, statement: StatementT, dialect: DatabaseType) -> StatementT:
         columns = self._get_row_cls()
         ids = (

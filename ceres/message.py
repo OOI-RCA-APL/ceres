@@ -102,7 +102,7 @@ class MessageFilter(BaseRecordFilter["Message"]):
     )
 
     @override
-    def matches(self, obj: "Message") -> bool:
+    def matches(self, obj: Message) -> bool:
         if not super().matches(obj):
             return False
 
@@ -126,7 +126,7 @@ class MessageFilter(BaseRecordFilter["Message"]):
         return MessageRow
 
     @override
-    def _get_search_content(self, obj: "Message") -> dict[str, str]:
+    def _get_search_content(self, obj: Message) -> dict[str, str]:
         return {
             **super()._get_search_content(obj),
             "direction": obj.direction,

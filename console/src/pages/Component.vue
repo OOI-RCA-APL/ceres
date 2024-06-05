@@ -33,7 +33,7 @@ const title = $computed(() => {
   return String(address)
 })
 
-const children = $computed(() => component?.subcomponents ?? [])
+const children = $computed(() => component?.components ?? [])
 const components = $computed(() => (component == null ? [] : [component, ...children]))
 const executors = $computed(() => components.filter((component) => component.procedures.length > 0))
 const interfaces = $computed(() =>

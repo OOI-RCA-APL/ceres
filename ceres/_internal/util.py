@@ -743,7 +743,7 @@ else:
     AsyncSession = object
 
 
-async def get_session(database: "Database", session: AsyncSession | None) -> AsyncSession:
+async def get_session(database: Database, session: AsyncSession | None) -> AsyncSession:
     if session is None:
         return await database.init()
     return session
@@ -1021,14 +1021,14 @@ if TYPE_CHECKING:
 
 
 @overload
-def as_component(obj: "ComponentSystem | Component", /) -> "Component": ...
+def as_component(obj: ComponentSystem | Component, /) -> Component: ...
 
 
 @overload
-def as_component(obj: "ComponentSystem | Component | None", /) -> "Component | None": ...
+def as_component(obj: ComponentSystem | Component | None, /) -> Component | None: ...
 
 
-def as_component(obj: "ComponentSystem | Component | None", /) -> "Component | None":
+def as_component(obj: ComponentSystem | Component | None, /) -> Component | None:
     from ceres.component import Component, ComponentSystem
 
     if isinstance(obj, Component):
@@ -1040,16 +1040,14 @@ def as_component(obj: "ComponentSystem | Component | None", /) -> "Component | N
 
 
 @overload
-def as_component_system(obj: "ComponentSystem | Component", /) -> "ComponentSystem": ...
+def as_component_system(obj: ComponentSystem | Component, /) -> ComponentSystem: ...
 
 
 @overload
-def as_component_system(
-    obj: "ComponentSystem | Component | None", /
-) -> "ComponentSystem | None": ...
+def as_component_system(obj: ComponentSystem | Component | None, /) -> ComponentSystem | None: ...
 
 
-def as_component_system(obj: "ComponentSystem | Component | None", /) -> "ComponentSystem | None":
+def as_component_system(obj: ComponentSystem | Component | None, /) -> ComponentSystem | None:
     from ceres.component import Component, ComponentSystem
 
     if isinstance(obj, ComponentSystem):
@@ -1083,10 +1081,7 @@ def as_component_systems(
     return systems
 
 
-_ModelT = TypeVar("_ModelT", bound=BaseModel)
-
-
-def model_apply_overrides(model: _ModelT, overrides: _ModelT | None) -> _ModelT:
+def model_apply_overrides[T: BaseModel](model: T, overrides: T | None) -> T:
     if overrides is None:
         return model
 
@@ -1098,7 +1093,7 @@ def model_apply_overrides(model: _ModelT, overrides: _ModelT | None) -> _ModelT:
     return model.model_copy(update=update)
 
 
-def model_apply_defaults(model: _ModelT, defaults: _ModelT | None) -> _ModelT:
+def model_apply_defaults[T: BaseModel](model: T, defaults: T | None) -> T:
     if defaults is None:
         return model
 

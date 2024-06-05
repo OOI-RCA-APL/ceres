@@ -109,7 +109,7 @@ class UserFilter(BaseEntityFilter["User"]):
         return UserRow
 
     @override
-    def _get_search_content(self, obj: "User") -> dict[str, str]:
+    def _get_search_content(self, obj: User) -> dict[str, str]:
         return {
             "username": obj.username,
             "email": obj.email,

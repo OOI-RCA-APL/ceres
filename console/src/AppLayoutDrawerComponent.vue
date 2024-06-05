@@ -18,7 +18,7 @@ const drawer = useDrawer()
 
 const isExpanded = $computed(() => !drawer.collapsed.some((current) => current.equals(address)))
 const isRoot = $computed(() => address.isRoot)
-const isLeaf = $computed(() => !isRoot && component.subcomponents.length === 0)
+const isLeaf = $computed(() => !isRoot && component.components.length === 0)
 
 function toggleExpanded() {
   if (isExpanded) {
@@ -64,7 +64,7 @@ function toggleExpanded() {
   </q-item>
   <div v-if="!isLeaf && isExpanded">
     <app-layout-drawer-component
-      v-for="subcomponent in component.subcomponents"
+      v-for="subcomponent in component.components"
       :key="subcomponent.name"
       :address="address.append(subcomponent.name)"
       :component="subcomponent"

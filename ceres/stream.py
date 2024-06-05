@@ -122,7 +122,7 @@ class Stream[T](AsyncIterable[T]):
     def read(self) -> StreamReader[T]:
         return StreamReader(self)
 
-    def view(self) -> "Stream[T]":
+    def view(self) -> Stream[T]:
         return Stream(self)
 
     @overload

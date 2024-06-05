@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import os
 import ssl
@@ -81,7 +83,7 @@ class NodeConfig(ConfigObject):
     arguments: Mapping[str, Any] = Field(default_factory=dict, validation_alias="args")
     jobs: Sequence[Job] = Field(default_factory=list)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
-    components: Sequence["ComponentConfig"] = Field(default_factory=list)
+    components: Sequence[ComponentConfig] = Field(default_factory=list)
 
     @field_validator("cls")
     def _validate_cls(
@@ -105,14 +107,11 @@ class NodeConfig(ConfigObject):
     @field_validator("components", check_fields=False)
     def _validate_children(
         cls,
-        components: Sequence["ComponentConfig"],
+        components: Sequence[ComponentConfig],
         info: ValidationInfo,
-    ) -> Sequence["ComponentConfig"]:
+    ) -> Sequence[ComponentConfig]:
         name: str = info.data.get("name", "<ERROR>")
-        for component_name, group in util.group_by(
-            components,
-            lambda subsystem: subsystem.name,
-        ):
+        for component_name, group in util.group_by(components, lambda current: current.name):
             if len(list(group)) > 1:
                 raise ValueError(
                     f"duplicate component name '{component_name}' in component '{name}'"
@@ -277,7 +276,7 @@ class ConfigCheckType(StrEnum):
     COMPONENTS = "components"
 
     @classmethod
-    def all(cls) -> Sequence["ConfigCheckType"]:
+    def all(cls) -> Sequence[ConfigCheckType]:
         return tuple(cls)
 
 
@@ -289,7 +288,7 @@ class Config(ComponentConfig):
     database: DatabaseConfig = Field(default_factory=SQLiteDatabaseConfig, discriminator="type")
 
     @classmethod
-    def read(cls, source: Path | Mapping[str, object] | Self) -> "Result[Self, list[ConfigError]]":
+    def read(cls, source: Path | Mapping[str, object] | Self) -> Result[Self, list[ConfigError]]:
         import yaml
         from yaml import MarkedYAMLError, YAMLError
 
@@ -338,7 +337,7 @@ class Config(ComponentConfig):
         *,
         checks: Sequence[ConfigCheckType] = ConfigCheckType.all(),
         log: Callable[[object], Any] = lambda message: None,
-    ) -> "Result[Self, list[ConfigError]]":
+    ) -> Result[Self, list[ConfigError]]:
         match cls.read(source):
             case Ok(instance):
                 pass
@@ -352,7 +351,7 @@ class Config(ComponentConfig):
         *,
         checks: Sequence[ConfigCheckType] = ConfigCheckType.all(),
         log: Callable[[object], Any] = lambda message: None,
-    ) -> "Result[Self, list[ConfigError]]":
+    ) -> Result[Self, list[ConfigError]]:
         errors: list[ConfigError] = []
 
         if ConfigCheckType.DATABASE in checks:
@@ -475,7 +474,7 @@ class Config(ComponentConfig):
 
         return errors
 
-    def get_component(self, address: DynamicAddress) -> "ComponentConfig | None":
+    def get_component(self, address: DynamicAddress) -> ComponentConfig | None:
         current = self
         for name in address.names:
             if current is None:

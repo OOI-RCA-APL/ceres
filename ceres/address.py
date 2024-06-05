@@ -71,10 +71,10 @@ class AddressSelector(str):
     def __repr__(self) -> str:
         return f"{type(self).__name__}({repr(str(self))})"
 
-    def __or__(self, other: "AddressSelector") -> "AddressSelector":
+    def __or__(self, other: AddressSelector) -> AddressSelector:
         return AddressSelector(f"{self}|{other}")
 
-    def as_absolute(self, root: "Address") -> "AddressSelector":
+    def as_absolute(self, root: Address) -> AddressSelector:
         segments: list[str] = []
 
         if root.is_engine:
@@ -93,7 +93,7 @@ class AddressSelector(str):
 
         return AddressSelector(segments)
 
-    def matches(self, address: "Address", root: "Address") -> bool:
+    def matches(self, address: Address, root: Address) -> bool:
         address = Address(address)
         self = self.as_absolute(root)
 
@@ -144,9 +144,9 @@ class AddressSelector(str):
 
     def matches_expression(
         self,
-        address: "SQLColumnExpression[Address]",
-        root: "Address",
-    ) -> "ColumnElement[bool]":
+        address: SQLColumnExpression[Address],
+        root: Address,
+    ) -> ColumnElement[bool]:
         from sqlalchemy.sql import expression, or_
 
         self = self.as_absolute(root)
@@ -341,14 +341,14 @@ class Address(DynamicAddress):
     regex = re.compile(rf"^~|@({_NAME}(\.{_NAME})*)*$")
 
     @classmethod
-    def engine(cls) -> "Address":
+    def engine(cls) -> Address:
         return _ENGINE
 
     @classmethod
-    def root(cls) -> "Address":
+    def root(cls) -> Address:
         return _ROOT
 
-    def contains(self, other: "Address") -> bool:
+    def contains(self, other: Address) -> bool:
         if self.is_engine:
             return True
         return other == self or (

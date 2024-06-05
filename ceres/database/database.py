@@ -56,7 +56,7 @@ with lazy_imports(__name__):
 
 
 class Database:
-    def __new__(cls, /, config: DatabaseConfig | None = None) -> "Database":
+    def __new__(cls, /, config: DatabaseConfig | None = None) -> Database:
         if cls is Database:
             match config:
                 case None | SQLiteDatabaseConfig():

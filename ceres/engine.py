@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import os
 import traceback
@@ -196,7 +198,7 @@ class Engine(Node):
         await self.flush()
         await self.__database.dispose()
 
-    async def load(self, config: Config | None = None) -> "Result[Config, list[ConfigError]]":
+    async def load(self, config: Config | None = None) -> Result[Config, list[ConfigError]]:
         if config is not None:
             match await config.check(log=self.log.info):
                 case Ok(config):
