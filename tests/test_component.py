@@ -1,10 +1,9 @@
 import asyncio
 from collections import defaultdict
 from datetime import timedelta
-from typing import Any
+from typing import Any, override
 
 import pytest
-from typing_extensions import override
 
 from ceres import Component, Event, Level, Ref, action, listener, query
 from ceres.component import (

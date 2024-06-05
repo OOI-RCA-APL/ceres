@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from abc import ABC
+from typing import Self, TypedDict
 
 from pydantic import ConfigDict
-from typing_extensions import Self, TypedDict
 
 from ceres._internal.lazy import lazy_imports
 from ceres.data import ImmutableDataObject

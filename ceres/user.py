@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from typing import Annotated, Any, ClassVar, Iterable, Sequence
+from typing import Annotated, Any, ClassVar, Iterable, Sequence, TypedDict, override
 from uuid import UUID, uuid4
 
 from pydantic import Field
-from typing_extensions import TypedDict, override
 
 from ceres._internal.cli.plumbing import CLIOption
 from ceres._internal.database.types import EnumConstraint, EnumMapper

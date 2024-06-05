@@ -1,19 +1,17 @@
 from __future__ import annotations
 
-from typing import Any, Mapping, TypeVar
+from typing import Any, Mapping
 
 from pydantic import BaseModel
 
 from ceres._internal.lazy import lazy_imports
 
 with lazy_imports(__name__):
+    from ceres._internal import util
     from ceres._internal.cli.plumbing import CLICommandFailed
     from ceres._internal.project import Project
-    from ceres._internal import util
     from ceres.data import simplify
     from ceres.status import Status
-
-_T = TypeVar("_T")
 
 
 class Client:
@@ -28,15 +26,17 @@ class Client:
 
         return True
 
-    async def request(
+    async def request[
+        T
+    ](
         self,
         method: str,
         path: str,
         *,
         data: object = None,
         params: BaseModel | Mapping[str, object] | None = None,
-        result: type[_T] | None = None,
-    ) -> _T:
+        result: type[T] | None = None,
+    ) -> T:
         if result is None:
             result = Any  # type: ignore
 
@@ -67,21 +67,25 @@ class Client:
 
                 return util.get_type_adapter(result).validate_python(await response.json())  # type: ignore
 
-    async def get(
+    async def get[
+        T
+    ](
         self,
         path: str,
         *,
         params: BaseModel | Mapping[str, object] | None = None,
-        result: type[_T],
-    ) -> _T:
+        result: type[T],
+    ) -> T:
         return await self.request("GET", path, params=params, result=result)
 
-    async def post(
+    async def post[
+        T
+    ](
         self,
         path: str,
         data: object | None = None,
         *,
         params: BaseModel | Mapping[str, object] | None = None,
-        result: type[_T] | None = None,
-    ) -> _T:
+        result: type[T] | None = None,
+    ) -> T:
         return await self.request("POST", path, data=data, params=params, result=result)

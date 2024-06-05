@@ -1,12 +1,11 @@
-from typing import Annotated, ClassVar, Iterable, Sequence
+from typing import Annotated, ClassVar, Iterable, Sequence, TypedDict, override
 
 from pydantic import Field
-from typing_extensions import TypedDict, override
 
+from ceres._internal import util
 from ceres._internal.cli.plumbing import CLIOption
 from ceres._internal.database.types import EnumConstraint, EnumMapper
 from ceres._internal.lazy import lazy_imports
-from ceres._internal import util
 from ceres.address import Address
 from ceres.data import DateTime, StrEnum
 from ceres.database.enums import DatabaseType

@@ -5,7 +5,7 @@ from decimal import Decimal
 from enum import Enum
 from textwrap import dedent
 from types import MethodType
-from typing import Annotated, Any, Callable, Literal, Sequence, TypeAlias, TypedDict
+from typing import Annotated, Any, Callable, Literal, Sequence, TypeAlias, TypedDict, Unpack
 
 from pydantic import (
     ConfigDict,
@@ -16,7 +16,6 @@ from pydantic import (
     StrictStr,
     field_validator,
 )
-from typing_extensions import Unpack
 
 from ceres._internal.lazy import lazy_imports
 from ceres.address import Address

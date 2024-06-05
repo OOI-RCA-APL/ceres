@@ -4,13 +4,12 @@ import datetime as dt
 import math
 from abc import abstractmethod
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Iterable, Literal, Sequence
+from typing import TYPE_CHECKING, Iterable, Literal, Sequence, override
 
 from apscheduler.triggers.cron import CronTrigger as InternalCronTrigger
 from apscheduler.triggers.interval import IntervalTrigger as BaseInternalIntervalTrigger
 from apscheduler.util import normalize
 from pydantic import PositiveFloat, ValidationInfo, field_validator
-from typing_extensions import override
 
 from ceres.data import DateTime, ImmutableDataObject, PositiveTimeDelta, StrEnum
 from ceres.timing import utc

@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-from typing import ClassVar
-
-from typing_extensions import override
+from typing import ClassVar, override
 
 from ceres._internal.database.types import AddressMapper
 from ceres._internal.lazy import lazy_imports

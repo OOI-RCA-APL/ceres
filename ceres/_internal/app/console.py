@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from typing import override
+
 from fastapi.staticfiles import StaticFiles
-from typing_extensions import override
 
 from ceres._internal.lazy import lazy_imports
 

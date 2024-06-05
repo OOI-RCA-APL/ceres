@@ -5,10 +5,8 @@ import dataclasses
 import re
 import typing
 from asyncio import AbstractEventLoop, Task
-from asyncio import Queue as AsyncQueue
 from collections import OrderedDict, defaultdict
 from contextlib import contextmanager
-from dataclasses import dataclass
 from datetime import datetime, timedelta
 from os import PathLike as _BasePathLike
 from types import NoneType, UnionType
@@ -16,20 +14,16 @@ from typing import (
     TYPE_CHECKING,
     Annotated,
     Any,
-    AsyncIterable,
-    AsyncIterator,
     Awaitable,
     ByteString,
     Callable,
     ClassVar,
     Collection,
     Coroutine,
-    Generic,
     Hashable,
     Iterable,
     Iterator,
     Mapping,
-    ParamSpec,
     Protocol,
     Sequence,
     TypeAlias,
@@ -39,6 +33,7 @@ from typing import (
     get_args,
     get_origin,
     overload,
+    override,
 )
 from weakref import WeakSet, ref
 
@@ -46,7 +41,6 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, create_model, va
 from pydantic.fields import FieldInfo
 from pydantic_core import CoreSchema, SchemaSerializer, SchemaValidator
 from sqlalchemy.util import OrderedSet as BaseOrderedSet
-from typing_extensions import override
 
 from ceres._internal.lazy import lazy_imports
 
@@ -70,32 +64,28 @@ def reprify(value: object) -> str:
         return "<__repr__() raised exception>"
 
 
-_P = ParamSpec("_P")
-_T = TypeVar("_T")
-
-
-def syncify(function: Callable[_P, Awaitable[_T] | _T]) -> Callable[_P, _T]:
+def syncify[**P, T](function: Callable[P, Awaitable[T] | T]) -> Callable[P, T]:
     import inspect
 
     if not inspect.iscoroutinefunction(function):
-        return cast(Callable[_P, _T], function)
+        return cast(Callable[P, T], function)
 
     from functools import wraps
 
     @wraps(function)
-    def wrapper(*args: _P.args, **kwargs: _P.kwargs) -> Any:
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> Any:
         return ensure_event_loop().run_until_complete(function(*args, **kwargs))
 
-    return cast(Callable[_P, _T], wrapper)
+    return cast(Callable[P, T], wrapper)
 
 
-async def awaitify(value: Awaitable[_T] | _T) -> _T:
+async def awaitify[T](value: Awaitable[T] | T) -> T:
     import inspect
 
     if inspect.isawaitable(value):
-        return cast(_T, await value)
+        return cast(T, await value)
 
-    return cast(_T, value)
+    return cast(T, value)
 
 
 def dictify(obj: object) -> dict[str, Any]:
@@ -187,11 +177,6 @@ def has_field(obj: Any, name: str, type: Any = None) -> bool:
         return is_subtype(field.annotation, type)
 
     return False
-
-
-def unwrap(value: _T | None) -> _T:
-    assert value is not None
-    return value
 
 
 def snakecase(text: str) -> str:
@@ -512,32 +497,29 @@ def set_current_process_name(name: str) -> None:
         pass
 
 
-def dbg(value: _T) -> _T:
+def dbg[T](value: T) -> T:
     import rich
 
     rich.print(value)
     return value
 
 
-_FunctionT = TypeVar("_FunctionT", bound=Callable[..., Any])
+@overload
+def cached[
+    T: Callable[..., Any]
+](function: None = None, *, max_size: int | None = None) -> Callable[[T], T]: ...
 
 
 @overload
-def cached(
-    function: None = None, *, max_size: int | None = None
-) -> Callable[[_FunctionT], _FunctionT]: ...
+def cached[T: Callable[..., Any]](function: T) -> T: ...
 
 
-@overload
-def cached(function: _FunctionT) -> _FunctionT: ...
-
-
-def cached(
-    function: _FunctionT | None = None, *, max_size: int | None = None
-) -> _FunctionT | Callable[[_FunctionT], _FunctionT]:
+def cached[
+    T: Callable[..., Any]
+](function: T | None = None, *, max_size: int | None = None) -> T | Callable[[T], T]:
     from functools import lru_cache
 
-    def cached(function: _FunctionT) -> _FunctionT:
+    def cached(function: T) -> T:
         return lru_cache(maxsize=max_size)(function)  # type: ignore
 
     if function is None:
@@ -654,14 +636,14 @@ def get_return_annotation(
     return hints.get("return", default)
 
 
-def setattr_internal(cls: type[_T], instance: _T, name: str, value: object) -> None:
+def setattr_internal[T](cls: type[T], instance: T, name: str, value: object) -> None:
     if name.startswith("__") and not name.endswith("__"):
         name = f"_{cls.__name__}{name}"
 
     object.__setattr__(instance, name, value)
 
 
-def getattr_internal(cls: type[_T], instance: _T, name: str, value: object) -> None:
+def getattr_internal[T](cls: type[T], instance: T, name: str, value: object) -> None:
     if name.startswith("__") and not name.endswith("__"):
         name = f"_{cls.__name__}{name}"
 
@@ -722,30 +704,6 @@ class CacheDict(OrderedDict[_K, _V]):
         return val
 
 
-def chunkify(iterable: Iterable[_T], size: int) -> Iterable[Sequence[_T]]:
-    current: list[_T] = []
-    for item in iterable:
-        current.append(item)
-        if len(current) >= size:
-            yield tuple(current)
-            current.clear()
-
-    if current:
-        yield tuple(current)
-
-
-async def achunkify(iterable: AsyncIterable[_T], size: int) -> AsyncIterable[Sequence[_T]]:
-    current: list[_T] = []
-    async for item in iterable:
-        current.append(item)
-        if len(current) >= size:
-            yield tuple(current)
-            current.clear()
-
-    if current:
-        yield tuple(current)
-
-
 def _hash(value: object) -> Hashable:
     if isinstance(value, Hashable):
         return hash(value)
@@ -753,7 +711,7 @@ def _hash(value: object) -> Hashable:
     return id(value)
 
 
-def uniquify(iterable: Iterable[_T], key: Callable[[_T], Hashable] | None = None) -> Iterable[_T]:
+def uniquify[T](iterable: Iterable[T], key: Callable[[T], Hashable] | None = None) -> Iterable[T]:
     if key is None:
         key = _hash
 
@@ -768,8 +726,8 @@ def uniquify(iterable: Iterable[_T], key: Callable[[_T], Hashable] | None = None
         yield value
 
 
-def group_by(iterable: Iterable[_V], key: Callable[[_V], _K]) -> Iterable[tuple[_K, list[_V]]]:
-    groups: defaultdict[_K, list[_V]] = defaultdict(list)
+def group_by[K, V](iterable: Iterable[V], key: Callable[[V], K]) -> Iterable[tuple[K, list[V]]]:
+    groups: defaultdict[K, list[V]] = defaultdict(list)
     for value in iterable:
         groups[key(value)].append(value)
     for item in groups.items():
@@ -870,15 +828,15 @@ def validated_function(
 
 
 @overload
-def get_type_adapter(type_: type[_T]) -> TypeAdapter[_T]: ...  # type: ignore
+def get_type_adapter[T](type_: type[T]) -> TypeAdapter[T]: ...  # type: ignore
 
 
 @overload
-def get_type_adapter(type_: _T) -> TypeAdapter[_T]: ...
+def get_type_adapter[T](type_: T) -> TypeAdapter[T]: ...
 
 
 @cached(max_size=500)
-def get_type_adapter(type_: type[_T] | _T) -> TypeAdapter[_T]:  # type: ignore
+def get_type_adapter[T](type_: type[T] | T) -> TypeAdapter[T]:  # type: ignore
     return TypeAdapter(type_)
 
 
@@ -899,22 +857,19 @@ def strlist(value: str | Sequence[str] | None) -> list[str]:
     return list(value)
 
 
-def as_sequence(value: _T | Sequence[_T]) -> Sequence[_T]:
+def as_sequence[T](value: T | Sequence[T]) -> Sequence[T]:
     if not isinstance(value, str) and isinstance(value, Sequence):
         return value
 
     return (value,)  # type: ignore
 
 
-_O = TypeVar("_O")
+@overload
+def coalesce[T, D](value: T | None, default: Callable[[], D]) -> T | D: ...
 
 
 @overload
-def coalesce(value: _T | None, default: Callable[[], _O]) -> _T | _O: ...
-
-
-@overload
-def coalesce(value: _T | None, default: _O) -> _T | _O: ...
+def coalesce[T, D](value: T | None, default: D) -> T | D: ...
 
 
 def coalesce(value: object, default: object) -> object:
@@ -927,7 +882,7 @@ def coalesce(value: object, default: object) -> object:
     return value
 
 
-def sequence(start: _T, next: Callable[[_T], _T]) -> Iterator[_T]:
+def sequence[T](start: T, next: Callable[[T], T]) -> Iterator[T]:
     current = start
     while True:
         yield current
@@ -947,24 +902,28 @@ async def cancel(*tasks: Task[Any]) -> None:
         break
 
 
-async def _wait_many(
+async def _wait_many[
+    T
+](
     condition: str,
-    tasks: Sequence[Task[_T] | Coroutine[Any, Any, _T]],
-) -> tuple[set[Task[_T]], set[Task[_T]]]:
+    tasks: Sequence[Task[T] | Coroutine[Any, Any, T]],
+) -> tuple[
+    set[Task[T]], set[Task[T]]
+]:
     waiting = [asyncio.create_task(task) if not isinstance(task, Task) else task for task in tasks]
     result = await asyncio.wait(waiting, return_when=condition)
     return result
 
 
-async def wait_any(
-    *tasks: Task[_T] | Coroutine[_T, Any, Any]
-) -> tuple[set[Task[_T]], set[Task[_T]]]:
+async def wait_any[
+    T
+](*tasks: Task[T] | Coroutine[T, Any, Any]) -> tuple[set[Task[T]], set[Task[T]]]:
     return await _wait_many(asyncio.FIRST_COMPLETED, tasks)
 
 
-async def wait_all(
-    *tasks: Task[_T] | Coroutine[_T, Any, Any]
-) -> tuple[set[Task[_T]], set[Task[_T]]]:
+async def wait_all[
+    T
+](*tasks: Task[T] | Coroutine[T, Any, Any]) -> tuple[set[Task[T]], set[Task[T]]]:
     return await _wait_many(asyncio.ALL_COMPLETED, tasks)
 
 
@@ -984,11 +943,7 @@ Undefined = object()
 PathLike = str | _BasePathLike[str]
 
 
-def call_partial(
-    function: Callable[_P, _T],
-    *args: _P.args,
-    **kwargs: _P.kwargs,
-) -> _T:
+def call_partial[**P, T](function: Callable[P, T], *args: P.args, **kwargs: P.kwargs) -> T:
     import inspect
 
     parameters = inspect.signature(function).parameters
@@ -1011,104 +966,12 @@ def call_partial(
     return function(*applied_args, **applied_kwargs)  # type: ignore
 
 
-_EntryT = TypeVar("_EntryT", bound=tuple[Any, ...], covariant=True)
-
-_undefined = object()
-
-
-@dataclass
-class _AZipLatestState:
-    latest: list[Any]
-    out: AsyncQueue[tuple[Any, ...]]
-    tasks: list[asyncio.Task[Any]]
-
-
-class _AsyncZipLatest(Generic[_EntryT]):
-    def __init__(self, *iterables: AsyncIterable[Any]) -> None:
-        self.__iterables = tuple(iterables)
-        self.__state: _AZipLatestState | None = None
-
-    async def __aenter__(self) -> AsyncIterator[_EntryT]:
-        self.__state = _AZipLatestState(
-            latest=[_undefined] * len(self.__iterables),
-            out=AsyncQueue(),
-            tasks=[],
-        )
-
-        async def produce(
-            state: _AZipLatestState,
-            iterator: AsyncIterator[Any],
-            index: int,
-        ) -> None:
-            while True:
-                state.latest[index] = await anext(iterator)
-                if all(current is not _undefined for current in state.latest):
-                    state.out.put_nowait(tuple(state.latest))
-
-        self.__state.tasks = [
-            asyncio.create_task(produce(self.__state, aiter(iterable), index))
-            for index, iterable in enumerate(self.__iterables)
-        ]
-
-        async def consume(out: AsyncQueue[Any]) -> AsyncIterator[_EntryT]:
-            while True:
-                value = await out.get()
-                out.task_done()
-                yield value
-
-        return consume(self.__state.out)
-
-    async def __aexit__(self, *args: Any) -> None:
-        try:
-            if self.__state and self.__state.tasks:
-                await cancel(*self.__state.tasks)
-        finally:
-            self.__state = None
-
-
-_T1 = TypeVar("_T1")
-_T2 = TypeVar("_T2")
-_T3 = TypeVar("_T3")
-_T4 = TypeVar("_T4")
-
-
-@overload
-def azip_latest(
-    a: AsyncIterable[_T1],
-    b: AsyncIterable[_T2],
-    /,
-) -> _AsyncZipLatest[tuple[_T1, _T2]]: ...
-
-
-@overload
-def azip_latest(
-    a: AsyncIterable[_T1],
-    b: AsyncIterable[_T2],
-    c: AsyncIterable[_T3],
-    /,
-) -> _AsyncZipLatest[tuple[_T1, _T2, _T3]]: ...
-
-
-@overload
-def azip_latest(
-    a: AsyncIterable[_T1],
-    b: AsyncIterable[_T2],
-    c: AsyncIterable[_T3],
-    d: AsyncIterable[_T4],
-    /,
-) -> _AsyncZipLatest[tuple[_T1, _T2, _T3]]: ...
-
-
-def azip_latest(*streams: AsyncIterable[Any]) -> _AsyncZipLatest[tuple[Any, ...]]:
-    return _AsyncZipLatest(*streams)
-
-
-class OrderedSet(BaseOrderedSet[_T]):
+class OrderedSet[T](BaseOrderedSet[T]):
     pass
 
 
-class OrderedWeakSet(WeakSet[_T]):
-    def __init__(self, data: Iterable[_T] | None = None) -> None:
+class OrderedWeakSet[T](WeakSet[T]):
+    def __init__(self, data: Iterable[T] | None = None) -> None:
         super().__init__()
         self.data = OrderedSet() if data is None else OrderedSet(ref(current) for current in data)
 

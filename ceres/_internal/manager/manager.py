@@ -1,10 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC
-from typing import Any, Generic, TypeVar
-
-from pydantic import BaseModel
-from typing_extensions import override
+from typing import Any, override
 
 from ceres._internal.lazy import lazy_imports
 
@@ -12,13 +9,11 @@ with lazy_imports(__name__):
     from ceres.database.database import Database
     from ceres.node import Node
 
-_ModelT = TypeVar("_ModelT", bound=BaseModel)
 
-
-class BaseManager(Generic[_ModelT], ABC):
+class BaseManager[T](ABC):
     __slots__ = ("_source", "_cls")
 
-    def __init__(self, source: Database | Node, cls: type[_ModelT]) -> None:
+    def __init__(self, source: Database | Node, cls: type[T]) -> None:
         self._source = source
         self._cls = cls
 
@@ -37,8 +32,8 @@ class BaseManager(Generic[_ModelT], ABC):
         return self._source.database
 
 
-class BaseBoundManager(BaseManager[_ModelT], ABC):
-    def __init__(self, source: Node, cls: type[_ModelT]) -> None:
+class BaseBoundManager[T](BaseManager[T], ABC):
+    def __init__(self, source: Node, cls: type[T]) -> None:
         super().__init__(source, cls)
 
     @property

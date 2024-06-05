@@ -22,19 +22,21 @@ from typing import (
     Iterable,
     Literal,
     Mapping,
-    ParamSpec,
     Protocol,
+    Self,
     Sequence,
-    TypeVar,
+    Unpack,
+    dataclass_transform,
     final,
     get_args,
     get_type_hints,
+    overload,
+    override,
     runtime_checkable,
 )
 
 from pydantic import Field, PositiveFloat, ValidationError
 from pydantic.fields import FieldInfo
-from typing_extensions import Self, Unpack, dataclass_transform, overload, override
 
 from ceres._internal.cli.plumbing import CLIOption
 from ceres._internal.lazy import lazy_imports
@@ -384,28 +386,28 @@ class ActionBinding(__BaseProcedureBinding):
 ProcedureBinding = QueryBinding | ActionBinding
 
 
-_P = ParamSpec("_P")
-_T = TypeVar("_T", bound=Awaitable[Any] | AsyncIterable[Any])
+@overload
+def query[
+    **P, T: Awaitable[Any] | AsyncIterable[Any]
+](method: Callable[P, T]) -> Callable[P, T]: ...
 
 
 @overload
-def query(method: Callable[_P, _T]) -> Callable[_P, _T]: ...
+def query[
+    **P, T: Awaitable[Any] | AsyncIterable[Any]
+](*, poll: float | timedelta = ...) -> Callable[[Callable[P, T]], Callable[P, T]]: ...
 
 
-@overload
-def query(
-    *,
-    poll: float | timedelta = ...,
-) -> Callable[[Callable[_P, _T]], Callable[_P, _T]]: ...
-
-
-@util.validated_function
-def query(
-    method: Callable[_P, _T] | None = None,
+def query[
+    **P, T: Awaitable[Any] | AsyncIterable[Any]
+](
+    method: Callable[P, T] | None = None,
     *,
     poll: float | timedelta = timedelta(seconds=5),
-) -> Callable[_P, _T] | Callable[[Callable[_P, _T]], Callable[_P, _T]]:
-    def query(method: Callable[_P, _T]) -> Callable[_P, _T]:
+) -> (
+    Callable[P, T] | Callable[[Callable[P, T]], Callable[P, T]]
+):
+    def query(method: Callable[P, T]) -> Callable[P, T]:
         info = __get_procedure_method_info(method, ProcedureType.QUERY)
         _bind(
             method,
@@ -428,18 +430,23 @@ def query(
 
 
 @overload
-def action(method: Callable[_P, _T]) -> Callable[_P, _T]: ...
+def action[
+    **P, T: Awaitable[Any] | AsyncIterable[Any]
+](method: Callable[P, T]) -> Callable[P, T]: ...
 
 
 @overload
-def action() -> Callable[[Callable[_P, _T]], Callable[_P, _T]]: ...
+def action[
+    **P, T: Awaitable[Any] | AsyncIterable[Any]
+]() -> Callable[[Callable[P, T]], Callable[P, T]]: ...
 
 
-@util.validated_function
-def action(
-    method: Callable[_P, _T] | None = None,
-) -> Callable[_P, _T] | Callable[[Callable[_P, _T]], Callable[_P, _T]]:
-    def action(method: Callable[_P, _T]) -> Callable[_P, _T]:
+def action[
+    **P, T: Awaitable[Any] | AsyncIterable[Any]
+](method: Callable[P, T] | None = None) -> (
+    Callable[P, T] | Callable[[Callable[P, T]], Callable[P, T]]
+):
+    def action(method: Callable[P, T]) -> Callable[P, T]:
         validated = __get_procedure_method_info(method, ProcedureType.ACTION)
         _bind(
             method,
@@ -597,15 +604,11 @@ class Binding(Protocol):
     method: str
 
 
-_BindingT = TypeVar("_BindingT", bound=Binding)
-
-
-def get_component_method_bindings(
-    method: Callable[..., Any],
-    binding_cls: type[_BindingT],
-) -> Sequence[_BindingT]:
+def get_component_method_bindings[
+    T: Binding
+](method: Callable[..., Any], binding_cls: type[T]) -> Sequence[T]:
     method = util.get_inner_function(method)
-    output: list[_BindingT] = []
+    output: list[T] = []
 
     if values := getattr(method, _BINDINGS_ATTRIBUTE, None):
         if isinstance(values, Iterable):
@@ -616,10 +619,9 @@ def get_component_method_bindings(
     return tuple(output)
 
 
-def get_component_method_binding(
-    method: Callable[..., Any],
-    binding_cls: type[_BindingT],
-) -> _BindingT | None:
+def get_component_method_binding[
+    T: Binding
+](method: Callable[..., Any], binding_cls: type[T]) -> T | None:
     bindings = get_component_method_bindings(method, binding_cls)
     if bindings:
         return bindings[0]
@@ -627,11 +629,8 @@ def get_component_method_binding(
     return None
 
 
-def get_component_bindings(
-    cls: type[Component],
-    binding_cls: type[_BindingT],
-) -> Sequence[_BindingT]:
-    bindings: dict[str, _BindingT] = {}
+def get_component_bindings[T: Binding](cls: type[Component], binding_cls: type[T]) -> Sequence[T]:
+    bindings: dict[str, T] = {}
 
     for cls in reversed(cls.__mro__):
         for member in vars(cls).values():

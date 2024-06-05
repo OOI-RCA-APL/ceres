@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from typing import Annotated, Any, ClassVar, Iterable
+from typing import Annotated, Any, ClassVar, Iterable, TypedDict, override
 
 from pydantic import BeforeValidator, Field, PlainSerializer
-from typing_extensions import TypedDict, override
 
 from ceres._internal.cli.plumbing import CLIOption
 from ceres._internal.lazy import lazy_imports
@@ -23,8 +22,8 @@ with lazy_imports(__name__):
     from sqlalchemy.sql import ColumnExpressionArgument
     from sqlalchemy.sql.sqltypes import LargeBinary
 
-    from ceres._internal.database.types import EnumConstraint, EnumMapper
     from ceres._internal import util
+    from ceres._internal.database.types import EnumConstraint, EnumMapper
     from ceres.database.enums import DatabaseType
 
 

@@ -2,10 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from enum import Enum as BaseEnum
-from typing import Any, Callable
+from typing import Any, Callable, override
 from uuid import UUID
-
-from typing_extensions import override
 
 from ceres._internal.lazy import lazy_imports
 from ceres.address import Address

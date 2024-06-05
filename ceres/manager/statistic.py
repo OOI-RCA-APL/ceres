@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing_extensions import Unpack
+from typing import Unpack
 
 from ceres._internal.lazy import lazy_imports
 from ceres._internal.manager.manager import BaseManager

@@ -4,9 +4,7 @@ import sys
 from contextlib import contextmanager
 from threading import Lock
 from types import ModuleType, UnionType
-from typing import TYPE_CHECKING, Any, Mapping, NoReturn, Sequence, TypeVar
-
-from typing_extensions import overload, override
+from typing import TYPE_CHECKING, Any, Mapping, NoReturn, Sequence, overload, override
 
 
 class LazyExport:
@@ -503,18 +501,15 @@ def lazy_imports(name: str):
         _current_lazy_importing_modules.remove(name)
 
 
-_T = TypeVar("_T")
-
-
 @overload
 def unlazy(value: LazyProxy) -> Any: ...
 
 
 @overload
-def unlazy(value: _T) -> _T: ...
+def unlazy[T](value: T) -> T: ...
 
 
-def unlazy(value: _T | LazyProxy) -> _T:
+def unlazy[T](value: T | LazyProxy) -> T:
     if isinstance(value, LazyProxy):
         return value.__proxy_get__()
 

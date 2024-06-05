@@ -5,10 +5,9 @@ from abc import abstractmethod
 from collections import defaultdict
 from dataclasses import field
 from datetime import datetime
-from typing import Any, Iterable, Sequence, final
+from typing import Any, Iterable, Sequence, final, override
 
 from pydantic import Field
-from typing_extensions import override
 
 from ceres._internal.lazy import lazy_imports
 from ceres._internal.templates import templates

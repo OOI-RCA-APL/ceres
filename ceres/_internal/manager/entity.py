@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Generic, TypeVar, cast
-
-from pydantic import BaseModel
-from typing_extensions import Unpack
+from typing import Any, Unpack, cast
 
 from ceres._internal.lazy import lazy_imports
 from ceres._internal.manager.manager import BaseManager
@@ -14,39 +11,29 @@ with lazy_imports(__name__):
     from ceres._internal.auth import verify_password_hash
     from ceres.data import PasswordHash
 
-_T = TypeVar("_T")
-_EntityT = TypeVar("_EntityT", bound=BaseEntity)
-_EntityRowT = TypeVar("_EntityRowT", bound=BaseEntity.Row)
-_EntityFilterT = TypeVar("_EntityFilterT", bound=BaseEntity.Filter[Any])
-_EntityFilterArgsT = TypeVar("_EntityFilterArgsT", bound=BaseEntity.FilterArgs)
-_EntityCreateT = TypeVar("_EntityCreateT", bound=BaseModel)
-_EntityUpdateT = TypeVar("_EntityUpdateT", bound=BaseEntity.Update)
 
 with lazy_imports(__name__):
     from sqlalchemy.sql import Delete, Select, Update, delete, func, select, update
 
 
-class BaseEntityManager(
-    Generic[
-        _EntityT,
-        _EntityRowT,
-        _EntityCreateT,
-        _EntityUpdateT,
-        _EntityFilterT,
-        _EntityFilterArgsT,
-    ],
-    BaseManager[_EntityT],
-):
-    async def create(self, data: _EntityCreateT) -> _EntityT:
+class BaseEntityManager[
+    EntityT: BaseEntity,
+    RowT: BaseEntity.Row,
+    CreateT: BaseEntity.Create,
+    UpdateT: BaseEntity.Update,
+    FilterT: BaseEntity.Filter[Any],
+    FilterArgsT: BaseEntity.FilterArgs,
+](BaseManager[EntityT]):
+    async def create(self, data: CreateT) -> EntityT:
         result = await self._from_create(data)
         await self._insert(result)
         return result
 
     async def get_all(
         self,
-        filter: _EntityFilterT | None = None,
-        **kwargs: Unpack[_EntityFilterArgsT],  # type: ignore
-    ) -> list[_EntityT]:
+        filter: FilterT | None = None,
+        **kwargs: Unpack[FilterArgsT],  # type: ignore
+    ) -> list[EntityT]:
         Row = self._get_row_cls()
 
         filter = self._apply_default_filter(filter, kwargs)
@@ -56,14 +43,14 @@ class BaseEntityManager(
 
     async def get(
         self,
-        filter: _EntityFilterT | None = None,
+        filter: FilterT | None = None,
         /,
-        **kwargs: Unpack[_EntityFilterArgsT],  # type: ignore
-    ) -> _EntityT | None:
+        **kwargs: Unpack[FilterArgsT],  # type: ignore
+    ) -> EntityT | None:
         entities = await self.get_all(filter, **{**kwargs, "limit": 1})
         return entities[0] if entities else None
 
-    async def update_all(self, filter: _EntityFilterT, assign: _EntityUpdateT) -> int:
+    async def update_all(self, filter: FilterT, assign: UpdateT) -> int:
         Row = self._get_row_cls()
         if not assign:
             return 0
@@ -73,7 +60,7 @@ class BaseEntityManager(
         statement = filter.apply(statement, self._database.type)
         return await self._execute_and_get_count(statement)
 
-    async def update(self, filter: _EntityFilterT, assign: _EntityUpdateT) -> _EntityT | None:
+    async def update(self, filter: FilterT, assign: UpdateT) -> EntityT | None:
         Row = self._get_row_cls()
         if not assign:
             return None
@@ -85,8 +72,8 @@ class BaseEntityManager(
 
     async def delete_all(
         self,
-        filter: _EntityFilterT | None = None,
-        **kwargs: Unpack[_EntityFilterArgsT],  # type: ignore
+        filter: FilterT | None = None,
+        **kwargs: Unpack[FilterArgsT],  # type: ignore
     ) -> int:
         Row = self._get_row_cls()
 
@@ -97,9 +84,9 @@ class BaseEntityManager(
 
     async def delete(
         self,
-        filter: _EntityFilterT | None = None,
-        **kwargs: Unpack[_EntityFilterArgsT],  # type: ignore
-    ) -> _EntityT | None:
+        filter: FilterT | None = None,
+        **kwargs: Unpack[FilterArgsT],  # type: ignore
+    ) -> EntityT | None:
         Row = self._get_row_cls()
 
         filter = self._apply_default_filter(filter, {**kwargs, "limit": 1})
@@ -109,8 +96,8 @@ class BaseEntityManager(
 
     async def count(
         self,
-        filter: _EntityFilterT | None = None,
-        **kwargs: Unpack[_EntityFilterArgsT],  # type: ignore
+        filter: FilterT | None = None,
+        **kwargs: Unpack[FilterArgsT],  # type: ignore
     ) -> int:
         Row = self._get_row_cls()
 
@@ -119,11 +106,9 @@ class BaseEntityManager(
         statement = filter.apply(statement, self._database.type).order_by(None)
         return await self._execute_and_get_one(statement, int) or 0
 
-    async def _execute_and_get_many(
-        self,
-        statement: Select[tuple[Any, ...]] | Update | Delete,
-        result_type: type[_T],
-    ) -> list[_T]:
+    async def _execute_and_get_many[
+        T
+    ](self, statement: Select[tuple[Any, ...]] | Update | Delete, result_type: type[T]) -> list[T]:
         with util.wrap_database_errors():
             async with await self._database.init() as session:
                 results = await session.execute(statement)
@@ -136,11 +121,9 @@ class BaseEntityManager(
                 results, from_attributes=True
             )
 
-    async def _execute_and_get_one(
-        self,
-        statement: Select[tuple[Any, ...]] | Update | Delete,
-        result_type: type[_T],
-    ) -> _T | None:
+    async def _execute_and_get_one[
+        T
+    ](self, statement: Select[tuple[Any, ...]] | Update | Delete, result_type: type[T]) -> T | None:
         with util.wrap_database_errors():
             async with await self._database.init() as session:
                 result = await session.execute(statement)
@@ -159,13 +142,13 @@ class BaseEntityManager(
                 await session.commit()
                 return result.rowcount
 
-    async def _from_create(self, data: _EntityCreateT) -> _EntityT:
+    async def _from_create(self, data: CreateT) -> EntityT:
         if isinstance(data, self._cls):
             return data
 
         return self._cls(**data.__dict__)
 
-    async def _insert(self, data: _EntityT) -> _EntityRowT:
+    async def _insert(self, data: EntityT) -> RowT:
         Row = self._get_row_cls()
         row = Row(**data.__dict__)
         with util.wrap_database_errors():
@@ -182,9 +165,9 @@ class BaseEntityManager(
 
     def _apply_default_filter(
         self,
-        filter: _EntityFilterT | None,
+        filter: FilterT | None,
         kwargs: Any | None = None,
-    ) -> _EntityFilterT:
+    ) -> FilterT:
         if kwargs is None:
             kwargs = {}
 
@@ -196,7 +179,7 @@ class BaseEntityManager(
 
         return result  # type: ignore
 
-    def _get_filter_defaults(self) -> _EntityFilterT | None:
+    def _get_filter_defaults(self) -> FilterT | None:
         if self._node is None:
             return None
 
@@ -208,10 +191,10 @@ class BaseEntityManager(
             address=address.all(),  # type: ignore
         )
 
-    def _get_filter_cls(self) -> type[_EntityFilterT]:
+    def _get_filter_cls(self) -> type[FilterT]:
         Filter = self._cls.Filter
-        return cast(type[_EntityFilterT], Filter)
+        return cast(type[FilterT], Filter)
 
-    def _get_row_cls(self) -> type[_EntityRowT]:
+    def _get_row_cls(self) -> type[RowT]:
         Row = self._cls.Row
-        return cast(type[_EntityRowT], Row)
+        return cast(type[RowT], Row)

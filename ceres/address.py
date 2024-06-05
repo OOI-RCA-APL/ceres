@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Sequence
+from typing import Any, Literal, Self, Sequence, override
 
 from pydantic import GetCoreSchemaHandler
 from pydantic_core import CoreSchema
 from pydantic_core.core_schema import no_info_after_validator_function
-from typing_extensions import Literal, Self, override
 
 from ceres._internal.lazy import lazy_imports
 from ceres._internal.util import NAME_PATTERN
@@ -299,14 +298,14 @@ class DynamicAddress(AddressSelector):
         return type(self)(f"{self}{'.' if not self.is_root else ''}{other.strip('.')}")
 
     @override
-    def as_absolute(self, root: "Address") -> "Address":
+    def as_absolute(self, root: Address) -> Address:
         root = Address(root)
         if self.is_absolute:
             return Address(self)
 
         return root / self
 
-    def as_relative(self) -> "DynamicAddress | None":
+    def as_relative(self) -> DynamicAddress | None:
         if self.is_engine:
             return None
 

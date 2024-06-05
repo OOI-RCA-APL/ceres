@@ -3,9 +3,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Iterator, Literal, NoReturn
-
-from typing_extensions import Self, override
+from typing import Iterator, Literal, NoReturn, Self, override
 
 from ceres._internal.lazy import lazy_imports
 

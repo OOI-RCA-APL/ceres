@@ -11,8 +11,9 @@ from typing import (
     Mapping,
     Optional,
     Type,
-    TypeVar,
+    TypedDict,
     Union,
+    Unpack,
     get_args,
     get_origin,
 )
@@ -26,7 +27,6 @@ from pydantic_core import PydanticUndefined
 from typer import Argument, Option, Typer
 from typer.main import lenient_issubclass
 from typer.models import ArgumentInfo, OptionInfo
-from typing_extensions import TypedDict, Unpack
 
 from ceres._internal.lazy import lazy_imports
 from ceres.data import ImmutableDataObject, jsonify
@@ -254,10 +254,8 @@ _VirtualDefault = (
     ArgumentInfo | OptionInfo | FieldInfo | type(PydanticUndefined) | type(Parameter.empty)
 )
 
-_T = TypeVar("_T")
 
-
-def _get_parameter_metadata(parameter: inspect.Parameter, metadata_type: type[_T]) -> _T | None:
+def _get_parameter_metadata[T](parameter: inspect.Parameter, metadata_type: type[T]) -> T | None:
     if lenient_issubclass(parameter.default, metadata_type):
         return parameter.default
 
@@ -275,7 +273,7 @@ def _get_parameter_metadata(parameter: inspect.Parameter, metadata_type: type[_T
     return None
 
 
-def _get_typer_parameter(field: FieldInfo, parameter_type: type[_T]) -> _T | None:
+def _get_typer_parameter[T](field: FieldInfo, parameter_type: type[T]) -> T | None:
     if util.lenient_isinstance(field.default, parameter_type):
         return field.default
 

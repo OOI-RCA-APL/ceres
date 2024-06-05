@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Callable, ParamSpec, TypeVar
+from typing import Callable
 
 from ceres._internal.lazy import lazy_imports
 
@@ -9,12 +9,9 @@ with lazy_imports(__name__):
 
     from ceres._internal import util
 
-_P = ParamSpec("_P")
-_T = TypeVar("_T")
 
-
-async def spawn(function: Callable[_P, _T], *args: _P.args, **kwargs: _P.kwargs) -> _T:
-    def run() -> _T:
+async def spawn[**P, T](function: Callable[P, T], *args: P.args, **kwargs: P.kwargs) -> T:
+    def run() -> T:
         return function(*args, **kwargs)
 
     with ThreadPoolExecutor() as executor:

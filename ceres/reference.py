@@ -6,15 +6,17 @@ from typing import (
     Annotated,
     Any,
     NoReturn,
+    Self,
     TypeVar,
     Union,
     cast,
+    overload,
+    override,
 )
 
 from pydantic import GetCoreSchemaHandler
 from pydantic_core import CoreSchema
 from pydantic_core.core_schema import no_info_after_validator_function
-from typing_extensions import Self, overload, override
 
 from ceres._internal.lazy import lazy_imports
 from ceres.address import Address, DynamicAddress
@@ -495,17 +497,15 @@ class Reference:
         return self.__reference_get__()
 
 
-_ComponentT = TypeVar("_ComponentT", bound=Component)
-
 MaybeReference = Component | Reference
 
 
 @overload
-def unref(component: _ComponentT, /) -> _ComponentT: ...
+def unref[T: Component](component: T, /) -> T: ...
 
 
 @overload
-def unref(component: _ComponentT | None, /) -> _ComponentT | None: ...
+def unref[T: Component](component: T | None, /) -> T | None: ...
 
 
 @overload
@@ -520,9 +520,9 @@ def unref(component: MaybeReference | None, /) -> Component | None:
 
 
 @overload
-def ref(
-    target: str | DynamicAddress | Component | Reference, cast: type[_ComponentT], /
-) -> _ComponentT: ...
+def ref[
+    T: Component
+](target: str | DynamicAddress | Component | Reference, cast: type[T], /) -> T: ...
 
 
 @overload
@@ -531,20 +531,17 @@ def ref(
 ) -> Component: ...
 
 
-def ref(
-    target: str | DynamicAddress | Component | Reference,
-    constraint: type[_ComponentT] | None = None,
-    /,
-) -> _ComponentT:
+def ref[
+    T: Component
+](target: str | DynamicAddress | Component | Reference, constraint: type[T] | None = None, /) -> T:
     if isinstance(target, Reference):
-        return cast(_ComponentT, target)
+        return cast(T, target)
 
-    return cast(_ComponentT, Reference[constraint](target))
+    return cast(T, Reference[constraint](target))
 
-
-_T = TypeVar("_T")
 
 if TYPE_CHECKING:
+    _T = TypeVar("_T")
     Ref = Annotated[_T, ()]  # type: ignore
 else:
     Ref = Reference

@@ -1,14 +1,6 @@
 from __future__ import annotations
 
-from typing import (
-    TYPE_CHECKING,
-    Annotated,
-    Any,
-    Generic,
-    Mapping,
-    Sequence,
-    TypeVar,
-)
+from typing import TYPE_CHECKING, Annotated, Any, Mapping, Self, Sequence, TypeVar
 
 from pydantic import (
     BaseModel,
@@ -21,7 +13,6 @@ from pydantic import (
 )
 from pydantic_core import CoreSchema
 from pydantic_core.core_schema import no_info_after_validator_function
-from typing_extensions import Self
 
 from ceres._internal.lazy import lazy_imports
 from ceres.data import ImmutableDataObject
@@ -29,11 +20,9 @@ from ceres.data import ImmutableDataObject
 with lazy_imports(__name__):
     from ceres._internal import util
 
-_T = TypeVar("_T")
 
-
-class Loader(ImmutableDataObject, Generic[_T]):
-    cls: ImportString[type[_T]] = Field(alias="class")
+class Loader[T](ImmutableDataObject):
+    cls: ImportString[type[T]] = Field(alias="class")
     arguments: Mapping[str, Any] = Field(default_factory=dict, validation_alias="args")
 
     @classmethod
@@ -132,6 +121,7 @@ class LoadedType:
 
 
 if TYPE_CHECKING:
+    _T = TypeVar("_T")
     Loaded = Annotated[_T, ()]
 else:
     Loaded = LoadedType

@@ -3,11 +3,10 @@ from __future__ import annotations
 import asyncio
 from abc import abstractmethod
 from functools import cached_property
-from typing import AsyncIterable
+from typing import AsyncIterable, Unpack, dataclass_transform, override
 
 from pydantic import Field
 from pydantic.fields import FieldInfo
-from typing_extensions import Unpack, dataclass_transform, override
 
 from ceres._internal.lazy import lazy_imports
 from ceres._internal.typedecs import __Item__

@@ -1,26 +1,16 @@
-from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar
+from __future__ import annotations
 
-from typing_extensions import override
+from typing import TYPE_CHECKING, Any, Literal, TypeVar, override
 
 from ceres.data import ImmutableDataObject
-
-_ValueT = TypeVar("_ValueT", covariant=True)
-_ErrorT = TypeVar("_ErrorT", covariant=True)
 
 _result_cls_generic_cache: dict[tuple[Any, ...], Any] = {}
 
 
 class _Result:
-    """
-    This is a workaround for https://github.com/pydantic/pydantic/issues/1194. This can probably be
-    removed once Pydantic 2.0 comes out and "GenericModel" is no longer needed.
-    """
-
-    def __class_getitem__(
-        cls,
-        /,
-        params: tuple[type[_ValueT], type[_ErrorT]],
-    ) -> "Ok[_ValueT] | Fail[_ErrorT]":
+    def __class_getitem__[
+        ValueT, ErrorT
+    ](cls, /, params: tuple[type[ValueT], type[ErrorT]]) -> Ok[ValueT] | Fail[ErrorT]:
         if params in _result_cls_generic_cache:
             return _result_cls_generic_cache[params]
         value = Ok[params[0]] | Fail[params[1]]  # type: ignore
@@ -28,11 +18,11 @@ class _Result:
         return value  # type: ignore
 
 
-class Ok(ImmutableDataObject, Generic[_ValueT], _Result):
+class Ok[ValueT](ImmutableDataObject, _Result):
     ok: Literal[True] = True
-    value: _ValueT
+    value: ValueT
 
-    def __init__(self, value: _ValueT, **kwargs: Any) -> None:
+    def __init__(self, value: ValueT, **kwargs: Any) -> None:
         super().__init__(value=value)  # type: ignore
 
     __match_args__: tuple[Literal["value"]] = ("value",)  # type: ignore
@@ -45,11 +35,11 @@ class Ok(ImmutableDataObject, Generic[_ValueT], _Result):
         return True
 
 
-class Fail(ImmutableDataObject, Generic[_ErrorT], _Result):
+class Fail[ErrorT](ImmutableDataObject, _Result):
     ok: Literal[False] = False
-    error: _ErrorT
+    error: ErrorT
 
-    def __init__(self, error: _ErrorT, **kwargs: Any) -> None:
+    def __init__(self, error: ErrorT, **kwargs: Any) -> None:
         super().__init__(error=error)  # type: ignore
 
     __match_args__: tuple[Literal["error"]] = ("error",)  # type: ignore
@@ -63,6 +53,8 @@ class Fail(ImmutableDataObject, Generic[_ErrorT], _Result):
 
 
 if TYPE_CHECKING:
+    _ValueT = TypeVar("_ValueT", covariant=True)
+    _ErrorT = TypeVar("_ErrorT", covariant=True)
     Result = Ok[_ValueT] | Fail[_ErrorT]
 else:
     Result = _Result

@@ -5,9 +5,7 @@ from abc import ABC, abstractmethod
 from asyncio import Event as AsyncEvent
 from asyncio import Task
 from dataclasses import dataclass, field
-from typing import Callable, cast
-
-from typing_extensions import Self
+from typing import Callable, Self, cast
 
 from ceres._internal.lazy import lazy_imports
 

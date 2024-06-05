@@ -1,15 +1,14 @@
 from __future__ import annotations
 
 from abc import abstractmethod
-from typing import Annotated, ClassVar, Iterable, TypeVar
+from typing import Annotated, ClassVar, Iterable, override
 
 from pydantic import Field
-from typing_extensions import override
 
+from ceres._internal import util
 from ceres._internal.cli.plumbing import CLIOption
 from ceres._internal.database.types import AddressMapper
 from ceres._internal.lazy import lazy_imports
-from ceres._internal import util
 from ceres.address import Address, AddressSelector
 from ceres.database.enums import DatabaseType
 from ceres.entity import (
@@ -40,15 +39,12 @@ class BaseItemRow(BaseEntityRow, kw_only=True):
         )
 
 
-_ItemT = TypeVar("_ItemT", bound="BaseItem")
-
-
 class BaseItemFilterArgs(BaseEntityFilterArgs, total=False):
     root: Address
     address: AddressSelector | None
 
 
-class BaseItemFilter(BaseEntityFilter[_ItemT]):
+class BaseItemFilter[_ItemT: BaseItem](BaseEntityFilter[_ItemT]):
     address: Annotated[AddressSelector | None, CLIOption(str | None)] = Field(
         default=None,
         description="Filter by associated address.",

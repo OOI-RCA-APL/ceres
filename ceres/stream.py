@@ -3,26 +3,32 @@ from __future__ import annotations
 from asyncio import Queue as AsyncQueue
 from asyncio import QueueEmpty
 from collections.abc import AsyncIterator
-from typing import Any, AsyncIterable, Callable, Literal, Sequence, TypeVar, cast, final, overload
+from typing import (
+    Any,
+    AsyncIterable,
+    Callable,
+    Literal,
+    Self,
+    Sequence,
+    cast,
+    final,
+    overload,
+    override,
+)
 from weakref import WeakSet
-
-from typing_extensions import Self, override
-
-_T = TypeVar("_T")
-_O = TypeVar("_O")
 
 
 @final
-class StreamReader(AsyncIterator[_T]):
+class StreamReader[T](AsyncIterator[T]):
     __slots__ = (
         "_source",
         "_queue",
         "__weakref__",
     )
 
-    def __init__(self, source: "Stream[_T]") -> None:
+    def __init__(self, source: Stream[T]) -> None:
         self._source = source
-        self._queue: "AsyncQueue[_T]" = AsyncQueue()
+        self._queue: AsyncQueue[T] = AsyncQueue()
         self.attach()
 
     @property
@@ -33,11 +39,11 @@ class StreamReader(AsyncIterator[_T]):
         return self._queue.qsize()
 
     @override
-    async def __anext__(self) -> _T:
+    async def __anext__(self) -> T:
         return await self.get()
 
     @override
-    def __aiter__(self) -> AsyncIterator[_T]:
+    def __aiter__(self) -> AsyncIterator[T]:
         self.attach()
         return self
 
@@ -52,14 +58,14 @@ class StreamReader(AsyncIterator[_T]):
     def __del__(self) -> None:
         self.detach()
 
-    async def get(self) -> _T:
+    async def get(self) -> T:
         self.attach()
         value = await self._queue.get()
         self._queue.task_done()
         return value
 
-    def clear(self) -> list[_T]:
-        values: list[_T] = []
+    def clear(self) -> list[T]:
+        values: list[T] = []
 
         while not self._queue.empty():
             try:
@@ -79,11 +85,11 @@ class StreamReader(AsyncIterator[_T]):
     def detach(self) -> None:
         self._source.remove_reader(self)
 
-    def _put(self, value: _T) -> None:
+    def _put(self, value: T) -> None:
         self._queue.put_nowait(value)
 
 
-class Stream(AsyncIterable[_T]):
+class Stream[T](AsyncIterable[T]):
     __slots__ = (
         "_source",
         "_readers",
@@ -94,62 +100,62 @@ class Stream(AsyncIterable[_T]):
         "__weakref__",
     )
 
-    def __init__(self, source: "Stream[_T] | None" = None) -> None:
+    def __init__(self, source: Stream[T] | None = None) -> None:
         self._source = source
-        self._readers: "WeakSet[StreamReader[_T]]" = WeakSet()
-        self._derived: "WeakSet[Stream[_T]]" = WeakSet()
-        self._every: "type[_T] | None" = None
-        self._filter: "Callable[[_T], bool] | None" = None
-        self._map: "Callable[[_T], Any] | None" = None
+        self._readers: WeakSet[StreamReader[T]] = WeakSet()
+        self._derived: WeakSet[Stream[T]] = WeakSet()
+        self._every: type[T] | None = None
+        self._filter: Callable[[T], bool] | None = None
+        self._map: Callable[[T], Any] | None = None
 
         if source is not None:
             source._derived.add(self)
 
     @property
-    def readers(self) -> Sequence[StreamReader[_T]]:
+    def readers(self) -> Sequence[StreamReader[T]]:
         return list(self._readers)
 
     @override
-    def __aiter__(self) -> StreamReader[_T]:
+    def __aiter__(self) -> StreamReader[T]:
         return self.read()
 
-    def read(self) -> StreamReader[_T]:
+    def read(self) -> StreamReader[T]:
         return StreamReader(self)
 
-    def view(self) -> "Stream[_T]":
+    def view(self) -> "Stream[T]":
         return Stream(self)
 
     @overload
-    def every(self, cls: type[_O], /) -> "Stream[_O]": ...
+    def every[O](self, cls: type[O], /) -> Stream[O]: ...
 
     @overload
-    def every(self, cls: _O, /) -> "Stream[_O]": ...
+    def every[O](self, cls: O, /) -> Stream[O]: ...
 
-    def every(self, cls: _O | type[_O], /) -> "Stream[_O]":
-        derived = cast(Stream[_O], Stream(self))
+    def every[O](self, cls: O | type[O], /) -> Stream[O]:
+        derived = cast(Stream[O], Stream(self))
         derived._every = cls  # type: ignore
         return derived
 
-    def filter(self, filter: Callable[[_T], bool], /) -> "Stream[_T]":
+    def filter(self, filter: Callable[[T], bool], /) -> Stream[T]:
         derived = Stream(self)
         derived._filter = filter
         return derived
 
-    def map(self, transform: Callable[[_T], _O], /) -> "Stream[_O]":
-        derived = cast(Stream[_O], Stream(self))
+    def map[O](self, transform: Callable[[T], O], /) -> Stream[O]:
+        derived = cast(Stream[O], Stream(self))
         derived._map = transform  # type: ignore
         return derived
 
     def has_reader(self, reader: StreamReader[Any]) -> bool:
         return reader in self._readers
 
-    def add_reader(self, reader: StreamReader[_T]) -> None:
+    def add_reader(self, reader: StreamReader[T]) -> None:
         self._readers.add(reader)
 
-    def remove_reader(self, reader: StreamReader[_T]) -> None:
+    def remove_reader(self, reader: StreamReader[T]) -> None:
         self._readers.discard(reader)
 
-    def _put(self, value: _T) -> None:
+    def _put(self, value: T) -> None:
         try:
             if self._every is not None and not isinstance(value, self._every):
                 return
@@ -166,6 +172,6 @@ class Stream(AsyncIterable[_T]):
             child._put(value)
 
 
-class WriteStream(Stream[_T]):
-    def put(self, value: _T) -> None:
+class WriteStream[T](Stream[T]):
+    def put(self, value: T) -> None:
         super()._put(value)

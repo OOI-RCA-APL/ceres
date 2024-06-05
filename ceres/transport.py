@@ -2,9 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Callable, TypeVar
-
-from typing_extensions import Unpack, overload, override
+from typing import Callable, Unpack, overload, override
 
 from ceres._internal.lazy import lazy_imports
 
@@ -15,8 +13,6 @@ with lazy_imports(__name__):
     from ceres._internal.util import BytesLike
     from ceres.message import Message
     from ceres.roles.connection import Connection
-
-_T = TypeVar("_T")
 
 
 @dataclass(kw_only=True, frozen=True)
@@ -51,23 +47,27 @@ class Transport:
     ) -> Message: ...
 
     @overload
-    async def receive(
+    async def receive[
+        T
+    ](
         self,
         *,
         condition: Callable[[Message], bool] | None = None,
         timeout: float | timedelta | None = None,
-        default: _T | Callable[[], _T],
+        default: T | Callable[[], T],
         **kwargs: Unpack[Message.FilterArgs],
-    ) -> Message | _T: ...
+    ) -> (Message | T): ...
 
-    async def receive(
+    async def receive[
+        T
+    ](
         self,
         *,
         condition: Callable[[Message], bool] | None = None,
         timeout: float | timedelta | None = None,
-        default: _T | Callable[[], _T] | None = None,
+        default: T | Callable[[], T] | None = None,
         **kwargs: Unpack[Message.FilterArgs],
-    ) -> Message | _T:
+    ) -> (Message | T):
         if isinstance(timeout, timedelta):
             timeout = timeout.total_seconds()
 
@@ -76,7 +76,7 @@ class Transport:
         else:
             query = None
 
-        def fail() -> _T:
+        def fail() -> T:
             if default is ...:
                 raise TimeoutError()
             if callable(default):

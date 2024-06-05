@@ -4,7 +4,7 @@ import ssl
 import traceback
 from datetime import timedelta
 from pathlib import Path
-from typing import Annotated, Any, Callable, Literal, Mapping, Sequence
+from typing import Annotated, Any, Callable, Literal, Mapping, Self, Sequence
 
 from annotated_types import Ge, Le
 from argon2.profiles import RFC_9106_LOW_MEMORY
@@ -18,7 +18,6 @@ from pydantic import (
     ValidationInfo,
     field_validator,
 )
-from typing_extensions import Self
 
 from ceres._internal import util
 from ceres._internal.typedecs import __Component__

@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Mapping
-
-from typing_extensions import Unpack
+from typing import Any, Mapping, Unpack
 
 from ceres._internal.lazy import lazy_imports
 from ceres._internal.manager.entity import BaseEntityManager

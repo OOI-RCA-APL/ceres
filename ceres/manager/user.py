@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing_extensions import override
+from typing import override
 
 from ceres._internal.lazy import lazy_imports
 from ceres._internal.manager.entity import BaseEntityManager

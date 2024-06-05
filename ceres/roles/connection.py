@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import sys
 import traceback
@@ -5,10 +7,9 @@ from abc import ABC, abstractmethod
 from asyncio import StreamReader, StreamWriter
 from dataclasses import dataclass, field
 from datetime import timedelta
-from typing import Annotated, Literal, final
+from typing import Annotated, Literal, final, override
 
 from pydantic import Field, field_validator
-from typing_extensions import override
 
 from ceres._internal.lazy import lazy_imports
 from ceres.component import Component, action, routine

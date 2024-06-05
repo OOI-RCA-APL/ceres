@@ -2,9 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Mapping, Sequence
-
-from typing_extensions import Unpack
+from typing import TYPE_CHECKING, Mapping, Sequence, Unpack
 
 from ceres._internal.lazy import lazy_imports
 from ceres._internal.manager.entity import BaseEntityManager

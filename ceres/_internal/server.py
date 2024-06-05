@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any
-
-from typing_extensions import override
+from typing import Any, override
 
 from ceres._internal.lazy import lazy_imports
 from ceres.tasklet import Tasklet

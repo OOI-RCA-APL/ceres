@@ -2,10 +2,9 @@ from __future__ import annotations
 
 from abc import abstractmethod
 from datetime import datetime
-from typing import Annotated, Any, ClassVar, Iterable, TypeVar
+from typing import Annotated, Any, ClassVar, Iterable, Literal, override
 
 from pydantic import Field
-from typing_extensions import Literal, override
 
 from ceres._internal.cli.plumbing import CLIOption
 from ceres._internal.database.types import DateTimeMapper
@@ -38,7 +37,6 @@ class BaseRecordRow(BaseItemRow, kw_only=True):
 
 
 _RecordOrderInput = Literal["old-to-new", "new-to-old"]
-_RecordT = TypeVar("_RecordT", bound="BaseRecord")
 
 
 class BaseRecordFilterArgs(BaseItemFilterArgs, total=False):
@@ -48,7 +46,7 @@ class BaseRecordFilterArgs(BaseItemFilterArgs, total=False):
     order: _RecordOrderInput | None
 
 
-class BaseRecordFilter(BaseItemFilter[_RecordT]):
+class BaseRecordFilter[RecordT: BaseRecord](BaseItemFilter[RecordT]):
     within: Annotated[PositiveTimeDelta | None, CLIOption(str | None, metavar="DURATION")] = Field(
         default=None,
         description="Filter by age.",
@@ -67,7 +65,7 @@ class BaseRecordFilter(BaseItemFilter[_RecordT]):
     )
 
     @override
-    def matches(self, obj: _RecordT) -> bool:  # type: ignore
+    def matches(self, obj: RecordT) -> bool:  # type: ignore
         if not super().matches(obj):
             return False
 
@@ -88,7 +86,7 @@ class BaseRecordFilter(BaseItemFilter[_RecordT]):
     def _get_row_cls(self) -> type[BaseRecordRow]: ...
 
     @override
-    def _get_search_content(self, obj: _RecordT) -> dict[str, str]:
+    def _get_search_content(self, obj: RecordT) -> dict[str, str]:
         return {
             **super()._get_search_content(obj),
             "timestamp": util.format_timestamp(obj.timestamp),

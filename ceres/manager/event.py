@@ -4,9 +4,7 @@ import asyncio
 import inspect
 import traceback
 from asyncio import Queue as AsyncQueue
-from typing import Awaitable, Callable, TypeVar
-
-from typing_extensions import ParamSpec, override
+from typing import Awaitable, Callable, override
 
 from ceres._internal.lazy import lazy_imports
 from ceres._internal.manager.manager import BaseBoundManager
@@ -19,9 +17,6 @@ with lazy_imports(__name__):
     from ceres.event import AlertEvent, Event, LogEvent, MessageEvent
     from ceres.node import Node
     from ceres.stream import Stream, WriteStream
-
-_EventT = TypeVar("_EventT", bound=Event)
-_EventP = ParamSpec("_EventP")
 
 
 class EventManager(BaseBoundManager[Event]):
@@ -73,13 +68,9 @@ class EventManager(BaseBoundManager[Event]):
     def follow(self) -> Stream[Event]:
         return self._stream.view()
 
-    def emit(
-        self,
-        event_cls: Callable[_EventP, _EventT],
-        /,
-        *args: _EventP.args,
-        **kwargs: _EventP.kwargs,
-    ) -> _EventT:
+    def emit[
+        **P, T: Event
+    ](self, event_cls: Callable[P, T], /, *args: P.args, **kwargs: P.kwargs) -> T:
         """
         Construct and `propagate` an event, assigning the address of the event to this node's
         address if unset.

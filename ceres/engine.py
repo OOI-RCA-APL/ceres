@@ -4,14 +4,12 @@ import traceback
 from asyncio import FIRST_COMPLETED
 from asyncio import Event as AsyncEvent
 from pathlib import Path
-from typing import TYPE_CHECKING, Sequence
+from typing import TYPE_CHECKING, Self, Sequence, Unpack, final, override
 
-from typing_extensions import Self, Unpack, final, override
-
+from ceres._internal import util
 from ceres._internal.app.main import App
 from ceres._internal.project import Project
 from ceres._internal.server import Server
-from ceres._internal import util
 from ceres.address import Address, AddressSelector, DynamicAddress
 from ceres.component import Component, ComponentFilter, ComponentFilterArgs, ComponentSystem
 from ceres.config import Config, ServerSSLConfig

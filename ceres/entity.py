@@ -1,22 +1,12 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    ClassVar,
-    Generic,
-    Iterable,
-    Sequence,
-    TypedDict,
-    TypeVar,
-)
+from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Iterable, Sequence, TypedDict
 from uuid import UUID, uuid4
 
 import pydantic
 from pydantic import Field, NonNegativeInt
 from sqlalchemy.orm.decl_api import DeclarativeBase, MappedAsDataclass
-from typing_extensions import Annotated
 
 from ceres._internal.cli.plumbing import CLIOption
 from ceres._internal.database.types import UUIDMapper
@@ -43,8 +33,6 @@ with lazy_imports(__name__):
     from sqlalchemy.sql.base import ReadOnlyColumnCollection
 
     from ceres._internal import util
-
-_StatementT = TypeVar("_StatementT", bound="Select[tuple[Any, ...]] | Update | Delete")
 
 
 def _compile(dialect: AsyncEngine | Engine | Dialect, element: ClauseElement) -> str:
@@ -187,10 +175,7 @@ class BaseEntityFilterArgs(BaseFilterArgs, total=False):
     offset: NonNegativeInt | None
 
 
-_EntityT = TypeVar("_EntityT", bound="BaseEntity")
-
-
-class BaseEntityFilter(BaseFilter, Generic[_EntityT], ABC):
+class BaseEntityFilter[EntityT: BaseEntity](BaseFilter, ABC):
     search: Annotated[str | None, CLIOption(str | None)] = Field(
         default=None,
         description="Filter by text content of field(s) in `search-field`.",
@@ -218,7 +203,7 @@ class BaseEntityFilter(BaseFilter, Generic[_EntityT], ABC):
     def _get_row_cls(self) -> type[BaseEntityRow]: ...
 
     @abstractmethod
-    def _get_search_content(self, obj: _EntityT) -> dict[str, str]: ...
+    def _get_search_content(self, obj: EntityT) -> dict[str, str]: ...
 
     @abstractmethod
     def _get_database_search_content(
@@ -229,7 +214,7 @@ class BaseEntityFilter(BaseFilter, Generic[_EntityT], ABC):
     def _get_database_search_encoded_fields(self) -> set[str]:
         return set()
 
-    def matches(self, obj: _EntityT) -> bool:
+    def matches(self, obj: EntityT) -> bool:
         if self.search is not None:
             values = self._get_search_content(obj)
             fields = values if self.search_field is None else util.as_sequence(self.search_field)
@@ -281,7 +266,9 @@ class BaseEntityFilter(BaseFilter, Generic[_EntityT], ABC):
     def _get_order_by(self) -> ColumnExpressionArgument[Any] | None:
         return None
 
-    def apply(self, statement: _StatementT, dialect: DatabaseType) -> _StatementT:
+    def apply[
+        StatementT: "Select[tuple[Any, ...]] | Update | Delete"
+    ](self, statement: StatementT, dialect: DatabaseType) -> StatementT:
         columns = self._get_row_cls()
         ids = (
             select(columns.id)

@@ -5,7 +5,18 @@ from abc import ABC
 from datetime import date, datetime, timedelta, timezone
 from enum import StrEnum as BaseStrEnum
 from json import JSONDecodeError
-from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Literal, NewType, Sized, TypeVar
+from typing import (
+    TYPE_CHECKING,
+    Annotated,
+    Any,
+    ClassVar,
+    Literal,
+    NewType,
+    Sized,
+    TypeVar,
+    dataclass_transform,
+    override,
+)
 
 import pydantic
 import pydantic.generics
@@ -21,7 +32,6 @@ from pydantic import EmailStr as _BaseEmailStr
 from pydantic.fields import FieldInfo
 from pydantic_core import CoreSchema, SchemaSerializer, SchemaValidator
 from pydantic_extra_types.color import Color as Color
-from typing_extensions import dataclass_transform, override
 
 from ceres._internal import util
 from ceres._internal.util import NAME_PATTERN, PydanticDataclassLike

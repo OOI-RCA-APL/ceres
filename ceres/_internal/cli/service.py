@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, Sequence
-
-from typing_extensions import override
+from typing import Any, Sequence, override
 
 from ceres._internal.lazy import lazy_imports
 from ceres.data import DataObject, StrEnum

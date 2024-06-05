@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 from abc import abstractmethod
-from typing import Iterable
+from typing import Iterable, override
 
 from pydantic import Field, SecretStr
-from typing_extensions import override
 
 from ceres._internal.lazy import lazy_imports
 from ceres.component import Component, action

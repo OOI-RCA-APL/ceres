@@ -368,10 +368,8 @@ def _as_query_parameters_dependency(model: type[BaseModel]) -> Any:
     return wrapper
 
 
-_ModelT = TypeVar("_ModelT", bound=BaseModel)
-
-
 if TYPE_CHECKING:
+    _ModelT = TypeVar("_ModelT", bound=BaseModel)
     QueryGroup = Annotated[_ModelT, Depends()]
 else:
 

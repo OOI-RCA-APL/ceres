@@ -5,13 +5,12 @@ import shutil
 from os import PathLike
 from pathlib import Path
 from tempfile import gettempdir
-from typing import IO, TYPE_CHECKING, Any, Iterable, Union, overload
+from typing import IO, TYPE_CHECKING, Any, Iterable, Self, Union, final, overload, override
 from uuid import uuid4
 
 from pydantic import GetCoreSchemaHandler
 from pydantic_core import CoreSchema
 from pydantic_core.core_schema import no_info_after_validator_function
-from typing_extensions import Self, final, override
 
 if TYPE_CHECKING:
     from _typeshed import OpenBinaryMode as OpenBinaryMode

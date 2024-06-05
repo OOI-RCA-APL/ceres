@@ -13,14 +13,14 @@ from typing import (
     Iterable,
     Iterator,
     Mapping,
+    Self,
     Sequence,
-    TypeVar,
     final,
+    override,
 )
 from uuid import UUID, uuid4
 
 from pydantic import ValidationError
-from typing_extensions import Self, override
 
 from ceres._internal import util
 from ceres._internal.auth import get_password_hash, verify_password, verify_password_hash
@@ -32,9 +32,6 @@ from ceres.database.enums import DatabaseType, EntityType
 from ceres.entity import BaseEntity, BaseEntityRow
 from ceres.error import DatabaseInitError, DatabaseLoadError, Failure
 from ceres.threading import spawn
-
-_T = TypeVar("_T")
-_EntityT = TypeVar("_EntityT", bound=BaseEntity)
 
 with lazy_imports(__name__):
     import sqlite3
@@ -234,7 +231,7 @@ class Database:
 
         return await self.hash_password(password)
 
-    async def __run_sync(self, callback: Callable[[Connection], _T]) -> _T:
+    async def __run_sync[T](self, callback: Callable[[Connection], T]) -> T:
         with util.wrap_database_errors():
             async with self.connect() as connection:
                 return await connection.run_sync(callback)
@@ -686,7 +683,9 @@ def _read_csv_rows(path: Path) -> Iterator[Any]:
             yield row
 
 
-def _read_csv_items(path: Path, item_cls: type[_EntityT]) -> Iterable[_EntityT]:
+def _read_csv_items[
+    _EntityT: BaseEntity
+](path: Path, item_cls: type[_EntityT]) -> Iterable[_EntityT]:
     rows = _read_csv_rows(path)
     columns = list(item_cls.model_fields.keys())
     header = next(rows)
