@@ -85,7 +85,6 @@ class LazyProxy:
         return target
 
 
-_lazy_proxy_cache_lock = Lock()
 _lazy_proxy_cache: dict[tuple[str, tuple[str, ...], str | None], LazyProxy] = {}
 
 
@@ -95,11 +94,10 @@ def _get_cached_lazy_proxy(
     target_attr: str | None = None,
 ) -> LazyProxy:
     key = (module, proxied_attrs, target_attr)
-    with _lazy_proxy_cache_lock:
-        proxy = _lazy_proxy_cache.get(key)
-        if proxy is None:
-            proxy = LazyProxy(module, proxied_attrs, target_attr)
-            _lazy_proxy_cache[key] = proxy
+    proxy = _lazy_proxy_cache.get(key)
+    if proxy is None:
+        proxy = LazyProxy(module, proxied_attrs, target_attr)
+        _lazy_proxy_cache.setdefault(key, proxy)
 
     return proxy
 
