@@ -1,8 +1,6 @@
 <script lang="ts" setup>
 import { Address } from '@/api/address'
 import { useEngine } from '@/api/engine'
-import ComponentProcedures from '@/components/ComponentProcedures.vue'
-import ComponentStatusBadge from '@/components/ComponentStatusBadge.vue'
 import FullPage from '@/components/FullPage.vue'
 import Interface from '@/components/Interface.vue'
 import ItemView from '@/components/ItemView.vue'
@@ -10,6 +8,8 @@ import Panel from '@/components/Panel.vue'
 import PanelContainer from '@/components/PanelContainer.vue'
 import PanelGroup from '@/components/PanelGroup.vue'
 import PanelTab from '@/components/PanelTab.vue'
+import Procedures from '@/components/Procedures.vue'
+import StatusBadge from '@/components/StatusBadge.vue'
 import { useInterfaceContext } from '@/interface'
 
 const { address = new Address('@') } = defineProps<{
@@ -51,7 +51,7 @@ const resizablePanelProps = {
   <full-page :title>
     <template #header-append>
       <div class="items-center q-ml-sm row">
-        <component-status-badge :address :class="$style.statusBadge" />
+        <status-badge :address :class="$style.statusBadge" />
       </div>
     </template>
     <div v-if="component == null" class="q-pa-md">
@@ -108,11 +108,7 @@ const resizablePanelProps = {
           class="column"
           :name="executor.address.toString()"
         >
-          <component-procedures
-            class="col"
-            :component="executor"
-            :title="executor.address.toString()"
-          />
+          <procedures class="col" :component="executor" :title="executor.address.toString()" />
         </panel>
       </panel-group>
       <panel-group
@@ -148,4 +144,3 @@ const resizablePanelProps = {
   margin-top: 2px;
 }
 </style>
-@/api/address

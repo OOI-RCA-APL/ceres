@@ -14,7 +14,7 @@ class CSVNameGenerator(Component):
         """
         This routine will run once on startup.
         """
-        self.log.info("Starting up...")
+        self.system.log.info("Starting up...")
 
     @routine(restart="always", restart_delay=5)
     async def routine__write(self) -> None:
@@ -38,7 +38,7 @@ class CSVNameGenerator(Component):
 
                 row = [first, last]
                 writer.writerow(row)
-                self.log.info(row)
+                self.system.log.info(row)
 
             await sleep(1)
 
@@ -51,9 +51,9 @@ class CSVNameGenerator(Component):
         while True:
             if self.output.exists():
                 size = self.output.stat().st_size
-                self.log.info(f"'{self.output}' is now {size} bytes.")
+                self.system.log.info(f"'{self.output}' is now {size} bytes.")
             else:
-                self.log.info(f"'{self.output}' has not been created yet.")
+                self.system.log.info(f"'{self.output}' has not been created yet.")
 
             await sleep(5)
 

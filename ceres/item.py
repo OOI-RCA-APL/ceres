@@ -1,0 +1,113 @@
+from __future__ import annotations
+
+from abc import abstractmethod
+from typing import Annotated, ClassVar, Iterable, override
+
+from pydantic import Field
+
+from ceres._internal import util
+from ceres._internal.cli.plumbing import CLIOption
+from ceres._internal.database.types import AddressMapper
+from ceres._internal.lazy import lazy_imports
+from ceres.address import Address, AddressSelector
+from ceres.database.enums import DatabaseType
+from ceres.entity import (
+    BaseEntity,
+    BaseEntityFilter,
+    BaseEntityFilterArgs,
+    BaseEntityRow,
+    BaseEntityUpdate,
+)
+
+with lazy_imports(__name__):
+    from sqlalchemy.orm import Mapped, QueryableAttribute, mapped_column
+    from sqlalchemy.schema import Index, SchemaItem
+    from sqlalchemy.sql import ColumnExpressionArgument
+
+
+class BaseItemRow(BaseEntityRow, kw_only=True):
+    __abstract__ = True
+
+    address: Mapped[Address] = mapped_column(AddressMapper, sort_order=-2000)
+
+    @classmethod
+    @override
+    def __get_table_args__(cls) -> tuple[SchemaItem, ...]:
+        return (
+            *super().__get_table_args__(),
+            Index(f"ix_{cls.__tablename__}__address", "address"),
+        )
+
+
+class BaseItemFilterArgs(BaseEntityFilterArgs, total=False):
+    root: Address
+    address: AddressSelector | None
+
+
+class BaseItemFilter[_ItemT: BaseItem](BaseEntityFilter[_ItemT]):
+    address: Annotated[AddressSelector | None, CLIOption(str | None)] = Field(
+        default=None,
+        description="Filter by associated address.",
+    )
+    root: Annotated[Address, CLIOption(str | None)] = Field(
+        default=Address.root(),
+        description="The root address relative `address` selectors are mapped to.",
+    )
+
+    @override
+    def matches(self, obj: _ItemT) -> bool:  # type: ignore
+        if not super().matches(obj):
+            return False
+
+        if self.address is not None:
+            if not self.address.matches(obj.address, self.root):
+                return False
+
+        return True
+
+    @abstractmethod
+    @override
+    def _get_row_cls(self) -> type[BaseItemRow]: ...
+
+    @override
+    def _get_search_content(self, obj: _ItemT) -> dict[str, str]:
+        return {
+            "address": obj.address,
+        }
+
+    @override
+    def _get_database_search_content(
+        self,
+        dialect: DatabaseType,
+    ) -> dict[str, QueryableAttribute[str | bytes]]:
+        columns = self._get_row_cls()
+
+        return {
+            "address": columns.address,
+        }
+
+    @override
+    def _get_where(self, dialect: DatabaseType) -> Iterable[ColumnExpressionArgument[bool]]:
+        yield from super()._get_where(dialect)
+        columns = self._get_row_cls()
+
+        if self.id is not None:
+            yield columns.id.in_(util.as_sequence(self.id))
+        if self.address is not None:
+            yield self.address.matches_expression(columns.address, self.root)
+
+
+class BaseItemCreate(BaseEntity):
+    address: Annotated[Address, CLIOption(str)]
+
+
+class BaseItemUpdate(BaseEntityUpdate, total=False):
+    address: Address
+
+
+class BaseItem(BaseItemCreate):
+    Row: ClassVar[type[BaseItemRow]] = BaseItemRow
+    Create: ClassVar[type[BaseItemCreate]] = BaseItemCreate
+    Update: ClassVar[type[BaseItemUpdate]] = BaseItemUpdate
+    Filter: ClassVar[type[BaseItemFilter[BaseItem]]] = BaseItemFilter
+    FilterArgs: ClassVar[type[BaseItemFilterArgs]] = BaseItemFilterArgs

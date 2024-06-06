@@ -29,4 +29,3 @@ const result = $computed(() => query.data.value)
 <template>
   <interface-element v-if="result?.ok" :element="result.value" :path="[]" />
 </template>
-@/api/address

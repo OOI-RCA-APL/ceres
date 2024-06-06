@@ -12,6 +12,7 @@ import { usePreferences } from '@/preferences'
 import { displayDuration } from '@/time'
 import moment from 'moment'
 import { LocalStorage } from 'quasar'
+import { watchEffect } from 'vue'
 import { useRoute } from 'vue-router'
 
 const engine = useEngine()
@@ -20,6 +21,10 @@ const notify = useNotify()
 const dialogs = useDialogs()
 const route = useRoute()
 const preferences = usePreferences()
+
+watchEffect(() => {
+  console.log(engine.components.root?.name)
+})
 
 function clearLocalStorage() {
   dialogs
@@ -283,4 +288,3 @@ function promptReload() {
   top: 0;
 }
 </style>
-@/api/address

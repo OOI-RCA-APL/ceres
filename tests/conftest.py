@@ -5,7 +5,7 @@ import pytest
 
 # Make sure we can import everything in the root module.
 from ceres import *  # noqa: F403
-from ceres.internal.utilities import ensure_event_loop
+from ceres._internal.util import ensure_event_loop
 
 
 @pytest.fixture(scope="session")

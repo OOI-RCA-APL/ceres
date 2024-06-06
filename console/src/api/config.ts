@@ -73,8 +73,8 @@ export const ConsoleConfigModel = Zod.object({
 export type Config = Zod.infer<typeof ConfigModel>
 export const ConfigModel = Zod.object({
   name: NameStrModel,
-  class: Zod.string(),
-  components: Zod.array(ComponentConfigModel),
+  component: Zod.string(),
+  subcomponents: Zod.array(ComponentConfigModel),
   server: ServerConfigModel,
   console: ConsoleConfigModel,
   database: DatabaseConfigModel,

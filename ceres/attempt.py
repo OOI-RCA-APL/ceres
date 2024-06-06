@@ -1,11 +1,14 @@
+from __future__ import annotations
+
 import asyncio
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Iterator, Literal, NoReturn
+from typing import Iterator, Literal, NoReturn, Self, override
 
-from typing_extensions import Self
+from ceres._internal.lazy import lazy_imports
 
-from ceres.internal.utilities import decode_td
+with lazy_imports(__name__):
+    from ceres._internal import util
 
 
 @dataclass
@@ -28,7 +31,7 @@ class Attempt:
     ) -> None:
         self.__index = index
         self.__max = max
-        self.__interval = decode_td(interval)
+        self.__interval = util.decode_td(interval)
         self.__executed = False
         self.__failure: AttemptFailure | None = None
 
@@ -109,7 +112,7 @@ class Attempts(Iterator[Attempt]):
         self.__max = max
         self.__index = -1
         self.__last: Attempt | None = None
-        self.__interval = decode_td(interval)
+        self.__interval = util.decode_td(interval)
 
     @property
     def max(self) -> int:
@@ -150,9 +153,11 @@ class Attempts(Iterator[Attempt]):
     def exhausted(self) -> bool:
         return self.__index > self.__max
 
+    @override
     def __iter__(self) -> Self:
         return self
 
+    @override
     def __next__(self) -> Attempt:
         if self.completed or self.exhausted:
             raise StopIteration

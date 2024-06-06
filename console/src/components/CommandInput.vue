@@ -121,4 +121,3 @@ async function submit() {
     </q-input>
   </q-form>
 </template>
-@/api/address

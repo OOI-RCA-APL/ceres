@@ -48,7 +48,7 @@ export const useMessages = defineStore('messages', () => {
   }
 
   async function send(address: Address, data: string): Promise<SendMessageResult> {
-    return await client.post(`/api/components/${address}/procedures/send-message/call`, {
+    return await client.post(`/api/components/${address}/procedures/send/call`, {
       data: { data },
       parse: SendMessageResultModel,
     })

@@ -1,0 +1,47 @@
+from __future__ import annotations
+
+from ceres._internal.lazy import lazy_imports
+
+with lazy_imports(__name__):
+    from hashlib import sha1
+    from pathlib import Path
+
+    from ceres.config import Config
+    from ceres.directory import Directory
+
+
+class Project:
+    def __init__(self, config_path: Path, config: Config) -> None:
+        self._config_path = config_path.resolve()
+        self._config = config
+
+    @property
+    def config_path(self) -> Path:
+        return self._config_path
+
+    @property
+    def config(self) -> Config:
+        return self._config
+
+    @property
+    def directory(self) -> Directory:
+        return Directory(self._config_path.parent)
+
+    @property
+    def directory_hash(self) -> str:
+        return sha1(str(self.directory).encode()).hexdigest()[0:6]
+
+    @property
+    def local_directory(self) -> Directory:
+        return Directory(self.directory / "local")
+
+    @property
+    def socket_path(self) -> Path:
+        if self._config.server.socket:
+            return self._config.server.socket
+
+        return Path(f"/tmp/ceres-{self.directory_hash}.sock")
+
+    @property
+    def port(self) -> int | None:
+        return self._config.server.port

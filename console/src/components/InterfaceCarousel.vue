@@ -77,4 +77,3 @@ const height = $computed(() => {
     </q-card>
   </div>
 </template>
-@/interface

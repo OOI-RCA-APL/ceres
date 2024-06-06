@@ -1,18 +1,17 @@
+from __future__ import annotations
+
 import re
-from typing import TYPE_CHECKING, Any, Sequence
+from typing import Any, Literal, Self, Sequence, override
 
 from pydantic import GetCoreSchemaHandler
 from pydantic_core import CoreSchema
 from pydantic_core.core_schema import no_info_after_validator_function
-from typing_extensions import Literal, Self, override
 
-from ceres.internal.utilities import NAME_PATTERN
+from ceres._internal.lazy import lazy_imports
+from ceres._internal.util import NAME_PATTERN
 
-if TYPE_CHECKING:
-    from sqlalchemy import ColumnElement, SQLColumnExpression
-else:
-    SQLColumnExpression = object
-    ColumnElement = object
+with lazy_imports(__name__):
+    from sqlalchemy.sql.elements import ColumnElement, SQLColumnExpression
 
 from ceres.data import Name
 
@@ -33,10 +32,10 @@ class AddressSelector(str):
         return no_info_after_validator_function(cls.validate, handler(str))
 
     @property
-    def segments(self) -> Sequence["AddressSelector"]:
+    def segments(self) -> Sequence[AddressSelector]:
         return [AddressSelector(segment) for segment in self.split("|")]
 
-    def _get_normalized_segments(self) -> Sequence["AddressSelector"]:
+    def _get_normalized_segments(self) -> Sequence[AddressSelector]:
         segments: list[AddressSelector] = []
         for segment in self.split("|"):
             if segment == "all":
@@ -68,13 +67,14 @@ class AddressSelector(str):
 
         return str.__new__(cls, value)
 
+    @override
     def __repr__(self) -> str:
         return f"{type(self).__name__}({repr(str(self))})"
 
-    def __or__(self, other: "AddressSelector") -> "AddressSelector":
+    def __or__(self, other: AddressSelector) -> AddressSelector:
         return AddressSelector(f"{self}|{other}")
 
-    def as_absolute(self, root: "Address") -> "AddressSelector":
+    def as_absolute(self, root: Address) -> AddressSelector:
         segments: list[str] = []
 
         if root.is_engine:
@@ -93,7 +93,7 @@ class AddressSelector(str):
 
         return AddressSelector(segments)
 
-    def matches(self, address: "Address", root: "Address") -> bool:
+    def matches(self, address: Address, root: Address) -> bool:
         address = Address(address)
         self = self.as_absolute(root)
 
@@ -144,9 +144,9 @@ class AddressSelector(str):
 
     def matches_expression(
         self,
-        address: "SQLColumnExpression[Address]",
-        root: "Address",
-    ) -> "ColumnElement[bool]":
+        address: SQLColumnExpression[Address],
+        root: Address,
+    ) -> ColumnElement[bool]:
         from sqlalchemy.sql import expression, or_
 
         self = self.as_absolute(root)
@@ -297,14 +297,15 @@ class DynamicAddress(AddressSelector):
 
         return type(self)(f"{self}{'.' if not self.is_root else ''}{other.strip('.')}")
 
-    def as_absolute(self, root: "Address") -> "Address":
+    @override
+    def as_absolute(self, root: Address) -> Address:
         root = Address(root)
         if self.is_absolute:
             return Address(self)
 
         return root / self
 
-    def as_relative(self) -> "DynamicAddress | None":
+    def as_relative(self) -> DynamicAddress | None:
         if self.is_engine:
             return None
 
@@ -340,14 +341,14 @@ class Address(DynamicAddress):
     regex = re.compile(rf"^~|@({_NAME}(\.{_NAME})*)*$")
 
     @classmethod
-    def engine(cls) -> "Address":
+    def engine(cls) -> Address:
         return _ENGINE
 
     @classmethod
-    def root(cls) -> "Address":
+    def root(cls) -> Address:
         return _ROOT
 
-    def contains(self, other: "Address") -> bool:
+    def contains(self, other: Address) -> bool:
         if self.is_engine:
             return True
         return other == self or (

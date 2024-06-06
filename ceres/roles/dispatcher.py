@@ -1,25 +1,28 @@
+from __future__ import annotations
+
 import traceback
 from abc import abstractmethod
 from collections import defaultdict
 from dataclasses import field
 from datetime import datetime
-from typing import Any, Iterable, Sequence, final
+from typing import Any, Iterable, Sequence, final, override
 
 from pydantic import Field
-from typing_extensions import override
 
+from ceres._internal.lazy import lazy_imports
+from ceres._internal.templates import templates
 from ceres.address import Address
-from ceres.alert import Alert, Level
+from ceres.alert import Alert, AlertFilter, AlertOrder, Level
 from ceres.component import Component, action, routine
 from ceres.data import ImmutableDataObject, NonBlankStr, jsonify
-from ceres.filter import AlertFilter, AlertOrder
-from ceres.internal.markdown import markdown
-from ceres.internal.templates import templates
-from ceres.internal.utilities import group_by
+from ceres.job import Job
 from ceres.loaded import Loaded
 from ceres.reference import Ref
 from ceres.roles.notifier import Notification, Notifier
 from ceres.schedule import Schedule
+
+with lazy_imports(__name__):
+    from ceres._internal import util
 
 
 class Dispatch(ImmutableDataObject):
@@ -58,16 +61,16 @@ class Dispatcher(Component):
         )
 
         try:
-            alerts = await self.root.get_alerts(query)
+            alerts = await self.system.alerts.get_all(query)
         except Exception:
-            self.log.error(
+            self.system.log.error(
                 f"An exception occurred while reading alerts for dispatch '{dispatch.subject}': "
                 f"{traceback.format_exc()}"
             )
             return
 
         if not alerts:
-            self.log.info(
+            self.system.log.info(
                 "No alerts were found that match the current filter. No notification will be "
                 "sent."
             )
@@ -75,12 +78,12 @@ class Dispatcher(Component):
 
         try:
             notification = await self.writer.write(dispatch, alerts)
-            self.log.info(
+            self.system.log.info(
                 f"Sending notification '{notification.subject}' to {len(dispatch.recipients)} "
                 f"recipients referring to {len(alerts)} alerts..."
             )
         except Exception:
-            self.log.error(
+            self.system.log.error(
                 f"An exception occurred while writing notification for dispatch "
                 f"'{dispatch.subject}': {traceback.format_exc()}"
             )
@@ -89,7 +92,7 @@ class Dispatcher(Component):
         try:
             await self.notifier.notify(notification, dispatch.recipients)
         except Exception:
-            self.log.error(
+            self.system.log.error(
                 f"An exception occurred while sending notification to dispatch "
                 f"'{dispatch.subject}': {traceback.format_exc()}"
             )
@@ -100,11 +103,13 @@ class Dispatcher(Component):
             if dispatch.schedule is None:
                 continue
 
-            self.add_job(
-                f"dispatch-{dispatch.subject.lower().replace(' ', '-')}",
-                dispatch.schedule,
-                self.dispatch,
-                arguments={"dispatch": dispatch},
+            self.system.jobs.add(
+                Job(
+                    name=f"dispatch-{dispatch.subject.lower().replace(' ', '-')}",
+                    schedule=dispatch.schedule,
+                    action=self.dispatch.__name__,
+                    arguments={"dispatch": dispatch},
+                )
             )
 
 
@@ -142,11 +147,11 @@ class HTMLDispatchWriter(DispatchWriter):
 
         index = create_index()
 
-        for level, by_level in group_by(
+        for level, by_level in util.group_by(
             sorted(alerts, key=lambda alert: alert.level, reverse=True),
             key=lambda alert: alert.level,
         ):
-            for key, by_key in group_by(
+            for key, by_key in util.group_by(
                 sorted(by_level, key=lambda alert: -alert.timestamp.timestamp()),
                 lambda alert: (alert.address, alert.code, jsonify(alert.info)),
             ):
@@ -158,6 +163,10 @@ class HTMLDispatchWriter(DispatchWriter):
                 group[key].sort(key=lambda alert: -alert.timestamp.timestamp())
 
         template = templates.get_template("html-email-dispatch.jinja")
+
+        from mistune import create_markdown
+
+        markdown = create_markdown()
         content = template.render(
             dispatch=dispatch,
             index=index,

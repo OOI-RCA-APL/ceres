@@ -1,7 +1,7 @@
 from asyncio import sleep
 from typing import Awaitable, Callable
 
-from ceres.internal.utilities import awaitify
+from ceres._internal import util
 from ceres.timing import utc
 
 
@@ -12,7 +12,7 @@ async def wait_for_condition(
 ) -> None:
     start = utc()
     while True:
-        if await awaitify(condition()):
+        if await util.awaitify(condition()):
             return
         if (utc() - start).total_seconds() >= timeout:
             raise TimeoutError(description)

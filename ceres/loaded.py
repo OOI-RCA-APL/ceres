@@ -1,12 +1,6 @@
-from typing import (
-    TYPE_CHECKING,
-    Annotated,
-    Any,
-    Generic,
-    Mapping,
-    Sequence,
-    TypeVar,
-)
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Annotated, Any, Mapping, Self, Sequence, TypeVar
 
 from pydantic import (
     BaseModel,
@@ -19,21 +13,16 @@ from pydantic import (
 )
 from pydantic_core import CoreSchema
 from pydantic_core.core_schema import no_info_after_validator_function
-from typing_extensions import Self
 
+from ceres._internal.lazy import lazy_imports
 from ceres.data import ImmutableDataObject
-from ceres.internal.utilities import (
-    is_mapping,
-    is_pydantic_dataclass_type,
-    lenient_isinstance,
-    lenient_issubclass,
-)
 
-_T = TypeVar("_T")
+with lazy_imports(__name__):
+    from ceres._internal import util
 
 
-class Loader(ImmutableDataObject, Generic[_T]):
-    cls: ImportString[type[_T]] = Field(alias="class")
+class Loader[T](ImmutableDataObject):
+    cls: ImportString[type[T]] = Field(alias="class")
     arguments: Mapping[str, Any] = Field(default_factory=dict, validation_alias="args")
 
     @classmethod
@@ -65,8 +54,8 @@ class Loader(ImmutableDataObject, Generic[_T]):
         if arguments is None:
             arguments = {}
 
-        if lenient_issubclass(target, BaseModel) or is_pydantic_dataclass_type(target):
-            if is_mapping(arguments):
+        if util.lenient_issubclass(target, BaseModel) or util.is_pydantic_dataclass_type(target):
+            if util.is_mapping(arguments):
                 instance = target(**arguments)
             else:
                 instance = target(*arguments)
@@ -76,7 +65,7 @@ class Loader(ImmutableDataObject, Generic[_T]):
                 init = validate_call(config=ConfigDict(arbitrary_types_allowed=True))(
                     target.__init__
                 )
-                if is_mapping(arguments):
+                if util.is_mapping(arguments):
                     init(instance, **arguments)
                 else:
                     init(instance, *arguments)
@@ -84,13 +73,13 @@ class Loader(ImmutableDataObject, Generic[_T]):
         return instance
 
 
-_loaded_type_cache: dict[type, type["LoadedType"]] = {}
+_loaded_type_cache: dict[type, type[LoadedType]] = {}
 
 
 class LoadedType:
     cls: type = object
 
-    def __class_getitem__(cls, target_cls: type, /) -> type["LoadedType"]:
+    def __class_getitem__(cls, target_cls: type, /) -> type[LoadedType]:
         if target_cls in _loaded_type_cache:
             return _loaded_type_cache[target_cls]
 
@@ -116,22 +105,23 @@ class LoadedType:
 
     @classmethod
     def validate(cls, value: Any) -> Any:
-        if lenient_isinstance(value, cls.cls):
+        if util.lenient_isinstance(value, cls.cls):
             return value
 
-        if lenient_isinstance(value, Loader):
+        if util.lenient_isinstance(value, Loader):
             loader = value
         else:
             loader = Loader.model_validate(value)
 
         instance = loader.create()
-        if not lenient_isinstance(instance, cls.cls):
+        if not util.lenient_isinstance(instance, cls.cls):
             raise ValueError(f"must be an instance of {cls.cls}")
 
         return instance
 
 
 if TYPE_CHECKING:
+    _T = TypeVar("_T")
     Loaded = Annotated[_T, ()]
 else:
     Loaded = LoadedType

@@ -16,6 +16,6 @@ class Counter(Component):
     async def count(self) -> None:
         count = self.initial  # Start counting from `initial`.
         while True:
-            self.log.info(count)  # Print the current count.
+            self.system.log.info(count)  # Print the current count.
             await sleep(1)  # Wait one second.
             count += self.delta  # Increment `count` by the configured `delta`.

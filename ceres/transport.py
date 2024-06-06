@@ -1,16 +1,18 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Callable, TypeVar
+from typing import Callable, Unpack, overload, override
 
-import anyio
-from typing_extensions import Unpack, overload
+from ceres._internal.lazy import lazy_imports
 
-from ceres.filter import MessageFilter, MessageFilterArgs
-from ceres.internal.utilities import BytesLike, bytes_of
-from ceres.message import Message
-from ceres.roles.connection import Connection
+with lazy_imports(__name__):
+    import anyio
 
-_T = TypeVar("_T")
+    from ceres._internal import util
+    from ceres._internal.util import BytesLike
+    from ceres.message import Message
+    from ceres.roles.connection import Connection
 
 
 @dataclass(kw_only=True, frozen=True)
@@ -27,11 +29,12 @@ class Transport:
     def connection(self) -> Connection:
         return self.__connection
 
+    @override
     def __repr__(self) -> str:
         return f"{type(self).__name__}({self.__connection})"
 
     async def send(self, data: BytesLike) -> Message:
-        return await self.connection.send_message(bytes_of(data))
+        return await self.connection.send(util.bytes_of(data))
 
     @overload
     async def receive(
@@ -39,36 +42,41 @@ class Transport:
         *,
         condition: Callable[[Message], bool] | None = None,
         timeout: float | timedelta | None = None,
-        **kwargs: Unpack[MessageFilterArgs],
+        default: None = None,
+        **kwargs: Unpack[Message.FilterArgs],
     ) -> Message: ...
 
     @overload
-    async def receive(
+    async def receive[
+        T
+    ](
         self,
         *,
         condition: Callable[[Message], bool] | None = None,
         timeout: float | timedelta | None = None,
-        default: _T | Callable[[], _T] = ...,
-        **kwargs: Unpack[MessageFilterArgs],
-    ) -> Message | _T: ...
+        default: T | Callable[[], T],
+        **kwargs: Unpack[Message.FilterArgs],
+    ) -> (Message | T): ...
 
-    async def receive(
+    async def receive[
+        T
+    ](
         self,
         *,
         condition: Callable[[Message], bool] | None = None,
         timeout: float | timedelta | None = None,
-        default: _T | Callable[[], _T] = ...,
-        **kwargs: Unpack[MessageFilterArgs],
-    ) -> Message | _T:
+        default: T | Callable[[], T] | None = None,
+        **kwargs: Unpack[Message.FilterArgs],
+    ) -> (Message | T):
         if isinstance(timeout, timedelta):
             timeout = timeout.total_seconds()
 
         if kwargs:
-            query = MessageFilter(**kwargs)
+            query = Message.Filter(**kwargs)
         else:
             query = None
 
-        def fail() -> _T:
+        def fail() -> T:
             if default is ...:
                 raise TimeoutError()
             if callable(default):
@@ -76,7 +84,9 @@ class Transport:
             return default  # type: ignore
 
         with anyio.move_on_after(timeout):
-            async for message in self.__connection.received:
+            async for message in self.__connection.system.messages.follow(
+                direction=Message.Direction.RECEIVE
+            ):
                 if condition is not None:
                     if not condition(message):
                         return fail()

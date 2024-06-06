@@ -1,13 +1,18 @@
+from __future__ import annotations
+
 from abc import abstractmethod
-from email.message import EmailMessage
-from typing import Iterable
+from typing import Iterable, override
 
-import aiosmtplib
 from pydantic import Field, SecretStr
-from typing_extensions import override
 
+from ceres._internal.lazy import lazy_imports
 from ceres.component import Component, action
 from ceres.data import ImmutableDataObject, NonBlankStr
+
+with lazy_imports(__name__):
+    from email.message import EmailMessage
+
+    import aiosmtplib
 
 
 class Notification(ImmutableDataObject):
@@ -43,7 +48,7 @@ class SMTPNotifier(Notifier):
     ) -> None:
         recipients = list(recipients)
         if not recipients:
-            self.log.warning("No recipients specified, skipping notification.")
+            self.system.log.warning("No recipients specified, skipping notification.")
             return
 
         message = EmailMessage()
@@ -68,4 +73,4 @@ class SMTPNotifier(Notifier):
             start_tls=self.use_starttls,
         )
 
-        self.log.info("Email notification sent successfully.")
+        self.system.log.info("Email notification sent successfully.")

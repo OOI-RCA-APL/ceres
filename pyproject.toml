@@ -6,17 +6,15 @@ authors = ["Jake Ploskey <jploskey@uw.edu>"]
 include = ["./ceres/**/*.py", "./ceres/static/**/*", "./ceres/py.typed"]
 
 [tool.poetry.dependencies]
-python = "^3.10"
+python = "^3.12"
 aiohttp = "^3.8.0"
 aiosmtplib = "^1.1.0"
 aiosqlite = ">=0.17.0"
-aiotools = "^1.7.0"
 anyio = "^4.0.0"
 apscheduler = "^3.9.0"
 argon2-cffi = "^23.1.0"
 asgiref = "^3.7.0"
 asyncpg = "^0.28.0"
-backports-strenum = { version = "^1.2.0", python = "<3.11" }
 bcrypt = "^4.1.0"
 email-validator = "^2.1.0"
 fastapi = ">=0.101.1"
@@ -39,11 +37,11 @@ watchfiles = ">=0.10.0"
 websockets = "^10.0.0"
 
 [tool.poetry.group.dev.dependencies]
-black = "24.1.1"
-pyright = "^1.1.352"
+black = "24.4.2"
+pyright = "1.1.365"
 pytest = "7.4.0"
 pytest-asyncio = "0.21.1"
-ruff = "0.2.1"
+ruff = "0.4.7"
 types-pyyaml = "^6.0.12.11"
 
 [tool.poetry.group.docs.dependencies]
@@ -64,7 +62,8 @@ lint.ignore = ["F402"]
 
 [tool.pyright]
 include = ["ceres", "tests"]
-reportAttributeAccessIssue = false         # TODO: Remove this once TypeForm[T] exists.
+# reportAttributeAccessIssue = false         # TODO: Remove this once TypeForm[T] exists.
+reportImplicitOverride = true
 reportIncompatibleVariableOverride = false
 reportMissingTypeStubs = false
 reportPrivateUsage = false

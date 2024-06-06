@@ -1,8 +1,9 @@
 <script lang="ts" setup>
+import AppLayoutDrawerComponent from '@/AppLayoutDrawerComponent.vue'
 import { Address } from '@/api/address'
 import { ComponentInfo } from '@/api/components'
 import AlertsIndicator from '@/components/AlertsIndicator.vue'
-import ComponentStatusBadge from '@/components/ComponentStatusBadge.vue'
+import StatusBadge from '@/components/StatusBadge.vue'
 import { useDrawer } from '@/drawer'
 import icons from '@/icons'
 import { useNavigation } from '@/navigation'
@@ -15,19 +16,15 @@ const { address, component } = defineProps<{
 const navigation = useNavigation()
 const drawer = useDrawer()
 
-const isExpanded = $computed(
-  () => !drawer.collapsedComponents.some((current) => current.equals(address))
-)
+const isExpanded = $computed(() => !drawer.collapsed.some((current) => current.equals(address)))
 const isRoot = $computed(() => address.isRoot)
 const isLeaf = $computed(() => !isRoot && component.components.length === 0)
 
 function toggleExpanded() {
   if (isExpanded) {
-    drawer.collapsedComponents = [...drawer.collapsedComponents, address]
+    drawer.collapsed = [...drawer.collapsed, address]
   } else {
-    drawer.collapsedComponents = drawer.collapsedComponents.filter(
-      (current) => !current.equals(address)
-    )
+    drawer.collapsed = drawer.collapsed.filter((current) => !current.equals(address))
   }
 }
 </script>
@@ -61,16 +58,16 @@ function toggleExpanded() {
     <q-item-section side>
       <div class="items-center row">
         <alerts-indicator :address class="q-mr-xs" />
-        <component-status-badge :address />
+        <status-badge :address />
       </div>
     </q-item-section>
   </q-item>
   <div v-if="!isLeaf && isExpanded">
     <app-layout-drawer-component
-      v-for="child in component.components"
-      :key="child.name"
-      :address="address.append(child.name)"
-      :component="child"
+      v-for="subcomponent in component.components"
+      :key="subcomponent.name"
+      :address="address.append(subcomponent.name)"
+      :component="subcomponent"
     />
   </div>
 </template>
@@ -88,4 +85,3 @@ function toggleExpanded() {
   min-width: 40px;
 }
 </style>
-@/api/address

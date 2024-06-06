@@ -1,8 +1,10 @@
+from __future__ import annotations
+
 import datetime as dt
 import math
 from abc import abstractmethod
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Iterable, Literal, Sequence
+from typing import TYPE_CHECKING, Iterable, Literal, Sequence, override
 
 from apscheduler.triggers.cron import CronTrigger as InternalCronTrigger
 from apscheduler.triggers.interval import IntervalTrigger as BaseInternalIntervalTrigger
@@ -20,13 +22,13 @@ class ScheduleType(StrEnum):
 
 
 class BaseSchedule(ImmutableDataObject):
-    def __or__(self, other: "Schedule") -> "OrSchedule":
+    def __or__(self, other: Schedule) -> OrSchedule:
         assert isinstance(self, Schedule)
         assert isinstance(other, Schedule)
         return OrSchedule(schedules=[self, other])
 
     @abstractmethod
-    def as_trigger(self) -> "Trigger": ...
+    def as_trigger(self) -> Trigger: ...
 
 
 class CronSchedule(BaseSchedule):
@@ -42,7 +44,8 @@ class CronSchedule(BaseSchedule):
 
         return value
 
-    def as_trigger(self) -> "CronTrigger":
+    @override
+    def as_trigger(self) -> CronTrigger:
         return CronTrigger(self)
 
 
@@ -90,21 +93,24 @@ class IntervalSchedule(BaseSchedule):
 
         return max
 
-    def as_trigger(self) -> "IntervalTrigger":
+    @override
+    def as_trigger(self) -> IntervalTrigger:
         return IntervalTrigger(self)
 
 
 class OrSchedule(BaseSchedule):
     type: Literal[ScheduleType.OR] = ScheduleType.OR
-    schedules: Sequence["Schedule"]
+    schedules: Sequence[Schedule]
 
-    def __or__(self, other: "Schedule") -> "OrSchedule":
+    @override
+    def __or__(self, other: Schedule) -> OrSchedule:
         if isinstance(other, OrSchedule):
             return OrSchedule(schedules=[*self.schedules, *other.schedules])
 
         return OrSchedule(schedules=[*self.schedules, other])
 
-    def as_trigger(self) -> "OrTrigger":
+    @override
+    def as_trigger(self) -> OrTrigger:
         return OrTrigger(self)
 
 
@@ -158,6 +164,7 @@ class CronTrigger(Trigger):
     def schedule(self) -> CronSchedule:
         return self.__schedule
 
+    @override
     def get_next_fire_time(
         self,
         previous: datetime | None = None,
@@ -188,6 +195,7 @@ class IntervalTrigger(Trigger):
     def schedule(self) -> IntervalSchedule:
         return self.__schedule
 
+    @override
     def get_next_fire_time(
         self,
         previous: datetime | None = None,
@@ -209,6 +217,7 @@ class OrTrigger(Trigger):
     def schedule(self) -> OrSchedule:
         return self.__schedule
 
+    @override
     def get_next_fire_time(
         self,
         previous: datetime | None = None,
@@ -262,6 +271,7 @@ class InternalIntervalTrigger(BaseInternalIntervalTrigger):
         self.max = max
         self.start_date = start_date or utc() - timedelta(microseconds=1)
 
+    @override
     def get_next_fire_time(
         self,
         previous_fire_time: datetime | None = None,

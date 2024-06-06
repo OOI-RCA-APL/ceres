@@ -1,9 +1,11 @@
+from __future__ import annotations
+
 from abc import ABC
 from decimal import Decimal
 from enum import Enum
 from textwrap import dedent
 from types import MethodType
-from typing import Annotated, Any, Callable, Literal, Sequence, TypeAlias, TypedDict
+from typing import Annotated, Any, Callable, Literal, Sequence, TypeAlias, TypedDict, Unpack
 
 from pydantic import (
     ConfigDict,
@@ -14,11 +16,13 @@ from pydantic import (
     StrictStr,
     field_validator,
 )
-from typing_extensions import Unpack
 
+from ceres._internal.lazy import lazy_imports
 from ceres.address import Address
 from ceres.data import Color, DataObject, ImmutableDataObject, Name, StrEnum
-from ceres.internal.utilities import strify
+
+with lazy_imports(__name__):
+    from ceres._internal import util
 
 
 class ElementType(StrEnum):
@@ -102,14 +106,14 @@ class Button(_BaseElement):
             elif not isinstance(action.__self__, Component):
                 raise ValueError("method passed as action must be bound to a component")
 
-            address = action.__self__.address
+            address = action.__self__.system.address
 
         if not isinstance(action, str):
-            from ceres.component import ActionBinding, get_method_binding
+            from ceres.component import ActionBinding, get_component_method_binding
 
-            binding = get_method_binding(action, ActionBinding)
+            binding = get_component_method_binding(action, ActionBinding)
             if not binding:
-                raise ValueError(f"function {strify(action)} has no action binding")
+                raise ValueError(f"function {util.strify(action)} has no action binding")
 
             action = binding.name
 
@@ -129,11 +133,11 @@ class Row(_BaseElement):
     sizing: Sizing = Sizing.GROW
     justify: Justify = Justify.START
     align: Align = Align.START
-    children: list["Element"]
+    children: list[Element]
 
     def __init__(
         self,
-        children: Sequence["Element"],
+        children: Sequence[Element],
         *,
         sizing: Sizing = Sizing.GROW,
         justify: Justify = Justify.START,
@@ -156,11 +160,11 @@ class Column(_BaseElement):
     sizing: Sizing = Sizing.GROW
     justify: Justify = Justify.START
     align: Align = Align.START
-    children: list["Element"]
+    children: list[Element]
 
     def __init__(
         self,
-        children: Sequence["Element"],
+        children: Sequence[Element],
         *,
         sizing: Sizing = Sizing.GROW,
         justify: Justify = Justify.START,
@@ -181,11 +185,11 @@ class Column(_BaseElement):
 class Carousel(_BaseElement):
     type: Literal[ElementType.CAROUSEL] = ElementType.CAROUSEL
     height: int | str | None = None
-    children: list["Element"]
+    children: list[Element]
 
     def __init__(
         self,
-        children: Sequence["Element"],
+        children: Sequence[Element],
         *,
         height: int | str | None = None,
         **kwargs: Unpack[_BaseElementArgs],
@@ -398,14 +402,14 @@ class _BaseRenderer(_BaseElement):
             elif not isinstance(query.__self__, Component):
                 raise ValueError("method passed as query must be bound to a component")
 
-            address = query.__self__.address
+            address = query.__self__.system.address
 
         if not isinstance(query, str):
-            from ceres.component import QueryBinding, get_method_binding
+            from ceres.component import QueryBinding, get_component_method_binding
 
-            binding = get_method_binding(query, QueryBinding)
+            binding = get_component_method_binding(query, QueryBinding)
             if not binding:
-                raise ValueError(f"function {strify(query)} has no query binding")
+                raise ValueError(f"function {util.strify(query)} has no query binding")
 
             query = binding.name
 

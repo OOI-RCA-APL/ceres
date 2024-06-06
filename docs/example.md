@@ -378,9 +378,9 @@ import csv
 from datetime import datetime
 from pathlib import Path
 
-from ceres import Component, Connection, Message, Ref, on
+from ceres import Component, Connection, Message, Ref, listener
 from ceres.data import DataObject
-from ceres.events import MessageReceivedEvent
+from ceres.event import MessageReceivedEvent
 from ceres.parsing import Parser
 
 
@@ -388,8 +388,8 @@ class Driver(Component):
     connection: Ref[Connection]
     out: Path
 
-    @on(reference="connection")
-    async def __on_message(self, event: MessageReceivedEvent) -> None:
+    @listener(reference="connection", event=MessageReceivedEvent)
+    async def on__message(self, event: MessageReceivedEvent) -> None:
         data = MessageData.parse(event.message)
 
         self.out.parent.mkdir(parents=True, exist_ok=True)
@@ -401,7 +401,7 @@ class Driver(Component):
                 data.humidity,
             ]
 
-            self.log.info(row)
+            self.system.log.info(row)
             writer.writerow(row)
 
 
@@ -470,7 +470,7 @@ There are many things to unpack here, so lets go through them one by one:
 
 4. The `connection` field is defined as a `Ref[Connection]`, meaning it accepts a "reference" to a `Connection` component. Within `ceres.yaml`, addresses of components can be passed to reference fields and Ceres will assign the component automatically on load.
 5. The `out` field accepts a file system path the driver will write to.
-6. The `Driver` component defines an event listener called `__on_message` using the `@on` decorator. `__on_message` will be invoked whenever a `MessageReceivedEvent` is emitted by the component _assigned to the field_ `connection`, which in the above configuration is our `TCPConnection` `@connection`.
+6. The `Driver` component defines an event listener called `on__message` using the `@on` decorator. `on__message` will be invoked whenever a `MessageReceivedEvent` is emitted by the component _assigned to the field_ `connection`, which in the above configuration is our `TCPConnection` `@connection`.
 
    _At runtime, `Driver` can use `self.connection` to access the connection component instance. For example, the driver could execute `await self.connection.send(b"abc")` to send data to the device over TCP._
 

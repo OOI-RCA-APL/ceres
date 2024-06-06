@@ -15,8 +15,10 @@ class Random(Component):
     @routine
     async def routine__print_random(self) -> None:
         while True:
-            self.log.info(randint(self.low, self.high))  # Print the current count.
-            await sleep(self.interval.total_seconds())  # Wait the configured interval.
+            # Print a random integer within the configured range.
+            self.system.log.info(randint(self.low, self.high))
+            # Wait the configured interval.
+            await sleep(self.interval.total_seconds())
 
 
 # This section is only included for example.
@@ -24,6 +26,7 @@ if __name__ == "__main__":
 
     async def main() -> None:
         component = Random(low=1, high=100)
-        await component.run()
+        await component.system.run()
 
-    asyncio.run(main())  # Logs a random number between 1 and 100 every second until cancelled.
+    # Log a random number between 1 and 100 every second until cancelled.
+    asyncio.run(main())

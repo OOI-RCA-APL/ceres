@@ -2,9 +2,9 @@ import csv
 from datetime import datetime
 from pathlib import Path
 
-from ceres import Component, Connection, Message, Ref, on
+from ceres import Component, Connection, Message, Ref, listener
 from ceres.data import DataObject
-from ceres.events import MessageReceivedEvent
+from ceres.event import MessageReceivedEvent
 from ceres.parsing import Parser
 
 
@@ -12,7 +12,7 @@ class Driver(Component):
     connection: Ref[Connection]
     out: Path
 
-    @on(reference="connection", event=MessageReceivedEvent)
+    @listener(reference="connection", event=MessageReceivedEvent)
     async def on__message(self, event: MessageReceivedEvent) -> None:
         data = MessageData.parse(event.message)
 
@@ -25,7 +25,7 @@ class Driver(Component):
                 data.humidity,
             ]
 
-            self.log.info(row)
+            self.system.log.info(row)
             writer.writerow(row)
 
 

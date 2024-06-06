@@ -1,13 +1,17 @@
+from __future__ import annotations
+
 import asyncio
+import traceback
 from abc import ABC, abstractmethod
 from asyncio import Event as AsyncEvent
 from asyncio import Task
 from dataclasses import dataclass, field
-from typing import Callable, cast
+from typing import Callable, Self, cast
 
-from typing_extensions import Self
+from ceres._internal.lazy import lazy_imports
 
-from ceres.internal.utilities import cancel, wait_any
+with lazy_imports(__name__):
+    from ceres._internal import util
 
 
 @dataclass
@@ -24,7 +28,7 @@ _INTERNAL_ATTRIBUTE_NAME = "__tasklet__"
 class Tasklet(ABC):
     """
     Base class for objects that run as asyncio background tasks, including all instances of
-    `Object` like `Component` and `Engine`.
+    `Node`, like `Component` and `Engine`.
     """
 
     @property
@@ -46,6 +50,9 @@ class Tasklet(ABC):
 
     @abstractmethod
     async def __stop__(self) -> None: ...
+
+    async def __post_stop__(self) -> None:
+        pass
 
     @property
     def __tasklet__(self) -> _TaskletInternal:
@@ -80,7 +87,7 @@ class Tasklet(ABC):
         task_exit = asyncio.create_task(self.__tasklet__.stopping.wait())
 
         async def main() -> None:
-            await wait_any(task_run, task_exit)
+            await util.wait_any(task_run, task_exit)
 
             try:
                 if task_run.done():
@@ -92,7 +99,7 @@ class Tasklet(ABC):
                             on_exception(self, exception)
             finally:
                 self.__tasklet__.stopping.set()
-                await cancel(task_run, task_exit)
+                await util.cancel(task_run, task_exit)
 
                 try:
                     await self.__stop__()
@@ -102,6 +109,10 @@ class Tasklet(ABC):
 
                     self.__tasklet__.task = None
                     self.__tasklet__.stopped.set()
+                    try:
+                        await self.__post_stop__()
+                    except Exception:
+                        traceback.print_exc()
 
         self.__tasklet__.task = asyncio.create_task(main(), name=str(type(self)))
 
