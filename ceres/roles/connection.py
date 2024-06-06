@@ -70,9 +70,9 @@ class ConnectionReconnectSettings(ImmutableDataObject):
 
 
 class ConnectionBufferingSettings(ImmutableDataObject):
-    read: ByteSize = TypeAdapter(ByteSize).validate_python("1 KB")
-    limit: ByteSize = TypeAdapter(ByteSize).validate_python("100 KB")
-    drop: ByteSize = TypeAdapter(ByteSize).validate_python("10 KB")
+    read: ByteSize = Field(default=TypeAdapter(ByteSize).validate_python("1 KB"), gt=0)
+    limit: ByteSize = Field(default=TypeAdapter(ByteSize).validate_python("100 KB"), gt=0)
+    drop: ByteSize = Field(default=TypeAdapter(ByteSize).validate_python("10 KB"), gt=0)
 
     @model_validator(mode="after")
     def _validate(self) -> Self:
