@@ -134,7 +134,8 @@ def _setup_lazy_exports(__name__: str):
     module = sys.modules[__name__]
 
     attrs = module.__dict__
-    attrs.setdefault(lazy_lock_name, Lock())
+    if lazy_lock_name not in attrs:
+        attrs.setdefault(lazy_lock_name, Lock())
 
     with attrs[lazy_lock_name]:
         for key, value in list(attrs.items()):
