@@ -15,7 +15,7 @@ from ceres._internal.cli.plumbing import (
     CLIOption,
     CLIRouter,
 )
-from ceres._internal.lazy import lazy_imports, unlazy
+from ceres._internal.lazy import lazy_imports, unwrap
 from ceres.address import AddressSelector
 from ceres.result import Fail, Ok
 from ceres.version import __version__
@@ -492,8 +492,8 @@ def main() -> None:
 
     if not subcommand:
         for subrouter in subrouters.values():
-            router.add_typer(unlazy(subrouter))
+            router.add_typer(unwrap(subrouter))
     elif subcommand in subrouters:
-        router.add_typer(unlazy(subrouters[subcommand]))
+        router.add_typer(unwrap(subrouters[subcommand]))
 
     router()

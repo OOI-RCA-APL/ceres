@@ -7,41 +7,6 @@ from types import ModuleType, UnionType
 from typing import TYPE_CHECKING, Any, Mapping, NoReturn, Sequence, overload, override
 
 
-class LazyExport:
-    def __init__(self, __name__: str) -> None:
-        from collections import defaultdict
-
-        self._module = sys.modules[__name__]
-        self._module.__getattr__ = self.get
-        self._exports: defaultdict[str, list[str]] = defaultdict(list)
-        self._export_mapping: dict[str, str] | None = None
-
-    def __call__(self, path: str, *names: str) -> Any:
-        self._exports[path].extend(names)
-        self._export_mapping = None
-
-    def get(self, name: str) -> object:
-        path = self.__sync_mapping().get(name)
-        if path is None:
-            raise AttributeError(f"module {__name__} has no attribute {name}")
-
-        import importlib
-
-        module = importlib.import_module(path, package=__package__)
-
-        return getattr(module, name)
-
-    def __sync_mapping(self) -> dict[str, str]:
-        if self._export_mapping is None:
-            self._export_mapping = {}
-            for path, names in self._exports.items():
-                for name in names:
-                    self._export_mapping[name] = path
-
-        self._module.__all__ = sorted(self._export_mapping.keys())  # type: ignore
-        return self._export_mapping
-
-
 class ProxiedMethods:
     if TYPE_CHECKING:
 
@@ -336,7 +301,6 @@ class ProxiedMethods:
 
 
 _proxy_dynamic_cls_cache: dict[type, type[LazyProxy]] = {}
-
 _undefined = object()
 
 
@@ -480,36 +444,64 @@ def __lazy_import__(
         if caller is not None and caller in _current_lazy_importing_modules:
             return _get_cached_lazy_proxy(name, tuple(fromlist or ()))
 
-    return _import_original(
-        name,
-        globals,
-        locals,
-        fromlist,  # type: ignore
-        level,
-    )
+    return _import_original(name, globals, locals, fromlist or (), level)
+
+
+def _setup_lazy_exports(__name__: str):
+    lazy_attr_prefix = "__lazy__"
+    lazy_lock_name = "__lazy_setup_lock__"
+
+    module = sys.modules[__name__]
+
+    attrs = module.__dict__
+    attrs.setdefault(lazy_lock_name, Lock())
+
+    with attrs[lazy_lock_name]:
+        for key, value in list(attrs.items()):
+            if key.startswith(lazy_attr_prefix):
+                continue
+
+            if isinstance(value, LazyProxy):
+                del attrs[key]
+                attrs[lazy_attr_prefix + key] = value
+
+        def __lazy_getattr__(name: str) -> object:
+            lazy_key = lazy_attr_prefix + name
+            if lazy_key in attrs:
+                value = unwrap(attrs[lazy_key])
+                attrs[name] = value
+                attrs.pop(lazy_key, None)
+                return value
+
+            raise AttributeError(f"module {name} has no attribute {name}")
+
+        module.__getattr__ = __lazy_getattr__
 
 
 @contextmanager
-def lazy_imports(name: str):
+def lazy_imports(__name__: str, export: bool = False):
     if __builtins__.get("__import__") is not __lazy_import__:
         __builtins__["__import__"] = __lazy_import__
 
-    _current_lazy_importing_modules.add(name)
+    _current_lazy_importing_modules.add(__name__)
     try:
         yield
     finally:
-        _current_lazy_importing_modules.remove(name)
+        _current_lazy_importing_modules.discard(__name__)
+
+    if export:
+        _setup_lazy_exports(__name__)
 
 
 @overload
-def unlazy(value: LazyProxy) -> Any: ...
+def unwrap(value: LazyProxy) -> Any: ...
 
 
 @overload
-def unlazy[T](value: T) -> T: ...
+def unwrap[T](value: T) -> T: ...
 
 
-def unlazy[T](value: T | LazyProxy) -> T:
+def unwrap[T](value: T | LazyProxy) -> T:
     if isinstance(value, LazyProxy):
         return value.__proxy_get__()
 
