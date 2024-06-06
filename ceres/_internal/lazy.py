@@ -305,6 +305,14 @@ _undefined = object()
 
 
 class LazyProxy:
+    __slots__ = (
+        "__class__",
+        "__proxy_module__",
+        "__proxy_proxied_attrs__",
+        "__proxy_target_attr__",
+        "__proxy_target__",
+    )
+
     def __init__(
         self,
         module: str,
@@ -360,7 +368,7 @@ class LazyProxy:
     def __proxy_sync_dynamic_class__(self) -> type[LazyProxy]:
         current = self.__proxy_get_dynamic_class__()
         if self.__class__ is not current:
-            self.__class__ = current
+            self.__class__ = current  # type: ignore
 
         return current
 
@@ -428,8 +436,8 @@ def _get_cached_lazy_proxy(
     return proxy
 
 
-_import_original = __import__
-_current_lazy_importing_modules: set[str] = set()
+_original__import__ = __import__
+_lazy_importing_modules: set[str] = set()
 
 
 def __lazy_import__(
@@ -441,10 +449,16 @@ def __lazy_import__(
 ) -> ModuleType | LazyProxy:
     if locals is not None:
         caller = locals.get("__name__")
-        if caller is not None and caller in _current_lazy_importing_modules:
+        if caller is not None and caller in _lazy_importing_modules:
             return _get_cached_lazy_proxy(name, tuple(fromlist or ()))
 
-    return _import_original(name, globals, locals, fromlist or (), level)
+    return _original__import__(
+        name,
+        globals,
+        locals,
+        fromlist,  # type: ignore
+        level,
+    )
 
 
 def _setup_lazy_exports(__name__: str):
@@ -483,11 +497,11 @@ def lazy_imports(__name__: str, export: bool = False):
     if __builtins__.get("__import__") is not __lazy_import__:
         __builtins__["__import__"] = __lazy_import__
 
-    _current_lazy_importing_modules.add(__name__)
+    _lazy_importing_modules.add(__name__)
     try:
         yield
     finally:
-        _current_lazy_importing_modules.discard(__name__)
+        _lazy_importing_modules.discard(__name__)
 
     if export:
         _setup_lazy_exports(__name__)
