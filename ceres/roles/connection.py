@@ -295,15 +295,24 @@ class Connection(Component, ABC):
                 self.__buffer.extend(received)
 
                 # Drop data from the buffer if it exceeds the buffer size limit.
-                if len(self.__buffer) > self.buffering.limit:
-                    size = ByteSize(len(self.__buffer))
+                excess = len(self.__buffer) - self.buffering.limit
+                if excess > 0:
+                    # Figure out how many times when need to drop `drop` bytes from the beginning
+                    # of the buffer to get below `limit`.
+                    drops = excess // self.buffering.drop
+                    # If there is a remainder, we need to drop one more time.
+                    if excess % self.buffering.drop != 0:
+                        drops += 1
 
-                    del self.__buffer[: self.buffering.drop]
+                    dropped = drops * self.buffering.drop
+                    size = len(self.__buffer)
+                    del self.__buffer[:dropped]
+
                     self.system.events.emit(
                         BufferOverflowEvent,
-                        size=size,
+                        size=ByteSize(size),
                         limit=self.buffering.limit,
-                        dropped=self.buffering.drop,
+                        dropped=ByteSize(dropped),
                     )
 
                 # Keep track of the last match processed.
@@ -324,8 +333,8 @@ class Connection(Component, ABC):
                     self.system.messages.store(message)
                     self.system.events.emit(MessageReceivedEvent, message=message)
 
+                # If any matches were found, drop all bytes up to the end of the last match.
                 if last is not None:
-                    # Remove all data up to and including the last match, if any were found.
                     del self.__buffer[: last.end()]
 
     @routine
