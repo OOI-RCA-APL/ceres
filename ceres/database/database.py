@@ -5,6 +5,7 @@ import shutil
 import traceback
 from abc import abstractmethod
 from asyncio import Lock as AsyncLock
+from functools import cached_property
 from pathlib import Path
 from tempfile import NamedTemporaryFile, gettempdir
 from typing import (
@@ -54,6 +55,12 @@ with lazy_imports(__name__):
         create_async_engine,
     )
 
+    from ceres.manager.alert import AlertManager
+    from ceres.manager.logs import LogManager
+    from ceres.manager.message import MessageManager
+    from ceres.manager.statistic import StatisticsManager
+    from ceres.manager.user import UserManager
+
 
 class Database:
     def __new__(cls, /, config: DatabaseConfig | None = None) -> Database:
@@ -99,6 +106,26 @@ class Database:
             commands.extend(cls.get_ddl(self.__engine.sync_engine))
 
         return commands
+
+    @cached_property
+    def messages(self) -> MessageManager:
+        return MessageManager(self)
+
+    @cached_property
+    def alerts(self) -> AlertManager:
+        return AlertManager(self)
+
+    @cached_property
+    def log(self) -> LogManager:
+        return LogManager(self)
+
+    @cached_property
+    def users(self) -> UserManager:
+        return UserManager(self)
+
+    @cached_property
+    def statistics(self) -> StatisticsManager:
+        return StatisticsManager(self)
 
     @property
     @abstractmethod
