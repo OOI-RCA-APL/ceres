@@ -101,7 +101,7 @@ class EventManager(BaseBoundManager[Event]):
 
         container = self._node.__container__
 
-        # If there is a parent node, defer propagation to it.
+        # If there is a containing node, defer propagation to it.
         if container is not None:
             container.events.propagate(event)
             return
@@ -112,7 +112,7 @@ class EventManager(BaseBoundManager[Event]):
         # Handle the event ourselves.
         self.handle(event)
 
-        # Traverse the tree calling `handle(event)` for every subsystem.
+        # Traverse the tree, calling `handle(event)` for every component.
         for component in self._node.get_components(inclusive=False):
             if component.system not in seen:
                 seen.add(component.system)
