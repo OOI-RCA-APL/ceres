@@ -5,7 +5,7 @@ from typing import Any, override
 
 import pytest
 
-from ceres import Address, Component, Config, Event, Level, Ref, action, listener, query
+from ceres import Component, Event, Level, Ref, action, listener, query
 from ceres.component import (
     RoutineBinding,
     RoutineRestartPolicy,
@@ -27,12 +27,6 @@ from ceres.event import (
     RoutineStoppedEvent,
 )
 from ceres.validation import ValidationProblem
-
-print("EMMMMMMMM", Event)
-
-
-def test_address() -> None:
-    print(Address, Config, action)
 
 
 async def test_listeners() -> None:

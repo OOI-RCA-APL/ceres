@@ -467,7 +467,6 @@ class Engine(Node):
             else component.system.config.model_dump(include=include)
         )
         new = config.model_dump(include=include)
-        print(old, new)
 
         if old != new:
             affected = [address]
