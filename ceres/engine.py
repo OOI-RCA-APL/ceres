@@ -66,11 +66,11 @@ class Engine(Node):
 
         from ceres.database.database import Database
 
+        self._root: ComponentSystem | None = None
         self._database = Database(self._config.database)
         self._reloading = AsyncEvent()
         self._reloaded_config: Config | None = None
         self._server: Server | None = None
-        self.root = Component(__with_name__="root").system
 
         if self._config_path is not None:
             self._project_directory = Directory(self._config_path.parent)
@@ -191,7 +191,8 @@ class Engine(Node):
     async def __stop__(self) -> None:
         self.events.emit(StoppingEvent)
         await self.__stop_server()
-        await self._root.stop()
+        if self._root is not None:
+            await self._root.stop()
 
     @override
     async def __post_stop__(self) -> None:
@@ -222,6 +223,9 @@ class Engine(Node):
 
     @override
     def get_component(self, address: str | DynamicAddress | None = None) -> Component | None:
+        if self._root is None:
+            return None
+
         return self._root.get_component(address)
 
     @override
@@ -233,6 +237,9 @@ class Engine(Node):
         inclusive: bool = False,
         **kwargs: Unpack[ComponentFilterArgs],
     ) -> list[Component]:
+        if self._root is None:
+            return []
+
         return self._root.get_components(filter, inclusive=True, **kwargs)
 
     async def hash_password(self, password: str) -> PasswordHash:
@@ -312,7 +319,8 @@ class Engine(Node):
                 self.log.info("Database configuration modified, reloading database and systems...")
                 try:
                     running = self.get_components(running=True)
-                    await self._root.stop()
+                    if self._root is not None:
+                        await self._root.stop()
                     await self._database.dispose()
                     from ceres.database.database import Database
 
@@ -460,7 +468,7 @@ class Engine(Node):
             case (component, config):
                 pass
 
-        include = {"name", "cls_path", "class", "arguments"}
+        include = {"name", "cls", "class", "arguments"}
         old = (
             {}
             if component.system.config is None
