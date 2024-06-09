@@ -9,13 +9,13 @@ from ceres._internal.lazy import lazy_imports
 with lazy_imports(__name__):
     from ceres._internal import util
     from ceres._internal.cli.plumbing import CLICommandFailed
-    from ceres._internal.project import Project
+    from ceres._internal.project import LoadedProject
     from ceres.data import simplify
     from ceres.status import Status
 
 
 class Client:
-    def __init__(self, project: Project) -> None:
+    def __init__(self, project: LoadedProject) -> None:
         self.project = project
 
     async def online(self) -> bool:

@@ -7,8 +7,8 @@ from ceres._internal.lazy import lazy_imports
 
 with lazy_imports(__name__):
     from ceres._internal.cli.service import LaunchDService, Service, SystemDService
-    from ceres._internal.cli.shared import use_project, write, write_table
-    from ceres._internal.project import Project
+    from ceres._internal.cli.shared import use_loaded_project, write, write_table
+    from ceres._internal.project import LoadedProject
 
 router = CLIRouter(
     name="service",
@@ -34,7 +34,7 @@ async def generate(
     """
     Generate a service definition file for this project.
     """
-    project = await use_project(context)
+    project = await use_loaded_project(context)
     service = _get_service(project)
     defintition = service.generate()
 
@@ -50,7 +50,7 @@ async def start(context: CLIContext) -> None:
     """
     Start the background service, creating and/or updating the service file as needed.
     """
-    project = await use_project(context)
+    project = await use_loaded_project(context)
     service = _get_service(project)
     write("All checks passed.")
     write(f"Starting service {service.name!r} at {service.location!r}...")
@@ -63,7 +63,7 @@ async def stop(context: CLIContext) -> None:
     """
     Stop the background service, deleting the service file afterwards.
     """
-    project = await use_project(context)
+    project = await use_loaded_project(context)
     service = _get_service(project)
     write(f"Stopping service {service.name!r} at {service.location}...")
     service.stop()
@@ -75,7 +75,7 @@ async def status(context: CLIContext) -> None:
     """
     Show the status of the background service.
     """
-    project = await use_project(context)
+    project = await use_loaded_project(context)
     service = _get_service(project)
 
     with write_table() as table:
@@ -91,7 +91,7 @@ async def status(context: CLIContext) -> None:
         )
 
 
-def _get_service(project: Project) -> Service:
+def _get_service(project: LoadedProject) -> Service:
     if sys.platform == "linux":
         return SystemDService(project, silent=False)
     if sys.platform == "darwin":

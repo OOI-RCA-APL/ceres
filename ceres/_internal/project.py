@@ -11,17 +11,12 @@ with lazy_imports(__name__):
 
 
 class Project:
-    def __init__(self, config_path: Path, config: Config) -> None:
+    def __init__(self, config_path: Path) -> None:
         self._config_path = config_path.resolve()
-        self._config = config
 
     @property
     def config_path(self) -> Path:
         return self._config_path
-
-    @property
-    def config(self) -> Config:
-        return self._config
 
     @property
     def directory(self) -> Directory:
@@ -35,9 +30,19 @@ class Project:
     def local_directory(self) -> Directory:
         return Directory(self.directory / "local")
 
+
+class LoadedProject(Project):
+    def __init__(self, config_path: Path, config: Config) -> None:
+        super().__init__(config_path)
+        self._config = config
+
+    @property
+    def config(self) -> Config:
+        return self._config
+
     @property
     def socket_path(self) -> Path:
-        if self._config.server.socket:
+        if self._config.server.socket is not None:
             return self._config.server.socket
 
         return Path(f"/tmp/ceres-{self.directory_hash}.sock")

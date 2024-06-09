@@ -4,6 +4,8 @@ from abc import ABC, abstractmethod
 from typing import Any, Sequence, override
 
 from ceres._internal.lazy import lazy_imports
+from ceres._internal.project import LoadedProject
+from ceres.config import ServiceConfig
 from ceres.data import DataObject, StrEnum
 
 with lazy_imports(__name__):
@@ -28,9 +30,8 @@ class ServiceStatus(DataObject):
 
 
 class Service(ABC):
-    def __init__(self, project: Project, silent: bool = True) -> None:
+    def __init__(self, project: LoadedProject, silent: bool = True) -> None:
         self.__project = project
-        self.__service_config = project.config.service
         self.__silent = silent
 
     @property
@@ -38,26 +39,30 @@ class Service(ABC):
         return self.__project
 
     @property
+    def config(self) -> ServiceConfig:
+        return self.__project.config.service
+
+    @property
     def name(self) -> str:
-        return self.__service_config.name or "ceres-" + self.__project.directory_hash
+        return self.config.name or "ceres-" + self.__project.directory_hash
 
     @property
     def user(self) -> str:
-        return self.__service_config.user or getuser()
+        return self.config.user or getuser()
 
     @property
     def stdout(self) -> Path | None:
-        if self.__service_config.stdout is None or self.__service_config.stdout.is_absolute():
-            return self.__service_config.stdout
+        if self.config.stdout is None or self.config.stdout.is_absolute():
+            return self.config.stdout
 
-        return self.__project.directory / self.__service_config.stdout
+        return self.__project.directory / self.config.stdout
 
     @property
     def stderr(self) -> Path | None:
-        if self.__service_config.stderr is None or self.__service_config.stderr.is_absolute():
-            return self.__service_config.stderr
+        if self.config.stderr is None or self.config.stderr.is_absolute():
+            return self.config.stderr
 
-        return self.__project.directory / self.__service_config.stderr
+        return self.__project.directory / self.config.stderr
 
     def _log(self, message: Any) -> None:
         if not self.__silent:

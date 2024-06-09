@@ -317,7 +317,7 @@ class ReferenceProxiedMethods:
 
 
 class Reference:
-    __reference_constraint__: type | None = None
+    __reference_constraint__: type[Component] | None = None
 
     def __class_getitem__(cls, constraint: type, /) -> type[Self]:
         if not isinstance(constraint, type):
@@ -430,6 +430,14 @@ class Reference:
         else:
             setattr(self.__reference_get__(), name, value)
 
+    @property
+    def __reference_ultimate_target__(self) -> DynamicAddress | Component:
+        current = self.__reference_target__
+        while isinstance(current, Reference):
+            current = current.__reference_target__
+
+        return current
+
     def __reference_sync_dynamic_class__(self) -> type[Reference]:
         current = self.__reference_get_dynamic_class__()
         if self.__class__ is not current:
@@ -477,13 +485,13 @@ class Reference:
         return SpecializedReference
 
     def __reference_get__(self) -> Component | None:
-        target = self.__reference_target__
+        target = self.__reference_ultimate_target__
         root = self.__reference_root__
 
         if not util.lenient_isinstance(target, DynamicAddress):
-            return target.__unref__()
+            return target
 
-        if root is not None and util.lenient_isinstance(target, DynamicAddress):
+        if root is not None:
             root = cast(Component, root)
             return root.system.get_component(target)
 

@@ -1,6 +1,7 @@
 services:
   postgres:
     image: postgres:15
+    # image: ghcr.io/hydradatabase/hydra:latest
     restart: unless-stopped
     environment:
       POSTGRES_USER: ceres

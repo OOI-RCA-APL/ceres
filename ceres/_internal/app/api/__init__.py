@@ -19,7 +19,8 @@ from ceres.address import Address
 from ceres.component import ComponentFilter
 from ceres.config import Config
 from ceres.data import ImmutableDataObject
-from ceres.error import Failure, NotFoundError, ReloadError
+from ceres.error import Failure, NotFoundError
+from ceres.result import Fail, Ok
 
 with lazy_imports(__name__):
     from ceres._internal.util import OrderedSet
@@ -47,10 +48,14 @@ async def get_api() -> RedirectResponse:
     "/reload",
     tags=["engine"],
     dependencies=[OPERATOR],
-    response_model=Config | ReloadError,
+    response_model=Config,
 )
 async def reload(engine: CurrentEngine) -> Config:
-    return await engine.reload()
+    match await engine.reload():
+        case Ok(config):
+            return config
+        case Fail(error):
+            raise Failure(error)
 
 
 class StartResult(ImmutableDataObject):

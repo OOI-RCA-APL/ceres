@@ -29,7 +29,7 @@ with lazy_imports(__name__):
     from ceres._internal import util
     from ceres._internal.database.writer import Writer
     from ceres.component import Component, ComponentFilter, ComponentFilterArgs, ComponentSystem
-    from ceres.config import LoggingConfig, NodeConfig
+    from ceres.config import ComponentConfig, Config, LoggingConfig
     from ceres.database.database import Database
     from ceres.engine import Engine
     from ceres.manager.alert import LiveAlertManager
@@ -70,7 +70,7 @@ class Node(Tasklet):
 
     @property
     @abstractmethod
-    def config(self) -> NodeConfig | None: ...
+    def config(self) -> Config | ComponentConfig | None: ...
 
     @property
     @abstractmethod

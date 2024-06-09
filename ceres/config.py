@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-import asyncio
 import os
 import ssl
-import traceback
 from datetime import timedelta
 from pathlib import Path
-from typing import Annotated, Any, Callable, Literal, Mapping, Self, Sequence
+from typing import TYPE_CHECKING, Annotated, Any, Literal, Mapping, Self, Sequence
 
 from annotated_types import Ge, Le
 from argon2.profiles import RFC_9106_LOW_MEMORY
@@ -19,9 +17,10 @@ from pydantic import (
     ValidationError,
     ValidationInfo,
     field_validator,
+    model_validator,
 )
 
-from ceres._internal import util
+from ceres._internal.lazy import lazy_imports
 from ceres._internal.typedecs import __Component__
 from ceres.address import Address, DynamicAddress
 from ceres.data import (
@@ -38,20 +37,24 @@ from ceres.error import (
     ComponentInitExceptionError,
     ComponentReferenceInvalidError,
     ComponentValidationError,
-    ConfigComponentError,
-    ConfigDatabaseError,
     ConfigError,
     ConfigParseError,
     ConfigParseErrorLocation,
     ConfigReadError,
     ConfigValidationError,
-    Failure,
+    ValidationProblem,
 )
 from ceres.job import Job
 from ceres.level import Level
 from ceres.result import Fail, Ok, Result
-from ceres.timing import utc
-from ceres.validation import ValidationProblem
+
+with lazy_imports(__name__):
+    from ceres._internal import util
+
+if TYPE_CHECKING:
+    from ceres.component import Component
+else:
+    Component = object
 
 
 class ConfigObject(ImmutableDataObject):
@@ -68,13 +71,13 @@ class LoggingConfig(ConfigObject):
     log_alerts_level: Level | None = None
 
 
-def _get_component_class() -> type[__Component__]:
+def _get_component_class() -> type[Component]:
     from ceres.component import Component
 
     return Component
 
 
-class NodeConfig(ConfigObject):
+class ComponentConfig(ConfigObject):
     name: Name
     cls: ImportString[type[__Component__]] = Field(
         default_factory=_get_component_class,
@@ -86,16 +89,24 @@ class NodeConfig(ConfigObject):
     components: Sequence[ComponentConfig] = Field(default_factory=list)
 
     @field_validator("cls")
-    def _validate_cls(
-        cls,
-        value: ImportString[type[__Component__]],
-    ) -> ImportString[type[__Component__]]:
+    def _validate_cls(cls, value: ImportString[type[Component]]) -> ImportString[type[Component]]:
         from ceres.component import Component
 
         if not issubclass(value, Component):
             raise ValueError("class must be a subclass of `ceres.component.Component`")
 
         return value
+
+    @model_validator(mode="after")
+    def _validate_arguments(self) -> Self:
+        if "__with_name__" in self.arguments:
+            raise ValueError("'__with_name__' is a reserved argument name")
+
+        if "__with_config__" in self.arguments:
+            raise ValueError("'__with_config__' is a reserved argument name")
+
+        self.cls(**self.arguments)
+        return self
 
     @field_validator("name")
     def _validate_name(cls, value: Name) -> Name:
@@ -105,7 +116,7 @@ class NodeConfig(ConfigObject):
         return value
 
     @field_validator("components", check_fields=False)
-    def _validate_children(
+    def _validate_components(
         cls,
         components: Sequence[ComponentConfig],
         info: ValidationInfo,
@@ -119,26 +130,111 @@ class NodeConfig(ConfigObject):
 
         return components
 
+    def create(
+        self,
+        *,
+        parent: Component | None = None,
+        address: Address | None = None,
+    ) -> Result[Component, list[ComponentError]]:
+        instance, errors = self._try_create(parent=parent, address=address)
+        if errors or instance is None:
+            return Fail(errors)
 
-class ComponentConfig(NodeConfig):
-    def create(self) -> __Component__:
+        return Ok(instance)
+
+    def _try_create(
+        self,
+        *,
+        parent: Component | None = None,
+        address: Address | None = None,
+    ) -> tuple[Component | None, list[ComponentError]]:
+        from ceres.reference import unref
+
+        if address is None:
+            if parent is not None:
+                address = parent.system.address / self.name
+            else:
+                address = Address.root()
+
+        errors: list[ComponentError] = []
+        instance = self._create(address=address, errors=errors)
+        if instance is not None and not errors:
+            if parent is not None:
+                parent.system.attach(instance)
+
+            components = instance.system.get_components(inclusive=True)
+            for component in components:
+                _, unresolved = component.system.sync_references()
+                if unresolved:
+                    for reference in unresolved:
+                        errors.append(
+                            ComponentReferenceInvalidError(
+                                address=component.system.address,
+                                referenced=reference.__reference_ultimate_target__,
+                                expected=reference.__reference_constraint__ or Component,  # type: ignore
+                                actual=type(unref(reference)),
+                            )
+                        )
+
+        if instance is not None and errors:
+            instance.system.detach()
+
+        return instance, errors
+
+    def _create(self, *, address: Address, errors: list[ComponentError]) -> Component | None:
         try:
-            return self.cls(
+            instance = self.cls(
                 **self.arguments,
                 __with_name__=self.name,
                 __with_config__=self,
             )
         except ValidationError as error:
-            raise Failure(
+            errors.append(
                 ComponentValidationError(
+                    address=address,
                     problems=ValidationProblem.extract(error, self.arguments),
                 )
             )
-        except Exception as error:
-            raise Failure(ComponentInitExceptionError(traceback=util.get_traceback(error)))
+            return None
+        except Exception as exception:
+            errors.append(
+                ComponentInitExceptionError(
+                    address=address,
+                    traceback=util.get_traceback(exception),
+                )
+            )
+            return None
+
+        for child_config in self.components:
+            child = child_config._create(
+                address=address / child_config.name,
+                errors=errors,
+            )
+
+            if child is not None:
+                instance.system.attach(child, name=child_config.name)
+
+        return instance
+
+    def get_component(self, address: DynamicAddress) -> ComponentConfig | None:
+        current = self
+        for name in address.names:
+            if current is None:
+                return None
+
+            current = next((child for child in current.components if child.name == name), None)
+
+        return current
+
+    def get_component_class(self, address: DynamicAddress) -> type[Component] | None:
+        config = self.get_component(address)
+        if config is None:
+            return None
+
+        return config.cls
 
 
-NodeConfig.model_rebuild()
+ComponentConfig.model_rebuild()
 
 
 class ServiceConfig(ConfigObject):
@@ -244,7 +340,6 @@ class BaseDatabaseConfig(ConfigObject):
     type: DatabaseType
     hooks: DatabaseConfigHooks = Field(default_factory=DatabaseConfigHooks)
     engine: Mapping[str, Any] = Field(default_factory=dict)
-    retry: DatabaseRetryConfig = DatabaseRetryConfig()
     hashing: HashingConfig = Field(default_factory=Argon2HashingConfig, discriminator="type")
 
 
@@ -274,15 +369,38 @@ class ConfigCheckType(StrEnum):
         return tuple(cls)
 
 
-class Config(ComponentConfig):
-    name: Name = "root"
+class Config(ConfigObject):
     service: ServiceConfig = Field(default_factory=ServiceConfig)
     server: ServerConfig = Field(default_factory=ServerConfig)
     console: ConsoleConfig = Field(default_factory=ConsoleConfig)
     database: DatabaseConfig = Field(default_factory=SQLiteDatabaseConfig, discriminator="type")
+    logging: LoggingConfig = Field(default_factory=LoggingConfig)
+    root: ComponentConfig = Field(default_factory=lambda: ComponentConfig(name="root"))
+
+    @model_validator(mode="before")
+    def _validate(cls, values: object) -> object:
+        if isinstance(values, Mapping):
+            values = dict(values)
+            if "components" in values:
+                if "root" in values:
+                    raise ValueError(
+                        "cannot have both `root` and `components` defined at base level of config"
+                    )
+
+                values["root"] = {"components": values.pop("components")}
+
+        return values
+
+    @field_validator("root", mode="before")
+    def _validate_root(cls, values: object) -> object:
+        if isinstance(values, Mapping):
+            if "name" not in values:
+                values = {"name": "root", **values}
+
+        return values
 
     @classmethod
-    def read(cls, source: Path | Mapping[str, object] | Self) -> Result[Self, list[ConfigError]]:
+    def read(cls, source: ConfigSource) -> Result[Config, ConfigError]:
         import yaml
         from yaml import MarkedYAMLError, YAMLError
 
@@ -295,13 +413,13 @@ class Config(ComponentConfig):
             try:
                 path = source.resolve()
             except Exception:
-                return Fail([ConfigReadError(message=f"path '{source}' could not be resolved")])
+                return Fail(ConfigReadError(message=f"path '{source}' could not be resolved"))
 
             try:
                 with open(path, "r") as stream:
                     data = yaml.safe_load(stream)
             except OSError:
-                return Fail([ConfigReadError(message=f"failed to read file at '{path}'")])
+                return Fail(ConfigReadError(message=f"failed to read file at '{path}'"))
             except YAMLError as error:
                 message: str | None = None
                 location: ConfigParseErrorLocation | None = None
@@ -315,171 +433,24 @@ class Config(ComponentConfig):
                             column=error.problem_mark.column,
                         )
 
-                return Fail([ConfigParseError(message=message, location=location)])
+                return Fail(ConfigParseError(message=message, location=location))
 
         try:
             instance = cls.model_validate(data)
         except ValidationError as error:
-            return Fail([ConfigValidationError(problems=ValidationProblem.extract(error, data))])
+            return Fail(ConfigValidationError(problems=ValidationProblem.extract(error, data)))
 
         return Ok(instance)
 
-    @classmethod
-    async def load(
-        cls,
-        source: Path | Mapping[str, object] | Self,
-        *,
-        checks: Sequence[ConfigCheckType] = ConfigCheckType.all(),
-        log: Callable[[object], Any] = lambda message: None,
-    ) -> Result[Self, list[ConfigError]]:
-        match cls.read(source):
-            case Ok(instance):
-                pass
-            case Fail(errors):
-                return Fail(errors)
-
-        return await instance.check(checks=checks, log=log)
-
-    async def check(
-        self,
-        *,
-        checks: Sequence[ConfigCheckType] = ConfigCheckType.all(),
-        log: Callable[[object], Any] = lambda message: None,
-    ) -> Result[Self, list[ConfigError]]:
-        errors: list[ConfigError] = []
-
-        if ConfigCheckType.DATABASE in checks:
-            database_errors = await self.__check_database(log)
-            errors.extend(database_errors)
-            if not database_errors:
-                log("Database configuration is valid.")
-
-        if ConfigCheckType.COMPONENTS in checks:
-            component_errors = await self.__check_components(log)
-            errors.extend(component_errors)
-            if not component_errors:
-                log("Component configurations appear valid.")
-
-        if errors:
-            return Fail(errors)
-
-        return Ok(self)
-
-    async def __check_database(self, log: Callable[[object], None]) -> list[ConfigDatabaseError]:
-        from ceres.database.database import Database
-
-        log("Checking database configuration...")
-
-        start = utc()
-        timeout = self.database.retry.timeout
-        interval = self.database.retry.interval
-
-        while True:
-            database = Database(self.database)
-
-            try:
-                async with database.connect():
-                    log("Connected to database successfully.")
-                    return []
-            except Exception as exception:
-                elapsed = utc() - start
-
-                if elapsed > timeout:
-                    log(f"Failed to connect to database within {util.show_td(timeout)}.")
-                    await database.dispose()
-                    return [
-                        ConfigDatabaseError(
-                            message="failed to connect to database",
-                            exception=traceback.format_exc(),
-                        )
-                    ]
-
-                log(
-                    f"Failed to connect to database, {exception}, {util.show_td(elapsed)} of "
-                    f"{util.show_td(timeout)} timeout elapsed, retrying in {util.show_td(interval)}..."
-                )
-                await database.dispose()
-                await asyncio.sleep(interval.total_seconds())
-                continue
-            finally:
-                await database.dispose()
-
-    async def __check_components(self, log: Callable[[object], Any]) -> list[ConfigComponentError]:
-        log("Checking component configurations...")
-        from ceres.component import Component
-
-        def check(
-            parent: Component | None,
-            component_config: Config | ComponentConfig,
-            errors: list[ConfigComponentError],
-        ) -> Component | None:
-            address = (
-                Address.root() if parent is None else parent.system.address / component_config.name
-            )
-
-            try:
-                component = component_config.create()
-                log(f"Component '{address}': OK")
-            except Failure as failure:
-                log(f"Component '{address}': ERROR")
-                errors.append(
-                    ConfigComponentError(
-                        component=address,
-                        error=(
-                            failure.error
-                            if isinstance(failure.error, ComponentError)
-                            else ComponentInitExceptionError(
-                                traceback=util.get_traceback(failure),
-                            )
-                        ),
-                    )
-                )
-
-                return None
-
-            if parent is not None:
-                parent.system.attach(component, name=component_config.name)
-
-            for subcomponent_config in component_config.components:
-                check(component, subcomponent_config, errors)
-
-            return component
-
-        errors: list[ConfigComponentError] = []
-
-        root = check(None, self, errors)
-        if errors or root is None:
-            return errors
-
-        for component in root.system.get_components():
-            _, unresolved = component.system.sync_references()
-            if unresolved:
-                first = next(iter(unresolved))
-                target = first.__reference_target__
-                errors.append(
-                    ConfigComponentError(
-                        component=component.system.address,
-                        error=ComponentReferenceInvalidError(
-                            message=f"reference to component at '{target}' was not found",
-                        ),
-                    )
-                )
-
-        return errors
-
     def get_component(self, address: DynamicAddress) -> ComponentConfig | None:
-        current = self
-        for name in address.names:
-            if current is None:
-                return None
+        return self.root.get_component(address)
 
-            current = next((child for child in current.components if child.name == name), None)
-
-        return current
-
-    def get_component_class(self, address: DynamicAddress) -> type[__Component__] | None:
+    def get_component_class(self, address: DynamicAddress) -> type[Component] | None:
         config = self.get_component(address)
         if config is None:
             return None
 
         return config.cls
+
+
+ConfigSource = Path | Mapping[str, object] | Config

@@ -81,7 +81,7 @@ from ceres.event import (
 from ceres.filter import BaseFilter, BaseFilterArgs
 from ceres.node import Node
 from ceres.status import Status
-from ceres.validation import ValidationProblem
+from ceres.error import ValidationProblem
 
 with lazy_imports(__name__):
     from sqlalchemy.ext.asyncio import AsyncSession

@@ -10,6 +10,7 @@ from pydantic import Field, field_validator
 
 from ceres._internal.cli.plumbing import CLICommandFailed, CLIContext, CLIOption
 from ceres._internal.lazy import lazy_imports
+from ceres.config import Config, ConfigCheckType
 from ceres.data import FromYAML, ImmutableDataObject, NonEmpty, jsonify
 from ceres.result import Ok
 
@@ -20,8 +21,8 @@ with lazy_imports(__name__):
     from pathlib import Path
 
     from ceres._internal import util
-    from ceres._internal.project import Project
-    from ceres.config import Config, ConfigCheckType
+    from ceres._internal.project import LoadedProject, Project
+    from ceres.engine import Engine
 
 chdir = os.chdir
 
@@ -75,13 +76,8 @@ def get_config_path(config_path: Path | None = None, required: bool = False) -> 
 async def get_config(
     config_path: Path | None,
     checks: Sequence[ConfigCheckType],
-    silent: bool = False,
 ) -> Config:
-    match await Config.load(
-        get_config_path(config_path, required=True),
-        log=write if not silent else lambda *args: None,
-        checks=checks,
-    ):
+    match await Engine.check(get_config_path(config_path, required=True), checks=checks):
         case Ok(config):
             return config
         case fail:
@@ -99,21 +95,24 @@ async def use_config_path(context: CLIContext) -> Path:
 async def use_config(
     context: CLIContext,
     checks: Sequence[ConfigCheckType] = (),
-    silent: bool = False,
 ) -> Config:
     config_path = await use_config_path(context)
-    return await get_config(config_path, checks, silent)
+    return await get_config(config_path, checks)
 
 
-async def use_project(
+async def use_project(context: CLIContext) -> Project:
+    config_path = await use_config_path(context)
+    return Project(config_path)
+
+
+async def use_loaded_project(
     context: CLIContext,
     checks: Sequence[ConfigCheckType] = (),
-    silent: bool = False,
-) -> Project:
+) -> LoadedProject:
     config_path = await use_config_path(context)
-    return Project(
+    return LoadedProject(
         get_config_path(config_path, required=True),
-        await get_config(config_path, checks, silent),
+        await get_config(config_path, checks),
     )
 
 
@@ -236,19 +235,11 @@ async def use_database(
     return database
 
 
-async def use_temporary_engine(
-    context: CLIContext,
-    checks: Sequence[ConfigCheckType] = (ConfigCheckType.DATABASE,),
-    silent: bool = True,
-):
-    from ceres.engine import Engine
-
-    config = await use_config(
-        context,
-        checks=checks,
-        silent=silent,
-    )
-    return Engine(config)
+async def use_temporary_engine(context: CLIContext):
+    config_path = await use_config_path(context)
+    engine = Engine()
+    await engine.load(config_path)
+    return engine
 
 
 class ValidateEmptyAsNone(ImmutableDataObject):

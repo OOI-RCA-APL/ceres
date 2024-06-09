@@ -3,7 +3,7 @@ from __future__ import annotations
 from abc import ABC
 from typing import Any, Callable, ClassVar, Literal, Sequence
 
-from pydantic import computed_field, model_serializer
+from pydantic import ImportString, computed_field, model_serializer
 from starlette.status import (
     HTTP_400_BAD_REQUEST,
     HTTP_401_UNAUTHORIZED,
@@ -15,12 +15,72 @@ from starlette.status import (
 )
 
 from ceres._internal.lazy import lazy_imports
-from ceres.address import Address
-from ceres.data import DataObject, ImmutableDataObject
-from ceres.validation import ValidationProblem
+from ceres._internal.typedecs import __Component__
+from ceres.address import Address, DynamicAddress
+from ceres.data import DataObject, ImmutableDataObject, simplify
 
 with lazy_imports(__name__):
+    from fastapi.exceptions import RequestValidationError
+    from pydantic import ValidationError
+
     from ceres._internal import util
+
+_undefined = object()
+
+
+class ValidationProblem(ImmutableDataObject):
+    type: str
+    location: Sequence[str | int]
+    message: str
+
+    @classmethod
+    def extract(
+        cls,
+        error: ValidationError | RequestValidationError,
+        source: object = _undefined,
+    ) -> list[ValidationProblem]:
+        data = simplify(source) if source is not _undefined else _undefined
+        problems: list[ValidationProblem] = []
+
+        for suberror in error.errors():
+            default_location = list(segment for segment in suberror["loc"] if segment != "__root__")
+            location: list[str | int] | None = []
+            try:
+                if source is not _undefined:
+                    location = []
+                    parent: object | None = None
+                    current: Any = data
+                    for segment in default_location:
+                        if isinstance(current, dict):
+                            current = current.get(segment)
+                        elif isinstance(current, list):
+                            current = current[int(segment)]
+
+                        if (
+                            isinstance(segment, int)
+                            and isinstance(parent, list)
+                            and isinstance(current, dict)
+                            and "name" in current
+                        ):
+                            location.append(f"name: {current['name']}")
+                        else:
+                            location.append(segment)
+
+                        parent = current
+                else:
+                    location = default_location
+            except Exception:
+                location = default_location
+
+            problems.append(
+                ValidationProblem(
+                    type=suberror["type"],
+                    location=location,
+                    message=suberror["msg"],
+                )
+            )
+
+        return problems
 
 
 class Error(ImmutableDataObject, ABC):
@@ -49,17 +109,22 @@ class __BaseComponentError(Error, ABC):
 
 class ComponentValidationError(__BaseComponentError):
     type: Literal["component-validation-error"] = "component-validation-error"
+    address: Address
     problems: Sequence[ValidationProblem]
 
 
 class ComponentInitExceptionError(__BaseComponentError):
     type: Literal["component-init-exception-error"] = "component-init-exception-error"
+    address: Address
     traceback: Sequence[str]
 
 
 class ComponentReferenceInvalidError(__BaseComponentError):
     type: Literal["component-reference-invalid-error"] = "component-reference-invalid-error"
-    message: str
+    address: Address
+    referenced: DynamicAddress | __Component__
+    expected: ImportString[type]
+    actual: ImportString[type]
 
 
 class ComponentJobInvalidError(__BaseComponentError):
@@ -67,80 +132,20 @@ class ComponentJobInvalidError(__BaseComponentError):
     message: str
 
 
+class ComponentCombinedError(__BaseComponentError):
+    type: Literal["component-combined-error"] = "component-combined-error"
+    errors: Sequence[ComponentError]
+
+
 ComponentError = (
     ComponentValidationError
     | ComponentInitExceptionError
     | ComponentReferenceInvalidError
     | ComponentJobInvalidError
+    | ComponentCombinedError
 )
 
-
-class __BaseConfigError(Error, ABC):
-    __error_status_code__: ClassVar[int] = HTTP_500_INTERNAL_SERVER_ERROR
-
-
-class ConfigNotProvidedError(__BaseConfigError):
-    type: Literal["config-not-provided-error"] = "config-not-provided-error"
-    message: str
-
-
-class ConfigReadError(__BaseConfigError):
-    type: Literal["config-read-error"] = "config-read-error"
-    message: str
-
-
-class ConfigParseErrorLocation(DataObject):
-    line: int
-    column: int
-
-
-class ConfigParseError(__BaseConfigError):
-    type: Literal["config-parse-error"] = "config-parse-error"
-    message: str | None = None
-    location: ConfigParseErrorLocation | None = None
-
-
-class ConfigValidationError(__BaseConfigError):
-    type: Literal["config-validation-error"] = "config-validation-error"
-    problems: Sequence[ValidationProblem]
-
-
-class ConfigDatabaseError(__BaseConfigError):
-    type: Literal["config-database-error"] = "config-database-error"
-    message: str
-    exception: str
-
-
-class ConfigComponentError(__BaseConfigError):
-    type: Literal["config-component-error"] = "config-component-error"
-    component: Address
-    error: ComponentError
-
-
-ConfigError = (
-    ConfigNotProvidedError
-    | ConfigReadError
-    | ConfigParseError
-    | ConfigValidationError
-    | ConfigDatabaseError
-    | ConfigComponentError
-)
-
-
-class __BaseReloadError(Error, ABC):
-    __error_status_code__: ClassVar[int] = HTTP_400_BAD_REQUEST
-
-
-class ReloadConfigInvalidError(__BaseReloadError):
-    type: Literal["reload-config-invalid-error"] = "reload-config-invalid-error"
-    errors: Sequence[ConfigError]
-
-
-class ReloadAlreadyActiveError(__BaseReloadError):
-    type: Literal["reload-already-active-error"] = "reload-already-active-error"
-
-
-ReloadError = ReloadConfigInvalidError | ReloadAlreadyActiveError
+ComponentCombinedError.model_rebuild()
 
 
 class __BaseProcedureError(Error, ABC):
@@ -251,6 +256,12 @@ APIError = (
 )
 
 
+class DatabaseUnreachableError(Error):
+    __error_status_code__: ClassVar[int] = HTTP_500_INTERNAL_SERVER_ERROR
+    type: Literal["database-unreachable-error"] = "database-unreachable-error"
+    message: str
+
+
 class DatabaseUnexpectedError(Error):
     __error_status_code__: ClassVar[int] = HTTP_500_INTERNAL_SERVER_ERROR
     type: Literal["database-unexpected-error"] = "database-unexpected-error"
@@ -272,10 +283,74 @@ class DatabaseInitError(Error):
 DatabaseError = (
     AlreadyExistsError
     | NotFoundError
+    | DatabaseUnreachableError
     | DatabaseUnexpectedError
     | DatabaseLoadError
     | DatabaseInitError
 )
+
+
+class __BaseConfigError(Error, ABC):
+    __error_status_code__: ClassVar[int] = HTTP_500_INTERNAL_SERVER_ERROR
+
+
+class ConfigNotLoadedError(__BaseConfigError):
+    type: Literal["config-not-loaded-error"] = "config-not-loaded-error"
+    message: str
+
+
+class ConfigReadError(__BaseConfigError):
+    type: Literal["config-read-error"] = "config-read-error"
+    message: str
+
+
+class ConfigParseErrorLocation(DataObject):
+    line: int
+    column: int
+
+
+class ConfigParseError(__BaseConfigError):
+    type: Literal["config-parse-error"] = "config-parse-error"
+    message: str | None = None
+    location: ConfigParseErrorLocation | None = None
+
+
+class ConfigValidationError(__BaseConfigError):
+    type: Literal["config-validation-error"] = "config-validation-error"
+    problems: Sequence[ValidationProblem]
+
+
+class ConfigCombinedError(__BaseConfigError):
+    type: Literal["config-combined-error"] = "config-combined-error"
+    errors: Sequence[ConfigError]
+
+
+ConfigError = (
+    ConfigReadError
+    | ConfigParseError
+    | ConfigValidationError
+    | DatabaseError
+    | ComponentError
+    | ConfigCombinedError
+)
+
+ConfigCombinedError.model_rebuild()
+
+
+class __BaseReloadError(Error, ABC):
+    __error_status_code__: ClassVar[int] = HTTP_400_BAD_REQUEST
+
+
+class ReloadConfigPathUnsetError(__BaseReloadError):
+    type: Literal["reload-config-path-not-set-error"] = "reload-config-path-not-set-error"
+
+
+class ReloadConfigInvalidError(__BaseReloadError):
+    type: Literal["reload-config-invalid-error"] = "reload-config-invalid-error"
+    error: ConfigError
+
+
+ReloadError = ReloadConfigPathUnsetError | ReloadConfigInvalidError
 
 
 class Failure(Exception):

@@ -104,6 +104,7 @@ def _get_cached_lazy_proxy(
 
 _original__import__ = __import__
 _lazy_importing_modules: set[str] = set()
+_lazy_importing_modules_lock = Lock()
 
 
 def __lazy_import__(
@@ -161,14 +162,18 @@ def _setup_lazy_exports(__name__: str):
 
 @contextmanager
 def lazy_imports(__name__: str, export: bool = False):
-    if __builtins__.get("__import__") is not __lazy_import__:
-        __builtins__["__import__"] = __lazy_import__
+    with _lazy_importing_modules_lock:
+        _lazy_importing_modules.add(__name__)
+        if __builtins__.get("__import__") is not __lazy_import__:
+            __builtins__["__import__"] = __lazy_import__
 
-    _lazy_importing_modules.add(__name__)
     try:
         yield
     finally:
-        _lazy_importing_modules.discard(__name__)
+        with _lazy_importing_modules_lock:
+            _lazy_importing_modules.discard(__name__)
+            if not _lazy_importing_modules:
+                __builtins__["__import__"] = _original__import__
 
     if export:
         _setup_lazy_exports(__name__)

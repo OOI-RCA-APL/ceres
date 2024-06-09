@@ -196,8 +196,7 @@ class Database:
         return AsyncSession(self.__engine, expire_on_commit=False)
 
     def connect(self) -> AsyncConnection:
-        with util.wrap_database_errors():
-            return self.__engine.connect()
+        return self.__engine.connect()
 
     async def dispose(self) -> None:
         with util.wrap_database_errors():

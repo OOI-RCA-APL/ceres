@@ -9,11 +9,14 @@ from typing import (
     TYPE_CHECKING,
     Annotated,
     Any,
+    Callable,
     ClassVar,
     Literal,
     NewType,
     Sized,
+    TypedDict,
     TypeVar,
+    Unpack,
     dataclass_transform,
     override,
 )
@@ -30,6 +33,7 @@ from pydantic import (
 )
 from pydantic import EmailStr as _BaseEmailStr
 from pydantic.fields import FieldInfo
+from pydantic.main import IncEx
 from pydantic_core import CoreSchema, SchemaSerializer, SchemaValidator
 from pydantic_extra_types.color import Color as Color
 
@@ -37,12 +41,28 @@ from ceres._internal import util
 from ceres._internal.util import NAME_PATTERN, PydanticDataclassLike
 
 
-def jsonify(obj: object, **kwargs: Any) -> str:
-    return util.get_type_adapter(type(obj)).dump_json(obj, **kwargs).decode()
+class __SimplifyArgs(TypedDict, total=False):
+    include: IncEx | None
+    exclude: IncEx | None
+    by_alias: bool
+    exclude_unset: bool
+    exclude_defaults: bool
+    exclude_none: bool
 
 
-def simplify(obj: object) -> Any:
-    return json.loads(jsonify(obj))
+class __SerializeArgs(__SimplifyArgs, total=False):
+    indent: int | None
+
+
+def simplify(obj: object, **kwargs: Unpack[__SimplifyArgs]) -> Any:
+    return util.get_type_adapter(type(obj)).dump_python(
+        obj,
+        **{**kwargs, "round_trip": True},  # type: ignore
+    )
+
+
+def jsonify(obj: object, **kwargs: Unpack[__SerializeArgs]) -> str:
+    return util.get_type_adapter(object).dump_json(obj, **kwargs).decode()
 
 
 def yamlify(obj: object, **kwargs: Any) -> str:
@@ -213,7 +233,11 @@ class ValidatedDataclass(ABC, PydanticDataclassLike):
     if TYPE_CHECKING:
         __dataclass_fields__: ClassVar[dict[str, Any]]
         __dataclass_params__: ClassVar[Any]
-        __post_init__: Any
+        __post_init__: ClassVar[Callable[..., None]]
+
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            pass
+
         __pydantic_config__: ClassVar[ConfigDict]
         __pydantic_complete__: ClassVar[bool]
         __pydantic_core_schema__: ClassVar[CoreSchema]

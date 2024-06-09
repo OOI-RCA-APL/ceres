@@ -141,6 +141,6 @@ class Writer:
         upsert = {name: column for name, column in statement.excluded.items() if name not in pk}
 
         await session.execute(
-            insert(cls.Row).on_conflict_do_update(index_elements=pk.values(), set_=upsert),
+            statement.on_conflict_do_update(index_elements=pk.values(), set_=upsert),
             values,
         )

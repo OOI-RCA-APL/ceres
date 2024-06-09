@@ -15,8 +15,10 @@ from ceres._internal.cli.plumbing import (
     CLIOption,
     CLIRouter,
 )
+from ceres._internal.cli.shared import use_config
 from ceres._internal.lazy import lazy_imports, unwrap
 from ceres.address import AddressSelector
+from ceres.config import ConfigCheckType
 from ceres.result import Fail, Ok
 from ceres.version import __version__
 
@@ -27,12 +29,11 @@ with lazy_imports(__name__):
         get_config_path,
         strbool,
         use_config_path,
-        use_project,
+        use_loaded_project,
         write,
         write_table,
     )
     from ceres.component import ComponentFilter
-    from ceres.config import Config
     from ceres.data import jsonify
     from ceres.engine import Engine
     from ceres.threading import spawn
@@ -101,16 +102,8 @@ async def _run(addresses: Sequence[AddressSelector], *, config_path: Path, watch
         else:
             util.set_current_process_name("ceres")
 
-            match Config.read(config_path):
-                case Ok():  # noqa: F821
-                    pass
-                case Fail(errors):
-                    raise CLICommandFailed(
-                        f"Failed to load configuration. {jsonify(Fail(errors), indent=2)}"
-                    )
-
-            engine = Engine(config_path)
-            match await engine.load():
+            engine = Engine()
+            match await engine.load(config_path):
                 case Ok():
                     pass
                 case Fail() as fail:
@@ -240,13 +233,8 @@ async def check(*, context: CLIContext) -> None:
     """
     Validate project configuration (ceres.yaml) for errors.
     """
-    config_path = await use_config_path(context)
-
-    match await Config.load(config_path, log=write):
-        case Ok():
-            write("All checks passed.")
-        case fail:
-            raise CLICommandFailed(f"Failed to load configuration. {jsonify(fail, indent=2)}")
+    await use_config(context, checks=ConfigCheckType.all())
+    write("All checks passed.")
 
 
 @router.command()
@@ -255,7 +243,7 @@ async def reload(*, context: CLIContext) -> None:
     Apply configuration changes.
     """
 
-    project = await use_project(context)
+    project = await use_loaded_project(context)
     client = Client(project)
 
     await client.post("/reload")
@@ -280,7 +268,7 @@ async def status(
     else:
         GetStatusesQueryParameters = dict
 
-    project = await use_project(context)
+    project = await use_loaded_project(context)
 
     if not addresses:
         addresses = [AddressSelector("all")]
@@ -340,7 +328,7 @@ async def start(
     """
     Start components at the provided address(s).
     """
-    project = await use_project(context)
+    project = await use_loaded_project(context)
     client = Client(project)
     address = AddressSelector(addresses or [])
     query = ComponentFilter(address=address)
@@ -363,7 +351,7 @@ async def stop(
     """
     Stop components at the provided address(s).
     """
-    project = await use_project(context)
+    project = await use_loaded_project(context)
     client = Client(project)
     address = AddressSelector(addresses)
     query = ComponentFilter(address=address)
@@ -386,7 +374,7 @@ async def enable(
     """
     Enable components at the provided address(s).
     """
-    project = await use_project(context)
+    project = await use_loaded_project(context)
     client = Client(project)
     address = AddressSelector(addresses)
     query = ComponentFilter(address=address)
@@ -409,7 +397,7 @@ async def disable(
     """
     Disable components at the provided address(s).
     """
-    project = await use_project(context)
+    project = await use_loaded_project(context)
     client = Client(project)
     address = AddressSelector(addresses)
     query = ComponentFilter(address=address)
@@ -432,7 +420,7 @@ async def up(
     """
     Start and enable components at the provided address(s).
     """
-    project = await use_project(context)
+    project = await use_loaded_project(context)
     client = Client(project)
     address = AddressSelector(addresses)
     query = ComponentFilter(address=address)
@@ -455,7 +443,7 @@ async def down(
     """
     Stop and disable components at the provided address(s).
     """
-    project = await use_project(context)
+    project = await use_loaded_project(context)
     client = Client(project)
     address = AddressSelector(addresses)
     query = ComponentFilter(address=address)

@@ -17,6 +17,7 @@ from ceres.error import (
     ProcedureInternalError,
     ProcedureInvalidArgumentsError,
     ProcedureNotFoundError,
+    ValidationProblem,
 )
 from ceres.event import (
     RoutineCancelledEvent,
@@ -26,7 +27,6 @@ from ceres.event import (
     RoutineStartedEvent,
     RoutineStoppedEvent,
 )
-from ceres.validation import ValidationProblem
 
 
 async def test_listeners() -> None:

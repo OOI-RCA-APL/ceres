@@ -37,6 +37,7 @@ from typing import (
 )
 from weakref import WeakSet, ref
 
+import sqlalchemy.exc
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, create_model, validate_call
 from pydantic.fields import FieldInfo
 from pydantic_core import CoreSchema, SchemaSerializer, SchemaValidator
@@ -1124,7 +1125,12 @@ _POSTGRES_UNIQUE_ERROR_REGEX = re.compile(
 def wrap_database_errors() -> Iterator[None]:
     from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
-    from ceres.error import AlreadyExistsError, DatabaseUnexpectedError, Failure
+    from ceres.error import (
+        AlreadyExistsError,
+        DatabaseUnexpectedError,
+        DatabaseUnreachableError,
+        Failure,
+    )
 
     try:
         yield
@@ -1137,6 +1143,9 @@ def wrap_database_errors() -> Iterator[None]:
             PostgresIntegrityError = None
 
         from sqlite3 import IntegrityError as SQLiteIntegrityError
+
+        if isinstance(exception, sqlalchemy.exc.TimeoutError):
+            raise Failure(DatabaseUnreachableError(message=str(exception)))
 
         if isinstance(exception, IntegrityError):
             if isinstance(exception.orig, SQLiteIntegrityError):

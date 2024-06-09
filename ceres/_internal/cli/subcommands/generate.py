@@ -5,7 +5,6 @@ from typing import Annotated
 from pydantic import Field, NonNegativeInt
 
 from ceres._internal.cli.plumbing import CLIOption, CLIRouter
-from ceres.config import Config
 from ceres.data import StrEnum, jsonify, yamlify
 
 router = CLIRouter(
@@ -49,7 +48,7 @@ def openapi(
     from ceres._internal.app.main import App
     from ceres.engine import Engine
 
-    app = App(Engine(Config()))
+    app = App(Engine())
     schema = app.openapi()
 
     match format:

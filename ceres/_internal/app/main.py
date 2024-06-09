@@ -26,9 +26,8 @@ from starlette.status import HTTP_422_UNPROCESSABLE_ENTITY, WS_1008_POLICY_VIOLA
 from ceres._internal.app.api import router as router__api
 from ceres._internal.app.shared import CurrentEngine
 from ceres._internal.lazy import lazy_imports
-from ceres.error import Failure, HTTPError, ValidationFailedError
+from ceres.error import Failure, HTTPError, ValidationFailedError, ValidationProblem
 from ceres.level import Level
-from ceres.validation import ValidationProblem
 from ceres.version import __version__
 
 with lazy_imports(__name__):
