@@ -1,6 +1,6 @@
 # Ceres
 
-Ceres is a Python framework for data collection, monitoring and device control. Ceres takes ideas from service management tools like Docker and SystemD, scales them down, and applies them to Python objects called _systems_ and _components_.
+Ceres is a Python framework for data collection, monitoring and device control. Ceres takes ideas from service management tools like Docker and SystemD, scales them down, and applies them to Python objects called _components_.
 
 ![architecture](./images/architecture.png)
 
@@ -44,8 +44,8 @@ database:
   type: sqlite
   path: ./local/database.sqlite # This will be created automatically.
 
-# Projects can declare any number of systems, nested or otherwise.
-subsystems:
+# Projects can declare any number of components, nested or otherwise.
+components:
   - name: counter-a
     component: example.counter.Counter # Specify the contained component class by providing an import path.
     arguments: # These values are passed to the component's constructor.
@@ -64,13 +64,13 @@ subsystems:
 ```sh
 ceres run counter-a # Log numbers from 5 to infinity, incrementing by 1, until cancelled.
 ceres run counter-b # Log numbers from 100 to negative infinity, decrementing by 5, until cancelled.
-ceres run all       # Run both systems concurrently in the foreground.
+ceres run all       # Run both components concurrently in the foreground.
 
 ceres service start # Start the Ceres engine as a background service that persists after logout and/or reboot.
 ceres status        # Check to see if the service is running.
-ceres start all     # Start all systems.
-ceres enable all    # Enable all systems, making them automatically restart when the service is started.
-ceres status        # Check to see all systems are running and enabled.
+ceres start all     # Start all components.
+ceres enable all    # Enable all components, making them automatically restart when the service is started.
+ceres status        # Check to see all components are running and enabled.
 
 ceres service stop  # Stop the background service.
 ```
