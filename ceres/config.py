@@ -4,11 +4,23 @@ import os
 import ssl
 from datetime import timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any, Literal, Mapping, Self, Sequence
+from typing import (
+    TYPE_CHECKING,
+    Annotated,
+    Any,
+    Literal,
+    Mapping,
+    Self,
+    Sequence,
+    TypeVar,
+    override,
+)
 
 from annotated_types import Ge, Le
 from argon2.profiles import RFC_9106_LOW_MEMORY
 from pydantic import (
+    BaseModel,
+    ConfigDict,
     Field,
     ImportString,
     IPvAnyAddress,
@@ -37,11 +49,17 @@ from ceres.error import (
     ComponentInitExceptionError,
     ComponentReferenceInvalidError,
     ComponentValidationError,
+    ConfigCombinedError,
     ConfigError,
+    ConfigInvalidSourceError,
     ConfigParseError,
     ConfigParseErrorLocation,
     ConfigReadError,
     ConfigValidationError,
+    DatabaseError,
+    DatabaseUnexpectedError,
+    DatabaseUnreachableError,
+    Failure,
     ValidationProblem,
 )
 from ceres.job import Job
@@ -369,42 +387,21 @@ class ConfigCheckType(StrEnum):
         return tuple(cls)
 
 
-class Config(ConfigObject):
+class ConfigMeta(ConfigObject):
+    model_config = ConfigDict(extra="allow")
+
     service: ServiceConfig = Field(default_factory=ServiceConfig)
     server: ServerConfig = Field(default_factory=ServerConfig)
     console: ConsoleConfig = Field(default_factory=ConsoleConfig)
     database: DatabaseConfig = Field(default_factory=SQLiteDatabaseConfig, discriminator="type")
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
-    root: ComponentConfig = Field(default_factory=lambda: ComponentConfig(name="root"))
-
-    @model_validator(mode="before")
-    def _validate(cls, values: object) -> object:
-        if isinstance(values, Mapping):
-            values = dict(values)
-            if "components" in values:
-                if "root" in values:
-                    raise ValueError(
-                        "cannot have both `root` and `components` defined at base level of config"
-                    )
-
-                values["root"] = {"components": values.pop("components")}
-
-        return values
-
-    @field_validator("root", mode="before")
-    def _validate_root(cls, values: object) -> object:
-        if isinstance(values, Mapping):
-            if "name" not in values:
-                values = {"name": "root", **values}
-
-        return values
 
     @classmethod
-    def read(cls, source: ConfigSource) -> Result[Config, ConfigError]:
+    def read(cls, source: ConfigSource[Self]) -> Result[Self, ConfigError]:
         import yaml
         from yaml import MarkedYAMLError, YAMLError
 
-        if isinstance(source, Config):
+        if isinstance(source, cls):
             return Ok(source)
 
         if isinstance(source, Mapping):
@@ -434,6 +431,8 @@ class Config(ConfigObject):
                         )
 
                 return Fail(ConfigParseError(message=message, location=location))
+        else:
+            return Fail(ConfigInvalidSourceError(message=f"invalid source type: {type(source)}"))
 
         try:
             instance = cls.model_validate(data)
@@ -441,6 +440,95 @@ class Config(ConfigObject):
             return Fail(ConfigValidationError(problems=ValidationProblem.extract(error, data)))
 
         return Ok(instance)
+
+    @classmethod
+    async def load(
+        cls,
+        config: ConfigSource[Self],
+        *,
+        checks: Sequence[ConfigCheckType] = ConfigCheckType.all(),
+    ) -> Result[Self, ConfigError]:
+        errors: list[ConfigError] = []
+
+        match cls.read(config):
+            case Ok(config):
+                pass
+            case Fail(error):
+                return Fail(error)
+
+        if ConfigCheckType.DATABASE in checks:
+            errors.extend(await config._check_database())
+        if ConfigCheckType.COMPONENTS in checks:
+            errors.extend(await config._check_components())
+
+        if errors:
+            return Fail(ConfigCombinedError(errors=errors))
+
+        return Ok(config)
+
+    async def _check_database(self) -> list[DatabaseError]:
+        from ceres.database.database import Database
+
+        database = Database(self.database)
+        try:
+            async with database.connect():
+                pass
+        except Failure as failure:
+            if isinstance(failure.error, DatabaseError):
+                return [failure.error]
+
+            return [
+                DatabaseUnexpectedError(
+                    message=failure.message,
+                )
+            ]
+        except Exception as exception:
+            return [
+                DatabaseUnreachableError(
+                    message=str(exception),
+                )
+            ]
+
+        return []
+
+    async def _check_components(self) -> list[ComponentError]:
+        return []
+
+
+class Config(ConfigMeta):
+    model_config = ConfigDict(extra="forbid")
+
+    root: ComponentConfig = Field(default_factory=lambda: ComponentConfig(name="root"))
+
+    @model_validator(mode="before")
+    def _validate(cls, values: object) -> object:
+        if isinstance(values, Mapping):
+            values = dict(values)
+            if "components" in values:
+                if "root" in values:
+                    raise ValueError(
+                        "cannot have both `root` and `components` defined at base level of config"
+                    )
+
+                values["root"] = {"components": values.pop("components")}
+
+        return values
+
+    @field_validator("root", mode="before")
+    def _validate_root(cls, values: object) -> object:
+        if isinstance(values, Mapping):
+            if "name" not in values:
+                values = {"name": "root", **values}
+
+        return values
+
+    @override
+    async def _check_components(self) -> list[ComponentError]:
+        match self.root.create():
+            case Ok():
+                return []
+            case Fail(errors):
+                return errors
 
     def get_component(self, address: DynamicAddress) -> ComponentConfig | None:
         return self.root.get_component(address)
@@ -453,4 +541,5 @@ class Config(ConfigObject):
         return config.cls
 
 
-ConfigSource = Path | Mapping[str, object] | Config
+_TConfig = TypeVar("_TConfig", bound=BaseModel)
+ConfigSource = Path | Mapping[str, object] | _TConfig

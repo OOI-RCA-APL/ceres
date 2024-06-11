@@ -6,12 +6,14 @@ import re
 import typing
 from asyncio import AbstractEventLoop, Task
 from collections import OrderedDict, defaultdict
+from collections.abc import Set
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from os import PathLike as _BasePathLike
 from types import NoneType, UnionType
 from typing import (
     TYPE_CHECKING,
+    AbstractSet,
     Annotated,
     Any,
     Awaitable,
@@ -23,12 +25,15 @@ from typing import (
     Hashable,
     Iterable,
     Iterator,
+    List,
     Mapping,
+    Optional,
     Protocol,
     Sequence,
     TypeAlias,
     TypeGuard,
     TypeVar,
+    Union,
     cast,
     get_args,
     get_origin,
@@ -37,11 +42,9 @@ from typing import (
 )
 from weakref import WeakSet, ref
 
-import sqlalchemy.exc
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, create_model, validate_call
 from pydantic.fields import FieldInfo
 from pydantic_core import CoreSchema, SchemaSerializer, SchemaValidator
-from sqlalchemy.util import OrderedSet as BaseOrderedSet
 
 from ceres._internal.lazy import lazy_imports
 
@@ -967,8 +970,172 @@ def call_partial[**P, T](function: Callable[P, T], *args: P.args, **kwargs: P.kw
     return function(*applied_args, **applied_kwargs)  # type: ignore
 
 
-class OrderedSet[T](BaseOrderedSet[T]):
-    pass
+_T = TypeVar("_T")
+_S = TypeVar("_S")
+
+
+class OrderedSet(set[_T]):
+    __slots__ = ("_list",)
+
+    _list: List[_T]
+
+    def __init__(self, d: Optional[Iterable[_T]] = None) -> None:
+        if d is not None:
+            self._list = list(uniquify(d))
+            super().update(self._list)
+        else:
+            self._list = []
+
+    @override
+    def copy(self) -> OrderedSet[_T]:
+        cp = self.__class__()
+        cp._list = self._list.copy()
+        set.update(cp, cp._list)
+        return cp
+
+    @override
+    def add(self, element: _T) -> None:
+        if element not in self:
+            self._list.append(element)
+        super().add(element)
+
+    @override
+    def remove(self, element: _T) -> None:
+        super().remove(element)
+        self._list.remove(element)
+
+    @override
+    def pop(self) -> _T:
+        try:
+            value = self._list.pop()
+        except IndexError:
+            raise KeyError("pop from an empty set") from None
+        super().remove(value)
+        return value
+
+    def insert(self, pos: int, element: _T) -> None:
+        if element not in self:
+            self._list.insert(pos, element)
+        super().add(element)
+
+    @override
+    def discard(self, element: _T) -> None:
+        if element in self:
+            self._list.remove(element)
+            super().remove(element)
+
+    @override
+    def clear(self) -> None:
+        super().clear()
+        self._list = []
+
+    def __getitem__(self, key: int) -> _T:
+        return self._list[key]
+
+    @override
+    def __iter__(self) -> Iterator[_T]:
+        return iter(self._list)
+
+    def __add__(self, other: Iterator[_T]) -> OrderedSet[_T]:
+        return self.union(other)
+
+    @override
+    def __repr__(self) -> str:
+        return "%s(%r)" % (self.__class__.__name__, self._list)
+
+    __str__ = __repr__
+
+    @override
+    def update(self, *iterables: Iterable[_T]) -> None:
+        for iterable in iterables:
+            for e in iterable:
+                if e not in self:
+                    self._list.append(e)
+                    super().add(e)
+
+    @override
+    def __ior__(self, other: AbstractSet[_S]) -> OrderedSet[Union[_T, _S]]:  # type: ignore
+        self.update(other)  # type: ignore
+        return self  # type: ignore
+
+    @override
+    def union(self, *other: Iterable[_S]) -> OrderedSet[Union[_T, _S]]:
+        result: OrderedSet[Union[_T, _S]] = self.copy()  # type: ignore
+        result.update(*other)
+        return result
+
+    @override
+    def __or__(self, other: AbstractSet[_S]) -> OrderedSet[Union[_T, _S]]:
+        return self.union(other)
+
+    @override
+    def intersection(self, *other: Iterable[Any]) -> OrderedSet[_T]:
+        other_set: Set[Any] = set()
+        other_set.update(*other)
+        return self.__class__(a for a in self if a in other_set)
+
+    @override
+    def __and__(self, other: AbstractSet[object]) -> OrderedSet[_T]:
+        return self.intersection(other)
+
+    @override
+    def symmetric_difference(self, other: Iterable[_T]) -> OrderedSet[_T]:
+        collection: Collection[_T]
+        if isinstance(other, set):
+            collection = other_set = other
+        elif isinstance(other, Collection):
+            collection = other
+            other_set = set(other)
+        else:
+            collection = list(other)
+            other_set = set(collection)
+        result = self.__class__(a for a in self if a not in other_set)
+        result.update(a for a in collection if a not in self)
+        return result
+
+    @override
+    def __xor__(self, other: AbstractSet[_S]) -> OrderedSet[Union[_T, _S]]:
+        return cast(OrderedSet[Union[_T, _S]], self).symmetric_difference(other)
+
+    @override
+    def difference(self, *other: Iterable[Any]) -> OrderedSet[_T]:
+        other_set = super().difference(*other)
+        return self.__class__(a for a in self._list if a in other_set)
+
+    @override
+    def __sub__(self, other: AbstractSet[Optional[_T]]) -> OrderedSet[_T]:
+        return self.difference(other)
+
+    @override
+    def intersection_update(self, *other: Iterable[Any]) -> None:
+        super().intersection_update(*other)
+        self._list = [a for a in self._list if a in self]
+
+    @override
+    def __iand__(self, other: AbstractSet[object]) -> OrderedSet[_T]:
+        self.intersection_update(other)
+        return self
+
+    @override
+    def symmetric_difference_update(self, other: Iterable[Any]) -> None:
+        collection = other if isinstance(other, Collection) else list(other)
+        super().symmetric_difference_update(collection)
+        self._list = [a for a in self._list if a in self]
+        self._list += [a for a in collection if a in self]
+
+    @override
+    def __ixor__(self, other: AbstractSet[_S]) -> OrderedSet[Union[_T, _S]]:  # type: ignore
+        self.symmetric_difference_update(other)
+        return cast(OrderedSet[Union[_T, _S]], self)
+
+    @override
+    def difference_update(self, *other: Iterable[Any]) -> None:
+        super().difference_update(*other)
+        self._list = [a for a in self._list if a in self]
+
+    def __isub__(self, other: AbstractSet[Optional[_T]]) -> OrderedSet[_T]:  # type: ignore  # noqa: E501
+        self.difference_update(other)
+        return self
 
 
 class OrderedWeakSet[T](WeakSet[T]):
@@ -1143,6 +1310,8 @@ def wrap_database_errors() -> Iterator[None]:
             PostgresIntegrityError = None
 
         from sqlite3 import IntegrityError as SQLiteIntegrityError
+
+        import sqlalchemy.exc
 
         if isinstance(exception, sqlalchemy.exc.TimeoutError):
             raise Failure(DatabaseUnreachableError(message=str(exception)))

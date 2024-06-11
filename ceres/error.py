@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC
-from typing import Any, Callable, ClassVar, Literal, Sequence
+from typing import TYPE_CHECKING, Any, Callable, ClassVar, Literal, Sequence
 
 from pydantic import ImportString, computed_field, model_serializer
 from starlette.status import (
@@ -19,9 +19,11 @@ from ceres._internal.typedecs import __Component__
 from ceres.address import Address, DynamicAddress
 from ceres.data import DataObject, ImmutableDataObject, simplify
 
-with lazy_imports(__name__):
+if TYPE_CHECKING:
     from fastapi.exceptions import RequestValidationError
     from pydantic import ValidationError
+
+with lazy_imports(__name__):
 
     from ceres._internal import util
 
@@ -36,7 +38,7 @@ class ValidationProblem(ImmutableDataObject):
     @classmethod
     def extract(
         cls,
-        error: ValidationError | RequestValidationError,
+        error: "ValidationError | RequestValidationError",
         source: object = _undefined,
     ) -> list[ValidationProblem]:
         data = simplify(source) if source is not _undefined else _undefined
@@ -294,8 +296,8 @@ class __BaseConfigError(Error, ABC):
     __error_status_code__: ClassVar[int] = HTTP_500_INTERNAL_SERVER_ERROR
 
 
-class ConfigNotLoadedError(__BaseConfigError):
-    type: Literal["config-not-loaded-error"] = "config-not-loaded-error"
+class ConfigInvalidSourceError(__BaseConfigError):
+    type: Literal["config-invalid-source-error"] = "config-invalid-source-error"
     message: str
 
 
@@ -326,7 +328,8 @@ class ConfigCombinedError(__BaseConfigError):
 
 
 ConfigError = (
-    ConfigReadError
+    ConfigInvalidSourceError
+    | ConfigReadError
     | ConfigParseError
     | ConfigValidationError
     | DatabaseError

@@ -16,17 +16,7 @@ from ceres.component import Component, ComponentFilter, ComponentFilterArgs, Com
 from ceres.config import ComponentConfig, Config, ConfigCheckType, ConfigSource
 from ceres.data import ImmutableDataObject, PasswordHash, jsonify
 from ceres.directory import Directory
-from ceres.error import (
-    ComponentError,
-    ConfigCombinedError,
-    ConfigError,
-    DatabaseError,
-    DatabaseUnexpectedError,
-    DatabaseUnreachableError,
-    Failure,
-    ReloadConfigInvalidError,
-    ReloadError,
-)
+from ceres.error import ConfigError, Failure, ReloadConfigInvalidError, ReloadError
 from ceres.event import StoppedEvent, StoppingEvent
 from ceres.node import Node
 from ceres.result import Fail, Ok, Result
@@ -216,11 +206,11 @@ class Engine(Node):
 
     async def load(
         self,
-        source: ConfigSource,
+        source: ConfigSource[Config],
         *,
         checks: Sequence[ConfigCheckType] = ConfigCheckType.all(),
     ) -> Result[Config, ConfigError]:
-        match await self.check(source, checks=checks):
+        match await Config.load(source, checks=checks):
             case Ok(config):
                 pass
             case Fail(errors):
@@ -246,7 +236,7 @@ class Engine(Node):
             self.log.info("Reloading current configuration...")
             source = self.config
 
-        match await self.check(source, checks=checks):
+        match await Config.load(source, checks=checks):
             case Ok(config):
                 pass
             case Fail(error):
@@ -254,64 +244,6 @@ class Engine(Node):
 
         await self.__apply(source if isinstance(source, Path) else None, config)
         return Ok(config)
-
-    @classmethod
-    async def check(
-        cls,
-        config: ConfigSource,
-        *,
-        checks: Sequence[ConfigCheckType] = ConfigCheckType.all(),
-    ) -> Result[Config, ConfigError]:
-        errors: list[ConfigError] = []
-
-        match Config.read(config):
-            case Ok(config):
-                pass
-            case Fail(error):
-                return Fail(error)
-
-        if ConfigCheckType.DATABASE in checks:
-            errors.extend(await cls.__check_database(config))
-
-        if ConfigCheckType.COMPONENTS in checks:
-            errors.extend(await cls.__check_components(config))
-
-        if errors:
-            return Fail(ConfigCombinedError(errors=errors))
-
-        return Ok(config)
-
-    @staticmethod
-    async def __check_database(config: Config) -> list[DatabaseError]:
-        database = Database(config.database)
-        try:
-            async with database.connect():
-                pass
-        except Failure as failure:
-            if isinstance(failure.error, DatabaseError):
-                return [failure.error]
-
-            return [
-                DatabaseUnexpectedError(
-                    message=failure.message,
-                )
-            ]
-        except Exception as exception:
-            return [
-                DatabaseUnreachableError(
-                    message=str(exception),
-                )
-            ]
-
-        return []
-
-    @staticmethod
-    async def __check_components(config: Config) -> list[ComponentError]:
-        match config.root.create():
-            case Ok():
-                return []
-            case Fail(errors):
-                return errors
 
     async def hash_password(self, password: str) -> PasswordHash:
         return await self._database.hash_password(password)

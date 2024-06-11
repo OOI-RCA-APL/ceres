@@ -15,7 +15,7 @@ from ceres._internal.cli.plumbing import (
     CLIOption,
     CLIRouter,
 )
-from ceres._internal.cli.shared import use_config
+from ceres._internal.cli.shared import use_client, use_config
 from ceres._internal.lazy import lazy_imports, unwrap
 from ceres.address import AddressSelector
 from ceres.config import ConfigCheckType
@@ -243,9 +243,7 @@ async def reload(*, context: CLIContext) -> None:
     Apply configuration changes.
     """
 
-    project = await use_loaded_project(context)
-    client = Client(project)
-
+    client = await use_client(context)
     await client.post("/reload")
 
 
@@ -268,11 +266,10 @@ async def status(
     else:
         GetStatusesQueryParameters = dict
 
-    project = await use_loaded_project(context)
-
     if not addresses:
         addresses = [AddressSelector("all")]
 
+    project = await use_loaded_project(context)
     client = Client(project)
     address = AddressSelector(addresses if addresses else "all")
 
@@ -328,8 +325,7 @@ async def start(
     """
     Start components at the provided address(s).
     """
-    project = await use_loaded_project(context)
-    client = Client(project)
+    client = await use_client(context)
     address = AddressSelector(addresses or [])
     query = ComponentFilter(address=address)
     from ceres._internal.app.api import StartResult
@@ -351,8 +347,7 @@ async def stop(
     """
     Stop components at the provided address(s).
     """
-    project = await use_loaded_project(context)
-    client = Client(project)
+    client = await use_client(context)
     address = AddressSelector(addresses)
     query = ComponentFilter(address=address)
     from ceres._internal.app.api import StopResult
@@ -374,8 +369,7 @@ async def enable(
     """
     Enable components at the provided address(s).
     """
-    project = await use_loaded_project(context)
-    client = Client(project)
+    client = await use_client(context)
     address = AddressSelector(addresses)
     query = ComponentFilter(address=address)
     from ceres._internal.app.api import EnableResult
@@ -397,8 +391,7 @@ async def disable(
     """
     Disable components at the provided address(s).
     """
-    project = await use_loaded_project(context)
-    client = Client(project)
+    client = await use_client(context)
     address = AddressSelector(addresses)
     query = ComponentFilter(address=address)
     from ceres._internal.app.api import DisableResult
@@ -420,8 +413,7 @@ async def up(
     """
     Start and enable components at the provided address(s).
     """
-    project = await use_loaded_project(context)
-    client = Client(project)
+    client = await use_client(context)
     address = AddressSelector(addresses)
     query = ComponentFilter(address=address)
     from ceres._internal.app.api import UpResult
@@ -443,8 +435,7 @@ async def down(
     """
     Stop and disable components at the provided address(s).
     """
-    project = await use_loaded_project(context)
-    client = Client(project)
+    client = await use_client(context)
     address = AddressSelector(addresses)
     query = ComponentFilter(address=address)
     from ceres._internal.app.api import DownResult
@@ -465,7 +456,6 @@ with lazy_imports(__name__):
 
 
 def main() -> None:
-
     arguments = [token for token in sys.argv[1:] if not token.startswith("-")]
     subcommand = arguments[0] if arguments else None
     subrouters = {

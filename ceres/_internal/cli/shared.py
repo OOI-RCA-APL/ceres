@@ -10,7 +10,7 @@ from pydantic import Field, field_validator
 
 from ceres._internal.cli.plumbing import CLICommandFailed, CLIContext, CLIOption
 from ceres._internal.lazy import lazy_imports
-from ceres.config import Config, ConfigCheckType
+from ceres.config import Config, ConfigCheckType, ConfigMeta
 from ceres.data import FromYAML, ImmutableDataObject, NonEmpty, jsonify
 from ceres.result import Ok
 
@@ -21,6 +21,7 @@ with lazy_imports(__name__):
     from pathlib import Path
 
     from ceres._internal import util
+    from ceres._internal.cli.client import Client
     from ceres._internal.project import LoadedProject, Project
     from ceres.engine import Engine
 
@@ -73,11 +74,22 @@ def get_config_path(config_path: Path | None = None, required: bool = False) -> 
     return config_path
 
 
+async def get_config_meta(
+    config_path: Path | None,
+    checks: Sequence[ConfigCheckType],
+) -> ConfigMeta:
+    match await ConfigMeta.load(get_config_path(config_path, required=True), checks=checks):
+        case Ok(config):
+            return config
+        case fail:
+            raise CLICommandFailed(f"Failed to load configuration. {jsonify(fail, indent=2)}")
+
+
 async def get_config(
     config_path: Path | None,
     checks: Sequence[ConfigCheckType],
 ) -> Config:
-    match await Engine.check(get_config_path(config_path, required=True), checks=checks):
+    match await Config.load(get_config_path(config_path, required=True), checks=checks):
         case Ok(config):
             return config
         case fail:
@@ -112,8 +124,15 @@ async def use_loaded_project(
     config_path = await use_config_path(context)
     return LoadedProject(
         get_config_path(config_path, required=True),
-        await get_config(config_path, checks),
+        await get_config_meta(config_path, checks),
     )
+
+
+async def use_client(
+    context: CLIContext,
+) -> Client:
+    project = await use_loaded_project(context)
+    return Client(project)
 
 
 @wraps(typer.confirm)

@@ -6,7 +6,7 @@ with lazy_imports(__name__):
     from hashlib import sha1
     from pathlib import Path
 
-    from ceres.config import Config
+    from ceres.config import ConfigMeta
     from ceres.directory import Directory
 
 
@@ -32,12 +32,12 @@ class Project:
 
 
 class LoadedProject(Project):
-    def __init__(self, config_path: Path, config: Config) -> None:
+    def __init__(self, config_path: Path, config: ConfigMeta) -> None:
         super().__init__(config_path)
         self._config = config
 
     @property
-    def config(self) -> Config:
+    def config(self) -> ConfigMeta:
         return self._config
 
     @property
