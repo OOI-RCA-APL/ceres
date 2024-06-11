@@ -99,7 +99,8 @@ class ComponentConfig(ConfigObject):
     name: Name
     cls: ImportString[type[__Component__]] = Field(
         default_factory=_get_component_class,
-        alias="class",
+        validation_alias="class",
+        serialization_alias="class",
     )
     arguments: Mapping[str, Any] = Field(default_factory=dict, validation_alias="args")
     jobs: Sequence[Job] = Field(default_factory=list)

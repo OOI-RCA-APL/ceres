@@ -22,7 +22,7 @@ with lazy_imports(__name__):
 
 
 class Loader[T](ImmutableDataObject):
-    cls: ImportString[type[T]] = Field(alias="class")
+    cls: ImportString[type[T]] = Field(validation_alias="class", serialization_alias="class")
     arguments: Mapping[str, Any] = Field(default_factory=dict, validation_alias="args")
 
     @classmethod
