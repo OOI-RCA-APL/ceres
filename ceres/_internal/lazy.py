@@ -139,11 +139,15 @@ def _setup_lazy_exports(__name__: str):
         attrs.setdefault(lazy_lock_name, Lock())
 
     with attrs[lazy_lock_name]:
+        __all__ = list(attrs.get("__all__", []))
+        attrs["__all__"] = __all__
+
         for key, value in list(attrs.items()):
             if key.startswith(lazy_attr_prefix):
                 continue
 
             if isinstance(value, LazyProxy):
+                __all__.append(key)
                 del attrs[key]
                 attrs[lazy_attr_prefix + key] = value
 
