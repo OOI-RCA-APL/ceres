@@ -23,7 +23,7 @@ from ceres.error import Failure, NotFoundError
 from ceres.result import Fail, Ok
 
 with lazy_imports(__name__):
-    from ceres._internal.util import OrderedSet
+    from ceres._internal import util
 
 
 router = APIRouter(prefix="/api")
@@ -115,8 +115,7 @@ class UpResult(ImmutableDataObject):
 async def up(engine: CurrentEngine, filter: ComponentFilter) -> UpResult:
     disabled = engine.get_components(filter, enabled=False)
     stopped = engine.get_components(filter, running=False)
-
-    await gather(*(system.system.up() for system in OrderedSet([*disabled, *stopped])))
+    await gather(*(system.system.up() for system in util.uniquify([*disabled, *stopped], key=id)))
 
     return UpResult(
         enabled=[current.system.address for current in disabled],
@@ -133,6 +132,7 @@ class DownResult(ImmutableDataObject):
 async def down(engine: CurrentEngine, filter: ComponentFilter) -> DownResult:
     enabled = engine.get_components(filter, enabled=True)
     running = engine.get_components(filter, running=True)
+    await gather(*(system.system.down() for system in util.uniquify([*enabled, *running], key=id)))
 
     return DownResult(
         disabled=[current.system.address for current in enabled],

@@ -56,6 +56,7 @@ from ceres.error import (
     ProcedureInvalidArgumentsError,
     ProcedureNotFoundError,
     ProcedureNotSubscribableError,
+    ValidationProblem,
 )
 from ceres.event import (
     AttachedEvent,
@@ -81,7 +82,6 @@ from ceres.event import (
 from ceres.filter import BaseFilter, BaseFilterArgs
 from ceres.node import Node
 from ceres.status import Status
-from ceres.error import ValidationProblem
 
 with lazy_imports(__name__):
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -92,7 +92,6 @@ with lazy_imports(__name__):
     from ceres.database.database import Database
     from ceres.manager.job import JobManager
     from ceres.reference import Reference, unref
-    from ceres.store import StoreRow
 
 if TYPE_CHECKING:
     from ceres.engine import Engine
@@ -875,6 +874,8 @@ class ComponentSystem(Node):
         await self.stop()
 
     async def __get_enabled_in_database(self, session: AsyncSession) -> bool:
+        from ceres.store import StoreRow
+
         enabled = await session.scalar(
             select(StoreRow.enabled).where(StoreRow.address == self.address)
         )
@@ -885,6 +886,8 @@ class ComponentSystem(Node):
         return enabled
 
     async def __set_enabled_in_database(self, session: AsyncSession, enabled: bool) -> None:
+        from ceres.store import StoreRow
+
         if self.database.type == "sqlite":
             from sqlalchemy.dialects.sqlite import insert
         else:
