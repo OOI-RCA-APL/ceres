@@ -6,7 +6,7 @@ Ceres is a Python framework for data collection, monitoring and device control. 
 
 ## Documentation
 
-View the full documentation for Ceres at [https://ceres-docs.jploskey.us]().
+View the full documentation for Ceres at [https://ceres-docs.jploskey.us](https://ceres-docs.jploskey.us).
 
 ## Example
 
