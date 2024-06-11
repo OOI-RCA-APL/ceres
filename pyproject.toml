@@ -50,7 +50,7 @@ mkdocs-material = "9.5.11"
 mkdocstrings = { extras = ["python"], version = "0.24.1" }
 
 [tool.poetry.scripts]
-ceres = "ceres._internal.cli:main"
+ceres = "ceres._internal.cli.main:main"
 
 [tool.black]
 line-length = 100
