@@ -165,7 +165,7 @@ def _setup_lazy_exports(__name__: str):
 
 
 @contextmanager
-def lazy_imports(__name__: str, export: bool = False):
+def lazy_imports(__name__: str, *, export: bool = False):
     with _lazy_importing_modules_lock:
         _lazy_importing_modules.add(__name__)
         if __builtins__.get("__import__") is not __lazy_import__:
