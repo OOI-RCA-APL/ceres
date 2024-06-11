@@ -1,7 +1,7 @@
 import sys
 from collections.abc import Iterable
 
-from ceres._internal.lazy import LazyProxy, lazy_imports, unwrap
+from ceres._internal.lazy import LazyProxy, lazy_imports, unlazy
 
 with lazy_imports(__name__):
     from tests.lazy_module import SomeIterable, SomeObject, imported_iterable
@@ -15,8 +15,8 @@ def test_isinstance():
 
     assert isinstance(real_obj, SomeObject)
     assert isinstance(SomeObject, LazyProxy)
-    assert not isinstance(unwrap(SomeObject), LazyProxy)
-    assert unwrap(SomeObject).__name__ == "SomeObject"
+    assert not isinstance(unlazy(SomeObject), LazyProxy)
+    assert unlazy(SomeObject).__name__ == "SomeObject"
 
     assert isinstance(real_iterable, Iterable)
     assert not isinstance(real_iterable, LazyProxy)

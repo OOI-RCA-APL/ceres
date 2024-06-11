@@ -154,7 +154,7 @@ def _setup_lazy_exports(__name__: str):
         def __lazy_getattr__(name: str) -> object:
             lazy_key = lazy_attr_prefix + name
             if lazy_key in attrs:
-                value = unwrap(attrs[lazy_key])
+                value = unlazy(attrs[lazy_key])
                 attrs[name] = value
                 attrs.pop(lazy_key, None)
                 return value
@@ -184,14 +184,14 @@ def lazy_imports(__name__: str, *, export: bool = False):
 
 
 @overload
-def unwrap(value: LazyProxy) -> Any: ...
+def unlazy(value: LazyProxy) -> Any: ...
 
 
 @overload
-def unwrap[T](value: T) -> T: ...
+def unlazy[T](value: T) -> T: ...
 
 
-def unwrap[T](value: T | LazyProxy) -> T:
+def unlazy[T](value: T | LazyProxy) -> T:
     if isinstance(value, LazyProxy):
         return value.__proxy_get__()
 
