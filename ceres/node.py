@@ -11,6 +11,7 @@ from pydantic.fields import FieldInfo
 from ceres._internal.lazy import lazy_imports
 from ceres._internal.typedecs import __Item__
 from ceres.address import Address, AddressSelector, DynamicAddress
+from ceres.data import StrEnum
 from ceres.event import (
     ConnectedEvent,
     ConnectFailedEvent,
@@ -32,13 +33,18 @@ with lazy_imports(__name__):
     from ceres.config import ComponentConfig, Config, LoggingConfig
     from ceres.database.database import Database
     from ceres.engine import Engine
-    from ceres.manager.alert import LiveAlertManager
+    from ceres.manager.alert import BoundAlertManager
     from ceres.manager.event import EventManager
-    from ceres.manager.logs import LiveLogManager
-    from ceres.manager.message import LiveMessageManager
+    from ceres.manager.logs import BoundLogManager
+    from ceres.manager.message import BoundMessageManager
     from ceres.manager.statistic import StatisticsManager
     from ceres.manager.user import UserManager
+    from ceres.manager.variable import BoundVariableManager
     from ceres.status import Status
+
+
+class InternalVariableName(StrEnum):
+    ENABLED = "__enabled__"
 
 
 @dataclass_transform(
@@ -77,20 +83,24 @@ class Node(Tasklet):
     def root(self) -> ComponentSystem | None: ...
 
     @cached_property
-    def messages(self) -> LiveMessageManager:
-        return LiveMessageManager(self)
+    def messages(self) -> BoundMessageManager:
+        return BoundMessageManager(self)
 
     @cached_property
-    def alerts(self) -> LiveAlertManager:
-        return LiveAlertManager(self)
+    def alerts(self) -> BoundAlertManager:
+        return BoundAlertManager(self)
 
     @cached_property
-    def log(self) -> LiveLogManager:
-        return LiveLogManager(self)
+    def log(self) -> BoundLogManager:
+        return BoundLogManager(self)
 
     @cached_property
     def users(self) -> UserManager:
         return UserManager(self)
+
+    @cached_property
+    def variables(self) -> BoundVariableManager:
+        return BoundVariableManager(self)
 
     @cached_property
     def events(self) -> EventManager:
@@ -126,8 +136,9 @@ class Node(Tasklet):
         from ceres.alert import Alert
         from ceres.logs import LogEntry
         from ceres.message import Message
+        from ceres.variable import Variable
 
-        if type(item) not in (Message, Alert, LogEntry):
+        if type(item) not in (Message, Alert, LogEntry, Variable):
             raise TypeError(f"invalid item type {type(item)}")
 
         self.__store(item)

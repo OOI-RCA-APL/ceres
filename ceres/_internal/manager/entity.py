@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from typing import Any, Unpack, cast
+from typing import Any, Sequence, Unpack, cast
 
 from ceres._internal.lazy import lazy_imports
 from ceres._internal.manager.manager import BaseManager
+from ceres.database.enums import DatabaseType
 from ceres.entity import BaseEntity
 
 with lazy_imports(__name__):
@@ -14,6 +15,9 @@ with lazy_imports(__name__):
 
 with lazy_imports(__name__):
     from sqlalchemy.sql import Delete, Select, Update, delete, func, select, update
+    from sqlalchemy.sql.elements import ColumnElement
+    from sqlalchemy.sql.roles import DDLConstraintColumnRole
+    from sqlalchemy.sql.schema import Column
 
 
 class BaseEntityManager[
@@ -24,9 +28,14 @@ class BaseEntityManager[
     FilterT: BaseEntity.Filter[Any],
     FilterArgsT: BaseEntity.FilterArgs,
 ](BaseManager[EntityT]):
-    async def create(self, data: CreateT) -> EntityT:
+    async def create(
+        self,
+        data: CreateT,
+        *,
+        upsert_on: Sequence[str | ColumnElement[Any] | DDLConstraintColumnRole] | None = None,
+    ) -> EntityT:
         result = await self._from_create(data)
-        await self._insert(result)
+        await self._insert(result, upsert_on=upsert_on)
         return result
 
     async def get_all(
@@ -148,12 +157,35 @@ class BaseEntityManager[
 
         return self._cls(**data.__dict__)
 
-    async def _insert(self, data: EntityT) -> RowT:
+    async def _insert(
+        self,
+        data: EntityT,
+        *,
+        upsert_on: Sequence[str | Column[Any] | DDLConstraintColumnRole] | None = None,
+    ) -> RowT:
         Row = self._get_row_cls()
         row = Row(**data.__dict__)
+        match self._database.type:
+            case DatabaseType.SQLITE:
+                from sqlalchemy.dialects.sqlite import insert
+            case DatabaseType.POSTGRES:
+                from sqlalchemy.dialects.postgresql import insert
+
         with util.wrap_database_errors():
             async with await self._database.init() as session:
-                session.add(row)
+                statement = insert(Row).values(row.values())
+                pk = Row.get_primary_key_columns()
+                upsert = {
+                    name: column for name, column in statement.excluded.items() if name not in pk
+                }
+
+                if upsert_on:
+                    statement = statement.on_conflict_do_update(
+                        index_elements=upsert_on,
+                        set_=upsert,
+                    )
+
+                await session.execute(statement)
                 await session.commit()
                 return row
 

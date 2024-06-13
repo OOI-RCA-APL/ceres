@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Annotated, Any, ClassVar, Iterable, Sequence, TypedDict, override
+from typing import Annotated, Any, ClassVar, Iterable, Mapping, Sequence, TypedDict, override
 from uuid import UUID, uuid4
 
 from pydantic import Field
@@ -78,8 +78,6 @@ class UserFilterArgs(BaseEntityFilterArgs, total=False):
     role: UserRole | Sequence[UserRole] | None
     disabled: bool | None
     order: UserOrder | None
-    limit: int | None
-    offset: int | None
 
 
 class UserFilter(BaseEntityFilter["User"]):
@@ -109,7 +107,7 @@ class UserFilter(BaseEntityFilter["User"]):
         return UserRow
 
     @override
-    def _get_search_content(self, obj: User) -> dict[str, str]:
+    def _get_search_content(self, obj: User) -> Mapping[str, str]:
         return {
             "username": obj.username,
             "email": obj.email,
@@ -120,7 +118,7 @@ class UserFilter(BaseEntityFilter["User"]):
     def _get_database_search_content(
         self,
         dialect: DatabaseType,
-    ) -> dict[str, SQLColumnExpression[Any]]:
+    ) -> Mapping[str, SQLColumnExpression[Any]]:
         columns = self._get_row_cls()
 
         return {

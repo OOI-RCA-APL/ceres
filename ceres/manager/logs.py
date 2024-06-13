@@ -36,7 +36,7 @@ class LogManager(
 LogInterpolate = Mapping[str, object] | Sequence[object]
 
 
-class LiveLogManager(LogManager):
+class BoundLogManager(LogManager):
     if TYPE_CHECKING:
         _node: Node  # type: ignore
 

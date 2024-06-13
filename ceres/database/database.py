@@ -10,6 +10,7 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile, gettempdir
 from textwrap import dedent
 from typing import (
+    TYPE_CHECKING,
     Any,
     Callable,
     Iterable,
@@ -23,6 +24,7 @@ from typing import (
 from uuid import UUID, uuid4
 
 from pydantic import ValidationError
+from sqlalchemy.engine.interfaces import DBAPIConnection
 
 from ceres._internal import util
 from ceres._internal.auth import get_password_hash, verify_password, verify_password_hash
@@ -37,9 +39,8 @@ from ceres.threading import spawn
 
 with lazy_imports(__name__):
     import sqlite3
-    from sqlite3 import Connection as SQLiteConnection
 
-    from asyncpg import Connection as AsyncPgConnection
+    import asyncpg
     from sqlalchemy import (
         URL,
         AsyncAdaptedQueuePool,
@@ -61,6 +62,14 @@ with lazy_imports(__name__):
     from ceres.manager.message import MessageManager
     from ceres.manager.statistic import StatisticsManager
     from ceres.manager.user import UserManager
+    from ceres.manager.variable import VariableManager
+
+if TYPE_CHECKING:
+    from sqlalchemy.dialects.sqlite.aiosqlite import AsyncAdapt_aiosqlite_connection
+
+    _SQLiteConnection = AsyncAdapt_aiosqlite_connection | sqlite3.Connection
+else:
+    _SQLiteConnection = object
 
 
 class Database:
@@ -125,6 +134,10 @@ class Database:
         return UserManager(self)
 
     @cached_property
+    def variables(self) -> VariableManager:
+        return VariableManager(self)
+
+    @cached_property
     def statistics(self) -> StatisticsManager:
         return StatisticsManager(self)
 
@@ -173,23 +186,26 @@ class Database:
         if init:
 
             @event.listens_for(engine.sync_engine, "first_connect")
-            def init_hook(connection: SQLiteConnection, *args: object) -> None:
+            def init_hook(connection: DBAPIConnection, *args: object) -> None:
+                cursor = connection.cursor()
                 for statement in init:
-                    connection.execute(statement)
+                    cursor.execute(statement)
 
         if connect:
 
             @event.listens_for(engine.sync_engine, "connect")
-            def connect_hook(connection: SQLiteConnection, *args: object) -> None:
+            def connect_hook(connection: DBAPIConnection, *args: object) -> None:
+                cursor = connection.cursor()
                 for statement in connect:
-                    connection.execute(statement)
+                    cursor.execute(statement)
 
         if disconnect:
 
             @event.listens_for(engine.sync_engine, "close")
-            def close_hook(connection: SQLiteConnection, *args: object) -> None:
+            def close_hook(connection: DBAPIConnection, *args: object) -> None:
+                cursor = connection.cursor()
                 for statement in disconnect:
-                    connection.execute(statement)
+                    cursor.execute(statement)
 
         return engine
 
@@ -334,7 +350,7 @@ class SQLiteDatabase(Database):  #
                     traceback.print_exc()
 
         @event.listens_for(engine.sync_engine, "first_connect")
-        def first_connect(connection: SQLiteConnection, *args: object) -> None:
+        def first_connect(connection: _SQLiteConnection, *args: object) -> None:
             # Enable incremental "auto_vacuum" mode when the first connection to the database is
             # made. This can only be done before database tables are created and is disabled by
             # default, so we do it here just in case "incremental_vacuum" is needed later on.
@@ -344,7 +360,7 @@ class SQLiteDatabase(Database):  #
 
         # https://docs.sqlalchemy.org/en/20/core/events.html#sqlalchemy.events.PoolEvents.connect
         @event.listens_for(engine.sync_engine, "connect")
-        def connect(connection: SQLiteConnection, *args: object) -> None:
+        def connect(connection: _SQLiteConnection, *args: object) -> None:
             # Enable a 30 second busy timeout.
             connection.execute("PRAGMA busy_timeout = 30000")
             # Set like statements to be case sensitive to match Postgres.
@@ -600,9 +616,7 @@ class PostgresDatabase(Database):
 
         url = self.url.replace("+asyncpg", "")
 
-        import asyncpg
-
-        connection: AsyncPgConnection = await asyncpg.connect(url)
+        connection: asyncpg.Connection = await asyncpg.connect(url)
 
         try:
             timestamp = "to_char(timestamp, 'YYYY-MM-DD HH24:MI:SS.US') as timestamp"
@@ -611,9 +625,6 @@ class PostgresDatabase(Database):
                 columns = _get_columns_joined(
                     entity_type,
                     {
-                        EntityType.STORE: {
-                            "enabled": "enabled::TEXT as enabled",
-                        },
                         EntityType.MESSAGE: {
                             "timestamp": timestamp,
                             "content": "convert_from(content, 'latin-1') as content",
@@ -645,9 +656,7 @@ class PostgresDatabase(Database):
 
         url = self.url.replace("+asyncpg", "")
 
-        import asyncpg
-
-        connection = await asyncpg.connect(url)  # type: ignore
+        connection: asyncpg.Connection = await asyncpg.connect(url)
 
         try:
             row_cls = entity_type.cls.Row
@@ -664,8 +673,13 @@ class PostgresDatabase(Database):
 
                 def _get_fields(item: BaseEntity):
                     fields = item.__dict__
+                    if "address" in fields:
+                        fields["address"] = str(fields["address"])
                     if entity_type == EntityType.ALERT:
                         fields["info"] = jsonify(fields["info"])
+                    elif entity_type == EntityType.VARIABLE:
+                        fields["value"] = jsonify(fields["value"])
+
                     return fields
 
                 records = (
@@ -787,7 +801,7 @@ def _encode(value: str, encoding: str) -> bytes:
     return value.encode(encoding)
 
 
-def _sqlite_create_functions(connection: SQLiteConnection) -> None:
+def _sqlite_create_functions(connection: _SQLiteConnection) -> None:
     sqlite3.enable_callback_tracebacks(True)
     connection.create_function("decode", 2, _decode)
     connection.create_function("encode", 2, _encode)
@@ -832,13 +846,13 @@ def _get_entity_row_classes() -> list[type[BaseEntityRow]]:
     from ceres.alert import AlertRow
     from ceres.logs import LogEntryRow
     from ceres.message import MessageRow
-    from ceres.store import StoreRow
     from ceres.user import UserRow
+    from ceres.variable import VariableRow
 
     return [
-        UserRow,
-        StoreRow,
         MessageRow,
         AlertRow,
         LogEntryRow,
+        UserRow,
+        VariableRow,
     ]

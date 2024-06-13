@@ -29,7 +29,7 @@ class AlertManager(
         super().__init__(source, Alert)
 
 
-class LiveAlertManager(AlertManager, BaseBoundManager[Alert]):
+class BoundAlertManager(AlertManager, BaseBoundManager[Alert]):
     def __init__(self, source: Node) -> None:
         super().__init__(source)
 

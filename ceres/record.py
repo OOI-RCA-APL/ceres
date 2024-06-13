@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from abc import abstractmethod
 from datetime import datetime
-from typing import Annotated, Any, ClassVar, Iterable, Literal, override
+from typing import Annotated, Any, ClassVar, Iterable, Literal, Mapping, override
 
 from pydantic import Field
 
@@ -86,7 +86,7 @@ class BaseRecordFilter[RecordT: BaseRecord](BaseItemFilter[RecordT]):
     def _get_row_cls(self) -> type[BaseRecordRow]: ...
 
     @override
-    def _get_search_content(self, obj: RecordT) -> dict[str, str]:
+    def _get_search_content(self, obj: RecordT) -> Mapping[str, str]:
         return {
             **super()._get_search_content(obj),
             "timestamp": util.format_timestamp(obj.timestamp),
@@ -96,7 +96,7 @@ class BaseRecordFilter[RecordT: BaseRecord](BaseItemFilter[RecordT]):
     def _get_database_search_content(
         self,
         dialect: DatabaseType,
-    ) -> dict[str, SQLColumnExpression[Any]]:
+    ) -> Mapping[str, SQLColumnExpression[Any]]:
         columns = self._get_row_cls()
 
         return {

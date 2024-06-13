@@ -28,7 +28,7 @@ class MessageManager(
         super().__init__(source, Message)
 
 
-class LiveMessageManager(MessageManager, BaseBoundManager[Message]):
+class BoundMessageManager(MessageManager, BaseBoundManager[Message]):
     def __init__(self, source: Node) -> None:
         super().__init__(source)
 

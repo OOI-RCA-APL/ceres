@@ -23,7 +23,7 @@ class EntityType(StrEnum):
     ALERT = "alert"
     LOG_ENTRY = "log-entry"
     USER = "user"
-    STORE = "store"
+    VARIABLE = "variable"
 
     @property
     def table(self) -> str:
@@ -36,8 +36,8 @@ class EntityType(StrEnum):
                 return "log_entries"
             case EntityType.USER:
                 return "users"
-            case EntityType.STORE:
-                return "stores"
+            case EntityType.VARIABLE:
+                return "variables"
 
         raise ValueError(self)
 
@@ -60,9 +60,9 @@ class EntityType(StrEnum):
                 from ceres.user import User
 
                 return User
-            case EntityType.STORE:
-                from ceres.store import Store
+            case EntityType.VARIABLE:
+                from ceres.variable import Variable
 
-                return Store
+                return Variable
 
         raise ValueError(self)

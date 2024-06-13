@@ -50,7 +50,6 @@ from ceres.data import (
     StrEnum,
     ValidatedDataclass,
 )
-from ceres.database.enums import DatabaseType
 from ceres.error import (
     Failure,
     ProcedureInternalError,
@@ -81,12 +80,13 @@ from ceres.event import (
     WillDetachEvent,
 )
 from ceres.filter import BaseFilter, BaseFilterArgs
+from ceres.node import InternalVariableName as InternalVariableName
 from ceres.node import Node
 from ceres.status import Status
+from ceres.variable import Variable
 
 with lazy_imports(__name__):
     from sqlalchemy.ext.asyncio import AsyncSession
-    from sqlalchemy.sql import select
 
     from ceres._internal import util
     from ceres._internal.util import OrderedWeakSet, Undefined, WeakRef
@@ -797,9 +797,8 @@ class ComponentSystem(Node):
 
     @override
     async def __node_sync__(self, session: AsyncSession | None = None) -> None:
-        async with await util.get_session(self.database, session) as session:
-            await super().__node_sync__(session)
-            self._enabled = await self.__get_enabled_in_database(session)
+        await super().__node_sync__(session)
+        self._enabled = await self.__get_enabled_in_database()
 
     @property
     def name(self) -> Name:
@@ -843,8 +842,7 @@ class ComponentSystem(Node):
         if self.parent is not None:
             await self.parent.enable()
 
-        async with await self.database.init() as session:
-            await self.__set_enabled_in_database(session, True)
+        await self.__set_enabled_in_database(True)
         self._enabled = True
         self.events.emit(EnabledEvent)
 
@@ -852,8 +850,7 @@ class ComponentSystem(Node):
         """
         Disable the component.
         """
-        async with await self.database.init() as session:
-            await self.__set_enabled_in_database(session, False)
+        await self.__set_enabled_in_database(False)
         self._enabled = False
         self.events.emit(DisabledEvent)
 
@@ -871,43 +868,22 @@ class ComponentSystem(Node):
         await self.disable()
         await self.stop()
 
-    async def __get_enabled_in_database(self, session: AsyncSession) -> bool:
-        from ceres.store import StoreRow
-
-        enabled = await session.scalar(
-            select(StoreRow.enabled).where(StoreRow.address == self.address)
+    async def __get_enabled_in_database(self) -> bool:
+        return await self.variables.read(
+            InternalVariableName.ENABLED,
+            parse=bool,
+            default=False,
         )
 
-        if enabled is None:
-            return False
-
-        return enabled
-
-    async def __set_enabled_in_database(self, session: AsyncSession, enabled: bool) -> None:
-        from ceres.store import StoreRow
-
-        match self.database.type:
-            case DatabaseType.SQLITE:
-                from sqlalchemy.dialects.sqlite import insert
-            case DatabaseType.POSTGRES:
-                from sqlalchemy.dialects.postgresql import insert
-
-        await self.__node_sync__(session)
-        await session.execute(
-            insert(StoreRow)
-            .values(
-                StoreRow(
-                    address=self.address,
-                    enabled=enabled,
-                ).values()
-            )
-            .on_conflict_do_update(
-                index_elements=[StoreRow.address],
-                set_={"enabled": enabled},
-            )
+    async def __set_enabled_in_database(self, enabled: bool) -> None:
+        await self.variables.create(
+            Variable(
+                address=self.address,
+                name=InternalVariableName.ENABLED,
+                value=enabled,
+            ),
+            upsert_on=(Variable.Row.address, Variable.Row.name),
         )
-
-        await session.commit()
 
     @property
     def children(self) -> Sequence[ComponentSystem]:

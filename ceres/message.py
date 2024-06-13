@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Annotated, Any, ClassVar, Iterable, TypedDict, override
+from typing import Annotated, Any, ClassVar, Iterable, Mapping, TypedDict, override
 
 from pydantic import BeforeValidator, Field, PlainSerializer
 
@@ -133,7 +133,7 @@ class MessageFilter(BaseRecordFilter["Message"]):
         return MessageRow
 
     @override
-    def _get_search_content(self, obj: Message) -> dict[str, str]:
+    def _get_search_content(self, obj: Message) -> Mapping[str, str]:
         return {
             **super()._get_search_content(obj),
             "direction": obj.direction,
@@ -144,7 +144,7 @@ class MessageFilter(BaseRecordFilter["Message"]):
     def _get_database_search_content(
         self,
         dialect: DatabaseType,
-    ) -> dict[str, SQLColumnExpression[Any]]:
+    ) -> Mapping[str, SQLColumnExpression[Any]]:
         columns = self._get_row_cls()
 
         match dialect:

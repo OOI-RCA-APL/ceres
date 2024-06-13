@@ -140,6 +140,14 @@ class LogEvent(__BaseStandardEvent):
     entry: LogEntry
 
 
+class VariableAssignedEvent(__BaseStandardEvent):
+    type: Literal["variable-assigned"] = "variable-assigned"
+    variable: Variable
+
+
+VariableEvent = VariableAssignedEvent
+
+
 class RoutineStartedEvent(__BaseStandardEvent):
     type: Literal["routine-started"] = "routine-started"
     routine: str
@@ -302,8 +310,10 @@ ExceptionEvent = (
 from ceres.alert import Alert  # noqa: E402
 from ceres.logs import LogEntry  # noqa: E402
 from ceres.message import Message  # noqa: E402
+from ceres.variable import Variable  # noqa: E402
 
 AlertEvent.model_rebuild()
 LogEvent.model_rebuild()
 MessageSentEvent.model_rebuild()
 MessageReceivedEvent.model_rebuild()
+VariableAssignedEvent.model_rebuild()

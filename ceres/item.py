@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from abc import abstractmethod
-from typing import Annotated, Any, ClassVar, Iterable, override
+from typing import Annotated, Any, ClassVar, Iterable, Mapping, override
 
 from pydantic import Field
 
@@ -70,7 +70,7 @@ class BaseItemFilter[_ItemT: BaseItem](BaseEntityFilter[_ItemT]):
     def _get_row_cls(self) -> type[BaseItemRow]: ...
 
     @override
-    def _get_search_content(self, obj: _ItemT) -> dict[str, str]:
+    def _get_search_content(self, obj: _ItemT) -> Mapping[str, str]:
         return {
             "address": str(obj.address),
         }
@@ -79,7 +79,7 @@ class BaseItemFilter[_ItemT: BaseItem](BaseEntityFilter[_ItemT]):
     def _get_database_search_content(
         self,
         dialect: DatabaseType,
-    ) -> dict[str, SQLColumnExpression[Any]]:
+    ) -> Mapping[str, SQLColumnExpression[Any]]:
         columns = self._get_row_cls()
 
         return {

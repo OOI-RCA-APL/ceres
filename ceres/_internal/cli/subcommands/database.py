@@ -67,7 +67,7 @@ async def dump(
         ),
     ],
     *,
-    item_type: Annotated[
+    entity_type: Annotated[
         list[EntityType],
         CLIOption(
             list[EntityType],
@@ -75,10 +75,10 @@ async def dump(
             help=(
                 """
             Data type(s) to dump.
-            * For **--format csv**, a single **--item-type** is *required*.
-            * For **--format sqlite**, if **--item-type** is *omitted*, *all* item types will be
-            dumped to the SQLite database. If **--item-type** is specified *one or more times*,
-            *only* those item types will be dumped.
+            * For **--format csv**, a single **--entity-type** is *required*.
+            * For **--format sqlite**, if **--entity-type** is *omitted*, *all* entity types will be
+            dumped to the SQLite database. If **--entity-type** is specified *one or more times*,
+            *only* those entity types will be dumped.
             """
             ),
         ),
@@ -98,15 +98,15 @@ async def dump(
     format = _guess_format(format, path)
 
     if format == DataFormat.CSV:
-        if not item_type:
-            raise CLICommandFailed("Dumping to CSV requires '--item-type' to be specified.")
-        elif len(item_type) != 1:
+        if not entity_type:
+            raise CLICommandFailed("Dumping to CSV requires '--entity-type' to be specified.")
+        elif len(entity_type) != 1:
             raise CLICommandFailed(
-                "Dumping to CSV requires exactly one '--item-type' to be specified."
+                "Dumping to CSV requires exactly one '--entity-type' to be specified."
             )
 
-    item_type = (
-        list(EntityType) if not item_type else [EntityType(current) for current in item_type]
+    entity_type = (
+        list(EntityType) if not entity_type else [EntityType(current) for current in entity_type]
     )
 
     database = await use_database(context, initialized=True)
@@ -115,10 +115,10 @@ async def dump(
     match format:
         case DataFormat.CSV:
             write("Dumping data to CSV...")
-            await database.dump_csv(path, item_type[0])
+            await database.dump_csv(path, entity_type[0])
         case DataFormat.SQLITE:
             write("Dumping data to SQLite...")
-            await database.dump_sqlite(path, item_type)
+            await database.dump_sqlite(path, entity_type)
 
     duration = utc() - start
     write(f"Dump completed in {util.show_td(duration)}.")
@@ -137,7 +137,7 @@ async def load(
         ),
     ],
     *,
-    item_type: Annotated[
+    entity_type: Annotated[
         list[EntityType],
         CLIOption(
             list[EntityType],
@@ -145,10 +145,10 @@ async def load(
             help=(
                 """
             Data type(s) to load.
-            * For **--format csv**, a single **--item-type** is *required*.
-            * For **--format sqlite**, if **--item-type** is *omitted*, *all* item types will be
-            loaded from the SQLite database. If **--item-type** is specified *one or more times*,
-            *only* those item types will be loaded.
+            * For **--format csv**, a single **--entity-type** is *required*.
+            * For **--format sqlite**, if **--entity-type** is *omitted*, *all* entity types will be
+            loaded from the SQLite database. If **--entity-type** is specified *one or more times*,
+            *only* those entity types will be loaded.
             """
             ),
         ),
@@ -167,15 +167,15 @@ async def load(
     """
     format = _guess_format(format, path)
     if format == DataFormat.CSV:
-        if not item_type:
-            raise CLICommandFailed("Loading from CSV requires '--item-type' to be specified.")
-        elif len(item_type) != 1:
+        if not entity_type:
+            raise CLICommandFailed("Loading from CSV requires '--entity-type' to be specified.")
+        elif len(entity_type) != 1:
             raise CLICommandFailed(
-                "Loading from CSV requires exactly one '--item-type' to be specified."
+                "Loading from CSV requires exactly one '--entity-type' to be specified."
             )
 
-    item_type = (
-        list(EntityType) if not item_type else [EntityType(current) for current in item_type]
+    entity_type = (
+        list(EntityType) if not entity_type else [EntityType(current) for current in entity_type]
     )
 
     database = await use_database(context, initialized=True)
@@ -184,10 +184,10 @@ async def load(
     match format:
         case DataFormat.CSV:
             write("Loading data from CSV...")
-            await database.load_csv(path, item_type[0])
+            await database.load_csv(path, entity_type[0])
         case DataFormat.SQLITE:
             write("Loading data from SQLite...")
-            await database.load_sqlite(path, item_type)
+            await database.load_sqlite(path, entity_type)
 
     duration = utc() - start
     write(f"Load completed in {util.show_td(duration)}.")

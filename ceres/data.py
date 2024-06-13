@@ -192,11 +192,9 @@ def __validate_yamlable(value: object) -> object:
 
 
 JSONWriteable = Annotated[_T, AfterValidator(__validate_jsonable)]
-YAMLWriteable = Annotated[_T, AfterValidator(__validate_yamlable)]
-
 JSONDict = JSONWriteable[FromJSON[dict[str, Any]]]
 JSONList = JSONWriteable[FromJSON[list[Any]]]
-JSON = None | bool | int | float | str | JSONDict | JSONList
+JSONValue = None | bool | int | float | str | JSONDict | JSONList
 
 
 def __validate_non_empty(value: object) -> object:

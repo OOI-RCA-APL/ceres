@@ -22,7 +22,7 @@ from ceres.record import (
 with lazy_imports(__name__):
     from sqlalchemy.orm import Mapped, mapped_column
     from sqlalchemy.schema import Index, SchemaItem
-    from sqlalchemy.sql import SQLColumnExpression
+    from sqlalchemy.sql import SQLColumnExpression, cast
     from sqlalchemy.sql.sqltypes import JSON, Text
 
     from ceres._internal import util
@@ -118,24 +118,32 @@ class AlertFilter(BaseRecordFilter["Alert"]):
         return AlertRow
 
     @override
-    def _get_search_content(self, obj: Alert) -> dict[str, str]:
+    def _get_search_content(self, obj: Alert) -> Mapping[str, str]:
         return {
             **super()._get_search_content(obj),
             "level": obj.level,
             "code": obj.code,
+            "info": jsonify(obj.info),
         }
 
     @override
     def _get_database_search_content(
         self,
         dialect: DatabaseType,
-    ) -> dict[str, SQLColumnExpression[Any]]:
+    ) -> Mapping[str, SQLColumnExpression[Any]]:
         columns = self._get_row_cls()
+
+        match dialect:
+            case DatabaseType.POSTGRES:
+                info = cast(columns.info, Text)
+            case DatabaseType.SQLITE:
+                info = columns.info
 
         return {
             **super()._get_database_search_content(dialect),
             "level": columns.level,
             "code": columns.code,
+            "info": info,
         }
 
     @override
