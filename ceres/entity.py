@@ -140,7 +140,7 @@ class BaseEntityRow(
             yield _compile(dialect, CreateIndex(index, if_not_exists=if_not_exists))
 
     def values(self) -> dict[str, Any]:
-        return {name: getattr(self, name) for name in self.__table__.columns.keys()}
+        return {column.name: getattr(self, column.name) for column in self.__table__.columns}
 
     @declared_attr
     def __table_args__(cls) -> Any:
