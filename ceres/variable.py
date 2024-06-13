@@ -8,8 +8,7 @@ from ceres._internal.cli.plumbing import CLIOption
 from ceres._internal.lazy import lazy_imports
 from ceres.data import FromYAML, JSONValue, StrEnum, jsonify
 from ceres.database.enums import DatabaseType
-from ceres.entity import BaseEntityFilter
-from ceres.item import BaseItem, BaseItemCreate, BaseItemFilterArgs, BaseItemRow
+from ceres.item import BaseItem, BaseItemCreate, BaseItemFilter, BaseItemFilterArgs, BaseItemRow
 
 with lazy_imports(__name__):
     from sqlalchemy.orm import Mapped, mapped_column
@@ -43,7 +42,7 @@ class VariableFilterArgs(BaseItemFilterArgs, total=False):
     name: str | Sequence[str] | None
 
 
-class VariableFilter(BaseEntityFilter["Variable"]):
+class VariableFilter(BaseItemFilter["Variable"]):
     name: Annotated[str | Sequence[str] | None, CLIOption(list[str] | None)] = Field(
         default=None,
         description="Filter by name(s).",
