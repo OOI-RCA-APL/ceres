@@ -15,9 +15,9 @@ from ceres.item import BaseItem, BaseItemFilter, BaseItemFilterArgs, BaseItemRow
 from ceres.timing import utc
 
 with lazy_imports(__name__):
-    from sqlalchemy.orm import Mapped, QueryableAttribute, mapped_column
+    from sqlalchemy.orm import Mapped, mapped_column
     from sqlalchemy.schema import Index, SchemaItem
-    from sqlalchemy.sql import ColumnExpressionArgument
+    from sqlalchemy.sql import SQLColumnExpression
 
     from ceres._internal import util
 
@@ -96,7 +96,7 @@ class BaseRecordFilter[RecordT: BaseRecord](BaseItemFilter[RecordT]):
     def _get_database_search_content(
         self,
         dialect: DatabaseType,
-    ) -> dict[str, QueryableAttribute[str | bytes]]:
+    ) -> dict[str, SQLColumnExpression[str | bytes]]:
         columns = self._get_row_cls()
 
         return {
@@ -105,7 +105,7 @@ class BaseRecordFilter[RecordT: BaseRecord](BaseItemFilter[RecordT]):
         }
 
     @override
-    def _get_where(self, dialect: DatabaseType) -> Iterable[ColumnExpressionArgument[bool]]:
+    def _get_where(self, dialect: DatabaseType) -> Iterable[SQLColumnExpression[bool]]:
         yield from super()._get_where(dialect)
         columns = self._get_row_cls()
 
@@ -121,7 +121,7 @@ class BaseRecordFilter[RecordT: BaseRecord](BaseItemFilter[RecordT]):
             yield columns.timestamp < self.before
 
     @override
-    def _get_order_by(self) -> ColumnExpressionArgument[Any]:
+    def _get_order_by(self) -> SQLColumnExpression[Any]:
         columns = self._get_row_cls()
 
         match self.order:

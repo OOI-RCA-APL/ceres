@@ -26,9 +26,9 @@ from ceres.entity import (
 )
 
 with lazy_imports(__name__):
-    from sqlalchemy.orm import Mapped, QueryableAttribute, mapped_column
+    from sqlalchemy.orm import Mapped, mapped_column
     from sqlalchemy.schema import SchemaItem, UniqueConstraint
-    from sqlalchemy.sql import ColumnExpressionArgument, expression
+    from sqlalchemy.sql import SQLColumnExpression, expression
     from sqlalchemy.sql.sqltypes import Boolean, Text
 
     from ceres._internal import util
@@ -120,7 +120,7 @@ class UserFilter(BaseEntityFilter["User"]):
     def _get_database_search_content(
         self,
         dialect: DatabaseType,
-    ) -> dict[str, QueryableAttribute[str | bytes]]:
+    ) -> dict[str, SQLColumnExpression[str | bytes]]:
         columns = self._get_row_cls()
 
         return {
@@ -130,7 +130,7 @@ class UserFilter(BaseEntityFilter["User"]):
         }
 
     @override
-    def _get_where(self, dialect: DatabaseType) -> Iterable[ColumnExpressionArgument[bool]]:
+    def _get_where(self, dialect: DatabaseType) -> Iterable[SQLColumnExpression[bool]]:
         yield from super()._get_where(dialect)
         columns = self._get_row_cls()
 
@@ -144,7 +144,7 @@ class UserFilter(BaseEntityFilter["User"]):
             yield columns.disabled == self.disabled
 
     @override
-    def _get_order_by(self) -> ColumnExpressionArgument[Any]:
+    def _get_order_by(self) -> SQLColumnExpression[Any]:
         columns = self._get_row_cls()
         match self.order:
             case None | UserOrder.USERNAME:

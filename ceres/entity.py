@@ -18,14 +18,14 @@ from ceres.filter import BaseFilter, BaseFilterArgs
 with lazy_imports(__name__):
     from sqlalchemy.engine import Dialect, Engine
     from sqlalchemy.ext.asyncio import AsyncEngine
-    from sqlalchemy.orm import Mapped, QueryableAttribute, declared_attr, mapped_column
+    from sqlalchemy.orm import Mapped, declared_attr, mapped_column
     from sqlalchemy.schema import CreateIndex, CreateTable, PrimaryKeyConstraint, SchemaItem, Table
     from sqlalchemy.sql import (
         ClauseElement,
         ColumnElement,
-        ColumnExpressionArgument,
         Delete,
         Select,
+        SQLColumnExpression,
         Update,
         expression,
         select,
@@ -145,7 +145,14 @@ class BaseEntityRow(
         *,
         if_not_exists: bool = True,
     ) -> Iterable[str]:
+        if isinstance(dialect, (Engine, AsyncEngine)):
+            dialect = dialect.dialect
+
         for index in sorted(cls.__table__.indexes, key=lambda index: str(index.name)):
+            if index._ddl_if is not None:
+                if dialect.name not in util.as_sequence(index._ddl_if.dialect):
+                    continue
+
             yield _compile(dialect, CreateIndex(index, if_not_exists=if_not_exists))
 
     def values(self) -> dict[str, Any]:
@@ -209,9 +216,9 @@ class BaseEntityFilter[EntityT: BaseEntity](BaseFilter, ABC):
     def _get_database_search_content(
         self,
         dialect: DatabaseType,
-    ) -> dict[str, QueryableAttribute[str | bytes]]: ...
+    ) -> dict[str, SQLColumnExpression[str | bytes]]: ...
 
-    def _get_database_search_encoded_fields(self) -> set[str]:
+    def _get_database_search_content_encoded_fields(self, dialect: DatabaseType) -> set[str]:
         return set()
 
     def matches(self, obj: EntityT) -> bool:
@@ -237,16 +244,16 @@ class BaseEntityFilter[EntityT: BaseEntity](BaseFilter, ABC):
 
         return True
 
-    def _get_where(self, dialect: DatabaseType) -> Iterable[ColumnExpressionArgument[Any]]:
+    def _get_where(self, dialect: DatabaseType) -> Iterable[SQLColumnExpression[bool]]:
         columns = self._get_row_cls()
-        encoded = self._get_database_search_encoded_fields()
+        encoded = self._get_database_search_content_encoded_fields(dialect)
 
         if self.search is not None:
             pattern = "%" + util.escape_like_expression(self.search) + "%"
 
             values = self._get_database_search_content(dialect)
             fields = values if self.search_field is None else util.as_sequence(self.search_field)
-            condition: ColumnExpressionArgument[bool] | None = expression.false()
+            condition: SQLColumnExpression[bool] | None = expression.false()
 
             for field in fields:
                 value = values.get(field)
@@ -263,7 +270,7 @@ class BaseEntityFilter[EntityT: BaseEntity](BaseFilter, ABC):
         if self.id is not None:
             yield columns.id.in_(util.as_sequence(self.id))
 
-    def _get_order_by(self) -> ColumnExpressionArgument[Any] | None:
+    def _get_order_by(self) -> SQLColumnExpression[Any] | None:
         return None
 
     def apply[

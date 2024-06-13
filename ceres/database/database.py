@@ -8,6 +8,7 @@ from asyncio import Lock as AsyncLock
 from functools import cached_property
 from pathlib import Path
 from tempfile import NamedTemporaryFile, gettempdir
+from textwrap import dedent
 from typing import (
     Any,
     Callable,
@@ -101,6 +102,35 @@ class Database:
     @property
     def ddl(self) -> list[str]:
         commands: list[str] = []
+
+        if self.type == DatabaseType.POSTGRES:
+            commands.append("CREATE EXTENSION IF NOT EXISTS pg_trgm;")
+            commands.append(
+                dedent(
+                    """
+                    CREATE OR REPLACE FUNCTION ceres_decode_latin1(bytes bytea) returns TEXT
+                    IMMUTABLE
+                    LANGUAGE plpgsql AS $$
+                        BEGIN
+                            RETURN convert_from($1, 'latin-1');
+                        END;
+                    $$;
+                    """
+                ).strip()
+            )
+            commands.append(
+                dedent(
+                    """
+                    CREATE OR REPLACE FUNCTION ceres_encode_latin1(text text) returns TEXT
+                    IMMUTABLE
+                    LANGUAGE plpgsql AS $$
+                        BEGIN
+                            RETURN convert_to($1, 'latin-1');
+                        END;
+                    $$;
+                    """
+                ).strip()
+            )
 
         for cls in BaseEntityRow.get_entity_row_classes():
             commands.extend(cls.get_ddl(self.__engine.sync_engine))

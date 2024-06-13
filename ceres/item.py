@@ -20,9 +20,9 @@ from ceres.entity import (
 )
 
 with lazy_imports(__name__):
-    from sqlalchemy.orm import Mapped, QueryableAttribute, mapped_column
+    from sqlalchemy.orm import Mapped, mapped_column
     from sqlalchemy.schema import Index, SchemaItem
-    from sqlalchemy.sql import ColumnExpressionArgument
+    from sqlalchemy.sql import SQLColumnExpression
 
 
 class BaseItemRow(BaseEntityRow, kw_only=True):
@@ -79,7 +79,7 @@ class BaseItemFilter[_ItemT: BaseItem](BaseEntityFilter[_ItemT]):
     def _get_database_search_content(
         self,
         dialect: DatabaseType,
-    ) -> dict[str, QueryableAttribute[str | bytes]]:
+    ) -> dict[str, SQLColumnExpression[str | bytes]]:
         columns = self._get_row_cls()
 
         return {
@@ -87,7 +87,7 @@ class BaseItemFilter[_ItemT: BaseItem](BaseEntityFilter[_ItemT]):
         }
 
     @override
-    def _get_where(self, dialect: DatabaseType) -> Iterable[ColumnExpressionArgument[bool]]:
+    def _get_where(self, dialect: DatabaseType) -> Iterable[SQLColumnExpression[bool]]:
         yield from super()._get_where(dialect)
         columns = self._get_row_cls()
 

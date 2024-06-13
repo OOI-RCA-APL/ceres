@@ -20,9 +20,9 @@ from ceres.record import (
 )
 
 with lazy_imports(__name__):
-    from sqlalchemy.orm import Mapped, QueryableAttribute, mapped_column
+    from sqlalchemy.orm import Mapped, mapped_column
     from sqlalchemy.schema import Index, SchemaItem
-    from sqlalchemy.sql import ColumnExpressionArgument
+    from sqlalchemy.sql import SQLColumnExpression
     from sqlalchemy.sql.sqltypes import JSON, Text
 
     from ceres._internal import util
@@ -41,7 +41,13 @@ class AlertRow(BaseRecordRow, kw_only=True):
         return (
             *super().__get_table_args__(),
             EnumConstraint("level", Level, f"ck_{cls.__tablename__}__level"),
-            Index(f"ix_{cls.__tablename__}__code", "code"),
+            Index(f"ix_{cls.__tablename__}__code", "code").ddl_if("sqlite"),
+            Index(
+                f"ix_{cls.__tablename__}__code",
+                "code",
+                postgresql_ops={"code": "gin_trgm_ops"},
+                postgresql_using="gin",
+            ).ddl_if("postgresql"),
         )
 
 
@@ -124,7 +130,7 @@ class AlertFilter(BaseRecordFilter["Alert"]):
     def _get_database_search_content(
         self,
         dialect: DatabaseType,
-    ) -> dict[str, QueryableAttribute[str | bytes]]:
+    ) -> dict[str, SQLColumnExpression[str | bytes]]:
         columns = self._get_row_cls()
 
         return {
@@ -134,7 +140,7 @@ class AlertFilter(BaseRecordFilter["Alert"]):
         }
 
     @override
-    def _get_where(self, dialect: DatabaseType) -> Iterable[ColumnExpressionArgument[bool]]:
+    def _get_where(self, dialect: DatabaseType) -> Iterable[SQLColumnExpression[bool]]:
         yield from super()._get_where(dialect)
         columns = self._get_row_cls()
 
