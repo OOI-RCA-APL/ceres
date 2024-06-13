@@ -32,7 +32,7 @@ class BaseRecordRow(BaseItemRow, kw_only=True):
     def __get_table_args__(cls) -> tuple[SchemaItem, ...]:
         return (
             *super().__get_table_args__(),
-            Index(f"ix_{cls.__tablename__}__timestamp", "timestamp"),
+            Index(f"ix_{cls.__tablename__}__timestamp", "timestamp", postgresql_using="brin"),
         )
 
 
