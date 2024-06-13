@@ -200,7 +200,7 @@ class BaseEntityFilter[EntityT: BaseEntity](BaseFilter, ABC):
     def _get_database_search_content(
         self,
         dialect: DatabaseType,
-    ) -> dict[str, SQLColumnExpression[str | bytes]]: ...
+    ) -> dict[str, SQLColumnExpression[Any]]: ...
 
     def _get_database_search_content_encoded_fields(self, dialect: DatabaseType) -> set[str]:
         return set()

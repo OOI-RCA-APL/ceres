@@ -64,7 +64,7 @@ class LiveLogManager(LogManager):
 
         config = self._node.get_resolved_logging_config()
         if entry.level >= config.level:
-            logger = _get_logger(self._node.address)
+            logger = _get_logger(str(self._node.address))
             logger.log(logging.getLevelName(entry.level.value.upper()), entry.content)
             self._node.log.store(entry)
 

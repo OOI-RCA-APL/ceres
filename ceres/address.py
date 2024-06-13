@@ -1,27 +1,39 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Literal, Self, Sequence, override
+from typing import TYPE_CHECKING, Any, Final, Literal, Self, Sequence, override
 
 from pydantic import GetCoreSchemaHandler
-from pydantic_core import CoreSchema
-from pydantic_core.core_schema import no_info_after_validator_function
+from pydantic_core import CoreSchema, SchemaSerializer
+from pydantic_core.core_schema import no_info_after_validator_function, to_string_ser_schema
+from sqlalchemy.util import LRUCache
 
+from ceres._internal import util
 from ceres._internal.lazy import lazy_imports
-from ceres._internal.util import NAME_PATTERN
+from ceres._internal.util import NAME_PATTERN, classproperty
+from ceres.data import Name
 
 with lazy_imports(__name__):
     from sqlalchemy.sql.elements import ColumnElement, SQLColumnExpression
 
-from ceres.data import Name
 
 _NAME = NAME_PATTERN[1:-1]
 _MODIFIER = r":(all|children|descendants)"
 _SEGMENT = rf"\~({_MODIFIER})?|@?[a-z-A-Z_\-.]+({_MODIFIER})?|@({_MODIFIER})?|{_MODIFIER}"
 
 
-class AddressSelector(str):
-    regex = re.compile(rf"^{_SEGMENT}(\|{_SEGMENT})*$")
+class AddressSelector:
+    __slots__ = ("_text",)
+
+    _cache: LRUCache[str, Self] = LRUCache(256)
+
+    REGEX: Final = re.compile(rf"^{_SEGMENT}(\|{_SEGMENT})*$")
+
+    def __copy__(self) -> Self:
+        return self
+
+    def __deepcopy__(self, *args: Any) -> Self:
+        return self
 
     @classmethod
     def __get_pydantic_core_schema__(
@@ -29,15 +41,94 @@ class AddressSelector(str):
         source_type: Any,
         handler: GetCoreSchemaHandler,
     ) -> CoreSchema:
-        return no_info_after_validator_function(cls.validate, handler(str))
+        schema = no_info_after_validator_function(
+            cls,
+            handler(Any),
+            serialization=to_string_ser_schema(when_used="unless-none"),
+        )
+
+        cls.__pydantic_serializer__ = SchemaSerializer(schema)
+        return schema
+
+    @property
+    def text(self) -> str:
+        return self._text
 
     @property
     def segments(self) -> Sequence[AddressSelector]:
-        return [AddressSelector(segment) for segment in self.split("|")]
+        return [AddressSelector(segment) for segment in self._text.split("|")]
+
+    def __init__(self, value: str | AddressSelector | Sequence[str | AddressSelector], /) -> None:
+        value = util.as_sequence(value)
+
+        segments: list[str] = []
+        for segment in value:
+            if isinstance(segment, str):
+                pass
+            elif isinstance(segment, AddressSelector):
+                segment = segment._text
+            else:
+                raise ValueError(
+                    f"{value!r} must be an instance of {str}, {Sequence[str]} or {AddressSelector}"
+                )
+
+            segments.append(segment)
+
+        value = "|".join(segments)
+
+        if not self.REGEX.match(value):
+            raise ValueError(f"{value!r} must match regex {self.REGEX.pattern}")
+
+        assert isinstance(value, str)
+        self._text: Final[str] = value
+
+    def __new__(cls, value: str | AddressSelector | Sequence[str | AddressSelector], /) -> Self:
+        if isinstance(value, cls):
+            return value
+
+        if isinstance(value, str):
+            cached = cls._cache.get(value)
+        elif isinstance(value, AddressSelector):
+            cached = cls._cache.get(value._text)
+        else:
+            cached = None
+
+        if cached is not None:
+            return cached
+
+        instance = super().__new__(cls)
+        cls.__init__(instance, value)
+        cls._cache[instance._text] = instance
+        return instance
+
+    @override
+    def __str__(self) -> str:
+        return self._text
+
+    @override
+    def __hash__(self) -> int:
+        return hash(self._text)
+
+    @override
+    def __eq__(self, other: Any) -> bool:
+        return isinstance(other, AddressSelector) and self._text == other._text
+
+    def __lt__(self, other: object) -> bool:
+        if not isinstance(other, AddressSelector):
+            return NotImplemented
+
+        return self._text < other._text
+
+    @override
+    def __repr__(self) -> str:
+        return f"{type(self).__name__}({repr(self._text)})"
+
+    def __or__(self, other: AddressSelector) -> AddressSelector:
+        return AddressSelector(f"{self}|{other}")
 
     def _get_normalized_segments(self) -> Sequence[AddressSelector]:
         segments: list[AddressSelector] = []
-        for segment in self.split("|"):
+        for segment in self._text.split("|"):
             if segment == "all":
                 segment = ":all"
 
@@ -45,51 +136,22 @@ class AddressSelector(str):
 
         return segments
 
-    def __new__(cls, obj: str | Sequence[str], /) -> Self:
-        if isinstance(obj, cls):
-            return obj
-
-        return str.__new__(cls, cls.validate(obj))
-
-    @classmethod
-    def validate(cls, value: Any) -> Self:
-        if isinstance(value, cls):
-            return value
-
-        if not isinstance(value, str):
-            if not (isinstance(value, Sequence) and all(isinstance(item, str) for item in value)):
-                raise ValueError(f"{value!r} must be a string or sequence of strings")
-
-            value = "|".join(value)
-
-        if cls.regex.match(value) is None:
-            raise ValueError(f"{value!r} must match regex {cls.regex.pattern}")
-
-        return str.__new__(cls, value)
-
-    @override
-    def __repr__(self) -> str:
-        return f"{type(self).__name__}({repr(str(self))})"
-
-    def __or__(self, other: AddressSelector) -> AddressSelector:
-        return AddressSelector(f"{self}|{other}")
-
     def as_absolute(self, root: Address) -> AddressSelector:
         segments: list[str] = []
 
         if root.is_engine:
-            root = Address.root()
+            root = Address.ROOT
 
         for segment in self._get_normalized_segments():
-            if segment.startswith(":"):
-                segments.append(root + segment)
-            elif segment.startswith("~") or segment.startswith("@"):
-                segments.append(segment)
+            if segment._text.startswith(":"):
+                segments.append(root._text + segment._text)
+            elif segment._text.startswith("~") or segment._text.startswith("@"):
+                segments.append(segment._text)
             else:
-                if root == "~" or root == "@":
-                    segments.append(root + segment)
+                if root._text == "~" or root._text == "@":
+                    segments.append(root._text + segment._text)
                 else:
-                    segments.append(root + "." + segment)
+                    segments.append(root._text + "." + segment._text)
 
         return AddressSelector(segments)
 
@@ -98,46 +160,49 @@ class AddressSelector(str):
         self = self.as_absolute(root)
 
         for segment in self._get_normalized_segments():
-            if ":" not in segment:
+            if ":" not in segment._text:
                 if address == segment:
                     return True
 
                 continue
 
-            base, modifier = segment.split(":")
+            base, modifier = segment._text.split(":")
 
             if base == "~":
                 if modifier == "all":
                     return True
                 elif modifier == "descendants":
-                    if address != "~":
+                    if address._text != "~":
                         return True
                 elif modifier == "children":
-                    if address == "@":
+                    if address._text == "@":
                         return True
 
                 continue
 
             if base == "@":
                 if modifier == "all":
-                    if address != "~":
+                    if address._text != "~":
                         return True
                 elif modifier == "descendants":
-                    if address != "~" and address != "@":
+                    if address._text != "~" and address._text != "@":
                         return True
                 elif modifier == "children":
-                    return address.startswith("@") and len(address) > 1
+                    return address._text.startswith("@") and len(address._text) > 1
 
                 continue
 
             if modifier == "all":
-                if address == base or address.startswith(base + "."):
+                if address._text == base or address._text.startswith(base + "."):
                     return True
             elif modifier == "descendants":
-                if address.startswith(f"{base}."):
+                if address._text.startswith(f"{base}."):
                     return True
             elif modifier == "children":
-                if address.startswith(f"{base}.") and address[len(base) + 2 :].count(".") == 0:
+                if (
+                    address._text.startswith(f"{base}.")
+                    and address._text[len(base) + 2 :].count(".") == 0
+                ):
                     return True
 
         return False
@@ -154,11 +219,11 @@ class AddressSelector(str):
         conditions: list[ColumnElement[bool]] = []
 
         for segment in self._get_normalized_segments():
-            if ":" not in segment:
+            if ":" not in segment._text:
                 conditions.append(address == segment)
                 continue
 
-            base, modifier = segment.split(":")
+            base, modifier = segment._text.split(":")
 
             if base == "~":
                 if modifier == "all":
@@ -191,48 +256,42 @@ class AddressSelector(str):
 
 
 class DynamicAddress(AddressSelector):
-    regex = re.compile(rf"^~|@|@?{_NAME}(\.{_NAME})*$")
+    REGEX: Final = re.compile(rf"^~|@|@?{_NAME}(\.{_NAME})*$")  # type: ignore
 
-    def __new__(cls, obj: str, /) -> Self:
-        if isinstance(obj, cls):
-            return obj
+    _cache: LRUCache[str, Self] = LRUCache(256)
 
-        return str.__new__(cls, cls.validate(obj))
+    def __init__(self, value: str | AddressSelector, /) -> None:
+        super().__init__(value)
 
-    @override
-    @classmethod
-    def validate(cls, value: Any) -> Self:
-        if isinstance(value, cls):
-            return value
-        if not isinstance(value, str):
-            raise TypeError(f"{value!r} must be an instance of {str}")
-        if value == "all":
-            raise ValueError(f"{value!r} cannot be used as an address")
+    def __new__(cls, value: str | AddressSelector, /) -> Self:
+        if not isinstance(value, (str, AddressSelector)):
+            raise ValueError(f"{value!r} must be an instance of {str} or {AddressSelector}")
 
-        if cls.regex.match(value) is None:
-            raise ValueError(f"{value!r} must match regex {cls.regex.pattern}")
+        if isinstance(value, str):
+            if value == "all":
+                raise ValueError(f"{value!r} cannot be used as an address")
 
-        return str.__new__(cls, value)
+        return super().__new__(cls, value)
 
     @property
     def name(self) -> Name | None:
         self = self.as_relative()
         if self is None:
             return None
-        if "." not in self:
+        if "." not in self._text:
             return str(self)
 
-        return self[self.rindex(".") + 1 :] or None
+        return self._text[self._text.rindex(".") + 1 :] or None
 
     @property
     def parent(self) -> Self | None:
         if self.is_root:
             return None
 
-        if "." in self:
-            return type(self)(self[: self.rindex(".")]) or None  # type: ignore
+        if "." in self._text:
+            return type(self)(self._text[: self.rindex(".")]) or None  # type: ignore
 
-        if self.startswith("@"):
+        if self._text.startswith("@"):
             return type(self)("@")
 
         return None
@@ -243,7 +302,7 @@ class DynamicAddress(AddressSelector):
         if self is None:
             return 0
 
-        return self.count(".") + 1
+        return self._text.count(".") + 1
 
     @property
     def path(self) -> Sequence[Self]:
@@ -272,30 +331,30 @@ class DynamicAddress(AddressSelector):
         self = self.as_relative()
         if self is None:
             return []
-        return [name for name in self.split(".") if name]
+        return [name for name in self._text.split(".") if name]
 
     @property
     def is_engine(self) -> bool:
-        return self == "~"
+        return self._text == "~"
 
     @property
     def is_root(self) -> bool:
-        return self == "@"
+        return self._text == "@"
 
     @property
     def is_absolute(self) -> bool:
-        return self.is_engine or self.startswith("@")
+        return self.is_engine or self._text.startswith("@")
 
     @property
     def is_relative(self) -> bool:
         return not self.is_absolute
 
-    def __truediv__(self, other: str) -> Self:
+    def __truediv__(self, other: str | DynamicAddress) -> Self:
         other = DynamicAddress(other)
         if self.is_engine:
             return self
 
-        return type(self)(f"{self}{'.' if not self.is_root else ''}{other.strip('.')}")
+        return type(self)(f"{self._text}{'.' if not self.is_root else ''}{other._text.strip('.')}")
 
     @override
     def as_absolute(self, root: Address) -> Address:
@@ -309,7 +368,7 @@ class DynamicAddress(AddressSelector):
         if self.is_engine:
             return None
 
-        stripped = self.lstrip("@")
+        stripped = self._text.lstrip("@")
         if not stripped:
             return None
 
@@ -317,12 +376,12 @@ class DynamicAddress(AddressSelector):
 
     @property
     def base(self) -> str | None:
-        if self == "all":
+        if self._text == "all":
             return None
-        if ":" not in self:
+        if ":" not in self._text:
             return str(self)
 
-        return self[: self.rindex(":")] or None
+        return self._text[: self._text.rindex(":")] or None
 
     def modify(self, modifier: Literal["all", "descendants", "children"]) -> AddressSelector:
         return AddressSelector(f"{self.base or ''}:{modifier}")
@@ -338,7 +397,28 @@ class DynamicAddress(AddressSelector):
 
 
 class Address(DynamicAddress):
-    regex = re.compile(rf"^~|@({_NAME}(\.{_NAME})*)*$")
+    REGEX: Final = re.compile(rf"^~|@({_NAME}(\.{_NAME})*)*$")  # type: ignore
+
+    if TYPE_CHECKING:
+        ENGINE: Self
+        ROOT: Self
+    else:
+
+        @classproperty
+        def ENGINE(cls) -> Address:
+            return _ENGINE
+
+        @classproperty
+        def ROOT(cls) -> Address:
+            return _ROOT
+
+    _cache: LRUCache[str, Self] = LRUCache(256)
+
+    def __init__(self, value: str | AddressSelector, /) -> None:
+        super().__init__(value)
+
+    def __new__(cls, obj: str | AddressSelector, /) -> Self:
+        return super().__new__(cls, obj)
 
     @classmethod
     def engine(cls) -> Address:
@@ -352,7 +432,7 @@ class Address(DynamicAddress):
         if self.is_engine:
             return True
         return other == self or (
-            (not other.is_engine) and (other.startswith(f"{self}.") or self.is_root)
+            (not other.is_engine) and (other._text.startswith(f"{self._text}.") or self.is_root)
         )
 
 

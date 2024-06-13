@@ -60,13 +60,9 @@ class AddressMapper(TypeDecorator[Address]):
     cache_ok = True
 
     @override
-    def coerce_compared_value(self, op: OperatorType | None, value: Any) -> Any:
-        return self.impl_instance.coerce_compared_value(op, value)
-
-    @override
     def process_bind_param(
         self,
-        value: Address | None,
+        value: str | Address | None,
         dialect: Dialect,
     ) -> str | None:
         if value is None:
@@ -77,7 +73,7 @@ class AddressMapper(TypeDecorator[Address]):
     @override
     def process_result_value(
         self,
-        value: Address | None,
+        value: str | Address | None,
         dialect: Dialect,
     ) -> Address | None:
         if value is None:

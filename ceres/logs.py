@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Annotated, ClassVar, Iterable, Sequence, TypedDict, override
+from typing import Annotated, Any, ClassVar, Iterable, Sequence, TypedDict, override
 
 from pydantic import Field
 
@@ -126,7 +126,7 @@ class LogEntryFilter(BaseRecordFilter["LogEntry"]):
     def _get_database_search_content(
         self,
         dialect: DatabaseType,
-    ) -> dict[str, SQLColumnExpression[str | bytes]]:
+    ) -> dict[str, SQLColumnExpression[Any]]:
         columns = self._get_row_cls()
 
         return {

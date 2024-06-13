@@ -1329,3 +1329,15 @@ def wrap_database_errors() -> Iterator[None]:
                     raise Failure(AlreadyExistsError(field=match.group("column")))
 
         raise Failure(DatabaseUnexpectedError(message=str(exception)))
+
+
+class classproperty(property):
+    fget: Callable[[Any], Any]
+
+    def __init__(self, fget: Callable[[Any], Any], *arg: Any, **kw: Any):
+        super().__init__(fget, *arg, **kw)
+        self.__doc__ = fget.__doc__
+
+    @override
+    def __get__(self, obj: Any, cls: type | None = None) -> Any:
+        return self.fget(cls)

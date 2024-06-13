@@ -378,13 +378,15 @@ class Reference:
         target: Union[Component, "Reference", DynamicAddress, str],
         root: Union[Component, "Reference"] | None = None,
     ) -> None:  # type: ignore
-        if not util.lenient_isinstance(target, (Component, Reference, Address, str)):
+        if not isinstance(target, (Component, Reference, Address, str)):
             raise ValueError(
                 f"first argument must be a component, another reference, an address or string, got "
                 f"{util.strify(type(target))}"
             )
 
-        if util.lenient_isinstance(target, str):
+        if isinstance(target, DynamicAddress):
+            pass
+        elif isinstance(target, str):
             target = DynamicAddress(target)
         else:
             if not isinstance(target, (Component, Reference)):

@@ -307,7 +307,7 @@ async def status(
         table.add_column("Enabled")
         for status in statuses:
             table.add_row(
-                status.address,
+                str(status.address),
                 strbool(status.running),
                 strbool(status.enabled if status.enabled is not None else False),
             )

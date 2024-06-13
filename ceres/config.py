@@ -26,6 +26,7 @@ from pydantic import (
     IPvAnyAddress,
     PositiveInt,
     SecretStr,
+    SerializeAsAny,
     ValidationError,
     ValidationInfo,
     field_validator,
@@ -173,7 +174,7 @@ class ComponentConfig(ConfigObject):
             if parent is not None:
                 address = parent.system.address / self.name
             else:
-                address = Address.root()
+                address = Address.ROOT
 
         errors: list[ComponentError] = []
         instance = self._create(address=address, errors=errors)
@@ -307,7 +308,10 @@ class ServerConfig(ConfigObject):
 class ConsoleConfig(ConfigObject):
     title: str | None = None
     favicon: Path | None = None
-    dashboard: Address | Sequence[Address] | None = None
+    # Using `SerializeAsAny` here to work around Pydantic's union serialization issues dealing with
+    # `T | Sequence[T]`. It will currently choose the wrong serializer.
+    # See https://github.com/pydantic/pydantic/milestone/13.
+    dashboard: SerializeAsAny[Address | Sequence[Address] | None] = None
 
 
 class DatabaseRetryConfig(ConfigObject):

@@ -115,7 +115,7 @@ class ComponentFilterArgs(BaseFilterArgs, total=False):
 
 
 class ComponentFilter(BaseFilter):
-    root: Annotated[Address, CLIOption(str | None)] = Address.root()
+    root: Annotated[Address, CLIOption(str | None)] = Address.ROOT
     address: Annotated[AddressSelector | None, CLIOption(str | None)] = None
     enabled: bool | None = None
     running: bool | None = None
@@ -303,10 +303,7 @@ def listener(
     reference = util.strlist(reference)
 
     if address is not None:
-        if isinstance(address, (str, DynamicAddress)):
-            address = [address]
-
-        address = AddressSelector("|".join(str(current) for current in address))
+        address = AddressSelector(address)
 
     if local is None:
         local = len(reference) == 0 and address is None
@@ -731,7 +728,7 @@ class ComponentSystem(Node):
         if self.parent is not None:
             return self.parent.address / self.name
 
-        return Address.root()
+        return Address.ROOT
 
     @property
     @override

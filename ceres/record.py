@@ -96,7 +96,7 @@ class BaseRecordFilter[RecordT: BaseRecord](BaseItemFilter[RecordT]):
     def _get_database_search_content(
         self,
         dialect: DatabaseType,
-    ) -> dict[str, SQLColumnExpression[str | bytes]]:
+    ) -> dict[str, SQLColumnExpression[Any]]:
         columns = self._get_row_cls()
 
         return {

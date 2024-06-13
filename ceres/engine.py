@@ -389,10 +389,10 @@ class Engine(Node):
         self,
         root_component: Component | None,
         root_config: ComponentConfig,
-        address: Address = Address.root(),
+        address: Address = Address.ROOT,
     ) -> list[EngineComponentAction]:
         if address.is_engine:
-            address = Address.root()
+            address = Address.ROOT
 
         component = (
             root_component.system.get_component(address) if root_component is not None else None

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from abc import abstractmethod
-from typing import Annotated, ClassVar, Iterable, override
+from typing import Annotated, Any, ClassVar, Iterable, override
 
 from pydantic import Field
 
@@ -50,7 +50,7 @@ class BaseItemFilter[_ItemT: BaseItem](BaseEntityFilter[_ItemT]):
         description="Filter by associated address.",
     )
     root: Annotated[Address, CLIOption(str | None)] = Field(
-        default=Address.root(),
+        default=Address.ROOT,
         description="The root address relative `address` selectors are mapped to.",
     )
 
@@ -72,14 +72,14 @@ class BaseItemFilter[_ItemT: BaseItem](BaseEntityFilter[_ItemT]):
     @override
     def _get_search_content(self, obj: _ItemT) -> dict[str, str]:
         return {
-            "address": obj.address,
+            "address": str(obj.address),
         }
 
     @override
     def _get_database_search_content(
         self,
         dialect: DatabaseType,
-    ) -> dict[str, SQLColumnExpression[str | bytes]]:
+    ) -> dict[str, SQLColumnExpression[Any]]:
         columns = self._get_row_cls()
 
         return {
