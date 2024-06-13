@@ -73,22 +73,6 @@ class BaseEntityRow(
 
     id: Mapped[UUID] = mapped_column(UUIDMapper, sort_order=-3000, default_factory=uuid4)
 
-    @staticmethod
-    def get_entity_row_classes() -> list[type[BaseEntityRow]]:
-        from ceres.alert import AlertRow
-        from ceres.logs import LogEntryRow
-        from ceres.message import MessageRow
-        from ceres.store import StoreRow
-        from ceres.user import UserRow
-
-        return [
-            UserRow,
-            StoreRow,
-            MessageRow,
-            AlertRow,
-            LogEntryRow,
-        ]
-
     @classmethod
     def get_primary_key_constraint(cls) -> PrimaryKeyConstraint:
         return cls.__table__.primary_key

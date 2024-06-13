@@ -103,7 +103,7 @@ class Database:
     def ddl(self) -> list[str]:
         commands: list[str] = []
 
-        for cls in BaseEntityRow.get_entity_row_classes():
+        for cls in _get_entity_row_classes():
             commands.extend(cls.get_ddl(self.__engine.sync_engine))
 
         return commands
@@ -226,7 +226,7 @@ class Database:
     async def clear(self) -> None:
         with util.wrap_database_errors():
             async with self.__engine.begin() as connection:
-                for cls in reversed(BaseEntityRow.get_entity_row_classes()):
+                for cls in reversed(_get_entity_row_classes()):
                     await connection.execute(delete(cls))
 
                 await connection.commit()
@@ -817,7 +817,7 @@ async def _execute_ddl(
     indexes: bool = True,
 ) -> None:
     async with engine.begin() as connection:
-        for cls in BaseEntityRow.get_entity_row_classes():
+        for cls in _get_entity_row_classes():
             for statement in cls.get_ddl(
                 engine.sync_engine,
                 table=tables,
@@ -826,3 +826,19 @@ async def _execute_ddl(
                 await connection.execute(text(statement))
 
         await connection.commit()
+
+
+def _get_entity_row_classes() -> list[type[BaseEntityRow]]:
+    from ceres.alert import AlertRow
+    from ceres.logs import LogEntryRow
+    from ceres.message import MessageRow
+    from ceres.store import StoreRow
+    from ceres.user import UserRow
+
+    return [
+        UserRow,
+        StoreRow,
+        MessageRow,
+        AlertRow,
+        LogEntryRow,
+    ]
