@@ -55,7 +55,7 @@ class Dispatcher(Component):
     async def dispatch(self, dispatch: Dispatch) -> None:
         query = dispatch.alerts.with_defaults(
             AlertFilter(
-                order=AlertOrder.NEW_TO_OLD,
+                order=AlertOrder.NEWEST,
                 limit=1000,
             )
         )

@@ -36,7 +36,7 @@ class BaseRecordRow(BaseItemRow, kw_only=True):
         )
 
 
-_RecordOrderInput = Literal["old-to-new", "new-to-old"]
+_RecordOrderInput = Literal["newest", "oldest"]
 
 
 class BaseRecordFilterArgs(BaseItemFilterArgs, total=False):
@@ -125,9 +125,9 @@ class BaseRecordFilter[RecordT: BaseRecord](BaseItemFilter[RecordT]):
         columns = self._get_row_cls()
 
         match self.order:
-            case None | "old-to-new":
+            case None | "newest":
                 return columns.timestamp
-            case "new-to-old":
+            case "oldest":
                 return columns.timestamp.desc()
 
         raise ValueError("invalid order type")

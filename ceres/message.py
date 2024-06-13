@@ -74,8 +74,8 @@ class MessageRow(BaseRecordRow, kw_only=True):
 
 
 class MessageOrder(StrEnum):
-    OLD_TO_NEW = "old-to-new"
-    NEW_TO_OLD = "new-to-old"
+    OLDEST = "oldest"
+    NEWEST = "newest"
 
 
 class MessageFilterArgs(BaseRecordFilterArgs, total=False):

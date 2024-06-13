@@ -51,8 +51,8 @@ class AlertRow(BaseRecordRow, kw_only=True):
 
 
 class AlertOrder(StrEnum):
-    OLD_TO_NEW = "old-to-new"
-    NEW_TO_OLD = "new-to-old"
+    OLDEST = "oldest"
+    NEWEST = "newest"
 
 
 class AlertFilterArgs(BaseRecordFilterArgs, total=False):

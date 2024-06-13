@@ -22,7 +22,7 @@ export type UserFilter = DatabaseFilter &
     order: 'username' | 'email'
   }>
 
-export type ItemOrder = 'new-to-old' | 'old-to-new'
+export type ItemOrder = 'newest' | 'oldest'
 
 export type ItemFilter = DatabaseFilter &
   Partial<{
