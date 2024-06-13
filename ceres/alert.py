@@ -41,13 +41,12 @@ class AlertRow(BaseRecordRow, kw_only=True):
         return (
             *super().__get_table_args__(),
             EnumConstraint("level", Level, f"ck_{cls.__tablename__}__level"),
-            Index(f"ix_{cls.__tablename__}__code", "code").ddl_if("sqlite"),
             Index(
                 f"ix_{cls.__tablename__}__code",
                 "code",
                 postgresql_ops={"code": "gin_trgm_ops"},
                 postgresql_using="gin",
-            ).ddl_if("postgresql"),
+            ),
         )
 
 

@@ -103,35 +103,6 @@ class Database:
     def ddl(self) -> list[str]:
         commands: list[str] = []
 
-        if self.type == DatabaseType.POSTGRES:
-            commands.append("CREATE EXTENSION IF NOT EXISTS pg_trgm;")
-            commands.append(
-                dedent(
-                    """
-                    CREATE OR REPLACE FUNCTION ceres_decode_latin1(bytes bytea) returns TEXT
-                    IMMUTABLE
-                    LANGUAGE plpgsql AS $$
-                        BEGIN
-                            RETURN convert_from($1, 'latin-1');
-                        END;
-                    $$;
-                    """
-                ).strip()
-            )
-            commands.append(
-                dedent(
-                    """
-                    CREATE OR REPLACE FUNCTION ceres_encode_latin1(text text) returns TEXT
-                    IMMUTABLE
-                    LANGUAGE plpgsql AS $$
-                        BEGIN
-                            RETURN convert_to($1, 'latin-1');
-                        END;
-                    $$;
-                    """
-                ).strip()
-            )
-
         for cls in BaseEntityRow.get_entity_row_classes():
             commands.extend(cls.get_ddl(self.__engine.sync_engine))
 
@@ -571,6 +542,43 @@ class PostgresDatabase(Database):
                 database=self.config.database,
             ).render_as_string(hide_password=False)
         )
+
+    @property
+    @override
+    def ddl(self) -> list[str]:
+        commands: list[str] = []
+
+        commands.append("CREATE EXTENSION IF NOT EXISTS pg_trgm;")
+        commands.append(
+            dedent(
+                """
+                CREATE OR REPLACE FUNCTION ceres_decode_latin1(bytes bytea) RETURNS TEXT
+                IMMUTABLE
+                LANGUAGE plpgsql AS $$
+                    BEGIN
+                        RETURN convert_from($1, 'latin-1');
+                    END;
+                $$;
+                """
+            ).strip()
+        )
+
+        commands.append(
+            dedent(
+                """
+                CREATE OR REPLACE FUNCTION ceres_encode_latin1(text text) RETURNS TEXT
+                IMMUTABLE
+                LANGUAGE plpgsql AS $$
+                    BEGIN
+                        RETURN convert_to($1, 'latin-1');
+                    END;
+                $$;
+                """
+            ).strip()
+        )
+
+        commands.extend(super().ddl)
+        return commands
 
     @override
     def _get_engine_config(self) -> dict[str, Any]:

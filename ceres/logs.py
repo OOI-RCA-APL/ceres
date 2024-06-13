@@ -39,13 +39,12 @@ class LogEntryRow(BaseRecordRow, kw_only=True):
         return (
             *super().__get_table_args__(),
             EnumConstraint("level", Level, name=f"ck_{cls.__tablename__}__level"),
-            Index(f"ix_{cls.__tablename__}__content", "content").ddl_if("sqlite"),
             Index(
                 f"ix_{cls.__tablename__}__content",
                 "content",
                 postgresql_ops={"content": "gin_trgm_ops"},
                 postgresql_using="gin",
-            ).ddl_if("postgresql"),
+            ),
         )
 
 
