@@ -50,6 +50,7 @@ from ceres.data import (
     StrEnum,
     ValidatedDataclass,
 )
+from ceres.database.enums import DatabaseType
 from ceres.error import (
     Failure,
     ProcedureInternalError,
@@ -888,17 +889,20 @@ class ComponentSystem(Node):
     async def __set_enabled_in_database(self, session: AsyncSession, enabled: bool) -> None:
         from ceres.store import StoreRow
 
-        if self.database.type == "sqlite":
-            from sqlalchemy.dialects.sqlite import insert
-        else:
-            from sqlalchemy.dialects.postgresql import insert
+        match self.database.type:
+            case DatabaseType.SQLITE:
+                from sqlalchemy.dialects.sqlite import insert
+            case DatabaseType.POSTGRES:
+                from sqlalchemy.dialects.postgresql import insert
 
         await self.__node_sync__(session)
         await session.execute(
             insert(StoreRow)
             .values(
-                address=self.address,
-                enabled=enabled,
+                StoreRow(
+                    address=self.address,
+                    enabled=enabled,
+                ).values()
             )
             .on_conflict_do_update(
                 index_elements=[StoreRow.address],
