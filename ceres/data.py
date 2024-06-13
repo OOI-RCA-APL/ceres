@@ -41,7 +41,7 @@ from ceres._internal import util
 from ceres._internal.util import NAME_PATTERN, PydanticDataclassLike
 
 
-class __SimplifyArgs(TypedDict, total=False):
+class SimplifyArgs(TypedDict, total=False):
     include: IncEx | None
     exclude: IncEx | None
     by_alias: bool
@@ -50,25 +50,25 @@ class __SimplifyArgs(TypedDict, total=False):
     exclude_none: bool
 
 
-class __SerializeArgs(__SimplifyArgs, total=False):
+class SerializeArgs(SimplifyArgs, total=False):
     indent: int | None
 
 
-def simplify(obj: object, **kwargs: Unpack[__SimplifyArgs]) -> Any:
+def simplify(obj: object, **kwargs: Unpack[SimplifyArgs]) -> Any:
     return util.get_type_adapter(type(obj)).dump_python(
         obj,
         **{**kwargs, "round_trip": True},  # type: ignore
     )
 
 
-def jsonify(obj: object, **kwargs: Unpack[__SerializeArgs]) -> str:
+def jsonify(obj: object, **kwargs: Unpack[SerializeArgs]) -> str:
     return util.get_type_adapter(object).dump_json(obj, **kwargs).decode()
 
 
-def yamlify(obj: object, **kwargs: Any) -> str:
+def yamlify(obj: object, **kwargs: Unpack[SerializeArgs]) -> str:
     import yaml
 
-    return yaml.safe_dump(simplify(obj), **kwargs)
+    return yaml.safe_dump(simplify(obj, **kwargs), indent=kwargs.get("indent", None))
 
 
 Name = Annotated[str, StringConstraints(pattern=NAME_PATTERN)]

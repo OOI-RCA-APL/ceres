@@ -29,7 +29,7 @@ async def init(*, context: CLIContext) -> None:
     """
     Initialize the database, creating tables and indexes as needed.
     """
-    database = await use_database(context)
+    database = await use_database(context, require_initialized=False)
 
     try:
         async with database.connect():
@@ -109,7 +109,7 @@ async def dump(
         list(EntityType) if not entity_type else [EntityType(current) for current in entity_type]
     )
 
-    database = await use_database(context, initialized=True)
+    database = await use_database(context)
     start = utc()
 
     match format:
@@ -178,7 +178,7 @@ async def load(
         list(EntityType) if not entity_type else [EntityType(current) for current in entity_type]
     )
 
-    database = await use_database(context, initialized=True)
+    database = await use_database(context)
     start = utc()
 
     match format:
@@ -198,7 +198,7 @@ async def clear(*, context: CLIContext) -> None:
     """
     Remove all data from the database. Tables and indexes are not removed, only truncated.
     """
-    database = await use_database(context, initialized=True)
+    database = await use_database(context)
 
     if not get_confirmation("Clear all data from the project database?"):
         write("Database has not been modified. Exiting.")
@@ -217,10 +217,10 @@ async def ddl(*, context: CLIContext) -> None:
     """
     Show DDL commands used to initialize the database.
     """
-    database = await use_database(context)
+    database = await use_database(context, require_initialized=False)
 
     for statement in database.ddl:
-        write(statement)
+        write(statement, to="stdout")
 
 
 def _guess_format(format: DataFormat | None, path: Path) -> DataFormat:

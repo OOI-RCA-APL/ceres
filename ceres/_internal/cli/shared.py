@@ -2,7 +2,18 @@ from __future__ import annotations
 
 import os
 from contextlib import contextmanager
-from typing import IO, Annotated, Any, Callable, Literal, Mapping, Sequence, TypeVar, overload
+from typing import (
+    IO,
+    Annotated,
+    Any,
+    Callable,
+    Literal,
+    Mapping,
+    Sequence,
+    TypeVar,
+    Unpack,
+    overload,
+)
 
 import typer
 from click import ParamType
@@ -11,7 +22,7 @@ from pydantic import Field, field_validator
 from ceres._internal.cli.plumbing import CLICommandFailed, CLIContext, CLIOption
 from ceres._internal.lazy import lazy_imports
 from ceres.config import Config, ConfigCheckType, ConfigMeta
-from ceres.data import FromYAML, ImmutableDataObject, NonEmpty, jsonify
+from ceres.data import FromYAML, ImmutableDataObject, NonEmpty, SerializeArgs, jsonify
 from ceres.result import Ok
 
 with lazy_imports(__name__):
@@ -112,6 +123,14 @@ async def use_config(
     return await get_config(config_path, checks)
 
 
+async def use_config_meta(
+    context: CLIContext,
+    checks: Sequence[ConfigCheckType] = (),
+) -> ConfigMeta:
+    config_path = await use_config_path(context)
+    return await get_config_meta(config_path, checks)
+
+
 async def use_project(context: CLIContext) -> Project:
     config_path = await use_config_path(context)
     return Project(config_path)
@@ -186,7 +205,8 @@ def write(
     sep: str = " ",
     end: str = "\n",
     file: IO[str] | None = None,
-    flush: bool = False,
+    flush: bool = True,
+    to: Literal["stdout", "stderr"] = "stderr",
 ):
     import rich
 
@@ -194,60 +214,54 @@ def write(
         *args,
         sep=sep,
         end=end,
-        file=file,
+        file=file or (sys.stdout if to == "stdout" else sys.stderr),
         flush=flush,
     )
 
 
+def write_json(
+    value: Any,
+    *,
+    to: Literal["stdout", "stderr"] = "stdout",
+    **kwargs: Unpack[SerializeArgs],
+):
+    if kwargs.get("indent") is None:
+        kwargs["indent"] = 2
+
+    write(jsonify(value, **kwargs), to=to)
+
+
 @contextmanager
-def write_table(title: str | None = None):
+def write_table(title: str | None = None, *, to: Literal["stdout", "stderr"] = "stderr"):
     import rich.box
     from rich.table import Table
 
     table = Table(title=title, box=rich.box.ROUNDED, title_justify="left")
     yield table
-    write(table)
+    write(table, to=to)
 
 
 def strbool(value: bool) -> str:
     return "Yes" if value else "No"
 
 
-async def get_database(config: Config, *, initialized: bool = False):
-    from ceres.database.database import Database
-
-    database = Database(config.database)
-
-    try:
-        async with database.connect():
-            pass
-    except Exception:
-        raise CLICommandFailed("Failed to connect to database.")
-
-    if initialized:
-        if not await database.initialized():
-            raise CLICommandFailed("Database appears uninitialized, exiting.")
-
-    return database
-
-
 async def use_database(
     context: CLIContext,
     *,
-    initialized: bool = False,
+    require_initialized: bool = True,
 ):
     from ceres.database.database import Database
 
-    config = await use_config(context)
+    config = await use_config_meta(context)
     database = Database(config.database)
 
     try:
         async with database.connect():
             pass
-    except Exception:
-        raise CLICommandFailed("Failed to connect to database.")
+    except Exception as exception:
+        raise CLICommandFailed(f"Failed to connect to database: {exception}")
 
-    if initialized:
+    if require_initialized:
         if not await database.initialized():
             raise CLICommandFailed("Database appears uninitialized, exiting.")
 
@@ -257,7 +271,7 @@ async def use_database(
 async def use_temporary_engine(context: CLIContext):
     config_path = await use_config_path(context)
     engine = Engine()
-    await engine.load(config_path)
+    await engine.load(config_path, silent=True)
     return engine
 
 

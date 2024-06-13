@@ -134,10 +134,10 @@ def _enhance_cli_command(function: Any) -> Any:
                 raise CLICommandFailed(jsonify(failure.error, indent=2))
 
             if result is not None:
-                import rich
+                from ceres._internal.cli.shared import write_json
 
                 try:
-                    rich.print(jsonify(result, indent=2))
+                    write_json(result)
                 except Exception:
                     pass
 

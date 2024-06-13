@@ -6,7 +6,7 @@ from ceres._internal.cli.shared import (
     Confirm,
     ValidateEmptyAsNone,
     get_confirmation,
-    use_temporary_engine,
+    use_database,
 )
 from ceres.user import User, UserCreate, UserFilter, UserUpdate
 
@@ -29,8 +29,8 @@ async def get(
     """
     Retrieve one user.
     """
-    engine = await use_temporary_engine(context)
-    user = await engine.users.get(filter)
+    database = await use_database(context)
+    user = await database.users.get(filter)
     return user
 
 
@@ -43,8 +43,8 @@ async def get_all(
     """
     Retrieve multiple users.
     """
-    engine = await use_temporary_engine(context)
-    return await engine.users.get_all(filter)
+    database = await use_database(context)
+    return await database.users.get_all(filter)
 
 
 @router.command()
@@ -56,8 +56,8 @@ async def count(
     """
     Count users.
     """
-    engine = await use_temporary_engine(context)
-    return await engine.users.count(filter)
+    database = await use_database(context)
+    return await database.users.count(filter)
 
 
 @router.command()
@@ -69,8 +69,8 @@ async def create(
     """
     Create a new user.
     """
-    engine = await use_temporary_engine(context)
-    return await engine.users.create(data)
+    database = await use_database(context)
+    return await database.users.create(data)
 
 
 @router.command()
@@ -83,8 +83,8 @@ async def update(
     """
     Update one user. Return if found.
     """
-    engine = await use_temporary_engine(context)
-    return await engine.users.update(filter, assign)
+    database = await use_database(context)
+    return await database.users.update(filter, assign)
 
 
 @router.command()
@@ -98,12 +98,12 @@ async def update_all(
     """
     Update multiple users. Return the number updated.
     """
-    engine = await use_temporary_engine(context)
+    database = await use_database(context)
     if confirm:
-        count = await engine.users.count(filter)
+        count = await database.users.count(filter)
         get_confirmation(f"Update {count} log entries?", abort=True)
 
-    return await engine.users.update_all(filter, assign)
+    return await database.users.update_all(filter, assign)
 
 
 @router.command()
@@ -115,8 +115,8 @@ async def delete(
     """
     Delete one user. Return if found.
     """
-    engine = await use_temporary_engine(context)
-    return await engine.users.delete(filter)
+    database = await use_database(context)
+    return await database.users.delete(filter)
 
 
 @router.command()
@@ -129,9 +129,9 @@ async def delete_all(
     """
     Delete multiple users. Return the number deleted.
     """
-    engine = await use_temporary_engine(context)
+    database = await use_database(context)
     if confirm:
-        count = await engine.users.count(filter)
+        count = await database.users.count(filter)
         get_confirmation(f"Delete {count} log entries?", abort=True)
 
-    return await engine.users.delete_all(filter)
+    return await database.users.delete_all(filter)

@@ -6,7 +6,7 @@ from ceres._internal.cli.shared import (
     Confirm,
     ValidateEmptyAsNone,
     get_confirmation,
-    use_temporary_engine,
+    use_database,
 )
 from ceres.alert import Alert, AlertFilter, AlertUpdate
 
@@ -29,8 +29,8 @@ async def get(
     """
     Retrieve one alert.
     """
-    engine = await use_temporary_engine(context)
-    return await engine.alerts.get(filter)
+    database = await use_database(context)
+    return await database.alerts.get(filter)
 
 
 @router.command()
@@ -42,8 +42,8 @@ async def get_all(
     """
     Retrieve multiple alerts.
     """
-    engine = await use_temporary_engine(context)
-    return await engine.alerts.get_all(filter)
+    database = await use_database(context)
+    return await database.alerts.get_all(filter)
 
 
 @router.command()
@@ -55,8 +55,8 @@ async def count(
     """
     Count alerts.
     """
-    engine = await use_temporary_engine(context)
-    return await engine.alerts.count(filter)
+    database = await use_database(context)
+    return await database.alerts.count(filter)
 
 
 @router.command()
@@ -68,8 +68,8 @@ async def create(
     """
     Create an alert.
     """
-    engine = await use_temporary_engine(context)
-    return await engine.alerts.create(data)
+    database = await use_database(context)
+    return await database.alerts.create(data)
 
 
 @router.command()
@@ -82,8 +82,8 @@ async def update(
     """
     Update an alert. Return if found.
     """
-    engine = await use_temporary_engine(context)
-    return await engine.alerts.update(filter, assign)
+    database = await use_database(context)
+    return await database.alerts.update(filter, assign)
 
 
 @router.command()
@@ -97,12 +97,12 @@ async def update_all(
     """
     Update multiple alerts. Return the number updated.
     """
-    engine = await use_temporary_engine(context)
+    database = await use_database(context)
     if confirm:
-        count = await engine.alerts.count(filter)
+        count = await database.alerts.count(filter)
         get_confirmation(f"Update {count} alerts?", abort=True)
 
-    return await engine.alerts.update_all(filter, assign)
+    return await database.alerts.update_all(filter, assign)
 
 
 @router.command()
@@ -114,8 +114,8 @@ async def delete(
     """
     Delete an alert.
     """
-    engine = await use_temporary_engine(context)
-    await engine.alerts.delete(filter)
+    database = await use_database(context)
+    await database.alerts.delete(filter)
 
 
 @router.command()
@@ -128,9 +128,9 @@ async def delete_all(
     """
     Delete multiple alerts. Return the number deleted.
     """
-    engine = await use_temporary_engine(context)
+    database = await use_database(context)
     if confirm:
-        count = await engine.alerts.count(filter)
+        count = await database.alerts.count(filter)
         get_confirmation(f"Delete {count} alerts?", abort=True)
 
-    return await engine.alerts.delete_all(filter)
+    return await database.alerts.delete_all(filter)

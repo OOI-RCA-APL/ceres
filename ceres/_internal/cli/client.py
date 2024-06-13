@@ -44,9 +44,7 @@ class Client:
         path = f"http+unix://{str(self.project.socket_path).replace('/', '%2F')}{path}"
 
         if isinstance(params, BaseModel):
-            params = {
-                key: str(value) for key, value in params.model_dump(exclude_defaults=True).items()
-            }
+            params = {key: value for key, value in params.model_dump(exclude_defaults=True).items()}
 
         from aiohttp import ClientSession, UnixConnector
 
@@ -55,7 +53,7 @@ class Client:
                 method,
                 path,
                 json=simplify(data),
-                params=params,
+                params=simplify(params),
             ) as response:
                 if response.status >= 400:
                     try:

@@ -321,18 +321,14 @@ async def start(
     ],
     *,
     context: CLIContext,
-) -> None:
+) -> Any:
     """
     Start components at the provided address(s).
     """
     client = await use_client(context)
     address = AddressSelector(addresses or [])
     query = ComponentFilter(address=address)
-    from ceres._internal.app.api import StartResult
-
-    result = await client.post("/start", query, result=StartResult)
-
-    write(result)
+    return await client.post("/start", query)
 
 
 @router.command()
@@ -343,18 +339,14 @@ async def stop(
     ],
     *,
     context: CLIContext,
-) -> None:
+) -> Any:
     """
     Stop components at the provided address(s).
     """
     client = await use_client(context)
     address = AddressSelector(addresses)
     query = ComponentFilter(address=address)
-    from ceres._internal.app.api import StopResult
-
-    result = await client.post("/stop", query, result=StopResult)
-
-    write(result)
+    return await client.post("/stop", query)
 
 
 @router.command()
@@ -365,18 +357,14 @@ async def enable(
     ],
     *,
     context: CLIContext,
-) -> None:
+) -> Any:
     """
     Enable components at the provided address(s).
     """
     client = await use_client(context)
     address = AddressSelector(addresses)
     query = ComponentFilter(address=address)
-    from ceres._internal.app.api import EnableResult
-
-    result = await client.post("/enable", query, result=EnableResult)
-
-    write(result)
+    return await client.post("/enable", query)
 
 
 @router.command()
@@ -387,18 +375,14 @@ async def disable(
     ],
     *,
     context: CLIContext,
-) -> None:
+) -> Any:
     """
     Disable components at the provided address(s).
     """
     client = await use_client(context)
     address = AddressSelector(addresses)
     query = ComponentFilter(address=address)
-    from ceres._internal.app.api import DisableResult
-
-    result = await client.post("/disable", query, result=DisableResult)
-
-    write(result)
+    return await client.post("/disable", query)
 
 
 @router.command()
@@ -409,18 +393,14 @@ async def up(
     ],
     *,
     context: CLIContext,
-) -> None:
+) -> Any:
     """
     Start and enable components at the provided address(s).
     """
     client = await use_client(context)
     address = AddressSelector(addresses)
     query = ComponentFilter(address=address)
-    from ceres._internal.app.api import UpResult
-
-    result = await client.post("/up", query, result=UpResult)
-
-    write(result)
+    return await client.post("/up", query)
 
 
 @router.command()
@@ -431,18 +411,14 @@ async def down(
     ],
     *,
     context: CLIContext,
-) -> None:
+) -> Any:
     """
     Stop and disable components at the provided address(s).
     """
     client = await use_client(context)
     address = AddressSelector(addresses)
     query = ComponentFilter(address=address)
-    from ceres._internal.app.api import DownResult
-
-    result = await client.post("/down", query, result=DownResult)
-
-    write(result)
+    return await client.post("/down", query)
 
 
 with lazy_imports(__name__):
@@ -453,6 +429,7 @@ with lazy_imports(__name__):
     from ceres._internal.cli.subcommands.message import router as subcommand__message
     from ceres._internal.cli.subcommands.service import router as subcommand__service
     from ceres._internal.cli.subcommands.user import router as subcommand__user
+    from ceres._internal.cli.subcommands.variable import router as subcommand__variable
 
 
 def main() -> None:
@@ -466,6 +443,7 @@ def main() -> None:
         "message": subcommand__message,
         "service": subcommand__service,
         "user": subcommand__user,
+        "variable": subcommand__variable,
     }
 
     if not subcommand:

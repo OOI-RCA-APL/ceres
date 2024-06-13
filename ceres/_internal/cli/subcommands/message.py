@@ -6,7 +6,7 @@ from ceres._internal.cli.shared import (
     Confirm,
     ValidateEmptyAsNone,
     get_confirmation,
-    use_temporary_engine,
+    use_database,
 )
 from ceres.message import Message, MessageFilter, MessageUpdate
 
@@ -29,8 +29,8 @@ async def get(
     """
     Retrieve one message.
     """
-    engine = await use_temporary_engine(context)
-    return await engine.messages.get(filter)
+    database = await use_database(context)
+    return await database.messages.get(filter)
 
 
 @router.command()
@@ -42,8 +42,8 @@ async def get_all(
     """
     Retrieve multiple messages.
     """
-    engine = await use_temporary_engine(context)
-    return await engine.messages.get_all(filter)
+    database = await use_database(context)
+    return await database.messages.get_all(filter)
 
 
 @router.command()
@@ -55,8 +55,8 @@ async def count(
     """
     Count messages.
     """
-    engine = await use_temporary_engine(context)
-    return await engine.messages.count(filter)
+    database = await use_database(context)
+    return await database.messages.count(filter)
 
 
 @router.command()
@@ -68,8 +68,8 @@ async def create(
     """
     Create a new message.
     """
-    engine = await use_temporary_engine(context)
-    return await engine.messages.create(data)
+    database = await use_database(context)
+    return await database.messages.create(data)
 
 
 @router.command()
@@ -82,8 +82,8 @@ async def update(
     """
     Update one message. Return if found.
     """
-    engine = await use_temporary_engine(context)
-    return await engine.messages.update(filter, assign)
+    database = await use_database(context)
+    return await database.messages.update(filter, assign)
 
 
 @router.command()
@@ -97,12 +97,12 @@ async def update_all(
     """
     Update multiple messages. Return the number updated.
     """
-    engine = await use_temporary_engine(context)
+    database = await use_database(context)
     if confirm:
-        count = await engine.messages.count(filter)
+        count = await database.messages.count(filter)
         get_confirmation(f"Update {count} messages?", abort=True)
 
-    return await engine.messages.update_all(filter, assign)
+    return await database.messages.update_all(filter, assign)
 
 
 @router.command()
@@ -114,8 +114,8 @@ async def delete(
     """
     Delete one message. Return if found.
     """
-    engine = await use_temporary_engine(context)
-    return await engine.messages.delete(filter)
+    database = await use_database(context)
+    return await database.messages.delete(filter)
 
 
 @router.command()
@@ -128,9 +128,9 @@ async def delete_all(
     """
     Delete multiple messages. Return the number deleted.
     """
-    engine = await use_temporary_engine(context)
+    database = await use_database(context)
     if confirm:
-        count = await engine.messages.count(filter)
+        count = await database.messages.count(filter)
         get_confirmation(f"Delete {count} messages?", abort=True)
 
-    return await engine.messages.delete_all(filter)
+    return await database.messages.delete_all(filter)

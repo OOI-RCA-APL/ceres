@@ -209,6 +209,7 @@ class Engine(Node):
         source: ConfigSource[Config],
         *,
         checks: Sequence[ConfigCheckType] = ConfigCheckType.all(),
+        silent: bool = False,
     ) -> Result[Config, ConfigError]:
         match await Config.load(source, checks=checks):
             case Ok(config):
@@ -216,18 +217,20 @@ class Engine(Node):
             case Fail(errors):
                 return Fail(errors)
 
-        if isinstance(source, Path):
-            self.log.info(f"Loading configuration from '{source}'...")
-        else:
-            self.log.info("Loading provided configuration.")
+        if not silent:
+            if isinstance(source, Path):
+                self.log.info(f"Loading configuration from '{source}'...")
+            else:
+                self.log.info("Loading provided configuration.")
 
-        await self.__apply(source if isinstance(source, Path) else None, config)
+        await self.__apply(source if isinstance(source, Path) else None, config, silent=silent)
         return Ok(config)
 
     async def reload(
         self,
         *,
         checks: Sequence[ConfigCheckType] = ConfigCheckType.all(),
+        silent: bool = False,
     ) -> Result[Config, ReloadError]:
         if self.config_path is not None:
             self.log.info(f"Reloading configuration from '{self.config_path}'...")
@@ -242,7 +245,7 @@ class Engine(Node):
             case Fail(error):
                 return Fail(ReloadConfigInvalidError(error=error))
 
-        await self.__apply(source if isinstance(source, Path) else None, config)
+        await self.__apply(source if isinstance(source, Path) else None, config, silent=silent)
         return Ok(config)
 
     async def hash_password(self, password: str) -> PasswordHash:
@@ -291,6 +294,8 @@ class Engine(Node):
         self,
         config_path: Path | None,
         config: Config,
+        *,
+        silent: bool = False,
     ) -> EngineActions:
         async with self._apply_lock:
             self._config_path = config_path

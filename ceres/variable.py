@@ -48,7 +48,7 @@ class VariableFilter(BaseEntityFilter["Variable"]):
         default=None,
         description="Filter by name(s).",
     )
-    internal: Annotated[bool | None, CLIOption(bool)] = Field(
+    internal: Annotated[bool | None, CLIOption(bool | None)] = Field(
         default=None,
         description=(
             "Include or exclude internal variables from results. Internal variables both start "
