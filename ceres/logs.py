@@ -28,7 +28,7 @@ with lazy_imports(__name__):
 
 
 class LogEntryRow(BaseRecordRow, kw_only=True):
-    __tablename__ = "log_entries"
+    __tablename__: ClassVar[str] = "log_entries"
 
     level: Mapped[Level] = mapped_column(EnumMapper(Level))
     content: Mapped[str] = mapped_column(Text)

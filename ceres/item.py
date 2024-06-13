@@ -26,7 +26,7 @@ with lazy_imports(__name__):
 
 
 class BaseItemRow(BaseEntityRow, kw_only=True):
-    __abstract__ = True
+    __abstract__: ClassVar[bool] = True
 
     address: Mapped[Address] = mapped_column(AddressMapper, sort_order=-2000)
 

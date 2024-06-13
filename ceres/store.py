@@ -15,7 +15,7 @@ with lazy_imports(__name__):
 
 
 class StoreRow(BaseEntityRow, kw_only=True):
-    __tablename__ = "stores"
+    __tablename__: ClassVar[str] = "stores"
 
     address: Mapped[Address] = mapped_column(AddressMapper)
     enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default=expression.false())

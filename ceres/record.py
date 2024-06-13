@@ -23,7 +23,7 @@ with lazy_imports(__name__):
 
 
 class BaseRecordRow(BaseItemRow, kw_only=True):
-    __abstract__ = True
+    __abstract__: ClassVar[bool] = True
 
     timestamp: Mapped[datetime] = mapped_column(DateTimeMapper, sort_order=-1000)
 

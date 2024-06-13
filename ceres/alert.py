@@ -29,7 +29,7 @@ with lazy_imports(__name__):
 
 
 class AlertRow(BaseRecordRow, kw_only=True):
-    __tablename__ = "alerts"
+    __tablename__: ClassVar[str] = "alerts"
 
     level: Mapped[Level] = mapped_column(EnumMapper(Level))
     code: Mapped[str] = mapped_column(Text)

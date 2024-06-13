@@ -52,7 +52,7 @@ MessageContent = Annotated[
 
 
 class MessageRow(BaseRecordRow, kw_only=True):
-    __tablename__ = "messages"
+    __tablename__: ClassVar[str] = "messages"
 
     direction: Mapped[MessageDirection] = mapped_column(EnumMapper(MessageDirection))
     content: Mapped[bytes] = mapped_column(LargeBinary)

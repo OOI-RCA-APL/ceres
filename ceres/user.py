@@ -41,7 +41,7 @@ class UserRole(PriorityStrEnum):
 
 
 class UserRow(BaseEntityRow, kw_only=True):
-    __tablename__ = "users"
+    __tablename__: ClassVar[str] = "users"
 
     username: Mapped[UsernameStr] = mapped_column(Text)
     email: Mapped[EmailStr] = mapped_column(Text)

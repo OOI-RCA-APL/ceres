@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Iterable, Sequence, TypedDict
+from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Iterable, Mapping, Sequence, TypedDict
 from uuid import UUID, uuid4
 
 import pydantic
@@ -62,13 +62,13 @@ class BaseEntityRow(
     dataclass_callable=pydantic.dataclasses.dataclass,
     kw_only=True,
 ):
-    __abstract__ = True
-    __mapper_args__ = {
+    __abstract__: ClassVar[bool] = True
+    __mapper_args__: ClassVar[Mapping[str, Any]] = {
         "eager_defaults": True,
     }
 
     if TYPE_CHECKING:
-        __tablename__: str
+        __tablename__: ClassVar[str]
         __table__: ClassVar[Table]
 
     id: Mapped[UUID] = mapped_column(UUIDMapper, sort_order=-3000, default_factory=uuid4)
