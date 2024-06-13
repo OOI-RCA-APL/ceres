@@ -147,7 +147,7 @@ class Connection(Component, ABC):
     def __regex_pattern(self) -> Pattern[bytes]:
         regex = self.regex
         if regex is None:
-            regex = b".*" + re.escape(self.separator)
+            regex = b".*?" + re.escape(self.separator)
 
         return re.compile(regex, self.regex_flags)
 
