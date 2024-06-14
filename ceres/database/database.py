@@ -215,6 +215,12 @@ class Database:
     def connect(self) -> AsyncConnection:
         return self.__engine.connect()
 
+    async def __aenter__(self) -> Self:
+        return self
+
+    async def __aexit__(self, *args: object) -> None:
+        await self.dispose()
+
     async def dispose(self) -> None:
         with util.wrap_database_errors():
             await self.__engine.dispose()
@@ -317,14 +323,17 @@ class SQLiteDatabase(Database):  #
         return self.__get_temporary_path()
 
     def __del__(self) -> None:
-        if self.config.path is not None or not self.__get_temporary_path().exists():
-            return
-
         try:
-            for path in Path(gettempdir()).glob(f"*{self.id}*"):
-                path.unlink(missing_ok=True)
+            self.__cleanup_temporary_files()
         except Exception:
             pass
+
+    @override
+    async def dispose(self) -> None:
+        try:
+            await super().dispose()
+        finally:
+            self.__cleanup_temporary_files()
 
     @override
     def _get_engine_config(self) -> dict[str, Any]:
@@ -526,6 +535,11 @@ class SQLiteDatabase(Database):  #
 
     def __get_temporary_path(self) -> Path:
         return Path(gettempdir()) / f"ceres-{self.id}.sqlite"
+
+    def __cleanup_temporary_files(self) -> None:
+        if self.config.path is None and self.__get_temporary_path().exists():
+            for path in Path(gettempdir()).glob(f"*{self.id}*"):
+                path.unlink(missing_ok=True)
 
 
 @final
