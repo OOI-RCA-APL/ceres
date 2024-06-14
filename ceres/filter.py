@@ -3,8 +3,6 @@ from __future__ import annotations
 from abc import ABC
 from typing import Self, TypedDict
 
-from pydantic import ConfigDict
-
 from ceres._internal.lazy import lazy_imports
 from ceres.data import ImmutableDataObject
 
@@ -17,8 +15,6 @@ class BaseFilterArgs(TypedDict, total=False):
 
 
 class BaseFilter(ImmutableDataObject, ABC):
-    model_config = ConfigDict(extra="ignore")
-
     def with_overrides(self, overrides: Self | None) -> Self:
         return util.model_apply_overrides(self, overrides)
 
