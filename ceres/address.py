@@ -35,6 +35,10 @@ class AddressSelector:
     def __deepcopy__(self, *args: Any) -> Self:
         return self
 
+    @override
+    def __reduce__(self) -> tuple[type[Self], tuple[str]]:
+        return type(self), (self._text,)
+
     @classmethod
     def __get_pydantic_core_schema__(
         cls,
