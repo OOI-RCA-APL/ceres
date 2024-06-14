@@ -128,9 +128,9 @@ class BaseRecordFilter[RecordT: BaseRecord](BaseUUIDEntityFilter[RecordT], BaseI
         columns = self._get_row_cls()
 
         match self.order:
-            case None | "newest":
+            case None | "oldest":
                 return columns.timestamp
-            case "oldest":
+            case "newest":
                 return columns.timestamp.desc()
 
         raise ValueError("invalid order type")
