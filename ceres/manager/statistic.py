@@ -6,7 +6,6 @@ from ceres._internal.lazy import lazy_imports
 from ceres._internal.manager.manager import BaseManager
 from ceres.address import Address
 from ceres.statistics import LevelStatistics, Statistics, StatisticsFilter, StatisticsFilterArgs
-from ceres.timing import utc
 
 with lazy_imports(__name__):
     from sqlalchemy import func, select
@@ -51,8 +50,6 @@ class StatisticsManager(BaseManager[Statistics]):
             Alert.Row.level,
         )
 
-        if filter.within is not None:
-            statement = statement.where(Alert.Row.timestamp >= utc() - filter.within)
         if filter.after is not None:
             statement = statement.where(Alert.Row.timestamp >= filter.after)
         if filter.before is not None:

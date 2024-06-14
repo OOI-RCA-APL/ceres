@@ -33,11 +33,7 @@ export const useStatistics = defineStore('statistics', () => {
   const auth = useAuth()
   const preferences = usePreferences()
 
-  async function getAll(filter: {
-    within?: number
-    after?: string
-    before?: string
-  }): Promise<Statistics[]> {
+  async function getAll(filter: { after?: string; before?: string }): Promise<Statistics[]> {
     return await client.get(`/api/statistics`, {
       query: filter,
       parse: Zod.array(StatisticsModel),
@@ -55,7 +51,7 @@ export const useStatistics = defineStore('statistics', () => {
         return []
       }
 
-      return await getAll({ within: preferences.statisticsDuration.asSeconds() })
+      return await getAll({ after: moment.utc().subtract(preferences.statisticsDuration).format() })
     },
     refetchInterval: moment.duration(15, 's').asMilliseconds(),
   })

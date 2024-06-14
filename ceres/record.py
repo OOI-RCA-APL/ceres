@@ -47,17 +47,14 @@ _RecordOrderInput = Literal["newest", "oldest"]
 
 
 class BaseRecordFilterArgs(BaseUUIDEntityFilterArgs, BaseItemFilterArgs, total=False):
-    within: PositiveTimeDelta | None
-    after: DateTime | None
     before: DateTime | None
+    after: DateTime | None
+    max_age: PositiveTimeDelta | None
+    min_age: PositiveTimeDelta | None
     order: _RecordOrderInput | None
 
 
 class BaseRecordFilter[RecordT: BaseRecord](BaseUUIDEntityFilter[RecordT], BaseItemFilter[RecordT]):
-    within: Annotated[PositiveTimeDelta | None, CLIOption(str | None, metavar="DURATION")] = Field(
-        default=None,
-        description="Filter by age.",
-    )
     after: Annotated[DateTime | None, CLIOption(datetime)] = Field(
         default=None,
         description="Filter by minimum timestamp.",
@@ -65,6 +62,14 @@ class BaseRecordFilter[RecordT: BaseRecord](BaseUUIDEntityFilter[RecordT], BaseI
     before: Annotated[DateTime | None, CLIOption(datetime)] = Field(
         default=None,
         description="Filter by maximum timestamp.",
+    )
+    min_age: Annotated[PositiveTimeDelta | None, CLIOption(str | None, metavar="DURATION")] = Field(
+        default=None,
+        description="Filter by minimum age relative to the current time.",
+    )
+    max_age: Annotated[PositiveTimeDelta | None, CLIOption(str | None, metavar="DURATION")] = Field(
+        default=None,
+        description="Filter by maximum age relative to the current time.",
     )
     order: Annotated[_RecordOrderInput | None, CLIOption(_RecordOrderInput | None)] = Field(
         default=None,
@@ -76,9 +81,14 @@ class BaseRecordFilter[RecordT: BaseRecord](BaseUUIDEntityFilter[RecordT], BaseI
         if not super().matches(obj):
             return False
 
-        if self.within is not None:
-            if obj.timestamp < utc() - self.within:
+        now = utc()
+        if self.max_age is not None:
+            if obj.timestamp < now - self.max_age:
                 return False
+        if self.min_age is not None:
+            if obj.timestamp >= now - self.min_age:
+                return False
+
         if self.after is not None:
             if obj.timestamp < self.after:
                 return False
@@ -116,8 +126,12 @@ class BaseRecordFilter[RecordT: BaseRecord](BaseUUIDEntityFilter[RecordT], BaseI
         yield from super()._get_where(dialect)
         columns = self._get_row_cls()
 
-        if self.within is not None:
-            yield columns.timestamp >= utc() - self.within
+        now = utc()
+        if self.max_age is not None:
+            yield columns.timestamp >= now - self.max_age
+        if self.min_age is not None:
+            yield columns.timestamp < now - self.min_age
+
         if self.after is not None:
             yield columns.timestamp >= self.after
         if self.before is not None:

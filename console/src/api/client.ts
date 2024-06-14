@@ -65,7 +65,11 @@ async function request<TParseModel extends ZodTypeAny = ZodAny>(
     return await parse.parseAsync(result)
   } catch (error) {
     if (error instanceof ZodError) {
-      console.error(`${method} ${path}: ${response.status} (response-parse-error)`)
+      console.error(
+        `${method} ${path}: ${response.status} (response-parse-error) ${JSON.stringify(
+          error.errors
+        )}`
+      )
       throw new Failure({
         __error__: true,
         type: 'response-parse-error',

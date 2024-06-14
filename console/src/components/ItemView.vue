@@ -235,7 +235,7 @@ async function loadPrevious() {
       address: selector,
       search: filter.search === '' ? undefined : filter.search,
       before: earliestItemTimestamp == null ? undefined : earliestItemTimestamp,
-      order: 'new-to-old',
+      order: 'newest',
       limit: itemLoadSize,
     })
 
@@ -262,7 +262,7 @@ async function loadCurrent() {
     const results: Item[] = await get({
       address: selector,
       search: filter.search === '' ? undefined : filter.search,
-      order: 'new-to-old',
+      order: 'newest',
       limit: itemLoadSizeInitial,
     })
 
