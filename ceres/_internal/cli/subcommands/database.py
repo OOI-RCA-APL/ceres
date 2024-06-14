@@ -29,29 +29,26 @@ async def init(*, context: CLIContext) -> None:
     """
     Initialize the database, creating tables and indexes as needed.
     """
-    database = await use_database(context, require_initialized=False)
+    async with use_database(context, require_initialized=False) as database:
+        try:
+            async with database.connect():
+                pass
+        except Exception:
+            raise CLICommandFailed("Failed to connect to database.")
 
-    try:
-        async with database.connect():
-            pass
-    except Exception:
-        raise CLICommandFailed("Failed to connect to database.")
+        print("<PENDING>")
+        await ddl(context=context)
+        print("</PENDING>")
 
-    print("<PENDING>")
-    await ddl(context=context)
-    print("</PENDING>")
+        if await database.initialized():
+            confirmation = "Database is not empty, execute above commands anyway?"
+        else:
+            confirmation = "Database appears uninitialized. Execute above commands now?"
 
-    if await database.initialized():
-        confirmation = "Database is not empty, execute above commands anyway?"
-    else:
-        confirmation = "Database appears uninitialized. Execute above commands now?"
-
-    if get_confirmation(confirmation):
-        await database.init()
-    else:
-        write("Database has not been modified.")
-
-    await database.dispose()
+        if get_confirmation(confirmation):
+            await database.init()
+        else:
+            write("Database has not been modified.")
 
 
 @router.command()
@@ -109,16 +106,16 @@ async def dump(
         list(EntityType) if not entity_type else [EntityType(current) for current in entity_type]
     )
 
-    database = await use_database(context)
     start = utc()
 
-    match format:
-        case DataFormat.CSV:
-            write("Dumping data to CSV...")
-            await database.dump_csv(path, entity_type[0])
-        case DataFormat.SQLITE:
-            write("Dumping data to SQLite...")
-            await database.dump_sqlite(path, entity_type)
+    async with use_database(context) as database:
+        match format:
+            case DataFormat.CSV:
+                write("Dumping data to CSV...")
+                await database.dump_csv(path, entity_type[0])
+            case DataFormat.SQLITE:
+                write("Dumping data to SQLite...")
+                await database.dump_sqlite(path, entity_type)
 
     duration = utc() - start
     write(f"Dump completed in {util.show_td(duration)}.")
@@ -178,16 +175,16 @@ async def load(
         list(EntityType) if not entity_type else [EntityType(current) for current in entity_type]
     )
 
-    database = await use_database(context)
     start = utc()
 
-    match format:
-        case DataFormat.CSV:
-            write("Loading data from CSV...")
-            await database.load_csv(path, entity_type[0])
-        case DataFormat.SQLITE:
-            write("Loading data from SQLite...")
-            await database.load_sqlite(path, entity_type)
+    async with use_database(context) as database:
+        match format:
+            case DataFormat.CSV:
+                write("Loading data from CSV...")
+                await database.load_csv(path, entity_type[0])
+            case DataFormat.SQLITE:
+                write("Loading data from SQLite...")
+                await database.load_sqlite(path, entity_type)
 
     duration = utc() - start
     write(f"Load completed in {util.show_td(duration)}.")
@@ -198,18 +195,17 @@ async def clear(*, context: CLIContext) -> None:
     """
     Remove all data from the database. Tables and indexes are not removed, only truncated.
     """
-    database = await use_database(context)
+    async with use_database(context) as database:
+        if not get_confirmation("Clear all data from the project database?"):
+            write("Database has not been modified. Exiting.")
+            return
 
-    if not get_confirmation("Clear all data from the project database?"):
-        write("Database has not been modified. Exiting.")
-        return
+        start = utc()
 
-    start = utc()
+        await database.clear()
 
-    await database.clear()
-
-    duration = utc() - start
-    write(f"Cleared all data from database in {util.show_td(duration)}.")
+        duration = utc() - start
+        write(f"Cleared all data from database in {util.show_td(duration)}.")
 
 
 @router.command()
@@ -217,10 +213,9 @@ async def ddl(*, context: CLIContext) -> None:
     """
     Show DDL commands used to initialize the database.
     """
-    database = await use_database(context, require_initialized=False)
-
-    for statement in database.ddl:
-        write(statement, to="stdout")
+    async with use_database(context, require_initialized=False) as database:
+        for statement in database.ddl:
+            write(statement, to="stdout")
 
 
 def _guess_format(format: DataFormat | None, path: Path) -> DataFormat:

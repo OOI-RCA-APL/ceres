@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from contextlib import contextmanager
+from contextlib import asynccontextmanager, contextmanager
 from typing import (
     IO,
     Annotated,
@@ -147,9 +147,7 @@ async def use_loaded_project(
     )
 
 
-async def use_client(
-    context: CLIContext,
-) -> Client:
+async def use_client(context: CLIContext) -> Client:
     project = await use_loaded_project(context)
     return Client(project)
 
@@ -245,6 +243,7 @@ def strbool(value: bool) -> str:
     return "Yes" if value else "No"
 
 
+@asynccontextmanager
 async def use_database(
     context: CLIContext,
     *,
@@ -265,7 +264,8 @@ async def use_database(
         if not await database.initialized():
             raise CLICommandFailed("Database appears uninitialized, exiting.")
 
-    return database
+    async with database:
+        yield database
 
 
 async def use_temporary_engine(context: CLIContext):

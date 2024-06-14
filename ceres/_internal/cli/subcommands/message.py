@@ -29,8 +29,8 @@ async def get(
     """
     Retrieve one message.
     """
-    database = await use_database(context)
-    return await database.messages.get(filter)
+    async with use_database(context) as database:
+        return await database.messages.get(filter)
 
 
 @router.command()
@@ -42,8 +42,8 @@ async def get_all(
     """
     Retrieve multiple messages.
     """
-    database = await use_database(context)
-    return await database.messages.get_all(filter)
+    async with use_database(context) as database:
+        return await database.messages.get_all(filter)
 
 
 @router.command()
@@ -55,8 +55,8 @@ async def count(
     """
     Count messages.
     """
-    database = await use_database(context)
-    return await database.messages.count(filter)
+    async with use_database(context) as database:
+        return await database.messages.count(filter)
 
 
 @router.command()
@@ -68,8 +68,8 @@ async def create(
     """
     Create a new message.
     """
-    database = await use_database(context)
-    return await database.messages.create(data)
+    async with use_database(context) as database:
+        return await database.messages.create(data)
 
 
 @router.command()
@@ -82,8 +82,8 @@ async def update(
     """
     Update one message. Return if found.
     """
-    database = await use_database(context)
-    return await database.messages.update(filter, assign)
+    async with use_database(context) as database:
+        return await database.messages.update(filter, assign)
 
 
 @router.command()
@@ -97,12 +97,12 @@ async def update_all(
     """
     Update multiple messages. Return the number updated.
     """
-    database = await use_database(context)
-    if confirm:
-        count = await database.messages.count(filter)
-        get_confirmation(f"Update {count} messages?", abort=True)
+    async with use_database(context) as database:
+        if confirm:
+            count = await database.messages.count(filter)
+            get_confirmation(f"Update {count} messages?", abort=True)
 
-    return await database.messages.update_all(filter, assign)
+        return await database.messages.update_all(filter, assign)
 
 
 @router.command()
@@ -114,8 +114,8 @@ async def delete(
     """
     Delete one message. Return if found.
     """
-    database = await use_database(context)
-    return await database.messages.delete(filter)
+    async with use_database(context) as database:
+        return await database.messages.delete(filter)
 
 
 @router.command()
@@ -128,9 +128,9 @@ async def delete_all(
     """
     Delete multiple messages. Return the number deleted.
     """
-    database = await use_database(context)
-    if confirm:
-        count = await database.messages.count(filter)
-        get_confirmation(f"Delete {count} messages?", abort=True)
+    async with use_database(context) as database:
+        if confirm:
+            count = await database.messages.count(filter)
+            get_confirmation(f"Delete {count} messages?", abort=True)
 
-    return await database.messages.delete_all(filter)
+        return await database.messages.delete_all(filter)

@@ -29,8 +29,8 @@ async def get(
     """
     Retrieve one variable.
     """
-    database = await use_database(context)
-    return await database.variables.get(filter)
+    async with use_database(context) as database:
+        return await database.variables.get(filter)
 
 
 @router.command()
@@ -42,8 +42,8 @@ async def get_all(
     """
     Retrieve multiple variables.
     """
-    database = await use_database(context)
-    return await database.variables.get_all(filter)
+    async with use_database(context) as database:
+        return await database.variables.get_all(filter)
 
 
 @router.command()
@@ -55,8 +55,8 @@ async def count(
     """
     Count variables.
     """
-    database = await use_database(context)
-    return await database.variables.count(filter)
+    async with use_database(context) as database:
+        return await database.variables.count(filter)
 
 
 @router.command()
@@ -68,8 +68,8 @@ async def create(
     """
     Create a new variable.
     """
-    database = await use_database(context)
-    return await database.variables.create(data)
+    async with use_database(context) as database:
+        return await database.variables.create(data)
 
 
 @router.command()
@@ -82,8 +82,8 @@ async def update(
     """
     Update one variable. Return if found.
     """
-    database = await use_database(context)
-    return await database.variables.update(filter, assign)
+    async with use_database(context) as database:
+        return await database.variables.update(filter, assign)
 
 
 @router.command()
@@ -97,12 +97,12 @@ async def update_all(
     """
     Update multiple variables. Return the number updated.
     """
-    database = await use_database(context)
-    if confirm:
-        count = await database.variables.count(filter)
-        get_confirmation(f"Update {count} variables?", abort=True)
+    async with use_database(context) as database:
+        if confirm:
+            count = await database.variables.count(filter)
+            get_confirmation(f"Update {count} variables?", abort=True)
 
-    return await database.variables.update_all(filter, assign)
+        return await database.variables.update_all(filter, assign)
 
 
 @router.command()
@@ -114,8 +114,8 @@ async def delete(
     """
     Delete one variable. Return if found.
     """
-    database = await use_database(context)
-    return await database.variables.delete(filter)
+    async with use_database(context) as database:
+        return await database.variables.delete(filter)
 
 
 @router.command()
@@ -128,9 +128,9 @@ async def delete_all(
     """
     Delete multiple variables. Return the number deleted.
     """
-    database = await use_database(context)
-    if confirm:
-        count = await database.variables.count(filter)
-        get_confirmation(f"Delete {count} variables?", abort=True)
+    async with use_database(context) as database:
+        if confirm:
+            count = await database.variables.count(filter)
+            get_confirmation(f"Delete {count} variables?", abort=True)
 
-    return await database.variables.delete_all(filter)
+        return await database.variables.delete_all(filter)

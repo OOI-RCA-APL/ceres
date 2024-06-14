@@ -29,8 +29,8 @@ async def get(
     """
     Retrieve one alert.
     """
-    database = await use_database(context)
-    return await database.alerts.get(filter)
+    async with use_database(context) as database:
+        return await database.alerts.get(filter)
 
 
 @router.command()
@@ -42,8 +42,8 @@ async def get_all(
     """
     Retrieve multiple alerts.
     """
-    database = await use_database(context)
-    return await database.alerts.get_all(filter)
+    async with use_database(context) as database:
+        return await database.alerts.get_all(filter)
 
 
 @router.command()
@@ -55,8 +55,8 @@ async def count(
     """
     Count alerts.
     """
-    database = await use_database(context)
-    return await database.alerts.count(filter)
+    async with use_database(context) as database:
+        return await database.alerts.count(filter)
 
 
 @router.command()
@@ -68,8 +68,8 @@ async def create(
     """
     Create an alert.
     """
-    database = await use_database(context)
-    return await database.alerts.create(data)
+    async with use_database(context) as database:
+        return await database.alerts.create(data)
 
 
 @router.command()
@@ -82,8 +82,8 @@ async def update(
     """
     Update an alert. Return if found.
     """
-    database = await use_database(context)
-    return await database.alerts.update(filter, assign)
+    async with use_database(context) as database:
+        return await database.alerts.update(filter, assign)
 
 
 @router.command()
@@ -97,12 +97,12 @@ async def update_all(
     """
     Update multiple alerts. Return the number updated.
     """
-    database = await use_database(context)
-    if confirm:
-        count = await database.alerts.count(filter)
-        get_confirmation(f"Update {count} alerts?", abort=True)
+    async with use_database(context) as database:
+        if confirm:
+            count = await database.alerts.count(filter)
+            get_confirmation(f"Update {count} alerts?", abort=True)
 
-    return await database.alerts.update_all(filter, assign)
+        return await database.alerts.update_all(filter, assign)
 
 
 @router.command()
@@ -114,8 +114,8 @@ async def delete(
     """
     Delete an alert.
     """
-    database = await use_database(context)
-    await database.alerts.delete(filter)
+    async with use_database(context) as database:
+        await database.alerts.delete(filter)
 
 
 @router.command()
@@ -128,9 +128,9 @@ async def delete_all(
     """
     Delete multiple alerts. Return the number deleted.
     """
-    database = await use_database(context)
-    if confirm:
-        count = await database.alerts.count(filter)
-        get_confirmation(f"Delete {count} alerts?", abort=True)
+    async with use_database(context) as database:
+        if confirm:
+            count = await database.alerts.count(filter)
+            get_confirmation(f"Delete {count} alerts?", abort=True)
 
-    return await database.alerts.delete_all(filter)
+        return await database.alerts.delete_all(filter)

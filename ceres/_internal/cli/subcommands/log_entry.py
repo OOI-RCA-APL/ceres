@@ -29,8 +29,8 @@ async def get(
     """
     Retrieve one log entry.
     """
-    database = await use_database(context)
-    return await database.log.get(filter)
+    async with use_database(context) as database:
+        return await database.log.get(filter)
 
 
 @router.command()
@@ -42,8 +42,8 @@ async def get_all(
     """
     Retrieve multiple alerts.
     """
-    database = await use_database(context)
-    return await database.log.get_all(filter)
+    async with use_database(context) as database:
+        return await database.log.get_all(filter)
 
 
 @router.command()
@@ -55,8 +55,8 @@ async def count(
     """
     Count log entries.
     """
-    database = await use_database(context)
-    return await database.log.count(filter)
+    async with use_database(context) as database:
+        return await database.log.count(filter)
 
 
 @router.command()
@@ -68,8 +68,8 @@ async def create(
     """
     Create a log entry.
     """
-    database = await use_database(context)
-    return await database.log.create(data)
+    async with use_database(context) as database:
+        return await database.log.create(data)
 
 
 @router.command()
@@ -82,8 +82,8 @@ async def update(
     """
     Update one log entry. Return if found.
     """
-    database = await use_database(context)
-    return await database.log.update(filter, assign)
+    async with use_database(context) as database:
+        return await database.log.update(filter, assign)
 
 
 @router.command()
@@ -97,12 +97,12 @@ async def update_all(
     """
     Update multiple log entries. Return the number updated.
     """
-    database = await use_database(context)
-    if confirm:
-        count = await database.log.count(filter)
-        get_confirmation(f"Update {count} log entries?", abort=True)
+    async with use_database(context) as database:
+        if confirm:
+            count = await database.log.count(filter)
+            get_confirmation(f"Update {count} log entries?", abort=True)
 
-    return await database.log.update_all(filter, assign)
+        return await database.log.update_all(filter, assign)
 
 
 @router.command()
@@ -114,8 +114,8 @@ async def delete(
     """
     Delete one log entry. Return if found.
     """
-    database = await use_database(context)
-    return await database.log.delete(filter)
+    async with use_database(context) as database:
+        return await database.log.delete(filter)
 
 
 @router.command()
@@ -128,9 +128,9 @@ async def delete_all(
     """
     Delete multiple log entries. Return the number deleted.
     """
-    database = await use_database(context)
-    if confirm:
-        count = await database.log.count(filter)
-        get_confirmation(f"Delete {count} log entries?", abort=True)
+    async with use_database(context) as database:
+        if confirm:
+            count = await database.log.count(filter)
+            get_confirmation(f"Delete {count} log entries?", abort=True)
 
-    return await database.log.delete_all(filter)
+        return await database.log.delete_all(filter)

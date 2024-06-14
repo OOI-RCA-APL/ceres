@@ -29,9 +29,8 @@ async def get(
     """
     Retrieve one user.
     """
-    database = await use_database(context)
-    user = await database.users.get(filter)
-    return user
+    async with use_database(context) as database:
+        return await database.users.get(filter)
 
 
 @router.command()
@@ -43,8 +42,8 @@ async def get_all(
     """
     Retrieve multiple users.
     """
-    database = await use_database(context)
-    return await database.users.get_all(filter)
+    async with use_database(context) as database:
+        return await database.users.get_all(filter)
 
 
 @router.command()
@@ -56,8 +55,8 @@ async def count(
     """
     Count users.
     """
-    database = await use_database(context)
-    return await database.users.count(filter)
+    async with use_database(context) as database:
+        return await database.users.count(filter)
 
 
 @router.command()
@@ -69,8 +68,8 @@ async def create(
     """
     Create a new user.
     """
-    database = await use_database(context)
-    return await database.users.create(data)
+    async with use_database(context) as database:
+        return await database.users.create(data)
 
 
 @router.command()
@@ -83,8 +82,8 @@ async def update(
     """
     Update one user. Return if found.
     """
-    database = await use_database(context)
-    return await database.users.update(filter, assign)
+    async with use_database(context) as database:
+        return await database.users.update(filter, assign)
 
 
 @router.command()
@@ -98,12 +97,12 @@ async def update_all(
     """
     Update multiple users. Return the number updated.
     """
-    database = await use_database(context)
-    if confirm:
-        count = await database.users.count(filter)
-        get_confirmation(f"Update {count} log entries?", abort=True)
+    async with use_database(context) as database:
+        if confirm:
+            count = await database.users.count(filter)
+            get_confirmation(f"Update {count} log entries?", abort=True)
 
-    return await database.users.update_all(filter, assign)
+        return await database.users.update_all(filter, assign)
 
 
 @router.command()
@@ -115,8 +114,8 @@ async def delete(
     """
     Delete one user. Return if found.
     """
-    database = await use_database(context)
-    return await database.users.delete(filter)
+    async with use_database(context) as database:
+        return await database.users.delete(filter)
 
 
 @router.command()
@@ -129,9 +128,9 @@ async def delete_all(
     """
     Delete multiple users. Return the number deleted.
     """
-    database = await use_database(context)
-    if confirm:
-        count = await database.users.count(filter)
-        get_confirmation(f"Delete {count} log entries?", abort=True)
+    async with use_database(context) as database:
+        if confirm:
+            count = await database.users.count(filter)
+            get_confirmation(f"Delete {count} log entries?", abort=True)
 
-    return await database.users.delete_all(filter)
+        return await database.users.delete_all(filter)
