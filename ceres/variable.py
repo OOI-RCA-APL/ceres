@@ -11,8 +11,9 @@ from ceres.database.enums import DatabaseType
 from ceres.item import BaseItem, BaseItemCreate, BaseItemFilter, BaseItemFilterArgs, BaseItemRow
 
 with lazy_imports(__name__):
+    from sqlalchemy import Index, PrimaryKeyConstraint
     from sqlalchemy.orm import Mapped, mapped_column
-    from sqlalchemy.schema import SchemaItem, UniqueConstraint
+    from sqlalchemy.schema import SchemaItem
     from sqlalchemy.sql import SQLColumnExpression, cast
     from sqlalchemy.sql.sqltypes import JSON, Text
 
@@ -29,8 +30,12 @@ class VariableRow(BaseItemRow, kw_only=True):
     @override
     def __get_table_args__(cls) -> tuple[SchemaItem, ...]:
         return (
-            *super().__get_table_args__(),
-            UniqueConstraint("address", "name", name=f"uq_{cls.__tablename__}__address__name"),
+            *(
+                current
+                for current in super().__get_table_args__()
+                if not isinstance(current, Index) or "address" not in (current.name or "")
+            ),
+            PrimaryKeyConstraint("address", "name", name=f"pk_{cls.__tablename__}"),
         )
 
 

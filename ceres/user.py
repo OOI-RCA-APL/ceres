@@ -18,11 +18,11 @@ from ceres.data import (
 )
 from ceres.database.enums import DatabaseType
 from ceres.entity import (
-    BaseEntity,
-    BaseEntityCreate,
-    BaseEntityFilter,
-    BaseEntityFilterArgs,
-    BaseEntityRow,
+    BaseUUIDEntity,
+    BaseUUIDEntityCreate,
+    BaseUUIDEntityFilter,
+    BaseUUIDEntityFilterArgs,
+    BaseUUIDEntityRow,
 )
 
 with lazy_imports(__name__):
@@ -40,7 +40,7 @@ class UserRole(PriorityStrEnum):
     ADMIN = "admin"
 
 
-class UserRow(BaseEntityRow, kw_only=True):
+class UserRow(BaseUUIDEntityRow, kw_only=True):
     __tablename__: ClassVar[str] = "users"
 
     username: Mapped[UsernameStr] = mapped_column(Text)
@@ -72,7 +72,7 @@ class UserOrder(StrEnum):
     EMAIL = "email"
 
 
-class UserFilterArgs(BaseEntityFilterArgs, total=False):
+class UserFilterArgs(BaseUUIDEntityFilterArgs, total=False):
     username: str | Sequence[str] | None
     email: str | Sequence[str] | None
     role: UserRole | Sequence[UserRole] | None
@@ -80,7 +80,7 @@ class UserFilterArgs(BaseEntityFilterArgs, total=False):
     order: UserOrder | None
 
 
-class UserFilter(BaseEntityFilter["User"]):
+class UserFilter(BaseUUIDEntityFilter["User"]):
     username: Annotated[str | Sequence[str] | None, CLIOption(list[str] | None)] = Field(
         default=None,
         description="Filter by username(s).",
@@ -109,6 +109,7 @@ class UserFilter(BaseEntityFilter["User"]):
     @override
     def _get_search_content(self, obj: User) -> Mapping[str, str]:
         return {
+            **super()._get_search_content(obj),
             "username": obj.username,
             "email": obj.email,
             "role": obj.role,
@@ -122,6 +123,7 @@ class UserFilter(BaseEntityFilter["User"]):
         columns = self._get_row_cls()
 
         return {
+            **super()._get_database_search_content(dialect),
             "username": columns.username,
             "email": columns.email,
             "role": columns.role,
@@ -151,7 +153,7 @@ class UserFilter(BaseEntityFilter["User"]):
                 return columns.email
 
 
-class UserCreate(BaseEntityCreate):
+class UserCreate(BaseUUIDEntityCreate):
     id: Annotated[UUID, CLIOption(UUID)] = Field(default_factory=uuid4)
     username: Annotated[UsernameStr, CLIOption(str)]
     email: Annotated[EmailStr, CLIOption(str)]
@@ -168,7 +170,7 @@ class UserUpdate(TypedDict, total=False):
     disabled: bool
 
 
-class User(BaseEntity, UserCreate):
+class User(BaseUUIDEntity, UserCreate):
     Order: ClassVar[type[UserOrder]] = UserOrder
 
     Row: ClassVar[type[UserRow]] = UserRow

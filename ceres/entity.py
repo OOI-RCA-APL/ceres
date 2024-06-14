@@ -1,7 +1,17 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Iterable, Mapping, Sequence, TypedDict
+from typing import (
+    TYPE_CHECKING,
+    Annotated,
+    Any,
+    ClassVar,
+    Iterable,
+    Mapping,
+    Sequence,
+    TypedDict,
+    override,
+)
 from uuid import UUID, uuid4
 
 import pydantic
@@ -29,6 +39,7 @@ with lazy_imports(__name__):
         Update,
         expression,
         select,
+        tuple_,
     )
     from sqlalchemy.sql.base import ReadOnlyColumnCollection
 
@@ -70,8 +81,6 @@ class BaseEntityRow(
     if TYPE_CHECKING:
         __tablename__: ClassVar[str]
         __table__: ClassVar[Table]
-
-    id: Mapped[UUID] = mapped_column(UUIDMapper, sort_order=-3000, default_factory=uuid4)
 
     @classmethod
     def get_primary_key_constraint(cls) -> PrimaryKeyConstraint:
@@ -151,7 +160,7 @@ class BaseEntityRow(
 
     @classmethod
     def __get_table_args__(cls) -> tuple[SchemaItem, ...]:
-        return (PrimaryKeyConstraint("id", name=f"pk_{cls.__tablename__}"),)
+        return ()
 
     @classmethod
     def __get_table_kwargs__(cls) -> dict[str, Any]:
@@ -161,7 +170,6 @@ class BaseEntityRow(
 class BaseEntityFilterArgs(BaseFilterArgs, total=False):
     search: str | None
     search_field: str | Sequence[str] | None
-    id: UUID | Sequence[UUID] | None
     limit: NonNegativeInt | None
     offset: NonNegativeInt | None
 
@@ -174,10 +182,6 @@ class BaseEntityFilter[EntityT: BaseEntity](BaseFilter, ABC):
     search_field: Annotated[str | Sequence[str] | None, CLIOption(list[str] | None)] = Field(
         default=None,
         description="Field(s) matched by `search`. Defaults to all.",
-    )
-    id: Annotated[UUID | Sequence[UUID] | None, CLIOption(list[UUID])] = Field(
-        default=None,
-        description="Filter by ID(s).",
     )
     limit: Annotated[NonNegativeInt | None, CLIOption(int | None)] = Field(
         default=None,
@@ -193,14 +197,14 @@ class BaseEntityFilter[EntityT: BaseEntity](BaseFilter, ABC):
     @abstractmethod
     def _get_row_cls(self) -> type[BaseEntityRow]: ...
 
-    @abstractmethod
-    def _get_search_content(self, obj: EntityT) -> Mapping[str, str]: ...
+    def _get_search_content(self, obj: EntityT) -> Mapping[str, str]:
+        return {}
 
-    @abstractmethod
     def _get_database_search_content(
         self,
         dialect: DatabaseType,
-    ) -> Mapping[str, SQLColumnExpression[Any]]: ...
+    ) -> Mapping[str, SQLColumnExpression[Any]]:
+        return {}
 
     def _get_database_search_content_encoded_fields(self, dialect: DatabaseType) -> set[str]:
         return set()
@@ -222,14 +226,9 @@ class BaseEntityFilter[EntityT: BaseEntity](BaseFilter, ABC):
             if not matched:
                 return False
 
-        if self.id is not None:
-            if obj.id not in util.as_sequence(self.id):
-                return False
-
         return True
 
     def _get_where(self, dialect: DatabaseType) -> Iterable[SQLColumnExpression[bool]]:
-        columns = self._get_row_cls()
         encoded = self._get_database_search_content_encoded_fields(dialect)
 
         if self.search is not None:
@@ -251,9 +250,6 @@ class BaseEntityFilter[EntityT: BaseEntity](BaseFilter, ABC):
 
             yield condition
 
-        if self.id is not None:
-            yield columns.id.in_(util.as_sequence(self.id))
-
     def _get_order_by(self) -> SQLColumnExpression[Any] | None:
         return None
 
@@ -261,22 +257,25 @@ class BaseEntityFilter[EntityT: BaseEntity](BaseFilter, ABC):
         StatementT: Select[tuple[Any, ...]] | Update | Delete
     ](self, statement: StatementT, dialect: DatabaseType) -> StatementT:
         columns = self._get_row_cls()
-        ids = (
-            select(columns.id)
+        pk = columns.get_primary_key_columns()
+        pks = (
+            select(*pk)
             .where(*self._get_where(dialect))
             .order_by(self._get_order_by())
             .limit(self.limit)
             .offset(self.offset)
         )
 
-        if isinstance(statement, Update | Delete):
-            return statement.where(columns.id.in_(ids))
+        pk = pk[0] if len(pk) == 1 else tuple_(*pk)
 
-        return statement.where(columns.id.in_(ids)).order_by(self._get_order_by())
+        if isinstance(statement, Update | Delete):
+            return statement.where(pk.in_(pks))
+
+        return statement.where(pk.in_(pks)).order_by(self._get_order_by())
 
 
 class BaseEntityCreate(ImmutableDataObject):
-    id: Annotated[UUID, CLIOption(UUID)] = Field(default_factory=uuid4)
+    pass
 
 
 class BaseEntityUpdate(TypedDict, total=False):
@@ -294,3 +293,71 @@ class BaseEntity(BaseEntityCreate):
         Filter: ClassVar[type[BaseEntityFilter]] = BaseEntityFilter
 
     FilterArgs: ClassVar[type[BaseEntityFilterArgs]] = BaseEntityFilterArgs
+
+
+class BaseUUIDEntityRow(BaseEntityRow):
+    __abstract__: ClassVar[bool] = True
+
+    id: Mapped[UUID] = mapped_column(UUIDMapper, sort_order=-3000, default_factory=uuid4)
+
+    @classmethod
+    @override
+    def __get_table_args__(cls) -> tuple[SchemaItem, ...]:
+        return (
+            *super().__get_table_args__(),
+            PrimaryKeyConstraint("id", name=f"pk_{cls.__tablename__}"),
+        )
+
+
+class BaseUUIDEntityFilterArgs(BaseEntityFilterArgs, total=False):
+    id: UUID | Sequence[UUID] | None
+
+
+class BaseUUIDEntityFilter[EntityT: BaseUUIDEntity](BaseEntityFilter[EntityT]):
+    id: Annotated[UUID | Sequence[UUID] | None, CLIOption(list[UUID])] = Field(
+        default=None,
+        description="Filter by ID(s).",
+    )
+
+    @abstractmethod
+    @override
+    def _get_row_cls(self) -> type[BaseUUIDEntityRow]: ...
+
+    @override
+    def matches(self, obj: EntityT) -> bool:
+        if not super().matches(obj):
+            return False
+
+        if self.id is not None:
+            if obj.id not in util.as_sequence(self.id):
+                return False
+
+        return True
+
+    @override
+    def _get_where(self, dialect: DatabaseType) -> Iterable[SQLColumnExpression[bool]]:
+        yield from super()._get_where(dialect)
+        columns = self._get_row_cls()
+        if self.id is not None:
+            yield columns.id.in_(util.as_sequence(self.id))
+
+
+class BaseUUIDEntityCreate(BaseEntity):
+    id: Annotated[UUID, CLIOption(UUID)] = Field(default_factory=uuid4)
+
+
+class BaseUUIDEntityUpdate(BaseEntityUpdate, total=False):
+    pass
+
+
+class BaseUUIDEntity(BaseUUIDEntityCreate):
+    Row: ClassVar[type[BaseUUIDEntityRow]] = BaseUUIDEntityRow
+    Create: ClassVar[type[BaseUUIDEntityCreate]] = BaseUUIDEntityCreate
+    Update: ClassVar[type[BaseUUIDEntityUpdate]] = BaseUUIDEntityUpdate
+
+    if TYPE_CHECKING:
+        Filter: ClassVar = BaseUUIDEntityFilter
+    else:
+        Filter: ClassVar[type[BaseUUIDEntityFilter]] = BaseUUIDEntityFilter
+
+    FilterArgs: ClassVar[type[BaseUUIDEntityFilterArgs]] = BaseUUIDEntityFilterArgs

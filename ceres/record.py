@@ -11,6 +11,13 @@ from ceres._internal.database.types import DateTimeMapper
 from ceres._internal.lazy import lazy_imports
 from ceres.data import DateTime, PositiveTimeDelta
 from ceres.database.enums import DatabaseType
+from ceres.entity import (
+    BaseUUIDEntity,
+    BaseUUIDEntityFilter,
+    BaseUUIDEntityFilterArgs,
+    BaseUUIDEntityRow,
+    BaseUUIDEntityUpdate,
+)
 from ceres.item import BaseItem, BaseItemFilter, BaseItemFilterArgs, BaseItemRow, BaseItemUpdate
 from ceres.timing import utc
 
@@ -22,7 +29,7 @@ with lazy_imports(__name__):
     from ceres._internal import util
 
 
-class BaseRecordRow(BaseItemRow, kw_only=True):
+class BaseRecordRow(BaseUUIDEntityRow, BaseItemRow, kw_only=True):
     __abstract__: ClassVar[bool] = True
 
     timestamp: Mapped[datetime] = mapped_column(DateTimeMapper, sort_order=-1000)
@@ -39,14 +46,14 @@ class BaseRecordRow(BaseItemRow, kw_only=True):
 _RecordOrderInput = Literal["newest", "oldest"]
 
 
-class BaseRecordFilterArgs(BaseItemFilterArgs, total=False):
+class BaseRecordFilterArgs(BaseUUIDEntityFilterArgs, BaseItemFilterArgs, total=False):
     within: PositiveTimeDelta | None
     after: DateTime | None
     before: DateTime | None
     order: _RecordOrderInput | None
 
 
-class BaseRecordFilter[RecordT: BaseRecord](BaseItemFilter[RecordT]):
+class BaseRecordFilter[RecordT: BaseRecord](BaseUUIDEntityFilter[RecordT], BaseItemFilter[RecordT]):
     within: Annotated[PositiveTimeDelta | None, CLIOption(str | None, metavar="DURATION")] = Field(
         default=None,
         description="Filter by age.",
@@ -109,10 +116,6 @@ class BaseRecordFilter[RecordT: BaseRecord](BaseItemFilter[RecordT]):
         yield from super()._get_where(dialect)
         columns = self._get_row_cls()
 
-        if self.id is not None:
-            yield columns.id.in_(util.as_sequence(self.id))
-        if self.address is not None:
-            yield self.address.matches_expression(columns.address, self.root)
         if self.within is not None:
             yield columns.timestamp >= utc() - self.within
         if self.after is not None:
@@ -133,11 +136,11 @@ class BaseRecordFilter[RecordT: BaseRecord](BaseItemFilter[RecordT]):
         raise ValueError("invalid order type")
 
 
-class BaseRecordCreate(BaseItem):
+class BaseRecordCreate(BaseUUIDEntity, BaseItem):
     timestamp: Annotated[DateTime, CLIOption(datetime)] = Field(default_factory=utc)
 
 
-class BaseRecordUpdate(BaseItemUpdate, total=False):
+class BaseRecordUpdate(BaseUUIDEntityUpdate, BaseItemUpdate, total=False):
     timestamp: DateTime
 
 

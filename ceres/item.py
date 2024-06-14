@@ -5,7 +5,6 @@ from typing import Annotated, Any, ClassVar, Iterable, Mapping, override
 
 from pydantic import Field
 
-from ceres._internal import util
 from ceres._internal.cli.plumbing import CLIOption
 from ceres._internal.database.types import AddressMapper
 from ceres._internal.lazy import lazy_imports
@@ -21,7 +20,6 @@ from ceres.entity import (
 
 with lazy_imports(__name__):
     from sqlalchemy.orm import Mapped, mapped_column
-    from sqlalchemy.schema import Index, SchemaItem
     from sqlalchemy.sql import SQLColumnExpression
 
 
@@ -29,14 +27,6 @@ class BaseItemRow(BaseEntityRow, kw_only=True):
     __abstract__: ClassVar[bool] = True
 
     address: Mapped[Address] = mapped_column(AddressMapper, sort_order=-2000)
-
-    @classmethod
-    @override
-    def __get_table_args__(cls) -> tuple[SchemaItem, ...]:
-        return (
-            *super().__get_table_args__(),
-            Index(f"ix_{cls.__tablename__}__address", "address"),
-        )
 
 
 class BaseItemFilterArgs(BaseEntityFilterArgs, total=False):
@@ -72,6 +62,7 @@ class BaseItemFilter[_ItemT: BaseItem](BaseEntityFilter[_ItemT]):
     @override
     def _get_search_content(self, obj: _ItemT) -> Mapping[str, str]:
         return {
+            **super()._get_search_content(obj),
             "address": str(obj.address),
         }
 
@@ -83,6 +74,7 @@ class BaseItemFilter[_ItemT: BaseItem](BaseEntityFilter[_ItemT]):
         columns = self._get_row_cls()
 
         return {
+            **super()._get_database_search_content(dialect),
             "address": columns.address,
         }
 
@@ -91,8 +83,6 @@ class BaseItemFilter[_ItemT: BaseItem](BaseEntityFilter[_ItemT]):
         yield from super()._get_where(dialect)
         columns = self._get_row_cls()
 
-        if self.id is not None:
-            yield columns.id.in_(util.as_sequence(self.id))
         if self.address is not None:
             yield self.address.matches_expression(columns.address, self.root)
 

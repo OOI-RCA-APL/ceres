@@ -108,10 +108,8 @@ class BaseEntityManager[
         filter: FilterT | None = None,
         **kwargs: Unpack[FilterArgsT],  # type: ignore
     ) -> int:
-        Row = self._get_row_cls()
-
         filter = self._apply_default_filter(filter, kwargs)
-        statement = select(func.count(Row.id))
+        statement = select(func.count())
         statement = filter.apply(statement, self._database.type).order_by(None)
         return await self._execute_and_get_one(statement, int) or 0
 
