@@ -506,7 +506,7 @@ class Config(ConfigMeta):
     root: ComponentConfig = Field(default_factory=lambda: ComponentConfig(name="root"))
 
     @model_validator(mode="before")
-    def _validate(cls, values: object) -> object:
+    def _validate_before(cls, values: object) -> object:
         if isinstance(values, Mapping):
             values = dict(values)
             if "components" in values:
@@ -518,6 +518,22 @@ class Config(ConfigMeta):
                 values["root"] = {"components": values.pop("components")}
 
         return values
+
+    @model_validator(mode="after")
+    def _validate_after(self) -> Self:
+        from ceres.roles.interface import Interface
+
+        if self.console.dashboard is not None:
+            for address in util.as_sequence(self.console.dashboard):
+                component = self.get_component(address)
+                if component is None:
+                    raise ValueError(f"dashboard component '{address}' does not exist")
+                if not issubclass(component.cls, Interface):
+                    raise ValueError(
+                        f"dashboard component '{address}' must be a subclass of {Interface}, got {component.cls}"
+                    )
+
+        return self
 
     @field_validator("root", mode="before")
     def _validate_root(cls, values: object) -> object:
