@@ -741,7 +741,7 @@ def group_by[K, V](iterable: Iterable[V], key: Callable[[V], K]) -> Iterable[tup
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
-    from ceres.database.database import Database
+    from ceres.database import Database
 else:
     Database = object
     AsyncSession = object

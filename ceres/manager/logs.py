@@ -11,7 +11,7 @@ from ceres.logs import LogEntry, LogEntryFilter, LogEntryFilterArgs
 
 with lazy_imports(__name__):
     from ceres.alert import Alert
-    from ceres.database.database import Database
+    from ceres.database import Database
     from ceres.event import Event, LogEvent
     from ceres.level import Level
     from ceres.message import Message

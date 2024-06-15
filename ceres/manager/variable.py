@@ -14,7 +14,7 @@ from ceres.stream import Stream
 from ceres.variable import Variable
 
 with lazy_imports(__name__):
-    from ceres.database.database import Database
+    from ceres.database import Database
     from ceres.node import Node
 
 

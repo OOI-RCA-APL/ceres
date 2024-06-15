@@ -472,7 +472,7 @@ class ConfigMeta(ConfigObject):
         return Ok(config)
 
     async def _check_database(self) -> list[DatabaseError]:
-        from ceres.database.database import Database
+        from ceres.database import Database
 
         database = Database(self.database)
         try:

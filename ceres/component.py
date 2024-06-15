@@ -90,7 +90,7 @@ with lazy_imports(__name__):
 
     from ceres._internal import util
     from ceres._internal.util import OrderedWeakSet, Undefined, WeakRef
-    from ceres.database.database import Database
+    from ceres.database import Database
     from ceres.manager.job import JobManager
     from ceres.reference import Reference, unref
 

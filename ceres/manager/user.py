@@ -7,7 +7,7 @@ from ceres._internal.manager.entity import BaseEntityManager
 from ceres.user import User
 
 with lazy_imports(__name__):
-    from ceres.database.database import Database
+    from ceres.database import Database
     from ceres.node import Node
 
 

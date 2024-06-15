@@ -9,7 +9,7 @@ from ceres.message import Message
 
 with lazy_imports(__name__):
     from ceres._internal import util
-    from ceres.database.database import Database
+    from ceres.database import Database
     from ceres.node import Node
     from ceres.stream import Stream
 

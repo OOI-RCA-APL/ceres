@@ -22,7 +22,7 @@ from ceres.node import Node
 from ceres.result import Fail, Ok, Result
 
 with lazy_imports(__name__):
-    from ceres.database.database import Database
+    from ceres.database import Database
 
 
 SyncActionType = Literal[

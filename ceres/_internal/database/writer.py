@@ -12,7 +12,7 @@ with lazy_imports(__name__):
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from ceres._internal import util
-    from ceres.database.database import Database
+    from ceres.database import Database
     from ceres.database.enums import DatabaseType
 
 

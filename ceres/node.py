@@ -31,7 +31,7 @@ with lazy_imports(__name__):
     from ceres._internal.database.writer import Writer
     from ceres.component import Component, ComponentFilter, ComponentFilterArgs, ComponentSystem
     from ceres.config import ComponentConfig, Config, LoggingConfig
-    from ceres.database.database import Database
+    from ceres.database import Database
     from ceres.engine import Engine
     from ceres.manager.alert import BoundAlertManager
     from ceres.manager.event import EventManager

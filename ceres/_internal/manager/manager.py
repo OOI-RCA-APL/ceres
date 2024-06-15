@@ -6,7 +6,7 @@ from typing import Any, override
 from ceres._internal.lazy import lazy_imports
 
 with lazy_imports(__name__):
-    from ceres.database.database import Database
+    from ceres.database import Database
     from ceres.node import Node
 
 

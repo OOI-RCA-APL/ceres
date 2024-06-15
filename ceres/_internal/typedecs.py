@@ -6,7 +6,7 @@ if TYPE_CHECKING:
     from ceres.alert import Alert as __Alert__
     from ceres.component import Component as __Component__
     from ceres.component import ComponentSystem as __ComponentSystem__
-    from ceres.database.database import Database as __Database__
+    from ceres.database import Database as __Database__
     from ceres.engine import Engine as __Engine__
     from ceres.logs import LogEntry as __LogEntry__
     from ceres.message import Message as __Message__

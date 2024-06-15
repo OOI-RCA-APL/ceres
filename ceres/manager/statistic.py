@@ -12,7 +12,7 @@ with lazy_imports(__name__):
 
     from ceres._internal import util
     from ceres.alert import Alert
-    from ceres.database.database import Database
+    from ceres.database import Database
     from ceres.node import Node
 
 

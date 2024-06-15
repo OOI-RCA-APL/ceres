@@ -249,7 +249,7 @@ async def use_database(
     *,
     require_initialized: bool = True,
 ):
-    from ceres.database.database import Database
+    from ceres.database import Database
 
     config = await use_config_meta(context)
     database = Database(config.database)
