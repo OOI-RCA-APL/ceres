@@ -115,6 +115,7 @@ class VariableFilter(BaseItemFilter["Variable", VariableField, VariableOrder]):
     @override
     def _get_search_content(self, obj: Variable) -> Mapping[str, str]:
         return {
+            **super()._get_search_content(obj),
             "name": obj.name,
             "value": jsonify(obj.value),
         }
@@ -133,6 +134,7 @@ class VariableFilter(BaseItemFilter["Variable", VariableField, VariableOrder]):
                 value = columns.value
 
         return {
+            **super()._get_database_search_content(dialect),
             "name": columns.name,
             "value": value,
         }
