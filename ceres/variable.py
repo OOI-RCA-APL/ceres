@@ -91,10 +91,6 @@ class VariableFilter(BaseItemFilter["Variable", VariableField, VariableOrder]):
             "with an end with two underscores. For example: `__enabled__`."
         ),
     )
-    order: Annotated[VariableOrder | None, CLIOption(VariableOrder | None)] = Field(
-        default=None,
-        description="Specify result order.",
-    )
 
     @override
     def matches(self, obj: Variable) -> bool:
