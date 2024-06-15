@@ -55,9 +55,10 @@ class BaseItemFilter[_ItemT: BaseItem](BaseEntityFilter[_ItemT]):
 
         return True
 
+    @classmethod
     @abstractmethod
     @override
-    def _get_row_cls(self) -> type[BaseItemRow]: ...
+    def _get_row_cls(cls) -> type[BaseItemRow]: ...
 
     @override
     def _get_search_content(self, obj: _ItemT) -> Mapping[str, str]:

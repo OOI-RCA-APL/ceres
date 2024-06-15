@@ -22,14 +22,12 @@ export type UserFilter = DatabaseFilter &
     order: 'username' | 'email'
   }>
 
-export type ItemOrder = 'newest' | 'oldest'
-
 export type ItemFilter = DatabaseFilter &
   Partial<{
     address: Address | null
     after: string | null
     before: string | null
-    order: ItemOrder
+    order: 'timestamp' | '-timestamp'
   }>
 
 export type MessageFilter = ItemFilter &

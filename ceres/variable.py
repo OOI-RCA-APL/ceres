@@ -8,6 +8,7 @@ from ceres._internal.cli.plumbing import CLIOption
 from ceres._internal.lazy import lazy_imports
 from ceres.data import FromYAML, JSONValue, StrEnum, jsonify
 from ceres.database.enums import DatabaseType
+from ceres.entity import OrderValue
 from ceres.item import BaseItem, BaseItemCreate, BaseItemFilter, BaseItemFilterArgs, BaseItemRow
 
 with lazy_imports(__name__):
@@ -79,8 +80,9 @@ class VariableFilter(BaseItemFilter["Variable"]):
 
         return True
 
+    @classmethod
     @override
-    def _get_row_cls(self) -> type[VariableRow]:
+    def _get_row_cls(cls) -> type[VariableRow]:
         return VariableRow
 
     @override
@@ -123,11 +125,8 @@ class VariableFilter(BaseItemFilter["Variable"]):
             yield internal
 
     @override
-    def _get_order_by(self) -> SQLColumnExpression[Any]:
-        columns = self._get_row_cls()
-        match self.order:
-            case None | VariableOrder.NAME:
-                return columns.name
+    def _get_default_order(self) -> OrderValue:
+        return "name"
 
 
 class VariableCreate(BaseItemCreate):

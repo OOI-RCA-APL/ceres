@@ -8,7 +8,7 @@ from ceres._internal.cli.plumbing import CLIOption
 from ceres._internal.database.types import EnumConstraint, EnumMapper
 from ceres._internal.lazy import lazy_imports
 from ceres.address import Address
-from ceres.data import DateTime, JSONDict, StrEnum, jsonify
+from ceres.data import DateTime, JSONDict, jsonify
 from ceres.database.enums import DatabaseType
 from ceres.level import Level
 from ceres.record import (
@@ -51,18 +51,12 @@ class AlertRow(BaseRecordRow, kw_only=True):
         )
 
 
-class AlertOrder(StrEnum):
-    OLDEST = "oldest"
-    NEWEST = "newest"
-
-
 class AlertFilterArgs(BaseRecordFilterArgs, total=False):
     level: Level | Sequence[Level] | None
     code: str | Sequence[str] | None
     code_contains: str | None
     code_prefix: str | None
     code_suffix: str | None
-    order: AlertOrder | None  # type: ignore
 
 
 class AlertFilter(BaseRecordFilter["Alert"]):
@@ -85,10 +79,6 @@ class AlertFilter(BaseRecordFilter["Alert"]):
     code_suffix: Annotated[str | None, CLIOption(str | None)] = Field(
         default=None,
         description="Filter, keeping only alerts with codes that end with the given string.",
-    )
-    order: Annotated[AlertOrder | None, CLIOption(AlertOrder | None)] = Field(
-        default=None,
-        description="Specify result order.",
     )
 
     @override
@@ -114,8 +104,9 @@ class AlertFilter(BaseRecordFilter["Alert"]):
 
         return True
 
+    @classmethod
     @override
-    def _get_row_cls(self) -> type[AlertRow]:
+    def _get_row_cls(cls) -> type[AlertRow]:
         return AlertRow
 
     @override
@@ -188,8 +179,6 @@ class AlertUpdate(TypedDict, total=False):
 
 
 class Alert(BaseRecord, AlertCreate):
-    Order: ClassVar[type[AlertOrder]] = AlertOrder
-
     Row: ClassVar[type[AlertRow]] = AlertRow
     Create: ClassVar[type[AlertCreate]] = AlertCreate
     Update: ClassVar[type[AlertUpdate]] = AlertUpdate

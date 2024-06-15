@@ -9,7 +9,7 @@ from ceres._internal.cli.plumbing import CLIOption
 from ceres._internal.database.types import EnumConstraint, EnumMapper
 from ceres._internal.lazy import lazy_imports
 from ceres.address import Address
-from ceres.data import DateTime, StrEnum
+from ceres.data import DateTime
 from ceres.database.enums import DatabaseType
 from ceres.level import Level
 from ceres.record import (
@@ -56,17 +56,11 @@ class LogEntryUpdate(TypedDict, total=False):
     content: str
 
 
-class LogEntryOrder(StrEnum):
-    OLDEST = "oldest"
-    NEWEST = "newest"
-
-
 class LogEntryFilterArgs(BaseRecordFilterArgs, total=False):
     level: Level | Sequence[Level] | None
     content_contains: str | None
     content_prefix: str | None
     content_suffix: str | None
-    order: LogEntryOrder | None  # type: ignore
 
 
 class LogEntryFilter(BaseRecordFilter["LogEntry"]):
@@ -85,10 +79,6 @@ class LogEntryFilter(BaseRecordFilter["LogEntry"]):
     content_suffix: Annotated[str | None, CLIOption(str | None)] = Field(
         default=None,
         description="Filter, keeping only log entries with content that ends with the given string.",
-    )
-    order: Annotated[LogEntryOrder | None, CLIOption(LogEntryOrder | None)] = Field(
-        default=None,
-        description="Specify result order.",
     )
 
     @override
@@ -111,8 +101,9 @@ class LogEntryFilter(BaseRecordFilter["LogEntry"]):
 
         return True
 
+    @classmethod
     @override
-    def _get_row_cls(self) -> type[LogEntryRow]:
+    def _get_row_cls(cls) -> type[LogEntryRow]:
         return LogEntryRow
 
     @override
@@ -159,13 +150,8 @@ class LogEntryCreate(BaseRecordCreate):
 
 
 class LogEntry(BaseRecord, LogEntryCreate):
-    Order: ClassVar[type[LogEntryOrder]] = LogEntryOrder
-
     Row: ClassVar[type[LogEntryRow]] = LogEntryRow
     Create: ClassVar[type[LogEntryCreate]] = LogEntryCreate
     Update: ClassVar[type[LogEntryUpdate]] = LogEntryUpdate
     Filter: ClassVar[type[LogEntryFilter]] = LogEntryFilter
     FilterArgs: ClassVar[type[LogEntryFilterArgs]] = LogEntryFilterArgs
-
-    level: Annotated[Level, CLIOption(Level)]
-    content: Annotated[str, CLIOption(str)]

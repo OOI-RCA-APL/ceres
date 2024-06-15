@@ -13,7 +13,6 @@ from ceres.data import (
     PasswordHash,
     PasswordStr,
     PriorityStrEnum,
-    StrEnum,
     UsernameStr,
 )
 from ceres.database.enums import DatabaseType
@@ -23,6 +22,7 @@ from ceres.entity import (
     BaseUUIDEntityFilter,
     BaseUUIDEntityFilterArgs,
     BaseUUIDEntityRow,
+    OrderValue,
 )
 
 with lazy_imports(__name__):
@@ -67,17 +67,11 @@ class UserRow(BaseUUIDEntityRow, kw_only=True):
         )
 
 
-class UserOrder(StrEnum):
-    USERNAME = "username"
-    EMAIL = "email"
-
-
 class UserFilterArgs(BaseUUIDEntityFilterArgs, total=False):
     username: str | Sequence[str] | None
     email: str | Sequence[str] | None
     role: UserRole | Sequence[UserRole] | None
     disabled: bool | None
-    order: UserOrder | None
 
 
 class UserFilter(BaseUUIDEntityFilter["User"]):
@@ -97,13 +91,10 @@ class UserFilter(BaseUUIDEntityFilter["User"]):
         default=None,
         description="Filter by disabled/enabled status.",
     )
-    order: Annotated[UserOrder | None, CLIOption(UserOrder | None)] = Field(
-        default=None,
-        description="Specify order of resulting users.",
-    )
 
+    @classmethod
     @override
-    def _get_row_cls(self) -> type[UserRow]:
+    def _get_row_cls(cls) -> type[UserRow]:
         return UserRow
 
     @override
@@ -144,13 +135,8 @@ class UserFilter(BaseUUIDEntityFilter["User"]):
             yield columns.disabled == self.disabled
 
     @override
-    def _get_order_by(self) -> SQLColumnExpression[Any]:
-        columns = self._get_row_cls()
-        match self.order:
-            case None | UserOrder.USERNAME:
-                return columns.username
-            case UserOrder.EMAIL:
-                return columns.email
+    def _get_default_order(self) -> OrderValue:
+        return "username"
 
 
 class UserCreate(BaseUUIDEntityCreate):
@@ -171,8 +157,6 @@ class UserUpdate(TypedDict, total=False):
 
 
 class User(BaseUUIDEntity, UserCreate):
-    Order: ClassVar[type[UserOrder]] = UserOrder
-
     Row: ClassVar[type[UserRow]] = UserRow
     Create: ClassVar[type[UserCreate]] = UserCreate
     Update: ClassVar[type[UserUpdate]] = UserUpdate

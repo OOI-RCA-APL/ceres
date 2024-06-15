@@ -464,7 +464,7 @@ class Driver(Component)
         while True:
             # Get the latest 10 messages sent or received by the connection component.
             latest = await self.connection.get_messages(
-              order=MessageOrder.NEW_TO_OLD,
+              order="-timestamp",
               limit=10
             )
             self.log.info(latest)
@@ -472,7 +472,7 @@ class Driver(Component)
             # Alternatively, you can pass the address of `@connection`.
             latest = await self.get_messages(
               address="@connection",
-              order=MessageOrder.NEW_TO_OLD,
+              order="-timestamp",
               limit=10
             )
             self.log.info(latest)
@@ -527,14 +527,14 @@ class Example(Component)
         while True:
             # Get the latest 10 alerts emitted by this component.
             latest = await self.engine.get_alerts(
-              order=AlertOrder.NEW_TO_OLD,
+              order="-timestamp",
               limit=10
             )
 
             # Get the latest 10 alerts from the component `@other`.
             latest = await self.get_alerts(
               address="@other",
-              order=MessageOrder.NEW_TO_OLD,
+              order="-timestamp",
               limit=10
             )
 
@@ -603,14 +603,14 @@ class Example(Component)
         while True:
             # Get the latest 10 alerts emitted by this component.
             latest = await self.get_log_entries(
-              order=AlertOrder.NEW_TO_OLD,,
+              order="-timestamp",
               limit=10
             )
 
             # Get the latest 10 log entries from the component `@other`.
             latest = await self.get_log_entries(
               address="@other",
-              order=MessageOrder.NEW_TO_OLD,
+              order="-timestamp",
               limit=10
             )
 

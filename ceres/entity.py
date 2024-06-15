@@ -15,7 +15,7 @@ from typing import (
 from uuid import UUID, uuid4
 
 import pydantic
-from pydantic import Field, NonNegativeInt
+from pydantic import Field, NonNegativeInt, StringConstraints, field_validator
 from sqlalchemy.orm.decl_api import DeclarativeBase, MappedAsDataclass
 
 from ceres._internal.cli.plumbing import CLIOption
@@ -170,8 +170,12 @@ class BaseEntityRow(
 class BaseEntityFilterArgs(BaseFilterArgs, total=False):
     search: str | None
     search_field: str | Sequence[str] | None
+    order: str | Sequence[str] | None
     limit: NonNegativeInt | None
     offset: NonNegativeInt | None
+
+
+OrderValue = Annotated[str, StringConstraints(pattern=r"^(\-|\+)?[a-zA-Z_][a-zA-Z0-9_]*$")]
 
 
 class BaseEntityFilter[EntityT: BaseEntity](BaseFilter, ABC):
@@ -182,6 +186,10 @@ class BaseEntityFilter[EntityT: BaseEntity](BaseFilter, ABC):
     search_field: Annotated[str | Sequence[str] | None, CLIOption(list[str] | None)] = Field(
         default=None,
         description="Field(s) matched by `search`. Defaults to all.",
+    )
+    order: Annotated[OrderValue | Sequence[OrderValue] | None, CLIOption(list[str])] = Field(
+        default=None,
+        description="Specify ordering of results by field. Prefix field names with '-' for descending order.",
     )
     limit: Annotated[NonNegativeInt | None, CLIOption(int | None)] = Field(
         default=None,
@@ -194,8 +202,29 @@ class BaseEntityFilter[EntityT: BaseEntity](BaseFilter, ABC):
         ge=0,
     )
 
+    @field_validator("order")
+    def _validate_order(
+        cls,
+        order: OrderValue | Sequence[OrderValue] | None,
+    ) -> OrderValue | Sequence[OrderValue] | None:
+        if order is None:
+            return None
+
+        Row = cls._get_row_cls()
+
+        values = util.as_sequence(order)
+        for value in values:
+            base = value.lstrip("-+")
+            if base not in Row.__table__.columns:
+                raise ValueError(
+                    f"ordering field '{base}' must be one of {set(Row.__table__.columns.keys())}"
+                )
+
+        return order
+
+    @classmethod
     @abstractmethod
-    def _get_row_cls(self) -> type[BaseEntityRow]: ...
+    def _get_row_cls(cls) -> type[BaseEntityRow]: ...
 
     def _get_search_content(self, obj: EntityT) -> Mapping[str, str]:
         return {}
@@ -250,8 +279,23 @@ class BaseEntityFilter[EntityT: BaseEntity](BaseFilter, ABC):
 
             yield condition
 
-    def _get_order_by(self) -> SQLColumnExpression[Any] | None:
-        return None
+    @abstractmethod
+    def _get_default_order(self) -> OrderValue: ...
+
+    def _get_order_by(self) -> tuple[SQLColumnExpression[Any], ...]:
+        order = self.order
+        if order is None:
+            order = self._get_default_order()
+
+        Row = self._get_row_cls()
+        columns: list[SQLColumnExpression[Any]] = []
+        for value in util.as_sequence(order):
+            base = value.lstrip("-+")
+            ascending = not value.startswith("-")
+            column = Row.__table__.columns[base]
+            columns.append(column if ascending else column.desc())
+
+        return tuple(columns)
 
     def apply[
         StatementT: Select[tuple[Any, ...]] | Update | Delete
@@ -261,7 +305,7 @@ class BaseEntityFilter[EntityT: BaseEntity](BaseFilter, ABC):
         pks = (
             select(*pk)
             .where(*self._get_where(dialect))
-            .order_by(self._get_order_by())
+            .order_by(*self._get_order_by())
             .limit(self.limit)
             .offset(self.offset)
         )
@@ -271,7 +315,7 @@ class BaseEntityFilter[EntityT: BaseEntity](BaseFilter, ABC):
         if isinstance(statement, Update | Delete):
             return statement.where(pk.in_(pks))
 
-        return statement.where(pk.in_(pks)).order_by(self._get_order_by())
+        return statement.where(pk.in_(pks)).order_by(*self._get_order_by())
 
 
 class BaseEntityCreate(ImmutableDataObject):
@@ -319,9 +363,10 @@ class BaseUUIDEntityFilter[EntityT: BaseUUIDEntity](BaseEntityFilter[EntityT]):
         description="Filter by ID(s).",
     )
 
+    @classmethod
     @abstractmethod
     @override
-    def _get_row_cls(self) -> type[BaseUUIDEntityRow]: ...
+    def _get_row_cls(cls) -> type[BaseUUIDEntityRow]: ...
 
     @override
     def matches(self, obj: EntityT) -> bool:

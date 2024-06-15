@@ -74,17 +74,11 @@ class MessageRow(BaseRecordRow, kw_only=True):
         )
 
 
-class MessageOrder(StrEnum):
-    OLDEST = "oldest"
-    NEWEST = "newest"
-
-
 class MessageFilterArgs(BaseRecordFilterArgs, total=False):
     direction: MessageDirection | None
     content_contains: MessageContent | None
     content_prefix: MessageContent | None
     content_suffix: MessageContent | None
-    order: MessageOrder | None  # type: ignore
 
 
 class MessageFilter(BaseRecordFilter["Message"]):
@@ -103,10 +97,6 @@ class MessageFilter(BaseRecordFilter["Message"]):
     content_suffix: Annotated[MessageContent | None, CLIOption(str | None)] = Field(
         default=None,
         description="Filter, keeping only messages with content that ends with the given bytes.",
-    )
-    order: Annotated[MessageOrder | None, CLIOption(MessageOrder | None)] = Field(
-        default=None,
-        description="Specify result order.",
     )
 
     @override
@@ -129,8 +119,9 @@ class MessageFilter(BaseRecordFilter["Message"]):
 
         return True
 
+    @classmethod
     @override
-    def _get_row_cls(self) -> type[MessageRow]:
+    def _get_row_cls(cls) -> type[MessageRow]:
         return MessageRow
 
     @override
@@ -202,7 +193,6 @@ class MessageUpdate(TypedDict, total=False):
 
 
 class Message(BaseRecord, MessageCreate):
-    Order: ClassVar[type[MessageOrder]] = MessageOrder
     Direction: ClassVar[type[MessageDirection]] = MessageDirection
 
     Row: ClassVar[type[MessageRow]] = MessageRow

@@ -12,7 +12,7 @@ from pydantic import Field
 from ceres._internal.lazy import lazy_imports
 from ceres._internal.templates import templates
 from ceres.address import Address
-from ceres.alert import Alert, AlertFilter, AlertOrder, Level
+from ceres.alert import Alert, AlertFilter, Level
 from ceres.component import Component, action, routine
 from ceres.data import ImmutableDataObject, NonBlankStr, jsonify
 from ceres.job import Job
@@ -55,7 +55,7 @@ class Dispatcher(Component):
     async def dispatch(self, dispatch: Dispatch) -> None:
         query = dispatch.alerts.with_defaults(
             AlertFilter(
-                order=AlertOrder.NEWEST,
+                order="-timestamp",
                 limit=1000,
             )
         )

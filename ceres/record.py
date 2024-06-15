@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from abc import abstractmethod
 from datetime import datetime
-from typing import Annotated, Any, ClassVar, Iterable, Literal, Mapping, override
+from typing import Annotated, Any, ClassVar, Iterable, Mapping, override
 
 from pydantic import Field
 
@@ -17,6 +17,7 @@ from ceres.entity import (
     BaseUUIDEntityFilterArgs,
     BaseUUIDEntityRow,
     BaseUUIDEntityUpdate,
+    OrderValue,
 )
 from ceres.item import BaseItem, BaseItemFilter, BaseItemFilterArgs, BaseItemRow, BaseItemUpdate
 from ceres.timing import utc
@@ -43,15 +44,11 @@ class BaseRecordRow(BaseUUIDEntityRow, BaseItemRow, kw_only=True):
         )
 
 
-_RecordOrderInput = Literal["newest", "oldest"]
-
-
 class BaseRecordFilterArgs(BaseUUIDEntityFilterArgs, BaseItemFilterArgs, total=False):
     before: DateTime | None
     after: DateTime | None
     max_age: PositiveTimeDelta | None
     min_age: PositiveTimeDelta | None
-    order: _RecordOrderInput | None
 
 
 class BaseRecordFilter[RecordT: BaseRecord](BaseUUIDEntityFilter[RecordT], BaseItemFilter[RecordT]):
@@ -70,10 +67,6 @@ class BaseRecordFilter[RecordT: BaseRecord](BaseUUIDEntityFilter[RecordT], BaseI
     max_age: Annotated[PositiveTimeDelta | None, CLIOption(str | None, metavar="DURATION")] = Field(
         default=None,
         description="Filter by maximum age relative to the current time.",
-    )
-    order: Annotated[_RecordOrderInput | None, CLIOption(_RecordOrderInput | None)] = Field(
-        default=None,
-        description="Specify result order.",
     )
 
     @override
@@ -98,9 +91,10 @@ class BaseRecordFilter[RecordT: BaseRecord](BaseUUIDEntityFilter[RecordT], BaseI
 
         return True
 
+    @classmethod
     @abstractmethod
     @override
-    def _get_row_cls(self) -> type[BaseRecordRow]: ...
+    def _get_row_cls(cls) -> type[BaseRecordRow]: ...
 
     @override
     def _get_search_content(self, obj: RecordT) -> Mapping[str, str]:
@@ -138,16 +132,8 @@ class BaseRecordFilter[RecordT: BaseRecord](BaseUUIDEntityFilter[RecordT], BaseI
             yield columns.timestamp < self.before
 
     @override
-    def _get_order_by(self) -> SQLColumnExpression[Any]:
-        columns = self._get_row_cls()
-
-        match self.order:
-            case None | "oldest":
-                return columns.timestamp
-            case "newest":
-                return columns.timestamp.desc()
-
-        raise ValueError("invalid order type")
+    def _get_default_order(self) -> OrderValue:
+        return "timestamp"
 
 
 class BaseRecordCreate(BaseUUIDEntity, BaseItem):

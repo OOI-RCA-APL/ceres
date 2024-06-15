@@ -14,6 +14,7 @@ __pycache__/
 dist/
 poetry.toml
 poetry.lock
+pyrightconfig.json
 
 # Node
 node_modules
