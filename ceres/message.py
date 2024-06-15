@@ -1,21 +1,23 @@
 from __future__ import annotations
 
-from typing import Annotated, Any, ClassVar, Iterable, Mapping, TypedDict, override
+from typing import Annotated, Any, ClassVar, Iterable, Literal, Mapping, override
 
 from pydantic import BeforeValidator, Field, PlainSerializer
 
 from ceres._internal.cli.plumbing import CLIOption
-from ceres._internal.lazy import lazy_imports
-from ceres.address import Address
-from ceres.data import DateTime, StrEnum
-from ceres.database.enums import DatabaseType
-from ceres.record import (
+from ceres._internal.entity import (
     BaseRecord,
     BaseRecordCreate,
+    BaseRecordField,
     BaseRecordFilter,
     BaseRecordFilterArgs,
+    BaseRecordOrder,
     BaseRecordRow,
+    BaseRecordUpdate,
 )
+from ceres._internal.lazy import lazy_imports
+from ceres.data import StrEnum
+from ceres.database.enums import DatabaseType
 
 with lazy_imports(__name__):
     from sqlalchemy.orm import Mapped, mapped_column
@@ -74,14 +76,32 @@ class MessageRow(BaseRecordRow, kw_only=True):
         )
 
 
-class MessageFilterArgs(BaseRecordFilterArgs, total=False):
+MessageField = (
+    BaseRecordField
+    | Literal[
+        "direction",
+        "content",
+    ]
+)
+MessageOrder = (
+    BaseRecordOrder
+    | Literal[
+        "direction",
+        "-direction",
+        "content",
+        "-content",
+    ]
+)
+
+
+class MessageFilterArgs(BaseRecordFilterArgs[MessageField, MessageOrder], total=False):
     direction: MessageDirection | None
     content_contains: MessageContent | None
     content_prefix: MessageContent | None
     content_suffix: MessageContent | None
 
 
-class MessageFilter(BaseRecordFilter["Message"]):
+class MessageFilter(BaseRecordFilter["Message", MessageField, MessageOrder]):
     direction: Annotated[MessageDirection | None, CLIOption(MessageDirection | None)] = Field(
         default=None,
         description="Filter by message direction.",
@@ -185,9 +205,7 @@ class MessageCreate(BaseRecordCreate):
     content: Annotated[MessageContent, CLIOption(str)]
 
 
-class MessageUpdate(TypedDict, total=False):
-    address: Address
-    timestamp: DateTime
+class MessageUpdate(BaseRecordUpdate, total=False):
     direction: MessageDirection
     content: MessageContent
 
@@ -200,3 +218,5 @@ class Message(BaseRecord, MessageCreate):
     Update: ClassVar[type[MessageUpdate]] = MessageUpdate
     Filter: ClassVar[type[MessageFilter]] = MessageFilter
     FilterArgs: ClassVar[type[MessageFilterArgs]] = MessageFilterArgs
+    Field = MessageField
+    Order = MessageOrder

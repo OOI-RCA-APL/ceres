@@ -1,23 +1,35 @@
 from __future__ import annotations
 
-from typing import Annotated, Any, ClassVar, Iterable, Mapping, Sequence, TypedDict, override
+from typing import (
+    Annotated,
+    Any,
+    ClassVar,
+    Iterable,
+    Literal,
+    Mapping,
+    Sequence,
+    TypedDict,
+    override,
+)
 
 from pydantic import Field, field_validator
 
 from ceres._internal.cli.plumbing import CLIOption
 from ceres._internal.database.types import EnumConstraint, EnumMapper
+from ceres._internal.entity import (
+    BaseRecord,
+    BaseRecordCreate,
+    BaseRecordField,
+    BaseRecordFilter,
+    BaseRecordFilterArgs,
+    BaseRecordOrder,
+    BaseRecordRow,
+)
 from ceres._internal.lazy import lazy_imports
 from ceres.address import Address
 from ceres.data import DateTime, JSONDict, jsonify
 from ceres.database.enums import DatabaseType
 from ceres.level import Level
-from ceres.record import (
-    BaseRecord,
-    BaseRecordCreate,
-    BaseRecordFilter,
-    BaseRecordFilterArgs,
-    BaseRecordRow,
-)
 
 with lazy_imports(__name__):
     from sqlalchemy.orm import Mapped, mapped_column
@@ -51,7 +63,26 @@ class AlertRow(BaseRecordRow, kw_only=True):
         )
 
 
-class AlertFilterArgs(BaseRecordFilterArgs, total=False):
+AlertField = (
+    BaseRecordField
+    | Literal[
+        "level",
+        "code",
+        "info",
+    ]
+)
+AlertOrder = (
+    BaseRecordOrder
+    | Literal[
+        "level",
+        "-level",
+        "code",
+        "-code",
+    ]
+)
+
+
+class AlertFilterArgs(BaseRecordFilterArgs[AlertField, AlertOrder], total=False):
     level: Level | Sequence[Level] | None
     code: str | Sequence[str] | None
     code_contains: str | None
@@ -59,7 +90,7 @@ class AlertFilterArgs(BaseRecordFilterArgs, total=False):
     code_suffix: str | None
 
 
-class AlertFilter(BaseRecordFilter["Alert"]):
+class AlertFilter(BaseRecordFilter["Alert", AlertField, AlertOrder]):
     level: Annotated[Level | Sequence[Level] | None, CLIOption(list[Level] | None)] = Field(
         default=None,
         description="Filter by alert level(s).",
@@ -184,3 +215,5 @@ class Alert(BaseRecord, AlertCreate):
     Update: ClassVar[type[AlertUpdate]] = AlertUpdate
     Filter: ClassVar[type[AlertFilter]] = AlertFilter
     FilterArgs: ClassVar[type[AlertFilterArgs]] = AlertFilterArgs
+    Field = AlertField
+    Order = AlertOrder

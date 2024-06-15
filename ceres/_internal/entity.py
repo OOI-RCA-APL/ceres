@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from datetime import datetime
 from typing import (
     TYPE_CHECKING,
     Annotated,
     Any,
     ClassVar,
     Iterable,
+    Literal,
     Mapping,
     Sequence,
     TypedDict,
@@ -15,21 +17,30 @@ from typing import (
 from uuid import UUID, uuid4
 
 import pydantic
-from pydantic import Field, NonNegativeInt, StringConstraints, field_validator
+from pydantic import Field, NonNegativeInt
 from sqlalchemy.orm.decl_api import DeclarativeBase, MappedAsDataclass
 
 from ceres._internal.cli.plumbing import CLIOption
-from ceres._internal.database.types import UUIDMapper
+from ceres._internal.database.types import AddressMapper, DateTimeMapper, UUIDMapper
+from ceres._internal.filter import BaseFilter, BaseFilterArgs
 from ceres._internal.lazy import lazy_imports
-from ceres.data import ImmutableDataObject
+from ceres.address import Address, AddressSelector
+from ceres.data import DateTime, ImmutableDataObject, PositiveTimeDelta
 from ceres.database.enums import DatabaseType
-from ceres.filter import BaseFilter, BaseFilterArgs
+from ceres.timing import utc
 
 with lazy_imports(__name__):
     from sqlalchemy.engine import Dialect, Engine
     from sqlalchemy.ext.asyncio import AsyncEngine
     from sqlalchemy.orm import Mapped, declared_attr, mapped_column
-    from sqlalchemy.schema import CreateIndex, CreateTable, PrimaryKeyConstraint, SchemaItem, Table
+    from sqlalchemy.schema import (
+        CreateIndex,
+        CreateTable,
+        Index,
+        PrimaryKeyConstraint,
+        SchemaItem,
+        Table,
+    )
     from sqlalchemy.sql import (
         ClauseElement,
         ColumnElement,
@@ -167,27 +178,31 @@ class BaseEntityRow(
         return {}
 
 
-class BaseEntityFilterArgs(BaseFilterArgs, total=False):
+class BaseEntityFilterArgs[
+    FieldT: str,
+    OrderT: str,
+](BaseFilterArgs, total=False):
     search: str | None
-    search_field: str | Sequence[str] | None
-    order: str | Sequence[str] | None
+    search_field: FieldT | Sequence[FieldT] | None
+    order: OrderT | Sequence[OrderT] | None
     limit: NonNegativeInt | None
     offset: NonNegativeInt | None
 
 
-OrderValue = Annotated[str, StringConstraints(pattern=r"^(\-|\+)?[a-zA-Z_][a-zA-Z0-9_]*$")]
-
-
-class BaseEntityFilter[EntityT: BaseEntity](BaseFilter, ABC):
+class BaseEntityFilter[
+    EntityT: BaseEntity,
+    FieldT: str,
+    OrderT: str,
+](BaseFilter, ABC):
     search: Annotated[str | None, CLIOption(str | None)] = Field(
         default=None,
         description="Filter by text content of field(s) in `search-field`.",
     )
-    search_field: Annotated[str | Sequence[str] | None, CLIOption(list[str] | None)] = Field(
+    search_field: Annotated[FieldT | Sequence[FieldT] | None, CLIOption(list[str] | None)] = Field(
         default=None,
         description="Field(s) matched by `search`. Defaults to all.",
     )
-    order: Annotated[OrderValue | Sequence[OrderValue] | None, CLIOption(list[str])] = Field(
+    order: Annotated[OrderT | Sequence[OrderT] | None, CLIOption(list[str])] = Field(
         default=None,
         description="Specify ordering of results by field. Prefix field names with '-' for descending order.",
     )
@@ -201,26 +216,6 @@ class BaseEntityFilter[EntityT: BaseEntity](BaseFilter, ABC):
         description="Skip over a given number of results.",
         ge=0,
     )
-
-    @field_validator("order")
-    def _validate_order(
-        cls,
-        order: OrderValue | Sequence[OrderValue] | None,
-    ) -> OrderValue | Sequence[OrderValue] | None:
-        if order is None:
-            return None
-
-        Row = cls._get_row_cls()
-
-        values = util.as_sequence(order)
-        for value in values:
-            base = value.lstrip("-+")
-            if base not in Row.__table__.columns:
-                raise ValueError(
-                    f"ordering field '{base}' must be one of {set(Row.__table__.columns.keys())}"
-                )
-
-        return order
 
     @classmethod
     @abstractmethod
@@ -280,7 +275,7 @@ class BaseEntityFilter[EntityT: BaseEntity](BaseFilter, ABC):
             yield condition
 
     @abstractmethod
-    def _get_default_order(self) -> OrderValue: ...
+    def _get_default_order(self) -> OrderT: ...
 
     def _get_order_by(self) -> tuple[SQLColumnExpression[Any], ...]:
         order = self.order
@@ -333,10 +328,14 @@ class BaseEntity(BaseEntityCreate):
 
     if TYPE_CHECKING:
         Filter: ClassVar = BaseEntityFilter
+        FilterArgs: ClassVar = BaseEntityFilterArgs
+        Field: ClassVar = str
+        Order: ClassVar = str
     else:
         Filter: ClassVar[type[BaseEntityFilter]] = BaseEntityFilter
-
-    FilterArgs: ClassVar[type[BaseEntityFilterArgs]] = BaseEntityFilterArgs
+        FilterArgs: ClassVar[type[BaseEntityFilterArgs]] = BaseEntityFilterArgs
+        Field: ClassVar[type[str]] = str
+        Order: ClassVar[type[str]] = str
 
 
 class BaseUUIDEntityRow(BaseEntityRow):
@@ -353,11 +352,22 @@ class BaseUUIDEntityRow(BaseEntityRow):
         )
 
 
-class BaseUUIDEntityFilterArgs(BaseEntityFilterArgs, total=False):
+BaseUUIDEntityField = Literal["id"]
+BaseUUIDEntityOrder = Literal["id", "-id"]
+
+
+class BaseUUIDEntityFilterArgs[
+    FieldT: str,
+    OrderT: str,
+](BaseEntityFilterArgs[FieldT, OrderT], total=False):
     id: UUID | Sequence[UUID] | None
 
 
-class BaseUUIDEntityFilter[EntityT: BaseUUIDEntity](BaseEntityFilter[EntityT]):
+class BaseUUIDEntityFilter[
+    EntityT: BaseUUIDEntity,
+    FieldT: str,
+    OrderT: str,
+](BaseEntityFilter[EntityT, FieldT, OrderT]):
     id: Annotated[UUID | Sequence[UUID] | None, CLIOption(list[UUID])] = Field(
         default=None,
         description="Filter by ID(s).",
@@ -402,7 +412,268 @@ class BaseUUIDEntity(BaseUUIDEntityCreate):
 
     if TYPE_CHECKING:
         Filter: ClassVar = BaseUUIDEntityFilter
+        FilterArgs: ClassVar = BaseUUIDEntityFilterArgs
+        Field: ClassVar = BaseUUIDEntityField
+        Order: ClassVar = BaseUUIDEntityOrder
     else:
         Filter: ClassVar[type[BaseUUIDEntityFilter]] = BaseUUIDEntityFilter
+        FilterArgs: ClassVar[type[BaseUUIDEntityFilterArgs]] = BaseUUIDEntityFilterArgs
+        Field: ClassVar[type[BaseUUIDEntityField]] = BaseUUIDEntityField
+        Order: ClassVar[type[BaseUUIDEntityOrder]] = BaseUUIDEntityOrder
 
-    FilterArgs: ClassVar[type[BaseUUIDEntityFilterArgs]] = BaseUUIDEntityFilterArgs
+
+class BaseItemRow(BaseEntityRow, kw_only=True):
+    __abstract__: ClassVar[bool] = True
+
+    address: Mapped[Address] = mapped_column(AddressMapper, sort_order=-2000)
+
+
+BaseItemField = Literal["address"]
+BaseItemOrder = Literal["address", "-address"]
+
+
+class BaseItemFilterArgs[
+    FieldT: str,
+    OrderT: str,
+](BaseEntityFilterArgs[FieldT, OrderT], total=False):
+    root: Address
+    address: AddressSelector | None
+
+
+class BaseItemFilter[
+    ItemT: BaseItem,
+    FieldT: str,
+    OrderT: str,
+](BaseEntityFilter[ItemT, FieldT, OrderT]):
+    address: Annotated[AddressSelector | None, CLIOption(str | None)] = Field(
+        default=None,
+        description="Filter by associated address.",
+    )
+    root: Annotated[Address, CLIOption(str | None)] = Field(
+        default=Address.ROOT,
+        description="The root address relative `address` selectors are mapped to.",
+    )
+
+    @override
+    def matches(self, obj: ItemT) -> bool:  # type: ignore
+        if not super().matches(obj):
+            return False
+
+        if self.address is not None:
+            if not self.address.matches(obj.address, self.root):
+                return False
+
+        return True
+
+    @classmethod
+    @abstractmethod
+    @override
+    def _get_row_cls(cls) -> type[BaseItemRow]: ...
+
+    @override
+    def _get_search_content(self, obj: ItemT) -> Mapping[str, str]:
+        return {
+            **super()._get_search_content(obj),
+            "address": str(obj.address),
+        }
+
+    @override
+    def _get_database_search_content(
+        self,
+        dialect: DatabaseType,
+    ) -> Mapping[str, SQLColumnExpression[Any]]:
+        columns = self._get_row_cls()
+
+        return {
+            **super()._get_database_search_content(dialect),
+            "address": columns.address,
+        }
+
+    @override
+    def _get_where(self, dialect: DatabaseType) -> Iterable[SQLColumnExpression[bool]]:
+        yield from super()._get_where(dialect)
+        columns = self._get_row_cls()
+
+        if self.address is not None:
+            yield self.address.matches_expression(columns.address, self.root)
+
+
+class BaseItemCreate(BaseEntity):
+    address: Annotated[Address, CLIOption(str)]
+
+
+class BaseItemUpdate(BaseEntityUpdate, total=False):
+    address: Address
+
+
+class BaseItem(BaseItemCreate):
+    Row: ClassVar[type[BaseItemRow]] = BaseItemRow
+    Create: ClassVar[type[BaseItemCreate]] = BaseItemCreate
+    Update: ClassVar[type[BaseItemUpdate]] = BaseItemUpdate
+
+    if TYPE_CHECKING:
+        Filter: ClassVar = BaseItemFilter
+        FilterArgs: ClassVar = BaseItemFilterArgs
+        Field: ClassVar = BaseItemField
+        Order: ClassVar = BaseItemOrder
+    else:
+        Filter: ClassVar[type[BaseItemFilter]] = BaseItemFilter
+        FilterArgs: ClassVar[type[BaseItemFilterArgs]] = BaseItemFilterArgs
+        Field: ClassVar[type[BaseItemField]] = BaseItemField
+        Order: ClassVar[type[BaseItemOrder]] = BaseItemOrder
+
+
+class BaseRecordRow(BaseUUIDEntityRow, BaseItemRow, kw_only=True):
+    __abstract__: ClassVar[bool] = True
+
+    timestamp: Mapped[datetime] = mapped_column(DateTimeMapper, sort_order=-1000)
+
+    @classmethod
+    @override
+    def __get_table_args__(cls) -> tuple[SchemaItem, ...]:
+        return (
+            *super().__get_table_args__(),
+            Index(f"ix_{cls.__tablename__}__timestamp", "timestamp", postgresql_using="brin"),
+        )
+
+
+BaseRecordField = BaseUUIDEntityField | Literal["timestamp"]
+BaseRecordOrder = (
+    BaseUUIDEntityOrder
+    | BaseItemOrder
+    | Literal[
+        "timestamp",
+        "-timestamp",
+    ]
+)
+
+
+class BaseRecordFilterArgs[
+    FieldT: str,
+    OrderT: str,
+](
+    BaseUUIDEntityFilterArgs[FieldT, OrderT],
+    BaseItemFilterArgs[FieldT, OrderT],
+    total=False,
+):
+    before: DateTime | None
+    after: DateTime | None
+    max_age: PositiveTimeDelta | None
+    min_age: PositiveTimeDelta | None
+
+
+class BaseRecordFilter[
+    RecordT: BaseRecord,
+    FieldT: str,
+    OrderT: str,
+](
+    BaseUUIDEntityFilter[RecordT, FieldT, OrderT],
+    BaseItemFilter[RecordT, FieldT, OrderT],
+):
+    after: Annotated[DateTime | None, CLIOption(datetime)] = Field(
+        default=None,
+        description="Filter by minimum timestamp.",
+    )
+    before: Annotated[DateTime | None, CLIOption(datetime)] = Field(
+        default=None,
+        description="Filter by maximum timestamp.",
+    )
+    min_age: Annotated[PositiveTimeDelta | None, CLIOption(str | None, metavar="DURATION")] = Field(
+        default=None,
+        description="Filter by minimum age relative to the current time.",
+    )
+    max_age: Annotated[PositiveTimeDelta | None, CLIOption(str | None, metavar="DURATION")] = Field(
+        default=None,
+        description="Filter by maximum age relative to the current time.",
+    )
+
+    @override
+    def matches(self, obj: RecordT) -> bool:  # type: ignore
+        if not super().matches(obj):
+            return False
+
+        now = utc()
+        if self.max_age is not None:
+            if obj.timestamp < now - self.max_age:
+                return False
+        if self.min_age is not None:
+            if obj.timestamp >= now - self.min_age:
+                return False
+
+        if self.after is not None:
+            if obj.timestamp < self.after:
+                return False
+        if self.before is not None:
+            if obj.timestamp >= self.before:
+                return False
+
+        return True
+
+    @classmethod
+    @abstractmethod
+    @override
+    def _get_row_cls(cls) -> type[BaseRecordRow]: ...
+
+    @override
+    def _get_search_content(self, obj: RecordT) -> Mapping[str, str]:
+        return {
+            **super()._get_search_content(obj),
+            "timestamp": util.format_timestamp(obj.timestamp),
+        }
+
+    @override
+    def _get_database_search_content(
+        self,
+        dialect: DatabaseType,
+    ) -> Mapping[str, SQLColumnExpression[Any]]:
+        columns = self._get_row_cls()
+
+        return {
+            **super()._get_database_search_content(dialect),
+            "timestamp": util.format_sql_timestamp(columns.timestamp, dialect),
+        }
+
+    @override
+    def _get_where(self, dialect: DatabaseType) -> Iterable[SQLColumnExpression[bool]]:
+        yield from super()._get_where(dialect)
+        columns = self._get_row_cls()
+
+        now = utc()
+        if self.max_age is not None:
+            yield columns.timestamp >= now - self.max_age
+        if self.min_age is not None:
+            yield columns.timestamp < now - self.min_age
+
+        if self.after is not None:
+            yield columns.timestamp >= self.after
+        if self.before is not None:
+            yield columns.timestamp < self.before
+
+    @override
+    def _get_default_order(self) -> OrderT:
+        return "timestamp"  # type: ignore
+
+
+class BaseRecordCreate(BaseUUIDEntity, BaseItem):
+    timestamp: Annotated[DateTime, CLIOption(datetime)] = Field(default_factory=utc)
+
+
+class BaseRecordUpdate(BaseUUIDEntityUpdate, BaseItemUpdate, total=False):
+    timestamp: DateTime
+
+
+class BaseRecord(BaseRecordCreate):
+    Row: ClassVar[type[BaseRecordRow]] = BaseRecordRow
+    Create: ClassVar[type[BaseRecordCreate]] = BaseRecordCreate
+    Update: ClassVar[type[BaseRecordUpdate]] = BaseRecordUpdate
+
+    if TYPE_CHECKING:
+        Filter: ClassVar = BaseRecordFilter
+        FilterArgs: ClassVar = BaseRecordFilterArgs
+        Field: ClassVar = BaseRecordField
+        Order: ClassVar = BaseRecordOrder
+    else:
+        Filter: ClassVar[type[BaseRecordFilter]] = BaseRecordFilter
+        FilterArgs: ClassVar[type[BaseRecordFilterArgs]] = BaseRecordFilterArgs
+        Field: ClassVar[type[BaseRecordField]] = BaseRecordField
+        Order: ClassVar[type[BaseRecordOrder]] = BaseRecordOrder

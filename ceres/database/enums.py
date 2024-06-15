@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ceres._internal.lazy import lazy_imports
+from ceres._internal.typedecs import __Entity__
 from ceres.data import StrEnum
 
 
@@ -12,10 +12,6 @@ class DatabaseType(StrEnum):
 class DataFormat(StrEnum):
     CSV = "csv"
     SQLITE = "sqlite"
-
-
-with lazy_imports(__name__):
-    from ceres.entity import BaseEntity
 
 
 class EntityType(StrEnum):
@@ -42,7 +38,7 @@ class EntityType(StrEnum):
         raise ValueError(self)
 
     @property
-    def cls(self) -> type[BaseEntity]:
+    def cls(self) -> type[__Entity__]:
         match self:
             case EntityType.MESSAGE:
                 from ceres.message import Message

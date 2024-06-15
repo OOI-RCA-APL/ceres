@@ -28,12 +28,12 @@ from sqlalchemy.engine.interfaces import DBAPIConnection
 
 from ceres._internal import util
 from ceres._internal.auth import get_password_hash, verify_password, verify_password_hash
+from ceres._internal.entity import BaseEntity, BaseEntityRow
 from ceres._internal.lazy import lazy_imports
 from ceres._internal.util import PathLike
 from ceres.config import DatabaseConfig, PostgresDatabaseConfig, SQLiteDatabaseConfig
 from ceres.data import PasswordHash, jsonify
 from ceres.database.enums import DatabaseType, EntityType
-from ceres.entity import BaseEntity, BaseEntityRow
 from ceres.error import DatabaseInitError, DatabaseLoadError, Failure
 from ceres.threading import spawn
 

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import override
+from typing import TYPE_CHECKING, Unpack, override
 
 from ceres._internal.lazy import lazy_imports
 from ceres._internal.manager.entity import BaseEntityManager
@@ -43,3 +43,32 @@ class UserManager(
         fields = {**data.__dict__}
         fields["password"] = await self._maybe_hash_password(fields["password"])
         return User(**fields)
+
+    if TYPE_CHECKING:
+        # See: https://github.com/python/typing/issues/1399
+        _E = User
+
+        @override
+        async def get_all(  # pyright: ignore[reportIncompatibleMethodOverride]
+            self, filter: _E.Filter | None = None, **kwargs: Unpack[_E.FilterArgs]
+        ) -> list[_E]: ...
+
+        @override
+        async def get(  # pyright: ignore[reportIncompatibleMethodOverride]
+            self, filter: _E.Filter | None = None, **kwargs: Unpack[_E.FilterArgs]
+        ) -> _E | None: ...
+
+        @override
+        async def delete_all(  # pyright: ignore[reportIncompatibleMethodOverride]
+            self, filter: _E.Filter | None = None, **kwargs: Unpack[_E.FilterArgs]
+        ) -> int: ...
+
+        @override
+        async def delete(  # pyright: ignore[reportIncompatibleMethodOverride]
+            self, filter: _E.Filter | None = None, **kwargs: Unpack[_E.FilterArgs]
+        ) -> _E | None: ...
+
+        @override
+        async def count(  # pyright: ignore[reportIncompatibleMethodOverride]
+            self, filter: _E.Filter | None = None, **kwargs: Unpack[_E.FilterArgs]
+        ) -> int: ...

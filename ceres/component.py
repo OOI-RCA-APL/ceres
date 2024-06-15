@@ -39,6 +39,7 @@ from pydantic import Field, PositiveFloat, ValidationError
 from pydantic.fields import FieldInfo
 
 from ceres._internal.cli.plumbing import CLIOption
+from ceres._internal.filter import BaseFilter, BaseFilterArgs
 from ceres._internal.lazy import lazy_imports
 from ceres.address import Address, AddressSelector, DynamicAddress
 from ceres.config import ComponentConfig
@@ -79,7 +80,6 @@ from ceres.event import (
     StoppingEvent,
     WillDetachEvent,
 )
-from ceres.filter import BaseFilter, BaseFilterArgs
 from ceres.node import InternalVariableName as InternalVariableName
 from ceres.node import Node
 from ceres.status import Status

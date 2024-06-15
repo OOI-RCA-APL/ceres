@@ -1,24 +1,34 @@
 from __future__ import annotations
 
-from typing import Annotated, Any, ClassVar, Iterable, Mapping, Sequence, TypedDict, override
+from typing import (
+    Annotated,
+    Any,
+    ClassVar,
+    Iterable,
+    Literal,
+    Mapping,
+    Sequence,
+    override,
+)
 
 from pydantic import Field
 
 from ceres._internal import util
 from ceres._internal.cli.plumbing import CLIOption
 from ceres._internal.database.types import EnumConstraint, EnumMapper
-from ceres._internal.lazy import lazy_imports
-from ceres.address import Address
-from ceres.data import DateTime
-from ceres.database.enums import DatabaseType
-from ceres.level import Level
-from ceres.record import (
+from ceres._internal.entity import (
     BaseRecord,
     BaseRecordCreate,
+    BaseRecordField,
     BaseRecordFilter,
     BaseRecordFilterArgs,
+    BaseRecordOrder,
     BaseRecordRow,
+    BaseRecordUpdate,
 )
+from ceres._internal.lazy import lazy_imports
+from ceres.database.enums import DatabaseType
+from ceres.level import Level
 
 with lazy_imports(__name__):
     from sqlalchemy.orm import Mapped, mapped_column
@@ -49,21 +59,32 @@ class LogEntryRow(BaseRecordRow, kw_only=True):
         )
 
 
-class LogEntryUpdate(TypedDict, total=False):
-    address: Address
-    timestamp: DateTime
-    level: Level
-    content: str
+LogEntryField = (
+    BaseRecordField
+    | Literal[
+        "level",
+        "content",
+    ]
+)
+LogEntryOrder = (
+    BaseRecordOrder
+    | Literal[
+        "level",
+        "-level",
+        "content",
+        "-content",
+    ]
+)
 
 
-class LogEntryFilterArgs(BaseRecordFilterArgs, total=False):
+class LogEntryFilterArgs(BaseRecordFilterArgs[LogEntryField, LogEntryOrder], total=False):
     level: Level | Sequence[Level] | None
     content_contains: str | None
     content_prefix: str | None
     content_suffix: str | None
 
 
-class LogEntryFilter(BaseRecordFilter["LogEntry"]):
+class LogEntryFilter(BaseRecordFilter["LogEntry", LogEntryField, LogEntryOrder]):
     level: Annotated[Level | Sequence[Level] | None, CLIOption(list[Level] | None)] = Field(
         default=None,
         description="Filter by log level(s).",
@@ -149,9 +170,16 @@ class LogEntryCreate(BaseRecordCreate):
     content: Annotated[str, CLIOption(str)]
 
 
+class LogEntryUpdate(BaseRecordUpdate, total=False):
+    level: Level
+    content: str
+
+
 class LogEntry(BaseRecord, LogEntryCreate):
     Row: ClassVar[type[LogEntryRow]] = LogEntryRow
     Create: ClassVar[type[LogEntryCreate]] = LogEntryCreate
     Update: ClassVar[type[LogEntryUpdate]] = LogEntryUpdate
     Filter: ClassVar[type[LogEntryFilter]] = LogEntryFilter
     FilterArgs: ClassVar[type[LogEntryFilterArgs]] = LogEntryFilterArgs
+    Field = LogEntryField
+    Order = LogEntryOrder

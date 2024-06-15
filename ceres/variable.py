@@ -1,15 +1,32 @@
 from __future__ import annotations
 
-from typing import Annotated, Any, ClassVar, Iterable, Mapping, Sequence, TypedDict, override
+from typing import (
+    Annotated,
+    Any,
+    ClassVar,
+    Iterable,
+    Literal,
+    Mapping,
+    Sequence,
+    TypedDict,
+    override,
+)
 
 from pydantic import Field
 
 from ceres._internal.cli.plumbing import CLIOption
+from ceres._internal.entity import (
+    BaseItem,
+    BaseItemCreate,
+    BaseItemField,
+    BaseItemFilter,
+    BaseItemFilterArgs,
+    BaseItemOrder,
+    BaseItemRow,
+)
 from ceres._internal.lazy import lazy_imports
-from ceres.data import FromYAML, JSONValue, StrEnum, jsonify
+from ceres.data import FromYAML, JSONValue, jsonify
 from ceres.database.enums import DatabaseType
-from ceres.entity import OrderValue
-from ceres.item import BaseItem, BaseItemCreate, BaseItemFilter, BaseItemFilterArgs, BaseItemRow
 
 with lazy_imports(__name__):
     from sqlalchemy import Index, PrimaryKeyConstraint
@@ -40,15 +57,29 @@ class VariableRow(BaseItemRow, kw_only=True):
         )
 
 
-class VariableOrder(StrEnum):
-    NAME = "name"
+VariableField = (
+    BaseItemField
+    | Literal[
+        "name",
+        "value",
+    ]
+)
+VariableOrder = (
+    BaseItemOrder
+    | Literal[
+        "name",
+        "-name",
+        "value",
+        "-value",
+    ]
+)
 
 
-class VariableFilterArgs(BaseItemFilterArgs, total=False):
+class VariableFilterArgs(BaseItemFilterArgs[VariableField, VariableOrder], total=False):
     name: str | Sequence[str] | None
 
 
-class VariableFilter(BaseItemFilter["Variable"]):
+class VariableFilter(BaseItemFilter["Variable", VariableField, VariableOrder]):
     name: Annotated[str | Sequence[str] | None, CLIOption(list[str] | None)] = Field(
         default=None,
         description="Filter by name(s).",
@@ -125,7 +156,7 @@ class VariableFilter(BaseItemFilter["Variable"]):
             yield internal
 
     @override
-    def _get_default_order(self) -> OrderValue:
+    def _get_default_order(self) -> VariableOrder:
         return "name"
 
 
@@ -140,10 +171,10 @@ class VariableUpdate(TypedDict, total=False):
 
 
 class Variable(BaseItem, VariableCreate):
-    Order: ClassVar[type[VariableOrder]] = VariableOrder
-
     Row: ClassVar[type[VariableRow]] = VariableRow
     Create: ClassVar[type[VariableCreate]] = VariableCreate
     Update: ClassVar[type[VariableUpdate]] = VariableUpdate
     Filter: ClassVar[type[VariableFilter]] = VariableFilter
     FilterArgs: ClassVar[type[VariableFilterArgs]] = VariableFilterArgs
+    Field = VariableField
+    Order = VariableOrder

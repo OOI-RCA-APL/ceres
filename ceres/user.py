@@ -1,12 +1,31 @@
 from __future__ import annotations
 
-from typing import Annotated, Any, ClassVar, Iterable, Mapping, Sequence, TypedDict, override
+from typing import (
+    Annotated,
+    Any,
+    ClassVar,
+    Iterable,
+    Literal,
+    Mapping,
+    Sequence,
+    TypedDict,
+    override,
+)
 from uuid import UUID, uuid4
 
 from pydantic import Field
 
 from ceres._internal.cli.plumbing import CLIOption
 from ceres._internal.database.types import EnumConstraint, EnumMapper
+from ceres._internal.entity import (
+    BaseUUIDEntity,
+    BaseUUIDEntityCreate,
+    BaseUUIDEntityField,
+    BaseUUIDEntityFilter,
+    BaseUUIDEntityFilterArgs,
+    BaseUUIDEntityOrder,
+    BaseUUIDEntityRow,
+)
 from ceres._internal.lazy import lazy_imports
 from ceres.data import (
     EmailStr,
@@ -16,14 +35,6 @@ from ceres.data import (
     UsernameStr,
 )
 from ceres.database.enums import DatabaseType
-from ceres.entity import (
-    BaseUUIDEntity,
-    BaseUUIDEntityCreate,
-    BaseUUIDEntityFilter,
-    BaseUUIDEntityFilterArgs,
-    BaseUUIDEntityRow,
-    OrderValue,
-)
 
 with lazy_imports(__name__):
     from sqlalchemy.orm import Mapped, mapped_column
@@ -67,14 +78,30 @@ class UserRow(BaseUUIDEntityRow, kw_only=True):
         )
 
 
-class UserFilterArgs(BaseUUIDEntityFilterArgs, total=False):
+UserField = BaseUUIDEntityField | Literal["username", "email", "role", "disabled"]
+UserOrder = (
+    BaseUUIDEntityOrder
+    | Literal[
+        "username",
+        "-username",
+        "email",
+        "-email",
+        "role",
+        "-role",
+        "disabled",
+        "-disabled",
+    ]
+)
+
+
+class UserFilterArgs(BaseUUIDEntityFilterArgs[UserField, UserOrder], total=False):
     username: str | Sequence[str] | None
     email: str | Sequence[str] | None
     role: UserRole | Sequence[UserRole] | None
     disabled: bool | None
 
 
-class UserFilter(BaseUUIDEntityFilter["User"]):
+class UserFilter(BaseUUIDEntityFilter["User", UserField, UserOrder]):
     username: Annotated[str | Sequence[str] | None, CLIOption(list[str] | None)] = Field(
         default=None,
         description="Filter by username(s).",
@@ -135,7 +162,7 @@ class UserFilter(BaseUUIDEntityFilter["User"]):
             yield columns.disabled == self.disabled
 
     @override
-    def _get_default_order(self) -> OrderValue:
+    def _get_default_order(self) -> UserOrder:
         return "username"
 
 
@@ -162,5 +189,7 @@ class User(BaseUUIDEntity, UserCreate):
     Update: ClassVar[type[UserUpdate]] = UserUpdate
     Filter: ClassVar[type[UserFilter]] = UserFilter
     FilterArgs: ClassVar[type[UserFilterArgs]] = UserFilterArgs
+    Field = UserField
+    Order = UserOrder
 
     password: Annotated[PasswordHash, CLIOption(str, prompt=True, hide_input=True)]

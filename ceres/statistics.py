@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from pydantic import Field
 
+from ceres._internal.filter import BaseFilter, BaseFilterArgs
 from ceres.address import Address, AddressSelector
 from ceres.data import DataObject, DateTime
-from ceres.filter import BaseFilter, BaseFilterArgs
 from ceres.level import Level
 
 

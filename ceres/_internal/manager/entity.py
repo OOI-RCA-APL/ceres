@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from typing import Any, Sequence, Unpack, cast
 
+from ceres._internal.entity import BaseEntity
 from ceres._internal.lazy import lazy_imports
 from ceres._internal.manager.manager import BaseManager
 from ceres.database.enums import DatabaseType
-from ceres.entity import BaseEntity
 
 with lazy_imports(__name__):
     from ceres._internal import util
@@ -25,8 +25,8 @@ class BaseEntityManager[
     RowT: BaseEntity.Row,
     CreateT: BaseEntity.Create,
     UpdateT: BaseEntity.Update,
-    FilterT: BaseEntity.Filter[Any],
-    FilterArgsT: BaseEntity.FilterArgs,
+    FilterT: BaseEntity.Filter[Any, Any, Any],
+    FilterArgsT: BaseEntity.FilterArgs[Any, Any],
 ](BaseManager[EntityT]):
     async def create(
         self,
@@ -41,7 +41,7 @@ class BaseEntityManager[
     async def get_all(
         self,
         filter: FilterT | None = None,
-        **kwargs: Unpack[FilterArgsT],  # type: ignore
+        **kwargs: Any,
     ) -> list[EntityT]:
         Row = self._get_row_cls()
 
@@ -53,7 +53,6 @@ class BaseEntityManager[
     async def get(
         self,
         filter: FilterT | None = None,
-        /,
         **kwargs: Unpack[FilterArgsT],  # type: ignore
     ) -> EntityT | None:
         entities = await self.get_all(filter, **{**kwargs, "limit": 1})
