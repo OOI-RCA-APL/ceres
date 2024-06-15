@@ -202,7 +202,7 @@ class BaseEntityFilter[
         default=None,
         description="Field(s) matched by `search`. Defaults to all.",
     )
-    order: Annotated[OrderT | Sequence[OrderT] | None, CLIOption(list[str])] = Field(
+    order: Annotated[OrderT | Sequence[OrderT] | None, CLIOption(list[str] | None)] = Field(
         default=None,
         description="Specify ordering of results by field. Prefix field names with '-' for descending order.",
     )
