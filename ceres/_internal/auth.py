@@ -14,7 +14,6 @@ with lazy_imports(__name__):
 
 
 def get_password_hash_type(hash: str) -> HashType | None:
-
     try:
         util.get_type_adapter(BCryptHash).validate_python(hash)
         return HashType.BCRYPT

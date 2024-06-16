@@ -112,9 +112,11 @@ class BaseEntityManager[
         statement = filter.apply(statement, self._database.type).order_by(None)
         return await self._execute_and_get_one(statement, int) or 0
 
-    async def _execute_and_get_many[
-        T
-    ](self, statement: Select[tuple[Any, ...]] | Update | Delete, result_type: type[T]) -> list[T]:
+    async def _execute_and_get_many[T](
+        self,
+        statement: Select[tuple[Any, ...]] | Update | Delete,
+        parse: type[T],
+    ) -> list[T]:
         with util.wrap_database_errors():
             async with await self._database.init() as session:
                 results = await session.execute(statement)
@@ -123,13 +125,16 @@ class BaseEntityManager[
             if not results:
                 return []
 
-            return util.get_type_adapter(list[result_type]).validate_python(
-                results, from_attributes=True
+            return util.get_type_adapter(list[parse]).validate_python(
+                results,
+                from_attributes=True,
             )
 
-    async def _execute_and_get_one[
-        T
-    ](self, statement: Select[tuple[Any, ...]] | Update | Delete, result_type: type[T]) -> T | None:
+    async def _execute_and_get_one[T](
+        self,
+        statement: Select[tuple[Any, ...]] | Update | Delete,
+        parse: type[T],
+    ) -> T | None:
         with util.wrap_database_errors():
             async with await self._database.init() as session:
                 result = await session.execute(statement)
@@ -139,7 +144,7 @@ class BaseEntityManager[
         if row is None:
             return None
 
-        return util.get_type_adapter(result_type).validate_python(row, from_attributes=True)
+        return util.get_type_adapter(parse).validate_python(row, from_attributes=True)
 
     async def _execute_and_get_count(self, statement: Update | Delete) -> int:
         with util.wrap_database_errors():

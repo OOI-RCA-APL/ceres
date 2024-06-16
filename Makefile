@@ -11,10 +11,10 @@ update:
 test:
 	poetry run pytest -vv
 lint:
-	poetry run sh -c "black --check . && ruff check . && pyright ."
+	poetry run sh -c "ruff check . && ruff format --check . && pyright ."
 	cd console && make lint
 fix:
-	poetry run sh -c "black . && ruff check --fix ."
+	poetry run sh -c "ruff check --fix . && ruff format ."
 	cd console && make fix
 build-docs: install-docs
 	poetry run mkdocs build

@@ -26,9 +26,7 @@ class Client:
 
         return True
 
-    async def request[
-        T
-    ](
+    async def request[T](
         self,
         method: str,
         path: str,
@@ -65,9 +63,7 @@ class Client:
 
                 return util.get_type_adapter(result).validate_python(await response.json())  # type: ignore
 
-    async def get[
-        T
-    ](
+    async def get[T](
         self,
         path: str,
         *,
@@ -76,9 +72,7 @@ class Client:
     ) -> T:
         return await self.request("GET", path, params=params, result=result)
 
-    async def post[
-        T
-    ](
+    async def post[T](
         self,
         path: str,
         data: object | None = None,

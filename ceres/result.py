@@ -8,9 +8,11 @@ _result_cls_generic_cache: dict[tuple[Any, ...], Any] = {}
 
 
 class _Result:
-    def __class_getitem__[
-        ValueT, ErrorT
-    ](cls, /, params: tuple[type[ValueT], type[ErrorT]]) -> Ok[ValueT] | Fail[ErrorT]:
+    def __class_getitem__[ValueT, ErrorT](
+        cls,
+        /,
+        params: tuple[type[ValueT], type[ErrorT]],
+    ) -> Ok[ValueT] | Fail[ErrorT]:
         if params in _result_cls_generic_cache:
             return _result_cls_generic_cache[params]
         value = Ok[params[0]] | Fail[params[1]]  # type: ignore

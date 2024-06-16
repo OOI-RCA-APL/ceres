@@ -47,27 +47,23 @@ class Transport:
     ) -> Message: ...
 
     @overload
-    async def receive[
-        T
-    ](
+    async def receive[T](
         self,
         *,
         condition: Callable[[Message], bool] | None = None,
         timeout: float | timedelta | None = None,
         default: T | Callable[[], T],
         **kwargs: Unpack[Message.FilterArgs],
-    ) -> (Message | T): ...
+    ) -> Message | T: ...
 
-    async def receive[
-        T
-    ](
+    async def receive[T](
         self,
         *,
         condition: Callable[[Message], bool] | None = None,
         timeout: float | timedelta | None = None,
         default: T | Callable[[], T] | None = None,
         **kwargs: Unpack[Message.FilterArgs],
-    ) -> (Message | T):
+    ) -> Message | T:
         if isinstance(timeout, timedelta):
             timeout = timeout.total_seconds()
 

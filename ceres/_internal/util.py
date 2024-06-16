@@ -509,18 +509,20 @@ def dbg[T](value: T) -> T:
 
 
 @overload
-def cached[
-    T: Callable[..., Any]
-](function: None = None, *, max_size: int | None = None) -> Callable[[T], T]: ...
+def cached[T: Callable[..., Any]](
+    function: None = None, *, max_size: int | None = None
+) -> Callable[[T], T]: ...
 
 
 @overload
 def cached[T: Callable[..., Any]](function: T) -> T: ...
 
 
-def cached[
-    T: Callable[..., Any]
-](function: T | None = None, *, max_size: int | None = None) -> T | Callable[[T], T]:
+def cached[T: Callable[..., Any]](
+    function: T | None = None,
+    *,
+    max_size: int | None = None,
+) -> T | Callable[[T], T]:
     from functools import lru_cache
 
     def cached(function: T) -> T:
@@ -906,28 +908,24 @@ async def cancel(*tasks: Task[Any]) -> None:
         break
 
 
-async def _wait_many[
-    T
-](
+async def _wait_many[T](
     condition: str,
     tasks: Sequence[Task[T] | Coroutine[Any, Any, T]],
-) -> tuple[
-    set[Task[T]], set[Task[T]]
-]:
+) -> tuple[set[Task[T]], set[Task[T]]]:
     waiting = [asyncio.create_task(task) if not isinstance(task, Task) else task for task in tasks]
     result = await asyncio.wait(waiting, return_when=condition)
     return result
 
 
-async def wait_any[
-    T
-](*tasks: Task[T] | Coroutine[T, Any, Any]) -> tuple[set[Task[T]], set[Task[T]]]:
+async def wait_any[T](
+    *tasks: Task[T] | Coroutine[T, Any, Any],
+) -> tuple[set[Task[T]], set[Task[T]]]:
     return await _wait_many(asyncio.FIRST_COMPLETED, tasks)
 
 
-async def wait_all[
-    T
-](*tasks: Task[T] | Coroutine[T, Any, Any]) -> tuple[set[Task[T]], set[Task[T]]]:
+async def wait_all[T](
+    *tasks: Task[T] | Coroutine[T, Any, Any],
+) -> tuple[set[Task[T]], set[Task[T]]]:
     return await _wait_many(asyncio.ALL_COMPLETED, tasks)
 
 

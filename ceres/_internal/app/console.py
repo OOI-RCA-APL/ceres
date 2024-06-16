@@ -13,7 +13,6 @@ with lazy_imports(__name__):
 
 class ConsoleFiles(StaticFiles):
     def __init__(self) -> None:
-
         directory = Path(__file__).parent / "../../static/console"
         directory = directory.resolve()
         directory.mkdir(mode=755, parents=True, exist_ok=True)

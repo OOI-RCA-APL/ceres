@@ -138,7 +138,6 @@ def create_identity(
     user: User,
     authentication: ServerAuthenticationConfig,
 ) -> Identity:
-
     expires = utc() + authentication.duration
     token = jwt.encode(
         {

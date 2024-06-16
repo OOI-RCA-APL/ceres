@@ -71,9 +71,14 @@ class BoundVariableManager(VariableManager, BaseBoundManager[Variable]):
     ) -> Any: ...
 
     @overload
-    async def read[
-        T, D
-    ](self, name: str, parse: type[T], default: D, *, address: Address | None = None) -> T | D: ...
+    async def read[T, D](
+        self,
+        name: str,
+        parse: type[T],
+        default: D,
+        *,
+        address: Address | None = None,
+    ) -> T | D: ...
 
     async def read(
         self,

@@ -161,14 +161,14 @@ class Database:
     async def dump_sqlite(
         self,
         path: PathLike,
-        item_types: Sequence[EntityType] | None = None,
+        entity_types: Sequence[EntityType] | None = None,
     ) -> None: ...
 
     @abstractmethod
     async def load_sqlite(
         self,
         path: PathLike,
-        item_types: Sequence[EntityType] | None = None,
+        entity_types: Sequence[EntityType] | None = None,
     ) -> None: ...
 
     def _create_base_engine(self) -> AsyncEngine:
@@ -406,12 +406,12 @@ class SQLiteDatabase(Database):  #
                 placeholders = ", ".join(":" + column for column in _get_columns(entity_type))
                 statement = f"INSERT INTO {entity_type.table} ({columns}) VALUES ({placeholders})"
 
-                for item in _read_csv_items(path, entity_type.cls):
-                    id = item.__dict__.get("id")
+                for entity in _read_csv_entities(path, entity_type.cls):
+                    id = entity.__dict__.get("id")
                     if id is not None:
-                        item.__dict__["id"] = str(id)
+                        entity.__dict__["id"] = str(id)
 
-                    connection.execute(statement, item.__dict__)
+                    connection.execute(statement, entity.__dict__)
 
                 connection.execute("COMMIT")
 
@@ -448,13 +448,13 @@ class SQLiteDatabase(Database):  #
 
     async def __copy(
         self,
-        item_types: Sequence[EntityType] | None,
+        entity_types: Sequence[EntityType] | None,
         source: Path,
         destination_engine: AsyncEngine,
         create: bool,
     ) -> None:
-        if item_types is None:
-            item_types = list(EntityType)
+        if entity_types is None:
+            entity_types = list(EntityType)
 
         async with destination_engine.connect() as destination_connection:
             if create:
@@ -467,7 +467,7 @@ class SQLiteDatabase(Database):  #
                 text("ATTACH DATABASE :path AS source"), {"path": str(source)}
             )
 
-            for type in item_types:
+            for type in entity_types:
                 await destination_connection.execute(
                     text(f"INSERT INTO main.{type.table} SELECT * FROM source.{type.table}")
                 )
@@ -482,14 +482,14 @@ class SQLiteDatabase(Database):  #
     async def dump_sqlite(
         self,
         path: PathLike,
-        item_types: Sequence[EntityType] | None = None,
+        entity_types: Sequence[EntityType] | None = None,
     ) -> None:
-        if item_types is None:
-            item_types = list(EntityType)
+        if entity_types is None:
+            entity_types = list(EntityType)
 
         await self.init()
 
-        if set(item_types) == set(EntityType):
+        if set(entity_types) == set(EntityType):
 
             def execute() -> None:
                 with sqlite3.connect(self.path) as source:
@@ -507,7 +507,7 @@ class SQLiteDatabase(Database):  #
         try:
             await _execute_ddl(destination_engine, tables=True, indexes=False)
             await self.__copy(
-                item_types,
+                entity_types,
                 source=self.path,
                 destination_engine=destination_engine,
                 create=True,
@@ -520,14 +520,14 @@ class SQLiteDatabase(Database):  #
     async def load_sqlite(
         self,
         path: PathLike,
-        item_types: Sequence[EntityType] | None = None,
+        entity_types: Sequence[EntityType] | None = None,
     ) -> None:
         path = _prepare_read_path(path)
 
         await self.init()
 
         await self.__copy(
-            item_types,
+            entity_types,
             source=path,
             destination_engine=self.engine,
             create=False,
@@ -685,8 +685,8 @@ class PostgresDatabase(Database):
                     )
                 )
 
-                def _get_fields(item: BaseEntity):
-                    fields = item.__dict__
+                def _get_fields(entity: BaseEntity):
+                    fields = entity.__dict__
                     if "address" in fields:
                         fields["address"] = str(fields["address"])
                     if entity_type == EntityType.ALERT:
@@ -697,8 +697,8 @@ class PostgresDatabase(Database):
                     return fields
 
                 records = (
-                    tuple(_get_fields(item).values())
-                    for item in _read_csv_items(path, entity_type.cls)
+                    tuple(_get_fields(entity).values())
+                    for entity in _read_csv_entities(path, entity_type.cls)
                 )
 
                 await connection.copy_records_to_table(
@@ -717,39 +717,39 @@ class PostgresDatabase(Database):
     async def dump_sqlite(
         self,
         path: PathLike,
-        item_types: Sequence[EntityType] | None = None,
+        entity_types: Sequence[EntityType] | None = None,
     ) -> None:
-        if item_types is None:
-            item_types = list(EntityType)
+        if entity_types is None:
+            entity_types = list(EntityType)
 
         path = _prepare_write_path(path)
 
         await self.init()
 
         destination = Database(SQLiteDatabaseConfig(path=path))
-        for item_type in item_types:
+        for entity_type in entity_types:
             with NamedTemporaryFile() as temporary:
-                await self.dump_csv(temporary.name, item_type)
-                await destination.load_csv(temporary.name, item_type)
+                await self.dump_csv(temporary.name, entity_type)
+                await destination.load_csv(temporary.name, entity_type)
 
     @override
     async def load_sqlite(
         self,
         path: PathLike,
-        item_types: Sequence[EntityType] | None = None,
+        entity_types: Sequence[EntityType] | None = None,
     ) -> None:
-        if item_types is None:
-            item_types = list(EntityType)
+        if entity_types is None:
+            entity_types = list(EntityType)
 
         path = _prepare_read_path(path)
 
         await self.init()
 
         source = SQLiteDatabase(SQLiteDatabaseConfig(path=path))
-        for item_type in item_types:
+        for entity_type in entity_types:
             with NamedTemporaryFile() as temporary:
-                await source.dump_csv(temporary.name, item_type)
-                await self.load_csv(temporary.name, item_type)
+                await source.dump_csv(temporary.name, entity_type)
+                await self.load_csv(temporary.name, entity_type)
 
 
 def _remove(path: Path) -> None:
@@ -777,11 +777,12 @@ def _read_csv_rows(path: Path) -> Iterator[Any]:
             yield row
 
 
-def _read_csv_items[
-    _EntityT: BaseEntity
-](path: Path, item_cls: type[_EntityT]) -> Iterable[_EntityT]:
+def _read_csv_entities[T: BaseEntity](
+    path: Path,
+    entity_cls: type[T],
+) -> Iterable[T]:
     rows = _read_csv_rows(path)
-    columns = list(item_cls.model_fields.keys())
+    columns = list(entity_cls.model_fields.keys())
     header = next(rows)
 
     if set(header) != set(columns):
@@ -794,11 +795,11 @@ def _read_csv_items[
         fields = {column: row[index] for index, column in enumerate(header) if row[index] != ""}
 
         try:
-            item = item_cls.model_validate(fields)
+            entity = entity_cls.model_validate(fields)
         except ValidationError as error:
             raise Failure(DatabaseLoadError(message=f"invalid CSV row: {error}")) from error
 
-        yield item
+        yield entity
 
 
 def _decode(value: bytes, encoding: str) -> str:
@@ -824,8 +825,8 @@ def _sqlite_create_functions(connection: _SQLiteConnection) -> None:
 _Replace = Mapping[EntityType, Mapping[str, str]]
 
 
-def _get_columns_joined(item_type: EntityType, replace: _Replace = {}) -> str:
-    return ", ".join(_get_columns(item_type, replace))
+def _get_columns_joined(entity_type: EntityType, replace: _Replace = {}) -> str:
+    return ", ".join(_get_columns(entity_type, replace))
 
 
 def _get_columns(entity_type: EntityType, replace: _Replace = {}) -> list[str]:

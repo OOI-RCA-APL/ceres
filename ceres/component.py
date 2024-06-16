@@ -384,26 +384,22 @@ ProcedureBinding = QueryBinding | ActionBinding
 
 
 @overload
-def query[
-    **P, T: Awaitable[Any] | AsyncIterable[Any]
-](method: Callable[P, T]) -> Callable[P, T]: ...
+def query[**P, T: Awaitable[Any] | AsyncIterable[Any]](
+    method: Callable[P, T],
+) -> Callable[P, T]: ...
 
 
 @overload
-def query[
-    **P, T: Awaitable[Any] | AsyncIterable[Any]
-](*, poll: float | timedelta = ...) -> Callable[[Callable[P, T]], Callable[P, T]]: ...
+def query[**P, T: Awaitable[Any] | AsyncIterable[Any]](
+    *, poll: float | timedelta = ...
+) -> Callable[[Callable[P, T]], Callable[P, T]]: ...
 
 
-def query[
-    **P, T: Awaitable[Any] | AsyncIterable[Any]
-](
+def query[**P, T: Awaitable[Any] | AsyncIterable[Any]](
     method: Callable[P, T] | None = None,
     *,
     poll: float | timedelta = timedelta(seconds=5),
-) -> (
-    Callable[P, T] | Callable[[Callable[P, T]], Callable[P, T]]
-):
+) -> Callable[P, T] | Callable[[Callable[P, T]], Callable[P, T]]:
     def query(method: Callable[P, T]) -> Callable[P, T]:
         info = __get_procedure_method_info(method, ProcedureType.QUERY)
         _bind(
@@ -427,22 +423,20 @@ def query[
 
 
 @overload
-def action[
-    **P, T: Awaitable[Any] | AsyncIterable[Any]
-](method: Callable[P, T]) -> Callable[P, T]: ...
+def action[**P, T: Awaitable[Any] | AsyncIterable[Any]](
+    method: Callable[P, T],
+) -> Callable[P, T]: ...
 
 
 @overload
-def action[
-    **P, T: Awaitable[Any] | AsyncIterable[Any]
-]() -> Callable[[Callable[P, T]], Callable[P, T]]: ...
+def action[**P, T: Awaitable[Any] | AsyncIterable[Any]]() -> (
+    Callable[[Callable[P, T]], Callable[P, T]]
+): ...
 
 
-def action[
-    **P, T: Awaitable[Any] | AsyncIterable[Any]
-](method: Callable[P, T] | None = None) -> (
-    Callable[P, T] | Callable[[Callable[P, T]], Callable[P, T]]
-):
+def action[**P, T: Awaitable[Any] | AsyncIterable[Any]](
+    method: Callable[P, T] | None = None,
+) -> Callable[P, T] | Callable[[Callable[P, T]], Callable[P, T]]:
     def action(method: Callable[P, T]) -> Callable[P, T]:
         validated = __get_procedure_method_info(method, ProcedureType.ACTION)
         _bind(
@@ -601,9 +595,10 @@ class Binding(Protocol):
     method: str
 
 
-def get_component_method_bindings[
-    T: Binding
-](method: Callable[..., Any], binding_cls: type[T]) -> Sequence[T]:
+def get_component_method_bindings[T: Binding](
+    method: Callable[..., Any],
+    binding_cls: type[T],
+) -> Sequence[T]:
     method = util.get_inner_function(method)
     output: list[T] = []
 
@@ -616,9 +611,10 @@ def get_component_method_bindings[
     return tuple(output)
 
 
-def get_component_method_binding[
-    T: Binding
-](method: Callable[..., Any], binding_cls: type[T]) -> T | None:
+def get_component_method_binding[T: Binding](
+    method: Callable[..., Any],
+    binding_cls: type[T],
+) -> T | None:
     bindings = get_component_method_bindings(method, binding_cls)
     if bindings:
         return bindings[0]

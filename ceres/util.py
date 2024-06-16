@@ -64,23 +64,24 @@ class _AsyncZipLatest[T: tuple[Any, ...]]:
 
 
 @overload
-def azip_latest[
-    T1, T2
-](a: AsyncIterable[T1], b: AsyncIterable[T2], /) -> _AsyncZipLatest[tuple[T1, T2]]: ...
+def azip_latest[T1, T2](
+    a: AsyncIterable[T1],
+    b: AsyncIterable[T2],
+    /,
+) -> _AsyncZipLatest[tuple[T1, T2]]: ...
 
 
 @overload
-def azip_latest[
-    T1, T2, T3
-](a: AsyncIterable[T1], b: AsyncIterable[T2], c: AsyncIterable[T3], /) -> _AsyncZipLatest[
-    tuple[T1, T2, T3]
-]: ...
+def azip_latest[T1, T2, T3](
+    a: AsyncIterable[T1],
+    b: AsyncIterable[T2],
+    c: AsyncIterable[T3],
+    /,
+) -> _AsyncZipLatest[tuple[T1, T2, T3]]: ...
 
 
 @overload
-def azip_latest[
-    T1, T2, T3, T4
-](
+def azip_latest[T1, T2, T3, T4](
     a: AsyncIterable[T1],
     b: AsyncIterable[T2],
     c: AsyncIterable[T3],
@@ -90,9 +91,7 @@ def azip_latest[
 
 
 @overload
-def azip_latest[
-    T1, T2, T3, T4, T5
-](
+def azip_latest[T1, T2, T3, T4, T5](
     a: AsyncIterable[T1],
     b: AsyncIterable[T2],
     c: AsyncIterable[T3],

@@ -530,20 +530,26 @@ def unref(component: MaybeReference | None, /) -> Component | None:
 
 
 @overload
-def ref[
-    T: Component
-](target: str | DynamicAddress | Component | Reference, cast: type[T], /) -> T: ...
+def ref[T: Component](
+    target: str | DynamicAddress | Component | Reference,
+    cast: type[T],
+    /,
+) -> T: ...
 
 
 @overload
 def ref(
-    target: str | DynamicAddress | Component | Reference, cast: None = None, /
+    target: str | DynamicAddress | Component | Reference,
+    cast: None = None,
+    /,
 ) -> Component: ...
 
 
-def ref[
-    T: Component
-](target: str | DynamicAddress | Component | Reference, constraint: type[T] | None = None, /) -> T:
+def ref[T: Component](
+    target: str | DynamicAddress | Component | Reference,
+    constraint: type[T] | None = None,
+    /,
+) -> T:
     if isinstance(target, Reference):
         return cast(T, target)
 

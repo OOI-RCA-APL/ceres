@@ -68,9 +68,13 @@ class EventManager(BaseBoundManager[Event]):
     def follow(self) -> Stream[Event]:
         return self._stream.view()
 
-    def emit[
-        **P, T: Event
-    ](self, event_cls: Callable[P, T], /, *args: P.args, **kwargs: P.kwargs) -> T:
+    def emit[**P, T: Event](
+        self,
+        event_cls: Callable[P, T],
+        /,
+        *args: P.args,
+        **kwargs: P.kwargs,
+    ) -> T:
         """
         Construct and `propagate` an event, assigning the address of the event to this node's
         address if unset.
@@ -175,7 +179,6 @@ class _Listener:
         system: ComponentSystem,
         binding: ListenerBinding,
     ) -> None:
-
         self._system = system
         self._binding = binding
         self._handler: _ComponentEventHandler = getattr(system.component, binding.method)
@@ -191,7 +194,6 @@ class _Listener:
         return self.handles(type(event), event.address)
 
     async def _process_one(self, event: Event) -> None:
-
         try:
             result = self._handler(*[event][: self._handler_arity])
             if inspect.iscoroutine(result):

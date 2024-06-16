@@ -24,7 +24,6 @@ if TYPE_CHECKING:
     from pydantic import ValidationError
 
 with lazy_imports(__name__):
-
     from ceres._internal import util
 
 _undefined = object()
