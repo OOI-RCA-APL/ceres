@@ -203,16 +203,29 @@ def write(
     sep: str = " ",
     end: str = "\n",
     file: IO[str] | None = None,
-    flush: bool = True,
+    flush: bool = False,
     to: Literal["stdout", "stderr"] = "stderr",
+    color: bool | None = None,
 ):
-    import rich
+    if file is None:
+        file = sys.stdout if to == "stdout" else sys.stderr
 
-    rich.print(
+    interactive = file.isatty() if file else None
+    if color is None:
+        color = interactive
+
+    if color:
+        import rich
+
+        printer = rich.print
+    else:
+        printer = print
+
+    printer(
         *args,
         sep=sep,
         end=end,
-        file=file or (sys.stdout if to == "stdout" else sys.stderr),
+        file=file,
         flush=flush,
     )
 
@@ -220,13 +233,26 @@ def write(
 def write_json(
     value: Any,
     *,
-    to: Literal["stdout", "stderr"] = "stdout",
+    sep: str = " ",
+    end: str = "\n",
+    file: IO[str] | None = None,
+    flush: bool = False,
+    to: Literal["stdout", "stderr"] = "stderr",
+    color: bool | None = None,
     **kwargs: Unpack[SerializeArgs],
 ):
-    if kwargs.get("indent") is None:
+    if "indent" not in kwargs:
         kwargs["indent"] = 2
 
-    write(jsonify(value, **kwargs), to=to)
+    write(
+        jsonify(value, **kwargs),
+        sep=sep,
+        end=end,
+        file=file,
+        flush=flush,
+        to=to,
+        color=color,
+    )
 
 
 @contextmanager
