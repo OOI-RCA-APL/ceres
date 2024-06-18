@@ -30,6 +30,7 @@ from pydantic import (
     ConfigDict,
     Field,
     StringConstraints,
+    TypeAdapter,
 )
 from pydantic import EmailStr as _BaseEmailStr
 from pydantic.fields import FieldInfo
@@ -54,15 +55,16 @@ class SerializeArgs(SimplifyArgs, total=False):
     indent: int | None
 
 
+__ANY_ADAPTOR = TypeAdapter(Any) if not TYPE_CHECKING else TypeAdapter(object)
+
+
 def simplify(obj: object, **kwargs: Unpack[SimplifyArgs]) -> Any:
-    return util.get_type_adapter(type(obj)).dump_python(
-        obj,
-        **{**kwargs, "round_trip": True},  # type: ignore
-    )
+    kwargs["round_trip"] = True  # type: ignore
+    return __ANY_ADAPTOR.dump_python(obj, **kwargs)
 
 
 def jsonify(obj: object, **kwargs: Unpack[SerializeArgs]) -> str:
-    return util.get_type_adapter(object).dump_json(obj, **kwargs).decode()
+    return __ANY_ADAPTOR.dump_json(obj, **kwargs).decode()
 
 
 def yamlify(obj: object, **kwargs: Unpack[SerializeArgs]) -> str:
