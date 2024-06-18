@@ -1,6 +1,6 @@
 import { AddressModel } from '@/api/address'
 import { useClient } from '@/api/client'
-import { NameStrModel, TimeDeltaModel } from '@/api/shared'
+import { NameStrModel } from '@/api/shared'
 import { useQuery } from '@tanstack/vue-query'
 import { defineStore } from 'pinia'
 import { computed } from 'vue'
@@ -21,16 +21,9 @@ export const ComponentConfigModel: Zod.ZodType<ComponentConfig> = Zod.object({
 export type DatabaseType = Zod.infer<typeof DatabaseTypeModel>
 export const DatabaseTypeModel = Zod.enum(['sqlite', 'postgres'])
 
-export type DatabaseRetryConfig = Zod.infer<typeof DatabaseRetryConfigModel>
-export const DatabaseRetryConfigModel = Zod.object({
-  timeout: TimeDeltaModel.default('PT15S'),
-  interval: TimeDeltaModel.default('PT1S'),
-})
-
 const BaseDatabaseConfig = Zod.object({
   type: DatabaseTypeModel,
   engine: Zod.record(Zod.string(), Zod.unknown()).default(() => ({})),
-  retry: DatabaseRetryConfigModel.default(() => DatabaseRetryConfigModel.parse({})),
 })
 
 export type SQLiteDatabaseConfig = Zod.infer<typeof SQLiteDatabaseConfigModel>
@@ -72,9 +65,6 @@ export const ConsoleConfigModel = Zod.object({
 
 export type Config = Zod.infer<typeof ConfigModel>
 export const ConfigModel = Zod.object({
-  name: NameStrModel,
-  component: Zod.string(),
-  subcomponents: Zod.array(ComponentConfigModel),
   server: ServerConfigModel,
   console: ConsoleConfigModel,
   database: DatabaseConfigModel,
