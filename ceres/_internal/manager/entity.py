@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Sequence, Unpack, cast
+from typing import Any, AsyncIterable, Sequence, Unpack, cast
 
 from ceres._internal.entity import BaseEntity
 from ceres._internal.lazy import lazy_imports
@@ -8,16 +8,12 @@ from ceres._internal.manager.manager import BaseManager
 from ceres.database.enums import DatabaseType
 
 with lazy_imports(__name__):
-    from ceres._internal import util
-    from ceres._internal.auth import verify_password_hash
-    from ceres.data import PasswordHash
-
-
-with lazy_imports(__name__):
     from sqlalchemy.sql import Delete, Select, Update, delete, func, select, update
     from sqlalchemy.sql.elements import ColumnElement
     from sqlalchemy.sql.roles import DDLConstraintColumnRole
     from sqlalchemy.sql.schema import Column
+
+    from ceres._internal import util
 
 
 class BaseEntityManager[
@@ -57,6 +53,19 @@ class BaseEntityManager[
     ) -> EntityT | None:
         entities = await self.get_all(filter, **{**kwargs, "limit": 1})
         return entities[0] if entities else None
+
+    async def select(
+        self,
+        filter: FilterT | None = None,
+        **kwargs: Unpack[FilterArgsT],  # type: ignore
+    ) -> AsyncIterable[EntityT]:
+        Row = self._get_row_cls()
+
+        filter = self._apply_default_filter(filter, kwargs)
+        statement = select(*Row.__table__.columns.values())
+        statement = filter.apply(statement, self._database.type)
+        async for result in self._execute_and_iter(statement, self._cls):
+            yield result
 
     async def update_all(self, filter: FilterT, assign: UpdateT) -> int:
         Row = self._get_row_cls()
@@ -112,29 +121,38 @@ class BaseEntityManager[
         statement = filter.apply(statement, self._database.type).order_by(None)
         return await self._execute_and_get_one(statement, int) or 0
 
-    async def _execute_and_get_many[T](
+    async def _execute_and_iter[T: BaseEntity](
+        self,
+        statement: Select[tuple[Any, ...]] | Delete | Update,
+        parse: type[T],
+    ) -> AsyncIterable[T]:
+        with util.wrap_database_errors():
+            async with await self._database.init() as session:
+                results = await session.stream(statement)
+                try:
+                    async for result in results:
+                        yield parse.model_construct(**result._mapping)
+                finally:
+                    await session.commit()
+
+    async def _execute_and_get_many[T: BaseEntity](
         self,
         statement: Select[tuple[Any, ...]] | Update | Delete,
         parse: type[T],
     ) -> list[T]:
-        with util.wrap_database_errors():
-            async with await self._database.init() as session:
-                results = await session.execute(statement)
-                await session.commit()
+        results = []
+        async for result in self._execute_and_iter(statement, parse):
+            results.append(result)
 
-            if not results:
-                return []
-
-            return util.get_type_adapter(list[parse]).validate_python(
-                results,
-                from_attributes=True,
-            )
+        return results
 
     async def _execute_and_get_one[T](
         self,
         statement: Select[tuple[Any, ...]] | Update | Delete,
         parse: type[T],
     ) -> T | None:
+        adapter = util.get_type_adapter(parse)
+
         with util.wrap_database_errors():
             async with await self._database.init() as session:
                 result = await session.execute(statement)
@@ -144,7 +162,7 @@ class BaseEntityManager[
         if row is None:
             return None
 
-        return util.get_type_adapter(parse).validate_python(row, from_attributes=True)
+        return adapter.validate_python(row, from_attributes=True)
 
     async def _execute_and_get_count(self, statement: Update | Delete) -> int:
         with util.wrap_database_errors():
@@ -190,12 +208,6 @@ class BaseEntityManager[
                 await session.execute(statement)
                 await session.commit()
                 return row
-
-    async def _maybe_hash_password(self, password: str) -> PasswordHash | None:
-        if verify_password_hash(password):
-            return password
-
-        return await self._database.hash_password(password)
 
     def _apply_default_filter(
         self,

@@ -1,12 +1,14 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Unpack, override
+from typing import TYPE_CHECKING, Unpack, override, AsyncIterable
 
 from ceres._internal.lazy import lazy_imports
 from ceres._internal.manager.entity import BaseEntityManager
 from ceres.user import User
 
 with lazy_imports(__name__):
+    from ceres._internal.auth import verify_password_hash
+    from ceres.data import PasswordHash
     from ceres.database import Database
     from ceres.node import Node
 
@@ -44,6 +46,12 @@ class UserManager(
         fields["password"] = await self._maybe_hash_password(fields["password"])
         return User(**fields)
 
+    async def _maybe_hash_password(self, password: str) -> PasswordHash | None:
+        if verify_password_hash(password):
+            return password
+
+        return await self._database.hash_password(password)
+
     if TYPE_CHECKING:
         # See: https://github.com/python/typing/issues/1399
         _E = User
@@ -57,6 +65,11 @@ class UserManager(
         async def get(  # pyright: ignore[reportIncompatibleMethodOverride]
             self, filter: _E.Filter | None = None, **kwargs: Unpack[_E.FilterArgs]
         ) -> _E | None: ...
+
+        @override
+        def select(  # pyright: ignore[reportIncompatibleMethodOverride]
+            self, filter: _E.Filter | None = None, **kwargs: Unpack[_E.FilterArgs]
+        ) -> AsyncIterable[_E]: ...
 
         @override
         async def delete_all(  # pyright: ignore[reportIncompatibleMethodOverride]

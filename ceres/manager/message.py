@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Unpack, override
+from typing import TYPE_CHECKING, AsyncIterable, Unpack, override
 
 from ceres._internal.lazy import lazy_imports
 from ceres._internal.manager.entity import BaseEntityManager
@@ -40,6 +40,11 @@ class MessageManager(
         async def get(  # pyright: ignore[reportIncompatibleMethodOverride]
             self, filter: _E.Filter | None = None, **kwargs: Unpack[_E.FilterArgs]
         ) -> _E | None: ...
+
+        @override
+        def select(  # pyright: ignore[reportIncompatibleMethodOverride]
+            self, filter: _E.Filter | None = None, **kwargs: Unpack[_E.FilterArgs]
+        ) -> AsyncIterable[_E]: ...
 
         @override
         async def delete_all(  # pyright: ignore[reportIncompatibleMethodOverride]

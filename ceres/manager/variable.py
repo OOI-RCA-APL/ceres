@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Unpack, overload, override
+from typing import TYPE_CHECKING, Any, Unpack, overload, override, AsyncIterable
 
 from pydantic import ValidationError
 
@@ -30,6 +30,40 @@ class VariableManager(
 ):
     def __init__(self, source: Database | Node) -> None:
         super().__init__(source, Variable)
+
+    if TYPE_CHECKING:
+        # See: https://github.com/python/typing/issues/1399
+        _E = Variable
+
+        @override
+        async def get_all(  # pyright: ignore[reportIncompatibleMethodOverride]
+            self, filter: _E.Filter | None = None, /, **kwargs: Unpack[_E.FilterArgs]
+        ) -> list[_E]: ...
+
+        @override
+        async def get(  # pyright: ignore[reportIncompatibleMethodOverride]
+            self, filter: _E.Filter | None = None, /, **kwargs: Unpack[_E.FilterArgs]
+        ) -> _E | None: ...
+
+        @override
+        def select(  # pyright: ignore[reportIncompatibleMethodOverride]
+            self, filter: _E.Filter | None = None, **kwargs: Unpack[_E.FilterArgs]
+        ) -> AsyncIterable[_E]: ...
+
+        @override
+        async def delete_all(  # pyright: ignore[reportIncompatibleMethodOverride]
+            self, filter: _E.Filter | None = None, **kwargs: Unpack[_E.FilterArgs]
+        ) -> int: ...
+
+        @override
+        async def delete(  # pyright: ignore[reportIncompatibleMethodOverride]
+            self, filter: _E.Filter | None = None, /, **kwargs: Unpack[_E.FilterArgs]
+        ) -> _E | None: ...
+
+        @override
+        async def count(  # pyright: ignore[reportIncompatibleMethodOverride]
+            self, filter: _E.Filter | None = None, /, **kwargs: Unpack[_E.FilterArgs]
+        ) -> int: ...
 
 
 class BoundVariableManager(VariableManager, BaseBoundManager[Variable]):
@@ -112,32 +146,3 @@ class BoundVariableManager(VariableManager, BaseBoundManager[Variable]):
             .map(lambda event: event.variable)
             .filter(filter.matches)
         )
-
-    if TYPE_CHECKING:
-        # See: https://github.com/python/typing/issues/1399
-        _E = Variable
-
-        @override
-        async def get_all(  # pyright: ignore[reportIncompatibleMethodOverride]
-            self, filter: _E.Filter | None = None, /, **kwargs: Unpack[_E.FilterArgs]
-        ) -> list[_E]: ...
-
-        @override
-        async def get(  # pyright: ignore[reportIncompatibleMethodOverride]
-            self, filter: _E.Filter | None = None, /, **kwargs: Unpack[_E.FilterArgs]
-        ) -> _E | None: ...
-
-        @override
-        async def delete_all(  # pyright: ignore[reportIncompatibleMethodOverride]
-            self, filter: _E.Filter | None = None, **kwargs: Unpack[_E.FilterArgs]
-        ) -> int: ...
-
-        @override
-        async def delete(  # pyright: ignore[reportIncompatibleMethodOverride]
-            self, filter: _E.Filter | None = None, /, **kwargs: Unpack[_E.FilterArgs]
-        ) -> _E | None: ...
-
-        @override
-        async def count(  # pyright: ignore[reportIncompatibleMethodOverride]
-            self, filter: _E.Filter | None = None, /, **kwargs: Unpack[_E.FilterArgs]
-        ) -> int: ...

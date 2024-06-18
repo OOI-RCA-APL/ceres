@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Mapping, Sequence, Unpack, override
+from typing import TYPE_CHECKING, Mapping, Sequence, Unpack, override, AsyncIterable
 
 from ceres._internal.lazy import lazy_imports
 from ceres._internal.manager.entity import BaseEntityManager
@@ -31,6 +31,40 @@ class LogManager(
 ):
     def __init__(self, source: Database | Node) -> None:
         super().__init__(source, LogEntry)
+
+    if TYPE_CHECKING:
+        # See: https://github.com/python/typing/issues/1399
+        _E = LogEntry
+
+        @override
+        async def get_all(  # pyright: ignore[reportIncompatibleMethodOverride]
+            self, filter: _E.Filter | None = None, **kwargs: Unpack[_E.FilterArgs]
+        ) -> list[_E]: ...
+
+        @override
+        async def get(  # pyright: ignore[reportIncompatibleMethodOverride]
+            self, filter: _E.Filter | None = None, **kwargs: Unpack[_E.FilterArgs]
+        ) -> _E | None: ...
+
+        @override
+        def select(  # pyright: ignore[reportIncompatibleMethodOverride]
+            self, filter: _E.Filter | None = None, **kwargs: Unpack[_E.FilterArgs]
+        ) -> AsyncIterable[_E]: ...
+
+        @override
+        async def delete_all(  # pyright: ignore[reportIncompatibleMethodOverride]
+            self, filter: _E.Filter | None = None, **kwargs: Unpack[_E.FilterArgs]
+        ) -> int: ...
+
+        @override
+        async def delete(  # pyright: ignore[reportIncompatibleMethodOverride]
+            self, filter: _E.Filter | None = None, **kwargs: Unpack[_E.FilterArgs]
+        ) -> _E | None: ...
+
+        @override
+        async def count(  # pyright: ignore[reportIncompatibleMethodOverride]
+            self, filter: _E.Filter | None = None, **kwargs: Unpack[_E.FilterArgs]
+        ) -> int: ...
 
 
 LogInterpolate = Mapping[str, object] | Sequence[object]
@@ -146,35 +180,6 @@ class BoundLogManager(LogManager):
 
     def alert(self, level: Level, alert: Alert, /) -> None:
         self.emit(level, "[alert] {data}", alert.address, data=alert.model_dump_json())
-
-    if TYPE_CHECKING:
-        # See: https://github.com/python/typing/issues/1399
-        _E = LogEntry
-
-        @override
-        async def get_all(  # pyright: ignore[reportIncompatibleMethodOverride]
-            self, filter: _E.Filter | None = None, **kwargs: Unpack[_E.FilterArgs]
-        ) -> list[_E]: ...
-
-        @override
-        async def get(  # pyright: ignore[reportIncompatibleMethodOverride]
-            self, filter: _E.Filter | None = None, **kwargs: Unpack[_E.FilterArgs]
-        ) -> _E | None: ...
-
-        @override
-        async def delete_all(  # pyright: ignore[reportIncompatibleMethodOverride]
-            self, filter: _E.Filter | None = None, **kwargs: Unpack[_E.FilterArgs]
-        ) -> int: ...
-
-        @override
-        async def delete(  # pyright: ignore[reportIncompatibleMethodOverride]
-            self, filter: _E.Filter | None = None, **kwargs: Unpack[_E.FilterArgs]
-        ) -> _E | None: ...
-
-        @override
-        async def count(  # pyright: ignore[reportIncompatibleMethodOverride]
-            self, filter: _E.Filter | None = None, **kwargs: Unpack[_E.FilterArgs]
-        ) -> int: ...
 
 
 @dataclass(kw_only=True)
