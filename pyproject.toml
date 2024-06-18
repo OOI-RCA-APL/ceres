@@ -51,13 +51,11 @@ mkdocstrings = { extras = ["python"], version = "0.24.1" }
 [tool.poetry.scripts]
 ceres = "ceres._internal.cli.main:main"
 
-[tool.black]
-line-length = 100
-
 [tool.ruff]
 line-length = 100
 
-lint.ignore = ["F402"]
+[tool.ruff.lint]
+ignore = ["F402"]
 
 [tool.pyright]
 include = ["ceres", "tests"]
