@@ -277,9 +277,20 @@ class ServerAuthenticationConfig(ConfigObject):
     duration: PositiveTimeDelta = timedelta(minutes=30)
 
 
+class ServerProxyMode(StrEnum):
+    MODERN = "modern"
+    LEGACY = "legacy"
+
+
+class ServerProxyConfig(ConfigObject):
+    mode: ServerProxyMode = ServerProxyMode.MODERN
+    trusted_hops: PositiveInt = 1
+
+
 class ServerConfig(ConfigObject):
     host: str = "0.0.0.0"  # Bind to IPV4 all addresses by default
     port: int | None = None
+    proxy: ServerProxyConfig | None = None
     socket: Path | None = None
     ssl: ServerSSLConfig | None = None
     authentication: ServerAuthenticationConfig | None = None

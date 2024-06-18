@@ -9,6 +9,7 @@ from ceres.tasklet import Tasklet
 with lazy_imports(__name__):
     from hypercorn.asyncio import serve
     from hypercorn.config import Config as HypercornConfig
+    from hypercorn.middleware import ProxyFixMiddleware
 
     from ceres._internal.app import App
     from ceres._internal.project import LoadedProject
@@ -42,9 +43,16 @@ class Server(Tasklet):
         hypercorn.bind = bind
         hypercorn.insecure_bind = insecure_bind
 
+        app = App(engine)
+        if config.proxy is not None:
+            app = ProxyFixMiddleware(
+                app,  # type: ignore
+                mode=str(config.proxy.mode),  # type: ignore
+            )
+
         self._config: Final = config
         self._hypercorn: Final = hypercorn
-        self._app: Final = App(engine)
+        self._app: Final = app
 
     @property
     def config(self) -> ServerConfig:
