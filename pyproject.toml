@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "ceres"
-version = "0.13.0"
+version = "0.13.1"
 description = "APL - Ceres"
 authors = ["Jake Ploskey <jploskey@uw.edu>"]
 include = ["./ceres/**/*.py", "./ceres/static/**/*", "./ceres/py.typed"]
