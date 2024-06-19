@@ -85,7 +85,7 @@ class BaseEntityManager[
         filter = self._apply_default_filter(filter, {"limit": 1})
         statement = update(Row).values(assign).returning(self._cls.Row)
         statement = filter.apply(statement, self._database.type)  # type: ignore
-        return await self._execute_and_get_one(statement, self._cls)
+        return await self._execute_and_get_scalar(statement, self._cls)
 
     async def delete_all(
         self,
@@ -109,7 +109,7 @@ class BaseEntityManager[
         filter = self._apply_default_filter(filter, {**kwargs, "limit": 1})
         statement = delete(Row).returning(Row)
         statement = filter.apply(statement, self._database.type)
-        return await self._execute_and_get_one(statement, self._cls)
+        return await self._execute_and_get_scalar(statement, self._cls)
 
     async def count(
         self,
@@ -118,8 +118,13 @@ class BaseEntityManager[
     ) -> int:
         filter = self._apply_default_filter(filter, kwargs)
         statement = select(func.count())
-        statement = filter.apply(statement, self._database.type).order_by(None)
-        return await self._execute_and_get_one(statement, int) or 0
+        statement = filter.apply(
+            statement,
+            self._database.type,
+            ignore_order=True,
+        )
+
+        return await self._execute_and_get_scalar(statement, int) or 0
 
     async def _execute_and_iter[T: BaseEntity](
         self,
@@ -146,7 +151,7 @@ class BaseEntityManager[
 
         return results
 
-    async def _execute_and_get_one[T](
+    async def _execute_and_get_scalar[T](
         self,
         statement: Select[tuple[Any, ...]] | Update | Delete,
         parse: type[T],

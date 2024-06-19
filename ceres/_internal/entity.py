@@ -296,23 +296,27 @@ class BaseEntityFilter[
         self,
         statement: StatementT,
         dialect: DatabaseType,
+        *,
+        ignore_where: bool = False,
+        ignore_order: bool = False,
     ) -> StatementT:
-        columns = self._get_row_cls()
-        pk = columns.get_primary_key_columns()
-        pks = (
-            select(*pk)
-            .where(*self._get_where(dialect))
-            .order_by(*self._get_order_by())
-            .limit(self.limit)
-            .offset(self.offset)
-        )
+        where = () if ignore_where else self._get_where(dialect)
+        order_by = () if ignore_order else self._get_order_by()
+        limit = self.limit
+        offset = self.offset
+
+        if isinstance(statement, Select) and limit is None and offset is None:
+            return statement.select_from(self._get_row_cls()).where(*where).order_by(*order_by)
+
+        pk = self._get_row_cls().get_primary_key_columns()
+        pks = select(*pk).where(*where).order_by(*order_by).limit(limit).offset(offset)
 
         pk = pk[0] if len(pk) == 1 else tuple_(*pk)
 
         if isinstance(statement, Update | Delete):
             return statement.where(pk.in_(pks))
 
-        return statement.where(pk.in_(pks)).order_by(*self._get_order_by())
+        return statement.where(pk.in_(pks)).order_by(*order_by)
 
 
 class BaseEntityCreate(ImmutableDataObject):
