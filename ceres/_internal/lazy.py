@@ -4,7 +4,7 @@ import sys
 from contextlib import contextmanager
 from threading import Lock
 from types import ModuleType, UnionType
-from typing import TYPE_CHECKING, Any, Mapping, Sequence, overload, override
+from typing import TYPE_CHECKING, Any, Iterable, Mapping, Sequence, overload, override, Final
 
 _undefined = object()
 
@@ -102,21 +102,22 @@ def _get_cached_lazy_proxy(
     return proxy
 
 
-_original__import__ = __import__
-_lazy_importing_modules: set[str] = set()
-_lazy_importing_modules_lock = Lock()
+_original__import__: Final = __import__
+_lazy_importing_modules: Final[set[str]] = set()
+_lazy_importing_modules_lock: Final = Lock()
+_LAZY_EXPORTS_NAME: Final = "__lazy_exports__"
 
 
 def __lazy_import__(
     name: str,
-    globals: Mapping[str, object] | None | None = None,
+    globals: Mapping[str, object] | None = None,
     locals: Mapping[str, object] | None = None,
     fromlist: Sequence[str] | None = None,
     level: int = 0,
 ) -> ModuleType | LazyProxy:
     if locals is not None:
-        caller = locals.get("__name__")
-        if caller is not None and caller in _lazy_importing_modules:
+        module__name__ = locals.get("__name__")
+        if module__name__ is not None and module__name__ in _lazy_importing_modules:
             return _get_cached_lazy_proxy(name, tuple(fromlist or ()))
 
     return _original__import__(
@@ -128,59 +129,57 @@ def __lazy_import__(
     )
 
 
-def _setup_lazy_exports(__name__: str):
-    lazy_attr_prefix = "__lazy__"
-    lazy_lock_name = "__lazy_setup_lock__"
-
-    module = sys.modules[__name__]
-
-    attrs = module.__dict__
-    if lazy_lock_name not in attrs:
-        attrs.setdefault(lazy_lock_name, Lock())
-
-    with attrs[lazy_lock_name]:
-        __all__ = list(attrs.get("__all__", []))
-        attrs["__all__"] = __all__
-
-        for key, value in list(attrs.items()):
-            if key.startswith(lazy_attr_prefix):
-                continue
-
-            if isinstance(value, LazyProxy):
-                __all__.append(key)
-                del attrs[key]
-                attrs[lazy_attr_prefix + key] = value
-
-        def __lazy_getattr__(name: str) -> object:
-            lazy_key = lazy_attr_prefix + name
-            if lazy_key in attrs:
-                value = unlazy(attrs[lazy_key])
-                attrs[name] = value
-                attrs.pop(lazy_key, None)
-                return value
-
-            raise AttributeError(f"module {name} has no attribute {name}")
-
-        module.__getattr__ = __lazy_getattr__
-
-
 @contextmanager
-def lazy_imports(__name__: str, *, export: bool = False):
+def lazy_imports(module__name__: str, /, *, export: bool = False):
     with _lazy_importing_modules_lock:
-        _lazy_importing_modules.add(__name__)
+        _lazy_importing_modules.add(module__name__)
         if __builtins__.get("__import__") is not __lazy_import__:
             __builtins__["__import__"] = __lazy_import__
+
+    module = sys.modules[module__name__]
+    original_names: frozenset[str] = frozenset(module.__dict__) if export else frozenset()
 
     try:
         yield
     finally:
         with _lazy_importing_modules_lock:
-            _lazy_importing_modules.discard(__name__)
+            module__dict__ = module.__dict__
+            _lazy_importing_modules.discard(module__name__)
             if not _lazy_importing_modules:
                 __builtins__["__import__"] = _original__import__
 
-    if export:
-        _setup_lazy_exports(__name__)
+        if export:
+            added_names = set(module__dict__) - original_names
+            module__lazy_exports__: dict[str, LazyProxy] = module.__dict__.setdefault(
+                _LAZY_EXPORTS_NAME, {}
+            )
+
+            __all__: list[str] = module__dict__.setdefault("__all__", [])
+            if not isinstance(__all__, list):
+                __all__ = list(__all__) if isinstance(__all__, Iterable) else []
+                module__dict__["__all__"] = __all__
+
+            for name in added_names:
+                value = module__dict__[name]
+                if isinstance(value, LazyProxy):
+                    module__lazy_exports__[name] = value
+                    del module__dict__[name]
+                    __all__.append(name)
+
+            def __lazy_getattr__(name: str) -> object:
+                module = sys.modules[module__name__]
+                module__dict__ = module.__dict__
+                module__lazy_exports__: dict[str, LazyProxy] | None = module__dict__.get(
+                    _LAZY_EXPORTS_NAME
+                )
+                if module__lazy_exports__ is not None:
+                    proxy = module__lazy_exports__.get(name)
+                    if proxy is not None:
+                        return module__dict__.setdefault(name, proxy.__proxy_get__())
+
+                raise AttributeError(f"module {module__name__} has no attribute {name}")
+
+            module__dict__["__getattr__"] = __lazy_getattr__
 
 
 @overload
