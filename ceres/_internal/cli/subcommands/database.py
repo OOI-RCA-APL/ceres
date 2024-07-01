@@ -213,7 +213,7 @@ async def ddl(*, context: CLIContext) -> None:
     """
     Show DDL commands used to initialize the database.
     """
-    async with use_database(context, require_initialized=False) as database:
+    async with use_database(context, require_initialized=False, require_connect=False) as database:
         for statement in database.ddl:
             write(statement, to="stdout")
 

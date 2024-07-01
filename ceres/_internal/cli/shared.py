@@ -274,21 +274,23 @@ async def use_database(
     context: CLIContext,
     *,
     require_initialized: bool = True,
+    require_connect: bool = True,
 ):
     from ceres.database import Database
 
     config = await use_config_meta(context)
     database = Database(config.database)
 
-    try:
-        async with database.connect():
-            pass
-    except Exception as exception:
-        raise CLICommandFailed(f"Failed to connect to database: {exception}")
+    if require_connect:
+        try:
+            async with database.connect():
+                pass
+        except Exception as exception:
+            raise CLICommandFailed(f"Failed to connect to database: {exception}")
 
-    if require_initialized:
-        if not await database.initialized():
-            raise CLICommandFailed("Database appears uninitialized, exiting.")
+        if require_initialized:
+            if not await database.initialized():
+                raise CLICommandFailed("Database appears uninitialized, exiting.")
 
     async with database:
         yield database
