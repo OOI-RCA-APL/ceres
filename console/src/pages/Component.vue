@@ -3,12 +3,12 @@ import { Address } from '@/api/address'
 import { useEngine } from '@/api/engine'
 import FullPage from '@/components/FullPage.vue'
 import Interface from '@/components/Interface.vue'
-import ItemView from '@/components/ItemView.vue'
 import Panel from '@/components/Panel.vue'
 import PanelContainer from '@/components/PanelContainer.vue'
 import PanelGroup from '@/components/PanelGroup.vue'
 import PanelTab from '@/components/PanelTab.vue'
 import Procedures from '@/components/Procedures.vue'
+import RecordView from '@/components/RecordView.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import { useInterfaceContext } from '@/interface'
 
@@ -64,7 +64,7 @@ const resizablePanelProps = {
         name="Messages"
         :persist="`components/${component.address}/messages-panel-container`"
       >
-        <item-view
+        <record-view
           :address
           class="full-height"
           :show-command-input="component.roles.includes('connection')"
@@ -78,7 +78,7 @@ const resizablePanelProps = {
         name="Alerts"
         :persist="`components/${component.address}/alerts-panel-container`"
       >
-        <item-view :address class="full-height" title="Alerts" type="alert" />
+        <record-view :address class="full-height" title="Alerts" type="alert" />
       </panel-container>
       <panel-container
         container-class="q-pa-sm"
@@ -86,7 +86,7 @@ const resizablePanelProps = {
         name="Logs"
         :persist="`components/${component.address}/log-entries-panel-container`"
       >
-        <item-view :address class="full-height" title="Logs" type="log-entry" />
+        <record-view :address class="full-height" title="Logs" type="log-entry" />
       </panel-container>
       <panel-group
         v-if="executors.length"

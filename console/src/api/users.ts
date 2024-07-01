@@ -1,5 +1,5 @@
 import { useClient } from '@/api/client'
-import { UserFilter } from '@/api/filter'
+import { EntityFilter, UUIDEntityModel } from '@/api/entity'
 import { defineStore } from 'pinia'
 import Zod from 'zod'
 
@@ -7,13 +7,23 @@ export type UserRole = Zod.infer<typeof UserRoleModel>
 export const UserRoleModel = Zod.enum(['viewer', 'operator', 'admin'])
 
 export type User = Zod.infer<typeof UserModel>
-export const UserModel = Zod.object({
-  id: Zod.string(),
+export const UserModel = UUIDEntityModel.extend({
   username: Zod.string(),
   email: Zod.string(),
   role: UserRoleModel,
   disabled: Zod.boolean(),
 })
+
+export type UserOrder = 'username' | '-username' | 'email' | '-email'
+
+export type UserFilter = EntityFilter &
+  Partial<{
+    username: string | string[] | null
+    email: string | string[] | null
+    role: UserRole | UserRole[] | null
+    disabled: boolean | null
+    order: UserOrder | null
+  }>
 
 export const useUsers = defineStore('users', () => {
   const client = useClient()

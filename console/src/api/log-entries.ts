@@ -1,19 +1,23 @@
-import { Address } from '@/api/address'
 import { StreamOptions, useClient } from '@/api/client'
-import { LogEntryFilter } from '@/api/filter'
-import { DateTimeModel, LevelModel } from '@/api/shared'
+import { RecordFilter, RecordModel } from '@/api/entity'
+import { Level, LevelModel } from '@/api/shared'
 import { defineStore } from 'pinia'
 import { MaybeRef, computed, unref } from 'vue'
 import Zod from 'zod'
 
 export type LogEntry = Zod.infer<typeof LogEntryModel>
-export const LogEntryModel = Zod.object({
-  id: Zod.string(),
-  address: Zod.string().transform(Address.parse),
-  timestamp: DateTimeModel,
+export const LogEntryModel = RecordModel.extend({
   level: LevelModel,
   content: Zod.string(),
 })
+
+export type LogEntryFilter = RecordFilter &
+  Partial<{
+    level: Level | Level[] | null
+    content_contains: string | null
+    content_prefix: string | null
+    content_suffix: string | null
+  }>
 
 export const useLogEntries = defineStore('log-entries', () => {
   const client = useClient()

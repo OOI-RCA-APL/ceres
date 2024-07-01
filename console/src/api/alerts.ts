@@ -1,20 +1,24 @@
-import { Address } from '@/api/address'
 import { StreamOptions, useClient } from '@/api/client'
-import { AlertFilter } from '@/api/filter'
-import { DateTimeModel, LevelModel } from '@/api/shared'
+import { RecordFilter, RecordModel } from '@/api/entity'
+import { Level, LevelModel } from '@/api/shared'
 import { defineStore } from 'pinia'
 import { MaybeRef, computed, unref } from 'vue'
 import Zod from 'zod'
 
 export type Alert = Zod.infer<typeof AlertModel>
-export const AlertModel = Zod.object({
-  id: Zod.string(),
-  address: Zod.string().transform(Address.parse),
-  timestamp: DateTimeModel,
+export const AlertModel = RecordModel.extend({
   level: LevelModel,
   code: Zod.string(),
   info: Zod.record(Zod.string(), Zod.unknown()).default(() => ({})),
 })
+
+export type AlertFilter = RecordFilter &
+  Partial<{
+    level: Level | Level[] | null
+    code_contains: string | null
+    code_prefix: string | null
+    code_suffix: string | null
+  }>
 
 export const useAlerts = defineStore('alerts', () => {
   const client = useClient()
