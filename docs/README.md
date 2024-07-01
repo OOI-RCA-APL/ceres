@@ -47,11 +47,11 @@ database:
 # Projects can declare any number of components, nested or otherwise.
 components:
   - name: counter-a
-    component: example.counter.Counter # Specify the contained component class by providing an import path.
+    class: example.counter.Counter # Specify the component class by providing an import path.
     arguments: # These values are passed to the component's constructor.
       initial: 5 # Start counting from 5.
   - name: counter-b
-    component: example.counter.Counter
+    class: example.counter.Counter
     arguments:
       initial: 100 # Start counting from 100.
       delta: -5 # Decrement by 5 every second.
