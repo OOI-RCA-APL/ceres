@@ -543,7 +543,7 @@ class BaseRecordRow(BaseUUIDEntityRow, BaseItemRow, kw_only=True):
         )
 
 
-BaseRecordField = BaseUUIDEntityField | Literal["timestamp"]
+BaseRecordField = BaseUUIDEntityField | BaseItemField | Literal["timestamp"]
 BaseRecordOrder = (
     BaseUUIDEntityOrder
     | BaseItemOrder
