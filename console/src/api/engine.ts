@@ -68,6 +68,7 @@ export const useEngine = defineStore('engine', () => {
     })
 
     await auth.refresh()
+    await components.refetch()
 
     return result
   }
