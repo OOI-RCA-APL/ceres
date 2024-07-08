@@ -309,44 +309,55 @@ class Engine(Node):
 
             actions = self.get_apply_actions(config)
             if actions.server is None and actions.database is None and not actions.components:
-                self.log.info("Configuration appears up-to-date.")
+                if not silent:
+                    self.log.info("Configuration appears up-to-date.")
+
                 self._loaded = True
                 return actions
 
-            self.log.debug("Actions pending: " + jsonify(actions))
+            if not silent:
+                self.log.debug("Actions pending: " + jsonify(actions))
+
             if actions.server is not None:
-                self.log.info(f"Server configuration will be {verb}ed.")
+                if not silent:
+                    self.log.info(f"Server configuration will be {verb}ed.")
+
                 try:
                     await self.__stop_server()
                     self.__start_server()
-                    self.log.info(f"Server configuration {verb}ed successfully.")
+                    if not silent:
+                        self.log.info(f"Server configuration {verb}ed successfully.")
                 except Exception:
                     self.log.error(
                         f"An issue occurred while {verb}ing the server: {traceback.format_exc()}"
                     )
 
             if actions.database is not None:
-                self.log.info(f"Database configuration will be {verb}ed.")
+                if not silent:
+                    self.log.info(f"Database configuration will be {verb}ed.")
                 try:
                     if self._root is not None:
                         await self._root.stop()
 
                     await self._database.dispose()
                     self._database = Database(config.database)
-                    self.log.info(f"Database configuration {verb}ed successfully.")
+                    if not silent:
+                        self.log.info(f"Database configuration {verb}ed successfully.")
                 except Exception:
                     self.log.error(
                         f"An issue occurred while reloading the database: {traceback.format_exc()}"
                     )
 
             if actions.components:
-                self.log.info(f"Component configurations will be {verb}ed.")
+                if not silent:
+                    self.log.info(f"Component configurations will be {verb}ed.")
 
                 try:
                     root = await self._execute_component_actions(
                         util.as_component(self._root),
                         config.root,
                         actions.components,
+                        silent=silent,
                     )
 
                     if root is not None:
@@ -354,7 +365,8 @@ class Engine(Node):
                     else:
                         self.root = None
 
-                    self.log.info(f"Component configurations {verb}ed successfully.")
+                    if not silent:
+                        self.log.info(f"Component configurations {verb}ed successfully.")
                 except Exception:
                     self.log.error(
                         f"An issue occurred while {verb}ing components: "
@@ -378,7 +390,9 @@ class Engine(Node):
 
             self._loaded = True
 
-        self.log.info(f"{verb.capitalize()} completed.")
+        if not silent:
+            self.log.info(f"{verb.capitalize()} completed.")
+
         return actions
 
     def get_apply_actions(self, config: Config) -> EngineActions:
@@ -462,6 +476,8 @@ class Engine(Node):
         root_component: Component | None,
         root_config: ComponentConfig,
         actions: Sequence[EngineComponentAction],
+        *,
+        silent: bool = False,
     ) -> Component | None:
         for action in actions:
             if root_component is not None:
@@ -475,66 +491,86 @@ class Engine(Node):
 
             match action:
                 case CreateComponentEngineAction():
-                    self.log.info(f"Creating '{action.address}'...")
+                    if not silent:
+                        self.log.info(f"Creating '{action.address}'...")
+
                     if config is None:
-                        self.log.warning(
-                            f"Component at '{action.address}' not found in configuration. Skipping..."
-                        )
+                        if not silent:
+                            self.log.warning(
+                                f"Component at '{action.address}' not found in configuration. Skipping..."
+                            )
+
                         continue
 
                     if component is not None:
-                        self.log.warning(
-                            f"Component at '{action.address}' already exists. Skipping..."
-                        )
+                        if not silent:
+                            self.log.warning(
+                                f"Component at '{action.address}' already exists. Skipping..."
+                            )
+
                         continue
 
                     match config.create(parent=parent):
                         case Ok(component):
                             for current in component.system.get_components(inclusive=True):
-                                self.log.info(
-                                    f"Created '{current.system.address}' as instance of {type(current)}."
-                                )
+                                if not silent:
+                                    self.log.info(
+                                        f"Created '{current.system.address}' as instance of {type(current)}."
+                                    )
                         case Fail(errors):
-                            self.log.error(
-                                f"Failed to create '{action.address}'. Errors: {jsonify(errors, indent=2)}"
-                            )
+                            if not silent:
+                                self.log.error(
+                                    f"Failed to create '{action.address}'. Errors: {jsonify(errors, indent=2)}"
+                                )
                 case RecreateComponentEngineAction():
                     self.log.info(f"Recreating '{action.address}'...")
                     if config is None:
-                        self.log.warning(
-                            f"Component at '{action.address}' not found in configuration. Skipping..."
-                        )
+                        if not silent:
+                            self.log.warning(
+                                f"Component at '{action.address}' not found in configuration. Skipping..."
+                            )
+
                         continue
 
                     if component is not None:
-                        self.log.info(f"Stopping '{action.address}'...")
+                        if not silent:
+                            self.log.info(f"Stopping '{action.address}'...")
+
                         await component.system.stop()
                         component.system.detach()
                     else:
-                        self.log.warning(
-                            f"Component at '{action.address}' does not exist. Creating..."
-                        )
+                        if not silent:
+                            self.log.warning(
+                                f"Component at '{action.address}' does not exist. Creating..."
+                            )
 
                     match config.create(parent=parent):
                         case Ok(component):
                             for current in component.system.get_components(inclusive=True):
-                                self.log.info(
-                                    f"Recreated '{current.system.address}' as instance of {type(current)}."
-                                )
+                                if not silent:
+                                    self.log.info(
+                                        f"Recreated '{current.system.address}' as instance of {type(current)}."
+                                    )
                         case Fail(errors):
-                            self.log.error(
-                                f"Failed to recreate '{action.address}'. Errors: {jsonify(errors, indent=2)}"
-                            )
+                            if not silent:
+                                self.log.error(
+                                    f"Failed to recreate '{action.address}'. Errors: {jsonify(errors, indent=2)}"
+                                )
                 case RemoveComponentEngineAction():
                     if component is not None:
-                        self.log.info(f"Stopping '{action.address}'...")
+                        if not silent:
+                            self.log.info(f"Stopping '{action.address}'...")
+
                         await component.system.stop()
                         component.system.detach()
-                        self.log.info(f"Removed '{action.address}'.")
+
+                        if not silent:
+                            self.log.info(f"Removed '{action.address}'.")
                     else:
-                        self.log.warning(
-                            f"Component at {action.address} does not exist to remove. Skipping..."
-                        )
+                        if not silent:
+                            self.log.warning(
+                                f"Component at {action.address} does not exist to remove. Skipping..."
+                            )
 
             if action.address.is_root:
                 root_component = component
