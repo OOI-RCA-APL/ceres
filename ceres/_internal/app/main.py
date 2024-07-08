@@ -92,7 +92,11 @@ class App(FastAPI):
                     traceback.print_exc()
                     raise
 
-                return JSONResponse(error, status)
+                try:
+                    return JSONResponse(content=error, status_code=status)
+                except Exception:
+                    self.engine.log.error(traceback.format_exc())
+                    raise
             except Exception:
                 self.engine.log.error(traceback.format_exc())
                 raise
