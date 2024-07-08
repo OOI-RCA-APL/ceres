@@ -52,7 +52,6 @@ class AlertRow(BaseRecordRow, kw_only=True):
     def __get_table_args__(cls) -> tuple[SchemaItem, ...]:
         return (
             *super().__get_table_args__(),
-            Index(f"ix_{cls.__tablename__}__address", "address"),
             EnumConstraint("level", Level, f"ck_{cls.__tablename__}__level"),
             Index(
                 f"ix_{cls.__tablename__}__code",
