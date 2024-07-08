@@ -681,7 +681,7 @@ class ComponentSystem(Node):
             __with_name__ = util.randstr(ascii_lowercase, 8)
 
         self._name = __with_name__
-        self._config: Final[ComponentConfig | None] = __with_config__
+        self.__config__: ComponentConfig | None = __with_config__
         self._referencers: Final[OrderedWeakSet[ComponentSystem]] = OrderedWeakSet()
         self._children: Final[dict[Name, ComponentSystem]] = {}
         self._parent: WeakRef[ComponentSystem] | None = None
@@ -691,8 +691,8 @@ class ComponentSystem(Node):
         self._component: Final[Component] = component
         self._component.__bind__(self)
 
-        if self._config is not None:
-            for job in self._config.jobs:
+        if self.__config__ is not None:
+            for job in self.__config__.jobs:
                 self.jobs.add(job)
 
         self.sync_references()
@@ -766,7 +766,7 @@ class ComponentSystem(Node):
         """
         The configuration of the component, if available.
         """
-        return self._config
+        return self.__config__
 
     @property
     @override
@@ -947,7 +947,7 @@ class ComponentSystem(Node):
             component.system.__on_tree_change()
 
     def __on_tree_change(self) -> None:
-        self.__sync_child_order()
+        self.sync_child_order()
         self.sync_references()
 
     def sync_references(self) -> tuple[list[Reference], list[Reference]]:
@@ -1422,12 +1422,12 @@ class ComponentSystem(Node):
             self.events.emit(ProcedureExceptionEvent, procedure=procedure, traceback=traceback)
             raise Failure(ProcedureInternalError(traceback=list(traceback)))
 
-    def __sync_child_order(self) -> None:
-        if self._config is None:
+    def sync_child_order(self) -> None:
+        if self.__config__ is None:
             return
 
         order: list[ComponentSystem] = []
-        for config in self._config.components:
+        for config in self.__config__.components:
             component = self._children.get(config.name)
             if component is not None:
                 order.append(component)

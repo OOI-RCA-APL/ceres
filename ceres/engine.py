@@ -361,6 +361,16 @@ class Engine(Node):
                         f"{traceback.format_exc()}"
                     )
 
+            for component in self.get_components():
+                component_config = config.get_component(component.system.address)
+                if component_config is not None and component.system.config != component_config:
+                    self.log.info(
+                        f"Assigning new configuration in-place for '{component.system.address}'."
+                    )
+                    component.system.__config__ = component_config
+
+                component.system.sync_child_order()
+
             for address in running:
                 component = self.get_component(address)
                 if component is not None:
