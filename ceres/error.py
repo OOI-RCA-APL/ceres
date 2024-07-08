@@ -292,7 +292,7 @@ DatabaseError = (
 
 
 class __BaseConfigError(Error, ABC):
-    __error_status_code__: ClassVar[int] = HTTP_500_INTERNAL_SERVER_ERROR
+    __error_status_code__: ClassVar[int] = HTTP_400_BAD_REQUEST
 
 
 class ConfigInvalidSourceError(__BaseConfigError):
