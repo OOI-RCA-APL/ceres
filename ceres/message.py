@@ -69,7 +69,7 @@ class MessageRow(BaseRecordRow, kw_only=True):
             Index(f"ix_{cls.__tablename__}__content", "content").ddl_if("sqlite"),
             Index(
                 f"ix_{cls.__tablename__}__content",
-                func.ceres_decode_latin1("content").label("decoded_content"),
+                func.ceres_decode_latin1(cls.content).label("decoded_content"),
                 postgresql_ops={"decoded_content": "gin_trgm_ops"},
                 postgresql_using="gin",
             ).ddl_if("postgresql"),
