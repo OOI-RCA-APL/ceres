@@ -108,7 +108,7 @@ async def _run(addresses: Sequence[AddressSelector], *, config_path: Path, watch
                     pass
                 case Fail() as fail:
                     raise CLICommandFailed(
-                        f"Failed to load engine with configuration. {jsonify(fail, indent=2)}"
+                        f"Failed to load engine with current configuration. {jsonify(fail, indent=2)}"
                     )
 
             exiting = AsyncEvent()
