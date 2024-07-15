@@ -12,7 +12,6 @@ import { usePreferences } from '@/preferences'
 import { displayDuration } from '@/time'
 import moment from 'moment'
 import { LocalStorage } from 'quasar'
-import { watchEffect } from 'vue'
 import { useRoute } from 'vue-router'
 
 const engine = useEngine()
@@ -21,10 +20,6 @@ const notify = useNotify()
 const dialogs = useDialogs()
 const route = useRoute()
 const preferences = usePreferences()
-
-watchEffect(() => {
-  console.log(engine.components.root?.name)
-})
 
 function clearLocalStorage() {
   dialogs
@@ -117,6 +112,19 @@ function promptReload() {
             </q-item-section>
             <q-item-section avatar>
               <q-item-label>Dashboard</q-item-label>
+            </q-item-section>
+          </q-item>
+          <q-item
+            v-if="engine.auth.isOperator"
+            :active="route.fullPath === '/operations'"
+            clickable
+            to="/operations"
+          >
+            <q-item-section avatar>
+              <q-icon :name="icons.operations" />
+            </q-item-section>
+            <q-item-section avatar>
+              <q-item-label>Operations</q-item-label>
             </q-item-section>
           </q-item>
           <q-item v-if="engine.auth.isAdmin" clickable>

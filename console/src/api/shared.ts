@@ -11,7 +11,7 @@ export const NonEmptyStrModel = Zod.string().regex(/.+/)
 export const DateTimeModel = Zod.string().refine((value) => moment.utc(value).isValid())
 export const TimeDeltaModel = Zod.string().refine((value) => moment.duration(value).isValid())
 
-export type Item = Message | Alert | LogEntry
+export type Record = Message | Alert | LogEntry
 
 export type Connectivity = Zod.infer<typeof ConnectivityModel>
 export const ConnectivityModel = Zod.enum(['disconnected', 'connecting', 'connected'])

@@ -21,6 +21,7 @@ const icons = {
   dashboard: 'space_dashboard', // Material Icons
   delete: 'mdi-delete',
   developer: 'construction', // Material Icons
+  operations: 'mdi-cog-transfer',
   edit: 'mdi-pencil',
   help: 'mdi-help',
   json: 'mdi-code-json',
