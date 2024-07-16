@@ -2,14 +2,13 @@
 import { Address } from '@/api/address'
 import { Alert } from '@/api/alerts'
 import { useEngine } from '@/api/engine'
+import { RecordFilter } from '@/api/entity'
 import { LogEntry } from '@/api/log-entries'
 import { Message } from '@/api/messages'
 import { Record } from '@/api/shared'
-import CommandInput from '@/components/CommandInput.vue'
 import RecordViewAlert from '@/components/RecordViewAlert.vue'
 import RecordViewLogEntry from '@/components/RecordViewLogEntry.vue'
 import RecordViewMessage from '@/components/RecordViewMessage.vue'
-import SectionCard from '@/components/SectionCard.vue'
 import icons from '@/icons'
 import { provideRecordViewContext } from '@/record-view'
 import { debouncedComputed } from '@/utilities'
@@ -17,25 +16,21 @@ import { useWindowFocus } from '@vueuse/core'
 import _ from 'lodash'
 import moment, { Moment } from 'moment'
 import { debounce, QVirtualScroll } from 'quasar'
-import { computed, nextTick, onMounted, reactive, VNodeRef, watch, watchEffect } from 'vue'
+import { computed, nextTick, onMounted, watch, watchEffect } from 'vue'
 
-const {
-  title = undefined,
-  address: passedAddress,
-  type,
-  showCommandInput = false,
-} = defineProps<{
-  title?: string
+type ColumnDefinition = {
+  label: string
+  name: string
+  filtered?: boolean
+}
+
+const { type, filter } = defineProps<{
   containerClass?: string | null
   address?: Address | null
   type: 'alert' | 'message' | 'log-entry'
-  showCommandInput?: boolean
+  columns: ColumnDefinition[]
+  filter: RecordFilter
 }>()
-
-const selectedAddress = $ref(passedAddress ?? null)
-const selector = $computed(() =>
-  selectedAddress == null ? new Address('all') : new Address(selectedAddress.toString() + ':all')
-)
 
 const engine = useEngine()
 // const notify = useNotify()
@@ -62,45 +57,24 @@ const useStream = $computed(() => {
   }
 })
 
+let filterKey = $ref(0)
+watch(
+  computed(() => JSON.stringify(filter)),
+  () => {
+    filterKey++
+  }
+)
+
 const context = provideRecordViewContext()
 
 const recordsVisible = $computed(() => Math.ceil(containerInfo.clientHeight / recordHeight))
 const recordHeight = 24
-const recordLoadSizeInitial = $computed(() => Math.min(recordsVisible + 40, 1000))
-const recordLoadSize = $computed(() => Math.min(recordsVisible + 25, 1000))
+const recordLoadSizeInitial = $computed(() => Math.min(recordsVisible + 50, 1000))
+const recordLoadSize = $computed(() => Math.min(recordsVisible + 50, 1000))
 const recordSliceSize = 250
 const recordCullThreshold = $computed(() => recordsVisible + 500)
 const recordCullCount = $computed(() => recordsVisible + 100)
 const recordsUntilNearTop = 30
-
-const possibleSearchFields = $computed(() => {
-  const shared = ['timestamp', 'address']
-  switch (type) {
-    case 'message':
-      return [...shared, 'direction', 'content']
-    case 'alert':
-      return [...shared, 'code']
-    case 'log-entry':
-      return [...shared, 'content']
-  }
-})
-
-const defaultSearchField = $computed(() => {
-  switch (type) {
-    case 'message':
-      return 'content'
-    case 'alert':
-      return 'code'
-    case 'log-entry':
-      return 'content'
-  }
-})
-
-const searchFilter = reactive({ search: '', field: defaultSearchField as string })
-let searchFilterKey = $ref(0)
-watch(searchFilter, () => {
-  searchFilterKey++
-})
 
 let scroll = $shallowRef<QVirtualScroll | null>(null)
 const scrollElement = $computed(() => {
@@ -128,9 +102,6 @@ let lastLoadedCurrent = $shallowRef<Moment | null>(null)
 const earliestRecordTimestamp = $computed(() => records[0]?.timestamp ?? null)
 
 const isWindowFocused = $(useWindowFocus())
-const isShowingAll = $computed(
-  () => searchFilter.search == null || searchFilter.search.length === 0
-)
 
 let isExhausted = $ref(false)
 let isLoadingPrevious = $ref(false)
@@ -265,18 +236,16 @@ async function appendRecords(appended: Record[]) {
 async function loadPrevious() {
   isLoadingPrevious = true
 
-  const key = searchFilterKey
+  const key = filterKey
   try {
     const results: Record[] = await get({
-      address: selector,
-      search: searchFilter.search === '' ? undefined : searchFilter.search,
-      search_field: searchFilter.field,
-      before: earliestRecordTimestamp == null ? undefined : earliestRecordTimestamp,
+      ...filter,
+      before: earliestRecordTimestamp == null ? filter.before : earliestRecordTimestamp,
       order: '-timestamp',
       limit: recordLoadSize,
     })
 
-    if (key !== searchFilterKey) {
+    if (key !== filterKey) {
       return
     }
 
@@ -294,17 +263,15 @@ async function loadCurrent() {
   records = []
   recordsStreamed = []
 
-  const key = searchFilterKey
+  const key = filterKey
   try {
     const results: Record[] = await get({
-      address: selector,
-      search: searchFilter.search === '' ? undefined : searchFilter.search,
-      search_field: searchFilter.field,
+      ...filter,
       order: '-timestamp',
       limit: recordLoadSizeInitial,
     })
 
-    if (key !== searchFilterKey) {
+    if (key !== filterKey) {
       return
     }
 
@@ -347,118 +314,26 @@ onMounted(async () => {
 
 const debouncedLoadCurrent = debounce(loadCurrent, 750)
 
-watch($$(searchFilterKey), async () => {
+watch($$(filterKey), async () => {
   records = []
   recordsStreamed = []
   isLoadingCurrent = true
   debouncedLoadCurrent()
 })
 
-const debouncedFilter = debouncedComputed(() => _.cloneDeep(searchFilter), 750)
+const debouncedFilter = debouncedComputed(() => _.cloneDeep(filter), 750)
 
-useStream(
-  computed(() => ({
-    address: selector,
-    search: debouncedFilter.value.search === '' ? undefined : debouncedFilter.value.search,
-  })),
-  async (record: Record) => {
-    if (isLoadingCurrent) {
-      recordsStreamed = [...recordsStreamed, record]
-    } else {
-      await appendRecords([record])
-    }
-  }
-)
-
-async function onSend(data: string) {
-  console.log(data)
-  // const result = await engine.messages.send(, data)
-  // if (result.ok) {
-  //   return
-  // }
-  // notify.error(`Message failed to send. ${JSON.stringify(result.error)}`)
-}
-
-// let columnWidths = $ref<number[]>([])
-let latestRecordLoaded = $ref<VNodeRef | null>(null)
-
-watch(
-  computed(() => latestRecordLoaded),
-  (element) => {
-    // if (element == null) {
-    //   return
-    // }
-
-    console.log(element.element.element)
-    console.log(element.element.element)
-  }
-)
-
-const columns = $computed(() => {
-  const base = [
-    { label: 'Timestamp', field: 'timestamp' },
-    { label: 'Address', field: 'address' },
-  ]
-  switch (type) {
-    case 'message':
-      return [
-        ...base,
-        { label: 'Direction', field: 'direction' },
-        { label: 'Content', field: 'content' },
-      ]
-    case 'alert':
-      return [
-        ...base,
-        { label: 'Level', field: 'level' },
-        { label: 'Code', field: 'code' },
-        { label: 'Info', field: 'info' },
-      ]
-    case 'log-entry':
-      return [...base, { label: 'Level', field: 'level' }, { label: 'Content', field: 'Content' }]
+useStream(debouncedFilter, async (record: Record) => {
+  if (isLoadingCurrent) {
+    recordsStreamed = [...recordsStreamed, record]
+  } else {
+    await appendRecords([record])
   }
 })
 </script>
 
 <template>
-  <section-card :title>
-    <template #header-append>
-      <q-space class="gt-sm" />
-      <div :class="[$style.searchInputContainer, 'col-grow q-ml-sm']">
-        <q-input
-          v-model="searchFilter.search"
-          :class="$style.searchInput"
-          dense
-          input-class="monospace-sm"
-          outlined
-          placeholder="Search"
-          spellcheck="false"
-        >
-          <template #prepend>
-            <q-icon name="search" size="20px" />
-          </template>
-          <template #append>
-            <q-badge clickable>
-              {{ searchFilter.field }}
-              <q-menu anchor="bottom right" class="no-shadow" :offset="[0, 5]" self="top right">
-                <q-list bordered dense separator>
-                  <q-item
-                    v-for="field in possibleSearchFields"
-                    :key="field"
-                    :active="searchFilter.field === field"
-                    :class="$style.menuItem"
-                    clickable
-                    dense
-                    @click="searchFilter.field = field"
-                  >
-                    {{ field }}
-                  </q-item>
-                </q-list>
-              </q-menu>
-            </q-badge>
-          </template>
-        </q-input>
-      </div>
-    </template>
+  <q-card bordered class="column q-pa-none" flat>
     <div>
       <q-markup-table
         :ref="(table: any) => (tableElement = table?.$el ?? null)"
@@ -474,11 +349,28 @@ const columns = $computed(() => {
           <q-tr>
             <q-td
               v-for="(column, i) in columns"
-              :key="column.field"
-              :class="$style.headerColumn"
+              :key="column.name"
+              :class="[
+                $style.headerColumn,
+                $slots['column-filter-' + column.name] && 'cursor-pointer',
+              ]"
               :style="i < columns.length - 1 ? { width: `${context.getColumnWidth(i)}px` } : {}"
             >
-              {{ column.label }}
+              <span>
+                {{ column.label }}
+              </span>
+              <span v-if="column.filtered" class="text-primary"> *</span>
+              <q-menu
+                v-if="$slots['column-filter-' + column.name]"
+                anchor="top left"
+                class="no-shadow"
+                :offset="[0, 4]"
+                self="bottom left"
+              >
+                <q-card bordered class="q-pa-xs" flat>
+                  <slot :name="'column-filter-' + column.name" />
+                </q-card>
+              </q-menu>
             </q-td>
           </q-tr>
         </q-th>
@@ -500,12 +392,7 @@ const columns = $computed(() => {
         </div>
         <span v-else-if="records.length === 0" key="empty" class="absolute-center">
           <span :class="[$style.emptyMessageText, 'text-italic']">
-            <template v-if="isShowingAll">
-              No {{ type.replace('log-entry', 'log entrie') }}s were found.
-            </template>
-            <template v-else>
-              No matching {{ type.replace('log-entry', 'log entrie') }}s were found.
-            </template>
+            No matching {{ type.replace('log-entry', 'log entrie') }}s were found.
           </span>
         </span>
       </transition-group>
@@ -549,11 +436,7 @@ const columns = $computed(() => {
         </q-btn>
       </transition>
     </div>
-    <div v-if="type === 'message' && showCommandInput">
-      <q-separator />
-      <command-input v-if="address" :address @send="onSend" />
-    </div>
-  </section-card>
+  </q-card>
 </template>
 
 <style lang="scss" module>
@@ -571,6 +454,15 @@ const columns = $computed(() => {
 .headerColumn {
   padding: 2px 8px !important;
   text-align: left;
+  height: 22px;
+}
+
+.headerColumnFilter {
+  padding: 0 !important;
+  text-align: left;
+  height: 22px;
+  flex: 1;
+  flex-direction: row;
 }
 
 .virtualScrollContainer {

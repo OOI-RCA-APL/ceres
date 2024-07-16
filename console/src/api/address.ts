@@ -1,14 +1,26 @@
 import Zod from 'zod'
 
-export class Address {
-  private value: string
+const namePattern = '^[a-zA-Z_-][a-zA-Z0-9_-]*$'
+const name = namePattern.slice(1, -1)
+const modifier = ':(all|children|descendants)'
+const segment = `\\~(${modifier})?|@?[a-z-A-Z_\\-.]+(${modifier})?|@(${modifier})?|${modifier}`
 
-  constructor(value: string | Address) {
+const addressSelectorRegex = new RegExp(`^${segment}(\\|${segment})*$`)
+
+export class AddressSelector {
+  protected value: string
+
+  constructor(value: string | AddressSelector) {
+    value = value.toString().trim()
+    if (!new RegExp(addressSelectorRegex).test(value)) {
+      throw new Error(`invalid address selector: ${value}`)
+    }
+
     this.value = value.toString().trim()
   }
 
-  public static parse(address: string | Address): Address {
-    return new Address(address)
+  public static parse(address: string | AddressSelector): AddressSelector {
+    return new AddressSelector(address)
   }
 
   public valueOf(): string {
@@ -25,6 +37,25 @@ export class Address {
 
   public equals(other: string | Address): boolean {
     return other.valueOf() === this.value
+  }
+}
+
+export const AddressSelectorModel = Zod.string().transform(AddressSelector.parse)
+
+const addressRegex = new RegExp(`^~|@(${name}(\\.${name})*)*$`)
+
+export class Address extends AddressSelector {
+  constructor(value: string | AddressSelector) {
+    value = value.toString().trim()
+    if (!new RegExp(addressRegex).test(value)) {
+      throw new Error(`invalid address: ${value}`)
+    }
+
+    super(value)
+  }
+
+  public static parse(address: string | AddressSelector): Address {
+    return new Address(address)
   }
 
   public get isRoot(): boolean {
@@ -59,12 +90,12 @@ export class Address {
     return new Address(this.value + '.' + name)
   }
 
-  public all(): Address {
+  public all(): AddressSelector {
     if (this.value.endsWith(':all')) {
       return this
     }
 
-    return new Address(this.value + ':all')
+    return new AddressSelector(this.value + ':all')
   }
 }
 

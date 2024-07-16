@@ -1,4 +1,4 @@
-import { Address } from '@/api/address'
+import { AddressSelector } from '@/api/address'
 import { DateTimeModel } from '@/api/shared'
 import Zod from 'zod'
 
@@ -21,10 +21,10 @@ export type UUIDEntityFilter = EntityFilter & Partial<{ id: string | null }>
 
 export type Item = Zod.infer<typeof ItemModel>
 export const ItemModel = Zod.object({
-  address: Zod.string().transform(Address.parse),
+  address: Zod.string().transform(AddressSelector.parse),
 })
 
-export type ItemFilter = EntityFilter & Partial<{ address: Address | null }>
+export type ItemFilter = EntityFilter & Partial<{ address: AddressSelector | null }>
 
 export type Record = Zod.infer<typeof RecordModel>
 export const RecordModel = UUIDEntityModel.merge(ItemModel).extend({

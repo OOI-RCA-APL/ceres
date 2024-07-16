@@ -20,6 +20,7 @@ export type SchemaObject = BaseSchemaObject & {
   exclusiveMinimum?: number
   exclusiveMaximum?: number
   required?: string[]
+  optional?: boolean
   default?: Plain
   enum?: Plain[]
 }
@@ -319,6 +320,11 @@ export function useSchemaForm({ ...options }: SchemaFormOptions) {
   }
 
   function getRequired(path: SchemaPath): boolean {
+    const schema = getSchema(path)
+    if (schema != null && typeof schema === 'object' && schema.optional) {
+      return false
+    }
+
     const parent = getParentSchema(path)
     if (parent == null) {
       return true
