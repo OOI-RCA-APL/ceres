@@ -73,6 +73,6 @@ onBeforeUnmount(() => {
 }
 
 .address {
-  min-width: 62px;
+  min-width: 70px;
 }
 </style>
