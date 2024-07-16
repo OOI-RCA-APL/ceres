@@ -109,7 +109,7 @@ const columns = $computed(() => [
         />
       </div>
     </template>
-    <template #column-filter-code>
+    <template #column-filter-content>
       <div style="min-width: 300px">
         <div class="q-mb-xs">
           <schema-form-base
