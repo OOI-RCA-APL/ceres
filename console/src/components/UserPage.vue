@@ -231,14 +231,6 @@ form.load({
           <div class="q-gutter-sm row">
             <template v-if="form.state === 'viewing'">
               <q-btn
-                v-if="engine.auth.isAdmin && !isAccountPage"
-                class="col"
-                color="negative"
-                :icon="icons.delete"
-                label="Delete"
-                @click="promptDelete"
-              />
-              <q-btn
                 class="col"
                 color="primary"
                 :icon="icons.edit"
@@ -279,6 +271,14 @@ form.load({
                 icon="logout"
                 label="Sign Out"
                 @click="logout"
+              />
+              <q-btn
+                v-if="engine.auth.isAdmin && !isAccountPage"
+                class="col"
+                color="negative"
+                :icon="icons.delete"
+                label="Delete"
+                @click="promptDelete"
               />
             </div>
           </template>
