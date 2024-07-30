@@ -77,14 +77,19 @@ function createWorkspaceContext(options: WorkspaceContextOptions) {
     return workspaces.rename(unref(options.name), newName)
   }
 
+  function copy(newName?: string | null) {
+    return workspaces.copy(unref(options.name), newName)
+  }
+
   function del() {
     workspaces.delete(unref(options.name))
   }
 
   return reactive({
     name: computed(() => unref(options.name)),
-    data: computed(() => workspaces.get(unref(options.name))),
+    workspace: computed(() => workspaces.get(unref(options.name))),
     create,
+    copy,
     delete: del,
     rename,
   })
@@ -112,12 +117,20 @@ export const useWorkspaces = defineStore('workspaces', () => {
   })
 
   function getUniqueName(name?: string | null) {
-    const base = name ?? 'Workspace'
+    let base = name ?? 'Workspace'
     if (name == null) {
       name = base
     }
 
-    let number = 1
+    let number: number
+    const match = name.match(/\(\d+\)$/)?.[0]
+    if (match != null) {
+      base = name.slice(0, -match.length).trimEnd()
+      number = Number(match.slice(1, -1))
+    } else {
+      number = 1
+    }
+
     while (get(name) != null) {
       name = `${base} (${number})`
       number++
@@ -157,13 +170,24 @@ export const useWorkspaces = defineStore('workspaces', () => {
   }
 
   function rename(oldName: string, newName: string) {
-    const data = get(oldName)
-    if (data != null && data.name !== newName) {
-      data.name = getUniqueName(newName)
-      return data
+    const workspace = get(oldName)
+    if (workspace != null && workspace.name !== newName) {
+      workspace.name = getUniqueName(newName)
+      return workspace
     }
 
-    return data
+    return workspace
+  }
+
+  function copy(name: string, newName?: string | null) {
+    const workspace = get(name)
+    if (workspace == null) {
+      return null
+    }
+
+    const copied = { ...workspace, name: getUniqueName(newName ?? name) }
+    persisted.workspaces = [...persisted.workspaces, copied]
+    return copied
   }
 
   async function open(name: string) {
@@ -188,6 +212,7 @@ export const useWorkspaces = defineStore('workspaces', () => {
     ),
     rename,
     delete: del,
+    copy,
     open,
   }
 })

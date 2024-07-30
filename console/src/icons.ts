@@ -8,31 +8,32 @@ const icons = {
   chevronLeft: 'mdi-chevron-left',
   chevronRight: 'mdi-chevron-right',
   circle: 'mdi-circle',
-  menuDown: 'mdi-menu-down',
-  menuLeft: 'mdi-menu-left',
-  menuRight: 'mdi-menu-right',
-  menuUp: 'mdi-menu-up',
   clearLocalStorage: 'mdi-delete-sweep',
   close: 'mdi-close',
   configuration: 'mdi-cogs',
-  settings: 'mdi-cog',
   connection: 'route', // Material Icons
+  copy: 'mdi-content-copy',
   darkMode: 'dark_mode',
   dashboard: 'space_dashboard', // Material Icons
   delete: 'mdi-delete',
   developer: 'construction', // Material Icons
-  operations: 'mdi-cog-transfer',
   edit: 'mdi-pencil',
   help: 'mdi-help',
   json: 'mdi-code-json',
   lightMode: 'light_mode', // Material Icons
   menu: 'mdi-menu',
+  menuDown: 'mdi-menu-down',
+  menuLeft: 'mdi-menu-left',
+  menuRight: 'mdi-menu-right',
+  menuUp: 'mdi-menu-up',
   more: 'mdi-dots-horizontal',
+  operations: 'mdi-cog-transfer',
   preferences: 'mdi-account-cog',
   reload: 'mdi-cog-sync',
   rename: 'mdi-rename',
   search: 'mdi-magnify',
   send: 'mdi-send',
+  settings: 'mdi-cog',
   submit: 'mdi-check',
   switchLeft: 'switch_left', // Material Icons
   switchRight: 'switch_right', // Material Icons

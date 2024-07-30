@@ -38,6 +38,13 @@ let nameValue = $computed({
   },
 })
 
+function copy() {
+  const copied = context.copy()
+  if (copied != null) {
+    workspaces.open(copied.name)
+  }
+}
+
 function promptDelete() {
   dialogs
     .delete({
@@ -58,7 +65,7 @@ function promptDelete() {
           {{ context.name }}
         </common-text>
         <q-popup-edit
-          v-if="context.data != null"
+          v-if="context.workspace != null"
           ref="renamePopup"
           v-slot="scope"
           v-model="nameValue"
@@ -79,7 +86,14 @@ function promptDelete() {
           </q-card>
         </q-popup-edit>
       </div>
-      <q-btn class="q-ml-sm" flat :icon="icons.more" round size="xs">
+      <q-btn
+        v-if="context.workspace != null"
+        class="q-ml-sm"
+        flat
+        :icon="icons.more"
+        round
+        size="xs"
+      >
         <q-menu anchor="top right" class="no-shadow" :offset="[8, 0]" self="top left">
           <q-list bordered>
             <q-item v-close-popup clickable dense @click="renamePopup?.show()">
@@ -88,6 +102,14 @@ function promptDelete() {
               </q-item-section>
               <q-item-section>
                 <q-item-label>Rename</q-item-label>
+              </q-item-section>
+            </q-item>
+            <q-item v-close-popup clickable dense @click="copy">
+              <q-item-section avatar>
+                <q-icon :name="icons.copy" />
+              </q-item-section>
+              <q-item-section>
+                <q-item-label>Copy</q-item-label>
               </q-item-section>
             </q-item>
             <q-item clickable dense @click="promptDelete">
@@ -103,13 +125,13 @@ function promptDelete() {
       </q-btn>
     </template>
     <div class="q-pa-xs">
-      <div v-if="context.data == null" class="q-py-lg text-center">
+      <div v-if="context.workspace == null" class="q-py-lg text-center">
         <div>No workspace named "{{ name }}" exists. Create it?</div>
-        <q-btn class="q-mt-md" color="primary" label="Create" @click="context.create" />
+        <q-btn class="q-mt-md" color="primary" dense label="Create" @click="context.create" />
       </div>
       <div v-else>
         <div
-          v-for="(row, i) in context.data.layout"
+          v-for="(row, i) in context.workspace.layout"
           :key="i"
           class="full-width q-pa-xs relative-position row"
           :style="{ height: `${row.height}px` }"
