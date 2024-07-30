@@ -30,6 +30,7 @@ const icons = {
   more: 'mdi-dots-horizontal',
   preferences: 'mdi-account-cog',
   reload: 'mdi-cog-sync',
+  rename: 'mdi-rename',
   search: 'mdi-magnify',
   send: 'mdi-send',
   submit: 'mdi-check',

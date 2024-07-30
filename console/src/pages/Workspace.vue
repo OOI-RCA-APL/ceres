@@ -6,8 +6,10 @@ import LogEntryView from '@/components/LogEntryView.vue'
 import MessageView from '@/components/MessageView.vue'
 import ProcedureView from '@/components/ProcedureView.vue'
 import ResizeHandle from '@/components/ResizeHandle.vue'
+import { useDialogs } from '@/dialogs'
 import icons from '@/icons'
 import { provideWorkspaceContext, useWorkspaces } from '@/workspace'
+import { QPopupEdit } from 'quasar'
 import { computed } from 'vue'
 
 const { name } = defineProps<{
@@ -15,13 +17,12 @@ const { name } = defineProps<{
 }>()
 
 const workspaces = useWorkspaces()
+const dialogs = useDialogs()
 const context = provideWorkspaceContext({
   name: computed(() => name),
 })
 
-function create() {
-  context.create()
-}
+let renamePopup = $ref<QPopupEdit | null>(null)
 
 let nameValue = $computed({
   get: () => context.name,
@@ -30,13 +31,23 @@ let nameValue = $computed({
       return
     }
 
-    const data = context.rename(value)
-    if (data != null) {
-      console.log(JSON.stringify(data))
-      workspaces.open(data.name)
+    const workspace = context.rename(value)
+    if (workspace != null) {
+      workspaces.open(workspace.name)
     }
   },
 })
+
+function promptDelete() {
+  dialogs
+    .delete({
+      title: 'Delete Workspace',
+      message: `Are you sure you want to delete workspace "${context.name}"?`,
+    })
+    .onOk(() => {
+      context.delete()
+    })
+}
 </script>
 
 <template>
@@ -48,22 +59,38 @@ let nameValue = $computed({
         </common-text>
         <q-popup-edit
           v-if="context.data != null"
+          ref="renamePopup"
           v-slot="scope"
           v-model="nameValue"
           anchor="center left"
+          auto-save
           class="no-shadow q-pa-none"
           self="center right"
           :validate="(value: string) => value.trim() !== ''"
         >
           <q-card bordered class="q-pa-sm" flat>
-            <q-input v-model="scope.value" dense filled label="Name" @keyup.enter="scope.set()" />
+            <q-input
+              v-model.trim="scope.value"
+              dense
+              filled
+              label="Workspace Name"
+              @keyup.enter="scope.set()"
+            />
           </q-card>
         </q-popup-edit>
       </div>
-      <q-btn class="q-ml-sm" :icon="icons.more" round size="xs">
-        <q-menu anchor="center right" class="no-shadow" :offset="[8, 0]" self="center left">
+      <q-btn class="q-ml-sm" flat :icon="icons.more" round size="xs">
+        <q-menu anchor="top right" class="no-shadow" :offset="[8, 0]" self="top left">
           <q-list bordered>
-            <q-item clickable dense @click="context.delete()">
+            <q-item v-close-popup clickable dense @click="renamePopup?.show()">
+              <q-item-section avatar>
+                <q-icon :name="icons.rename" />
+              </q-item-section>
+              <q-item-section>
+                <q-item-label>Rename</q-item-label>
+              </q-item-section>
+            </q-item>
+            <q-item clickable dense @click="promptDelete">
               <q-item-section avatar>
                 <q-icon :name="icons.delete" />
               </q-item-section>
@@ -77,8 +104,8 @@ let nameValue = $computed({
     </template>
     <div class="q-pa-xs">
       <div v-if="context.data == null" class="q-py-lg text-center">
-        <div>Workspace '{{ name }}' does not exist. Create it?</div>
-        <q-btn class="q-mt-md" color="primary" label="Create" @click="create" />
+        <div>No workspace named "{{ name }}" exists. Create it?</div>
+        <q-btn class="q-mt-md" color="primary" label="Create" @click="context.create" />
       </div>
       <div v-else>
         <div

@@ -34,7 +34,6 @@ function clearLocalStorage() {
   dialogs
     .show({
       title: 'Clear Local Storage',
-      class: 'no-shadow',
       message:
         'This will clear all saved UI state, form state and settings for this site from your ' +
         'local browser.',

@@ -7,7 +7,7 @@ export const useDrawer = defineStore('drawer', () => {
   const state = usePersisted({
     schema: ({ object, array, number, string, boolean }) =>
       object({
-        width: number().default(200),
+        width: number().default(300),
         isOpen: boolean().default(true),
         collapsed: array(string().transform(Address.parse)).default(() => []),
       }),
