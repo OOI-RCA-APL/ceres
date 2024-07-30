@@ -12,6 +12,7 @@ const { name, persist } = defineProps<{
   maxHeight?: number
   persist?: KeyInput
   containerClass?: string
+  scroll?: boolean
 }>()
 
 const state = usePersisted({
@@ -53,6 +54,7 @@ const state = usePersisted({
         :max-height="maxHeight"
         :min-height="minHeight"
         :persist="persist && persist + '/height'"
+        :scroll="scroll"
       >
         <app-boundary>
           <slot />

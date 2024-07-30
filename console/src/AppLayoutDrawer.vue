@@ -7,9 +7,11 @@ import { useDialogs } from '@/dialogs'
 import { useDrawer } from '@/drawer'
 import { guard } from '@/errors'
 import icons from '@/icons'
+import { useNavigation } from '@/navigation'
 import { useNotify } from '@/notify'
 import { usePreferences } from '@/preferences'
 import { displayDuration } from '@/time'
+import { useWorkspaces } from '@/workspace'
 import moment from 'moment'
 import { LocalStorage } from 'quasar'
 import { useRoute } from 'vue-router'
@@ -18,8 +20,15 @@ const engine = useEngine()
 const drawer = useDrawer()
 const notify = useNotify()
 const dialogs = useDialogs()
+const workspaces = useWorkspaces()
 const route = useRoute()
 const preferences = usePreferences()
+const navigation = useNavigation()
+
+async function createWorkspace() {
+  const created = workspaces.create()
+  await navigation.go(`/workspaces/${created.name}`)
+}
 
 function clearLocalStorage() {
   dialogs
@@ -114,18 +123,37 @@ function promptReload() {
               <q-item-label>Dashboard</q-item-label>
             </q-item-section>
           </q-item>
-          <q-item
-            v-if="engine.auth.isOperator"
-            :active="route.fullPath === '/operations'"
-            clickable
-            to="/operations"
-          >
+          <q-item :active="route.fullPath.startsWith('/workspaces')" clickable>
             <q-item-section avatar>
               <q-icon :name="icons.operations" />
             </q-item-section>
-            <q-item-section avatar>
-              <q-item-label>Operations</q-item-label>
+            <q-item-section>
+              <q-item-label>Workspaces</q-item-label>
             </q-item-section>
+            <q-item-section side>
+              <q-icon :name="icons.menuRight" />
+            </q-item-section>
+            <q-menu anchor="top right" class="no-shadow" :offset="[8, 0]" self="top left">
+              <q-list bordered dense>
+                <q-item
+                  v-for="workspace in workspaces.all"
+                  :key="workspace.name"
+                  :active="route.fullPath === `/workspaces/${workspace.name}`"
+                  clickable
+                  :to="`/workspaces/${workspace.name}`"
+                >
+                  <q-item-section>
+                    <q-item-label>{{ workspace.name }}</q-item-label>
+                  </q-item-section>
+                </q-item>
+                <q-separator />
+                <q-item clickable @click="createWorkspace">
+                  <q-item-section class="items-center justify-center text-center">
+                    <q-icon :name="icons.add" />
+                  </q-item-section>
+                </q-item>
+              </q-list>
+            </q-menu>
           </q-item>
           <q-item v-if="engine.auth.isAdmin" clickable>
             <q-item-section avatar>
@@ -137,7 +165,7 @@ function promptReload() {
             <q-item-section side>
               <q-icon :name="icons.menuRight" />
             </q-item-section>
-            <q-menu anchor="bottom right" class="no-shadow" :offset="[8, 0]" self="bottom left">
+            <q-menu anchor="top right" class="no-shadow" :offset="[8, 0]" self="top left">
               <q-list bordered>
                 <q-item to="/users">
                   <q-item-section avatar>

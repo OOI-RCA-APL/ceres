@@ -2,14 +2,16 @@
 import CommonText from '@/components/CommonText.vue'
 
 defineProps<{
-  title: string
+  title?: string
 }>()
 </script>
 
 <template>
   <div class="self-full-page-root">
     <div class="items-center row self-full-page-header">
-      <common-text class="q-ml-md q-py-sm" variant="title2">{{ title }}</common-text>
+      <common-text v-if="title != null" class="q-ml-md q-py-sm" variant="title2">
+        {{ title }}
+      </common-text>
       <slot name="header-append" />
     </div>
     <q-separator />

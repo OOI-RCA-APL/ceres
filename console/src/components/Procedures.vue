@@ -1,15 +1,14 @@
 <script lang="ts" setup>
-import { ComponentInfo, ProcedureTypeModel } from '@/api/components'
+import { ComponentInfo } from '@/api/components'
 import Procedure from '@/components/Procedure.vue'
-import SectionCard from '@/components/SectionCard.vue'
-import icons from '@/icons'
 import { useInterfaceContext } from '@/interface'
 import { usePersisted } from '@/persistence'
 import { upperFirst } from 'lodash'
 import { computed, watchEffect } from 'vue'
 
-const { component } = defineProps<{
+const { component, type } = defineProps<{
   component: ComponentInfo
+  type: 'action' | 'query'
 }>()
 
 const context = useInterfaceContext()
@@ -21,12 +20,11 @@ const queries = $computed(() =>
   component.procedures.filter((procedure) => procedure.type === 'query')
 )
 
-const procedures = $computed(() => (persisted.type === 'action' ? actions : queries))
+const procedures = $computed(() => (type === 'action' ? actions : queries))
 
 const persisted = usePersisted({
   schema: ({ object, string }) =>
     object({
-      type: ProcedureTypeModel.default('action'),
       selectedName: string().nullable().default(null),
     }),
   methods: computed(() => [
@@ -45,11 +43,7 @@ let selected = $computed(() => {
   return procedures.find((procedure) => procedure.name === persisted.selectedName) ?? null
 })
 
-function nextType() {
-  persisted.type = persisted.type === 'action' ? 'query' : 'action'
-}
-
-const typePlural = $computed(() => (persisted.type === 'action' ? 'actions' : 'queries'))
+const typePlural = $computed(() => (type === 'action' ? 'actions' : 'queries'))
 
 watchEffect(() => {
   if (selected == null && procedures.length > 0) {
@@ -59,30 +53,22 @@ watchEffect(() => {
 </script>
 
 <template>
-  <section-card padding="sm">
-    <template #header-append>
-      <q-space />
-      <q-chip
-        :class="[$style.toggle, 'no-shadow']"
-        clickable
-        color="transparent"
-        dense
-        :icon="persisted.type === 'action' ? icons.switchRight : icons.switchLeft"
-        :label="upperFirst(typePlural)"
-        @click.stop.prevent="nextType"
-      />
-    </template>
+  <div>
     <template v-if="procedures.length">
-      <q-select
-        v-model="persisted.selectedName"
-        class="monospace-md q-mb-sm"
-        dense
-        filled
-        :label="upperFirst(persisted.type)"
-        :options="procedures.map((procedure) => procedure.name)"
-        options-dense
-        popup-content-class="no-shadow monospace-md"
-      />
+      <div class="row">
+        <div class="col">
+          <q-select
+            v-model="persisted.selectedName"
+            class="monospace-md q-mb-sm"
+            dense
+            filled
+            :label="upperFirst(type)"
+            :options="procedures.map((procedure) => procedure.name)"
+            options-dense
+            popup-content-class="no-shadow monospace-md"
+          />
+        </div>
+      </div>
       <template v-if="selected">
         <procedure :key="selected.name" :address="component.address" :procedure="selected" />
       </template>
@@ -92,7 +78,7 @@ watchEffect(() => {
         No available {{ typePlural }} were found.
       </div>
     </template>
-  </section-card>
+  </div>
 </template>
 
 <style module>

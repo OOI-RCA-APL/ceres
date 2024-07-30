@@ -8,6 +8,7 @@ const { defaultHeight, persist } = defineProps<{
   minHeight?: number
   maxHeight?: number
   persist?: KeyInput
+  scroll?: boolean
 }>()
 
 const state = usePersisted({
@@ -20,7 +21,7 @@ const state = usePersisted({
 </script>
 
 <template>
-  <div :class="$style.root" :style="{ height: state.height + 'px' }">
+  <div :class="[$style.root, scroll && $style.scroll]" :style="{ height: state.height + 'px' }">
     <slot />
     <resize-handle
       v-model="state.height"
@@ -35,6 +36,10 @@ const state = usePersisted({
 <style lang="scss" module>
 .root {
   position: relative;
+}
+
+.scroll {
+  overflow-y: auto;
 }
 
 .handle {

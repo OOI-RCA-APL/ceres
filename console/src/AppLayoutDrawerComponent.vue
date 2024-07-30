@@ -6,14 +6,12 @@ import AlertsIndicator from '@/components/AlertsIndicator.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import { useDrawer } from '@/drawer'
 import icons from '@/icons'
-import { useNavigation } from '@/navigation'
 
 const { address, component } = defineProps<{
   address: Address
   component: ComponentInfo
 }>()
 
-const navigation = useNavigation()
 const drawer = useDrawer()
 
 const isExpanded = $computed(() => !drawer.collapsed.some((current) => current.equals(address)))
@@ -41,8 +39,7 @@ function toggleExpanded() {
         round
         size="xs"
         :tabindex="isLeaf ? -1 : 0"
-        :to="isLeaf ? `/components/${address}` : undefined"
-        @click.stop.prevent="isLeaf ? navigation.go(`/components/${address}`) : toggleExpanded()"
+        @click.stop.prevent="isLeaf ? undefined : toggleExpanded()"
       >
         <q-icon v-if="isLeaf" :name="icons.circle" size="7px" />
         <q-icon v-else :name="isExpanded ? icons.menuDown : icons.menuRight" size="22px" />
@@ -50,9 +47,7 @@ function toggleExpanded() {
     </div>
     <q-item-section no-wrap>
       <q-item-label class="q-ml-md text-no-wrap">
-        <router-link class="wrapper-link" :to="`/components/${address}`">
-          {{ address.isRoot ? 'Components' : component.name }}
-        </router-link>
+        {{ address.isRoot ? 'Components' : component.name }}
       </q-item-label>
     </q-item-section>
     <q-item-section side>

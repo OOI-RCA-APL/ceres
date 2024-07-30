@@ -27,6 +27,7 @@ const icons = {
   json: 'mdi-code-json',
   lightMode: 'light_mode', // Material Icons
   menu: 'mdi-menu',
+  more: 'mdi-dots-horizontal',
   preferences: 'mdi-account-cog',
   reload: 'mdi-cog-sync',
   search: 'mdi-magnify',
