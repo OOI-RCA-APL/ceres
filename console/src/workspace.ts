@@ -1,43 +1,47 @@
-import { AddressModel } from '@/api/address'
 import { getter } from '@/getter'
 import { useNavigation } from '@/navigation'
 import { usePersisted } from '@/persistence'
 import { workspaceContextInjectionKey } from '@/symbols'
 import { defineStore } from 'pinia'
 import { v4 } from 'uuid'
-import { computed, inject, MaybeRef, provide, reactive, unref } from 'vue'
+import { computed, inject, MaybeRef, provide, reactive, unref, watchEffect } from 'vue'
 import Zod from 'zod'
 
 export type BaseWidget = Zod.infer<typeof BaseWidgetModel>
 const BaseWidgetModel = Zod.object({
   id: Zod.string().default(() => v4()),
+  name: Zod.string(),
   width: Zod.number().default(100),
 })
 
 export type MessagesWidget = Zod.infer<typeof MessagesWidgetModel>
 export const MessagesWidgetModel = BaseWidgetModel.extend({
   type: Zod.literal('messages'),
+  name: Zod.string().default('Messages'),
 })
 
 export type AlertsWidget = Zod.infer<typeof AlertsWidgetModel>
 export const AlertsWidgetModel = BaseWidgetModel.extend({
   type: Zod.literal('alerts'),
+  name: Zod.string().default('Alerts'),
 })
 
 export type LogsWidget = Zod.infer<typeof LogsWidgetModel>
 export const LogsWidgetModel = BaseWidgetModel.extend({
   type: Zod.literal('logs'),
+  name: Zod.string().default('Logs'),
 })
 
 export type ProceduresWidget = Zod.infer<typeof ProceduresWidgetModel>
 export const ProceduresWidgetModel = BaseWidgetModel.extend({
   type: Zod.literal('procedures'),
+  name: Zod.string().default('Procedures'),
 })
 
 export type UIWidget = Zod.infer<typeof UIWidgetModel>
 export const UIWidgetModel = BaseWidgetModel.extend({
   type: Zod.literal('ui'),
-  address: AddressModel,
+  name: Zod.string().default('UI'),
 })
 
 export type Widget = Zod.infer<typeof WidgetModel>
@@ -48,6 +52,8 @@ export const WidgetModel = Zod.discriminatedUnion('type', [
   ProceduresWidgetModel,
   UIWidgetModel,
 ])
+
+export type WidgetType = Widget['type']
 
 export const WidgetRowModel = Zod.object({
   height: Zod.number().default(250),
@@ -66,24 +72,149 @@ export type WorkspaceContextOptions = {
   name: MaybeRef<string>
 }
 
+export type Drag = {
+  widget: Widget
+  row: number
+  column: number
+}
+
 function createWorkspaceContext(options: WorkspaceContextOptions) {
   const workspaces = useWorkspaces()
+  const name = $computed(() => unref(options.name))
+  const workspace = $computed(() => workspaces.get(unref(options.name)))
 
   function create() {
-    return workspaces.create(unref(options.name))
+    return workspaces.create(name)
   }
 
   function rename(newName: string) {
-    return workspaces.rename(unref(options.name), newName)
+    return workspaces.rename(name, newName)
   }
 
   function copy(newName?: string | null) {
-    return workspaces.copy(unref(options.name), newName)
+    return workspaces.copy(name, newName)
   }
 
   function del() {
-    workspaces.delete(unref(options.name))
+    workspaces.delete(name)
   }
+
+  const widgetModelMapping = {
+    messages: MessagesWidgetModel,
+    alerts: AlertsWidgetModel,
+    logs: LogsWidgetModel,
+    procedures: ProceduresWidgetModel,
+    ui: UIWidgetModel,
+  } as const
+
+  function createWidget(row: number, column: number, type: WidgetType) {
+    if (workspace == null) {
+      return null
+    }
+
+    row = Math.max(0, Math.min(workspace.layout.length, row))
+    const widget = widgetModelMapping[type].parse({})
+    const widgets = [...workspace.layout[row].widgets]
+    widgets.splice(column, 0, widget)
+    workspace.layout[row].widgets = widgets
+    return widget
+  }
+
+  function deleteWidget(id: string) {
+    if (workspace == null) {
+      return null
+    }
+
+    for (const [i, row] of workspace.layout.entries()) {
+      const widget = row.widgets.find((widget) => widget.id === id) ?? null
+      if (widget != null) {
+        row.widgets = row.widgets.filter((widget) => widget.id !== id)
+        if (row.widgets.length === 0) {
+          workspace.layout = workspace.layout.filter((_, index) => index !== i)
+        }
+
+        return widget
+      }
+    }
+
+    return null
+  }
+
+  function getWidget(id: string) {
+    return (
+      workspace?.layout.flatMap((row) => row.widgets).find((widget) => widget.id === id) ?? null
+    )
+  }
+
+  function getWidgetPosition(id: string): [row: number, column: number] | null {
+    for (const [rowIndex, row] of workspace?.layout.entries() ?? []) {
+      const columnIndex = row.widgets.findIndex((widget) => widget.id === id)
+      if (columnIndex !== -1) {
+        return [rowIndex, columnIndex]
+      }
+    }
+
+    return null
+  }
+
+  function getWidgetAt(row: number, column: number) {
+    return workspace?.layout[row]?.widgets[column] ?? null
+  }
+
+  function moveWidget(id: string, toRow: number, toColumn?: number | null) {
+    if (workspace == null) {
+      return null
+    }
+
+    const position = getWidgetPosition(id)
+    if (position == null) {
+      return null
+    }
+    const [fromRow, fromColumn] = position
+
+    const sourceRow = workspace.layout[fromRow] ?? null
+    if (sourceRow == null) {
+      return null
+    }
+
+    const widget = sourceRow.widgets[fromColumn] ?? null
+    if (widget == null) {
+      return null
+    }
+
+    sourceRow.widgets = sourceRow.widgets.filter((_, index) => index !== fromColumn)
+
+    if (toColumn == null) {
+      let layout = [...workspace.layout]
+      layout.splice(toRow, 0, { height: 250, widgets: [widget] })
+      layout = layout.filter((row) => row != null && row.widgets.length > 0)
+      workspace.layout = layout
+      return widget
+    }
+
+    const destinationRow = workspace.layout[toRow] ?? null
+    if (destinationRow == null) {
+      return null
+    }
+
+    destinationRow.widgets = [...destinationRow.widgets]
+    destinationRow.widgets.splice(toColumn, 0, widget)
+    destinationRow.widgets = destinationRow.widgets.filter((current) => current != null)
+
+    workspace.layout = workspace.layout.filter((row) => row != null && row.widgets.length > 0)
+
+    return widget
+  }
+
+  watchEffect(() => {
+    if (workspace == null) {
+      return
+    }
+
+    if (workspace.layout.some((row) => row.widgets.length === 0)) {
+      workspace.layout = workspace.layout.filter((row) => row.widgets.length > 0)
+    }
+  })
 
   return reactive({
     name: computed(() => unref(options.name)),
@@ -92,6 +223,13 @@ function createWorkspaceContext(options: WorkspaceContextOptions) {
     copy,
     delete: del,
     rename,
+    getWidget,
+    getWidgetAt,
+    getWidgetPosition,
+    createWidget,
+    deleteWidget,
+    moveWidget,
+    drag: null as Drag | null,
   })
 }
 

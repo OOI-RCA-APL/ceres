@@ -1,5 +1,6 @@
 const icons = {
   add: 'mdi-plus',
+  grab: 'mdi-grab',
   admin: 'admin_panel_settings', // Material Icons
   arrowDown: 'mdi-arrow-down',
   arrowLeft: 'mdi-arrow-left',

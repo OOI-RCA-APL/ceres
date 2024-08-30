@@ -122,7 +122,11 @@ function promptReload() {
               <q-item-label>Dashboard</q-item-label>
             </q-item-section>
           </q-item>
-          <q-item :active="route.fullPath.startsWith('/workspaces')" clickable>
+          <q-item
+            v-if="engine.auth.isOperator"
+            :active="route.fullPath.startsWith('/workspaces')"
+            clickable
+          >
             <q-item-section avatar>
               <q-icon :name="icons.operations" />
             </q-item-section>

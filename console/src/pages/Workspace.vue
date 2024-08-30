@@ -6,11 +6,13 @@ import LogEntryView from '@/components/LogEntryView.vue'
 import MessageView from '@/components/MessageView.vue'
 import ProcedureView from '@/components/ProcedureView.vue'
 import ResizeHandle from '@/components/ResizeHandle.vue'
+import WorkspaceGap from '@/components/WorkspaceGap.vue'
 import { useDialogs } from '@/dialogs'
 import icons from '@/icons'
-import { provideWorkspaceContext, useWorkspaces } from '@/workspace'
+import { Drag, provideWorkspaceContext, useWorkspaces } from '@/workspace'
+import { useEventListener, useMouse } from '@vueuse/core'
 import { QPopupEdit } from 'quasar'
-import { computed } from 'vue'
+import { computed, watchEffect } from 'vue'
 
 const { name } = defineProps<{
   name: string
@@ -23,6 +25,33 @@ const context = provideWorkspaceContext({
 })
 
 let renamePopup = $ref<QPopupEdit | null>(null)
+
+function startDrag(value: Drag) {
+  context.drag = value
+}
+
+function clearDrag() {
+  context.drag = null
+}
+
+useEventListener(window, 'mouseup', () => {
+  clearDrag()
+})
+
+watchEffect(() => {
+  if (context.drag != null) {
+    document.body.style.cursor = 'grabbing'
+  } else {
+    document.body.style.cursor = 'unset'
+  }
+})
+
+const mouse = useMouse()
+const draggedWidgetStyle = $computed(() => ({
+  left: `${mouse.x.value}px`,
+  top: `${mouse.y.value}px`,
+  transform: 'translate(-50%, -50%)',
+}))
 
 let nameValue = $computed({
   get: () => context.name,
@@ -58,7 +87,19 @@ function promptDelete() {
 </script>
 
 <template>
-  <full-page>
+  <full-page :class="$style.root">
+    <div
+      v-if="context.drag != null"
+      key="dragged-widget"
+      :class="$style.draggedWidget"
+      :style="draggedWidgetStyle"
+    >
+      <q-card bordered class="q-px-xs" flat>
+        <common-text variant="th">
+          {{ context.drag.widget.name }}
+        </common-text>
+      </q-card>
+    </div>
     <template #header-append>
       <div>
         <common-text class="q-ml-md q-py-sm" variant="title2">
@@ -69,15 +110,16 @@ function promptDelete() {
           ref="renamePopup"
           v-slot="scope"
           v-model="nameValue"
-          anchor="center left"
+          anchor="bottom left"
           auto-save
-          class="no-shadow q-pa-none"
-          self="center right"
+          :class="$style.popupEdit"
+          self="top left"
           :validate="(value: string) => value.trim() !== ''"
         >
           <q-card bordered class="q-pa-sm" flat>
             <q-input
               v-model.trim="scope.value"
+              autofocus
               dense
               filled
               label="Workspace Name"
@@ -88,11 +130,11 @@ function promptDelete() {
       </div>
       <q-btn
         v-if="context.workspace != null"
-        class="q-ml-sm"
+        class="q-ml-xs"
         flat
         :icon="icons.more"
         round
-        size="xs"
+        size="7px"
       >
         <q-menu anchor="top right" class="no-shadow" :offset="[8, 0]" self="top left">
           <q-list bordered>
@@ -133,10 +175,24 @@ function promptDelete() {
         <div
           v-for="(row, i) in context.workspace.layout"
           :key="i"
-          class="full-width q-pa-xs relative-position row"
+          class="full-width q-gutter-xs q-py-xs relative-position row"
           :style="{ height: `${row.height}px` }"
         >
+          <workspace-gap
+            v-if="context.drag != null"
+            :class="$style.gapVerticalTop"
+            direction="vertical"
+            :row="i"
+          />
+          <workspace-gap
+            v-if="context.drag != null && i === context.workspace.layout.length - 1"
+            v-show="context.drag != null"
+            :class="$style.gapVerticalBottom"
+            direction="vertical"
+            :row="i + 1"
+          />
           <resize-handle
+            v-if="context.drag == null"
             v-model="row.height"
             :class="$style.verticalResizeHandle"
             direction="vertical"
@@ -146,24 +202,113 @@ function promptDelete() {
           <div
             v-for="(widget, j) in row.widgets"
             :key="j"
-            class="col relative-position"
+            :class="[j < row.widgets.length - 1 ? 'col-shrink' : 'col-grow', 'relative-position']"
             :style="j < row.widgets.length - 1 ? { width: `${widget.width}px` } : undefined"
           >
+            <template v-if="context.drag != null">
+              <workspace-gap
+                v-if="j === 0"
+                :class="$style.gapHorizontalLeft"
+                :column="j"
+                direction="horizontal"
+                :row="i"
+              />
+              <workspace-gap
+                v-else
+                :class="$style.gapHorizontalMiddle"
+                :column="j"
+                direction="horizontal"
+                :row="i"
+              />
+              <workspace-gap
+                v-if="context.drag != null && j === row.widgets.length - 1"
+                :class="$style.gapHorizontalRight"
+                :column="j + 1"
+                direction="horizontal"
+                :row="i"
+              />
+            </template>
             <resize-handle
+              v-if="context.drag == null && j < row.widgets.length - 1"
               v-model="widget.width"
               :class="$style.horizontalResizeHandle"
               direction="horizontal"
               hidden
-              :min="50"
+              :min="100"
             />
             <q-card bordered class="col column full-height" flat>
-              <div class="q-px-sm q-py-xs">
-                <common-text class="text-capitalize" variant="th">
-                  {{ widget.type }}
-                </common-text>
+              <div
+                class="q-px-sm q-py-xs"
+                :style="{ cursor: context.drag != null ? 'grabbing' : 'grab' }"
+                @mousedown.prevent="startDrag({ widget, row: i, column: j })"
+                @mousemove.prevent
+                @touchmove.prevent
+                @touchstart.prevent="startDrag({ widget, row: i, column: j })"
+              >
+                <div class="items-center row">
+                  <div>
+                    <common-text
+                      class="text-capitalize"
+                      style="cursor: text"
+                      variant="th"
+                      @mousedown.stop
+                      @touchstart.stop
+                    >
+                      {{ widget.name }}
+                      <q-popup-edit
+                        v-slot="scope"
+                        v-model="widget.name"
+                        auto-save
+                        :class="$style.popupEdit"
+                        self="top left"
+                        :validate="(value: string) => value.trim() !== ''"
+                      >
+                        <q-card bordered class="q-pa-sm" flat style="max-width: 200px">
+                          <q-input
+                            v-model.trim="scope.value"
+                            autofocus
+                            dense
+                            filled
+                            label="Widget Name"
+                            @keyup.enter="scope.set()"
+                          />
+                        </q-card>
+                      </q-popup-edit>
+                    </common-text>
+                  </div>
+                  <div>
+                    <q-btn
+                      class="q-ml-xs"
+                      flat
+                      :icon="icons.more"
+                      round
+                      size="6px"
+                      @mousedown.stop
+                      @touchstart.stop
+                    >
+                      <q-menu anchor="top right" class="no-shadow" :offset="[8, 0]" self="top left">
+                        <q-list bordered>
+                          <q-item
+                            v-close-popup
+                            clickable
+                            dense
+                            @click="context.deleteWidget(widget.id)"
+                          >
+                            <q-item-section avatar>
+                              <q-icon :name="icons.delete" />
+                            </q-item-section>
+                            <q-item-section>
+                              <q-item-label>Delete</q-item-label>
+                            </q-item-section>
+                          </q-item>
+                        </q-list>
+                      </q-menu>
+                    </q-btn>
+                  </div>
+                </div>
               </div>
               <q-separator />
-              <div class="col-grow overflow-auto q-pa-xs">
+              <div class="col-grow overflow-auto q-pa-sm" style="height: 0">
                 <template v-if="widget.type === 'messages'">
                   <message-view class="full-height" :persist="`widget/${widget.id}`" />
                 </template>
@@ -182,11 +327,18 @@ function promptDelete() {
         </div>
       </div>
     </div>
+    <div class="faded-hover items-center justify-center q-mt-sm row">
+      <q-btn v-if="context.workspace != null" color="primary" :icon="icons.add" round size="sm" />
+    </div>
     <div :class="$style.bottomPadding" />
   </full-page>
 </template>
 
 <style lang="scss" module>
+.root {
+  overflow-x: hidden;
+}
+
 .verticalResizeHandle {
   position: absolute;
   left: 0;
@@ -196,12 +348,56 @@ function promptDelete() {
 
 .horizontalResizeHandle {
   position: absolute;
-  right: 0;
+  right: -3px;
   top: 0px;
   z-index: 100;
 }
 
 .bottomPadding {
   height: 250px;
+}
+
+.popupEdit {
+  // max-width: 200px;
+  // min-width: unset !important;
+  box-shadow: unset !important;
+  padding: 0 !important;
+}
+
+@mixin gap {
+  position: absolute;
+}
+
+.gapVerticalTop {
+  @include gap;
+  top: -2px;
+  left: 0;
+}
+
+.gapVerticalBottom {
+  @include gap;
+  bottom: -2px;
+  left: 0;
+}
+
+.gapHorizontalLeft {
+  @include gap;
+  left: -5.5px;
+}
+
+.gapHorizontalMiddle {
+  @include gap;
+  left: -8px;
+}
+
+.gapHorizontalRight {
+  @include gap;
+  right: -5.5px;
+}
+
+.draggedWidget {
+  position: fixed;
+  z-index: 5000;
+  pointer-events: none;
 }
 </style>
