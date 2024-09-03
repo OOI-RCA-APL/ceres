@@ -9,7 +9,7 @@ import ResizeHandle from '@/components/ResizeHandle.vue'
 import WorkspaceGap from '@/components/WorkspaceGap.vue'
 import { useDialogs } from '@/dialogs'
 import icons from '@/icons'
-import { Drag, provideWorkspaceContext, useWorkspaces } from '@/workspace'
+import { Drag, provideWorkspaceContext, useWorkspaces, WidgetType } from '@/workspace'
 import { useEventListener, useMouse } from '@vueuse/core'
 import { QPopupEdit } from 'quasar'
 import { computed, watchEffect } from 'vue'
@@ -84,6 +84,33 @@ function promptDelete() {
       context.delete()
     })
 }
+
+function createWidget(type: WidgetType) {
+  if (context.workspace == null) {
+    return
+  }
+
+  return context.createWidget(type, context.workspace.layout.length)
+}
+
+const widgetListing = [
+  {
+    type: 'messages',
+    label: 'Messages View',
+  },
+  {
+    type: 'alerts',
+    label: 'Alerts View',
+  },
+  {
+    type: 'logs',
+    label: 'Logs View',
+  },
+  {
+    type: 'procedures',
+    label: 'Procedures View',
+  },
+] as const
 </script>
 
 <template>
@@ -328,7 +355,23 @@ function promptDelete() {
       </div>
     </div>
     <div class="faded-hover items-center justify-center q-mt-sm row">
-      <q-btn v-if="context.workspace != null" color="primary" :icon="icons.add" round size="sm" />
+      <q-btn v-if="context.workspace != null" color="primary" :icon="icons.add" round size="8px">
+        <q-tooltip class="bg-primary">Add Widget</q-tooltip>
+        <q-menu class="no-shadow" :offset="[0, 8]">
+          <q-list bordered dense>
+            <q-item
+              v-for="widget in widgetListing"
+              :key="widget.type"
+              clickable
+              @click="createWidget(widget.type)"
+            >
+              <q-item-section>
+                <q-item-label>{{ widget.label }}</q-item-label>
+              </q-item-section>
+            </q-item>
+          </q-list>
+        </q-menu>
+      </q-btn>
     </div>
     <div :class="$style.bottomPadding" />
   </full-page>

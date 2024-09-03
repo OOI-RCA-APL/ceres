@@ -11,7 +11,7 @@ export type BaseWidget = Zod.infer<typeof BaseWidgetModel>
 const BaseWidgetModel = Zod.object({
   id: Zod.string().default(() => v4()),
   name: Zod.string(),
-  width: Zod.number().default(100),
+  width: Zod.number().default(250),
 })
 
 export type MessagesWidget = Zod.infer<typeof MessagesWidgetModel>
@@ -107,16 +107,22 @@ function createWorkspaceContext(options: WorkspaceContextOptions) {
     ui: UIWidgetModel,
   } as const
 
-  function createWidget(row: number, column: number, type: WidgetType) {
+  function createWidget(type: WidgetType, row: number, column: number = 0) {
     if (workspace == null) {
       return null
     }
 
     row = Math.max(0, Math.min(workspace.layout.length, row))
-    const widget = widgetModelMapping[type].parse({})
-    const widgets = [...workspace.layout[row].widgets]
+    const widget = widgetModelMapping[type].parse({ type })
+    const widgets = [...(workspace.layout[row]?.widgets ?? [])]
     widgets.splice(column, 0, widget)
-    workspace.layout[row].widgets = widgets
+
+    if (workspace.layout[row] == null) {
+      workspace.layout.push({ height: 250, widgets })
+    } else {
+      workspace.layout[row].widgets = widgets
+    }
+
     return widget
   }
 
