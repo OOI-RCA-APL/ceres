@@ -12,7 +12,7 @@ import icons from '@/icons'
 import { Drag, provideWorkspaceContext, useWorkspaces, WidgetType } from '@/workspace'
 import { useEventListener, useMouse } from '@vueuse/core'
 import { QPopupEdit } from 'quasar'
-import { computed, watchEffect } from 'vue'
+import { computed, reactive, watchEffect } from 'vue'
 
 const { name } = defineProps<{
   name: string
@@ -46,10 +46,10 @@ watchEffect(() => {
   }
 })
 
-const mouse = useMouse()
+const mouse = reactive(useMouse({ type: 'client' }))
 const draggedWidgetStyle = $computed(() => ({
-  left: `${mouse.x.value}px`,
-  top: `${mouse.y.value}px`,
+  left: `${mouse.x}px`,
+  top: `${mouse.y}px`,
   transform: 'translate(-50%, -50%)',
 }))
 
@@ -337,7 +337,7 @@ const widgetListing = [
               <q-separator />
               <div class="col-grow overflow-auto q-pa-sm" style="height: 0">
                 <template v-if="widget.type === 'messages'">
-                  <message-view class="full-height" :persist="`widget/${widget.id}`" />
+                  <message-view class="full-height" :widget="widget" />
                 </template>
                 <template v-else-if="widget.type === 'alerts'">
                   <alert-view class="full-height" :persist="`widget/${widget.id}`" />

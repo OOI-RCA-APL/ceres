@@ -1,3 +1,4 @@
+import { AddressModel, AddressSelector } from '@/api/address'
 import { getter } from '@/getter'
 import { useNavigation } from '@/navigation'
 import { usePersisted } from '@/persistence'
@@ -18,6 +19,20 @@ export type MessagesWidget = Zod.infer<typeof MessagesWidgetModel>
 export const MessagesWidgetModel = BaseWidgetModel.extend({
   type: Zod.literal('messages'),
   name: Zod.string().default('Messages'),
+  filter: Zod.object({
+    after: Zod.string().optional(),
+    before: Zod.string().optional(),
+    address: Zod.string().transform(AddressSelector.parse).optional(),
+    direction: Zod.string().optional(),
+    content_prefix: Zod.string().optional(),
+    content_contains: Zod.string().optional(),
+  }).default(() => ({})),
+  commandAddress: AddressModel.nullable().default(null),
+  commandText: Zod.string().default(''),
+  commandHistory: Zod.string()
+    .array()
+    .default(() => []),
+  commandHistoryIndex: Zod.number().nullable().default(null),
 })
 
 export type AlertsWidget = Zod.infer<typeof AlertsWidgetModel>
@@ -253,9 +268,9 @@ export const useWorkspaces = defineStore('workspaces', () => {
   const navigation = useNavigation()
 
   const persisted = usePersisted({
-    schema: ({ object, array }) =>
+    schema: ({ object }) =>
       object({
-        workspaces: array(WorkspaceDataModel).default(() => []),
+        workspaces: WorkspaceDataModel.array().default(() => []),
       }),
     methods: [{ type: 'local-storage', key: 'store/workspaces' }],
   })

@@ -74,6 +74,7 @@ let options = $shallowRef(computeOptions())
     <q-select
       dense
       filled
+      hide-dropdown-icon
       input-class="monospace-md"
       label-slot
       :model-value="resolve(modelValue)"

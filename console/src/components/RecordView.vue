@@ -12,7 +12,7 @@ import RecordViewMessage from '@/components/RecordViewMessage.vue'
 import icons from '@/icons'
 import { provideRecordViewContext } from '@/record-view'
 import { debouncedComputed } from '@/utilities'
-import { useWindowFocus } from '@vueuse/core'
+import { useDocumentVisibility } from '@vueuse/core'
 import _ from 'lodash'
 import moment, { Moment } from 'moment'
 import { debounce, QVirtualScroll } from 'quasar'
@@ -33,7 +33,6 @@ const { type, filter } = defineProps<{
 }>()
 
 const engine = useEngine()
-// const notify = useNotify()
 
 const get = $computed(() => {
   switch (type) {
@@ -76,6 +75,9 @@ const recordCullThreshold = $computed(() => recordsVisible + 500)
 const recordCullCount = $computed(() => recordsVisible + 100)
 const recordsUntilNearTop = 30
 
+let isFollowing = $ref(true)
+let isScrollingToBottom = $ref(false)
+
 let scroll = $shallowRef<QVirtualScroll | null>(null)
 const scrollElement = $computed(() => {
   if (scroll == null) {
@@ -101,7 +103,25 @@ let lastLoadedCurrent = $shallowRef<Moment | null>(null)
 
 const earliestRecordTimestamp = $computed(() => records[0]?.timestamp ?? null)
 
-const isWindowFocused = $(useWindowFocus())
+const documentVisibility = $(useDocumentVisibility())
+const isDocumentVisible = $computed(() => documentVisibility === 'visible')
+let isDocumentJustVisible = $ref(false)
+
+watch(
+  computed(() => isDocumentVisible),
+  () => {
+    if (isDocumentVisible) {
+      isDocumentJustVisible = true
+      setTimeout(() => {
+        isDocumentJustVisible = false
+      }, 500)
+
+      if (isFollowing) {
+        scrollToBottom()
+      }
+    }
+  }
+)
 
 let isExhausted = $ref(false)
 let isLoadingPrevious = $ref(false)
@@ -129,8 +149,13 @@ function updateContainerInfo() {
 
 async function onScroll() {
   updateContainerInfo()
+  if (isScrollingToBottom) {
+    isFollowing = true
+  } else if (!isDocumentJustVisible) {
+    isFollowing = isAtBottom()
+  }
 
-  if (isExhausted || isLoadingCurrent || isLoadingPrevious || !isWindowFocused) {
+  if (isExhausted || isLoadingCurrent || isLoadingPrevious || !isDocumentVisible) {
     return
   }
 
@@ -171,8 +196,6 @@ function isAtBottom() {
   return containerInfo.scrollTop + containerInfo.clientHeight >= containerInfo.scrollHeight - 2
 }
 
-const isAtBottomComputed = $computed(isAtBottom)
-
 const isShowingVerticalScrollBar = $computed(() => {
   if (scrollElement == null) {
     return true
@@ -206,7 +229,7 @@ async function prependRecords(prepended: Record[]) {
 }
 
 async function appendRecords(appended: Record[]) {
-  const follow = isAtBottom()
+  const follow = isFollowing
   let resort = false
   if (appended.length > 0 && records.length > 0) {
     if (appended[appended.length - 1].timestamp < records[records.length - 1].timestamp) {
@@ -224,7 +247,7 @@ async function appendRecords(appended: Record[]) {
   if (follow) {
     if (records.length > recordCullThreshold) {
       records = records.slice(records.length - recordCullCount, records.length)
-      await forceScrollToBottom(100)
+      await scrollToBottom(100)
     } else {
       scroll?.refresh(records.length + 1)
     }
@@ -279,33 +302,37 @@ async function loadCurrent() {
     const appended = [...results.reverse(), ...recordsStreamed]
     await appendRecords(appended)
     lastLoadedCurrent = moment.utc()
-    await forceScrollToBottom()
+    await scrollToBottom()
     updateContainerInfo()
   } finally {
     isLoadingCurrent = false
   }
 }
 
-function scrollToBottom() {
-  if (scroll != null) {
-    scroll.scrollTo(records.length)
-  }
-}
-
 async function onScrollToBottomClicked() {
   records = records.slice(records.length - recordCullCount, records.length)
   await nextTick()
-  await forceScrollToBottom(250)
+  await scrollToBottom(250)
 }
 
-async function forceScrollToBottom(duration = 500, interval = 50) {
-  scrollToBottom()
-  const id = setInterval(() => {
-    scrollToBottom()
-  }, interval)
+async function scrollToBottom(duration = 500, interval = 50) {
+  function go() {
+    if (scroll != null) {
+      scroll.scrollTo(records.length)
+    }
+  }
 
-  await delay(duration)
-  clearInterval(id)
+  isScrollingToBottom = true
+  try {
+    go()
+    const id = setInterval(() => {
+      go()
+    }, interval)
+    await delay(duration)
+    clearInterval(id)
+  } finally {
+    isScrollingToBottom = false
+  }
 }
 
 onMounted(async () => {
@@ -420,7 +447,7 @@ useStream(debouncedFilter, async (record: Record) => {
       </q-virtual-scroll>
       <transition appear enter-active-class="animated fadeIn" leave-active-class="animated fadeOut">
         <q-btn
-          v-if="!isLoadingCurrent && !isAtBottomComputed"
+          v-if="!isLoadingCurrent && !isFollowing"
           class="absolute-bottom-right"
           color="primary"
           :icon="icons.arrowDown"
@@ -436,6 +463,7 @@ useStream(debouncedFilter, async (record: Record) => {
         </q-btn>
       </transition>
     </div>
+    <slot />
   </q-card>
 </template>
 
