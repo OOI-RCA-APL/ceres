@@ -157,7 +157,7 @@ const widgetListing = [
       </div>
       <q-btn
         v-if="context.workspace != null"
-        class="q-ml-xs"
+        class="faded-hover q-ml-xs"
         flat
         :icon="icons.more"
         round
@@ -305,7 +305,7 @@ const widgetListing = [
                   </div>
                   <div>
                     <q-btn
-                      class="q-ml-xs"
+                      class="faded-hover q-ml-xs"
                       flat
                       :icon="icons.more"
                       round
@@ -346,7 +346,7 @@ const widgetListing = [
                   <log-entry-view class="full-height" :persist="`widget/${widget.id}`" />
                 </template>
                 <template v-else-if="widget.type === 'procedures'">
-                  <procedure-view :persist="`widget/${widget.id}`" />
+                  <procedure-view :widget="widget" />
                 </template>
               </div>
             </q-card>

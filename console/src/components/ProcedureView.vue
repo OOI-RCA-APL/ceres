@@ -1,31 +1,21 @@
 <script lang="ts" setup>
-import { useEngine } from '@/api/engine'
 import Procedures from '@/components/Procedures.vue'
-import { usePersisted } from '@/persistence'
+import { ProceduresWidget } from '@/workspace'
 import { upperFirst } from 'lodash'
-import { computed } from 'vue'
+import { useEngine } from '@/api/engine'
 
-const { persist } = defineProps<{
-  persist: string
+const { widget } = defineProps<{
+  widget: ProceduresWidget
 }>()
 
 const engine = useEngine()
 
-const persisted = usePersisted({
-  schema: ({ object, string, enum: choice }) =>
-    object({
-      selectedProceduresAddress: string().nullable().default(null),
-      selectedProcedureType: choice(['action', 'query']).default('action'),
-    }),
-  methods: computed(() => [{ type: 'local-storage', key: persist }]),
-})
-
-const selectedProceduresComponent = computed(() => {
-  if (persisted.selectedProceduresAddress == null) {
+const procedureComponent = $computed(() => {
+  if (widget.procedureAddress == null) {
     return null
   }
 
-  return engine.components.get(persisted.selectedProceduresAddress)
+  return engine.components.get(widget.procedureAddress)
 })
 </script>
 
@@ -33,7 +23,7 @@ const selectedProceduresComponent = computed(() => {
   <div class="q-col-gutter-sm row">
     <div class="col">
       <q-select
-        v-model="persisted.selectedProceduresAddress"
+        v-model="widget.procedureAddress"
         dense
         filled
         label="Component"
@@ -43,7 +33,7 @@ const selectedProceduresComponent = computed(() => {
     </div>
     <div :class="$style.procedureTypeColumn">
       <q-select
-        v-model="persisted.selectedProcedureType"
+        v-model="widget.procedureType"
         dense
         filled
         label="Procedure Type"
@@ -55,9 +45,9 @@ const selectedProceduresComponent = computed(() => {
   </div>
   <q-separator class="q-my-sm" />
   <procedures
-    v-if="selectedProceduresComponent != null"
-    :component="selectedProceduresComponent"
-    :type="persisted.selectedProcedureType"
+    v-if="procedureComponent != null"
+    :component="procedureComponent"
+    :type="widget.procedureType"
   />
 </template>
 

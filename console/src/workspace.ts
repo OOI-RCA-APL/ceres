@@ -1,4 +1,5 @@
 import { AddressModel, AddressSelector } from '@/api/address'
+import { ProcedureTypeModel } from '@/api/components'
 import { getter } from '@/getter'
 import { useNavigation } from '@/navigation'
 import { usePersisted } from '@/persistence'
@@ -51,6 +52,8 @@ export type ProceduresWidget = Zod.infer<typeof ProceduresWidgetModel>
 export const ProceduresWidgetModel = BaseWidgetModel.extend({
   type: Zod.literal('procedures'),
   name: Zod.string().default('Procedures'),
+  procedureAddress: AddressModel.nullable().default(null),
+  procedureType: ProcedureTypeModel.default('action'),
 })
 
 export type UIWidget = Zod.infer<typeof UIWidgetModel>
