@@ -161,3 +161,15 @@ input::-webkit-inner-spin-button {
   padding-right: 16px;
   text-align: center;
 }
+
+.q-icon.q-field__focusable-action {
+  scale: 0.75;
+}
+
+.q-icon.q-field__focusable-action {
+  opacity: 0.45;
+}
+
+.q-icon.q-field__focusable-action:hover {
+  opacity: 0.6;
+}

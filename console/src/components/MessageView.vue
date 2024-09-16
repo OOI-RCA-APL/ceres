@@ -151,9 +151,10 @@ async function submit() {
           :schema="{
             title: 'Address',
             type: 'string',
-            enum: engine.components.all
-              .filter((current) => current.roles.includes('connection'))
-              .map((current) => current.address.toString()),
+            enum: engine.components.all.flatMap((current) => [
+              current.address.toString(),
+              current.address.all().toString(),
+            ]),
             optional: true,
           }"
           @update:model-value="
@@ -195,26 +196,6 @@ async function submit() {
       <q-form @submit.prevent="submit">
         <q-separator />
         <div class="q-pa-xs row">
-          <div class="q-mr-xs" style="min-width: 140px">
-            <schema-form-base
-              :model-value="widget.commandAddress?.toString()"
-              :schema="{
-                title: 'Connection',
-                type: 'string',
-                enum: engine.components.all
-                  .filter((current) => current.roles.includes('connection'))
-                  .map((current) => current.address.toString()),
-                optional: true,
-                default: engine.components.all
-                  .find((current) => current.roles.includes('connection'))
-                  ?.address.toString(),
-              }"
-              @update:model-value="
-                (value) =>
-                  (widget.commandAddress = value == null ? null : new Address(String(value)))
-              "
-            />
-          </div>
           <q-input
             :ref="(ref: any) => (commandInputElement = ref?.getNativeElement() ?? null)"
             v-model="widget.commandText"
@@ -235,6 +216,26 @@ async function submit() {
               <q-icon :name="icons.chevronRight" />
             </template>
           </q-input>
+          <div class="q-ml-xs q-pl-md q-pr-xs" style="min-width: 80px">
+            <q-select
+              borderless
+              clearable
+              dense
+              hide-dropdown-icon
+              label="To"
+              :model-value="widget.commandAddress?.toString() ?? null"
+              :options="
+                engine.components.all
+                  .filter((current) => current.roles.includes('connection'))
+                  .map((current) => current.address.toString())
+              "
+              options-dense
+              @update:model-value="
+                (value) =>
+                  (widget.commandAddress = value == null ? null : new Address(String(value)))
+              "
+            />
+          </div>
         </div>
       </q-form>
     </template>
