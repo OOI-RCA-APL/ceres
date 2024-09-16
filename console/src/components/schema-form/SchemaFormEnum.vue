@@ -1,8 +1,9 @@
 <script lang="ts" setup>
+import { isEqual } from 'lodash'
+
 import CommonText from '@/components/CommonText.vue'
 import { SchemaForm, SchemaObject, SchemaPath } from '@/schema-form'
 import { Plain } from '@/utilities'
-import { isEqual } from 'lodash'
 
 const { form, schema, path } = defineProps<{
   modelValue: unknown

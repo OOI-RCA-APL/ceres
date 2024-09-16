@@ -1,4 +1,10 @@
 <script lang="ts" setup>
+import { useDocumentVisibility } from '@vueuse/core'
+import _ from 'lodash'
+import moment, { Moment } from 'moment'
+import { debounce, QVirtualScroll } from 'quasar'
+import { computed, nextTick, onMounted, watch, watchEffect } from 'vue'
+
 import { Address } from '@/api/address'
 import { Alert } from '@/api/alerts'
 import { useEngine } from '@/api/engine'
@@ -12,11 +18,6 @@ import RecordViewMessage from '@/components/RecordViewMessage.vue'
 import icons from '@/icons'
 import { provideRecordViewContext } from '@/record-view'
 import { debouncedComputed } from '@/utilities'
-import { useDocumentVisibility } from '@vueuse/core'
-import _ from 'lodash'
-import moment, { Moment } from 'moment'
-import { debounce, QVirtualScroll } from 'quasar'
-import { computed, nextTick, onMounted, watch, watchEffect } from 'vue'
 
 type ColumnDefinition = {
   label: string

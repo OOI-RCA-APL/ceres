@@ -1,4 +1,7 @@
 <script lang="ts" setup>
+import moment, { Moment } from 'moment'
+import { computed } from 'vue'
+
 import { Address } from '@/api/address'
 import { ProcedureInfo } from '@/api/components'
 import { useEngine } from '@/api/engine'
@@ -8,8 +11,6 @@ import SchemaFormControls from '@/components/schema-form/SchemaFormControls.vue'
 import { useInterfaceContext } from '@/interface'
 import { useSchemaForm } from '@/schema-form'
 import { displayDuration, useTime } from '@/time'
-import moment, { Moment } from 'moment'
-import { computed } from 'vue'
 
 const { address, procedure } = defineProps<{
   address: Address

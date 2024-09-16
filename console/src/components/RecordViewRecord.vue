@@ -1,7 +1,8 @@
 <script lang="ts" setup>
+import { onBeforeUnmount, onMounted } from 'vue'
+
 import { Record } from '@/api/shared'
 import { useRecordViewContext } from '@/record-view'
-import { onBeforeUnmount, onMounted } from 'vue'
 
 const { record } = defineProps<{
   record: Record

@@ -1,7 +1,8 @@
-import { useClient } from '@/api/client'
-import { EntityFilter, UUIDEntityModel } from '@/api/entity'
 import { defineStore } from 'pinia'
 import Zod from 'zod'
+
+import { useClient } from '@/api/client'
+import { EntityFilter, UUIDEntityModel } from '@/api/entity'
 
 export type UserRole = Zod.infer<typeof UserRoleModel>
 export const UserRoleModel = Zod.enum(['viewer', 'operator', 'admin'])

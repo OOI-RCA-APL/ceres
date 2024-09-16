@@ -1,5 +1,6 @@
-import { Address } from '@/api/address'
 import Zod from 'zod'
+
+import { Address } from '@/api/address'
 
 export type BaseElement = Zod.infer<typeof BaseElementModel>
 export const BaseElementModel = Zod.object({

@@ -1,4 +1,8 @@
 <script lang="ts" setup>
+import { useQuery } from '@tanstack/vue-query'
+import { debounce } from 'quasar'
+import { computed, watch } from 'vue'
+
 import { DisplayElement, Element } from '@/api/elements'
 import { useEngine } from '@/api/engine'
 import InterfaceDisplayContent from '@/components/InterfaceDisplayContent.vue'
@@ -6,9 +10,6 @@ import SchemaForm from '@/components/schema-form/SchemaForm.vue'
 import icons from '@/icons'
 import { InterfacePath, useInterfaceContext } from '@/interface'
 import { useSchemaForm } from '@/schema-form'
-import { useQuery } from '@tanstack/vue-query'
-import { debounce } from 'quasar'
-import { computed, watch } from 'vue'
 
 const {
   element,

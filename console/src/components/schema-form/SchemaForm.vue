@@ -1,4 +1,6 @@
 <script lang="ts" setup>
+import { watchEffect } from 'vue'
+
 import SchemaFormNode from '@/components/schema-form/SchemaFormNode.vue'
 import {
   SchemaForm,
@@ -7,7 +9,6 @@ import {
   isSchemaForm,
   useSchemaForm,
 } from '@/schema-form'
-import { watchEffect } from 'vue'
 
 const props = defineProps<{
   form: SchemaForm | SchemaFormOptions

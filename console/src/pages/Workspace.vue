@@ -1,4 +1,8 @@
 <script lang="ts" setup>
+import { useEventListener, useMouse } from '@vueuse/core'
+import { QPopupEdit } from 'quasar'
+import { computed, reactive, watchEffect } from 'vue'
+
 import AlertView from '@/components/AlertView.vue'
 import CommonText from '@/components/CommonText.vue'
 import FullPage from '@/components/FullPage.vue'
@@ -10,9 +14,6 @@ import WorkspaceGap from '@/components/WorkspaceGap.vue'
 import { useDialogs } from '@/dialogs'
 import icons from '@/icons'
 import { Drag, provideWorkspaceContext, useWorkspaces, WidgetType } from '@/workspace'
-import { useEventListener, useMouse } from '@vueuse/core'
-import { QPopupEdit } from 'quasar'
-import { computed, reactive, watchEffect } from 'vue'
 
 const { name } = defineProps<{
   name: string

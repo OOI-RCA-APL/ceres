@@ -1,8 +1,9 @@
-import { usePersisted } from '@/persistence'
 import moment from 'moment'
 import { defineStore } from 'pinia'
 import { useQuasar } from 'quasar'
 import { computed, watchEffect } from 'vue'
+
+import { usePersisted } from '@/persistence'
 
 export const usePreferences = defineStore('preferences', () => {
   const state = usePersisted({

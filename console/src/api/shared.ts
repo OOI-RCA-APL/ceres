@@ -1,8 +1,9 @@
+import moment from 'moment'
+import Zod, { ZodTypeAny } from 'zod'
+
 import type { Alert } from '@/api/alerts'
 import type { LogEntry } from '@/api/log-entries'
 import type { Message } from '@/api/messages'
-import moment from 'moment'
-import Zod, { ZodTypeAny } from 'zod'
 
 export const NameStrModel = Zod.string().regex(/[a-zA-Z\-\_][a-zA-Z0-9\-\_]*/)
 export const EmailStrModel = Zod.string().regex(/.+@.+/)

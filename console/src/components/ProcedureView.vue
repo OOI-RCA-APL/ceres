@@ -1,8 +1,9 @@
 <script lang="ts" setup>
+import { upperFirst } from 'lodash'
+
+import { useEngine } from '@/api/engine'
 import Procedures from '@/components/Procedures.vue'
 import { ProceduresWidget } from '@/workspace'
-import { upperFirst } from 'lodash'
-import { useEngine } from '@/api/engine'
 
 const { widget } = defineProps<{
   widget: ProceduresWidget

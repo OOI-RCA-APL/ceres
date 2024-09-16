@@ -1,8 +1,9 @@
 <script lang="ts" setup>
+import { upperFirst } from 'lodash'
+
 import { Address } from '@/api/address'
 import { useEngine } from '@/api/engine'
 import icons from '@/icons'
-import { upperFirst } from 'lodash'
 
 const { address } = defineProps<{
   address: Address

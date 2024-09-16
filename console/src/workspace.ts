@@ -1,13 +1,14 @@
+import { defineStore } from 'pinia'
+import { v4 } from 'uuid'
+import { computed, inject, MaybeRef, provide, reactive, unref, watchEffect } from 'vue'
+import Zod from 'zod'
+
 import { AddressModel, AddressSelector } from '@/api/address'
 import { ProcedureTypeModel } from '@/api/components'
 import { getter } from '@/getter'
 import { useNavigation } from '@/navigation'
 import { usePersisted } from '@/persistence'
 import { workspaceContextInjectionKey } from '@/symbols'
-import { defineStore } from 'pinia'
-import { v4 } from 'uuid'
-import { computed, inject, MaybeRef, provide, reactive, unref, watchEffect } from 'vue'
-import Zod from 'zod'
 
 export type BaseWidget = Zod.infer<typeof BaseWidgetModel>
 const BaseWidgetModel = Zod.object({

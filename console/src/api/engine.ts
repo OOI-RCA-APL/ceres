@@ -1,3 +1,5 @@
+import { defineStore } from 'pinia'
+
 import { AddressSelector } from '@/api/address'
 import { useAlerts } from '@/api/alerts'
 import { useAuth } from '@/api/auth'
@@ -9,7 +11,6 @@ import { useMessages } from '@/api/messages'
 import { useStatistics } from '@/api/statistics'
 import { useStatuses } from '@/api/statuses'
 import { useUsers } from '@/api/users'
-import { defineStore } from 'pinia'
 
 export type Engine = ReturnType<typeof useEngine>
 

@@ -1,10 +1,11 @@
 <script lang="ts" setup>
+import { upperFirst } from 'lodash'
+import { computed, watchEffect } from 'vue'
+
 import { ComponentInfo } from '@/api/components'
 import Procedure from '@/components/Procedure.vue'
 import { useInterfaceContext } from '@/interface'
 import { usePersisted } from '@/persistence'
-import { upperFirst } from 'lodash'
-import { computed, watchEffect } from 'vue'
 
 const { component, type } = defineProps<{
   component: ComponentInfo

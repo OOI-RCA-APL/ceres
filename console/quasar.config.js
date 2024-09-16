@@ -2,12 +2,12 @@
 /* eslint-env node */
 
 // https://v2.quasar.dev/quasar-cli-vite/quasar-config-js
-const { configure } = require('quasar/wrappers')
 
-const path = require('path')
 const fs = require('fs')
+const path = require('path')
 
 const ReactivityTransformPlugin = require('@vue-macros/reactivity-transform/vite')
+const { configure } = require('quasar/wrappers')
 
 module.exports = configure((context) => {
   function getDevelopmentEnvironment() {

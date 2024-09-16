@@ -1,7 +1,8 @@
-import { useEngine } from '@/api/engine'
-import ChangePasswordDialog from '@/components/ChangePasswordDialog.vue'
 import { defineStore } from 'pinia'
 import { QDialogOptions, useQuasar } from 'quasar'
+
+import { useEngine } from '@/api/engine'
+import ChangePasswordDialog from '@/components/ChangePasswordDialog.vue'
 
 export type Dialogs = ReturnType<typeof useDialogs>
 

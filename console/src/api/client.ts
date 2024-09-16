@@ -1,4 +1,3 @@
-import { ErrorInfo, Failure } from '@/errors'
 import {
   QueryClient,
   QueryKey,
@@ -11,6 +10,8 @@ import {
 import { defineStore } from 'pinia'
 import { MaybeRef, computed, unref, watchEffect } from 'vue'
 import { ZodAny, ZodError, ZodTypeAny } from 'zod'
+
+import { ErrorInfo, Failure } from '@/errors'
 
 export type RequestMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 export type RequestOptions<TParseModel extends ZodTypeAny = ZodAny> = {

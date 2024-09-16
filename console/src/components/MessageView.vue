@@ -1,4 +1,6 @@
 <script lang="ts" setup>
+import { computed, watch } from 'vue'
+
 import { Address, AddressSelector } from '@/api/address'
 import { useEngine } from '@/api/engine'
 import RecordView from '@/components/RecordView.vue'
@@ -6,7 +8,6 @@ import SchemaFormBase from '@/components/schema-form/SchemaFormBase.vue'
 import icons from '@/icons'
 import { useNotify } from '@/notify'
 import { MessagesWidget } from '@/workspace'
-import { computed, watch } from 'vue'
 
 const { address, widget } = defineProps<{
   containerClass?: string | null

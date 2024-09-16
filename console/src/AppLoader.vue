@@ -1,14 +1,15 @@
 <script lang="ts" setup>
-import { useEngine } from '@/api/engine'
-import constants from '@/constants'
-import { useNavigation } from '@/navigation'
-import { usePreferences } from '@/preferences'
-import { userCanAccess } from '@/router'
 import { useEventListener } from '@vueuse/core'
 import moment from 'moment'
 import { useMeta, useQuasar } from 'quasar'
 import { computed, onMounted, provide, watchEffect } from 'vue'
 import { THEME_KEY } from 'vue-echarts'
+
+import { useEngine } from '@/api/engine'
+import constants from '@/constants'
+import { useNavigation } from '@/navigation'
+import { usePreferences } from '@/preferences'
+import { userCanAccess } from '@/router'
 
 const navigation = useNavigation()
 const preferences = usePreferences()

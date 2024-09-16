@@ -1,7 +1,8 @@
 <script lang="ts" setup>
+import moment from 'moment'
+
 import SchemaFormInput from '@/components/schema-form/SchemaFormInput.vue'
 import { SchemaForm, SchemaObject, SchemaPath } from '@/schema-form'
-import moment from 'moment'
 
 const { modelValue } = defineProps<{
   modelValue: unknown

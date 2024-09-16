@@ -1,10 +1,11 @@
+import AJV, { SchemaObject as BaseSchemaObject } from 'ajv'
+import { cloneDeep, isEqual } from 'lodash'
+import { computed, reactive, unref } from 'vue'
+
 import { getter } from '@/getter'
 import { KeyInput, usePersisted } from '@/persistence'
 import { useTime } from '@/time'
 import { MaybePromise, MaybeRef, Plain } from '@/utilities'
-import AJV, { SchemaObject as BaseSchemaObject } from 'ajv'
-import { cloneDeep, isEqual } from 'lodash'
-import { computed, reactive, unref } from 'vue'
 
 export type SchemaObject = BaseSchemaObject & {
   $ref?: string

@@ -1,4 +1,6 @@
 <script lang="ts" setup>
+import { omit, upperFirst } from 'lodash'
+
 import { useEngine } from '@/api/engine'
 import { UserRole } from '@/api/users'
 import CardPage from '@/components/CardPage.vue'
@@ -9,7 +11,6 @@ import icons from '@/icons'
 import { useNavigation } from '@/navigation'
 import { useNotify } from '@/notify'
 import { useValidate } from '@/validate'
-import { omit, upperFirst } from 'lodash'
 
 const { id = null } = defineProps<{
   id?: string | null

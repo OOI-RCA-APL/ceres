@@ -1,10 +1,11 @@
 <script lang="ts" setup>
+import { computed } from 'vue'
+
 import { Address, AddressSelector } from '@/api/address'
 import { useEngine } from '@/api/engine'
 import RecordView from '@/components/RecordView.vue'
 import SchemaFormBase from '@/components/schema-form/SchemaFormBase.vue'
 import { KeyInput, usePersisted } from '@/persistence'
-import { computed } from 'vue'
 
 const { address, persist } = defineProps<{
   containerClass?: string | null

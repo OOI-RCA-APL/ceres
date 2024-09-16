@@ -1,9 +1,10 @@
-import { StreamOptions, useClient } from '@/api/client'
-import { RecordFilter, RecordModel } from '@/api/entity'
-import { Level, LevelModel } from '@/api/shared'
 import { defineStore } from 'pinia'
 import { MaybeRef, computed, unref } from 'vue'
 import Zod from 'zod'
+
+import { StreamOptions, useClient } from '@/api/client'
+import { RecordFilter, RecordModel } from '@/api/entity'
+import { Level, LevelModel } from '@/api/shared'
 
 export type LogEntry = Zod.infer<typeof LogEntryModel>
 export const LogEntryModel = RecordModel.extend({

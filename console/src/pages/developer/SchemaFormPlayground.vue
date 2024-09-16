@@ -1,11 +1,12 @@
 <script lang="ts" setup>
-import CommonText from '@/components/CommonText.vue'
-import SchemaForm from '@/components/schema-form/SchemaForm.vue'
-import SectionCard from '@/components/SectionCard.vue'
-import { usePersisted } from '@/persistence'
-import { useSchemaForm } from '@/schema-form'
 import { computed } from 'vue'
 import Zod from 'zod'
+
+import CommonText from '@/components/CommonText.vue'
+import SectionCard from '@/components/SectionCard.vue'
+import SchemaForm from '@/components/schema-form/SchemaForm.vue'
+import { usePersisted } from '@/persistence'
+import { useSchemaForm } from '@/schema-form'
 
 const state = usePersisted({
   schema: ({ object }) =>

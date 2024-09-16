@@ -1,14 +1,15 @@
+import { useQuery } from '@tanstack/vue-query'
+import moment from 'moment'
+import { defineStore } from 'pinia'
+import { computed } from 'vue'
+import Zod from 'zod'
+
 import { Address } from '@/api/address'
 import { useAuth } from '@/api/auth'
 import { useClient } from '@/api/client'
 import { LevelModel } from '@/api/shared'
 import { getter } from '@/getter'
 import { usePreferences } from '@/preferences'
-import { useQuery } from '@tanstack/vue-query'
-import moment from 'moment'
-import { defineStore } from 'pinia'
-import { computed } from 'vue'
-import Zod from 'zod'
 
 export type LevelStatistics = Zod.infer<typeof LevelStatisticsModel>
 export const LevelStatisticsModel = Zod.object({

@@ -1,9 +1,10 @@
+import type { InjectionKey } from 'vue'
+
 import type { InterfaceContext } from '@/interface'
 import type { PanelGroup } from '@/panel-group'
 import { RecordViewContext } from '@/record-view'
 import type { SchemaForm } from '@/schema-form'
 import { WorkspaceContext } from '@/workspace'
-import type { InjectionKey } from 'vue'
 
 export const schemaFormInjectionKey: InjectionKey<SchemaForm> = Symbol('schema-form')
 export const panelGroupInjectionKey: InjectionKey<PanelGroup> = Symbol('panel-group')

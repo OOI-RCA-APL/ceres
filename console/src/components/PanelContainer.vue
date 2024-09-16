@@ -1,9 +1,10 @@
 <script lang="ts" setup>
+import { computed } from 'vue'
+
 import AppBoundary from '@/AppBoundary.vue'
 import HeightContainer from '@/components/HeightContainer.vue'
 import icons from '@/icons'
 import { KeyInput, usePersisted } from '@/persistence'
-import { computed } from 'vue'
 
 const { name, persist } = defineProps<{
   name: string

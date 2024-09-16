@@ -1,10 +1,11 @@
+import { defineStore } from 'pinia'
+import { MaybeRef, computed, unref } from 'vue'
+import Zod from 'zod'
+
 import { Address } from '@/api/address'
 import { StreamOptions, useClient } from '@/api/client'
 import { RecordFilter, RecordModel } from '@/api/entity'
 import { BaseFailModel, createResultType } from '@/api/shared'
-import { defineStore } from 'pinia'
-import { MaybeRef, computed, unref } from 'vue'
-import Zod from 'zod'
 
 export type MessageDirection = Zod.infer<typeof MessageDirectionModel>
 export const MessageDirectionModel = Zod.enum(['send', 'receive'])

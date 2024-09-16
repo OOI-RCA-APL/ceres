@@ -1,6 +1,7 @@
+import { inject, provide } from 'vue'
+
 import { Address } from '@/api/address'
 import { interfaceContextInjectionKey } from '@/symbols'
-import { inject, provide } from 'vue'
 
 export type InterfacePath = ReadonlyArray<string | number>
 

@@ -1,6 +1,7 @@
+import Zod from 'zod'
+
 import { AddressSelector } from '@/api/address'
 import { DateTimeModel } from '@/api/shared'
-import Zod from 'zod'
 
 export type Entity = Zod.infer<typeof EntityModel>
 export const EntityModel = Zod.object({})

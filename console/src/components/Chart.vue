@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { Option } from '@/chart'
 import { ECharts } from 'echarts'
 import EChart from 'vue-echarts'
+
+import { Option } from '@/chart'
 
 const {
   loading = false,
