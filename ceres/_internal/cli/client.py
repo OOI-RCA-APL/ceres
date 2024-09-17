@@ -38,8 +38,7 @@ class Client:
         if result is None:
             result = Any  # type: ignore
 
-        path = "/api/" + path.lstrip("/")
-        path = f"http+unix://{str(self.project.socket_path).replace('/', '%2F')}{path}"
+        url = f"http://ceres.local/api/{path.lstrip('/')}"
 
         if isinstance(params, BaseModel):
             params = {key: value for key, value in params.model_dump(exclude_defaults=True).items()}
@@ -49,7 +48,7 @@ class Client:
         async with ClientSession(connector=UnixConnector(str(self.project.socket_path))) as session:
             async with session.request(
                 method,
-                path,
+                url,
                 json=simplify(data),
                 params=simplify(params),
             ) as response:
