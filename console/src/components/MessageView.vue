@@ -196,7 +196,7 @@ async function submit() {
     <template v-if="engine.auth.isOperator" #default>
       <q-form @submit.prevent="submit">
         <q-separator />
-        <div class="q-pa-xs row">
+        <div class="row">
           <q-input
             :ref="(ref: any) => (commandInputElement = ref?.getNativeElement() ?? null)"
             v-model="widget.commandText"
