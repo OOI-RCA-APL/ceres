@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Unpack, overload, override, AsyncIterable
+from typing import TYPE_CHECKING, Any, AsyncIterable, Unpack, overload, override
 
 from pydantic import ValidationError
 
@@ -11,7 +11,7 @@ from ceres._internal.util import get_type_adapter
 from ceres.address import Address
 from ceres.event import VariableAssignedEvent
 from ceres.stream import Stream
-from ceres.variable import Variable
+from ceres.variable import Variable, VariableFilter, VariableFilterArgs
 
 with lazy_imports(__name__):
     from ceres.database import Database
@@ -34,35 +34,37 @@ class VariableManager(
     if TYPE_CHECKING:
         # See: https://github.com/python/typing/issues/1399
         _E = Variable
+        _F = Variable.Filter
+        _FA = Variable.FilterArgs
 
         @override
         async def get_all(  # pyright: ignore[reportIncompatibleMethodOverride]
-            self, filter: _E.Filter | None = None, /, **kwargs: Unpack[_E.FilterArgs]
+            self, filter: _F | None = None, /, **kwargs: Unpack[_FA]
         ) -> list[_E]: ...
 
         @override
         async def get(  # pyright: ignore[reportIncompatibleMethodOverride]
-            self, filter: _E.Filter | None = None, /, **kwargs: Unpack[_E.FilterArgs]
+            self, filter: _F | None = None, /, **kwargs: Unpack[_FA]
         ) -> _E | None: ...
 
         @override
         def select(  # pyright: ignore[reportIncompatibleMethodOverride]
-            self, filter: _E.Filter | None = None, **kwargs: Unpack[_E.FilterArgs]
+            self, filter: _F | None = None, **kwargs: Unpack[_FA]
         ) -> AsyncIterable[_E]: ...
 
         @override
         async def delete_all(  # pyright: ignore[reportIncompatibleMethodOverride]
-            self, filter: _E.Filter | None = None, **kwargs: Unpack[_E.FilterArgs]
+            self, filter: _F | None = None, **kwargs: Unpack[_FA]
         ) -> int: ...
 
         @override
         async def delete(  # pyright: ignore[reportIncompatibleMethodOverride]
-            self, filter: _E.Filter | None = None, /, **kwargs: Unpack[_E.FilterArgs]
+            self, filter: _F | None = None, /, **kwargs: Unpack[_FA]
         ) -> _E | None: ...
 
         @override
         async def count(  # pyright: ignore[reportIncompatibleMethodOverride]
-            self, filter: _E.Filter | None = None, /, **kwargs: Unpack[_E.FilterArgs]
+            self, filter: _F | None = None, /, **kwargs: Unpack[_FA]
         ) -> int: ...
 
 
@@ -136,8 +138,8 @@ class BoundVariableManager(VariableManager, BaseBoundManager[Variable]):
 
     def follow(
         self,
-        filter: Variable.Filter | None = None,
-        **kwargs: Unpack[Variable.FilterArgs],
+        filter: VariableFilter | None = None,
+        **kwargs: Unpack[VariableFilterArgs],
     ) -> Stream[Variable]:
         filter = self._apply_default_filter(filter, kwargs)
         return (

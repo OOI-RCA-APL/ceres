@@ -165,7 +165,7 @@ def has_field(obj: Any, name: str, type: Any = None) -> bool:
 
     if is_dataclass_instance(obj):
         return any(
-            field.name == name and (type is None or is_subtype(field.type, type))
+            field.name == name and (type is None or is_subtype(field.type, type))  # type: ignore
             for field in dataclasses.fields(obj)
         )
 
@@ -896,7 +896,7 @@ def sequence[T](start: T, next: Callable[[T], T]) -> Iterator[T]:
 
 
 async def cancel(*tasks: Task[Any]) -> None:
-    for delay in sequence(0, lambda current: 0.001 if current == 0 else min(current * 2, 1)):
+    for delay in sequence(0.0, lambda current: 0.001 if current == 0 else min(current * 2, 1)):
         for task in tasks:
             task.cancel()
 

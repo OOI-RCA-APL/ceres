@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Unpack, override, AsyncIterable
+from typing import TYPE_CHECKING, AsyncIterable, Unpack, override
 
 from ceres._internal.lazy import lazy_imports
 from ceres._internal.manager.entity import BaseEntityManager
-from ceres.user import User
+from ceres.user import User, UserCreate, UserFilter, UserUpdate
 
 with lazy_imports(__name__):
     from ceres._internal.auth import verify_password_hash
@@ -27,21 +27,21 @@ class UserManager(
         super().__init__(source, User)
 
     @override
-    async def update_all(self, filter: User.Filter, assign: User.Update) -> int:
+    async def update_all(self, filter: UserFilter, assign: UserUpdate) -> int:
         if "password" in assign:
             assign["password"] = await self._maybe_hash_password(assign["password"])
 
         return await super().update_all(filter, assign)
 
     @override
-    async def update(self, filter: User.Filter, assign: User.Update) -> User | None:
+    async def update(self, filter: UserFilter, assign: UserUpdate) -> User | None:
         if "password" in assign:
             assign["password"] = await self._maybe_hash_password(assign["password"])
 
         return await super().update(filter, assign)
 
     @override
-    async def _from_create(self, data: User.Create) -> User:
+    async def _from_create(self, data: UserCreate) -> User:
         fields = {**data.__dict__}
         fields["password"] = await self._maybe_hash_password(fields["password"])
         return User(**fields)
@@ -55,33 +55,35 @@ class UserManager(
     if TYPE_CHECKING:
         # See: https://github.com/python/typing/issues/1399
         _E = User
+        _F = User.Filter
+        _FA = User.FilterArgs
 
         @override
         async def get_all(  # pyright: ignore[reportIncompatibleMethodOverride]
-            self, filter: _E.Filter | None = None, **kwargs: Unpack[_E.FilterArgs]
+            self, filter: _F | None = None, **kwargs: Unpack[_FA]
         ) -> list[_E]: ...
 
         @override
         async def get(  # pyright: ignore[reportIncompatibleMethodOverride]
-            self, filter: _E.Filter | None = None, **kwargs: Unpack[_E.FilterArgs]
+            self, filter: _F | None = None, **kwargs: Unpack[_FA]
         ) -> _E | None: ...
 
         @override
         def select(  # pyright: ignore[reportIncompatibleMethodOverride]
-            self, filter: _E.Filter | None = None, **kwargs: Unpack[_E.FilterArgs]
+            self, filter: _F | None = None, **kwargs: Unpack[_FA]
         ) -> AsyncIterable[_E]: ...
 
         @override
         async def delete_all(  # pyright: ignore[reportIncompatibleMethodOverride]
-            self, filter: _E.Filter | None = None, **kwargs: Unpack[_E.FilterArgs]
+            self, filter: _F | None = None, **kwargs: Unpack[_FA]
         ) -> int: ...
 
         @override
         async def delete(  # pyright: ignore[reportIncompatibleMethodOverride]
-            self, filter: _E.Filter | None = None, **kwargs: Unpack[_E.FilterArgs]
+            self, filter: _F | None = None, **kwargs: Unpack[_FA]
         ) -> _E | None: ...
 
         @override
         async def count(  # pyright: ignore[reportIncompatibleMethodOverride]
-            self, filter: _E.Filter | None = None, **kwargs: Unpack[_E.FilterArgs]
+            self, filter: _F | None = None, **kwargs: Unpack[_FA]
         ) -> int: ...

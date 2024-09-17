@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, AsyncIterable, Unpack, override
 from ceres._internal.lazy import lazy_imports
 from ceres._internal.manager.entity import BaseEntityManager
 from ceres._internal.manager.manager import BaseBoundManager
-from ceres.message import Message
+from ceres.message import Message, MessageFilter, MessageFilterArgs
 
 with lazy_imports(__name__):
     from ceres._internal import util
@@ -30,35 +30,37 @@ class MessageManager(
     if TYPE_CHECKING:
         # See: https://github.com/python/typing/issues/1399
         _E = Message
+        _F = Message.Filter
+        _FA = Message.FilterArgs
 
         @override
         async def get_all(  # pyright: ignore[reportIncompatibleMethodOverride]
-            self, filter: _E.Filter | None = None, **kwargs: Unpack[_E.FilterArgs]
+            self, filter: _F | None = None, **kwargs: Unpack[_FA]
         ) -> list[_E]: ...
 
         @override
         async def get(  # pyright: ignore[reportIncompatibleMethodOverride]
-            self, filter: _E.Filter | None = None, **kwargs: Unpack[_E.FilterArgs]
+            self, filter: _F | None = None, **kwargs: Unpack[_FA]
         ) -> _E | None: ...
 
         @override
         def select(  # pyright: ignore[reportIncompatibleMethodOverride]
-            self, filter: _E.Filter | None = None, **kwargs: Unpack[_E.FilterArgs]
+            self, filter: _F | None = None, **kwargs: Unpack[_FA]
         ) -> AsyncIterable[_E]: ...
 
         @override
         async def delete_all(  # pyright: ignore[reportIncompatibleMethodOverride]
-            self, filter: _E.Filter | None = None, **kwargs: Unpack[_E.FilterArgs]
+            self, filter: _F | None = None, **kwargs: Unpack[_FA]
         ) -> int: ...
 
         @override
         async def delete(  # pyright: ignore[reportIncompatibleMethodOverride]
-            self, filter: _E.Filter | None = None, **kwargs: Unpack[_E.FilterArgs]
+            self, filter: _F | None = None, **kwargs: Unpack[_FA]
         ) -> _E | None: ...
 
         @override
         async def count(  # pyright: ignore[reportIncompatibleMethodOverride]
-            self, filter: _E.Filter | None = None, **kwargs: Unpack[_E.FilterArgs]
+            self, filter: _F | None = None, **kwargs: Unpack[_FA]
         ) -> int: ...
 
 
@@ -71,8 +73,8 @@ class BoundMessageManager(MessageManager, BaseBoundManager[Message]):
 
     def follow(
         self,
-        filter: Message.Filter | None = None,
-        **kwargs: Unpack[Message.FilterArgs],
+        filter: MessageFilter | None = None,
+        **kwargs: Unpack[MessageFilterArgs],
     ) -> Stream[Message]:
         from ceres.event import MessageEvent, MessageReceivedEvent
 

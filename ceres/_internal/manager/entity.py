@@ -2,7 +2,14 @@ from __future__ import annotations
 
 from typing import Any, AsyncIterable, Sequence, Unpack, cast
 
-from ceres._internal.entity import BaseEntity
+from ceres._internal.entity import (
+    BaseEntity,
+    BaseEntityCreate,
+    BaseEntityFilter,
+    BaseEntityFilterArgs,
+    BaseEntityRow,
+    BaseEntityUpdate,
+)
 from ceres._internal.lazy import lazy_imports
 from ceres._internal.manager.manager import BaseManager
 from ceres.database.enums import DatabaseType
@@ -18,11 +25,11 @@ with lazy_imports(__name__):
 
 class BaseEntityManager[
     EntityT: BaseEntity,
-    RowT: BaseEntity.Row,
-    CreateT: BaseEntity.Create,
-    UpdateT: BaseEntity.Update,
-    FilterT: BaseEntity.Filter[Any, Any, Any],
-    FilterArgsT: BaseEntity.FilterArgs[Any, Any],
+    RowT: BaseEntityRow,
+    CreateT: BaseEntityCreate,
+    UpdateT: BaseEntityUpdate,
+    FilterT: BaseEntityFilter[Any, Any, Any],
+    FilterArgsT: BaseEntityFilterArgs[Any, Any],
 ](BaseManager[EntityT]):
     async def create(
         self,

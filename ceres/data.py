@@ -39,11 +39,7 @@ from pydantic_core import CoreSchema, SchemaSerializer, SchemaValidator
 from pydantic_extra_types.color import Color as Color
 
 from ceres._internal import util
-from ceres._internal.lazy import lazy_imports
 from ceres._internal.util import NAME_PATTERN, PydanticDataclassLike
-
-with lazy_imports(__name__):
-    import orjson
 
 
 class SimplifyArgs(TypedDict, total=False):
@@ -63,7 +59,7 @@ __ANY_ADAPTOR = TypeAdapter(Any) if not TYPE_CHECKING else TypeAdapter(object)
 
 
 def simplify(obj: object, **kwargs: Unpack[SimplifyArgs]) -> Any:
-    return orjson.loads(jsonify(obj, **kwargs))
+    return json.loads(jsonify(obj, **kwargs))
 
 
 def jsonify(obj: object, **kwargs: Unpack[SerializeArgs]) -> str:
