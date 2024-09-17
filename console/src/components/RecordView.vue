@@ -1,9 +1,9 @@
 <script lang="ts" setup>
-import { useDocumentVisibility } from '@vueuse/core'
+import { useDocumentVisibility, useEventListener } from '@vueuse/core'
 import _ from 'lodash'
 import moment, { Moment } from 'moment'
 import { debounce, QVirtualScroll } from 'quasar'
-import { computed, nextTick, onMounted, watch, watchEffect } from 'vue'
+import { computed, nextTick, onMounted, watch, watchEffect, reactive } from 'vue'
 
 import { Address } from '@/api/address'
 import { Alert } from '@/api/alerts'
@@ -76,9 +76,6 @@ const recordCullThreshold = $computed(() => recordsVisible + 500)
 const recordCullCount = $computed(() => recordsVisible + 100)
 const recordsUntilNearTop = 30
 
-let isFollowing = $ref(true)
-let isScrollingToBottom = $ref(false)
-
 let scroll = $shallowRef<QVirtualScroll | null>(null)
 const scrollElement = $computed(() => {
   if (scroll == null) {
@@ -118,17 +115,44 @@ watch(
       }, 500)
 
       if (isFollowing) {
-        scrollToBottom()
+        scrollToBottom(1000)
       }
     }
   }
 )
 
+let resizes = $ref(0)
+
+useEventListener(window, 'resize', () => {
+  const follow = isFollowing
+  resizes++
+
+  if (follow) {
+    setTimeout(() => {
+      nextTick(() => {
+        scroll?.refresh()
+        setTimeout(() => {
+          nextTick(() => {
+            scrollToBottom(1000)
+            isFollowing = true
+          })
+        })
+      })
+    })
+  }
+
+  setTimeout(() => {
+    resizes--
+  }, 1000)
+})
+
+const isWindowJustResized = $computed(() => resizes > 0)
+
 let isExhausted = $ref(false)
 let isLoadingPrevious = $ref(false)
 let isLoadingCurrent = $ref(true)
 
-let containerInfo = $ref({
+const containerInfo = reactive({
   scrollHeight: 0,
   scrollWidth: 0,
   scrollTop: 0,
@@ -148,11 +172,45 @@ function updateContainerInfo() {
   }
 }
 
+let scrollsToBottom = $ref(0)
+const isScrollingToBottom = $computed(() => scrollsToBottom > 0)
+
+async function scrollToBottom(duration = 1000, interval = 50) {
+  function go() {
+    console.log('go')
+    updateContainerInfo()
+    if (scroll != null) {
+      scroll.scrollTo(records.length)
+    }
+    setTimeout(() => {
+      nextTick(() => {
+        if (scrollElement != null) {
+          scrollElement.scrollTop = containerInfo.scrollHeight * 2
+        }
+      })
+    })
+  }
+
+  scrollsToBottom++
+  try {
+    go()
+    const id = setInterval(() => {
+      go()
+    }, interval)
+    await delay(duration)
+    clearInterval(id)
+  } finally {
+    scrollsToBottom--
+  }
+}
+
+let isFollowing = $ref(true)
+
 async function onScroll() {
   updateContainerInfo()
   if (isScrollingToBottom) {
     isFollowing = true
-  } else if (!isDocumentJustVisible) {
+  } else if (!isDocumentJustVisible && !isWindowJustResized) {
     isFollowing = isAtBottom()
   }
 
@@ -251,6 +309,11 @@ async function appendRecords(appended: Record[]) {
       await scrollToBottom(100)
     } else {
       scroll?.refresh(records.length + 1)
+      setTimeout(() => {
+        nextTick(() => {
+          scroll?.refresh(records.length + 1)
+        })
+      })
     }
   }
 
@@ -314,26 +377,6 @@ async function onScrollToBottomClicked() {
   records = records.slice(records.length - recordCullCount, records.length)
   await nextTick()
   await scrollToBottom(250)
-}
-
-async function scrollToBottom(duration = 500, interval = 50) {
-  function go() {
-    if (scroll != null) {
-      scroll.scrollTo(records.length)
-    }
-  }
-
-  isScrollingToBottom = true
-  try {
-    go()
-    const id = setInterval(() => {
-      go()
-    }, interval)
-    await delay(duration)
-    clearInterval(id)
-  } finally {
-    isScrollingToBottom = false
-  }
 }
 
 onMounted(async () => {
