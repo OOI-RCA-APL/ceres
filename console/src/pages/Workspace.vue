@@ -10,6 +10,7 @@ import LogEntryView from '@/components/LogEntryView.vue'
 import MessageView from '@/components/MessageView.vue'
 import ProcedureView from '@/components/ProcedureView.vue'
 import ResizeHandle from '@/components/ResizeHandle.vue'
+import UiView from '@/components/UiView.vue'
 import WorkspaceGap from '@/components/WorkspaceGap.vue'
 import { useDialogs } from '@/dialogs'
 import icons from '@/icons'
@@ -111,6 +112,10 @@ const widgetListing = [
     type: 'procedures',
     label: 'Procedures View',
   },
+  {
+    type: 'ui',
+    label: 'UI View',
+  },
 ] as const
 </script>
 
@@ -203,7 +208,7 @@ const widgetListing = [
         <div
           v-for="(row, i) in context.workspace.layout"
           :key="i"
-          class="full-width q-gutter-xs q-py-xs relative-position row"
+          class="full-width no-wrap q-gutter-xs q-py-xs relative-position row"
           :style="{ height: `${row.height}px` }"
         >
           <workspace-gap
@@ -348,6 +353,9 @@ const widgetListing = [
                 </template>
                 <template v-else-if="widget.type === 'procedures'">
                   <procedure-view :widget="widget" />
+                </template>
+                <template v-else-if="widget.type === 'ui'">
+                  <ui-view :widget="widget" />
                 </template>
               </div>
             </q-card>

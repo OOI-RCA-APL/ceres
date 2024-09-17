@@ -61,6 +61,7 @@ export type UIWidget = Zod.infer<typeof UIWidgetModel>
 export const UIWidgetModel = BaseWidgetModel.extend({
   type: Zod.literal('ui'),
   name: Zod.string().default('UI'),
+  interfaceAddress: AddressModel.nullable().default(null),
 })
 
 export type Widget = Zod.infer<typeof WidgetModel>
@@ -211,7 +212,7 @@ function createWorkspaceContext(options: WorkspaceContextOptions) {
 
     if (toColumn == null) {
       let layout = [...workspace.layout]
-      layout.splice(toRow, 0, { height: 250, widgets: [widget] })
+      layout.splice(toRow, 0, { height: sourceRow.height, widgets: [widget] })
       layout = layout.filter((row) => row != null && row.widgets.length > 0)
       workspace.layout = layout
       return widget
@@ -225,6 +226,7 @@ function createWorkspaceContext(options: WorkspaceContextOptions) {
     destinationRow.widgets = [...destinationRow.widgets]
     destinationRow.widgets.splice(toColumn, 0, widget)
     destinationRow.widgets = destinationRow.widgets.filter((current) => current != null)
+    destinationRow.height = Math.max(destinationRow.height, sourceRow.height)
 
     workspace.layout = workspace.layout.filter((row) => row != null && row.widgets.length > 0)
 
