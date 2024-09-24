@@ -234,7 +234,7 @@ const widgetListing = [
           />
           <div
             v-for="(widget, j) in row.widgets"
-            :key="j"
+            :key="widget.id"
             :class="[j < row.widgets.length - 1 ? 'col-shrink' : 'col-grow', 'relative-position']"
             :style="j < row.widgets.length - 1 ? { width: `${widget.width}px` } : undefined"
           >
@@ -321,6 +321,19 @@ const widgetListing = [
                     >
                       <q-menu anchor="top right" class="no-shadow" :offset="[8, 0]" self="top left">
                         <q-list bordered>
+                          <q-item
+                            v-close-popup
+                            clickable
+                            dense
+                            @click="context.copyWidget(widget.id, i, j + 1)"
+                          >
+                            <q-item-section avatar>
+                              <q-icon :name="icons.duplicate" />
+                            </q-item-section>
+                            <q-item-section>
+                              <q-item-label>Duplicate</q-item-label>
+                            </q-item-section>
+                          </q-item>
                           <q-item
                             v-close-popup
                             clickable

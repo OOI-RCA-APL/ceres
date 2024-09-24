@@ -127,13 +127,14 @@ function createWorkspaceContext(options: WorkspaceContextOptions) {
     ui: UIWidgetModel,
   } as const
 
-  function createWidget(type: WidgetType, row: number, column: number = 0) {
+  function addWidget(widget: Widget, row: number, column: number = 0) {
     if (workspace == null) {
-      return null
+      return
     }
 
+    deleteWidget(widget.id)
+
     row = Math.max(0, Math.min(workspace.layout.length, row))
-    const widget = widgetModelMapping[type].parse({ type })
     const widgets = [...(workspace.layout[row]?.widgets ?? [])]
     widgets.splice(column, 0, widget)
 
@@ -142,6 +143,15 @@ function createWorkspaceContext(options: WorkspaceContextOptions) {
     } else {
       workspace.layout[row].widgets = widgets
     }
+  }
+
+  function createWidget(type: WidgetType, row: number, column: number = 0) {
+    if (workspace == null) {
+      return null
+    }
+
+    const widget = widgetModelMapping[type].parse({ type })
+    addWidget(widget, row, column)
 
     return widget
   }
@@ -233,6 +243,19 @@ function createWorkspaceContext(options: WorkspaceContextOptions) {
     return widget
   }
 
+  function copyWidget(id: string, toRow: number, toColumn: number) {
+    const widget = getWidget(id)
+    if (widget == null) {
+      return null
+    }
+
+    const copy: Widget = JSON.parse(JSON.stringify(widget))
+    copy.id = v4()
+
+    addWidget(copy, toRow, toColumn)
+    return copy
+  }
+
   watchEffect(() => {
     if (workspace == null) {
       return
@@ -253,9 +276,11 @@ function createWorkspaceContext(options: WorkspaceContextOptions) {
     getWidget,
     getWidgetAt,
     getWidgetPosition,
+    addWidget,
     createWidget,
     deleteWidget,
     moveWidget,
+    copyWidget,
     drag: null as Drag | null,
   })
 }
