@@ -76,6 +76,7 @@ export const WidgetModel = Zod.discriminatedUnion('type', [
 export type WidgetType = Widget['type']
 
 export const WidgetRowModel = Zod.object({
+  id: Zod.string().default(() => v4()),
   height: Zod.number().default(250),
   widgets: WidgetModel.array().default(() => []),
   collapsed: Zod.boolean().default(false),
@@ -128,31 +129,31 @@ function createWorkspaceContext(options: WorkspaceContextOptions) {
     ui: UIWidgetModel,
   } as const
 
-  function addWidget(widget: Widget, row: number, column: number = 0) {
+  function insertWidget(widget: Widget, row: number, column: number = 0) {
     if (workspace == null) {
       return
     }
 
-    deleteWidget(widget.id)
-
-    row = Math.max(0, Math.min(workspace.layout.length, row))
+    row = Math.min(workspace.layout.length, row)
     const widgets = [...(workspace.layout[row]?.widgets ?? [])]
     widgets.splice(column, 0, widget)
 
-    if (workspace.layout[row] == null) {
-      workspace.layout.push({ height: 250, widgets })
+    if (row < 0) {
+      workspace.layout = [WidgetRowModel.parse({ widgets }), ...workspace.layout]
+    } else if (workspace.layout[row] == null) {
+      workspace.layout = [...workspace.layout, WidgetRowModel.parse({ widgets })]
     } else {
       workspace.layout[row].widgets = widgets
     }
   }
 
-  function createWidget(type: WidgetType, row: number, column: number = 0) {
+  function addWidget(type: WidgetType, row: number, column: number = 0) {
     if (workspace == null) {
       return null
     }
 
     const widget = widgetModelMapping[type].parse({ type })
-    addWidget(widget, row, column)
+    insertWidget(widget, row, column)
 
     return widget
   }
@@ -223,7 +224,12 @@ function createWorkspaceContext(options: WorkspaceContextOptions) {
 
     if (toColumn == null) {
       let layout = [...workspace.layout]
-      layout.splice(toRow, 0, { height: sourceRow.height, widgets: [widget] })
+      layout.splice(toRow, 0, {
+        id: v4(),
+        height: sourceRow.height,
+        widgets: [widget],
+        collapsed: false,
+      })
       layout = layout.filter((row) => row != null && row.widgets.length > 0)
       workspace.layout = layout
       return widget
@@ -253,7 +259,7 @@ function createWorkspaceContext(options: WorkspaceContextOptions) {
     const copy: Widget = JSON.parse(JSON.stringify(widget))
     copy.id = v4()
 
-    addWidget(copy, toRow, toColumn)
+    insertWidget(copy, toRow, toColumn)
     return copy
   }
 
@@ -277,8 +283,8 @@ function createWorkspaceContext(options: WorkspaceContextOptions) {
     getWidget,
     getWidgetAt,
     getWidgetPosition,
+    insertWidget,
     addWidget,
-    createWidget,
     deleteWidget,
     moveWidget,
     copyWidget,

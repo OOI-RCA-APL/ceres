@@ -3,6 +3,7 @@ import { useEventListener, useMouse } from '@vueuse/core'
 import { QPopupEdit } from 'quasar'
 import { computed, reactive, watchEffect } from 'vue'
 
+import AddWidgetMenu from '@/components/AddWidgetMenu.vue'
 import AlertView from '@/components/AlertView.vue'
 import CommonText from '@/components/CommonText.vue'
 import FullPage from '@/components/FullPage.vue'
@@ -14,7 +15,7 @@ import UiView from '@/components/UiView.vue'
 import WorkspaceGap from '@/components/WorkspaceGap.vue'
 import { useDialogs } from '@/dialogs'
 import icons from '@/icons'
-import { Drag, provideWorkspaceContext, useWorkspaces, WidgetType } from '@/workspace'
+import { Drag, provideWorkspaceContext, useWorkspaces } from '@/workspace'
 
 const { name } = defineProps<{
   name: string
@@ -86,37 +87,6 @@ function promptDelete() {
       context.delete()
     })
 }
-
-function createWidget(type: WidgetType) {
-  if (context.workspace == null) {
-    return
-  }
-
-  return context.createWidget(type, context.workspace.layout.length)
-}
-
-const widgetListing = [
-  {
-    type: 'messages',
-    label: 'Messages View',
-  },
-  {
-    type: 'alerts',
-    label: 'Alerts View',
-  },
-  {
-    type: 'logs',
-    label: 'Logs View',
-  },
-  {
-    type: 'procedures',
-    label: 'Procedures View',
-  },
-  {
-    type: 'ui',
-    label: 'UI View',
-  },
-] as const
 </script>
 
 <template>
@@ -195,6 +165,15 @@ const widgetListing = [
                 <q-item-label>Delete</q-item-label>
               </q-item-section>
             </q-item>
+            <q-item clickable dense>
+              <q-item-section avatar>
+                <q-icon :name="icons.add" />
+              </q-item-section>
+              <q-item-section>
+                <q-item-label>Add Widget</q-item-label>
+              </q-item-section>
+              <add-widget-menu :row="-1" />
+            </q-item>
           </q-list>
         </q-menu>
       </q-btn>
@@ -249,7 +228,7 @@ const widgetListing = [
               <workspace-gap
                 v-else
                 :class="$style.gapHorizontalMiddle"
-                :column="j"
+                :column="j - 1"
                 direction="horizontal"
                 :row="i"
               />
@@ -334,6 +313,26 @@ const widgetListing = [
                               <q-item-label>Duplicate</q-item-label>
                             </q-item-section>
                           </q-item>
+                          <q-separator />
+                          <q-item clickable dense>
+                            <q-item-section avatar>
+                              <q-icon :name="icons.add" />
+                            </q-item-section>
+                            <q-item-section>
+                              <q-item-label>Add Widget Before</q-item-label>
+                            </q-item-section>
+                            <add-widget-menu :column="j - 1" :row="i" />
+                          </q-item>
+                          <q-item clickable dense>
+                            <q-item-section avatar>
+                              <q-icon :name="icons.add" />
+                            </q-item-section>
+                            <q-item-section>
+                              <q-item-label>Add Widget After</q-item-label>
+                            </q-item-section>
+                            <add-widget-menu :column="j + 1" :row="i" />
+                          </q-item>
+                          <q-separator />
                           <q-item
                             v-close-popup
                             clickable
@@ -392,20 +391,7 @@ const widgetListing = [
     <div class="faded-hover items-center justify-center q-mt-sm row">
       <q-btn v-if="context.workspace != null" color="primary" :icon="icons.add" round size="8px">
         <q-tooltip class="bg-primary">Add Widget</q-tooltip>
-        <q-menu class="no-shadow" :offset="[0, 8]">
-          <q-list bordered dense>
-            <q-item
-              v-for="widget in widgetListing"
-              :key="widget.type"
-              clickable
-              @click="createWidget(widget.type)"
-            >
-              <q-item-section>
-                <q-item-label>{{ widget.label }}</q-item-label>
-              </q-item-section>
-            </q-item>
-          </q-list>
-        </q-menu>
+        <add-widget-menu :offset="[0, 8]" :row="context.workspace.layout.length" />
       </q-btn>
     </div>
     <div :class="$style.bottomPadding" />

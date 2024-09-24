@@ -11,6 +11,10 @@ export class AddressSelector {
   public readonly value: string
 
   constructor(value: string | AddressSelector) {
+    if (typeof value !== 'string' && !(value instanceof AddressSelector)) {
+      throw new Error(`invalid address selector: ${value}`)
+    }
+
     value = value.toString().trim()
     if (!new RegExp(addressSelectorRegex).test(value)) {
       throw new Error(`invalid address selector: ${value}`)
@@ -46,6 +50,10 @@ const addressRegex = new RegExp(`^~|@(${name}(\\.${name})*)*$`)
 
 export class Address extends AddressSelector {
   constructor(value: string | AddressSelector) {
+    if (typeof value !== 'string' && !(value instanceof AddressSelector)) {
+      throw new Error(`invalid address selector: ${value}`)
+    }
+
     value = value.toString().trim()
     if (!new RegExp(addressRegex).test(value)) {
       throw new Error(`invalid address: ${value}`)
