@@ -167,7 +167,7 @@ const widgetListing = [
         flat
         :icon="icons.more"
         round
-        size="7px"
+        size="8px"
       >
         <q-menu anchor="top right" class="no-shadow" :offset="[8, 0]" self="top left">
           <q-list bordered>
@@ -209,7 +209,7 @@ const widgetListing = [
           v-for="(row, i) in context.workspace.layout"
           :key="i"
           class="full-width no-wrap q-gutter-xs q-py-xs relative-position row"
-          :style="{ height: `${row.height}px` }"
+          :style="{ height: row.collapsed ? undefined : `${row.height}px` }"
         >
           <workspace-gap
             v-if="context.drag != null"
@@ -225,7 +225,7 @@ const widgetListing = [
             :row="i + 1"
           />
           <resize-handle
-            v-if="context.drag == null"
+            v-if="context.drag == null && !row.collapsed"
             v-model="row.height"
             :class="$style.verticalResizeHandle"
             direction="vertical"
@@ -351,26 +351,39 @@ const widgetListing = [
                       </q-menu>
                     </q-btn>
                   </div>
+                  <q-space />
+                  <q-btn
+                    flat
+                    round
+                    size="6px"
+                    @click.prevent="row.collapsed = !row.collapsed"
+                    @mousedown.stop
+                    @touchstart.stop
+                  >
+                    <q-icon :name="row.collapsed ? icons.menuDown : icons.menuUp" size="12px" />
+                  </q-btn>
                 </div>
               </div>
-              <q-separator />
-              <div class="col-grow overflow-auto q-pa-sm" style="height: 0">
-                <template v-if="widget.type === 'messages'">
-                  <message-view class="full-height" :widget="widget" />
-                </template>
-                <template v-else-if="widget.type === 'alerts'">
-                  <alert-view class="full-height" :persist="`widget/${widget.id}`" />
-                </template>
-                <template v-else-if="widget.type === 'logs'">
-                  <log-entry-view class="full-height" :persist="`widget/${widget.id}`" />
-                </template>
-                <template v-else-if="widget.type === 'procedures'">
-                  <procedure-view :widget="widget" />
-                </template>
-                <template v-else-if="widget.type === 'ui'">
-                  <ui-view :widget="widget" />
-                </template>
-              </div>
+              <template v-if="!row.collapsed">
+                <q-separator />
+                <div class="col-grow overflow-auto q-pa-sm" style="height: 0">
+                  <template v-if="widget.type === 'messages'">
+                    <message-view class="full-height" :widget="widget" />
+                  </template>
+                  <template v-else-if="widget.type === 'alerts'">
+                    <alert-view class="full-height" :persist="`widget/${widget.id}`" />
+                  </template>
+                  <template v-else-if="widget.type === 'logs'">
+                    <log-entry-view class="full-height" :persist="`widget/${widget.id}`" />
+                  </template>
+                  <template v-else-if="widget.type === 'procedures'">
+                    <procedure-view :widget="widget" />
+                  </template>
+                  <template v-else-if="widget.type === 'ui'">
+                    <ui-view :widget="widget" />
+                  </template>
+                </div>
+              </template>
             </q-card>
           </div>
         </div>

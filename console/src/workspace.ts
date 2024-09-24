@@ -78,6 +78,7 @@ export type WidgetType = Widget['type']
 export const WidgetRowModel = Zod.object({
   height: Zod.number().default(250),
   widgets: WidgetModel.array().default(() => []),
+  collapsed: Zod.boolean().default(false),
 })
 
 export type WorkspaceData = Zod.infer<typeof WorkspaceModel>
