@@ -8,7 +8,7 @@ const segment = `\\~(${modifier})?|@?[a-z-A-Z_\\-.]+(${modifier})?|@(${modifier}
 const addressSelectorRegex = new RegExp(`^${segment}(\\|${segment})*$`)
 
 export class AddressSelector {
-  protected value: string
+  public readonly value: string
 
   constructor(value: string | AddressSelector) {
     value = value.toString().trim()

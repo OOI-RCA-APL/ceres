@@ -3,7 +3,7 @@ import { useDocumentVisibility, useEventListener } from '@vueuse/core'
 import _ from 'lodash'
 import moment, { Moment } from 'moment'
 import { debounce, QVirtualScroll } from 'quasar'
-import { computed, nextTick, onMounted, watch, watchEffect, reactive } from 'vue'
+import { computed, nextTick, onMounted, reactive, watch, watchEffect } from 'vue'
 
 import { Address } from '@/api/address'
 import { Alert } from '@/api/alerts'
@@ -177,7 +177,6 @@ const isScrollingToBottom = $computed(() => scrollsToBottom > 0)
 
 async function scrollToBottom(duration = 1000, interval = 50) {
   function go() {
-    console.log('go')
     updateContainerInfo()
     if (scroll != null) {
       scroll.scrollTo(records.length)

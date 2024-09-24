@@ -38,7 +38,7 @@ const columns = $computed(() => [
   {
     label: 'Timestamp',
     name: 'timestamp',
-    filtered: persisted.filter.after != null || persisted.filter.after != null,
+    filtered: persisted.filter.after != null || persisted.filter.before != null,
   },
   { label: 'Address', name: 'address', filtered: persisted.filter.address != null },
   { label: 'Level', name: 'level', filtered: persisted.filter.level != null },

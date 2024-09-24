@@ -13,6 +13,7 @@ from typing import (
 )
 
 from pydantic import Field, field_validator
+from sqlalchemy.dialects.postgresql import JSONB
 
 from ceres._internal.cli.plumbing import CLIOption
 from ceres._internal.database.types import EnumConstraint, EnumMapper
@@ -45,7 +46,11 @@ class AlertRow(BaseRecordRow, kw_only=True):
 
     level: Mapped[Level] = mapped_column(EnumMapper(Level))
     code: Mapped[str] = mapped_column(Text)
-    info: Mapped[dict[str, Any]] = mapped_column(JSON, default_factory=dict)
+    info: Mapped[dict[str, Any]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        default_factory=dict,
+        server_default="{}",
+    )
 
     @classmethod
     @override

@@ -207,11 +207,13 @@ class BaseEntityManager[
             async with await self._database.init() as session:
                 statement = insert(Row).values(row.values())
                 pk = Row.get_primary_key_columns()
-                upsert = {
-                    name: column for name, column in statement.excluded.items() if name not in pk
-                }
 
-                if upsert_on:
+                if upsert_on is not None:
+                    upsert = {
+                        name: column
+                        for name, column in statement.excluded.items()
+                        if name not in pk
+                    }
                     statement = statement.on_conflict_do_update(
                         index_elements=upsert_on,
                         set_=upsert,

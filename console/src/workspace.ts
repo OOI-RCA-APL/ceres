@@ -3,11 +3,11 @@ import { v4 } from 'uuid'
 import { computed, inject, MaybeRef, provide, reactive, unref, watchEffect } from 'vue'
 import Zod from 'zod'
 
-import { AddressModel, AddressSelector } from '@/api/address'
+import { AddressModel, AddressSelectorModel } from '@/api/address'
 import { ProcedureTypeModel } from '@/api/components'
 import { getter } from '@/getter'
 import { useNavigation } from '@/navigation'
-import { usePersisted } from '@/persistence'
+import { useSettings } from '@/settings'
 import { workspaceContextInjectionKey } from '@/symbols'
 
 export type BaseWidget = Zod.infer<typeof BaseWidgetModel>
@@ -24,7 +24,7 @@ export const MessagesWidgetModel = BaseWidgetModel.extend({
   filter: Zod.object({
     after: Zod.string().optional(),
     before: Zod.string().optional(),
-    address: Zod.string().transform(AddressSelector.parse).optional(),
+    address: AddressSelectorModel.optional(),
     direction: Zod.string().optional(),
     content_prefix: Zod.string().optional(),
     content_contains: Zod.string().optional(),
@@ -80,8 +80,8 @@ export const WidgetRowModel = Zod.object({
   widgets: WidgetModel.array().default(() => []),
 })
 
-export type WorkspaceData = Zod.infer<typeof WidgetModel>
-export const WorkspaceDataModel = Zod.object({
+export type WorkspaceData = Zod.infer<typeof WorkspaceModel>
+export const WorkspaceModel = Zod.object({
   name: Zod.string(),
   layout: WidgetRowModel.array().default(() => []),
 })
@@ -273,13 +273,7 @@ export function useWorkspaceContext() {
 export const useWorkspaces = defineStore('workspaces', () => {
   const navigation = useNavigation()
 
-  const persisted = usePersisted({
-    schema: ({ object }) =>
-      object({
-        workspaces: WorkspaceDataModel.array().default(() => []),
-      }),
-    methods: [{ type: 'local-storage', key: 'store/workspaces' }],
-  })
+  const settings = useSettings()
 
   function getUniqueName(name?: string | null) {
     let base = name ?? 'Workspace'
@@ -305,18 +299,18 @@ export const useWorkspaces = defineStore('workspaces', () => {
   }
 
   function get(name: string) {
-    return persisted.workspaces.find((current) => current.name === name) ?? null
+    return settings.workspaces.find((current) => current.name === name) ?? null
   }
 
   function del(name: string) {
-    persisted.workspaces = persisted.workspaces.filter((current) => current.name !== name)
+    settings.workspaces = settings.workspaces.filter((current) => current.name !== name)
   }
 
   function create(name?: string | null) {
     name = getUniqueName(name)
     let workspace = get(name)
     if (workspace == null) {
-      workspace = WorkspaceDataModel.parse({
+      workspace = WorkspaceModel.parse({
         name,
         layout: [
           { height: 250, widgets: [{ type: 'messages' }] },
@@ -324,9 +318,9 @@ export const useWorkspaces = defineStore('workspaces', () => {
           { height: 250, widgets: [{ type: 'logs' }] },
           { height: 150, widgets: [{ type: 'procedures' }] },
         ],
-      } as Zod.input<typeof WorkspaceDataModel>)
+      } as Zod.input<typeof WorkspaceModel>)
 
-      persisted.workspaces = [...persisted.workspaces, workspace].sort((left, right) =>
+      settings.workspaces = [...settings.workspaces, workspace].sort((left, right) =>
         left.name.localeCompare(right.name)
       )
     }
@@ -351,7 +345,7 @@ export const useWorkspaces = defineStore('workspaces', () => {
     }
 
     const copied = { ...workspace, name: getUniqueName(newName ?? name) }
-    persisted.workspaces = [...persisted.workspaces, copied]
+    settings.workspaces = [...settings.workspaces, copied]
     return copied
   }
 
@@ -366,13 +360,13 @@ export const useWorkspaces = defineStore('workspaces', () => {
   }
 
   return {
-    all: computed(() => persisted.workspaces),
+    all: computed(() => settings.workspaces),
     get: getter(
-      computed(() => persisted.workspaces),
+      computed(() => settings.workspaces),
       get
     ),
     create: getter(
-      computed(() => persisted.workspaces),
+      computed(() => settings.workspaces),
       create
     ),
     rename,

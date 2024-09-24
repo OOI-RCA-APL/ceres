@@ -80,6 +80,7 @@ const form = useForm({
     password: '',
     disabled: false,
     role: 'operator' as UserRole,
+    settings: {},
   },
   validators: {
     username: validate.isUsername(

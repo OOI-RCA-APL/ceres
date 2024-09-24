@@ -24,15 +24,15 @@ async def get_log_entries(
     return await engine.log.get_all(filter)
 
 
-class StreamLogEntriesQueryParameters(GetLogEntriesQueryParameters):
+class FollowLogEntriesQueryParameters(GetLogEntriesQueryParameters):
     pass
 
 
 @router.websocket("")
-async def stream_log_entries(
+async def follow_log_entries(
     socket: CurrentSocket,
     engine: CurrentEngine,
-    filter: QueryGroup[StreamLogEntriesQueryParameters],
+    filter: QueryGroup[FollowLogEntriesQueryParameters],
 ) -> None:
     async for entry in engine.log.follow(filter):
         await socket.send(entry)

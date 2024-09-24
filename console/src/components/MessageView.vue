@@ -25,7 +25,7 @@ const columns = $computed(() => [
   {
     label: 'Timestamp',
     name: 'timestamp',
-    filtered: widget.filter.after != null || widget.filter.after != null,
+    filtered: widget.filter.after != null || widget.filter.before != null,
   },
   { label: 'Address', name: 'address', filtered: widget.filter.address != null },
   { label: 'Direction', name: 'direction', filtered: widget.filter.direction != null },

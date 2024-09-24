@@ -1,11 +1,25 @@
 import { defineStore } from 'pinia'
-import Zod from 'zod'
+import Zod, { ZodObject } from 'zod'
 
 import { useClient } from '@/api/client'
 import { EntityFilter, UUIDEntityModel } from '@/api/entity'
+import { WorkspaceModel } from '@/workspace'
 
 export type UserRole = Zod.infer<typeof UserRoleModel>
 export const UserRoleModel = Zod.enum(['viewer', 'operator', 'admin'])
+
+export type ConsoleSettings = Zod.infer<typeof ConsoleSettingsModel>
+export const ConsoleSettingsModel = Zod.object({
+  workspaces: WorkspaceModel.array().default(() => []),
+})
+
+export function SettingModel<T extends ZodObject<any>>(valueModel: T) {
+  return Zod.object({
+    user_id: Zod.string(),
+    name: Zod.string(),
+    value: valueModel,
+  })
+}
 
 export type User = Zod.infer<typeof UserModel>
 export const UserModel = UUIDEntityModel.extend({

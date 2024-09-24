@@ -22,6 +22,7 @@ from ceres.event import (
     StartedEvent,
     StoppedEvent,
 )
+from ceres.manager.setting import SettingManager
 from ceres.tasklet import Tasklet
 
 with lazy_imports(__name__):
@@ -101,6 +102,10 @@ class Node(Tasklet):
     @cached_property
     def variables(self) -> BoundVariableManager:
         return BoundVariableManager(self)
+
+    @cached_property
+    def settings(self) -> SettingManager:
+        return SettingManager(self)
 
     @cached_property
     def events(self) -> EventManager:

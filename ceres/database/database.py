@@ -35,6 +35,7 @@ from ceres.config import DatabaseConfig, PostgresDatabaseConfig, SQLiteDatabaseC
 from ceres.data import PasswordHash, jsonify
 from ceres.database.enums import DatabaseType, EntityType
 from ceres.error import DatabaseInitError, DatabaseLoadError, Failure
+from ceres.manager.setting import SettingManager
 from ceres.threading import spawn
 
 with lazy_imports(__name__):
@@ -136,6 +137,10 @@ class Database:
     @cached_property
     def variables(self) -> VariableManager:
         return VariableManager(self)
+
+    @cached_property
+    def settings(self) -> SettingManager:
+        return SettingManager(self)
 
     @cached_property
     def statistics(self) -> StatisticsManager:
@@ -861,6 +866,7 @@ def _get_entity_row_classes() -> list[type[BaseEntityRow]]:
     from ceres.alert import AlertRow
     from ceres.logs import LogEntryRow
     from ceres.message import MessageRow
+    from ceres.setting import SettingRow
     from ceres.user import UserRow
     from ceres.variable import VariableRow
 
@@ -869,5 +875,6 @@ def _get_entity_row_classes() -> list[type[BaseEntityRow]]:
         AlertRow,
         LogEntryRow,
         UserRow,
+        SettingRow,
         VariableRow,
     ]
