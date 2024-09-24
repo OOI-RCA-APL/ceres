@@ -8,14 +8,9 @@ import { useNavigation } from '@/navigation'
 import { useNotify } from '@/notify'
 import { useValidate } from '@/validate'
 
-const { redirect } = withDefaults(
-  defineProps<{
-    redirect?: string | null
-  }>(),
-  {
-    redirect: undefined,
-  }
-)
+const { redirect } = defineProps<{
+  redirect?: string | null
+}>()
 
 const engine = useEngine()
 const navigation = useNavigation()
