@@ -70,8 +70,8 @@ let nameValue = $computed({
   },
 })
 
-function copy() {
-  const copied = context.copy()
+function duplicate() {
+  const copied = context.duplicate()
   if (copied != null) {
     workspaces.open(copied.name)
   }
@@ -149,12 +149,12 @@ function promptDelete() {
                 <q-item-label>Rename</q-item-label>
               </q-item-section>
             </q-item>
-            <q-item v-close-popup clickable dense @click="copy">
+            <q-item v-close-popup clickable dense @click="duplicate">
               <q-item-section avatar>
-                <q-icon :name="icons.copy" />
+                <q-icon :name="icons.duplicate" />
               </q-item-section>
               <q-item-section>
-                <q-item-label>Copy</q-item-label>
+                <q-item-label>Duplicate</q-item-label>
               </q-item-section>
             </q-item>
             <q-item clickable dense @click="promptDelete">
@@ -165,6 +165,7 @@ function promptDelete() {
                 <q-item-label>Delete</q-item-label>
               </q-item-section>
             </q-item>
+            <q-separator />
             <q-item clickable dense>
               <q-item-section avatar>
                 <q-icon :name="icons.add" />
@@ -304,7 +305,7 @@ function promptDelete() {
                             v-close-popup
                             clickable
                             dense
-                            @click="context.copyWidget(widget.id, i, j + 1)"
+                            @click="context.duplicateWidget(widget.id, i, j + 1)"
                           >
                             <q-item-section avatar>
                               <q-icon :name="icons.duplicate" />

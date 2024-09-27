@@ -113,8 +113,8 @@ function createWorkspaceContext(options: WorkspaceContextOptions) {
     return workspaces.rename(name, newName)
   }
 
-  function copy(newName?: string | null) {
-    return workspaces.copy(name, newName)
+  function duplicate(newName?: string | null) {
+    return workspaces.duplicate(name, newName)
   }
 
   function del() {
@@ -250,7 +250,7 @@ function createWorkspaceContext(options: WorkspaceContextOptions) {
     return widget
   }
 
-  function copyWidget(id: string, toRow: number, toColumn: number) {
+  function duplicateWidget(id: string, toRow: number, toColumn: number) {
     const widget = getWidget(id)
     if (widget == null) {
       return null
@@ -277,7 +277,7 @@ function createWorkspaceContext(options: WorkspaceContextOptions) {
     name: computed(() => unref(options.name)),
     workspace: computed(() => workspaces.get(unref(options.name))),
     create,
-    copy,
+    duplicate,
     delete: del,
     rename,
     getWidget,
@@ -287,7 +287,7 @@ function createWorkspaceContext(options: WorkspaceContextOptions) {
     addWidget,
     deleteWidget,
     moveWidget,
-    copyWidget,
+    duplicateWidget,
     drag: null as Drag | null,
   })
 }
@@ -370,7 +370,7 @@ export const useWorkspaces = defineStore('workspaces', () => {
     return workspace
   }
 
-  function copy(name: string, newName?: string | null) {
+  function duplicate(name: string, newName?: string | null) {
     const workspace = get(name)
     if (workspace == null) {
       return null
@@ -403,7 +403,7 @@ export const useWorkspaces = defineStore('workspaces', () => {
     ),
     rename,
     delete: del,
-    copy,
+    duplicate,
     open,
   }
 })
