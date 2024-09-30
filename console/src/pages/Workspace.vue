@@ -1,7 +1,7 @@
 <script lang="ts" setup>
-import { useEventListener, useMouse } from '@vueuse/core'
+import { useEventListener, useMouse, useResizeObserver } from '@vueuse/core'
 import { QPopupEdit } from 'quasar'
-import { computed, reactive, watchEffect } from 'vue'
+import { computed, onMounted, reactive, watchEffect } from 'vue'
 
 import CommonText from '@/components/CommonText.vue'
 import FullPage from '@/components/FullPage.vue'
@@ -11,7 +11,7 @@ import WorkspaceGap from '@/components/WorkspaceGap.vue'
 import WorkspaceWidget from '@/components/WorkspaceWidget.vue'
 import { useDialogs } from '@/dialogs'
 import icons from '@/icons'
-import { provideWorkspace, useWorkspaces } from '@/workspace'
+import { provideWorkspace, resolveWidgetWidths, useWorkspaces, Widget } from '@/workspace'
 
 const { name } = defineProps<{
   name: string
@@ -19,14 +19,22 @@ const { name } = defineProps<{
 
 const workspaces = useWorkspaces()
 const dialogs = useDialogs()
+const layout = $ref<HTMLDivElement | null>(null)
 const workspace = provideWorkspace({
   name: computed(() => name),
 })
 
 let renamePopup = $ref<QPopupEdit | null>(null)
+let layoutWidth = $ref<number | null>(null)
 
 useEventListener(window, 'mouseup', () => {
   workspace.drag = null
+})
+
+useResizeObserver($$(layout), (resizes) => {
+  for (const resize of resizes) {
+    layoutWidth = resize.contentRect.width
+  }
 })
 
 watchEffect(() => {
@@ -75,6 +83,33 @@ function promptDelete() {
       workspace.delete()
     })
 }
+
+function resolveAllWidgetWidths() {
+  if (workspace.data == null) {
+    return
+  }
+
+  for (const row of workspace.data.layout) {
+    resolveWidgetWidths(row.widgets)
+  }
+}
+
+function getWidgetWidthStyle(widget: Widget) {
+  if (layoutWidth == null) {
+    return undefined
+  }
+
+  const width = `${Math.round((widget.width / 100) * layoutWidth).toFixed(1)}px`
+
+  return {
+    maxWidth: width,
+    minWidth: width,
+  }
+}
+
+onMounted(() => {
+  resolveAllWidgetWidths()
+})
 </script>
 
 <template>
@@ -168,11 +203,11 @@ function promptDelete() {
       </q-btn>
     </template>
     <div class="q-pa-xs">
-      <div v-if="workspace.data == null" class="q-py-lg text-center">
+      <div v-if="workspace.data == null" ref="layout" class="q-py-lg text-center">
         <div>No workspace named "{{ name }}" exists. Create it?</div>
         <q-btn class="q-mt-md" color="primary" dense label="Create" @click="workspace.create" />
       </div>
-      <div v-else>
+      <div v-else ref="layout">
         <div
           v-for="(row, i) in workspace.data.layout"
           :key="i"
@@ -204,7 +239,7 @@ function promptDelete() {
             v-for="(widget, j) in row.widgets"
             :key="widget.id"
             :class="[j < row.widgets.length - 1 ? 'col-shrink' : 'col-grow', 'relative-position']"
-            :style="j < row.widgets.length - 1 ? { width: `${widget.width}px` } : undefined"
+            :style="j === row.widgets.length - 1 ? undefined : getWidgetWidthStyle(widget)"
           >
             <template v-if="workspace.drag != null">
               <workspace-gap
@@ -230,12 +265,22 @@ function promptDelete() {
               />
             </template>
             <resize-handle
-              v-if="workspace.drag == null && j < row.widgets.length - 1"
-              v-model="widget.width"
+              v-if="layoutWidth && workspace.drag == null && j < row.widgets.length - 1"
               :class="$style.horizontalResizeHandle"
               direction="horizontal"
               hidden
               :min="100"
+              :model-value="(widget.width / 100) * layoutWidth"
+              @update:model-value="
+                (pixels) => {
+                  if (layoutWidth == null) {
+                    return
+                  }
+
+                  widget.width = (pixels / layoutWidth) * 100
+                  resolveWidgetWidths(row.widgets, j, 'after')
+                }
+              "
             />
             <workspace-widget :column="j" :container="row" :row="i" :widget="widget" />
           </div>

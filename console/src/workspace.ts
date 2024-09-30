@@ -14,7 +14,7 @@ export type BaseWidget = Zod.infer<typeof BaseWidgetModel>
 const BaseWidgetModel = Zod.object({
   id: Zod.string().default(() => v4()),
   name: Zod.string(),
-  width: Zod.number().default(250),
+  width: Zod.number().default(100), // Percentage of row width, not pixels.
 })
 
 export type MessagesWidget = Zod.infer<typeof MessagesWidgetModel>
@@ -155,6 +155,8 @@ function createWorkspaceContext(options: WorkspaceContextOptions) {
     row = Math.min(workspace.layout.length, row)
     const widgets = [...(workspace.layout[row]?.widgets ?? [])]
     widgets.splice(column, 0, widget)
+    widget.width = Math.min(100 / widgets.length, widget.width)
+    resolveWidgetWidths(widgets, widgets.indexOf(widget))
 
     if (row < 0) {
       workspace.layout = [WidgetRowModel.parse({ widgets }), ...workspace.layout]
@@ -185,6 +187,8 @@ function createWorkspaceContext(options: WorkspaceContextOptions) {
       const widget = row.widgets.find((widget) => widget.id === id) ?? null
       if (widget != null) {
         row.widgets = row.widgets.filter((widget) => widget.id !== id)
+        resolveWidgetWidths(row.widgets)
+
         if (row.widgets.length === 0) {
           workspace.layout = workspace.layout.filter((_, index) => index !== i)
         }
@@ -240,21 +244,28 @@ function createWorkspaceContext(options: WorkspaceContextOptions) {
 
     sourceRow.widgets = sourceRow.widgets.filter((_, index) => index !== fromColumn)
 
+    // If there is no column specified, create a new row.
     if (toColumn == null) {
       let layout = [...workspace.layout]
-      layout.splice(toRow, 0, {
+      const destinationRow = {
         id: v4(),
         height: sourceRow.height,
         widgets: [widget],
         collapsed: false,
-      })
+      }
+
+      layout.splice(toRow, 0, destinationRow)
       layout = layout.filter((row) => row != null && row.widgets.length > 0)
       workspace.layout = layout
+
+      resolveWidgetWidths(sourceRow.widgets)
+      resolveWidgetWidths(destinationRow.widgets)
       return widget
     }
 
     const destinationRow = workspace.layout[toRow] ?? null
     if (destinationRow == null) {
+      resolveWidgetWidths(sourceRow.widgets)
       return null
     }
 
@@ -262,6 +273,10 @@ function createWorkspaceContext(options: WorkspaceContextOptions) {
     destinationRow.widgets.splice(toColumn, 0, widget)
     destinationRow.widgets = destinationRow.widgets.filter((current) => current != null)
     destinationRow.height = Math.max(destinationRow.height, sourceRow.height)
+
+    resolveWidgetWidths(sourceRow.widgets)
+    widget.width = Math.min(100 / destinationRow.widgets.length, widget.width)
+    resolveWidgetWidths(destinationRow.widgets, destinationRow.widgets.indexOf(widget))
 
     workspace.layout = workspace.layout.filter((row) => row != null && row.widgets.length > 0)
 
@@ -430,3 +445,39 @@ export const useWorkspaces = defineStore('workspaces', () => {
     open,
   }
 })
+
+export function resolveWidgetWidths(
+  widgets: Widget[],
+  keepIndex?: number,
+  adjustMode: 'after' | 'other' = 'other'
+) {
+  if (widgets.length === 0) {
+    return
+  }
+  if (keepIndex != null && keepIndex < 0) {
+    keepIndex = undefined
+  }
+
+  const totalWidthPercentage = widgets.reduce((sum, current) => sum + current.width, 0)
+  const excessWidthPercentage = totalWidthPercentage - 100
+  if (excessWidthPercentage === 0) {
+    return
+  }
+
+  let adjusted: Widget[]
+  if (keepIndex == null) {
+    adjusted = widgets
+  } else {
+    if (adjustMode === 'after') {
+      adjusted = widgets.slice(keepIndex + 1)
+    } else {
+      adjusted = widgets.filter((_, index) => index !== keepIndex)
+    }
+  }
+
+  const excessWidthPerWidget = excessWidthPercentage / adjusted.length
+
+  for (const widget of adjusted) {
+    widget.width -= excessWidthPerWidget
+  }
+}

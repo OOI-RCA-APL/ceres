@@ -1,7 +1,12 @@
 <script lang="ts" setup>
 import { onMounted, onUnmounted } from 'vue'
 
-const { direction, modelValue, min, max } = defineProps<{
+const {
+  direction,
+  modelValue,
+  min = 0,
+  max,
+} = defineProps<{
   direction: 'vertical' | 'horizontal'
   modelValue: number
   min?: number
@@ -21,9 +26,6 @@ type Drag = {
 }
 
 function clamp(size: number) {
-  if (size < 0) {
-    return 0
-  }
   if (min != null && size < min) {
     return min
   }
