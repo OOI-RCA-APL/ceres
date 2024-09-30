@@ -8,7 +8,7 @@ import { ProcedureTypeModel } from '@/api/components'
 import { getter } from '@/getter'
 import { useNavigation } from '@/navigation'
 import { useSettings } from '@/settings'
-import { workspaceContextInjectionKey } from '@/symbols'
+import { workspaceInjectionKey } from '@/symbols'
 
 export type BaseWidget = Zod.infer<typeof BaseWidgetModel>
 const BaseWidgetModel = Zod.object({
@@ -41,12 +41,28 @@ export type AlertsWidget = Zod.infer<typeof AlertsWidgetModel>
 export const AlertsWidgetModel = BaseWidgetModel.extend({
   type: Zod.literal('alerts'),
   name: Zod.string().default('Alerts'),
+  filter: Zod.object({
+    after: Zod.string().optional(),
+    before: Zod.string().optional(),
+    address: AddressSelectorModel.optional(),
+    level: Zod.string().optional(),
+    code_prefix: Zod.string().optional(),
+    code_contains: Zod.string().optional(),
+  }).default(() => ({})),
 })
 
 export type LogsWidget = Zod.infer<typeof LogsWidgetModel>
 export const LogsWidgetModel = BaseWidgetModel.extend({
   type: Zod.literal('logs'),
   name: Zod.string().default('Logs'),
+  filter: Zod.object({
+    after: Zod.string().optional(),
+    before: Zod.string().optional(),
+    address: AddressSelectorModel.optional(),
+    level: Zod.string().optional(),
+    content_prefix: Zod.string().optional(),
+    content_contains: Zod.string().optional(),
+  }).default(() => ({})),
 })
 
 export type ProceduresWidget = Zod.infer<typeof ProceduresWidgetModel>
@@ -55,6 +71,7 @@ export const ProceduresWidgetModel = BaseWidgetModel.extend({
   name: Zod.string().default('Procedures'),
   procedureAddress: AddressModel.nullable().default(null),
   procedureType: ProcedureTypeModel.default('action'),
+  procedureName: Zod.string().nullable().default(null),
 })
 
 export type UIWidget = Zod.infer<typeof UIWidgetModel>
@@ -75,6 +92,7 @@ export const WidgetModel = Zod.discriminatedUnion('type', [
 
 export type WidgetType = Widget['type']
 
+export type WidgetRow = Zod.infer<typeof WidgetRowModel>
 export const WidgetRowModel = Zod.object({
   id: Zod.string().default(() => v4()),
   height: Zod.number().default(250),
@@ -275,7 +293,7 @@ function createWorkspaceContext(options: WorkspaceContextOptions) {
 
   return reactive({
     name: computed(() => unref(options.name)),
-    workspace: computed(() => workspaces.get(unref(options.name))),
+    data: computed(() => workspaces.get(unref(options.name))),
     create,
     duplicate,
     delete: del,
@@ -292,14 +310,19 @@ function createWorkspaceContext(options: WorkspaceContextOptions) {
   })
 }
 
-export function provideWorkspaceContext(options: WorkspaceContextOptions) {
+export function provideWorkspace(options: WorkspaceContextOptions) {
   const context = createWorkspaceContext(options)
-  provide(workspaceContextInjectionKey, context)
+  provide(workspaceInjectionKey, context)
   return context
 }
 
-export function useWorkspaceContext() {
-  return inject(workspaceContextInjectionKey) ?? null
+export function useWorkspace() {
+  const workspace = inject(workspaceInjectionKey)
+  if (workspace == null) {
+    throw new Error('Workspace context not found.')
+  }
+
+  return workspace
 }
 
 export const useWorkspaces = defineStore('workspaces', () => {

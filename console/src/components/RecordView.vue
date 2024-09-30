@@ -5,7 +5,6 @@ import moment, { Moment } from 'moment'
 import { debounce, QVirtualScroll } from 'quasar'
 import { computed, nextTick, onMounted, reactive, watch, watchEffect } from 'vue'
 
-import { Address } from '@/api/address'
 import { Alert } from '@/api/alerts'
 import { useEngine } from '@/api/engine'
 import { RecordFilter } from '@/api/entity'
@@ -26,8 +25,6 @@ type ColumnDefinition = {
 }
 
 const { type, filter } = defineProps<{
-  containerClass?: string | null
-  address?: Address | null
   type: 'alert' | 'message' | 'log-entry'
   columns: ColumnDefinition[]
   filter: RecordFilter

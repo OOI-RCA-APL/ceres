@@ -13,4 +13,4 @@ export const recordViewContextInjectionKey: InjectionKey<RecordViewContext> =
 export const interfaceContextInjectionKey: InjectionKey<InterfaceContext> =
   Symbol('interface-context')
 export const unset = Symbol('unset')
-export const workspaceContextInjectionKey: InjectionKey<WorkspaceContext> = Symbol('workspace')
+export const workspaceInjectionKey: InjectionKey<WorkspaceContext> = Symbol('workspace')

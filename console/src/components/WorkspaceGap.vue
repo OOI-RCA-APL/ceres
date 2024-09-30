@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { useWorkspaceContext } from '@/workspace'
+import { useWorkspace } from '@/workspace'
 
 const { row, column } = defineProps<{
   row: number
@@ -7,7 +7,7 @@ const { row, column } = defineProps<{
   direction: 'vertical' | 'horizontal'
 }>()
 
-const workspace = useWorkspaceContext()
+const workspace = useWorkspace()
 
 let isHovered = $ref(false)
 

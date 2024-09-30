@@ -209,7 +209,7 @@ class Connection(Component, ABC):
             MessageContent,
             Field(
                 description="""
-                Bytes to send over the connection. 'The connection's "separator" value is appended
+                Bytes to send over the connection. The connection's "separator" value is appended
                 automatically if not present.
                 """
             ),
