@@ -33,16 +33,17 @@ function toggleExpanded() {
       :class="[$style.iconContainer, 'items-center', 'justify-center', 'row']"
       :style="{ marginLeft: `${8 * address.depth}px` }"
     >
+      <q-icon v-if="isLeaf" :class="$style.left" :name="icons.circle" size="7px" />
       <q-btn
-        :class="$style.toggleButton"
+        v-else
+        :class="$style.left"
         flat
         round
         size="xs"
         :tabindex="isLeaf ? -1 : 0"
         @click.stop.prevent="isLeaf ? undefined : toggleExpanded()"
       >
-        <q-icon v-if="isLeaf" :name="icons.circle" size="7px" />
-        <q-icon v-else :name="isExpanded ? icons.menuDown : icons.menuRight" size="22px" />
+        <q-icon :name="isExpanded ? icons.menuDown : icons.menuRight" size="22px" />
       </q-btn>
     </div>
     <q-item-section no-wrap>
@@ -72,7 +73,7 @@ function toggleExpanded() {
   min-height: 38px;
 }
 
-.toggleButton {
+.left {
   margin-left: -16px;
 }
 
