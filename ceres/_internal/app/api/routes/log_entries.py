@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-from fastapi import APIRouter
+from typing import Annotated
+
+from fastapi import APIRouter, Query
 from pydantic import Field
 
-from ceres._internal.app.shared import CurrentEngine, CurrentSocket, QueryGroup
+from ceres._internal.app.shared import CurrentEngine, CurrentSocket
 from ceres.level import Level
 from ceres.logs import LogEntry, LogEntryFilter
 
@@ -19,7 +21,7 @@ class GetLogEntriesQueryParameters(LogEntryFilter):
 @router.get("")
 async def get_log_entries(
     engine: CurrentEngine,
-    filter: QueryGroup[GetLogEntriesQueryParameters],
+    filter: Annotated[GetLogEntriesQueryParameters, Query()],
 ) -> list[LogEntry]:
     return await engine.log.get_all(filter)
 
@@ -32,7 +34,7 @@ class FollowLogEntriesQueryParameters(GetLogEntriesQueryParameters):
 async def follow_log_entries(
     socket: CurrentSocket,
     engine: CurrentEngine,
-    filter: QueryGroup[FollowLogEntriesQueryParameters],
+    filter: Annotated[FollowLogEntriesQueryParameters, Query()],
 ) -> None:
     async for entry in engine.log.follow(filter):
         await socket.send(entry)

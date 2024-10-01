@@ -1,8 +1,10 @@
 from __future__ import annotations
 
-from fastapi import APIRouter
+from typing import Annotated
 
-from ceres._internal.app.shared import CurrentEngine, CurrentSocket, QueryGroup
+from fastapi import APIRouter, Query
+
+from ceres._internal.app.shared import CurrentEngine, CurrentSocket
 from ceres.address import Address
 from ceres.component import ComponentFilter
 from ceres.error import Failure, NotFoundError
@@ -27,7 +29,7 @@ class GetStatusesQueryParameters(ComponentFilter):
 @router.get("")
 async def get_statuses(
     engine: CurrentEngine,
-    filter: QueryGroup[GetStatusesQueryParameters],
+    filter: Annotated[GetStatusesQueryParameters, Query()],
 ) -> list[Status]:
     return await engine.get_statuses(filter)
 
@@ -40,7 +42,7 @@ class FollowStatusesQueryParameters(GetStatusesQueryParameters):
 async def follow_statuses(
     socket: CurrentSocket,
     engine: CurrentEngine,
-    filter: QueryGroup[FollowStatusesQueryParameters],
+    filter: Annotated[FollowStatusesQueryParameters, Query()],
 ) -> None:
     async for statuses in engine.stream_statuses(filter):
         await socket.send(statuses)
