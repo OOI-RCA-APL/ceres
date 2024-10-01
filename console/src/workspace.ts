@@ -5,9 +5,9 @@ import Zod from 'zod'
 
 import { AddressModel, AddressSelectorModel } from '@/api/address'
 import { ProcedureTypeModel } from '@/api/components'
+import { useSettings } from '@/api/settings'
 import { getter } from '@/getter'
 import { useNavigation } from '@/navigation'
-import { useSettings } from '@/settings'
 import { workspaceInjectionKey } from '@/symbols'
 
 export type BaseWidget = Zod.infer<typeof BaseWidgetModel>
