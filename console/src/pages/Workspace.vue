@@ -180,6 +180,19 @@ onMounted(() => {
                 <q-item-label>Duplicate</q-item-label>
               </q-item-section>
             </q-item>
+            <q-item
+              clickable
+              dense
+              :disable="workspace.data == null"
+              @click="workspaces.exportFile(workspace.name)"
+            >
+              <q-item-section avatar>
+                <q-icon :name="icons.export" />
+              </q-item-section>
+              <q-item-section>
+                <q-item-label>Export</q-item-label>
+              </q-item-section>
+            </q-item>
             <q-item clickable dense @click="promptDelete">
               <q-item-section avatar>
                 <q-icon :name="icons.delete" />

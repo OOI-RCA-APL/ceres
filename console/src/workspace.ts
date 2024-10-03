@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia'
+import { exportFile as download } from 'quasar'
 import { v4 } from 'uuid'
 import { computed, inject, MaybeRef, provide, reactive, unref, watchEffect } from 'vue'
 import Zod from 'zod'
@@ -8,7 +9,9 @@ import { ProcedureTypeModel } from '@/api/components'
 import { useSettings } from '@/api/settings'
 import { getter } from '@/getter'
 import { useNavigation } from '@/navigation'
+import { useNotify } from '@/notify'
 import { workspaceInjectionKey } from '@/symbols'
+import { selectFile } from '@/utilities'
 
 export type BaseWidget = Zod.infer<typeof BaseWidgetModel>
 const BaseWidgetModel = Zod.object({
@@ -100,7 +103,7 @@ export const WidgetRowModel = Zod.object({
   collapsed: Zod.boolean().default(false),
 })
 
-export type WorkspaceData = Zod.infer<typeof WorkspaceModel>
+export type WorkspaceInfo = Zod.infer<typeof WorkspaceModel>
 export const WorkspaceModel = Zod.object({
   name: Zod.string(),
   layout: WidgetRowModel.array().default(() => []),
@@ -342,6 +345,7 @@ export function useWorkspace() {
 
 export const useWorkspaces = defineStore('workspaces', () => {
   const navigation = useNavigation()
+  const notify = useNotify()
 
   const settings = useSettings()
 
@@ -372,8 +376,13 @@ export const useWorkspaces = defineStore('workspaces', () => {
     return settings.workspaces.find((current) => current.name === name) ?? null
   }
 
-  function del(name: string) {
-    settings.workspaces = settings.workspaces.filter((current) => current.name !== name)
+  function add(workspace: WorkspaceInfo, rename?: string | null) {
+    workspace.name = getUniqueName(rename ?? workspace.name)
+    settings.workspaces = [...settings.workspaces, workspace].sort((left, right) =>
+      left.name.localeCompare(right.name)
+    )
+
+    return workspace
   }
 
   function create(name?: string | null) {
@@ -390,9 +399,7 @@ export const useWorkspaces = defineStore('workspaces', () => {
         ],
       } as Zod.input<typeof WorkspaceModel>)
 
-      settings.workspaces = [...settings.workspaces, workspace].sort((left, right) =>
-        left.name.localeCompare(right.name)
-      )
+      add(workspace)
     }
 
     return workspace
@@ -414,9 +421,9 @@ export const useWorkspaces = defineStore('workspaces', () => {
       return null
     }
 
-    const copied = { ...workspace, name: getUniqueName(newName ?? name) }
-    settings.workspaces = [...settings.workspaces, copied]
-    return copied
+    const copy = JSON.parse(JSON.stringify(workspace))
+    add(copy, newName)
+    return copy
   }
 
   async function open(name: string) {
@@ -429,20 +436,71 @@ export const useWorkspaces = defineStore('workspaces', () => {
     return null
   }
 
+  function del(name: string) {
+    const index = settings.workspaces.findIndex((current) => current.name === name)
+    if (index === -1) {
+      return
+    }
+
+    settings.workspaces = settings.workspaces.filter((_, i) => i !== index)
+  }
+
+  function exportFile(name: string) {
+    const workspace = get(name)
+    if (workspace == null) {
+      notify.error('Workspace not found.')
+      return
+    }
+
+    download(`${name}.workspace.json`, JSON.stringify(workspace, null, 2))
+  }
+
+  async function importFiles() {
+    const files = await selectFile({ multiple: true, accept: 'application/json' })
+    if (files == null) {
+      return null
+    }
+
+    const imported: WorkspaceInfo[] = []
+
+    for (const file of files) {
+      const parsed = JSON.parse(await file.text())
+      if (parsed === undefined) {
+        notify.error(`Import of '${file.name}' failed. Invalid JSON.`)
+        continue
+      }
+
+      const { data: workspace, error } = WorkspaceModel.safeParse(parsed)
+      if (error != null) {
+        notify.error(`Import of '${file.name}' failed. Invalid workspace file. ${error.message}`)
+        continue
+      }
+
+      add(workspace)
+      imported.push(workspace)
+    }
+
+    if (imported.length == 0) {
+      notify.success(`${imported.length} workspace(s) imported successfully.`)
+    }
+
+    return imported
+  }
+
   return {
     all: computed(() => settings.workspaces),
     get: getter(
       computed(() => settings.workspaces),
       get
     ),
-    create: getter(
-      computed(() => settings.workspaces),
-      create
-    ),
+    add,
+    create,
     rename,
-    delete: del,
     duplicate,
     open,
+    delete: del,
+    exportFile,
+    importFiles,
   }
 })
 

@@ -1,6 +1,5 @@
 const icons = {
   add: 'mdi-plus',
-  grab: 'mdi-grab',
   admin: 'admin_panel_settings', // Material Icons
   arrowDown: 'mdi-arrow-down',
   arrowLeft: 'mdi-arrow-left',
@@ -20,7 +19,10 @@ const icons = {
   developer: 'construction', // Material Icons
   duplicate: 'mdi-content-duplicate',
   edit: 'mdi-pencil',
+  export: 'mdi-download',
+  grab: 'mdi-grab',
   help: 'mdi-help',
+  import: 'mdi-upload',
   json: 'mdi-code-json',
   lightMode: 'light_mode', // Material Icons
   menu: 'mdi-menu',

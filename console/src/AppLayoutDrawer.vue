@@ -5,19 +5,20 @@ import { useRoute } from 'vue-router'
 
 import AppLayoutDrawerComponent from '@/AppLayoutDrawerComponent.vue'
 import { Address } from '@/api/address'
+import { useAuth } from '@/api/auth'
 import { useEngine } from '@/api/engine'
 import ResizeHandle from '@/components/ResizeHandle.vue'
 import { useDialogs } from '@/dialogs'
 import { useDrawer } from '@/drawer'
 import { guard } from '@/errors'
 import icons from '@/icons'
-import { useNavigation } from '@/navigation'
 import { useNotify } from '@/notify'
 import { usePersisted } from '@/persistence'
 import { usePreferences } from '@/preferences'
-import { displayDuration } from '@/time'
+import { displayDuration } from '@/utilities'
 import { useWorkspaces } from '@/workspace'
 
+const auth = useAuth()
 const engine = useEngine()
 const drawer = useDrawer()
 const notify = useNotify()
@@ -25,7 +26,6 @@ const dialogs = useDialogs()
 const workspaces = useWorkspaces()
 const route = useRoute()
 const preferences = usePreferences()
-const navigation = useNavigation()
 
 const persisted = usePersisted({
   schema: ({ object, boolean, number }) =>
@@ -36,9 +36,16 @@ const persisted = usePersisted({
   methods: [{ type: 'local-storage', key: 'component/app-layout-drawer' }],
 })
 
-async function createWorkspace() {
+function createWorkspace() {
   const created = workspaces.create()
-  await navigation.go(`/workspaces/${created.name}`)
+  workspaces.open(created.name)
+}
+
+async function importWorkspaces() {
+  const imported = await workspaces.importFiles()
+  if (imported != null && imported.length > 0) {
+    workspaces.open(imported[0].name)
+  }
 }
 
 function clearLocalStorage() {
@@ -133,75 +140,94 @@ function promptReload() {
               <q-item-label>Dashboard</q-item-label>
             </q-item-section>
           </q-item>
-          <q-item
-            v-if="engine.auth.isViewer"
-            :active="route.fullPath.startsWith('/workspaces')"
-            class="items-center row"
-          >
-            <div :class="[$style.iconContainer, 'items-center', 'justify-center', 'row']">
-              <q-btn
-                :class="$style.toggleButton"
-                flat
-                round
-                size="xs"
-                tabindex="0"
-                @click.stop.prevent="persisted.isShowingWorkspaces = !persisted.isShowingWorkspaces"
+          <template v-if="auth.isViewer">
+            <q-item :active="route.fullPath.startsWith('/workspaces')" class="items-center row">
+              <div :class="[$style.iconContainer, 'items-center', 'justify-center', 'row']">
+                <q-btn
+                  :class="$style.toggleButton"
+                  flat
+                  round
+                  size="xs"
+                  tabindex="0"
+                  @click.stop.prevent="
+                    persisted.isShowingWorkspaces = !persisted.isShowingWorkspaces
+                  "
+                >
+                  <q-icon
+                    :name="persisted.isShowingWorkspaces ? icons.menuDown : icons.menuRight"
+                    size="22px"
+                  />
+                </q-btn>
+              </div>
+              <q-item-section no-wrap>
+                <q-item-label class="q-ml-md">Workspaces</q-item-label>
+              </q-item-section>
+              <q-item-section side>
+                <div class="items-center row">
+                  <q-btn flat :icon="icons.more" round size="xs">
+                    <q-menu class="no-shadow">
+                      <q-list bordered dense>
+                        <q-item clickable @click="createWorkspace">
+                          <q-item-section avatar>
+                            <q-icon :name="icons.add" />
+                          </q-item-section>
+                          <q-item-section>
+                            <q-item-label>New</q-item-label>
+                          </q-item-section>
+                        </q-item>
+                        <q-item v-close-popup clickable @click="importWorkspaces">
+                          <q-item-section avatar>
+                            <q-icon :name="icons.import" />
+                          </q-item-section>
+                          <q-item-section>
+                            <q-item-label>Import</q-item-label>
+                          </q-item-section>
+                        </q-item>
+                      </q-list>
+                    </q-menu>
+                  </q-btn>
+                </div>
+              </q-item-section>
+            </q-item>
+            <div v-if="persisted.isShowingWorkspaces" class="relative-position">
+              <q-separator />
+              <div
+                class="overflow-auto scroll"
+                :style="{ height: `${persisted.workspaceDropdownHeight}px` }"
               >
-                <q-icon
-                  :name="persisted.isShowingWorkspaces ? icons.menuDown : icons.menuRight"
-                  size="22px"
+                <q-item
+                  v-for="workspace in [...workspaces.all].sort((left, right) =>
+                    left.name.localeCompare(right.name)
+                  )"
+                  :key="workspace.name"
+                  clickable
+                  dense
+                  :to="`/workspaces/${workspace.name}`"
+                >
+                  <q-item-section avatar>
+                    <q-icon class="q-ml-md" :name="icons.circle" size="7px" />
+                  </q-item-section>
+                  <q-item-section>
+                    <q-item-label>
+                      <span class="q-ml-sm">
+                        {{ workspace.name }}
+                      </span>
+                    </q-item-label>
+                  </q-item-section>
+                </q-item>
+                <resize-handle
+                  v-model="persisted.workspaceDropdownHeight"
+                  :class="$style.workspaceDropdownResizeHandle"
+                  direction="vertical"
+                  :max="400"
+                  :min="34"
                 />
-              </q-btn>
+              </div>
             </div>
-            <q-item-section no-wrap>
-              <q-item-label class="q-ml-md">Workspaces</q-item-label>
-            </q-item-section>
-            <q-item-section side>
-              <q-btn flat :icon="icons.add" round size="10px" @click="createWorkspace">
-                <q-tooltip class="bg-primary text-white">Create Workspace</q-tooltip>
-              </q-btn>
-            </q-item-section>
-          </q-item>
-          <div v-if="persisted.isShowingWorkspaces" class="relative-position">
-            <q-separator />
-            <div
-              class="overflow-auto scroll"
-              :style="{ height: `${persisted.workspaceDropdownHeight}px` }"
-            >
-              <q-item
-                v-for="workspace in [...workspaces.all].sort((left, right) =>
-                  left.name.localeCompare(right.name)
-                )"
-                :key="workspace.name"
-                clickable
-                dense
-                :to="`/workspaces/${workspace.name}`"
-              >
-                <q-item-section avatar>
-                  <q-icon class="q-ml-md" :name="icons.circle" size="7px" />
-                </q-item-section>
-                <q-item-section>
-                  <q-item-label>
-                    <span class="q-ml-sm">
-                      {{ workspace.name }}
-                    </span>
-                  </q-item-label>
-                </q-item-section>
-              </q-item>
-              <resize-handle
-                v-model="persisted.workspaceDropdownHeight"
-                :class="$style.workspaceDropdownResizeHandle"
-                direction="vertical"
-                :max="400"
-                :min="34"
-              />
-            </div>
-          </div>
-          <template v-if="engine.auth.user != null">
             <app-layout-drawer-component
               v-if="engine.components.root != null"
               :address="root"
-              :component="(engine.components.root as any)"
+              :component="engine.components.root"
             />
           </template>
         </q-list>
