@@ -1,19 +1,22 @@
 <script lang="ts" setup>
-import { useEngine } from '@/api/engine'
-import constants from '@/constants'
-import { useNavigation } from '@/navigation'
-import { usePreferences } from '@/preferences'
-import { userCanAccess } from '@/router'
 import { useEventListener } from '@vueuse/core'
 import moment from 'moment'
 import { useMeta, useQuasar } from 'quasar'
 import { computed, onMounted, provide, watchEffect } from 'vue'
 import { THEME_KEY } from 'vue-echarts'
 
+import { useEngine } from '@/api/engine'
+import { useSettings } from '@/api/settings'
+import constants from '@/constants'
+import { useNavigation } from '@/navigation'
+import { usePreferences } from '@/preferences'
+import { userCanAccess } from '@/router'
+
 const navigation = useNavigation()
 const preferences = usePreferences()
 const quasar = useQuasar()
 const engine = useEngine()
+const settings = useSettings()
 
 watchEffect(() => {
   const html = document.querySelector('html')
@@ -118,6 +121,7 @@ useEventListener(window, 'focus', () => {
 })
 
 await refresh()
+await Promise.race([settings.load(), new Promise((resolve) => setTimeout(resolve, 1000))])
 
 // Here we're getting the initial route directly from the resolve function because at this point in
 // the loading process we haven't actually navigated to the initial route yet. As such, we can't use

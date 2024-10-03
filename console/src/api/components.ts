@@ -1,13 +1,14 @@
+import { useQuery } from '@tanstack/vue-query'
+import { defineStore } from 'pinia'
+import { MaybeRef, computed, unref } from 'vue'
+import Zod, { ZodTypeAny } from 'zod'
+
 import { Address, AddressModel } from '@/api/address'
 import { useAuth } from '@/api/auth'
 import { useClient } from '@/api/client'
 import { ElementModel } from '@/api/elements'
 import { BaseFailModel, BaseResultModel, createResultType } from '@/api/shared'
 import { getter } from '@/getter'
-import { useQuery } from '@tanstack/vue-query'
-import { defineStore } from 'pinia'
-import { MaybeRef, computed, unref } from 'vue'
-import Zod, { ZodTypeAny } from 'zod'
 
 export type ProcedureType = Zod.infer<typeof ProcedureTypeModel>
 export const ProcedureTypeModel = Zod.enum(['query', 'action'])

@@ -1,6 +1,7 @@
-import { FormFieldValidationResult } from '@/form'
 import _ from 'lodash'
 import Validator from 'validator'
+
+import { FormFieldValidationResult } from '@/form'
 
 export function isUsername(input: unknown): boolean {
   return input != null && typeof input === 'string' && input.match(/^[a-zA-Z0-9_.-]+$/) != null

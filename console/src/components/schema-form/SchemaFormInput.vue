@@ -1,9 +1,10 @@
 <script lang="ts" setup>
+import { QInput, debounce } from 'quasar'
+import { watch } from 'vue'
+
 import CommonText from '@/components/CommonText.vue'
 import icons from '@/icons'
 import { Schema, SchemaForm, SchemaPath } from '@/schema-form'
-import { QInput, debounce } from 'quasar'
-import { watch } from 'vue'
 
 type Preset = {
   label: string

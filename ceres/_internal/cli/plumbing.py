@@ -23,7 +23,7 @@ import click.shell_completion
 from click import ClickException, Context
 from pydantic import BaseModel, ConfigDict, ValidationError
 from pydantic.fields import FieldInfo
-from pydantic_core import PydanticUndefined
+from pydantic_core import PydanticUndefined, PydanticUndefinedType
 from typer import Argument, Option, Typer
 from typer.main import lenient_issubclass
 from typer.models import ArgumentInfo, OptionInfo
@@ -250,9 +250,11 @@ def _get_typer_compatible_type(type: type[Any] | Any) -> type[Any] | Any:
     return type
 
 
-_VirtualDefault = (
-    ArgumentInfo | OptionInfo | FieldInfo | type(PydanticUndefined) | type(Parameter.empty)
-)
+_VirtualDefault = ArgumentInfo | OptionInfo | FieldInfo | PydanticUndefinedType
+
+
+def _is_virtual_default(value: Any) -> bool:
+    return value is Parameter.empty or util.lenient_isinstance(value, _VirtualDefault)
 
 
 def _get_parameter_metadata[T](parameter: inspect.Parameter, metadata_type: type[T]) -> T | None:
@@ -293,7 +295,7 @@ def _create_typer_argument(field: FieldInfo) -> ArgumentInfo | None:
 
     if argument.help is None:
         argument.help = field.description
-    if isinstance(field.default, _VirtualDefault):
+    if _is_virtual_default(field.default):
         argument.default = ...
         argument.show_default = False
     if field.default_factory is not None:
@@ -311,7 +313,7 @@ def _create_typer_option(field: FieldInfo) -> OptionInfo:
 
     if option.help is None:
         option.help = field.description
-    if isinstance(field.default, _VirtualDefault):
+    if _is_virtual_default(field.default):
         option.default = ...
         option.show_default = False
     if field.default_factory is not None:
@@ -323,7 +325,7 @@ def _create_typer_option(field: FieldInfo) -> OptionInfo:
 def _get_typer_compatible_parameter(field: FieldInfo, name: str) -> Parameter:
     meta = _create_typer_argument(field) or _create_typer_option(field)
     default = field.default if field.default is not PydanticUndefined else Parameter.empty
-    if util.lenient_isinstance(default, _VirtualDefault):
+    if _is_virtual_default(default):
         default = Parameter.empty
 
     annotation: Any = None

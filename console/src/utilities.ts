@@ -147,3 +147,29 @@ export function isLight(color: string): boolean {
 export function isDark(color: string): boolean {
   return !isLight(color)
 }
+
+export function selectFile(options?: { accept?: string; multiple: false }): Promise<File | null>
+export function selectFile(options?: { accept?: string; multiple: true }): Promise<File[] | null>
+export function selectFile({
+  accept: contentType,
+  multiple,
+}: Partial<{
+  accept: string
+  multiple: boolean
+}> = {}) {
+  return new Promise<File | File[] | null>((resolve) => {
+    const input: HTMLInputElement = document.createElement('input')
+    input.type = 'file'
+    input.multiple = multiple ?? false
+    input.accept = contentType ?? '*/*'
+    input.addEventListener('change', async () => {
+      if (input.files == null || input.files.length === 0) {
+        return null
+      }
+
+      resolve(Array.from(input.files))
+    })
+
+    input.click()
+  })
+}

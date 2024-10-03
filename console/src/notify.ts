@@ -1,7 +1,8 @@
-import { getForegroundColor } from '@/colors'
-import icons from '@/icons'
 import { defineStore } from 'pinia'
 import { useQuasar } from 'quasar'
+
+import { getForegroundColor } from '@/colors'
+import icons from '@/icons'
 
 export type Notify = ReturnType<typeof useNotify>
 

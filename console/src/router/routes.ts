@@ -1,4 +1,3 @@
-import { Address } from '@/api/address'
 import { RouteRecordRaw } from 'vue-router'
 
 const routes: RouteRecordRaw[] = [
@@ -46,15 +45,14 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/pages/Users.vue'),
       },
       {
-        path: '/components/@',
-        redirect: '/components',
-      },
-      {
-        path: '/components/:address?',
-        component: () => import('@/pages/Component.vue'),
+        path: '/workspaces/:name',
+        meta: {
+          auth: 'viewer',
+        },
         props: (route) => ({
-          address: parseAddressOrNull(route.params.address) ?? new Address('@'),
+          name: parseStringOrNull(route.params.name),
         }),
+        component: () => import('@/pages/Workspace.vue'),
       },
       {
         path: '/developer/schema-form-playground',
@@ -79,17 +77,17 @@ function parseStringOrNull(value: string | string[]) {
   return value[0] ?? null
 }
 
-function parseAddressOrNull(value: string | string[]) {
-  const string = parseStringOrNull(value)
-  if (string == null) {
-    return null
-  }
+// function parseAddressOrNull(value: string | string[]) {
+//   const string = parseStringOrNull(value)
+//   if (string == null) {
+//     return null
+//   }
 
-  try {
-    return new Address(string)
-  } catch {
-    return null
-  }
-}
+//   try {
+//     return new Address(string)
+//   } catch {
+//     return null
+//   }
+// }
 
 export default routes

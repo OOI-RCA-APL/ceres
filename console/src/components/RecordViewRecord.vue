@@ -1,25 +1,44 @@
 <script lang="ts" setup>
-import { Item } from '@/api/shared'
+import { onBeforeUnmount, onMounted } from 'vue'
+
+import { Record } from '@/api/shared'
+import { useRecordViewContext } from '@/record-view'
 
 const { record } = defineProps<{
-  record: Item
+  record: Record
 }>()
+
+const context = useRecordViewContext()
 
 const timestamp = $computed(() =>
   record.timestamp.replace('T', ' ').replace('Z', '').replace('+00:00', '')
 )
+
+const element = $ref<HTMLElement | null>(null)
+
+onMounted(() => {
+  if (element != null) {
+    context.register(element)
+  }
+})
+
+onBeforeUnmount(() => {
+  if (element != null) {
+    context.unregister(element)
+  }
+})
 </script>
 
 <template>
-  <q-tr :class="[$style.root, 'no-wrap', 'record-view-record']" no-hover>
+  <tr ref="element" :class="[$style.root, 'no-wrap', 'record-view-record']" no-hover>
     <q-td auto-width>
       <span :class="$style.timestamp">
         {{ timestamp }}
       </span>
     </q-td>
-    <q-td auto-width class="monospace-xs">{{ record.address }}</q-td>
+    <q-td auto-width :class="[$style.address, 'monospace-xs']">{{ record.address }}</q-td>
     <slot />
-  </q-tr>
+  </tr>
 </template>
 
 <style lang="scss" module>
@@ -52,5 +71,9 @@ const timestamp = $computed(() =>
   font-family: 'Roboto Mono', monospace;
   font-size: 10px;
   white-space: nowrap;
+}
+
+.address {
+  min-width: 70px;
 }
 </style>

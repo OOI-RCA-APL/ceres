@@ -1,10 +1,11 @@
 <script lang="ts" setup>
+import { capitalize } from 'lodash'
+import { onErrorCaptured } from 'vue'
+
 import { useDialogs } from '@/dialogs'
 import { CommonError, Escape, Failure, NotFoundError } from '@/errors'
 import { useNavigation } from '@/navigation'
 import { useNotify } from '@/notify'
-import { capitalize } from 'lodash'
-import { onErrorCaptured } from 'vue'
 
 const navigation = useNavigation()
 const notify = useNotify()

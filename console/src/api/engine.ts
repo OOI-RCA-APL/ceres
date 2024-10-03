@@ -1,4 +1,6 @@
-import { Address } from '@/api/address'
+import { defineStore } from 'pinia'
+
+import { AddressSelector } from '@/api/address'
 import { useAlerts } from '@/api/alerts'
 import { useAuth } from '@/api/auth'
 import { useClient } from '@/api/client'
@@ -9,7 +11,6 @@ import { useMessages } from '@/api/messages'
 import { useStatistics } from '@/api/statistics'
 import { useStatuses } from '@/api/statuses'
 import { useUsers } from '@/api/users'
-import { defineStore } from 'pinia'
 
 export type Engine = ReturnType<typeof useEngine>
 
@@ -26,37 +27,37 @@ export const useEngine = defineStore('engine', () => {
   const statuses = useStatuses()
   const users = useUsers()
 
-  async function start(address: Address) {
+  async function start(address: AddressSelector) {
     return await client.post('/api/start', {
       data: { address },
     })
   }
 
-  async function stop(address: Address) {
+  async function stop(address: AddressSelector) {
     return await client.post('/api/stop', {
       data: { address },
     })
   }
 
-  async function enable(address: Address) {
+  async function enable(address: AddressSelector) {
     return await client.post('/api/enable', {
       data: { address },
     })
   }
 
-  async function disable(address: Address) {
+  async function disable(address: AddressSelector) {
     return await client.post('/api/disable', {
       data: { address },
     })
   }
 
-  async function up(address: Address) {
+  async function up(address: AddressSelector) {
     return await client.post('/api/up', {
       data: { address },
     })
   }
 
-  async function down(address: Address) {
+  async function down(address: AddressSelector) {
     return await client.post('/api/down', {
       data: { address },
     })

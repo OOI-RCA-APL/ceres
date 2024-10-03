@@ -7,21 +7,16 @@ from typing import Awaitable, Callable, cast, final
 
 from fastapi import (
     APIRouter,
-    Depends,
     FastAPI,
     HTTPException,
     Request,
     Response,
-    WebSocketException,
 )
-from fastapi.dependencies.models import Dependant
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse
-from pydantic import AliasChoices
 from starlette.exceptions import HTTPException as StarletteHTTPException
-from starlette.requests import HTTPConnection
 from starlette.responses import JSONResponse
-from starlette.status import HTTP_422_UNPROCESSABLE_ENTITY, WS_1008_POLICY_VIOLATION
+from starlette.status import HTTP_422_UNPROCESSABLE_ENTITY
 
 from ceres._internal.app.api import router as router__api
 from ceres._internal.app.shared import CurrentEngine
@@ -41,7 +36,7 @@ with lazy_imports(__name__):
         WebSocketScope,
     )
 
-    from ceres.data import jsonify, simplify
+    from ceres.data import simplify
     from ceres.engine import Engine
 
 
@@ -74,7 +69,6 @@ class App(FastAPI):
             redoc_url=None,
             docs_url="/api/docs",
             openapi_url="/api/openapi.json",
-            dependencies=[Depends(_disallow_unknown_query_params)],
         )
 
         @self.middleware("http")
@@ -213,52 +207,3 @@ def _get_favicon_response(
         path = engine.config.console.favicon
 
     return FileResponse(path, media_type=media_type)
-
-
-def _disallow_unknown_query_params(connection: HTTPConnection) -> None:
-    dependant = connection.scope["route"].dependant
-    if not isinstance(dependant, Dependant):
-        return
-
-    allowed: set[str] = set()
-    for dependency in [dependant, *dependant.dependencies]:
-        for param in dependency.query_params:
-            allowed.add(param.name)
-            allowed.add(param.alias)
-            field = param.field_info
-            if field.validation_alias is not None:
-                if isinstance(field.validation_alias, str):
-                    allowed.add(field.validation_alias)
-                if isinstance(field.validation_alias, AliasChoices):
-                    for choice in field.validation_alias.choices:
-                        if isinstance(choice, str):
-                            allowed.add(choice)
-
-    extra = set(connection.query_params.keys()).difference(allowed)
-    if extra:
-        error = ValidationFailedError(
-            problems=[
-                ValidationProblem(
-                    type="extra_forbidden",
-                    location=[param],
-                    message="Extra inputs are not permitted",
-                )
-                for param in extra
-            ]
-        )
-
-        if isinstance(connection, Request):
-            raise Failure(
-                ValidationFailedError(
-                    problems=[
-                        ValidationProblem(
-                            type="extra_forbidden",
-                            location=[param],
-                            message="Extra inputs are not permitted",
-                        )
-                        for param in extra
-                    ]
-                )
-            )
-
-        raise WebSocketException(WS_1008_POLICY_VIOLATION, jsonify(error))

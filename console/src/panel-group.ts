@@ -1,9 +1,10 @@
+import { computed, inject, provide, reactive, watchEffect } from 'vue'
+import Zod from 'zod'
+
 import { getter } from '@/getter'
 import { usePersisted } from '@/persistence'
 import { panelGroupInjectionKey } from '@/symbols'
 import { asRef, MaybeRef } from '@/utilities'
-import { computed, inject, provide, reactive, watchEffect } from 'vue'
-import Zod from 'zod'
 
 export type PanelGroup = ReturnType<typeof createPanelGroup>
 export type PanelGroupOptions = {

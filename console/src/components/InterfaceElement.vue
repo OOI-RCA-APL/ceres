@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { ComponentConstructor } from 'quasar'
+
 import type { Element, ElementType } from '@/api/elements'
 import InterfaceButton from '@/components/InterfaceButton.vue'
 import InterfaceCarousel from '@/components/InterfaceCarousel.vue'
@@ -11,7 +13,6 @@ import InterfaceRow from '@/components/InterfaceRow.vue'
 import InterfaceState from '@/components/InterfaceState.vue'
 import InterfaceText from '@/components/InterfaceText.vue'
 import { InterfacePath } from '@/interface'
-import { ComponentConstructor } from 'quasar'
 
 const componentClasses: Readonly<Record<ElementType, ComponentConstructor>> = {
   button: InterfaceButton,

@@ -31,6 +31,8 @@ const rendered = $computed(() => {
 </template>
 
 <style lang="scss" module>
+@use 'sass:color';
+
 .root {
   background-color: $grey-3;
   border-radius: 4px;
@@ -42,7 +44,7 @@ const rendered = $computed(() => {
 }
 
 :global(.dark) .root {
-  background-color: darken($grey-9, 6%);
+  background-color: color.adjust($grey-9, $lightness: -6%);
   color: $grey-2;
 }
 </style>

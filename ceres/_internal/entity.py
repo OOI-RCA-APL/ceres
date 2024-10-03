@@ -433,6 +433,14 @@ class BaseItemRow(BaseEntityRow, kw_only=True):
 
     address: Mapped[Address] = mapped_column(AddressMapper, sort_order=-2000)
 
+    @classmethod
+    @override
+    def __get_table_args__(cls) -> tuple[SchemaItem, ...]:
+        return (
+            *super().__get_table_args__(),
+            Index(f"ix_{cls.__tablename__}__address", "address"),
+        )
+
 
 BaseItemField = Literal["address"]
 BaseItemOrder = Literal["address", "-address"]

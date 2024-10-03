@@ -1,10 +1,11 @@
 <script setup lang="ts">
+import { useQuery } from '@tanstack/vue-query'
+import { computed } from 'vue'
+
 import { Address } from '@/api/address'
 import { useEngine } from '@/api/engine'
 import InterfaceElement from '@/components/InterfaceElement.vue'
 import { useInterfaceContext } from '@/interface'
-import { useQuery } from '@tanstack/vue-query'
-import { computed } from 'vue'
 
 const { address } = defineProps<{
   address: Address

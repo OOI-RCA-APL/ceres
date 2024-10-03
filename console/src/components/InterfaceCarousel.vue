@@ -1,10 +1,11 @@
 <script lang="ts" setup>
+import { QCarousel } from 'quasar'
+import { computed } from 'vue'
+
 import { CarouselElement } from '@/api/elements'
 import InterfaceElement from '@/components/InterfaceElement.vue'
 import { InterfacePath, useInterfaceContext } from '@/interface'
 import { usePersisted } from '@/persistence'
-import { QCarousel } from 'quasar'
-import { computed } from 'vue'
 
 const { element, path } = defineProps<{
   element: CarouselElement

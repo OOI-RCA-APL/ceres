@@ -1,0 +1,67 @@
+{
+  "root": true,
+  "parserOptions": {
+    "parser": "@typescript-eslint/parser",
+    "extraFileExtensions": [".vue"]
+  },
+  "env": {
+    "browser": true,
+    "es2021": true,
+    "node": true,
+    "vue/setup-compiler-macros": true
+  },
+  "extends": [
+    "plugin:@typescript-eslint/recommended",
+    "plugin:vue/vue3-recommended",
+    "prettier",
+    "plugin:import/recommended",
+    "plugin:import/typescript"
+  ],
+  "plugins": ["@typescript-eslint", "vue", "unused-imports", "import"],
+  "globals": {
+    "ga": "readonly",
+    "cordova": "readonly",
+    "__statics": "readonly",
+    "__QUASAR_SSR__": "readonly",
+    "__QUASAR_SSR_SERVER__": "readonly",
+    "__QUASAR_SSR_CLIENT__": "readonly",
+    "__QUASAR_SSR_PWA__": "readonly",
+    "process": "readonly",
+    "Capacitor": "readonly",
+    "chrome": "readonly"
+  },
+  "rules": {
+    "prefer-promise-reject-errors": "off",
+    "max-len": [
+      "warn",
+      100,
+      2,
+      {
+        "ignoreComments": false,
+        "ignoreRegExpLiterals": true,
+        "ignoreStrings": false,
+        "ignoreTemplateLiterals": false
+      }
+    ],
+    "@typescript-eslint/ban-ts-comment": "off",
+    "@typescript-eslint/explicit-function-return-type": "off",
+    "@typescript-eslint/explicit-module-boundary-types": "off",
+    "@typescript-eslint/no-explicit-any": "off",
+    "@typescript-eslint/no-unsafe-assignment": "off",
+    "@typescript-eslint/no-unsafe-call": "off",
+    "@typescript-eslint/no-unsafe-member-access": "off",
+    "@typescript-eslint/no-unsafe-return": "off",
+    "@typescript-eslint/restrict-template-expressions": "off",
+    "import/no-named-as-default-member": "off",
+    "import/no-unresolved": "off",
+    "import/order": ["error", { "newlines-between": "always", "alphabetize": { "order": "asc" } }],
+    "unused-imports/no-unused-imports": "error",
+    "vue/attributes-order": ["warn", { "alphabetical": true }],
+    "vue/component-tags-order": ["warn", { "order": ["script", "template", "style"] }],
+    "vue/multi-word-component-names": "off",
+    "vue/no-mutating-props": "off",
+    "vue/no-setup-props-destructure": "off",
+    "vue/no-template-shadow": "off",
+    "vue/static-class-names-order": "warn"
+  }
+}

@@ -1,41 +1,36 @@
 <script lang="ts" setup>
-import { Address } from '@/api/address'
+import { useDocumentVisibility, useEventListener } from '@vueuse/core'
+import _ from 'lodash'
+import moment, { Moment } from 'moment'
+import { debounce, QVirtualScroll } from 'quasar'
+import { computed, nextTick, onMounted, reactive, watch, watchEffect } from 'vue'
+
 import { Alert } from '@/api/alerts'
 import { useEngine } from '@/api/engine'
+import { RecordFilter } from '@/api/entity'
 import { LogEntry } from '@/api/log-entries'
 import { Message } from '@/api/messages'
-import { Item } from '@/api/shared'
-import CommandInput from '@/components/CommandInput.vue'
+import { Record } from '@/api/shared'
 import RecordViewAlert from '@/components/RecordViewAlert.vue'
 import RecordViewLogEntry from '@/components/RecordViewLogEntry.vue'
 import RecordViewMessage from '@/components/RecordViewMessage.vue'
-import SectionCard from '@/components/SectionCard.vue'
 import icons from '@/icons'
-import { useNotify } from '@/notify'
+import { provideRecordViewContext } from '@/record-view'
 import { debouncedComputed } from '@/utilities'
-import { useWindowFocus } from '@vueuse/core'
-import _ from 'lodash'
-import moment, { Moment } from 'moment'
-import { QVirtualScroll, debounce } from 'quasar'
-import { computed, nextTick, onMounted, reactive, watch, watchEffect } from 'vue'
 
-const {
-  title = undefined,
-  address,
-  type,
-  showCommandInput = false,
-} = defineProps<{
-  title?: string
-  containerClass?: string | null
-  address: Address
+type ColumnDefinition = {
+  label: string
+  name: string
+  filtered?: boolean
+}
+
+const { type, filter } = defineProps<{
   type: 'alert' | 'message' | 'log-entry'
-  showCommandInput?: boolean
+  columns: ColumnDefinition[]
+  filter: RecordFilter
 }>()
 
-const selector = $computed(() => new Address(address.toString() + ':all'))
-
 const engine = useEngine()
-const notify = useNotify()
 
 const get = $computed(() => {
   switch (type) {
@@ -59,51 +54,27 @@ const useStream = $computed(() => {
   }
 })
 
-const info = engine.components.get(address)
-if (info == null) {
-  throw new Error('Component not found')
-}
-
-const itemsVisible = $computed(() => Math.ceil(containerInfo.clientHeight / itemHeight))
-const itemHeight = 24
-const itemLoadSizeInitial = $computed(() => Math.min(itemsVisible + 40, 1000))
-const itemLoadSize = $computed(() => Math.min(itemsVisible + 25, 1000))
-const itemSliceSize = 250
-const itemCullThreshold = $computed(() => itemsVisible + 500)
-const itemCullCount = $computed(() => itemsVisible + 100)
-const itemsUntilNearTop = 30
-
-const possibleSearchFields = $computed(() => {
-  const shared = ['timestamp', 'address']
-  switch (type) {
-    case 'message':
-      return [...shared, 'direction', 'content']
-    case 'alert':
-      return [...shared, 'code']
-    case 'log-entry':
-      return [...shared, 'content']
+let filterKey = $ref(0)
+watch(
+  computed(() => JSON.stringify(filter)),
+  () => {
+    filterKey++
   }
-})
+)
 
-const defaultSearchField = $computed(() => {
-  switch (type) {
-    case 'message':
-      return 'content'
-    case 'alert':
-      return 'code'
-    case 'log-entry':
-      return 'content'
-  }
-})
+const context = provideRecordViewContext()
 
-const searchFilter = reactive({ search: '', field: defaultSearchField as string })
-let searchFilterKey = $ref(0)
-watch(searchFilter, () => {
-  searchFilterKey++
-})
+const recordsVisible = $computed(() => Math.ceil(containerInfo.clientHeight / recordHeight))
+const recordHeight = 24
+const recordLoadSizeInitial = $computed(() => Math.min(recordsVisible + 50, 1000))
+const recordLoadSize = $computed(() => Math.min(recordsVisible + 50, 1000))
+const recordSliceSize = 250
+const recordCullThreshold = $computed(() => recordsVisible + 500)
+const recordCullCount = $computed(() => recordsVisible + 100)
+const recordsUntilNearTop = 30
 
 let scroll = $shallowRef<QVirtualScroll | null>(null)
-const container = $computed(() => {
+const scrollElement = $computed(() => {
   if (scroll == null) {
     return null
   }
@@ -111,22 +82,74 @@ const container = $computed(() => {
   return scroll.$el as HTMLDivElement
 })
 
-let items = $shallowRef<Item[]>([])
-let itemsStreamed = $shallowRef<Item[]>([])
+let tableElement = $ref<HTMLElement | null>(null)
+watchEffect(() => {
+  if (tableElement == null) {
+    return
+  }
+
+  // Sync the scroll position of the header with the main table.
+  tableElement.scrollLeft = containerInfo.scrollLeft
+})
+
+let records = $shallowRef<Record[]>([])
+let recordsStreamed = $shallowRef<Record[]>([])
 let lastLoadedCurrent = $shallowRef<Moment | null>(null)
 
-const earliestItemTimestamp = $computed(() => items[0]?.timestamp ?? null)
+const earliestRecordTimestamp = $computed(() => records[0]?.timestamp ?? null)
 
-const isWindowFocused = $(useWindowFocus())
-const isShowingAll = $computed(
-  () => searchFilter.search == null || searchFilter.search.length === 0
+const documentVisibility = $(useDocumentVisibility())
+const isDocumentVisible = $computed(() => documentVisibility === 'visible')
+let isDocumentJustVisible = $ref(false)
+
+watch(
+  computed(() => isDocumentVisible),
+  () => {
+    if (isDocumentVisible) {
+      isDocumentJustVisible = true
+      setTimeout(() => {
+        isDocumentJustVisible = false
+      }, 500)
+
+      if (isFollowing) {
+        scrollToBottom(1000)
+      }
+    }
+  }
 )
+
+let resizes = $ref(0)
+
+useEventListener(window, 'resize', () => {
+  const follow = isFollowing
+  resizes++
+
+  if (follow) {
+    setTimeout(() => {
+      nextTick(() => {
+        scroll?.refresh()
+        setTimeout(() => {
+          nextTick(() => {
+            scrollToBottom(1000)
+            isFollowing = true
+          })
+        })
+      })
+    })
+  }
+
+  setTimeout(() => {
+    resizes--
+  }, 1000)
+})
+
+const isWindowJustResized = $computed(() => resizes > 0)
 
 let isExhausted = $ref(false)
 let isLoadingPrevious = $ref(false)
 let isLoadingCurrent = $ref(true)
 
-let containerInfo = $ref({
+const containerInfo = reactive({
   scrollHeight: 0,
   scrollWidth: 0,
   scrollTop: 0,
@@ -136,20 +159,58 @@ let containerInfo = $ref({
 })
 
 function updateContainerInfo() {
-  if (container != null) {
-    containerInfo.scrollHeight = container.scrollHeight
-    containerInfo.scrollWidth = container.scrollWidth
-    containerInfo.scrollTop = container.scrollTop
-    containerInfo.scrollLeft = container.scrollLeft
-    containerInfo.clientHeight = container.clientHeight
-    containerInfo.clientWidth = container.clientWidth
+  if (scrollElement != null) {
+    containerInfo.scrollHeight = scrollElement.scrollHeight
+    containerInfo.scrollWidth = scrollElement.scrollWidth
+    containerInfo.scrollTop = scrollElement.scrollTop
+    containerInfo.scrollLeft = scrollElement.scrollLeft
+    containerInfo.clientHeight = scrollElement.clientHeight
+    containerInfo.clientWidth = scrollElement.clientWidth
   }
 }
 
+let scrollsToBottom = $ref(0)
+const isScrollingToBottom = $computed(() => scrollsToBottom > 0)
+
+async function scrollToBottom(duration = 1000, interval = 50) {
+  function go() {
+    updateContainerInfo()
+    if (scroll != null) {
+      scroll.scrollTo(records.length)
+    }
+    setTimeout(() => {
+      nextTick(() => {
+        if (scrollElement != null) {
+          scrollElement.scrollTop = containerInfo.scrollHeight * 2
+        }
+      })
+    })
+  }
+
+  scrollsToBottom++
+  try {
+    go()
+    const id = setInterval(() => {
+      go()
+    }, interval)
+    await delay(duration)
+    clearInterval(id)
+  } finally {
+    scrollsToBottom--
+  }
+}
+
+let isFollowing = $ref(true)
+
 async function onScroll() {
   updateContainerInfo()
+  if (isScrollingToBottom) {
+    isFollowing = true
+  } else if (!isDocumentJustVisible && !isWindowJustResized) {
+    isFollowing = isAtBottom()
+  }
 
-  if (isExhausted || isLoadingCurrent || isLoadingPrevious || !isWindowFocused) {
+  if (isExhausted || isLoadingCurrent || isLoadingPrevious || !isDocumentVisible) {
     return
   }
 
@@ -166,7 +227,7 @@ async function onScroll() {
 }
 
 watchEffect((onCleanup) => {
-  const element = container
+  const element = scrollElement
   element?.addEventListener('scroll', onScroll, { passive: true })
   void onScroll()
   onCleanup(() => {
@@ -175,25 +236,23 @@ watchEffect((onCleanup) => {
 })
 
 function isNearTop() {
-  if (container == null) {
+  if (scrollElement == null) {
     return false
   }
 
-  return containerInfo.scrollTop <= itemsUntilNearTop * itemHeight
+  return containerInfo.scrollTop <= recordsUntilNearTop * recordHeight
 }
 
 function isAtBottom() {
-  if (container == null) {
+  if (scrollElement == null) {
     return true
   }
 
   return containerInfo.scrollTop + containerInfo.clientHeight >= containerInfo.scrollHeight - 2
 }
 
-const isAtBottomComputed = $computed(isAtBottom)
-
 const isShowingVerticalScrollBar = $computed(() => {
-  if (container == null) {
+  if (scrollElement == null) {
     return true
   }
 
@@ -201,7 +260,7 @@ const isShowingVerticalScrollBar = $computed(() => {
 })
 
 const isShowingHorizontalScrollBar = $computed(() => {
-  if (container == null) {
+  if (scrollElement == null) {
     return true
   }
 
@@ -212,40 +271,45 @@ async function delay(milliseconds = 0) {
   return await new Promise((resolve) => setTimeout(resolve, milliseconds))
 }
 
-async function prependItems(prepended: Item[]) {
+async function prependRecords(prepended: Record[]) {
   const scrollTop = containerInfo.scrollTop
-  const height = prepended.length * itemHeight
-  items = [...prepended, ...items] as Item[]
+  const height = prepended.length * recordHeight
+  records = [...prepended, ...records] as Record[]
   scroll?.refresh(-1)
   await nextTick()
-  container?.scrollTo({
+  scrollElement?.scrollTo({
     top: scrollTop + height,
   })
   await nextTick()
 }
 
-async function appendItems(appended: Item[]) {
-  const follow = isAtBottom()
+async function appendRecords(appended: Record[]) {
+  const follow = isFollowing
   let resort = false
-  if (appended.length > 0 && items.length > 0) {
-    if (appended[appended.length - 1].timestamp < items[items.length - 1].timestamp) {
+  if (appended.length > 0 && records.length > 0) {
+    if (appended[appended.length - 1].timestamp < records[records.length - 1].timestamp) {
       resort = true
     }
   }
 
-  let buffer = [...items, ...appended] as Item[]
+  let buffer = [...records, ...appended] as Record[]
   if (resort) {
-    buffer = _.sortBy(buffer, (item) => item.timestamp)
+    buffer = _.sortBy(buffer, (record) => record.timestamp)
   }
 
-  items = buffer
+  records = buffer
 
   if (follow) {
-    if (items.length > itemCullThreshold) {
-      items = items.slice(items.length - itemCullCount, items.length)
-      await forceScrollToBottom(100)
+    if (records.length > recordCullThreshold) {
+      records = records.slice(records.length - recordCullCount, records.length)
+      await scrollToBottom(100)
     } else {
-      scroll?.refresh(items.length + 1)
+      scroll?.refresh(records.length + 1)
+      setTimeout(() => {
+        nextTick(() => {
+          scroll?.refresh(records.length + 1)
+        })
+      })
     }
   }
 
@@ -255,23 +319,21 @@ async function appendItems(appended: Item[]) {
 async function loadPrevious() {
   isLoadingPrevious = true
 
-  const key = searchFilterKey
+  const key = filterKey
   try {
-    const results: Item[] = await get({
-      address: selector,
-      search: searchFilter.search === '' ? undefined : searchFilter.search,
-      search_field: searchFilter.field,
-      before: earliestItemTimestamp == null ? undefined : earliestItemTimestamp,
+    const results: Record[] = await get({
+      ...filter,
+      before: earliestRecordTimestamp == null ? filter.before : earliestRecordTimestamp,
       order: '-timestamp',
-      limit: itemLoadSize,
+      limit: recordLoadSize,
     })
 
-    if (key !== searchFilterKey) {
+    if (key !== filterKey) {
       return
     }
 
     isExhausted = results.length === 0
-    await prependItems(results.reverse())
+    await prependRecords(results.reverse())
   } finally {
     isLoadingPrevious = false
   }
@@ -281,54 +343,36 @@ async function loadCurrent() {
   updateContainerInfo()
 
   isLoadingCurrent = true
-  items = []
-  itemsStreamed = []
+  records = []
+  recordsStreamed = []
 
-  const key = searchFilterKey
+  const key = filterKey
   try {
-    const results: Item[] = await get({
-      address: selector,
-      search: searchFilter.search === '' ? undefined : searchFilter.search,
-      search_field: searchFilter.field,
+    const results: Record[] = await get({
+      ...filter,
       order: '-timestamp',
-      limit: itemLoadSizeInitial,
+      limit: recordLoadSizeInitial,
     })
 
-    if (key !== searchFilterKey) {
+    if (key !== filterKey) {
       return
     }
 
     isExhausted = results.length === 0
-    const appended = [...results.reverse(), ...itemsStreamed]
-    await appendItems(appended)
+    const appended = [...results.reverse(), ...recordsStreamed]
+    await appendRecords(appended)
     lastLoadedCurrent = moment.utc()
-    await forceScrollToBottom()
+    await scrollToBottom()
     updateContainerInfo()
   } finally {
     isLoadingCurrent = false
   }
 }
 
-function scrollToBottom() {
-  if (scroll != null) {
-    scroll.scrollTo(items.length)
-  }
-}
-
 async function onScrollToBottomClicked() {
-  items = items.slice(items.length - itemCullCount, items.length)
+  records = records.slice(records.length - recordCullCount, records.length)
   await nextTick()
-  await forceScrollToBottom(250)
-}
-
-async function forceScrollToBottom(duration = 500, interval = 50) {
-  scrollToBottom()
-  const id = setInterval(() => {
-    scrollToBottom()
-  }, interval)
-
-  await delay(duration)
-  clearInterval(id)
+  await scrollToBottom(250)
 }
 
 onMounted(async () => {
@@ -337,79 +381,69 @@ onMounted(async () => {
 
 const debouncedLoadCurrent = debounce(loadCurrent, 750)
 
-watch($$(searchFilterKey), async () => {
-  items = []
-  itemsStreamed = []
+watch($$(filterKey), async () => {
+  records = []
+  recordsStreamed = []
   isLoadingCurrent = true
   debouncedLoadCurrent()
 })
 
-const debouncedFilter = debouncedComputed(() => _.cloneDeep(searchFilter), 750)
+const debouncedFilter = debouncedComputed(() => _.cloneDeep(filter), 750)
 
-useStream(
-  computed(() => ({
-    address: selector,
-    search: debouncedFilter.value.search === '' ? undefined : debouncedFilter.value.search,
-  })),
-  async (item: Item) => {
-    if (isLoadingCurrent) {
-      itemsStreamed = [...itemsStreamed, item]
-    } else {
-      await appendItems([item])
-    }
+useStream(debouncedFilter, async (record: Record) => {
+  if (isLoadingCurrent) {
+    recordsStreamed = [...recordsStreamed, record]
+  } else {
+    await appendRecords([record])
   }
-)
-
-async function onSend(data: string) {
-  const result = await engine.messages.send(address, data)
-  if (result.ok) {
-    return
-  }
-
-  notify.error(`Message failed to send. ${JSON.stringify(result.error)}`)
-}
+})
 </script>
 
 <template>
-  <section-card :title>
-    <template #header-append>
-      <q-space class="gt-sm" />
-      <div :class="[$style.searchInputContainer, 'col-grow q-ml-sm']">
-        <q-input
-          v-model="searchFilter.search"
-          :class="$style.searchInput"
-          dense
-          input-class="monospace-sm"
-          outlined
-          placeholder="Search"
-          spellcheck="false"
+  <q-card bordered class="column q-pa-none" flat>
+    <div>
+      <q-markup-table
+        :ref="(table: any) => (tableElement = table?.$el ?? null)"
+        :class="$style.headerTable"
+        dense
+        flat
+        separator="cell"
+      >
+        <q-th
+          :class="$style.header"
+          :style="{ minWidth: `${context.headerWidth}px`, maxWidth: `${context.headerWidth}px` }"
         >
-          <template #prepend>
-            <q-icon name="search" size="20px" />
-          </template>
-          <template #append>
-            <q-badge clickable>
-              {{ searchFilter.field }}
-              <q-menu anchor="bottom right" class="no-shadow" :offset="[0, 5]" self="top right">
-                <q-list bordered dense separator>
-                  <q-item
-                    v-for="field in possibleSearchFields"
-                    :key="field"
-                    :active="searchFilter.field === field"
-                    :class="$style.menuItem"
-                    clickable
-                    dense
-                    @click="searchFilter.field = field"
-                  >
-                    {{ field }}
-                  </q-item>
-                </q-list>
+          <q-tr>
+            <q-td
+              v-for="(column, i) in columns"
+              :key="column.name"
+              :class="[
+                $style.headerColumn,
+                $slots['column-filter-' + column.name] && 'cursor-pointer',
+              ]"
+              :style="i < columns.length - 1 ? { width: `${context.getColumnWidth(i)}px` } : {}"
+            >
+              <span>
+                {{ column.label }}
+              </span>
+              <span v-if="column.filtered" class="text-primary"> *</span>
+              <q-menu
+                v-if="$slots['column-filter-' + column.name]"
+                anchor="top left"
+                class="no-shadow"
+                :offset="[0, 4]"
+                self="bottom left"
+              >
+                <q-card bordered class="q-pa-xs" flat>
+                  <slot :name="'column-filter-' + column.name" />
+                </q-card>
               </q-menu>
-            </q-badge>
-          </template>
-        </q-input>
-      </div>
-    </template>
+            </q-td>
+          </q-tr>
+        </q-th>
+      </q-markup-table>
+    </div>
+    <q-separator />
     <div :class="[$style.virtualScrollContainer, 'col-grow']">
       <transition-group
         appear
@@ -423,41 +457,37 @@ async function onSend(data: string) {
         >
           <q-spinner-orbit color="primary" size="24px" />
         </div>
-        <span v-else-if="items.length === 0" key="empty" class="absolute-center">
+        <span v-else-if="records.length === 0" key="empty" class="absolute-center">
           <span :class="[$style.emptyMessageText, 'text-italic']">
-            <template v-if="isShowingAll">
-              No {{ type.replace('log-entry', 'log entrie') }}s were found.
-            </template>
-            <template v-else>
-              No matching {{ type.replace('log-entry', 'log entrie') }}s were found.
-            </template>
+            No matching {{ type.replace('log-entry', 'log entrie') }}s were found.
           </span>
         </span>
       </transition-group>
       <q-virtual-scroll
         ref="scroll"
-        v-slot="{ item }"
-        :class="['fit', $style.virtualScroll, items.length === 0 && $style.virtualScrollEmpty]"
+        :class="['fit', $style.virtualScroll, records.length === 0 && $style.virtualScrollEmpty]"
         dense
         flat
-        :items
+        :items="records"
         separator="cell"
         square
         type="table"
-        :virtual-scroll-item-size="itemHeight"
-        :virtual-scroll-slice-size="itemSliceSize"
+        :virtual-scroll-item-size="recordHeight"
+        :virtual-scroll-slice-size="recordSliceSize"
       >
-        <record-view-message
-          v-if="type === 'message'"
-          :key="(item as Message).id"
-          :message="item"
-        />
-        <record-view-alert v-else-if="type === 'alert'" :key="(item as Alert).id" :alert="item" />
-        <record-view-log-entry v-else :key="(item as LogEntry).id" :entry="item" />
+        <template #default="{ item }">
+          <record-view-message
+            v-if="type === 'message'"
+            :key="(item as Message).id"
+            :message="item"
+          />
+          <record-view-alert v-else-if="type === 'alert'" :key="(item as Alert).id" :alert="item" />
+          <record-view-log-entry v-else :key="(item as LogEntry).id" :entry="item" />
+        </template>
       </q-virtual-scroll>
       <transition appear enter-active-class="animated fadeIn" leave-active-class="animated fadeOut">
         <q-btn
-          v-if="!isLoadingCurrent && !isAtBottomComputed"
+          v-if="!isLoadingCurrent && !isFollowing"
           class="absolute-bottom-right"
           color="primary"
           :icon="icons.arrowDown"
@@ -473,14 +503,36 @@ async function onSend(data: string) {
         </q-btn>
       </transition>
     </div>
-    <div v-if="type === 'message' && showCommandInput">
-      <q-separator />
-      <command-input :address @send="onSend" />
-    </div>
-  </section-card>
+    <slot />
+  </q-card>
 </template>
 
 <style lang="scss" module>
+.headerTable {
+  width: 100%;
+  height: 22px;
+  overflow: hidden;
+  contain: size;
+}
+
+.header {
+  padding: 0px !important;
+}
+
+.headerColumn {
+  padding: 2px 8px !important;
+  text-align: left;
+  height: 22px;
+}
+
+.headerColumnFilter {
+  padding: 0 !important;
+  text-align: left;
+  height: 22px;
+  flex: 1;
+  flex-direction: row;
+}
+
 .virtualScrollContainer {
   contain: size !important; // This is needed for horizontal scrolling to work.
   position: relative;
@@ -490,6 +542,7 @@ async function onSend(data: string) {
   overscroll-behavior: contain;
   opacity: 1;
   transition: opacity 0.25s ease-out;
+  position: relative;
 }
 
 .virtualScrollEmpty {

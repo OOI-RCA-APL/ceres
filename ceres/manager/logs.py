@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Mapping, Sequence, Unpack, override, AsyncIterable
+from typing import TYPE_CHECKING, AsyncIterable, Mapping, Sequence, Unpack, override
 
 from ceres._internal.lazy import lazy_imports
 from ceres._internal.manager.entity import BaseEntityManager
@@ -35,35 +35,37 @@ class LogManager(
     if TYPE_CHECKING:
         # See: https://github.com/python/typing/issues/1399
         _E = LogEntry
+        _F = LogEntryFilter
+        _FA = LogEntryFilterArgs
 
         @override
         async def get_all(  # pyright: ignore[reportIncompatibleMethodOverride]
-            self, filter: _E.Filter | None = None, **kwargs: Unpack[_E.FilterArgs]
+            self, filter: _F | None = None, **kwargs: Unpack[_FA]
         ) -> list[_E]: ...
 
         @override
         async def get(  # pyright: ignore[reportIncompatibleMethodOverride]
-            self, filter: _E.Filter | None = None, **kwargs: Unpack[_E.FilterArgs]
+            self, filter: _F | None = None, **kwargs: Unpack[_FA]
         ) -> _E | None: ...
 
         @override
         def select(  # pyright: ignore[reportIncompatibleMethodOverride]
-            self, filter: _E.Filter | None = None, **kwargs: Unpack[_E.FilterArgs]
+            self, filter: _F | None = None, **kwargs: Unpack[_FA]
         ) -> AsyncIterable[_E]: ...
 
         @override
         async def delete_all(  # pyright: ignore[reportIncompatibleMethodOverride]
-            self, filter: _E.Filter | None = None, **kwargs: Unpack[_E.FilterArgs]
+            self, filter: _F | None = None, **kwargs: Unpack[_FA]
         ) -> int: ...
 
         @override
         async def delete(  # pyright: ignore[reportIncompatibleMethodOverride]
-            self, filter: _E.Filter | None = None, **kwargs: Unpack[_E.FilterArgs]
+            self, filter: _F | None = None, **kwargs: Unpack[_FA]
         ) -> _E | None: ...
 
         @override
         async def count(  # pyright: ignore[reportIncompatibleMethodOverride]
-            self, filter: _E.Filter | None = None, **kwargs: Unpack[_E.FilterArgs]
+            self, filter: _F | None = None, **kwargs: Unpack[_FA]
         ) -> int: ...
 
 
@@ -99,7 +101,7 @@ class BoundLogManager(LogManager):
         config = self._node.get_resolved_logging_config()
         if entry.level >= config.level:
             logger = _get_logger(str(self._node.address))
-            logger.log(logging.getLevelName(entry.level.value.upper()), entry.content)
+            logger.log(logging.getLevelNamesMapping()[entry.level.value.upper()], entry.content)
             self._node.log.store(entry)
 
         self._node.events.emit(LogEvent, entry=entry)

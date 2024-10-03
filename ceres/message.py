@@ -64,7 +64,6 @@ class MessageRow(BaseRecordRow, kw_only=True):
     def __get_table_args__(cls) -> tuple[SchemaItem, ...]:
         return (
             *super().__get_table_args__(),
-            Index(f"ix_{cls.__tablename__}__address", "address"),
             EnumConstraint("direction", MessageDirection, f"ck_{cls.__tablename__}__direction"),
             Index(f"ix_{cls.__tablename__}__content", "content").ddl_if("sqlite"),
             Index(

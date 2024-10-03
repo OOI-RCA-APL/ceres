@@ -1,4 +1,5 @@
 <script lang="ts" setup>
+import SchemaFormAddressSelector from '@/components/schema-form/SchemaFormAddressSelector.vue'
 import SchemaFormAny from '@/components/schema-form/SchemaFormAny.vue'
 import SchemaFormArray from '@/components/schema-form/SchemaFormArray.vue'
 import SchemaFormBoolean from '@/components/schema-form/SchemaFormBoolean.vue'
@@ -66,9 +67,8 @@ function update(value: unknown) {
 
 <template>
   <template v-if="schema == null">
-    Unable to resolve schema definition at path: {{ JSON.stringify(path) }}
+    <div>Unable to resolve schema definition at path: {{ JSON.stringify(path) }}</div>
   </template>
-  <!-- <template v-else-if="isEmptyObjectSchema(schema)" /> -->
   <template v-else>
     <div class="relative-position">
       <template v-if="typeof schema === 'boolean'">
@@ -99,6 +99,11 @@ function update(value: unknown) {
         />
         <schema-form-duration
           v-else-if="isFormat('duration')"
+          v-bind="forward"
+          @update:model-value="update"
+        />
+        <schema-form-address-selector
+          v-else-if="isFormat('address-selector')"
           v-bind="forward"
           @update:model-value="update"
         />

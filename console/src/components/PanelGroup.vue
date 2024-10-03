@@ -1,7 +1,8 @@
 <script lang="ts" setup>
+import { computed } from 'vue'
+
 import ResizeHandle from '@/components/ResizeHandle.vue'
 import { providePanelGroup } from '@/panel-group'
-import { computed } from 'vue'
 
 const { panels, defaultHeight, persist } = defineProps<{
   title?: string

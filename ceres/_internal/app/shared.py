@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import inspect
 from dataclasses import dataclass
 from datetime import datetime
-from inspect import Parameter
-from typing import TYPE_CHECKING, Annotated, Any, AsyncIterator, Mapping, TypeVar
+from typing import TYPE_CHECKING, Annotated, Any, AsyncIterator, Mapping
 from uuid import UUID
 
 from fastapi import (
@@ -18,8 +16,7 @@ from fastapi import (
     WebSocketDisconnect,
 )
 from fastapi.requests import HTTPConnection
-from pydantic import BaseModel, Json, ValidationError
-from pydantic_core import PydanticUndefined
+from pydantic import Json, ValidationError
 from starlette.status import HTTP_400_BAD_REQUEST, HTTP_401_UNAUTHORIZED
 
 from ceres._internal.lazy import lazy_imports
@@ -329,49 +326,3 @@ ADMIN = Depends(__require_admin)
 RequireViewer = Annotated[User | None, VIEWER]
 RequireOperator = Annotated[User | None, OPERATOR]
 RequireAdmin = Annotated[User | None, ADMIN]
-
-
-@util.cached
-def _as_query_parameters_dependency(model: type[BaseModel]) -> Any:
-    def wrapper(*args, **kwargs):  # type: ignore
-        return model(*args, **kwargs)
-
-    wrapper.__name__ = model.__name__
-    parameters: list[Parameter] = []
-    for name, field in model.model_fields.items():
-        assigned = util.dictify(field)
-        assigned.pop("default", None)
-        query = util.call_partial(Query, **assigned)
-
-        parameters.append(
-            Parameter(
-                name,
-                Parameter.KEYWORD_ONLY,
-                default=(
-                    field.default if field.default is not PydanticUndefined else Parameter.empty
-                ),
-                annotation=Annotated[field.annotation, query],  # type: ignore
-            )
-        )
-
-    wrapper.__signature__ = inspect.signature(model).replace(  # type: ignore
-        parameters=parameters,
-        return_annotation=model,
-    )
-
-    try:
-        wrapper.__defaults__ = model.__defaults__  # type: ignore
-    except Exception:
-        pass
-
-    return wrapper
-
-
-if TYPE_CHECKING:
-    _ModelT = TypeVar("_ModelT", bound=BaseModel)
-    QueryGroup = Annotated[_ModelT, Depends()]
-else:
-
-    class QueryGroup:
-        def __class_getitem__(cls, model):
-            return Annotated[model, Depends(_as_query_parameters_dependency(model))]

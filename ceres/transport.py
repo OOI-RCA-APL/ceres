@@ -5,6 +5,7 @@ from datetime import timedelta
 from typing import Callable, Unpack, overload, override
 
 from ceres._internal.lazy import lazy_imports
+from ceres.message import MessageFilterArgs
 
 with lazy_imports(__name__):
     import anyio
@@ -43,7 +44,7 @@ class Transport:
         condition: Callable[[Message], bool] | None = None,
         timeout: float | timedelta | None = None,
         default: None = None,
-        **kwargs: Unpack[Message.FilterArgs],
+        **kwargs: Unpack[MessageFilterArgs],
     ) -> Message: ...
 
     @overload
@@ -53,7 +54,7 @@ class Transport:
         condition: Callable[[Message], bool] | None = None,
         timeout: float | timedelta | None = None,
         default: T | Callable[[], T],
-        **kwargs: Unpack[Message.FilterArgs],
+        **kwargs: Unpack[MessageFilterArgs],
     ) -> Message | T: ...
 
     async def receive[T](
@@ -62,7 +63,7 @@ class Transport:
         condition: Callable[[Message], bool] | None = None,
         timeout: float | timedelta | None = None,
         default: T | Callable[[], T] | None = None,
-        **kwargs: Unpack[Message.FilterArgs],
+        **kwargs: Unpack[MessageFilterArgs],
     ) -> Message | T:
         if isinstance(timeout, timedelta):
             timeout = timeout.total_seconds()

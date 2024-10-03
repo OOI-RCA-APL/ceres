@@ -1,9 +1,10 @@
 <script lang="ts" setup>
+import { computed } from 'vue'
+
 import AppBoundary from '@/AppBoundary.vue'
 import HeightContainer from '@/components/HeightContainer.vue'
 import icons from '@/icons'
 import { KeyInput, usePersisted } from '@/persistence'
-import { computed } from 'vue'
 
 const { name, persist } = defineProps<{
   name: string
@@ -12,6 +13,7 @@ const { name, persist } = defineProps<{
   maxHeight?: number
   persist?: KeyInput
   containerClass?: string
+  scroll?: boolean
 }>()
 
 const state = usePersisted({
@@ -53,6 +55,7 @@ const state = usePersisted({
         :max-height="maxHeight"
         :min-height="minHeight"
         :persist="persist && persist + '/height'"
+        :scroll="scroll"
       >
         <app-boundary>
           <slot />

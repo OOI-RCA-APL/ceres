@@ -1,4 +1,6 @@
 <script lang="ts" setup>
+import { omit, upperFirst } from 'lodash'
+
 import { useEngine } from '@/api/engine'
 import { UserRole } from '@/api/users'
 import CardPage from '@/components/CardPage.vue'
@@ -9,7 +11,6 @@ import icons from '@/icons'
 import { useNavigation } from '@/navigation'
 import { useNotify } from '@/notify'
 import { useValidate } from '@/validate'
-import { omit, upperFirst } from 'lodash'
 
 const { id = null } = defineProps<{
   id?: string | null
@@ -79,6 +80,7 @@ const form = useForm({
     password: '',
     disabled: false,
     role: 'operator' as UserRole,
+    settings: {},
   },
   validators: {
     username: validate.isUsername(
@@ -231,14 +233,6 @@ form.load({
           <div class="q-gutter-sm row">
             <template v-if="form.state === 'viewing'">
               <q-btn
-                v-if="engine.auth.isAdmin && !isAccountPage"
-                class="col"
-                color="negative"
-                :icon="icons.delete"
-                label="Delete"
-                @click="promptDelete"
-              />
-              <q-btn
                 class="col"
                 color="primary"
                 :icon="icons.edit"
@@ -279,6 +273,14 @@ form.load({
                 icon="logout"
                 label="Sign Out"
                 @click="logout"
+              />
+              <q-btn
+                v-if="engine.auth.isAdmin && !isAccountPage"
+                class="col"
+                color="negative"
+                :icon="icons.delete"
+                label="Delete"
+                @click="promptDelete"
               />
             </div>
           </template>

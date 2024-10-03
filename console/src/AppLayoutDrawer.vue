@@ -1,6 +1,11 @@
 <script lang="ts" setup>
+import moment from 'moment'
+import { LocalStorage } from 'quasar'
+import { useRoute } from 'vue-router'
+
 import AppLayoutDrawerComponent from '@/AppLayoutDrawerComponent.vue'
 import { Address } from '@/api/address'
+import { useAuth } from '@/api/auth'
 import { useEngine } from '@/api/engine'
 import ResizeHandle from '@/components/ResizeHandle.vue'
 import { useDialogs } from '@/dialogs'
@@ -8,29 +13,45 @@ import { useDrawer } from '@/drawer'
 import { guard } from '@/errors'
 import icons from '@/icons'
 import { useNotify } from '@/notify'
+import { usePersisted } from '@/persistence'
 import { usePreferences } from '@/preferences'
-import { displayDuration } from '@/time'
-import moment from 'moment'
-import { LocalStorage } from 'quasar'
-import { watchEffect } from 'vue'
-import { useRoute } from 'vue-router'
+import { displayDuration } from '@/utilities'
+import { useWorkspaces } from '@/workspace'
 
+const auth = useAuth()
 const engine = useEngine()
 const drawer = useDrawer()
 const notify = useNotify()
 const dialogs = useDialogs()
+const workspaces = useWorkspaces()
 const route = useRoute()
 const preferences = usePreferences()
 
-watchEffect(() => {
-  console.log(engine.components.root?.name)
+const persisted = usePersisted({
+  schema: ({ object, boolean, number }) =>
+    object({
+      isShowingWorkspaces: boolean().default(false),
+      workspaceDropdownHeight: number().default(200),
+    }),
+  methods: [{ type: 'local-storage', key: 'component/app-layout-drawer' }],
 })
+
+function createWorkspace() {
+  const created = workspaces.create()
+  workspaces.open(created.name)
+}
+
+async function importWorkspaces() {
+  const imported = await workspaces.importFiles()
+  if (imported != null && imported.length > 0) {
+    workspaces.open(imported[0].name)
+  }
+}
 
 function clearLocalStorage() {
   dialogs
     .show({
       title: 'Clear Local Storage',
-      class: 'no-shadow',
       message:
         'This will clear all saved UI state, form state and settings for this site from your ' +
         'local browser.',
@@ -109,7 +130,7 @@ function promptReload() {
         :min="54"
         :style="{ left: `${drawer.width}px` }"
       />
-      <div class="col-grow scroll">
+      <div class="col-grow overflow-scroll scroll" style="height: 0">
         <q-list>
           <q-item :active="route.fullPath === '/'" clickable to="/">
             <q-item-section avatar>
@@ -119,64 +140,146 @@ function promptReload() {
               <q-item-label>Dashboard</q-item-label>
             </q-item-section>
           </q-item>
-          <q-item v-if="engine.auth.isAdmin" clickable>
-            <q-item-section avatar>
-              <q-icon :name="icons.admin" />
-            </q-item-section>
-            <q-item-section>
-              <q-item-label>Admin</q-item-label>
-            </q-item-section>
-            <q-item-section side>
-              <q-icon :name="icons.menuRight" />
-            </q-item-section>
-            <q-menu anchor="bottom right" class="no-shadow" :offset="[8, 0]" self="bottom left">
-              <q-list bordered>
-                <q-item to="/users">
+          <template v-if="auth.isViewer">
+            <q-item :active="route.fullPath.startsWith('/workspaces')" class="items-center row">
+              <div :class="[$style.iconContainer, 'items-center', 'justify-center', 'row']">
+                <q-btn
+                  :class="$style.toggleButton"
+                  flat
+                  round
+                  size="xs"
+                  tabindex="0"
+                  @click.stop.prevent="
+                    persisted.isShowingWorkspaces = !persisted.isShowingWorkspaces
+                  "
+                >
+                  <q-icon
+                    :name="persisted.isShowingWorkspaces ? icons.menuDown : icons.menuRight"
+                    size="22px"
+                  />
+                </q-btn>
+              </div>
+              <q-item-section no-wrap>
+                <q-item-label class="q-ml-md">Workspaces</q-item-label>
+              </q-item-section>
+              <q-item-section side>
+                <div class="items-center row">
+                  <q-btn flat :icon="icons.more" round size="xs">
+                    <q-menu class="no-shadow">
+                      <q-list bordered dense>
+                        <q-item clickable @click="createWorkspace">
+                          <q-item-section avatar>
+                            <q-icon :name="icons.add" />
+                          </q-item-section>
+                          <q-item-section>
+                            <q-item-label>New</q-item-label>
+                          </q-item-section>
+                        </q-item>
+                        <q-item v-close-popup clickable @click="importWorkspaces">
+                          <q-item-section avatar>
+                            <q-icon :name="icons.import" />
+                          </q-item-section>
+                          <q-item-section>
+                            <q-item-label>Import</q-item-label>
+                          </q-item-section>
+                        </q-item>
+                      </q-list>
+                    </q-menu>
+                  </q-btn>
+                </div>
+              </q-item-section>
+            </q-item>
+            <div v-if="persisted.isShowingWorkspaces" class="relative-position">
+              <q-separator />
+              <div
+                class="overflow-auto scroll"
+                :style="{ height: `${persisted.workspaceDropdownHeight}px` }"
+              >
+                <q-item
+                  v-for="workspace in [...workspaces.all].sort((left, right) =>
+                    left.name.localeCompare(right.name)
+                  )"
+                  :key="workspace.name"
+                  clickable
+                  dense
+                  :to="`/workspaces/${workspace.name}`"
+                >
                   <q-item-section avatar>
-                    <q-icon :name="icons.user" />
+                    <q-icon class="q-ml-md" :name="icons.circle" size="7px" />
                   </q-item-section>
                   <q-item-section>
-                    <q-item-label>Users</q-item-label>
+                    <q-item-label>
+                      <span class="q-ml-sm">
+                        {{ workspace.name }}
+                      </span>
+                    </q-item-label>
                   </q-item-section>
                 </q-item>
-              </q-list>
-            </q-menu>
-          </q-item>
-          <q-item v-if="engine.auth.isOperator" clickable>
-            <q-item-section avatar>
-              <q-icon :name="icons.configuration" />
-            </q-item-section>
-            <q-item-section>
-              <q-item-label>Configuration</q-item-label>
-            </q-item-section>
-            <q-item-section side>
-              <q-icon :name="icons.menuRight" />
-            </q-item-section>
-            <q-menu anchor="bottom right" class="no-shadow" :offset="[8, 0]" self="bottom left">
-              <q-list bordered>
-                <q-item clickable @click="promptReload">
-                  <q-item-section avatar>
-                    <q-icon :name="icons.reload" />
-                  </q-item-section>
-                  <q-item-section>
-                    <q-item-label>Reload Engine Configuration</q-item-label>
-                  </q-item-section>
-                </q-item>
-              </q-list>
-            </q-menu>
-          </q-item>
-          <template v-if="engine.auth.user != null">
-            <q-separator />
+                <resize-handle
+                  v-model="persisted.workspaceDropdownHeight"
+                  :class="$style.workspaceDropdownResizeHandle"
+                  direction="vertical"
+                  :max="400"
+                  :min="34"
+                />
+              </div>
+            </div>
             <app-layout-drawer-component
               v-if="engine.components.root != null"
               :address="root"
-              :component="(engine.components.root as any)"
+              :component="engine.components.root"
             />
           </template>
         </q-list>
       </div>
       <q-separator />
       <q-list>
+        <q-item v-if="engine.auth.isAdmin" clickable>
+          <q-item-section avatar>
+            <q-icon :name="icons.admin" />
+          </q-item-section>
+          <q-item-section>
+            <q-item-label>Admin</q-item-label>
+          </q-item-section>
+          <q-item-section side>
+            <q-icon :name="icons.menuRight" />
+          </q-item-section>
+          <q-menu anchor="top right" class="no-shadow" :offset="[8, 0]" self="top left">
+            <q-list bordered>
+              <q-item to="/users">
+                <q-item-section avatar>
+                  <q-icon :name="icons.user" />
+                </q-item-section>
+                <q-item-section>
+                  <q-item-label>Users</q-item-label>
+                </q-item-section>
+              </q-item>
+            </q-list>
+          </q-menu>
+        </q-item>
+        <q-item v-if="engine.auth.isOperator" clickable>
+          <q-item-section avatar>
+            <q-icon :name="icons.configuration" />
+          </q-item-section>
+          <q-item-section>
+            <q-item-label>Configuration</q-item-label>
+          </q-item-section>
+          <q-item-section side>
+            <q-icon :name="icons.menuRight" />
+          </q-item-section>
+          <q-menu anchor="bottom right" class="no-shadow" :offset="[8, 0]" self="bottom left">
+            <q-list bordered>
+              <q-item clickable @click="promptReload">
+                <q-item-section avatar>
+                  <q-icon :name="icons.reload" />
+                </q-item-section>
+                <q-item-section>
+                  <q-item-label>Reload Engine Configuration</q-item-label>
+                </q-item-section>
+              </q-item>
+            </q-list>
+          </q-menu>
+        </q-item>
         <q-item clickable>
           <q-item-section avatar>
             <q-icon :name="icons.preferences" />
@@ -286,5 +389,19 @@ function promptReload() {
 .resizeHandle {
   position: absolute;
   top: 0;
+}
+
+.toggleButton {
+  margin-left: -16px;
+}
+
+.iconContainer {
+  min-width: 40px;
+}
+
+.workspaceDropdownResizeHandle {
+  position: absolute;
+  bottom: 0;
+  left: 0;
 }
 </style>

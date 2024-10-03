@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Mapping, Unpack, override, AsyncIterable
+from typing import TYPE_CHECKING, Any, AsyncIterable, Mapping, Unpack, override
 
 from ceres._internal.lazy import lazy_imports
 from ceres._internal.manager.entity import BaseEntityManager
@@ -31,35 +31,37 @@ class AlertManager(
     if TYPE_CHECKING:
         # See: https://github.com/python/typing/issues/1399
         _E = Alert
+        _F = AlertFilter
+        _FA = AlertFilterArgs
 
         @override
         async def get_all(  # pyright: ignore[reportIncompatibleMethodOverride]
-            self, filter: _E.Filter | None = None, **kwargs: Unpack[_E.FilterArgs]
+            self, filter: _F | None = None, **kwargs: Unpack[_FA]
         ) -> list[_E]: ...
 
         @override
         async def get(  # pyright: ignore[reportIncompatibleMethodOverride]
-            self, filter: _E.Filter | None = None, **kwargs: Unpack[_E.FilterArgs]
+            self, filter: _F | None = None, **kwargs: Unpack[_FA]
         ) -> _E | None: ...
 
         @override
         def select(  # pyright: ignore[reportIncompatibleMethodOverride]
-            self, filter: _E.Filter | None = None, **kwargs: Unpack[_E.FilterArgs]
+            self, filter: _F | None = None, **kwargs: Unpack[_FA]
         ) -> AsyncIterable[_E]: ...
 
         @override
         async def delete_all(  # pyright: ignore[reportIncompatibleMethodOverride]
-            self, filter: _E.Filter | None = None, **kwargs: Unpack[_E.FilterArgs]
+            self, filter: _F | None = None, **kwargs: Unpack[_FA]
         ) -> int: ...
 
         @override
         async def delete(  # pyright: ignore[reportIncompatibleMethodOverride]
-            self, filter: _E.Filter | None = None, **kwargs: Unpack[_E.FilterArgs]
+            self, filter: _F | None = None, **kwargs: Unpack[_FA]
         ) -> _E | None: ...
 
         @override
         async def count(  # pyright: ignore[reportIncompatibleMethodOverride]
-            self, filter: _E.Filter | None = None, **kwargs: Unpack[_E.FilterArgs]
+            self, filter: _F | None = None, **kwargs: Unpack[_FA]
         ) -> int: ...
 
 
@@ -114,32 +116,3 @@ class BoundAlertManager(AlertManager, BaseBoundManager[Alert]):
 
     def critical(self, code: str, info: Mapping[str, Any] | None = None) -> Alert:
         return self.emit(Level.CRITICAL, code, info)
-
-    if TYPE_CHECKING:
-        # See: https://github.com/python/typing/issues/1399
-        _E = Alert
-
-        @override
-        async def get_all(  # pyright: ignore[reportIncompatibleMethodOverride]
-            self, filter: _E.Filter | None = None, **kwargs: Unpack[_E.FilterArgs]
-        ) -> list[_E]: ...
-
-        @override
-        async def get(  # pyright: ignore[reportIncompatibleMethodOverride]
-            self, filter: _E.Filter | None = None, **kwargs: Unpack[_E.FilterArgs]
-        ) -> _E | None: ...
-
-        @override
-        async def delete_all(  # pyright: ignore[reportIncompatibleMethodOverride]
-            self, filter: _E.Filter | None = None, **kwargs: Unpack[_E.FilterArgs]
-        ) -> int: ...
-
-        @override
-        async def delete(  # pyright: ignore[reportIncompatibleMethodOverride]
-            self, filter: _E.Filter | None = None, **kwargs: Unpack[_E.FilterArgs]
-        ) -> _E | None: ...
-
-        @override
-        async def count(  # pyright: ignore[reportIncompatibleMethodOverride]
-            self, filter: _E.Filter | None = None, **kwargs: Unpack[_E.FilterArgs]
-        ) -> int: ...

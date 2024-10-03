@@ -1,9 +1,10 @@
 <script lang="ts" setup>
+import { keepPreviousData, useQuery } from '@tanstack/vue-query'
+
 import { useEngine } from '@/api/engine'
 import CardPage from '@/components/CardPage.vue'
 import icons from '@/icons'
 import { debouncedComputed } from '@/utilities'
-import { keepPreviousData, useQuery } from '@tanstack/vue-query'
 
 const engine = useEngine()
 

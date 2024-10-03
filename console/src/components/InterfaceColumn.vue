@@ -1,8 +1,9 @@
 <script lang="ts" setup>
+import { StyleValue } from 'vue'
+
 import { ColumnElement } from '@/api/elements'
 import InterfaceElement from '@/components/InterfaceElement.vue'
 import { InterfacePath } from '@/interface'
-import { StyleValue } from 'vue'
 
 const { element } = defineProps<{
   element: ColumnElement

@@ -1,9 +1,10 @@
-import { useClient } from '@/api/client'
-import { DateTimeModel } from '@/api/shared'
-import { User, UserModel, useUsers } from '@/api/users'
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import Zod from 'zod'
+
+import { useClient } from '@/api/client'
+import { DateTimeModel } from '@/api/shared'
+import { User, UserModel, useUsers } from '@/api/users'
 
 export type Identity = Zod.infer<typeof IdentityModel>
 export const IdentityModel = Zod.object({

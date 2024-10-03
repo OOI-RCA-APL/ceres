@@ -1,10 +1,11 @@
 <script lang="ts" setup>
+import { useQuery } from '@tanstack/vue-query'
+import { computed } from 'vue'
+
 import { ButtonElement } from '@/api/elements'
 import { useEngine } from '@/api/engine'
 import Procedure from '@/components/Procedure.vue'
 import icons from '@/icons'
-import { useQuery } from '@tanstack/vue-query'
-import { computed } from 'vue'
 
 const { element } = defineProps<{
   element: ButtonElement

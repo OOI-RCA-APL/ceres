@@ -1,4 +1,3 @@
-import { ErrorInfo, Failure } from '@/errors'
 import {
   QueryClient,
   QueryKey,
@@ -9,8 +8,10 @@ import {
   useQuery as useQueryBase,
 } from '@tanstack/vue-query'
 import { defineStore } from 'pinia'
-import { MaybeRef, computed, unref, watchEffect } from 'vue'
+import { MaybeRef, unref, watchEffect } from 'vue'
 import { ZodAny, ZodError, ZodTypeAny } from 'zod'
+
+import { ErrorInfo, Failure } from '@/errors'
 
 export type RequestMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 export type RequestOptions<TParseModel extends ZodTypeAny = ZodAny> = {
@@ -144,16 +145,16 @@ function useStream<TParseModel extends ZodTypeAny>(
   onReceive: (message: Zod.infer<TParseModel>) => unknown,
   options?: MaybeRef<StreamOptions>
 ) {
-  const inputOptions = computed(() => unref(options) ?? {})
-  const inputUrl = computed(() => {
+  const inputOptions = $computed(() => unref(options) ?? {})
+  const inputUrl = $computed(() => {
     const base = getWebSocketURI(unref(path))
-    return base + createQueryParameters(unref(inputOptions.value.query ?? {}))
+    return base + createQueryParameters(unref(inputOptions.query ?? {}))
   })
 
   function createSocket(activeUrl: string, onDisconnect: () => unknown) {
     const socket = new WebSocket(activeUrl)
     socket.addEventListener('open', () => {
-      console.log(`connected to '${activeUrl}'`)
+      console.log(`Connected to '${activeUrl}'.`)
     })
 
     socket.addEventListener('message', (event) => {
@@ -161,7 +162,7 @@ function useStream<TParseModel extends ZodTypeAny>(
       try {
         data = JSON.parse(event.data)
       } catch {
-        console.log(`invalid JSON message from '${activeUrl}': '${event.data}'`)
+        console.log(`Invalid JSON message from '${activeUrl}': '${event.data}'`)
         return
       }
 
@@ -174,11 +175,11 @@ function useStream<TParseModel extends ZodTypeAny>(
     })
 
     socket.addEventListener('error', (event) => {
-      console.log(`error on '${activeUrl}': ${event.type}`)
+      console.log(`Error on '${activeUrl}': ${event.type}`)
     })
 
     socket.addEventListener('close', () => {
-      console.log(`disconnected from '${activeUrl}'`)
+      console.log(`Disconnected from '${activeUrl}'.`)
       onDisconnect()
     })
 
@@ -192,12 +193,12 @@ function useStream<TParseModel extends ZodTypeAny>(
       socket?.close()
       setTimeout(() => {
         if (mounted) {
-          socket = createSocket(inputUrl.value, onDisconnect)
+          socket = createSocket(inputUrl, onDisconnect)
         }
       }, 3000)
     }
 
-    let socket = inputOptions.value.disable ? null : createSocket(inputUrl.value, onDisconnect)
+    let socket = inputOptions.disable ? null : createSocket(inputUrl, onDisconnect)
 
     function onUnload() {
       if (socket == null) {

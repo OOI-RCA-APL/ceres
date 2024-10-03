@@ -148,6 +148,14 @@ class VariableAssignedEvent(__BaseStandardEvent):
 VariableEvent = VariableAssignedEvent
 
 
+class SettingAssignedEvent(__BaseStandardEvent):
+    type: Literal["setting-assigned"] = "setting-assigned"
+    setting: Setting
+
+
+SettingEvent = SettingAssignedEvent
+
+
 class RoutineStartedEvent(__BaseStandardEvent):
     type: Literal["routine-started"] = "routine-started"
     routine: str
@@ -311,9 +319,11 @@ from ceres.alert import Alert  # noqa: E402
 from ceres.logs import LogEntry  # noqa: E402
 from ceres.message import Message  # noqa: E402
 from ceres.variable import Variable  # noqa: E402
+from ceres.setting import Setting  # noqa: E402
 
 AlertEvent.model_rebuild()
 LogEvent.model_rebuild()
 MessageSentEvent.model_rebuild()
 MessageReceivedEvent.model_rebuild()
 VariableAssignedEvent.model_rebuild()
+SettingAssignedEvent.model_rebuild()

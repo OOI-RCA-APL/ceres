@@ -1,10 +1,11 @@
-import { AddressModel } from '@/api/address'
-import { useClient } from '@/api/client'
-import { NameStrModel } from '@/api/shared'
 import { useQuery } from '@tanstack/vue-query'
 import { defineStore } from 'pinia'
 import { computed } from 'vue'
 import Zod from 'zod'
+
+import { AddressModel } from '@/api/address'
+import { useClient } from '@/api/client'
+import { NameStrModel } from '@/api/shared'
 
 export type ComponentConfig = {
   name: string

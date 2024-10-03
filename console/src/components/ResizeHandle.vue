@@ -1,11 +1,17 @@
 <script lang="ts" setup>
 import { onMounted, onUnmounted } from 'vue'
 
-const { direction, modelValue, min, max } = defineProps<{
+const {
+  direction,
+  modelValue,
+  min = 0,
+  max,
+} = defineProps<{
   direction: 'vertical' | 'horizontal'
   modelValue: number
   min?: number
   max?: number
+  hidden?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -20,9 +26,6 @@ type Drag = {
 }
 
 function clamp(size: number) {
-  if (size < 0) {
-    return 0
-  }
   if (min != null && size < min) {
     return min
   }
@@ -110,6 +113,7 @@ onUnmounted(() => {
       $style.root,
       $q.dark.isActive && $style.dark,
       isVertical ? $style.vertical : $style.horizontal,
+      hidden && $style.hidden,
     ]"
   >
     <div :class="[$style.handleContainer, 'fit']">
@@ -135,6 +139,10 @@ onUnmounted(() => {
   background-color: rgba(255, 255, 255, 0.28);
 }
 
+.hidden {
+  background-color: transparent !important;
+}
+
 .horizontal {
   width: 1px;
   height: 100%;
@@ -155,6 +163,7 @@ onUnmounted(() => {
   z-index: 10;
   transition: opacity 0.25s;
   position: absolute;
+  border-radius: 4px;
 }
 
 .handle:hover {
