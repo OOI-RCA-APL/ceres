@@ -69,7 +69,6 @@ function update(value: unknown) {
   <template v-if="schema == null">
     <div>Unable to resolve schema definition at path: {{ JSON.stringify(path) }}</div>
   </template>
-  <!-- <template v-else-if="isEmptyObjectSchema(schema)" /> -->
   <template v-else>
     <div class="relative-position">
       <template v-if="typeof schema === 'boolean'">
