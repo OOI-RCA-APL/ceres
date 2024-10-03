@@ -31,7 +31,7 @@ from ceres.data import FromYAML, JSONValue, jsonify
 from ceres.database.enums import DatabaseType
 
 with lazy_imports(__name__):
-    from sqlalchemy import Index, PrimaryKeyConstraint
+    from sqlalchemy import PrimaryKeyConstraint
     from sqlalchemy.orm import Mapped, mapped_column
     from sqlalchemy.schema import SchemaItem
     from sqlalchemy.sql import SQLColumnExpression, cast
@@ -51,11 +51,7 @@ class SettingRow(BaseEntityRow, kw_only=True):
     @override
     def __get_table_args__(cls) -> tuple[SchemaItem, ...]:
         return (
-            *(
-                current
-                for current in super().__get_table_args__()
-                if not isinstance(current, Index) or "address" not in (current.name or "")
-            ),
+            *super().__get_table_args__(),
             PrimaryKeyConstraint("user_id", "name", name=f"pk_{cls.__tablename__}"),
         )
 
