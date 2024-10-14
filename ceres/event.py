@@ -140,6 +140,11 @@ class LogEvent(__BaseStandardEvent):
     entry: LogEntry
 
 
+class ParticleEvent(__BaseStandardEvent):
+    type: Literal["particle"] = "particle"
+    particle: Particle
+
+
 class VariableAssignedEvent(__BaseStandardEvent):
     type: Literal["variable-assigned"] = "variable-assigned"
     variable: Variable
@@ -318,12 +323,14 @@ ExceptionEvent = (
 from ceres.alert import Alert  # noqa: E402
 from ceres.logs import LogEntry  # noqa: E402
 from ceres.message import Message  # noqa: E402
-from ceres.variable import Variable  # noqa: E402
+from ceres.particle import Particle  # noqa: E402
 from ceres.setting import Setting  # noqa: E402
+from ceres.variable import Variable  # noqa: E402
 
 AlertEvent.model_rebuild()
 LogEvent.model_rebuild()
 MessageSentEvent.model_rebuild()
 MessageReceivedEvent.model_rebuild()
+ParticleEvent.model_rebuild()
 VariableAssignedEvent.model_rebuild()
 SettingAssignedEvent.model_rebuild()

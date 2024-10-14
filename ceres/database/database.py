@@ -35,7 +35,6 @@ from ceres.config import DatabaseConfig, PostgresDatabaseConfig, SQLiteDatabaseC
 from ceres.data import PasswordHash, jsonify
 from ceres.database.enums import DatabaseType, EntityType
 from ceres.error import DatabaseInitError, DatabaseLoadError, Failure
-from ceres.manager.setting import SettingManager
 from ceres.threading import spawn
 
 with lazy_imports(__name__):
@@ -61,6 +60,8 @@ with lazy_imports(__name__):
     from ceres.manager.alert import AlertManager
     from ceres.manager.logs import LogManager
     from ceres.manager.message import MessageManager
+    from ceres.manager.particle import ParticleManager
+    from ceres.manager.setting import SettingManager
     from ceres.manager.statistic import StatisticsManager
     from ceres.manager.user import UserManager
     from ceres.manager.variable import VariableManager
@@ -121,6 +122,10 @@ class Database:
     @cached_property
     def messages(self) -> MessageManager:
         return MessageManager(self)
+
+    @cached_property
+    def particles(self) -> ParticleManager:
+        return ParticleManager(self)
 
     @cached_property
     def alerts(self) -> AlertManager:
@@ -866,12 +871,14 @@ def _get_entity_row_classes() -> list[type[BaseEntityRow]]:
     from ceres.alert import AlertRow
     from ceres.logs import LogEntryRow
     from ceres.message import MessageRow
+    from ceres.particle import ParticleRow
     from ceres.setting import SettingRow
     from ceres.user import UserRow
     from ceres.variable import VariableRow
 
     return [
         MessageRow,
+        ParticleRow,
         AlertRow,
         LogEntryRow,
         UserRow,

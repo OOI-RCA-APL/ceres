@@ -22,6 +22,7 @@ from ceres.event import (
     StartedEvent,
     StoppedEvent,
 )
+from ceres.manager.particle import BoundParticleManager
 from ceres.manager.setting import SettingManager
 from ceres.tasklet import Tasklet
 
@@ -86,6 +87,10 @@ class Node(Tasklet):
     @cached_property
     def messages(self) -> BoundMessageManager:
         return BoundMessageManager(self)
+
+    @cached_property
+    def particles(self) -> BoundParticleManager:
+        return BoundParticleManager(self)
 
     @cached_property
     def alerts(self) -> BoundAlertManager:

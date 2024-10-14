@@ -210,8 +210,6 @@ class MessageUpdate(BaseRecordUpdate, total=False):
 
 
 class Message(BaseRecord, MessageCreate):
-    Direction: ClassVar[type[MessageDirection]] = MessageDirection
-
     Row: ClassVar[type[MessageRow]] = MessageRow
     Create: ClassVar[type[MessageCreate]] = MessageCreate
     Update: ClassVar[type[MessageUpdate]] = MessageUpdate
@@ -219,3 +217,4 @@ class Message(BaseRecord, MessageCreate):
     FilterArgs: ClassVar[type[MessageFilterArgs]] = MessageFilterArgs
     Field = MessageField
     Order = MessageOrder
+    Direction: ClassVar[type[MessageDirection]] = MessageDirection

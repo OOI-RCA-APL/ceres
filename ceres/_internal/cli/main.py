@@ -427,6 +427,7 @@ with lazy_imports(__name__):
     from ceres._internal.cli.subcommands.generate import router as subcommand__generate
     from ceres._internal.cli.subcommands.log_entry import router as subcommand__log_entry
     from ceres._internal.cli.subcommands.message import router as subcommand__message
+    from ceres._internal.cli.subcommands.particle import router as subcommand__particle
     from ceres._internal.cli.subcommands.service import router as subcommand__service
     from ceres._internal.cli.subcommands.settings import router as subcommand__settings
     from ceres._internal.cli.subcommands.user import router as subcommand__user
@@ -442,6 +443,7 @@ def main() -> None:
         "generate": subcommand__generate,
         "log-entry": subcommand__log_entry,
         "message": subcommand__message,
+        "particle": subcommand__particle,
         "service": subcommand__service,
         "setting": subcommand__settings,
         "user": subcommand__user,
