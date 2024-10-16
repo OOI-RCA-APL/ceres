@@ -7,7 +7,7 @@ const { element } = defineProps<{
 }>()
 
 const selected = $computed(() =>
-  element.options.find((state) => state.value === element.value ?? null)
+  element.options.find((state) => state.value === (element.value ?? null))
 )
 </script>
 

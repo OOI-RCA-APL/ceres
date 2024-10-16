@@ -5,6 +5,10 @@ const listing = [
     label: 'Messages View',
   },
   {
+    type: 'particles',
+    label: 'Particles View',
+  },
+  {
     type: 'alerts',
     label: 'Alerts View',
   },

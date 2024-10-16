@@ -18,7 +18,7 @@ from typing import (
     override,
 )
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, SerializeAsAny, model_validator
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql.sqltypes import JSON, String, Text
@@ -36,7 +36,6 @@ from ceres._internal.entity import (
     BaseRecordUpdate,
 )
 from ceres._internal.lazy import lazy_imports
-from ceres.address import Address
 from ceres.data import ImmutableDataObject, JSONDict, jsonify
 from ceres.error import ParticleError
 from ceres.message import Message
@@ -74,6 +73,7 @@ ParticleOrder = (
 
 class ParticleFilterArgs(BaseRecordFilterArgs[ParticleField, ParticleOrder], total=False):
     type: str | Sequence[str] | None
+    type_contains: str | Sequence[str] | None
     type_prefix: str | Sequence[str] | None
     type_suffix: str | Sequence[str] | None
 
@@ -82,6 +82,10 @@ class ParticleFilter(BaseRecordFilter["Particle", ParticleField, ParticleOrder])
     type: Annotated[str | Sequence[str] | None, CLIOption(str)] = Field(
         default=None,
         description="Filter by particle type(s).",
+    )
+    type_contains: Annotated[str | Sequence[str] | None, CLIOption(str)] = Field(
+        default=None,
+        description="Filter by particle type(s) containing a given substring.",
     )
     type_prefix: Annotated[str | Sequence[str] | None, CLIOption(str)] = Field(
         default=None,
@@ -99,6 +103,9 @@ class ParticleFilter(BaseRecordFilter["Particle", ParticleField, ParticleOrder])
 
         if self.type is not None:
             if obj.type not in util.as_sequence(self.type):
+                return False
+        if self.type_contains is not None:
+            if not any(obj.type in type for type in util.as_sequence(self.type_contains)):
                 return False
         if self.type_prefix is not None:
             if not any(
@@ -152,6 +159,11 @@ class ParticleFilter(BaseRecordFilter["Particle", ParticleField, ParticleOrder])
 
         if self.type is not None:
             yield columns.type.in_(util.as_sequence(self.type))
+        if self.type_contains is not None:
+            yield or_(
+                False,
+                *(columns.type.contains(type) for type in util.as_sequence(self.type_contains)),
+            )
         if self.type_prefix is not None:
             yield or_(
                 False,
@@ -189,9 +201,11 @@ class ParticleData(ImmutableDataObject, ABC):
 
 
 if TYPE_CHECKING:
-    _T = TypeVar("_T", bound=ParticleData | JSONDict, default=ParticleData | JSONDict)
+    _T = TypeVar(
+        "_T", bound=ParticleData | JSONDict, default=ParticleData | JSONDict, covariant=True
+    )
 else:
-    _T = TypeVar("_T", default=ParticleData | JSONDict)
+    _T = TypeVar("_T", default=ParticleData | JSONDict, covariant=True)
 
 
 class Particle(BaseRecord, ParticleCreate, Generic[_T]):
@@ -212,7 +226,7 @@ class Particle(BaseRecord, ParticleCreate, Generic[_T]):
     Order = ParticleOrder
 
     type: str = UNKNOWN_TYPE
-    data: _T
+    data: SerializeAsAny[_T]
 
     @model_validator(mode="before")
     def _validate(cls, value: Any) -> Any:
@@ -247,10 +261,16 @@ class Particle(BaseRecord, ParticleCreate, Generic[_T]):
         return MappingProxyType(self.data)
 
 
-class Siv[T: Particle](ImmutableDataObject):
-    address: Address | None = None
-
+class DynamicSiv(ImmutableDataObject):
     @abstractmethod
+    def read(
+        self, messages: AsyncIterable[Message]
+    ) -> AsyncIterable[Result[Particle, ParticleError]]: ...
+
+
+class Siv[T: Particle](DynamicSiv):
+    @abstractmethod
+    @override
     def read(self, messages: AsyncIterable[Message]) -> AsyncIterable[Result[T, ParticleError]]: ...
 
 

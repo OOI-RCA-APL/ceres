@@ -20,7 +20,7 @@ class _Result:
         return value  # type: ignore
 
 
-class Ok[ValueT](ImmutableDataObject, _Result):
+class Ok[ValueT](ImmutableDataObject, _Result, frozen=True):
     ok: Literal[True] = True
     value: ValueT
 
@@ -37,7 +37,7 @@ class Ok[ValueT](ImmutableDataObject, _Result):
         return True
 
 
-class Fail[ErrorT](ImmutableDataObject, _Result):
+class Fail[ErrorT](ImmutableDataObject, _Result, frozen=True):
     ok: Literal[False] = False
     error: ErrorT
 

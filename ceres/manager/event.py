@@ -9,6 +9,7 @@ from typing import Awaitable, Callable, override
 from ceres._internal.lazy import lazy_imports
 from ceres._internal.manager.manager import BaseBoundManager
 from ceres.address import Address
+from ceres.event import ParticleEvent
 
 with lazy_imports(__name__):
     from ceres._internal import util
@@ -97,6 +98,8 @@ class EventManager(BaseBoundManager[Event]):
                 self._node.log.event(logging.log_events_level, event)
             if logging.log_messages and isinstance(event, MessageEvent):
                 self._node.log.message(logging.log_messages_level, event.message)
+            elif logging.log_particles and isinstance(event, ParticleEvent):
+                self._node.log.particle(logging.log_particles_level, event.particle)
             elif logging.log_alerts and isinstance(event, AlertEvent):
                 self._node.log.alert(logging.log_alerts_level or event.alert.level, event.alert)
 

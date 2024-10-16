@@ -30,6 +30,5 @@ const navigation = useNavigation()
       </q-toolbar-title>
       <utc-clock />
     </q-toolbar>
-    <q-separator />
   </q-header>
 </template>

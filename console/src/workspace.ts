@@ -4,8 +4,12 @@ import { v4 } from 'uuid'
 import { computed, inject, MaybeRef, provide, reactive, unref, watchEffect } from 'vue'
 import Zod from 'zod'
 
-import { AddressModel, AddressSelectorModel } from '@/api/address'
+import { AddressModel } from '@/api/address'
+import { AlertFilterModel } from '@/api/alerts'
 import { ProcedureTypeModel } from '@/api/components'
+import { LogEntryFilterModel } from '@/api/log-entries'
+import { MessageFilterModel } from '@/api/messages'
+import { ParticleFilterModel } from '@/api/particles'
 import { useSettings } from '@/api/settings'
 import { getter } from '@/getter'
 import { useNavigation } from '@/navigation'
@@ -24,14 +28,7 @@ export type MessagesWidget = Zod.infer<typeof MessagesWidgetModel>
 export const MessagesWidgetModel = BaseWidgetModel.extend({
   type: Zod.literal('messages'),
   name: Zod.string().default('Messages'),
-  filter: Zod.object({
-    after: Zod.string().optional(),
-    before: Zod.string().optional(),
-    address: AddressSelectorModel.optional(),
-    direction: Zod.string().optional(),
-    content_prefix: Zod.string().optional(),
-    content_contains: Zod.string().optional(),
-  }).default(() => ({})),
+  filter: MessageFilterModel.default(() => ({})),
   commandAddress: AddressModel.nullable().default(null),
   commandText: Zod.string().default(''),
   commandHistory: Zod.string()
@@ -40,32 +37,25 @@ export const MessagesWidgetModel = BaseWidgetModel.extend({
   commandHistoryIndex: Zod.number().nullable().default(null),
 })
 
+export type ParticlesWidget = Zod.infer<typeof ParticlesWidgetModel>
+export const ParticlesWidgetModel = BaseWidgetModel.extend({
+  type: Zod.literal('particles'),
+  name: Zod.string().default('Particles'),
+  filter: ParticleFilterModel.default(() => ({})),
+})
+
 export type AlertsWidget = Zod.infer<typeof AlertsWidgetModel>
 export const AlertsWidgetModel = BaseWidgetModel.extend({
   type: Zod.literal('alerts'),
   name: Zod.string().default('Alerts'),
-  filter: Zod.object({
-    after: Zod.string().optional(),
-    before: Zod.string().optional(),
-    address: AddressSelectorModel.optional(),
-    level: Zod.string().optional(),
-    code_prefix: Zod.string().optional(),
-    code_contains: Zod.string().optional(),
-  }).default(() => ({})),
+  filter: AlertFilterModel.default(() => ({})),
 })
 
 export type LogsWidget = Zod.infer<typeof LogsWidgetModel>
 export const LogsWidgetModel = BaseWidgetModel.extend({
   type: Zod.literal('logs'),
   name: Zod.string().default('Logs'),
-  filter: Zod.object({
-    after: Zod.string().optional(),
-    before: Zod.string().optional(),
-    address: AddressSelectorModel.optional(),
-    level: Zod.string().optional(),
-    content_prefix: Zod.string().optional(),
-    content_contains: Zod.string().optional(),
-  }).default(() => ({})),
+  filter: LogEntryFilterModel.default(() => ({})),
 })
 
 export type ProceduresWidget = Zod.infer<typeof ProceduresWidgetModel>
@@ -87,6 +77,7 @@ export const UIWidgetModel = BaseWidgetModel.extend({
 export type Widget = Zod.infer<typeof WidgetModel>
 export const WidgetModel = Zod.discriminatedUnion('type', [
   MessagesWidgetModel,
+  ParticlesWidgetModel,
   AlertsWidgetModel,
   LogsWidgetModel,
   ProceduresWidgetModel,
@@ -94,6 +85,40 @@ export const WidgetModel = Zod.discriminatedUnion('type', [
 ])
 
 export type WidgetType = Widget['type']
+export type WidgetInfo = (typeof widgetInfos)[keyof typeof widgetInfos]
+
+const widgetInfos = {
+  messages: {
+    type: 'messages',
+    name: 'Messages View',
+    model: MessagesWidgetModel,
+  },
+  particles: {
+    type: 'particles',
+    name: 'Particles View',
+    model: ParticlesWidgetModel,
+  },
+  alerts: {
+    type: 'alerts',
+    name: 'Alerts View',
+    model: AlertsWidgetModel,
+  },
+  logs: {
+    type: 'logs',
+    name: 'Logs View',
+    model: LogsWidgetModel,
+  },
+  procedures: {
+    type: 'procedures',
+    name: 'Procedures View',
+    model: ProceduresWidgetModel,
+  },
+  ui: {
+    type: 'ui',
+    name: 'UI View',
+    model: UIWidgetModel,
+  },
+} as const
 
 export type WidgetRow = Zod.infer<typeof WidgetRowModel>
 export const WidgetRowModel = Zod.object({
@@ -142,14 +167,6 @@ function createWorkspaceContext(options: WorkspaceContextOptions) {
     workspaces.delete(name)
   }
 
-  const widgetModelMapping = {
-    messages: MessagesWidgetModel,
-    alerts: AlertsWidgetModel,
-    logs: LogsWidgetModel,
-    procedures: ProceduresWidgetModel,
-    ui: UIWidgetModel,
-  } as const
-
   function insertWidget(widget: Widget, row: number, column: number = 0) {
     if (workspace == null) {
       return
@@ -175,7 +192,7 @@ function createWorkspaceContext(options: WorkspaceContextOptions) {
       return null
     }
 
-    const widget = widgetModelMapping[type].parse({ type })
+    const widget = widgetInfos[type].model.parse({ type })
     insertWidget(widget, row, column)
 
     return widget

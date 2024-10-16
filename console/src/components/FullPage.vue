@@ -8,7 +8,7 @@ defineProps<{
 
 <template>
   <div :class="$style.root">
-    <div :class="[$style.header, 'items-center row']">
+    <div :class="[$style.header, 'items-center', 'row']">
       <common-text v-if="title != null" class="q-ml-md q-py-sm" variant="title2">
         {{ title }}
       </common-text>
@@ -20,6 +20,10 @@ defineProps<{
 </template>
 
 <style lang="scss" module>
+.header {
+  height: 48px !important;
+}
+
 :global(.body--light) .root {
   background-color: $grey-2;
 }

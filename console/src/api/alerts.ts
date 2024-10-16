@@ -3,8 +3,8 @@ import { MaybeRef, computed, unref } from 'vue'
 import Zod from 'zod'
 
 import { StreamOptions, useClient } from '@/api/client'
-import { RecordFilter, RecordModel } from '@/api/entity'
-import { Level, LevelModel } from '@/api/shared'
+import { RecordFilterModel, RecordModel } from '@/api/entity'
+import { LevelModel } from '@/api/shared'
 
 export type Alert = Zod.infer<typeof AlertModel>
 export const AlertModel = RecordModel.extend({
@@ -13,13 +13,13 @@ export const AlertModel = RecordModel.extend({
   info: Zod.record(Zod.string(), Zod.unknown()).default(() => ({})),
 })
 
-export type AlertFilter = RecordFilter &
-  Partial<{
-    level: Level | Level[] | null
-    code_contains: string | null
-    code_prefix: string | null
-    code_suffix: string | null
-  }>
+export type AlertFilter = Zod.infer<typeof AlertFilterModel>
+export const AlertFilterModel = RecordFilterModel.extend({
+  level: Zod.union([LevelModel, Zod.array(LevelModel)]).nullable(),
+  code_contains: Zod.string().nullable(),
+  code_prefix: Zod.string().nullable(),
+  code_suffix: Zod.string().nullable(),
+}).partial()
 
 export const useAlerts = defineStore('alerts', () => {
   const client = useClient()

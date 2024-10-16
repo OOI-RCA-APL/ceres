@@ -4,6 +4,7 @@ import WorkspaceAddWidgetMenu from '@/components/WorkspaceAddWidgetMenu.vue'
 import WorkspaceWidgetAlerts from '@/components/WorkspaceWidgetAlerts.vue'
 import WorkspaceWidgetLogs from '@/components/WorkspaceWidgetLogs.vue'
 import WorkspaceWidgetMessages from '@/components/WorkspaceWidgetMessages.vue'
+import WorkspaceWidgetParticles from '@/components/WorkspaceWidgetParticles.vue'
 import WorkspaceWidgetProcedures from '@/components/WorkspaceWidgetProcedures.vue'
 import WorkspaceWidgetUi from '@/components/WorkspaceWidgetUi.vue'
 import icons from '@/icons'
@@ -133,21 +134,28 @@ const workspace = useWorkspace()
     <template v-if="!container.collapsed">
       <q-separator />
       <div class="col-grow overflow-auto q-pa-sm" style="height: 0">
-        <template v-if="widget.type === 'messages'">
-          <workspace-widget-messages class="full-height" :widget="widget" />
-        </template>
-        <template v-else-if="widget.type === 'alerts'">
-          <workspace-widget-alerts class="full-height" :widget="widget" />
-        </template>
-        <template v-else-if="widget.type === 'logs'">
-          <workspace-widget-logs class="full-height" :widget="widget" />
-        </template>
-        <template v-else-if="widget.type === 'procedures'">
-          <workspace-widget-procedures :widget="widget" />
-        </template>
-        <template v-else-if="widget.type === 'ui'">
-          <workspace-widget-ui :widget="widget" />
-        </template>
+        <workspace-widget-messages
+          v-if="widget.type === 'messages'"
+          class="full-height"
+          :widget="widget"
+        />
+        <workspace-widget-particles
+          v-else-if="widget.type === 'particles'"
+          class="full-height"
+          :widget="widget"
+        />
+        <workspace-widget-alerts
+          v-else-if="widget.type === 'alerts'"
+          class="full-height"
+          :widget="widget"
+        />
+        <workspace-widget-logs
+          v-else-if="widget.type === 'logs'"
+          class="full-height"
+          :widget="widget"
+        />
+        <workspace-widget-procedures v-else-if="widget.type === 'procedures'" :widget="widget" />
+        <workspace-widget-ui v-else-if="widget.type === 'ui'" :widget="widget" />
       </div>
     </template>
   </q-card>

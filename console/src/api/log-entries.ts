@@ -3,8 +3,8 @@ import { MaybeRef, computed, unref } from 'vue'
 import Zod from 'zod'
 
 import { StreamOptions, useClient } from '@/api/client'
-import { RecordFilter, RecordModel } from '@/api/entity'
-import { Level, LevelModel } from '@/api/shared'
+import { RecordFilterModel, RecordModel } from '@/api/entity'
+import { LevelModel } from '@/api/shared'
 
 export type LogEntry = Zod.infer<typeof LogEntryModel>
 export const LogEntryModel = RecordModel.extend({
@@ -12,13 +12,13 @@ export const LogEntryModel = RecordModel.extend({
   content: Zod.string(),
 })
 
-export type LogEntryFilter = RecordFilter &
-  Partial<{
-    level: Level | Level[] | null
-    content_contains: string | null
-    content_prefix: string | null
-    content_suffix: string | null
-  }>
+export type LogEntryFilter = Zod.infer<typeof LogEntryFilterModel>
+export const LogEntryFilterModel = RecordFilterModel.extend({
+  level: Zod.union([LevelModel, Zod.array(LevelModel)]).nullable(),
+  content_contains: Zod.string().nullable(),
+  content_prefix: Zod.string().nullable(),
+  content_suffix: Zod.string().nullable(),
+}).partial()
 
 export const useLogEntries = defineStore('log-entries', () => {
   const client = useClient()

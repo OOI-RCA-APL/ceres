@@ -10,10 +10,12 @@ import { useEngine } from '@/api/engine'
 import { RecordFilter } from '@/api/entity'
 import { LogEntry } from '@/api/log-entries'
 import { Message } from '@/api/messages'
+import { Particle } from '@/api/particles'
 import { Record } from '@/api/shared'
 import RecordViewAlert from '@/components/RecordViewAlert.vue'
 import RecordViewLogEntry from '@/components/RecordViewLogEntry.vue'
 import RecordViewMessage from '@/components/RecordViewMessage.vue'
+import RecordViewParticle from '@/components/RecordViewParticle.vue'
 import icons from '@/icons'
 import { provideRecordViewContext } from '@/record-view'
 import { debouncedComputed } from '@/utilities'
@@ -25,7 +27,7 @@ type ColumnDefinition = {
 }
 
 const { type, filter } = defineProps<{
-  type: 'alert' | 'message' | 'log-entry'
+  type: 'message' | 'particle' | 'alert' | 'log-entry'
   columns: ColumnDefinition[]
   filter: RecordFilter
 }>()
@@ -36,6 +38,8 @@ const get = $computed(() => {
   switch (type) {
     case 'message':
       return engine.messages.getAll
+    case 'particle':
+      return engine.particles.getAll
     case 'alert':
       return engine.alerts.getAll
     case 'log-entry':
@@ -47,6 +51,8 @@ const useStream = $computed(() => {
   switch (type) {
     case 'message':
       return engine.messages.useStream
+    case 'particle':
+      return engine.particles.useStream
     case 'alert':
       return engine.alerts.useStream
     case 'log-entry':
@@ -61,6 +67,7 @@ watch(
     filterKey++
   }
 )
+const filterIsEmpty = $computed(() => Object.values(filter).every((value) => value == null))
 
 const context = provideRecordViewContext()
 
@@ -459,7 +466,8 @@ useStream(debouncedFilter, async (record: Record) => {
         </div>
         <span v-else-if="records.length === 0" key="empty" class="absolute-center">
           <span :class="[$style.emptyMessageText, 'text-italic']">
-            No matching {{ type.replace('log-entry', 'log entrie') }}s were found.
+            No {{ filterIsEmpty ? '' : 'matching' }} {{ type.replace('log-entry', 'log entrie') }}s
+            found.
           </span>
         </span>
       </transition-group>
@@ -480,6 +488,11 @@ useStream(debouncedFilter, async (record: Record) => {
             v-if="type === 'message'"
             :key="(item as Message).id"
             :message="item"
+          />
+          <record-view-particle
+            v-else-if="type === 'particle'"
+            :key="(item as Particle).id"
+            :particle="item"
           />
           <record-view-alert v-else-if="type === 'alert'" :key="(item as Alert).id" :alert="item" />
           <record-view-log-entry v-else :key="(item as LogEntry).id" :entry="item" />

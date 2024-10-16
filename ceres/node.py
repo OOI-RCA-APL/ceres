@@ -146,9 +146,10 @@ class Node(Tasklet):
         from ceres.alert import Alert
         from ceres.logs import LogEntry
         from ceres.message import Message
+        from ceres.particle import Particle
         from ceres.variable import Variable
 
-        if type(item) not in (Message, Alert, LogEntry, Variable):
+        if type(item) not in (Message, Particle, Alert, LogEntry, Variable):
             raise TypeError(f"invalid item type {type(item)}")
 
         self.__store(item)

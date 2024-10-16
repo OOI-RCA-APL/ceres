@@ -115,7 +115,7 @@ class LoadedType:
 
         instance = loader.create()
         if not util.lenient_isinstance(instance, cls.cls):
-            raise ValueError(f"must be an instance of {cls.cls}")
+            raise ValueError(f"must be an instance of {cls.cls}, got {type(instance)}")
 
         return instance
 

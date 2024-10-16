@@ -4,6 +4,7 @@ import Zod, { ZodTypeAny } from 'zod'
 import type { Alert } from '@/api/alerts'
 import type { LogEntry } from '@/api/log-entries'
 import type { Message } from '@/api/messages'
+import type { Particle } from '@/api/particles'
 
 export const NameStrModel = Zod.string().regex(/[a-zA-Z\-\_][a-zA-Z0-9\-\_]*/)
 export const EmailStrModel = Zod.string().regex(/.+@.+/)
@@ -12,7 +13,7 @@ export const NonEmptyStrModel = Zod.string().regex(/.+/)
 export const DateTimeModel = Zod.string().refine((value) => moment.utc(value).isValid())
 export const TimeDeltaModel = Zod.string().refine((value) => moment.duration(value).isValid())
 
-export type Record = Message | Alert | LogEntry
+export type Record = Message | Alert | LogEntry | Particle
 
 export type Connectivity = Zod.infer<typeof ConnectivityModel>
 export const ConnectivityModel = Zod.enum(['disconnected', 'connecting', 'connected'])

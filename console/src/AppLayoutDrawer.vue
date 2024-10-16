@@ -190,7 +190,6 @@ function promptReload() {
               </q-item-section>
             </q-item>
             <div v-if="persisted.isShowingWorkspaces" class="relative-position">
-              <q-separator />
               <div
                 class="overflow-auto scroll"
                 :style="{ height: `${persisted.workspaceDropdownHeight}px` }"

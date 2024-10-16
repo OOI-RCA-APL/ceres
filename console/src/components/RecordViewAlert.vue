@@ -1,6 +1,7 @@
 <script lang="ts" setup>
 import { Alert } from '@/api/alerts'
 import RecordViewRecord from '@/components/RecordViewRecord.vue'
+import { highlight } from '@/utilities'
 
 const { alert } = defineProps<{
   alert: Alert
@@ -20,12 +21,29 @@ const levelColor = $computed(() => {
       return 'negative'
   }
 })
+
+const levelTextColor = $computed(() => {
+  switch (alert.level) {
+    case 'debug':
+      return 'black'
+    case 'info':
+      return 'black'
+    case 'warning':
+      return 'black'
+    case 'error':
+      return 'white'
+    case 'critical':
+      return 'white'
+  }
+})
+
+const renderedInfo = $computed(() => highlight(JSON.stringify(alert.info), 'json'))
 </script>
 
 <template>
   <record-view-record :record="alert">
     <q-td auto-width :class="$style.levelColumn">
-      <q-chip :class="$style.levelChip" :color="levelColor" dense text-color="black">
+      <q-chip :class="$style.levelChip" :color="levelColor" dense :text-color="levelTextColor">
         <span :class="$style.levelText">
           {{ alert.level }}
         </span>
@@ -35,7 +53,8 @@ const levelColor = $computed(() => {
       <div :class="$style.code">{{ alert.code }}</div>
     </q-td>
     <q-td>
-      <div :class="$style.info">{{ JSON.stringify(alert.info) }}</div>
+      <!-- eslint-disable-next-line vue/no-v-html -->
+      <div :class="$style.info" v-html="renderedInfo" />
     </q-td>
   </record-view-record>
 </template>

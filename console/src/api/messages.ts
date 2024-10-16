@@ -4,7 +4,7 @@ import Zod from 'zod'
 
 import { Address } from '@/api/address'
 import { StreamOptions, useClient } from '@/api/client'
-import { RecordFilter, RecordModel } from '@/api/entity'
+import { RecordFilterModel, RecordModel } from '@/api/entity'
 import { BaseFailModel, createResultType } from '@/api/shared'
 
 export type MessageDirection = Zod.infer<typeof MessageDirectionModel>
@@ -16,13 +16,13 @@ export const MessageModel = RecordModel.extend({
   content: Zod.string(),
 })
 
-export type MessageFilter = RecordFilter &
-  Partial<{
-    direction: MessageDirection | null
-    content_contains: string | null
-    content_prefix: string | null
-    content_suffix: string | null
-  }>
+export type MessageFilter = Zod.infer<typeof MessageFilterModel>
+export const MessageFilterModel = RecordFilterModel.extend({
+  direction: MessageDirectionModel.nullable(),
+  content_contains: Zod.string().nullable(),
+  content_prefix: Zod.string().nullable(),
+  content_suffix: Zod.string().nullable(),
+}).partial()
 
 export type SendMessageResult = Zod.infer<typeof SendMessageResultModel>
 const SendMessageResultModel = createResultType(MessageModel, BaseFailModel)

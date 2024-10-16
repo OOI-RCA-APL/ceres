@@ -128,7 +128,11 @@ function getWebSocketURI(relative: string) {
       port = ''
     }
   } else {
-    port = ':' + process.env.DEVELOPMENT_CERES_API_PORT ?? ''
+    if (process.env.DEVELOPMENT_CERES_API_PORT != null) {
+      port = ':' + process.env.DEVELOPMENT_CERES_API_PORT
+    } else {
+      port = ''
+    }
   }
 
   return `${protocol}://${hostname}${port}${relative}`

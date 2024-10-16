@@ -1,4 +1,6 @@
 import Color from 'color'
+import hljs from 'highlight.js/lib/core'
+import json from 'highlight.js/lib/languages/json'
 import moment, { Duration } from 'moment'
 import { colors, debounce } from 'quasar'
 import { ComputedRef, Ref, computed, isRef, shallowRef, watch } from 'vue'
@@ -172,4 +174,10 @@ export function selectFile({
 
     input.click()
   })
+}
+
+hljs.registerLanguage('json', json)
+
+export function highlight(json: string, language: 'json'): string {
+  return hljs.highlight(json, { language, ignoreIllegals: true }).value ?? json
 }

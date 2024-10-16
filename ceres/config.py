@@ -86,6 +86,8 @@ class LoggingConfig(ConfigObject):
     log_events_level: Level = Level.INFO
     log_messages: bool = False
     log_messages_level: Level = Level.INFO
+    log_particles: bool = False
+    log_particles_level: Level = Level.INFO
     log_alerts: bool = False
     log_alerts_level: Level | None = None
 
