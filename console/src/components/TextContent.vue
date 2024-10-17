@@ -29,7 +29,7 @@ const chunks = $computed(() => {
   }
 
   if (buffer.length > 0) {
-    chunks.push({ type: 'text', value: buffer })
+    chunks.push({ type: 'text', value: highlight(buffer, 'log') })
   }
 
   return chunks

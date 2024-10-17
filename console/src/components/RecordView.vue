@@ -75,7 +75,7 @@ const recordsVisible = $computed(() => Math.ceil(containerInfo.clientHeight / re
 const recordHeight = 24
 const recordLoadSizeInitial = $computed(() => Math.min(recordsVisible + 50, 1000))
 const recordLoadSize = $computed(() => Math.min(recordsVisible + 50, 1000))
-const recordSliceSize = 250
+const recordSliceSize = 25
 const recordCullThreshold = $computed(() => recordsVisible + 500)
 const recordCullCount = $computed(() => recordsVisible + 100)
 const recordsUntilNearTop = 30

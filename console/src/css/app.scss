@@ -1,6 +1,8 @@
 // Global SCSS Styling
 @use 'sass:meta';
 
+@import '@/css/highlight-theme.css';
+
 .wrapper-link {
   color: unset;
   display: contents;
@@ -173,12 +175,4 @@ input::-webkit-inner-spin-button {
 
 .q-icon.q-field__focusable-action:hover {
   opacity: 0.6;
-}
-
-html.light {
-  @include meta.load-css('highlight.js/styles/github');
-}
-
-html.dark {
-  @include meta.load-css('highlight.js/styles/github-dark');
 }

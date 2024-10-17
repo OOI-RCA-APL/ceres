@@ -8,6 +8,7 @@ const { particle } = defineProps<{
 }>()
 
 const renderedData = $computed(() => highlight(JSON.stringify(particle.data), 'json'))
+// const renderedData = $computed(() => JSON.stringify(particle.data))
 </script>
 
 <template>

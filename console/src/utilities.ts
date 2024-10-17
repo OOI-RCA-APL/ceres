@@ -1,10 +1,11 @@
 import Color from 'color'
-import hljs from 'highlight.js/lib/core'
-import languageAccessLog from 'highlight.js/lib/languages/accesslog'
-import languageJson from 'highlight.js/lib/languages/json'
 import moment, { Duration } from 'moment'
+import Prism from 'prismjs'
 import { colors, debounce } from 'quasar'
 import { ComputedRef, Ref, computed, isRef, shallowRef, watch } from 'vue'
+
+import 'prismjs/components/prism-json'
+import 'prismjs/components/prism-log'
 
 export type Plain = string | number | boolean | null | { [property: string]: Plain } | Plain[]
 export type MaybeRef<T> = Ref<T> | T
@@ -177,11 +178,8 @@ export function selectFile({
   })
 }
 
-hljs.registerLanguage('json', languageJson)
-hljs.registerLanguage('log', languageAccessLog)
-
 export type HighlightLanguage = 'json' | 'log'
 
-export function highlight(json: string, language: HighlightLanguage): string {
-  return hljs.highlight(json, { language, ignoreIllegals: true }).value ?? json
+export function highlight(text: string, language: HighlightLanguage): string {
+  return Prism.highlight(text, Prism.languages[language], language)
 }
