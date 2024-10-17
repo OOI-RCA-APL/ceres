@@ -1,7 +1,7 @@
 // Global SCSS Styling
 @use 'sass:meta';
 
-@import '@/css/highlight-theme.css';
+@import '@/css/highlight-theme.scss';
 
 .wrapper-link {
   color: unset;
