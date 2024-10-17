@@ -65,7 +65,7 @@ class MessageRow(BaseRecordRow, kw_only=True):
         return (
             *super().__get_table_args__(),
             EnumConstraint("direction", MessageDirection, f"ck_{cls.__tablename__}__direction"),
-            Index(f"ix_{cls.__tablename__}__content", "content").ddl_if("sqlite"),
+            Index(f"ix_{cls.__tablename__}__content", cls.content).ddl_if("sqlite"),
             Index(
                 f"ix_{cls.__tablename__}__content",
                 func.ceres_decode_latin1(cls.content).label("decoded_content"),

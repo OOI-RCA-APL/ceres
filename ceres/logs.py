@@ -51,7 +51,7 @@ class LogEntryRow(BaseRecordRow, kw_only=True):
             EnumConstraint("level", Level, name=f"ck_{cls.__tablename__}__level"),
             Index(
                 f"ix_{cls.__tablename__}__content",
-                "content",
+                cls.content,
                 postgresql_ops={"content": "gin_trgm_ops"},
                 postgresql_using="gin",
             ),

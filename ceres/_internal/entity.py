@@ -438,7 +438,7 @@ class BaseItemRow(BaseEntityRow, kw_only=True):
     def __get_table_args__(cls) -> tuple[SchemaItem, ...]:
         return (
             *super().__get_table_args__(),
-            Index(f"ix_{cls.__tablename__}__address", "address"),
+            Index(f"ix_{cls.__tablename__}__address", cls.address),
         )
 
 

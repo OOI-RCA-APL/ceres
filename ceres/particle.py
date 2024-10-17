@@ -19,7 +19,6 @@ from typing import (
 )
 
 from pydantic import BaseModel, ConfigDict, Field, SerializeAsAny, model_validator
-from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql.sqltypes import JSON, String, Text
 from typing_extensions import TypeVar
@@ -42,6 +41,7 @@ from ceres.message import Message
 from ceres.result import Result
 
 with lazy_imports(__name__):
+    from sqlalchemy.schema import Index, SchemaItem
     from sqlalchemy.sql import SQLColumnExpression, cast, or_
 
     from ceres._internal import util
@@ -52,7 +52,20 @@ class ParticleRow(BaseRecordRow, kw_only=True):
     __tablename__: ClassVar[str] = "particles"
 
     type: Mapped[str] = mapped_column(String)
-    data: Mapped[JSONDict] = mapped_column(JSON().with_variant(JSONB, "postgresql"))
+    data: Mapped[JSONDict] = mapped_column(JSON)
+
+    @classmethod
+    @override
+    def __get_table_args__(cls) -> tuple[SchemaItem, ...]:
+        return (
+            *super().__get_table_args__(),
+            Index(
+                f"ix__{cls.__tablename__}__type",
+                cls.type,
+                postgresql_ops={"type": "gin_trgm_ops"},
+                postgresql_using="gin",
+            ),
+        )
 
 
 ParticleField = (
@@ -202,10 +215,17 @@ class ParticleData(ImmutableDataObject, ABC):
 
 if TYPE_CHECKING:
     _T = TypeVar(
-        "_T", bound=ParticleData | JSONDict, default=ParticleData | JSONDict, covariant=True
+        "_T",
+        bound=ParticleData | JSONDict,
+        default=ParticleData | JSONDict,
+        covariant=True,
     )
 else:
-    _T = TypeVar("_T", default=ParticleData | JSONDict, covariant=True)
+    _T = TypeVar(
+        "_T",
+        default=ParticleData | JSONDict,
+        covariant=True,
+    )
 
 
 class Particle(BaseRecord, ParticleCreate, Generic[_T]):
