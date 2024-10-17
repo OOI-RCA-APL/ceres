@@ -65,7 +65,7 @@ const renderedInfo = $computed(() => highlight(JSON.stringify(alert.info), 'json
 }
 
 .levelChip {
-  font-size: 9px;
+  font-size: 8px;
   font-family: 'Roboto Mono', monospace;
 }
 

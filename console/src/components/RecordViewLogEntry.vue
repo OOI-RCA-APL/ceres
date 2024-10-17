@@ -59,7 +59,7 @@ const levelTextColor = $computed(() => {
 }
 
 .levelChip {
-  font-size: 9px;
+  font-size: 8px;
   font-family: 'Roboto Mono', monospace;
 }
 

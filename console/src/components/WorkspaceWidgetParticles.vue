@@ -18,8 +18,19 @@ const columns = $computed(() => [
     filtered: widget.filter.after != null || widget.filter.before != null,
   },
   { label: 'Address', name: 'address', filtered: widget.filter.address != null },
-  { label: 'Type', name: 'type', filtered: widget.filter.type != null },
-  { label: 'Data', name: 'data' },
+  {
+    label: 'Type',
+    name: 'type',
+    filtered:
+      (widget.filter.type ??
+        widget.filter.type_contains ??
+        widget.filter.type_prefix ??
+        widget.filter.type_suffix) != null,
+  },
+  {
+    label: 'Data',
+    name: 'data',
+  },
 ])
 </script>
 
@@ -63,11 +74,19 @@ const columns = $computed(() => [
       </div>
     </template>
     <template #column-filter-type>
-      <div style="min-width: 200px">
+      <div class="column q-gutter-xs" style="min-width: 200px">
         <schema-form-base
-          v-model="widget.filter.type"
+          v-model="widget.filter.type_prefix"
           :schema="{
-            title: 'Type',
+            title: 'Prefix',
+            type: 'string',
+            optional: true,
+          }"
+        />
+        <schema-form-base
+          v-model="widget.filter.type_contains"
+          :schema="{
+            title: 'Contains',
             type: 'string',
             optional: true,
           }"
