@@ -20,7 +20,7 @@ from typing import (
     override,
 )
 
-from pydantic import BaseModel, ConfigDict, Field, SerializeAsAny, ValidationError, model_validator
+from pydantic import ConfigDict, Field, SerializeAsAny, ValidationError, model_validator
 from pydantic.types import ImportString
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql.sqltypes import JSON, String, Text
@@ -133,7 +133,7 @@ class ParticleFilter(
     BaseRecordFilter["Particle", ParticleField, ParticleOrder],
     Generic[_T],
 ):
-    cls: ImportString[Type[_T]] | None = Field(
+    cls: Annotated[ImportString[Type[_T]] | None, CLIOption(str)] = Field(
         default=None,
         description="Filter by particle data class.",
     )
@@ -242,12 +242,12 @@ class ParticleFilter(
 
 class ParticleCreate(BaseRecordCreate):
     type: Annotated[str, CLIOption(str)]
-    data: Annotated[JSONDict | BaseModel, CLIOption(str)]
+    data: Annotated[JSONDict, CLIOption(str)]
 
 
 class ParticleUpdate(BaseRecordUpdate, total=False):
     type: str
-    data: JSONDict | BaseModel
+    data: Annotated[JSONDict, CLIOption(str)]
 
 
 class Particle(BaseRecord, ParticleCreate, Generic[_T]):

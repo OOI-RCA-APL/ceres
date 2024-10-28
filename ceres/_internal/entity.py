@@ -537,7 +537,7 @@ class BaseItem(BaseItemCreate):
         Order: ClassVar[type[BaseItemOrder]] = BaseItemOrder
 
 
-class BaseRecordRow(BaseUUIDEntityRow, BaseItemRow, kw_only=True):
+class BaseRecordRow(BaseItemRow, BaseUUIDEntityRow, kw_only=True):
     __abstract__: ClassVar[bool] = True
 
     timestamp: Mapped[datetime] = mapped_column(DateTimeMapper, sort_order=-1000)
@@ -668,7 +668,7 @@ class BaseRecordFilter[
         return "timestamp"  # type: ignore
 
 
-class BaseRecordCreate(BaseUUIDEntity, BaseItem):
+class BaseRecordCreate(BaseItem, BaseUUIDEntity):
     timestamp: Annotated[DateTime, CLIOption(datetime)] = Field(default_factory=utc)
 
 
