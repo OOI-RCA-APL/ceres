@@ -30,7 +30,11 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <tr ref="element" :class="[$style.root, 'no-wrap', 'record-view-record']" no-hover>
+  <tr
+    ref="element"
+    :class="[$style.root, 'no-wrap', 'q-tr--no-hover', 'record-view-record']"
+    no-hover
+  >
     <q-td auto-width>
       <span :class="$style.timestamp">
         {{ timestamp }}

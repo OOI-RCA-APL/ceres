@@ -15,10 +15,13 @@ from typing import (
     Mapping,
     MutableMapping,
     Sequence,
+    Type,
+    TypeAlias,
     override,
 )
 
-from pydantic import BaseModel, ConfigDict, Field, SerializeAsAny, model_validator
+from pydantic import BaseModel, ConfigDict, Field, SerializeAsAny, ValidationError, model_validator
+from pydantic.types import ImportString
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql.sqltypes import JSON, String, Text
 from typing_extensions import TypeVar
@@ -83,15 +86,57 @@ ParticleOrder = (
     ]
 )
 
+UNKNOWN_TYPE: LiteralString = "__unknown__"
 
-class ParticleFilterArgs(BaseRecordFilterArgs[ParticleField, ParticleOrder], total=False):
+
+class ParticleData(ImmutableDataObject, ABC):
+    model_config = ConfigDict(extra="allow")
+
+    __type__: ClassVar[LiteralString]
+
+    @classmethod
+    def __init_subclass__(cls) -> None:
+        if not hasattr(cls, "__type__") or not isinstance(cls.__type__, str):
+            raise ValueError(f"{cls} must define `__type__` as a class attribute")
+
+
+DynamicParticleData: TypeAlias = ParticleData | JSONDict
+
+if TYPE_CHECKING:
+    _T = TypeVar(
+        "_T",
+        bound=DynamicParticleData,
+        default=DynamicParticleData,
+        covariant=True,
+    )
+else:
+    _T = TypeVar(
+        "_T",
+        default=DynamicParticleData,
+        covariant=True,
+    )
+
+
+class ParticleFilterArgs(
+    BaseRecordFilterArgs[ParticleField, ParticleOrder],
+    Generic[_T],
+    total=False,
+):
+    cls: ImportString[Type[_T]] | None
     type: str | Sequence[str] | None
     type_contains: str | Sequence[str] | None
     type_prefix: str | Sequence[str] | None
     type_suffix: str | Sequence[str] | None
 
 
-class ParticleFilter(BaseRecordFilter["Particle", ParticleField, ParticleOrder]):
+class ParticleFilter(
+    BaseRecordFilter["Particle", ParticleField, ParticleOrder],
+    Generic[_T],
+):
+    cls: ImportString[Type[_T]] | None = Field(
+        default=None,
+        description="Filter by particle data class.",
+    )
     type: Annotated[str | Sequence[str] | None, CLIOption(str)] = Field(
         default=None,
         description="Filter by particle type(s).",
@@ -110,10 +155,13 @@ class ParticleFilter(BaseRecordFilter["Particle", ParticleField, ParticleOrder])
     )
 
     @override
-    def matches(self, obj: Particle) -> bool:
+    def matches(self, obj: Particle[Any]) -> bool:
         if not super().matches(obj):
             return False
 
+        if self.cls is not None:
+            if not isinstance(obj.data, self.cls):
+                return False
         if self.type is not None:
             if obj.type not in util.as_sequence(self.type):
                 return False
@@ -170,6 +218,9 @@ class ParticleFilter(BaseRecordFilter["Particle", ParticleField, ParticleOrder])
         yield from super()._get_where(dialect)
         columns = self._get_row_cls()
 
+        if self.cls is not None:
+            if issubclass(self.cls, ParticleData):
+                yield columns.type == self.cls.__type__
         if self.type is not None:
             yield columns.type.in_(util.as_sequence(self.type))
         if self.type_contains is not None:
@@ -197,35 +248,6 @@ class ParticleCreate(BaseRecordCreate):
 class ParticleUpdate(BaseRecordUpdate, total=False):
     type: str
     data: JSONDict | BaseModel
-
-
-UNKNOWN_TYPE: LiteralString = "__unknown__"
-
-
-class ParticleData(ImmutableDataObject, ABC):
-    model_config = ConfigDict(extra="allow")
-
-    __type__: ClassVar[LiteralString]
-
-    @classmethod
-    def __init_subclass__(cls) -> None:
-        if not hasattr(cls, "__type__") or not isinstance(cls.__type__, str):
-            raise ValueError(f"{cls} must define `__type__` as a class attribute")
-
-
-if TYPE_CHECKING:
-    _T = TypeVar(
-        "_T",
-        bound=ParticleData | JSONDict,
-        default=ParticleData | JSONDict,
-        covariant=True,
-    )
-else:
-    _T = TypeVar(
-        "_T",
-        default=ParticleData | JSONDict,
-        covariant=True,
-    )
 
 
 class Particle(BaseRecord, ParticleCreate, Generic[_T]):
@@ -279,6 +301,27 @@ class Particle(BaseRecord, ParticleCreate, Generic[_T]):
             return MappingProxyType(__dict__)
 
         return MappingProxyType(self.data)
+
+    def convert[D: DynamicParticleData](self, cls: Type[D]) -> Particle[D]:
+        data = (
+            cls.model_validate(self.data)
+            if util.lenient_issubclass(cls, ParticleData)
+            else self.values
+        )
+
+        return Particle[cls].model_construct(
+            id=self.id,
+            address=self.address,
+            timestamp=self.timestamp,
+            type=self.type,
+            data=data,
+        )
+
+    def convert_or_none[D: DynamicParticleData](self, cls: Type[D]) -> Particle[D] | None:
+        try:
+            return self.convert(cls)
+        except ValidationError:
+            return None
 
 
 class DynamicSiv(ImmutableDataObject):
