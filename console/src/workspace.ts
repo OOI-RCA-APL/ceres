@@ -410,8 +410,9 @@ export const useWorkspaces = defineStore('workspaces', () => {
         name,
         layout: [
           { height: 250, widgets: [{ type: 'messages' }] },
-          { height: 250, widgets: [{ type: 'alerts' }] },
-          { height: 250, widgets: [{ type: 'logs' }] },
+          { height: 200, widgets: [{ type: 'particles' }] },
+          { height: 200, widgets: [{ type: 'alerts' }] },
+          { height: 200, widgets: [{ type: 'logs' }] },
           { height: 150, widgets: [{ type: 'procedures' }] },
         ],
       } as Zod.input<typeof WorkspaceModel>)
