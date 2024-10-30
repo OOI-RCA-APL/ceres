@@ -49,7 +49,7 @@ function onMouseUp() {
   background-color: grey;
   border-radius: 6px;
   z-index: 100;
-  opacity: 0.5;
+  opacity: 0;
 }
 
 .draggedOver {
