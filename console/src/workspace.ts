@@ -15,63 +15,84 @@ import { getter } from '@/getter'
 import { useNavigation } from '@/navigation'
 import { useNotify } from '@/notify'
 import { workspaceInjectionKey } from '@/symbols'
-import { selectFile } from '@/utilities'
+import { safeArrayOf, selectFile } from '@/utilities'
 
 export type BaseWidget = Zod.infer<typeof BaseWidgetModel>
 const BaseWidgetModel = Zod.object({
-  id: Zod.string().default(() => v4()),
+  id: Zod.string().catch(() => v4()),
   name: Zod.string(),
-  width: Zod.number().default(100), // Percentage of row width, not pixels.
+  width: Zod.number().catch(100), // Percentage of row width, not pixels.
 })
 
 export type MessagesWidget = Zod.infer<typeof MessagesWidgetModel>
 export const MessagesWidgetModel = BaseWidgetModel.extend({
   type: Zod.literal('messages'),
-  name: Zod.string().default('Messages'),
-  filter: MessageFilterModel.default(() => ({})),
-  commandAddress: AddressModel.nullable().default(null),
-  commandText: Zod.string().default(''),
+  name: Zod.string().catch('Messages'),
+  filter: MessageFilterModel.catch(() => ({})),
+  commandAddress: AddressModel.nullish(),
+  commandText: Zod.string().catch(''),
   commandHistory: Zod.string()
     .array()
-    .default(() => []),
-  commandHistoryIndex: Zod.number().nullable().default(null),
+    .catch(() => []),
+  commandHistoryIndex: Zod.number().nullish().catch(undefined),
 })
 
 export type ParticlesWidget = Zod.infer<typeof ParticlesWidgetModel>
 export const ParticlesWidgetModel = BaseWidgetModel.extend({
   type: Zod.literal('particles'),
-  name: Zod.string().default('Particles'),
-  filter: ParticleFilterModel.default(() => ({})),
+  name: Zod.string().catch('Particles'),
+  filter: ParticleFilterModel.catch(() => ({})),
 })
 
 export type AlertsWidget = Zod.infer<typeof AlertsWidgetModel>
 export const AlertsWidgetModel = BaseWidgetModel.extend({
   type: Zod.literal('alerts'),
-  name: Zod.string().default('Alerts'),
-  filter: AlertFilterModel.default(() => ({})),
+  name: Zod.string().catch('Alerts'),
+  filter: AlertFilterModel.catch(() => ({})),
 })
 
 export type LogsWidget = Zod.infer<typeof LogsWidgetModel>
 export const LogsWidgetModel = BaseWidgetModel.extend({
   type: Zod.literal('logs'),
-  name: Zod.string().default('Logs'),
-  filter: LogEntryFilterModel.default(() => ({})),
+  name: Zod.string().catch('Logs'),
+  filter: LogEntryFilterModel.catch(() => ({})),
 })
 
 export type ProceduresWidget = Zod.infer<typeof ProceduresWidgetModel>
 export const ProceduresWidgetModel = BaseWidgetModel.extend({
   type: Zod.literal('procedures'),
-  name: Zod.string().default('Procedures'),
-  procedureAddress: AddressModel.nullable().default(null),
-  procedureType: ProcedureTypeModel.default('action'),
-  procedureName: Zod.string().nullable().default(null),
+  name: Zod.string().catch('Procedures'),
+  procedureAddress: AddressModel.nullish(),
+  procedureType: ProcedureTypeModel.catch('action'),
+  procedureName: Zod.string().nullish(),
 })
 
 export type UIWidget = Zod.infer<typeof UIWidgetModel>
 export const UIWidgetModel = BaseWidgetModel.extend({
   type: Zod.literal('ui'),
-  name: Zod.string().default('UI'),
-  interfaceAddress: AddressModel.nullable().default(null),
+  name: Zod.string().catch('UI'),
+  interfaceAddress: AddressModel.nullish(),
+})
+
+export type ChartWidgetSeriesType = Zod.infer<typeof ChartWidgetSeriesTypeModel>
+export const ChartWidgetSeriesTypeModel = Zod.enum(['line'])
+
+export type ChartWidgetSeries = Zod.infer<typeof ChartWidgetSeriesModel>
+export const ChartWidgetSeriesModel = Zod.object({
+  name: Zod.string().catch('Series'),
+  type: ChartWidgetSeriesTypeModel.catch('line'),
+  particleAddress: AddressModel.nullish(),
+  particleType: Zod.string().nullish(),
+  particleField: Zod.string().nullish(),
+})
+
+export type ChartWidget = Zod.infer<typeof ChartWidgetModel>
+export const ChartWidgetModel = BaseWidgetModel.extend({
+  type: Zod.literal('chart'),
+  name: Zod.string().catch('Chart'),
+  unit: Zod.string().nullish(),
+  duration: Zod.union([Zod.number(), Zod.string()]).catch(60 * 60),
+  series: ChartWidgetSeriesModel.array().catch(() => []),
 })
 
 export type Widget = Zod.infer<typeof WidgetModel>
@@ -82,12 +103,13 @@ export const WidgetModel = Zod.discriminatedUnion('type', [
   LogsWidgetModel,
   ProceduresWidgetModel,
   UIWidgetModel,
+  ChartWidgetModel,
 ])
 
 export type WidgetType = Widget['type']
 export type WidgetInfo = (typeof widgetInfos)[keyof typeof widgetInfos]
 
-const widgetInfos = {
+export const widgetInfos = {
   messages: {
     type: 'messages',
     name: 'Messages View',
@@ -118,20 +140,25 @@ const widgetInfos = {
     name: 'UI View',
     model: UIWidgetModel,
   },
+  chart: {
+    type: 'chart',
+    name: 'Chart',
+    model: ChartWidgetModel,
+  },
 } as const
 
 export type WidgetRow = Zod.infer<typeof WidgetRowModel>
 export const WidgetRowModel = Zod.object({
-  id: Zod.string().default(() => v4()),
-  height: Zod.number().default(250),
-  widgets: WidgetModel.array().default(() => []),
-  collapsed: Zod.boolean().default(false),
+  id: Zod.string().catch(() => v4()),
+  height: Zod.number().catch(250),
+  collapsed: Zod.boolean().catch(false),
+  widgets: safeArrayOf(WidgetModel),
 })
 
 export type WorkspaceInfo = Zod.infer<typeof WorkspaceModel>
 export const WorkspaceModel = Zod.object({
   name: Zod.string(),
-  layout: WidgetRowModel.array().default(() => []),
+  layout: WidgetRowModel.array().catch(() => []),
 })
 
 export type WorkspaceContext = ReturnType<typeof createWorkspaceContext>
@@ -267,11 +294,11 @@ function createWorkspaceContext(options: WorkspaceContextOptions) {
     // If there is no column specified, create a new row.
     if (toColumn == null) {
       let layout = [...workspace.layout]
-      const destinationRow = {
+      const destinationRow: WidgetRow = {
         id: v4(),
         height: sourceRow.height,
         widgets: [widget],
-        collapsed: false,
+        collapsed: sourceRow.collapsed,
       }
 
       layout.splice(toRow, 0, destinationRow)

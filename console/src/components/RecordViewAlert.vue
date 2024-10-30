@@ -3,7 +3,7 @@ import { Alert } from '@/api/alerts'
 import RecordViewRecord from '@/components/RecordViewRecord.vue'
 import { highlight } from '@/utilities'
 
-const { alert } = defineProps<{
+const { alert } = $defineProps<{
   alert: Alert
 }>()
 

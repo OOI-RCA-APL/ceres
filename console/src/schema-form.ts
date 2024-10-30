@@ -349,10 +349,11 @@ export function useSchemaForm({ ...options }: SchemaFormOptions) {
     }
 
     let label: string | number | undefined = undefined
-    if (path.length > 0) {
-      label = path[path.length - 1]
-    } else if (typeof schema === 'object') {
+    if (typeof schema === 'object') {
       label = schema.title
+    }
+    if (label == null && path.length > 0) {
+      label = path[path.length - 1]
     }
 
     if (label == null) {

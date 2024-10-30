@@ -7,7 +7,7 @@ import InterfaceElement from '@/components/InterfaceElement.vue'
 import { InterfacePath, useInterfaceContext } from '@/interface'
 import { usePersisted } from '@/persistence'
 
-const { element, path } = defineProps<{
+const { element, path } = $defineProps<{
   element: CarouselElement
   path: InterfacePath
 }>()

@@ -6,7 +6,7 @@ import HeightContainer from '@/components/HeightContainer.vue'
 import icons from '@/icons'
 import { KeyInput, usePersisted } from '@/persistence'
 
-const { name, persist } = defineProps<{
+const { name, persist } = $defineProps<{
   name: string
   defaultHeight: number
   minHeight?: number

@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 import { QInput, debounce } from 'quasar'
-import { watch } from 'vue'
+import { watch, watchEffect } from 'vue'
 
 import CommonText from '@/components/CommonText.vue'
 import icons from '@/icons'
@@ -22,7 +22,7 @@ const {
   autogrow = false,
   suffix = undefined,
   presets = undefined,
-} = defineProps<{
+} = $defineProps<{
   modelValue: unknown
   form: SchemaForm
   schema: Schema
@@ -39,7 +39,7 @@ const {
 }>()
 
 const emit = defineEmits<{
-  (emit: 'update:modelValue', value: unknown): void
+  'update:modelValue': [value: unknown]
 }>()
 
 let input = $ref<QInput | null>(null)
@@ -57,6 +57,9 @@ const description = $computed(() => form.getDescription(path))
 const defaultValue = $computed(() => form.getDefault(path))
 const title = $computed(() => form.getLabel(path))
 const resolveText = $computed(() => resolveTextOriginal ?? resolve)
+watchEffect(() => {
+  console.log(title)
+})
 
 // Whenever the input is focused and the text resolves to a valid value, update the model value.
 watch(

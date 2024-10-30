@@ -4,14 +4,14 @@ import { usePreferences } from '@/preferences'
 import { SchemaForm, SchemaPath } from '@/schema-form'
 import { isLight } from '@/utilities'
 
-const { modelValue, path, form } = defineProps<{
+const { modelValue, path, form } = $defineProps<{
   modelValue: unknown
   form: SchemaForm
   path: SchemaPath
 }>()
 
 const emit = defineEmits<{
-  (emit: 'update:modelValue', value: unknown): void
+  'update:modelValue': [value: unknown]
 }>()
 
 const preferences = usePreferences()

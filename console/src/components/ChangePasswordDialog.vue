@@ -7,7 +7,7 @@ import { useForm } from '@/form'
 import { useNotify } from '@/notify'
 import { useValidate } from '@/validate'
 
-const { userId, engine } = defineProps<{
+const { userId, engine } = $defineProps<{
   userId: string
   engine: Engine
 }>()

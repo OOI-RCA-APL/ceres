@@ -13,7 +13,7 @@ import { useDialogs } from '@/dialogs'
 import icons from '@/icons'
 import { provideWorkspace, resolveWidgetWidths, useWorkspaces, Widget } from '@/workspace'
 
-const { name } = defineProps<{
+const { name } = $defineProps<{
   name: string
 }>()
 
@@ -317,16 +317,16 @@ onMounted(() => {
 
 .verticalResizeHandle {
   position: absolute;
-  left: 0;
+  left: -2px;
   bottom: 4px;
-  z-index: 100;
+  z-index: 1;
 }
 
 .horizontalResizeHandle {
   position: absolute;
-  right: -3px;
+  right: -2.5px;
   top: 0px;
-  z-index: 100;
+  z-index: 1;
 }
 
 .bottomPadding {

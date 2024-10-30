@@ -1,5 +1,50 @@
-<script setup lang="ts">
+<script lang="ts">
+const defaultOptions: Option = {
+  backgroundColor: 'transparent',
+  yAxis: {
+    nameLocation: 'end',
+    nameGap: 8,
+    splitArea: {
+      show: true,
+    },
+    nameTextStyle: {
+      align: 'left',
+      verticalAlign: 'bottom',
+    },
+    axisLabel: {
+      hideOverlap: true,
+    },
+  },
+  xAxis: {
+    nameLocation: 'end',
+    nameGap: 0,
+    splitArea: {
+      show: true,
+    },
+    nameTextStyle: {
+      align: 'right',
+      verticalAlign: 'top',
+      padding: [24, 0, 0, 0],
+    },
+    axisLabel: {
+      hideOverlap: true,
+    },
+  },
+  useUTC: true,
+  grid: {
+    containLabel: true,
+    left: 60,
+    top: 50,
+    right: 60,
+    bottom: 32,
+  },
+}
+</script>
+
+<script lang="ts" setup>
 import { ECharts } from 'echarts'
+import { merge } from 'lodash'
+import { watchEffect } from 'vue'
 import EChart from 'vue-echarts'
 
 import { Option } from '@/chart'
@@ -8,19 +53,22 @@ const {
   loading = false,
   height = undefined,
   option,
-} = defineProps<{
+} = $defineProps<{
   loading?: boolean
   height?: number | string | null
   option: Option
 }>()
 
-const container = $ref<HTMLElement | null>(null)
-const instance = $ref<ECharts | null>(null)
+const container = $shallowRef<HTMLElement | null>(null)
+const instance = $shallowRef<ECharts | null>(null)
 
-const appliedOptions: Option = $computed(() => ({
-  ...option,
-  backgroundColor: 'transparent',
-  useUTC: true,
+const merged: Option = $computed(() => merge(option, defaultOptions))
+watchEffect(() => {
+  instance?.setOption(merged)
+})
+
+const autoresize = $computed(() => ({
+  throttle: 250,
 }))
 
 const containerStyle = $computed(() => {
@@ -40,13 +88,7 @@ const containerStyle = $computed(() => {
 
 <template>
   <div ref="container" :class="$style.container" :style="containerStyle">
-    <e-chart
-      ref="instance"
-      :autoresize="{ throttle: 350 }"
-      :class="$style.instance"
-      :loading
-      :option="appliedOptions"
-    />
+    <e-chart key="chart" ref="instance" :autoresize :class="$style.instance" :loading />
   </div>
 </template>
 

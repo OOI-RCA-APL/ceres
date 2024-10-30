@@ -4,7 +4,7 @@ import { onBeforeUnmount, onMounted } from 'vue'
 import { Record } from '@/api/shared'
 import { useRecordViewContext } from '@/record-view'
 
-const { record } = defineProps<{
+const { record } = $defineProps<{
   record: Record
 }>()
 

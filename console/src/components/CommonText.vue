@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 import type { TextVariant } from '@/api/elements'
-const { element = 'div' } = defineProps<{
+const { element = 'div' } = $defineProps<{
   variant: TextVariant
   element?: string
 }>()

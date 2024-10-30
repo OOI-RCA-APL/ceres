@@ -13,11 +13,11 @@ export const ParticleModel = RecordModel.extend({
 
 export type ParticleFilter = Zod.infer<typeof ParticleFilterModel>
 export const ParticleFilterModel = RecordFilterModel.extend({
-  type: Zod.string().nullable(),
-  type_contains: Zod.string().nullable(),
-  type_prefix: Zod.string().nullable(),
-  type_suffix: Zod.string().nullable(),
-}).partial()
+  type: Zod.string().nullish(),
+  type_contains: Zod.string().nullish(),
+  type_prefix: Zod.string().nullish(),
+  type_suffix: Zod.string().nullish(),
+})
 
 export const useParticles = defineStore('particles', () => {
   const client = useClient()

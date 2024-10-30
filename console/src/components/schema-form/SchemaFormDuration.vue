@@ -3,7 +3,7 @@ import SchemaFormInput from '@/components/schema-form/SchemaFormInput.vue'
 import { SchemaForm, SchemaObject, SchemaPath } from '@/schema-form'
 import { displayDuration, parseDuration } from '@/utilities'
 
-const { modelValue, form, path } = defineProps<{
+const { modelValue, form, path } = $defineProps<{
   modelValue: unknown
   form: SchemaForm
   schema: SchemaObject & { type: 'string'; format: 'duration' }
@@ -11,7 +11,7 @@ const { modelValue, form, path } = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  (emit: 'update:modelValue', value: unknown): void
+  'update:modelValue': [value: unknown]
 }>()
 
 const resolved = $computed(() => resolve(modelValue))
@@ -67,7 +67,6 @@ const presets = [
     :resolve
     :schema
     schema-type="duration"
-    suffix="second(s)"
     @update:model-value="(modelValue) => emit('update:modelValue', modelValue)"
   >
     <template v-if="resolvedOrDefault" #label-append>

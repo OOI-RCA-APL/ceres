@@ -18,11 +18,11 @@ export const MessageModel = RecordModel.extend({
 
 export type MessageFilter = Zod.infer<typeof MessageFilterModel>
 export const MessageFilterModel = RecordFilterModel.extend({
-  direction: MessageDirectionModel.nullable(),
-  content_contains: Zod.string().nullable(),
-  content_prefix: Zod.string().nullable(),
-  content_suffix: Zod.string().nullable(),
-}).partial()
+  direction: MessageDirectionModel.nullish(),
+  content_contains: Zod.string().nullish(),
+  content_prefix: Zod.string().nullish(),
+  content_suffix: Zod.string().nullish(),
+})
 
 export type SendMessageResult = Zod.infer<typeof SendMessageResultModel>
 const SendMessageResultModel = createResultType(MessageModel, BaseFailModel)

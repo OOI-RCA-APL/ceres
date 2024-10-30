@@ -6,7 +6,7 @@ const {
   modelValue,
   min = 0,
   max,
-} = defineProps<{
+} = $defineProps<{
   direction: 'vertical' | 'horizontal'
   modelValue: number
   min?: number

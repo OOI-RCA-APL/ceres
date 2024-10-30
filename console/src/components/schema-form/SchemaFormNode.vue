@@ -14,7 +14,7 @@ import SchemaFormObject from '@/components/schema-form/SchemaFormObject.vue'
 import SchemaFormString from '@/components/schema-form/SchemaFormString.vue'
 import { isType, SchemaForm, SchemaPath } from '@/schema-form'
 
-const { modelValue, form, path, autofocus } = defineProps<{
+const { modelValue, form, path, autofocus } = $defineProps<{
   modelValue: unknown
   form: SchemaForm
   path: SchemaPath
@@ -22,7 +22,7 @@ const { modelValue, form, path, autofocus } = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  (emit: 'update:modelValue', value: unknown): void
+  'update:modelValue': [value: unknown]
 }>()
 
 const schema = $computed(() => form.getSchema(path))

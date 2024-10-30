@@ -8,11 +8,11 @@ export const EntityModel = Zod.object({})
 
 export type EntityFilter = Zod.infer<typeof EntityFilterModel>
 export const EntityFilterModel = Zod.object({
-  search: Zod.string().nullable(),
-  search_field: Zod.union([Zod.string(), Zod.array(Zod.string())]).nullable(),
-  limit: Zod.number().nullable(),
-  offset: Zod.number().nullable(),
-}).partial()
+  search: Zod.string().nullish(),
+  search_field: Zod.union([Zod.string(), Zod.array(Zod.string())]).nullish(),
+  limit: Zod.number().nullish(),
+  offset: Zod.number().nullish(),
+})
 
 export type UUIDEntity = Zod.infer<typeof UUIDEntityModel>
 export const UUIDEntityModel = Zod.object({
@@ -21,7 +21,7 @@ export const UUIDEntityModel = Zod.object({
 
 export type UUIDEntityFilter = Zod.infer<typeof UUIDEntityFilterModel>
 export const UUIDEntityFilterModel = EntityFilterModel.extend({
-  id: Zod.string().nullable(),
+  id: Zod.string().nullish(),
 }).partial()
 
 export type Item = Zod.infer<typeof ItemModel>
@@ -31,7 +31,7 @@ export const ItemModel = Zod.object({
 
 export type ItemFilter = Zod.infer<typeof ItemFilterModel>
 export const ItemFilterModel = EntityFilterModel.extend({
-  address: Zod.string().transform(AddressSelector.parse).nullable(),
+  address: Zod.string().transform(AddressSelector.parse).nullish(),
 }).partial()
 
 export type Record = Zod.infer<typeof RecordModel>
@@ -43,10 +43,10 @@ export type RecordOrder = Zod.infer<typeof RecordOrderModel>
 export const RecordOrderModel = Zod.enum(['timestamp', '-timestamp'])
 
 export type RecordFilter = Zod.infer<typeof RecordFilterModel>
-export const RecordFilterModel = UUIDEntityFilterModel.merge(ItemFilterModel)
-  .extend({
-    after: Zod.string().nullable(),
-    before: Zod.string().nullable(),
-    order: RecordOrderModel.nullable(),
-  })
-  .partial()
+export const RecordFilterModel = UUIDEntityFilterModel.merge(ItemFilterModel).extend({
+  after: Zod.string().nullish(),
+  before: Zod.string().nullish(),
+  min_age: Zod.union([Zod.number(), Zod.string()]).nullish(),
+  max_age: Zod.union([Zod.number(), Zod.string()]).nullish(),
+  order: RecordOrderModel.nullish(),
+})

@@ -5,7 +5,7 @@ import CommonText from '@/components/CommonText.vue'
 import { SchemaForm, SchemaObject, SchemaPath } from '@/schema-form'
 import { Plain } from '@/utilities'
 
-const { form, schema, path } = defineProps<{
+const { form, schema, path } = $defineProps<{
   modelValue: unknown
   form: SchemaForm
   schema: SchemaObject & { enum: Plain[] }
@@ -13,7 +13,7 @@ const { form, schema, path } = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  (emit: 'update:modelValue', value: unknown): void
+  'update:modelValue': [value: unknown]
 }>()
 
 const title = $computed(() => form.getLabel(path))

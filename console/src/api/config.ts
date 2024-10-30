@@ -30,7 +30,7 @@ const BaseDatabaseConfig = Zod.object({
 export type SQLiteDatabaseConfig = Zod.infer<typeof SQLiteDatabaseConfigModel>
 export const SQLiteDatabaseConfigModel = BaseDatabaseConfig.extend({
   type: Zod.literal('sqlite'),
-  path: Zod.string().nullable().default(null),
+  path: Zod.string().nullish(),
 })
 
 export type PostgresDatabaseConfig = Zod.infer<typeof PostgresDatabaseConfigModel>
@@ -51,14 +51,14 @@ export const DatabaseConfigModel = Zod.discriminatedUnion('type', [
 
 export type ServerConfig = Zod.infer<typeof ServerConfigModel>
 export const ServerConfigModel = Zod.object({
-  port: Zod.number().nullable().default(null),
+  port: Zod.number().nullish(),
 })
 
 export type ConsoleConfig = Zod.infer<typeof ConsoleConfigModel>
 export const ConsoleConfigModel = Zod.object({
-  title: Zod.string().nullable().default(null),
-  icon: Zod.string().nullable().default(null),
-  favicon: Zod.string().nullable().default(null),
+  title: Zod.string().nullish(),
+  icon: Zod.string().nullish(),
+  favicon: Zod.string().nullish(),
   dashboard: Zod.union([AddressModel, Zod.array(AddressModel)])
     .nullable()
     .default(null),

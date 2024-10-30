@@ -1,4 +1,4 @@
-<script setup lang="ts">
+<script lang="ts" setup>
 import { useQuery } from '@tanstack/vue-query'
 import { computed } from 'vue'
 
@@ -7,7 +7,7 @@ import { useEngine } from '@/api/engine'
 import InterfaceElement from '@/components/InterfaceElement.vue'
 import { useInterfaceContext } from '@/interface'
 
-const { address } = defineProps<{
+const { address } = $defineProps<{
   address: Address
 }>()
 

@@ -15,11 +15,11 @@ export const AlertModel = RecordModel.extend({
 
 export type AlertFilter = Zod.infer<typeof AlertFilterModel>
 export const AlertFilterModel = RecordFilterModel.extend({
-  level: Zod.union([LevelModel, Zod.array(LevelModel)]).nullable(),
-  code_contains: Zod.string().nullable(),
-  code_prefix: Zod.string().nullable(),
-  code_suffix: Zod.string().nullable(),
-}).partial()
+  level: Zod.union([LevelModel, Zod.array(LevelModel)]).nullish(),
+  code_contains: Zod.string().nullish(),
+  code_prefix: Zod.string().nullish(),
+  code_suffix: Zod.string().nullish(),
+})
 
 export const useAlerts = defineStore('alerts', () => {
   const client = useClient()

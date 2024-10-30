@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { computed, watch } from 'vue'
+import { watch } from 'vue'
 
 import { Address, AddressSelector } from '@/api/address'
 import { useEngine } from '@/api/engine'
@@ -9,7 +9,7 @@ import icons from '@/icons'
 import { useNotify } from '@/notify'
 import { MessagesWidget } from '@/workspace'
 
-const { widget } = defineProps<{
+const { widget } = $defineProps<{
   widget: MessagesWidget
 }>()
 
@@ -37,7 +37,7 @@ let commandInputElement = $ref<HTMLInputElement | null>(null)
 widget.commandHistoryIndex = null
 
 watch(
-  computed(() => widget.commandText),
+  () => widget.commandText,
   () => {
     setTimeout(() => {
       if (

@@ -3,7 +3,7 @@ import { Message } from '@/api/messages'
 import RecordViewRecord from '@/components/RecordViewRecord.vue'
 import TextContent from '@/components/TextContent.vue'
 
-const { message } = defineProps<{
+const { message } = $defineProps<{
   message: Message
 }>()
 

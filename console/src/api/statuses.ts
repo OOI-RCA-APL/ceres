@@ -12,8 +12,8 @@ export type Status = Zod.infer<typeof StatusModel>
 export const StatusModel = Zod.object({
   address: Zod.string().transform(Address.parse),
   running: Zod.boolean(),
-  enabled: Zod.boolean().nullable().default(null),
-  connectivity: ConnectivityModel.nullable().default(null),
+  enabled: Zod.boolean().nullish(),
+  connectivity: ConnectivityModel.nullish(),
 })
 
 export const useStatuses = defineStore('statuses', () => {

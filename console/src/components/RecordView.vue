@@ -3,7 +3,7 @@ import { useDocumentVisibility, useEventListener } from '@vueuse/core'
 import _ from 'lodash'
 import moment, { Moment } from 'moment'
 import { debounce, QVirtualScroll } from 'quasar'
-import { computed, nextTick, onMounted, reactive, watch, watchEffect } from 'vue'
+import { nextTick, onMounted, reactive, watch, watchEffect } from 'vue'
 
 import { Alert } from '@/api/alerts'
 import { useEngine } from '@/api/engine'
@@ -62,7 +62,7 @@ const useStream = $computed(() => {
 
 let filterKey = $ref(0)
 watch(
-  computed(() => JSON.stringify(filter)),
+  () => JSON.stringify(filter),
   () => {
     filterKey++
   }
@@ -110,7 +110,7 @@ const isDocumentVisible = $computed(() => documentVisibility === 'visible')
 let isDocumentJustVisible = $ref(false)
 
 watch(
-  computed(() => isDocumentVisible),
+  () => isDocumentVisible,
   () => {
     if (isDocumentVisible) {
       isDocumentJustVisible = true
@@ -388,12 +388,15 @@ onMounted(async () => {
 
 const debouncedLoadCurrent = debounce(loadCurrent, 750)
 
-watch($$(filterKey), async () => {
-  records = []
-  recordsStreamed = []
-  isLoadingCurrent = true
-  debouncedLoadCurrent()
-})
+watch(
+  () => filterKey,
+  async () => {
+    records = []
+    recordsStreamed = []
+    isLoadingCurrent = true
+    debouncedLoadCurrent()
+  }
+)
 
 const debouncedFilter = debouncedComputed(() => _.cloneDeep(filter), 750)
 

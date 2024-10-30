@@ -1,6 +1,6 @@
 import _ from 'lodash'
 import { QForm, QInput } from 'quasar'
-import { computed, reactive, watch, watchEffect } from 'vue'
+import { reactive, watch, watchEffect } from 'vue'
 
 export type FormState = 'viewing' | 'editing' | 'submitting' | 'submitted'
 export type FormValidationState = 'none' | 'validating' | 'valid' | 'invalid'
@@ -228,7 +228,7 @@ export function useForm<
     form.readonly = form.state !== 'editing'
   })
 
-  watch([computed(() => form.state), form.data], form.validate, {
+  watch([() => form.state, form.data], form.validate, {
     immediate: true,
   })
 

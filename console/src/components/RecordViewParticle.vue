@@ -3,7 +3,7 @@ import { Particle } from '@/api/particles'
 import RecordViewRecord from '@/components/RecordViewRecord.vue'
 import { highlight } from '@/utilities'
 
-const { particle } = defineProps<{
+const { particle } = $defineProps<{
   particle: Particle
 }>()
 

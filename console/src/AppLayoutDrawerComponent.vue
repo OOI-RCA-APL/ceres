@@ -7,7 +7,7 @@ import StatusBadge from '@/components/StatusBadge.vue'
 import { useDrawer } from '@/drawer'
 import icons from '@/icons'
 
-const { address, component } = defineProps<{
+const { address, component } = $defineProps<{
   address: Address
   component: ComponentInfo
 }>()

@@ -3,9 +3,7 @@ import moment, { Duration } from 'moment'
 import Prism from 'prismjs'
 import { colors, debounce } from 'quasar'
 import { ComputedRef, Ref, computed, isRef, shallowRef, watch } from 'vue'
-
-import 'prismjs/components/prism-json'
-import 'prismjs/components/prism-log'
+import { ZodType } from 'zod'
 
 export type Plain = string | number | boolean | null | { [property: string]: Plain } | Plain[]
 export type MaybeRef<T> = Ref<T> | T
@@ -130,7 +128,7 @@ export function displayDuration(
 export function debouncedComputed<T>(factory: () => T, delay: number): ComputedRef<T> {
   const result: Ref<T> = shallowRef(factory())
   watch(
-    computed(() => factory()),
+    () => factory(),
     debounce((update) => {
       result.value = update
     }, delay)
@@ -182,4 +180,22 @@ export type HighlightLanguage = 'json' | 'log'
 
 export function highlight(text: string, language: HighlightLanguage): string {
   return Prism.highlight(text, Prism.languages[language], language)
+}
+
+export function safeArrayOf<T>(type: ZodType<T, any, any>, typeName?: string) {
+  return type.array().catch(({ input }) => {
+    const results = [] as T[]
+    if (Array.isArray(input)) {
+      for (const current of input) {
+        const { data: parsed, error } = type.safeParse(current)
+        if (error != null) {
+          console.error(`Failed to parse ${typeName ?? 'object'}`, error)
+        } else {
+          results.push(parsed)
+        }
+      }
+    }
+
+    return results
+  })
 }

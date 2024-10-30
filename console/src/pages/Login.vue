@@ -8,7 +8,7 @@ import { useNavigation } from '@/navigation'
 import { useNotify } from '@/notify'
 import { useValidate } from '@/validate'
 
-const { redirect } = defineProps<{
+const { redirect } = $defineProps<{
   redirect?: string | null
 }>()
 

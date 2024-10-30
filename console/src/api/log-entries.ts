@@ -14,11 +14,11 @@ export const LogEntryModel = RecordModel.extend({
 
 export type LogEntryFilter = Zod.infer<typeof LogEntryFilterModel>
 export const LogEntryFilterModel = RecordFilterModel.extend({
-  level: Zod.union([LevelModel, Zod.array(LevelModel)]).nullable(),
-  content_contains: Zod.string().nullable(),
-  content_prefix: Zod.string().nullable(),
-  content_suffix: Zod.string().nullable(),
-}).partial()
+  level: Zod.union([LevelModel, Zod.array(LevelModel)]).nullish(),
+  content_contains: Zod.string().nullish(),
+  content_prefix: Zod.string().nullish(),
+  content_suffix: Zod.string().nullish(),
+})
 
 export const useLogEntries = defineStore('log-entries', () => {
   const client = useClient()

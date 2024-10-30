@@ -1,15 +1,15 @@
 <script lang="ts" setup>
 import { SchemaForm } from '@/schema-form'
 
-const props = defineProps<{
+const {
+  form,
+  executeLabel = 'Execute',
+  resetLabel = 'Reset',
+} = $defineProps<{
   form?: SchemaForm | null
   executeLabel?: string
   resetLabel?: string
 }>()
-
-const form = $computed(() => props.form)
-const executeLabel = $computed(() => props.executeLabel ?? 'Execute')
-const resetLabel = $computed(() => props.resetLabel ?? 'Reset')
 
 function submit() {
   form?.submit()
