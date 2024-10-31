@@ -33,10 +33,10 @@ const defaultOptions: Option = {
   useUTC: true,
   grid: {
     containLabel: true,
-    left: 60,
-    top: 50,
-    right: 60,
-    bottom: 32,
+    left: 32,
+    top: 44,
+    right: 32,
+    bottom: 24,
   },
 }
 </script>

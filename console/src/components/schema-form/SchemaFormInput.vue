@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 import { QInput, debounce } from 'quasar'
-import { watch, watchEffect } from 'vue'
+import { watch } from 'vue'
 
 import CommonText from '@/components/CommonText.vue'
 import icons from '@/icons'
@@ -57,9 +57,6 @@ const description = $computed(() => form.getDescription(path))
 const defaultValue = $computed(() => form.getDefault(path))
 const title = $computed(() => form.getLabel(path))
 const resolveText = $computed(() => resolveTextOriginal ?? resolve)
-watchEffect(() => {
-  console.log(title)
-})
 
 // Whenever the input is focused and the text resolves to a valid value, update the model value.
 watch(

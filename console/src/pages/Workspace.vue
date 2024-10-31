@@ -46,7 +46,7 @@ watchEffect(() => {
 })
 
 const mouse = reactive(useMouse({ type: 'client' }))
-const draggedWidgetStyle = $computed(() => ({
+const draggedWidgetIconStyle = $computed(() => ({
   left: `${mouse.x}px`,
   top: `${mouse.y}px`,
   transform: 'translate(-50%, -50%)',
@@ -116,9 +116,9 @@ onMounted(() => {
   <full-page :class="$style.root">
     <div
       v-if="workspace.drag != null"
-      key="dragged-widget"
-      :class="$style.draggedWidget"
-      :style="draggedWidgetStyle"
+      key="dragged-widget-icon"
+      :class="$style.draggedWidgetIcon"
+      :style="draggedWidgetIconStyle"
     >
       <q-card bordered class="q-px-xs" flat>
         <common-text variant="th">
@@ -295,7 +295,13 @@ onMounted(() => {
                 }
               "
             />
-            <workspace-widget :column="j" :container="row" :row="i" :widget="widget" />
+            <workspace-widget
+              :class="workspace.drag?.widget === widget && $style.draggedWidget"
+              :column="j"
+              :container="row"
+              :row="i"
+              :widget="widget"
+            />
           </div>
         </div>
       </div>
@@ -369,9 +375,13 @@ onMounted(() => {
   right: -5.5px;
 }
 
-.draggedWidget {
+.draggedWidgetIcon {
   position: fixed;
   z-index: 5000;
   pointer-events: none;
+}
+
+.draggedWidget {
+  opacity: 0.5;
 }
 </style>

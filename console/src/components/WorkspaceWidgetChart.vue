@@ -2,7 +2,7 @@
 import { useQuery } from '@tanstack/vue-query'
 
 import { useEngine } from '@/api/engine'
-import { Option } from '@/chart'
+import { Option, DataValue } from '@/chart'
 import Chart from '@/components/Chart.vue'
 import { debouncedComputed } from '@/utilities'
 import { ChartWidget } from '@/workspace'
@@ -13,30 +13,38 @@ const { widget } = $defineProps<{
 
 const engine = useEngine()
 
+type Results = Record<string, DataValue[][]>
+
 async function getSeriesResults() {
-  const mapping = {} as Record<string, any[]>
+  const mapping = {} as Results
 
   await Promise.all(
-    widget.series.map(async (series) => {
+    widget.particles.flatMap(async ({ address, type, series }) => {
       const particles = await engine.particles.getAll({
-        address: series.particleAddress,
-        type: series.particleType,
+        address,
+        type,
         max_age: widget.duration,
         limit: 5000,
       })
 
-      mapping[series.name] = particles.flatMap((particle) => {
-        if (series.particleField == null) {
-          return []
-        }
+      series.map((series) => {
+        mapping[series.name] = particles.flatMap((particle) => {
+          if (series.field == null) {
+            return []
+          }
 
-        const timestamp = particle.timestamp
-        const value = particle.data[series.particleField]
-        if (typeof value !== 'boolean' && typeof value !== 'number' && typeof value !== 'string') {
-          return []
-        }
+          const timestamp = particle.timestamp
+          let value = particle.data[series.field]
+          if (typeof value !== 'number' && typeof value !== 'string') {
+            if (typeof value === 'boolean') {
+              return [[timestamp, value as any as number]]
+            }
 
-        return [[timestamp, value]]
+            return []
+          }
+
+          return [[timestamp, value]]
+        })
       })
     })
   )
@@ -46,12 +54,12 @@ async function getSeriesResults() {
 
 const query = useQuery({
   queryFn: getSeriesResults,
-  queryKey: debouncedComputed(() => [JSON.stringify(widget.series)], 1000),
+  queryKey: debouncedComputed(() => [JSON.stringify(widget.particles)], 1000),
   refetchInterval: 5000,
-  initialData: {},
+  initialData: () => ({}),
 })
 
-const results = $computed(() => query.data.value ?? {})
+const results: Results = $computed(() => query.data.value ?? {})
 
 const option: Option = $computed(() => ({
   legend: { show: true },
@@ -64,15 +72,18 @@ const option: Option = $computed(() => ({
   yAxis: {
     name: widget.unit ?? '',
   },
-  series: widget.series.map((series) => ({
-    name: series.name,
-    data: results[series.name],
-    type: series.type,
-    showSymbol: false,
-  })),
+  series: widget.particles.flatMap((particle) =>
+    particle.series.map((series) => ({
+      name: series.name,
+      data: results[series.name],
+      type: widget.display,
+      showSymbol: false,
+      symbolSize: 6,
+    }))
+  ),
 }))
 </script>
 
 <template>
-  <chart height="100px" :option="option as any" />
+  <chart height="100px" :option="option" />
 </template>

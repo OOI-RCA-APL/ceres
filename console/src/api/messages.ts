@@ -59,6 +59,7 @@ export const useMessages = defineStore('messages', () => {
       parse: SendMessageResultModel,
     })
   }
+
   return {
     getAll,
     useStream,

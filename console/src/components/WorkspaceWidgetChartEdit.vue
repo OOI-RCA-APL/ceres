@@ -1,8 +1,9 @@
 <script lang="ts" setup>
+import { AddressSelector } from '@/api/address'
 import { useEngine } from '@/api/engine'
 import CommonText from '@/components/CommonText.vue'
 import SchemaFormBase from '@/components/schema-form/SchemaFormBase.vue'
-import { ChartWidget } from '@/workspace'
+import { ChartWidgetParticle, ChartWidget } from '@/workspace'
 
 const { widget } = $defineProps<{
   widget: ChartWidget
@@ -10,25 +11,35 @@ const { widget } = $defineProps<{
 
 const engine = useEngine()
 
-const seriesSchema = $computed<any>(() => ({
+const particlesSchema = $computed<any>(() => ({
   type: 'array',
-  title: 'Series',
+  title: 'Particles',
   items: {
     type: 'object',
     properties: {
-      name: { type: 'string', title: 'Name', default: 'Series' },
-      type: { type: 'string', title: 'Type', enum: ['line'], default: 'line' },
-      particleAddress: {
+      address: {
         type: 'string',
         title: 'Particle Address',
-        enum: engine.components.all.flatMap((current) => [current.address, current.address.all()]),
-        nullable: true,
-        default: null,
+        enum: engine.components.all.flatMap((current) => [
+          current.address.toString(),
+          current.address.all().toString(),
+        ]),
       },
-      particleType: { type: 'string', title: 'Particle Type', nullable: true, default: null },
-      particleField: { type: 'string', title: 'Particle Field', nullable: true, default: null },
+      type: { type: 'string', title: 'Particle Type' },
+      series: {
+        type: 'array',
+        title: 'Series',
+        items: {
+          type: 'object',
+          properties: {
+            name: { type: 'string', title: 'Name', default: 'Series' },
+            field: { type: 'string', title: 'Particle Field' },
+          },
+          required: ['name'],
+        },
+      },
     },
-    required: ['name', 'type'],
+    required: ['series'],
   },
 }))
 </script>
@@ -36,6 +47,15 @@ const seriesSchema = $computed<any>(() => ({
 <template>
   <div>
     <div class="column q-gutter-xs q-pa-sm">
+      <schema-form-base
+        v-model="widget.display"
+        :schema="{
+          type: 'string',
+          title: 'Display',
+          enum: ['line', 'bar', 'scatter'],
+          optional: true,
+        }"
+      />
       <schema-form-base
         v-model="widget.unit"
         :schema="{ type: 'string', title: 'Unit (Y Axis)', optional: true }"
@@ -46,8 +66,28 @@ const seriesSchema = $computed<any>(() => ({
       />
     </div>
     <div class="q-pt-sm q-px-sm">
-      <common-text variant="th">Series</common-text>
+      <common-text variant="th">Particles</common-text>
     </div>
-    <schema-form-base v-model="widget.series" :schema="seriesSchema" />
+    <schema-form-base
+      :model-value="
+        widget.particles.map((current) => ({
+          ...current,
+          address: current.address?.toString(),
+        }))
+      "
+      :schema="particlesSchema"
+      @update:model-value="
+        (particles) => {
+          const updated = particles.map((current: ChartWidgetParticle) => ({
+            ...current,
+            address: current.address ? new AddressSelector(current.address) : current.address,
+          }))
+
+          if (JSON.stringify(updated) !== JSON.stringify(widget.particles)) {
+            widget.particles = updated
+          }
+        }
+      "
+    />
   </div>
 </template>

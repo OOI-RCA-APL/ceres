@@ -8,7 +8,7 @@ const { schema } = $defineProps<{
   schema: SchemaObject
 }>()
 
-const model = defineModel<unknown>()
+const model = defineModel<unknown>('modelValue', { required: true })
 
 const path: SchemaPath = []
 const form = useSchemaForm({ schema: computed(() => schema), editing: true })

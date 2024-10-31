@@ -4,7 +4,7 @@ import { v4 } from 'uuid'
 import { computed, inject, MaybeRef, provide, reactive, unref, watchEffect } from 'vue'
 import Zod from 'zod'
 
-import { AddressModel } from '@/api/address'
+import { AddressModel, AddressSelectorModel } from '@/api/address'
 import { AlertFilterModel } from '@/api/alerts'
 import { ProcedureTypeModel } from '@/api/components'
 import { LogEntryFilterModel } from '@/api/log-entries'
@@ -74,25 +74,30 @@ export const UIWidgetModel = BaseWidgetModel.extend({
   interfaceAddress: AddressModel.nullish(),
 })
 
-export type ChartWidgetSeriesType = Zod.infer<typeof ChartWidgetSeriesTypeModel>
-export const ChartWidgetSeriesTypeModel = Zod.enum(['line'])
+export type ChartWidgetDisplay = Zod.infer<typeof ChartWidgetDisplayModel>
+export const ChartWidgetDisplayModel = Zod.enum(['line', 'bar', 'scatter'])
 
 export type ChartWidgetSeries = Zod.infer<typeof ChartWidgetSeriesModel>
 export const ChartWidgetSeriesModel = Zod.object({
   name: Zod.string().catch('Series'),
-  type: ChartWidgetSeriesTypeModel.catch('line'),
-  particleAddress: AddressModel.nullish(),
-  particleType: Zod.string().nullish(),
-  particleField: Zod.string().nullish(),
+  field: Zod.string().nullish(),
+})
+
+export type ChartWidgetParticle = Zod.infer<typeof ChartWidgetParticleModel>
+export const ChartWidgetParticleModel = Zod.object({
+  address: AddressSelectorModel.nullish(),
+  type: Zod.string().nullish(),
+  series: safeArrayOf(ChartWidgetSeriesModel),
 })
 
 export type ChartWidget = Zod.infer<typeof ChartWidgetModel>
 export const ChartWidgetModel = BaseWidgetModel.extend({
   type: Zod.literal('chart'),
   name: Zod.string().catch('Chart'),
+  display: ChartWidgetDisplayModel.catch('line'),
   unit: Zod.string().nullish(),
   duration: Zod.union([Zod.number(), Zod.string()]).catch(60 * 60),
-  series: ChartWidgetSeriesModel.array().catch(() => []),
+  particles: safeArrayOf(ChartWidgetParticleModel),
 })
 
 export type Widget = Zod.infer<typeof WidgetModel>
