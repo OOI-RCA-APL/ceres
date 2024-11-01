@@ -182,8 +182,6 @@ class BaseEntityFilterArgs[
     FieldT: str,
     OrderT: str,
 ](BaseFilterArgs, total=False):
-    search: str | None
-    search_field: FieldT | Sequence[FieldT] | None
     order: OrderT | Sequence[OrderT] | None
     limit: NonNegativeInt | None
     offset: NonNegativeInt | None
@@ -414,7 +412,7 @@ class BaseItemFilter[
     )
 
     @override
-    def matches(self, obj: ItemT) -> bool:  # type: ignore
+    def matches(self, obj: ItemT) -> bool:
         if not super().matches(obj):
             return False
 
@@ -492,12 +490,13 @@ class BaseRecordFilterArgs[
     FieldT: str,
     OrderT: str,
 ](
-    BaseUUIDEntityFilterArgs[FieldT, OrderT],
     BaseItemFilterArgs[FieldT, OrderT],
+    BaseUUIDEntityFilterArgs[FieldT, OrderT],
     total=False,
 ):
     before: DateTime | None
     after: DateTime | None
+    timespan: PositiveTimeDelta | None
     max_age: PositiveTimeDelta | None
     min_age: PositiveTimeDelta | None
 
@@ -507,8 +506,8 @@ class BaseRecordFilter[
     FieldT: str,
     OrderT: str,
 ](
-    BaseUUIDEntityFilter[RecordT, FieldT, OrderT],
     BaseItemFilter[RecordT, FieldT, OrderT],
+    BaseUUIDEntityFilter[RecordT, FieldT, OrderT],
 ):
     after: Annotated[DateTime | None, CLIOption(datetime)] = Field(
         default=None,
@@ -517,6 +516,12 @@ class BaseRecordFilter[
     before: Annotated[DateTime | None, CLIOption(datetime)] = Field(
         default=None,
         description="Filter by maximum timestamp.",
+    )
+    timespan: Annotated[PositiveTimeDelta | None, CLIOption(str | None, metavar="DURATION")] = (
+        Field(
+            default=None,
+            description="Filter by maximum age relative to `after`, or minimum age relative to `before` if `after` is `None`. If both `after` and `before` are `None`, filter by maximum age relative to the current time. ",
+        )
     )
     min_age: Annotated[PositiveTimeDelta | None, CLIOption(str | None, metavar="DURATION")] = Field(
         default=None,
@@ -528,23 +533,30 @@ class BaseRecordFilter[
     )
 
     @override
-    def matches(self, obj: RecordT) -> bool:  # type: ignore
+    def matches(self, obj: RecordT, *, now: datetime | None = None) -> bool:
         if not super().matches(obj):
             return False
-
-        now = utc()
-        if self.max_age is not None:
-            if obj.timestamp < now - self.max_age:
-                return False
-        if self.min_age is not None:
-            if obj.timestamp >= now - self.min_age:
-                return False
 
         if self.after is not None:
             if obj.timestamp < self.after:
                 return False
         if self.before is not None:
             if obj.timestamp >= self.before:
+                return False
+
+        now = utc(now)
+        if self.timespan is not None:
+            if self.after is not None:
+                if obj.timestamp >= (self.after + self.timespan):
+                    return False
+            else:
+                if obj.timestamp < ((self.before or now) - self.timespan):
+                    return False
+        if self.max_age is not None:
+            if obj.timestamp < now - self.max_age:
+                return False
+        if self.min_age is not None:
+            if obj.timestamp >= now - self.min_age:
                 return False
 
         return True
@@ -555,20 +567,30 @@ class BaseRecordFilter[
     def _get_row_cls(cls) -> type[BaseRecordRow]: ...
 
     @override
-    def _get_where(self, dialect: DatabaseType) -> Iterable[SQLColumnExpression[bool]]:
+    def _get_where(
+        self,
+        dialect: DatabaseType,
+        *,
+        now: datetime | None = None,
+    ) -> Iterable[SQLColumnExpression[bool]]:
         yield from super()._get_where(dialect)
         columns = self._get_row_cls()
-
-        now = utc()
-        if self.max_age is not None:
-            yield columns.timestamp >= now - self.max_age
-        if self.min_age is not None:
-            yield columns.timestamp < now - self.min_age
 
         if self.after is not None:
             yield columns.timestamp >= self.after
         if self.before is not None:
             yield columns.timestamp < self.before
+
+        now = utc(now)
+        if self.timespan is not None:
+            if self.after is not None:
+                yield columns.timestamp < self.after + self.timespan
+            else:
+                yield columns.timestamp >= (self.before or now) - self.timespan
+        if self.max_age is not None:
+            yield columns.timestamp >= now - self.max_age
+        if self.min_age is not None:
+            yield columns.timestamp < now - self.min_age
 
     @override
     def _get_default_order(self) -> OrderT:
@@ -579,7 +601,7 @@ class BaseRecordCreate(BaseItem, BaseUUIDEntity):
     timestamp: Annotated[DateTime, CLIOption(datetime)] = Field(default_factory=utc)
 
 
-class BaseRecordUpdate(BaseUUIDEntityUpdate, BaseItemUpdate, total=False):
+class BaseRecordUpdate(BaseItemUpdate, BaseUUIDEntityUpdate, total=False):
     timestamp: DateTime
 
 

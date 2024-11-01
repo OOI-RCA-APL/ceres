@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import (
     Annotated,
     Any,
@@ -31,6 +32,7 @@ from ceres.address import Address
 from ceres.data import DateTime, JSONDict, jsonify
 from ceres.database.enums import DatabaseType
 from ceres.level import Level
+from ceres.timing import utc
 
 with lazy_imports(__name__):
     from sqlalchemy.orm import Mapped, mapped_column
@@ -117,8 +119,9 @@ class AlertFilter(BaseRecordFilter["Alert", AlertField, AlertOrder]):
     )
 
     @override
-    def matches(self, obj: Alert) -> bool:
-        if not super().matches(obj):
+    def matches(self, obj: Alert, *, now: datetime | None = None) -> bool:
+        now = utc(now)
+        if not super().matches(obj, now=now):
             return False
 
         if self.level is not None:
@@ -145,8 +148,14 @@ class AlertFilter(BaseRecordFilter["Alert", AlertField, AlertOrder]):
         return AlertRow
 
     @override
-    def _get_where(self, dialect: DatabaseType) -> Iterable[SQLColumnExpression[bool]]:
-        yield from super()._get_where(dialect)
+    def _get_where(
+        self,
+        dialect: DatabaseType,
+        *,
+        now: datetime | None = None,
+    ) -> Iterable[SQLColumnExpression[bool]]:
+        now = utc(now)
+        yield from super()._get_where(dialect, now=now)
         columns = self._get_row_cls()
 
         if self.level is not None:
@@ -167,6 +176,7 @@ class AlertCreate(BaseRecordCreate):
     info: Annotated[JSONDict, CLIOption(str)] = Field(default_factory=dict)
 
     @field_validator("info")
+    @classmethod
     def _validate_info(cls, value: Mapping[str, Any]) -> Mapping[str, Any]:
         try:
             jsonify(value)

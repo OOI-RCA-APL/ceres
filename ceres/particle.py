@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC
+from datetime import datetime
 from types import MappingProxyType
 from typing import (
     TYPE_CHECKING,
@@ -37,6 +38,7 @@ from ceres._internal.entity import (
 )
 from ceres._internal.lazy import lazy_imports
 from ceres.data import ImmutableDataObject, JSONDict
+from ceres.timing import utc
 
 with lazy_imports(__name__):
     from sqlalchemy.schema import Index, SchemaItem
@@ -150,7 +152,8 @@ class ParticleFilter(
     )
 
     @override
-    def matches(self, obj: Particle[Any]) -> bool:
+    def matches(self, obj: Particle[Any], *, now: datetime | None = None) -> bool:
+        now = utc(now)
         if not super().matches(obj):
             return False
 
@@ -182,8 +185,14 @@ class ParticleFilter(
         return ParticleRow
 
     @override
-    def _get_where(self, dialect: DatabaseType) -> Iterable[SQLColumnExpression[bool]]:
-        yield from super()._get_where(dialect)
+    def _get_where(
+        self,
+        dialect: DatabaseType,
+        *,
+        now: datetime | None = None,
+    ) -> Iterable[SQLColumnExpression[bool]]:
+        now = utc(now)
+        yield from super()._get_where(dialect, now=now)
         columns = self._get_row_cls()
 
         if self.cls is not None:
@@ -239,6 +248,7 @@ class Particle(BaseRecord, ParticleCreate, Generic[_T]):
     data: SerializeAsAny[_T]
 
     @model_validator(mode="before")
+    @classmethod
     def _validate(cls, value: Any) -> Any:
         if isinstance(value, MutableMapping):
             type = value.get("type", UNKNOWN_TYPE)

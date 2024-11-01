@@ -573,6 +573,7 @@ class Config(ConfigMeta):
     root: ComponentConfig = Field(default_factory=lambda: ComponentConfig(name="root"))
 
     @model_validator(mode="before")
+    @classmethod
     def _validate_before(cls, values: object) -> object:
         if isinstance(values, Mapping):
             values = dict(values)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Annotated, Any, ClassVar, Iterable, Literal, TypeAlias, override
 
 from pydantic import BeforeValidator, Field, PlainSerializer
@@ -18,6 +19,7 @@ from ceres._internal.entity import (
 from ceres._internal.lazy import lazy_imports
 from ceres.data import StrEnum
 from ceres.database.enums import DatabaseType
+from ceres.timing import utc
 
 with lazy_imports(__name__):
     from sqlalchemy.orm import Mapped, mapped_column
@@ -119,8 +121,9 @@ class MessageFilter(BaseRecordFilter["Message", MessageField, MessageOrder]):
     )
 
     @override
-    def matches(self, obj: Message) -> bool:
-        if not super().matches(obj):
+    def matches(self, obj: Message, *, now: datetime | None = None) -> bool:
+        now = utc(now)
+        if not super().matches(obj, now=now):
             return False
 
         if self.direction is not None:
@@ -144,8 +147,14 @@ class MessageFilter(BaseRecordFilter["Message", MessageField, MessageOrder]):
         return MessageRow
 
     @override
-    def _get_where(self, dialect: DatabaseType) -> Iterable[SQLColumnExpression[bool]]:
-        yield from super()._get_where(dialect)
+    def _get_where(
+        self,
+        dialect: DatabaseType,
+        *,
+        now: datetime | None = None,
+    ) -> Iterable[SQLColumnExpression[bool]]:
+        now = utc(now)
+        yield from super()._get_where(dialect, now=now)
         columns = self._get_row_cls()
 
         if self.direction is not None:

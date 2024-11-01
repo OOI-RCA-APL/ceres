@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import (
     Annotated,
     ClassVar,
@@ -28,6 +29,7 @@ from ceres._internal.entity import (
 from ceres._internal.lazy import lazy_imports
 from ceres.database.enums import DatabaseType
 from ceres.level import Level
+from ceres.timing import utc
 
 with lazy_imports(__name__):
     from sqlalchemy.orm import Mapped, mapped_column
@@ -101,8 +103,9 @@ class LogEntryFilter(BaseRecordFilter["LogEntry", LogEntryField, LogEntryOrder])
     )
 
     @override
-    def matches(self, obj: LogEntry) -> bool:
-        if not super().matches(obj):
+    def matches(self, obj: LogEntry, *, now: datetime | None = None) -> bool:
+        now = utc(now)
+        if not super().matches(obj, now=now):
             return False
 
         if self.level is not None:
@@ -126,8 +129,13 @@ class LogEntryFilter(BaseRecordFilter["LogEntry", LogEntryField, LogEntryOrder])
         return LogEntryRow
 
     @override
-    def _get_where(self, dialect: DatabaseType) -> Iterable[SQLColumnExpression[bool]]:
-        yield from super()._get_where(dialect)
+    def _get_where(
+        self,
+        dialect: DatabaseType,
+        *,
+        now: datetime | None = None,
+    ) -> Iterable[SQLColumnExpression[bool]]:
+        yield from super()._get_where(dialect, now=now)
         columns = self._get_row_cls()
 
         if self.level is not None:
