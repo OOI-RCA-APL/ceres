@@ -8,6 +8,7 @@ from typing import (
     Literal,
     Mapping,
     Sequence,
+    TypeAlias,
     TypedDict,
     override,
 )
@@ -57,14 +58,14 @@ class VariableRow(BaseItemRow, kw_only=True):
         )
 
 
-VariableField = (
+VariableField: TypeAlias = (
     BaseItemField
     | Literal[
         "name",
         "value",
     ]
 )
-VariableOrder = (
+VariableOrder: TypeAlias = (
     BaseItemOrder
     | Literal[
         "name",

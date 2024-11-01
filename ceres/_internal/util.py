@@ -17,7 +17,6 @@ from typing import (
     Annotated,
     Any,
     Awaitable,
-    ByteString,
     Callable,
     ClassVar,
     Collection,
@@ -31,7 +30,6 @@ from typing import (
     Protocol,
     Sequence,
     TypeAlias,
-    TypeGuard,
     TypeVar,
     Union,
     cast,
@@ -45,6 +43,7 @@ from weakref import WeakSet, ref
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, create_model, validate_call
 from pydantic.fields import FieldInfo
 from pydantic_core import CoreSchema, SchemaSerializer, SchemaValidator
+from typing_extensions import TypeIs
 
 from ceres._internal.lazy import lazy_imports
 
@@ -131,29 +130,29 @@ class PydanticDataclassLike(DataclassLike, Protocol):
     def __init__(self, *args: Any, **kwargs: Any) -> None: ...
 
 
-def is_dataclass_instance(obj: object) -> TypeGuard[DataclassLike]:
+def is_dataclass_instance(obj: object) -> TypeIs[DataclassLike]:
     return not isinstance(obj, type) and is_dataclass(obj)
 
 
-def is_dataclass_type(obj: object) -> TypeGuard[DataclassLike]:
+def is_dataclass_type(obj: object) -> TypeIs[DataclassLike]:
     return isinstance(obj, type) and is_dataclass(obj)
 
 
-def is_dataclass(obj: object) -> TypeGuard[DataclassLike | type[DataclassLike]]:
+def is_dataclass(obj: object) -> TypeIs[DataclassLike | type[DataclassLike]]:
     return dataclasses.is_dataclass(obj)
 
 
-def is_pydantic_dataclass_type(obj: object) -> TypeGuard[type[PydanticDataclassLike]]:
+def is_pydantic_dataclass_type(obj: object) -> TypeIs[type[PydanticDataclassLike]]:
     return isinstance(obj, type) and is_pydantic_dataclass(obj)
 
 
-def is_pydantic_dataclass_instance(obj: object) -> TypeGuard[PydanticDataclassLike]:
+def is_pydantic_dataclass_instance(obj: object) -> TypeIs[PydanticDataclassLike]:
     return not isinstance(obj, type) and is_pydantic_dataclass(obj)
 
 
 def is_pydantic_dataclass(
     obj: object,
-) -> TypeGuard[PydanticDataclassLike | type[PydanticDataclassLike]]:
+) -> TypeIs[PydanticDataclassLike | type[PydanticDataclassLike]]:
     return dataclasses.is_dataclass(obj) and hasattr(obj, "__pydantic_core_schema__")
 
 
@@ -319,12 +318,15 @@ def is_optional_type(type_: type | UnionType) -> bool:
     return is_subtype(NoneType, type_)
 
 
-def is_stringy(obj: Any) -> TypeGuard[str | ByteString | memoryview]:
-    return lenient_isinstance(obj, (str, ByteString, memoryview))
+StrLike: TypeAlias = str | bytes | bytearray | memoryview
 
 
-def is_iterable(obj: Any) -> TypeGuard[Iterable[Any]]:
-    if not lenient_isinstance(obj, Iterable):
+def is_stringy(obj: Any) -> TypeIs[StrLike]:
+    return isinstance(obj, StrLike)
+
+
+def is_iterable(obj: Any) -> TypeIs[Iterable[Any]]:
+    if not isinstance(obj, Iterable):
         return False
 
     try:
@@ -335,12 +337,12 @@ def is_iterable(obj: Any) -> TypeGuard[Iterable[Any]]:
     return True
 
 
-def is_true_iterable(obj: Any) -> TypeGuard[Iterable[Any]]:
+def is_true_iterable(obj: Any) -> TypeIs[Iterable[Any]]:
     return not is_stringy(obj) and is_iterable(obj)
 
 
-def is_collection(obj: Any) -> TypeGuard[Collection[Any]]:
-    if not lenient_isinstance(obj, Collection):
+def is_collection(obj: Any) -> TypeIs[Collection[Any]]:
+    if not isinstance(obj, Collection):
         return False
 
     try:
@@ -352,11 +354,11 @@ def is_collection(obj: Any) -> TypeGuard[Collection[Any]]:
     return True
 
 
-def is_true_collection(obj: Any) -> TypeGuard[Collection[Any]]:
+def is_true_collection(obj: Any) -> TypeIs[Collection[Any]]:
     return not is_stringy(obj) and is_collection(obj)
 
 
-def is_mapping(obj: Any) -> TypeGuard[Mapping[Any, Any]]:
+def is_mapping(obj: Any) -> TypeIs[Mapping[Any, Any]]:
     if not isinstance(obj, Mapping):
         return False
 
@@ -896,16 +898,9 @@ def sequence[T](start: T, next: Callable[[T], T]) -> Iterator[T]:
 
 
 async def cancel(*tasks: Task[Any]) -> None:
-    for delay in sequence(0.0, lambda current: 0.001 if current == 0 else min(current * 2, 1)):
-        for task in tasks:
-            task.cancel()
-
-        for task in tasks:
-            if not task.done():
-                await asyncio.sleep(delay)
-                continue
-
-        break
+    for task in tasks:
+        task.cancel()
+        await asyncio.sleep(0)
 
 
 async def _wait_many[T](

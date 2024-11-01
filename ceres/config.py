@@ -24,6 +24,7 @@ from pydantic import (
     Field,
     ImportString,
     IPvAnyAddress,
+    NonNegativeInt,
     PositiveInt,
     SecretStr,
     SerializeAsAny,
@@ -34,7 +35,7 @@ from pydantic import (
 )
 
 from ceres._internal.lazy import lazy_imports
-from ceres._internal.typedecs import __Component__
+from ceres._internal.typedecs import __Component__, __DynamicSieve__
 from ceres.address import Address, DynamicAddress
 from ceres.data import (
     ImmutableDataObject,
@@ -63,9 +64,9 @@ from ceres.error import (
     Failure,
     ValidationProblem,
 )
-from ceres.job import Job
 from ceres.level import Level
 from ceres.result import Fail, Ok, Result
+from ceres.schedule import Schedule
 
 with lazy_imports(__name__):
     from ceres._internal import util
@@ -92,6 +93,56 @@ class LoggingConfig(ConfigObject):
     log_alerts_level: Level | None = None
 
 
+class JobConfig(ConfigObject):
+    name: Name
+    action: Name
+    arguments: Mapping[Name, Any] | None = None
+    schedule: Schedule = Field(discriminator="type")
+    retries: NonNegativeInt = 0
+    retry_delay: PositiveTimeDelta = timedelta(seconds=5)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _validate_name_as_action(cls, data: Any) -> Any:
+        if isinstance(data, Mapping):
+            if "action" in data and "name" not in data:
+                data = {**data}
+                data["name"] = data["action"]
+
+        return data
+
+
+class SieveConfig(ConfigObject):
+    name: Name
+    cls: ImportString[type[__DynamicSieve__]] = Field(
+        validation_alias="class",
+        serialization_alias="class",
+    )
+    arguments: Mapping[str, Any] = Field(default_factory=dict)
+    retries: NonNegativeInt | None = None
+    retry_delay: PositiveTimeDelta = timedelta(seconds=5)
+
+    @field_validator("cls")
+    def _validate_cls(
+        cls,
+        value: ImportString[type[__DynamicSieve__]],
+    ) -> ImportString[type[__DynamicSieve__]]:
+        from ceres.sieve import DynamicSieve
+
+        if not issubclass(value, DynamicSieve):
+            raise ValueError("class must be a subclass of `ceres.sieve.DynamicSieve`")
+
+        return value
+
+    @model_validator(mode="after")
+    def _validate_arguments(self) -> Self:
+        self.cls(**self.arguments)
+        return self
+
+    def create(self) -> __DynamicSieve__:
+        return self.cls(**self.arguments)
+
+
 def _get_component_class() -> type[Component]:
     from ceres.component import Component
 
@@ -105,9 +156,10 @@ class ComponentConfig(ConfigObject):
         validation_alias="class",
         serialization_alias="class",
     )
-    arguments: Mapping[str, Any] = Field(default_factory=dict, validation_alias="args")
-    jobs: Sequence[Job] = Field(default_factory=list)
+    arguments: Mapping[str, Any] = Field(default_factory=dict)
+    jobs: Sequence[JobConfig] = Field(default_factory=list)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
+    sieves: Sequence[SieveConfig] = Field(default_factory=list)
     components: Sequence[ComponentConfig] = Field(default_factory=list)
 
     @field_validator("cls")
@@ -136,6 +188,19 @@ class ComponentConfig(ConfigObject):
             raise ValueError("'all' is a disallowed component name")
 
         return value
+
+    @field_validator("sieves", check_fields=False)
+    def _validate_sieves(
+        cls,
+        sieves: Sequence[SieveConfig],
+        info: ValidationInfo,
+    ) -> Sequence[SieveConfig]:
+        name: str = info.data.get("name", "<ERROR>")
+        for sieve_name, group in util.group_by(sieves, lambda current: current.name):
+            if len(list(group)) > 1:
+                raise ValueError(f"duplicate sieve name '{sieve_name}' in component '{name}'")
+
+        return sieves
 
     @field_validator("components", check_fields=False)
     def _validate_components(

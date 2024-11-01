@@ -11,6 +11,7 @@ from typing import (
     Literal,
     Mapping,
     Sequence,
+    TypeAlias,
     TypedDict,
     override,
 )
@@ -358,8 +359,8 @@ class BaseUUIDEntityRow(BaseEntityRow):
         )
 
 
-BaseUUIDEntityField = Literal["id"]
-BaseUUIDEntityOrder = Literal["id", "-id"]
+BaseUUIDEntityField: TypeAlias = Literal["id"]
+BaseUUIDEntityOrder: TypeAlias = Literal["id", "-id"]
 
 
 class BaseUUIDEntityFilterArgs[
@@ -551,8 +552,8 @@ class BaseRecordRow(BaseItemRow, BaseUUIDEntityRow, kw_only=True):
         )
 
 
-BaseRecordField = BaseUUIDEntityField | BaseItemField | Literal["timestamp"]
-BaseRecordOrder = (
+BaseRecordField: TypeAlias = BaseUUIDEntityField | BaseItemField | Literal["timestamp"]
+BaseRecordOrder: TypeAlias = (
     BaseUUIDEntityOrder
     | BaseItemOrder
     | Literal[

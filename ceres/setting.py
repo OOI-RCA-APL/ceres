@@ -8,6 +8,7 @@ from typing import (
     Literal,
     Mapping,
     Sequence,
+    TypeAlias,
     TypedDict,
     override,
 )
@@ -56,7 +57,7 @@ class SettingRow(BaseEntityRow, kw_only=True):
         )
 
 
-SettingField = (
+SettingField: TypeAlias = (
     BaseItemField
     | Literal[
         "user_id",
@@ -64,7 +65,7 @@ SettingField = (
         "value",
     ]
 )
-SettingOrder = (
+SettingOrder: TypeAlias = (
     BaseItemOrder
     | Literal[
         "name",

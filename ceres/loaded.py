@@ -23,7 +23,7 @@ with lazy_imports(__name__):
 
 class Loader[T](ImmutableDataObject):
     cls: ImportString[type[T]] = Field(validation_alias="class", serialization_alias="class")
-    arguments: Mapping[str, Any] = Field(default_factory=dict, validation_alias="args")
+    arguments: Mapping[str, Any] = Field(default_factory=dict)
 
     @classmethod
     def _get_extra_kwarg_names(cls) -> Sequence[str]:
@@ -36,7 +36,7 @@ class Loader[T](ImmutableDataObject):
         self._load_obj(self.cls, arguments)
         return self
 
-    def create(self, arguments: Mapping[str, Any] | None = None) -> Any:
+    def create(self, arguments: Mapping[str, Any] | None = None) -> T:
         if arguments is None:
             arguments = {}
 
@@ -50,7 +50,7 @@ class Loader[T](ImmutableDataObject):
         cls,
         target: type,
         arguments: Mapping[str, Any] | None = None,
-    ) -> Any:
+    ) -> T:
         if arguments is None:
             arguments = {}
 
@@ -70,7 +70,7 @@ class Loader[T](ImmutableDataObject):
                 else:
                     init(instance, *arguments)
 
-        return instance
+        return instance  # type: ignore
 
 
 _loaded_type_cache: dict[type, type[LoadedType]] = {}

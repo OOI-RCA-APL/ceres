@@ -107,12 +107,13 @@ class Tasklet(ABC):
                     if on_completed:
                         on_completed(self)
 
-                    self.__tasklet__.task = None
-                    self.__tasklet__.stopped.set()
                     try:
                         await self.__post_stop__()
                     except Exception:
                         traceback.print_exc()
+
+                    self.__tasklet__.task = None
+                    self.__tasklet__.stopped.set()
 
         self.__tasklet__.task = asyncio.create_task(main(), name=str(type(self)))
 

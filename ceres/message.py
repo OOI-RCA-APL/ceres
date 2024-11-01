@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Annotated, Any, ClassVar, Iterable, Literal, Mapping, override
+from typing import Annotated, Any, ClassVar, Iterable, Literal, Mapping, TypeAlias, override
 
 from pydantic import BeforeValidator, Field, PlainSerializer
 
@@ -75,14 +75,14 @@ class MessageRow(BaseRecordRow, kw_only=True):
         )
 
 
-MessageField = (
+MessageField: TypeAlias = (
     BaseRecordField
     | Literal[
         "direction",
         "content",
     ]
 )
-MessageOrder = (
+MessageOrder: TypeAlias = (
     BaseRecordOrder
     | Literal[
         "direction",

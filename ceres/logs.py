@@ -8,6 +8,7 @@ from typing import (
     Literal,
     Mapping,
     Sequence,
+    TypeAlias,
     override,
 )
 
@@ -58,14 +59,14 @@ class LogEntryRow(BaseRecordRow, kw_only=True):
         )
 
 
-LogEntryField = (
+LogEntryField: TypeAlias = (
     BaseRecordField
     | Literal[
         "level",
         "content",
     ]
 )
-LogEntryOrder = (
+LogEntryOrder: TypeAlias = (
     BaseRecordOrder
     | Literal[
         "level",

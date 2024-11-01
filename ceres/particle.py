@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
+from abc import ABC
 from types import MappingProxyType
 from typing import (
     TYPE_CHECKING,
     Annotated,
     Any,
-    AsyncIterable,
     ClassVar,
     Generic,
     Iterable,
@@ -39,9 +38,6 @@ from ceres._internal.entity import (
 )
 from ceres._internal.lazy import lazy_imports
 from ceres.data import ImmutableDataObject, JSONDict, jsonify
-from ceres.error import ParticleError
-from ceres.message import Message
-from ceres.result import Result
 
 with lazy_imports(__name__):
     from sqlalchemy.schema import Index, SchemaItem
@@ -71,14 +67,14 @@ class ParticleRow(BaseRecordRow, kw_only=True):
         )
 
 
-ParticleField = (
+ParticleField: TypeAlias = (
     BaseRecordField
     | Literal[
         "type",
         "data",
     ]
 )
-ParticleOrder = (
+ParticleOrder: TypeAlias = (
     BaseRecordOrder
     | Literal[
         "type",
@@ -322,28 +318,3 @@ class Particle(BaseRecord, ParticleCreate, Generic[_T]):
             return self.convert(cls)
         except ValidationError:
             return None
-
-
-class DynamicSiv(ImmutableDataObject):
-    @abstractmethod
-    def read(
-        self, messages: AsyncIterable[Message]
-    ) -> AsyncIterable[Result[Particle, ParticleError]]: ...
-
-
-class Siv[T: Particle](DynamicSiv):
-    @abstractmethod
-    @override
-    def read(self, messages: AsyncIterable[Message]) -> AsyncIterable[Result[T, ParticleError]]: ...
-
-
-class MonoSiv[T: Particle](Siv[T]):
-    @override
-    async def read(
-        self,
-        messages: AsyncIterable[Message],
-    ) -> AsyncIterable[Result[T, ParticleError]]:
-        async for message in messages:
-            yield self.parse(message)
-
-    def parse(self, message: Message) -> Result[T, ParticleError]: ...

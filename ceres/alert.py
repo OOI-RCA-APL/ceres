@@ -8,6 +8,7 @@ from typing import (
     Literal,
     Mapping,
     Sequence,
+    TypeAlias,
     TypedDict,
     override,
 )
@@ -66,7 +67,7 @@ class AlertRow(BaseRecordRow, kw_only=True):
         )
 
 
-AlertField = (
+AlertField: TypeAlias = (
     BaseRecordField
     | Literal[
         "level",
@@ -74,7 +75,7 @@ AlertField = (
         "info",
     ]
 )
-AlertOrder = (
+AlertOrder: TypeAlias = (
     BaseRecordOrder
     | Literal[
         "level",

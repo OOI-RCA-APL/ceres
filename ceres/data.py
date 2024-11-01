@@ -14,6 +14,7 @@ from typing import (
     Literal,
     NewType,
     Sized,
+    TypeAlias,
     TypedDict,
     TypeVar,
     Unpack,
@@ -72,16 +73,16 @@ def yamlify(obj: object, **kwargs: Unpack[SerializeArgs]) -> str:
     return yaml.safe_dump(simplify(obj, **kwargs), indent=kwargs.get("indent", None))
 
 
-Name = Annotated[str, StringConstraints(pattern=NAME_PATTERN)]
-NonEmptyStr = Annotated[str, StringConstraints(min_length=1)]
-NonBlankStr = Annotated[str, StringConstraints(min_length=1, pattern=r".*\S.*")]
+Name: TypeAlias = Annotated[str, StringConstraints(pattern=NAME_PATTERN)]
+NonEmptyStr: TypeAlias = Annotated[str, StringConstraints(min_length=1)]
+NonBlankStr: TypeAlias = Annotated[str, StringConstraints(min_length=1, pattern=r".*\S.*")]
 
 
 def __validate_date(value: date | None) -> date | None:
     return value
 
 
-Date = Annotated[date, AfterValidator(__validate_date)]
+Date: TypeAlias = Annotated[date, AfterValidator(__validate_date)]
 
 
 def __validate_datetime(value: object) -> datetime | None:
@@ -106,7 +107,7 @@ def __validate_datetime(value: object) -> datetime | None:
     return instance.astimezone(timezone.utc)
 
 
-DateTime = Annotated[datetime, AfterValidator(__validate_datetime)]
+DateTime: TypeAlias = Annotated[datetime, AfterValidator(__validate_datetime)]
 
 
 def __validate_timedelta(value: Any) -> timedelta | None:
@@ -116,7 +117,7 @@ def __validate_timedelta(value: Any) -> timedelta | None:
     return util.decode_td(value)
 
 
-TimeDelta = Annotated[timedelta, BeforeValidator(__validate_timedelta)]
+TimeDelta: TypeAlias = Annotated[timedelta, BeforeValidator(__validate_timedelta)]
 
 __ZERO_TIMEDELTA = timedelta()
 
@@ -130,7 +131,7 @@ def __validate_positive_timedelta(value: object) -> timedelta | None:
     return delta
 
 
-PositiveTimeDelta = Annotated[timedelta, BeforeValidator(__validate_positive_timedelta)]
+PositiveTimeDelta: TypeAlias = Annotated[timedelta, BeforeValidator(__validate_positive_timedelta)]
 
 
 def __validate_non_negative_timedelta(value: object) -> timedelta | None:
@@ -142,7 +143,9 @@ def __validate_non_negative_timedelta(value: object) -> timedelta | None:
     return delta
 
 
-NonNegativeTimeDelta = Annotated[timedelta, BeforeValidator(__validate_non_negative_timedelta)]
+NonNegativeTimeDelta: TypeAlias = Annotated[
+    timedelta, BeforeValidator(__validate_non_negative_timedelta)
+]
 
 
 def __pre_validate_from_json(value: object) -> object:
@@ -170,8 +173,8 @@ def __pre_validate_from_yaml(value: object) -> object:
 
 _T = TypeVar("_T")
 
-FromJSON = Annotated[_T, BeforeValidator(__pre_validate_from_json)]
-FromYAML = Annotated[_T, BeforeValidator(__pre_validate_from_yaml)]
+FromJSON: TypeAlias = Annotated[_T, BeforeValidator(__pre_validate_from_json)]
+FromYAML: TypeAlias = Annotated[_T, BeforeValidator(__pre_validate_from_yaml)]
 
 
 def __validate_jsonable(value: object) -> object:
@@ -192,10 +195,10 @@ def __validate_yamlable(value: object) -> object:
     return value
 
 
-JSONWriteable = Annotated[_T, AfterValidator(__validate_jsonable)]
-JSONDict = JSONWriteable[FromJSON[dict[str, Any]]]
-JSONList = JSONWriteable[FromJSON[list[Any]]]
-JSONValue = None | bool | int | float | str | JSONDict | JSONList
+JSONWriteable: TypeAlias = Annotated[_T, AfterValidator(__validate_jsonable)]
+JSONDict: TypeAlias = JSONWriteable[FromJSON[dict[str, Any]]]
+JSONList: TypeAlias = JSONWriteable[FromJSON[list[Any]]]
+JSONValue: TypeAlias = None | bool | int | float | str | JSONDict | JSONList
 
 
 def __validate_non_empty(value: object) -> object:
@@ -205,7 +208,7 @@ def __validate_non_empty(value: object) -> object:
     return value
 
 
-NonEmpty = Annotated[_T, AfterValidator(__validate_non_empty)]
+NonEmpty: TypeAlias = Annotated[_T, AfterValidator(__validate_non_empty)]
 
 
 class DataObject(BaseModel, ABC):
@@ -289,7 +292,7 @@ class ValidatedDataclass(ABC, PydanticDataclassLike):
 
 __USERNAME_PATTERN = r"[a-zA-Z\-_]+"
 
-UsernameStr = Annotated[
+UsernameStr: TypeAlias = Annotated[
     str,
     StringConstraints(
         pattern=__USERNAME_PATTERN,
@@ -307,13 +310,13 @@ def __validate_password_str(value: str) -> str:
     return value
 
 
-PasswordStr = Annotated[
+PasswordStr: TypeAlias = Annotated[
     str,
     StringConstraints(min_length=1, max_length=32),
     AfterValidator(__validate_password_str),
 ]
 
-EmailStr = _BaseEmailStr
+EmailStr: TypeAlias = _BaseEmailStr
 
 __BCRYPT_HASH_PATTERN = r"^\$2[ayb]\$.{56}$"
 
@@ -335,7 +338,7 @@ Argon2Hash = NewType(
     str if TYPE_CHECKING else Annotated[str, StringConstraints(pattern=__ARGON2_HASH_PATTERN)],
 )
 
-PasswordHash = BCryptHash | Argon2Hash
+PasswordHash: TypeAlias = BCryptHash | Argon2Hash
 
 
 class StrEnum(BaseStrEnum):

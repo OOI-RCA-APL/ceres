@@ -14,8 +14,8 @@ from ceres._internal.templates import templates
 from ceres.address import Address
 from ceres.alert import Alert, AlertFilter, Level
 from ceres.component import Component, action, routine
+from ceres.config import JobConfig
 from ceres.data import ImmutableDataObject, NonBlankStr, jsonify
-from ceres.job import Job
 from ceres.loaded import Loaded
 from ceres.reference import Ref
 from ceres.roles.notifier import Notification, Notifier
@@ -104,7 +104,7 @@ class Dispatcher(Component):
                 continue
 
             self.system.jobs.add(
-                Job(
+                JobConfig(
                     name=f"dispatch-{dispatch.subject.lower().replace(' ', '-')}",
                     schedule=dispatch.schedule,
                     action=self.dispatch.__name__,

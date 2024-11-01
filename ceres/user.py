@@ -8,6 +8,7 @@ from typing import (
     Literal,
     Mapping,
     Sequence,
+    TypeAlias,
     TypedDict,
     override,
 )
@@ -78,8 +79,8 @@ class UserRow(BaseUUIDEntityRow, kw_only=True):
         )
 
 
-UserField = BaseUUIDEntityField | Literal["username", "email", "role", "disabled"]
-UserOrder = (
+UserField: TypeAlias = BaseUUIDEntityField | Literal["username", "email", "role", "disabled"]
+UserOrder: TypeAlias = (
     BaseUUIDEntityOrder
     | Literal[
         "username",

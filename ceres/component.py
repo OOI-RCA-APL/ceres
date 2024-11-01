@@ -92,6 +92,7 @@ with lazy_imports(__name__):
     from ceres._internal.util import OrderedWeakSet, Undefined, WeakRef
     from ceres.database import Database
     from ceres.manager.job import JobManager
+    from ceres.manager.sieve import SieveManager
     from ceres.reference import Reference, unref
 
 if TYPE_CHECKING:
@@ -694,6 +695,8 @@ class ComponentSystem(Node):
         if self.__config__ is not None:
             for job in self.__config__.jobs:
                 self.jobs.add(job)
+            for sieve in self.__config__.sieves:
+                self.sieves.add(sieve)
 
         self.sync_references()
 
@@ -790,6 +793,10 @@ class ComponentSystem(Node):
     @cached_property
     def jobs(self) -> JobManager:
         return JobManager(self)
+
+    @cached_property
+    def sieves(self) -> SieveManager:
+        return SieveManager(self)
 
     @override
     async def __node_sync__(self, session: AsyncSession | None = None) -> None:
@@ -1231,15 +1238,16 @@ class ComponentSystem(Node):
 
             await asyncio.gather(
                 super().__run__(),
-                self.__process_routines(),
-                self.jobs.process(),
+                self.__run_routines(),
+                self.jobs.__run__(),
+                self.sieves.__run__(),
             )
         except Exception:
             self.log.error("An error occurred during component system execution.", exc_info=True)
             traceback.print_exc()
             raise
 
-    async def __process_routine(self, binding: RoutineBinding) -> None:
+    async def __run_routine(self, binding: RoutineBinding) -> None:
         routine = getattr(self.component, binding.method, None)
         if routine is None:
             return
@@ -1278,9 +1286,9 @@ class ComponentSystem(Node):
         finally:
             self.events.emit(RoutineStoppedEvent, routine=binding.method)
 
-    async def __process_routines(self) -> None:
+    async def __run_routines(self) -> None:
         await asyncio.gather(
-            *[self.__process_routine(binding) for binding in self.get_routine_bindings()]
+            *[self.__run_routine(binding) for binding in self.get_routine_bindings()]
         )
 
     @override

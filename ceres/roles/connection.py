@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 from functools import cached_property
 from re import Match, Pattern, RegexFlag
-from typing import Annotated, Literal, Self, Sequence, final, override
+from typing import Annotated, Literal, Self, final, override
 
 from pydantic import (
     BeforeValidator,
@@ -35,13 +35,9 @@ from ceres.event import (
     DisconnectingEvent,
     MessageReceivedEvent,
     MessageSentEvent,
-    ParticleEvent,
     ReconnectScheduledEvent,
 )
-from ceres.loaded import Loaded
 from ceres.message import Message, MessageContent, MessageDirection
-from ceres.particle import DynamicSiv
-from ceres.result import Fail, Ok
 from ceres.schedule import IntervalSchedule
 from ceres.timing import utc
 
@@ -124,7 +120,6 @@ class Connection(Component, ABC):
     reconnect_settings: ConnectionReconnectSettings = field(
         default_factory=ConnectionReconnectSettings
     )
-    sivs: Sequence[Loaded[DynamicSiv]] = field(default_factory=list)
 
     @model_validator(mode="after")
     def _validate(self) -> Self:
@@ -348,19 +343,6 @@ class Connection(Component, ABC):
             await util.sleep_forever()
         finally:
             await self.disconnect()
-
-    @routine
-    async def routine__process_sivs(self) -> None:
-        async def process_siv(siv: DynamicSiv) -> None:
-            async for result in siv.read(self.system.messages.follow(address=self.system.address)):
-                match result:
-                    case Ok(particle):
-                        self.system.particles.store(particle)
-                        self.system.events.emit(ParticleEvent, particle=particle)
-                    case Fail(error):
-                        self.system.log.error(f"particle-error: {error.reason}")
-
-        await asyncio.gather(*(process_siv(siv) for siv in self.sivs))
 
 
 @dataclass(kw_only=True, frozen=True)

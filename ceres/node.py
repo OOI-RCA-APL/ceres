@@ -174,7 +174,7 @@ class Node(Tasklet):
     @override
     async def __run__(self) -> None:
         self.events.emit(StartedEvent)
-        await asyncio.gather(self.__process_flush(), self.events.process())
+        await asyncio.gather(self.__process_flush(), self.events.__run__())
 
     async def __process_flush(self) -> None:
         while True:

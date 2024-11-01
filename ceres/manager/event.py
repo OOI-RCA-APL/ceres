@@ -56,9 +56,9 @@ class EventManager(BaseBoundManager[Event]):
 
         return None
 
-    async def process(self) -> None:
+    async def __run__(self) -> None:
         await asyncio.gather(
-            *(listener.process() for listener in self._listeners),
+            *(listener.__run__() for listener in self._listeners),
             util.sleep_forever(),
         )
 
@@ -173,7 +173,7 @@ class _Listener:
         "_handler",
         "_handler_arity",
         "_queue",
-        "_processing",
+        "_running",
     )
 
     def __init__(
@@ -187,7 +187,7 @@ class _Listener:
         self._handler: _ComponentEventHandler = getattr(system.component, binding.method)
         self._handler_arity = len(inspect.signature(self._handler).parameters)
         self._queue: AsyncQueue[Event] = AsyncQueue()
-        self._processing = False
+        self._running = False
 
     @property
     def settled(self) -> bool:
@@ -196,27 +196,14 @@ class _Listener:
     def would_handle(self, event: Event) -> bool:
         return self.handles(type(event), event.address)
 
-    async def _process_one(self, event: Event) -> None:
-        try:
-            result = self._handler(*[event][: self._handler_arity])
-            if inspect.iscoroutine(result):
-                await result
-        except Exception:
-            self._system.log.error(
-                f"An exception occurred while processing event {event}: "
-                f"{traceback.format_exc()}"
-            )
-        finally:
-            self._queue.task_done()
-
-    async def process(self) -> None:
-        self._processing = True
+    async def __run__(self) -> None:
+        self._running = True
         try:
             while True:
                 event = await self._queue.get()
-                await self._process_one(event)
+                await self._process(event)
         finally:
-            self._processing = False
+            self._running = False
 
     async def settle(self) -> None:
         if self._queue.empty():
@@ -228,7 +215,7 @@ class _Listener:
             except asyncio.QueueEmpty:
                 break
 
-            await self._process_one(event)
+            await self._process(event)
 
     def clear(self) -> None:
         while not self._queue.empty():
@@ -263,3 +250,16 @@ class _Listener:
 
         self._queue.put_nowait(event)
         return True
+
+    async def _process(self, event: Event) -> None:
+        try:
+            result = self._handler(*[event][: self._handler_arity])
+            if inspect.iscoroutine(result):
+                await result
+        except Exception:
+            self._system.log.error(
+                f"An exception occurred while processing event {event}: "
+                f"{traceback.format_exc()}"
+            )
+        finally:
+            self._queue.task_done()

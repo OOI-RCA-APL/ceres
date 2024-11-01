@@ -18,7 +18,6 @@ from ceres.event import (
     JobRetryPendingEvent,
     JobStartedEvent,
 )
-from ceres.job import Job
 
 with lazy_imports(__name__):
     from threading import Lock
@@ -27,7 +26,8 @@ with lazy_imports(__name__):
     from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
     from ceres._internal import util
-    from ceres.component import ComponentSystem, get_component_method_binding
+    from ceres.component import ComponentSystem
+    from ceres.config import JobConfig
     from ceres.schedule import Trigger
 
 
@@ -54,34 +54,28 @@ class JobManager:
     def __init__(self, source: ComponentSystem) -> None:
         self._system = source
         self._scheduler = AsyncIOScheduler()
-        self._jobs: dict[Name, Job] = {}
+        self._jobs: dict[Name, JobConfig] = {}
         self._lock = Lock()
 
     @property
     def count(self) -> int:
         return len(self._jobs)
 
-    async def process(self) -> None:
+    async def __run__(self) -> None:
         try:
             with self._lock:
-                self.__sync()
+                self.__sync_jobs()
             self._scheduler.start()
             await util.sleep_forever()
         finally:
             if self._scheduler.running:
                 self._scheduler.shutdown()
 
-    def add(self, job: Job) -> None:
+    def add(self, job: JobConfig) -> None:
         """
         Register a job to be executed according to its defined schedule.
         """
-        from ceres.component import ActionBinding
-
-        binding = (
-            self._system.get_action_binding(job.action)
-            if isinstance(job.action, str)
-            else get_component_method_binding(job.action, ActionBinding)
-        )
+        binding = self._system.get_action_binding(job.action)
         if binding is None:
             raise ValueError(
                 f"action '{job.action}' does not exist on {util.strify(type(self._system.component))}"
@@ -90,15 +84,15 @@ class JobManager:
         with self._lock:
             self._jobs[job.name] = job
             self._system.events.emit(JobAddedEvent, job=job.name)
-            self.__sync()
+            self.__sync_jobs()
 
-    def get(self, name: Name) -> Job | None:
+    def get(self, name: Name) -> JobConfig | None:
         return self._jobs.get(name)
 
-    def get_all(self) -> list[Job]:
+    def get_all(self) -> list[JobConfig]:
         return list(self._jobs.values())
 
-    def remove(self, name: Name) -> Job | None:
+    def remove(self, name: Name) -> JobConfig | None:
         from apscheduler.jobstores.base import JobLookupError
 
         with self._lock:
@@ -121,7 +115,7 @@ class JobManager:
                 job: InternalJob = job
                 self._scheduler.remove_job(job.id)
 
-    def __sync(self) -> None:
+    def __sync_jobs(self) -> None:
         for name, job in self._jobs.items():
             internal: InternalJob | None = self._scheduler.get_job(name)
             if internal is not None:
@@ -137,7 +131,7 @@ class JobManager:
                 id=name,
             )
 
-    async def __run(self, job: Job) -> None:
+    async def __run(self, job: JobConfig) -> None:
         self._system.events.emit(JobStartedEvent, job=job.name)
         retry = 0
 
@@ -148,7 +142,7 @@ class JobManager:
                 break
             except CancelledError:
                 self._system.events.emit(JobCancelledEvent, job=job.name)
-                break
+                raise
             except Exception as exception:
                 self._system.events.emit(
                     JobExceptionEvent,
