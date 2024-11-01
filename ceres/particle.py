@@ -11,7 +11,6 @@ from typing import (
     Iterable,
     Literal,
     LiteralString,
-    Mapping,
     MutableMapping,
     Sequence,
     Type,
@@ -22,7 +21,7 @@ from typing import (
 from pydantic import ConfigDict, Field, SerializeAsAny, ValidationError, model_validator
 from pydantic.types import ImportString
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.sql.sqltypes import JSON, String, Text
+from sqlalchemy.sql.sqltypes import JSON, String
 from typing_extensions import TypeVar
 
 from ceres._internal.cli.plumbing import CLIOption
@@ -37,11 +36,11 @@ from ceres._internal.entity import (
     BaseRecordUpdate,
 )
 from ceres._internal.lazy import lazy_imports
-from ceres.data import ImmutableDataObject, JSONDict, jsonify
+from ceres.data import ImmutableDataObject, JSONDict
 
 with lazy_imports(__name__):
     from sqlalchemy.schema import Index, SchemaItem
-    from sqlalchemy.sql import SQLColumnExpression, cast, or_
+    from sqlalchemy.sql import SQLColumnExpression, or_
 
     from ceres._internal import util
     from ceres.database.enums import DatabaseType
@@ -181,33 +180,6 @@ class ParticleFilter(
     @override
     def _get_row_cls(cls) -> type[ParticleRow]:
         return ParticleRow
-
-    @override
-    def _get_search_content(self, obj: Particle) -> Mapping[str, str]:
-        return {
-            **super()._get_search_content(obj),
-            "type": obj.type,
-            "data": jsonify(obj.data),
-        }
-
-    @override
-    def _get_database_search_content(
-        self,
-        dialect: DatabaseType,
-    ) -> Mapping[str, SQLColumnExpression[Any]]:
-        columns = self._get_row_cls()
-
-        match dialect:
-            case DatabaseType.POSTGRES:
-                data = cast(columns.data, Text)
-            case DatabaseType.SQLITE:
-                data = columns.data
-
-        return {
-            **super()._get_database_search_content(dialect),
-            "type": columns.type,
-            "data": data,
-        }
 
     @override
     def _get_where(self, dialect: DatabaseType) -> Iterable[SQLColumnExpression[bool]]:

@@ -2,11 +2,9 @@ from __future__ import annotations
 
 from typing import (
     Annotated,
-    Any,
     ClassVar,
     Iterable,
     Literal,
-    Mapping,
     Sequence,
     TypeAlias,
     override,
@@ -126,27 +124,6 @@ class LogEntryFilter(BaseRecordFilter["LogEntry", LogEntryField, LogEntryOrder])
     @override
     def _get_row_cls(cls) -> type[LogEntryRow]:
         return LogEntryRow
-
-    @override
-    def _get_search_content(self, obj: LogEntry) -> Mapping[str, str]:
-        return {
-            **super()._get_search_content(obj),
-            "level": obj.level,
-            "content": obj.content,
-        }
-
-    @override
-    def _get_database_search_content(
-        self,
-        dialect: DatabaseType,
-    ) -> Mapping[str, SQLColumnExpression[Any]]:
-        columns = self._get_row_cls()
-
-        return {
-            **super()._get_database_search_content(dialect),
-            "level": columns.level,
-            "content": columns.content,
-        }
 
     @override
     def _get_where(self, dialect: DatabaseType) -> Iterable[SQLColumnExpression[bool]]:

@@ -49,7 +49,6 @@ with lazy_imports(__name__):
         Select,
         SQLColumnExpression,
         Update,
-        expression,
         select,
         tuple_,
     )
@@ -195,14 +194,6 @@ class BaseEntityFilter[
     FieldT: str,
     OrderT: str,
 ](BaseFilter, ABC):
-    search: Annotated[str | None, CLIOption(str | None)] = Field(
-        default=None,
-        description="Filter by text content of field(s) in `search-field`.",
-    )
-    search_field: Annotated[FieldT | Sequence[FieldT] | None, CLIOption(list[str] | None)] = Field(
-        default=None,
-        description="Field(s) matched by `search`. Defaults to all.",
-    )
     order: Annotated[OrderT | Sequence[OrderT] | None, CLIOption(list[str] | None)] = Field(
         default=None,
         description="Specify ordering of results by field. Prefix field names with '-' for descending order.",
@@ -222,58 +213,11 @@ class BaseEntityFilter[
     @abstractmethod
     def _get_row_cls(cls) -> type[BaseEntityRow]: ...
 
-    def _get_search_content(self, obj: EntityT) -> Mapping[str, str]:
-        return {}
-
-    def _get_database_search_content(
-        self,
-        dialect: DatabaseType,
-    ) -> Mapping[str, SQLColumnExpression[Any]]:
-        return {}
-
-    def _get_database_search_content_encoded_fields(self, dialect: DatabaseType) -> set[str]:
-        return set()
-
     def matches(self, obj: EntityT) -> bool:
-        if self.search is not None:
-            values = self._get_search_content(obj)
-            fields = values if self.search_field is None else util.as_sequence(self.search_field)
-            matched = False
-            for field in fields:
-                value = values.get(field)
-                if value is None:
-                    continue
-
-                if self.search in value:
-                    matched = True
-                    break
-
-            if not matched:
-                return False
-
         return True
 
     def _get_where(self, dialect: DatabaseType) -> Iterable[SQLColumnExpression[bool]]:
-        encoded = self._get_database_search_content_encoded_fields(dialect)
-
-        if self.search is not None:
-            pattern = "%" + util.escape_like_expression(self.search) + "%"
-
-            values = self._get_database_search_content(dialect)
-            fields = values if self.search_field is None else util.as_sequence(self.search_field)
-            condition: SQLColumnExpression[bool] | None = expression.false()
-
-            for field in fields:
-                value = values.get(field)
-                if value is None:
-                    continue
-
-                if field in encoded:
-                    condition |= value.like(pattern.encode("latin-1", "ignore"))
-                else:
-                    condition |= value.like(pattern)
-
-            yield condition
+        return ()
 
     @abstractmethod
     def _get_default_order(self) -> OrderT: ...
@@ -486,25 +430,6 @@ class BaseItemFilter[
     def _get_row_cls(cls) -> type[BaseItemRow]: ...
 
     @override
-    def _get_search_content(self, obj: ItemT) -> Mapping[str, str]:
-        return {
-            **super()._get_search_content(obj),
-            "address": str(obj.address),
-        }
-
-    @override
-    def _get_database_search_content(
-        self,
-        dialect: DatabaseType,
-    ) -> Mapping[str, SQLColumnExpression[Any]]:
-        columns = self._get_row_cls()
-
-        return {
-            **super()._get_database_search_content(dialect),
-            "address": columns.address,
-        }
-
-    @override
     def _get_where(self, dialect: DatabaseType) -> Iterable[SQLColumnExpression[bool]]:
         yield from super()._get_where(dialect)
         columns = self._get_row_cls()
@@ -628,25 +553,6 @@ class BaseRecordFilter[
     @abstractmethod
     @override
     def _get_row_cls(cls) -> type[BaseRecordRow]: ...
-
-    @override
-    def _get_search_content(self, obj: RecordT) -> Mapping[str, str]:
-        return {
-            **super()._get_search_content(obj),
-            "timestamp": util.format_timestamp(obj.timestamp),
-        }
-
-    @override
-    def _get_database_search_content(
-        self,
-        dialect: DatabaseType,
-    ) -> Mapping[str, SQLColumnExpression[Any]]:
-        columns = self._get_row_cls()
-
-        return {
-            **super()._get_database_search_content(dialect),
-            "timestamp": util.format_sql_timestamp(columns.timestamp, dialect),
-        }
 
     @override
     def _get_where(self, dialect: DatabaseType) -> Iterable[SQLColumnExpression[bool]]:

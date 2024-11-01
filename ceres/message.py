@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Annotated, Any, ClassVar, Iterable, Literal, Mapping, TypeAlias, override
+from typing import Annotated, Any, ClassVar, Iterable, Literal, TypeAlias, override
 
 from pydantic import BeforeValidator, Field, PlainSerializer
 
@@ -142,45 +142,6 @@ class MessageFilter(BaseRecordFilter["Message", MessageField, MessageOrder]):
     @override
     def _get_row_cls(cls) -> type[MessageRow]:
         return MessageRow
-
-    @override
-    def _get_search_content(self, obj: Message) -> Mapping[str, str]:
-        return {
-            **super()._get_search_content(obj),
-            "direction": obj.direction,
-            "content": obj.content.decode("latin-1", "ignore"),
-        }
-
-    @override
-    def _get_database_search_content(
-        self,
-        dialect: DatabaseType,
-    ) -> Mapping[str, SQLColumnExpression[Any]]:
-        columns = self._get_row_cls()
-
-        match dialect:
-            case DatabaseType.POSTGRES:
-                content = func.ceres_decode_latin1(columns.content)
-            case DatabaseType.SQLITE:
-                content = columns.content
-
-        return {
-            **super()._get_database_search_content(dialect),
-            "direction": columns.direction,
-            "content": content,
-        }
-
-    @override
-    def _get_database_search_content_encoded_fields(self, dialect: DatabaseType) -> set[str]:
-        fields = super()._get_database_search_content_encoded_fields(dialect)
-
-        match dialect:
-            case DatabaseType.POSTGRES:
-                pass
-            case DatabaseType.SQLITE:
-                fields.add("content")
-
-        return fields
 
     @override
     def _get_where(self, dialect: DatabaseType) -> Iterable[SQLColumnExpression[bool]]:

@@ -35,7 +35,7 @@ from ceres.level import Level
 with lazy_imports(__name__):
     from sqlalchemy.orm import Mapped, mapped_column
     from sqlalchemy.schema import Index, SchemaItem
-    from sqlalchemy.sql import SQLColumnExpression, cast
+    from sqlalchemy.sql import SQLColumnExpression
     from sqlalchemy.sql.sqltypes import JSON, Text
 
     from ceres._internal import util
@@ -143,35 +143,6 @@ class AlertFilter(BaseRecordFilter["Alert", AlertField, AlertOrder]):
     @override
     def _get_row_cls(cls) -> type[AlertRow]:
         return AlertRow
-
-    @override
-    def _get_search_content(self, obj: Alert) -> Mapping[str, str]:
-        return {
-            **super()._get_search_content(obj),
-            "level": obj.level,
-            "code": obj.code,
-            "info": jsonify(obj.info),
-        }
-
-    @override
-    def _get_database_search_content(
-        self,
-        dialect: DatabaseType,
-    ) -> Mapping[str, SQLColumnExpression[Any]]:
-        columns = self._get_row_cls()
-
-        match dialect:
-            case DatabaseType.POSTGRES:
-                info = cast(columns.info, Text)
-            case DatabaseType.SQLITE:
-                info = columns.info
-
-        return {
-            **super()._get_database_search_content(dialect),
-            "level": columns.level,
-            "code": columns.code,
-            "info": info,
-        }
 
     @override
     def _get_where(self, dialect: DatabaseType) -> Iterable[SQLColumnExpression[bool]]:

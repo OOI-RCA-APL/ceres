@@ -2,11 +2,9 @@ from __future__ import annotations
 
 from typing import (
     Annotated,
-    Any,
     ClassVar,
     Iterable,
     Literal,
-    Mapping,
     Sequence,
     TypeAlias,
     TypedDict,
@@ -124,29 +122,6 @@ class UserFilter(BaseUUIDEntityFilter["User", UserField, UserOrder]):
     @override
     def _get_row_cls(cls) -> type[UserRow]:
         return UserRow
-
-    @override
-    def _get_search_content(self, obj: User) -> Mapping[str, str]:
-        return {
-            **super()._get_search_content(obj),
-            "username": obj.username,
-            "email": obj.email,
-            "role": obj.role,
-        }
-
-    @override
-    def _get_database_search_content(
-        self,
-        dialect: DatabaseType,
-    ) -> Mapping[str, SQLColumnExpression[Any]]:
-        columns = self._get_row_cls()
-
-        return {
-            **super()._get_database_search_content(dialect),
-            "username": columns.username,
-            "email": columns.email,
-            "role": columns.role,
-        }
 
     @override
     def _get_where(self, dialect: DatabaseType) -> Iterable[SQLColumnExpression[bool]]:
