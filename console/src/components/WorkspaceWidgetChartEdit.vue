@@ -61,8 +61,16 @@ const particlesSchema = $computed<any>(() => ({
         :schema="{ type: 'string', title: 'Unit (Y Axis)', optional: true }"
       />
       <schema-form-base
-        v-model="widget.duration"
-        :schema="{ type: 'string', format: 'duration', title: 'Duration', optional: true }"
+        v-model="widget.after"
+        :schema="{ type: 'string', format: 'date-time', title: 'After', optional: true }"
+      />
+      <schema-form-base
+        v-model="widget.before"
+        :schema="{ type: 'string', format: 'date-time', title: 'Before', optional: true }"
+      />
+      <schema-form-base
+        v-model="widget.timespan"
+        :schema="{ type: 'string', format: 'duration', title: 'Timespan', default: '1h' }"
       />
     </div>
     <div class="q-pt-sm q-px-sm">

@@ -46,6 +46,7 @@ export type RecordFilter = Zod.infer<typeof RecordFilterModel>
 export const RecordFilterModel = UUIDEntityFilterModel.merge(ItemFilterModel).extend({
   after: Zod.string().nullish(),
   before: Zod.string().nullish(),
+  timespan: Zod.union([Zod.number(), Zod.string()]).nullish(),
   min_age: Zod.union([Zod.number(), Zod.string()]).nullish(),
   max_age: Zod.union([Zod.number(), Zod.string()]).nullish(),
   order: RecordOrderModel.nullish(),

@@ -23,7 +23,9 @@ async function getSeriesResults() {
       const particles = await engine.particles.getAll({
         address,
         type,
-        max_age: widget.duration,
+        after: widget.after,
+        before: widget.before,
+        timespan: widget.timespan,
         limit: 5000,
       })
 

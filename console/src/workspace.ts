@@ -4,6 +4,8 @@ import { v4 } from 'uuid'
 import { computed, inject, MaybeRef, provide, reactive, unref, watchEffect } from 'vue'
 import Zod from 'zod'
 
+import { DateTimeModel } from './api/shared'
+
 import { AddressModel, AddressSelectorModel } from '@/api/address'
 import { AlertFilterModel } from '@/api/alerts'
 import { ProcedureTypeModel } from '@/api/components'
@@ -96,7 +98,9 @@ export const ChartWidgetModel = BaseWidgetModel.extend({
   name: Zod.string().catch('Chart'),
   display: ChartWidgetDisplayModel.catch('line'),
   unit: Zod.string().nullish(),
-  duration: Zod.union([Zod.number(), Zod.string()]).catch(60 * 60),
+  after: DateTimeModel.nullish(),
+  before: DateTimeModel.nullish(),
+  timespan: Zod.union([Zod.number(), Zod.string()]).catch(60 * 60),
   particles: safeArrayOf(ChartWidgetParticleModel),
 })
 
