@@ -7,8 +7,10 @@ import {
   UseQueryReturnType,
   useQuery as useQueryBase,
 } from '@tanstack/vue-query'
+import { DeepMaybeRef } from '@vueuse/core'
 import { defineStore } from 'pinia'
-import { MaybeRef, unref, watchEffect } from 'vue'
+import { v4 } from 'uuid'
+import { reactive, watchEffect, onUnmounted, DeepReadonly, MaybeRef } from 'vue'
 import { ZodAny, ZodError, ZodTypeAny } from 'zod'
 
 import { ErrorInfo, Failure } from '@/errors'
@@ -138,92 +140,158 @@ function getWebSocketURI(relative: string) {
   return `${protocol}://${hostname}${port}${relative}`
 }
 
-export type StreamOptions = {
-  query?: MaybeRef<Record<string, unknown>> | null
-  disable?: MaybeRef<boolean>
+export type StreamInput = DeepReadonly<{
+  id?: string
+  path: string
+  query?: Record<any, any> | null
+}>
+
+export type Stream = StreamInput & { id: string }
+
+export type StreamOptions = Readonly<{
+  disable?: boolean
+}>
+
+export type UseStreamOptions<TParseModel extends ZodTypeAny> = DeepReadonly<{
+  stream: MaybeRef<StreamInput | StreamInput[]>
+  disable?: boolean
+  parse: TParseModel
+  onReceive?: (message: Zod.infer<TParseModel>, stream: Stream) => unknown
+  onDisconnect?: (option: StreamInput) => unknown
+}>
+
+type StreamEntry = {
+  stream: Stream
+  socket: WebSocket | null
 }
 
 function useStream<TParseModel extends ZodTypeAny>(
-  path: MaybeRef<string>,
-  parse: TParseModel,
-  onReceive: (message: Zod.infer<TParseModel>) => unknown,
-  options?: MaybeRef<StreamOptions>
+  inputOptions: DeepReadonly<DeepMaybeRef<UseStreamOptions<TParseModel>>>
 ) {
-  const inputOptions = $computed(() => unref(options) ?? {})
-  const inputUrl = $computed(() => {
-    const base = getWebSocketURI(unref(path))
-    return base + createQueryParameters(unref(inputOptions.query ?? {}))
-  })
-
-  function createSocket(activeUrl: string, onDisconnect: () => unknown) {
-    const socket = new WebSocket(activeUrl)
-    socket.addEventListener('open', () => {
-      console.log(`Connected to '${activeUrl}'.`)
-    })
-
-    socket.addEventListener('message', (event) => {
-      let data
-      try {
-        data = JSON.parse(event.data)
-      } catch {
-        console.log(`Invalid JSON message from '${activeUrl}': '${event.data}'`)
-        return
-      }
-
-      const result = parse.safeParse(data)
-      if (result.success) {
-        onReceive(result.data)
-      } else {
-        console.error(inputUrl, parse, data, result.error)
-      }
-    })
-
-    socket.addEventListener('error', (event) => {
-      console.log(`Error on '${activeUrl}': ${event.type}`)
-    })
-
-    socket.addEventListener('close', () => {
-      console.log(`Disconnected from '${activeUrl}'.`)
-      onDisconnect()
-    })
-
-    return socket
+  const ids = [] as string[]
+  function getId(index: number) {
+    while (ids.length <= index) {
+      ids.push(v4())
+    }
+    return ids[index]
   }
 
-  watchEffect((onCleanup) => {
-    let mounted = true
-
-    function onDisconnect() {
-      socket?.close()
-      setTimeout(() => {
-        if (mounted) {
-          socket = createSocket(inputUrl, onDisconnect)
-        }
-      }, 3000)
-    }
-
-    let socket = inputOptions.disable ? null : createSocket(inputUrl, onDisconnect)
-
-    function onUnload() {
-      if (socket == null) {
-        return
-      }
-
-      if (socket.readyState == WebSocket.OPEN) {
-        socket.close()
-      }
-    }
-
-    window.addEventListener('unload', onUnload)
-
-    onCleanup(() => {
-      mounted = false
-      window.removeEventListener('unload', onUnload)
-      if (socket != null) {
-        socket.close()
-      }
+  let mounted = false
+  const options = $computed(() => {
+    const temporary = reactive(inputOptions)
+    return reactive({
+      ...temporary,
+      stream: (Array.isArray(temporary.stream) ? temporary.stream : [temporary.stream])
+        .map((current) => (typeof current === 'string' ? { stream: current } : current))
+        .map((current, i) => ({ id: current.id ?? getId(i), ...current })) as Stream[],
     })
   })
+
+  let entries = $ref<Record<string, StreamEntry>>({})
+
+  function onClose(stream: Stream) {
+    const entry = entries[stream.id]
+    if (entry == null) {
+      return
+    }
+
+    entry.socket?.close()
+    setTimeout(() => {
+      if (mounted) {
+        entries[stream.id].socket = createSocket(
+          entry.stream,
+          options as UseStreamOptions<TParseModel>,
+          onClose
+        )
+      }
+    }, 3000)
+  }
+
+  function clear() {
+    for (const entry of Object.values(entries)) {
+      if (entry.socket != null && entry.socket.readyState === WebSocket.OPEN) {
+        entry.socket.close()
+      }
+    }
+
+    entries = {}
+  }
+
+  window.addEventListener('unload', clear)
+
+  onUnmounted(() => {
+    mounted = false
+    window.removeEventListener('unload', clear)
+    clear()
+  })
+
+  watchEffect(() => {
+    for (const stream of options.stream) {
+      const entry = entries[stream.id]
+
+      if (
+        entry != null &&
+        (options.disable || JSON.stringify(stream ?? null) !== JSON.stringify(entry.stream))
+      ) {
+        entry.socket?.close()
+        delete entries[stream.id]
+      }
+
+      const socket = options.disable
+        ? null
+        : createSocket(stream, options as UseStreamOptions<TParseModel>, onClose)
+
+      entries[stream.id] = { stream, socket }
+    }
+  })
+}
+
+function createSocket<TParseModel extends ZodTypeAny>(
+  stream: Stream,
+  options: UseStreamOptions<TParseModel>,
+  onClose: (stream: Stream) => unknown
+) {
+  const url = getWebSocketURI(stream.path) + createQueryParameters(stream.query ?? {})
+  const socket = new WebSocket(url)
+  socket.addEventListener('open', () => {
+    console.log(`Connected to '${url}'.`)
+  })
+
+  socket.addEventListener('message', (event) => {
+    let data
+    try {
+      data = JSON.parse(event.data)
+    } catch {
+      console.log(`Invalid JSON message from '${url}': '${event.data}'`)
+      return
+    }
+
+    const result = options.parse.safeParse(data)
+    if (result.success) {
+      if (options.onReceive != null) {
+        options.onReceive(result.data, stream)
+      }
+    } else {
+      console.error(url, options.parse, data, result.error)
+    }
+  })
+
+  socket.addEventListener('error', (event) => {
+    console.log(`Error on '${url}': ${event.type}`)
+  })
+
+  socket.addEventListener('close', () => {
+    console.log(`Disconnected from '${url}'.`)
+    try {
+      onClose(stream)
+    } finally {
+      if (options.onDisconnect != null) {
+        options.onDisconnect(stream)
+      }
+    }
+  })
+
+  return socket
 }
 
 export const useClient = defineStore('client', () => {

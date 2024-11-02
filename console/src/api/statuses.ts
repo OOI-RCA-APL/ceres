@@ -22,16 +22,16 @@ export const useStatuses = defineStore('statuses', () => {
 
   let mapping = $ref<Record<string, Status>>({})
 
-  client.useStream(
-    '/api/statuses',
-    Zod.array(StatusModel),
-    (current) => {
+  client.useStream({
+    stream: {
+      path: '/api/statuses',
+    },
+    parse: StatusModel.array(),
+    onReceive: (current: Status[]) => {
       mapping = Object.fromEntries(current.map((status) => [status.address.toString(), status]))
     },
-    computed(() => ({
-      disable: auth.user == null,
-    }))
-  )
+    disable: computed(() => auth.user == null),
+  })
 
   const get = getter($$(mapping), (address: Address) => {
     return mapping[address.toString()] ?? null

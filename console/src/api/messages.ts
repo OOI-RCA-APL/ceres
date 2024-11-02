@@ -1,9 +1,10 @@
+import { DeepMaybeRef } from '@vueuse/core'
 import { defineStore } from 'pinia'
-import { MaybeRef, computed, unref } from 'vue'
+import { MaybeRef } from 'vue'
 import Zod from 'zod'
 
 import { Address } from '@/api/address'
-import { StreamOptions, useClient } from '@/api/client'
+import { useClient, StreamOptions } from '@/api/client'
 import { RecordFilterModel, RecordModel } from '@/api/entity'
 import { BaseFailModel, createResultType } from '@/api/shared'
 
@@ -33,24 +34,24 @@ export const useMessages = defineStore('messages', () => {
   async function getAll(filter: MessageFilter): Promise<Message[]> {
     return await client.get('/api/messages', {
       query: filter,
-      parse: Zod.array(MessageModel),
+      parse: MessageModel.array(),
     })
   }
 
   function useStream(
     filter: MaybeRef<MessageFilter>,
     onReceive: (current: Message) => unknown,
-    options?: MaybeRef<Omit<StreamOptions, 'query'>>
+    options?: DeepMaybeRef<StreamOptions>
   ) {
-    client.useStream(
-      '/api/messages',
-      MessageModel,
-      onReceive,
-      computed(() => ({
+    client.useStream({
+      stream: {
+        path: '/api/messages',
         query: filter,
-        ...unref(options),
-      }))
-    )
+      },
+      parse: MessageModel,
+      onReceive,
+      ...options,
+    })
   }
 
   async function send(address: Address, data: string): Promise<SendMessageResult> {

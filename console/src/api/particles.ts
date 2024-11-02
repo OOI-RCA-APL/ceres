@@ -1,5 +1,6 @@
+import { DeepMaybeRef } from '@vueuse/core'
 import { defineStore } from 'pinia'
-import { MaybeRef, computed, unref } from 'vue'
+import { MaybeRef } from 'vue'
 import Zod from 'zod'
 
 import { StreamOptions, useClient } from '@/api/client'
@@ -25,24 +26,24 @@ export const useParticles = defineStore('particles', () => {
   async function getAll(filter: ParticleFilter): Promise<Particle[]> {
     return await client.get('/api/particles', {
       query: filter,
-      parse: Zod.array(ParticleModel),
+      parse: ParticleModel.array(),
     })
   }
 
   function useStream(
     filter: MaybeRef<ParticleFilter>,
     onReceive: (current: Particle) => unknown,
-    options?: MaybeRef<Omit<StreamOptions, 'query'>>
+    options?: DeepMaybeRef<StreamOptions>
   ) {
-    client.useStream(
-      '/api/particles',
-      ParticleModel,
-      onReceive,
-      computed(() => ({
+    client.useStream({
+      stream: {
+        path: '/api/particles',
         query: filter,
-        ...unref(options),
-      }))
-    )
+      },
+      parse: ParticleModel as any,
+      onReceive,
+      ...options,
+    })
   }
 
   return {

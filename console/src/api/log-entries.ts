@@ -1,5 +1,6 @@
+import { DeepMaybeRef } from '@vueuse/core'
 import { defineStore } from 'pinia'
-import { MaybeRef, computed, unref } from 'vue'
+import { MaybeRef } from 'vue'
 import Zod from 'zod'
 
 import { StreamOptions, useClient } from '@/api/client'
@@ -26,24 +27,24 @@ export const useLogEntries = defineStore('log-entries', () => {
   async function getAll(filter: LogEntryFilter): Promise<LogEntry[]> {
     return await client.get(`/api/log-entries`, {
       query: filter,
-      parse: Zod.array(LogEntryModel),
+      parse: LogEntryModel.array(),
     })
   }
 
   function useStream(
     filter: MaybeRef<LogEntryFilter>,
     onReceive: (current: LogEntry) => unknown,
-    options?: MaybeRef<Omit<StreamOptions, 'query'>>
+    options?: DeepMaybeRef<StreamOptions>
   ) {
-    client.useStream(
-      '/api/log-entries',
-      LogEntryModel,
-      onReceive,
-      computed(() => ({
+    client.useStream({
+      stream: {
+        path: '/api/log-entries',
         query: filter,
-        ...unref(options),
-      }))
-    )
+      },
+      parse: LogEntryModel,
+      onReceive,
+      ...options,
+    })
   }
 
   return {

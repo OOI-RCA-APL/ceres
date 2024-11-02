@@ -1293,7 +1293,9 @@ class ComponentSystem(Node):
 
     @override
     async def __stop__(self) -> None:
-        self.events.emit(StoppingEvent)
+        self.events.emit(
+            StoppingEvent
+        )  # TODO: This should be emitted as soon as cancellation occurs.
         for system in reversed(self.children):
             await system.stop()
 

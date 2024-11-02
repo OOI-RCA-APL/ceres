@@ -1,5 +1,6 @@
+import { DeepMaybeRef } from '@vueuse/core'
 import { defineStore } from 'pinia'
-import { MaybeRef, computed, unref } from 'vue'
+import { MaybeRef } from 'vue'
 import Zod from 'zod'
 
 import { StreamOptions, useClient } from '@/api/client'
@@ -33,17 +34,17 @@ export const useAlerts = defineStore('alerts', () => {
   function useStream(
     filter: MaybeRef<AlertFilter>,
     onReceive: (current: Alert) => unknown,
-    options?: MaybeRef<Omit<StreamOptions, 'query'>>
+    options?: DeepMaybeRef<StreamOptions>
   ) {
-    client.useStream(
-      '/api/alerts',
-      AlertModel,
-      onReceive,
-      computed(() => ({
+    client.useStream({
+      stream: {
+        path: '/api/alerts',
         query: filter,
-        ...unref(options),
-      }))
-    )
+      },
+      parse: AlertModel as any,
+      onReceive,
+      ...options,
+    })
   }
 
   return {
