@@ -1,5 +1,4 @@
 <script lang="ts" setup>
-import { ECharts } from 'echarts'
 import moment from 'moment'
 import { computed, watch } from 'vue'
 
@@ -19,14 +18,13 @@ const { widget } = $defineProps<{
 const engine = useEngine()
 const client = useClient()
 const time = useTime()
-let instance = $ref<ECharts | null>(null)
 
-type Results = Record<string, DataValue[][]>
+type Data = Record<string, DataValue[][]>
 
-let data: Results = $ref({})
-let streamedData: Results = $ref({})
-let loading = $ref(true)
-let appended = $ref(0)
+const data: Data = {} // Not reactive for performance.
+let appendedData: Data = {} // Not reactive for performance.
+let appendedCount = $ref(0)
+let isLoading = $ref(true)
 
 const start = $computed(() => {
   const timespan = parseDuration(widget.timespan)
@@ -50,25 +48,27 @@ const end = $computed(() => {
 
 const duration = $computed(() => moment.duration(moment.utc(end ?? time.now).diff(start)))
 
-// Actual x-axis bounds for the chart.
-const bounds = $computed(() => {
+// Actual x-axis min value for the chart.
+const minXValue = $computed(() => {
   const current = moment.utc(start)
-  // Shrink the actual x-axis range slightly to avoid flickering between interval scales when new
+  // Expand the actual x-axis range slightly to avoid flickering between interval scales when new
   // data is appended and the `duration` is a boundary value such as one hour.
-  const shrink = duration.asMilliseconds() / 100
-  return {
-    start: current.subtract(shrink / 2, 'ms').valueOf(),
-    end: current.add(shrink / 2, 'ms').valueOf(),
-  }
+  return current.subtract(duration.asMilliseconds() / 2000, 'ms').valueOf()
 })
 
-async function getData() {
-  const mapping = {} as Results
+async function fetchData() {
+  for (const particle of widget.particles) {
+    for (const current of particle.series) {
+      data[current.name] ??= []
+    }
+  }
+
+  const output = {} as Data
 
   await Promise.all(
     widget.particles.flatMap(async ({ address, type, series }) => {
       for (const current of series) {
-        mapping[current.name] = []
+        output[current.name] ??= []
       }
 
       let currentTimestamp = start
@@ -88,38 +88,46 @@ async function getData() {
 
         currentTimestamp = moment.utc(particles[particles.length - 1].timestamp).add(1, 'ms')
 
-        series.map((series) => {
-          mapping[series.name].push(
+        for (const { name, field } of series) {
+          output[name] ??= []
+          output[name].push(
             ...particles.flatMap((particle) => {
-              if (series.field == null) {
+              if (field == null) {
                 return []
               }
 
               const timestamp = particle.timestamp
-              let value = particle.data[series.field]
-              if (typeof value !== 'number' && typeof value !== 'string') {
-                if (typeof value === 'boolean') {
-                  return [[timestamp, value as any as number]]
-                }
-
-                return []
+              const value = particle.data[field]
+              if (
+                typeof value === 'number' ||
+                typeof value === 'string' ||
+                typeof value === 'boolean'
+              ) {
+                return [[timestamp, value as any]]
               }
 
-              return [[timestamp, value]]
+              return []
             })
           )
-        })
+        }
       }
     })
   )
 
-  return mapping
+  for (const values of Object.values(data)) {
+    values.length = 0
+  }
+
+  for (const [name, values] of Object.entries(output)) {
+    data[name] ??= []
+    data[name].push(...values)
+  }
 }
 
 watch(
   [() => JSON.stringify(widget.particles), () => [widget.after, widget.before, widget.timespan]],
   () => {
-    loading = true
+    isLoading = true
   }
 )
 
@@ -129,16 +137,16 @@ watch(
     debouncedComputed(() => [widget.after, widget.before, widget.timespan], 250),
   ],
   async () => {
-    loading = true
+    isLoading = true
     try {
-      streamedData = {}
-      data = await getData()
+      appendedData = {}
+      await fetchData()
       for (const key of Object.keys(data)) {
-        data[key].push(...(streamedData[key] ?? []))
+        data[key].push(...(appendedData[key] ?? []))
       }
-      streamedData = {}
+      appendedData = {}
     } finally {
-      loading = false
+      isLoading = false
     }
   },
   { immediate: true }
@@ -185,11 +193,11 @@ client.useStream({
 
     const particleIndex = Number(stream.id)
     const definition = widget.particles[particleIndex]
-    const output = loading ? streamedData : data
+    const output = isLoading ? appendedData : data
 
-    appended++
-    if (appended > 5) {
-      appended = 0
+    appendedCount++
+    if (appendedCount > 250) {
+      appendedCount = 0
       prune()
     }
 
@@ -203,12 +211,8 @@ client.useStream({
       }
 
       let value = particle.data[series.field]
-      if (typeof value !== 'number' && typeof value !== 'string') {
-        if (typeof value === 'boolean') {
-          output[series.name].push([particle.timestamp, value as any as number])
-        }
-      } else {
-        output[series.name].push([particle.timestamp, value])
+      if (typeof value === 'number' || typeof value === 'string' || typeof value === 'boolean') {
+        output[series.name].push([particle.timestamp, value as any])
       }
     }
   },
@@ -217,17 +221,19 @@ client.useStream({
 const series = $computed(() => {
   return widget.particles.flatMap((particle) =>
     particle.series.map((series) => {
+      const values = (data[series.name] ??= [])
       return {
-        animation: false,
+        animation: true,
         name: series.name,
-        data: data[series.name],
+        data: values,
         type: widget.display,
         showSymbol: false,
         symbolSize: 3,
-        hoverAnimation: false,
-        // animation: widget.display === 'bar' ? false : true,
+        emphasis: {
+          scale: false,
+        } as any,
         large: true,
-        sampling: 'minmax' as any,
+        sampling: 'lttb' as any,
       }
     })
   )
@@ -242,8 +248,7 @@ const option: Option = $computed(() => {
     xAxis: {
       name: 'Time',
       type: 'time',
-      startValue: bounds.start,
-      endValue: bounds.end,
+      startValue: minXValue,
     },
     yAxis: {
       name: widget.unit ?? '',
@@ -254,5 +259,5 @@ const option: Option = $computed(() => {
 </script>
 
 <template>
-  <chart ref="instance" height="100px" :loading="loading" :option="option" />
+  <chart height="100px" :loading="isLoading" :option="option" />
 </template>

@@ -61,6 +61,12 @@ watchEffect(() => {
   instance?.setOption(merged)
 })
 
+defineExpose({
+  refresh() {
+    instance?.setOption(merged)
+  },
+})
+
 // Make resizing smoother.
 const autoresize = $computed(() => ({
   throttle: 25,
@@ -88,7 +94,13 @@ const containerStyle = $computed(() => {
     :class="[$style.container, loading && $style.loading]"
     :style="containerStyle"
   >
-    <e-chart key="chart" ref="instance" :autoresize :class="$style.instance" />
+    <e-chart
+      key="chart"
+      ref="instance"
+      :autoresize
+      :class="$style.instance"
+      :manual-update="false"
+    />
   </div>
 </template>
 
@@ -98,6 +110,7 @@ const containerStyle = $computed(() => {
   min-width: 100%;
   max-width: 100%;
   transition: opacity 0.25s;
+  overflow: hidden;
   opacity: 1;
 }
 
