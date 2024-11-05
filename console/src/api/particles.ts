@@ -1,11 +1,11 @@
 import { DeepMaybeRef } from '@vueuse/core'
-import moment, { Moment } from 'moment'
 import { defineStore } from 'pinia'
 import { MaybeRef } from 'vue'
 import Zod from 'zod'
 
 import { StreamOptions, useClient } from '@/api/client'
 import { RecordFilterModel, RecordModel } from '@/api/entity'
+import { dataloader } from '@/utilities'
 
 export type Particle = Zod.infer<typeof ParticleModel>
 export const ParticleModel = RecordModel.extend({
@@ -23,31 +23,12 @@ export const ParticleFilterModel = RecordFilterModel.extend({
 
 export const useParticles = defineStore('particles', () => {
   const client = useClient()
-
-  type PendingEntry = {
-    timestamp: Moment
-    promise: Promise<Particle[]>
-  }
-
-  const pending = new Map<string, PendingEntry>()
-
   async function getAll(filter: ParticleFilter): Promise<Particle[]> {
-    const key = JSON.stringify(filter)
-    const entry = pending.get(key)
-    if (entry && entry.timestamp.isAfter(moment.utc().subtract(0.1, 'seconds'))) {
-      return await entry.promise
-    }
-
-    try {
-      const promise = client.get('/api/particles', {
+    return (
+      await client.get('/api/particles', {
         query: filter,
-        parse: ParticleModel.array(),
       })
-      pending.set(key, { timestamp: moment.utc(), promise })
-      return await promise
-    } finally {
-      pending.delete(key)
-    }
+    ).map(Object.freeze)
   }
 
   function useStream(
@@ -67,7 +48,7 @@ export const useParticles = defineStore('particles', () => {
   }
 
   return {
-    getAll,
+    getAll: dataloader<typeof getAll, Particle[]>(getAll),
     useStream,
   }
 })

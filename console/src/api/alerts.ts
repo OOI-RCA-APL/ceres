@@ -6,6 +6,7 @@ import Zod from 'zod'
 import { StreamOptions, useClient } from '@/api/client'
 import { RecordFilterModel, RecordModel } from '@/api/entity'
 import { LevelModel } from '@/api/shared'
+import { dataloader } from '@/utilities'
 
 export type Alert = Zod.infer<typeof AlertModel>
 export const AlertModel = RecordModel.extend({
@@ -26,10 +27,11 @@ export const useAlerts = defineStore('alerts', () => {
   const client = useClient()
 
   async function getAll(filter: AlertFilter): Promise<Alert[]> {
-    return await client.request('GET', '/api/alerts', {
-      query: filter,
-      parse: AlertModel.array(),
-    })
+    return (
+      await client.get('/api/alerts', {
+        query: filter,
+      })
+    ).map(Object.freeze)
   }
 
   function useStream(
@@ -49,7 +51,7 @@ export const useAlerts = defineStore('alerts', () => {
   }
 
   return {
-    getAll,
+    getAll: dataloader<typeof getAll, Alert[]>(getAll),
     useStream,
   }
 })

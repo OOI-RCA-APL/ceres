@@ -2,8 +2,7 @@
 import { useEventListener } from '@vueuse/core'
 import moment from 'moment'
 import { useMeta, useQuasar } from 'quasar'
-import { computed, onMounted, provide, watchEffect } from 'vue'
-import { THEME_KEY } from 'vue-echarts'
+import { onMounted, watchEffect } from 'vue'
 
 import { useEngine } from '@/api/engine'
 import { useSettings } from '@/api/settings'
@@ -32,11 +31,6 @@ watchEffect(() => {
     }
   }
 })
-
-provide(
-  THEME_KEY,
-  computed(() => (preferences.isDarkModeEnabled ? 'dark' : undefined))
-)
 
 useMeta(() => ({
   title: engine.config.console?.title ?? constants.defaultTitle,

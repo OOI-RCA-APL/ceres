@@ -1,6 +1,6 @@
 import Color from 'color'
 import { throttle } from 'lodash'
-import moment, { Duration } from 'moment'
+import moment, { Duration, Moment } from 'moment'
 import Prism from 'prismjs'
 import { colors, debounce } from 'quasar'
 import { ComputedRef, Ref, computed, isRef, shallowRef, watch } from 'vue'
@@ -211,4 +211,66 @@ export function safeArrayOf<T>(type: ZodType<T, any, any>, typeName?: string) {
 
     return results
   })
+}
+type PendingEntry<T> = {
+  timestamp: Moment
+  promise: Promise<T>
+  waiters: number
+}
+
+export type DataloaderFunction<T> = (filter: any, options?: DataloaderOptions) => Promise<T>
+
+export type DataloaderOptions = Partial<{
+  cache: number | false // Milliseconds before pending promises are considered stale.
+  key: (filter: any) => string
+}>
+
+export function dataloader<F extends DataloaderFunction<T>, T>(
+  factory: F,
+  { cache: defaultCache = 50, key: defaultKeyFactory = JSON.stringify }: DataloaderOptions = {}
+) {
+  const mapping = factory as Record<string, any>
+  const pending: Map<string, PendingEntry<T>> = (mapping['__pending__'] ??= new Map())
+  async function wrapper(filter: Parameters<F>[0], dataloaderOptions: DataloaderOptions = {}) {
+    const cache = dataloaderOptions.cache ?? defaultCache
+    if (!cache || cache <= 0) {
+      return await factory(filter)
+    }
+
+    const keyFactory = dataloaderOptions.key ?? defaultKeyFactory
+    const key = keyFactory(filter)
+    let entry = pending.get(key)
+
+    try {
+      if (entry && entry.timestamp.isAfter(moment.utc().subtract(cache, 'ms'))) {
+        entry.waiters++
+        try {
+          return await entry.promise
+        } finally {
+          if (--entry.waiters === 0) {
+            pending.delete(key)
+          }
+        }
+      }
+
+      const promise = factory(filter)
+      entry = { timestamp: moment.utc(), promise, waiters: 1 }
+      pending.set(key, entry)
+      try {
+        return await promise
+      } finally {
+        if (--entry.waiters === 0) {
+          pending.delete(key)
+        }
+      }
+    } finally {
+      pending.delete(key)
+    }
+  }
+
+  Object.defineProperty(wrapper, 'name', { value: factory.name })
+  return wrapper as (
+    filter: Parameters<typeof factory>[0],
+    dataloaderOptions?: DataloaderOptions
+  ) => Promise<T>
 }

@@ -5,21 +5,31 @@ import { computed } from 'vue'
 
 export const useTime = defineStore('time', () => {
   let now = $shallowRef(getNow())
+  let nowFast = $shallowRef(getNowFast())
 
   useIntervalFn(() => {
     const next = getNow()
     if (!now.isSame(next)) {
       now = next
     }
+    const nextFast = getNowFast()
+    if (!nowFast.isSame(nextFast)) {
+      nowFast = nextFast
+    }
   }, 50)
 
   return {
     now: computed(() => now),
+    nowFast: computed(() => nowFast),
   }
 })
 
 function getNow(): Moment {
   return Object.freeze(moment.utc().milliseconds(0))
+}
+
+function getNowFast(): Moment {
+  return Object.freeze(moment.utc())
 }
 
 export type Time = ReturnType<typeof useTime>

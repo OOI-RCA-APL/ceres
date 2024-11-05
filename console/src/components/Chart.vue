@@ -1,5 +1,5 @@
 <script lang="ts">
-const defaultOptions: Option = {
+const defaultOptions = Object.freeze(<Option>{
   animation: true,
   backgroundColor: 'transparent',
   yAxis: {
@@ -34,47 +34,106 @@ const defaultOptions: Option = {
     right: 32,
     bottom: 28,
   },
-}
+})
 </script>
 
 <script lang="ts" setup>
-import { ECharts } from 'echarts'
+import { useElementVisibility, useResizeObserver } from '@vueuse/core'
+import { init, ECharts } from 'echarts'
 import { merge } from 'lodash'
-import { watchEffect } from 'vue'
-import EChart from 'vue-echarts'
+import { watch, watchEffect } from 'vue'
 
 import { Option } from '@/chart'
+import { usePreferences } from '@/preferences'
 
 const {
+  option,
   loading = false,
   height = undefined,
-  option,
 } = $defineProps<{
+  option?: Option
   loading?: boolean
   height?: number | string | null
-  option: Option
 }>()
 
-const container = $shallowRef<HTMLElement | null>(null)
-const instance = $shallowRef<ECharts | null>(null)
+const preferences = usePreferences()
 
-const merged: Option = $computed(() => merge(option, defaultOptions))
-// Use `setOption` on the EChart instance to avoid the chart being completely recreated.
-watchEffect(() => {
-  instance?.setOption(merged)
+let container = $shallowRef<HTMLElement | null>(null)
+let instance = $shallowRef<ECharts | null>(null)
+let element = $shallowRef<HTMLDivElement | null>(null)
+
+const isVisible = $(useElementVisibility(() => container))
+
+const merged: Option | undefined = $computed(() => {
+  if (option != null) {
+    return merge({}, defaultOptions, option)
+  }
 })
 
+watchEffect((cleanup) => {
+  let created: ECharts | null = null
+  if (element != null) {
+    created = init(element, preferences.isDarkModeEnabled ? 'dark' : undefined)
+    instance = created
+  }
+
+  cleanup(() => {
+    created?.dispose()
+  })
+})
+
+watch(
+  [() => merged, () => instance],
+  () => {
+    requestAnimationFrame(() => {
+      if (merged != null) {
+        instance?.setOption(merged)
+      }
+    })
+  },
+  { immediate: true }
+)
+
 defineExpose({
-  refresh() {
-    instance?.setOption(merged)
+  on(eventType: Parameters<ECharts['on']>[0], handler: Parameters<ECharts['on']>[2]) {
+    instance?.on(eventType, handler)
+  },
+  off(...args: Parameters<ECharts['off']>) {
+    instance?.off(...args)
+  },
+  getOption() {
+    return (instance?.getOption() ?? null) as Option | null
+  },
+  setOption(
+    option: Option,
+    params?: {
+      notMerge?: boolean
+      lazyUpdate?: boolean
+      withDefaults?: boolean
+      silent?: boolean
+      replaceMerge?: boolean
+    }
+  ) {
+    if (params?.withDefaults) {
+      option = merge({}, defaultOptions, option)
+    }
+
+    instance?.setOption(option, params as any)
+  },
+  appendData(params: Parameters<ECharts['appendData']>[0]) {
+    instance?.appendData(params)
+  },
+  resize(...args: Parameters<ECharts['resize']>) {
+    return instance?.resize(...args)
   },
 })
 
-// Make resizing smoother.
-const autoresize = $computed(() => ({
-  throttle: 25,
-}))
-
+useResizeObserver(
+  () => container,
+  () => {
+    instance?.resize()
+  }
+)
 const containerStyle = $computed(() => {
   let computedHeight: string | undefined = undefined
   if (height != null) {
@@ -97,12 +156,10 @@ const containerStyle = $computed(() => {
     :class="[$style.container, loading && $style.loading]"
     :style="containerStyle"
   >
-    <e-chart
-      key="chart"
-      ref="instance"
-      :autoresize
+    <div
+      ref="element"
       :class="$style.instance"
-      :manual-update="false"
+      :style="isVisible ? undefined : { visibility: 'hidden' }"
     />
   </div>
 </template>

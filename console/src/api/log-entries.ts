@@ -6,6 +6,7 @@ import Zod from 'zod'
 import { StreamOptions, useClient } from '@/api/client'
 import { RecordFilterModel, RecordModel } from '@/api/entity'
 import { LevelModel } from '@/api/shared'
+import { dataloader } from '@/utilities'
 
 export type LogEntry = Zod.infer<typeof LogEntryModel>
 export const LogEntryModel = RecordModel.extend({
@@ -25,10 +26,11 @@ export const useLogEntries = defineStore('log-entries', () => {
   const client = useClient()
 
   async function getAll(filter: LogEntryFilter): Promise<LogEntry[]> {
-    return await client.get(`/api/log-entries`, {
-      query: filter,
-      parse: LogEntryModel.array(),
-    })
+    return (
+      await client.get(`/api/log-entries`, {
+        query: filter,
+      })
+    ).map(Object.freeze)
   }
 
   function useStream(
@@ -48,7 +50,7 @@ export const useLogEntries = defineStore('log-entries', () => {
   }
 
   return {
-    getAll,
+    getAll: dataloader<typeof getAll, LogEntry[]>(getAll),
     useStream,
   }
 })

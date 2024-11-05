@@ -7,6 +7,7 @@ import { Address } from '@/api/address'
 import { useClient, StreamOptions } from '@/api/client'
 import { RecordFilterModel, RecordModel } from '@/api/entity'
 import { BaseFailModel, createResultType } from '@/api/shared'
+import { dataloader } from '@/utilities'
 
 export type MessageDirection = Zod.infer<typeof MessageDirectionModel>
 export const MessageDirectionModel = Zod.enum(['send', 'receive'])
@@ -32,10 +33,11 @@ export const useMessages = defineStore('messages', () => {
   const client = useClient()
 
   async function getAll(filter: MessageFilter): Promise<Message[]> {
-    return await client.get('/api/messages', {
-      query: filter,
-      parse: MessageModel.array(),
-    })
+    return (
+      await client.get('/api/messages', {
+        query: filter,
+      })
+    ).map(Object.freeze)
   }
 
   function useStream(
@@ -62,7 +64,7 @@ export const useMessages = defineStore('messages', () => {
   }
 
   return {
-    getAll,
+    getAll: dataloader<typeof getAll, Message[]>(getAll),
     useStream,
     send,
   }
