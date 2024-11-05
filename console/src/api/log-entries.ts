@@ -11,7 +11,7 @@ export type LogEntry = Zod.infer<typeof LogEntryModel>
 export const LogEntryModel = RecordModel.extend({
   level: LevelModel,
   content: Zod.string(),
-})
+}).readonly()
 
 export type LogEntryFilter = Zod.infer<typeof LogEntryFilterModel>
 export const LogEntryFilterModel = RecordFilterModel.extend({

@@ -10,7 +10,7 @@ export type Particle = Zod.infer<typeof ParticleModel>
 export const ParticleModel = RecordModel.extend({
   type: Zod.string(),
   data: Zod.record(Zod.unknown()),
-})
+}).readonly()
 
 export type ParticleFilter = Zod.infer<typeof ParticleFilterModel>
 export const ParticleFilterModel = RecordFilterModel.extend({

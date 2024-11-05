@@ -1,4 +1,5 @@
 import Color from 'color'
+import { throttle } from 'lodash'
 import moment, { Duration } from 'moment'
 import Prism from 'prismjs'
 import { colors, debounce } from 'quasar'
@@ -130,6 +131,18 @@ export function debouncedComputed<T>(factory: () => T, delay: number): ComputedR
   watch(
     () => factory(),
     debounce((update) => {
+      result.value = update
+    }, delay)
+  )
+
+  return computed(() => result.value)
+}
+
+export function throttledComputed<T>(factory: () => T, delay: number): ComputedRef<T> {
+  const result: Ref<T> = shallowRef(factory())
+  watch(
+    () => factory(),
+    throttle((update) => {
       result.value = update
     }, delay)
   )

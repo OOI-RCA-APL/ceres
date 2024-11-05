@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { useIntervalFn } from '@vueuse/core'
+import { ECharts } from 'echarts'
 import moment from 'moment'
 import { computed, watch } from 'vue'
 
@@ -19,8 +19,15 @@ const { widget } = $defineProps<{
 const engine = useEngine()
 const client = useClient()
 const time = useTime()
+let instance = $ref<ECharts | null>(null)
 
 type Results = Record<string, DataValue[][]>
+
+let data: Results = $ref({})
+let streamedData: Results = $ref({})
+let loading = $ref(true)
+let appended = $ref(0)
+
 const start = $computed(() => {
   const timespan = parseDuration(widget.timespan)
   if (widget.after == null && widget.before == null) {
@@ -39,6 +46,20 @@ const end = $computed(() => {
   }
 
   return null
+})
+
+const duration = $computed(() => moment.duration(moment.utc(end ?? time.now).diff(start)))
+
+// Actual x-axis bounds for the chart.
+const bounds = $computed(() => {
+  const current = moment.utc(start)
+  // Shrink the actual x-axis range slightly to avoid flickering between interval scales when new
+  // data is appended and the `duration` is a boundary value such as one hour.
+  const shrink = duration.asMilliseconds() / 100
+  return {
+    start: current.subtract(shrink / 2, 'ms').valueOf(),
+    end: current.add(shrink / 2, 'ms').valueOf(),
+  }
 })
 
 async function getData() {
@@ -95,16 +116,20 @@ async function getData() {
   return mapping
 }
 
-const queryKey = debouncedComputed(() => [JSON.stringify(widget.particles)], 1000)
-
-let data: Results = {}
-let streamedData: Results = {}
-let isGettingData = $ref(false)
+watch(
+  [() => JSON.stringify(widget.particles), () => [widget.after, widget.before, widget.timespan]],
+  () => {
+    loading = true
+  }
+)
 
 watch(
-  () => [queryKey, widget.after, widget.before, widget.timespan],
+  [
+    debouncedComputed(() => JSON.stringify(widget.particles), 1000),
+    debouncedComputed(() => [widget.after, widget.before, widget.timespan], 250),
+  ],
   async () => {
-    isGettingData = true
+    loading = true
     try {
       streamedData = {}
       data = await getData()
@@ -113,17 +138,13 @@ watch(
       }
       streamedData = {}
     } finally {
-      isGettingData = false
+      loading = false
     }
   },
   { immediate: true }
 )
 
-function pruneResults() {
-  if (isGettingData) {
-    return
-  }
-
+function prune() {
   for (const key of Object.keys(data)) {
     const values = data[key]
     let i = 0
@@ -141,10 +162,6 @@ function pruneResults() {
     }
   }
 }
-
-useIntervalFn(() => {
-  pruneResults()
-}, 50)
 
 client.useStream({
   stream: computed(() =>
@@ -166,56 +183,76 @@ client.useStream({
       return
     }
 
-    const definition = widget.particles[Number(stream.id)]
-    const timestamp = particle.timestamp
-    const appendedResults = isGettingData ? data : data
+    const particleIndex = Number(stream.id)
+    const definition = widget.particles[particleIndex]
+    const output = loading ? streamedData : data
+
+    appended++
+    if (appended > 5) {
+      appended = 0
+      prune()
+    }
 
     for (const series of definition.series) {
       if (series.field == null) {
         continue
       }
 
-      if (appendedResults[series.name] == null) {
-        appendedResults[series.name] = []
+      if (output[series.name] == null) {
+        output[series.name] = []
       }
 
       let value = particle.data[series.field]
       if (typeof value !== 'number' && typeof value !== 'string') {
         if (typeof value === 'boolean') {
-          appendedResults[series.name].push([timestamp, value as any as number])
+          output[series.name].push([particle.timestamp, value as any as number])
         }
       } else {
-        appendedResults[series.name].push([timestamp, value])
+        output[series.name].push([particle.timestamp, value])
       }
     }
   },
 })
 
-const option: Option = $computed(() => ({
-  legend: { show: true },
-  tooltip: { trigger: 'axis' },
-  dataZoom: [{ type: 'inside' }],
-  xAxis: {
-    name: 'Time',
-    type: 'time',
-    startValue: Number(start.toDate()),
-    // endValue: end.toISOString(),
-  },
-  yAxis: {
-    name: widget.unit ?? '',
-  },
-  series: widget.particles.flatMap((particle) =>
-    particle.series.map((series) => ({
-      name: series.name,
-      data: data[series.name],
-      type: widget.display,
-      showSymbol: false,
-      symbolSize: 6,
-    }))
-  ),
-}))
+const series = $computed(() => {
+  return widget.particles.flatMap((particle) =>
+    particle.series.map((series) => {
+      return {
+        animation: false,
+        name: series.name,
+        data: data[series.name],
+        type: widget.display,
+        showSymbol: false,
+        symbolSize: 3,
+        hoverAnimation: false,
+        // animation: widget.display === 'bar' ? false : true,
+        large: true,
+        sampling: 'minmax' as any,
+      }
+    })
+  )
+})
+
+const option: Option = $computed(() => {
+  return {
+    hoverAnimation: false,
+    legend: { show: true },
+    tooltip: { trigger: 'axis' },
+    dataZoom: [{ type: 'inside' }],
+    xAxis: {
+      name: 'Time',
+      type: 'time',
+      startValue: bounds.start,
+      endValue: bounds.end,
+    },
+    yAxis: {
+      name: widget.unit ?? '',
+    },
+    series,
+  }
+})
 </script>
 
 <template>
-  <chart height="100px" :option="option" />
+  <chart ref="instance" height="100px" :loading="loading" :option="option" />
 </template>

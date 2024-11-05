@@ -1,5 +1,6 @@
 <script lang="ts">
 const defaultOptions: Option = {
+  animation: true,
   backgroundColor: 'transparent',
   yAxis: {
     nameLocation: 'end',
@@ -16,16 +17,8 @@ const defaultOptions: Option = {
     },
   },
   xAxis: {
-    nameLocation: 'end',
-    nameGap: 0,
-    splitArea: {
-      show: true,
-    },
-    nameTextStyle: {
-      align: 'right',
-      verticalAlign: 'top',
-      padding: [24, 0, 0, 0],
-    },
+    nameLocation: 'middle',
+    nameGap: 26,
     axisLabel: {
       hideOverlap: true,
     },
@@ -36,7 +29,7 @@ const defaultOptions: Option = {
     left: 32,
     top: 44,
     right: 32,
-    bottom: 24,
+    bottom: 28,
   },
 }
 </script>
@@ -63,12 +56,14 @@ const container = $shallowRef<HTMLElement | null>(null)
 const instance = $shallowRef<ECharts | null>(null)
 
 const merged: Option = $computed(() => merge(option, defaultOptions))
+// Use `setOption` on the EChart instance to avoid the chart being completely recreated.
 watchEffect(() => {
   instance?.setOption(merged)
 })
 
+// Make resizing smoother.
 const autoresize = $computed(() => ({
-  throttle: 250,
+  throttle: 25,
 }))
 
 const containerStyle = $computed(() => {
@@ -80,6 +75,7 @@ const containerStyle = $computed(() => {
       computedHeight = height
     }
   }
+
   return {
     height: computedHeight,
   }
@@ -87,8 +83,12 @@ const containerStyle = $computed(() => {
 </script>
 
 <template>
-  <div ref="container" :class="$style.container" :style="containerStyle">
-    <e-chart key="chart" ref="instance" :autoresize :class="$style.instance" :loading />
+  <div
+    ref="container"
+    :class="[$style.container, loading && $style.loading]"
+    :style="containerStyle"
+  >
+    <e-chart key="chart" ref="instance" :autoresize :class="$style.instance" />
   </div>
 </template>
 
@@ -97,12 +97,17 @@ const containerStyle = $computed(() => {
   position: relative;
   min-width: 100%;
   max-width: 100%;
-  overflow: hidden;
+  transition: opacity 0.25s;
+  opacity: 1;
 }
 
 .instance {
   position: absolute;
   width: 100%;
   height: 100%;
+}
+
+.loading {
+  opacity: 0.5;
 }
 </style>

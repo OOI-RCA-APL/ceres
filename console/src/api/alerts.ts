@@ -12,7 +12,7 @@ export const AlertModel = RecordModel.extend({
   level: LevelModel,
   code: Zod.string(),
   info: Zod.record(Zod.string(), Zod.unknown()).default(() => ({})),
-})
+}).readonly()
 
 export type AlertFilter = Zod.infer<typeof AlertFilterModel>
 export const AlertFilterModel = RecordFilterModel.extend({
@@ -28,6 +28,7 @@ export const useAlerts = defineStore('alerts', () => {
   async function getAll(filter: AlertFilter): Promise<Alert[]> {
     return await client.request('GET', '/api/alerts', {
       query: filter,
+      parse: AlertModel.array(),
     })
   }
 

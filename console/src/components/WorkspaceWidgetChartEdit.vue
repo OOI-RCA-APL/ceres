@@ -52,8 +52,7 @@ const particlesSchema = $computed<any>(() => ({
         :schema="{
           type: 'string',
           title: 'Display',
-          enum: ['line', 'bar', 'scatter'],
-          optional: true,
+          enum: ['line', 'scatter', 'bar'],
         }"
       />
       <schema-form-base

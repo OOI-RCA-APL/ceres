@@ -77,7 +77,7 @@ export const UIWidgetModel = BaseWidgetModel.extend({
 })
 
 export type ChartWidgetDisplay = Zod.infer<typeof ChartWidgetDisplayModel>
-export const ChartWidgetDisplayModel = Zod.enum(['line', 'bar', 'scatter'])
+export const ChartWidgetDisplayModel = Zod.enum(['line', 'scatter', 'bar'])
 
 export type ChartWidgetSeries = Zod.infer<typeof ChartWidgetSeriesModel>
 export const ChartWidgetSeriesModel = Zod.object({

@@ -223,7 +223,7 @@ onMounted(() => {
       <div v-else ref="layout">
         <div
           v-for="(row, i) in workspace.data.layout"
-          :key="i"
+          :key="row.id"
           class="full-width no-wrap q-gutter-xs q-py-xs relative-position row"
           :style="{ height: row.collapsed ? undefined : `${row.height}px` }"
         >

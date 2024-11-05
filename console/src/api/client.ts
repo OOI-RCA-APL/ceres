@@ -7,7 +7,7 @@ import {
   UseQueryReturnType,
   useQuery as useQueryBase,
 } from '@tanstack/vue-query'
-import { DeepMaybeRef } from '@vueuse/core'
+import { DeepMaybeRef, useMounted } from '@vueuse/core'
 import { defineStore } from 'pinia'
 import { v4 } from 'uuid'
 import { reactive, watchEffect, onUnmounted, DeepReadonly, MaybeRef } from 'vue'
@@ -176,7 +176,8 @@ function useStream<TParseModel extends ZodTypeAny>(
     return ids[index]
   }
 
-  let mounted = false
+  const mounted = $(useMounted())
+
   const options = $computed(() => {
     const temporary = reactive(inputOptions)
     return reactive({
@@ -196,15 +197,18 @@ function useStream<TParseModel extends ZodTypeAny>(
     }
 
     entry.socket?.close()
-    setTimeout(() => {
-      if (mounted) {
-        entries[stream.id].socket = createSocket(
-          entry.stream,
-          options as UseStreamOptions<TParseModel>,
-          onClose
-        )
-      }
-    }, 3000)
+    entry.socket = null
+    if (mounted) {
+      setTimeout(() => {
+        if (mounted && entry.socket == null) {
+          entries[stream.id].socket = createSocket(
+            entry.stream,
+            options as UseStreamOptions<TParseModel>,
+            onClose
+          )
+        }
+      }, 1000)
+    }
   }
 
   function clear() {
@@ -220,7 +224,6 @@ function useStream<TParseModel extends ZodTypeAny>(
   window.addEventListener('unload', clear)
 
   onUnmounted(() => {
-    mounted = false
     window.removeEventListener('unload', clear)
     clear()
   })
