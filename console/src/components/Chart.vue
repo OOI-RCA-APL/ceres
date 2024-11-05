@@ -19,6 +19,9 @@ const defaultOptions: Option = {
   xAxis: {
     nameLocation: 'middle',
     nameGap: 26,
+    nameTextStyle: {
+      align: 'right',
+    },
     axisLabel: {
       hideOverlap: true,
     },
