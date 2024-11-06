@@ -159,7 +159,6 @@ const baseOption: Option = $computed(() => {
         } as any,
         large: true,
         largeThreshold: 100,
-        sampling: 'minmax' as any,
       }
 
       return result
