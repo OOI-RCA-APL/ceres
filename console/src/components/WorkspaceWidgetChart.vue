@@ -1,6 +1,6 @@
 <script lang="ts" setup>
-import { useIntervalFn } from '@vueuse/core'
-import moment from 'moment'
+import { useElementVisibility, useIntervalFn } from '@vueuse/core'
+import moment, { Moment } from 'moment'
 import { watchEffect, computed, watch } from 'vue'
 
 import { useClient, Stream } from '@/api/client'
@@ -20,12 +20,13 @@ const engine = useEngine()
 const client = useClient()
 const time = useTime()
 
-type Data = Record<string, DataValue[][]>
+type DataEntry = [string, DataValue]
+type Data = Record<string, DataEntry[]>
 
 let instance = $shallowRef<InstanceType<typeof Chart> | null>(null)
 let isInitialized = $ref(false)
 let isLoading = $ref(true)
-let pending: Data = $ref({})
+const pending: Data = $ref({})
 
 const start = $computed(() => {
   const timespan = parseDuration(widget.timespan)
@@ -47,7 +48,15 @@ const end = $computed(() => {
   return null
 })
 
-function append(seriesName: string, values: DataValue[][], to?: 'option' | 'pending' | 'instance') {
+const duration = $computed(() => {
+  return moment.duration((end ?? time.now).diff(start))
+})
+
+function append(seriesName: string, entries: DataEntry[], to?: 'option' | 'pending' | 'instance') {
+  if (entries.length === 0) {
+    return
+  }
+
   if (to == null) {
     to = isZooming ? 'option' : 'instance'
   }
@@ -64,16 +73,16 @@ function append(seriesName: string, values: DataValue[][], to?: 'option' | 'pend
       return
     }
 
-    let data = series.data as DataValue[][]
+    let data = series.data as DataEntry[]
     if (!Array.isArray(series.data)) {
       series.data = data = []
     }
 
-    data.push(...values)
+    data.push(...entries)
     instance.setOption({ series: option.series })
   } else if (to === 'pending') {
     pending[seriesName] ??= []
-    pending[seriesName].push(...values)
+    pending[seriesName].push(...entries)
   } else {
     const seriesIndex = seriesIndexes[seriesName] ?? null
     if (seriesIndex == null) {
@@ -83,7 +92,7 @@ function append(seriesName: string, values: DataValue[][], to?: 'option' | 'pend
 
     try {
       if (instance != null) {
-        instance.appendData({ seriesIndex, data: values })
+        instance.appendData({ seriesIndex, data: entries })
       }
     } catch (error) {
       console.error(`Append data series index ${seriesIndex} not found internally.`)
@@ -103,18 +112,15 @@ const seriesIndexes = $computed(() => {
   return indexes
 })
 
-let isZooming = $ref(false)
+const zoom = $ref({ start: 0, end: 100 })
+const isZooming = $computed(() => zoom.start > 0 || zoom.end < 100)
 
 watchEffect((cleanup) => {
   instance?.on('dataZoom', (incoming: any) => {
     for (const event of incoming.batch) {
-      if (event.start !== 0 || event.end !== 100) {
-        isZooming = true
-        return
-      }
+      zoom.start = event.start
+      zoom.end = event.end
     }
-
-    isZooming = false
   })
 
   cleanup(() => {
@@ -126,10 +132,7 @@ const xMin = $computed(() => start.valueOf())
 const xMax = $computed(() => (end ?? time.now).valueOf())
 
 const axisOption: Option = $computed(() => {
-  // Expand the actual x-axis range slightly to avoid flickering between interval scales when new
-  // data is appended and the `duration` is a boundary value such as one hour.
   return {
-    dataZoom: [{ type: 'inside', xAxisIndex: 0, filterMode: 'filter' }],
     xAxis: {
       name: 'Time',
       type: 'time',
@@ -148,16 +151,16 @@ const baseOption: Option = $computed(() => {
   const series = widget.particles.flatMap((particle) =>
     particle.series.map((series) => {
       const result = {
-        animation: false,
         name: series.name,
         type: widget.display,
         data: getData(series.name),
-        showSymbol: false,
+        animation: widget.display === 'bar' ? false : false, // Disable animation for bar chart.
+        showSymbol: false, // Disable showing dots, for performance.
         symbolSize: 3,
         emphasis: {
-          scale: false,
+          scale: false, // Disable showing dot on hover.
         } as any,
-        large: true,
+        large: true, // Enable large data set optimization.
         largeThreshold: 100,
       }
 
@@ -166,10 +169,9 @@ const baseOption: Option = $computed(() => {
   )
 
   return {
-    animation: true,
-    hoverAnimation: true,
-    legend: { show: true },
     tooltip: { trigger: 'axis' },
+    legend: { show: true },
+    dataZoom: [{ type: 'inside' }],
     series,
     ...baseAxisOption,
   }
@@ -203,13 +205,13 @@ async function load() {
   await Promise.all(
     widget.particles.map(async ({ address, type, series }) => {
       const data = {} as Data
-      let timestamp = start
+      let currentTimestamp = start
       while (instance != null) {
         const particles = await engine.particles.getAll(
           {
             address,
             type,
-            after: timestamp.toISOString(),
+            after: currentTimestamp.toISOString(),
             before: end?.toISOString(),
             timespan: widget.timespan,
             limit: 5000,
@@ -221,7 +223,7 @@ async function load() {
           break
         }
 
-        timestamp = moment.utc(particles[particles.length - 1].timestamp).add(1, 'ms')
+        currentTimestamp = moment.utc(particles[particles.length - 1].timestamp).add(1, 'ms')
 
         for (const { name, field } of series) {
           if (field == null) {
@@ -243,25 +245,70 @@ async function load() {
         }
       }
 
-      for (const [name, values] of Object.entries(data)) {
+      for (const [name, entries] of Object.entries(data)) {
         clear(name)
-        append(name, values, 'instance')
+        append(name, entries, 'instance')
       }
     })
   )
 }
 
 function clearPending() {
-  pending = {}
+  for (const name in pending) {
+    pending[name].length = 0
+  }
 }
+
+let lastPendingApplied: Moment | null = $shallowRef(null)
 
 function applyPending() {
-  for (const [name, values] of Object.entries(pending)) {
-    append(name, values)
+  for (const name in pending) {
+    append(name, pending[name])
   }
 
-  pending = {}
+  clearPending()
+  lastPendingApplied = time.now
 }
+
+const isVisible = $(useElementVisibility(() => instance?.getDom()))
+const pendingApplyInterval = $computed(() => {
+  if (!isVisible) {
+    return moment.duration(5, 'minute')
+  }
+
+  const percentageVisible = (zoom.end - zoom.start) / 100
+  const timeVisible = moment.duration(duration.asMilliseconds() * percentageVisible)
+  if (timeVisible.asDays() >= 1) {
+    return moment.duration(1, 'minute')
+  }
+  if (timeVisible.asHours() >= 1) {
+    return moment.duration(30, 'seconds')
+  }
+  if (timeVisible.asMinutes() >= 30) {
+    return moment.duration(15, 'seconds')
+  }
+  if (timeVisible.asMinutes() >= 5) {
+    return moment.duration(5, 'seconds')
+  }
+
+  return moment.duration(1, 'seconds')
+})
+
+watch(
+  () => time.now,
+  () => {
+    if (isLoading) {
+      return
+    }
+
+    if (
+      lastPendingApplied == null ||
+      moment.duration(time.now.diff(lastPendingApplied)) > pendingApplyInterval
+    ) {
+      applyPending()
+    }
+  }
+)
 
 watch(
   [() => JSON.stringify(widget.particles), () => [widget.after, widget.before, widget.timespan]],
@@ -368,9 +415,12 @@ function prune() {
   instance?.setOption({ series: option.series })
 }
 
-useIntervalFn(() => {
-  prune()
-}, 10000)
+useIntervalFn(
+  () => {
+    prune()
+  },
+  () => pendingApplyInterval.asMilliseconds() * 5
+)
 
 client.useStream({
   stream: computed(() =>
@@ -387,10 +437,6 @@ client.useStream({
   onReceive: (particle: Particle, stream: Stream) => {
     if (instance == null) {
       return
-    }
-
-    if (!isLoading) {
-      applyPending()
     }
 
     if (
@@ -411,16 +457,42 @@ client.useStream({
         continue
       }
 
-      let value = particle.data[series.field]
+      const value = particle.data[series.field]
       if (typeof value === 'number' || typeof value === 'string' || typeof value === 'boolean') {
-        const entry = [particle.timestamp, value as any]
-        append(series.name, [entry], isLoading ? 'pending' : undefined)
+        const entry: DataEntry = [particle.timestamp, value as any]
+        append(series.name, [entry], 'pending')
       }
     }
   },
 })
+
+let isJustLoaded = $ref(false)
+watchEffect((cleanup) => {
+  if (isLoading) {
+    isJustLoaded = false
+  } else {
+    isJustLoaded = true
+    const timeout = setTimeout(() => {
+      isJustLoaded = false
+    }, 1000)
+    cleanup(() => {
+      clearTimeout(timeout)
+    })
+  }
+})
 </script>
 
 <template>
-  <chart ref="instance" height="100px" :loading="isLoading" />
+  <chart
+    ref="instance"
+    :class="(isLoading || isJustLoaded) && $style.interactionDisabled"
+    height="100px"
+    :loading="isLoading"
+  />
 </template>
+
+<style lang="scss" module>
+.interactionDisabled {
+  pointer-events: none;
+}
+</style>

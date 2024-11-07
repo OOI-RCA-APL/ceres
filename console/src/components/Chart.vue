@@ -95,6 +95,9 @@ watch(
 )
 
 defineExpose({
+  getDom() {
+    return instance?.getDom()
+  },
   on(eventType: Parameters<ECharts['on']>[0], handler: Parameters<ECharts['on']>[2]) {
     instance?.on(eventType, handler)
   },
