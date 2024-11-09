@@ -35,6 +35,7 @@ from pydantic import (
 )
 from pydantic import EmailStr as _BaseEmailStr
 from pydantic.fields import FieldInfo
+from pydantic.functional_serializers import PlainSerializer
 from pydantic.main import IncEx
 from pydantic_core import CoreSchema, SchemaSerializer, SchemaValidator
 from pydantic_extra_types.color import Color as Color
@@ -195,10 +196,31 @@ def __validate_yamlable(value: object) -> object:
     return value
 
 
+def __validate_number(value: object) -> object:
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+
+    return value
+
+
+def __serialize_number(value: object) -> object:
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+
+    return value
+
+
+Number: TypeAlias = Annotated[
+    int | float,
+    Field(union_mode="left_to_right"),
+    BeforeValidator(__validate_number),
+    PlainSerializer(__serialize_number),
+]
+
+type JSONValue = None | bool | Number | str | JSONList | JSONDict
+JSONDict: TypeAlias = dict[str, JSONValue]
+JSONList: TypeAlias = list[JSONValue]
 JSONWriteable: TypeAlias = Annotated[_T, AfterValidator(__validate_jsonable)]
-JSONDict: TypeAlias = JSONWriteable[FromJSON[dict[str, Any]]]
-JSONList: TypeAlias = JSONWriteable[FromJSON[list[Any]]]
-JSONValue: TypeAlias = None | bool | int | float | str | JSONDict | JSONList
 
 
 def __validate_non_empty(value: object) -> object:

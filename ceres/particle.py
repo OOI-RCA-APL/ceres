@@ -21,6 +21,7 @@ from typing import (
 
 from pydantic import ConfigDict, Field, SerializeAsAny, ValidationError, model_validator
 from pydantic.types import ImportString
+from sqlalchemy import cast
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql.sqltypes import JSON, String
 from typing_extensions import TypeVar
@@ -37,7 +38,7 @@ from ceres._internal.entity import (
     BaseRecordUpdate,
 )
 from ceres._internal.lazy import lazy_imports
-from ceres.data import ImmutableDataObject, JSONDict
+from ceres.data import ImmutableDataObject, JSONDict, jsonify
 from ceres.timing import utc
 
 with lazy_imports(__name__):
@@ -124,6 +125,9 @@ class ParticleFilterArgs(
     type_contains: str | Sequence[str] | None
     type_prefix: str | Sequence[str] | None
     type_suffix: str | Sequence[str] | None
+    data_contains: str | Sequence[str] | None
+    data_prefix: str | Sequence[str] | None
+    data_suffix: str | Sequence[str] | None
 
 
 class ParticleFilter(
@@ -150,6 +154,18 @@ class ParticleFilter(
         default=None,
         description="Filter by particle type(s) with a common suffix.",
     )
+    data_contains: Annotated[str | Sequence[str] | None, CLIOption(str)] = Field(
+        default=None,
+        description="Filter by particle data containing a given substring.",
+    )
+    data_prefix: Annotated[str | Sequence[str] | None, CLIOption(str)] = Field(
+        default=None,
+        description="Filter by particle data with a common substring prefix.",
+    )
+    data_suffix: Annotated[str | Sequence[str] | None, CLIOption(str)] = Field(
+        default=None,
+        description="Filter by particle data with a common substring suffix.",
+    )
 
     @override
     def matches(self, obj: Particle[Any], *, now: datetime | None = None) -> bool:
@@ -164,7 +180,7 @@ class ParticleFilter(
             if obj.type not in util.as_sequence(self.type):
                 return False
         if self.type_contains is not None:
-            if not any(obj.type in type for type in util.as_sequence(self.type_contains)):
+            if not any(obj.type in substring for substring in util.as_sequence(self.type_contains)):
                 return False
         if self.type_prefix is not None:
             if not any(
@@ -176,6 +192,28 @@ class ParticleFilter(
                 obj.type.startswith(suffix) for suffix in util.as_sequence(self.type_suffix)
             ):
                 return False
+
+        if (
+            self.data_contains is not None
+            or self.data_prefix is not None
+            or self.data_suffix is not None
+        ):
+            data_json = jsonify(obj.data)
+            if self.data_contains is not None:
+                if not any(
+                    substring in data_json for substring in util.as_sequence(self.data_contains)
+                ):
+                    return False
+            if self.data_prefix is not None:
+                if not any(
+                    data_json.startswith(prefix) for prefix in util.as_sequence(self.data_prefix)
+                ):
+                    return False
+            if self.data_suffix is not None:
+                if not any(
+                    data_json.startswith(suffix) for suffix in util.as_sequence(self.data_suffix)
+                ):
+                    return False
 
         return True
 
@@ -214,6 +252,30 @@ class ParticleFilter(
             yield or_(
                 False,
                 *(columns.type.endswith(suffix) for suffix in util.as_sequence(self.type_suffix)),
+            )
+        if self.data_contains is not None:
+            yield or_(
+                False,
+                *(
+                    cast(columns.data, String).contains(substring)
+                    for substring in util.as_sequence(self.data_contains)
+                ),
+            )
+        if self.data_prefix is not None:
+            yield or_(
+                False,
+                *(
+                    cast(columns.data, String).startswith(prefix)
+                    for prefix in util.as_sequence(self.data_prefix)
+                ),
+            )
+        if self.data_suffix is not None:
+            yield or_(
+                False,
+                *(
+                    cast(columns.data, String).endswith(suffix)
+                    for suffix in util.as_sequence(self.data_suffix)
+                ),
             )
 
 

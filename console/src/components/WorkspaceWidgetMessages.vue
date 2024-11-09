@@ -168,16 +168,14 @@ async function submit() {
       </div>
     </template>
     <template #column-filter-content>
-      <div style="min-width: 300px">
-        <div class="q-mb-xs">
-          <schema-form-base
-            v-model="widget.filter.content_prefix"
-            :schema="{ title: 'Prefix', type: 'string', optional: true }"
-          />
-        </div>
+      <div class="column q-gutter-xs" style="min-width: 300px">
         <schema-form-base
           v-model="widget.filter.content_contains"
           :schema="{ title: 'Contains', type: 'string', optional: true }"
+        />
+        <schema-form-base
+          v-model="widget.filter.content_prefix"
+          :schema="{ title: 'Prefix', type: 'string', optional: true }"
         />
       </div>
     </template>

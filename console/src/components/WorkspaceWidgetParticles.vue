@@ -30,6 +30,9 @@ const columns = $computed(() => [
   {
     label: 'Data',
     name: 'data',
+    filtered:
+      (widget.filter.data_contains ?? widget.filter.data_prefix ?? widget.filter.data_suffix) !=
+      null,
   },
 ])
 </script>
@@ -76,6 +79,14 @@ const columns = $computed(() => [
     <template #column-filter-type>
       <div class="column q-gutter-xs" style="min-width: 200px">
         <schema-form-base
+          v-model="widget.filter.type_contains"
+          :schema="{
+            title: 'Contains',
+            type: 'string',
+            optional: true,
+          }"
+        />
+        <schema-form-base
           v-model="widget.filter.type_prefix"
           :schema="{
             title: 'Prefix',
@@ -83,10 +94,22 @@ const columns = $computed(() => [
             optional: true,
           }"
         />
+      </div>
+    </template>
+    <template #column-filter-data>
+      <div class="column q-gutter-xs" style="min-width: 300px">
         <schema-form-base
-          v-model="widget.filter.type_contains"
+          v-model="widget.filter.data_contains"
           :schema="{
             title: 'Contains',
+            type: 'string',
+            optional: true,
+          }"
+        />
+        <schema-form-base
+          v-model="widget.filter.data_prefix"
+          :schema="{
+            title: 'Prefix',
             type: 'string',
             optional: true,
           }"

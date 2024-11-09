@@ -86,16 +86,14 @@ const columns = $computed(() => [
       </div>
     </template>
     <template #column-filter-code>
-      <div style="min-width: 300px">
-        <div class="q-mb-xs">
-          <schema-form-base
-            v-model="widget.filter.code_prefix"
-            :schema="{ title: 'Prefix', type: 'string', optional: true }"
-          />
-        </div>
+      <div class="column q-gutter-xs" style="min-width: 200px">
         <schema-form-base
           v-model="widget.filter.code_contains"
           :schema="{ title: 'Contains', type: 'string', optional: true }"
+        />
+        <schema-form-base
+          v-model="widget.filter.code_prefix"
+          :schema="{ title: 'Prefix', type: 'string', optional: true }"
         />
       </div>
     </template>

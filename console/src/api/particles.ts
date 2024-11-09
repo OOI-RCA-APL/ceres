@@ -19,6 +19,9 @@ export const ParticleFilterModel = RecordFilterModel.extend({
   type_contains: Zod.string().nullish(),
   type_prefix: Zod.string().nullish(),
   type_suffix: Zod.string().nullish(),
+  data_contains: Zod.string().nullish(),
+  data_prefix: Zod.string().nullish(),
+  data_suffix: Zod.string().nullish(),
 })
 
 export const useParticles = defineStore('particles', () => {
