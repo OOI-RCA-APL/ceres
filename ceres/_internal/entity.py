@@ -486,6 +486,28 @@ BaseRecordOrder: TypeAlias = (
 )
 
 
+def __get_timestamp_formats() -> list[str]:
+    formats = [
+        "%Y-%m-%d",
+        "%Y-%m-%d %H:%M",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d %H:%M:%S.%f",
+    ]
+
+    for current in list(formats):
+        if " " in current:
+            formats.append(current.replace(" ", "T"))
+
+    for current in list(formats):
+        if ":" in current:
+            formats.append(current + "Z")
+
+    return formats
+
+
+_TIMESTAMP_FORMATS = __get_timestamp_formats()
+
+
 class BaseRecordFilterArgs[
     FieldT: str,
     OrderT: str,
@@ -494,6 +516,7 @@ class BaseRecordFilterArgs[
     BaseUUIDEntityFilterArgs[FieldT, OrderT],
     total=False,
 ):
+    timestamp: DateTime | Sequence[DateTime] | None
     before: DateTime | None
     after: DateTime | None
     timespan: PositiveTimeDelta | None
@@ -509,27 +532,42 @@ class BaseRecordFilter[
     BaseItemFilter[RecordT, FieldT, OrderT],
     BaseUUIDEntityFilter[RecordT, FieldT, OrderT],
 ):
-    after: Annotated[DateTime | None, CLIOption(datetime)] = Field(
+    timestamp: Annotated[
+        DateTime | Sequence[DateTime] | None,
+        CLIOption(list[datetime] | None, metavar="DATETIME", formats=_TIMESTAMP_FORMATS),
+    ] = Field(
+        default=None,
+        description="Filter by exact timestamp(s).",
+    )
+    after: Annotated[
+        DateTime | None, CLIOption(datetime | None, metavar="DATETIME", formats=_TIMESTAMP_FORMATS)
+    ] = Field(
         default=None,
         description="Filter by minimum timestamp.",
     )
-    before: Annotated[DateTime | None, CLIOption(datetime)] = Field(
+    before: Annotated[
+        DateTime | None, CLIOption(datetime | None, metavar="DATETIME", formats=_TIMESTAMP_FORMATS)
+    ] = Field(
         default=None,
         description="Filter by maximum timestamp.",
     )
-    timespan: Annotated[PositiveTimeDelta | None, CLIOption(str | None, metavar="DURATION")] = (
+    timespan: Annotated[PositiveTimeDelta | None, CLIOption(str | None, metavar="TIMEDELTA")] = (
         Field(
             default=None,
             description="Filter by maximum age relative to `after`, or minimum age relative to `before` if `after` is `None`. If both `after` and `before` are `None`, filter by maximum age relative to the current time. ",
         )
     )
-    min_age: Annotated[PositiveTimeDelta | None, CLIOption(str | None, metavar="DURATION")] = Field(
-        default=None,
-        description="Filter by minimum age relative to the current time.",
+    min_age: Annotated[PositiveTimeDelta | None, CLIOption(str | None, metavar="TIMEDELTA")] = (
+        Field(
+            default=None,
+            description="Filter by minimum age relative to the current time.",
+        )
     )
-    max_age: Annotated[PositiveTimeDelta | None, CLIOption(str | None, metavar="DURATION")] = Field(
-        default=None,
-        description="Filter by maximum age relative to the current time.",
+    max_age: Annotated[PositiveTimeDelta | None, CLIOption(str | None, metavar="TIMEDELTA")] = (
+        Field(
+            default=None,
+            description="Filter by maximum age relative to the current time.",
+        )
     )
 
     @override
@@ -537,6 +575,9 @@ class BaseRecordFilter[
         if not super().matches(obj):
             return False
 
+        if self.timestamp is not None:
+            if obj.timestamp not in util.as_sequence(self.timestamp):
+                return False
         if self.after is not None:
             if obj.timestamp < self.after:
                 return False
@@ -576,6 +617,8 @@ class BaseRecordFilter[
         yield from super()._get_where(dialect)
         columns = self._get_row_cls()
 
+        if self.timestamp is not None:
+            yield columns.timestamp.in_(util.as_sequence(self.timestamp))
         if self.after is not None:
             yield columns.timestamp >= self.after
         if self.before is not None:
