@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import (
     TYPE_CHECKING,
     Annotated,
@@ -486,28 +486,6 @@ BaseRecordOrder: TypeAlias = (
 )
 
 
-def __get_timestamp_formats() -> list[str]:
-    formats = [
-        "%Y-%m-%d",
-        "%Y-%m-%d %H:%M",
-        "%Y-%m-%d %H:%M:%S",
-        "%Y-%m-%d %H:%M:%S.%f",
-    ]
-
-    for current in list(formats):
-        if " " in current:
-            formats.append(current.replace(" ", "T"))
-
-    for current in list(formats):
-        if ":" in current:
-            formats.append(current + "Z")
-
-    return formats
-
-
-_TIMESTAMP_FORMATS = __get_timestamp_formats()
-
-
 class BaseRecordFilterArgs[
     FieldT: str,
     OrderT: str,
@@ -534,40 +512,30 @@ class BaseRecordFilter[
 ):
     timestamp: Annotated[
         DateTime | Sequence[DateTime] | None,
-        CLIOption(list[datetime] | None, metavar="DATETIME", formats=_TIMESTAMP_FORMATS),
+        CLIOption(list[datetime] | None),
     ] = Field(
         default=None,
         description="Filter by exact timestamp(s).",
     )
-    after: Annotated[
-        DateTime | None, CLIOption(datetime | None, metavar="DATETIME", formats=_TIMESTAMP_FORMATS)
-    ] = Field(
+    after: Annotated[DateTime | None, CLIOption(datetime | None)] = Field(
         default=None,
         description="Filter by minimum timestamp.",
     )
-    before: Annotated[
-        DateTime | None, CLIOption(datetime | None, metavar="DATETIME", formats=_TIMESTAMP_FORMATS)
-    ] = Field(
+    before: Annotated[DateTime | None, CLIOption(datetime | None)] = Field(
         default=None,
         description="Filter by maximum timestamp.",
     )
-    timespan: Annotated[PositiveTimeDelta | None, CLIOption(str | None, metavar="TIMEDELTA")] = (
-        Field(
-            default=None,
-            description="Filter by maximum age relative to `after`, or minimum age relative to `before` if `after` is `None`. If both `after` and `before` are `None`, filter by maximum age relative to the current time. ",
-        )
+    timespan: Annotated[PositiveTimeDelta | None, CLIOption(timedelta | None)] = Field(
+        default=None,
+        description="Filter by maximum age relative to `after`, or minimum age relative to `before` if `after` is `None`. If both `after` and `before` are `None`, filter by maximum age relative to the current time. ",
     )
-    min_age: Annotated[PositiveTimeDelta | None, CLIOption(str | None, metavar="TIMEDELTA")] = (
-        Field(
-            default=None,
-            description="Filter by minimum age relative to the current time.",
-        )
+    min_age: Annotated[PositiveTimeDelta | None, CLIOption(timedelta | None)] = Field(
+        default=None,
+        description="Filter by minimum age relative to the current time.",
     )
-    max_age: Annotated[PositiveTimeDelta | None, CLIOption(str | None, metavar="TIMEDELTA")] = (
-        Field(
-            default=None,
-            description="Filter by maximum age relative to the current time.",
-        )
+    max_age: Annotated[PositiveTimeDelta | None, CLIOption(timedelta | None)] = Field(
+        default=None,
+        description="Filter by maximum age relative to the current time.",
     )
 
     @override
