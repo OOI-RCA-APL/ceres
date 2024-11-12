@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 import { useElementVisibility, useIntervalFn } from '@vueuse/core'
-import moment, { Moment } from 'moment'
+import moment from 'moment'
 import { watchEffect, computed, watch } from 'vue'
 
 import { useClient, Stream } from '@/api/client'
@@ -154,7 +154,7 @@ const baseOption: Option = $computed(() => {
         name: series.name,
         type: widget.display,
         data: getData(series.name),
-        animation: widget.display === 'bar' ? false : false, // Disable animation for bar chart.
+        animation: widget.display === 'bar' ? false : true, // Disable animation for bar chart.
         showSymbol: false, // Disable showing dots, for performance.
         symbolSize: 3,
         emphasis: {
@@ -259,7 +259,7 @@ function clearPending() {
   }
 }
 
-let lastPendingApplied: Moment | null = $shallowRef(null)
+let lastPendingApplied = $shallowRef(time.now)
 
 function applyPending() {
   for (const name in pending) {
@@ -273,13 +273,13 @@ function applyPending() {
 const isVisible = $(useElementVisibility(() => instance?.getDom()))
 const pendingApplyInterval = $computed(() => {
   if (!isVisible) {
-    return moment.duration(5, 'minute')
+    return moment.duration(5, 'minutes')
   }
 
   const percentageVisible = (zoom.end - zoom.start) / 100
   const timeVisible = moment.duration(duration.asMilliseconds() * percentageVisible)
   if (timeVisible.asDays() >= 1) {
-    return moment.duration(1, 'minute')
+    return moment.duration(1, 'minutes')
   }
   if (timeVisible.asHours() >= 1) {
     return moment.duration(30, 'seconds')
@@ -301,10 +301,7 @@ watch(
       return
     }
 
-    if (
-      lastPendingApplied == null ||
-      moment.duration(time.now.diff(lastPendingApplied)) > pendingApplyInterval
-    ) {
+    if (moment.duration(time.now.diff(lastPendingApplied)) >= pendingApplyInterval) {
       applyPending()
     }
   }
