@@ -5,7 +5,6 @@ import ssl
 from datetime import timedelta
 from pathlib import Path
 from typing import (
-    TYPE_CHECKING,
     Annotated,
     Any,
     Literal,
@@ -35,7 +34,7 @@ from pydantic import (
 )
 
 from ceres._internal.lazy import lazy_imports
-from ceres._internal.typedecs import __Component__, __DynamicSieve__
+from ceres._internal.typedecs import __Component__, __Sieve__
 from ceres.address import Address, DynamicAddress
 from ceres.data import (
     ImmutableDataObject,
@@ -70,11 +69,8 @@ from ceres.schedule import Schedule
 
 with lazy_imports(__name__):
     from ceres._internal import util
-
-if TYPE_CHECKING:
     from ceres.component import Component
-else:
-    Component = object
+    from ceres.sieve import Sieve
 
 
 class ConfigObject(ImmutableDataObject):
@@ -114,7 +110,7 @@ class JobConfig(ConfigObject):
 
 class SieveConfig(ConfigObject):
     name: Name
-    cls: ImportString[type[__DynamicSieve__]] = Field(
+    cls: ImportString[type[__Sieve__]] = Field(
         validation_alias="class",
         serialization_alias="class",
     )
@@ -125,12 +121,12 @@ class SieveConfig(ConfigObject):
     @field_validator("cls")
     def _validate_cls(
         cls,
-        value: ImportString[type[__DynamicSieve__]],
-    ) -> ImportString[type[__DynamicSieve__]]:
-        from ceres.sieve import DynamicSieve
+        value: ImportString[type[Sieve]],
+    ) -> ImportString[type[Sieve]]:
+        from ceres.sieve import Sieve
 
-        if not issubclass(value, DynamicSieve):
-            raise ValueError("class must be a subclass of `ceres.sieve.DynamicSieve`")
+        if not issubclass(value, Sieve):
+            raise ValueError("class must be a subclass of `ceres.sieve.Sieve`")
 
         return value
 
@@ -139,7 +135,7 @@ class SieveConfig(ConfigObject):
         self.cls(**self.arguments)
         return self
 
-    def create(self) -> __DynamicSieve__:
+    def create(self) -> Sieve:
         return self.cls(**self.arguments)
 
 
