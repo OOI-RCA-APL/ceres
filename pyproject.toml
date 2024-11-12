@@ -44,9 +44,11 @@ ruff = "0.4.9"
 types-pyyaml = "^6.0.0"
 
 [tool.poetry.group.docs.dependencies]
-mike = "2.0.0"
-mkdocs-material = "9.5.11"
-mkdocstrings = { extras = ["python"], version = "0.24.1" }
+griffe = "1.5.1"
+mike = "2.1.3"
+mkdocs-material = "9.5.44"
+mkdocstrings-python = "1.12.2"
+black = "24.10.0"
 
 [tool.poetry.scripts]
 ceres = "ceres._internal.cli.main:main"
