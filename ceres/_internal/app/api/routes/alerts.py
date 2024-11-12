@@ -6,16 +6,13 @@ from fastapi import APIRouter, Query
 from pydantic import Field
 
 from ceres._internal.app.shared import CurrentEngine, CurrentSocket
-from ceres.alert import Alert, AlertFilter, Level
+from ceres.alert import Alert, AlertFilter
 
 router = APIRouter(prefix="/alerts", tags=["alerts"])
 
 
 class GetAlertsQueryParameters(AlertFilter):
-    level: Level | None = None
-    code: str | None = None
     limit: int = Field(default=100, ge=0, le=1000)
-    offset: int = Field(default=0, ge=0)
 
 
 @router.get("")

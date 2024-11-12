@@ -14,6 +14,8 @@ from uuid import UUID
 
 from pydantic import Field
 from sqlalchemy import Uuid
+from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.sql.sqltypes import JSON, Text
 
 from ceres._internal.cli.plumbing import CLIOption
 from ceres._internal.entity import (
@@ -31,10 +33,8 @@ from ceres.database.enums import DatabaseType
 
 with lazy_imports(__name__):
     from sqlalchemy import PrimaryKeyConstraint
-    from sqlalchemy.orm import Mapped, mapped_column
     from sqlalchemy.schema import SchemaItem
     from sqlalchemy.sql import SQLColumnExpression
-    from sqlalchemy.sql.sqltypes import JSON, Text
 
     from ceres._internal import util
 

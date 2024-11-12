@@ -6,16 +6,13 @@ from fastapi import APIRouter, Query
 from pydantic import Field
 
 from ceres._internal.app.shared import CurrentEngine, CurrentSocket
-from ceres.level import Level
 from ceres.logs import LogEntry, LogEntryFilter
 
 router = APIRouter(prefix="/log-entries", tags=["logs"])
 
 
 class GetLogEntriesQueryParameters(LogEntryFilter):
-    level: Level | None = None
     limit: int = Field(default=100, ge=0, le=1000)
-    offset: int = Field(default=0, ge=0)
 
 
 @router.get("")

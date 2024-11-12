@@ -12,6 +12,8 @@ from typing import (
 )
 
 from pydantic import Field
+from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.sql.sqltypes import Text
 
 from ceres._internal import util
 from ceres._internal.cli.plumbing import CLIOption
@@ -32,10 +34,8 @@ from ceres.level import Level
 from ceres.timing import utc
 
 with lazy_imports(__name__):
-    from sqlalchemy.orm import Mapped, mapped_column
     from sqlalchemy.schema import Index, SchemaItem
     from sqlalchemy.sql import SQLColumnExpression
-    from sqlalchemy.sql.sqltypes import Text
 
 
 class LogEntryRow(BaseRecordRow, kw_only=True):

@@ -11,16 +11,19 @@ import { dataloader } from '@/utilities'
 export type Alert = Zod.infer<typeof AlertModel>
 export const AlertModel = RecordModel.extend({
   level: LevelModel,
-  code: Zod.string(),
-  info: Zod.record(Zod.string(), Zod.unknown()).default(() => ({})),
+  type: Zod.string(),
+  data: Zod.record(Zod.string(), Zod.unknown()).default(() => ({})),
 }).readonly()
 
 export type AlertFilter = Zod.infer<typeof AlertFilterModel>
 export const AlertFilterModel = RecordFilterModel.extend({
   level: Zod.union([LevelModel, Zod.array(LevelModel)]).nullish(),
-  code_contains: Zod.string().nullish(),
-  code_prefix: Zod.string().nullish(),
-  code_suffix: Zod.string().nullish(),
+  type_contains: Zod.string().nullish(),
+  type_prefix: Zod.string().nullish(),
+  type_suffix: Zod.string().nullish(),
+  data_contains: Zod.string().nullish(),
+  data_prefix: Zod.string().nullish(),
+  data_suffix: Zod.string().nullish(),
 })
 
 export const useAlerts = defineStore('alerts', () => {

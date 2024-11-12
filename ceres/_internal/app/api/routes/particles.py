@@ -15,7 +15,6 @@ router = APIRouter(prefix="/particles", tags=["particles"])
 
 class GetParticlesQueryParameters(ParticleFilter):
     limit: int = Field(default=100, ge=0, le=5000)
-    offset: int = Field(default=0, ge=0)
 
 
 @router.get("")

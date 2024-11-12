@@ -15,7 +15,6 @@ router = APIRouter(prefix="/messages", tags=["messages"])
 
 class GetMessagesQueryParameters(MessageFilter):
     limit: int = Field(default=100, ge=0, le=1000)
-    offset: int = Field(default=0, ge=0)
 
 
 @router.get("")

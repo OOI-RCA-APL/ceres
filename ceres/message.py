@@ -4,6 +4,8 @@ from datetime import datetime
 from typing import Annotated, Any, ClassVar, Iterable, Literal, TypeAlias, override
 
 from pydantic import BeforeValidator, Field, PlainSerializer
+from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.sql.sqltypes import LargeBinary
 
 from ceres._internal.cli.plumbing import CLIOption
 from ceres._internal.entity import (
@@ -22,11 +24,9 @@ from ceres.database.enums import DatabaseType
 from ceres.timing import utc
 
 with lazy_imports(__name__):
-    from sqlalchemy.orm import Mapped, mapped_column
     from sqlalchemy.schema import Index, SchemaItem
     from sqlalchemy.sql import SQLColumnExpression
     from sqlalchemy.sql.functions import func
-    from sqlalchemy.sql.sqltypes import LargeBinary
 
     from ceres._internal import util
     from ceres._internal.database.types import EnumConstraint, EnumMapper

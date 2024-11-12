@@ -37,7 +37,7 @@ const levelTextColor = $computed(() => {
   }
 })
 
-const renderedInfo = $computed(() => highlight(JSON.stringify(alert.info), 'json'))
+const renderedData = $computed(() => highlight(JSON.stringify(alert.data), 'json'))
 </script>
 
 <template>
@@ -50,11 +50,11 @@ const renderedInfo = $computed(() => highlight(JSON.stringify(alert.info), 'json
       </q-chip>
     </q-td>
     <q-td auto-width>
-      <div :class="$style.code">{{ alert.code }}</div>
+      <div :class="$style.type">{{ alert.type }}</div>
     </q-td>
     <q-td>
       <!-- eslint-disable-next-line vue/no-v-html -->
-      <div :class="$style.info" v-html="renderedInfo" />
+      <div :class="$style.data" v-html="renderedData" />
     </q-td>
   </record-view-record>
 </template>
@@ -77,13 +77,13 @@ const renderedInfo = $computed(() => highlight(JSON.stringify(alert.info), 'json
   width: 100%;
 }
 
-.code {
+.type {
   font-family: 'Roboto Mono', monospace;
   font-size: 9px;
   white-space: nowrap;
 }
 
-.info {
+.data {
   font-family: 'Roboto Mono', monospace;
   font-size: 9px;
   white-space: nowrap;

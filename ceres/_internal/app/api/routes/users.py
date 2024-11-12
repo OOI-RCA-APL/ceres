@@ -4,6 +4,7 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Query
+from pydantic import Field
 from starlette.status import HTTP_201_CREATED
 
 from ceres._internal.app.shared import (
@@ -30,7 +31,7 @@ async def get_user(engine: CurrentEngine, id: UUID) -> User:
 
 
 class GetUsersQueryParameters(UserFilter):
-    pass
+    limit: int = Field(default=100, ge=0, le=1000)
 
 
 @router.get("", dependencies=[VIEWER], response_model=list[APIUser])

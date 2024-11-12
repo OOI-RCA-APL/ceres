@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING, AsyncIterable, AsyncIterator, Generic, overrid
 
 from typing_extensions import TypeVar
 
-from ceres.data import ImmutableDataObject
+from ceres.data import ValidatedDataclass
 from ceres.error import ParticleError
 from ceres.message import Message
 from ceres.particle import Particle
@@ -14,7 +14,7 @@ else:
     _T = TypeVar("_T", covariant=True, default=Particle)
 
 
-class Sieve(ImmutableDataObject, Generic[_T]):
+class Sieve(ValidatedDataclass, Generic[_T]):
     @abstractmethod
     def read(self, messages: AsyncIterable[Message]) -> AsyncIterator[_T | ParticleError]: ...
 

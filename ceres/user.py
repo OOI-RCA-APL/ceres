@@ -13,6 +13,8 @@ from typing import (
 from uuid import UUID, uuid4
 
 from pydantic import Field
+from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.sql.sqltypes import Boolean, Text
 
 from ceres._internal.cli.plumbing import CLIOption
 from ceres._internal.database.types import EnumConstraint, EnumMapper
@@ -36,10 +38,8 @@ from ceres.data import (
 from ceres.database.enums import DatabaseType
 
 with lazy_imports(__name__):
-    from sqlalchemy.orm import Mapped, mapped_column
     from sqlalchemy.schema import SchemaItem, UniqueConstraint
     from sqlalchemy.sql import SQLColumnExpression, expression
-    from sqlalchemy.sql.sqltypes import Boolean, Text
 
     from ceres._internal import util
 

@@ -3,18 +3,18 @@ from __future__ import annotations
 from datetime import datetime
 from typing import (
     Annotated,
-    Any,
     ClassVar,
     Iterable,
     Literal,
-    Mapping,
     Sequence,
     TypeAlias,
     TypedDict,
     override,
 )
 
-from pydantic import Field, field_validator
+from pydantic import Field
+from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.sql.sqltypes import JSON, Text
 
 from ceres._internal.cli.plumbing import CLIOption
 from ceres._internal.database.types import EnumConstraint, EnumMapper
@@ -35,10 +35,8 @@ from ceres.level import Level
 from ceres.timing import utc
 
 with lazy_imports(__name__):
-    from sqlalchemy.orm import Mapped, mapped_column
     from sqlalchemy.schema import Index, SchemaItem
-    from sqlalchemy.sql import SQLColumnExpression
-    from sqlalchemy.sql.sqltypes import JSON, Text
+    from sqlalchemy.sql import SQLColumnExpression, cast, or_
 
     from ceres._internal import util
 
@@ -47,8 +45,8 @@ class AlertRow(BaseRecordRow, kw_only=True):
     __tablename__: ClassVar[str] = "alerts"
 
     level: Mapped[Level] = mapped_column(EnumMapper(Level))
-    code: Mapped[str] = mapped_column(Text)
-    info: Mapped[dict[str, Any]] = mapped_column(
+    type: Mapped[str] = mapped_column(Text)
+    data: Mapped[JSONDict] = mapped_column(
         JSON,
         default_factory=dict,
         server_default="{}",
@@ -61,9 +59,9 @@ class AlertRow(BaseRecordRow, kw_only=True):
             *super().__get_table_args__(),
             EnumConstraint("level", Level, f"ck_{cls.__tablename__}__level"),
             Index(
-                f"ix_{cls.__tablename__}__code",
-                cls.code,
-                postgresql_ops={"code": "gin_trgm_ops"},
+                f"ix_{cls.__tablename__}__type",
+                cls.type,
+                postgresql_ops={"type": "gin_trgm_ops"},
                 postgresql_using="gin",
             ),
         )
@@ -73,8 +71,8 @@ AlertField: TypeAlias = (
     BaseRecordField
     | Literal[
         "level",
-        "code",
-        "info",
+        "type",
+        "data",
     ]
 )
 AlertOrder: TypeAlias = (
@@ -82,18 +80,21 @@ AlertOrder: TypeAlias = (
     | Literal[
         "level",
         "-level",
-        "code",
-        "-code",
+        "type",
+        "-type",
     ]
 )
 
 
 class AlertFilterArgs(BaseRecordFilterArgs[AlertField, AlertOrder], total=False):
     level: Level | Sequence[Level] | None
-    code: str | Sequence[str] | None
-    code_contains: str | None
-    code_prefix: str | None
-    code_suffix: str | None
+    type: str | Sequence[str] | None
+    type_contains: str | Sequence[str] | None
+    type_prefix: str | Sequence[str] | None
+    type_suffix: str | Sequence[str] | None
+    data_contains: str | Sequence[str] | None
+    data_prefix: str | Sequence[str] | None
+    data_suffix: str | Sequence[str] | None
 
 
 class AlertFilter(BaseRecordFilter["Alert", AlertField, AlertOrder]):
@@ -101,21 +102,33 @@ class AlertFilter(BaseRecordFilter["Alert", AlertField, AlertOrder]):
         default=None,
         description="Filter by alert level(s).",
     )
-    code: Annotated[str | Sequence[str] | None, CLIOption(list[str] | None)] = Field(
+    type: Annotated[str | Sequence[str] | None, CLIOption(list[str] | None)] = Field(
         default=None,
-        description="Filter by alert code(s).",
+        description="Filter by alert types(s).",
     )
-    code_contains: Annotated[str | None, CLIOption(str | None)] = Field(
+    type_contains: Annotated[str | Sequence[str] | None, CLIOption(str | None)] = Field(
         default=None,
-        description="Filter, keeping only alerts with codes that contain the given string.",
+        description="Filter by alert type(s) containing a given substring.",
     )
-    code_prefix: Annotated[str | None, CLIOption(str | None)] = Field(
+    type_prefix: Annotated[str | Sequence[str] | None, CLIOption(str | None)] = Field(
         default=None,
-        description="Filter, keeping only alerts with codes that start with the given string.",
+        description="Filter by alert type(s) with a common prefix.",
     )
-    code_suffix: Annotated[str | None, CLIOption(str | None)] = Field(
+    type_suffix: Annotated[str | Sequence[str] | None, CLIOption(str | None)] = Field(
         default=None,
-        description="Filter, keeping only alerts with codes that end with the given string.",
+        description="Filter by alert type(s) with a common suffix.",
+    )
+    data_contains: Annotated[str | Sequence[str] | None, CLIOption(str)] = Field(
+        default=None,
+        description="Filter alert data containing a given substring.",
+    )
+    data_prefix: Annotated[str | Sequence[str] | None, CLIOption(str)] = Field(
+        default=None,
+        description="Filter alert data with a common prefix.",
+    )
+    data_suffix: Annotated[str | Sequence[str] | None, CLIOption(str)] = Field(
+        default=None,
+        description="Filter alert data with a common suffix.",
     )
 
     @override
@@ -127,18 +140,45 @@ class AlertFilter(BaseRecordFilter["Alert", AlertField, AlertOrder]):
         if self.level is not None:
             if obj.level not in util.as_sequence(self.level):
                 return False
-        if self.code is not None:
-            if obj.code not in util.as_sequence(self.code):
+
+        if self.type is not None:
+            if obj.type not in util.as_sequence(self.type):
                 return False
-        if self.code_contains is not None:
-            if self.code_contains not in obj.code:
+        if self.type_contains is not None:
+            if not any(obj.type in substring for substring in util.as_sequence(self.type_contains)):
                 return False
-        if self.code_prefix is not None:
-            if not obj.code.startswith(self.code_prefix):
+        if self.type_prefix is not None:
+            if not any(
+                obj.type.startswith(prefix) for prefix in util.as_sequence(self.type_prefix)
+            ):
                 return False
-        if self.code_suffix is not None:
-            if not obj.code.endswith(self.code_suffix):
+        if self.type_suffix is not None:
+            if not any(
+                obj.type.startswith(suffix) for suffix in util.as_sequence(self.type_suffix)
+            ):
                 return False
+
+        if (
+            self.data_contains is not None
+            or self.data_prefix is not None
+            or self.data_suffix is not None
+        ):
+            data_json = jsonify(obj.data)
+            if self.data_contains is not None:
+                if not any(
+                    substring in data_json for substring in util.as_sequence(self.data_contains)
+                ):
+                    return False
+            if self.data_prefix is not None:
+                if not any(
+                    data_json.startswith(prefix) for prefix in util.as_sequence(self.data_prefix)
+                ):
+                    return False
+            if self.data_suffix is not None:
+                if not any(
+                    data_json.startswith(suffix) for suffix in util.as_sequence(self.data_suffix)
+                ):
+                    return False
 
         return True
 
@@ -160,38 +200,63 @@ class AlertFilter(BaseRecordFilter["Alert", AlertField, AlertOrder]):
 
         if self.level is not None:
             yield columns.level.in_(util.as_sequence(self.level))
-        if self.code is not None:
-            yield columns.code.in_(util.as_sequence(self.code))
-        if self.code_contains is not None:
-            yield columns.code.like("%" + util.escape_like_expression(self.code_contains) + "%")
-        if self.code_prefix is not None:
-            yield columns.code.like(util.escape_like_expression(self.code_prefix) + "%")
-        if self.code_suffix is not None:
-            yield columns.code.like("%" + util.escape_like_expression(self.code_suffix))
+
+        if self.type is not None:
+            yield columns.type.in_(util.as_sequence(self.type))
+        if self.type_contains is not None:
+            yield or_(
+                False,
+                *(columns.type.contains(type) for type in util.as_sequence(self.type_contains)),
+            )
+        if self.type_prefix is not None:
+            yield or_(
+                False,
+                *(columns.type.startswith(prefix) for prefix in util.as_sequence(self.type_prefix)),
+            )
+        if self.type_suffix is not None:
+            yield or_(
+                False,
+                *(columns.type.endswith(suffix) for suffix in util.as_sequence(self.type_suffix)),
+            )
+
+        if self.data_contains is not None:
+            yield or_(
+                False,
+                *(
+                    cast(columns.data, Text).contains(substring)
+                    for substring in util.as_sequence(self.data_contains)
+                ),
+            )
+        if self.data_prefix is not None:
+            yield or_(
+                False,
+                *(
+                    cast(columns.data, Text).startswith(prefix)
+                    for prefix in util.as_sequence(self.data_prefix)
+                ),
+            )
+        if self.data_suffix is not None:
+            yield or_(
+                False,
+                *(
+                    cast(columns.data, Text).endswith(suffix)
+                    for suffix in util.as_sequence(self.data_suffix)
+                ),
+            )
 
 
 class AlertCreate(BaseRecordCreate):
     level: Annotated[Level, CLIOption(Level)]
-    code: Annotated[str, CLIOption(str)]
-    info: Annotated[JSONDict, CLIOption(str)] = Field(default_factory=dict)
-
-    @field_validator("info")
-    @classmethod
-    def _validate_info(cls, value: Mapping[str, Any]) -> Mapping[str, Any]:
-        try:
-            jsonify(value)
-        except Exception:
-            raise ValueError("info must be a JSON serializable mapping")
-
-        return value
+    type: Annotated[str, CLIOption(str)]
+    data: Annotated[JSONDict, CLIOption(str)] = Field(default_factory=dict)
 
 
 class AlertUpdate(TypedDict, total=False):
     address: Address
     timestamp: DateTime
     level: Level
-    code: str
-    info: JSONDict
+    type: str
+    data: JSONDict
 
 
 class Alert(BaseRecord, AlertCreate):

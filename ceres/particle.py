@@ -1,21 +1,24 @@
 from __future__ import annotations
 
 from abc import ABC
+from collections.abc import Mapping
 from datetime import datetime
-from types import MappingProxyType
 from typing import (
     TYPE_CHECKING,
     Annotated,
     Any,
     ClassVar,
     Generic,
+    ItemsView,
     Iterable,
+    KeysView,
     Literal,
     LiteralString,
     MutableMapping,
     Sequence,
     Type,
     TypeAlias,
+    ValuesView,
     override,
 )
 
@@ -23,7 +26,7 @@ from pydantic import ConfigDict, Field, SerializeAsAny, ValidationError, model_v
 from pydantic.types import ImportString
 from sqlalchemy import cast
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.sql.sqltypes import JSON, String
+from sqlalchemy.sql.sqltypes import JSON, Text
 from typing_extensions import TypeVar
 
 from ceres._internal.cli.plumbing import CLIOption
@@ -52,7 +55,7 @@ with lazy_imports(__name__):
 class ParticleRow(BaseRecordRow, kw_only=True):
     __tablename__: ClassVar[str] = "particles"
 
-    type: Mapped[str] = mapped_column(String)
+    type: Mapped[str] = mapped_column(Text)
     data: Mapped[JSONDict] = mapped_column(JSON)
 
     @classmethod
@@ -87,7 +90,7 @@ ParticleOrder: TypeAlias = (
 UNKNOWN_TYPE: LiteralString = "__unknown__"
 
 
-class ParticleData(ImmutableDataObject, ABC):
+class ParticleData(ImmutableDataObject, Mapping[str, Any], ABC):
     model_config = ConfigDict(extra="allow")
 
     __type__: ClassVar[LiteralString]
@@ -96,6 +99,30 @@ class ParticleData(ImmutableDataObject, ABC):
     def __init_subclass__(cls) -> None:
         if not hasattr(cls, "__type__") or not isinstance(cls.__type__, str):
             raise ValueError(f"{cls} must define `__type__` as a class attribute")
+
+    @override
+    def __getitem__(self, key: str, /) -> Any:
+        return self.__dict__[key]
+
+    @override
+    def __len__(self) -> int:
+        return len(self.__dict__)
+
+    @override
+    def keys(self) -> KeysView[str]:
+        return self.__dict__.keys()
+
+    @override
+    def values(self) -> ValuesView[Any]:
+        return self.__dict__.values()
+
+    @override
+    def items(self) -> ItemsView[str, Any]:
+        return self.__dict__.items()
+
+    @override
+    def __contains__(self, value: Any, /) -> bool:
+        return value in self.__dict__
 
 
 DynamicParticleData: TypeAlias = ParticleData | JSONDict
@@ -156,15 +183,15 @@ class ParticleFilter(
     )
     data_contains: Annotated[str | Sequence[str] | None, CLIOption(str)] = Field(
         default=None,
-        description="Filter by particle data containing a given substring.",
+        description="Filter particle data containing a given substring.",
     )
     data_prefix: Annotated[str | Sequence[str] | None, CLIOption(str)] = Field(
         default=None,
-        description="Filter by particle data with a common substring prefix.",
+        description="Filter particle data with a common prefix.",
     )
     data_suffix: Annotated[str | Sequence[str] | None, CLIOption(str)] = Field(
         default=None,
-        description="Filter by particle data with a common substring suffix.",
+        description="Filter particle data with a common suffix.",
     )
 
     @override
@@ -176,6 +203,7 @@ class ParticleFilter(
         if self.cls is not None:
             if not isinstance(obj.data, self.cls):
                 return False
+
         if self.type is not None:
             if obj.type not in util.as_sequence(self.type):
                 return False
@@ -236,6 +264,7 @@ class ParticleFilter(
         if self.cls is not None:
             if issubclass(self.cls, ParticleData):
                 yield columns.type == self.cls.__type__
+
         if self.type is not None:
             yield columns.type.in_(util.as_sequence(self.type))
         if self.type_contains is not None:
@@ -253,11 +282,12 @@ class ParticleFilter(
                 False,
                 *(columns.type.endswith(suffix) for suffix in util.as_sequence(self.type_suffix)),
             )
+
         if self.data_contains is not None:
             yield or_(
                 False,
                 *(
-                    cast(columns.data, String).contains(substring)
+                    cast(columns.data, Text).contains(substring)
                     for substring in util.as_sequence(self.data_contains)
                 ),
             )
@@ -265,7 +295,7 @@ class ParticleFilter(
             yield or_(
                 False,
                 *(
-                    cast(columns.data, String).startswith(prefix)
+                    cast(columns.data, Text).startswith(prefix)
                     for prefix in util.as_sequence(self.data_prefix)
                 ),
             )
@@ -273,7 +303,7 @@ class ParticleFilter(
             yield or_(
                 False,
                 *(
-                    cast(columns.data, String).endswith(suffix)
+                    cast(columns.data, Text).endswith(suffix)
                     for suffix in util.as_sequence(self.data_suffix)
                 ),
             )
@@ -331,22 +361,11 @@ class Particle(BaseRecord, ParticleCreate, Generic[_T]):
 
         return value
 
-    @property
-    def values(self) -> MappingProxyType[str, Any]:
-        if not isinstance(self.data, dict):
-            __dict__ = getattr(self.data, "__dict__", None)
-            if __dict__ is None:
-                return MappingProxyType({})
-
-            return MappingProxyType(__dict__)
-
-        return MappingProxyType(self.data)
-
     def convert[D: DynamicParticleData](self, cls: Type[D]) -> Particle[D]:
         data = (
             cls.model_validate(self.data)
             if util.lenient_issubclass(cls, ParticleData)
-            else self.values
+            else dict(self.data)
         )
 
         return Particle[cls].model_construct(

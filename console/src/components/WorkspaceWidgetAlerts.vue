@@ -20,13 +20,18 @@ const columns = $computed(() => [
   { label: 'Address', name: 'address', filtered: widget.filter.address != null },
   { label: 'Level', name: 'level', filtered: widget.filter.level != null },
   {
-    label: 'Code',
-    name: 'code',
-    filtered: widget.filter.code_prefix != null || widget.filter.code_contains != null,
+    label: 'Type',
+    name: 'type',
+    filtered:
+      (widget.filter.type_contains ?? widget.filter.type_prefix ?? widget.filter.type_suffix) !=
+      null,
   },
   {
-    label: 'Info',
-    name: 'info',
+    label: 'Data',
+    name: 'data',
+    filtered:
+      (widget.filter.data_contains ?? widget.filter.data_prefix ?? widget.filter.data_suffix) !=
+      null,
   },
 ])
 </script>
@@ -85,15 +90,35 @@ const columns = $computed(() => [
         />
       </div>
     </template>
-    <template #column-filter-code>
+    <template #column-filter-type>
       <div class="column q-gutter-xs" style="min-width: 200px">
         <schema-form-base
-          v-model="widget.filter.code_contains"
+          v-model="widget.filter.type_contains"
           :schema="{ title: 'Contains', type: 'string', optional: true }"
         />
         <schema-form-base
-          v-model="widget.filter.code_prefix"
+          v-model="widget.filter.type_contains"
           :schema="{ title: 'Prefix', type: 'string', optional: true }"
+        />
+      </div>
+    </template>
+    <template #column-filter-data>
+      <div class="column q-gutter-xs" style="min-width: 300px">
+        <schema-form-base
+          v-model="widget.filter.data_contains"
+          :schema="{
+            title: 'Contains',
+            type: 'string',
+            optional: true,
+          }"
+        />
+        <schema-form-base
+          v-model="widget.filter.data_prefix"
+          :schema="{
+            title: 'Prefix',
+            type: 'string',
+            optional: true,
+          }"
         />
       </div>
     </template>
