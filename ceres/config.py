@@ -258,7 +258,7 @@ class ComponentConfig(ConfigObject):
                             ComponentReferenceInvalidError(
                                 address=component.system.address,
                                 referenced=reference.__reference_ultimate_target__,
-                                expected=reference.__reference_constraint__ or Component,  # type: ignore
+                                expected=reference.__reference_constraint__ or Component,
                                 actual=type(unref(reference)),
                             )
                         )
