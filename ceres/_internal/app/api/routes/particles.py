@@ -1,16 +1,22 @@
 from __future__ import annotations
 
 from typing import Annotated
+from uuid import UUID
 
 from fastapi import APIRouter, Query
 from pydantic import Field
 from pydantic import ValidationError as ValidationError
 from starlette.exceptions import HTTPException as HTTPException
 
-from ceres._internal.app.shared import CurrentEngine, CurrentSocket
+from ceres._internal.app.shared import CurrentEngine, CurrentSocket, assert_found
 from ceres.particle import Particle, ParticleFilter
 
 router = APIRouter(prefix="/particles", tags=["particles"])
+
+
+@router.get("/{id}")
+async def get_particle(engine: CurrentEngine, id: UUID) -> Particle:
+    return assert_found(await engine.particles.get(id=id))
 
 
 class GetParticlesQueryParameters(ParticleFilter):
