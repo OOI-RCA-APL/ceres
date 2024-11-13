@@ -115,7 +115,7 @@ class App(FastAPI):
             return JSONResponse(simplify(error), status_code=HTTP_422_UNPROCESSABLE_ENTITY)
 
         from fastapi.middleware.cors import CORSMiddleware
-        from fastapi.middleware.gzip import GZipMiddleware
+        from starlette_compress import CompressMiddleware
 
         self.add_middleware(
             CORSMiddleware,
@@ -125,7 +125,7 @@ class App(FastAPI):
             allow_headers=["*"],
         )
         self.add_middleware(LoggingMiddleware)  # type: ignore
-        self.add_middleware(GZipMiddleware)
+        self.add_middleware(CompressMiddleware)
 
         self.include_router(router__api)
         self.include_router(router)

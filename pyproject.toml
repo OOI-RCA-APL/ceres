@@ -31,6 +31,7 @@ pyyaml = "^6.0.0"
 setproctitle = "^1.0.0"
 sqlalchemy = { version = "^2.0.0", extras = ["asyncio"] }
 sqlparse = ">=0.4.0"
+starlette-compress = "^1.2.0"
 typer = ">=0.6.0"
 uvloop = ">=0.17.0"
 watchfiles = ">=0.10.0"
