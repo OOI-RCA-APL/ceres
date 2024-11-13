@@ -20,6 +20,7 @@ from uuid import UUID, uuid4
 import pydantic
 from pydantic import Field, NonNegativeInt
 from sqlalchemy.orm.decl_api import DeclarativeBase, MappedAsDataclass
+from sqlalchemy.types import Integer
 
 from ceres._internal.cli.plumbing import CLIOption
 from ceres._internal.database.types import AddressMapper, DateTimeMapper, UUIDMapper
@@ -49,6 +50,9 @@ with lazy_imports(__name__):
         Select,
         SQLColumnExpression,
         Update,
+        cast,
+        func,
+        literal,
         select,
         tuple_,
     )
@@ -500,6 +504,10 @@ class BaseRecordFilterArgs[
     timespan: PositiveTimeDelta | None
     max_age: PositiveTimeDelta | None
     min_age: PositiveTimeDelta | None
+    after_hour: NonNegativeInt | None
+    before_hour: NonNegativeInt | None
+    after_minute: NonNegativeInt | None
+    before_minute: NonNegativeInt | None
 
 
 class BaseRecordFilter[
@@ -537,6 +545,26 @@ class BaseRecordFilter[
         default=None,
         description="Filter by maximum age relative to the current time.",
     )
+    after_hour: Annotated[NonNegativeInt | None, CLIOption(int | None)] = Field(
+        default=None,
+        description="Filter by minimum hour of the day.",
+        le=24,
+    )
+    before_hour: Annotated[NonNegativeInt | None, CLIOption(int | None)] = Field(
+        default=None,
+        description="Filter by maximum hour of the day.",
+        le=24,
+    )
+    after_minute: Annotated[NonNegativeInt | None, CLIOption(int | None)] = Field(
+        default=None,
+        description="Filter by minimum minute of the day.",
+        le=60,
+    )
+    before_minute: Annotated[NonNegativeInt | None, CLIOption(int | None)] = Field(
+        default=None,
+        description="Filter by maximum minute of the day.",
+        le=60,
+    )
 
     @override
     def matches(self, obj: RecordT, *, now: datetime | None = None) -> bool:
@@ -567,6 +595,30 @@ class BaseRecordFilter[
         if self.min_age is not None:
             if obj.timestamp >= now - self.min_age:
                 return False
+
+        if self.after_hour is not None or self.before_hour is not None:
+            min_hour = self.after_hour if self.after_hour is not None else 0
+            max_hour = self.before_hour if self.before_hour is not None else 24
+            within_min = obj.timestamp.hour >= min_hour
+            within_max = obj.timestamp.hour < max_hour
+            if min_hour <= max_hour:
+                if not within_min or not within_max:
+                    return False
+            else:
+                if not within_min and not within_max:
+                    return False
+
+        if self.after_minute is not None or self.before_minute is not None:
+            min_minute = self.after_minute if self.after_minute is not None else 0
+            max_minute = self.before_minute if self.before_minute is not None else 60
+            within_min = obj.timestamp.minute >= min_minute
+            within_max = obj.timestamp.minute < max_minute
+            if min_minute <= max_minute:
+                if not within_min or not within_max:
+                    return False
+            else:
+                if not within_min and not within_max:
+                    return False
 
         return True
 
@@ -602,6 +654,44 @@ class BaseRecordFilter[
             yield columns.timestamp >= now - self.max_age
         if self.min_age is not None:
             yield columns.timestamp < now - self.min_age
+
+        if self.after_hour is not None or self.before_hour is not None:
+            min_hour = self.after_hour if self.after_hour is not None else 0
+            max_hour = self.before_hour if self.before_hour is not None else 24
+            match dialect:
+                case DatabaseType.POSTGRES:
+                    hour = func.date_part(
+                        literal("hour", literal_execute=True),
+                        columns.timestamp.op("AT TIME ZONE")(literal("UTC", literal_execute=True)),
+                    )
+                case DatabaseType.SQLITE:
+                    hour = cast(func.strftime("%H", columns.timestamp), Integer)
+
+            within_min = hour >= min_hour
+            within_max = hour < max_hour
+            if min_hour <= max_hour:
+                yield within_min & within_max
+            else:
+                yield within_min | within_max
+
+        if self.after_minute is not None or self.before_minute is not None:
+            min_minute = self.after_minute if self.after_minute is not None else 0
+            max_minute = self.before_minute if self.before_minute is not None else 60
+            match dialect:
+                case DatabaseType.POSTGRES:
+                    minute = func.date_part(
+                        literal("minute", literal_execute=True),
+                        columns.timestamp.op("AT TIME ZONE")(literal("UTC", literal_execute=True)),
+                    )
+                case DatabaseType.SQLITE:
+                    minute = cast(func.strftime("%M", columns.timestamp), Integer)
+
+            within_min = minute >= min_minute
+            within_max = minute < max_minute
+            if min_minute <= max_minute:
+                yield within_min & within_max
+            else:
+                yield within_min | within_max
 
     @override
     def _get_default_order(self) -> OrderT:

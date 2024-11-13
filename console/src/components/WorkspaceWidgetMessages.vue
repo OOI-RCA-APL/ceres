@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { watch } from 'vue'
 
-import { Address, AddressSelector } from '@/api/address'
+import { Address } from '@/api/address'
 import { useEngine } from '@/api/engine'
 import RecordView from '@/components/RecordView.vue'
 import SchemaFormBase from '@/components/schema-form/SchemaFormBase.vue'
@@ -17,16 +17,17 @@ const engine = useEngine()
 
 const columns = $computed(() => [
   {
-    label: 'Timestamp',
-    name: 'timestamp',
-    filtered: widget.filter.after != null || widget.filter.before != null,
+    label: 'Direction',
+    name: 'direction',
+    filtered: widget.filter.direction != null,
   },
-  { label: 'Address', name: 'address', filtered: widget.filter.address != null },
-  { label: 'Direction', name: 'direction', filtered: widget.filter.direction != null },
   {
     label: 'Content',
     name: 'content',
-    filtered: widget.filter.content_prefix != null || widget.filter.content_contains != null,
+    filtered:
+      (widget.filter.content_contains ??
+        widget.filter.content_prefix ??
+        widget.filter.content_suffix) != null,
   },
 ])
 
@@ -116,44 +117,7 @@ async function submit() {
 </script>
 
 <template>
-  <record-view :columns="columns" :filter="widget.filter as any" type="message">
-    <template #column-filter-timestamp>
-      <div style="min-width: 200px">
-        <div class="q-mb-xs">
-          <schema-form-base
-            v-model="widget.filter.after"
-            :schema="{ title: 'After', type: 'string', format: 'date-time', optional: true }"
-          />
-        </div>
-        <div>
-          <schema-form-base
-            v-model="widget.filter.before"
-            :schema="{ title: 'Before', type: 'string', format: 'date-time', optional: true }"
-          />
-        </div>
-      </div>
-    </template>
-    <template #column-filter-address>
-      <div style="min-width: 200px">
-        <schema-form-base
-          :model-value="widget.filter.address?.toString()"
-          :schema="{
-            title: 'Address',
-            type: 'string',
-            enum: engine.components.all.flatMap((current) => [
-              current.address.toString(),
-              current.address.all().toString(),
-            ]),
-            optional: true,
-          }"
-          @update:model-value="
-            (value) =>
-              (widget.filter.address =
-                value == null ? undefined : new AddressSelector(String(value)))
-          "
-        />
-      </div>
-    </template>
+  <record-view :columns="columns" :filter="widget.filter" :widget>
     <template #column-filter-direction>
       <div style="min-width: 200px">
         <schema-form-base

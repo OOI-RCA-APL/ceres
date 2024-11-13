@@ -82,6 +82,9 @@ class App(FastAPI):
                 try:
                     error = simplify(failure.error)
                     status = failure.error.__error_status_code__
+
+                    if status >= 500:
+                        self.engine.log.error(traceback.format_exc())
                 except Exception:
                     traceback.print_exc()
                     raise

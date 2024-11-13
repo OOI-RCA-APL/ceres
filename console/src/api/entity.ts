@@ -49,5 +49,9 @@ export const RecordFilterModel = UUIDEntityFilterModel.merge(ItemFilterModel).ex
   timespan: Zod.union([Zod.number(), Zod.string()]).nullish(),
   min_age: Zod.union([Zod.number(), Zod.string()]).nullish(),
   max_age: Zod.union([Zod.number(), Zod.string()]).nullish(),
+  after_hour: Zod.number().nullish(),
+  before_hour: Zod.number().nullish(),
+  after_minute: Zod.number().nullish(),
+  before_minute: Zod.number().nullish(),
   order: RecordOrderModel.nullish(),
 })
