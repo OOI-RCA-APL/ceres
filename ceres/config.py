@@ -4,6 +4,7 @@ import os
 import ssl
 from datetime import timedelta
 from pathlib import Path
+from re import Pattern
 from typing import (
     Annotated,
     Any,
@@ -19,6 +20,7 @@ from annotated_types import Ge, Le
 from argon2.profiles import RFC_9106_LOW_MEMORY
 from pydantic import (
     BaseModel,
+    ByteSize,
     ConfigDict,
     Field,
     ImportString,
@@ -340,12 +342,36 @@ class ServerAuthenticationConfig(ConfigObject):
     duration: PositiveTimeDelta = timedelta(minutes=30)
 
 
+class ServerCORSConfig(ConfigObject):
+    enabled: bool = True
+    allow_origins: str | Sequence[str] = Field(default_factory=list)
+    allow_origin_regex: Pattern[str] | None = None
+    allow_methods: str | Sequence[str] = "*"
+    allow_headers: str | Sequence[str] = "*"
+    allow_credentials: bool = True
+    expose_headers: str | Sequence[str] = Field(default_factory=list)
+    max_age: PositiveInt = 600
+
+
+class ServerCompressionConfig(ConfigObject):
+    enabled: bool = True
+    min_size: ByteSize = ByteSize(500)
+    zstd: bool = True
+    zstd_level: int = Field(default=1, ge=1, le=22)
+    brotli: bool = True
+    brotli_quality: int = Field(default=4, ge=0, le=11)
+    gzip: bool = True
+    gzip_level: int = Field(default=1, ge=0, le=9)
+
+
 class ServerConfig(ConfigObject):
     host: str = "0.0.0.0"  # Bind to IPV4 all addresses by default
     port: int | None = None
     socket: Path | None = None
     ssl: ServerSSLConfig | None = None
     authentication: ServerAuthenticationConfig | None = None
+    cors: ServerCORSConfig | None = None
+    compression: ServerCompressionConfig | None = None
 
     @field_validator("host")
     def _validate_host(cls, host: str) -> str:

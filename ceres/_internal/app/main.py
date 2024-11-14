@@ -5,17 +5,11 @@ from http.client import responses
 from pathlib import Path
 from typing import Awaitable, Callable, cast, final
 
-from fastapi import (
-    APIRouter,
-    FastAPI,
-    HTTPException,
-    Request,
-    Response,
-)
+from fastapi import APIRouter, FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse
-from starlette.exceptions import HTTPException as StarletteHTTPException
-from starlette.responses import JSONResponse
+from fastapi.requests import HTTPConnection
+from fastapi.responses import FileResponse, JSONResponse
+from starlette.exceptions import HTTPException
 from starlette.status import HTTP_422_UNPROCESSABLE_ENTITY
 
 from ceres._internal.app.api import router as router__api
@@ -36,6 +30,8 @@ with lazy_imports(__name__):
         WebSocketScope,
     )
 
+    from ceres._internal import util
+    from ceres.config import ServerCompressionConfig, ServerConfig
     from ceres.data import simplify
     from ceres.engine import Engine
 
@@ -60,7 +56,10 @@ def get_favicon_svg(engine: CurrentEngine) -> FileResponse:
 
 @final
 class App(FastAPI):
-    def __init__(self, engine: Engine) -> None:
+    def __init__(self, engine: Engine, config: ServerConfig | None = None) -> None:
+        if config is None:
+            config = engine.config.server
+
         self.__engine = engine
 
         super().__init__(
@@ -71,61 +70,43 @@ class App(FastAPI):
             openapi_url="/api/openapi.json",
         )
 
-        @self.middleware("http")
-        async def error_middleware(
-            request: Request,
-            call_next: Callable[[Request], Awaitable[Response]],
-        ) -> Response:
-            try:
-                return await call_next(request)
-            except Failure as failure:
-                try:
-                    error = simplify(failure.error)
-                    status = failure.error.__error_status_code__
+        compression = config.compression or ServerCompressionConfig()
+        if compression.enabled:
+            from starlette_compress import CompressMiddleware
 
-                    if status >= 500:
-                        self.engine.log.error(traceback.format_exc())
-                except Exception:
-                    traceback.print_exc()
-                    raise
-
-                try:
-                    return JSONResponse(content=error, status_code=status)
-                except Exception:
-                    self.engine.log.error(traceback.format_exc())
-                    raise
-            except Exception:
-                self.engine.log.error(traceback.format_exc())
-                raise
-
-        @self.exception_handler(StarletteHTTPException)
-        async def on_http_exception(
-            request: Request,
-            exception: HTTPException,
-        ) -> Response:
-            error = simplify(HTTPError(status=exception.status_code))
-            return JSONResponse(simplify(error), status_code=exception.status_code)
-
-        @self.exception_handler(RequestValidationError)
-        async def on_request_validation_error(
-            request: Request,
-            exception: RequestValidationError,
-        ) -> Response:
-            error = simplify(ValidationFailedError(problems=ValidationProblem.extract(exception)))
-            return JSONResponse(simplify(error), status_code=HTTP_422_UNPROCESSABLE_ENTITY)
+            self.add_middleware(
+                CompressMiddleware,
+                minimum_size=int(compression.min_size),
+                zstd=compression.zstd,
+                zstd_level=compression.zstd_level,
+                brotli=compression.brotli,
+                brotli_quality=compression.brotli_quality,
+                gzip=compression.gzip,
+                gzip_level=compression.gzip_level,
+            )
 
         from fastapi.middleware.cors import CORSMiddleware
-        from starlette_compress import CompressMiddleware
 
-        self.add_middleware(
-            CORSMiddleware,
-            allow_origins=["*"],
-            allow_credentials=True,
-            allow_methods=["*"],
-            allow_headers=["*"],
-        )
+        cors = config.cors
+        if cors is not None and cors.enabled:
+            self.add_middleware(
+                CORSMiddleware,
+                allow_origins=util.as_sequence(cors.allow_origins),
+                allow_methods=util.as_sequence(cors.allow_methods),
+                allow_headers=util.as_sequence(cors.allow_headers),
+                allow_credentials=cors.allow_credentials,
+                allow_origin_regex=cors.allow_origin_regex.pattern
+                if cors.allow_origin_regex
+                else None,
+                expose_headers=util.as_sequence(cors.expose_headers),
+                max_age=cors.max_age,
+            )
+
         self.add_middleware(LoggingMiddleware)  # type: ignore
-        self.add_middleware(CompressMiddleware)
+
+        self.middleware("http")(self._error_middleware)
+        self.exception_handler(HTTPException)(self._http_exception_handler)
+        self.exception_handler(RequestValidationError)(self._request_validation_error_handler)
 
         self.include_router(router__api)
         self.include_router(router)
@@ -137,6 +118,49 @@ class App(FastAPI):
     @property
     def engine(self) -> Engine:
         return self.__engine
+
+    async def _error_middleware(
+        self,
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
+        try:
+            return await call_next(request)
+        except Failure as failure:
+            try:
+                error = simplify(failure.error)
+                status = failure.error.__error_status_code__
+
+                if status >= 500:
+                    self.engine.log.error(traceback.format_exc())
+            except Exception:
+                traceback.print_exc()
+                raise
+
+            try:
+                return JSONResponse(error, status)
+            except Exception:
+                self.engine.log.error(traceback.format_exc())
+                raise
+        except Exception:
+            self.engine.log.error(traceback.format_exc())
+            raise
+
+    async def _http_exception_handler(
+        self,
+        request: HTTPConnection,
+        exception: HTTPException,
+    ) -> Response:
+        error = simplify(HTTPError(status=exception.status_code))
+        return JSONResponse(simplify(error), exception.status_code)
+
+    async def _request_validation_error_handler(
+        self,
+        request: Request,
+        exception: RequestValidationError,
+    ) -> Response:
+        error = simplify(ValidationFailedError(problems=ValidationProblem.extract(exception)))
+        return JSONResponse(simplify(error), HTTP_422_UNPROCESSABLE_ENTITY)
 
 
 class LoggingMiddleware:
