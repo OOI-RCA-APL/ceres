@@ -5,7 +5,8 @@ import traceback
 from asyncio import CancelledError
 from typing import Annotated, Any, Literal, Mapping, Sequence
 
-from fastapi import APIRouter, Body, Request, WebSocket
+from fastapi import APIRouter, Body, Request, WebSocket, WebSocketException
+from starlette.status import WS_1008_POLICY_VIOLATION, WS_1011_INTERNAL_ERROR
 
 from ceres._internal.app.shared import (
     VIEWER,
@@ -208,23 +209,23 @@ async def subscribe(
 
     component = engine.get_component(address)
     if component is None:
-        code = 1008  # Set code for policy violation.
-        reason = jsonify(Fail(ProcedureComponentNotFoundError()))
-        await socket.close(code, reason)
-        return
+        raise WebSocketException(
+            WS_1008_POLICY_VIOLATION,
+            jsonify(Fail(ProcedureComponentNotFoundError())),
+        )
 
     binding = component.system.get_procedure_binding(procedure)
     if binding is None:
-        code = 1008  # Set code for policy violation.
-        reason = jsonify(Fail(ProcedureNotFoundError()))
-        await socket.close(code, reason)
-        return
+        raise WebSocketException(
+            WS_1008_POLICY_VIOLATION,
+            jsonify(Fail(ProcedureNotFoundError())),
+        )
 
     if binding.type == ProcedureType.ACTION and role < UserRole.OPERATOR:
-        code = 1008  # Set code for policy violation.
-        reason = jsonify(Fail(ProcedureNotPermittedError()))
-        await socket.close(code, reason)
-        return
+        raise WebSocketException(
+            WS_1008_POLICY_VIOLATION,
+            jsonify(Fail(ProcedureNotPermittedError())),
+        )
 
     async def read() -> None:
         try:
@@ -242,13 +243,13 @@ async def subscribe(
         except Exception as exception:
             if isinstance(exception, Failure) and isinstance(exception.error, ProcedureError):
                 if not isinstance(exception.error, ProcedureInternalError):
-                    code = 1011  # Set code for internal error.
+                    code = WS_1011_INTERNAL_ERROR
                 else:
-                    code = 1008  # Set code for policy violation.
+                    code = WS_1008_POLICY_VIOLATION
 
                 reason = jsonify(Fail(exception.error))
             else:
-                code = 1011  # Set code for internal error.
+                code = WS_1011_INTERNAL_ERROR
                 reason = jsonify(util.strify(exception)[0:100])
 
             await socket.close(code, reason)
