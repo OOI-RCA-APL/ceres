@@ -42,7 +42,6 @@ from ceres._internal.cli.plumbing import CLIOption
 from ceres._internal.filter import BaseFilter, BaseFilterArgs
 from ceres._internal.lazy import lazy_imports
 from ceres.address import Address, AddressSelector, DynamicAddress
-from ceres.config import ComponentConfig
 from ceres.connectivity import Connectivity
 from ceres.data import (
     ImmutableDataObject,
@@ -90,6 +89,7 @@ with lazy_imports(__name__):
 
     from ceres._internal import util
     from ceres._internal.util import OrderedWeakSet, Undefined, WeakRef
+    from ceres.config import ComponentConfig, JobConfig, SieveConfig
     from ceres.database import Database
     from ceres.manager.job import JobManager
     from ceres.manager.sieve import SieveManager
@@ -160,6 +160,12 @@ class Component(ValidatedDataclass):
 
     def __connectivity__(self) -> Connectivity | None:
         return None
+
+    def __static_jobs__(self) -> Iterable[JobConfig]:
+        return ()
+
+    def __static_sieves__(self) -> Iterable[SieveConfig]:
+        return ()
 
     @final
     def __bind__(self, bind: ComponentSystem, /) -> None:
@@ -692,13 +698,17 @@ class ComponentSystem(Node):
         self._component: Final[Component] = component
         self._component.__bind__(self)
 
-        if self.__config__ is not None:
-            for job in self.__config__.jobs:
-                self.jobs.add(job)
-            for sieve in self.__config__.sieves:
-                self.sieves.add(sieve)
-
         self.sync_references()
+
+        jobs = {job.name: job for job in self.component.__static_jobs__()}
+        jobs.update({job.name: job for job in (self.config.jobs if self.config else ())})
+        for job in jobs.values():
+            self.jobs.add(job)
+
+        sieves = {sieve.name: sieve for sieve in self.component.__static_sieves__()}
+        sieves.update({sieve.name: sieve for sieve in (self.config.sieves if self.config else ())})
+        for sieve in sieves.values():
+            self.sieves.add(sieve)
 
     @override
     def __str__(self) -> str:
