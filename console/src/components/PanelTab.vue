@@ -2,7 +2,7 @@
 import icons from '@/icons'
 import { usePanelGroup } from '@/panel-group'
 
-const { name, title } = defineProps<{
+const { name, title } = $defineProps<{
   name: string
   title?: string
 }>()

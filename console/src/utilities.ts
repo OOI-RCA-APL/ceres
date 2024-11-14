@@ -1,7 +1,10 @@
 import Color from 'color'
-import moment, { Duration } from 'moment'
+import { throttle } from 'lodash'
+import moment, { Duration, Moment } from 'moment'
+import Prism from 'prismjs'
 import { colors, debounce } from 'quasar'
 import { ComputedRef, Ref, computed, isRef, shallowRef, watch } from 'vue'
+import { ZodType } from 'zod'
 
 export type Plain = string | number | boolean | null | { [property: string]: Plain } | Plain[]
 export type MaybeRef<T> = Ref<T> | T
@@ -126,8 +129,20 @@ export function displayDuration(
 export function debouncedComputed<T>(factory: () => T, delay: number): ComputedRef<T> {
   const result: Ref<T> = shallowRef(factory())
   watch(
-    computed(() => factory()),
+    () => factory(),
     debounce((update) => {
+      result.value = update
+    }, delay)
+  )
+
+  return computed(() => result.value)
+}
+
+export function throttledComputed<T>(factory: () => T, delay: number): ComputedRef<T> {
+  const result: Ref<T> = shallowRef(factory())
+  watch(
+    () => factory(),
+    throttle((update) => {
       result.value = update
     }, delay)
   )
@@ -172,4 +187,90 @@ export function selectFile({
 
     input.click()
   })
+}
+
+export type HighlightLanguage = 'json' | 'log'
+
+export function highlight(text: string, language: HighlightLanguage): string {
+  return Prism.highlight(text, Prism.languages[language], language)
+}
+
+export function safeArrayOf<T>(type: ZodType<T, any, any>, typeName?: string) {
+  return type.array().catch(({ input }) => {
+    const results = [] as T[]
+    if (Array.isArray(input)) {
+      for (const current of input) {
+        const { data: parsed, error } = type.safeParse(current)
+        if (error != null) {
+          console.error(`Failed to parse ${typeName ?? 'object'}`, error)
+        } else {
+          results.push(parsed)
+        }
+      }
+    }
+
+    return results
+  })
+}
+type PendingEntry<T> = {
+  timestamp: Moment
+  promise: Promise<T>
+  waiters: number
+}
+
+export type DataloaderFunction<T> = (filter: any, options?: DataloaderOptions) => Promise<T>
+
+export type DataloaderOptions = Partial<{
+  cache: number | false // Milliseconds before pending promises are considered stale.
+  key: (filter: any) => string
+}>
+
+export function dataloader<F extends DataloaderFunction<T>, T>(
+  factory: F,
+  { cache: defaultCache = 50, key: defaultKeyFactory = JSON.stringify }: DataloaderOptions = {}
+) {
+  const mapping = factory as Record<string, any>
+  const pending: Map<string, PendingEntry<T>> = (mapping['__pending__'] ??= new Map())
+  async function wrapper(filter: Parameters<F>[0], dataloaderOptions: DataloaderOptions = {}) {
+    const cache = dataloaderOptions.cache ?? defaultCache
+    if (!cache || cache <= 0) {
+      return await factory(filter)
+    }
+
+    const keyFactory = dataloaderOptions.key ?? defaultKeyFactory
+    const key = keyFactory(filter)
+    let entry = pending.get(key)
+
+    try {
+      if (entry && entry.timestamp.isAfter(moment.utc().subtract(cache, 'ms'))) {
+        entry.waiters++
+        try {
+          return await entry.promise
+        } finally {
+          if (--entry.waiters === 0) {
+            pending.delete(key)
+          }
+        }
+      }
+
+      const promise = factory(filter)
+      entry = { timestamp: moment.utc(), promise, waiters: 1 }
+      pending.set(key, entry)
+      try {
+        return await promise
+      } finally {
+        if (--entry.waiters === 0) {
+          pending.delete(key)
+        }
+      }
+    } finally {
+      pending.delete(key)
+    }
+  }
+
+  Object.defineProperty(wrapper, 'name', { value: factory.name })
+  return wrapper as (
+    filter: Parameters<typeof factory>[0],
+    dataloaderOptions?: DataloaderOptions
+  ) => Promise<T>
 }

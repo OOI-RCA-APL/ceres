@@ -22,7 +22,7 @@ const {
   autogrow = false,
   suffix = undefined,
   presets = undefined,
-} = defineProps<{
+} = $defineProps<{
   modelValue: unknown
   form: SchemaForm
   schema: Schema
@@ -39,7 +39,7 @@ const {
 }>()
 
 const emit = defineEmits<{
-  (emit: 'update:modelValue', value: unknown): void
+  'update:modelValue': [value: unknown]
 }>()
 
 let input = $ref<QInput | null>(null)

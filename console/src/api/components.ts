@@ -108,13 +108,14 @@ export const useComponents = defineStore('components', () => {
     args: MaybeRef<Record<string, unknown>>,
     onMessage: (message: Zod.infer<TModel>) => unknown
   ) {
-    return client.useStream(
-      computed(() => `/api/components/${unref(address)}/procedures/${unref(query)}/subscribe`),
-      // @ts-ignore
-      ElementModel,
-      onMessage,
-      computed(() => ({ query: { arguments: unref(args) } }))
-    )
+    return client.useStream({
+      stream: computed(() => ({
+        path: `/api/components/${unref(address)}/procedures/${unref(query)}/subscribe`,
+        query: { arguments: unref(args) },
+      })) as any,
+      parse: ElementModel,
+      onReceive: onMessage,
+    })
   }
 
   async function render(address: Address): Promise<RenderResult> {

@@ -3,7 +3,7 @@ import SchemaFormComposite from '@/components/schema-form/SchemaFormComposite.vu
 import SchemaFormNode from '@/components/schema-form/SchemaFormNode.vue'
 import { SchemaForm, SchemaObject, SchemaPath } from '@/schema-form'
 
-const { modelValue, form, schema, path } = defineProps<{
+const { modelValue, form, schema, path } = $defineProps<{
   modelValue: unknown
   form: SchemaForm
   schema: SchemaObject & { type: 'object' }
@@ -11,7 +11,7 @@ const { modelValue, form, schema, path } = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  (emit: 'update:modelValue', value: unknown): void
+  'update:modelValue': [value: unknown]
 }>()
 
 const isRequired = $computed(() => form.getRequired(path))

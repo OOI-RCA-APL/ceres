@@ -2,8 +2,11 @@
 import CommonText from '@/components/CommonText.vue'
 import WorkspaceAddWidgetMenu from '@/components/WorkspaceAddWidgetMenu.vue'
 import WorkspaceWidgetAlerts from '@/components/WorkspaceWidgetAlerts.vue'
+import WorkspaceWidgetChart from '@/components/WorkspaceWidgetChart.vue'
+import WorkspaceWidgetChartEdit from '@/components/WorkspaceWidgetChartEdit.vue'
 import WorkspaceWidgetLogs from '@/components/WorkspaceWidgetLogs.vue'
 import WorkspaceWidgetMessages from '@/components/WorkspaceWidgetMessages.vue'
+import WorkspaceWidgetParticles from '@/components/WorkspaceWidgetParticles.vue'
 import WorkspaceWidgetProcedures from '@/components/WorkspaceWidgetProcedures.vue'
 import WorkspaceWidgetUi from '@/components/WorkspaceWidgetUi.vue'
 import icons from '@/icons'
@@ -17,6 +20,8 @@ defineProps<{
 }>()
 
 const workspace = useWorkspace()
+
+let isShowingEditDialog = $ref(false)
 </script>
 
 <template>
@@ -30,7 +35,7 @@ const workspace = useWorkspace()
       @touchstart.prevent="workspace.drag = { widget, row, column }"
     >
       <div class="items-center row">
-        <div>
+        <div class="q-mr-xs">
           <common-text
             class="text-capitalize"
             style="cursor: text"
@@ -60,9 +65,36 @@ const workspace = useWorkspace()
             </q-popup-edit>
           </common-text>
         </div>
+        <div v-if="widget.type == 'chart'">
+          <q-btn
+            class="faded-hover"
+            flat
+            :icon="icons.settings"
+            round
+            size="6px"
+            @click.stop="isShowingEditDialog = true"
+            @mousedown.stop
+            @touchstart.stop
+          >
+            <q-dialog v-model="isShowingEditDialog">
+              <q-card bordered :class="$style.editDialog" flat outline>
+                <workspace-widget-chart-edit v-if="widget.type === 'chart'" :widget="widget" />
+                <q-separator />
+                <q-btn
+                  class="full-width"
+                  color="primary"
+                  dense
+                  flat
+                  label="Done"
+                  @click="isShowingEditDialog = false"
+                />
+              </q-card>
+            </q-dialog>
+          </q-btn>
+        </div>
         <div>
           <q-btn
-            class="faded-hover q-ml-xs"
+            class="faded-hover"
             flat
             :icon="icons.more"
             round
@@ -133,21 +165,33 @@ const workspace = useWorkspace()
     <template v-if="!container.collapsed">
       <q-separator />
       <div class="col-grow overflow-auto q-pa-sm" style="height: 0">
-        <template v-if="widget.type === 'messages'">
-          <workspace-widget-messages class="full-height" :widget="widget" />
-        </template>
-        <template v-else-if="widget.type === 'alerts'">
-          <workspace-widget-alerts class="full-height" :widget="widget" />
-        </template>
-        <template v-else-if="widget.type === 'logs'">
-          <workspace-widget-logs class="full-height" :widget="widget" />
-        </template>
-        <template v-else-if="widget.type === 'procedures'">
-          <workspace-widget-procedures :widget="widget" />
-        </template>
-        <template v-else-if="widget.type === 'ui'">
-          <workspace-widget-ui :widget="widget" />
-        </template>
+        <workspace-widget-messages
+          v-if="widget.type === 'messages'"
+          class="full-height"
+          :widget="widget"
+        />
+        <workspace-widget-particles
+          v-else-if="widget.type === 'particles'"
+          class="full-height"
+          :widget="widget"
+        />
+        <workspace-widget-alerts
+          v-else-if="widget.type === 'alerts'"
+          class="full-height"
+          :widget="widget"
+        />
+        <workspace-widget-logs
+          v-else-if="widget.type === 'logs'"
+          class="full-height"
+          :widget="widget"
+        />
+        <workspace-widget-procedures v-else-if="widget.type === 'procedures'" :widget="widget" />
+        <workspace-widget-ui v-else-if="widget.type === 'ui'" :widget="widget" />
+        <workspace-widget-chart
+          v-else-if="widget.type === 'chart'"
+          class="full-height"
+          :widget="widget"
+        />
       </div>
     </template>
   </q-card>
@@ -157,5 +201,10 @@ const workspace = useWorkspace()
 .popupEdit {
   box-shadow: unset !important;
   padding: 0 !important;
+}
+
+.editDialog {
+  max-width: 400px;
+  width: 100%;
 }
 </style>

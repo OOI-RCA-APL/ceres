@@ -16,6 +16,7 @@ with lazy_imports(__name__):
     from ceres.level import Level
     from ceres.message import Message
     from ceres.node import Node
+    from ceres.particle import Particle
     from ceres.stream import Stream
 
 
@@ -179,6 +180,9 @@ class BoundLogManager(LogManager):
 
     def message(self, level: Level, message: Message, /) -> None:
         self.emit(level, "[message] {data}", message.address, data=message.model_dump_json())
+
+    def particle(self, level: Level, particle: Particle, /) -> None:
+        self.emit(level, "[particle] {data}", particle.address, data=particle.model_dump_json())
 
     def alert(self, level: Level, alert: Alert, /) -> None:
         self.emit(level, "[alert] {data}", alert.address, data=alert.model_dump_json())

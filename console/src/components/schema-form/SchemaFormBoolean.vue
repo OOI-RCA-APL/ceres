@@ -2,7 +2,7 @@
 import CommonText from '@/components/CommonText.vue'
 import { SchemaForm, SchemaObject, SchemaPath } from '@/schema-form'
 
-const { modelValue, form, path } = defineProps<{
+const { modelValue, form, path } = $defineProps<{
   modelValue: unknown
   form: SchemaForm
   schema: SchemaObject & { type: 'boolean' }
@@ -10,7 +10,7 @@ const { modelValue, form, path } = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  (emit: 'update:modelValue', value: unknown): void
+  'update:modelValue': [value: unknown]
 }>()
 
 function resolve(value: unknown) {

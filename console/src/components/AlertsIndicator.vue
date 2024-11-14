@@ -4,7 +4,7 @@ import { useEngine } from '@/api/engine'
 import { usePreferences } from '@/preferences'
 import { displayDuration, useTime } from '@/time'
 
-const { address } = defineProps<{
+const { address } = $defineProps<{
   address?: Address
 }>()
 

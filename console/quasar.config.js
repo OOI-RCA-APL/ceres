@@ -6,8 +6,8 @@
 const fs = require('fs')
 const path = require('path')
 
-const ReactivityTransformPlugin = require('@vue-macros/reactivity-transform/vite')
 const { configure } = require('quasar/wrappers')
+const VueMacros = require('unplugin-vue-macros/vite')
 
 module.exports = configure((context) => {
   function getDevelopmentEnvironment() {
@@ -36,7 +36,7 @@ module.exports = configure((context) => {
     },
 
     // https://v2.quasar.dev/quasar-cli-vite/boot-files
-    boot: ['pinia', 'vue-echarts', 'vue-query'],
+    boot: ['boot'],
 
     // https://v2.quasar.dev/quasar-cli-vite/quasar-config-js#css
     css: ['app.scss'],
@@ -58,11 +58,17 @@ module.exports = configure((context) => {
           }
         : undefined,
       vueRouterMode: 'history',
-      vitePlugins: [ReactivityTransformPlugin(), AllowDotURLsPlugin()],
+      vitePlugins: [AllowDotURLsPlugin()],
       extendViteConf(config) {
+        // Allow '@' to be used as an alias for the 'src' directory.
         config.resolve ??= {}
         config.resolve.alias ??= {}
         config.resolve.alias['@'] = path.resolve(__dirname, './src')
+
+        // Insert the Vue Macros plugin directly after the 'vite:vue' plugin.
+        const vuePluginIndex = config.plugins.findIndex((plugin) => plugin.name === 'vite:vue')
+        config.plugins.splice(vuePluginIndex + 1, 0, VueMacros())
+
         return config
       },
     },

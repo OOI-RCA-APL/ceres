@@ -4,11 +4,11 @@ import { computed, watchEffect } from 'vue'
 import SchemaFormNode from '@/components/schema-form/SchemaFormNode.vue'
 import { SchemaObject, SchemaPath, useSchemaForm } from '@/schema-form'
 
-const { schema } = defineProps<{
+const { schema } = $defineProps<{
   schema: SchemaObject
 }>()
 
-const model = defineModel<unknown>()
+const model = defineModel<unknown>('modelValue', { required: true })
 
 const path: SchemaPath = []
 const form = useSchemaForm({ schema: computed(() => schema), editing: true })

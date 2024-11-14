@@ -3,20 +3,25 @@ import { useDocumentVisibility, useEventListener } from '@vueuse/core'
 import _ from 'lodash'
 import moment, { Moment } from 'moment'
 import { debounce, QVirtualScroll } from 'quasar'
-import { computed, nextTick, onMounted, reactive, watch, watchEffect } from 'vue'
+import { nextTick, onMounted, reactive, watch, watchEffect, useSlots } from 'vue'
 
+import { AddressSelector } from '@/api/address'
 import { Alert } from '@/api/alerts'
 import { useEngine } from '@/api/engine'
 import { RecordFilter } from '@/api/entity'
 import { LogEntry } from '@/api/log-entries'
 import { Message } from '@/api/messages'
+import { Particle } from '@/api/particles'
 import { Record } from '@/api/shared'
 import RecordViewAlert from '@/components/RecordViewAlert.vue'
 import RecordViewLogEntry from '@/components/RecordViewLogEntry.vue'
 import RecordViewMessage from '@/components/RecordViewMessage.vue'
+import RecordViewParticle from '@/components/RecordViewParticle.vue'
+import SchemaFormBase from '@/components/schema-form/SchemaFormBase.vue'
 import icons from '@/icons'
 import { provideRecordViewContext } from '@/record-view'
 import { debouncedComputed } from '@/utilities'
+import { MessagesWidget, ParticlesWidget, AlertsWidget, LogsWidget } from '@/workspace'
 
 type ColumnDefinition = {
   label: string
@@ -24,43 +29,89 @@ type ColumnDefinition = {
   filtered?: boolean
 }
 
-const { type, filter } = defineProps<{
-  type: 'alert' | 'message' | 'log-entry'
+const {
+  widget,
+  filter,
+  columns: appendedColumns,
+} = $defineProps<{
+  widget: MessagesWidget | ParticlesWidget | AlertsWidget | LogsWidget
   columns: ColumnDefinition[]
   filter: RecordFilter
 }>()
 
+let isShowingAdvancedTimestampFilters = $ref(
+  (widget.filter.after_hour ??
+    widget.filter.before_hour ??
+    widget.filter.after_minute ??
+    widget.filter.before_minute) != null
+)
+
+const columns = $computed(() => [
+  {
+    label: 'Timestamp',
+    name: 'timestamp',
+    filtered:
+      (widget.filter.after ??
+        widget.filter.before ??
+        widget.filter.timespan ??
+        widget.filter.after_hour ??
+        widget.filter.before_hour ??
+        widget.filter.after_minute ??
+        widget.filter.before_minute) != null,
+  },
+  { label: 'Address', name: 'address', filtered: widget.filter.address != null },
+  ...appendedColumns,
+])
+
 const engine = useEngine()
+const slots = useSlots()
 
 const get = $computed(() => {
-  switch (type) {
-    case 'message':
+  switch (widget.type) {
+    case 'messages':
       return engine.messages.getAll
-    case 'alert':
+    case 'particles':
+      return engine.particles.getAll
+    case 'alerts':
       return engine.alerts.getAll
-    case 'log-entry':
+    case 'logs':
       return engine.logs.getAll
   }
 })
 
 const useStream = $computed(() => {
-  switch (type) {
-    case 'message':
+  switch (widget.type) {
+    case 'messages':
       return engine.messages.useStream
-    case 'alert':
+    case 'particles':
+      return engine.particles.useStream
+    case 'alerts':
       return engine.alerts.useStream
-    case 'log-entry':
+    case 'logs':
       return engine.logs.useStream
   }
 })
 
+function getColumnFilterSlot(name: string) {
+  return slots['column-filter-' + name]
+}
+
+function columnHasFilterMenu(name: string) {
+  if (name === 'timestamp' || name === 'address') {
+    return true
+  }
+
+  return getColumnFilterSlot(name) != null
+}
+
 let filterKey = $ref(0)
 watch(
-  computed(() => JSON.stringify(filter)),
+  () => JSON.stringify(filter),
   () => {
     filterKey++
   }
 )
+const filterIsEmpty = $computed(() => Object.values(filter).every((value) => value == null))
 
 const context = provideRecordViewContext()
 
@@ -68,7 +119,7 @@ const recordsVisible = $computed(() => Math.ceil(containerInfo.clientHeight / re
 const recordHeight = 24
 const recordLoadSizeInitial = $computed(() => Math.min(recordsVisible + 50, 1000))
 const recordLoadSize = $computed(() => Math.min(recordsVisible + 50, 1000))
-const recordSliceSize = 250
+const recordSliceSize = 25
 const recordCullThreshold = $computed(() => recordsVisible + 500)
 const recordCullCount = $computed(() => recordsVisible + 100)
 const recordsUntilNearTop = 30
@@ -103,7 +154,7 @@ const isDocumentVisible = $computed(() => documentVisibility === 'visible')
 let isDocumentJustVisible = $ref(false)
 
 watch(
-  computed(() => isDocumentVisible),
+  () => isDocumentVisible,
   () => {
     if (isDocumentVisible) {
       isDocumentJustVisible = true
@@ -381,12 +432,15 @@ onMounted(async () => {
 
 const debouncedLoadCurrent = debounce(loadCurrent, 750)
 
-watch($$(filterKey), async () => {
-  records = []
-  recordsStreamed = []
-  isLoadingCurrent = true
-  debouncedLoadCurrent()
-})
+watch(
+  () => filterKey,
+  async () => {
+    records = []
+    recordsStreamed = []
+    isLoadingCurrent = true
+    debouncedLoadCurrent()
+  }
+)
 
 const debouncedFilter = debouncedComputed(() => _.cloneDeep(filter), 750)
 
@@ -417,10 +471,7 @@ useStream(debouncedFilter, async (record: Record) => {
             <q-td
               v-for="(column, i) in columns"
               :key="column.name"
-              :class="[
-                $style.headerColumn,
-                $slots['column-filter-' + column.name] && 'cursor-pointer',
-              ]"
+              :class="[$style.headerColumn, columnHasFilterMenu(column.name) && 'cursor-pointer']"
               :style="i < columns.length - 1 ? { width: `${context.getColumnWidth(i)}px` } : {}"
             >
               <span>
@@ -428,13 +479,131 @@ useStream(debouncedFilter, async (record: Record) => {
               </span>
               <span v-if="column.filtered" class="text-primary"> *</span>
               <q-menu
-                v-if="$slots['column-filter-' + column.name]"
+                v-if="columnHasFilterMenu(column.name)"
                 anchor="top left"
                 class="no-shadow"
                 :offset="[0, 4]"
                 self="bottom left"
               >
                 <q-card bordered class="q-pa-xs" flat>
+                  <div
+                    v-if="column.name === 'timestamp'"
+                    class="column q-gutter-xs"
+                    style="min-width: 200px"
+                  >
+                    <div class="row">
+                      <schema-form-base
+                        v-model="widget.filter.after"
+                        class="col q-mr-xs"
+                        :schema="{
+                          title: 'After',
+                          type: 'string',
+                          format: 'date-time',
+                          optional: true,
+                        }"
+                      />
+                      <schema-form-base
+                        v-model="widget.filter.before"
+                        class="col"
+                        :schema="{
+                          title: 'Before',
+                          type: 'string',
+                          format: 'date-time',
+                          optional: true,
+                        }"
+                      />
+                    </div>
+                    <div class="items-center relative-position row">
+                      <q-btn
+                        class="full-width row"
+                        flat
+                        size="0"
+                        style="padding: 0 2px"
+                        @click="
+                          isShowingAdvancedTimestampFilters = !isShowingAdvancedTimestampFilters
+                        "
+                      >
+                        <q-tooltip>
+                          {{ isShowingAdvancedTimestampFilters ? 'Hide' : 'Show' }} Advanced
+                        </q-tooltip>
+                        <q-separator class="col q-mr-xs" />
+                        <q-icon
+                          :name="isShowingAdvancedTimestampFilters ? icons.menuUp : icons.menuDown"
+                          size="12px"
+                        />
+                        <q-separator class="col q-ml-xs" />
+                      </q-btn>
+                    </div>
+                    <template v-if="isShowingAdvancedTimestampFilters">
+                      <div class="row">
+                        <schema-form-base
+                          v-model="widget.filter.after_hour"
+                          class="col q-mr-xs"
+                          :schema="{
+                            title: 'After Hour',
+                            type: 'integer',
+                            optional: true,
+                            minimum: 0,
+                            exclusiveMaximum: 24,
+                          }"
+                        />
+                        <schema-form-base
+                          v-model="widget.filter.before_hour"
+                          class="col"
+                          :schema="{
+                            title: 'Before Hour',
+                            type: 'integer',
+                            optional: true,
+                            minimum: 0,
+                            exclusiveMaximum: 24,
+                          }"
+                        />
+                      </div>
+                      <div class="row">
+                        <schema-form-base
+                          v-model="widget.filter.after_minute"
+                          class="col q-mr-xs"
+                          :schema="{
+                            title: 'After Minute',
+                            type: 'integer',
+                            optional: true,
+                            minimum: 0,
+                            exclusiveMaximum: 60,
+                          }"
+                        />
+                        <schema-form-base
+                          v-model="widget.filter.before_minute"
+                          class="col"
+                          :schema="{
+                            title: 'Before Minute',
+                            type: 'integer',
+                            optional: true,
+                            minimum: 0,
+                            exclusiveMaximum: 60,
+                          }"
+                        />
+                      </div>
+                    </template>
+                  </div>
+                  <div v-else-if="column.name === 'address'" style="min-width: 200px">
+                    <schema-form-base
+                      :model-value="widget.filter.address?.toString()"
+                      :schema="{
+                        title: 'Address',
+                        type: 'string',
+                        enum: engine.components.all.flatMap((current) => [
+                          current.address.toString(),
+                          current.address.all().toString(),
+                        ]),
+                        optional: true,
+                      }"
+                      @update:model-value="
+                        (value: any) =>
+                          (widget.filter.address =
+                            value == null ? undefined : new AddressSelector(String(value)))
+                      "
+                    />
+                  </div>
                   <slot :name="'column-filter-' + column.name" />
                 </q-card>
               </q-menu>
@@ -459,7 +628,8 @@ useStream(debouncedFilter, async (record: Record) => {
         </div>
         <span v-else-if="records.length === 0" key="empty" class="absolute-center">
           <span :class="[$style.emptyMessageText, 'text-italic']">
-            No matching {{ type.replace('log-entry', 'log entrie') }}s were found.
+            No {{ filterIsEmpty ? '' : 'matching' }} {{ widget.type }}
+            found.
           </span>
         </span>
       </transition-group>
@@ -477,11 +647,20 @@ useStream(debouncedFilter, async (record: Record) => {
       >
         <template #default="{ item }">
           <record-view-message
-            v-if="type === 'message'"
+            v-if="widget.type === 'messages'"
             :key="(item as Message).id"
             :message="item"
           />
-          <record-view-alert v-else-if="type === 'alert'" :key="(item as Alert).id" :alert="item" />
+          <record-view-particle
+            v-else-if="widget.type === 'particles'"
+            :key="(item as Particle).id"
+            :particle="item"
+          />
+          <record-view-alert
+            v-else-if="widget.type === 'alerts'"
+            :key="(item as Alert).id"
+            :alert="item"
+          />
           <record-view-log-entry v-else :key="(item as LogEntry).id" :entry="item" />
         </template>
       </q-virtual-scroll>

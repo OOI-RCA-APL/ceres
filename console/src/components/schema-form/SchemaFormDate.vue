@@ -4,7 +4,7 @@ import moment from 'moment'
 import SchemaFormInput from '@/components/schema-form/SchemaFormInput.vue'
 import { SchemaForm, SchemaObject, SchemaPath } from '@/schema-form'
 
-const { modelValue } = defineProps<{
+const { modelValue } = $defineProps<{
   modelValue: unknown
   form: SchemaForm
   schema: SchemaObject & { type: 'string'; format: 'date' }

@@ -4,7 +4,7 @@ import SchemaFormNode from '@/components/schema-form/SchemaFormNode.vue'
 import icons from '@/icons'
 import { SchemaForm, SchemaObject, SchemaPath } from '@/schema-form'
 
-const { modelValue, form, path } = defineProps<{
+const { modelValue, form, path } = $defineProps<{
   modelValue: unknown
   form: SchemaForm
   schema: SchemaObject & { type: 'array' }
@@ -12,7 +12,7 @@ const { modelValue, form, path } = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  (emit: 'update:modelValue', value: unknown): void
+  'update:modelValue': [value: unknown]
 }>()
 
 const array = $computed(() => {

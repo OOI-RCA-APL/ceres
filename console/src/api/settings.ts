@@ -6,11 +6,12 @@ import Zod, { ZodTypeAny } from 'zod'
 
 import { useAuth } from '@/api/auth'
 import { useClient } from '@/api/client'
+import { safeArrayOf } from '@/utilities'
 import { WorkspaceModel } from '@/workspace'
 
 export type ConsoleSettings = Zod.infer<typeof ConsoleSettingsModel>
 export const ConsoleSettingsModel = Zod.object({
-  workspaces: WorkspaceModel.array().default(() => []),
+  workspaces: safeArrayOf(WorkspaceModel),
 })
 
 export function SettingModel<T extends ZodTypeAny>(valueModel: T) {

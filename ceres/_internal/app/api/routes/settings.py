@@ -8,7 +8,6 @@ from pydantic import Field
 from ceres._internal.app.shared import CurrentEngine, CurrentRole, CurrentUser
 from ceres.data import Name
 from ceres.error import Failure, NotFoundError, NotPermittedError
-from ceres.level import Level
 from ceres.setting import Setting, SettingCreate, SettingFilter
 from ceres.user import UserRole
 
@@ -16,9 +15,7 @@ router = APIRouter(prefix="/settings", tags=["settings"])
 
 
 class GetSettingsQueryParameters(SettingFilter):
-    level: Level | None = None
     limit: int = Field(default=100, ge=0, le=1000)
-    offset: int = Field(default=0, ge=0)
 
 
 @router.get("/{user_id}/{name}")

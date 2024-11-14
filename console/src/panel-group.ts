@@ -15,7 +15,7 @@ export type PanelGroupOptions = {
 
 const PanelGroupStateSchema = Zod.object({
   selected: Zod.array(Zod.string()).default(() => []),
-  height: Zod.number().nullable().default(null),
+  height: Zod.number().nullish(),
 })
 
 function createPanelGroup(options?: MaybeRef<PanelGroupOptions>) {

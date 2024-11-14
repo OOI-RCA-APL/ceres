@@ -4,7 +4,7 @@ import { Option } from '@/chart'
 import Chart from '@/components/Chart.vue'
 import { usePreferences } from '@/preferences'
 
-const { element } = defineProps<{
+const { element } = $defineProps<{
   element: GaugeElement
 }>()
 

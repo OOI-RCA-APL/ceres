@@ -1,5 +1,7 @@
 /* eslint-disable */
 
+/// <reference types="unplugin-vue-macros/macros-global" />
+
 declare namespace NodeJS {
   interface ProcessEnv {
     NODE_ENV: string

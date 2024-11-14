@@ -1,20 +1,15 @@
 # Project
-.env
-/dev/
-/site/
-/site.zip
+.venv
+dist/
+site/
+poetry.toml
+poetry.lock
 
 # Python
 __pycache__/
 .mypy_cache/
 .pytest_cache/
 .ruff_cache/
-.python-version
-.venv
-dist/
-poetry.toml
-poetry.lock
-pyrightconfig.json
 
 # Node
 node_modules
@@ -22,12 +17,5 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# Tools
-.fleet/
-.idea/
-.tool-versions
-.vscode/
-*.code-workspace
-
-# Other
+# MacOS
 .DS_Store

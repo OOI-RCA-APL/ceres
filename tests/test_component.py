@@ -101,8 +101,8 @@ async def test_alerts() -> None:
     await component.system.flush()
     alerts = await component.system.alerts.get_all()
     assert len(alerts) == 2
-    assert (alerts[0].level, alerts[0].code) == (Level.INFO, "test-alert-1")
-    assert (alerts[1].level, alerts[1].code) == (Level.ERROR, "test-alert-2")
+    assert (alerts[0].level, alerts[0].type) == (Level.INFO, "test-alert-1")
+    assert (alerts[1].level, alerts[1].type) == (Level.ERROR, "test-alert-2")
 
     await component.system.stop()
 

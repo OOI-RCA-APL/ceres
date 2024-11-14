@@ -9,7 +9,7 @@ const {
   path,
   titleClickable = false,
   isLoading = false,
-} = defineProps<{
+} = $defineProps<{
   display: DisplayElement
   element: Element | null
   path: InterfacePath

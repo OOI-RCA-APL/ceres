@@ -10,6 +10,7 @@ from ceres._internal.app.api.routes.components import router as router__componen
 from ceres._internal.app.api.routes.config import router as router__config
 from ceres._internal.app.api.routes.log_entries import router as router__log_entries
 from ceres._internal.app.api.routes.messages import router as router__messages
+from ceres._internal.app.api.routes.particles import router as router__particles
 from ceres._internal.app.api.routes.settings import router as router__settings
 from ceres._internal.app.api.routes.statistics import router as router__statistics
 from ceres._internal.app.api.routes.statuses import router as router__statuses
@@ -35,6 +36,7 @@ router.include_router(router__components)
 router.include_router(router__config)
 router.include_router(router__log_entries)
 router.include_router(router__messages)
+router.include_router(router__particles)
 router.include_router(router__statistics)
 router.include_router(router__statuses)
 router.include_router(router__users)

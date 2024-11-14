@@ -9,6 +9,7 @@ from typing import Awaitable, Callable, override
 from ceres._internal.lazy import lazy_imports
 from ceres._internal.manager.manager import BaseBoundManager
 from ceres.address import Address
+from ceres.event import ParticleEvent
 
 with lazy_imports(__name__):
     from ceres._internal import util
@@ -55,9 +56,9 @@ class EventManager(BaseBoundManager[Event]):
 
         return None
 
-    async def process(self) -> None:
+    async def __run__(self) -> None:
         await asyncio.gather(
-            *(listener.process() for listener in self._listeners),
+            *(listener.__run__() for listener in self._listeners),
             util.sleep_forever(),
         )
 
@@ -97,6 +98,8 @@ class EventManager(BaseBoundManager[Event]):
                 self._node.log.event(logging.log_events_level, event)
             if logging.log_messages and isinstance(event, MessageEvent):
                 self._node.log.message(logging.log_messages_level, event.message)
+            elif logging.log_particles and isinstance(event, ParticleEvent):
+                self._node.log.particle(logging.log_particles_level, event.particle)
             elif logging.log_alerts and isinstance(event, AlertEvent):
                 self._node.log.alert(logging.log_alerts_level or event.alert.level, event.alert)
 
@@ -170,7 +173,7 @@ class _Listener:
         "_handler",
         "_handler_arity",
         "_queue",
-        "_processing",
+        "_running",
     )
 
     def __init__(
@@ -184,7 +187,7 @@ class _Listener:
         self._handler: _ComponentEventHandler = getattr(system.component, binding.method)
         self._handler_arity = len(inspect.signature(self._handler).parameters)
         self._queue: AsyncQueue[Event] = AsyncQueue()
-        self._processing = False
+        self._running = False
 
     @property
     def settled(self) -> bool:
@@ -193,27 +196,14 @@ class _Listener:
     def would_handle(self, event: Event) -> bool:
         return self.handles(type(event), event.address)
 
-    async def _process_one(self, event: Event) -> None:
-        try:
-            result = self._handler(*[event][: self._handler_arity])
-            if inspect.iscoroutine(result):
-                await result
-        except Exception:
-            self._system.log.error(
-                f"An exception occurred while processing event {event}: "
-                f"{traceback.format_exc()}"
-            )
-        finally:
-            self._queue.task_done()
-
-    async def process(self) -> None:
-        self._processing = True
+    async def __run__(self) -> None:
+        self._running = True
         try:
             while True:
                 event = await self._queue.get()
-                await self._process_one(event)
+                await self._process(event)
         finally:
-            self._processing = False
+            self._running = False
 
     async def settle(self) -> None:
         if self._queue.empty():
@@ -225,7 +215,7 @@ class _Listener:
             except asyncio.QueueEmpty:
                 break
 
-            await self._process_one(event)
+            await self._process(event)
 
     def clear(self) -> None:
         while not self._queue.empty():
@@ -260,3 +250,16 @@ class _Listener:
 
         self._queue.put_nowait(event)
         return True
+
+    async def _process(self, event: Event) -> None:
+        try:
+            result = self._handler(*[event][: self._handler_arity])
+            if inspect.iscoroutine(result):
+                await result
+        except Exception:
+            self._system.log.error(
+                f"An exception occurred while processing event {event}: "
+                f"{traceback.format_exc()}"
+            )
+        finally:
+            self._queue.task_done()

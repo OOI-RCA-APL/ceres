@@ -3,7 +3,7 @@ import { LogEntry } from '@/api/log-entries'
 import RecordViewRecord from '@/components/RecordViewRecord.vue'
 import TextContent from '@/components/TextContent.vue'
 
-const { entry } = defineProps<{
+const { entry } = $defineProps<{
   entry: LogEntry
 }>()
 
@@ -21,12 +21,27 @@ const levelColor = $computed(() => {
       return 'negative'
   }
 })
+
+const levelTextColor = $computed(() => {
+  switch (entry.level) {
+    case 'debug':
+      return 'black'
+    case 'info':
+      return 'black'
+    case 'warning':
+      return 'black'
+    case 'error':
+      return 'white'
+    case 'critical':
+      return 'white'
+  }
+})
 </script>
 
 <template>
   <record-view-record :record="entry">
     <q-td auto-width :class="$style.levelColumn">
-      <q-chip :class="$style.levelChip" :color="levelColor" dense text-color="black">
+      <q-chip :class="$style.levelChip" :color="levelColor" dense :text-color="levelTextColor">
         <span :class="$style.levelText">
           {{ entry.level }}
         </span>
@@ -44,7 +59,7 @@ const levelColor = $computed(() => {
 }
 
 .levelChip {
-  font-size: 9px;
+  font-size: 8px;
   font-family: 'Roboto Mono', monospace;
 }
 

@@ -1,21 +1,24 @@
 from __future__ import annotations
 
 from typing import Annotated
+from uuid import UUID
 
 from fastapi import APIRouter, Query
 from pydantic import Field
 
-from ceres._internal.app.shared import CurrentEngine, CurrentSocket
-from ceres.alert import Alert, AlertFilter, Level
+from ceres._internal.app.shared import CurrentEngine, CurrentSocket, assert_found
+from ceres.alert import Alert, AlertFilter
 
 router = APIRouter(prefix="/alerts", tags=["alerts"])
 
 
+@router.get("/{id}")
+async def get_alert(engine: CurrentEngine, id: UUID) -> Alert:
+    return assert_found(await engine.alerts.get(id=id))
+
+
 class GetAlertsQueryParameters(AlertFilter):
-    level: Level | None = None
-    code: str | None = None
     limit: int = Field(default=100, ge=0, le=1000)
-    offset: int = Field(default=0, ge=0)
 
 
 @router.get("")

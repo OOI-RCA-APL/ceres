@@ -1,17 +1,19 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import (
     Annotated,
-    Any,
     ClassVar,
     Iterable,
     Literal,
-    Mapping,
     Sequence,
+    TypeAlias,
     override,
 )
 
 from pydantic import Field
+from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.sql.sqltypes import Text
 
 from ceres._internal import util
 from ceres._internal.cli.plumbing import CLIOption
@@ -29,12 +31,11 @@ from ceres._internal.entity import (
 from ceres._internal.lazy import lazy_imports
 from ceres.database.enums import DatabaseType
 from ceres.level import Level
+from ceres.timing import utc
 
 with lazy_imports(__name__):
-    from sqlalchemy.orm import Mapped, mapped_column
     from sqlalchemy.schema import Index, SchemaItem
     from sqlalchemy.sql import SQLColumnExpression
-    from sqlalchemy.sql.sqltypes import Text
 
 
 class LogEntryRow(BaseRecordRow, kw_only=True):
@@ -51,21 +52,21 @@ class LogEntryRow(BaseRecordRow, kw_only=True):
             EnumConstraint("level", Level, name=f"ck_{cls.__tablename__}__level"),
             Index(
                 f"ix_{cls.__tablename__}__content",
-                "content",
+                cls.content,
                 postgresql_ops={"content": "gin_trgm_ops"},
                 postgresql_using="gin",
             ),
         )
 
 
-LogEntryField = (
+LogEntryField: TypeAlias = (
     BaseRecordField
     | Literal[
         "level",
         "content",
     ]
 )
-LogEntryOrder = (
+LogEntryOrder: TypeAlias = (
     BaseRecordOrder
     | Literal[
         "level",
@@ -102,8 +103,9 @@ class LogEntryFilter(BaseRecordFilter["LogEntry", LogEntryField, LogEntryOrder])
     )
 
     @override
-    def matches(self, obj: LogEntry) -> bool:
-        if not super().matches(obj):
+    def matches(self, obj: LogEntry, *, now: datetime | None = None) -> bool:
+        now = utc(now)
+        if not super().matches(obj, now=now):
             return False
 
         if self.level is not None:
@@ -127,29 +129,13 @@ class LogEntryFilter(BaseRecordFilter["LogEntry", LogEntryField, LogEntryOrder])
         return LogEntryRow
 
     @override
-    def _get_search_content(self, obj: LogEntry) -> Mapping[str, str]:
-        return {
-            **super()._get_search_content(obj),
-            "level": obj.level,
-            "content": obj.content,
-        }
-
-    @override
-    def _get_database_search_content(
+    def _get_where(
         self,
         dialect: DatabaseType,
-    ) -> Mapping[str, SQLColumnExpression[Any]]:
-        columns = self._get_row_cls()
-
-        return {
-            **super()._get_database_search_content(dialect),
-            "level": columns.level,
-            "content": columns.content,
-        }
-
-    @override
-    def _get_where(self, dialect: DatabaseType) -> Iterable[SQLColumnExpression[bool]]:
-        yield from super()._get_where(dialect)
+        *,
+        now: datetime | None = None,
+    ) -> Iterable[SQLColumnExpression[bool]]:
+        yield from super()._get_where(dialect, now=now)
         columns = self._get_row_cls()
 
         if self.level is not None:

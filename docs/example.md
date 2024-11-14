@@ -22,8 +22,6 @@ For simplicity, let's say this temperature sensor is running on the our local ma
 
 Because this isn't a real sensor, we'll have to simulate it. Create a Python script containing the following code, and run it with `python simulator.py`.
 
-_[simulator.py](../examples/intro/intro/simulator.py)_
-
 ```python
 import random
 import socket
@@ -132,8 +130,6 @@ _If the component cannot connect to the host/port combination, or the connection
 
 Our full `ceres.yaml` configuration file should look like this.
 
-[ceres.yaml](../examples/intro/ceres.yaml)
-
 ```yaml
 server:
   port: 8080
@@ -217,7 +213,7 @@ Now that the engine is running, we can open the web console at [http://localhost
 
 Click on the `@connection` tab in the left sidebar to view the component page, then click on the `Messages` tab to view the messages received by the component. The message views in the console (as well as alert and log views) supports infinite scrollback and search.
 
-![Screenshot of received messages in web console.](../images/web-console-messages.png)
+![Screenshot of received messages in web console.](./images/web-console-messages.png)
 
 ## CLI
 

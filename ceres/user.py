@@ -2,18 +2,19 @@ from __future__ import annotations
 
 from typing import (
     Annotated,
-    Any,
     ClassVar,
     Iterable,
     Literal,
-    Mapping,
     Sequence,
+    TypeAlias,
     TypedDict,
     override,
 )
 from uuid import UUID, uuid4
 
 from pydantic import Field
+from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.sql.sqltypes import Boolean, Text
 
 from ceres._internal.cli.plumbing import CLIOption
 from ceres._internal.database.types import EnumConstraint, EnumMapper
@@ -37,10 +38,8 @@ from ceres.data import (
 from ceres.database.enums import DatabaseType
 
 with lazy_imports(__name__):
-    from sqlalchemy.orm import Mapped, mapped_column
     from sqlalchemy.schema import SchemaItem, UniqueConstraint
     from sqlalchemy.sql import SQLColumnExpression, expression
-    from sqlalchemy.sql.sqltypes import Boolean, Text
 
     from ceres._internal import util
 
@@ -78,8 +77,8 @@ class UserRow(BaseUUIDEntityRow, kw_only=True):
         )
 
 
-UserField = BaseUUIDEntityField | Literal["username", "email", "role", "disabled"]
-UserOrder = (
+UserField: TypeAlias = BaseUUIDEntityField | Literal["username", "email", "role", "disabled"]
+UserOrder: TypeAlias = (
     BaseUUIDEntityOrder
     | Literal[
         "username",
@@ -123,29 +122,6 @@ class UserFilter(BaseUUIDEntityFilter["User", UserField, UserOrder]):
     @override
     def _get_row_cls(cls) -> type[UserRow]:
         return UserRow
-
-    @override
-    def _get_search_content(self, obj: User) -> Mapping[str, str]:
-        return {
-            **super()._get_search_content(obj),
-            "username": obj.username,
-            "email": obj.email,
-            "role": obj.role,
-        }
-
-    @override
-    def _get_database_search_content(
-        self,
-        dialect: DatabaseType,
-    ) -> Mapping[str, SQLColumnExpression[Any]]:
-        columns = self._get_row_cls()
-
-        return {
-            **super()._get_database_search_content(dialect),
-            "username": columns.username,
-            "email": columns.email,
-            "role": columns.role,
-        }
 
     @override
     def _get_where(self, dialect: DatabaseType) -> Iterable[SQLColumnExpression[bool]]:

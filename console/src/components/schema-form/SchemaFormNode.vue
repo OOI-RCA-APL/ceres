@@ -14,14 +14,15 @@ import SchemaFormObject from '@/components/schema-form/SchemaFormObject.vue'
 import SchemaFormString from '@/components/schema-form/SchemaFormString.vue'
 import { isType, SchemaForm, SchemaPath } from '@/schema-form'
 
-const { modelValue, form, path } = defineProps<{
+const { modelValue, form, path, autofocus } = $defineProps<{
   modelValue: unknown
   form: SchemaForm
   path: SchemaPath
+  autofocus?: boolean
 }>()
 
 const emit = defineEmits<{
-  (emit: 'update:modelValue', value: unknown): void
+  'update:modelValue': [value: unknown]
 }>()
 
 const schema = $computed(() => form.getSchema(path))
@@ -32,6 +33,7 @@ const forward = $computed(() => ({
   modelValue,
   path,
   schema: schema as any,
+  autofocus,
 }))
 
 function is(type: string) {

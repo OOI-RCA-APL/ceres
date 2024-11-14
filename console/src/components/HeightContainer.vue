@@ -4,7 +4,7 @@ import { computed } from 'vue'
 import ResizeHandle from '@/components/ResizeHandle.vue'
 import { KeyInput, usePersisted } from '@/persistence'
 
-const { defaultHeight, persist } = defineProps<{
+const { defaultHeight, persist } = $defineProps<{
   defaultHeight: number
   minHeight?: number
   maxHeight?: number

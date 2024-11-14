@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC
-from typing import TYPE_CHECKING, Literal, Sequence, cast
+from typing import TYPE_CHECKING, Literal, Sequence, TypeAlias, cast
 from uuid import UUID, uuid4
 
 from pydantic import ByteSize, Field
@@ -59,7 +59,7 @@ class DetachedEvent(__BaseStandardEvent):
     type: Literal["detached"] = "detached"
 
 
-LifecycleEvent = (
+LifecycleEvent: TypeAlias = (
     StartedEvent
     | StoppedEvent
     | EnabledEvent
@@ -106,7 +106,7 @@ class BufferOverflowEvent(__BaseStandardEvent):
     dropped: ByteSize
 
 
-ConnectionEvent = (
+ConnectionEvent: TypeAlias = (
     ConnectedEvent
     | DisconnectedEvent
     | DisconnectingEvent
@@ -127,7 +127,7 @@ class MessageReceivedEvent(__BaseStandardEvent):
     message: Message
 
 
-MessageEvent = MessageSentEvent | MessageReceivedEvent
+MessageEvent: TypeAlias = MessageSentEvent | MessageReceivedEvent
 
 
 class AlertEvent(__BaseStandardEvent):
@@ -140,12 +140,17 @@ class LogEvent(__BaseStandardEvent):
     entry: LogEntry
 
 
+class ParticleEvent(__BaseStandardEvent):
+    type: Literal["particle"] = "particle"
+    particle: Particle
+
+
 class VariableAssignedEvent(__BaseStandardEvent):
     type: Literal["variable-assigned"] = "variable-assigned"
     variable: Variable
 
 
-VariableEvent = VariableAssignedEvent
+VariableEvent: TypeAlias = VariableAssignedEvent
 
 
 class SettingAssignedEvent(__BaseStandardEvent):
@@ -153,7 +158,7 @@ class SettingAssignedEvent(__BaseStandardEvent):
     setting: Setting
 
 
-SettingEvent = SettingAssignedEvent
+SettingEvent: TypeAlias = SettingAssignedEvent
 
 
 class RoutineStartedEvent(__BaseStandardEvent):
@@ -193,7 +198,7 @@ class RoutineRestartedEvent(__BaseStandardEvent):
     routine: str
 
 
-RoutineEvent = (
+RoutineEvent: TypeAlias = (
     RoutineStartedEvent
     | RoutineStoppedEvent
     | RoutineCompletedEvent
@@ -249,7 +254,7 @@ class JobRetryEvent(__BaseStandardEvent):
     job: str
 
 
-JobEvent = (
+JobEvent: TypeAlias = (
     JobAddedEvent
     | JobRemovedEvent
     | JobStartedEvent
@@ -259,6 +264,67 @@ JobEvent = (
     | JobExceptionEvent
     | JobRetryPendingEvent
     | JobRetryEvent
+)
+
+
+class SieveAddedEvent(__BaseStandardEvent):
+    type: Literal["sieve-added"] = "sieve-added"
+    sieve: str
+
+
+class SieveRemovedEvent(__BaseStandardEvent):
+    type: Literal["sieve-removed"] = "sieve-removed"
+    sieve: str
+
+
+class SieveStartedEvent(__BaseStandardEvent):
+    type: Literal["sieve-started"] = "sieve-started"
+    sieve: str
+
+
+class SieveStoppedEvent(__BaseStandardEvent):
+    type: Literal["sieve-stopped"] = "sieve-stopped"
+    sieve: str
+
+
+class SieveCancelledEvent(__BaseStandardEvent):
+    type: Literal["sieve-cancelled"] = "sieve-cancelled"
+    sieve: str
+
+
+class SieveExceptionEvent(__BaseStandardEvent):
+    type: Literal["sieve-exception"] = "sieve-exception"
+    sieve: str
+    traceback: Sequence[str]
+
+
+class SieveRetryPendingEvent(__BaseStandardEvent):
+    type: Literal["sieve-retry-pending"] = "sieve-retry-pending"
+    sieve: str
+    delay: PositiveTimeDelta
+
+
+class SieveRetryEvent(__BaseStandardEvent):
+    type: Literal["sieve-retry"] = "sieve-retry"
+    sieve: str
+
+
+class SieveParticleErrorEvent(__BaseStandardEvent):
+    type: Literal["sieve-particle-error"] = "sieve-particle-error"
+    sieve: str
+    error: ParticleError
+
+
+SieveEvent: TypeAlias = (
+    SieveAddedEvent
+    | SieveRemovedEvent
+    | SieveStartedEvent
+    | SieveStoppedEvent
+    | SieveCancelledEvent
+    | SieveExceptionEvent
+    | SieveRetryPendingEvent
+    | SieveRetryEvent
+    | SieveParticleErrorEvent
 )
 
 
@@ -283,7 +349,7 @@ class ProcedureExceptionEvent(__BaseStandardEvent):
     traceback: Sequence[str]
 
 
-ProcedureEvent = (
+ProcedureEvent: TypeAlias = (
     ProcedureCalledEvent
     | ProcedureCancelledEvent
     | ProcedureCompletedEvent
@@ -296,9 +362,9 @@ class DatabaseExceptionEvent(__BaseStandardEvent):
     traceback: Sequence[str]
 
 
-DatabaseEvent = DatabaseExceptionEvent
+DatabaseEvent: TypeAlias = DatabaseExceptionEvent
 
-StandardEvent = (
+StandardEvent: TypeAlias = (
     LifecycleEvent
     | ConnectionEvent
     | MessageEvent
@@ -306,24 +372,29 @@ StandardEvent = (
     | LogEvent
     | RoutineEvent
     | JobEvent
+    | SieveEvent
     | ProcedureEvent
     | DatabaseEvent
 )
 
-ExceptionEvent = (
+ExceptionEvent: TypeAlias = (
     RoutineExceptionEvent | JobExceptionEvent | ProcedureExceptionEvent | DatabaseExceptionEvent
 )
 
 
 from ceres.alert import Alert  # noqa: E402
+from ceres.error import ParticleError  # noqa: E402
 from ceres.logs import LogEntry  # noqa: E402
 from ceres.message import Message  # noqa: E402
-from ceres.variable import Variable  # noqa: E402
+from ceres.particle import Particle  # noqa: E402
 from ceres.setting import Setting  # noqa: E402
+from ceres.variable import Variable  # noqa: E402
 
 AlertEvent.model_rebuild()
 LogEvent.model_rebuild()
 MessageSentEvent.model_rebuild()
 MessageReceivedEvent.model_rebuild()
+ParticleEvent.model_rebuild()
 VariableAssignedEvent.model_rebuild()
 SettingAssignedEvent.model_rebuild()
+SieveParticleErrorEvent.model_rebuild()

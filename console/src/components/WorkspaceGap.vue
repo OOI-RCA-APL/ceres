@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { useWorkspace } from '@/workspace'
 
-const { row, column } = defineProps<{
+const { row, column } = $defineProps<{
   row: number
   column?: number
   direction: 'vertical' | 'horizontal'
@@ -49,7 +49,7 @@ function onMouseUp() {
   background-color: grey;
   border-radius: 6px;
   z-index: 100;
-  opacity: 0.5;
+  opacity: 0;
 }
 
 .draggedOver {

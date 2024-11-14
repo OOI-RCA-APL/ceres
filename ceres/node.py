@@ -22,6 +22,7 @@ from ceres.event import (
     StartedEvent,
     StoppedEvent,
 )
+from ceres.manager.particle import BoundParticleManager
 from ceres.manager.setting import SettingManager
 from ceres.tasklet import Tasklet
 
@@ -88,6 +89,10 @@ class Node(Tasklet):
         return BoundMessageManager(self)
 
     @cached_property
+    def particles(self) -> BoundParticleManager:
+        return BoundParticleManager(self)
+
+    @cached_property
     def alerts(self) -> BoundAlertManager:
         return BoundAlertManager(self)
 
@@ -141,9 +146,10 @@ class Node(Tasklet):
         from ceres.alert import Alert
         from ceres.logs import LogEntry
         from ceres.message import Message
+        from ceres.particle import Particle
         from ceres.variable import Variable
 
-        if type(item) not in (Message, Alert, LogEntry, Variable):
+        if type(item) not in (Message, Particle, Alert, LogEntry, Variable):
             raise TypeError(f"invalid item type {type(item)}")
 
         self.__store(item)
@@ -168,7 +174,7 @@ class Node(Tasklet):
     @override
     async def __run__(self) -> None:
         self.events.emit(StartedEvent)
-        await asyncio.gather(self.__process_flush(), self.events.process())
+        await asyncio.gather(self.__process_flush(), self.events.__run__())
 
     async def __process_flush(self) -> None:
         while True:

@@ -1,8 +1,11 @@
 from __future__ import annotations
 
-from typing import Annotated, Any, ClassVar, Iterable, Literal, Mapping, override
+from datetime import datetime
+from typing import Annotated, Any, ClassVar, Iterable, Literal, TypeAlias, override
 
 from pydantic import BeforeValidator, Field, PlainSerializer
+from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.sql.sqltypes import LargeBinary
 
 from ceres._internal.cli.plumbing import CLIOption
 from ceres._internal.entity import (
@@ -18,13 +21,12 @@ from ceres._internal.entity import (
 from ceres._internal.lazy import lazy_imports
 from ceres.data import StrEnum
 from ceres.database.enums import DatabaseType
+from ceres.timing import utc
 
 with lazy_imports(__name__):
-    from sqlalchemy.orm import Mapped, mapped_column
     from sqlalchemy.schema import Index, SchemaItem
     from sqlalchemy.sql import SQLColumnExpression
     from sqlalchemy.sql.functions import func
-    from sqlalchemy.sql.sqltypes import LargeBinary
 
     from ceres._internal import util
     from ceres._internal.database.types import EnumConstraint, EnumMapper
@@ -65,7 +67,7 @@ class MessageRow(BaseRecordRow, kw_only=True):
         return (
             *super().__get_table_args__(),
             EnumConstraint("direction", MessageDirection, f"ck_{cls.__tablename__}__direction"),
-            Index(f"ix_{cls.__tablename__}__content", "content").ddl_if("sqlite"),
+            Index(f"ix_{cls.__tablename__}__content", cls.content).ddl_if("sqlite"),
             Index(
                 f"ix_{cls.__tablename__}__content",
                 func.ceres_decode_latin1(cls.content).label("decoded_content"),
@@ -75,14 +77,14 @@ class MessageRow(BaseRecordRow, kw_only=True):
         )
 
 
-MessageField = (
+MessageField: TypeAlias = (
     BaseRecordField
     | Literal[
         "direction",
         "content",
     ]
 )
-MessageOrder = (
+MessageOrder: TypeAlias = (
     BaseRecordOrder
     | Literal[
         "direction",
@@ -119,8 +121,9 @@ class MessageFilter(BaseRecordFilter["Message", MessageField, MessageOrder]):
     )
 
     @override
-    def matches(self, obj: Message) -> bool:
-        if not super().matches(obj):
+    def matches(self, obj: Message, *, now: datetime | None = None) -> bool:
+        now = utc(now)
+        if not super().matches(obj, now=now):
             return False
 
         if self.direction is not None:
@@ -144,47 +147,14 @@ class MessageFilter(BaseRecordFilter["Message", MessageField, MessageOrder]):
         return MessageRow
 
     @override
-    def _get_search_content(self, obj: Message) -> Mapping[str, str]:
-        return {
-            **super()._get_search_content(obj),
-            "direction": obj.direction,
-            "content": obj.content.decode("latin-1", "ignore"),
-        }
-
-    @override
-    def _get_database_search_content(
+    def _get_where(
         self,
         dialect: DatabaseType,
-    ) -> Mapping[str, SQLColumnExpression[Any]]:
-        columns = self._get_row_cls()
-
-        match dialect:
-            case DatabaseType.POSTGRES:
-                content = func.ceres_decode_latin1(columns.content)
-            case DatabaseType.SQLITE:
-                content = columns.content
-
-        return {
-            **super()._get_database_search_content(dialect),
-            "direction": columns.direction,
-            "content": content,
-        }
-
-    @override
-    def _get_database_search_content_encoded_fields(self, dialect: DatabaseType) -> set[str]:
-        fields = super()._get_database_search_content_encoded_fields(dialect)
-
-        match dialect:
-            case DatabaseType.POSTGRES:
-                pass
-            case DatabaseType.SQLITE:
-                fields.add("content")
-
-        return fields
-
-    @override
-    def _get_where(self, dialect: DatabaseType) -> Iterable[SQLColumnExpression[bool]]:
-        yield from super()._get_where(dialect)
+        *,
+        now: datetime | None = None,
+    ) -> Iterable[SQLColumnExpression[bool]]:
+        now = utc(now)
+        yield from super()._get_where(dialect, now=now)
         columns = self._get_row_cls()
 
         if self.direction is not None:
@@ -210,8 +180,6 @@ class MessageUpdate(BaseRecordUpdate, total=False):
 
 
 class Message(BaseRecord, MessageCreate):
-    Direction: ClassVar[type[MessageDirection]] = MessageDirection
-
     Row: ClassVar[type[MessageRow]] = MessageRow
     Create: ClassVar[type[MessageCreate]] = MessageCreate
     Update: ClassVar[type[MessageUpdate]] = MessageUpdate
@@ -219,3 +187,4 @@ class Message(BaseRecord, MessageCreate):
     FilterArgs: ClassVar[type[MessageFilterArgs]] = MessageFilterArgs
     Field = MessageField
     Order = MessageOrder
+    Direction: ClassVar[type[MessageDirection]] = MessageDirection

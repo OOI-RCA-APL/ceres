@@ -1,32 +1,7 @@
-<script lang="ts">
-const listing = [
-  {
-    type: 'messages',
-    label: 'Messages View',
-  },
-  {
-    type: 'alerts',
-    label: 'Alerts View',
-  },
-  {
-    type: 'logs',
-    label: 'Logs View',
-  },
-  {
-    type: 'procedures',
-    label: 'Procedures View',
-  },
-  {
-    type: 'ui',
-    label: 'UI View',
-  },
-] as const
-</script>
-
 <script lang="ts" setup>
-import { useWorkspace, WidgetType } from '@/workspace'
+import { useWorkspace, widgetInfos, WidgetType } from '@/workspace'
 
-const { row, column } = defineProps<{
+const { row, column } = $defineProps<{
   row: number
   column?: number
 }>()
@@ -42,14 +17,14 @@ function add(type: WidgetType) {
   <q-menu class="no-shadow" :offset="[0, 8]">
     <q-list bordered dense>
       <q-item
-        v-for="widget in listing"
+        v-for="widget in widgetInfos"
         :key="widget.type"
         v-close-popup
         clickable
         @click="add(widget.type)"
       >
         <q-item-section>
-          <q-item-label>{{ widget.label }}</q-item-label>
+          <q-item-label>{{ widget.name }}</q-item-label>
         </q-item-section>
       </q-item>
     </q-list>

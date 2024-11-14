@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC
-from typing import TYPE_CHECKING, Any, Callable, ClassVar, Literal, Sequence
+from typing import TYPE_CHECKING, Any, Callable, ClassVar, Literal, Sequence, TypeAlias
 
 from pydantic import ImportString, computed_field, model_serializer
 from starlette.status import (
@@ -138,7 +138,7 @@ class ComponentCombinedError(__BaseComponentError):
     errors: Sequence[ComponentError]
 
 
-ComponentError = (
+ComponentError: TypeAlias = (
     ComponentValidationError
     | ComponentInitExceptionError
     | ComponentReferenceInvalidError
@@ -185,7 +185,7 @@ class ProcedureInternalError(__BaseProcedureError):
     traceback: Sequence[str]
 
 
-ProcedureError = (
+ProcedureError: TypeAlias = (
     ProcedureComponentNotFoundError
     | ProcedureNotFoundError
     | ProcedureNotPermittedError
@@ -244,7 +244,7 @@ class HTTPError(Error):
     status: int
 
 
-APIError = (
+APIError: TypeAlias = (
     NotFoundError
     | AlreadyExistsError
     | NotRunningError
@@ -281,7 +281,7 @@ class DatabaseInitError(Error):
     message: str
 
 
-DatabaseError = (
+DatabaseError: TypeAlias = (
     AlreadyExistsError
     | NotFoundError
     | DatabaseUnreachableError
@@ -326,7 +326,7 @@ class ConfigCombinedError(__BaseConfigError):
     errors: Sequence[ConfigError]
 
 
-ConfigError = (
+ConfigError: TypeAlias = (
     ConfigInvalidSourceError
     | ConfigReadError
     | ConfigParseError
@@ -352,7 +352,19 @@ class ReloadConfigInvalidError(__BaseReloadError):
     error: ConfigError
 
 
-ReloadError = ReloadConfigPathUnsetError | ReloadConfigInvalidError
+ReloadError: TypeAlias = ReloadConfigPathUnsetError | ReloadConfigInvalidError
+
+
+class __BaseParticleError(Error, ABC):
+    __error_status_code__: ClassVar[int] = HTTP_500_INTERNAL_SERVER_ERROR
+
+
+class ParticleParseError(__BaseParticleError):
+    type: Literal["particle-parse-error"] = "particle-parse-error"
+    reason: str
+
+
+ParticleError: TypeAlias = ParticleParseError
 
 
 class Failure(Exception):

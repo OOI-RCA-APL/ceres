@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 from functools import cached_property
 from re import Match, Pattern, RegexFlag
-from typing import Annotated, Literal, Self, final, override
+from typing import Annotated, Literal, Self, override
 
 from pydantic import (
     BeforeValidator,
@@ -379,7 +379,6 @@ class TCPKeepAlive(ImmutableDataObject):
         return value
 
 
-@final
 class TCPConnection(Connection):
     host: str
     port: int

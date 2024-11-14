@@ -7,8 +7,8 @@ from ceres.data import ImmutableDataObject
 _result_cls_generic_cache: dict[tuple[Any, ...], Any] = {}
 
 
-class _Result:
-    def __class_getitem__[ValueT, ErrorT](
+class _Result:  # type: ignore
+    def __class_getitem__[ValueT, ErrorT](  # type: ignore
         cls,
         /,
         params: tuple[type[ValueT], type[ErrorT]],
@@ -20,7 +20,7 @@ class _Result:
         return value  # type: ignore
 
 
-class Ok[ValueT](ImmutableDataObject, _Result):
+class Ok[ValueT](ImmutableDataObject, _Result, frozen=True):  # type: ignore
     ok: Literal[True] = True
     value: ValueT
 
@@ -37,7 +37,7 @@ class Ok[ValueT](ImmutableDataObject, _Result):
         return True
 
 
-class Fail[ErrorT](ImmutableDataObject, _Result):
+class Fail[ErrorT](ImmutableDataObject, _Result, frozen=True):  # type: ignore
     ok: Literal[False] = False
     error: ErrorT
 

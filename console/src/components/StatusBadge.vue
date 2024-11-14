@@ -5,7 +5,7 @@ import { Address } from '@/api/address'
 import { useEngine } from '@/api/engine'
 import icons from '@/icons'
 
-const { address } = defineProps<{
+const { address } = $defineProps<{
   address: Address
 }>()
 

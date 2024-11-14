@@ -94,8 +94,8 @@ class BoundAlertManager(AlertManager, BaseBoundManager[Alert]):
         alert = Alert(
             address=self._node.address,
             level=level,
-            code=code,
-            info=dict(info) if info is not None else {},
+            type=code,
+            data=dict(info) if info is not None else {},
         )
 
         self._node.store(alert)

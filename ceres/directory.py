@@ -5,7 +5,18 @@ import shutil
 from os import PathLike
 from pathlib import Path
 from tempfile import gettempdir
-from typing import IO, TYPE_CHECKING, Any, Iterable, Self, Union, final, overload, override
+from typing import (
+    IO,
+    TYPE_CHECKING,
+    Any,
+    Iterable,
+    Self,
+    TypeAlias,
+    Union,
+    final,
+    overload,
+    override,
+)
 from uuid import uuid4
 
 from pydantic import GetCoreSchemaHandler
@@ -19,8 +30,8 @@ else:
     OpenBinaryMode = "OpenBinaryMode"
     OpenTextMode = "OpenTextMode"
 
-StrPath = str | PathLike[str]
-OpenMode = Union[OpenTextMode, OpenBinaryMode]
+StrPath: TypeAlias = str | PathLike[str]
+OpenMode: TypeAlias = Union[OpenTextMode, OpenBinaryMode]
 
 
 @final

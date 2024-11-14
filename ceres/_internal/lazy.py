@@ -4,7 +4,7 @@ import sys
 from contextlib import contextmanager
 from threading import Lock
 from types import ModuleType, UnionType
-from typing import TYPE_CHECKING, Any, Iterable, Mapping, Sequence, overload, override, Final
+from typing import TYPE_CHECKING, Any, Final, Iterable, Mapping, Sequence, overload, override
 
 _undefined = object()
 

@@ -1,21 +1,26 @@
 from __future__ import annotations
 
 from typing import Annotated
+from uuid import UUID
 
 from fastapi import APIRouter, Query
 from pydantic import Field
 from pydantic import ValidationError as ValidationError
 from starlette.exceptions import HTTPException as HTTPException
 
-from ceres._internal.app.shared import CurrentEngine, CurrentSocket
+from ceres._internal.app.shared import CurrentEngine, CurrentSocket, assert_found
 from ceres.message import Message, MessageFilter
 
 router = APIRouter(prefix="/messages", tags=["messages"])
 
 
+@router.get("/{id}")
+async def get_message(engine: CurrentEngine, id: UUID) -> Message:
+    return assert_found(await engine.messages.get(id=id))
+
+
 class GetMessagesQueryParameters(MessageFilter):
     limit: int = Field(default=100, ge=0, le=1000)
-    offset: int = Field(default=0, ge=0)
 
 
 @router.get("")

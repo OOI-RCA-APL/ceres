@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import (
     TYPE_CHECKING,
     Annotated,
@@ -11,6 +11,7 @@ from typing import (
     Literal,
     Mapping,
     Sequence,
+    TypeAlias,
     TypedDict,
     override,
 )
@@ -19,6 +20,7 @@ from uuid import UUID, uuid4
 import pydantic
 from pydantic import Field, NonNegativeInt
 from sqlalchemy.orm.decl_api import DeclarativeBase, MappedAsDataclass
+from sqlalchemy.types import Integer
 
 from ceres._internal.cli.plumbing import CLIOption
 from ceres._internal.database.types import AddressMapper, DateTimeMapper, UUIDMapper
@@ -48,7 +50,9 @@ with lazy_imports(__name__):
         Select,
         SQLColumnExpression,
         Update,
-        expression,
+        cast,
+        func,
+        literal,
         select,
         tuple_,
     )
@@ -182,8 +186,6 @@ class BaseEntityFilterArgs[
     FieldT: str,
     OrderT: str,
 ](BaseFilterArgs, total=False):
-    search: str | None
-    search_field: FieldT | Sequence[FieldT] | None
     order: OrderT | Sequence[OrderT] | None
     limit: NonNegativeInt | None
     offset: NonNegativeInt | None
@@ -194,14 +196,6 @@ class BaseEntityFilter[
     FieldT: str,
     OrderT: str,
 ](BaseFilter, ABC):
-    search: Annotated[str | None, CLIOption(str | None)] = Field(
-        default=None,
-        description="Filter by text content of field(s) in `search-field`.",
-    )
-    search_field: Annotated[FieldT | Sequence[FieldT] | None, CLIOption(list[str] | None)] = Field(
-        default=None,
-        description="Field(s) matched by `search`. Defaults to all.",
-    )
     order: Annotated[OrderT | Sequence[OrderT] | None, CLIOption(list[str] | None)] = Field(
         default=None,
         description="Specify ordering of results by field. Prefix field names with '-' for descending order.",
@@ -221,58 +215,11 @@ class BaseEntityFilter[
     @abstractmethod
     def _get_row_cls(cls) -> type[BaseEntityRow]: ...
 
-    def _get_search_content(self, obj: EntityT) -> Mapping[str, str]:
-        return {}
-
-    def _get_database_search_content(
-        self,
-        dialect: DatabaseType,
-    ) -> Mapping[str, SQLColumnExpression[Any]]:
-        return {}
-
-    def _get_database_search_content_encoded_fields(self, dialect: DatabaseType) -> set[str]:
-        return set()
-
     def matches(self, obj: EntityT) -> bool:
-        if self.search is not None:
-            values = self._get_search_content(obj)
-            fields = values if self.search_field is None else util.as_sequence(self.search_field)
-            matched = False
-            for field in fields:
-                value = values.get(field)
-                if value is None:
-                    continue
-
-                if self.search in value:
-                    matched = True
-                    break
-
-            if not matched:
-                return False
-
         return True
 
     def _get_where(self, dialect: DatabaseType) -> Iterable[SQLColumnExpression[bool]]:
-        encoded = self._get_database_search_content_encoded_fields(dialect)
-
-        if self.search is not None:
-            pattern = "%" + util.escape_like_expression(self.search) + "%"
-
-            values = self._get_database_search_content(dialect)
-            fields = values if self.search_field is None else util.as_sequence(self.search_field)
-            condition: SQLColumnExpression[bool] | None = expression.false()
-
-            for field in fields:
-                value = values.get(field)
-                if value is None:
-                    continue
-
-                if field in encoded:
-                    condition |= value.like(pattern.encode("latin-1", "ignore"))
-                else:
-                    condition |= value.like(pattern)
-
-            yield condition
+        return ()
 
     @abstractmethod
     def _get_default_order(self) -> OrderT: ...
@@ -358,8 +305,8 @@ class BaseUUIDEntityRow(BaseEntityRow):
         )
 
 
-BaseUUIDEntityField = Literal["id"]
-BaseUUIDEntityOrder = Literal["id", "-id"]
+BaseUUIDEntityField: TypeAlias = Literal["id"]
+BaseUUIDEntityOrder: TypeAlias = Literal["id", "-id"]
 
 
 class BaseUUIDEntityFilterArgs[
@@ -438,7 +385,7 @@ class BaseItemRow(BaseEntityRow, kw_only=True):
     def __get_table_args__(cls) -> tuple[SchemaItem, ...]:
         return (
             *super().__get_table_args__(),
-            Index(f"ix_{cls.__tablename__}__address", "address"),
+            Index(f"ix_{cls.__tablename__}__address", cls.address),
         )
 
 
@@ -469,7 +416,7 @@ class BaseItemFilter[
     )
 
     @override
-    def matches(self, obj: ItemT) -> bool:  # type: ignore
+    def matches(self, obj: ItemT) -> bool:
         if not super().matches(obj):
             return False
 
@@ -483,25 +430,6 @@ class BaseItemFilter[
     @abstractmethod
     @override
     def _get_row_cls(cls) -> type[BaseItemRow]: ...
-
-    @override
-    def _get_search_content(self, obj: ItemT) -> Mapping[str, str]:
-        return {
-            **super()._get_search_content(obj),
-            "address": str(obj.address),
-        }
-
-    @override
-    def _get_database_search_content(
-        self,
-        dialect: DatabaseType,
-    ) -> Mapping[str, SQLColumnExpression[Any]]:
-        columns = self._get_row_cls()
-
-        return {
-            **super()._get_database_search_content(dialect),
-            "address": columns.address,
-        }
 
     @override
     def _get_where(self, dialect: DatabaseType) -> Iterable[SQLColumnExpression[bool]]:
@@ -537,7 +465,7 @@ class BaseItem(BaseItemCreate):
         Order: ClassVar[type[BaseItemOrder]] = BaseItemOrder
 
 
-class BaseRecordRow(BaseUUIDEntityRow, BaseItemRow, kw_only=True):
+class BaseRecordRow(BaseItemRow, BaseUUIDEntityRow, kw_only=True):
     __abstract__: ClassVar[bool] = True
 
     timestamp: Mapped[datetime] = mapped_column(DateTimeMapper, sort_order=-1000)
@@ -551,8 +479,8 @@ class BaseRecordRow(BaseUUIDEntityRow, BaseItemRow, kw_only=True):
         )
 
 
-BaseRecordField = BaseUUIDEntityField | BaseItemField | Literal["timestamp"]
-BaseRecordOrder = (
+BaseRecordField: TypeAlias = BaseUUIDEntityField | BaseItemField | Literal["timestamp"]
+BaseRecordOrder: TypeAlias = (
     BaseUUIDEntityOrder
     | BaseItemOrder
     | Literal[
@@ -566,14 +494,20 @@ class BaseRecordFilterArgs[
     FieldT: str,
     OrderT: str,
 ](
-    BaseUUIDEntityFilterArgs[FieldT, OrderT],
     BaseItemFilterArgs[FieldT, OrderT],
+    BaseUUIDEntityFilterArgs[FieldT, OrderT],
     total=False,
 ):
+    timestamp: DateTime | Sequence[DateTime] | None
     before: DateTime | None
     after: DateTime | None
+    timespan: PositiveTimeDelta | None
     max_age: PositiveTimeDelta | None
     min_age: PositiveTimeDelta | None
+    after_hour: NonNegativeInt | None
+    before_hour: NonNegativeInt | None
+    after_minute: NonNegativeInt | None
+    before_minute: NonNegativeInt | None
 
 
 class BaseRecordFilter[
@@ -581,32 +515,80 @@ class BaseRecordFilter[
     FieldT: str,
     OrderT: str,
 ](
-    BaseUUIDEntityFilter[RecordT, FieldT, OrderT],
     BaseItemFilter[RecordT, FieldT, OrderT],
+    BaseUUIDEntityFilter[RecordT, FieldT, OrderT],
 ):
-    after: Annotated[DateTime | None, CLIOption(datetime)] = Field(
+    timestamp: Annotated[
+        DateTime | Sequence[DateTime] | None,
+        CLIOption(list[datetime] | None),
+    ] = Field(
+        default=None,
+        description="Filter by exact timestamp(s).",
+    )
+    after: Annotated[DateTime | None, CLIOption(datetime | None)] = Field(
         default=None,
         description="Filter by minimum timestamp.",
     )
-    before: Annotated[DateTime | None, CLIOption(datetime)] = Field(
+    before: Annotated[DateTime | None, CLIOption(datetime | None)] = Field(
         default=None,
         description="Filter by maximum timestamp.",
     )
-    min_age: Annotated[PositiveTimeDelta | None, CLIOption(str | None, metavar="DURATION")] = Field(
+    timespan: Annotated[PositiveTimeDelta | None, CLIOption(timedelta | None)] = Field(
+        default=None,
+        description="Filter by maximum age relative to `after`, or minimum age relative to `before` if `after` is `None`. If both `after` and `before` are `None`, filter by maximum age relative to the current time. ",
+    )
+    min_age: Annotated[PositiveTimeDelta | None, CLIOption(timedelta | None)] = Field(
         default=None,
         description="Filter by minimum age relative to the current time.",
     )
-    max_age: Annotated[PositiveTimeDelta | None, CLIOption(str | None, metavar="DURATION")] = Field(
+    max_age: Annotated[PositiveTimeDelta | None, CLIOption(timedelta | None)] = Field(
         default=None,
         description="Filter by maximum age relative to the current time.",
     )
+    after_hour: Annotated[NonNegativeInt | None, CLIOption(int | None)] = Field(
+        default=None,
+        description="Filter by minimum hour of the day.",
+        le=24,
+    )
+    before_hour: Annotated[NonNegativeInt | None, CLIOption(int | None)] = Field(
+        default=None,
+        description="Filter by maximum hour of the day.",
+        le=24,
+    )
+    after_minute: Annotated[NonNegativeInt | None, CLIOption(int | None)] = Field(
+        default=None,
+        description="Filter by minimum minute of the day.",
+        le=60,
+    )
+    before_minute: Annotated[NonNegativeInt | None, CLIOption(int | None)] = Field(
+        default=None,
+        description="Filter by maximum minute of the day.",
+        le=60,
+    )
 
     @override
-    def matches(self, obj: RecordT) -> bool:  # type: ignore
+    def matches(self, obj: RecordT, *, now: datetime | None = None) -> bool:
         if not super().matches(obj):
             return False
 
-        now = utc()
+        if self.timestamp is not None:
+            if obj.timestamp not in util.as_sequence(self.timestamp):
+                return False
+        if self.after is not None:
+            if obj.timestamp < self.after:
+                return False
+        if self.before is not None:
+            if obj.timestamp >= self.before:
+                return False
+
+        now = utc(now)
+        if self.timespan is not None:
+            if self.after is not None:
+                if obj.timestamp >= (self.after + self.timespan):
+                    return False
+            else:
+                if obj.timestamp < ((self.before or now) - self.timespan):
+                    return False
         if self.max_age is not None:
             if obj.timestamp < now - self.max_age:
                 return False
@@ -614,12 +596,29 @@ class BaseRecordFilter[
             if obj.timestamp >= now - self.min_age:
                 return False
 
-        if self.after is not None:
-            if obj.timestamp < self.after:
-                return False
-        if self.before is not None:
-            if obj.timestamp >= self.before:
-                return False
+        if self.after_hour is not None or self.before_hour is not None:
+            min_hour = self.after_hour if self.after_hour is not None else 0
+            max_hour = self.before_hour if self.before_hour is not None else 24
+            within_min = obj.timestamp.hour >= min_hour
+            within_max = obj.timestamp.hour < max_hour
+            if min_hour <= max_hour:
+                if not within_min or not within_max:
+                    return False
+            else:
+                if not within_min and not within_max:
+                    return False
+
+        if self.after_minute is not None or self.before_minute is not None:
+            min_minute = self.after_minute if self.after_minute is not None else 0
+            max_minute = self.before_minute if self.before_minute is not None else 60
+            within_min = obj.timestamp.minute >= min_minute
+            within_max = obj.timestamp.minute < max_minute
+            if min_minute <= max_minute:
+                if not within_min or not within_max:
+                    return False
+            else:
+                if not within_min and not within_max:
+                    return False
 
         return True
 
@@ -629,50 +628,81 @@ class BaseRecordFilter[
     def _get_row_cls(cls) -> type[BaseRecordRow]: ...
 
     @override
-    def _get_search_content(self, obj: RecordT) -> Mapping[str, str]:
-        return {
-            **super()._get_search_content(obj),
-            "timestamp": util.format_timestamp(obj.timestamp),
-        }
-
-    @override
-    def _get_database_search_content(
+    def _get_where(
         self,
         dialect: DatabaseType,
-    ) -> Mapping[str, SQLColumnExpression[Any]]:
-        columns = self._get_row_cls()
-
-        return {
-            **super()._get_database_search_content(dialect),
-            "timestamp": util.format_sql_timestamp(columns.timestamp, dialect),
-        }
-
-    @override
-    def _get_where(self, dialect: DatabaseType) -> Iterable[SQLColumnExpression[bool]]:
+        *,
+        now: datetime | None = None,
+    ) -> Iterable[SQLColumnExpression[bool]]:
         yield from super()._get_where(dialect)
         columns = self._get_row_cls()
 
-        now = utc()
+        if self.timestamp is not None:
+            yield columns.timestamp.in_(util.as_sequence(self.timestamp))
+        if self.after is not None:
+            yield columns.timestamp >= self.after
+        if self.before is not None:
+            yield columns.timestamp < self.before
+
+        now = utc(now)
+        if self.timespan is not None:
+            if self.after is not None:
+                yield columns.timestamp < self.after + self.timespan
+            else:
+                yield columns.timestamp >= (self.before or now) - self.timespan
         if self.max_age is not None:
             yield columns.timestamp >= now - self.max_age
         if self.min_age is not None:
             yield columns.timestamp < now - self.min_age
 
-        if self.after is not None:
-            yield columns.timestamp >= self.after
-        if self.before is not None:
-            yield columns.timestamp < self.before
+        if self.after_hour is not None or self.before_hour is not None:
+            min_hour = self.after_hour if self.after_hour is not None else 0
+            max_hour = self.before_hour if self.before_hour is not None else 24
+            match dialect:
+                case DatabaseType.POSTGRES:
+                    hour = func.date_part(
+                        literal("hour", literal_execute=True),
+                        columns.timestamp.op("AT TIME ZONE")(literal("UTC", literal_execute=True)),
+                    )
+                case DatabaseType.SQLITE:
+                    hour = cast(func.strftime("%H", columns.timestamp), Integer)
+
+            within_min = hour >= min_hour
+            within_max = hour < max_hour
+            if min_hour <= max_hour:
+                yield within_min & within_max
+            else:
+                yield within_min | within_max
+
+        if self.after_minute is not None or self.before_minute is not None:
+            min_minute = self.after_minute if self.after_minute is not None else 0
+            max_minute = self.before_minute if self.before_minute is not None else 60
+            match dialect:
+                case DatabaseType.POSTGRES:
+                    minute = func.date_part(
+                        literal("minute", literal_execute=True),
+                        columns.timestamp.op("AT TIME ZONE")(literal("UTC", literal_execute=True)),
+                    )
+                case DatabaseType.SQLITE:
+                    minute = cast(func.strftime("%M", columns.timestamp), Integer)
+
+            within_min = minute >= min_minute
+            within_max = minute < max_minute
+            if min_minute <= max_minute:
+                yield within_min & within_max
+            else:
+                yield within_min | within_max
 
     @override
     def _get_default_order(self) -> OrderT:
         return "timestamp"  # type: ignore
 
 
-class BaseRecordCreate(BaseUUIDEntity, BaseItem):
+class BaseRecordCreate(BaseItem, BaseUUIDEntity):
     timestamp: Annotated[DateTime, CLIOption(datetime)] = Field(default_factory=utc)
 
 
-class BaseRecordUpdate(BaseUUIDEntityUpdate, BaseItemUpdate, total=False):
+class BaseRecordUpdate(BaseItemUpdate, BaseUUIDEntityUpdate, total=False):
     timestamp: DateTime
 
 

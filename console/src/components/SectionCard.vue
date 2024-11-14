@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import CommonText from '@/components/CommonText.vue'
 
-const { padding = false, noBody = false } = defineProps<{
+const { padding = false, noBody = false } = $defineProps<{
   icon?: string
   padding?: boolean | 'xs' | 'sm' | 'md' | 'lg' | 'xl'
   title?: string

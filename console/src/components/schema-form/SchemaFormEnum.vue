@@ -5,7 +5,7 @@ import CommonText from '@/components/CommonText.vue'
 import { SchemaForm, SchemaObject, SchemaPath } from '@/schema-form'
 import { Plain } from '@/utilities'
 
-const { form, schema, path } = defineProps<{
+const { form, schema, path } = $defineProps<{
   modelValue: unknown
   form: SchemaForm
   schema: SchemaObject & { enum: Plain[] }
@@ -13,7 +13,7 @@ const { form, schema, path } = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  (emit: 'update:modelValue', value: unknown): void
+  'update:modelValue': [value: unknown]
 }>()
 
 const title = $computed(() => form.getLabel(path))
@@ -73,6 +73,7 @@ let options = $shallowRef(computeOptions())
 <template>
   <div>
     <q-select
+      :class="$style.input"
       dense
       filled
       hide-dropdown-icon
@@ -82,6 +83,7 @@ let options = $shallowRef(computeOptions())
       :option-label="format"
       :options="options"
       options-dense
+      :popup-content-class="$style.popup"
       @update:model-value="(modelValue) => emit('update:modelValue', resolve(modelValue))"
     >
       <template #label>
@@ -100,8 +102,18 @@ let options = $shallowRef(computeOptions())
   </div>
 </template>
 
-<style module>
+<style lang="scss" module>
+@import '@/css/app.scss';
+
 .labelExtra {
   opacity: 0.5;
+}
+
+.input :global(.q-field__native) {
+  @extend .monospace-md;
+}
+
+.popup {
+  @extend .monospace-md;
 }
 </style>

@@ -21,7 +21,7 @@ from starlette.status import HTTP_400_BAD_REQUEST, HTTP_401_UNAUTHORIZED
 
 from ceres._internal.lazy import lazy_imports
 from ceres.data import DateTime, EmailStr, ImmutableDataObject, StrEnum, UsernameStr, jsonify
-from ceres.error import Failure, NotAuthenticatedError, NotPermittedError
+from ceres.error import Failure, NotAuthenticatedError, NotFoundError, NotPermittedError
 from ceres.timing import utc
 from ceres.user import User, UserRole
 
@@ -326,3 +326,10 @@ ADMIN = Depends(__require_admin)
 RequireViewer = Annotated[User | None, VIEWER]
 RequireOperator = Annotated[User | None, OPERATOR]
 RequireAdmin = Annotated[User | None, ADMIN]
+
+
+def assert_found[T](value: T | None, /) -> T:
+    if value is None:
+        raise Failure(NotFoundError)
+
+    return value

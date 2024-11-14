@@ -4,7 +4,7 @@ import { useEngine } from '@/api/engine'
 import InterfaceElement from '@/components/InterfaceElement.vue'
 import { InterfacePath } from '@/interface'
 
-const { element, path } = defineProps<{
+const { element, path } = $defineProps<{
   element: DisplayElement
   path: InterfacePath
 }>()

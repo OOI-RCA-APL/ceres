@@ -44,8 +44,8 @@ export const StateElementOptionModel = BaseElementModel.extend({
   value: AtomicValueModel,
   label: Zod.string(),
   color: Zod.string(),
-  icon: Zod.string().nullable().default(null),
-  description: Zod.string().nullable().default(null),
+  icon: Zod.string().nullish(),
+  description: Zod.string().nullish(),
 })
 
 type BoxElement = BaseElement & {
@@ -109,7 +109,7 @@ export const TextElementModel = BaseElementModel.extend({
   type: Zod.literal('text'),
   variant: TextVariantModel.default('value'),
   value: Zod.string(),
-  color: Zod.string().nullable().default(null),
+  color: Zod.string().nullish(),
 })
 
 export type HTMLElement = Zod.infer<typeof HTMLElementModel>
@@ -129,7 +129,7 @@ export type GaugeElement = Zod.infer<typeof GaugeElementModel>
 export const GaugeElementModel = BaseElementModel.extend({
   type: Zod.literal('gauge'),
   value: Zod.number(),
-  unit: Zod.string().nullable().default(null),
+  unit: Zod.string().nullish(),
   min: Zod.number(),
   max: Zod.number(),
   color: Zod.union([Zod.array(ColorStopModel), Zod.string()])
@@ -141,7 +141,7 @@ export type ChartElement = Zod.infer<typeof ChartElementModel>
 export const ChartElementModel = BaseElementModel.extend({
   type: Zod.literal('chart'),
   value: Zod.record(Zod.string(), Zod.any()),
-  height: Zod.union([Zod.number(), Zod.string()]).nullable().default(null),
+  height: Zod.union([Zod.number(), Zod.string()]).nullish(),
 })
 
 export type RenderElement = Zod.infer<typeof RenderElementModel>

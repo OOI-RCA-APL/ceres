@@ -7,7 +7,7 @@ const translation: Readonly<Record<number, string>> = {
 </script>
 
 <script lang="ts" setup>
-const { character } = defineProps<{
+const { character } = $defineProps<{
   character: string
 }>()
 

@@ -12,7 +12,7 @@ import { useInterfaceContext } from '@/interface'
 import { useSchemaForm } from '@/schema-form'
 import { displayDuration, useTime } from '@/time'
 
-const { address, procedure } = defineProps<{
+const { address, procedure } = $defineProps<{
   address: Address
   procedure: ProcedureInfo
 }>()

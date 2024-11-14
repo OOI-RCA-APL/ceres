@@ -34,6 +34,9 @@ with lazy_imports(__name__, export=True):
     from ceres.message import Message as Message
     from ceres.parsing import ParseFailed as ParseFailed
     from ceres.parsing import Parser as Parser
+    from ceres.particle import DynamicParticleData as DynamicParticleData
+    from ceres.particle import Particle as Particle
+    from ceres.particle import ParticleData as ParticleData
     from ceres.reference import Ref as Ref
     from ceres.reference import Reference as Reference
     from ceres.reference import unref as unref
@@ -55,6 +58,8 @@ with lazy_imports(__name__, export=True):
     from ceres.roles.notifier import SMTPNotifier as SMTPNotifier
     from ceres.schedule import Schedule as Schedule
     from ceres.schedule import ScheduleType as ScheduleType
+    from ceres.sieve import MonoSieve as MonoSieve
+    from ceres.sieve import Sieve as Sieve
     from ceres.statistics import Statistics as Statistics
     from ceres.status import Status as Status
     from ceres.stream import Stream as Stream

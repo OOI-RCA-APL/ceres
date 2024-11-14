@@ -8,6 +8,7 @@ import { useComponents } from '@/api/components'
 import { Config, ConfigModel, useConfig } from '@/api/config'
 import { useLogEntries } from '@/api/log-entries'
 import { useMessages } from '@/api/messages'
+import { useParticles } from '@/api/particles'
 import { useStatistics } from '@/api/statistics'
 import { useStatuses } from '@/api/statuses'
 import { useUsers } from '@/api/users'
@@ -17,12 +18,13 @@ export type Engine = ReturnType<typeof useEngine>
 export const useEngine = defineStore('engine', () => {
   const client = useClient()
 
-  const alerts = useAlerts()
   const auth = useAuth()
   const components = useComponents()
   const config = useConfig()
-  const logs = useLogEntries()
   const messages = useMessages()
+  const particles = useParticles()
+  const alerts = useAlerts()
+  const logs = useLogEntries()
   const statistics = useStatistics()
   const statuses = useStatuses()
   const users = useUsers()
@@ -81,6 +83,7 @@ export const useEngine = defineStore('engine', () => {
     config,
     logs,
     messages,
+    particles,
     statistics,
     statuses,
     users,

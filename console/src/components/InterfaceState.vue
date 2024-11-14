@@ -2,12 +2,12 @@
 import { StateElement } from '@/api/elements'
 import CommonText from '@/components/CommonText.vue'
 
-const { element } = defineProps<{
+const { element } = $defineProps<{
   element: StateElement
 }>()
 
 const selected = $computed(() =>
-  element.options.find((state) => state.value === element.value ?? null)
+  element.options.find((state) => state.value === (element.value ?? null))
 )
 </script>
 

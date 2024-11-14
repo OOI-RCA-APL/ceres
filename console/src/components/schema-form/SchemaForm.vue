@@ -10,17 +10,17 @@ import {
   useSchemaForm,
 } from '@/schema-form'
 
-const props = defineProps<{
+const { form: formInput, formRef } = $defineProps<{
   form: SchemaForm | SchemaFormOptions
   formRef?: (form: SchemaForm) => unknown
 }>()
 
 const path: SchemaPath = []
-const form = isSchemaForm(props.form) ? props.form : useSchemaForm({ ...props.form })
+const form = isSchemaForm(formInput) ? formInput : useSchemaForm({ ...formInput })
 
 watchEffect(() => {
-  if (props.formRef) {
-    props.formRef(form)
+  if (formRef) {
+    formRef(form)
   }
 })
 

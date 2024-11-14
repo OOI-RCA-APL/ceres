@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 from inspect import Parameter
 from types import NoneType, UnionType
 from typing import (
@@ -214,27 +215,26 @@ class CLIOptionArgs(CLIParameterArgs, total=False):
     allow_from_autoenv: bool
 
 
-def CLIArgument(
-    type: type[Any] | Any,
-    **kwargs: Unpack[CLIArgumentArgs],
-) -> Any:
-    argument = Argument(..., **kwargs)  # type: ignore
-    argument.type = _get_typer_compatible_type(type)
-    return argument
+def __get_datetime_formats() -> list[str]:
+    formats = [
+        "%Y-%m-%d",
+        "%Y-%m-%d %H:%M",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d %H:%M:%S.%f",
+    ]
+
+    for current in list(formats):
+        if " " in current:
+            formats.append(current.replace(" ", "T"))
+
+    for current in list(formats):
+        if ":" in current:
+            formats.append(current + "Z")
+
+    return formats
 
 
-def CLIOption(
-    type: type[Any] | Any,
-    *decls: str,
-    **kwargs: Unpack[CLIOptionArgs],
-) -> Any:
-    option = Option(..., *decls, **kwargs)  # type: ignore
-    option.type = _get_typer_compatible_type(type)
-    return option
-
-
-def CLIOptionGroup() -> Any:
-    return CLIOptionGroupInfo()
+_DATETIME_FORMATS = __get_datetime_formats()
 
 
 def _get_typer_compatible_type(type: type[Any] | Any) -> type[Any] | Any:
@@ -248,6 +248,46 @@ def _get_typer_compatible_type(type: type[Any] | Any) -> type[Any] | Any:
             return Optional[Union[other]]  # type: ignore
 
     return type
+
+
+def _setup_cli_argument_or_option(
+    type: type[Any] | Any,
+    kwargs: CLIArgumentArgs,
+) -> type[Any] | Any:
+    type = _get_typer_compatible_type(type)
+    if type in (datetime, list[datetime], Optional[datetime], Optional[list[datetime]]):
+        kwargs.setdefault("formats", _DATETIME_FORMATS)
+        kwargs.setdefault("metavar", "DATETIME")
+    if type in (timedelta, list[timedelta], Optional[timedelta], Optional[list[timedelta]]):
+        kwargs.setdefault("metavar", "TIMEDELTA")
+        type = str
+
+    return type
+
+
+def CLIArgument(
+    type: type[Any] | Any,
+    **kwargs: Unpack[CLIArgumentArgs],
+) -> Any:
+    type = _setup_cli_argument_or_option(type, kwargs)
+    argument = Argument(..., **kwargs)  # type: ignore
+    argument.type = type
+    return argument
+
+
+def CLIOption(
+    type: type[Any] | Any,
+    *decls: str,
+    **kwargs: Unpack[CLIOptionArgs],
+) -> Any:
+    type = _setup_cli_argument_or_option(type, kwargs)
+    option = Option(..., *decls, **kwargs)  # type: ignore
+    option.type = type
+    return option
+
+
+def CLIOptionGroup() -> Any:
+    return CLIOptionGroupInfo()
 
 
 _VirtualDefault = ArgumentInfo | OptionInfo | FieldInfo | PydanticUndefinedType

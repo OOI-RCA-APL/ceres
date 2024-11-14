@@ -77,7 +77,7 @@ class Transport:
             if default is ...:
                 raise TimeoutError()
             if callable(default):
-                return default()
+                return default()  # type: ignore
             return default  # type: ignore
 
         with anyio.move_on_after(timeout):

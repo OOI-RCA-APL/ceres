@@ -4,7 +4,7 @@ import icons from '@/icons'
 
 const isOpen = $ref(false)
 
-const { size = '16px' } = defineProps<{
+const { size = '16px' } = $defineProps<{
   title: string
   size?: string
 }>()

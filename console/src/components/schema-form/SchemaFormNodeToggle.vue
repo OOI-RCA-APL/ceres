@@ -1,14 +1,14 @@
 <script lang="ts" setup>
 import { SchemaForm, SchemaPath } from '@/schema-form'
 
-const { modelValue, form, path } = defineProps<{
+const { modelValue, form, path } = $defineProps<{
   modelValue: unknown
   form: SchemaForm
   path: SchemaPath
 }>()
 
 const emit = defineEmits<{
-  (emit: 'update:modelValue', value: unknown): void
+  'update:modelValue': [value: unknown]
 }>()
 
 const isDefined = $computed(() => modelValue !== undefined)

@@ -13,7 +13,7 @@ import { useDialogs } from '@/dialogs'
 import icons from '@/icons'
 import { provideWorkspace, resolveWidgetWidths, useWorkspaces, Widget } from '@/workspace'
 
-const { name } = defineProps<{
+const { name } = $defineProps<{
   name: string
 }>()
 
@@ -46,7 +46,7 @@ watchEffect(() => {
 })
 
 const mouse = reactive(useMouse({ type: 'client' }))
-const draggedWidgetStyle = $computed(() => ({
+const draggedWidgetIconStyle = $computed(() => ({
   left: `${mouse.x}px`,
   top: `${mouse.y}px`,
   transform: 'translate(-50%, -50%)',
@@ -116,9 +116,9 @@ onMounted(() => {
   <full-page :class="$style.root">
     <div
       v-if="workspace.drag != null"
-      key="dragged-widget"
-      :class="$style.draggedWidget"
-      :style="draggedWidgetStyle"
+      key="dragged-widget-icon"
+      :class="$style.draggedWidgetIcon"
+      :style="draggedWidgetIconStyle"
     >
       <q-card bordered class="q-px-xs" flat>
         <common-text variant="th">
@@ -223,7 +223,7 @@ onMounted(() => {
       <div v-else ref="layout">
         <div
           v-for="(row, i) in workspace.data.layout"
-          :key="i"
+          :key="row.id"
           class="full-width no-wrap q-gutter-xs q-py-xs relative-position row"
           :style="{ height: row.collapsed ? undefined : `${row.height}px` }"
         >
@@ -295,7 +295,13 @@ onMounted(() => {
                 }
               "
             />
-            <workspace-widget :column="j" :container="row" :row="i" :widget="widget" />
+            <workspace-widget
+              :class="workspace.drag?.widget === widget && $style.draggedWidget"
+              :column="j"
+              :container="row"
+              :row="i"
+              :widget="widget"
+            />
           </div>
         </div>
       </div>
@@ -317,16 +323,16 @@ onMounted(() => {
 
 .verticalResizeHandle {
   position: absolute;
-  left: 0;
+  left: -2px;
   bottom: 4px;
-  z-index: 100;
+  z-index: 1;
 }
 
 .horizontalResizeHandle {
   position: absolute;
-  right: -3px;
+  right: -2.5px;
   top: 0px;
-  z-index: 100;
+  z-index: 1;
 }
 
 .bottomPadding {
@@ -369,9 +375,13 @@ onMounted(() => {
   right: -5.5px;
 }
 
-.draggedWidget {
+.draggedWidgetIcon {
   position: fixed;
   z-index: 5000;
   pointer-events: none;
+}
+
+.draggedWidget {
+  opacity: 0.5;
 }
 </style>

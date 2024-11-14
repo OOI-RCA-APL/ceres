@@ -1,4 +1,4 @@
-<script setup lang="ts">
+<script lang="ts" setup>
 import { ComponentConstructor } from 'quasar'
 
 import type { Element, ElementType } from '@/api/elements'
@@ -27,7 +27,7 @@ const componentClasses: Readonly<Record<ElementType, ComponentConstructor>> = {
   text: InterfaceText,
 }
 
-const { element, path } = defineProps<{
+const { element, path } = $defineProps<{
   element: Element
   path: InterfacePath
 }>()

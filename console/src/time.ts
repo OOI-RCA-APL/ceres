@@ -1,27 +1,35 @@
 import { useIntervalFn } from '@vueuse/core'
 import moment, { Duration, Moment } from 'moment'
 import { defineStore } from 'pinia'
-import { computed, reactive } from 'vue'
+import { computed } from 'vue'
 
 export const useTime = defineStore('time', () => {
-  const state = reactive({
-    now: getNow(),
-  })
+  let now = $shallowRef(getNow())
+  let nowFast = $shallowRef(getNowFast())
 
   useIntervalFn(() => {
     const next = getNow()
-    if (state.now != next) {
-      state.now = next
+    if (!now.isSame(next)) {
+      now = next
+    }
+    const nextFast = getNowFast()
+    if (!nowFast.isSame(nextFast)) {
+      nowFast = nextFast
     }
   }, 50)
 
   return {
-    now: computed(() => state.now),
+    now: computed(() => now),
+    nowFast: computed(() => nowFast),
   }
 })
 
 function getNow(): Moment {
   return Object.freeze(moment.utc().milliseconds(0))
+}
+
+function getNowFast(): Moment {
+  return Object.freeze(moment.utc())
 }
 
 export type Time = ReturnType<typeof useTime>
