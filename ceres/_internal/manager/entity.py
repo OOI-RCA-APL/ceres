@@ -138,12 +138,14 @@ class BaseEntityManager[
         statement: Select[tuple[Any, ...]] | Delete | Update,
         parse: type[T],
     ) -> AsyncIterable[T]:
+        from ceres._internal.util import construct_model
+
         with util.wrap_database_errors():
             async with await self._database.init() as session:
                 results = await session.stream(statement)
                 try:
                     async for result in results:
-                        yield parse.model_construct(**result._mapping)
+                        yield construct_model(parse, result._mapping)
                 finally:
                     await session.commit()
 
@@ -152,11 +154,12 @@ class BaseEntityManager[
         statement: Select[tuple[Any, ...]] | Update | Delete,
         parse: type[T],
     ) -> list[T]:
-        results = []
-        async for result in self._execute_and_iter(statement, parse):
-            results.append(result)
+        from ceres._internal.util import construct_model
 
-        return results
+        with util.wrap_database_errors():
+            async with await self._database.init() as session:
+                results = await session.execute(statement)
+                return [construct_model(parse, row._mapping) for row in results]
 
     async def _execute_and_get_scalar[T](
         self,

@@ -1334,3 +1334,22 @@ class classproperty(property):
     @override
     def __get__(self, obj: Any, cls: type | None = None) -> Any:
         return self.fget(cls)
+
+
+_object_setattr = object.__setattr__
+
+
+def construct_model[T: BaseModel](cls: type[T], values: Mapping[Any, Any]) -> T:
+    instance = cls.__new__(cls)
+    _object_setattr(instance, "__dict__", dict(values))
+    _object_setattr(instance, "__pydantic_fields_set__", set(values.keys()))
+    _object_setattr(instance, "__pydantic_extra__", None)
+
+    if cls.__pydantic_post_init__:
+        instance.model_post_init(None)
+        if hasattr(instance, "__pydantic_private__") and instance.__pydantic_private__ is not None:
+            for key, value in values.items():
+                if key in instance.__private_attributes__:
+                    instance.__pydantic_private__[key] = value
+
+    return instance
