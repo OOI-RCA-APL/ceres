@@ -85,7 +85,7 @@ CurrentSocket = Annotated[Socket, Depends(_use_current_socket)]
 
 
 def _get_procedure_query_arguments(
-    arguments: Annotated[Json[Any], Query(alias="args")] = None,
+    arguments: Annotated[Json[Any], Query()] = None,
 ) -> Mapping[str, object]:
     adapter = util.get_type_adapter(Mapping[str, object])
 
