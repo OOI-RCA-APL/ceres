@@ -59,7 +59,7 @@ class ConnectionLost(ConnectionException):
     pass
 
 
-class ConnectionReconnectSettings(ImmutableDataObject):
+class ConnectionReconnectOn(ImmutableDataObject):
     schedule: IntervalSchedule = Field(
         default_factory=lambda: IntervalSchedule(
             interval=timedelta(seconds=1),
@@ -69,7 +69,7 @@ class ConnectionReconnectSettings(ImmutableDataObject):
     )
 
 
-class ConnectionBufferingSettings(ImmutableDataObject):
+class ConnectionBuffering(ImmutableDataObject):
     read: ByteSize = Field(default=TypeAdapter(ByteSize).validate_python("1 KB"), gt=0)
     limit: ByteSize = Field(default=TypeAdapter(ByteSize).validate_python("100 KB"), gt=0)
     drop: ByteSize = Field(default=TypeAdapter(ByteSize).validate_python("10 KB"), gt=0)
@@ -116,10 +116,8 @@ class Connection(Component, ABC):
     separator: bytes
     regex: bytes | None = None
     regex_flags: RegexFlags = RegexFlag.MULTILINE | RegexFlag.DOTALL
-    buffering: ConnectionBufferingSettings = field(default_factory=ConnectionBufferingSettings)
-    reconnect_settings: ConnectionReconnectSettings = field(
-        default_factory=ConnectionReconnectSettings
-    )
+    buffering: ConnectionBuffering = field(default_factory=ConnectionBuffering)
+    reconnect_on: ConnectionReconnectOn = field(default_factory=ConnectionReconnectOn)
 
     @model_validator(mode="after")
     def _validate(self) -> Self:
@@ -264,7 +262,7 @@ class Connection(Component, ABC):
         regex = self.__regex_pattern
 
         while True:
-            trigger = self.reconnect_settings.schedule.as_trigger()
+            trigger = self.reconnect_on.schedule.as_trigger()
 
             while not await self.connect():
                 next = trigger.get_next_fire_time()
@@ -345,28 +343,24 @@ class Connection(Component, ABC):
             await self.disconnect()
 
 
-@dataclass(kw_only=True, frozen=True)
-class _Stream:
-    reader: StreamReader
-    writer: StreamWriter
-
-
-class TCPDisconnectVerifyType(StrEnum):
+class TCPConnectionDisconnectVerifyType(StrEnum):
     RECONNECT = "reconnect"
 
 
-class TCPDisconnectVerify(ImmutableDataObject):
-    type: Literal[TCPDisconnectVerifyType.RECONNECT] = TCPDisconnectVerifyType.RECONNECT
+class TCPConnectionDisconnectVerify(ImmutableDataObject):
+    type: Literal[TCPConnectionDisconnectVerifyType.RECONNECT] = (
+        TCPConnectionDisconnectVerifyType.RECONNECT
+    )
     interval: PositiveTimeDelta = timedelta(seconds=5)
     count: int = Field(ge=1)
 
 
-class TCPDisconnectSettings(ImmutableDataObject):
+class TCPConnectionDisconnectOn(ImmutableDataObject):
     idle: PositiveTimeDelta
-    verify: TCPDisconnectVerify | None = None
+    verify: TCPConnectionDisconnectVerify | None = None
 
 
-class TCPKeepAlive(ImmutableDataObject):
+class TCPConnectionKeepAlive(ImmutableDataObject):
     idle: PositiveTimeDelta
     interval: PositiveTimeDelta
     count: int = Field(ge=1)
@@ -379,12 +373,18 @@ class TCPKeepAlive(ImmutableDataObject):
         return value
 
 
+@dataclass(kw_only=True, frozen=True)
+class _Stream:
+    reader: StreamReader
+    writer: StreamWriter
+
+
 class TCPConnection(Connection):
     host: str
     port: int
     timeout: PositiveTimeDelta = timedelta(seconds=5)
-    disconnect_settings: TCPDisconnectSettings | None = None
-    keep_alive: TCPKeepAlive | None = None
+    disconnect_on: TCPConnectionDisconnectOn | None = None
+    keep_alive: TCPConnectionKeepAlive | None = None
 
     @override
     def __setup__(self) -> None:
@@ -456,7 +456,7 @@ class TCPConnection(Connection):
 
     @routine
     async def routine__process_disconnect(self) -> None:
-        condition = self.disconnect_settings
+        condition = self.disconnect_on
         if condition is None:
             await util.sleep_forever()
             return
@@ -494,7 +494,7 @@ class TCPConnection(Connection):
                     )
 
                     match condition.verify.type:
-                        case TCPDisconnectVerifyType.RECONNECT:
+                        case TCPConnectionDisconnectVerifyType.RECONNECT:
                             self.system.log.warning(
                                 f"Attempting to create another connection to {self.target} within "
                                 f"{util.show_td(condition.verify.interval)}..."
