@@ -12,7 +12,9 @@ from typing import (
     Callable,
     ClassVar,
     Literal,
+    Mapping,
     NewType,
+    Sequence,
     Sized,
     TypeAlias,
     TypedDict,
@@ -220,7 +222,15 @@ Number: TypeAlias = Annotated[
 type JSONValue = None | bool | Number | str | JSONList | JSONDict
 JSONDict: TypeAlias = dict[str, JSONValue]
 JSONList: TypeAlias = list[JSONValue]
-JSONWriteable: TypeAlias = Annotated[_T, AfterValidator(__validate_jsonable)]
+JSONSerializable: TypeAlias = Annotated[_T, AfterValidator(__validate_jsonable)]
+
+_TKey = TypeVar("_TKey")
+_TValue = TypeVar("_TValue")
+
+JSONSerializableDict: TypeAlias = JSONSerializable[dict[_TKey, _TValue]]
+JSONSerializableMapping: TypeAlias = JSONSerializable[Mapping[_TKey, _TValue]]
+JSONSerializableList: TypeAlias = JSONSerializable[list[_TValue]]
+JSONSerializableSequence: TypeAlias = JSONSerializable[Sequence[_TValue]]
 
 
 def __validate_non_empty(value: object) -> object:
