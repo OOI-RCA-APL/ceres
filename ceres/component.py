@@ -265,6 +265,7 @@ def get_component_procedure_binding(cls: type[Component], name: str) -> Procedur
     Get a procedure binding (action or query) for this component class by name. Returns `None`
     if the procedure does not exist.
     """
+    name = _get_normalized_name(name)
     return get_component_procedure_bindings(cls).get(name)
 
 
