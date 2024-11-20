@@ -41,7 +41,7 @@ from ceres._internal.entity import (
     BaseRecordUpdate,
 )
 from ceres._internal.lazy import lazy_imports
-from ceres.data import ImmutableDataObject, JSONDict, jsonify
+from ceres.data import FromYAML, ImmutableDataObject, JSONDict, jsonify
 from ceres.timing import utc
 
 with lazy_imports(__name__):
@@ -311,12 +311,12 @@ class ParticleFilter(
 
 class ParticleCreate(BaseRecordCreate):
     type: Annotated[str, CLIOption(str)]
-    data: Annotated[JSONDict, CLIOption(str)]
+    data: Annotated[FromYAML[JSONDict], CLIOption(str, metavar="JSON/YAML OBJECT")]
 
 
 class ParticleUpdate(BaseRecordUpdate, total=False):
     type: str
-    data: Annotated[JSONDict, CLIOption(str)]
+    data: FromYAML[JSONDict]
 
 
 class Particle(BaseRecord, ParticleCreate, Generic[_T]):

@@ -29,7 +29,7 @@ from ceres._internal.entity import (
 )
 from ceres._internal.lazy import lazy_imports
 from ceres.address import Address
-from ceres.data import DateTime, JSONDict, jsonify
+from ceres.data import DateTime, FromYAML, JSONDict, jsonify
 from ceres.database.enums import DatabaseType
 from ceres.level import Level
 from ceres.timing import utc
@@ -248,7 +248,9 @@ class AlertFilter(BaseRecordFilter["Alert", AlertField, AlertOrder]):
 class AlertCreate(BaseRecordCreate):
     level: Annotated[Level, CLIOption(Level)]
     type: Annotated[str, CLIOption(str)]
-    data: Annotated[JSONDict, CLIOption(str)] = Field(default_factory=dict)
+    data: Annotated[FromYAML[JSONDict], CLIOption(str, metavar="JSON/YAML OBJECT")] = Field(
+        default_factory=dict
+    )
 
 
 class AlertUpdate(TypedDict, total=False):
@@ -256,7 +258,7 @@ class AlertUpdate(TypedDict, total=False):
     timestamp: DateTime
     level: Level
     type: str
-    data: JSONDict
+    data: FromYAML[JSONDict]
 
 
 class Alert(BaseRecord, AlertCreate):
