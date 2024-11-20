@@ -321,6 +321,7 @@ class SQLiteDatabase(Database):  #
         return URL.create(
             "sqlite+aiosqlite",
             database=str(self.path),
+            query=self.config.query or {},
         ).render_as_string(hide_password=False)
 
     @property
@@ -576,10 +577,13 @@ class PostgresDatabase(Database):
             URL.create(
                 "postgresql+asyncpg",
                 username=self.config.user,
-                password=self.config.password.get_secret_value(),
+                password=self.config.password.get_secret_value()
+                if self.config.password is not None
+                else None,
                 host=self.config.host,
                 port=self.config.port,
                 database=self.config.database,
+                query=self.config.query or {},
             ).render_as_string(hide_password=False)
         )
 
