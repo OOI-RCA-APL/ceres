@@ -7,8 +7,6 @@ from dataclasses import field
 from datetime import datetime
 from typing import Any, Iterable, Sequence, final, override
 
-from pydantic import Field
-
 from ceres._internal.lazy import lazy_imports
 from ceres._internal.templates import templates
 from ceres.address import Address
@@ -19,7 +17,7 @@ from ceres.data import ImmutableDataObject, NonBlankStr, jsonify
 from ceres.loaded import Loaded
 from ceres.reference import Ref
 from ceres.roles.notifier import Notification, Notifier
-from ceres.schedule import Schedule
+from ceres.schedule import ScheduleExpr
 
 with lazy_imports(__name__):
     from ceres._internal import util
@@ -31,7 +29,7 @@ class Dispatch(ImmutableDataObject):
     signature: NonBlankStr | None = None
     alerts: AlertFilter
     recipients: Sequence[str]
-    schedule: Schedule | None = Field(None, discriminator="type")
+    schedule: ScheduleExpr | None = None
 
 
 class DispatchWriter:
@@ -55,6 +53,7 @@ class Dispatcher(Component):
     async def dispatch(self, dispatch: Dispatch) -> None:
         query = dispatch.alerts.with_defaults(
             AlertFilter(
+                address=Address.ENGINE.all(),
                 order="-timestamp",
                 limit=1000,
             )

@@ -4,13 +4,21 @@ import datetime as dt
 import math
 from abc import abstractmethod
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Iterable, Literal, Sequence, override
+from typing import TYPE_CHECKING, Annotated, Any, Iterable, Literal, Sequence, TypeAlias, override
 
 from apscheduler.triggers.cron import CronTrigger as InternalCronTrigger
 from apscheduler.triggers.interval import IntervalTrigger as BaseInternalIntervalTrigger
 from apscheduler.util import normalize
-from pydantic import PositiveFloat, ValidationInfo, field_validator
+from pydantic import (
+    BeforeValidator,
+    Field,
+    PositiveFloat,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 
+from ceres._internal.util import decode_td
 from ceres.data import DateTime, ImmutableDataObject, PositiveTimeDelta, StrEnum
 from ceres.timing import utc
 
@@ -35,6 +43,18 @@ class CronSchedule(BaseSchedule):
     type: Literal[ScheduleType.CRON] = ScheduleType.CRON
     crontab: str
 
+    @model_validator(mode="before")
+    @classmethod
+    def _validate_before(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            try:
+                InternalCronTrigger.from_crontab(value)
+                return cls(crontab=value)
+            except Exception:
+                pass
+
+        return value
+
     @field_validator("crontab")
     def _validate_crontab(cls, value: str) -> str:
         try:
@@ -57,6 +77,17 @@ class IntervalSchedule(BaseSchedule):
     multiplier: PositiveFloat = 1
     min: PositiveTimeDelta | None = None
     max: PositiveTimeDelta | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _validate_before(cls, value: Any) -> Any:
+        try:
+            interval = decode_td(value)
+            cls(interval=interval)
+        except Exception:
+            pass
+
+        return value
 
     @field_validator("interval")
     def _validate_interval(cls, value: timedelta) -> timedelta:
@@ -114,7 +145,32 @@ class OrSchedule(BaseSchedule):
         return OrTrigger(self)
 
 
-Schedule = CronSchedule | IntervalSchedule | OrSchedule  # type: ignore
+Schedule: TypeAlias = CronSchedule | IntervalSchedule | OrSchedule
+
+
+def __pre_validate_schedule_expression(value: Any) -> Any:
+    if isinstance(value, (str, int, float)):
+        try:
+            InternalCronTrigger.from_crontab(value)
+            return CronSchedule(crontab=str(value))
+        except Exception:
+            pass
+
+        try:
+            interval = decode_td(value)
+            return IntervalSchedule(interval=interval)
+        except Exception:
+            pass
+
+    return value
+
+
+ScheduleExpr: TypeAlias = Annotated[
+    Schedule,
+    Field(discriminator="type", union_mode="left_to_right"),
+    BeforeValidator(__pre_validate_schedule_expression),
+]
+
 
 OrSchedule.model_rebuild()
 
