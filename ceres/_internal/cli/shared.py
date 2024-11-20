@@ -159,7 +159,7 @@ def get_confirmation(
     abort: bool = False,
     prompt_suffix: str = ": ",
     show_default: bool = True,
-    err: bool = False,
+    err: bool = True,
 ) -> bool:
     return typer.confirm(
         text=text,
@@ -181,7 +181,7 @@ def get_input(
     value_proc: Callable[[str], Any] | None = None,
     prompt_suffix: str = ": ",
     show_default: bool = True,
-    err: bool = False,
+    err: bool = True,
     show_choices: bool = True,
 ) -> Any:
     return typer.prompt(
