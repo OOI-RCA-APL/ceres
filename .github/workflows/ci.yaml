@@ -23,3 +23,5 @@ jobs:
       - run: make install
       - run: make lint
       - run: make test
+      - run: make build
+      - run: git diff --exit-code # Ensure that the working directory is clean after build.
