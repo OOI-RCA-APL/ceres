@@ -8,7 +8,6 @@ from re import Pattern
 from typing import (
     Annotated,
     Any,
-    ClassVar,
     Literal,
     Mapping,
     Self,
@@ -22,7 +21,6 @@ from annotated_types import Ge, Le
 from argon2.profiles import RFC_9106_LOW_MEMORY
 from pydantic import (
     BaseModel,
-    BeforeValidator,
     ByteSize,
     ConfigDict,
     Field,
@@ -37,7 +35,6 @@ from pydantic import (
     field_validator,
     model_validator,
 )
-from sqlalchemy.exc import ArgumentError
 
 from ceres._internal.lazy import lazy_imports
 from ceres._internal.typedecs import __Component__, __Sieve__
@@ -74,8 +71,6 @@ from ceres.result import Fail, Ok, Result
 from ceres.schedule import ScheduleExpr
 
 with lazy_imports(__name__):
-    from sqlalchemy.engine.url import make_url
-
     from ceres._internal import util
     from ceres.component import Component
     from ceres.sieve import Sieve
@@ -463,38 +458,11 @@ class BaseDatabaseConfig(ConfigObject):
 
 
 class SQLiteDatabaseConfig(BaseDatabaseConfig):
-    ALLOWED_SCHEMES: ClassVar[tuple[str, ...]] = ("sqlite", "sqlite3", "file")
-
     type: Literal[DatabaseType.SQLITE] = DatabaseType.SQLITE
     path: Path | None = None
 
-    @model_validator(mode="before")
-    @classmethod
-    def _validate_expr(cls, value: Any) -> Any:
-        if isinstance(value, str):
-            try:
-                url = make_url(value)
-            except ArgumentError:
-                raise ValueError("invalid URL")
-
-            scheme = url.drivername
-            allowed = [*cls.ALLOWED_SCHEMES]
-            if scheme not in allowed:
-                raise ValueError(
-                    f"invalid SQLite URL scheme {scheme!r}, known schemes: {allowed!r}"
-                )
-
-            return cls(
-                path=url.database,  # type: ignore
-                query=dict(url.query),
-            )
-
-        return value
-
 
 class PostgresDatabaseConfig(BaseDatabaseConfig):
-    ALLOWED_SCHEMES: ClassVar[tuple[str, ...]] = ("postgresql", "postgres")
-
     type: Literal[DatabaseType.POSTGRES] = DatabaseType.POSTGRES
     host: NonBlankStr
     port: NonNegativeInt | None = None
@@ -502,71 +470,8 @@ class PostgresDatabaseConfig(BaseDatabaseConfig):
     user: NonBlankStr
     password: SecretStr | None = None
 
-    @model_validator(mode="before")
-    @classmethod
-    def _validate_expr(cls, value: Any) -> Any:
-        if isinstance(value, str):
-            try:
-                url = make_url(value)
-            except ArgumentError:
-                raise ValueError("invalid URL")
-
-            scheme = url.drivername
-            allowed = [*cls.ALLOWED_SCHEMES]
-            if scheme not in allowed:
-                raise ValueError(
-                    f"invalid PostgreSQL URL scheme {scheme!r}, known schemes: {allowed!r}"
-                )
-
-            if url.username is None:
-                raise ValueError("username must be specified")
-            if url.host is None:
-                raise ValueError("hostname must be specified")
-            if url.database is None:
-                raise ValueError("database name must be specified")
-
-            return cls(
-                host=url.host,
-                port=url.port,
-                database=url.database,
-                user=url.username,
-                password=url.password,  # type: ignore
-                query=dict(url.query),
-            )
-
-        return value
-
 
 DatabaseConfig: TypeAlias = SQLiteDatabaseConfig | PostgresDatabaseConfig
-
-
-def __pre_validate_database_config_expr(value: Any) -> Any:
-    if isinstance(value, str):
-        try:
-            url = make_url(value)
-        except ArgumentError:
-            raise ValueError("invalid database URL")
-
-        scheme = url.drivername
-        if scheme in SQLiteDatabaseConfig.ALLOWED_SCHEMES:
-            return SQLiteDatabaseConfig._validate_expr(value)  # type: ignore
-        elif scheme in PostgresDatabaseConfig.ALLOWED_SCHEMES:
-            return PostgresDatabaseConfig._validate_expr(value)  # type: ignore
-        else:
-            allowed = [
-                *SQLiteDatabaseConfig.ALLOWED_SCHEMES,
-                *PostgresDatabaseConfig.ALLOWED_SCHEMES,
-            ]
-            raise ValueError(f"invalid database URL scheme {scheme!r}, known schemes: {allowed!r}")
-
-    return value
-
-
-DatabaseConfigExpr: TypeAlias = Annotated[
-    DatabaseConfig,
-    Field(discriminator="type", union_mode="left_to_right"),
-    BeforeValidator(__pre_validate_database_config_expr),
-]
 
 
 class ConfigCheckType(StrEnum):
@@ -584,7 +489,7 @@ class ConfigMeta(ConfigObject):
     service: ServiceConfig = Field(default_factory=ServiceConfig)
     server: ServerConfig = Field(default_factory=ServerConfig)
     console: ConsoleConfig = Field(default_factory=ConsoleConfig)
-    database: DatabaseConfigExpr = Field(default_factory=SQLiteDatabaseConfig)
+    database: DatabaseConfig = Field(default_factory=SQLiteDatabaseConfig, discriminator="type")
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
 
     @classmethod
