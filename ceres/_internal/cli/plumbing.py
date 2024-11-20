@@ -339,7 +339,7 @@ def _create_typer_argument(field: FieldInfo) -> ArgumentInfo | None:
         argument.default = ...
         argument.show_default = False
     if field.default_factory is not None:
-        argument.default_factory = field.default_factory
+        argument.default_factory = field.default_factory  # type: ignore
 
     return argument
 
@@ -357,7 +357,7 @@ def _create_typer_option(field: FieldInfo) -> OptionInfo:
         option.default = ...
         option.show_default = False
     if field.default_factory is not None:
-        option.default_factory = field.default_factory
+        option.default_factory = field.default_factory  # type: ignore
 
     return option
 
