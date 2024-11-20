@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, AsyncIterable, Mapping, Unpack, override
+from typing import TYPE_CHECKING, Any, AsyncIterable, Unpack, override
 
 from ceres._internal.lazy import lazy_imports
 from ceres._internal.manager.entity import BaseEntityManager
 from ceres._internal.manager.manager import BaseBoundManager
 from ceres.alert import Alert, AlertFilter, AlertFilterArgs
+from ceres.data import JSONSerializableDict, simplify
 from ceres.event import AlertEvent
 from ceres.level import Level
 from ceres.stream import Stream
@@ -89,30 +90,30 @@ class BoundAlertManager(AlertManager, BaseBoundManager[Alert]):
         self,
         level: Level,
         code: str,
-        info: Mapping[str, Any] | None = None,
+        data: JSONSerializableDict[str, Any] | None = None,
     ) -> Alert:
         alert = Alert(
             address=self._node.address,
             level=level,
             type=code,
-            data=dict(info) if info is not None else {},
+            data=simplify(data) if data is not None else {},
         )
 
         self._node.store(alert)
         self._node.events.emit(AlertEvent, alert=alert)
         return alert
 
-    def debug(self, code: str, info: Mapping[str, Any] | None = None) -> Alert:
-        return self.emit(Level.DEBUG, code, info)
+    def debug(self, type: str, data: JSONSerializableDict[str, Any] | None = None) -> Alert:
+        return self.emit(Level.DEBUG, type, data)
 
-    def info(self, code: str, info: Mapping[str, Any] | None = None) -> Alert:
-        return self.emit(Level.INFO, code, info)
+    def info(self, type: str, data: JSONSerializableDict[str, Any] | None = None) -> Alert:
+        return self.emit(Level.INFO, type, data)
 
-    def warning(self, code: str, info: Mapping[str, Any] | None = None) -> Alert:
-        return self.emit(Level.WARNING, code, info)
+    def warning(self, type: str, data: JSONSerializableDict[str, Any] | None = None) -> Alert:
+        return self.emit(Level.WARNING, type, data)
 
-    def error(self, code: str, info: Mapping[str, Any] | None = None) -> Alert:
-        return self.emit(Level.ERROR, code, info)
+    def error(self, type: str, data: JSONSerializableDict[str, Any] | None = None) -> Alert:
+        return self.emit(Level.ERROR, type, data)
 
-    def critical(self, code: str, info: Mapping[str, Any] | None = None) -> Alert:
-        return self.emit(Level.CRITICAL, code, info)
+    def critical(self, type: str, data: JSONSerializableDict[str, Any] | None = None) -> Alert:
+        return self.emit(Level.CRITICAL, type, data)
