@@ -77,8 +77,9 @@ class JobManager:
         """
         binding = self._system.get_action_binding(job.action)
         if binding is None:
-            raise ValueError(
-                f"action '{job.action}' does not exist on {util.strify(type(self._system.component))}"
+            registered = list(self._system.get_action_bindings().keys())
+            raise AssertionError(
+                f"action {job.action!r} does not exist on {util.strify(type(self._system.component))}, registered actions: {registered!r}"
             )
 
         with self._lock:
