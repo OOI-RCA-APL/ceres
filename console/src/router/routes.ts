@@ -1,38 +1,48 @@
 import { RouteRecordRaw } from 'vue-router'
 
+import AppLayout from '@/AppLayout.vue'
+import Account from '@/pages/Account.vue'
+import CreateUser from '@/pages/CreateUser.vue'
+import Dashboard from '@/pages/Dashboard.vue'
+import Login from '@/pages/Login.vue'
+import User from '@/pages/User.vue'
+import Users from '@/pages/Users.vue'
+import Workspace from '@/pages/Workspace.vue'
+import SchemaFormPlayground from '@/pages/developer/SchemaFormPlayground.vue'
+
 const routes: RouteRecordRaw[] = [
   {
     path: '',
-    component: () => import('@/AppLayout.vue'),
+    component: AppLayout,
     children: [
       {
         path: '',
-        component: () => import('@/pages/Dashboard.vue'),
+        component: Dashboard,
       },
       {
         path: '/login',
-        component: () => import('@/pages/Login.vue'),
+        component: Login,
       },
       {
         path: '/account',
         meta: {
           auth: 'viewer',
         },
-        component: () => import('@/pages/Account.vue'),
+        component: Account,
       },
       {
         path: '/users/create',
         meta: {
           auth: 'admin',
         },
-        component: () => import('@/pages/CreateUser.vue'),
+        component: CreateUser,
       },
       {
         path: '/users/:id',
         meta: {
           auth: 'admin',
         },
-        component: () => import('@/pages/User.vue'),
+        component: () => User,
         props: (route) => ({
           id: parseStringOrNull(route.params.id),
         }),
@@ -42,7 +52,7 @@ const routes: RouteRecordRaw[] = [
         meta: {
           auth: 'admin',
         },
-        component: () => import('@/pages/Users.vue'),
+        component: Users,
       },
       {
         path: '/workspaces/:name',
@@ -52,11 +62,11 @@ const routes: RouteRecordRaw[] = [
         props: (route) => ({
           name: parseStringOrNull(route.params.name),
         }),
-        component: () => import('@/pages/Workspace.vue'),
+        component: Workspace,
       },
       {
         path: '/developer/schema-form-playground',
-        component: () => import('@/pages/developer/SchemaFormPlayground.vue'),
+        component: SchemaFormPlayground,
       },
       {
         path: '/:catchAll(.*)*',
@@ -76,18 +86,5 @@ function parseStringOrNull(value: string | string[]) {
 
   return value[0] ?? null
 }
-
-// function parseAddressOrNull(value: string | string[]) {
-//   const string = parseStringOrNull(value)
-//   if (string == null) {
-//     return null
-//   }
-
-//   try {
-//     return new Address(string)
-//   } catch {
-//     return null
-//   }
-// }
 
 export default routes
