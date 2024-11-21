@@ -101,11 +101,7 @@ function promptReload() {
               handler: () =>
                 dialogs.show({
                   title: 'Error Details',
-                  message: `
-<div class="full-width monospace-sm overflow-auto scroll" style="white-space: pre">
-  ${JSON.stringify(error, null, 4)}
-</div>
-              `.trim(),
+                  message: JSON.stringify(error, null, 4).trim(),
                   html: true,
                 }),
             },
