@@ -6,6 +6,7 @@
 const fs = require('fs')
 const path = require('path')
 
+const { merge } = require('lodash')
 const { configure } = require('quasar/wrappers')
 const VueMacros = require('unplugin-vue-macros/vite')
 
@@ -68,6 +69,14 @@ module.exports = configure((context) => {
         // Insert the Vue Macros plugin directly after the 'vite:vue' plugin.
         const vuePluginIndex = config.plugins.findIndex((plugin) => plugin.name === 'vite:vue')
         config.plugins.splice(vuePluginIndex + 1, 0, VueMacros())
+        config.build = merge({}, config.build, {
+          minify: 'terser',
+          rollupOptions: {
+            output: {
+              inlineDynamicImports: true,
+            },
+          },
+        })
 
         return config
       },
