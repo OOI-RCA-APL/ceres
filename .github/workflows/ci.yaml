@@ -14,14 +14,22 @@ jobs:
       matrix:
         python-version: ["3.12", "3.13"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install Python
+        uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
           architecture: x64
-      - uses: snok/install-poetry@v1
-      - run: make install
-      - run: make lint
-      - run: make test
-      - run: make build
-      - run: git diff --exit-code # Ensure that the working directory is clean after build.
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+      - name: Install
+        run: make install
+      - name: Lint
+        run: make lint
+      - name: Test
+        run: make test
+      - name: Build
+        run: make build
+      - name: Ensure Generated Files Match
+        run: git diff --exit-code
