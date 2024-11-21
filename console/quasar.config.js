@@ -68,6 +68,12 @@ module.exports = configure((context) => {
         // Insert the Vue Macros plugin directly after the 'vite:vue' plugin.
         const vuePluginIndex = config.plugins.findIndex((plugin) => plugin.name === 'vite:vue')
         config.plugins.splice(vuePluginIndex + 1, 0, VueMacros())
+        config.build.rollupOptions = {
+          ...config.build.rollupOptions,
+          output: {
+            inlineDynamicImports: true,
+          },
+        }
 
         return config
       },
