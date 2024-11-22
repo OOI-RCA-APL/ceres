@@ -3,7 +3,7 @@ import { useDocumentVisibility, useEventListener } from '@vueuse/core'
 import { cloneDeep } from 'lodash-es'
 import moment, { Moment } from 'moment'
 import { debounce, QVirtualScroll } from 'quasar'
-import { triggerRef, nextTick, onMounted, reactive, watch, watchEffect, useSlots } from 'vue'
+import { shallowReactive, nextTick, onMounted, reactive, watch, watchEffect, useSlots } from 'vue'
 
 import { AddressSelector } from '@/api/address'
 import { Alert } from '@/api/alerts'
@@ -143,8 +143,8 @@ watchEffect(() => {
   tableElement.scrollLeft = containerInfo.scrollLeft
 })
 
-let records = $shallowRef<Record[]>([])
-let recordsStreamed = $shallowRef<Record[]>([])
+const records = shallowReactive<Record[]>([])
+const recordsPending = shallowReactive<Record[]>([])
 let lastLoadedCurrent = $shallowRef<Moment | null>(null)
 
 const earliestRecordTimestamp = $computed(() => records[0]?.timestamp ?? null)
@@ -325,7 +325,7 @@ async function delay(milliseconds = 0) {
 async function prependRecords(prepended: Record[]) {
   const scrollTop = containerInfo.scrollTop
   const height = prepended.length * recordHeight
-  records = [...prepended, ...records] as Record[]
+  records.splice(0, 0, ...prepended)
   scroll?.refresh(-1)
   await nextTick()
   scrollElement?.scrollTo({
@@ -343,16 +343,14 @@ async function appendRecords(appended: Record[]) {
     }
   }
 
-  records.concat(appended)
+  records.push(...appended)
   if (resort) {
     records.sort((left, right) => left.timestamp.localeCompare(right.timestamp))
   }
 
-  triggerRef($$(records))
-
   if (follow) {
     if (records.length > recordCullThreshold) {
-      records = records.slice(records.length - recordCullCount, records.length)
+      records.splice(0, records.length - recordCullCount)
       await scrollToBottom(100)
     } else {
       scroll?.refresh(records.length + 1)
@@ -394,8 +392,8 @@ async function loadCurrent() {
   updateContainerInfo()
 
   isLoadingCurrent = true
-  records = []
-  recordsStreamed = []
+  records.splice(0)
+  recordsPending.splice(0)
 
   const key = filterKey
   try {
@@ -410,7 +408,7 @@ async function loadCurrent() {
     }
 
     isExhausted = results.length === 0
-    const appended = [...results.reverse(), ...recordsStreamed]
+    const appended = [...results.reverse(), ...recordsPending]
     await appendRecords(appended)
     lastLoadedCurrent = moment.utc()
     await scrollToBottom()
@@ -421,7 +419,7 @@ async function loadCurrent() {
 }
 
 async function onScrollToBottomClicked() {
-  records = records.slice(records.length - recordCullCount, records.length)
+  records.splice(0, records.length - recordCullCount)
   await nextTick()
   await scrollToBottom(250)
 }
@@ -435,8 +433,8 @@ const debouncedLoadCurrent = debounce(loadCurrent, 750)
 watch(
   () => filterKey,
   async () => {
-    records = []
-    recordsStreamed = []
+    records.splice(0)
+    recordsPending.splice(0)
     isLoadingCurrent = true
     debouncedLoadCurrent()
   }
@@ -446,7 +444,7 @@ const debouncedFilter = debouncedComputed(() => cloneDeep(filter), 750)
 
 useStream(debouncedFilter, async (record: Record) => {
   if (isLoadingCurrent) {
-    recordsStreamed = [...recordsStreamed, record]
+    recordsPending.push(record)
   } else {
     await appendRecords([record])
   }
