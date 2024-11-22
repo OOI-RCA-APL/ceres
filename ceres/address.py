@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any, Final, Literal, Self, Sequence, override
 from pydantic import GetCoreSchemaHandler
 from pydantic_core import CoreSchema, SchemaSerializer
 from pydantic_core.core_schema import no_info_after_validator_function, to_string_ser_schema
-from sqlalchemy.util import LRUCache
+from sqlalchemy.util import LRUCache  # pyright: ignore[reportAttributeAccessIssue]
 
 from ceres._internal import util
 from ceres._internal.lazy import lazy_imports

@@ -7,15 +7,15 @@ from ceres.data import ImmutableDataObject
 _result_cls_generic_cache: dict[tuple[Any, ...], Any] = {}
 
 
-class _Result:  # type: ignore
-    def __class_getitem__[ValueT, ErrorT](  # type: ignore
+class _Result:
+    def __class_getitem__[ValueT, ErrorT](
         cls,
         /,
         params: tuple[type[ValueT], type[ErrorT]],
     ) -> Ok[ValueT] | Fail[ErrorT]:
         if params in _result_cls_generic_cache:
             return _result_cls_generic_cache[params]
-        value = Ok[params[0]] | Fail[params[1]]  # type: ignore
+        value = Ok[params[0]] | Fail[params[1]]
         _result_cls_generic_cache[params] = value
         return value  # type: ignore
 
@@ -27,7 +27,7 @@ class Ok[ValueT](ImmutableDataObject, _Result, frozen=True):  # type: ignore
     def __init__(self, value: ValueT, **kwargs: Any) -> None:
         super().__init__(value=value)  # type: ignore
 
-    __match_args__: tuple[Literal["value"]] = ("value",)  # type: ignore
+    __match_args__: tuple[Literal["value"]] = ("value",)
 
     @override
     def __str__(self) -> str:

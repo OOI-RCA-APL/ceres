@@ -39,7 +39,7 @@ async def generate(
     defintition = service.generate()
 
     if path is None:
-        sys.stdout.buffer.write(defintition)  # type: ignore
+        sys.stdout.buffer.write(defintition)
         sys.stdout.flush()
     else:
         path.write_bytes(defintition)

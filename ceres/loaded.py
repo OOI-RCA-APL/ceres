@@ -60,7 +60,7 @@ class Loader[T](ImmutableDataObject):
             else:
                 instance = target(*arguments)
         else:
-            instance = object.__new__(target)  # type: ignore
+            instance = object.__new__(target)
             if target.__init__ is not object.__init__:
                 init = validate_call(config=ConfigDict(arbitrary_types_allowed=True))(
                     target.__init__

@@ -167,7 +167,7 @@ class Stream[T](AsyncIterable[T]):
             return
 
         for reader in self._readers:
-            reader._put(value)  # type: ignore
+            reader._put(value)
         for child in self._derived:
             child._put(value)
 

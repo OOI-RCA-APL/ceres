@@ -240,7 +240,7 @@ class BaseEntityManager[
         if defaults is not None:
             result = result.with_defaults(defaults)  # type: ignore
 
-        return result  # type: ignore
+        return result
 
     def _get_filter_defaults(self) -> FilterT | None:
         if self._node is None:
@@ -249,7 +249,7 @@ class BaseEntityManager[
         Filter = self._get_filter_cls()
         address = self._node.address
         return util.call_partial(
-            Filter,  # type: ignore
+            Filter,
             root=address,  # type: ignore
             address=address.all(),  # type: ignore
         )

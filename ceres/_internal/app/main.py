@@ -184,7 +184,7 @@ class LoggingMiddleware:
             if isinstance(app, App):
                 try:
                     if message["type"] == "http.response.start" and scope["type"] == "http":
-                        http = cast(HTTPScope, scope)  # type: ignore
+                        http = cast(HTTPScope, scope)
                         path = http["path"]
                         verb = http["method"]
                         client = http["client"]
@@ -203,7 +203,7 @@ class LoggingMiddleware:
                         or message["type"] == "websocket.close"
                         and scope["type"] == "websocket"
                     ):
-                        socket = cast(WebSocketScope, scope)  # type: ignore
+                        socket = cast(WebSocketScope, scope)
                         type = message["type"]
                         path = socket["path"]
                         match type:

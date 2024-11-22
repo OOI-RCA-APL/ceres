@@ -123,7 +123,7 @@ class Button(_BaseElement):
                 "address": address,
                 "action": action,
                 "color": color,
-                **kwargs,  # type: ignore
+                **kwargs,
             }
         )
 
@@ -150,7 +150,7 @@ class Row(_BaseElement):
                 "sizing": sizing,
                 "justify": justify,
                 "align": align,
-                **kwargs,  # type: ignore
+                **kwargs,
             }
         )
 
@@ -177,7 +177,7 @@ class Column(_BaseElement):
                 "sizing": sizing,
                 "justify": justify,
                 "align": align,
-                **kwargs,  # type: ignore
+                **kwargs,
             }
         )
 
@@ -198,7 +198,7 @@ class Carousel(_BaseElement):
             **{
                 "children": children,
                 "height": height,
-                **kwargs,  # type: ignore
+                **kwargs,
             }
         )
 
@@ -233,7 +233,7 @@ class Text(_BaseElement):
                 "value": value,
                 "variant": variant,
                 "color": color,
-                **kwargs,  # type: ignore
+                **kwargs,
             }
         )
 
@@ -246,7 +246,7 @@ class HTML(_BaseElement):
         super().__init__(
             **{
                 "value": value,
-                **kwargs,  # type: ignore
+                **kwargs,
             }
         )
 
@@ -308,7 +308,7 @@ class State(_BaseElement):
             **{
                 "value": value,
                 "options": options,
-                **kwargs,  # type: ignore
+                **kwargs,
             }
         )
 
@@ -345,7 +345,7 @@ class Gauge(_BaseElement):
                 "min": min,
                 "max": max,
                 "color": color,
-                **kwargs,  # type: ignore
+                **kwargs,
             }
         )
 
@@ -366,7 +366,7 @@ class Chart(_BaseElement):
             **{
                 "value": value,
                 "height": height,
-                **kwargs,  # type: ignore
+                **kwargs,
             }
         )
 
@@ -417,7 +417,7 @@ class _BaseRenderer(_BaseElement):
             **{
                 "address": address,
                 "query": query,
-                **kwargs,  # type: ignore
+                **kwargs,
             }
         )
 
@@ -448,7 +448,7 @@ class Display(_BaseRenderer):
         )
 
 
-Element: TypeAlias = Annotated[  # type: ignore
+Element: TypeAlias = Annotated[
     Button | Row | Column | Carousel | Text | HTML | State | Gauge | Chart | Render | Display,
     Field(discriminator="type"),
 ]

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Mapping
+from typing import Any, Mapping, cast
 
 from pydantic import BaseModel
 
@@ -36,7 +36,7 @@ class Client:
         result: type[T] | None = None,
     ) -> T:
         if result is None:
-            result = Any  # type: ignore
+            result = cast(type[T], Any)
 
         url = f"http://ceres.local/api/{path.lstrip('/')}"
 

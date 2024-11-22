@@ -836,7 +836,7 @@ def validated_function(
 
 
 @overload
-def get_type_adapter[T](type_: type[T]) -> TypeAdapter[T]: ...  # type: ignore
+def get_type_adapter[T](type_: type[T]) -> TypeAdapter[T]: ...
 
 
 @overload
@@ -844,7 +844,7 @@ def get_type_adapter[T](type_: T) -> TypeAdapter[T]: ...
 
 
 @cached(max_size=500)
-def get_type_adapter[T](type_: type[T] | T) -> TypeAdapter[T]:  # type: ignore
+def get_type_adapter[T](type_: type[T] | T) -> TypeAdapter[T]:
     return TypeAdapter(type_)
 
 

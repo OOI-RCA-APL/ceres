@@ -377,7 +377,7 @@ class Reference:
         self,
         target: Union[Component, "Reference", DynamicAddress, str],
         root: Union[Component, "Reference"] | None = None,
-    ) -> None:  # type: ignore
+    ) -> None:
         if not isinstance(target, (Component, Reference, Address, str)):
             raise ValueError(
                 f"first argument must be a component, another reference, an address or string, got "
@@ -558,6 +558,6 @@ def ref[T: Component](
 
 if TYPE_CHECKING:
     _T = TypeVar("_T")
-    Ref = Annotated[_T, ()]  # type: ignore
+    Ref = Annotated[_T, ()]
 else:
     Ref = Reference

@@ -277,7 +277,7 @@ class Database:
         return await spawn(execute)
 
     async def verify_password(self, password: str, hash: PasswordHash) -> bool:
-        hash = await self.__maybe_hash_password(hash)  # type: ignore
+        hash = await self.__maybe_hash_password(hash)
 
         def execute() -> bool:
             return verify_password(password, hash)
@@ -817,7 +817,7 @@ def _read_csv_entities[T: BaseEntity](
 
 
 def _decode(value: bytes, encoding: str) -> str:
-    if isinstance(value, str):  # type: ignore
+    if isinstance(value, str):
         return value
 
     return value.decode(encoding)

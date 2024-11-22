@@ -76,17 +76,6 @@ extend-select = ["I"]
 include = ["ceres", "tests"]
 reportImplicitOverride = true
 reportIncompatibleVariableOverride = false
-reportMissingTypeStubs = false
-reportPrivateUsage = false
-reportUnknownArgumentType = false
-reportUnknownLambdaType = false
-reportUnknownMemberType = false
-reportUnknownVariableType = false
-reportUnnecessaryIsInstance = false
-reportUntypedFunctionDecorator = false
-reportUnusedFunction = false
-typeCheckingMode = "strict"
-useLibraryCodeForTypes = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
