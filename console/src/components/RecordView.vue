@@ -3,7 +3,7 @@ import { useDocumentVisibility, useEventListener } from '@vueuse/core'
 import _ from 'lodash'
 import moment, { Moment } from 'moment'
 import { debounce, QVirtualScroll } from 'quasar'
-import { nextTick, onMounted, reactive, watch, watchEffect, useSlots } from 'vue'
+import { triggerRef, nextTick, onMounted, reactive, watch, watchEffect, useSlots } from 'vue'
 
 import { AddressSelector } from '@/api/address'
 import { Alert } from '@/api/alerts'
@@ -343,12 +343,12 @@ async function appendRecords(appended: Record[]) {
     }
   }
 
-  let buffer = [...records, ...appended] as Record[]
+  records.concat(appended)
   if (resort) {
-    buffer = _.sortBy(buffer, (record) => record.timestamp)
+    records.sort((left, right) => left.timestamp.localeCompare(right.timestamp))
   }
 
-  records = buffer
+  triggerRef($$(records))
 
   if (follow) {
     if (records.length > recordCullThreshold) {
