@@ -1,27 +1,27 @@
 .PHONY: *
 build: install
 	cd console && make build
-	poetry build
+	uv build
 install:
-	poetry install
+	uv sync
 	cd console && make install
 update:
-	poetry update
+	uv update
 	cd console && make update
 test:
-	poetry run pytest -vv
+	uv run pytest -vv
 lint:
-	poetry run sh -c "ruff check . && ruff format --check . && pyright ."
+	uv run sh -c "ruff check . && ruff format --check . && pyright ."
 	cd console && make lint
 fix:
-	poetry run sh -c "ruff check --fix . && ruff format ."
+	uv run sh -c "ruff check --fix . && ruff format ."
 	cd console && make fix
 build-docs: install-docs
-	poetry run mkdocs build
+	uv run mkdocs build
 deploy-docs: install-docs
-	poetry run mkdocs gh-deploy --force
+	uv run mkdocs gh-deploy --force
 install-docs:
-	poetry install --only docs
+	uv sync --only-group docs
 clean:
 	rm -rf ./*/**/__pycache__
 	rm -rf ./*/**/.mypy_cache

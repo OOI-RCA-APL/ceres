@@ -2,8 +2,7 @@
 
 ## Prerequisites
 
-- [Python 3.10+](https://www.python.org/downloads/)
-- [Pip](https://pip.pypa.io/en/stable/installing/), [Poetry](https://python-poetry.org/docs/#installation) or another package manager.
+- [Python 3.12+](https://www.python.org/downloads/)
 
 ## Installation
 
@@ -16,12 +15,18 @@ pip install git+ssh://git@github.com/OOI-RCA-APL/ceres.git # Install latest pack
 ceres --help # The "ceres" command should now be available.
 ```
 
-### Poetry
+### Alternative Package Managers (Recommended)
+
+- [uv](https://github.com/astral-sh/uv)
+- [poetry](https://python-poetry.org/docs)
+- [pdm](https://pdm-project.org/en/latest)
+
 
 ```sh
-poetry init # Create a Poetry project if it doesn't exist.
-poetry add git+ssh://git@github.com/OOI-RCA-APL/ceres.git # Install latest package from GitHub.
-poetry shell # Enter auto-generated the virtual environment.
+# Replace `$PM` with your package manager of choice.
+$PM init # Create a Python project if it doesn't already exist.
+$PM add git+ssh://git@github.com/OOI-RCA-APL/ceres.git # Install latest package from GitHub.
+source .venv/bin/activate # Enter the auto-generated virtual environment.
 ceres --help # The "ceres" command should now be available in the virtual environment.
 ```
 
@@ -29,9 +34,8 @@ ceres --help # The "ceres" command should now be available in the virtual enviro
 
 To install a specific version of `ceres`, append "@`version`" to the URL, where `version` is a tag from [releases](https://github.com/OOI-RCA-APL/ceres/releases).
 
-```
-pip install git+ssh://git@github.com/OOI-RCA-APL/ceres.git@<version>
-poetry add git+ssh://git@github.com/OOI-RCA-APL/ceres.git@<version>
+```sh
+git+ssh://git@github.com/OOI-RCA-APL/ceres.git@<version>
 ```
 
 ## GitHub Deploy Keys

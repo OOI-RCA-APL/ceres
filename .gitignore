@@ -3,7 +3,7 @@
 dist/
 site/
 poetry.toml
-poetry.lock
+*.lock
 
 # Python
 __pycache__/

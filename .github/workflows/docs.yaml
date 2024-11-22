@@ -19,7 +19,7 @@ jobs:
         with:
           architecture: x64
           python-version: "3.12"
-      - name: Install Poetry
-        uses: snok/install-poetry@v1
+      - name: Install UV
+        uses: astral-sh/setup-uv@v3
       - name: Deploy Docs
         run: make deploy-docs
