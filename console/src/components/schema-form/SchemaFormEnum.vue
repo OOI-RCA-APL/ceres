@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { isEqual } from 'lodash'
+import { isEqual } from 'lodash-es'
 
 import CommonText from '@/components/CommonText.vue'
 import { SchemaForm, SchemaObject, SchemaPath } from '@/schema-form'

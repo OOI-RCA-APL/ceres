@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { omit, upperFirst } from 'lodash'
+import { omit, upperFirst } from 'lodash-es'
 
 import { useEngine } from '@/api/engine'
 import { UserRole } from '@/api/users'

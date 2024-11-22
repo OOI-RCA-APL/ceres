@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { upperFirst } from 'lodash'
+import { upperFirst } from 'lodash-es'
 
 import { Address } from '@/api/address'
 import { useEngine } from '@/api/engine'

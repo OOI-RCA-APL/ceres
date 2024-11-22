@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { capitalize } from 'lodash'
+import { capitalize } from 'lodash-es'
 import { onErrorCaptured } from 'vue'
 
 import { useDialogs } from '@/dialogs'

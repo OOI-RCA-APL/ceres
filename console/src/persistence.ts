@@ -1,4 +1,4 @@
-import _ from 'lodash'
+import { kebabCase, isEqual, camelCase, pick, difference, isArrayLike } from 'lodash-es'
 import { debounce, LocalStorage } from 'quasar'
 import { computed, isReactive, reactive, Ref, unref, watch } from 'vue'
 import { Router } from 'vue-router'
@@ -99,7 +99,7 @@ export function usePersisted<TData extends BaseData<TSchema>, TSchema extends Ba
 }
 
 function getFields<TData extends Mapping>(data: TData, method: BasePersistenceMethod<TData>) {
-  return _.difference(method.include ?? Object.keys(data), method.exclude ?? [])
+  return difference(method.include ?? Object.keys(data), method.exclude ?? [])
 }
 
 function load<TData extends BaseData<TSchema>, TSchema extends BaseSchema>(
@@ -130,7 +130,7 @@ function writeToStorage<TData extends BaseData<TSchema>, TSchema extends BaseSch
   method: LocalStoragePersistenceMethod<TData>,
   data: TData
 ) {
-  LocalStorage.set(resolveKey(method.key), _.pick(data, getFields(data, method)))
+  LocalStorage.set(resolveKey(method.key), pick(data, getFields(data, method)))
 }
 
 function readFromUrl<TData extends BaseData<TSchema>, TSchema extends BaseSchema>(
@@ -140,7 +140,7 @@ function readFromUrl<TData extends BaseData<TSchema>, TSchema extends BaseSchema
   const search = new URL(window.location.href).searchParams
 
   search.forEach((value, key) => {
-    const field = _.camelCase(key)
+    const field = camelCase(key)
     if (field in data) {
       return
     }
@@ -185,10 +185,10 @@ function writeToUrl<TData extends BaseData<TSchema>, TSchema extends BaseSchema>
 
   const defaults = schema.parse({})
   for (const [field, value] of Object.entries(data)) {
-    const key = _.kebabCase(field)
+    const key = kebabCase(field)
 
     if (fields.has(field)) {
-      if (_.isEqual(value, defaults[field])) {
+      if (isEqual(value, defaults[field])) {
         search.delete(key)
         continue
       }
@@ -203,7 +203,7 @@ function writeToUrl<TData extends BaseData<TSchema>, TSchema extends BaseSchema>
     }
 
     if (isArrayFieldOfType(schema, field, ZodNativeEnum)) {
-      if (_.isArrayLike(value) && value.length > 0) {
+      if (isArrayLike(value) && value.length > 0) {
         search.set(key, value.map((value: any) => value.replace(/_/g, '-').toLowerCase()).join(','))
       }
 
@@ -211,7 +211,7 @@ function writeToUrl<TData extends BaseData<TSchema>, TSchema extends BaseSchema>
     }
 
     if (isFieldOfType(schema, field, ZodArray)) {
-      if (_.isArrayLike(value) && value.length > 0) {
+      if (isArrayLike(value) && value.length > 0) {
         search.set(key, value.join(','))
       }
 

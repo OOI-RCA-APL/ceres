@@ -40,7 +40,7 @@ const defaultOptions = Object.freeze(<Option>{
 <script lang="ts" setup>
 import { useElementVisibility, useResizeObserver } from '@vueuse/core'
 import { init, ECharts } from 'echarts'
-import { merge } from 'lodash'
+import { merge } from 'lodash-es'
 import { watch, watchEffect } from 'vue'
 
 import { Option } from '@/chart'

@@ -1,4 +1,4 @@
-import _ from 'lodash'
+import { cloneDeep } from 'lodash-es'
 import { QForm, QInput } from 'quasar'
 import { reactive, watch, watchEffect } from 'vue'
 
@@ -50,10 +50,10 @@ export function useForm<
   options.editing ??= true
 
   const data = reactive(
-    _.cloneDeep(typeof options.data === 'object' ? options.data : options.data())
+    cloneDeep(typeof options.data === 'object' ? options.data : options.data())
   ) as T
 
-  const stored = reactive(_.cloneDeep(data)) as T
+  const stored = reactive(cloneDeep(data)) as T
 
   const validators: V = (() => {
     if (options.validators == null) {
@@ -196,8 +196,8 @@ export function useForm<
 
     for (const key of Object.keys(form.data)) {
       if (key in data) {
-        form.stored[key as keyof T] = _.cloneDeep(data[key]) as any
-        form.data[key as keyof T] = _.cloneDeep(data[key]) as any
+        form.stored[key as keyof T] = cloneDeep(data[key]) as any
+        form.data[key as keyof T] = cloneDeep(data[key]) as any
       }
     }
 

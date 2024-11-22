@@ -1,5 +1,5 @@
 import AJV, { SchemaObject as BaseSchemaObject } from 'ajv'
-import { cloneDeep, isEqual } from 'lodash'
+import { cloneDeep, isEqual } from 'lodash-es'
 import { computed, reactive, unref } from 'vue'
 
 import { getter } from '@/getter'

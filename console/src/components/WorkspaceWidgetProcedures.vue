@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { upperFirst } from 'lodash'
+import { upperFirst } from 'lodash-es'
 import { watchEffect } from 'vue'
 
 import { useEngine } from '@/api/engine'

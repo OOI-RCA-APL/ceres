@@ -1,5 +1,5 @@
 import Color from 'color'
-import { throttle } from 'lodash'
+import { throttle } from 'lodash-es'
 import moment, { Duration, Moment } from 'moment'
 import Prism from 'prismjs'
 import { colors, debounce } from 'quasar'

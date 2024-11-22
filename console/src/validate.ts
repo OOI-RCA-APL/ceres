@@ -1,4 +1,4 @@
-import _ from 'lodash'
+import { isArrayLike } from 'lodash-es'
 import Validator from 'validator'
 
 import { FormFieldValidationResult } from '@/form'
@@ -16,7 +16,7 @@ export function isNotNull(input: unknown): boolean {
 }
 
 export function isNotEmpty(input: unknown): boolean {
-  return input != null && (typeof input === 'string' || _.isArrayLike(input)) && input.length > 0
+  return input != null && (typeof input === 'string' || isArrayLike(input)) && input.length > 0
 }
 
 export function isNotBlank(input: unknown): boolean {

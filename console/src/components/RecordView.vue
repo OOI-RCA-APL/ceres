@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 import { useDocumentVisibility, useEventListener } from '@vueuse/core'
-import _ from 'lodash'
+import { cloneDeep } from 'lodash-es'
 import moment, { Moment } from 'moment'
 import { debounce, QVirtualScroll } from 'quasar'
 import { triggerRef, nextTick, onMounted, reactive, watch, watchEffect, useSlots } from 'vue'
@@ -442,7 +442,7 @@ watch(
   }
 )
 
-const debouncedFilter = debouncedComputed(() => _.cloneDeep(filter), 750)
+const debouncedFilter = debouncedComputed(() => cloneDeep(filter), 750)
 
 useStream(debouncedFilter, async (record: Record) => {
   if (isLoadingCurrent) {
