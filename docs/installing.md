@@ -26,7 +26,7 @@ ceres --help # The "ceres" command should now be available.
 # Replace `$PM` with your package manager of choice.
 $PM init # Create a Python project if it doesn't already exist.
 $PM add git+ssh://git@github.com/OOI-RCA-APL/ceres.git # Install latest package from GitHub.
-source .venv/bin/activate # Enter auto-generated the virtual environment.
+source .venv/bin/activate # Enter the auto-generated virtual environment.
 ceres --help # The "ceres" command should now be available in the virtual environment.
 ```
 
