@@ -62,9 +62,6 @@ ceres = "ceres._internal.cli.main:main"
 packages = ["ceres"]
 include = ["./ceres/**/*.py", "./ceres/py.typed", "./ceres/static/"]
 
-[tool.uv]
-default-groups = ["dev"]
-
 [tool.ruff]
 line-length = 100
 
