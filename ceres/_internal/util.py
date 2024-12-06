@@ -10,7 +10,8 @@ from collections.abc import Set
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from os import PathLike as _BasePathLike
-from types import NoneType, UnionType
+from threading import Event
+from types import ModuleType, NoneType, UnionType
 from typing import (
     TYPE_CHECKING,
     AbstractSet,
@@ -1353,3 +1354,40 @@ def construct_model[T: BaseModel](cls: type[T], values: Mapping[Any, Any]) -> T:
                     instance.__pydantic_private__[key] = value
 
     return instance
+
+
+async def run_in_loop[T](
+    coroutine: Coroutine[T, Any, Any],
+    bound_loop: AbstractEventLoop,
+    running_loop: AbstractEventLoop | None = None,
+):
+    loop = running_loop or asyncio.get_running_loop()
+    future = asyncio.run_coroutine_threadsafe(coroutine, bound_loop)
+    finished = Event()
+
+    def callback(_: object):
+        finished.set()
+
+    future.add_done_callback(callback)
+
+    await loop.run_in_executor(None, finished.wait)
+    return future.result()
+
+
+def import_submodules(package: str | ModuleType, recursive: bool = True) -> dict[str, ModuleType]:
+    import importlib
+    import pkgutil
+
+    if isinstance(package, str):
+        package = importlib.import_module(package)
+
+    modules: dict[str, ModuleType] = {}
+
+    for loader, name, is_pkg in pkgutil.walk_packages(package.__path__):
+        path = package.__name__ + "." + name
+        modules[path] = importlib.import_module(path)
+
+        if recursive and is_pkg:
+            modules.update(import_submodules(path))
+
+    return modules
