@@ -22,8 +22,6 @@ from ceres.event import (
     StartedEvent,
     StoppedEvent,
 )
-from ceres.manager.particle import BoundParticleManager
-from ceres.manager.setting import SettingManager
 from ceres.tasklet import Tasklet
 
 with lazy_imports(__name__):
@@ -39,6 +37,8 @@ with lazy_imports(__name__):
     from ceres.manager.event import EventManager
     from ceres.manager.logs import BoundLogManager
     from ceres.manager.message import BoundMessageManager
+    from ceres.manager.particle import BoundParticleManager
+    from ceres.manager.setting import SettingManager
     from ceres.manager.statistic import StatisticsManager
     from ceres.manager.user import UserManager
     from ceres.manager.variable import BoundVariableManager
