@@ -140,7 +140,7 @@ def _enhance_cli_command(function: Any) -> Any:
                 try:
                     write_json(result)
                 except Exception:
-                    pass
+                    traceback.print_exc()
 
             return result
 

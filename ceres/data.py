@@ -247,7 +247,7 @@ class DataObject(BaseModel, ABC):
     model_config = ConfigDict(
         populate_by_name=True,
         extra="forbid",
-        defer_build=True,
+        # defer_build=True, # Uncomment when https://github.com/pydantic/pydantic/issues/7713 is fixed.
     )
 
     @override
