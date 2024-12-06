@@ -246,8 +246,8 @@ NonEmpty: TypeAlias = Annotated[_T, AfterValidator(__validate_non_empty)]
 class DataObject(BaseModel, ABC):
     model_config = ConfigDict(
         populate_by_name=True,
-        arbitrary_types_allowed=True,
         extra="forbid",
+        defer_build=True,
     )
 
     @override

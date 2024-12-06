@@ -35,7 +35,7 @@ from typing import (
     runtime_checkable,
 )
 
-from pydantic import Field, PositiveFloat, ValidationError
+from pydantic import ConfigDict, Field, PositiveFloat, ValidationError
 from pydantic.fields import FieldInfo
 
 from ceres._internal.cli.plumbing import CLIOption
@@ -270,6 +270,8 @@ def get_component_procedure_binding(cls: type[Component], name: str) -> Procedur
 
 
 class ListenerBinding(ImmutableDataObject):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
     name: Name
     method: Name
     event: type | UnionType
