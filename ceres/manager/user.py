@@ -46,7 +46,7 @@ class UserManager(
         fields["password"] = await self._maybe_hash_password(fields["password"])
         return User(**fields)
 
-    async def _maybe_hash_password(self, password: str) -> PasswordHash | None:
+    async def _maybe_hash_password(self, password: str) -> PasswordHash:
         if verify_password_hash(password):
             return password
 
