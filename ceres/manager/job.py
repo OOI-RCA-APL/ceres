@@ -51,6 +51,13 @@ def _get_trigger_adapter_class():
 
 
 class JobManager:
+    __slots__ = (
+        "_system",
+        "_scheduler",
+        "_jobs",
+        "_lock",
+    )
+
     def __init__(self, source: ComponentSystem) -> None:
         self._system = source
         self._scheduler = AsyncIOScheduler()

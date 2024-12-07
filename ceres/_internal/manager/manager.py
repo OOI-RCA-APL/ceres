@@ -11,7 +11,10 @@ with lazy_imports(__name__):
 
 
 class BaseManager[T](ABC):
-    __slots__ = ("_source", "_cls")
+    __slots__ = (
+        "_source",
+        "_cls",
+    )
 
     def __init__(self, source: Database | Node, cls: type[T]) -> None:
         self._source = source

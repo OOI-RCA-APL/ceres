@@ -27,6 +27,15 @@ with lazy_imports(__name__):
 
 
 class SieveManager:
+    __slots__ = (
+        "_system",
+        "_configs",
+        "_runners",
+        "_running",
+        "_stopping",
+        "_syncs",
+    )
+
     def __init__(self, source: ComponentSystem) -> None:
         self._system = source
         self._configs: dict[Name, SieveConfig] = {}
