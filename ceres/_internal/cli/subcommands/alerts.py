@@ -11,7 +11,7 @@ from ceres._internal.cli.shared import (
 from ceres.alert import Alert, AlertFilter, AlertUpdate
 
 router = CLIRouter(
-    name="alert",
+    name="alerts",
     help="Manage alerts.",
 )
 

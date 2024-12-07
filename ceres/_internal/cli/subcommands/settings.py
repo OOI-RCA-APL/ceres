@@ -11,8 +11,8 @@ from ceres._internal.cli.shared import (
 from ceres.setting import Setting, SettingFilter, SettingUpdate
 
 router = CLIRouter(
-    name="setting",
-    help="Manage settings.",
+    name="settings",
+    help="Manage user settings.",
 )
 
 

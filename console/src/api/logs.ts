@@ -22,12 +22,12 @@ export const LogEntryFilterModel = RecordFilterModel.extend({
   content_suffix: Zod.string().nullish(),
 })
 
-export const useLogEntries = defineStore('log-entries', () => {
+export const useLogs = defineStore('logs', () => {
   const client = useClient()
 
   async function getAll(filter: LogEntryFilter): Promise<LogEntry[]> {
     return (
-      await client.get(`/api/log-entries`, {
+      await client.get(`/api/logs`, {
         query: filter,
       })
     ).map(Object.freeze)
@@ -40,7 +40,7 @@ export const useLogEntries = defineStore('log-entries', () => {
   ) {
     client.useStream({
       stream: {
-        path: '/api/log-entries',
+        path: '/api/logs',
         query: filter,
       },
       parse: LogEntryModel,

@@ -422,32 +422,32 @@ async def down(
 
 
 with lazy_imports(__name__):
-    from ceres._internal.cli.subcommands.alert import router as subcommand__alert
+    from ceres._internal.cli.subcommands.alerts import router as subcommand__alerts
     from ceres._internal.cli.subcommands.database import router as subcommand__database
     from ceres._internal.cli.subcommands.generate import router as subcommand__generate
-    from ceres._internal.cli.subcommands.log_entry import router as subcommand__log_entry
-    from ceres._internal.cli.subcommands.message import router as subcommand__message
-    from ceres._internal.cli.subcommands.particle import router as subcommand__particle
+    from ceres._internal.cli.subcommands.logs import router as subcommand__logs
+    from ceres._internal.cli.subcommands.messages import router as subcommand__messages
+    from ceres._internal.cli.subcommands.particles import router as subcommand__particles
     from ceres._internal.cli.subcommands.service import router as subcommand__service
     from ceres._internal.cli.subcommands.settings import router as subcommand__settings
-    from ceres._internal.cli.subcommands.user import router as subcommand__user
-    from ceres._internal.cli.subcommands.variable import router as subcommand__variable
+    from ceres._internal.cli.subcommands.users import router as subcommand__users
+    from ceres._internal.cli.subcommands.variables import router as subcommand__variables
 
 
 def main() -> None:
     arguments = [token for token in sys.argv[1:] if not token.startswith("-")]
     subcommand = arguments[0] if arguments else None
     subrouters = {
-        "alert": subcommand__alert,
+        "alerts": subcommand__alerts,
         "database": subcommand__database,
         "generate": subcommand__generate,
-        "log-entry": subcommand__log_entry,
-        "message": subcommand__message,
-        "particle": subcommand__particle,
+        "logs": subcommand__logs,
+        "messages": subcommand__messages,
+        "particles": subcommand__particles,
         "service": subcommand__service,
-        "setting": subcommand__settings,
-        "user": subcommand__user,
-        "variable": subcommand__variable,
+        "settings": subcommand__settings,
+        "users": subcommand__users,
+        "variables": subcommand__variables,
     }
 
     if not subcommand:
