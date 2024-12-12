@@ -58,7 +58,7 @@ class _AsyncZipLatest[T: tuple[Any, ...]]:
     async def __aexit__(self, *args: Any) -> None:
         try:
             if self.__state and self.__state.tasks:
-                await util.cancel(*self.__state.tasks)
+                await util.cancel(self.__state.tasks)
         finally:
             self.__state = None
 

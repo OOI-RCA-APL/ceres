@@ -252,7 +252,8 @@ class RoutineComponent(Component):
 
     @listener(local=True)
     def on__event(self, event: Event) -> None:
-        self.emitted[type(event)].append(event)
+        for current in type(event).__mro__:
+            self.emitted[current].append(event)
 
 
 async def test_routines() -> None:
@@ -360,3 +361,30 @@ async def test_routines() -> None:
     assert len(crashes_forever.emitted[RoutineCancelledEvent]) == 1
     assert 1 < len(crashes_forever.emitted[RoutineExceptionEvent]) < 10000
     assert 1 < len(crashes_forever.emitted[RoutineRestartedEvent]) < 10000
+
+
+async def test_routines_wait_on_cancellation() -> None:
+    class Test(Component):
+        @override
+        def __setup__(self) -> None:
+            self.count = 0
+            self.cancelled = False
+
+        @routine
+        async def main(self) -> None:
+            try:
+                await asyncio.sleep(100)
+            except asyncio.CancelledError:
+                self.cancelled = True
+                for _ in range(3):
+                    await asyncio.sleep(0.1)
+                    self.count += 1
+                raise
+
+    component = Test()
+    component.system.start()
+    await asyncio.sleep(0.1)
+    await component.system.stop()
+    assert not component.system.running
+    assert component.cancelled
+    assert component.count == 3

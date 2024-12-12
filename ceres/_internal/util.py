@@ -4,7 +4,7 @@ import asyncio
 import dataclasses
 import re
 import typing
-from asyncio import AbstractEventLoop, Task
+from asyncio import AbstractEventLoop, Task, TaskGroup
 from collections import OrderedDict, defaultdict
 from collections.abc import Set
 from contextlib import contextmanager
@@ -898,10 +898,30 @@ def sequence[T](start: T, next: Callable[[T], T]) -> Iterator[T]:
         current = next(start)
 
 
-async def cancel(*tasks: Task[Any]) -> None:
-    for task in tasks:
+async def cancel(*tasks: Task[Any] | Iterable[Task[Any]]) -> None:
+    flattened: list[Task[Any]] = []
+    for current in tasks:
+        if isinstance(current, Task):
+            flattened.append(current)
+        else:
+            flattened.extend(current)
+
+    for task in flattened:
         task.cancel()
-        await asyncio.sleep(0)
+
+    await asyncio.gather(*flattened, return_exceptions=True)
+
+
+async def concurrently(*coroutines: Coroutine | None | Iterable[Coroutine | None]) -> None:
+    async with TaskGroup() as group:
+        for current in coroutines:
+            if isinstance(current, Iterable):
+                for coroutine in current:
+                    if coroutine is not None:
+                        group.create_task(coroutine)
+            else:
+                if current is not None:
+                    group.create_task(current)
 
 
 async def _wait_many[T](

@@ -170,8 +170,11 @@ class Engine(Node):
                 self.log.info("Exit signal received, stopping...")
 
     @override
-    async def __stop__(self) -> None:
+    def __stopping__(self) -> None:
         self.events.emit(StoppingEvent)
+
+    @override
+    async def __stop__(self) -> None:
         await self.__stop_server()
         if self._root is not None:
             await self._root.stop()

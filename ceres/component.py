@@ -4,7 +4,7 @@ import asyncio
 import inspect
 import traceback
 import warnings
-from asyncio import CancelledError
+from asyncio import CancelledError, TaskGroup
 from dataclasses import InitVar, field
 from datetime import timedelta
 from functools import cached_property
@@ -1249,7 +1249,7 @@ class ComponentSystem(Node):
 
             await self.__node_sync__()
 
-            await asyncio.gather(
+            await util.concurrently(
                 super().__run__(),
                 self.__run_routines(),
                 self.jobs.__run__(),
@@ -1300,17 +1300,20 @@ class ComponentSystem(Node):
             self.events.emit(RoutineStoppedEvent, routine=binding.method)
 
     async def __run_routines(self) -> None:
-        await asyncio.gather(
-            *[self.__run_routine(binding) for binding in self.get_routine_bindings()]
-        )
+        async with TaskGroup() as tasks:
+            for binding in self.get_routine_bindings():
+                tasks.create_task(self.__run_routine(binding))
+
+    @override
+    def __stopping__(self) -> None:
+        self.events.emit(StoppingEvent)
 
     @override
     async def __stop__(self) -> None:
-        self.events.emit(
-            StoppingEvent
-        )  # TODO: This should be emitted as soon as cancellation occurs.
-        for system in reversed(self.children):
-            await system.stop()
+        while any(child.running for child in self.children):
+            for system in reversed(self.children):
+                if system.running:
+                    await system.stop()
 
         await self.settle()
 
