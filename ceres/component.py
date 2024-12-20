@@ -394,18 +394,16 @@ ProcedureBinding = QueryBinding | ActionBinding
 
 
 @overload
-def query[**P, T: Awaitable[Any] | AsyncIterable[Any]](
-    method: Callable[P, T],
-) -> Callable[P, T]: ...
+def query[**P, T](method: Callable[P, T]) -> Callable[P, T]: ...
 
 
 @overload
-def query[**P, T: Awaitable[Any] | AsyncIterable[Any]](
+def query[**P, T](
     *, poll: float | timedelta = ...
 ) -> Callable[[Callable[P, T]], Callable[P, T]]: ...
 
 
-def query[**P, T: Awaitable[Any] | AsyncIterable[Any]](
+def query[**P, T](
     method: Callable[P, T] | None = None,
     *,
     poll: float | timedelta = timedelta(seconds=5),
@@ -433,18 +431,14 @@ def query[**P, T: Awaitable[Any] | AsyncIterable[Any]](
 
 
 @overload
-def action[**P, T: Awaitable[Any] | AsyncIterable[Any]](
-    method: Callable[P, T],
-) -> Callable[P, T]: ...
+def action[**P, T](method: Callable[P, T]) -> Callable[P, T]: ...
 
 
 @overload
-def action[**P, T: Awaitable[Any] | AsyncIterable[Any]]() -> (
-    Callable[[Callable[P, T]], Callable[P, T]]
-): ...
+def action[**P, T]() -> Callable[[Callable[P, T]], Callable[P, T]]: ...
 
 
-def action[**P, T: Awaitable[Any] | AsyncIterable[Any]](
+def action[**P, T](
     method: Callable[P, T] | None = None,
 ) -> Callable[P, T] | Callable[[Callable[P, T]], Callable[P, T]]:
     def action(method: Callable[P, T]) -> Callable[P, T]:
