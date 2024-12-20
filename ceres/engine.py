@@ -279,16 +279,17 @@ class Engine(Node):
             self._server = self.__create_server()
 
         if self._server is not None and not self._server.running:
-            self.log.info(f"Listening on {self._server.binds}.")
+            self.log.info(f"Starting HTTP server on {self._server.binds}.")
             self._server.start(on_exception=self.__on_server_exception)
 
         return self._server
 
     async def __stop_server(self) -> None:
         if self._server is not None:
-            self.log.info(f"Removing listeners from {self._server.binds}...")
+            self.log.info(f"Stopping HTTP server on {self._server.binds}.")
             await self._server.stop()
             self._server = None
+            self.log.info("HTTP server stopped.")
 
     def __on_server_exception(self, server: Server, exception: BaseException) -> None:
         self.log.error(f"An exception occurred while running server on {server.binds}: {exception}")
