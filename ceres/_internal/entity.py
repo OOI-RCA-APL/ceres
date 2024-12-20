@@ -17,7 +17,6 @@ from typing import (
 )
 from uuid import UUID, uuid4
 
-import pydantic
 from pydantic import Field, NonNegativeInt
 from sqlalchemy.orm.decl_api import DeclarativeBase, MappedAsDataclass
 from sqlalchemy.types import Integer
@@ -85,7 +84,6 @@ def _compile(dialect: AsyncEngine | Engine | Dialect, element: ClauseElement) ->
 class BaseEntityRow(
     MappedAsDataclass,
     DeclarativeBase,
-    dataclass_callable=pydantic.dataclasses.dataclass,
     kw_only=True,
 ):
     __abstract__: ClassVar[bool] = True
