@@ -24,6 +24,8 @@ jobs:
           architecture: x64
       - name: Install UV
         uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: false
       - name: Install
         run: make install
       - name: Lint
