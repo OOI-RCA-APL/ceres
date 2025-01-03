@@ -11,6 +11,3 @@ lint:
 	npm run lint
 fix:
 	npm run fix
-clean:
-	rm -rf ./quasar
-	rm -rf ./node_modules

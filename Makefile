@@ -22,11 +22,3 @@ deploy-docs: install-docs
 	uv run mkdocs gh-deploy --force
 install-docs:
 	uv sync --only-group docs
-clean:
-	rm -rf ./*/**/__pycache__
-	rm -rf ./*/**/.mypy_cache
-	rm -rf ./*/**/.pytest_cache
-	rm -rf ./ceres/static
-	rm -rf ./dist
-	rm -rf ./site
-	cd console && make clean
