@@ -11,7 +11,7 @@ from ceres._internal.cli.shared import (
 from ceres.particle import Particle, ParticleCreate, ParticleFilter, ParticleUpdate
 
 router = CLIRouter(
-    name="particle",
+    name="particles",
     help="Manage particles.",
 )
 

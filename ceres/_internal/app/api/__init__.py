@@ -1,4 +1,3 @@
-from asyncio import gather
 from typing import Any, Sequence
 
 from fastapi import APIRouter
@@ -8,7 +7,7 @@ from ceres._internal.app.api.routes.alerts import router as router__alerts
 from ceres._internal.app.api.routes.auth import router as router__auth
 from ceres._internal.app.api.routes.components import router as router__components
 from ceres._internal.app.api.routes.config import router as router__config
-from ceres._internal.app.api.routes.log_entries import router as router__log_entries
+from ceres._internal.app.api.routes.logs import router as router__logs
 from ceres._internal.app.api.routes.messages import router as router__messages
 from ceres._internal.app.api.routes.particles import router as router__particles
 from ceres._internal.app.api.routes.settings import router as router__settings
@@ -34,7 +33,7 @@ router.include_router(router__alerts)
 router.include_router(router__auth)
 router.include_router(router__components)
 router.include_router(router__config)
-router.include_router(router__log_entries)
+router.include_router(router__logs)
 router.include_router(router__messages)
 router.include_router(router__particles)
 router.include_router(router__statistics)
@@ -81,7 +80,7 @@ class StopResult(ImmutableDataObject):
 @router.post("/stop", tags=["components"], dependencies=[OPERATOR])
 async def stop(engine: CurrentEngine, filter: ComponentFilter) -> StopResult:
     running = engine.get_components(filter, running=True)
-    await gather(*(component.system.stop() for component in running))
+    await util.concurrently(component.system.stop() for component in running)
 
     return StopResult(stopped=[current.system.address for current in running])
 
@@ -93,7 +92,7 @@ class EnableResult(ImmutableDataObject):
 @router.post("/enable", tags=["components"], dependencies=[OPERATOR])
 async def enable(engine: CurrentEngine, filter: ComponentFilter) -> EnableResult:
     disabled = engine.get_components(filter, enabled=False)
-    await gather(*(component.system.enable() for component in disabled))
+    await util.concurrently(component.system.enable() for component in disabled)
 
     return EnableResult(enabled=[current.system.address for current in disabled])
 
@@ -105,7 +104,7 @@ class DisableResult(ImmutableDataObject):
 @router.post("/disable", tags=["components"], dependencies=[OPERATOR])
 async def disable(engine: CurrentEngine, filter: ComponentFilter) -> DisableResult:
     enabled = engine.get_components(filter, enabled=True)
-    await gather(*(system.system.disable() for system in enabled))
+    await util.concurrently(system.system.disable() for system in enabled)
 
     return DisableResult(disabled=[current.system.address for current in enabled])
 
@@ -119,7 +118,9 @@ class UpResult(ImmutableDataObject):
 async def up(engine: CurrentEngine, filter: ComponentFilter) -> UpResult:
     disabled = engine.get_components(filter, enabled=False)
     stopped = engine.get_components(filter, running=False)
-    await gather(*(system.system.up() for system in util.uniquify([*disabled, *stopped], key=id)))
+    await util.concurrently(
+        system.system.up() for system in util.uniquify([*disabled, *stopped], key=id)
+    )
 
     return UpResult(
         enabled=[current.system.address for current in disabled],
@@ -136,7 +137,9 @@ class DownResult(ImmutableDataObject):
 async def down(engine: CurrentEngine, filter: ComponentFilter) -> DownResult:
     enabled = engine.get_components(filter, enabled=True)
     running = engine.get_components(filter, running=True)
-    await gather(*(system.system.down() for system in util.uniquify([*enabled, *running], key=id)))
+    await util.concurrently(
+        system.system.down() for system in util.uniquify([*enabled, *running], key=id)
+    )
 
     return DownResult(
         disabled=[current.system.address for current in enabled],

@@ -51,6 +51,9 @@ class Tasklet(ABC):
     @abstractmethod
     async def __stop__(self) -> None: ...
 
+    def __stopping__(self) -> None:
+        pass
+
     async def __post_stop__(self) -> None:
         pass
 
@@ -83,8 +86,8 @@ class Tasklet(ABC):
         self.__tasklet__.stopping.clear()
         self.__tasklet__.stopped.clear()
 
-        task_run = asyncio.create_task(self.__run__())
-        task_exit = asyncio.create_task(self.__tasklet__.stopping.wait())
+        task_run = asyncio.create_task(self.__run__(), name="tasklet-run")
+        task_exit = asyncio.create_task(self.__tasklet__.stopping.wait(), name="tasklet-exit")
 
         async def main() -> None:
             await util.wait_any(task_run, task_exit)
@@ -99,6 +102,7 @@ class Tasklet(ABC):
                             on_exception(self, exception)
             finally:
                 self.__tasklet__.stopping.set()
+                self.__stopping__()
                 await util.cancel(task_run, task_exit)
 
                 try:

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import asyncio
+from asyncio import AbstractEventLoop, QueueEmpty
 from asyncio import Queue as AsyncQueue
-from asyncio import QueueEmpty
 from collections.abc import AsyncIterator
 from typing import (
     Any,
@@ -17,19 +18,46 @@ from typing import (
 )
 from weakref import WeakSet
 
+from ceres._internal.lazy import lazy_imports
+
+with lazy_imports(__name__):
+    from ceres._internal import util
+
+
+def _get_running_loop() -> AbstractEventLoop | None:
+    try:
+        return asyncio.get_running_loop()
+    except Exception:
+        return None
+
 
 @final
 class StreamReader[T](AsyncIterator[T]):
     __slots__ = (
         "_source",
         "_queue",
+        "_loop",
         "__weakref__",
     )
 
     def __init__(self, source: Stream[T]) -> None:
         self._source = source
         self._queue: AsyncQueue[T] = AsyncQueue()
+
+        try:
+            self._loop = _get_running_loop()
+        except Exception:
+            self._loop = None
+
         self.attach()
+
+    @property
+    def source(self) -> Stream[T]:
+        return self._source
+
+    @property
+    def loop(self) -> AbstractEventLoop | None:
+        return self._loop
 
     @property
     def attached(self) -> bool:
@@ -60,8 +88,16 @@ class StreamReader[T](AsyncIterator[T]):
 
     async def get(self) -> T:
         self.attach()
-        value = await self._queue.get()
-        self._queue.task_done()
+
+        loop = self._require_bound_event_loop()
+        running = _get_running_loop()
+
+        if running is loop:
+            value = await self._queue.get()
+            self._queue.task_done()
+        else:
+            value = await util.run_in_loop(self.get(), loop, running)
+
         return value
 
     def clear(self) -> list[T]:
@@ -86,7 +122,26 @@ class StreamReader[T](AsyncIterator[T]):
         self._source.remove_reader(self)
 
     def _put(self, value: T) -> None:
-        self._queue.put_nowait(value)
+        loop = self._get_bound_event_loop()
+        running = _get_running_loop()
+
+        if running is loop or loop is None:
+            self._queue.put_nowait(value)
+        else:
+            loop.call_soon_threadsafe(self._queue.put_nowait, value)
+
+    def _get_bound_event_loop(self) -> AbstractEventLoop | None:
+        if self._loop is None:
+            self._loop = _get_running_loop()
+
+        return self._loop
+
+    def _require_bound_event_loop(self) -> AbstractEventLoop:
+        loop = self._get_bound_event_loop()
+        if loop is None:
+            raise RuntimeError("No event loop is running.")
+
+        return loop
 
 
 class Stream[T](AsyncIterable[T]):

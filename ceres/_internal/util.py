@@ -4,13 +4,14 @@ import asyncio
 import dataclasses
 import re
 import typing
-from asyncio import AbstractEventLoop, Task
+from asyncio import AbstractEventLoop, Task, TaskGroup
 from collections import OrderedDict, defaultdict
 from collections.abc import Set
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from os import PathLike as _BasePathLike
-from types import NoneType, UnionType
+from threading import Event
+from types import ModuleType, NoneType, UnionType
 from typing import (
     TYPE_CHECKING,
     AbstractSet,
@@ -897,10 +898,30 @@ def sequence[T](start: T, next: Callable[[T], T]) -> Iterator[T]:
         current = next(start)
 
 
-async def cancel(*tasks: Task[Any]) -> None:
-    for task in tasks:
+async def cancel(*tasks: Task[Any] | Iterable[Task[Any]]) -> None:
+    flattened: list[Task[Any]] = []
+    for current in tasks:
+        if isinstance(current, Task):
+            flattened.append(current)
+        else:
+            flattened.extend(current)
+
+    for task in flattened:
         task.cancel()
-        await asyncio.sleep(0)
+
+    await asyncio.gather(*flattened, return_exceptions=True)
+
+
+async def concurrently(*coroutines: Coroutine | None | Iterable[Coroutine | None]) -> None:
+    async with TaskGroup() as group:
+        for current in coroutines:
+            if isinstance(current, Iterable):
+                for coroutine in current:
+                    if coroutine is not None:
+                        group.create_task(coroutine)
+            else:
+                if current is not None:
+                    group.create_task(current)
 
 
 async def _wait_many[T](
@@ -1353,3 +1374,40 @@ def construct_model[T: BaseModel](cls: type[T], values: Mapping[Any, Any]) -> T:
                     instance.__pydantic_private__[key] = value
 
     return instance
+
+
+async def run_in_loop[T](
+    coroutine: Coroutine[T, Any, Any],
+    bound_loop: AbstractEventLoop,
+    running_loop: AbstractEventLoop | None = None,
+):
+    loop = running_loop or asyncio.get_running_loop()
+    future = asyncio.run_coroutine_threadsafe(coroutine, bound_loop)
+    finished = Event()
+
+    def callback(_: object):
+        finished.set()
+
+    future.add_done_callback(callback)
+
+    await loop.run_in_executor(None, finished.wait)
+    return future.result()
+
+
+def import_submodules(package: str | ModuleType, recursive: bool = True) -> dict[str, ModuleType]:
+    import importlib
+    import pkgutil
+
+    if isinstance(package, str):
+        package = importlib.import_module(package)
+
+    modules: dict[str, ModuleType] = {}
+
+    for loader, name, is_pkg in pkgutil.walk_packages(package.__path__):
+        path = package.__name__ + "." + name
+        modules[path] = importlib.import_module(path)
+
+        if recursive and is_pkg:
+            modules.update(import_submodules(path))
+
+    return modules

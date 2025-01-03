@@ -11,7 +11,7 @@ from ceres._internal.cli.shared import (
 from ceres.logs import LogEntry, LogEntryFilter, LogEntryUpdate
 
 router = CLIRouter(
-    name="log-entry",
+    name="logs",
     help="Manage log entries.",
 )
 

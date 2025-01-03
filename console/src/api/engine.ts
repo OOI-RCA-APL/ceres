@@ -6,7 +6,7 @@ import { useAuth } from '@/api/auth'
 import { useClient } from '@/api/client'
 import { useComponents } from '@/api/components'
 import { Config, ConfigModel, useConfig } from '@/api/config'
-import { useLogEntries } from '@/api/log-entries'
+import { useLogs } from '@/api/logs'
 import { useMessages } from '@/api/messages'
 import { useParticles } from '@/api/particles'
 import { useStatistics } from '@/api/statistics'
@@ -24,7 +24,7 @@ export const useEngine = defineStore('engine', () => {
   const messages = useMessages()
   const particles = useParticles()
   const alerts = useAlerts()
-  const logs = useLogEntries()
+  const logs = useLogs()
   const statistics = useStatistics()
   const statuses = useStatuses()
   const users = useUsers()

@@ -2,7 +2,7 @@ import moment from 'moment'
 import Zod, { ZodTypeAny } from 'zod'
 
 import type { Alert } from '@/api/alerts'
-import type { LogEntry } from '@/api/log-entries'
+import type { LogEntry } from '@/api/logs'
 import type { Message } from '@/api/messages'
 import type { Particle } from '@/api/particles'
 

@@ -4,7 +4,7 @@ import asyncio
 import inspect
 import traceback
 import warnings
-from asyncio import CancelledError
+from asyncio import CancelledError, TaskGroup
 from dataclasses import InitVar, field
 from datetime import timedelta
 from functools import cached_property
@@ -35,7 +35,7 @@ from typing import (
     runtime_checkable,
 )
 
-from pydantic import Field, PositiveFloat, ValidationError
+from pydantic import ConfigDict, Field, PositiveFloat, ValidationError
 from pydantic.fields import FieldInfo
 
 from ceres._internal.cli.plumbing import CLIOption
@@ -270,6 +270,8 @@ def get_component_procedure_binding(cls: type[Component], name: str) -> Procedur
 
 
 class ListenerBinding(ImmutableDataObject):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
     name: Name
     method: Name
     event: type | UnionType
@@ -392,18 +394,16 @@ ProcedureBinding = QueryBinding | ActionBinding
 
 
 @overload
-def query[**P, T: Awaitable[Any] | AsyncIterable[Any]](
-    method: Callable[P, T],
-) -> Callable[P, T]: ...
+def query[**P, T](method: Callable[P, T]) -> Callable[P, T]: ...
 
 
 @overload
-def query[**P, T: Awaitable[Any] | AsyncIterable[Any]](
+def query[**P, T](
     *, poll: float | timedelta = ...
 ) -> Callable[[Callable[P, T]], Callable[P, T]]: ...
 
 
-def query[**P, T: Awaitable[Any] | AsyncIterable[Any]](
+def query[**P, T](
     method: Callable[P, T] | None = None,
     *,
     poll: float | timedelta = timedelta(seconds=5),
@@ -431,18 +431,14 @@ def query[**P, T: Awaitable[Any] | AsyncIterable[Any]](
 
 
 @overload
-def action[**P, T: Awaitable[Any] | AsyncIterable[Any]](
-    method: Callable[P, T],
-) -> Callable[P, T]: ...
+def action[**P, T](method: Callable[P, T]) -> Callable[P, T]: ...
 
 
 @overload
-def action[**P, T: Awaitable[Any] | AsyncIterable[Any]]() -> (
-    Callable[[Callable[P, T]], Callable[P, T]]
-): ...
+def action[**P, T]() -> Callable[[Callable[P, T]], Callable[P, T]]: ...
 
 
-def action[**P, T: Awaitable[Any] | AsyncIterable[Any]](
+def action[**P, T](
     method: Callable[P, T] | None = None,
 ) -> Callable[P, T] | Callable[[Callable[P, T]], Callable[P, T]]:
     def action(method: Callable[P, T]) -> Callable[P, T]:
@@ -1247,7 +1243,7 @@ class ComponentSystem(Node):
 
             await self.__node_sync__()
 
-            await asyncio.gather(
+            await util.concurrently(
                 super().__run__(),
                 self.__run_routines(),
                 self.jobs.__run__(),
@@ -1298,17 +1294,20 @@ class ComponentSystem(Node):
             self.events.emit(RoutineStoppedEvent, routine=binding.method)
 
     async def __run_routines(self) -> None:
-        await asyncio.gather(
-            *[self.__run_routine(binding) for binding in self.get_routine_bindings()]
-        )
+        async with TaskGroup() as tasks:
+            for binding in self.get_routine_bindings():
+                tasks.create_task(self.__run_routine(binding))
+
+    @override
+    def __stopping__(self) -> None:
+        self.events.emit(StoppingEvent)
 
     @override
     async def __stop__(self) -> None:
-        self.events.emit(
-            StoppingEvent
-        )  # TODO: This should be emitted as soon as cancellation occurs.
-        for system in reversed(self.children):
-            await system.stop()
+        while any(child.running for child in self.children):
+            for system in reversed(self.children):
+                if system.running:
+                    await system.stop()
 
         await self.settle()
 

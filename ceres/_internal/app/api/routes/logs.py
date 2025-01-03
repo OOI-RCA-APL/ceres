@@ -9,7 +9,7 @@ from pydantic import Field
 from ceres._internal.app.shared import CurrentEngine, CurrentSocket, assert_found
 from ceres.logs import LogEntry, LogEntryFilter
 
-router = APIRouter(prefix="/log-entries", tags=["logs"])
+router = APIRouter(prefix="/logs", tags=["logs"])
 
 
 @router.get("/{id}")

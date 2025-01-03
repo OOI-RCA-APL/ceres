@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from typing import (
     Annotated,
     ClassVar,
+    Final,
     Iterable,
     Literal,
     Sequence,
@@ -168,3 +170,48 @@ class LogEntry(BaseRecord, LogEntryCreate):
     FilterArgs: ClassVar[type[LogEntryFilterArgs]] = LogEntryFilterArgs
     Field = LogEntryField
     Order = LogEntryOrder
+
+
+def __create_default_formatter() -> logging.Formatter:
+    return logging.Formatter(
+        "[%(asctime)s.%(msecs)03d] [%(levelname)s] [%(name)s] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+
+
+DEFAULT_FORMATTER: Final = __create_default_formatter()
+
+
+def __create_default_handler() -> logging.Handler:
+    from rich.logging import RichHandler
+
+    handler = RichHandler(
+        show_level=False,
+        show_path=False,
+        show_time=False,
+    )
+    handler.setFormatter(DEFAULT_FORMATTER)
+    return handler
+
+
+DEFAULT_HANDLER: Final = __create_default_handler()
+
+
+__loggers: Final[dict[str, logging.Logger]] = {}
+
+
+def get_logger(name: str) -> logging.Logger:
+    if not isinstance(name, str) or not name:
+        raise ValueError("Logger name must be a non-empty string, and cannot be `None`.")
+
+    logger = __loggers.get(name)
+    if logger is None:
+        logger = logging.getLogger(name)
+        logger = __loggers.setdefault(name, logger)
+        logger.setLevel(logging.DEBUG)
+        logger.propagate = False
+
+    if DEFAULT_HANDLER not in logger.handlers:
+        logger.addHandler(DEFAULT_HANDLER)
+
+    return logger

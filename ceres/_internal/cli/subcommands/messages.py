@@ -11,7 +11,7 @@ from ceres._internal.cli.shared import (
 from ceres.message import Message, MessageFilter, MessageUpdate
 
 router = CLIRouter(
-    name="message",
+    name="messages",
     help="Manage messages.",
 )
 

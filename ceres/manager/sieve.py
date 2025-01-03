@@ -27,6 +27,15 @@ with lazy_imports(__name__):
 
 
 class SieveManager:
+    __slots__ = (
+        "_system",
+        "_configs",
+        "_runners",
+        "_running",
+        "_stopping",
+        "_syncs",
+    )
+
     def __init__(self, source: ComponentSystem) -> None:
         self._system = source
         self._configs: dict[Name, SieveConfig] = {}
@@ -49,7 +58,7 @@ class SieveManager:
         finally:
             self._stopping = True
             try:
-                await util.cancel(*self._runners.values())
+                await util.cancel(self._runners.values())
                 self._runners.clear()
             finally:
                 self._running = False
@@ -83,7 +92,7 @@ class SieveManager:
         self._configs.clear()
 
     async def __clear_runners(self) -> None:
-        await util.cancel(*self._runners.values())
+        await util.cancel(self._runners.values())
         self._runners.clear()
 
     async def __remove_runner(self, name: Name) -> asyncio.Task[None] | None:

@@ -22,8 +22,6 @@ from ceres.event import (
     StartedEvent,
     StoppedEvent,
 )
-from ceres.manager.particle import BoundParticleManager
-from ceres.manager.setting import SettingManager
 from ceres.tasklet import Tasklet
 
 with lazy_imports(__name__):
@@ -39,6 +37,8 @@ with lazy_imports(__name__):
     from ceres.manager.event import EventManager
     from ceres.manager.logs import BoundLogManager
     from ceres.manager.message import BoundMessageManager
+    from ceres.manager.particle import BoundParticleManager
+    from ceres.manager.setting import SettingManager
     from ceres.manager.statistic import StatisticsManager
     from ceres.manager.user import UserManager
     from ceres.manager.variable import BoundVariableManager
@@ -163,18 +163,18 @@ class Node(Tasklet):
 
     async def flush(self) -> None:
         container = self.__container__
-        if container is not None and container is not self:
-            await asyncio.gather(self.__writer.flush(), container.flush())
+        if container is not None:
+            await util.concurrently(self.__writer.flush(), container.flush())
         else:
             await self.__writer.flush()
 
     async def settle(self) -> None:
-        await asyncio.gather(self.__writer.settle(), self.events.settle())
+        await util.concurrently(self.__writer.settle(), self.events.settle())
 
     @override
     async def __run__(self) -> None:
         self.events.emit(StartedEvent)
-        await asyncio.gather(self.__process_flush(), self.events.__run__())
+        await util.concurrently(self.__process_flush(), self.events.__run__())
 
     async def __process_flush(self) -> None:
         while True:
@@ -186,6 +186,10 @@ class Node(Tasklet):
                 await asyncio.sleep(1)
 
             await asyncio.sleep(0.1)
+
+    @override
+    @abstractmethod
+    def __stopping__(self) -> None: ...
 
     @override
     @abstractmethod

@@ -21,12 +21,12 @@ with lazy_imports(__name__):
 
 
 class EventManager(BaseBoundManager[Event]):
-    __slots__ = ("_stream", "_listeners")
+    __slots__ = (
+        "_stream",
+        "_listeners",
+    )
 
-    def __init__(
-        self,
-        source: Node,
-    ) -> None:
+    def __init__(self, source: Node) -> None:
         super().__init__(source, Event)
         self._stream: WriteStream[Event] = WriteStream()
         self._listeners = (
@@ -57,14 +57,15 @@ class EventManager(BaseBoundManager[Event]):
         return None
 
     async def __run__(self) -> None:
-        await asyncio.gather(
-            *(listener.__run__() for listener in self._listeners),
-            util.sleep_forever(),
-        )
+        if not self._listeners:
+            await util.sleep_forever()
+            return
+
+        await util.concurrently(listener.__run__() for listener in self._listeners)
 
     async def settle(self) -> None:
         while not self.settled:
-            await asyncio.gather(*(listener.settle() for listener in self._listeners))
+            await util.concurrently(listener.settle() for listener in self._listeners)
 
     def follow(self) -> Stream[Event]:
         return self._stream.view()

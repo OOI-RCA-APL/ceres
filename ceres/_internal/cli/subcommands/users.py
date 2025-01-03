@@ -11,7 +11,7 @@ from ceres._internal.cli.shared import (
 from ceres.user import User, UserCreate, UserFilter, UserUpdate
 
 router = CLIRouter(
-    name="user",
+    name="users",
     help="Manage users.",
 )
 

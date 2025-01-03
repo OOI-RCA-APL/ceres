@@ -11,7 +11,7 @@ from ceres._internal.cli.shared import (
 from ceres.variable import Variable, VariableFilter, VariableUpdate
 
 router = CLIRouter(
-    name="variable",
+    name="variables",
     help="Manage variables.",
 )
 
