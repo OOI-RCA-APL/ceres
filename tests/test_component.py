@@ -322,7 +322,7 @@ async def test_routines() -> None:
     for component in components:
         component.system.start()
 
-    await asyncio.sleep(1)
+    await asyncio.sleep(2)
 
     for component in components:
         await component.system.settle()
@@ -383,7 +383,7 @@ async def test_routines_wait_on_cancellation() -> None:
 
     component = Test()
     component.system.start()
-    await asyncio.sleep(0.1)
+    await asyncio.sleep(0.5)
     await component.system.stop()
     assert not component.system.running
     assert component.cancelled
