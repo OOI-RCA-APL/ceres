@@ -242,23 +242,31 @@ class BaseEntityFilter[
         statement: StatementT,
         dialect: DatabaseType,
         *,
+        always_use_subquery: bool = False,
         ignore_where: bool = False,
         ignore_order: bool = False,
     ) -> StatementT:
-        where = () if ignore_where else self._get_where(dialect)
-        order_by = () if ignore_order else self._get_order_by()
+        where = () if ignore_where else tuple(self._get_where(dialect))
+        order_by = () if ignore_order else tuple(self._get_order_by())
         limit = self.limit
         offset = self.offset
 
-        if isinstance(statement, Select) and limit is None and offset is None:
-            return statement.select_from(self._get_row_cls()).where(*where).order_by(*order_by)
+        # Opportunistically avoid using subquery filtering if possible.
+        if not always_use_subquery:
+            if isinstance(statement, Select):
+                return statement.where(*where).order_by(*order_by).limit(limit).offset(offset)
+            else:
+                # This is an update or delete statement, and if there is no `limit` or `offset`,
+                # `order_by` does not matter, so we can avoid using a subquery.
+                if limit is None and offset is None:
+                    return statement.where(*where)
 
         pk = self._get_row_cls().get_primary_key_columns()
         pks = select(*pk).where(*where).order_by(*order_by).limit(limit).offset(offset)
 
         pk = pk[0] if len(pk) == 1 else tuple_(*pk)
 
-        if isinstance(statement, Update | Delete):
+        if isinstance(statement, (Update, Delete)):
             return statement.where(pk.in_(pks))
 
         return statement.where(pk.in_(pks)).order_by(*order_by)

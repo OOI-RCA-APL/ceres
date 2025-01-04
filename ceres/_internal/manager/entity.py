@@ -123,12 +123,15 @@ class BaseEntityManager[
         filter: FilterT | None = None,
         **kwargs: Unpack[FilterArgsT],  # type: ignore
     ) -> int:
+        Row = self._get_row_cls()
+
         filter = self._apply_default_filter(filter, kwargs)
-        statement = select(func.count())
+        statement = select(func.count()).select_from(Row)
         statement = filter.apply(
             statement,
             self._database.type,
             ignore_order=True,
+            always_use_subquery=filter.limit is not None or filter.offset is not None,
         )
 
         return await self._execute_and_get_scalar(statement, int) or 0
