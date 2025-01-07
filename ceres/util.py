@@ -1,6 +1,6 @@
 import asyncio
+from asyncio import AbstractEventLoop, Task
 from asyncio import Queue as AsyncQueue
-from asyncio import Task
 from dataclasses import dataclass
 from typing import Any, AsyncIterable, AsyncIterator, Iterable, overload
 
@@ -8,6 +8,36 @@ from ceres._internal.lazy import lazy_imports
 
 with lazy_imports(__name__):
     from ceres._internal import util
+
+
+def ensure_event_loop(*, uvloop: bool = True, eager: bool = True) -> AbstractEventLoop:
+    """
+    Get the current running async event loop, or create and install a new one if necessary.
+
+    :param uvloop: Whether or not to use `uvloop` as the event loop, provided it is installed and no current running loop exists.
+    :param eager: Whether to use `asyncio.eager_task_factory` for the event loop, provided no current running loop exists.
+    """
+    try:
+        return asyncio.get_running_loop()
+    except RuntimeError:
+        if uvloop:
+            try:
+                from uvloop import EventLoopPolicy  # type: ignore
+
+                if not isinstance(asyncio.get_event_loop_policy(), EventLoopPolicy):
+                    asyncio.set_event_loop_policy(EventLoopPolicy())
+            except Exception:
+                pass
+
+        try:
+            return asyncio.get_running_loop()
+        except Exception:
+            loop = asyncio.new_event_loop()
+            if eager:
+                loop.set_task_factory(asyncio.eager_task_factory)
+
+            asyncio.set_event_loop(loop)
+            return loop
 
 
 _undefined = object()

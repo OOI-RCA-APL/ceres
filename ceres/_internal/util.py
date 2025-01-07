@@ -51,6 +51,11 @@ from ceres._internal.lazy import lazy_imports
 with lazy_imports(__name__):
     from sqlalchemy import BinaryExpression, SQLColumnExpression, func
 
+with lazy_imports(__name__, export=True):
+    from ceres.util import azip_latest as azip_latest
+    from ceres.util import ensure_event_loop as ensure_event_loop
+
+
 NAME_PATTERN = r"^[a-zA-Z_\-][a-zA-Z0-9_\-]*$"
 
 
@@ -70,6 +75,8 @@ def reprify(value: object) -> str:
 
 def syncify[**P, T](function: Callable[P, Awaitable[T] | T]) -> Callable[P, T]:
     import inspect
+
+    from ceres.util import ensure_event_loop
 
     if not inspect.iscoroutinefunction(function):
         return cast(Callable[P, T], function)
@@ -450,26 +457,6 @@ def get_event_loop_or_none() -> AbstractEventLoop | None:
         return asyncio.get_running_loop()
     except RuntimeError:
         return None
-
-
-def ensure_event_loop() -> AbstractEventLoop:
-    try:
-        return asyncio.get_running_loop()
-    except RuntimeError:
-        try:
-            from uvloop import EventLoopPolicy  # type: ignore
-
-            if not isinstance(asyncio.get_event_loop_policy(), EventLoopPolicy):
-                asyncio.set_event_loop_policy(EventLoopPolicy())
-        except Exception:
-            pass
-
-        try:
-            return asyncio.get_running_loop()
-        except Exception:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            return loop
 
 
 @contextmanager
