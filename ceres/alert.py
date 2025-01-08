@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import (
-    Annotated,
     ClassVar,
     Iterable,
     Literal,
@@ -16,7 +15,6 @@ from pydantic import Field
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql.sqltypes import JSON, Text
 
-from ceres._internal.cli.plumbing import CLIOption
 from ceres._internal.database.types import EnumConstraint, EnumMapper
 from ceres._internal.entity import (
     BaseRecord,
@@ -36,7 +34,7 @@ from ceres.timing import utc
 
 with lazy_imports(__name__):
     from sqlalchemy.schema import Index, SchemaItem
-    from sqlalchemy.sql import SQLColumnExpression, cast, or_
+    from sqlalchemy.sql import SQLColumnExpression, cast
 
     from ceres._internal import util
 
@@ -98,38 +96,22 @@ class AlertFilterArgs(BaseRecordFilterArgs[AlertField, AlertOrder], total=False)
 
 
 class AlertFilter(BaseRecordFilter["Alert", AlertField, AlertOrder]):
-    level: Annotated[Level | Sequence[Level] | None, CLIOption(list[Level] | None)] = Field(
-        default=None,
-        description="Filter by alert level(s).",
-    )
-    type: Annotated[str | Sequence[str] | None, CLIOption(list[str] | None)] = Field(
-        default=None,
-        description="Filter by alert types(s).",
-    )
-    type_contains: Annotated[str | Sequence[str] | None, CLIOption(str | None)] = Field(
-        default=None,
-        description="Filter by alert type(s) containing a given substring.",
-    )
-    type_prefix: Annotated[str | Sequence[str] | None, CLIOption(str | None)] = Field(
-        default=None,
-        description="Filter by alert type(s) with a common prefix.",
-    )
-    type_suffix: Annotated[str | Sequence[str] | None, CLIOption(str | None)] = Field(
-        default=None,
-        description="Filter by alert type(s) with a common suffix.",
-    )
-    data_contains: Annotated[str | Sequence[str] | None, CLIOption(str)] = Field(
-        default=None,
-        description="Filter alert data containing a given substring.",
-    )
-    data_prefix: Annotated[str | Sequence[str] | None, CLIOption(str)] = Field(
-        default=None,
-        description="Filter alert data with a common prefix.",
-    )
-    data_suffix: Annotated[str | Sequence[str] | None, CLIOption(str)] = Field(
-        default=None,
-        description="Filter alert data with a common suffix.",
-    )
+    level: Level | Sequence[Level] | None = None
+    """Filter by `level` being equal to one or more given levels."""
+    type: str | Sequence[str] | None = None
+    """Filter by `type` being equal to one or more given types."""
+    type_contains: str | Sequence[str] | None = None
+    """Filter by `type` containing one or more given substrings."""
+    type_prefix: str | Sequence[str] | None = None
+    """Filter by `type` starting with one or more given prefixes."""
+    type_suffix: str | Sequence[str] | None = None
+    """Filter by `type` ending with one or more given suffixes."""
+    data_contains: str | Sequence[str] | None = None
+    """Filter by whether or not the JSON text of `data` contains one or more given substrings."""
+    data_prefix: str | Sequence[str] | None = None
+    """Filter by whether or not the JSON text of `data` starts with one or more given prefixes."""
+    data_suffix: str | Sequence[str] | None = None
+    """Filter by whether or not the JSON text of `data` ends with one or more given suffixes."""
 
     @override
     def matches(self, obj: Alert, *, now: datetime | None = None) -> bool:
@@ -145,7 +127,7 @@ class AlertFilter(BaseRecordFilter["Alert", AlertField, AlertOrder]):
             if obj.type not in util.as_sequence(self.type):
                 return False
         if self.type_contains is not None:
-            if not any(obj.type in substring for substring in util.as_sequence(self.type_contains)):
+            if not any(substring in obj.type for substring in util.as_sequence(self.type_contains)):
                 return False
         if self.type_prefix is not None:
             if not any(
@@ -204,53 +186,39 @@ class AlertFilter(BaseRecordFilter["Alert", AlertField, AlertOrder]):
         if self.type is not None:
             yield columns.type.in_(util.as_sequence(self.type))
         if self.type_contains is not None:
-            yield or_(
-                False,
-                *(columns.type.contains(type) for type in util.as_sequence(self.type_contains)),
+            yield util.sqlorf(
+                columns.type.contains(type) for type in util.as_sequence(self.type_contains)
             )
         if self.type_prefix is not None:
-            yield or_(
-                False,
-                *(columns.type.startswith(prefix) for prefix in util.as_sequence(self.type_prefix)),
+            yield util.sqlorf(
+                columns.type.startswith(prefix) for prefix in util.as_sequence(self.type_prefix)
             )
         if self.type_suffix is not None:
-            yield or_(
-                False,
-                *(columns.type.endswith(suffix) for suffix in util.as_sequence(self.type_suffix)),
+            yield util.sqlorf(
+                columns.type.endswith(suffix) for suffix in util.as_sequence(self.type_suffix)
             )
 
         if self.data_contains is not None:
-            yield or_(
-                False,
-                *(
-                    cast(columns.data, Text).contains(substring)
-                    for substring in util.as_sequence(self.data_contains)
-                ),
+            yield util.sqlorf(
+                cast(columns.data, Text).contains(substring)
+                for substring in util.as_sequence(self.data_contains)
             )
         if self.data_prefix is not None:
-            yield or_(
-                False,
-                *(
-                    cast(columns.data, Text).startswith(prefix)
-                    for prefix in util.as_sequence(self.data_prefix)
-                ),
+            yield util.sqlorf(
+                cast(columns.data, Text).startswith(prefix)
+                for prefix in util.as_sequence(self.data_prefix)
             )
         if self.data_suffix is not None:
-            yield or_(
-                False,
-                *(
-                    cast(columns.data, Text).endswith(suffix)
-                    for suffix in util.as_sequence(self.data_suffix)
-                ),
+            yield util.sqlorf(
+                cast(columns.data, Text).endswith(suffix)
+                for suffix in util.as_sequence(self.data_suffix)
             )
 
 
 class AlertCreate(BaseRecordCreate):
-    level: Annotated[Level, CLIOption(Level)]
-    type: Annotated[str, CLIOption(str)]
-    data: Annotated[FromYAML[JSONDict], CLIOption(str, metavar="JSON/YAML OBJECT")] = Field(
-        default_factory=dict
-    )
+    level: Level
+    type: str
+    data: FromYAML[JSONDict] = Field(default_factory=dict)
 
 
 class AlertUpdate(TypedDict, total=False):

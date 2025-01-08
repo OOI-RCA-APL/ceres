@@ -1,201 +1,124 @@
 from __future__ import annotations
 
 import os
+import sys
+import warnings
+from abc import ABC, abstractmethod
 from contextlib import asynccontextmanager, contextmanager
+from pathlib import Path
 from typing import (
     IO,
     Annotated,
     Any,
-    Callable,
     Literal,
     Mapping,
     Sequence,
+    TypeAlias,
     TypeVar,
     Unpack,
     overload,
+    override,
 )
 
-import typer
-from click import ParamType
-from pydantic import Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError, create_model
+from pydantic_settings import CliImplicitFlag, CliSubCommand, SettingsError, get_subcommand
 
-from ceres._internal.cli.plumbing import CLICommandFailed, CLIContext, CLIOption
+from ceres._internal.entity import BaseEntity
 from ceres._internal.lazy import lazy_imports
+from ceres._internal.manager.entity import BaseEntityManager
+from ceres._internal.project import LoadedProject, Project
 from ceres.config import Config, ConfigCheckType, ConfigMeta
-from ceres.data import FromYAML, ImmutableDataObject, NonEmpty, SerializeArgs, jsonify
+from ceres.data import FromYAML, NonEmpty, SerializeArgs, jsonify
 from ceres.result import Ok
 
 with lazy_imports(__name__):
     import sys
-    import warnings
-    from functools import wraps
-    from pathlib import Path
 
     from ceres._internal import util
-    from ceres._internal.cli.client import Client
-    from ceres._internal.project import LoadedProject, Project
-    from ceres.engine import Engine
-
-chdir = os.chdir
 
 
-def __disabled_chdir__(*args: Any, **kwargs: Any) -> None:
-    warnings.warn("Changing directory is disabled while running Ceres.")
-
-
-def disable_chdir() -> None:
-    os.chdir = __disabled_chdir__
-
-
-POSSIBLE_CONFIG_NAMES = [
-    "ceres.yaml",
-    "ceres.yml",
-    "ceres.json",
-]
-
-
-@overload
-def get_config_path(config_path: Path | None, required: Literal[True]) -> Path: ...
-
-
-@overload
-def get_config_path(config_path: Path | None, required: Literal[False] = False) -> Path | None: ...
-
-
-def get_config_path(config_path: Path | None = None, required: bool = False) -> Path | None:
-    if config_path is None:
-        possibilities = [Path(name) for name in POSSIBLE_CONFIG_NAMES]
-
-        for possibility in possibilities:
-            if possibility.is_file():
-                config_path = possibility
-                break
-        else:
-            if required:
-                raise CLICommandFailed(
-                    f"Must be in a directory containing one of: {POSSIBLE_CONFIG_NAMES}"
-                )
-
-            return None
-
-    config_path = config_path.absolute()
-    chdir(config_path.parent)
-    disable_chdir()
-    sys.path.insert(0, str(config_path.parent))
-    return config_path
-
-
-async def get_config_meta(
-    config_path: Path | None,
-    checks: Sequence[ConfigCheckType],
-) -> ConfigMeta:
-    match await ConfigMeta.load(get_config_path(config_path, required=True), checks=checks):
-        case Ok(config):
-            return config
-        case fail:
-            raise CLICommandFailed(f"Failed to load configuration. {jsonify(fail, indent=2)}")
-
-
-async def get_config(
-    config_path: Path | None,
-    checks: Sequence[ConfigCheckType],
-) -> Config:
-    match await Config.load(get_config_path(config_path, required=True), checks=checks):
-        case Ok(config):
-            return config
-        case fail:
-            raise CLICommandFailed(f"Failed to load configuration. {jsonify(fail, indent=2)}")
-
-
-async def use_config_path(context: CLIContext) -> Path:
-    config_path = context.meta.get("config_path")
-    if config_path is None:
-        raise CLICommandFailed(f"Must be in a directory containing one of: {POSSIBLE_CONFIG_NAMES}")
-
-    return config_path
-
-
-async def use_config(
-    context: CLIContext,
-    checks: Sequence[ConfigCheckType] = (),
-) -> Config:
-    config_path = await use_config_path(context)
-    return await get_config(config_path, checks)
-
-
-async def use_config_meta(
-    context: CLIContext,
-    checks: Sequence[ConfigCheckType] = (),
-) -> ConfigMeta:
-    config_path = await use_config_path(context)
-    return await get_config_meta(config_path, checks)
-
-
-async def use_project(context: CLIContext) -> Project:
-    config_path = await use_config_path(context)
-    return Project(config_path)
-
-
-async def use_loaded_project(
-    context: CLIContext,
-    checks: Sequence[ConfigCheckType] = (),
-) -> LoadedProject:
-    config_path = await use_config_path(context)
-    return LoadedProject(
-        get_config_path(config_path, required=True),
-        await get_config_meta(config_path, checks),
-    )
-
-
-async def use_client(context: CLIContext) -> Client:
-    project = await use_loaded_project(context)
-    return Client(project)
-
-
-@wraps(typer.confirm)
 def get_confirmation(
-    text: str,
-    default: bool | None = False,
+    prompt: str,
+    default: bool | None = None,
+    *,
     abort: bool = False,
-    prompt_suffix: str = ": ",
-    show_default: bool = True,
-    err: bool = True,
 ) -> bool:
-    return typer.confirm(
-        text=text,
-        default=default,
-        abort=abort,
-        prompt_suffix=prompt_suffix,
-        show_default=show_default,
-        err=err,
-    )
+    confirmed = False
+
+    while True:
+        if default is None:
+            default_indicator = "y/n"
+        elif default:
+            default_indicator = "Y/n"
+        else:
+            default_indicator = "y/N"
+
+        text = input(f"{prompt} ({default_indicator}): ").lower()
+        if default is not None and text == "":
+            confirmed = default
+            break
+        if text in ("yes", "y"):
+            confirmed = True
+            break
+        if text in ("no", "n"):
+            confirmed = False
+            break
+
+    if abort and not confirmed:
+        raise CliCommandFailed("Aborted.")
+
+    return confirmed
 
 
-@wraps(typer.prompt)
+@overload
+def get_input[T](
+    prompt: str,
+    parser: type[T],
+    default: T | None = None,
+    *,
+    hidden: bool = False,
+) -> T: ...
+
+
+@overload
 def get_input(
-    text: str,
+    prompt: str,
+    parser: Any,
     default: Any | None = None,
-    hide_input: bool = False,
-    confirmation_prompt: bool | str = False,
-    type: ParamType | Any | None = None,
-    value_proc: Callable[[str], Any] | None = None,
-    prompt_suffix: str = ": ",
-    show_default: bool = True,
-    err: bool = True,
-    show_choices: bool = True,
+    *,
+    hidden: bool = False,
+) -> Any: ...
+
+
+def get_input(
+    prompt: str,
+    parser: Any,
+    default: Any | None = None,
+    *,
+    hidden: bool = False,
 ) -> Any:
-    return typer.prompt(
-        text=text,
-        default=default,
-        hide_input=hide_input,
-        confirmation_prompt=confirmation_prompt,
-        type=type,
-        value_proc=value_proc,
-        prompt_suffix=prompt_suffix,
-        show_default=show_default,
-        err=err,
-        show_choices=show_choices,
-    )
+    from getpass import getpass
+
+    prompter = getpass if hidden else input
+
+    while True:
+        if default:
+            text = prompter(f"{prompt} ({default}): ")
+        else:
+            text = prompter(f"{prompt}: ")
+
+        if text == "":
+            if default is not None:
+                return default
+
+            if isinstance(parser, type):
+                if issubclass(parser, (bool, int, float)):
+                    continue
+
+        try:
+            return TypeAdapter(parser).validate_python(text)  # type: ignore
+        except ValidationError:
+            pass
 
 
 def write(
@@ -269,54 +192,406 @@ def strbool(value: bool) -> str:
     return "Yes" if value else "No"
 
 
-@asynccontextmanager
-async def use_database(
-    context: CLIContext,
-    *,
-    require_initialized: bool = True,
-    require_connect: bool = True,
-):
-    from ceres.database import Database
+def __validate_non_empty(value: Any) -> Any:
+    if util.is_true_collection(value) and len(value) == 0:
+        raise ValueError("Cannot be empty.")
 
-    config = await use_config_meta(context)
-    database = Database(config.database)
-
-    if require_connect:
-        try:
-            async with database.connect():
-                pass
-        except Exception as exception:
-            raise CLICommandFailed(f"Failed to connect to database: {exception}")
-
-        if require_initialized:
-            if not await database.initialized():
-                raise CLICommandFailed("Database appears uninitialized, exiting.")
-
-    async with database:
-        yield database
+    return value
 
 
-async def use_temporary_engine(context: CLIContext):
-    config_path = await use_config_path(context)
-    engine = Engine()
-    await engine.load(config_path, silent=True)
-    return engine
-
-
-class ValidateEmptyAsNone(ImmutableDataObject):
-    @field_validator("*")
-    def __validate_empty_as_none(cls, value: Any) -> Any:
-        if util.is_true_collection(value) and len(value) == 0:
-            return None
-
-        return value
-
-
-Confirm = Annotated[bool, Field(description="Ask before executing."), CLIOption(bool)]
+Confirm = Annotated[CliImplicitFlag[bool], Field(description="Ask before executing.")]
 
 _TFields = TypeVar("_TFields", bound=Mapping[Any, Any])
-Assign = Annotated[
+Assign: TypeAlias = Annotated[
     NonEmpty[FromYAML[_TFields]],
     Field(description="Field(s) to assign, passed as a non-empty JSON or YAML object."),
-    CLIOption(str, metavar="JSON/YAML"),
 ]
+
+
+with lazy_imports(__name__):
+    import json
+
+    from ceres._internal.cli.client import Client
+    from ceres.data import jsonify
+    from ceres.database import Database
+    from ceres.engine import Engine
+
+chdir = os.chdir
+
+
+def __disabled_chdir__(*args: Any, **kwargs: Any) -> None:
+    warnings.warn("Changing directory is disabled while running Ceres.")
+
+
+def disable_chdir() -> None:
+    os.chdir = __disabled_chdir__
+
+
+class CliCommand(BaseModel, ABC):
+    model_config = ConfigDict(
+        defer_build=True,
+        use_attribute_docstrings=True,
+    )
+
+    config_path: Path | None = Field(default=None, alias="config")
+    """
+    Explicit path to a ceres configuration file.
+    """
+
+    async def __execute__(self) -> Any:
+        return await self.__run__()
+
+    @abstractmethod
+    async def __run__(self) -> Any: ...
+
+    @overload
+    def use_config_path(self, required: Literal[True] = True) -> Path: ...
+
+    @overload
+    def use_config_path(self, required: Literal[False]) -> Path | None: ...
+
+    def use_config_path(self, required: bool = True) -> Path | None:
+        config_path: Path | None = self.config_path
+
+        POSSIBLE_CONFIG_NAMES = [
+            "ceres.yaml",
+            "ceres.yml",
+            "ceres.json",
+        ]
+
+        if config_path is None:
+            possibilities = [Path(name) for name in POSSIBLE_CONFIG_NAMES]
+
+            config_path: Path | None = None
+
+            for possibility in possibilities:
+                if possibility.is_file():
+                    config_path = possibility
+                    break
+
+        if config_path is None:
+            if not required:
+                return None
+
+            raise CliCommandFailed(
+                f"Must be in a directory containing one of: {POSSIBLE_CONFIG_NAMES}"
+            )
+
+        config_path = config_path.absolute()
+        chdir(config_path.parent)
+        disable_chdir()
+        sys.path.insert(0, str(config_path.parent))
+        return config_path
+
+    async def use_config_meta(
+        self,
+        checks: Sequence[ConfigCheckType] = (),
+    ) -> ConfigMeta:
+        match await ConfigMeta.load(self.use_config_path(), checks=checks):
+            case Ok(config):
+                return config
+            case fail:
+                raise CliCommandFailed(f"Failed to load configuration. {jsonify(fail, indent=2)}")
+
+    async def use_config(self, checks: Sequence[ConfigCheckType]) -> Config:
+        match await Config.load(self.use_config_path(), checks=checks):
+            case Ok(config):
+                return config
+            case fail:
+                raise CliCommandFailed(f"Failed to load configuration. {jsonify(fail, indent=2)}")
+
+    async def use_project(self) -> Project:
+        config_path = self.use_config_path()
+        return Project(config_path)
+
+    async def use_loaded_project(self, checks: Sequence[ConfigCheckType] = ()) -> LoadedProject:
+        config_path = self.use_config_path()
+        config_meta = await self.use_config_meta(checks)
+        return LoadedProject(config_path, config_meta)
+
+    async def use_client(self) -> Client:
+        project = await self.use_loaded_project()
+        return Client(project)
+
+    @asynccontextmanager
+    async def use_database(
+        self,
+        *,
+        require_initialized: bool = True,
+        require_connect: bool = True,
+    ):
+        from ceres.database import Database
+
+        config = await self.use_config_meta()
+        database = Database(config.database)
+
+        if require_connect:
+            try:
+                async with database.connect():
+                    pass
+            except Exception as exception:
+                raise CliCommandFailed(f"Failed to connect to database: {exception}")
+
+            if require_initialized:
+                if not await database.initialized():
+                    raise CliCommandFailed("Database appears uninitialized, exiting.")
+
+        async with database:
+            yield database
+
+    async def use_temporary_engine(self):
+        config_path = self.use_config_path()
+        engine = Engine()
+        await engine.load(config_path, silent=True)
+        return engine
+
+    def read[T: BaseModel](self, model: type[T]) -> T:
+        return model.model_validate(self.model_dump(include=set(model.model_fields)))
+
+
+class CliCommandGroup(CliCommand):
+    @override
+    async def __run__(self) -> Any:
+        subcommand = get_subcommand(self, cli_exit_on_error=True)
+        if subcommand is not None:
+            return await subcommand.__execute__()
+
+
+class CliCommandFailed(SettingsError):
+    def __init__(self, message: Any) -> None:
+        try:
+            content = json.loads(message)
+            if isinstance(content, dict):
+                content.pop("__error__", None)
+
+            message = json.dumps(content)
+        except Exception:
+            message = str(message)
+
+        self.message = message
+        super().__init__(message)
+
+    @override
+    def __str__(self) -> str:
+        text = super().__str__()
+        if not text.startswith("Error: "):
+            text = f"Error: {text}"
+
+        return text
+
+
+_T = TypeVar("_T")
+
+
+def _get_entity_singular(Entity: type[BaseEntity]) -> str:
+    if Entity.__name__ == "LogEntry":
+        return "log entry"
+
+    return Entity.__name__.lower()
+
+
+def _get_entity_plural(Entity: type[BaseEntity]) -> str:
+    if Entity.__name__ == "LogEntry":
+        return "log entries"
+
+    return f"{Entity.__name__.lower()}s"
+
+
+def _get_entity_manager_attr(Entity: type[BaseEntity]) -> str:
+    if Entity.__name__ == "LogEntry":
+        return "log"
+
+    return _get_entity_plural(Entity)
+
+
+def _get_entity_manager(source: Database | Engine, entity: type[BaseEntity]) -> BaseEntityManager:
+    return getattr(source, _get_entity_manager_attr(entity))
+
+
+def create_entity_get_command(Entity: type[BaseEntity]):
+    singular = _get_entity_singular(Entity)
+
+    class GetCommand(CliCommand, Entity.Filter):
+        f"""
+        Retrieve one {singular}.
+        """
+
+        @override
+        async def __run__(self):
+            filter = self.read(Entity.Filter)
+            async with self.use_database() as database:
+                return await _get_entity_manager(database, Entity).get(filter)
+
+    return GetCommand
+
+
+def create_entity_get_all_command(Entity: type[BaseEntity]):
+    plural = _get_entity_plural(Entity)
+
+    class GetAllCommand(CliCommand, Entity.Filter):
+        f"""
+        Retrieve multiple {plural}.
+        """
+
+        @override
+        async def __run__(self):
+            filter = self.read(Entity.Filter)
+            async with self.use_database() as database:
+                return await _get_entity_manager(database, Entity).get_all(filter)
+
+    return GetAllCommand
+
+
+def create_entity_count_command(Entity: type[BaseEntity]):
+    plural = _get_entity_plural(Entity)
+
+    class CountCommand(CliCommand, Entity.Filter):
+        f"""
+        Count {plural}.
+        """
+
+        @override
+        async def __run__(self):
+            filter = self.read(Entity.Filter)
+            async with self.use_database() as database:
+                return await _get_entity_manager(database, Entity).count(filter)
+
+    return CountCommand
+
+
+def create_entity_create_command(Entity: type[BaseEntity]):
+    singular = _get_entity_singular(Entity)
+
+    class CreateCommand(CliCommand, Entity.Create):
+        f"""
+        Create a new {singular}.
+        """
+
+        @override
+        async def __run__(self):
+            data = self.read(Entity.Create)
+            async with self.use_database() as database:
+                return await _get_entity_manager(database, Entity).create(data)
+
+    return CreateCommand
+
+
+def create_entity_update_command(Entity: type[BaseEntity]):
+    singular = _get_entity_singular(Entity)
+
+    class UpdateCommand(CliCommand, Entity.Filter):
+        f"""
+        Update one {singular}. Return if found.
+        """
+
+        assign: Assign[Entity.Update]  # type: ignore
+
+        @override
+        async def __run__(self):
+            filter = self.read(Entity.Filter)
+            async with self.use_database() as database:
+                return await _get_entity_manager(database, Entity).update(filter, self.assign)
+
+    return UpdateCommand
+
+
+def create_entity_update_all_command(Entity: type[BaseEntity]):
+    plural = _get_entity_plural(Entity)
+
+    class UpdateAllCommand(CliCommand, Entity.Filter):
+        f"""
+        Update multiple {plural}. Return the number updated.
+        """
+
+        assign: Assign[Entity.Update]  # type: ignore
+        confirm: Confirm = True
+
+        @override
+        async def __run__(self):
+            async with self.use_database() as database:
+                filter = self.read(Entity.Filter)
+                manager = _get_entity_manager(database, Entity)
+                if self.confirm:
+                    count = await manager.count(filter)
+                    get_confirmation(f"Update {count} particles?", abort=True)
+
+                return await manager.update_all(filter, self.assign)
+
+    return UpdateAllCommand
+
+
+def create_entity_delete_command(Entity: type[BaseEntity]):
+    singular = _get_entity_singular(Entity)
+
+    class DeleteCommand(CliCommand, Entity.Filter):
+        f"""
+        Delete one {singular}. Return if found.
+        """
+
+        @override
+        async def __run__(self):
+            filter = self.read(Entity.Filter)
+            async with self.use_database() as database:
+                return await _get_entity_manager(database, Entity).delete(filter)
+
+    return DeleteCommand
+
+
+def create_entity_delete_all_command(Entity: type[BaseEntity]):
+    plural = _get_entity_plural(Entity)
+
+    class DeleteAllCommand(CliCommand, Entity.Filter):
+        f"""
+        Delete multiple {plural}. Return the number deleted.
+        """
+
+        confirm: Confirm = True
+
+        @override
+        async def __run__(self):
+            async with self.use_database() as database:
+                filter = self.read(Entity.Filter)
+                manager = _get_entity_manager(database, Entity)
+                if self.confirm:
+                    count = await manager.count(filter)
+                    get_confirmation(f"Delete {count} particles?", abort=True)
+
+                return await manager.delete_all(filter)
+
+    return DeleteAllCommand
+
+
+EntitySubCommandMapping = Mapping[str, type[CliCommand]]
+
+
+def create_entity_command(
+    Entity: type[BaseEntity],
+    overrides: EntitySubCommandMapping | None = None,
+) -> type[CliCommandGroup]:
+    mapping = dict(overrides or {})
+    if "get" not in mapping:
+        mapping["get"] = create_entity_get_command(Entity)
+    if "get_all" not in mapping:
+        mapping["get_all"] = create_entity_get_all_command(Entity)
+    if "count" not in mapping:
+        mapping["count"] = create_entity_count_command(Entity)
+    if "create" not in mapping:
+        mapping["create"] = create_entity_create_command(Entity)
+    if "update" not in mapping:
+        mapping["update"] = create_entity_update_command(Entity)
+    if "update_all" not in mapping:
+        mapping["update_all"] = create_entity_update_all_command(Entity)
+    if "delete" not in mapping:
+        mapping["delete"] = create_entity_delete_command(Entity)
+    if "delete_all" not in mapping:
+        mapping["delete_all"] = create_entity_delete_all_command(Entity)
+
+    fields: Any = {key: (CliSubCommand[value], ...) for key, value in mapping.items()}
+    plural = _get_entity_plural(Entity)
+
+    return create_model(
+        f"{Entity.__name__}sCommand",
+        **fields,
+        __base__=CliCommandGroup,
+        __doc__=f"Manage {plural}.",
+    )

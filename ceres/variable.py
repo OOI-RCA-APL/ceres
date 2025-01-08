@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from typing import (
-    Annotated,
     ClassVar,
     Iterable,
     Literal,
@@ -11,11 +10,9 @@ from typing import (
     override,
 )
 
-from pydantic import Field
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql.sqltypes import JSON, Text
 
-from ceres._internal.cli.plumbing import CLIOption
 from ceres._internal.entity import (
     BaseItem,
     BaseItemCreate,
@@ -78,17 +75,14 @@ class VariableFilterArgs(BaseItemFilterArgs[VariableField, VariableOrder], total
 
 
 class VariableFilter(BaseItemFilter["Variable", VariableField, VariableOrder]):
-    name: Annotated[str | Sequence[str] | None, CLIOption(list[str] | None)] = Field(
-        default=None,
-        description="Filter by name(s).",
-    )
-    internal: Annotated[bool | None, CLIOption(bool | None)] = Field(
-        default=None,
-        description=(
-            "Include or exclude internal variables from results. Internal variables both start "
-            "with an end with two underscores. For example: `__enabled__`."
-        ),
-    )
+    name: str | Sequence[str] | None = None
+    """Filter by `name` being equal to one or more given names."""
+    internal: bool | None = None
+    """
+    Filter variables based on whether they are internal or not. Internal variables are those that
+    start with an end with two underscores. For example: `__enabled__`. If `None`, both internal and
+    non-internal variables will be matched.
+    """
 
     @override
     def matches(self, obj: Variable) -> bool:
@@ -130,8 +124,8 @@ class VariableFilter(BaseItemFilter["Variable", VariableField, VariableOrder]):
 
 
 class VariableCreate(BaseItemCreate):
-    name: Annotated[str, CLIOption(str)]
-    value: Annotated[FromYAML[JSONValue], CLIOption(str)]
+    name: str
+    value: FromYAML[JSONValue]
 
 
 class VariableUpdate(TypedDict, total=False):

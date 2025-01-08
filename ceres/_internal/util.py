@@ -49,7 +49,8 @@ from typing_extensions import TypeIs
 from ceres._internal.lazy import lazy_imports
 
 with lazy_imports(__name__):
-    from sqlalchemy import BinaryExpression, SQLColumnExpression, func
+    from sqlalchemy.sql import SQLColumnExpression, func, or_
+    from sqlalchemy.sql.expression import BinaryExpression
 
 with lazy_imports(__name__, export=True):
     from ceres.util import azip_latest as azip_latest
@@ -659,6 +660,21 @@ def escape_like_expression(text: str | bytes) -> str | bytes:
         return text.replace("%", "%%").replace("_", "__")
 
     return text.replace(b"%", b"%%").replace(b"_", b"__")
+
+
+def flatten[T](value: Iterable[T | Iterable[T]]) -> Iterator[T]:
+    for current in value:
+        if not isinstance(current, Iterable):
+            yield current
+        else:
+            yield from current
+
+
+def sqlorf(
+    *expressions: Iterable[SQLColumnExpression[bool]],
+) -> SQLColumnExpression[bool]:
+    flattened = list(flatten(expressions))
+    return or_(False, *flattened)
 
 
 BytesLike: TypeAlias = str | bytes | bytearray | memoryview

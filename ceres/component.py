@@ -13,7 +13,6 @@ from string import ascii_lowercase
 from types import MappingProxyType, UnionType
 from typing import (
     TYPE_CHECKING,
-    Annotated,
     Any,
     AsyncIterable,
     Awaitable,
@@ -39,7 +38,6 @@ from pydantic import ConfigDict, Field, PositiveFloat, ValidationError
 from pydantic.fields import FieldInfo
 from sqlalchemy.util.typing import TypeAlias
 
-from ceres._internal.cli.plumbing import CLIOption
 from ceres._internal.filter import BaseFilter, BaseFilterArgs
 from ceres._internal.lazy import lazy_imports
 from ceres.address import Address, AddressSelector, DynamicAddress
@@ -112,15 +110,15 @@ warnings.filterwarnings(
 
 
 class ComponentFilterArgs(BaseFilterArgs, total=False):
-    root: Annotated[Address, CLIOption(str | None)]
-    address: Annotated[AddressSelector | None, CLIOption(str | None)]
+    root: Address
+    address: AddressSelector | None
     enabled: bool | None
     running: bool | None
 
 
 class ComponentFilter(BaseFilter):
-    root: Annotated[Address, CLIOption(str | None)] = Address.ROOT
-    address: Annotated[AddressSelector | None, CLIOption(str | None)] = None
+    root: Address = Address.ROOT
+    address: AddressSelector | None = None
     enabled: bool | None = None
     running: bool | None = None
 

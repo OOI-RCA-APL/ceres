@@ -5,7 +5,6 @@ from collections.abc import Mapping
 from datetime import datetime
 from typing import (
     TYPE_CHECKING,
-    Annotated,
     Any,
     ClassVar,
     Generic,
@@ -22,14 +21,13 @@ from typing import (
     override,
 )
 
-from pydantic import ConfigDict, Field, SerializeAsAny, ValidationError, model_validator
+from pydantic import ConfigDict, SerializeAsAny, ValidationError, model_validator
 from pydantic.types import ImportString
 from sqlalchemy import cast
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql.sqltypes import JSON, Text
 from typing_extensions import TypeVar
 
-from ceres._internal.cli.plumbing import CLIOption
 from ceres._internal.entity import (
     BaseRecord,
     BaseRecordCreate,
@@ -46,7 +44,7 @@ from ceres.timing import utc
 
 with lazy_imports(__name__):
     from sqlalchemy.schema import Index, SchemaItem
-    from sqlalchemy.sql import SQLColumnExpression, or_
+    from sqlalchemy.sql import SQLColumnExpression
 
     from ceres._internal import util
     from ceres.database.enums import DatabaseType
@@ -161,38 +159,22 @@ class ParticleFilter(
     BaseRecordFilter["Particle", ParticleField, ParticleOrder],
     Generic[_T],
 ):
-    cls: Annotated[ImportString[Type[_T]] | None, CLIOption(str)] = Field(
-        default=None,
-        description="Filter by particle data class.",
-    )
-    type: Annotated[str | Sequence[str] | None, CLIOption(str)] = Field(
-        default=None,
-        description="Filter by particle type(s).",
-    )
-    type_contains: Annotated[str | Sequence[str] | None, CLIOption(str)] = Field(
-        default=None,
-        description="Filter by particle type(s) containing a given substring.",
-    )
-    type_prefix: Annotated[str | Sequence[str] | None, CLIOption(str)] = Field(
-        default=None,
-        description="Filter by particle type(s) with a common prefix.",
-    )
-    type_suffix: Annotated[str | Sequence[str] | None, CLIOption(str)] = Field(
-        default=None,
-        description="Filter by particle type(s) with a common suffix.",
-    )
-    data_contains: Annotated[str | Sequence[str] | None, CLIOption(str)] = Field(
-        default=None,
-        description="Filter particle data containing a given substring.",
-    )
-    data_prefix: Annotated[str | Sequence[str] | None, CLIOption(str)] = Field(
-        default=None,
-        description="Filter particle data with a common prefix.",
-    )
-    data_suffix: Annotated[str | Sequence[str] | None, CLIOption(str)] = Field(
-        default=None,
-        description="Filter particle data with a common suffix.",
-    )
+    cls: ImportString[Type[_T]] | None = None
+    """Filter by particles being instances of a specific data class."""
+    type: str | Sequence[str] | None = None
+    """Filter by `type` being equal to one or more given particle types."""
+    type_contains: str | Sequence[str] | None = None
+    """Filter by `type` containing one or more given substrings."""
+    type_prefix: str | Sequence[str] | None = None
+    """Filter by `type` starting with one or more given prefixes."""
+    type_suffix: str | Sequence[str] | None = None
+    """Filter by `type` ending with one or more given suffixes."""
+    data_contains: str | Sequence[str] | None = None
+    """Filter by whether or not the JSON text of `data` contains one or more given substrings."""
+    data_prefix: str | Sequence[str] | None = None
+    """Filter by whether or not the JSON text of `data` starts with one or more given prefixes."""
+    data_suffix: str | Sequence[str] | None = None
+    """Filter by whether or not the JSON text of `data` ends with one or more given suffixes."""
 
     @override
     def matches(self, obj: Particle[Any], *, now: datetime | None = None) -> bool:
@@ -268,50 +250,38 @@ class ParticleFilter(
         if self.type is not None:
             yield columns.type.in_(util.as_sequence(self.type))
         if self.type_contains is not None:
-            yield or_(
-                False,
-                *(columns.type.contains(type) for type in util.as_sequence(self.type_contains)),
+            yield util.sqlorf(
+                columns.type.contains(type) for type in util.as_sequence(self.type_contains)
             )
         if self.type_prefix is not None:
-            yield or_(
-                False,
-                *(columns.type.startswith(prefix) for prefix in util.as_sequence(self.type_prefix)),
+            yield util.sqlorf(
+                columns.type.startswith(prefix) for prefix in util.as_sequence(self.type_prefix)
             )
         if self.type_suffix is not None:
-            yield or_(
-                False,
-                *(columns.type.endswith(suffix) for suffix in util.as_sequence(self.type_suffix)),
+            yield util.sqlorf(
+                columns.type.endswith(suffix) for suffix in util.as_sequence(self.type_suffix)
             )
 
         if self.data_contains is not None:
-            yield or_(
-                False,
-                *(
-                    cast(columns.data, Text).contains(substring)
-                    for substring in util.as_sequence(self.data_contains)
-                ),
+            yield util.sqlorf(
+                cast(columns.data, Text).contains(substring)
+                for substring in util.as_sequence(self.data_contains)
             )
         if self.data_prefix is not None:
-            yield or_(
-                False,
-                *(
-                    cast(columns.data, Text).startswith(prefix)
-                    for prefix in util.as_sequence(self.data_prefix)
-                ),
+            yield util.sqlorf(
+                cast(columns.data, Text).startswith(prefix)
+                for prefix in util.as_sequence(self.data_prefix)
             )
         if self.data_suffix is not None:
-            yield or_(
-                False,
-                *(
-                    cast(columns.data, Text).endswith(suffix)
-                    for suffix in util.as_sequence(self.data_suffix)
-                ),
+            yield util.sqlorf(
+                cast(columns.data, Text).endswith(suffix)
+                for suffix in util.as_sequence(self.data_suffix)
             )
 
 
 class ParticleCreate(BaseRecordCreate):
-    type: Annotated[str, CLIOption(str)]
-    data: Annotated[FromYAML[JSONDict], CLIOption(str, metavar="JSON/YAML OBJECT")]
+    type: str
+    data: FromYAML[JSONDict]
 
 
 class ParticleUpdate(BaseRecordUpdate, total=False):

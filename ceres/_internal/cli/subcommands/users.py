@@ -1,136 +1,27 @@
-from typing import Annotated
+from __future__ import annotations
 
-from ceres._internal.cli.plumbing import CLIContext, CLIOptionGroup, CLIRouter
-from ceres._internal.cli.shared import (
-    Assign,
-    Confirm,
-    ValidateEmptyAsNone,
-    get_confirmation,
-    use_database,
-)
-from ceres.user import User, UserCreate, UserFilter, UserUpdate
+from typing import Any, override
 
-router = CLIRouter(
-    name="users",
-    help="Manage users.",
-)
+from ceres._internal.cli.shared import CliCommand, create_entity_command, get_input
+from ceres.data import PasswordHash, PasswordStr
+from ceres.user import User, UserCreate
 
 
-class CLIUserFilter(ValidateEmptyAsNone, UserFilter):
-    pass
+class UserCreateWithPrompt(UserCreate):
+    password: PasswordStr | PasswordHash | None = None
 
 
-@router.command()
-async def get(
-    *,
-    filter: Annotated[CLIUserFilter, CLIOptionGroup()],
-    context: CLIContext,
-) -> User | None:
-    """
-    Retrieve one user.
-    """
-    async with use_database(context) as database:
-        return await database.users.get(filter)
+class CreateCommand(CliCommand):
+    data: UserCreateWithPrompt
+
+    @override
+    async def __run__(self) -> Any:
+        data = self.data
+        if data.password is None:
+            data.password = get_input("Password: ", PasswordStr | PasswordHash)
+
+        async with self.use_database() as database:
+            return await database.users.create(self.data)
 
 
-@router.command()
-async def get_all(
-    *,
-    filter: Annotated[CLIUserFilter, CLIOptionGroup()],
-    context: CLIContext,
-) -> list[User]:
-    """
-    Retrieve multiple users.
-    """
-    async with use_database(context) as database:
-        return await database.users.get_all(filter)
-
-
-@router.command()
-async def count(
-    *,
-    filter: Annotated[CLIUserFilter, CLIOptionGroup()],
-    context: CLIContext,
-) -> int:
-    """
-    Count users.
-    """
-    async with use_database(context) as database:
-        return await database.users.count(filter)
-
-
-@router.command()
-async def create(
-    *,
-    data: Annotated[UserCreate, CLIOptionGroup()],
-    context: CLIContext,
-) -> User:
-    """
-    Create a new user.
-    """
-    async with use_database(context) as database:
-        return await database.users.create(data)
-
-
-@router.command()
-async def update(
-    *,
-    filter: Annotated[CLIUserFilter, CLIOptionGroup()],
-    assign: Assign[UserUpdate],
-    context: CLIContext,
-) -> User | None:
-    """
-    Update one user. Return if found.
-    """
-    async with use_database(context) as database:
-        return await database.users.update(filter, assign)
-
-
-@router.command()
-async def update_all(
-    *,
-    filter: Annotated[CLIUserFilter, CLIOptionGroup()],
-    assign: Assign[UserUpdate],
-    confirm: Confirm = True,
-    context: CLIContext,
-) -> int:
-    """
-    Update multiple users. Return the number updated.
-    """
-    async with use_database(context) as database:
-        if confirm:
-            count = await database.users.count(filter)
-            get_confirmation(f"Update {count} log entries?", abort=True)
-
-        return await database.users.update_all(filter, assign)
-
-
-@router.command()
-async def delete(
-    *,
-    filter: Annotated[CLIUserFilter, CLIOptionGroup()],
-    context: CLIContext,
-) -> User | None:
-    """
-    Delete one user. Return if found.
-    """
-    async with use_database(context) as database:
-        return await database.users.delete(filter)
-
-
-@router.command()
-async def delete_all(
-    *,
-    filter: Annotated[CLIUserFilter, CLIOptionGroup()],
-    confirm: Confirm = True,
-    context: CLIContext,
-) -> int:
-    """
-    Delete multiple users. Return the number deleted.
-    """
-    async with use_database(context) as database:
-        if confirm:
-            count = await database.users.count(filter)
-            get_confirmation(f"Delete {count} log entries?", abort=True)
-
-        return await database.users.delete_all(filter)
+UsersCommand = create_entity_command(User, {"create": CreateCommand})

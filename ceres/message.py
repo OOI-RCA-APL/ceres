@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated, Any, ClassVar, Iterable, Literal, TypeAlias, override
+from typing import Annotated, Any, ClassVar, Iterable, Literal, Sequence, TypeAlias, override
 
-from pydantic import BeforeValidator, Field, PlainSerializer
+from pydantic import BeforeValidator, PlainSerializer
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql.sqltypes import LargeBinary
 
-from ceres._internal.cli.plumbing import CLIOption
 from ceres._internal.entity import (
     BaseRecord,
     BaseRecordCreate,
@@ -97,28 +96,20 @@ MessageOrder: TypeAlias = (
 
 class MessageFilterArgs(BaseRecordFilterArgs[MessageField, MessageOrder], total=False):
     direction: MessageDirection | None
-    content_contains: MessageContent | None
-    content_prefix: MessageContent | None
-    content_suffix: MessageContent | None
+    content_contains: MessageContent | Sequence[MessageContent] | None
+    content_prefix: MessageContent | Sequence[MessageContent] | None
+    content_suffix: MessageContent | Sequence[MessageContent] | None
 
 
 class MessageFilter(BaseRecordFilter["Message", MessageField, MessageOrder]):
-    direction: Annotated[MessageDirection | None, CLIOption(MessageDirection | None)] = Field(
-        default=None,
-        description="Filter by message direction.",
-    )
-    content_contains: Annotated[MessageContent | None, CLIOption(str | None)] = Field(
-        default=None,
-        description="Filter, keeping only messages with content that contains the given bytes.",
-    )
-    content_prefix: Annotated[MessageContent | None, CLIOption(str | None)] = Field(
-        default=None,
-        description="Filter, keeping only messages with content that starts with the given bytes.",
-    )
-    content_suffix: Annotated[MessageContent | None, CLIOption(str | None)] = Field(
-        default=None,
-        description="Filter, keeping only messages with content that ends with the given bytes.",
-    )
+    direction: MessageDirection | None = None
+    """Filter by `direction`."""
+    content_contains: MessageContent | Sequence[MessageContent] | None = None
+    """Filter by `content` containing one or more given byte substrings."""
+    content_prefix: MessageContent | Sequence[MessageContent] | None = None
+    """Filter by `content` starting with one or more given byte prefixes."""
+    content_suffix: MessageContent | Sequence[MessageContent] | None = None
+    """Filter by `content` ending with one or more given byte suffixes."""
 
     @override
     def matches(self, obj: Message, *, now: datetime | None = None) -> bool:
@@ -130,13 +121,19 @@ class MessageFilter(BaseRecordFilter["Message", MessageField, MessageOrder]):
             if obj.direction not in util.as_sequence(self.direction):
                 return False
         if self.content_contains is not None:
-            if self.content_contains not in obj.content:
+            if not any(
+                substring in obj.content for substring in util.as_sequence(self.content_contains)
+            ):
                 return False
         if self.content_prefix is not None:
-            if not obj.content.startswith(self.content_prefix):
+            if not any(
+                obj.content.startswith(prefix) for prefix in util.as_sequence(self.content_prefix)
+            ):
                 return False
         if self.content_suffix is not None:
-            if not obj.content.endswith(self.content_suffix):
+            if not any(
+                obj.content.endswith(suffix) for suffix in util.as_sequence(self.content_suffix)
+            ):
                 return False
 
         return True
@@ -160,18 +157,25 @@ class MessageFilter(BaseRecordFilter["Message", MessageField, MessageOrder]):
         if self.direction is not None:
             yield columns.direction == self.direction
         if self.content_contains is not None:
-            yield columns.content.like(
-                b"%" + util.escape_like_expression(self.content_contains) + b"%"
+            yield util.sqlorf(
+                columns.content.like(b"%" + util.escape_like_expression(substring) + b"%")
+                for substring in util.as_sequence(self.content_contains)
             )
         if self.content_prefix is not None:
-            yield columns.content.like(util.escape_like_expression(self.content_prefix) + b"%")
+            yield util.sqlorf(
+                columns.content.like(util.escape_like_expression(prefix) + b"%")
+                for prefix in util.as_sequence(self.content_prefix)
+            )
         if self.content_suffix is not None:
-            yield columns.content.like(b"%" + util.escape_like_expression(self.content_suffix))
+            yield util.sqlorf(
+                columns.content.like(b"%" + util.escape_like_expression(suffix))
+                for suffix in util.as_sequence(self.content_suffix)
+            )
 
 
 class MessageCreate(BaseRecordCreate):
-    direction: Annotated[MessageDirection, CLIOption(MessageDirection)]
-    content: Annotated[MessageContent, CLIOption(str)]
+    direction: MessageDirection
+    content: MessageContent
 
 
 class MessageUpdate(BaseRecordUpdate, total=False):

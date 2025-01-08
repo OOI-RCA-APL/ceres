@@ -4,11 +4,11 @@ from typing import Any, Mapping, cast
 
 from pydantic import BaseModel
 
+from ceres._internal.cli.shared import CliCommandFailed
 from ceres._internal.lazy import lazy_imports
 
 with lazy_imports(__name__):
     from ceres._internal import util
-    from ceres._internal.cli.plumbing import CLICommandFailed
     from ceres._internal.project import LoadedProject
     from ceres.data import simplify
     from ceres.status import Status
@@ -58,7 +58,7 @@ class Client:
                     except Exception:
                         content = await response.text()
 
-                    raise CLICommandFailed(content)
+                    raise CliCommandFailed(content)
 
                 return util.get_type_adapter(result).validate_python(await response.json())  # type: ignore
 

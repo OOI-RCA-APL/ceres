@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from typing import (
-    Annotated,
     ClassVar,
     Iterable,
     Literal,
@@ -12,12 +11,10 @@ from typing import (
 )
 from uuid import UUID
 
-from pydantic import Field
 from sqlalchemy import Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql.sqltypes import JSON, Text
 
-from ceres._internal.cli.plumbing import CLIOption
 from ceres._internal.entity import (
     BaseEntity,
     BaseEntityCreate,
@@ -80,14 +77,10 @@ class SettingFilterArgs(BaseItemFilterArgs[SettingField, SettingOrder], total=Fa
 
 
 class SettingFilter(BaseEntityFilter["Setting", SettingField, SettingOrder]):
-    user_id: Annotated[UUID | Sequence[UUID] | None, CLIOption(list[UUID] | None)] = Field(
-        default=None,
-        description="Filter by user ID(s).",
-    )
-    name: Annotated[str | Sequence[str] | None, CLIOption(list[str] | None)] = Field(
-        default=None,
-        description="Filter by name(s).",
-    )
+    user_id: UUID | Sequence[UUID] | None = None
+    """Match if `user_id` is equal to one or more given IDs."""
+    name: str | Sequence[str] | None = None
+    """Match if `name` is one or more given names."""
 
     @override
     def matches(self, obj: Setting) -> bool:
@@ -125,8 +118,8 @@ class SettingFilter(BaseEntityFilter["Setting", SettingField, SettingOrder]):
 
 class SettingCreate(BaseEntityCreate):
     user_id: UUID
-    name: Annotated[str, CLIOption(str)]
-    value: Annotated[FromYAML[JSONValue], CLIOption(str)]
+    name: str
+    value: FromYAML[JSONValue]
 
 
 class SettingUpdate(TypedDict, total=False):
