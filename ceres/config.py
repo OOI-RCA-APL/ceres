@@ -39,6 +39,7 @@ from pydantic import (
 from ceres._internal.lazy import lazy_imports
 from ceres._internal.typedecs import __Component__, __Sieve__
 from ceres.address import Address, DynamicAddress
+from ceres.alert import AlertFilter
 from ceres.data import (
     ImmutableDataObject,
     Name,
@@ -48,6 +49,7 @@ from ceres.data import (
     StrEnum,
 )
 from ceres.database.enums import DatabaseType
+from ceres.entity import EntityType
 from ceres.error import (
     ComponentError,
     ComponentInitExceptionError,
@@ -67,6 +69,9 @@ from ceres.error import (
     ValidationProblem,
 )
 from ceres.level import Level
+from ceres.logs import LogEntryFilter
+from ceres.message import MessageFilter
+from ceres.particle import ParticleFilter
 from ceres.result import Fail, Ok, Result
 from ceres.schedule import ScheduleExpr
 
@@ -109,6 +114,34 @@ class JobConfig(ConfigObject):
                 data["name"] = data["action"]
 
         return data
+
+
+class _BasePrunerConfig[TFilter](ConfigObject):
+    name: Name
+    prunes: EntityType
+    schedule: ScheduleExpr
+    filter: TFilter
+
+
+class MessagePrunerConfig(_BasePrunerConfig[MessageFilter]):
+    prunes: Literal[EntityType.MESSAGE] = EntityType.MESSAGE
+
+
+class ParticlePrunerConfig(_BasePrunerConfig[ParticleFilter]):
+    prunes: Literal[EntityType.PARTICLE] = EntityType.PARTICLE
+
+
+class AlertPrunerConfig(_BasePrunerConfig[AlertFilter]):
+    prunes: Literal[EntityType.ALERT] = EntityType.ALERT
+
+
+class LogEntryPrunerConfig(_BasePrunerConfig[LogEntryFilter]):
+    prunes: Literal[EntityType.LOG_ENTRY] = EntityType.LOG_ENTRY
+
+
+PrunerConfig: TypeAlias = (
+    MessagePrunerConfig | ParticlePrunerConfig | AlertPrunerConfig | LogEntryPrunerConfig
+)
 
 
 class SieveConfig(ConfigObject):
@@ -157,6 +190,9 @@ class ComponentConfig(ConfigObject):
     )
     arguments: Mapping[str, Any] = Field(default_factory=dict)
     jobs: Sequence[JobConfig] = Field(default_factory=list)
+    pruners: Sequence[Annotated[PrunerConfig, Field(discriminator="prunes")]] = Field(
+        default_factory=list
+    )
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     sieves: Sequence[SieveConfig] = Field(default_factory=list)
     components: Sequence[ComponentConfig] = Field(default_factory=list)
@@ -187,6 +223,19 @@ class ComponentConfig(ConfigObject):
             raise ValueError("'all' is a disallowed component name")
 
         return value
+
+    @field_validator("pruners", check_fields=False)
+    def _validate_pruners(
+        cls,
+        pruners: Sequence[PrunerConfig],
+        info: ValidationInfo,
+    ) -> Sequence[PrunerConfig]:
+        name: str = info.data.get("name", "<ERROR>")
+        for pruner_name, group in util.group_by(pruners, lambda current: current.name):
+            if len(list(group)) > 1:
+                raise ValueError(f"duplicate pruner name '{pruner_name}' in component '{name}'")
+
+        return pruners
 
     @field_validator("sieves", check_fields=False)
     def _validate_sieves(
