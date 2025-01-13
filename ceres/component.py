@@ -42,6 +42,7 @@ from ceres._internal.cli.plumbing import CLIOption
 from ceres._internal.filter import BaseFilter, BaseFilterArgs
 from ceres._internal.lazy import lazy_imports
 from ceres.address import Address, AddressSelector, DynamicAddress
+from ceres.config import PrunerConfig
 from ceres.connectivity import Connectivity
 from ceres.data import (
     ImmutableDataObject,
@@ -79,6 +80,7 @@ from ceres.event import (
     StoppingEvent,
     WillDetachEvent,
 )
+from ceres.manager.pruner import PrunerManager
 from ceres.node import InternalVariableName as InternalVariableName
 from ceres.node import Node
 from ceres.status import Status
@@ -162,6 +164,9 @@ class Component(ValidatedDataclass):
         return None
 
     def __static_jobs__(self) -> Iterable[JobConfig]:
+        return ()
+
+    def __static_pruners__(self) -> Iterable[PrunerConfig]:
         return ()
 
     def __static_sieves__(self) -> Iterable[SieveConfig]:
@@ -702,6 +707,13 @@ class ComponentSystem(Node):
         for job in jobs.values():
             self.jobs.add(job)
 
+        pruners = {pruner.name: pruner for pruner in self.component.__static_pruners__()}
+        pruners.update(
+            {pruner.name: pruner for pruner in (self.config.pruners if self.config else ())}
+        )
+        for pruner in pruners.values():
+            self.pruners.add(pruner)
+
         sieves = {sieve.name: sieve for sieve in self.component.__static_sieves__()}
         sieves.update({sieve.name: sieve for sieve in (self.config.sieves if self.config else ())})
         for sieve in sieves.values():
@@ -800,6 +812,10 @@ class ComponentSystem(Node):
     @cached_property
     def jobs(self) -> JobManager:
         return JobManager(self)
+
+    @cached_property
+    def pruners(self) -> PrunerManager:
+        return PrunerManager(self)
 
     @cached_property
     def sieves(self) -> SieveManager:
@@ -1247,6 +1263,7 @@ class ComponentSystem(Node):
                 super().__run__(),
                 self.__run_routines(),
                 self.jobs.__run__(),
+                self.pruners.__run__(),
                 self.sieves.__run__(),
             )
         except Exception:

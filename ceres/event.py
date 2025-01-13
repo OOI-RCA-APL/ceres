@@ -267,6 +267,54 @@ JobEvent: TypeAlias = (
 )
 
 
+class PrunerAddedEvent(__BaseStandardEvent):
+    type: Literal["pruner-added"] = "pruner-added"
+    pruner: str
+
+
+class PrunerRemovedEvent(__BaseStandardEvent):
+    type: Literal["pruner-removed"] = "pruner-removed"
+    pruner: str
+
+
+class PruneStartedEvent(__BaseStandardEvent):
+    type: Literal["prune-started"] = "prune-started"
+    pruner: str
+
+
+class PruneEndedEvent(__BaseStandardEvent):
+    type: Literal["prune-ended"] = "prune-ended"
+    pruner: str
+
+
+class PruneCompletedEvent(__BaseStandardEvent):
+    type: Literal["prune-completed"] = "prune-completed"
+    pruner: str
+    deleted: int
+
+
+class PruneCancelledEvent(__BaseStandardEvent):
+    type: Literal["prune-cancelled"] = "prune-cancelled"
+    pruner: str
+
+
+class PruneExceptionEvent(__BaseStandardEvent):
+    type: Literal["prune-exception"] = "prune-exception"
+    pruner: str
+    traceback: Sequence[str]
+
+
+PrunerEvent: TypeAlias = (
+    PrunerAddedEvent
+    | PrunerRemovedEvent
+    | PruneStartedEvent
+    | PruneEndedEvent
+    | PruneCompletedEvent
+    | PruneCancelledEvent
+    | PruneExceptionEvent
+)
+
+
 class SieveAddedEvent(__BaseStandardEvent):
     type: Literal["sieve-added"] = "sieve-added"
     sieve: str
@@ -372,13 +420,18 @@ StandardEvent: TypeAlias = (
     | LogEvent
     | RoutineEvent
     | JobEvent
+    | PrunerEvent
     | SieveEvent
     | ProcedureEvent
     | DatabaseEvent
 )
 
 ExceptionEvent: TypeAlias = (
-    RoutineExceptionEvent | JobExceptionEvent | ProcedureExceptionEvent | DatabaseExceptionEvent
+    RoutineExceptionEvent
+    | JobExceptionEvent
+    | PruneExceptionEvent
+    | ProcedureExceptionEvent
+    | DatabaseExceptionEvent
 )
 
 

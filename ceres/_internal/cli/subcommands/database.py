@@ -11,7 +11,8 @@ from ceres._internal.cli.plumbing import (
     CLIRouter,
 )
 from ceres._internal.lazy import lazy_imports
-from ceres.database.enums import DataFormat, EntityType
+from ceres.database.enums import DataFormat
+from ceres.entity import EntityType
 from ceres.timing import utc
 
 with lazy_imports(__name__):

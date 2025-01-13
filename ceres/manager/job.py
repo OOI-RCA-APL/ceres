@@ -4,6 +4,7 @@ import asyncio
 from asyncio import CancelledError
 from datetime import datetime
 from functools import lru_cache
+from threading import Lock
 
 from ceres._internal.lazy import lazy_imports
 from ceres.data import Name
@@ -20,8 +21,6 @@ from ceres.event import (
 )
 
 with lazy_imports(__name__):
-    from threading import Lock
-
     from apscheduler.job import Job as InternalJob
     from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
@@ -143,26 +142,29 @@ class JobManager:
         self._system.events.emit(JobStartedEvent, job=job.name)
         retry = 0
 
-        while True:
-            try:
-                await self._system.call(job.action, job.arguments)
-                self._system.events.emit(JobCompletedEvent, job=job.name)
-                break
-            except CancelledError:
-                self._system.events.emit(JobCancelledEvent, job=job.name)
-                raise
-            except Exception as exception:
-                self._system.events.emit(
-                    JobExceptionEvent,
-                    job=job.name,
-                    traceback=util.get_traceback(exception),
-                )
-                if retry >= job.retries:
+        try:
+            while True:
+                try:
+                    await self._system.call(job.action, job.arguments)
+                    self._system.events.emit(JobCompletedEvent, job=job.name)
                     break
+                except CancelledError:
+                    self._system.events.emit(JobCancelledEvent, job=job.name)
+                    raise
+                except Exception as exception:
+                    self._system.events.emit(
+                        JobExceptionEvent,
+                        job=job.name,
+                        traceback=util.get_traceback(exception),
+                    )
+                    if retry >= job.retries:
+                        break
 
-                self._system.events.emit(JobRetryPendingEvent, job=job.name, delay=job.retry_delay)
-                retry += 1
-                await asyncio.sleep(job.retry_delay.total_seconds())
-                self._system.events.emit(JobRetryEvent, job=job.name)
-
-        self._system.events.emit(JobEndedEvent, job=job.name)
+                    self._system.events.emit(
+                        JobRetryPendingEvent, job=job.name, delay=job.retry_delay
+                    )
+                    retry += 1
+                    await asyncio.sleep(job.retry_delay.total_seconds())
+                    self._system.events.emit(JobRetryEvent, job=job.name)
+        finally:
+            self._system.events.emit(JobEndedEvent, job=job.name)

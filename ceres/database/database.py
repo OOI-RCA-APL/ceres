@@ -33,7 +33,8 @@ from ceres._internal.lazy import lazy_imports
 from ceres._internal.util import PathLike
 from ceres.config import DatabaseConfig, PostgresDatabaseConfig, SQLiteDatabaseConfig
 from ceres.data import PasswordHash, jsonify
-from ceres.database.enums import DatabaseType, EntityType
+from ceres.database.enums import DatabaseType
+from ceres.entity import EntityType
 from ceres.error import DatabaseInitError, DatabaseLoadError, Failure
 from ceres.threading import spawn
 

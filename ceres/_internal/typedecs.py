@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from ceres.node import Node as __Node__
     from ceres.particle import Particle as _Particle
     from ceres.reference import Reference as __Reference__
+    from ceres.setting import Setting as __Setting__
     from ceres.sieve import Sieve as __Sieve__
     from ceres.user import User as __User__
     from ceres.variable import Variable as __Variable__
@@ -20,8 +21,8 @@ if TYPE_CHECKING:
     __Particle__ = _Particle[Any]
 else:
     __Alert__ = object
-    __Component__ = object
     __ComponentSystem__ = object
+    __Component__ = object
     __Database__ = object
     __Engine__ = object
     __LogEntry__ = object
@@ -29,10 +30,13 @@ else:
     __Node__ = object
     __Particle__ = object
     __Reference__ = object
+    __Setting__ = object
+    __Sieve__ = object
     __User__ = object
     __Variable__ = object
-    __Sieve__ = object
 
-__Entity__ = __Alert__ | __LogEntry__ | __Message__ | __User__ | __Variable__ | __Particle__
+__Entity__ = (
+    __Alert__ | __LogEntry__ | __Message__ | __User__ | __Variable__ | __Particle__ | __Setting__
+)
 __Item__ = __Alert__ | __LogEntry__ | __Message__ | __Variable__ | __Particle__
 __Record__ = __Alert__ | __LogEntry__ | __Message__ | __Particle__

@@ -23,8 +23,8 @@ with lazy_imports(__name__, export=True):
     from ceres.data import simplify as simplify
     from ceres.database.enums import DatabaseType as DatabaseType
     from ceres.database.enums import DataFormat as DataFormat
-    from ceres.database.enums import EntityType as EntityType
     from ceres.directory import Directory as Directory
+    from ceres.entity import EntityType as EntityType
     from ceres.event import Event as Event
     from ceres.event import StandardEvent as StandardEvent
     from ceres.level import Level as Level

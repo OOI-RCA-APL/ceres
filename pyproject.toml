@@ -73,6 +73,7 @@ extend-select = ["I"]
 include = ["ceres", "tests"]
 reportImplicitOverride = true
 reportIncompatibleVariableOverride = false
+reportMatchNotExhaustive = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

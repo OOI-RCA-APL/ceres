@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from ceres._internal.typedecs import __Entity__
 from ceres.data import StrEnum
 
 
@@ -12,53 +11,3 @@ class DatabaseType(StrEnum):
 class DataFormat(StrEnum):
     CSV = "csv"
     SQLITE = "sqlite"
-
-
-class EntityType(StrEnum):
-    MESSAGE = "message"
-    ALERT = "alert"
-    LOG_ENTRY = "log-entry"
-    USER = "user"
-    VARIABLE = "variable"
-
-    @property
-    def table(self) -> str:
-        match self:
-            case EntityType.MESSAGE:
-                return "messages"
-            case EntityType.ALERT:
-                return "alerts"
-            case EntityType.LOG_ENTRY:
-                return "log_entries"
-            case EntityType.USER:
-                return "users"
-            case EntityType.VARIABLE:
-                return "variables"
-
-        raise ValueError(self)
-
-    @property
-    def cls(self) -> type[__Entity__]:
-        match self:
-            case EntityType.MESSAGE:
-                from ceres.message import Message
-
-                return Message
-            case EntityType.ALERT:
-                from ceres.alert import Alert
-
-                return Alert
-            case EntityType.LOG_ENTRY:
-                from ceres.logs import LogEntry
-
-                return LogEntry
-            case EntityType.USER:
-                from ceres.user import User
-
-                return User
-            case EntityType.VARIABLE:
-                from ceres.variable import Variable
-
-                return Variable
-
-        raise ValueError(self)
