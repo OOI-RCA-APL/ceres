@@ -1187,6 +1187,7 @@ def blackhole(any: Any, /) -> None:
 
 if TYPE_CHECKING:
     from ceres.component import Component, ComponentSystem
+    from ceres.engine import Engine
 
 
 @overload
@@ -1216,15 +1217,19 @@ def as_component_system(obj: ComponentSystem | Component, /) -> ComponentSystem:
 def as_component_system(obj: ComponentSystem | Component | None, /) -> ComponentSystem | None: ...
 
 
-def as_component_system(obj: ComponentSystem | Component | None, /) -> ComponentSystem | None:
+@overload
+def as_component_system(obj: object | None, /) -> ComponentSystem | None: ...
+
+
+def as_component_system(obj: object | None, /) -> ComponentSystem | None:
     from ceres.component import Component, ComponentSystem
 
     if isinstance(obj, ComponentSystem):
         return obj
-    if not isinstance(obj, Component):
-        return None
+    if isinstance(obj, Component):
+        return obj.system
 
-    return obj.system
+    return None
 
 
 def as_components(objects: Iterable[ComponentSystem | Component | None], /) -> list[Component]:
@@ -1248,6 +1253,15 @@ def as_component_systems(
             systems.append(system)
 
     return systems
+
+
+def as_engine(obj: object | None, /) -> Engine | None:
+    from ceres.engine import Engine
+
+    if isinstance(obj, Engine):
+        return obj
+
+    return None
 
 
 def model_apply_overrides[T: BaseModel](model: T, overrides: T | None) -> T:

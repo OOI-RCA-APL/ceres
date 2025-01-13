@@ -6,12 +6,14 @@ from typing import Any, override
 import pytest
 
 from ceres import Component, Event, Level, Ref, action, listener, query
+from ceres.address import Address
 from ceres.component import (
     RoutineBinding,
     RoutineRestartPolicy,
     get_component_routine_bindings,
     routine,
 )
+from ceres.engine import Engine
 from ceres.error import (
     Failure,
     ProcedureInternalError,
@@ -27,6 +29,91 @@ from ceres.event import (
     RoutineStartedEvent,
     RoutineStoppedEvent,
 )
+
+
+def test_assign_engine_root_component() -> None:
+    engine = Engine()
+
+    root = Component()
+    engine.root = root
+    assert engine.root is root.system
+    assert root.system.engine is engine
+
+
+def test_assign_engine_root_component_system() -> None:
+    engine = Engine()
+
+    root = Component()
+    engine.root = root.system
+    assert engine.root is root.system
+    assert root.system.engine is engine
+
+
+def test_detach_from_engine() -> None:
+    engine = Engine()
+
+    root = Component()
+    engine.root = root
+    assert engine.root is root.system
+    assert root.system.engine is engine
+
+    root.system.detach()
+    assert engine.root is None
+    assert root.system.engine is None
+    assert root.system.container is None
+
+    root.system.detach()
+    assert engine.root is None
+    assert root.system.engine is None
+    assert root.system.container is None
+
+
+@pytest.mark.parametrize(["with_engine"], [[True], [False]])
+def test_tree(with_engine: bool) -> None:
+    engine = Engine() if with_engine else None
+
+    root = Component(__with_name__="root")
+    child = Component(__with_name__="child")
+    grandchild = Component(__with_name__="grandchild")
+
+    if engine is not None:
+        engine.root = root
+
+    root.system.attach(child)
+    child.system.attach(grandchild)
+
+    assert root.system.container is engine
+    assert root.system.parent is None
+    assert root.system.engine is engine
+
+    assert child.system.container is root.system
+    assert child.system.parent is root.system
+    assert child.system.engine is engine
+
+    assert grandchild.system.container is child.system
+    assert grandchild.system.parent is child.system
+    assert grandchild.system.engine is engine
+
+    assert root.system.children == [child.system]
+    assert child.system.children == [grandchild.system]
+    assert grandchild.system.children == []
+
+    assert root.system.address == Address.ROOT
+    assert child.system.address == Address("@child")
+    assert grandchild.system.address == Address("@child.grandchild")
+
+    assert root.system.database is child.system.database is grandchild.system.database
+
+    grandchild.system.detach()
+    assert grandchild.system.container is None
+    assert grandchild.system.parent is None
+    assert child.system.children == []
+    assert grandchild.system.database is not child.system.database
+
+    child.system.detach()
+    assert child.system.container is None
+    assert child.system.parent is None
+    assert root.system.children == []
 
 
 async def test_listeners() -> None:

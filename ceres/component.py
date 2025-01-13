@@ -37,6 +37,7 @@ from typing import (
 
 from pydantic import ConfigDict, Field, PositiveFloat, ValidationError
 from pydantic.fields import FieldInfo
+from sqlalchemy.util.typing import TypeAlias
 
 from ceres._internal.cli.plumbing import CLIOption
 from ceres._internal.filter import BaseFilter, BaseFilterArgs
@@ -90,7 +91,7 @@ with lazy_imports(__name__):
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from ceres._internal import util
-    from ceres._internal.util import OrderedWeakSet, Undefined, WeakRef
+    from ceres._internal.util import OrderedWeakSet, Undefined
     from ceres.config import ComponentConfig, JobConfig, SieveConfig
     from ceres.database import Database
     from ceres.manager.job import JobManager
@@ -137,6 +138,12 @@ class ComponentFilter(BaseFilter):
         return True
 
 
+if TYPE_CHECKING:
+    _Container: TypeAlias = "ComponentSystem | Engine | None"
+else:
+    _Container = object
+
+
 @dataclass_transform(
     kw_only_default=True,
     field_specifiers=(Field, FieldInfo),
@@ -144,16 +151,19 @@ class ComponentFilter(BaseFilter):
 class Component(ValidatedDataclass):
     __with_name__: InitVar[Name | None] = field(default=None)
     __with_config__: InitVar[ComponentConfig | None] = field(default=None)
+    __with_container__: InitVar[_Container] = field(default=None)
 
     def __post_init__(
         self,
         __with_name__: Name | None = None,
         __with_config__: ComponentConfig | None = None,
+        __with_container__: ComponentSystem | Engine | None = None,
     ) -> None:
         self.__system = ComponentSystem(
             self,
             __with_name__=__with_name__,
             __with_config__=__with_config__,
+            __with_container__=__with_container__,
         )
         self.__setup__()
 
@@ -683,6 +693,7 @@ class ComponentSystem(Node):
         *,
         __with_config__: ComponentConfig | None = None,
         __with_name__: Name | None = None,
+        __with_container__: ComponentSystem | Engine | None = None,
     ) -> None:
         super().__init__()
 
@@ -692,13 +703,18 @@ class ComponentSystem(Node):
         self._name = __with_name__
         self.__config__: ComponentConfig | None = __with_config__
         self._referencers: Final[OrderedWeakSet[ComponentSystem]] = OrderedWeakSet()
+        self._container: ComponentSystem | Engine | None = __with_container__
         self._children: Final[dict[Name, ComponentSystem]] = {}
-        self._parent: WeakRef[ComponentSystem] | None = None
         self._enabled = False
-        self._engine: Engine | None = None
         self._database: Database | None = None
         self._component: Final[Component] = component
         self._component.__bind__(self)
+
+        if self._container is not None:
+            if isinstance(self._container, ComponentSystem):
+                self._container.attach(self)
+            else:
+                self._container.root = self
 
         self.sync_references()
 
@@ -732,10 +748,7 @@ class ComponentSystem(Node):
     @property
     @override
     def __container__(self) -> Node | None:
-        if self.parent is not None:
-            return self.parent
-
-        return self.engine
+        return self._container
 
     @property
     @override
@@ -749,37 +762,52 @@ class ComponentSystem(Node):
         return Address.ROOT
 
     @property
+    def container(self) -> ComponentSystem | Engine | None:
+        """
+        Get the container of the component system, which is either another `ComponentSystem` as its
+        parent, or an `Engine`. Returns `None` if the component has no parent or containing engine.
+        """
+        return self._container
+
+    # @container.setter
+    # def container(self, container: Component | ComponentSystem | Engine | None) -> None:
+    #     if isinstance(container, Component):
+    #         container = container.system
+
+    #     previous = self._container
+    #     if previous is not None and previous is not container:
+    #         self.detach()
+
+    #     self._container = container
+    #     if container is not None:
+    #         if isinstance(container, ComponentSystem):
+    #             container.attach(self)
+    #         else:
+    #             if container._root is not self:
+    #                 container._root = self
+
+    @property
     @override
     def engine(self) -> Engine | None:
         """
-        Get the engine this component is part of. Returns `None` if the component is not part of any
-        engine.
+        Get the engine this component is contained by. Returns `None` if the component is not
+        contained by any engine.
         """
+        container = self._container
+        if container is None:
+            return None
 
-        if self.parent is not None:
-            return self.parent.engine
-        if self._engine is not None:
-            return self._engine
-
-        return None
-
-    @engine.setter
-    def engine(self, engine: Engine) -> None:
-        """
-        Bind the component to a given engine.
-        """
-        self._engine = engine
+        return container.engine
 
     @property
     @override
     def database(self) -> Database:
-        if self.parent is not None:
-            return self.parent.database
-        if self.engine is not None:
-            return self.engine.database
+        container = self._container
+        if container is not None:
+            return container.database
+
         if self._database is None:
             self._database = Database()
-
         return self._database
 
     @property
@@ -804,10 +832,7 @@ class ComponentSystem(Node):
         """
         Get the parent component's system if it exists, or return `None`.
         """
-        if self._parent is None:
-            return None
-
-        return self._parent()
+        return util.as_component_system(self._container)
 
     @cached_property
     def jobs(self) -> JobManager:
@@ -1099,16 +1124,35 @@ class ComponentSystem(Node):
             child.name = name
 
         self._children[child.name] = child
-        child._parent = WeakRef(self)
+        child._container = self
 
         self.__propagate_tree_change()
         child.events.emit(AttachedEvent)
 
     def detach(self) -> None:
         """
-        Remove the component from its parent's children. If the component has no parent, this does
-        nothing.
+        Remove the component from its container (either its parent component, or its containing
+        engine). If the component has no container, this does nothing.
         """
+        if self._container is None:
+            return
+
+        engine = util.as_engine(self._container)
+        if engine is not None:
+            self.events.emit(WillDetachEvent)
+            address_before = self.address
+            logging_before = self.get_resolved_logging_config()
+
+            engine._root = None
+            self._container = None
+            self.__propagate_tree_change()
+
+            engine.events.propagate(
+                DetachedEvent(address=address_before),
+                logging=logging_before,
+            )
+            return
+
         parent = self.parent
         if parent is None:
             return
@@ -1120,19 +1164,21 @@ class ComponentSystem(Node):
                 self.events.emit(WillDetachEvent)
 
                 address_before = self.address
+                logging_before = self.get_resolved_logging_config()
+
                 parent._children.pop(self.name, None)
-                self._parent = None
+                self._container = None
 
                 self.__propagate_tree_change()
                 parent.__propagate_tree_change()
 
                 parent.events.propagate(
                     DetachedEvent(address=address_before),
-                    logging=self.get_resolved_logging_config(),
+                    logging=logging_before,
                 )
                 self.events.emit(DetachedEvent)
         finally:
-            self._parent = None
+            self._container = None
 
     @override
     def get_component(

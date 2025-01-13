@@ -77,7 +77,8 @@ from ceres.schedule import ScheduleExpr
 
 with lazy_imports(__name__):
     from ceres._internal import util
-    from ceres.component import Component
+    from ceres.component import Component, ComponentSystem
+    from ceres.engine import Engine
     from ceres.sieve import Sieve
 
 
@@ -208,11 +209,9 @@ class ComponentConfig(ConfigObject):
 
     @model_validator(mode="after")
     def _validate_arguments(self) -> Self:
-        if "__with_name__" in self.arguments:
-            raise ValueError("'__with_name__' is a reserved argument name")
-
-        if "__with_config__" in self.arguments:
-            raise ValueError("'__with_config__' is a reserved argument name")
+        for argument in self.arguments:
+            if argument.startswith("__with"):
+                raise ValueError(f"arguments starting with '__with' are reserved, got '{argument}'")
 
         self.cls(**self.arguments)
         return self
@@ -267,11 +266,10 @@ class ComponentConfig(ConfigObject):
 
     def create(
         self,
-        *,
-        parent: Component | None = None,
-        address: Address | None = None,
+        container: Component | ComponentSystem | Engine | None = None,
     ) -> Result[Component, list[ComponentError]]:
-        instance, errors = self._try_create(parent=parent, address=address)
+        container = util.as_component_system(container) or util.as_engine(container)
+        instance, errors = self._try_create(container)
         if errors or instance is None:
             return Fail(errors)
 
@@ -279,24 +277,24 @@ class ComponentConfig(ConfigObject):
 
     def _try_create(
         self,
-        *,
-        parent: Component | None = None,
-        address: Address | None = None,
+        container: ComponentSystem | Engine | None,
     ) -> tuple[Component | None, list[ComponentError]]:
         from ceres.reference import unref
 
-        if address is None:
-            if parent is not None:
-                address = parent.system.address / self.name
-            else:
-                address = Address.ROOT
+        parent = util.as_component_system(container)
+        if parent is not None:
+            address = parent.address / self.name
+        else:
+            address = Address.ROOT
 
         errors: list[ComponentError] = []
-        instance = self._create(address=address, errors=errors)
-        if instance is not None and not errors:
-            if parent is not None:
-                parent.system.attach(instance)
+        instance = self._create(
+            address=address,
+            container=container,
+            errors=errors,
+        )
 
+        if instance is not None and not errors:
             components = instance.system.get_components(inclusive=True)
             for component in components:
                 _, unresolved = component.system.sync_references()
@@ -311,17 +309,24 @@ class ComponentConfig(ConfigObject):
                             )
                         )
 
-        if instance is not None and errors:
+        if errors and instance is not None:
             instance.system.detach()
 
         return instance, errors
 
-    def _create(self, *, address: Address, errors: list[ComponentError]) -> Component | None:
+    def _create(
+        self,
+        *,
+        address: Address,
+        container: ComponentSystem | Engine | None,
+        errors: list[ComponentError],
+    ) -> Component | None:
         try:
             instance = self.cls(
                 **self.arguments,
                 __with_name__=self.name,
                 __with_config__=self,
+                __with_container__=container,
             )
         except ValidationError as error:
             errors.append(
@@ -341,14 +346,13 @@ class ComponentConfig(ConfigObject):
             return None
 
         for child_config in self.components:
-            child = child_config._create(
+            child_config._create(
                 address=address / child_config.name,
+                container=instance.system,
                 errors=errors,
             )
 
-            if child is not None:
-                instance.system.attach(child, name=child_config.name)
-
+        assert instance.system.container is container
         return instance
 
     def get_component(self, address: DynamicAddress) -> ComponentConfig | None:

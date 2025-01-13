@@ -17,7 +17,7 @@ from ceres.config import ComponentConfig, Config, ConfigCheckType, ConfigSource
 from ceres.data import ImmutableDataObject, PasswordHash, jsonify
 from ceres.directory import Directory
 from ceres.error import ConfigError, Failure, ReloadConfigInvalidError, ReloadError
-from ceres.event import StoppedEvent, StoppingEvent
+from ceres.event import AttachedEvent, StoppedEvent, StoppingEvent
 from ceres.node import Node
 from ceres.result import Fail, Ok, Result
 
@@ -103,9 +103,18 @@ class Engine(Node):
 
     @root.setter
     def root(self, root: ComponentSystem | Component | None) -> None:
-        self._root = util.as_component_system(root)
-        if self._root is not None:
-            self._root.engine = self
+        root = util.as_component_system(root)
+        previous = self._root
+        if previous is root:
+            return
+
+        if previous is not None and previous.container is self:
+            previous.detach()
+
+        self._root = root
+        if root is not None and root.container is not self:
+            root._container = self
+            root.events.emit(AttachedEvent)
 
     @property
     @override
@@ -485,10 +494,10 @@ class Engine(Node):
     ) -> Component | None:
         for action in actions:
             if root_component is not None:
-                parent = root_component.system.get_component(action.address.parent)
+                container = root_component.system.get_component(action.address.parent)
                 component = root_component.system.get_component(action.address)
             else:
-                parent = None
+                container = self
                 component = None
 
             config = root_config.get_component(action.address)
@@ -514,7 +523,7 @@ class Engine(Node):
 
                         continue
 
-                    match config.create(parent=parent):
+                    match config.create(container):
                         case Ok(component):
                             for current in component.system.get_components(inclusive=True):
                                 if not silent:
@@ -548,7 +557,7 @@ class Engine(Node):
                                 f"Component at '{action.address}' does not exist. Creating..."
                             )
 
-                    match config.create(parent=parent):
+                    match config.create(container):
                         case Ok(component):
                             for current in component.system.get_components(inclusive=True):
                                 if not silent:
