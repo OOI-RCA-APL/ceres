@@ -24,6 +24,7 @@ with lazy_imports(__name__, export=True):
     from ceres.database.enums import DatabaseType as DatabaseType
     from ceres.database.enums import DataFormat as DataFormat
     from ceres.directory import Directory as Directory
+    from ceres.engine import Engine as Engine
     from ceres.entity import EntityType as EntityType
     from ceres.event import Event as Event
     from ceres.event import StandardEvent as StandardEvent

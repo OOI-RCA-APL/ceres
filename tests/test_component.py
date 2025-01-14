@@ -5,15 +5,13 @@ from typing import Any, override
 
 import pytest
 
-from ceres import Component, Event, Level, Ref, action, listener, query
+from ceres import Component, Engine, Event, Level, Ref, action, listener, query, routine
 from ceres.address import Address
 from ceres.component import (
     RoutineBinding,
     RoutineRestartPolicy,
     get_component_routine_bindings,
-    routine,
 )
-from ceres.engine import Engine
 from ceres.error import (
     Failure,
     ProcedureInternalError,
