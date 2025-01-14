@@ -14,10 +14,10 @@ from ceres._internal.server import Server
 from ceres.address import Address, AddressSelector, DynamicAddress
 from ceres.component import Component, ComponentFilter, ComponentFilterArgs, ComponentSystem
 from ceres.config import ComponentConfig, Config, ConfigCheckType, ConfigSource
-from ceres.data import ImmutableDataObject, PasswordHash, jsonify
+from ceres.data import ImmutableDataObject, Name, PasswordHash, jsonify
 from ceres.directory import Directory
 from ceres.error import ConfigError, Failure, ReloadConfigInvalidError, ReloadError
-from ceres.event import StoppedEvent, StoppingEvent
+from ceres.event import AttachedEvent, StoppedEvent, StoppingEvent
 from ceres.node import Node
 from ceres.result import Fail, Ok, Result
 
@@ -80,6 +80,16 @@ class EngineActions(ImmutableDataObject):
 
 @final
 class Engine(Node):
+    __slots__ = (
+        "_loaded",
+        "_config",
+        "_config_path",
+        "_apply_lock",
+        "_database",
+        "_root",
+        "_server",
+    )
+
     def __init__(self) -> None:
         super().__init__()
 
@@ -102,10 +112,8 @@ class Engine(Node):
         return self._root
 
     @root.setter
-    def root(self, root: ComponentSystem | Component | None) -> None:
-        self._root = util.as_component_system(root)
-        if self._root is not None:
-            self._root.engine = self
+    def root(self, root: Component | ComponentSystem | None) -> None:
+        self.__set_root(root)
 
     @property
     @override
@@ -207,6 +215,18 @@ class Engine(Node):
 
         return self._root.get_components(filter, inclusive=True, **kwargs)
 
+    def attach(
+        self,
+        root: Component | ComponentSystem,
+        /,
+        name: Name | None = None,
+    ) -> Component | None:
+        """
+        Attach a component as the root component of the engine. If there is already a root component
+        set, it will be detached and returned. Otherwise returns `None`.
+        """
+        return self.__set_root(root, name)
+
     async def load(
         self,
         source: ConfigSource[Config],
@@ -256,6 +276,31 @@ class Engine(Node):
 
     async def verify_password(self, password: str, hash: PasswordHash) -> bool:
         return await self._database.verify_password(password, hash)
+
+    def __set_root(
+        self,
+        root: Component | ComponentSystem | None,
+        name: Name | None = None,
+    ) -> Component | None:
+        root = util.as_component_system(root)
+        previous = self._root
+        if previous is root:
+            return
+
+        if previous is not None and previous.container is self:
+            previous.detach()
+
+        if root is not None:
+            root.detach()
+            if name is not None:
+                root.name = name
+
+        self._root = root
+        if root is not None and root.container is not self:
+            root._container = self
+            root.events.emit(AttachedEvent)
+
+        return previous.component if previous is not None else None
 
     async def __load_database(self) -> None:
         if not await self.database.initialized():
@@ -383,7 +428,7 @@ class Engine(Node):
                     self.log.info(
                         f"Assigning new configuration in-place for '{component.system.address}'."
                     )
-                    component.system.__config__ = component_config
+                    component.system.config = component_config
 
                 component.system.sync_child_order()
 
@@ -442,13 +487,13 @@ class Engine(Node):
             case (component, config):
                 pass
 
-        include = {"name", "cls", "class", "arguments"}
+        exclude = {"components"}
         old = (
             {}
             if component.system.config is None
-            else component.system.config.model_dump(include=include)
+            else component.system.config.model_dump(exclude=exclude)
         )
-        new = config.model_dump(include=include)
+        new = config.model_dump(exclude=exclude)
 
         if old != new:
             affected = [address]
@@ -485,10 +530,10 @@ class Engine(Node):
     ) -> Component | None:
         for action in actions:
             if root_component is not None:
-                parent = root_component.system.get_component(action.address.parent)
+                container = root_component.system.get_component(action.address.parent)
                 component = root_component.system.get_component(action.address)
             else:
-                parent = None
+                container = self
                 component = None
 
             config = root_config.get_component(action.address)
@@ -514,7 +559,7 @@ class Engine(Node):
 
                         continue
 
-                    match config.create(parent=parent):
+                    match config.create(container):
                         case Ok(component):
                             for current in component.system.get_components(inclusive=True):
                                 if not silent:
@@ -548,7 +593,7 @@ class Engine(Node):
                                 f"Component at '{action.address}' does not exist. Creating..."
                             )
 
-                    match config.create(parent=parent):
+                    match config.create(container):
                         case Ok(component):
                             for current in component.system.get_components(inclusive=True):
                                 if not silent:

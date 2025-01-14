@@ -36,14 +36,14 @@ class Tasklet(ABC):
         """
         `True` if the tasklet is currently running.
         """
-        return not self.__tasklet__.stopped.is_set()
+        return not self.__tasklet_internal__.stopped.is_set()
 
     @property
     def stopping(self) -> bool:
         """
         `True` if the tasklet is presently in the process of stopping or completely stopped.
         """
-        return self.__tasklet__.stopping.is_set()
+        return self.__tasklet_internal__.stopping.is_set()
 
     @abstractmethod
     async def __run__(self) -> None: ...
@@ -58,15 +58,15 @@ class Tasklet(ABC):
         pass
 
     @property
-    def __tasklet__(self) -> _TaskletInternal:
-        if internal := self.__dict__.get(_INTERNAL_ATTRIBUTE_NAME):
+    def __tasklet_internal__(self) -> _TaskletInternal:
+        if internal := getattr(self, _INTERNAL_ATTRIBUTE_NAME, None):
             return cast(_TaskletInternal, internal)
 
         internal = _TaskletInternal()
         internal.stopping.set()
         internal.stopped.set()
 
-        self.__dict__[_INTERNAL_ATTRIBUTE_NAME] = internal
+        setattr(self, _INTERNAL_ATTRIBUTE_NAME, internal)
         return internal
 
     def start(
@@ -79,15 +79,17 @@ class Tasklet(ABC):
         Start the tasklet as a background task. If the tasklet is already running, this does
         nothing.
         """
-        if self.__tasklet__.task:
+        if self.__tasklet_internal__.task:
             return
 
-        self.__tasklet__.exception = None
-        self.__tasklet__.stopping.clear()
-        self.__tasklet__.stopped.clear()
+        self.__tasklet_internal__.exception = None
+        self.__tasklet_internal__.stopping.clear()
+        self.__tasklet_internal__.stopped.clear()
 
         task_run = asyncio.create_task(self.__run__(), name="tasklet-run")
-        task_exit = asyncio.create_task(self.__tasklet__.stopping.wait(), name="tasklet-exit")
+        task_exit = asyncio.create_task(
+            self.__tasklet_internal__.stopping.wait(), name="tasklet-exit"
+        )
 
         async def main() -> None:
             await util.wait_any(task_run, task_exit)
@@ -97,11 +99,11 @@ class Tasklet(ABC):
                     try:
                         task_run.result()
                     except Exception as exception:
-                        self.__tasklet__.exception = exception
+                        self.__tasklet_internal__.exception = exception
                         if on_exception:
                             on_exception(self, exception)
             finally:
-                self.__tasklet__.stopping.set()
+                self.__tasklet_internal__.stopping.set()
                 self.__stopping__()
                 await util.cancel(task_run, task_exit)
 
@@ -116,39 +118,39 @@ class Tasklet(ABC):
                     except Exception:
                         traceback.print_exc()
 
-                    self.__tasklet__.task = None
-                    self.__tasklet__.stopped.set()
+                    self.__tasklet_internal__.task = None
+                    self.__tasklet_internal__.stopped.set()
 
-        self.__tasklet__.task = asyncio.create_task(main(), name=str(type(self)))
+        self.__tasklet_internal__.task = asyncio.create_task(main(), name=str(type(self)))
 
     async def stop(self, raise_exceptions: bool = False) -> None:
         """
         Stop the tasklet and wait for it to stop completely. Calling this while the tasklet is
         already stopped does nothing and will return immediately.
         """
-        self.__tasklet__.stopping.set()
-        await self.__tasklet__.stopped.wait()
-        if raise_exceptions and self.__tasklet__.exception:
-            raise self.__tasklet__.exception
+        self.__tasklet_internal__.stopping.set()
+        await self.__tasklet_internal__.stopped.wait()
+        if raise_exceptions and self.__tasklet_internal__.exception:
+            raise self.__tasklet_internal__.exception
 
     async def wait_until_stopping(self) -> None:
         """
         Wait until the tasklet is stopping. Calling this while the tasklet is already stopped will
         return immediately.
         """
-        await self.__tasklet__.stopping.wait()
+        await self.__tasklet_internal__.stopping.wait()
 
     async def wait_until_stopped(self, raise_exceptions: bool = True) -> None:
         """
         Wait until the tasklet is stopped. Calling this while the tasklet is already stopped will
         return immediately.
         """
-        if not self.__tasklet__.task:
+        if not self.__tasklet_internal__.task:
             return
 
-        await self.__tasklet__.stopped.wait()
-        if raise_exceptions and self.__tasklet__.exception:
-            raise self.__tasklet__.exception
+        await self.__tasklet_internal__.stopped.wait()
+        if raise_exceptions and self.__tasklet_internal__.exception:
+            raise self.__tasklet_internal__.exception
 
     async def run(
         self,

@@ -54,6 +54,8 @@ class InternalVariableName(StrEnum):
     field_specifiers=(Field, FieldInfo),
 )
 class Node(Tasklet):
+    __slots__ = ("__tasklet__",)
+
     def __init__(self, /) -> None:
         super().__init__()
 
