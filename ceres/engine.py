@@ -451,13 +451,13 @@ class Engine(Node):
             case (component, config):
                 pass
 
-        include = {"name", "cls", "class", "arguments"}
+        exclude = {"components"}
         old = (
             {}
             if component.system.config is None
-            else component.system.config.model_dump(include=include)
+            else component.system.config.model_dump(exclude=exclude)
         )
-        new = config.model_dump(include=include)
+        new = config.model_dump(exclude=exclude)
 
         if old != new:
             affected = [address]
