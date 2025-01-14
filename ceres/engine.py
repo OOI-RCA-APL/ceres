@@ -80,6 +80,16 @@ class EngineActions(ImmutableDataObject):
 
 @final
 class Engine(Node):
+    __slots__ = (
+        "_loaded",
+        "_config",
+        "_config_path",
+        "_apply_lock",
+        "_database",
+        "_root",
+        "_server",
+    )
+
     def __init__(self) -> None:
         super().__init__()
 
@@ -418,7 +428,7 @@ class Engine(Node):
                     self.log.info(
                         f"Assigning new configuration in-place for '{component.system.address}'."
                     )
-                    component.system.__config__ = component_config
+                    component.system.config = component_config
 
                 component.system.sync_child_order()
 

@@ -687,6 +687,17 @@ warnings.filterwarnings(
 
 @final
 class ComponentSystem(Node):
+    __slots__ = (
+        "_name",
+        "_config",
+        "_referencers",
+        "_container",
+        "_children",
+        "_enabled",
+        "_database",
+        "_component",
+    )
+
     def __init__(
         self,
         component: Component,
@@ -701,7 +712,7 @@ class ComponentSystem(Node):
             __with_name__ = util.randstr(ascii_lowercase, 8)
 
         self._name = __with_name__
-        self.__config__: ComponentConfig | None = __with_config__
+        self._config: ComponentConfig | None = __with_config__
         self._referencers: Final[OrderedWeakSet[ComponentSystem]] = OrderedWeakSet()
         self._container: ComponentSystem | Engine | None = None
         self._children: Final[dict[Name, ComponentSystem]] = {}
@@ -712,6 +723,7 @@ class ComponentSystem(Node):
 
         if __with_container__ is not None:
             __with_container__.attach(self)
+            assert self._container is __with_container__
 
         self.sync_references()
 
@@ -796,7 +808,16 @@ class ComponentSystem(Node):
         """
         The configuration of the component, if available.
         """
-        return self.__config__
+        return self._config
+
+    @config.setter
+    def config(self, config: ComponentConfig | None) -> None:
+        """
+        Set the configuration of the component. Note this doesn't actually sync the component with
+        the configuration. It will only indicate to the engine, that this configuration is the one
+        currently applied. Generally, this is only for internal use and should not be used directly.
+        """
+        self._config = config
 
     @property
     @override
@@ -1486,11 +1507,11 @@ class ComponentSystem(Node):
             raise Failure(ProcedureInternalError(traceback=list(traceback)))
 
     def sync_child_order(self) -> None:
-        if self.__config__ is None:
+        if self._config is None:
             return
 
         order: list[ComponentSystem] = []
-        for config in self.__config__.components:
+        for config in self._config.components:
             component = self._children.get(config.name)
             if component is not None:
                 order.append(component)
