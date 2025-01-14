@@ -14,7 +14,7 @@ from ceres._internal.server import Server
 from ceres.address import Address, AddressSelector, DynamicAddress
 from ceres.component import Component, ComponentFilter, ComponentFilterArgs, ComponentSystem
 from ceres.config import ComponentConfig, Config, ConfigCheckType, ConfigSource
-from ceres.data import ImmutableDataObject, PasswordHash, jsonify
+from ceres.data import ImmutableDataObject, Name, PasswordHash, jsonify
 from ceres.directory import Directory
 from ceres.error import ConfigError, Failure, ReloadConfigInvalidError, ReloadError
 from ceres.event import AttachedEvent, StoppedEvent, StoppingEvent
@@ -102,19 +102,8 @@ class Engine(Node):
         return self._root
 
     @root.setter
-    def root(self, root: ComponentSystem | Component | None) -> None:
-        root = util.as_component_system(root)
-        previous = self._root
-        if previous is root:
-            return
-
-        if previous is not None and previous.container is self:
-            previous.detach()
-
-        self._root = root
-        if root is not None and root.container is not self:
-            root._container = self
-            root.events.emit(AttachedEvent)
+    def root(self, root: Component | ComponentSystem | None) -> None:
+        self.__set_root(root)
 
     @property
     @override
@@ -216,6 +205,18 @@ class Engine(Node):
 
         return self._root.get_components(filter, inclusive=True, **kwargs)
 
+    def attach(
+        self,
+        root: Component | ComponentSystem,
+        /,
+        name: Name | None = None,
+    ) -> Component | None:
+        """
+        Attach a component as the root component of the engine. If there is already a root component
+        set, it will be detached and returned. Otherwise returns `None`.
+        """
+        return self.__set_root(root, name)
+
     async def load(
         self,
         source: ConfigSource[Config],
@@ -265,6 +266,31 @@ class Engine(Node):
 
     async def verify_password(self, password: str, hash: PasswordHash) -> bool:
         return await self._database.verify_password(password, hash)
+
+    def __set_root(
+        self,
+        root: Component | ComponentSystem | None,
+        name: Name | None = None,
+    ) -> Component | None:
+        root = util.as_component_system(root)
+        previous = self._root
+        if previous is root:
+            return
+
+        if previous is not None and previous.container is self:
+            previous.detach()
+
+        if root is not None:
+            root.detach()
+            if name is not None:
+                root.name = name
+
+        self._root = root
+        if root is not None and root.container is not self:
+            root._container = self
+            root.events.emit(AttachedEvent)
+
+        return previous.component if previous is not None else None
 
     async def __load_database(self) -> None:
         if not await self.database.initialized():

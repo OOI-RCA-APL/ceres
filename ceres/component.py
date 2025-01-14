@@ -703,18 +703,15 @@ class ComponentSystem(Node):
         self._name = __with_name__
         self.__config__: ComponentConfig | None = __with_config__
         self._referencers: Final[OrderedWeakSet[ComponentSystem]] = OrderedWeakSet()
-        self._container: ComponentSystem | Engine | None = __with_container__
+        self._container: ComponentSystem | Engine | None = None
         self._children: Final[dict[Name, ComponentSystem]] = {}
         self._enabled = False
         self._database: Database | None = None
         self._component: Final[Component] = component
         self._component.__bind__(self)
 
-        if self._container is not None:
-            if isinstance(self._container, ComponentSystem):
-                self._container.attach(self)
-            else:
-                self._container.root = self
+        if __with_container__ is not None:
+            __with_container__.attach(self)
 
         self.sync_references()
 
