@@ -769,23 +769,6 @@ class ComponentSystem(Node):
         """
         return self._container
 
-    # @container.setter
-    # def container(self, container: Component | ComponentSystem | Engine | None) -> None:
-    #     if isinstance(container, Component):
-    #         container = container.system
-
-    #     previous = self._container
-    #     if previous is not None and previous is not container:
-    #         self.detach()
-
-    #     self._container = container
-    #     if container is not None:
-    #         if isinstance(container, ComponentSystem):
-    #             container.attach(self)
-    #         else:
-    #             if container._root is not self:
-    #                 container._root = self
-
     @property
     @override
     def engine(self) -> Engine | None:
