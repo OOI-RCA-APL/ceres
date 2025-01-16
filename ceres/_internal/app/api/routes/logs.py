@@ -39,5 +39,8 @@ async def follow_log_entries(
     engine: CurrentEngine,
     filter: Annotated[FollowLogEntriesQueryParameters, Query()],
 ) -> None:
-    async for entry in engine.log.follow(filter):
-        await socket.send(entry)
+    async def write() -> None:
+        async for entry in engine.log.follow(filter):
+            await socket.send(entry)
+
+    await socket.execute(write)

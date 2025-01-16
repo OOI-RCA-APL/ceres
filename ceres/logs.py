@@ -85,13 +85,13 @@ class LogEntryFilterArgs(BaseRecordFilterArgs[LogEntryField, LogEntryOrder], tot
 
 class LogEntryFilter(BaseRecordFilter["LogEntry", LogEntryField, LogEntryOrder]):
     level: Level | Sequence[Level] | None = None
-    """Match log entries with the given log level(s)."""
+    """Filter by `level` being equal to one or more given levels."""
     content_contains: str | Sequence[str] | None = None
-    """Match log entries with content containing one or more given substrings."""
+    """Filter by `content` containing one or more given substrings."""
     content_prefix: str | Sequence[str] | None = None
-    """Filter, keeping only log entries with content that starts with the given string."""
+    """Filter by `content` starting with one or more given prefixes."""
     content_suffix: str | Sequence[str] | None = None
-    """Filter, keeping only log entries with content that ends with the given string."""
+    """Filter by `content` ending with one or more given suffixes."""
 
     @override
     def matches(self, obj: LogEntry, *, now: datetime | None = None) -> bool:

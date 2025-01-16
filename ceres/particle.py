@@ -162,7 +162,7 @@ class ParticleFilter(
     cls: ImportString[Type[_T]] | None = None
     """Filter by particles being instances of a specific data class."""
     type: str | Sequence[str] | None = None
-    """Filter by `type` being equal to one or more given particle types."""
+    """Filter by `type` being equal to one or more given types."""
     type_contains: str | Sequence[str] | None = None
     """Filter by `type` containing one or more given substrings."""
     type_prefix: str | Sequence[str] | None = None

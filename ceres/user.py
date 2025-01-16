@@ -100,13 +100,13 @@ class UserFilterArgs(BaseUUIDEntityFilterArgs[UserField, UserOrder], total=False
 
 class UserFilter(BaseUUIDEntityFilter["User", UserField, UserOrder]):
     username: str | Sequence[str] | None = None
-    """Match users where `username` is one or more given usernames."""
+    """Filter by `username` being equal to one or more given usernames."""
     email: str | Sequence[str] | None = None
-    """Match users where `email` is one or more given email addresses."""
+    """Filter by `email` being equal to one or more given email addresses."""
     role: UserRole | Sequence[UserRole] | None = None
-    """Match users where `role` is one or more given roles."""
+    """Filter by `role` being one or more given roles."""
     disabled: bool | None = None
-    """Match users where `disabled` is either `True` or `False`."""
+    """Filter by `disabled` being either `True` or `False`."""
 
     @classmethod
     @override

@@ -255,7 +255,7 @@ class Node(Tasklet):
             for component in self.get_components(filter, **kwargs)
         ]
 
-    async def stream_statuses(
+    async def follow_statuses(
         self,
         filter: ComponentFilter | None = None,
         **kwargs: Unpack[ComponentFilterArgs],

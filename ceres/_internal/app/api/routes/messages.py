@@ -41,5 +41,8 @@ async def follow_messages(
     engine: CurrentEngine,
     filter: Annotated[FollowMessagesQueryParameters, Query()],
 ) -> None:
-    async for message in engine.messages.follow(filter):
-        await socket.send(message)
+    async def write() -> None:
+        async for message in engine.messages.follow(filter):
+            await socket.send(message)
+
+    await socket.execute(write)

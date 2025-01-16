@@ -44,5 +44,8 @@ async def follow_statuses(
     engine: CurrentEngine,
     filter: Annotated[FollowStatusesQueryParameters, Query()],
 ) -> None:
-    async for statuses in engine.stream_statuses(filter):
-        await socket.send(statuses)
+    async def write() -> None:
+        async for statuses in engine.follow_statuses(filter):
+            await socket.send(statuses)
+
+    await socket.execute(write)

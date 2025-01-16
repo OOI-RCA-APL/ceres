@@ -78,9 +78,9 @@ class SettingFilterArgs(BaseItemFilterArgs[SettingField, SettingOrder], total=Fa
 
 class SettingFilter(BaseEntityFilter["Setting", SettingField, SettingOrder]):
     user_id: UUID | Sequence[UUID] | None = None
-    """Match if `user_id` is equal to one or more given IDs."""
+    """Filter by `user_id` being equal to one or more given UUIDs."""
     name: str | Sequence[str] | None = None
-    """Match if `name` is one or more given names."""
+    """Filter by `name` being equal to one or more given names."""
 
     @override
     def matches(self, obj: Setting) -> bool:

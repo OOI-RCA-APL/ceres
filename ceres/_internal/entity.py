@@ -318,7 +318,7 @@ class BaseUUIDEntityFilter[
     OrderT: str,
 ](BaseEntityFilter[EntityT, FieldT, OrderT]):
     id: UUID | Sequence[UUID] | None = None
-    """Match if `id` is equal to one or more given UUIDs."""
+    """Filter by `id` being equal to one or more given UUIDs."""
 
     @classmethod
     @abstractmethod

@@ -2,7 +2,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import TYPE_CHECKING, Annotated, Any, AsyncIterator, Mapping
+from typing import (
+    TYPE_CHECKING,
+    Annotated,
+    Any,
+    AsyncIterator,
+    Callable,
+    Coroutine,
+    Mapping,
+)
 from uuid import UUID
 
 from fastapi import (
@@ -36,6 +44,7 @@ with lazy_imports(__name__):
     import jwt
 
     from ceres._internal import util
+    from ceres._internal.server import Server
     from ceres.config import ServerAuthenticationConfig
 
 
@@ -63,6 +72,7 @@ CurrentCLI = Annotated[bool, Depends(_get_current_cli)]
 @dataclass
 class Socket:
     socket: WebSocket
+    server: Server
 
     async def send(self, data: Any) -> None:
         await self.socket.send_text(jsonify(data))
@@ -70,13 +80,17 @@ class Socket:
     async def receive(self) -> Any:
         await self.socket.receive_json()
 
+    async def execute(self, callback: Callable[[], Coroutine[Any, Any, Any]]) -> None:
+        await util.wait_any_then_cancel(callback(), self.server.wait_until_stopping())
 
-async def _use_current_socket(socket: WebSocket) -> AsyncIterator[Socket]:
+
+async def _use_current_socket(socket: WebSocket, engine: CurrentEngine) -> AsyncIterator[Socket]:
     from websockets.exceptions import ConnectionClosed
 
+    assert engine.server is not None
     try:
         await socket.accept()
-        yield Socket(socket)
+        yield Socket(socket, engine.server)
     except (WebSocketDisconnect, ConnectionClosed):
         pass
 

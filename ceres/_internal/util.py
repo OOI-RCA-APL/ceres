@@ -4,7 +4,7 @@ import asyncio
 import dataclasses
 import re
 import typing
-from asyncio import AbstractEventLoop, Task, TaskGroup
+from asyncio import AbstractEventLoop, Future, Task, TaskGroup
 from collections import OrderedDict, defaultdict
 from collections.abc import Set
 from contextlib import contextmanager
@@ -347,7 +347,7 @@ def is_iterable(obj: Any) -> TypeIs[Iterable[Any]]:
 
 
 def is_true_iterable(obj: Any) -> TypeIs[Iterable[Any]]:
-    return not is_stringy(obj) and is_iterable(obj)
+    return is_iterable(obj) and not is_stringy(obj) and not isinstance(obj, Future)
 
 
 def is_collection(obj: Any) -> TypeIs[Collection[Any]]:
@@ -364,7 +364,24 @@ def is_collection(obj: Any) -> TypeIs[Collection[Any]]:
 
 
 def is_true_collection(obj: Any) -> TypeIs[Collection[Any]]:
-    return not is_stringy(obj) and is_collection(obj)
+    return is_collection(obj) and not is_stringy(obj)
+
+
+def is_sequence(obj: Any) -> TypeIs[Sequence[Any]]:
+    if not isinstance(obj, Sequence):
+        return False
+
+    try:
+        len(obj)
+        iter(obj)
+    except Exception:
+        return False
+
+    return True
+
+
+def is_true_sequence(obj: Any) -> TypeIs[Sequence[Any]]:
+    return is_sequence(obj) and not is_stringy(obj)
 
 
 def is_mapping(obj: Any) -> TypeIs[Mapping[Any, Any]]:
@@ -662,19 +679,22 @@ def escape_like_expression(text: str | bytes) -> str | bytes:
     return text.replace(b"%", b"%%").replace(b"_", b"__")
 
 
-def flatten[T](value: Iterable[T | Iterable[T]]) -> Iterator[T]:
+type RecursiveIterable[T] = Iterable[T | RecursiveIterable[T]]
+type MaybeRecursiveIterable[T] = T | RecursiveIterable[T]
+
+
+def flatten[T](value: RecursiveIterable[T]) -> Iterator[T]:
     for current in value:
-        if not isinstance(current, Iterable):
-            yield current
+        if is_true_iterable(current):
+            yield from flatten(current)
         else:
-            yield from current
+            yield current
 
 
 def sqlorf(
     *expressions: Iterable[SQLColumnExpression[bool]],
 ) -> SQLColumnExpression[bool]:
-    flattened = list(flatten(expressions))
-    return or_(False, *flattened)
+    return or_(False, *flatten(expressions))
 
 
 BytesLike: TypeAlias = str | bytes | bytearray | memoryview
@@ -869,29 +889,19 @@ def strlist(value: str | Sequence[str] | None) -> list[str]:
     return list(value)
 
 
+@overload
+def as_sequence[T: StrLike](value: T) -> Sequence[T]: ...
+
+
+@overload
+def as_sequence[T](value: T | Sequence[T]) -> Sequence[T]: ...
+
+
 def as_sequence[T](value: T | Sequence[T]) -> Sequence[T]:
-    if not isinstance(value, str) and isinstance(value, Sequence):
+    if is_true_sequence(value):
         return value
 
-    return (value,)  # type: ignore
-
-
-@overload
-def coalesce[T, D](value: T | None, default: Callable[[], D]) -> T | D: ...
-
-
-@overload
-def coalesce[T, D](value: T | None, default: D) -> T | D: ...
-
-
-def coalesce(value: object, default: object) -> object:
-    if value is None:
-        if callable(default):
-            return default()
-
-        return default
-
-    return value
+    return (value,)
 
 
 def sequence[T](start: T, next: Callable[[T], T]) -> Iterator[T]:
@@ -901,30 +911,19 @@ def sequence[T](start: T, next: Callable[[T], T]) -> Iterator[T]:
         current = next(start)
 
 
-async def cancel(*tasks: Task[Any] | Iterable[Task[Any]]) -> None:
-    flattened: list[Task[Any]] = []
-    for current in tasks:
-        if isinstance(current, Task):
-            flattened.append(current)
-        else:
-            flattened.extend(current)
-
+async def cancel(*tasks: MaybeRecursiveIterable[Task[Any]]) -> None:
+    flattened = list(flatten(tasks))
     for task in flattened:
         task.cancel()
 
     await asyncio.gather(*flattened, return_exceptions=True)
 
 
-async def concurrently(*coroutines: Coroutine | None | Iterable[Coroutine | None]) -> None:
+async def concurrently(*coroutines: MaybeRecursiveIterable[Coroutine | None]) -> None:
     async with TaskGroup() as group:
-        for current in coroutines:
-            if isinstance(current, Iterable):
-                for coroutine in current:
-                    if coroutine is not None:
-                        group.create_task(coroutine)
-            else:
-                if current is not None:
-                    group.create_task(current)
+        for current in flatten(coroutines):
+            if current is not None:
+                group.create_task(current)
 
 
 async def _wait_many[T](
@@ -946,6 +945,13 @@ async def wait_all[T](
     *tasks: Task[T] | Coroutine[T, Any, Any],
 ) -> tuple[set[Task[T]], set[Task[T]]]:
     return await _wait_many(asyncio.ALL_COMPLETED, tasks)
+
+
+async def wait_any_then_cancel(
+    *tasks: Task[Any] | Coroutine[Any, Any, Any],
+) -> None:
+    done, pending = await wait_any(*tasks)
+    await cancel(pending)
 
 
 def upper_camel(string: str) -> str:
