@@ -27,7 +27,6 @@ class Server(Tasklet):
         hypercorn.keyfile_password = ssl.key_password
         hypercorn.certfile = str(ssl.cert) if ssl.cert is not None else None
         hypercorn.ca_certs = str(ssl.ca_certs) if ssl.ca_certs is not None else None
-        hypercorn.graceful_timeout = 0.1
 
         bind: list[str] = []
         insecure_bind: list[str] = []
