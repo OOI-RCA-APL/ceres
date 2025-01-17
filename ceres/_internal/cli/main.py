@@ -322,6 +322,7 @@ def main(args: Sequence[str] | None = None) -> None:
             cli_kebab_case=True,
             cli_parse_args=True,
             cli_use_class_docs_for_groups=True,
+            enable_decoding=False,
         )
 
         version: bool = False
