@@ -509,19 +509,11 @@ class BaseRecordFilter[
     BaseUUIDEntityFilter[RecordT, FieldT, OrderT],
 ):
     timestamp: DateTime | Sequence[DateTime] | None = None
-    """
-    Filter by `timestamp` being exactly equal to one or more given datetimes.
-    """
-
+    """Filter by `timestamp` being exactly equal to one or more given datetimes."""
     after: DateTime | None = None
-    """
-    Filter by `timestamp` being greater than or equal to a given datetime.
-    """
-
+    """Filter by `timestamp` being greater than or equal to a given datetime."""
     before: DateTime | None = None
-    """
-    Filter by `timestamp` being less than a given datetime.
-    """
+    """Filter by `timestamp` being less than a given datetime."""
 
     timespan: PositiveTimeDelta | None = None
     """
