@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated, Any, ClassVar, Iterable, Literal, Sequence, TypeAlias, override
+from typing import Annotated, Any, ClassVar, Iterable, Literal, TypeAlias, override
 
 from pydantic import BeforeValidator, PlainSerializer
 from sqlalchemy.orm import Mapped, mapped_column
@@ -18,6 +18,7 @@ from ceres._internal.entity import (
     BaseRecordUpdate,
 )
 from ceres._internal.lazy import lazy_imports
+from ceres._internal.types import MaybeSequence
 from ceres.data import StrEnum
 from ceres.database.enums import DatabaseType
 from ceres.timing import utc
@@ -96,19 +97,19 @@ MessageOrder: TypeAlias = (
 
 class MessageFilterArgs(BaseRecordFilterArgs[MessageField, MessageOrder], total=False):
     direction: MessageDirection | None
-    content_contains: MessageContent | Sequence[MessageContent] | None
-    content_prefix: MessageContent | Sequence[MessageContent] | None
-    content_suffix: MessageContent | Sequence[MessageContent] | None
+    content_contains: MaybeSequence[MessageContent] | None
+    content_prefix: MaybeSequence[MessageContent] | None
+    content_suffix: MaybeSequence[MessageContent] | None
 
 
 class MessageFilter(BaseRecordFilter["Message", MessageField, MessageOrder]):
     direction: MessageDirection | None = None
     """Filter by `direction`."""
-    content_contains: MessageContent | Sequence[MessageContent] | None = None
+    content_contains: MaybeSequence[MessageContent] | None = None
     """Filter by `content` containing one or more given byte substrings."""
-    content_prefix: MessageContent | Sequence[MessageContent] | None = None
+    content_prefix: MaybeSequence[MessageContent] | None = None
     """Filter by `content` starting with one or more given byte prefixes."""
-    content_suffix: MessageContent | Sequence[MessageContent] | None = None
+    content_suffix: MaybeSequence[MessageContent] | None = None
     """Filter by `content` ending with one or more given byte suffixes."""
 
     @override

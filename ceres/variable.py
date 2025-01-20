@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from typing import (
+    Any,
     ClassVar,
     Iterable,
     Literal,
-    Sequence,
     TypeAlias,
     TypedDict,
     override,
@@ -23,7 +23,8 @@ from ceres._internal.entity import (
     BaseItemRow,
 )
 from ceres._internal.lazy import lazy_imports
-from ceres.data import FromYAML, JSONValue
+from ceres._internal.types import MaybeSequence
+from ceres.data import FromYaml, Jsonable, JsonValue
 from ceres.database.enums import DatabaseType
 
 with lazy_imports(__name__):
@@ -37,7 +38,7 @@ class VariableRow(BaseItemRow, kw_only=True):
     __tablename__: ClassVar[str] = "variables"
 
     name: Mapped[str] = mapped_column(Text)
-    value: Mapped[JSONValue] = mapped_column(JSON)
+    value: Mapped[JsonValue] = mapped_column(JSON)
 
     @classmethod
     @override
@@ -71,11 +72,11 @@ VariableOrder: TypeAlias = (
 
 
 class VariableFilterArgs(BaseItemFilterArgs[VariableField, VariableOrder], total=False):
-    name: str | Sequence[str] | None
+    name: MaybeSequence[str] | None
 
 
 class VariableFilter(BaseItemFilter["Variable", VariableField, VariableOrder]):
-    name: str | Sequence[str] | None = None
+    name: MaybeSequence[str] | None = None
     """Filter by `name` being equal to one or more given names."""
     internal: bool | None = None
     """
@@ -125,12 +126,12 @@ class VariableFilter(BaseItemFilter["Variable", VariableField, VariableOrder]):
 
 class VariableCreate(BaseItemCreate):
     name: str
-    value: FromYAML[JSONValue]
+    value: FromYaml[Jsonable[Any]]
 
 
 class VariableUpdate(TypedDict, total=False):
     name: str
-    value: FromYAML[JSONValue]
+    value: FromYaml[Jsonable[Any]]
 
 
 class Variable(BaseItem, VariableCreate):

@@ -6,7 +6,6 @@ from ceres._internal.lazy import lazy_imports
 from ceres._internal.manager.entity import BaseEntityManager
 from ceres._internal.manager.manager import BaseBoundManager
 from ceres.alert import Alert, AlertFilter, AlertFilterArgs
-from ceres.data import JSONSerializableDict, simplify
 from ceres.event import AlertEvent
 from ceres.level import Level
 from ceres.stream import Stream
@@ -90,30 +89,30 @@ class BoundAlertManager(AlertManager, BaseBoundManager[Alert]):
         self,
         level: Level,
         code: str,
-        data: JSONSerializableDict[str, Any] | None = None,
+        data: dict[str, Any] | None = None,
     ) -> Alert:
         alert = Alert(
             address=self._node.address,
             level=level,
             type=code,
-            data=simplify(data) if data is not None else {},
+            data=data if data is not None else {},
         )
 
         self._node.store(alert)
         self._node.events.emit(AlertEvent, alert=alert)
         return alert
 
-    def debug(self, type: str, data: JSONSerializableDict[str, Any] | None = None) -> Alert:
+    def debug(self, type: str, data: dict[str, Any] | None = None) -> Alert:
         return self.emit(Level.DEBUG, type, data)
 
-    def info(self, type: str, data: JSONSerializableDict[str, Any] | None = None) -> Alert:
+    def info(self, type: str, data: dict[str, Any] | None = None) -> Alert:
         return self.emit(Level.INFO, type, data)
 
-    def warning(self, type: str, data: JSONSerializableDict[str, Any] | None = None) -> Alert:
+    def warning(self, type: str, data: dict[str, Any] | None = None) -> Alert:
         return self.emit(Level.WARNING, type, data)
 
-    def error(self, type: str, data: JSONSerializableDict[str, Any] | None = None) -> Alert:
+    def error(self, type: str, data: dict[str, Any] | None = None) -> Alert:
         return self.emit(Level.ERROR, type, data)
 
-    def critical(self, type: str, data: JSONSerializableDict[str, Any] | None = None) -> Alert:
+    def critical(self, type: str, data: dict[str, Any] | None = None) -> Alert:
         return self.emit(Level.CRITICAL, type, data)

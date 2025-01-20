@@ -9,7 +9,6 @@ from typing import (
     Iterable,
     Literal,
     Mapping,
-    Sequence,
     TypeAlias,
     TypedDict,
     override,
@@ -23,6 +22,7 @@ from sqlalchemy.types import Integer
 from ceres._internal.database.types import AddressMapper, DateTimeMapper, UUIDMapper
 from ceres._internal.filter import BaseFilter, BaseFilterArgs
 from ceres._internal.lazy import lazy_imports
+from ceres._internal.types import MaybeSequence
 from ceres.address import Address, AddressSelector
 from ceres.data import DateTime, ImmutableDataObject, PositiveTimeDelta
 from ceres.database.enums import DatabaseType
@@ -182,7 +182,7 @@ class BaseEntityFilterArgs[
     FieldT: str,
     OrderT: str,
 ](BaseFilterArgs, total=False):
-    order: OrderT | Sequence[OrderT] | None
+    order: MaybeSequence[OrderT] | None
     limit: NonNegativeInt | None
     offset: NonNegativeInt | None
 
@@ -192,7 +192,7 @@ class BaseEntityFilter[
     FieldT: str,
     OrderT: str,
 ](BaseFilter, ABC):
-    order: OrderT | Sequence[OrderT] | None = None
+    order: MaybeSequence[OrderT] | None = None
     """Specify ordering of results by field. Prefix field names with '-' for descending order."""
     limit: NonNegativeInt | None = None
     """Limit the number of returned results."""
@@ -309,7 +309,7 @@ class BaseUUIDEntityFilterArgs[
     FieldT: str,
     OrderT: str,
 ](BaseEntityFilterArgs[FieldT, OrderT], total=False):
-    id: UUID | Sequence[UUID] | None
+    id: MaybeSequence[UUID] | None
 
 
 class BaseUUIDEntityFilter[
@@ -317,7 +317,7 @@ class BaseUUIDEntityFilter[
     FieldT: str,
     OrderT: str,
 ](BaseEntityFilter[EntityT, FieldT, OrderT]):
-    id: UUID | Sequence[UUID] | None = None
+    id: MaybeSequence[UUID] | None = None
     """Filter by `id` being equal to one or more given UUIDs."""
 
     @classmethod
@@ -488,7 +488,7 @@ class BaseRecordFilterArgs[
     BaseUUIDEntityFilterArgs[FieldT, OrderT],
     total=False,
 ):
-    timestamp: DateTime | Sequence[DateTime] | None
+    timestamp: MaybeSequence[DateTime] | None
     before: DateTime | None
     after: DateTime | None
     timespan: PositiveTimeDelta | None
@@ -508,7 +508,7 @@ class BaseRecordFilter[
     BaseItemFilter[RecordT, FieldT, OrderT],
     BaseUUIDEntityFilter[RecordT, FieldT, OrderT],
 ):
-    timestamp: DateTime | Sequence[DateTime] | None = None
+    timestamp: MaybeSequence[DateTime] | None = None
     """Filter by `timestamp` being exactly equal to one or more given datetimes."""
     after: DateTime | None = None
     """Filter by `timestamp` being greater than or equal to a given datetime."""

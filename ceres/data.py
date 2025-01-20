@@ -12,13 +12,10 @@ from typing import (
     Callable,
     ClassVar,
     Literal,
-    Mapping,
     NewType,
-    Sequence,
     Sized,
     TypeAlias,
     TypedDict,
-    TypeVar,
     Unpack,
     dataclass_transform,
     override,
@@ -41,6 +38,7 @@ from pydantic.functional_serializers import PlainSerializer
 from pydantic.main import IncEx
 from pydantic_core import CoreSchema, SchemaSerializer, SchemaValidator
 from pydantic_extra_types.color import Color as Color
+from typing_extensions import TypeVar
 
 from ceres._internal import util
 from ceres._internal.util import NAME_PATTERN, PydanticDataclassLike
@@ -176,8 +174,8 @@ def __pre_validate_from_yaml(value: object) -> object:
 
 _T = TypeVar("_T")
 
-FromJSON: TypeAlias = Annotated[_T, BeforeValidator(__pre_validate_from_json)]
-FromYAML: TypeAlias = Annotated[_T, BeforeValidator(__pre_validate_from_yaml)]
+FromJson: TypeAlias = Annotated[_T, BeforeValidator(__pre_validate_from_json)]
+FromYaml: TypeAlias = Annotated[_T, BeforeValidator(__pre_validate_from_yaml)]
 
 
 def __validate_jsonable(value: object) -> object:
@@ -185,15 +183,6 @@ def __validate_jsonable(value: object) -> object:
         jsonify(value)
     except Exception as error:
         raise ValueError(f"not serializable to JSON: {error}")
-
-    return value
-
-
-def __validate_yamlable(value: object) -> object:
-    try:
-        yamlify(value)
-    except Exception as error:
-        raise ValueError(f"not serializable to YAML: {error}")
 
     return value
 
@@ -219,18 +208,17 @@ Number: TypeAlias = Annotated[
     PlainSerializer(__serialize_number),
 ]
 
-type JSONValue = None | bool | Number | str | JSONList | JSONDict
-JSONDict: TypeAlias = dict[str, JSONValue]
-JSONList: TypeAlias = list[JSONValue]
-JSONSerializable: TypeAlias = Annotated[_T, AfterValidator(__validate_jsonable)]
+type JsonValue = None | bool | Number | str | JsonList | JsonDict
+JsonDict: TypeAlias = dict[str, JsonValue]
+JsonList: TypeAlias = list[JsonValue]
 
-_TKey = TypeVar("_TKey")
-_TValue = TypeVar("_TValue")
+_TAny = TypeVar("_TAny", default=Any)
+Jsonable: TypeAlias = Annotated[_TAny, AfterValidator(__validate_jsonable)]
 
-JSONSerializableDict: TypeAlias = JSONSerializable[dict[_TKey, _TValue]]
-JSONSerializableMapping: TypeAlias = JSONSerializable[Mapping[_TKey, _TValue]]
-JSONSerializableList: TypeAlias = JSONSerializable[list[_TValue]]
-JSONSerializableSequence: TypeAlias = JSONSerializable[Sequence[_TValue]]
+_TKey = TypeVar("_TKey", default=str)
+_TValue = TypeVar("_TValue", default=Any)
+JsonableDict: TypeAlias = Jsonable[dict[str, _TValue]]
+JsonableList: TypeAlias = Jsonable[list[_TValue]]
 
 
 def __validate_non_empty(value: object) -> object:
@@ -248,7 +236,7 @@ class DataObject(BaseModel, ABC):
         extra="forbid",
         populate_by_name=True,
         use_attribute_docstrings=True,
-        # defer_build=True, # Uncomment when https://github.com/pydantic/pydantic/issues/7713 is fixed.
+        # defer_build=True,  # Uncomment when https://github.com/pydantic/pydantic/issues/7713 is fixed.
     )
 
     @override

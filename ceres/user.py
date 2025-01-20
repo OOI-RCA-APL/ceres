@@ -4,7 +4,6 @@ from typing import (
     ClassVar,
     Iterable,
     Literal,
-    Sequence,
     TypeAlias,
     TypedDict,
     override,
@@ -26,6 +25,7 @@ from ceres._internal.entity import (
     BaseUUIDEntityRow,
 )
 from ceres._internal.lazy import lazy_imports
+from ceres._internal.types import MaybeSequence
 from ceres.data import (
     EmailStr,
     PasswordHash,
@@ -92,18 +92,18 @@ UserOrder: TypeAlias = (
 
 
 class UserFilterArgs(BaseUUIDEntityFilterArgs[UserField, UserOrder], total=False):
-    username: str | Sequence[str] | None
-    email: str | Sequence[str] | None
-    role: UserRole | Sequence[UserRole] | None
+    username: MaybeSequence[str] | None
+    email: MaybeSequence[str] | None
+    role: MaybeSequence[UserRole] | None
     disabled: bool | None
 
 
 class UserFilter(BaseUUIDEntityFilter["User", UserField, UserOrder]):
-    username: str | Sequence[str] | None = None
+    username: MaybeSequence[str] | None = None
     """Filter by `username` being equal to one or more given usernames."""
-    email: str | Sequence[str] | None = None
+    email: MaybeSequence[str] | None = None
     """Filter by `email` being equal to one or more given email addresses."""
-    role: UserRole | Sequence[UserRole] | None = None
+    role: MaybeSequence[UserRole] | None = None
     """Filter by `role` being one or more given roles."""
     disabled: bool | None = None
     """Filter by `disabled` being either `True` or `False`."""

@@ -5,7 +5,6 @@ from typing import (
     ClassVar,
     Iterable,
     Literal,
-    Sequence,
     TypeAlias,
     TypedDict,
     override,
@@ -26,8 +25,9 @@ from ceres._internal.entity import (
     BaseRecordRow,
 )
 from ceres._internal.lazy import lazy_imports
+from ceres._internal.types import MaybeSequence
 from ceres.address import Address
-from ceres.data import DateTime, FromYAML, JSONDict, jsonify
+from ceres.data import DateTime, FromYaml, JsonableDict, jsonify
 from ceres.database.enums import DatabaseType
 from ceres.level import Level
 from ceres.timing import utc
@@ -44,7 +44,7 @@ class AlertRow(BaseRecordRow, kw_only=True):
 
     level: Mapped[Level] = mapped_column(EnumMapper(Level))
     type: Mapped[str] = mapped_column(Text)
-    data: Mapped[JSONDict] = mapped_column(
+    data: Mapped[JsonableDict] = mapped_column(
         JSON,
         default_factory=dict,
         server_default="{}",
@@ -85,32 +85,32 @@ AlertOrder: TypeAlias = (
 
 
 class AlertFilterArgs(BaseRecordFilterArgs[AlertField, AlertOrder], total=False):
-    level: Level | Sequence[Level] | None
-    type: str | Sequence[str] | None
-    type_contains: str | Sequence[str] | None
-    type_prefix: str | Sequence[str] | None
-    type_suffix: str | Sequence[str] | None
-    data_contains: str | Sequence[str] | None
-    data_prefix: str | Sequence[str] | None
-    data_suffix: str | Sequence[str] | None
+    level: MaybeSequence[Level] | None
+    type: MaybeSequence[str] | None
+    type_contains: MaybeSequence[str] | None
+    type_prefix: MaybeSequence[str] | None
+    type_suffix: MaybeSequence[str] | None
+    data_contains: MaybeSequence[str] | None
+    data_prefix: MaybeSequence[str] | None
+    data_suffix: MaybeSequence[str] | None
 
 
 class AlertFilter(BaseRecordFilter["Alert", AlertField, AlertOrder]):
-    level: Level | Sequence[Level] | None = None
+    level: MaybeSequence[Level] | None = None
     """Filter by `level` being equal to one or more given levels."""
-    type: str | Sequence[str] | None = None
+    type: MaybeSequence[str] | None = None
     """Filter by `type` being equal to one or more given types."""
-    type_contains: str | Sequence[str] | None = None
+    type_contains: MaybeSequence[str] | None = None
     """Filter by `type` containing one or more given substrings."""
-    type_prefix: str | Sequence[str] | None = None
+    type_prefix: MaybeSequence[str] | None = None
     """Filter by `type` starting with one or more given prefixes."""
-    type_suffix: str | Sequence[str] | None = None
+    type_suffix: MaybeSequence[str] | None = None
     """Filter by `type` ending with one or more given suffixes."""
-    data_contains: str | Sequence[str] | None = None
+    data_contains: MaybeSequence[str] | None = None
     """Filter by whether or not the JSON text of `data` contains one or more given substrings."""
-    data_prefix: str | Sequence[str] | None = None
+    data_prefix: MaybeSequence[str] | None = None
     """Filter by whether or not the JSON text of `data` starts with one or more given prefixes."""
-    data_suffix: str | Sequence[str] | None = None
+    data_suffix: MaybeSequence[str] | None = None
     """Filter by whether or not the JSON text of `data` ends with one or more given suffixes."""
 
     @override
@@ -218,7 +218,7 @@ class AlertFilter(BaseRecordFilter["Alert", AlertField, AlertOrder]):
 class AlertCreate(BaseRecordCreate):
     level: Level
     type: str
-    data: FromYAML[JSONDict] = Field(default_factory=dict)
+    data: FromYaml[JsonableDict] = Field(default_factory=dict)
 
 
 class AlertUpdate(TypedDict, total=False):
@@ -226,7 +226,7 @@ class AlertUpdate(TypedDict, total=False):
     timestamp: DateTime
     level: Level
     type: str
-    data: FromYAML[JSONDict]
+    data: FromYaml[JsonableDict]
 
 
 class Alert(BaseRecord, AlertCreate):

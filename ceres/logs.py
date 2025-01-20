@@ -7,7 +7,6 @@ from typing import (
     Final,
     Iterable,
     Literal,
-    Sequence,
     TypeAlias,
     override,
 )
@@ -28,6 +27,7 @@ from ceres._internal.entity import (
     BaseRecordUpdate,
 )
 from ceres._internal.lazy import lazy_imports
+from ceres._internal.types import MaybeSequence
 from ceres.database.enums import DatabaseType
 from ceres.level import Level
 from ceres.timing import utc
@@ -77,20 +77,20 @@ LogEntryOrder: TypeAlias = (
 
 
 class LogEntryFilterArgs(BaseRecordFilterArgs[LogEntryField, LogEntryOrder], total=False):
-    level: Level | Sequence[Level] | None
+    level: MaybeSequence[Level] | None
     content_contains: str | None
     content_prefix: str | None
     content_suffix: str | None
 
 
 class LogEntryFilter(BaseRecordFilter["LogEntry", LogEntryField, LogEntryOrder]):
-    level: Level | Sequence[Level] | None = None
+    level: MaybeSequence[Level] | None = None
     """Filter by `level` being equal to one or more given levels."""
-    content_contains: str | Sequence[str] | None = None
+    content_contains: MaybeSequence[str] | None = None
     """Filter by `content` containing one or more given substrings."""
-    content_prefix: str | Sequence[str] | None = None
+    content_prefix: MaybeSequence[str] | None = None
     """Filter by `content` starting with one or more given prefixes."""
-    content_suffix: str | Sequence[str] | None = None
+    content_suffix: MaybeSequence[str] | None = None
     """Filter by `content` ending with one or more given suffixes."""
 
     @override

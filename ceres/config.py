@@ -38,6 +38,7 @@ from pydantic import (
 
 from ceres._internal.lazy import lazy_imports
 from ceres._internal.typedecs import __Component__, __Sieve__
+from ceres._internal.types import MaybeSequence
 from ceres.address import Address, DynamicAddress
 from ceres.alert import AlertFilter
 from ceres.data import (
@@ -398,12 +399,12 @@ class ServerAuthenticationConfig(ConfigObject):
 
 class ServerCORSConfig(ConfigObject):
     enabled: bool = True
-    allow_origins: str | Sequence[str] = Field(default_factory=list)
+    allow_origins: MaybeSequence[str] = Field(default_factory=list)
     allow_origin_regex: Pattern[str] | None = None
-    allow_methods: str | Sequence[str] = "*"
-    allow_headers: str | Sequence[str] = "*"
+    allow_methods: MaybeSequence[str] = "*"
+    allow_headers: MaybeSequence[str] = "*"
     allow_credentials: bool = True
-    expose_headers: str | Sequence[str] = Field(default_factory=list)
+    expose_headers: MaybeSequence[str] = Field(default_factory=list)
     max_age: PositiveInt = 600
 
 
@@ -507,7 +508,7 @@ class BaseDatabaseConfig(ConfigObject):
     hooks: DatabaseConfigHooks = Field(default_factory=DatabaseConfigHooks)
     engine: Mapping[str, Any] = Field(default_factory=dict)
     hashing: HashingConfig = Field(default_factory=Argon2HashingConfig, discriminator="type")
-    query: Mapping[str, str | Sequence[str]] | None = None
+    query: Mapping[str, MaybeSequence[str]] | None = None
 
 
 class SQLiteDatabaseConfig(BaseDatabaseConfig):

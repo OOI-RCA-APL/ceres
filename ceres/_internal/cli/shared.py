@@ -28,7 +28,7 @@ from ceres._internal.lazy import lazy_imports
 from ceres._internal.manager.entity import BaseEntityManager
 from ceres._internal.project import LoadedProject, Project
 from ceres.config import Config, ConfigCheckType, ConfigMeta
-from ceres.data import FromYAML, NonEmpty, SerializeArgs, jsonify
+from ceres.data import FromYaml, NonEmpty, SerializeArgs, jsonify
 from ceres.result import Ok
 
 with lazy_imports(__name__):
@@ -203,7 +203,7 @@ Confirm = Annotated[CliImplicitFlag[bool], Field(description="Ask before executi
 
 _TFields = TypeVar("_TFields", bound=Mapping[Any, Any])
 Assign: TypeAlias = Annotated[
-    NonEmpty[FromYAML[_TFields]],
+    NonEmpty[FromYaml[_TFields]],
     Field(description="Field(s) to assign, passed as a non-empty JSON or YAML object."),
 ]
 

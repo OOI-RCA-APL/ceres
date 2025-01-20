@@ -14,7 +14,6 @@ from typing import (
     Literal,
     LiteralString,
     MutableMapping,
-    Sequence,
     Type,
     TypeAlias,
     ValuesView,
@@ -39,7 +38,8 @@ from ceres._internal.entity import (
     BaseRecordUpdate,
 )
 from ceres._internal.lazy import lazy_imports
-from ceres.data import FromYAML, ImmutableDataObject, JSONDict, jsonify
+from ceres._internal.types import MaybeSequence
+from ceres.data import FromYaml, ImmutableDataObject, JsonableDict, jsonify
 from ceres.timing import utc
 
 with lazy_imports(__name__):
@@ -54,7 +54,7 @@ class ParticleRow(BaseRecordRow, kw_only=True):
     __tablename__: ClassVar[str] = "particles"
 
     type: Mapped[str] = mapped_column(Text)
-    data: Mapped[JSONDict] = mapped_column(JSON)
+    data: Mapped[JsonableDict] = mapped_column(JSON)
 
     @classmethod
     @override
@@ -123,7 +123,7 @@ class ParticleData(ImmutableDataObject, Mapping[str, Any], ABC):
         return value in self.__dict__
 
 
-DynamicParticleData: TypeAlias = ParticleData | JSONDict
+DynamicParticleData: TypeAlias = ParticleData | JsonableDict
 
 if TYPE_CHECKING:
     _T = TypeVar(
@@ -146,13 +146,13 @@ class ParticleFilterArgs(
     total=False,
 ):
     cls: ImportString[Type[_T]] | None
-    type: str | Sequence[str] | None
-    type_contains: str | Sequence[str] | None
-    type_prefix: str | Sequence[str] | None
-    type_suffix: str | Sequence[str] | None
-    data_contains: str | Sequence[str] | None
-    data_prefix: str | Sequence[str] | None
-    data_suffix: str | Sequence[str] | None
+    type: MaybeSequence[str] | None
+    type_contains: MaybeSequence[str] | None
+    type_prefix: MaybeSequence[str] | None
+    type_suffix: MaybeSequence[str] | None
+    data_contains: MaybeSequence[str] | None
+    data_prefix: MaybeSequence[str] | None
+    data_suffix: MaybeSequence[str] | None
 
 
 class ParticleFilter(
@@ -161,19 +161,19 @@ class ParticleFilter(
 ):
     cls: ImportString[Type[_T]] | None = None
     """Filter by particles being instances of a specific data class."""
-    type: str | Sequence[str] | None = None
+    type: MaybeSequence[str] | None = None
     """Filter by `type` being equal to one or more given types."""
-    type_contains: str | Sequence[str] | None = None
+    type_contains: MaybeSequence[str] | None = None
     """Filter by `type` containing one or more given substrings."""
-    type_prefix: str | Sequence[str] | None = None
+    type_prefix: MaybeSequence[str] | None = None
     """Filter by `type` starting with one or more given prefixes."""
-    type_suffix: str | Sequence[str] | None = None
+    type_suffix: MaybeSequence[str] | None = None
     """Filter by `type` ending with one or more given suffixes."""
-    data_contains: str | Sequence[str] | None = None
+    data_contains: MaybeSequence[str] | None = None
     """Filter by whether or not the JSON text of `data` contains one or more given substrings."""
-    data_prefix: str | Sequence[str] | None = None
+    data_prefix: MaybeSequence[str] | None = None
     """Filter by whether or not the JSON text of `data` starts with one or more given prefixes."""
-    data_suffix: str | Sequence[str] | None = None
+    data_suffix: MaybeSequence[str] | None = None
     """Filter by whether or not the JSON text of `data` ends with one or more given suffixes."""
 
     @override
@@ -281,12 +281,12 @@ class ParticleFilter(
 
 class ParticleCreate(BaseRecordCreate):
     type: str
-    data: FromYAML[JSONDict]
+    data: FromYaml[JsonableDict]
 
 
 class ParticleUpdate(BaseRecordUpdate, total=False):
     type: str
-    data: FromYAML[JSONDict]
+    data: FromYaml[JsonableDict]
 
 
 class Particle(BaseRecord, ParticleCreate, Generic[_T]):

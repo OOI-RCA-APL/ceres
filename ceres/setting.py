@@ -4,7 +4,6 @@ from typing import (
     ClassVar,
     Iterable,
     Literal,
-    Sequence,
     TypeAlias,
     TypedDict,
     override,
@@ -25,7 +24,8 @@ from ceres._internal.entity import (
     BaseItemOrder,
 )
 from ceres._internal.lazy import lazy_imports
-from ceres.data import FromYAML, JSONValue
+from ceres._internal.types import MaybeSequence
+from ceres.data import FromYaml, Jsonable
 from ceres.database.enums import DatabaseType
 
 with lazy_imports(__name__):
@@ -41,7 +41,7 @@ class SettingRow(BaseEntityRow, kw_only=True):
 
     user_id: Mapped[UUID] = mapped_column(Uuid)
     name: Mapped[str] = mapped_column(Text)
-    value: Mapped[JSONValue] = mapped_column(JSON)
+    value: Mapped[Jsonable] = mapped_column(JSON)
 
     @classmethod
     @override
@@ -72,14 +72,14 @@ SettingOrder: TypeAlias = (
 
 
 class SettingFilterArgs(BaseItemFilterArgs[SettingField, SettingOrder], total=False):
-    user_id: UUID | Sequence[UUID] | None
-    name: str | Sequence[str] | None
+    user_id: MaybeSequence[UUID] | None
+    name: MaybeSequence[str] | None
 
 
 class SettingFilter(BaseEntityFilter["Setting", SettingField, SettingOrder]):
-    user_id: UUID | Sequence[UUID] | None = None
+    user_id: MaybeSequence[UUID] | None = None
     """Filter by `user_id` being equal to one or more given UUIDs."""
-    name: str | Sequence[str] | None = None
+    name: MaybeSequence[str] | None = None
     """Filter by `name` being equal to one or more given names."""
 
     @override
@@ -119,12 +119,12 @@ class SettingFilter(BaseEntityFilter["Setting", SettingField, SettingOrder]):
 class SettingCreate(BaseEntityCreate):
     user_id: UUID
     name: str
-    value: FromYAML[JSONValue]
+    value: FromYaml[Jsonable]
 
 
 class SettingUpdate(TypedDict, total=False):
     name: str
-    value: FromYAML[JSONValue]
+    value: FromYaml[Jsonable]
 
 
 class Setting(BaseEntity, SettingCreate):

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import signal
 import sys
 from asyncio import CancelledError
@@ -12,6 +13,7 @@ from pydantic import Field, ValidationError, create_model
 from pydantic_settings import (
     BaseSettings,
     CliPositionalArg,
+    CliSettingsSource,
     CliSubCommand,
     SettingsConfigDict,
     SettingsError,
@@ -164,7 +166,7 @@ class StartCommand(CliCommand):
     @override
     async def __run__(self) -> Any:
         client = await self.use_client()
-        address = AddressSelector(self.addresses or [])
+        address = AddressSelector(self.addresses)
         query = ComponentFilter(address=address)
         return await client.post("/start", query)
 
@@ -286,6 +288,61 @@ with lazy_imports(__name__):
     from ceres._internal.cli.subcommands.variables import VariablesCommand
 
 
+class BaseMainCommand(BaseSettings, CliCommandGroup):
+    model_config = SettingsConfigDict(
+        cli_prog_name="ceres",
+        case_sensitive=True,
+        cli_avoid_json=True,
+        cli_enforce_required=True,
+        cli_exit_on_error=True,
+        cli_hide_none_type=True,
+        cli_implicit_flags=True,
+        cli_kebab_case=True,
+        cli_parse_args=True,
+        cli_use_class_docs_for_groups=True,
+        enable_decoding=True,
+    )
+
+    version: bool = False
+    """Show the current Ceres version number and exit."""
+
+    run: CliSubCommand[RunCommand]
+    check: CliSubCommand[CheckCommand]
+    reload: CliSubCommand[ReloadCommand]
+    status: CliSubCommand[StatusCommand]
+    start: CliSubCommand[StartCommand]
+    stop: CliSubCommand[StopCommand]
+    enable: CliSubCommand[EnableCommand]
+    disable: CliSubCommand[DisableCommand]
+    up: CliSubCommand[UpCommand]
+    down: CliSubCommand[DownCommand]
+
+    @override
+    async def __execute__(self) -> Any:
+        if self.version:
+            from ceres import __version__
+
+            return __version__
+
+        return await super().__execute__()
+
+    def __init__(self, args: Sequence[str]) -> None:
+        super().__init__(
+            _cli_parse_args=list(args),
+            _cli_settings_source=MainCliSettingsSource(type(self), args),
+        )
+
+
+class MainCliSettingsSource(CliSettingsSource):
+    @override
+    def _merge_parsed_list(self, parsed_list: list[str], field_name: str) -> str:
+        return json.dumps(parsed_list)  # Don't merge anything.
+
+    @override
+    def __init__(self, settings_cls: type[BaseSettings], args: Sequence[str]) -> None:
+        super().__init__(settings_cls, cli_parse_args=list(args))
+
+
 def main(args: Sequence[str] | None = None) -> None:
     if args is None:
         args = sys.argv[1:]
@@ -310,45 +367,7 @@ def main(args: Sequence[str] | None = None) -> None:
     else:
         subcommands = {name: unlazy(value) for name, value in subcommands.items()}
 
-    class BaseMainCommand(CliCommandGroup, BaseSettings):
-        model_config = SettingsConfigDict(
-            cli_prog_name="ceres",
-            case_sensitive=True,
-            cli_avoid_json=True,
-            cli_enforce_required=True,
-            cli_exit_on_error=True,
-            cli_hide_none_type=True,
-            cli_implicit_flags=True,
-            cli_kebab_case=True,
-            cli_parse_args=True,
-            cli_use_class_docs_for_groups=True,
-            enable_decoding=False,
-        )
-
-        version: bool = False
-        """Show the current Ceres version number and exit."""
-
-        run: CliSubCommand[RunCommand]
-        check: CliSubCommand[CheckCommand]
-        reload: CliSubCommand[ReloadCommand]
-        status: CliSubCommand[StatusCommand]
-        start: CliSubCommand[StartCommand]
-        stop: CliSubCommand[StopCommand]
-        enable: CliSubCommand[EnableCommand]
-        disable: CliSubCommand[DisableCommand]
-        up: CliSubCommand[UpCommand]
-        down: CliSubCommand[DownCommand]
-
-        @override
-        async def __execute__(self) -> Any:
-            if self.version:
-                from ceres import __version__
-
-                return __version__
-
-            return await super().__execute__()
-
-    fields: Any = {
+    fields: dict[str, Any] = {
         name: (CliSubCommand[subcommand], ...) for name, subcommand in subcommands.items()
     }
 
@@ -360,7 +379,7 @@ def main(args: Sequence[str] | None = None) -> None:
 
     async def run() -> None:
         try:
-            command = MainCommand(**{})
+            command = MainCommand(args)
         except ValidationError as exception:
             _show_validation_error(exception)
             exit(1)
