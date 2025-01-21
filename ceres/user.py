@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 from typing import (
-    Annotated,
     ClassVar,
     Iterable,
     Literal,
-    Sequence,
     TypeAlias,
     TypedDict,
     override,
@@ -16,7 +14,6 @@ from pydantic import Field
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql.sqltypes import Boolean, Text
 
-from ceres._internal.cli.plumbing import CLIOption
 from ceres._internal.database.types import EnumConstraint, EnumMapper
 from ceres._internal.entity import (
     BaseUUIDEntity,
@@ -28,6 +25,7 @@ from ceres._internal.entity import (
     BaseUUIDEntityRow,
 )
 from ceres._internal.lazy import lazy_imports
+from ceres._internal.types import MaybeSequence
 from ceres.data import (
     EmailStr,
     PasswordHash,
@@ -94,29 +92,21 @@ UserOrder: TypeAlias = (
 
 
 class UserFilterArgs(BaseUUIDEntityFilterArgs[UserField, UserOrder], total=False):
-    username: str | Sequence[str] | None
-    email: str | Sequence[str] | None
-    role: UserRole | Sequence[UserRole] | None
+    username: MaybeSequence[str] | None
+    email: MaybeSequence[str] | None
+    role: MaybeSequence[UserRole] | None
     disabled: bool | None
 
 
 class UserFilter(BaseUUIDEntityFilter["User", UserField, UserOrder]):
-    username: Annotated[str | Sequence[str] | None, CLIOption(list[str] | None)] = Field(
-        default=None,
-        description="Filter by username(s).",
-    )
-    email: Annotated[str | Sequence[str] | None, CLIOption(list[str] | None)] = Field(
-        default=None,
-        description="Filter by user email(s).",
-    )
-    role: Annotated[UserRole | Sequence[UserRole] | None, CLIOption(list[UserRole] | None)] = Field(
-        default=None,
-        description="Filter by user role(s).",
-    )
-    disabled: Annotated[bool | None, CLIOption(bool | None)] = Field(
-        default=None,
-        description="Filter by disabled/enabled status.",
-    )
+    username: MaybeSequence[str] | None = None
+    """Filter by `username` being equal to one or more given usernames."""
+    email: MaybeSequence[str] | None = None
+    """Filter by `email` being equal to one or more given email addresses."""
+    role: MaybeSequence[UserRole] | None = None
+    """Filter by `role` being one or more given roles."""
+    disabled: bool | None = None
+    """Filter by `disabled` being either `True` or `False`."""
 
     @classmethod
     @override
@@ -143,12 +133,12 @@ class UserFilter(BaseUUIDEntityFilter["User", UserField, UserOrder]):
 
 
 class UserCreate(BaseUUIDEntityCreate):
-    id: Annotated[UUID, CLIOption(UUID)] = Field(default_factory=uuid4)
-    username: Annotated[UsernameStr, CLIOption(str)]
-    email: Annotated[EmailStr, CLIOption(str)]
-    password: Annotated[PasswordStr | PasswordHash, CLIOption(str, prompt=True, hide_input=True)]
-    role: Annotated[UserRole, CLIOption(UserRole)] = UserRole.OPERATOR
-    disabled: Annotated[bool, CLIOption(bool)] = False
+    id: UUID = Field(default_factory=uuid4)
+    username: UsernameStr
+    email: EmailStr
+    password: PasswordStr | PasswordHash
+    role: UserRole = UserRole.OPERATOR
+    disabled: bool = False
 
 
 class UserUpdate(TypedDict, total=False):
@@ -168,4 +158,4 @@ class User(BaseUUIDEntity, UserCreate):
     Field = UserField
     Order = UserOrder
 
-    password: Annotated[PasswordHash, CLIOption(str, prompt=True, hide_input=True)]
+    password: PasswordHash

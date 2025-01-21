@@ -1,23 +1,19 @@
 from __future__ import annotations
 
 from typing import (
-    Annotated,
     ClassVar,
     Iterable,
     Literal,
-    Sequence,
     TypeAlias,
     TypedDict,
     override,
 )
 from uuid import UUID
 
-from pydantic import Field
 from sqlalchemy import Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql.sqltypes import JSON, Text
 
-from ceres._internal.cli.plumbing import CLIOption
 from ceres._internal.entity import (
     BaseEntity,
     BaseEntityCreate,
@@ -28,7 +24,8 @@ from ceres._internal.entity import (
     BaseItemOrder,
 )
 from ceres._internal.lazy import lazy_imports
-from ceres.data import FromYAML, JSONValue
+from ceres._internal.types import MaybeSequence
+from ceres.data import FromYaml, Jsonable
 from ceres.database.enums import DatabaseType
 
 with lazy_imports(__name__):
@@ -44,7 +41,7 @@ class SettingRow(BaseEntityRow, kw_only=True):
 
     user_id: Mapped[UUID] = mapped_column(Uuid)
     name: Mapped[str] = mapped_column(Text)
-    value: Mapped[JSONValue] = mapped_column(JSON)
+    value: Mapped[Jsonable] = mapped_column(JSON)
 
     @classmethod
     @override
@@ -75,19 +72,15 @@ SettingOrder: TypeAlias = (
 
 
 class SettingFilterArgs(BaseItemFilterArgs[SettingField, SettingOrder], total=False):
-    user_id: UUID | Sequence[UUID] | None
-    name: str | Sequence[str] | None
+    user_id: MaybeSequence[UUID] | None
+    name: MaybeSequence[str] | None
 
 
 class SettingFilter(BaseEntityFilter["Setting", SettingField, SettingOrder]):
-    user_id: Annotated[UUID | Sequence[UUID] | None, CLIOption(list[UUID] | None)] = Field(
-        default=None,
-        description="Filter by user ID(s).",
-    )
-    name: Annotated[str | Sequence[str] | None, CLIOption(list[str] | None)] = Field(
-        default=None,
-        description="Filter by name(s).",
-    )
+    user_id: MaybeSequence[UUID] | None = None
+    """Filter by `user_id` being equal to one or more given UUIDs."""
+    name: MaybeSequence[str] | None = None
+    """Filter by `name` being equal to one or more given names."""
 
     @override
     def matches(self, obj: Setting) -> bool:
@@ -125,13 +118,13 @@ class SettingFilter(BaseEntityFilter["Setting", SettingField, SettingOrder]):
 
 class SettingCreate(BaseEntityCreate):
     user_id: UUID
-    name: Annotated[str, CLIOption(str)]
-    value: Annotated[FromYAML[JSONValue], CLIOption(str)]
+    name: str
+    value: FromYaml[Jsonable]
 
 
 class SettingUpdate(TypedDict, total=False):
     name: str
-    value: FromYAML[JSONValue]
+    value: FromYaml[Jsonable]
 
 
 class Setting(BaseEntity, SettingCreate):

@@ -41,5 +41,8 @@ async def follow_particles(
     engine: CurrentEngine,
     filter: Annotated[FollowParticlesQueryParameters, Query()],
 ) -> None:
-    async for particle in engine.particles.follow(filter):
-        await socket.send(particle)
+    async def write() -> None:
+        async for particle in engine.particles.follow(filter):
+            await socket.send(particle)
+
+    await socket.execute(write)

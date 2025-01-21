@@ -3,22 +3,18 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 from typing import (
-    Annotated,
     ClassVar,
     Final,
     Iterable,
     Literal,
-    Sequence,
     TypeAlias,
     override,
 )
 
-from pydantic import Field
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql.sqltypes import Text
 
 from ceres._internal import util
-from ceres._internal.cli.plumbing import CLIOption
 from ceres._internal.database.types import EnumConstraint, EnumMapper
 from ceres._internal.entity import (
     BaseRecord,
@@ -31,6 +27,7 @@ from ceres._internal.entity import (
     BaseRecordUpdate,
 )
 from ceres._internal.lazy import lazy_imports
+from ceres._internal.types import MaybeSequence
 from ceres.database.enums import DatabaseType
 from ceres.level import Level
 from ceres.timing import utc
@@ -80,29 +77,21 @@ LogEntryOrder: TypeAlias = (
 
 
 class LogEntryFilterArgs(BaseRecordFilterArgs[LogEntryField, LogEntryOrder], total=False):
-    level: Level | Sequence[Level] | None
+    level: MaybeSequence[Level] | None
     content_contains: str | None
     content_prefix: str | None
     content_suffix: str | None
 
 
 class LogEntryFilter(BaseRecordFilter["LogEntry", LogEntryField, LogEntryOrder]):
-    level: Annotated[Level | Sequence[Level] | None, CLIOption(list[Level] | None)] = Field(
-        default=None,
-        description="Filter by log level(s).",
-    )
-    content_contains: Annotated[str | None, CLIOption(str | None)] = Field(
-        default=None,
-        description="Filter, keeping only log entries with content that contain the given string.",
-    )
-    content_prefix: Annotated[str | None, CLIOption(str | None)] = Field(
-        default=None,
-        description="Filter, keeping only log entries with content that starts with the given string.",
-    )
-    content_suffix: Annotated[str | None, CLIOption(str | None)] = Field(
-        default=None,
-        description="Filter, keeping only log entries with content that ends with the given string.",
-    )
+    level: MaybeSequence[Level] | None = None
+    """Filter by `level` being equal to one or more given levels."""
+    content_contains: MaybeSequence[str] | None = None
+    """Filter by `content` containing one or more given substrings."""
+    content_prefix: MaybeSequence[str] | None = None
+    """Filter by `content` starting with one or more given prefixes."""
+    content_suffix: MaybeSequence[str] | None = None
+    """Filter by `content` ending with one or more given suffixes."""
 
     @override
     def matches(self, obj: LogEntry, *, now: datetime | None = None) -> bool:
@@ -114,13 +103,19 @@ class LogEntryFilter(BaseRecordFilter["LogEntry", LogEntryField, LogEntryOrder])
             if obj.level not in util.as_sequence(self.level):
                 return False
         if self.content_contains is not None:
-            if self.content_contains not in obj.content:
+            if not any(
+                substring in obj.content for substring in util.as_sequence(self.content_contains)
+            ):
                 return False
         if self.content_prefix is not None:
-            if not obj.content.startswith(self.content_prefix):
+            if not any(
+                obj.content.startswith(prefix) for prefix in util.as_sequence(self.content_prefix)
+            ):
                 return False
         if self.content_suffix is not None:
-            if not obj.content.endswith(self.content_suffix):
+            if not any(
+                obj.content.endswith(suffix) for suffix in util.as_sequence(self.content_suffix)
+            ):
                 return False
 
         return True
@@ -143,18 +138,24 @@ class LogEntryFilter(BaseRecordFilter["LogEntry", LogEntryField, LogEntryOrder])
         if self.level is not None:
             yield columns.level.in_(util.as_sequence(self.level))
         if self.content_contains is not None:
-            yield columns.content.like(
-                "%" + util.escape_like_expression(self.content_contains) + "%"
+            yield util.sqlorf(
+                columns.content.contains(substring)
+                for substring in util.as_sequence(self.content_contains)
             )
         if self.content_prefix is not None:
-            yield columns.content.like(util.escape_like_expression(self.content_prefix) + "%")
+            yield util.sqlorf(
+                columns.content.startswith(prefix)
+                for prefix in util.as_sequence(self.content_prefix)
+            )
         if self.content_suffix is not None:
-            yield columns.content.like("%" + util.escape_like_expression(self.content_suffix))
+            yield util.sqlorf(
+                columns.content.endswith(suffix) for suffix in util.as_sequence(self.content_suffix)
+            )
 
 
 class LogEntryCreate(BaseRecordCreate):
-    level: Annotated[Level, CLIOption(Level)]
-    content: Annotated[str, CLIOption(str)]
+    level: Level
+    content: str
 
 
 class LogEntryUpdate(BaseRecordUpdate, total=False):

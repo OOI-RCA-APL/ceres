@@ -126,6 +126,10 @@ class Engine(Node):
         return self
 
     @property
+    def server(self) -> Server | None:
+        return self._server
+
+    @property
     @override
     def database(self) -> Database:
         return self._database

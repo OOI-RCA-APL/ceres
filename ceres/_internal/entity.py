@@ -1,16 +1,14 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import (
     TYPE_CHECKING,
-    Annotated,
     Any,
     ClassVar,
     Iterable,
     Literal,
     Mapping,
-    Sequence,
     TypeAlias,
     TypedDict,
     override,
@@ -21,10 +19,10 @@ from pydantic import Field, NonNegativeInt
 from sqlalchemy.orm.decl_api import DeclarativeBase, MappedAsDataclass
 from sqlalchemy.types import Integer
 
-from ceres._internal.cli.plumbing import CLIOption
 from ceres._internal.database.types import AddressMapper, DateTimeMapper, UUIDMapper
 from ceres._internal.filter import BaseFilter, BaseFilterArgs
 from ceres._internal.lazy import lazy_imports
+from ceres._internal.types import MaybeSequence
 from ceres.address import Address, AddressSelector
 from ceres.data import DateTime, ImmutableDataObject, PositiveTimeDelta
 from ceres.database.enums import DatabaseType
@@ -184,7 +182,7 @@ class BaseEntityFilterArgs[
     FieldT: str,
     OrderT: str,
 ](BaseFilterArgs, total=False):
-    order: OrderT | Sequence[OrderT] | None
+    order: MaybeSequence[OrderT] | None
     limit: NonNegativeInt | None
     offset: NonNegativeInt | None
 
@@ -194,20 +192,12 @@ class BaseEntityFilter[
     FieldT: str,
     OrderT: str,
 ](BaseFilter, ABC):
-    order: Annotated[OrderT | Sequence[OrderT] | None, CLIOption(list[str] | None)] = Field(
-        default=None,
-        description="Specify ordering of results by field. Prefix field names with '-' for descending order.",
-    )
-    limit: Annotated[NonNegativeInt | None, CLIOption(int | None)] = Field(
-        default=None,
-        description="Limit the number of returned results.",
-        ge=0,
-    )
-    offset: Annotated[NonNegativeInt | None, CLIOption(int | None)] = Field(
-        default=None,
-        description="Skip over a given number of results.",
-        ge=0,
-    )
+    order: MaybeSequence[OrderT] | None = None
+    """Specify ordering of results by field. Prefix field names with '-' for descending order."""
+    limit: NonNegativeInt | None = None
+    """Limit the number of returned results."""
+    offset: NonNegativeInt | None = None
+    """Skip over a given number of results."""
 
     @classmethod
     @abstractmethod
@@ -319,7 +309,7 @@ class BaseUUIDEntityFilterArgs[
     FieldT: str,
     OrderT: str,
 ](BaseEntityFilterArgs[FieldT, OrderT], total=False):
-    id: UUID | Sequence[UUID] | None
+    id: MaybeSequence[UUID] | None
 
 
 class BaseUUIDEntityFilter[
@@ -327,10 +317,8 @@ class BaseUUIDEntityFilter[
     FieldT: str,
     OrderT: str,
 ](BaseEntityFilter[EntityT, FieldT, OrderT]):
-    id: Annotated[UUID | Sequence[UUID] | None, CLIOption(list[UUID])] = Field(
-        default=None,
-        description="Filter by ID(s).",
-    )
+    id: MaybeSequence[UUID] | None = None
+    """Filter by `id` being equal to one or more given UUIDs."""
 
     @classmethod
     @abstractmethod
@@ -357,7 +345,7 @@ class BaseUUIDEntityFilter[
 
 
 class BaseUUIDEntityCreate(BaseEntity):
-    id: Annotated[UUID, CLIOption(UUID)] = Field(default_factory=uuid4)
+    id: UUID = Field(default_factory=uuid4)
 
 
 class BaseUUIDEntityUpdate(BaseEntityUpdate, total=False):
@@ -412,14 +400,10 @@ class BaseItemFilter[
     FieldT: str,
     OrderT: str,
 ](BaseEntityFilter[ItemT, FieldT, OrderT]):
-    address: Annotated[AddressSelector | None, CLIOption(str | None)] = Field(
-        default=None,
-        description="Filter by associated address.",
-    )
-    root: Annotated[Address, CLIOption(str | None)] = Field(
-        default=Address.ROOT,
-        description="The root address relative `address` selectors are mapped to.",
-    )
+    address: AddressSelector | None = None
+    """Filter by `address` matching one or more address selectors."""
+    root: Address = Address.ROOT
+    """The address which relative address selectors in `address` are relative to."""
 
     @override
     def matches(self, obj: ItemT) -> bool:
@@ -447,7 +431,7 @@ class BaseItemFilter[
 
 
 class BaseItemCreate(BaseEntity):
-    address: Annotated[Address, CLIOption(str)]
+    address: Address
 
 
 class BaseItemUpdate(BaseEntityUpdate, total=False):
@@ -504,7 +488,7 @@ class BaseRecordFilterArgs[
     BaseUUIDEntityFilterArgs[FieldT, OrderT],
     total=False,
 ):
-    timestamp: DateTime | Sequence[DateTime] | None
+    timestamp: MaybeSequence[DateTime] | None
     before: DateTime | None
     after: DateTime | None
     timespan: PositiveTimeDelta | None
@@ -524,53 +508,40 @@ class BaseRecordFilter[
     BaseItemFilter[RecordT, FieldT, OrderT],
     BaseUUIDEntityFilter[RecordT, FieldT, OrderT],
 ):
-    timestamp: Annotated[
-        DateTime | Sequence[DateTime] | None,
-        CLIOption(list[datetime] | None),
-    ] = Field(
-        default=None,
-        description="Filter by exact timestamp(s).",
-    )
-    after: Annotated[DateTime | None, CLIOption(datetime | None)] = Field(
-        default=None,
-        description="Filter by minimum timestamp.",
-    )
-    before: Annotated[DateTime | None, CLIOption(datetime | None)] = Field(
-        default=None,
-        description="Filter by maximum timestamp.",
-    )
-    timespan: Annotated[PositiveTimeDelta | None, CLIOption(timedelta | None)] = Field(
-        default=None,
-        description="Filter by maximum age relative to `after`, or minimum age relative to `before` if `after` is `None`. If both `after` and `before` are `None`, filter by maximum age relative to the current time. ",
-    )
-    min_age: Annotated[PositiveTimeDelta | None, CLIOption(timedelta | None)] = Field(
-        default=None,
-        description="Filter by minimum age relative to the current time.",
-    )
-    max_age: Annotated[PositiveTimeDelta | None, CLIOption(timedelta | None)] = Field(
-        default=None,
-        description="Filter by maximum age relative to the current time.",
-    )
-    after_hour: Annotated[NonNegativeInt | None, CLIOption(int | None)] = Field(
-        default=None,
-        description="Filter by minimum hour of the day.",
-        le=24,
-    )
-    before_hour: Annotated[NonNegativeInt | None, CLIOption(int | None)] = Field(
-        default=None,
-        description="Filter by maximum hour of the day.",
-        le=24,
-    )
-    after_minute: Annotated[NonNegativeInt | None, CLIOption(int | None)] = Field(
-        default=None,
-        description="Filter by minimum minute of the day.",
-        le=60,
-    )
-    before_minute: Annotated[NonNegativeInt | None, CLIOption(int | None)] = Field(
-        default=None,
-        description="Filter by maximum minute of the day.",
-        le=60,
-    )
+    timestamp: MaybeSequence[DateTime] | None = None
+    """Filter by `timestamp` being exactly equal to one or more given datetimes."""
+    after: DateTime | None = None
+    """Filter by `timestamp` being greater than or equal to a given datetime."""
+    before: DateTime | None = None
+    """Filter by `timestamp` being less than a given datetime."""
+
+    timespan: PositiveTimeDelta | None = None
+    """
+    Filter by maximum age relative to `after`, or minimum age relative to `before` if `after` is
+    `None`. If both `after` and `before` are `None`, filter by maximum age relative to the current
+    time.
+    """
+
+    min_age: PositiveTimeDelta | None = None
+    """
+    Filter by the age of `timestamp`, relative to the current time, being greater than or equal to a
+    given threshold.
+    """
+
+    max_age: PositiveTimeDelta | None = None
+    """
+    Filter by the age of `timestamp`, relative to the current time, being less than a given
+    threshold.
+    """
+
+    after_hour: NonNegativeInt | None = Field(default=None, le=24)
+    """Filter by the hour value of `timestamp` being greater than or equal to a given value."""
+    before_hour: NonNegativeInt | None = Field(default=None, le=24)
+    """Filter by the hour value of `timestamp` being less than a given value."""
+    after_minute: NonNegativeInt | None = Field(default=None, le=60)
+    """Filter by the minute value of `timestamp` being greater than or equal to a given value."""
+    before_minute: NonNegativeInt | None = Field(default=None, le=60)
+    """Filter by the minute of `timestamp` being less than a given value."""
 
     @override
     def matches(self, obj: RecordT, *, now: datetime | None = None) -> bool:
@@ -705,7 +676,7 @@ class BaseRecordFilter[
 
 
 class BaseRecordCreate(BaseItem, BaseUUIDEntity):
-    timestamp: Annotated[DateTime, CLIOption(datetime)] = Field(default_factory=utc)
+    timestamp: DateTime = Field(default_factory=utc)
 
 
 class BaseRecordUpdate(BaseItemUpdate, BaseUUIDEntityUpdate, total=False):

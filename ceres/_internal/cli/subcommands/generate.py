@@ -1,63 +1,55 @@
+from __future__ import annotations
+
 import sys
-from pathlib import Path
-from typing import Annotated
+from typing import override
 
-from pydantic import Field, NonNegativeInt
+from pydantic import FilePath, NewPath, NonNegativeInt
+from pydantic_settings import CliSubCommand
 
-from ceres._internal.cli.plumbing import CLIOption, CLIRouter
+from ceres._internal.cli.shared import CliCommand, CliCommandGroup
 from ceres.data import StrEnum, jsonify, yamlify
-
-router = CLIRouter(
-    name="generate",
-    help="Generate various project resources.",
-)
 
 
 class OpenAPISchemaFormat(StrEnum):
-    yaml = "yaml"
-    json = "json"
+    YAML = "yaml"
+    JSON = "json"
 
 
-@router.command()
-def openapi(
-    *,
-    output: Annotated[
-        Path | None,
-        CLIOption(
-            Path | None,
-            writable=True,
-            file_okay=True,
-            dir_okay=False,
-        ),
-        Field(description="File path to write to. If omitted, standard output is used."),
-    ] = None,
-    format: Annotated[
-        OpenAPISchemaFormat,
-        CLIOption(OpenAPISchemaFormat),
-        Field(description="Specify the output file format."),
-    ] = OpenAPISchemaFormat.yaml,
-    indent: Annotated[
-        NonNegativeInt,
-        CLIOption(int),
-        Field(description="Specify indentation size of output."),
-    ] = 2,
-) -> None:
+class OpenApiCommand(CliCommand):
     """
     Generate up-to-date OpenAPI schema for the Ceres Rest API.
     """
-    from ceres._internal.app.main import App
-    from ceres.engine import Engine
 
-    app = App(Engine())
-    schema = app.openapi()
+    output: FilePath | NewPath | None = None
+    """File path to write to. If omitted, standard output is used."""
+    format: OpenAPISchemaFormat = OpenAPISchemaFormat.YAML
+    """Specify the output file format."""
+    indent: NonNegativeInt = 2
+    """Specify indentation size of output."""
 
-    match format:
-        case OpenAPISchemaFormat.yaml:
-            text = yamlify(schema, indent=indent)
-        case OpenAPISchemaFormat.json:
-            text = jsonify(schema, indent=indent)
+    @override
+    async def __run__(self) -> None:
+        from ceres._internal.app.main import App
+        from ceres.engine import Engine
 
-    if output is not None:
-        output.write_text(text)
-    else:
-        sys.stdout.write(text)
+        app = App(Engine())
+        schema = app.openapi()
+
+        match self.format:
+            case OpenAPISchemaFormat.YAML:
+                text = yamlify(schema, indent=self.indent)
+            case OpenAPISchemaFormat.JSON:
+                text = jsonify(schema, indent=self.indent)
+
+        if self.output is not None:
+            self.output.write_text(text)
+        else:
+            sys.stdout.write(text)
+
+
+class GenerateCommand(CliCommandGroup):
+    """
+    Generate various project resources.
+    """
+
+    openapi: CliSubCommand[OpenApiCommand]

@@ -39,5 +39,8 @@ async def follow_alerts(
     engine: CurrentEngine,
     filter: Annotated[FollowAlertsQueryParameters, Query()],
 ) -> None:
-    async for alert in engine.alerts.follow(filter):
-        await socket.send(alert)
+    async def write() -> None:
+        async for alert in engine.alerts.follow(filter):
+            await socket.send(alert)
+
+    await socket.execute(write)
