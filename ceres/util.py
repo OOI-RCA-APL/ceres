@@ -1,13 +1,86 @@
 import asyncio
-from asyncio import AbstractEventLoop, Task
+from asyncio import AbstractEventLoop, Task, TaskGroup
 from asyncio import Queue as AsyncQueue
 from dataclasses import dataclass
-from typing import Any, AsyncIterable, AsyncIterator, Iterable, overload
+from typing import (
+    Any,
+    AsyncIterable,
+    AsyncIterator,
+    Coroutine,
+    Iterable,
+    Sequence,
+    overload,
+)
 
 from ceres._internal.lazy import lazy_imports
 
 with lazy_imports(__name__):
-    from ceres._internal import util
+    from ceres._internal.util import MaybeRecursiveIterable, flatten
+
+
+async def cancel(*tasks: MaybeRecursiveIterable[Task[Any]]) -> None:
+    """
+    Cancel all given tasks and wait for them to complete.
+    """
+    flattened = list(flatten(tasks))
+    for task in flattened:
+        task.cancel()
+
+    await asyncio.gather(*flattened, return_exceptions=True)
+
+
+async def concurrently(
+    *coroutines: MaybeRecursiveIterable[Coroutine[Any, Any, Any] | None],
+) -> None:
+    """
+    Run all given coroutines concurrently in a single task group, waiting for all to complete or be cancelled.
+    """
+    async with TaskGroup() as group:
+        for current in flatten(coroutines):
+            if current is not None:
+                group.create_task(current)
+
+
+async def wait_any[T](
+    *tasks: MaybeRecursiveIterable[Task[T] | Coroutine[T, Any, Any]],
+    cancelling: bool = False,
+) -> tuple[set[Task[T]], set[Task[T]]]:
+    """
+    Wait for any of the given tasks or coroutines to complete.
+
+    If `cancelling` is `True`, all remaining tasks will be cancelled and awaited once the first task completes. This is `False` by default.
+
+    :param tasks: The tasks or coroutines to wait for. If coroutines are given, they will be automatically scheduled as tasks.
+    :param cancelling: Whether or not to cancel all remaining tasks once one completes.
+    :return: A tuple of two sets. The first set contains all tasks that completed, and the second set contains all tasks still pending.
+    """
+    done, pending = await _wait_many(asyncio.FIRST_COMPLETED, list(flatten(tasks)))
+    if cancelling:
+        await cancel(pending)
+
+    return done, pending
+
+
+async def wait_all[T](
+    *tasks: MaybeRecursiveIterable[Task[T] | Coroutine[T, Any, Any]],
+) -> tuple[Task[T]]:
+    """
+    Wait for all of the given tasks or coroutines to complete.
+
+    :param tasks: The tasks or coroutines to wait for. If a coroutines are given, they will be automatically scheduled as tasks.
+    :return: A tuple of all tasks completed.
+    """
+    done, _ = await _wait_many(asyncio.ALL_COMPLETED, list(flatten(tasks)))
+    return done  # type: ignore
+
+
+async def _wait_many[T](
+    condition: str,
+    tasks: Sequence[Task[T] | Coroutine[Any, Any, T]],
+) -> tuple[set[Task[T]], set[Task[T]]]:
+    waiting = [asyncio.create_task(task) if not isinstance(task, Task) else task for task in tasks]
+    result = await asyncio.wait(waiting, return_when=condition)
+    return result
 
 
 def ensure_event_loop(*, uvloop: bool = True, eager: bool = True) -> AbstractEventLoop:
@@ -88,7 +161,7 @@ class _AsyncZipLatest[T: tuple[Any, ...]]:
     async def __aexit__(self, *args: Any) -> None:
         try:
             if self.__state and self.__state.tasks:
-                await util.cancel(self.__state.tasks)
+                await cancel(self.__state.tasks)
         finally:
             self.__state = None
 

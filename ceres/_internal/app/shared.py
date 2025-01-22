@@ -81,7 +81,7 @@ class Socket:
         await self.socket.receive_json()
 
     async def execute(self, callback: Callable[[], Coroutine[Any, Any, Any]]) -> None:
-        await util.wait_any_then_cancel(callback(), self.server.wait_until_stopping())
+        await util.wait_any(callback(), self.server.wait_until_stopping(), cancelling=True)
 
 
 async def _use_current_socket(socket: WebSocket, engine: CurrentEngine) -> AsyncIterator[Socket]:

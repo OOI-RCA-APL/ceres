@@ -4,7 +4,7 @@ import asyncio
 import dataclasses
 import re
 import typing
-from asyncio import AbstractEventLoop, Future, Task, TaskGroup
+from asyncio import AbstractEventLoop, Future
 from collections import OrderedDict, defaultdict
 from collections.abc import Set
 from contextlib import contextmanager
@@ -54,7 +54,11 @@ with lazy_imports(__name__):
 
 with lazy_imports(__name__, export=True):
     from ceres.util import azip_latest as azip_latest
+    from ceres.util import cancel as cancel
+    from ceres.util import concurrently as concurrently
     from ceres.util import ensure_event_loop as ensure_event_loop
+    from ceres.util import wait_all as wait_all
+    from ceres.util import wait_any as wait_any
 
 
 NAME_PATTERN = r"^[a-zA-Z_\-][a-zA-Z0-9_\-]*$"
@@ -909,49 +913,6 @@ def sequence[T](start: T, next: Callable[[T], T]) -> Iterator[T]:
     while True:
         yield current
         current = next(start)
-
-
-async def cancel(*tasks: MaybeRecursiveIterable[Task[Any]]) -> None:
-    flattened = list(flatten(tasks))
-    for task in flattened:
-        task.cancel()
-
-    await asyncio.gather(*flattened, return_exceptions=True)
-
-
-async def concurrently(*coroutines: MaybeRecursiveIterable[Coroutine | None]) -> None:
-    async with TaskGroup() as group:
-        for current in flatten(coroutines):
-            if current is not None:
-                group.create_task(current)
-
-
-async def _wait_many[T](
-    condition: str,
-    tasks: Sequence[Task[T] | Coroutine[Any, Any, T]],
-) -> tuple[set[Task[T]], set[Task[T]]]:
-    waiting = [asyncio.create_task(task) if not isinstance(task, Task) else task for task in tasks]
-    result = await asyncio.wait(waiting, return_when=condition)
-    return result
-
-
-async def wait_any[T](
-    *tasks: Task[T] | Coroutine[T, Any, Any],
-) -> tuple[set[Task[T]], set[Task[T]]]:
-    return await _wait_many(asyncio.FIRST_COMPLETED, tasks)
-
-
-async def wait_all[T](
-    *tasks: Task[T] | Coroutine[T, Any, Any],
-) -> tuple[set[Task[T]], set[Task[T]]]:
-    return await _wait_many(asyncio.ALL_COMPLETED, tasks)
-
-
-async def wait_any_then_cancel(
-    *tasks: Task[Any] | Coroutine[Any, Any, Any],
-) -> None:
-    done, pending = await wait_any(*tasks)
-    await cancel(pending)
 
 
 def upper_camel(string: str) -> str:
