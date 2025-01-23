@@ -1,5 +1,5 @@
 components:
   - name: generator
-    class: example.generator.CSVNameGenerator
+    class: generator.CSVNameGenerator
     arguments:
-      output: ./output.csv
+      output: ./local/output.csv

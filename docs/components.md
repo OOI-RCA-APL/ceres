@@ -9,7 +9,7 @@ A component's configuration is defined by the typed attributes in its class. All
 ### Example
 
 ```python
-# ../examples/random/example/random.py
+# ../examples/random/random.py
 
 import asyncio
 from asyncio import sleep
@@ -60,7 +60,7 @@ If we want to run this component using the Ceres engine, we can define its confi
 
 components:
   - name: random
-    class: example.random.Random
+    class: random.Random
     arguments:
       low: 50
       high: 100
@@ -86,13 +86,13 @@ If we need multiple instances of our `Random` class, you can simply add another 
 
 components:
   - name: random
-    class: example.random.Random
+    class: random.Random
     arguments:
       low: 50
       high: 100
       interval: 0.5s
   - name: random-b
-    class: example.random.Random
+    class: random.Random
     arguments:
       low: -10
       high: 10
@@ -125,13 +125,13 @@ components:
     # The "class" is omitted here, and defaults to `Component`.
     components:
       - name: a
-        class: example.random.Random
+        class: random.Random
         arguments:
           low: 50
           high: 100
           interval: 0.5s
       - name: b
-        class: example.random.Random
+        class: random.Random
         arguments:
           low: 50
           high: 100
@@ -182,7 +182,7 @@ Components can declare one or more _routines_, which are async methods that exec
 _Routines are defined using the `@routine` decorator._
 
 ```python
-# ../examples/csv-generator/example/generator.py
+# ../examples/csv-generator/generator.py
 
 import csv
 from asyncio import sleep
@@ -255,9 +255,9 @@ class CSVNameGenerator(Component):
 
 components:
   - name: generator
-    class: example.generator.RandomCSVNameGenerator
+    class: generator.RandomCSVNameGenerator
     arguments:
-      output: ./output.csv
+      output: ./local/output.csv
 ```
 
 ```sh
@@ -278,7 +278,7 @@ $ ceres run all
 ...
 ```
 
-_You can view generated names in `output.csv`._
+_You can view generated names in `./local/output.csv`._
 
 ## Events
 
@@ -327,13 +327,13 @@ All events are subclasses of `Event`. Custom events can be created by inheriting
 
 #### Event Listeners
 
-Components can register _event listeners_ using the `@on` decorator. Event listeners can be used to process a component's own events or the events of other components. Events will only be processed by a component while the component is running.
+Components can register _event listeners_ using the `@listener` decorator. Event listeners can be used to process a component's own events or the events of other components. Events will only be processed by a component while the component is running.
 
-###### `@on` Decorator Parameters
+###### `@listener` Decorator Parameters
 
 - `event`: An event class to listen for. If `event` is not passed as an argument, the event type is determined by the type annotation of the `event` parameter in the listening method.
-- `reference`: An optional name of the reference to listen for events from. _For example, if you have a reference to a connection component like `connection: Ref[Connection]` you can listen to its events using `@on(reference="connection)"`._
-- `address`: An optional address selector or selectors to listen for events from. _For example, to listen to events from a component at the address `@connection`, use `@on(address="@connection")`, or if you'd like to listen to the events of every component in the tree, use `@on(address="all")`._
+- `reference`: An optional name of the reference to listen for events from. _For example, if you have a reference to a connection component like `connection: Ref[Connection]` you can listen to its events using `@listener(reference="connection)"`._
+- `address`: An optional address selector or selectors to listen for events from. _For example, to listen to events from a component at the address `@connection`, use `@listener(address="@connection")`, or if you'd like to listen to the events of every component in the tree, use `@listener(address="all")`._
 - `local`: Whether to listen for events emitted by the component itself. This will default to `True` if neither `reference` or `address` are specified, and `False` otherwise.
 
 _Event listener methods are executed asyncronously, separate from the original call to `emit`. Components maintain separate event queues for each event listener they have registered, and process them at their own pace. Calling `emit` only distributes the event to those queues, and as a result, listeners are isolated, and will never crash code that emits events._
@@ -345,7 +345,7 @@ from asyncio import sleep
 from datetime import datetime
 from typing import Literal
 
-from ceres import Component, Event, Ref, routine
+from ceres import Component, Event, Ref, routine, listener
 
 
 class CountEvent(Event):
@@ -370,10 +370,10 @@ class EventEmitterExample(Component):
             await sleep(1)
             count += 1
 
-    # Omitting any arguments to `@on` is the same as setting `local=True`, and will listen for
+    # Omitting any arguments to `@listener` is the same as setting `local=True`, and will listen for
     # events on this component itself. The event type the listened for is inferred from the type
     # annotation of `event`.
-    @on
+    @listener
     async def on__local_count_event(self, event: CountEvent) -> None:
         """
         Handle `CountEvent`s emitted by this component.
@@ -384,14 +384,14 @@ class EventEmitterExample(Component):
 class EventListenerExample(Component):
     emitter: Ref[EventEmitterExample]
 
-    @on(reference="emitter")
+    @listener(reference="emitter")
     async def on__emitter_count_event(self, event: CountEvent) -> None:
         """
         Handle `CountEvent`s emitted by `emitter`.
         """
         self.log.info(f"External count event at {event.address}. Count is {event.count}.")
 
-    @on(address="all")
+    @listener(address="all")
     async def on__global_event(self, event: Event) -> None:
         """
         Handle all events in the component tree.
@@ -402,9 +402,9 @@ class EventListenerExample(Component):
 ```yaml
 components:
   - name: emitter
-    class: example.events.EventEmitterExample
+    class: events.EventEmitterExample
   - name: listener
-    class: example.events.EventListenerExample
+    class: events.EventListenerExample
     arguments:
       emitter: "@emitter" # Pass a reference to the `emitter` component.
 ```
@@ -449,7 +449,7 @@ self.emit(
 
 #### Retrieval
 
-Messages can be retrieved using `get_messages` and `get_message`.
+Messages can be retrieved using `system.messages.get_all` and `system.messages.get`.
 
 ```python
 from asyncio import sleep
@@ -463,14 +463,14 @@ class Driver(Component)
     async def routine__log_connection_messages(self) -> None:
         while True:
             # Get the latest 10 messages sent or received by the connection component.
-            latest = await self.connection.get_messages(
+            latest = await self.connection.system.messages.get_all(
               order="-timestamp",
               limit=10
             )
             self.log.info(latest)
 
             # Alternatively, you can pass the address of `@connection`.
-            latest = await self.get_messages(
+            latest = await self.system.messages.get_all(
               address="@connection",
               order="-timestamp",
               limit=10
@@ -478,7 +478,7 @@ class Driver(Component)
             self.log.info(latest)
 
             # Get the oldest message sent or received by the connection component.
-            oldest = await self.connection.get_message()
+            oldest = await self.connection.system.messages.get()
             self.log.info(oldest)
 
             await sleep(5)
@@ -496,8 +496,8 @@ _Do note that emitting an alert doesn't actually send it anywhere, it will just 
 | `address`   | `ceres.Address`  | The address of the component that emitted the alert.                             |
 | `timestamp` | `datetime`       | The timestamp at which the alert was created. Defaults to the current timestamp. |
 | `level`     | `ceres.Level`    | A level specifying the severity of the alert.                                    |
-| `code`      | `str`            | An arbitrary string which can be used to retrieve alerts of a particular type.   |
-| `info`      | `dict[str, Any]` | A JSON serializable dictionary with arbitrary values.                            |
+| `type`      | `str`            | An arbitrary string which can be used to retrieve alerts of a particular type.   |
+| `data`      | `dict[str, Any]` | A JSON serializable dictionary with arbitrary values.                            |
 
 #### Creation
 
@@ -514,7 +514,7 @@ self.alert(Level.INFO, "airlock/recovered", {"message": "Oh, nevermind. We're go
 
 #### Retrieval
 
-Alerts can be retrieved using `get_alerts()` and `get_alert()`.
+Alerts can be retrieved using `system.alerts.get_all()` and `system.alerts.get()`.
 
 ```python
 from asyncio import sleep
@@ -526,20 +526,20 @@ class Example(Component)
     async def routine__log_alerts(self) -> None:
         while True:
             # Get the latest 10 alerts emitted by this component.
-            latest = await self.engine.get_alerts(
+            latest = await self.system.alerts.get_all(
               order="-timestamp",
               limit=10
             )
 
             # Get the latest 10 alerts from the component `@other`.
-            latest = await self.get_alerts(
+            latest = await self.system.alerts.get_all(
               address="@other",
               order="-timestamp",
               limit=10
             )
 
             # Get the oldest alert emitted by any component in the tree.
-            oldest = await self.root.get_alert(address="all")
+            oldest = await self.root.alerts.get_all(address="all")
             await sleep(5)
 ```
 
@@ -557,7 +557,7 @@ Components can log arbitrary messages to for monitoring purposes. These log entr
 
 #### Creation
 
-Components can log messages through their `log`, which mirrors Python's built-in `Logger` class.
+Components can log messages through `system.log`, which mirrors Python's built-in `Logger` class.
 
 ```python
 from asyncio import sleep
@@ -590,7 +590,7 @@ class Example(Component):
 
 #### Retrieval
 
-Log entries can be retrieved using `get_log_entries()` and `get_log_entry()`.
+Log entries can be retrieved using `system.log.get_all()` and `system.log.get()`.
 
 ```python
 from asyncio import sleep
@@ -602,19 +602,19 @@ class Example(Component)
     async def routine__get_log_entry_counts(self) -> None:
         while True:
             # Get the latest 10 alerts emitted by this component.
-            latest = await self.get_log_entries(
+            latest = await self.log.get_all(
               order="-timestamp",
               limit=10
             )
 
             # Get the latest 10 log entries from the component `@other`.
-            latest = await self.get_log_entries(
+            latest = await self.log.get_all(
               address="@other",
               order="-timestamp",
               limit=10
             )
 
             # Get the oldest log entry emitted by any component in the tree.
-            oldest = await self.root.get_alert(address="all")
+            oldest = await self.root.get(address="all")
             await sleep(5)
 ```
