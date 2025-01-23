@@ -1182,7 +1182,7 @@ class ComponentSystem(Node):
     @override
     def get_component(
         self,
-        address: str | DynamicAddress | None = None,
+        address: str | DynamicAddress | None = None,  # TODO: Don't allow this to be `None`.
         /,
     ) -> Component | None:
         if not address:

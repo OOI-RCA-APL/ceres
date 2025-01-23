@@ -288,6 +288,14 @@ class DynamicAddress(AddressSelector):
         return self._text[self._text.rindex(".") + 1 :] or None
 
     @property
+    def container(self) -> Self:
+        parent = self.parent
+        if parent is None:
+            return type(self)("~")
+
+        return parent
+
+    @property
     def parent(self) -> Self | None:
         if self.is_root:
             return None

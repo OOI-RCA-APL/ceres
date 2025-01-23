@@ -534,7 +534,7 @@ class Engine(Node):
     ) -> Component | None:
         for action in actions:
             if root_component is not None:
-                container = root_component.system.get_component(action.address.parent)
+                container = root_component.system.get_node(action.address.container)
                 component = root_component.system.get_component(action.address)
             else:
                 container = self

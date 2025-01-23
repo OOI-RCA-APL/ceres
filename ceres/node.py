@@ -197,12 +197,12 @@ class Node(Tasklet):
     @abstractmethod
     async def __stop__(self) -> None: ...
 
-    def get_node(self, address: str | DynamicAddress | None, /) -> Node | None:
+    def get_node(self, address: str | DynamicAddress | None, /) -> ComponentSystem | Engine | None:
         """
-        Get an object from the tree by address.
+        Get a node from the tree by address.
         """
         if address is None:
-            return self
+            return self  # type: ignore
 
         address = DynamicAddress(address)
         if address.is_engine:
