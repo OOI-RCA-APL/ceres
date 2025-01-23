@@ -2,26 +2,33 @@ from __future__ import annotations
 
 from typing import Any, override
 
+from pydantic import field_validator
+from typing_extensions import TYPE_CHECKING
+
 from ceres._internal.cli.shared import CliCommand, create_entity_command, get_input
 from ceres.data import PasswordHash, PasswordStr
 from ceres.user import User, UserCreate
 
 
-class UserCreateWithPrompt(UserCreate):
-    password: PasswordStr | PasswordHash | None = None
+class PromptedUserCreate(UserCreate):
+    if not TYPE_CHECKING:
+        password: PasswordStr | PasswordHash | None = None
+
+    @field_validator("password", mode="before")
+    @classmethod
+    def _validate_password(cls, value: Any) -> Any:
+        if value is None:
+            return get_input("Password", PasswordStr | PasswordHash, hidden=True)
+
+        return value
 
 
-class CreateCommand(CliCommand):
-    data: UserCreateWithPrompt
-
+class CreateCommand(CliCommand, PromptedUserCreate):
     @override
     async def __run__(self) -> Any:
-        data = self.data
-        if data.password is None:
-            data.password = get_input("Password: ", PasswordStr | PasswordHash)
-
+        create = self.read(PromptedUserCreate)
         async with self.use_database() as database:
-            return await database.users.create(self.data)
+            return await database.users.create(create)
 
 
 UsersCommand = create_entity_command(User, {"create": CreateCommand})
