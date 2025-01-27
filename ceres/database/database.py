@@ -133,8 +133,12 @@ class Database:
         return AlertManager(self)
 
     @cached_property
-    def log(self) -> LogManager:
+    def logs(self) -> LogManager:
         return LogManager(self)
+
+    @property
+    def log(self) -> LogManager:
+        return self.logs
 
     @cached_property
     def users(self) -> UserManager:
