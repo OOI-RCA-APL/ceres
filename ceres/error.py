@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from abc import ABC
 from typing import TYPE_CHECKING, Any, Callable, ClassVar, Literal, Sequence, TypeAlias
 
 from pydantic import ImportString, computed_field, model_serializer
@@ -16,17 +15,17 @@ from starlette.status import (
 
 from ceres._internal import util
 from ceres.address import Address, DynamicAddress
-from ceres.data import DataObject, ImmutableDataObject, simplify
+from ceres.data import DataObject, DeferBuild, ImmutableDataObject, simplify
 
 if TYPE_CHECKING:
     from fastapi.exceptions import RequestValidationError
     from pydantic import ValidationError
 
 
-_undefined = object()
+_UNDEFINED = object()
 
 
-class ValidationProblem(ImmutableDataObject):
+class ValidationProblem(ImmutableDataObject, DeferBuild):
     type: str
     location: Sequence[str | int]
     message: str
@@ -35,16 +34,16 @@ class ValidationProblem(ImmutableDataObject):
     def extract(
         cls,
         error: "ValidationError | RequestValidationError",
-        source: object = _undefined,
+        source: object = _UNDEFINED,
     ) -> list[ValidationProblem]:
-        data = simplify(source) if source is not _undefined else _undefined
+        data = simplify(source) if source is not _UNDEFINED else _UNDEFINED
         problems: list[ValidationProblem] = []
 
         for suberror in error.errors():
             default_location = list(segment for segment in suberror["loc"] if segment != "__root__")
             location: list[str | int] | None = []
             try:
-                if source is not _undefined:
+                if source is not _UNDEFINED:
                     location = []
                     parent: object | None = None
                     current: Any = data
@@ -81,7 +80,7 @@ class ValidationProblem(ImmutableDataObject):
         return problems
 
 
-class Error(ImmutableDataObject, ABC):
+class Error(ImmutableDataObject):
     __error_status_code__: ClassVar[int] = HTTP_500_INTERNAL_SERVER_ERROR
 
     @computed_field
@@ -101,7 +100,11 @@ class Error(ImmutableDataObject, ABC):
         return result
 
 
-class __BaseComponentError(Error, ABC):
+class __BaseStandardError(Error, DeferBuild):
+    pass
+
+
+class __BaseComponentError(__BaseStandardError):
     __error_status_code__: ClassVar[int] = HTTP_500_INTERNAL_SERVER_ERROR
 
 
@@ -149,10 +152,10 @@ ComponentError: TypeAlias = (
     | ComponentCombinedError
 )
 
-ComponentCombinedError.model_rebuild()
+# ComponentCombinedError.model_rebuild()
 
 
-class __BaseProcedureError(Error, ABC):
+class __BaseProcedureError(__BaseStandardError):
     __error_status_code__: ClassVar[int] = HTTP_400_BAD_REQUEST
 
 
@@ -199,49 +202,53 @@ ProcedureError: TypeAlias = (
 )
 
 
-class NotFoundError(Error):
+class __BaseAPIError(__BaseStandardError):
+    pass
+
+
+class NotFoundError(__BaseAPIError):
     __error_status_code__: ClassVar[int] = HTTP_404_NOT_FOUND
     type: Literal["not-found-error"] = "not-found-error"
 
 
-class NotRunningError(Error):
+class NotRunningError(__BaseAPIError):
     __error_status_code__: ClassVar[int] = HTTP_404_NOT_FOUND
     type: Literal["not-running-error"] = "not-running-error"
 
 
-class AlreadyExistsError(Error):
+class AlreadyExistsError(__BaseAPIError):
     __error_status_code__: ClassVar[int] = HTTP_409_CONFLICT
     type: Literal["already-exists-error"] = "already-exists-error"
     field: str
 
 
-class NotAuthenticatedError(Error):
+class NotAuthenticatedError(__BaseAPIError):
     __error_status_code__: ClassVar[int] = HTTP_401_UNAUTHORIZED
     type: Literal["not-authenticated-error"] = "not-authenticated-error"
 
 
-class NotPermittedError(Error):
+class NotPermittedError(__BaseAPIError):
     __error_status_code__: ClassVar[int] = HTTP_403_FORBIDDEN
     type: Literal["not-permitted-error"] = "not-permitted-error"
 
 
-class BadCredentialsError(Error):
+class BadCredentialsError(__BaseAPIError):
     __error_status_code__: ClassVar[int] = HTTP_401_UNAUTHORIZED
     type: Literal["bad-credentials-error"] = "bad-credentials-error"
 
 
-class AuthenticationDisabledError(Error):
+class AuthenticationDisabledError(__BaseAPIError):
     __error_status_code__: ClassVar[int] = HTTP_403_FORBIDDEN
     type: Literal["authentication-disabled-error"] = "authentication-disabled-error"
 
 
-class ValidationFailedError(Error):
+class ValidationFailedError(__BaseAPIError):
     __error_status_code__: ClassVar[int] = HTTP_422_UNPROCESSABLE_ENTITY
     type: Literal["validation-failed-error"] = "validation-failed-error"
     problems: Sequence[ValidationProblem]
 
 
-class HTTPError(Error):
+class HTTPError(__BaseAPIError):
     __error_status_code__: ClassVar[int] = HTTP_500_INTERNAL_SERVER_ERROR
     type: Literal["http-error"] = "http-error"
     status: int
@@ -260,25 +267,25 @@ APIError: TypeAlias = (
 )
 
 
-class DatabaseUnreachableError(Error):
+class DatabaseUnreachableError(__BaseStandardError):
     __error_status_code__: ClassVar[int] = HTTP_500_INTERNAL_SERVER_ERROR
     type: Literal["database-unreachable-error"] = "database-unreachable-error"
     message: str
 
 
-class DatabaseUnexpectedError(Error):
+class DatabaseUnexpectedError(__BaseStandardError):
     __error_status_code__: ClassVar[int] = HTTP_500_INTERNAL_SERVER_ERROR
     type: Literal["database-unexpected-error"] = "database-unexpected-error"
     message: str
 
 
-class DatabaseLoadError(Error):
+class DatabaseLoadError(__BaseStandardError):
     __error_status_code__: ClassVar[int] = HTTP_400_BAD_REQUEST
     type: Literal["database-load-error"] = "database-load-error"
     message: str
 
 
-class DatabaseInitError(Error):
+class DatabaseInitError(__BaseStandardError):
     __error_status_code__: ClassVar[int] = HTTP_500_INTERNAL_SERVER_ERROR
     type: Literal["database-init-error"] = "database-init-error"
     message: str
@@ -294,7 +301,7 @@ DatabaseError: TypeAlias = (
 )
 
 
-class __BaseConfigError(Error, ABC):
+class __BaseConfigError(__BaseStandardError):
     __error_status_code__: ClassVar[int] = HTTP_400_BAD_REQUEST
 
 
@@ -308,7 +315,7 @@ class ConfigReadError(__BaseConfigError):
     message: str
 
 
-class ConfigParseErrorLocation(DataObject):
+class ConfigParseErrorLocation(DataObject, DeferBuild):
     line: int
     column: int
 
@@ -339,10 +346,10 @@ ConfigError: TypeAlias = (
     | ConfigCombinedError
 )
 
-ConfigCombinedError.model_rebuild()
+# ConfigCombinedError.model_rebuild()
 
 
-class __BaseReloadError(Error, ABC):
+class __BaseReloadError(__BaseStandardError):
     __error_status_code__: ClassVar[int] = HTTP_400_BAD_REQUEST
 
 
@@ -358,7 +365,7 @@ class ReloadConfigInvalidError(__BaseReloadError):
 ReloadError: TypeAlias = ReloadConfigPathUnsetError | ReloadConfigInvalidError
 
 
-class __BaseParticleError(Error, ABC):
+class __BaseParticleError(__BaseStandardError):
     __error_status_code__: ClassVar[int] = HTTP_500_INTERNAL_SERVER_ERROR
 
 

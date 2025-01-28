@@ -22,7 +22,7 @@ from ceres._internal.entity import (
     BaseEntityFilterArgs,
     BaseEntityRow,
 )
-from ceres.data import FromYaml, Jsonable, MaybeSequence
+from ceres.data import FromYaml, JSONSerializable, MaybeSequence
 from ceres.database import DatabaseType
 
 
@@ -31,7 +31,7 @@ class SettingRow(BaseEntityRow, kw_only=True):
 
     user_id: Mapped[UUID] = mapped_column(Uuid)
     name: Mapped[str] = mapped_column(Text)
-    value: Mapped[Jsonable] = mapped_column(JSON)
+    value: Mapped[JSONSerializable] = mapped_column(JSON)
 
     @classmethod
     @override
@@ -103,12 +103,12 @@ class SettingFilter(BaseEntityFilter["Setting", SettingField, SettingOrder]):
 class SettingCreate(BaseEntityCreate):
     user_id: UUID
     name: str
-    value: FromYaml[Jsonable]
+    value: FromYaml[JSONSerializable]
 
 
 class SettingUpdate(TypedDict, total=False):
     name: str
-    value: FromYaml[Jsonable]
+    value: FromYaml[JSONSerializable]
 
 
 class Setting(BaseEntity, SettingCreate):

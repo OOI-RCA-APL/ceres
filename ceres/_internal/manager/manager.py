@@ -35,7 +35,7 @@ class BaseManager[T](ABC):
         return self._source.database
 
 
-class BaseBoundManager[T](BaseManager[T], ABC):
+class BaseBoundManager[T](BaseManager[T]):
     def __init__(self, source: Node, cls: type[T]) -> None:
         super().__init__(source, cls)
 

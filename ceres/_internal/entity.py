@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -35,7 +35,7 @@ from ceres._internal import util
 from ceres._internal.database.types import UUIDMapper
 from ceres._internal.filter import BaseFilter, BaseFilterArgs
 from ceres._internal.lazy import lazy_imports
-from ceres.data import ImmutableDataObject, MaybeSequence
+from ceres.data import DeferBuild, ImmutableDataObject, MaybeSequence
 from ceres.database import DatabaseType
 
 with lazy_imports(__name__):
@@ -175,7 +175,7 @@ class BaseEntityFilter[
     EntityT: BaseEntity,
     FieldT: str,
     OrderT: str,
-](BaseFilter, ABC):
+](BaseFilter):
     order: MaybeSequence[OrderT] | None = None
     """Specify ordering of results by field. Prefix field names with '-' for descending order."""
     limit: NonNegativeInt | None = None
@@ -246,7 +246,7 @@ class BaseEntityFilter[
         return statement.where(pk.in_(pks)).order_by(*order_by)
 
 
-class BaseEntityCreate(ImmutableDataObject):
+class BaseEntityCreate(ImmutableDataObject, DeferBuild):
     pass
 
 

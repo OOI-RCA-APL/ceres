@@ -5,7 +5,7 @@ import re
 import socket
 import sys
 import traceback
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from asyncio import StreamReader, StreamWriter
 from dataclasses import dataclass, field
 from datetime import timedelta
@@ -108,7 +108,7 @@ def __pre_validate_regex_flags(value: object) -> object:
 RegexFlags = Annotated[RegexFlag, BeforeValidator(__pre_validate_regex_flags)]
 
 
-class Connection(Component, ABC):
+class Connection(Component):
     separator: bytes
     regex: bytes | None = None
     regex_flags: RegexFlags = RegexFlag.MULTILINE | RegexFlag.DOTALL

@@ -27,7 +27,7 @@ from ceres._internal.record import (
     BaseRecordRow,
 )
 from ceres.address import Address
-from ceres.data import DateTime, FromYaml, JsonableDict, MaybeSequence, jsonify
+from ceres.data import DateTime, FromYaml, JSONSerializableDict, MaybeSequence, jsonify
 from ceres.database import DatabaseType
 from ceres.level import Level
 from ceres.timing import utc
@@ -38,7 +38,7 @@ class AlertRow(BaseRecordRow, kw_only=True):
 
     level: Mapped[Level] = mapped_column(EnumMapper(Level))
     type: Mapped[str] = mapped_column(Text)
-    data: Mapped[JsonableDict] = mapped_column(
+    data: Mapped[JSONSerializableDict] = mapped_column(
         JSON,
         default_factory=dict,
         server_default="{}",
@@ -212,7 +212,7 @@ class AlertFilter(BaseRecordFilter["Alert", AlertField, AlertOrder]):
 class AlertCreate(BaseRecordCreate):
     level: Level
     type: str
-    data: FromYaml[JsonableDict] = Field(default_factory=dict)
+    data: FromYaml[JSONSerializableDict] = Field(default_factory=dict)
 
 
 class AlertUpdate(TypedDict, total=False):
@@ -220,7 +220,7 @@ class AlertUpdate(TypedDict, total=False):
     timestamp: DateTime
     level: Level
     type: str
-    data: FromYaml[JsonableDict]
+    data: FromYaml[JSONSerializableDict]
 
 
 class Alert(BaseRecord, AlertCreate):

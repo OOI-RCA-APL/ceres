@@ -29,7 +29,15 @@ from starlette.status import HTTP_400_BAD_REQUEST, HTTP_401_UNAUTHORIZED
 from ceres._internal import util
 from ceres._internal.entity import BaseEntity
 from ceres._internal.lazy import lazy_imports
-from ceres.data import DateTime, EmailStr, ImmutableDataObject, StrEnum, UsernameStr, jsonify
+from ceres.data import (
+    DateTime,
+    DeferBuild,
+    EmailStr,
+    ImmutableDataObject,
+    StrEnum,
+    UsernameStr,
+    jsonify,
+)
 from ceres.error import Failure, NotAuthenticatedError, NotFoundError, NotPermittedError
 from ceres.timing import utc
 from ceres.user import User, UserRole
@@ -121,7 +129,7 @@ CurrentProcedureQueryArguments = Annotated[
 ]
 
 
-class APIUser(ImmutableDataObject):
+class APIUser(ImmutableDataObject, DeferBuild):
     id: UUID
     username: UsernameStr
     email: EmailStr
@@ -132,7 +140,7 @@ class APIUser(ImmutableDataObject):
 APIUser.__name__ = "User"
 
 
-class APIIdentity(ImmutableDataObject):
+class APIIdentity(ImmutableDataObject, DeferBuild):
     user: APIUser
     token: str
     expires: DateTime

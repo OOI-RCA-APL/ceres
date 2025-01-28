@@ -19,7 +19,7 @@ from pydantic import (
 )
 
 from ceres._internal.util import decode_td
-from ceres.data import DateTime, ImmutableDataObject, PositiveTimeDelta, StrEnum
+from ceres.data import DateTime, DeferBuild, ImmutableDataObject, PositiveTimeDelta, StrEnum
 from ceres.timing import utc
 
 
@@ -29,7 +29,7 @@ class ScheduleType(StrEnum):
     OR = "or"
 
 
-class BaseSchedule(ImmutableDataObject):
+class __BaseSchedule(ImmutableDataObject, DeferBuild):
     def __or__(self, other: Schedule) -> OrSchedule:
         assert isinstance(self, Schedule)
         assert isinstance(other, Schedule)
@@ -39,7 +39,7 @@ class BaseSchedule(ImmutableDataObject):
     def as_trigger(self) -> Trigger: ...
 
 
-class CronSchedule(BaseSchedule):
+class CronSchedule(__BaseSchedule):
     type: Literal[ScheduleType.CRON] = ScheduleType.CRON
     crontab: str
 
@@ -69,7 +69,7 @@ class CronSchedule(BaseSchedule):
         return CronTrigger(self)
 
 
-class IntervalSchedule(BaseSchedule):
+class IntervalSchedule(__BaseSchedule):
     type: Literal[ScheduleType.INTERVAL] = ScheduleType.INTERVAL
     interval: PositiveTimeDelta
     start: DateTime | None = None
@@ -129,7 +129,7 @@ class IntervalSchedule(BaseSchedule):
         return IntervalTrigger(self)
 
 
-class OrSchedule(BaseSchedule):
+class OrSchedule(__BaseSchedule):
     type: Literal[ScheduleType.OR] = ScheduleType.OR
     schedules: Sequence[Schedule]
 
@@ -170,9 +170,6 @@ ScheduleExpr: TypeAlias = Annotated[
     Field(discriminator="type", union_mode="left_to_right"),
     BeforeValidator(__pre_validate_schedule_expression),
 ]
-
-
-OrSchedule.model_rebuild()
 
 
 class Trigger:

@@ -1,17 +1,16 @@
 from __future__ import annotations
 
-from abc import ABC
 from typing import Self, TypedDict
 
 from ceres._internal import util
-from ceres.data import ImmutableDataObject
+from ceres.data import DeferBuild, ImmutableDataObject
 
 
 class BaseFilterArgs(TypedDict, total=False):
     pass
 
 
-class BaseFilter(ImmutableDataObject, ABC):
+class BaseFilter(ImmutableDataObject, DeferBuild):
     def with_overrides(self, overrides: Self | None) -> Self:
         return util.model_apply_overrides(self, overrides)
 

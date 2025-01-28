@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from typing import (
-    Any,
     ClassVar,
     Iterable,
     Literal,
@@ -25,7 +24,7 @@ from ceres._internal.item import (
     BaseItemOrder,
     BaseItemRow,
 )
-from ceres.data import FromYaml, Jsonable, JsonValue, MaybeSequence
+from ceres.data import FromYaml, JSONSerializable, MaybeSequence
 from ceres.database import DatabaseType
 
 
@@ -33,7 +32,7 @@ class VariableRow(BaseItemRow, kw_only=True):
     __tablename__: ClassVar[str] = "variables"
 
     name: Mapped[str] = mapped_column(Text)
-    value: Mapped[JsonValue] = mapped_column(JSON)
+    value: Mapped[JSONSerializable] = mapped_column(JSON)
 
     @classmethod
     @override
@@ -121,12 +120,12 @@ class VariableFilter(BaseItemFilter["Variable", VariableField, VariableOrder]):
 
 class VariableCreate(BaseItemCreate):
     name: str
-    value: FromYaml[Jsonable[Any]]
+    value: FromYaml[JSONSerializable]
 
 
 class VariableUpdate(TypedDict, total=False):
     name: str
-    value: FromYaml[Jsonable[Any]]
+    value: FromYaml[JSONSerializable]
 
 
 class Variable(BaseItem, VariableCreate):

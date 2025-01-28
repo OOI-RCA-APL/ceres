@@ -42,6 +42,7 @@ from ceres._internal.lazy import lazy_imports
 from ceres.address import Address, DynamicAddress
 from ceres.alert import AlertFilter
 from ceres.data import (
+    DeferBuild,
     ImmutableDataObject,
     MaybeSequence,
     Name,
@@ -83,11 +84,11 @@ with lazy_imports(__name__):
     from ceres.sieve import Sieve
 
 
-class ConfigObject(ImmutableDataObject):
+class __BaseConfigObject(ImmutableDataObject, DeferBuild):
     pass
 
 
-class LoggingConfig(ConfigObject):
+class LoggingConfig(__BaseConfigObject):
     level: Level = Level.INFO
     log_events: bool = False
     log_events_level: Level = Level.INFO
@@ -99,7 +100,7 @@ class LoggingConfig(ConfigObject):
     log_alerts_level: Level | None = None
 
 
-class JobConfig(ConfigObject):
+class JobConfig(__BaseConfigObject):
     name: Name
     action: Name
     arguments: Mapping[Name, Any] | None = None
@@ -118,26 +119,26 @@ class JobConfig(ConfigObject):
         return data
 
 
-class _BasePrunerConfig[TFilter](ConfigObject):
+class __BasePrunerConfig[TFilter](__BaseConfigObject):
     name: Name
     prunes: EntityType
     schedule: ScheduleExpr
     filter: TFilter
 
 
-class MessagePrunerConfig(_BasePrunerConfig[MessageFilter]):
+class MessagePrunerConfig(__BasePrunerConfig[MessageFilter]):
     prunes: Literal[EntityType.MESSAGE] = EntityType.MESSAGE
 
 
-class ParticlePrunerConfig(_BasePrunerConfig[ParticleFilter]):
+class ParticlePrunerConfig(__BasePrunerConfig[ParticleFilter]):
     prunes: Literal[EntityType.PARTICLE] = EntityType.PARTICLE
 
 
-class AlertPrunerConfig(_BasePrunerConfig[AlertFilter]):
+class AlertPrunerConfig(__BasePrunerConfig[AlertFilter]):
     prunes: Literal[EntityType.ALERT] = EntityType.ALERT
 
 
-class LogEntryPrunerConfig(_BasePrunerConfig[LogEntryFilter]):
+class LogEntryPrunerConfig(__BasePrunerConfig[LogEntryFilter]):
     prunes: Literal[EntityType.LOG_ENTRY] = EntityType.LOG_ENTRY
 
 
@@ -151,7 +152,7 @@ else:
     Sieve = Any
 
 
-class SieveConfig(ConfigObject):
+class SieveConfig(__BaseConfigObject):
     name: Name
     cls: ImportString[type[Sieve]] = Field(
         validation_alias="class",
@@ -194,7 +195,7 @@ else:
     Component = Any
 
 
-class ComponentConfig(ConfigObject):
+class ComponentConfig(__BaseConfigObject):
     name: Name
     cls: ImportString[type[Component]] = Field(
         default_factory=_get_component_class,
@@ -385,17 +386,17 @@ class ComponentConfig(ConfigObject):
         return config.cls
 
 
-ComponentConfig.model_rebuild()
+# ComponentConfig.model_rebuild()
 
 
-class ServiceConfig(ConfigObject):
+class ServiceConfig(__BaseConfigObject):
     name: Name | None = None
     user: Name | None = None
     stdout: Path | None = None
     stderr: Path | None = None
 
 
-class ServerSSLConfig(ConfigObject):
+class ServerSSLConfig(__BaseConfigObject):
     key: Path | None = None
     key_password: str | None = None
     cert: Path | None = None
@@ -403,12 +404,12 @@ class ServerSSLConfig(ConfigObject):
     ca_certs: Path | None = None
 
 
-class ServerAuthenticationConfig(ConfigObject):
+class ServerAuthenticationConfig(__BaseConfigObject):
     secret: NonEmptyStr
     duration: PositiveTimeDelta = timedelta(minutes=30)
 
 
-class ServerCORSConfig(ConfigObject):
+class ServerCorsConfig(__BaseConfigObject):
     enabled: bool = True
     allow_origins: MaybeSequence[str] = Field(default_factory=list)
     allow_origin_regex: Pattern[str] | None = None
@@ -419,7 +420,7 @@ class ServerCORSConfig(ConfigObject):
     max_age: PositiveInt = 600
 
 
-class ServerCompressionConfig(ConfigObject):
+class ServerCompressionConfig(__BaseConfigObject):
     enabled: bool = True
     min_size: ByteSize = ByteSize(500)
     zstd: bool = True
@@ -430,13 +431,13 @@ class ServerCompressionConfig(ConfigObject):
     gzip_level: int = Field(default=1, ge=0, le=9)
 
 
-class ServerConfig(ConfigObject):
+class ServerConfig(__BaseConfigObject):
     host: str = "0.0.0.0"  # Bind to IPV4 all addresses by default
     port: int | None = None
     socket: Path | None = None
     ssl: ServerSSLConfig | None = None
     authentication: ServerAuthenticationConfig | None = None
-    cors: ServerCORSConfig | None = None
+    cors: ServerCorsConfig | None = None
     compression: ServerCompressionConfig | None = None
 
     @field_validator("host")
@@ -460,7 +461,7 @@ class ServerConfig(ConfigObject):
         return socket
 
 
-class ConsoleConfig(ConfigObject):
+class ConsoleConfig(__BaseConfigObject):
     title: str | None = None
     favicon: Path | None = None
     # Using `SerializeAsAny` here to work around Pydantic's union serialization issues dealing with
@@ -469,12 +470,12 @@ class ConsoleConfig(ConfigObject):
     dashboard: SerializeAsAny[Address | Sequence[Address] | None] = None
 
 
-class DatabaseRetryConfig(ConfigObject):
+class DatabaseRetryConfig(__BaseConfigObject):
     timeout: PositiveTimeDelta = timedelta(seconds=15)
     interval: PositiveTimeDelta = timedelta(seconds=3)
 
 
-class DatabaseConfigHooks(ConfigObject):
+class DatabaseConfigHooks(__BaseConfigObject):
     init: Sequence[str] | None = None
     connect: Sequence[str] | None = None
     close: Sequence[str] | None = None
@@ -485,16 +486,16 @@ class HashType(StrEnum):
     ARGON2 = "argon2"
 
 
-class BaseHashingConfig(ConfigObject):
+class __BaseHashingConfig(__BaseConfigObject):
     type: HashType
 
 
-class BCryptHashingConfig(BaseHashingConfig):
+class BCryptHashingConfig(__BaseHashingConfig):
     type: Literal[HashType.BCRYPT] = HashType.BCRYPT
     rounds: PositiveInt = 12
 
 
-class Argon2HashingConfig(BaseHashingConfig):
+class Argon2HashingConfig(__BaseHashingConfig):
     type: Literal[HashType.ARGON2] = HashType.ARGON2
     time_cost: PositiveInt = RFC_9106_LOW_MEMORY.time_cost  # 3
     memory_cost: Annotated[int, Ge(8)] = RFC_9106_LOW_MEMORY.memory_cost  # 65536 KiB
@@ -514,7 +515,7 @@ class Argon2HashingConfig(BaseHashingConfig):
 HashingConfig: TypeAlias = BCryptHashingConfig | Argon2HashingConfig
 
 
-class BaseDatabaseConfig(ConfigObject):
+class __BaseDatabaseConfig(__BaseConfigObject):
     type: DatabaseType
     hooks: DatabaseConfigHooks = Field(default_factory=DatabaseConfigHooks)
     engine: Mapping[str, Any] = Field(default_factory=dict)
@@ -522,12 +523,12 @@ class BaseDatabaseConfig(ConfigObject):
     query: Mapping[str, MaybeSequence[str]] | None = None
 
 
-class SQLiteDatabaseConfig(BaseDatabaseConfig):
+class SQLiteDatabaseConfig(__BaseDatabaseConfig):
     type: Literal[DatabaseType.SQLITE] = DatabaseType.SQLITE
     path: Path | None = None
 
 
-class PostgresDatabaseConfig(BaseDatabaseConfig):
+class PostgresDatabaseConfig(__BaseDatabaseConfig):
     type: Literal[DatabaseType.POSTGRES] = DatabaseType.POSTGRES
     host: NonBlankStr
     port: NonNegativeInt | None = None
@@ -548,7 +549,7 @@ class ConfigCheckType(StrEnum):
         return tuple(cls)
 
 
-class ConfigMeta(ConfigObject):
+class ConfigMeta(__BaseConfigObject):
     model_config = ConfigDict(extra="allow")
 
     service: ServiceConfig = Field(default_factory=ServiceConfig)

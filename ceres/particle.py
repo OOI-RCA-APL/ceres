@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from abc import ABC
 from collections.abc import Mapping
 from datetime import datetime
 from typing import (
@@ -38,7 +37,7 @@ from ceres._internal.record import (
     BaseRecordRow,
     BaseRecordUpdate,
 )
-from ceres.data import FromYaml, ImmutableDataObject, JsonableDict, MaybeSequence, jsonify
+from ceres.data import FromYaml, ImmutableDataObject, JSONSerializableDict, MaybeSequence, jsonify
 from ceres.database import DatabaseType
 from ceres.timing import utc
 
@@ -47,7 +46,7 @@ class ParticleRow(BaseRecordRow, kw_only=True):
     __tablename__: ClassVar[str] = "particles"
 
     type: Mapped[str] = mapped_column(Text)
-    data: Mapped[JsonableDict] = mapped_column(JSON)
+    data: Mapped[JSONSerializableDict] = mapped_column(JSON)
 
     @classmethod
     @override
@@ -81,7 +80,7 @@ ParticleOrder: TypeAlias = (
 UNKNOWN_TYPE: LiteralString = "__unknown__"
 
 
-class ParticleData(ImmutableDataObject, Mapping[str, Any], ABC):
+class ParticleData(ImmutableDataObject, Mapping[str, Any]):
     model_config = ConfigDict(extra="allow")
 
     __type__: ClassVar[LiteralString]
@@ -116,7 +115,7 @@ class ParticleData(ImmutableDataObject, Mapping[str, Any], ABC):
         return value in self.__dict__
 
 
-DynamicParticleData: TypeAlias = ParticleData | JsonableDict
+DynamicParticleData: TypeAlias = ParticleData | JSONSerializableDict
 
 if TYPE_CHECKING:
     _T = TypeVar(
@@ -274,12 +273,12 @@ class ParticleFilter(
 
 class ParticleCreate(BaseRecordCreate):
     type: str
-    data: FromYaml[JsonableDict]
+    data: FromYaml[JSONSerializableDict]
 
 
 class ParticleUpdate(BaseRecordUpdate, total=False):
     type: str
-    data: FromYaml[JsonableDict]
+    data: FromYaml[JSONSerializableDict]
 
 
 class Particle(BaseRecord, ParticleCreate, Generic[_T]):

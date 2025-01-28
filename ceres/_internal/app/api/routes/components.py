@@ -17,7 +17,7 @@ from ceres._internal.app.shared import (
 )
 from ceres.address import Address
 from ceres.component import Component, ProcedureBinding, ProcedureType
-from ceres.data import ImmutableDataObject, Name, StrEnum, jsonify
+from ceres.data import DeferBuild, ImmutableDataObject, Name, StrEnum, jsonify
 from ceres.error import (
     Failure,
     NotFoundError,
@@ -36,7 +36,7 @@ class ComponentRole(StrEnum):
     INTERFACE = "interface"
 
 
-class APIComponent(ImmutableDataObject):
+class APIComponent(ImmutableDataObject, DeferBuild):
     name: Name
     address: Address
     components: Sequence[APIComponent]

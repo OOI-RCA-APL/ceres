@@ -32,13 +32,13 @@ from ceres._internal.cli.shared import (
 from ceres._internal.lazy import lazy_imports, unlazy
 from ceres.address import AddressSelector
 from ceres.config import ConfigCheckType
+from ceres.data import jsonify
 from ceres.error import Failure
 from ceres.result import Fail, Ok
 
 with lazy_imports(__name__):
     from ceres._internal.cli.client import Client
     from ceres.component import ComponentFilter
-    from ceres.data import jsonify
     from ceres.engine import Engine
     from ceres.threading import spawn
 
@@ -391,13 +391,9 @@ def main(args: Sequence[str] | None = None) -> None:
         try:
             result = await command.__execute__()
             if result is not None:
-                if not isinstance(result, str):
-                    try:
-                        result = jsonify(result, indent=2)
-                    except Exception:
-                        pass
+                result = jsonify(result, indent=2)
 
-                write(result, to="stdout")
+            write(result, to="stdout")
         except Failure as failure:
             write(jsonify(failure.error, indent=2))
             exit(1)

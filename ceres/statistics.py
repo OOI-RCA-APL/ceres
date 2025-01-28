@@ -4,16 +4,20 @@ from pydantic import Field
 
 from ceres._internal.filter import BaseFilter, BaseFilterArgs
 from ceres.address import Address, AddressSelector
-from ceres.data import DataObject, DateTime
+from ceres.data import DataObject, DateTime, DeferBuild
 from ceres.level import Level
 
 
-class LevelStatistics(DataObject):
+class __BaseStatisticsObject(DataObject, DeferBuild):
+    pass
+
+
+class LevelStatistics(__BaseStatisticsObject):
     level: Level
     count: int = Field(ge=0)
 
 
-class AlertStatistics(DataObject):
+class AlertStatistics(__BaseStatisticsObject):
     count: int = 0
     levels: list[LevelStatistics] = Field(default_factory=list)
 
@@ -25,13 +29,13 @@ class StatisticsFilterArgs(BaseFilterArgs, total=False):
     before: DateTime | None
 
 
-class StatisticsFilter(BaseFilter):
+class StatisticsFilter(BaseFilter, __BaseStatisticsObject):
     root: Address | None = None
     address: AddressSelector | None = None
     after: DateTime | None = None
     before: DateTime | None = None
 
 
-class Statistics(DataObject):
+class Statistics(__BaseStatisticsObject):
     address: Address
     alerts: AlertStatistics = Field(default_factory=AlertStatistics)

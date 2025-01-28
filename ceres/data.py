@@ -31,7 +31,6 @@ from pydantic import (
     ConfigDict,
     Field,
     StringConstraints,
-    TypeAdapter,
 )
 from pydantic import EmailStr as _BaseEmailStr
 from pydantic.fields import FieldInfo
@@ -42,7 +41,7 @@ from pydantic_extra_types.color import Color as Color
 from typing_extensions import TypeVar
 
 from ceres._internal import util
-from ceres._internal.util import NAME_PATTERN, PydanticDataclassLike
+from ceres._internal.util import NAME_PATTERN, PydanticDataclassLike, get_type_adapter
 
 
 class SimplifyArgs(TypedDict, total=False):
@@ -58,15 +57,12 @@ class SerializeArgs(SimplifyArgs, total=False):
     indent: int | None
 
 
-__ANY_ADAPTOR = TypeAdapter(Any) if not TYPE_CHECKING else TypeAdapter(object)
-
-
 def simplify(obj: object, **kwargs: Unpack[SimplifyArgs]) -> Any:
     return json.loads(jsonify(obj, **kwargs))
 
 
 def jsonify(obj: object, **kwargs: Unpack[SerializeArgs]) -> str:
-    return __ANY_ADAPTOR.dump_json(obj, **kwargs).decode()
+    return get_type_adapter(type(obj)).dump_json(obj, **kwargs).decode()
 
 
 def yamlify(obj: object, **kwargs: Unpack[SerializeArgs]) -> str:
@@ -179,15 +175,6 @@ FromJson: TypeAlias = Annotated[_T, BeforeValidator(__pre_validate_from_json)]
 FromYaml: TypeAlias = Annotated[_T, BeforeValidator(__pre_validate_from_yaml)]
 
 
-def __validate_jsonable(value: object) -> object:
-    try:
-        jsonify(value)
-    except Exception as error:
-        raise ValueError(f"not serializable to JSON: {error}")
-
-    return value
-
-
 def __validate_number(value: object) -> object:
     if isinstance(value, float) and value.is_integer():
         return int(value)
@@ -209,17 +196,27 @@ Number: TypeAlias = Annotated[
     PlainSerializer(__serialize_number),
 ]
 
-type JsonValue = None | bool | Number | str | JsonList | JsonDict
-JsonDict: TypeAlias = dict[str, JsonValue]
-JsonList: TypeAlias = list[JsonValue]
+type JSONValue = None | bool | Number | str | JSONList | JSONDict
+JSONDict: TypeAlias = dict[str, JSONValue]
+JSONList: TypeAlias = list[JSONValue]
+
+
+def __validate_jsonable(value: object) -> object:
+    try:
+        jsonify(value)
+    except Exception as error:
+        raise ValueError(f"not serializable to JSON: {error}")
+
+    return value
+
 
 _TAny = TypeVar("_TAny", default=Any)
-Jsonable: TypeAlias = Annotated[_TAny, AfterValidator(__validate_jsonable)]
+JSONSerializable: TypeAlias = Annotated[_TAny, AfterValidator(__validate_jsonable)]
 
 _TKey = TypeVar("_TKey", default=str)
 _TValue = TypeVar("_TValue", default=Any)
-JsonableDict: TypeAlias = Jsonable[dict[str, _TValue]]
-JsonableList: TypeAlias = Jsonable[list[_TValue]]
+JSONSerializableDict: TypeAlias = JSONSerializable[dict[str, _TValue]]
+JSONSerializableList: TypeAlias = JSONSerializable[list[_TValue]]
 
 if TYPE_CHECKING:
     MaybeSequence: TypeAlias = _T | Sequence[_T]
@@ -242,7 +239,6 @@ class DataObject(BaseModel, ABC):
         extra="forbid",
         populate_by_name=True,
         use_attribute_docstrings=True,
-        # defer_build=True,  # Uncomment when https://github.com/pydantic/pydantic/issues/7713 is fixed.
     )
 
     @override
@@ -250,8 +246,12 @@ class DataObject(BaseModel, ABC):
         return super().__repr__()
 
 
-class ImmutableDataObject(DataObject, ABC):
+class ImmutableDataObject(DataObject):
     model_config = ConfigDict(frozen=True)
+
+
+class DeferBuild(BaseModel, ABC):
+    model_config = ConfigDict(defer_build=True)
 
 
 @dataclass_transform(

@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import sys
 import warnings
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
 from typing import (
@@ -28,7 +28,7 @@ from ceres._internal.entity import BaseEntity
 from ceres._internal.lazy import lazy_imports
 from ceres._internal.project import LoadedProject, Project
 from ceres.config import Config, ConfigCheckType, ConfigMeta
-from ceres.data import FromYaml, NonEmpty, SerializeArgs, jsonify
+from ceres.data import DataObject, DeferBuild, FromYaml, NonEmpty, SerializeArgs, jsonify
 from ceres.result import Ok
 
 
@@ -221,7 +221,7 @@ def disable_chdir() -> None:
     os.chdir = __disabled_chdir__
 
 
-class CliCommand(BaseModel, ABC):
+class CliCommand(DataObject, DeferBuild):
     model_config = ConfigDict(
         defer_build=True,
         use_attribute_docstrings=True,
