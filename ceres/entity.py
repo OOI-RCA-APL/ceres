@@ -54,7 +54,7 @@ class EntityType(StrEnum):
             case EntityType.ALERT:
                 return "alerts"
             case EntityType.LOG_ENTRY:
-                return "log_entries"
+                return "logs"
             case EntityType.USER:
                 return "users"
             case EntityType.VARIABLE:

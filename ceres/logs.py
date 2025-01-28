@@ -35,7 +35,7 @@ from ceres.timing import utc
 
 
 class LogEntryRow(BaseRecordRow, kw_only=True):
-    __tablename__: ClassVar[str] = "log_entries"
+    __tablename__: ClassVar[str] = "logs"
 
     level: Mapped[Level] = mapped_column(EnumMapper(Level))
     content: Mapped[str] = mapped_column(Text)
