@@ -4,10 +4,13 @@ from datetime import datetime
 from typing import Annotated, Any, ClassVar, Iterable, Literal, TypeAlias, override
 
 from pydantic import BeforeValidator, PlainSerializer
+from sqlalchemy import LargeBinary, SQLColumnExpression, func
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.sql.sqltypes import LargeBinary
+from sqlalchemy.schema import Index, SchemaItem
 
-from ceres._internal.entity import (
+from ceres._internal import util
+from ceres._internal.lazy import lazy_imports
+from ceres._internal.record import (
     BaseRecord,
     BaseRecordCreate,
     BaseRecordField,
@@ -17,18 +20,11 @@ from ceres._internal.entity import (
     BaseRecordRow,
     BaseRecordUpdate,
 )
-from ceres._internal.lazy import lazy_imports
-from ceres._internal.types import MaybeSequence
-from ceres.data import StrEnum
-from ceres.database.enums import DatabaseType
+from ceres.data import MaybeSequence, StrEnum
+from ceres.database import DatabaseType
 from ceres.timing import utc
 
 with lazy_imports(__name__):
-    from sqlalchemy.schema import Index, SchemaItem
-    from sqlalchemy.sql import SQLColumnExpression
-    from sqlalchemy.sql.functions import func
-
-    from ceres._internal import util
     from ceres._internal.database.types import EnumConstraint, EnumMapper
 
 
@@ -159,19 +155,23 @@ class MessageFilter(BaseRecordFilter["Message", MessageField, MessageOrder]):
             yield columns.direction == self.direction
         if self.content_contains is not None:
             yield util.sqlorf(
-                columns.content.like(b"%" + util.escape_like_expression(substring) + b"%")
+                columns.content.like(b"%" + _escape_bytes_like_expression(substring) + b"%")
                 for substring in util.as_sequence(self.content_contains)
             )
         if self.content_prefix is not None:
             yield util.sqlorf(
-                columns.content.like(util.escape_like_expression(prefix) + b"%")
+                columns.content.like(_escape_bytes_like_expression(prefix) + b"%")
                 for prefix in util.as_sequence(self.content_prefix)
             )
         if self.content_suffix is not None:
             yield util.sqlorf(
-                columns.content.like(b"%" + util.escape_like_expression(suffix))
+                columns.content.like(b"%" + _escape_bytes_like_expression(suffix))
                 for suffix in util.as_sequence(self.content_suffix)
             )
+
+
+def _escape_bytes_like_expression(text: bytes) -> bytes:
+    return text.replace(b"%", b"%%").replace(b"_", b"__")
 
 
 class MessageCreate(BaseRecordCreate):

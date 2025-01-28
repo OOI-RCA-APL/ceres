@@ -38,8 +38,10 @@ from pydantic import ConfigDict, Field, PositiveFloat, ValidationError
 from pydantic.fields import FieldInfo
 from sqlalchemy.util.typing import TypeAlias
 
+from ceres._internal import util
 from ceres._internal.filter import BaseFilter, BaseFilterArgs
 from ceres._internal.lazy import lazy_imports
+from ceres._internal.util import OrderedWeakSet, Undefined
 from ceres.address import Address, AddressSelector, DynamicAddress
 from ceres.config import PrunerConfig
 from ceres.connectivity import Connectivity
@@ -88,8 +90,6 @@ from ceres.variable import Variable
 with lazy_imports(__name__):
     from sqlalchemy.ext.asyncio import AsyncSession
 
-    from ceres._internal import util
-    from ceres._internal.util import OrderedWeakSet, Undefined
     from ceres.config import ComponentConfig, JobConfig, SieveConfig
     from ceres.database import Database
     from ceres.manager.job import JobManager
@@ -323,7 +323,7 @@ def listener(
     reference: str | Sequence[str] | None = None,
     address: str | AddressSelector | Sequence[str | AddressSelector] | None = None,
 ) -> _ListenerMethod | _ListenerMethodTransform:
-    reference = util.strlist(reference)
+    reference = util.as_sequence(reference or ())
 
     if address is not None:
         address = AddressSelector(address)

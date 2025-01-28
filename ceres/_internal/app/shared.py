@@ -27,6 +27,7 @@ from fastapi.requests import HTTPConnection
 from pydantic import Json, ValidationError
 from starlette.status import HTTP_400_BAD_REQUEST, HTTP_401_UNAUTHORIZED
 
+from ceres._internal import util
 from ceres._internal.lazy import lazy_imports
 from ceres.data import DateTime, EmailStr, ImmutableDataObject, StrEnum, UsernameStr, jsonify
 from ceres.error import Failure, NotAuthenticatedError, NotFoundError, NotPermittedError
@@ -43,7 +44,6 @@ else:
 with lazy_imports(__name__):
     import jwt
 
-    from ceres._internal import util
     from ceres._internal.server import Server
     from ceres.config import ServerAuthenticationConfig
 

@@ -2,22 +2,22 @@ from __future__ import annotations
 
 from typing import Unpack
 
+from sqlalchemy import func, select
+
+from ceres._internal import util
 from ceres._internal.lazy import lazy_imports
 from ceres._internal.manager.manager import BaseManager
 from ceres.address import Address
 from ceres.statistics import LevelStatistics, Statistics, StatisticsFilter, StatisticsFilterArgs
 
 with lazy_imports(__name__):
-    from sqlalchemy import func, select
-
-    from ceres._internal import util
     from ceres.alert import Alert
     from ceres.database import Database
     from ceres.node import Node
 
 
 class StatisticsManager(BaseManager[Statistics]):
-    def __init__(self, source: Database | Node) -> None:
+    def __init__(self, source: Database | Node, /) -> None:
         super().__init__(source, Statistics)
 
     async def get(

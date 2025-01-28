@@ -6,13 +6,13 @@ import traceback
 from asyncio import Queue as AsyncQueue
 from typing import Awaitable, Callable, override
 
+from ceres._internal import util
 from ceres._internal.lazy import lazy_imports
 from ceres._internal.manager.manager import BaseBoundManager
 from ceres.address import Address
 from ceres.event import ParticleEvent
 
 with lazy_imports(__name__):
-    from ceres._internal import util
     from ceres.component import ComponentSystem, ListenerBinding
     from ceres.config import LoggingConfig
     from ceres.event import AlertEvent, Event, LogEvent, MessageEvent
@@ -26,7 +26,7 @@ class EventManager(BaseBoundManager[Event]):
         "_listeners",
     )
 
-    def __init__(self, source: Node) -> None:
+    def __init__(self, source: Node, /) -> None:
         super().__init__(source, Event)
         self._stream: WriteStream[Event] = WriteStream()
         self._listeners = (

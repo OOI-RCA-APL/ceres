@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+import socket
 import sys
 import traceback
 from abc import ABC, abstractmethod
@@ -21,7 +22,7 @@ from pydantic import (
     model_validator,
 )
 
-from ceres._internal.lazy import lazy_imports
+from ceres._internal import util
 from ceres.component import Component, action, routine
 from ceres.connectivity import Connectivity
 from ceres.data import ImmutableDataObject, PositiveTimeDelta, StrEnum
@@ -40,11 +41,6 @@ from ceres.event import (
 from ceres.message import Message, MessageContent, MessageDirection
 from ceres.schedule import IntervalSchedule
 from ceres.timing import utc
-
-with lazy_imports(__name__):
-    import socket
-
-    from ceres._internal import util
 
 
 class ConnectionException(Exception):

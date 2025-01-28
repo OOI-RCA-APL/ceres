@@ -2,6 +2,10 @@ from __future__ import annotations
 
 from typing import Any, AsyncIterable, Sequence, Unpack, cast
 
+from sqlalchemy import Column, ColumnElement, Delete, Select, Update, delete, func, select, update
+from sqlalchemy.sql.roles import DDLConstraintColumnRole
+
+from ceres._internal import util
 from ceres._internal.entity import (
     BaseEntity,
     BaseEntityCreate,
@@ -10,17 +14,8 @@ from ceres._internal.entity import (
     BaseEntityRow,
     BaseEntityUpdate,
 )
-from ceres._internal.lazy import lazy_imports
 from ceres._internal.manager.manager import BaseManager
-from ceres.database.enums import DatabaseType
-
-with lazy_imports(__name__):
-    from sqlalchemy.sql import Delete, Select, Update, delete, func, select, update
-    from sqlalchemy.sql.elements import ColumnElement
-    from sqlalchemy.sql.roles import DDLConstraintColumnRole
-    from sqlalchemy.sql.schema import Column
-
-    from ceres._internal import util
+from ceres.database import DatabaseType
 
 
 class BaseEntityManager[

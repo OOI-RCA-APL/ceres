@@ -25,9 +25,12 @@ with lazy_imports(__name__, export=True):
     from ceres.database.enums import DataFormat as DataFormat
     from ceres.directory import Directory as Directory
     from ceres.engine import Engine as Engine
+    from ceres.entity import Entity as Entity
     from ceres.entity import EntityType as EntityType
     from ceres.event import Event as Event
     from ceres.event import StandardEvent as StandardEvent
+    from ceres.item import Item as Item
+    from ceres.item import ItemType as ItemType
     from ceres.level import Level as Level
     from ceres.loaded import Loaded as Loaded
     from ceres.loaded import Loader as Loader
@@ -38,6 +41,8 @@ with lazy_imports(__name__, export=True):
     from ceres.particle import DynamicParticleData as DynamicParticleData
     from ceres.particle import Particle as Particle
     from ceres.particle import ParticleData as ParticleData
+    from ceres.record import Record as Record
+    from ceres.record import RecordType as RecordType
     from ceres.reference import Ref as Ref
     from ceres.reference import Reference as Reference
     from ceres.reference import unref as unref

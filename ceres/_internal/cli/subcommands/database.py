@@ -4,6 +4,7 @@ from typing import Sequence, override
 from pydantic import FilePath, NewPath
 from pydantic_settings import CliPositionalArg, CliSubCommand
 
+from ceres._internal import util
 from ceres._internal.cli.shared import (
     CliCommand,
     CliCommandFailed,
@@ -11,13 +12,9 @@ from ceres._internal.cli.shared import (
     get_confirmation,
     write,
 )
-from ceres._internal.lazy import lazy_imports
 from ceres.database.enums import DataFormat
 from ceres.entity import EntityType
 from ceres.timing import utc
-
-with lazy_imports(__name__):
-    from ceres._internal import util
 
 
 class InitCommand(CliCommand):

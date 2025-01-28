@@ -23,6 +23,7 @@ from typing import (
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError, create_model
 from pydantic_settings import CliImplicitFlag, CliSubCommand, SettingsError, get_subcommand
 
+from ceres._internal import util
 from ceres._internal.entity import BaseEntity
 from ceres._internal.lazy import lazy_imports
 from ceres._internal.manager.entity import BaseEntityManager
@@ -30,11 +31,6 @@ from ceres._internal.project import LoadedProject, Project
 from ceres.config import Config, ConfigCheckType, ConfigMeta
 from ceres.data import FromYaml, NonEmpty, SerializeArgs, jsonify
 from ceres.result import Ok
-
-with lazy_imports(__name__):
-    import sys
-
-    from ceres._internal import util
 
 
 def get_confirmation(

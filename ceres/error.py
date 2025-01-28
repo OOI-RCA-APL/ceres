@@ -14,8 +14,7 @@ from starlette.status import (
     HTTP_500_INTERNAL_SERVER_ERROR,
 )
 
-from ceres._internal.lazy import lazy_imports
-from ceres._internal.typedecs import __Component__
+from ceres._internal import util
 from ceres.address import Address, DynamicAddress
 from ceres.data import DataObject, ImmutableDataObject, simplify
 
@@ -23,8 +22,6 @@ if TYPE_CHECKING:
     from fastapi.exceptions import RequestValidationError
     from pydantic import ValidationError
 
-with lazy_imports(__name__):
-    from ceres._internal import util
 
 _undefined = object()
 
@@ -120,10 +117,16 @@ class ComponentInitExceptionError(__BaseComponentError):
     traceback: Sequence[str]
 
 
+if TYPE_CHECKING:
+    from ceres.component import Component
+else:
+    Component = Any
+
+
 class ComponentReferenceInvalidError(__BaseComponentError):
     type: Literal["component-reference-invalid-error"] = "component-reference-invalid-error"
     address: Address
-    referenced: DynamicAddress | __Component__
+    referenced: DynamicAddress | Component
     expected: ImportString[type]
     actual: ImportString[type]
 

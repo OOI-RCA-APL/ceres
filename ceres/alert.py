@@ -11,11 +11,13 @@ from typing import (
 )
 
 from pydantic import Field
+from sqlalchemy import JSON, SQLColumnExpression, Text, cast
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.sql.sqltypes import JSON, Text
+from sqlalchemy.schema import Index, SchemaItem
 
+from ceres._internal import util
 from ceres._internal.database.types import EnumConstraint, EnumMapper
-from ceres._internal.entity import (
+from ceres._internal.record import (
     BaseRecord,
     BaseRecordCreate,
     BaseRecordField,
@@ -24,19 +26,11 @@ from ceres._internal.entity import (
     BaseRecordOrder,
     BaseRecordRow,
 )
-from ceres._internal.lazy import lazy_imports
-from ceres._internal.types import MaybeSequence
 from ceres.address import Address
-from ceres.data import DateTime, FromYaml, JsonableDict, jsonify
-from ceres.database.enums import DatabaseType
+from ceres.data import DateTime, FromYaml, JsonableDict, MaybeSequence, jsonify
+from ceres.database import DatabaseType
 from ceres.level import Level
 from ceres.timing import utc
-
-with lazy_imports(__name__):
-    from sqlalchemy.schema import Index, SchemaItem
-    from sqlalchemy.sql import SQLColumnExpression, cast
-
-    from ceres._internal import util
 
 
 class AlertRow(BaseRecordRow, kw_only=True):

@@ -23,7 +23,7 @@ class UserManager(
         User.FilterArgs,
     ]
 ):
-    def __init__(self, source: Database | Node) -> None:
+    def __init__(self, source: Database | Node, /) -> None:
         super().__init__(source, User)
 
     @override

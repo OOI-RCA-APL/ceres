@@ -13,6 +13,7 @@ from typing import (
     ClassVar,
     Literal,
     NewType,
+    Sequence,
     Sized,
     TypeAlias,
     TypedDict,
@@ -219,6 +220,11 @@ _TKey = TypeVar("_TKey", default=str)
 _TValue = TypeVar("_TValue", default=Any)
 JsonableDict: TypeAlias = Jsonable[dict[str, _TValue]]
 JsonableList: TypeAlias = Jsonable[list[_TValue]]
+
+if TYPE_CHECKING:
+    MaybeSequence: TypeAlias = _T | Sequence[_T]
+else:
+    MaybeSequence: TypeAlias = _T | list[_T]
 
 
 def __validate_non_empty(value: object) -> object:

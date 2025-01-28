@@ -10,10 +10,13 @@ from typing import (
     override,
 )
 
+from sqlalchemy import JSON, Text
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.sql.sqltypes import JSON, Text
+from sqlalchemy.schema import Index, PrimaryKeyConstraint, SchemaItem
+from sqlalchemy.sql import SQLColumnExpression
 
-from ceres._internal.entity import (
+from ceres._internal import util
+from ceres._internal.item import (
     BaseItem,
     BaseItemCreate,
     BaseItemField,
@@ -22,16 +25,8 @@ from ceres._internal.entity import (
     BaseItemOrder,
     BaseItemRow,
 )
-from ceres._internal.lazy import lazy_imports
-from ceres._internal.types import MaybeSequence
-from ceres.data import FromYaml, Jsonable, JsonValue
-from ceres.database.enums import DatabaseType
-
-with lazy_imports(__name__):
-    from sqlalchemy.schema import Index, PrimaryKeyConstraint, SchemaItem
-    from sqlalchemy.sql import SQLColumnExpression
-
-    from ceres._internal import util
+from ceres.data import FromYaml, Jsonable, JsonValue, MaybeSequence
+from ceres.database import DatabaseType
 
 
 class VariableRow(BaseItemRow, kw_only=True):

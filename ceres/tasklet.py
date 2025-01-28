@@ -8,10 +8,7 @@ from asyncio import Task
 from dataclasses import dataclass, field
 from typing import Callable, Self, cast
 
-from ceres._internal.lazy import lazy_imports
-
-with lazy_imports(__name__):
-    from ceres._internal import util
+from ceres._internal import util
 
 
 @dataclass

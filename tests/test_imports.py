@@ -1,9 +1,29 @@
 # Make sure we can import everything in the root module.
 
 import warnings
+from types import ModuleType
 
 import ceres
 from ceres import *  # noqa: F403
+
+
+def import_submodules(package: str | ModuleType, recursive: bool = True) -> dict[str, ModuleType]:
+    import importlib
+    import pkgutil
+
+    if isinstance(package, str):
+        package = importlib.import_module(package)
+
+    modules: dict[str, ModuleType] = {}
+
+    for loader, name, is_pkg in pkgutil.walk_packages(package.__path__):
+        path = package.__name__ + "." + name
+        modules[path] = importlib.import_module(path)
+
+        if recursive and is_pkg:
+            modules.update(import_submodules(path))
+
+    return modules
 
 
 def test_imports() -> None:
@@ -14,8 +34,6 @@ def test_imports() -> None:
 
     with warnings.catch_warnings():
         warnings.simplefilter("error")
-        from ceres._internal.util import import_submodules
-
         import_submodules(ceres)
 
     from ceres.component import Component as DirectImportComponent
@@ -35,7 +53,6 @@ def test_models_are_valid() -> None:
         from pydantic.dataclasses import is_pydantic_dataclass, rebuild_dataclass
 
         from ceres._internal.lazy import unlazy
-        from ceres._internal.util import import_submodules
 
         models: list[type[BaseModel]] = []
         dataclasses: list[type] = []

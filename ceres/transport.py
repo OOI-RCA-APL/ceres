@@ -1,25 +1,16 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import timedelta
 from typing import Callable, Unpack, overload, override
 
+from ceres._internal import util
 from ceres._internal.lazy import lazy_imports
+from ceres._internal.util import BytesLike
 from ceres.message import MessageFilterArgs
 
 with lazy_imports(__name__):
-    import anyio
-
-    from ceres._internal import util
-    from ceres._internal.util import BytesLike
     from ceres.message import Message
     from ceres.roles.connection import Connection
-
-
-@dataclass(kw_only=True, frozen=True)
-class AttemptFailure:
-    reason: str | None = None
-    exception: Exception | None = None
 
 
 class Transport:
@@ -38,16 +29,6 @@ class Transport:
         return await self.connection.send(util.bytes_of(data))
 
     @overload
-    async def receive(
-        self,
-        *,
-        condition: Callable[[Message], bool] | None = None,
-        timeout: float | timedelta | None = None,
-        default: None = None,
-        **kwargs: Unpack[MessageFilterArgs],
-    ) -> Message: ...
-
-    @overload
     async def receive[T](
         self,
         *,
@@ -57,12 +38,22 @@ class Transport:
         **kwargs: Unpack[MessageFilterArgs],
     ) -> Message | T: ...
 
+    @overload
+    async def receive(
+        self,
+        *,
+        condition: Callable[[Message], bool] | None = None,
+        timeout: float | timedelta | None = None,
+        default: ... = ...,
+        **kwargs: Unpack[MessageFilterArgs],
+    ) -> Message: ...
+
     async def receive[T](
         self,
         *,
         condition: Callable[[Message], bool] | None = None,
         timeout: float | timedelta | None = None,
-        default: T | Callable[[], T] | None = None,
+        default: T | Callable[[], T] = ...,
         **kwargs: Unpack[MessageFilterArgs],
     ) -> Message | T:
         if isinstance(timeout, timedelta):
@@ -79,6 +70,8 @@ class Transport:
             if callable(default):
                 return default()  # type: ignore
             return default  # type: ignore
+
+        import anyio
 
         with anyio.move_on_after(timeout):
             async for message in self.__connection.system.messages.follow(

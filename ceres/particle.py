@@ -22,12 +22,13 @@ from typing import (
 
 from pydantic import ConfigDict, SerializeAsAny, ValidationError, model_validator
 from pydantic.types import ImportString
-from sqlalchemy import cast
+from sqlalchemy import JSON, SQLColumnExpression, Text, cast
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.sql.sqltypes import JSON, Text
+from sqlalchemy.schema import Index, SchemaItem
 from typing_extensions import TypeVar
 
-from ceres._internal.entity import (
+from ceres._internal import util
+from ceres._internal.record import (
     BaseRecord,
     BaseRecordCreate,
     BaseRecordField,
@@ -37,17 +38,9 @@ from ceres._internal.entity import (
     BaseRecordRow,
     BaseRecordUpdate,
 )
-from ceres._internal.lazy import lazy_imports
-from ceres._internal.types import MaybeSequence
-from ceres.data import FromYaml, ImmutableDataObject, JsonableDict, jsonify
+from ceres.data import FromYaml, ImmutableDataObject, JsonableDict, MaybeSequence, jsonify
+from ceres.database import DatabaseType
 from ceres.timing import utc
-
-with lazy_imports(__name__):
-    from sqlalchemy.schema import Index, SchemaItem
-    from sqlalchemy.sql import SQLColumnExpression
-
-    from ceres._internal import util
-    from ceres.database.enums import DatabaseType
 
 
 class ParticleRow(BaseRecordRow, kw_only=True):

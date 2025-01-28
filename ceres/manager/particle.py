@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, AsyncIterable, Unpack, cast, override
 
 from typing_extensions import TypeVar
 
+from ceres._internal import util
 from ceres._internal.lazy import lazy_imports
 from ceres._internal.manager.entity import BaseEntityManager
 from ceres._internal.manager.manager import BaseBoundManager
@@ -16,7 +17,6 @@ from ceres.particle import (
 )
 
 with lazy_imports(__name__):
-    from ceres._internal import util
     from ceres.database import Database
     from ceres.node import Node
     from ceres.stream import Stream
@@ -40,7 +40,7 @@ class ParticleManager(
         Particle.FilterArgs,
     ]
 ):
-    def __init__(self, source: Database | Node) -> None:
+    def __init__(self, source: Database | Node, /) -> None:
         super().__init__(source, Particle)
 
     def __convert_or_none(

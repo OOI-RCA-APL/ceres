@@ -11,9 +11,12 @@ from typing import (
 from uuid import UUID, uuid4
 
 from pydantic import Field
+from sqlalchemy import Boolean, Text
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.sql.sqltypes import Boolean, Text
+from sqlalchemy.schema import SchemaItem, UniqueConstraint
+from sqlalchemy.sql import SQLColumnExpression, expression
 
+from ceres._internal import util
 from ceres._internal.database.types import EnumConstraint, EnumMapper
 from ceres._internal.entity import (
     BaseUUIDEntity,
@@ -24,22 +27,15 @@ from ceres._internal.entity import (
     BaseUUIDEntityOrder,
     BaseUUIDEntityRow,
 )
-from ceres._internal.lazy import lazy_imports
-from ceres._internal.types import MaybeSequence
 from ceres.data import (
     EmailStr,
+    MaybeSequence,
     PasswordHash,
     PasswordStr,
     PriorityStrEnum,
     UsernameStr,
 )
-from ceres.database.enums import DatabaseType
-
-with lazy_imports(__name__):
-    from sqlalchemy.schema import SchemaItem, UniqueConstraint
-    from sqlalchemy.sql import SQLColumnExpression, expression
-
-    from ceres._internal import util
+from ceres.database import DatabaseType
 
 
 class UserRole(PriorityStrEnum):

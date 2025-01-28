@@ -28,7 +28,7 @@ class LogManager(
         LogEntry.FilterArgs,
     ]
 ):
-    def __init__(self, source: Database | Node) -> None:
+    def __init__(self, source: Database | Node, /) -> None:
         super().__init__(source, LogEntry)
 
     if TYPE_CHECKING:

@@ -7,7 +7,7 @@ from dataclasses import field
 from datetime import datetime
 from typing import Any, Iterable, Sequence, final, override
 
-from ceres._internal.lazy import lazy_imports
+from ceres._internal import util
 from ceres._internal.templates import templates
 from ceres.address import Address
 from ceres.alert import Alert, AlertFilter, Level
@@ -18,9 +18,6 @@ from ceres.loaded import Loaded
 from ceres.reference import Ref
 from ceres.roles.notifier import Notification, Notifier
 from ceres.schedule import ScheduleExpr
-
-with lazy_imports(__name__):
-    from ceres._internal import util
 
 
 class Dispatch(ImmutableDataObject):

@@ -10,30 +10,20 @@ from typing import (
 )
 from uuid import UUID
 
-from sqlalchemy import Uuid
+from sqlalchemy import JSON, PrimaryKeyConstraint, SQLColumnExpression, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.sql.sqltypes import JSON, Text
+from sqlalchemy.schema import SchemaItem
 
+from ceres._internal import util
 from ceres._internal.entity import (
     BaseEntity,
     BaseEntityCreate,
     BaseEntityFilter,
+    BaseEntityFilterArgs,
     BaseEntityRow,
-    BaseItemField,
-    BaseItemFilterArgs,
-    BaseItemOrder,
 )
-from ceres._internal.lazy import lazy_imports
-from ceres._internal.types import MaybeSequence
-from ceres.data import FromYaml, Jsonable
-from ceres.database.enums import DatabaseType
-
-with lazy_imports(__name__):
-    from sqlalchemy import PrimaryKeyConstraint
-    from sqlalchemy.schema import SchemaItem
-    from sqlalchemy.sql import SQLColumnExpression
-
-    from ceres._internal import util
+from ceres.data import FromYaml, Jsonable, MaybeSequence
+from ceres.database import DatabaseType
 
 
 class SettingRow(BaseEntityRow, kw_only=True):
@@ -52,26 +42,20 @@ class SettingRow(BaseEntityRow, kw_only=True):
         )
 
 
-SettingField: TypeAlias = (
-    BaseItemField
-    | Literal[
-        "user_id",
-        "name",
-        "value",
-    ]
-)
-SettingOrder: TypeAlias = (
-    BaseItemOrder
-    | Literal[
-        "name",
-        "-name",
-        "value",
-        "-value",
-    ]
-)
+SettingField: TypeAlias = Literal[
+    "user_id",
+    "name",
+    "value",
+]
+SettingOrder: TypeAlias = Literal[
+    "name",
+    "-name",
+    "value",
+    "-value",
+]
 
 
-class SettingFilterArgs(BaseItemFilterArgs[SettingField, SettingOrder], total=False):
+class SettingFilterArgs(BaseEntityFilterArgs[SettingField, SettingOrder], total=False):
     user_id: MaybeSequence[UUID] | None
     name: MaybeSequence[str] | None
 

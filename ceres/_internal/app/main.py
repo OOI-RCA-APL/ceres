@@ -12,6 +12,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from starlette.exceptions import HTTPException
 from starlette.status import HTTP_422_UNPROCESSABLE_ENTITY
 
+from ceres._internal import util
 from ceres._internal.app.api import router as router__api
 from ceres._internal.app.shared import CurrentEngine
 from ceres._internal.lazy import lazy_imports
@@ -30,7 +31,6 @@ with lazy_imports(__name__):
         WebSocketScope,
     )
 
-    from ceres._internal import util
     from ceres.config import ServerCompressionConfig, ServerConfig
     from ceres.data import simplify
     from ceres.engine import Engine

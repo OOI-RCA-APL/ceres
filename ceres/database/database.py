@@ -24,6 +24,7 @@ from typing import (
 from uuid import UUID, uuid4
 
 from pydantic import ValidationError
+from sqlalchemy import URL, AsyncAdaptedQueuePool, Connection, delete, event, inspect, text
 from sqlalchemy.engine.interfaces import DBAPIConnection
 
 from ceres._internal import util
@@ -33,7 +34,7 @@ from ceres._internal.lazy import lazy_imports
 from ceres._internal.util import PathLike
 from ceres.config import DatabaseConfig, PostgresDatabaseConfig, SQLiteDatabaseConfig
 from ceres.data import PasswordHash, jsonify
-from ceres.database.enums import DatabaseType
+from ceres.database import DatabaseType
 from ceres.entity import EntityType
 from ceres.error import DatabaseInitError, DatabaseLoadError, Failure
 from ceres.threading import spawn
@@ -42,15 +43,6 @@ with lazy_imports(__name__):
     import sqlite3
 
     import asyncpg
-    from sqlalchemy import (
-        URL,
-        AsyncAdaptedQueuePool,
-        Connection,
-        delete,
-        event,
-        inspect,
-        text,
-    )
     from sqlalchemy.ext.asyncio import (
         AsyncConnection,
         AsyncEngine,
@@ -194,9 +186,9 @@ class Database:
 
         self._pre_configure_engine(engine)
 
-        init = util.strlist(self.config.hooks.init)
-        connect = util.strlist(self.config.hooks.connect)
-        disconnect = util.strlist(self.config.hooks.close)
+        init = util.as_sequence(self.config.hooks.init or ())
+        connect = util.as_sequence(self.config.hooks.connect or ())
+        disconnect = util.as_sequence(self.config.hooks.close or ())
 
         if init:
 

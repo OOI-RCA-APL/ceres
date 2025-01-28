@@ -25,7 +25,7 @@ class AlertManager(
         Alert.FilterArgs,
     ]
 ):
-    def __init__(self, source: Database | Node) -> None:
+    def __init__(self, source: Database | Node, /) -> None:
         super().__init__(source, Alert)
 
     if TYPE_CHECKING:

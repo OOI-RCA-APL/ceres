@@ -8,8 +8,8 @@ from typing import AsyncIterable, Unpack, dataclass_transform, override
 from pydantic import Field
 from pydantic.fields import FieldInfo
 
+from ceres._internal import util
 from ceres._internal.lazy import lazy_imports
-from ceres._internal.typedecs import __Item__
 from ceres.address import Address, AddressSelector, DynamicAddress
 from ceres.data import StrEnum
 from ceres.event import (
@@ -27,12 +27,12 @@ from ceres.tasklet import Tasklet
 with lazy_imports(__name__):
     from sqlalchemy.ext.asyncio import AsyncSession
 
-    from ceres._internal import util
     from ceres._internal.database.writer import Writer
     from ceres.component import Component, ComponentFilter, ComponentFilterArgs, ComponentSystem
     from ceres.config import ComponentConfig, Config, LoggingConfig
     from ceres.database import Database
     from ceres.engine import Engine
+    from ceres.item import Item
     from ceres.manager.alert import BoundAlertManager
     from ceres.manager.event import EventManager
     from ceres.manager.logs import BoundLogManager
@@ -148,19 +148,15 @@ class Node(Tasklet):
 
         return local if local is not None else LoggingConfig()
 
-    def store(self, item: __Item__, /) -> None:
-        from ceres.alert import Alert
-        from ceres.logs import LogEntry
-        from ceres.message import Message
-        from ceres.particle import Particle
-        from ceres.variable import Variable
+    def store(self, item: Item, /) -> None:
+        from ceres.item import Item
 
-        if type(item) not in (Message, Particle, Alert, LogEntry, Variable):
+        if not isinstance(item, Item):
             raise TypeError(f"invalid item type {type(item)}")
 
         self.__store(item)
 
-    def __store(self, item: __Item__, /) -> None:
+    def __store(self, item: Item, /) -> None:
         container = self.__container__
         if container is None:
             self.__writer.add(item)

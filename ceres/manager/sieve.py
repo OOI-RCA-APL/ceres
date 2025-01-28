@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import traceback
 
+from ceres._internal import util
 from ceres._internal.lazy import lazy_imports
 from ceres.data import Name
 from ceres.error import ParticleError
@@ -21,7 +22,6 @@ from ceres.particle import Particle
 from ceres.stream import WriteStream
 
 with lazy_imports(__name__):
-    from ceres._internal import util
     from ceres.component import ComponentSystem
     from ceres.config import SieveConfig
 
@@ -36,7 +36,7 @@ class SieveManager:
         "_syncs",
     )
 
-    def __init__(self, source: ComponentSystem) -> None:
+    def __init__(self, source: ComponentSystem, /) -> None:
         self._system = source
         self._configs: dict[Name, SieveConfig] = {}
         self._runners: dict[Name, asyncio.Task[None]] = {}

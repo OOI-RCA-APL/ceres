@@ -6,6 +6,7 @@ from datetime import timedelta
 from pathlib import Path
 from re import Pattern
 from typing import (
+    TYPE_CHECKING,
     Annotated,
     Any,
     Literal,
@@ -36,20 +37,20 @@ from pydantic import (
     model_validator,
 )
 
+from ceres._internal import util
 from ceres._internal.lazy import lazy_imports
-from ceres._internal.typedecs import __Component__, __Sieve__
-from ceres._internal.types import MaybeSequence
 from ceres.address import Address, DynamicAddress
 from ceres.alert import AlertFilter
 from ceres.data import (
     ImmutableDataObject,
+    MaybeSequence,
     Name,
     NonBlankStr,
     NonEmptyStr,
     PositiveTimeDelta,
     StrEnum,
 )
-from ceres.database.enums import DatabaseType
+from ceres.database import DatabaseType
 from ceres.entity import EntityType
 from ceres.error import (
     ComponentError,
@@ -77,7 +78,6 @@ from ceres.result import Fail, Ok, Result
 from ceres.schedule import ScheduleExpr
 
 with lazy_imports(__name__):
-    from ceres._internal import util
     from ceres.component import Component, ComponentSystem
     from ceres.engine import Engine
     from ceres.sieve import Sieve
@@ -145,10 +145,15 @@ PrunerConfig: TypeAlias = (
     MessagePrunerConfig | ParticlePrunerConfig | AlertPrunerConfig | LogEntryPrunerConfig
 )
 
+if TYPE_CHECKING:
+    from ceres.sieve import Sieve
+else:
+    Sieve = Any
+
 
 class SieveConfig(ConfigObject):
     name: Name
-    cls: ImportString[type[__Sieve__]] = Field(
+    cls: ImportString[type[Sieve]] = Field(
         validation_alias="class",
         serialization_alias="class",
     )
@@ -183,9 +188,15 @@ def _get_component_class() -> type[Component]:
     return Component
 
 
+if TYPE_CHECKING:
+    from ceres.component import Component
+else:
+    Component = Any
+
+
 class ComponentConfig(ConfigObject):
     name: Name
-    cls: ImportString[type[__Component__]] = Field(
+    cls: ImportString[type[Component]] = Field(
         default_factory=_get_component_class,
         validation_alias="class",
         serialization_alias="class",

@@ -6,8 +6,9 @@ import signal
 import sys
 from asyncio import CancelledError
 from asyncio import Event as AsyncEvent
+from contextlib import contextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Sequence, override
+from typing import TYPE_CHECKING, Any, Callable, Sequence, override
 
 from pydantic import Field, ValidationError, create_model
 from pydantic_settings import (
@@ -19,6 +20,7 @@ from pydantic_settings import (
     SettingsError,
 )
 
+from ceres._internal import util
 from ceres._internal.cli.shared import (
     CliCommand,
     CliCommandFailed,
@@ -34,7 +36,6 @@ from ceres.error import Failure
 from ceres.result import Fail, Ok
 
 with lazy_imports(__name__):
-    from ceres._internal import util
     from ceres._internal.cli.client import Client
     from ceres.component import ComponentFilter
     from ceres.data import jsonify
@@ -415,10 +416,10 @@ async def _run(addresses: Sequence[AddressSelector], *, config_path: Path, watch
 
     try:
         if watch:
-            util.set_current_process_name("ceres-watch")
+            _set_current_process_name("ceres-watch")
             await _run_watch(address, config_path=config_path)
         else:
-            util.set_current_process_name("ceres")
+            _set_current_process_name("ceres")
 
             engine = Engine()
             match await engine.load(config_path):
@@ -452,7 +453,7 @@ async def _run(addresses: Sequence[AddressSelector], *, config_path: Path, watch
             def handle_exit_signal(*args: Any, **kwargs: Any) -> None:
                 exiting.set()
 
-            with util.temporary_signal_handler([signal.SIGINT, signal.SIGTERM], handle_exit_signal):
+            with _temporary_signal_handler([signal.SIGINT, signal.SIGTERM], handle_exit_signal):
                 await main()
     except Exception as exception:
         if not isinstance(exception, CliCommandFailed):
@@ -537,10 +538,42 @@ async def _run_watch(
     def handle_exit_signal(*args: object, **kwargs: object) -> None:
         task.cancel()
 
-    with util.temporary_signal_handler([signal.SIGINT, signal.SIGTERM], handle_exit_signal):
+    with _temporary_signal_handler([signal.SIGINT, signal.SIGTERM], handle_exit_signal):
         try:
             await task
         except CancelledError:
             pass
         finally:
             await util.cancel(task)
+
+
+def _set_current_process_name(name: str) -> None:
+    try:
+        from setproctitle import setproctitle
+
+        setproctitle(name)
+    except Exception:
+        pass
+
+
+@contextmanager
+def _temporary_signal_handler(signums: Sequence[int], handler: Callable[..., Any]):
+    import signal
+
+    loop = util.get_event_loop_or_none()
+    originals: dict[int, Any] = {}
+
+    for signum in signums:
+        if original := signal.getsignal(signum):
+            originals[signum] = original
+
+        if loop is not None:
+            loop.add_signal_handler(signum, handler)
+        else:
+            signal.signal(signum, handler)
+
+    try:
+        yield
+    finally:
+        for signum, original in originals.items():
+            signal.signal(signum, original)

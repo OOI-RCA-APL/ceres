@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+import subprocess
+import sys
+import traceback
 from abc import ABC, abstractmethod
+from getpass import getuser
+from pathlib import Path
 from typing import Any, Sequence, override
 
 from ceres._internal.lazy import lazy_imports
@@ -9,12 +14,6 @@ from ceres.config import ServiceConfig
 from ceres.data import DataObject, StrEnum
 
 with lazy_imports(__name__):
-    import subprocess
-    import sys
-    import traceback
-    from getpass import getuser
-    from pathlib import Path
-
     from ceres._internal.cli.shared import write
     from ceres._internal.project import Project
 

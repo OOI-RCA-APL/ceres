@@ -17,12 +17,9 @@ from pydantic import (
     field_validator,
 )
 
-from ceres._internal.lazy import lazy_imports
+from ceres._internal import util
 from ceres.address import Address
 from ceres.data import Color, DataObject, ImmutableDataObject, Name, StrEnum
-
-with lazy_imports(__name__):
-    from ceres._internal import util
 
 
 class ElementType(StrEnum):

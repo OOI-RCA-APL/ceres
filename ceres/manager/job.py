@@ -6,6 +6,7 @@ from datetime import datetime
 from functools import lru_cache
 from threading import Lock
 
+from ceres._internal import util
 from ceres._internal.lazy import lazy_imports
 from ceres.data import Name
 from ceres.event import (
@@ -24,7 +25,6 @@ with lazy_imports(__name__):
     from apscheduler.job import Job as InternalJob
     from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-    from ceres._internal import util
     from ceres.component import ComponentSystem
     from ceres.config import JobConfig
     from ceres.schedule import Trigger
@@ -57,7 +57,7 @@ class JobManager:
         "_lock",
     )
 
-    def __init__(self, source: ComponentSystem) -> None:
+    def __init__(self, source: ComponentSystem, /) -> None:
         self._system = source
         self._scheduler = AsyncIOScheduler()
         self._jobs: dict[Name, JobConfig] = {}

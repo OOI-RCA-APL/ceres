@@ -3,6 +3,7 @@ from __future__ import annotations
 from asyncio import CancelledError
 from threading import Lock
 
+from ceres._internal import util
 from ceres._internal.lazy import lazy_imports
 from ceres.config import PrunerConfig
 from ceres.data import Name
@@ -21,7 +22,6 @@ with lazy_imports(__name__):
     from apscheduler.job import Job as InternalJob
     from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-    from ceres._internal import util
     from ceres.component import ComponentSystem
     from ceres.manager.job import _get_trigger_adapter_class
 
@@ -34,7 +34,7 @@ class PrunerManager:
         "_lock",
     )
 
-    def __init__(self, source: ComponentSystem) -> None:
+    def __init__(self, source: ComponentSystem, /) -> None:
         self._system = source
         self._scheduler = AsyncIOScheduler()
         self._pruners: dict[Name, PrunerConfig] = {}

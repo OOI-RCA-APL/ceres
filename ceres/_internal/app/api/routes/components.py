@@ -8,13 +8,13 @@ from typing import Annotated, Any, Literal, Mapping, Sequence
 from fastapi import APIRouter, Body, Request, WebSocket, WebSocketException
 from starlette.status import WS_1008_POLICY_VIOLATION, WS_1011_INTERNAL_ERROR
 
+from ceres._internal import util
 from ceres._internal.app.shared import (
     VIEWER,
     CurrentEngine,
     CurrentProcedureQueryArguments,
     CurrentRole,
 )
-from ceres._internal.lazy import lazy_imports
 from ceres.address import Address
 from ceres.component import Component, ProcedureBinding, ProcedureType
 from ceres.data import ImmutableDataObject, Name, StrEnum, jsonify
@@ -29,9 +29,6 @@ from ceres.error import (
 )
 from ceres.result import Fail, Ok, Result
 from ceres.user import UserRole
-
-with lazy_imports(__name__):
-    from ceres._internal import util
 
 
 class ComponentRole(StrEnum):
