@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from dataclasses import dataclass
 from datetime import datetime
 from typing import (
@@ -24,10 +22,12 @@ from fastapi import (
     WebSocketDisconnect,
 )
 from fastapi.requests import HTTPConnection
-from pydantic import Json, ValidationError
+from fastapi.routing import APIRouter
+from pydantic import Field, Json, ValidationError
 from starlette.status import HTTP_400_BAD_REQUEST, HTTP_401_UNAUTHORIZED
 
 from ceres._internal import util
+from ceres._internal.entity import BaseEntity
 from ceres._internal.lazy import lazy_imports
 from ceres.data import DateTime, EmailStr, ImmutableDataObject, StrEnum, UsernameStr, jsonify
 from ceres.error import Failure, NotAuthenticatedError, NotFoundError, NotPermittedError
@@ -347,3 +347,71 @@ def assert_found[T](value: T | None, /) -> T:
         raise Failure(NotFoundError)
 
     return value
+
+
+def create_entity_get_route(router: APIRouter, Entity: type[BaseEntity]):
+    singular = util.get_entity_plural(Entity)
+
+    class QueryParameters(Entity.Filter):
+        pass
+
+    QueryParameters.__name__ = f"Get{singular.title().replace(" ", "")}QueryParameters"
+
+    async def get(engine: CurrentEngine, id: UUID) -> Entity:  # type: ignore
+        return assert_found(await util.get_entity_manager(engine, Entity).get(id=id))
+
+    get.__name__ = f"Get {singular.title()}"
+    return router.get("/{id}")(get)
+
+
+def create_entity_get_all_route(router: APIRouter, Entity: type[BaseEntity], limit: int):
+    plural = util.get_entity_plural(Entity)
+
+    _limit = limit
+
+    class QueryParameters(Entity.Filter):
+        limit: int = Field(default=100, ge=0, le=_limit)
+
+    QueryParameters.__name__ = f"GetAll{plural.title().replace(" ", "")}QueryParameters"
+
+    async def get_all(
+        engine: CurrentEngine,
+        filter: Annotated[QueryParameters, Query()],
+    ) -> list[Entity]:  # type: ignore
+        return await util.get_entity_manager(engine, Entity).get_all(filter)
+
+    get_all.__name__ = f"Get All {plural.title()}"
+    return router.get("")(get_all)
+
+
+def create_entity_follow_route(router: APIRouter, Entity: type[BaseEntity]):
+    plural = util.get_entity_plural(Entity)
+
+    class QueryParameters(Entity.Filter):
+        pass
+
+    QueryParameters.__name__ = f"Follow{plural.title().replace(" ", "")}QueryParameters"
+
+    async def follow(
+        socket: CurrentSocket,
+        engine: CurrentEngine,
+        filter: Annotated[QueryParameters, Query()],
+    ) -> None:
+        async def write() -> None:
+            async for message in util.get_entity_manager(engine, Entity).follow(filter):  # type: ignore
+                await socket.send(message)
+
+        await socket.execute(write)
+
+    follow.__name__ = f"Follow {plural.title()}"
+    return router.websocket("")(follow)
+
+
+def create_entity_router(Entity: type[BaseEntity], name: str, limit: int):
+    router = APIRouter(prefix=f"/{name}", tags=[name])
+
+    create_entity_get_route(router, Entity)
+    create_entity_get_all_route(router, Entity, limit)
+    create_entity_follow_route(router, Entity)
+
+    return router

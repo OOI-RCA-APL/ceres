@@ -26,7 +26,6 @@ from pydantic_settings import CliImplicitFlag, CliSubCommand, SettingsError, get
 from ceres._internal import util
 from ceres._internal.entity import BaseEntity
 from ceres._internal.lazy import lazy_imports
-from ceres._internal.manager.entity import BaseEntityManager
 from ceres._internal.project import LoadedProject, Project
 from ceres.config import Config, ConfigCheckType, ConfigMeta
 from ceres.data import FromYaml, NonEmpty, SerializeArgs, jsonify
@@ -209,7 +208,6 @@ with lazy_imports(__name__):
 
     from ceres._internal.cli.client import Client
     from ceres.data import jsonify
-    from ceres.database import Database
     from ceres.engine import Engine
 
 chdir = os.chdir
@@ -379,33 +377,8 @@ class CliCommandFailed(SettingsError):
 _T = TypeVar("_T")
 
 
-def _get_entity_singular(Entity: type[BaseEntity]) -> str:
-    if Entity.__name__ == "LogEntry":
-        return "log entry"
-
-    return Entity.__name__.lower()
-
-
-def _get_entity_plural(Entity: type[BaseEntity]) -> str:
-    if Entity.__name__ == "LogEntry":
-        return "log entries"
-
-    return f"{Entity.__name__.lower()}s"
-
-
-def _get_entity_manager_attr(Entity: type[BaseEntity]) -> str:
-    if Entity.__name__ == "LogEntry":
-        return "log"
-
-    return _get_entity_plural(Entity)
-
-
-def _get_entity_manager(source: Database | Engine, entity: type[BaseEntity]) -> BaseEntityManager:
-    return getattr(source, _get_entity_manager_attr(entity))
-
-
 def create_entity_get_command(Entity: type[BaseEntity]):
-    singular = _get_entity_singular(Entity)
+    singular = util.get_entity_singular(Entity)
 
     class GetCommand(CliCommand, Entity.Filter):
         f"""
@@ -416,13 +389,13 @@ def create_entity_get_command(Entity: type[BaseEntity]):
         async def __run__(self):
             filter = self.read(Entity.Filter)
             async with self.use_database() as database:
-                return await _get_entity_manager(database, Entity).get(filter)
+                return await util.get_entity_manager(database, Entity).get(filter)
 
     return GetCommand
 
 
 def create_entity_get_all_command(Entity: type[BaseEntity]):
-    plural = _get_entity_plural(Entity)
+    plural = util.get_entity_plural(Entity)
 
     class GetAllCommand(CliCommand, Entity.Filter):
         f"""
@@ -433,13 +406,13 @@ def create_entity_get_all_command(Entity: type[BaseEntity]):
         async def __run__(self):
             filter = self.read(Entity.Filter)
             async with self.use_database() as database:
-                return await _get_entity_manager(database, Entity).get_all(filter)
+                return await util.get_entity_manager(database, Entity).get_all(filter)
 
     return GetAllCommand
 
 
 def create_entity_count_command(Entity: type[BaseEntity]):
-    plural = _get_entity_plural(Entity)
+    plural = util.get_entity_plural(Entity)
 
     class CountCommand(CliCommand, Entity.Filter):
         f"""
@@ -450,13 +423,13 @@ def create_entity_count_command(Entity: type[BaseEntity]):
         async def __run__(self):
             filter = self.read(Entity.Filter)
             async with self.use_database() as database:
-                return await _get_entity_manager(database, Entity).count(filter)
+                return await util.get_entity_manager(database, Entity).count(filter)
 
     return CountCommand
 
 
 def create_entity_create_command(Entity: type[BaseEntity]):
-    singular = _get_entity_singular(Entity)
+    singular = util.get_entity_singular(Entity)
 
     class CreateCommand(CliCommand, Entity.Create):
         f"""
@@ -467,13 +440,13 @@ def create_entity_create_command(Entity: type[BaseEntity]):
         async def __run__(self):
             data = self.read(Entity.Create)
             async with self.use_database() as database:
-                return await _get_entity_manager(database, Entity).create(data)
+                return await util.get_entity_manager(database, Entity).create(data)
 
     return CreateCommand
 
 
 def create_entity_update_command(Entity: type[BaseEntity]):
-    singular = _get_entity_singular(Entity)
+    singular = util.get_entity_singular(Entity)
 
     class UpdateCommand(CliCommand, Entity.Filter):
         f"""
@@ -486,13 +459,13 @@ def create_entity_update_command(Entity: type[BaseEntity]):
         async def __run__(self):
             filter = self.read(Entity.Filter)
             async with self.use_database() as database:
-                return await _get_entity_manager(database, Entity).update(filter, self.assign)
+                return await util.get_entity_manager(database, Entity).update(filter, self.assign)
 
     return UpdateCommand
 
 
 def create_entity_update_all_command(Entity: type[BaseEntity]):
-    plural = _get_entity_plural(Entity)
+    plural = util.get_entity_plural(Entity)
 
     class UpdateAllCommand(CliCommand, Entity.Filter):
         f"""
@@ -506,7 +479,7 @@ def create_entity_update_all_command(Entity: type[BaseEntity]):
         async def __run__(self):
             async with self.use_database() as database:
                 filter = self.read(Entity.Filter)
-                manager = _get_entity_manager(database, Entity)
+                manager = util.get_entity_manager(database, Entity)
                 if self.confirm:
                     count = await manager.count(filter)
                     get_confirmation(f"Update {count} particles?", abort=True)
@@ -517,7 +490,7 @@ def create_entity_update_all_command(Entity: type[BaseEntity]):
 
 
 def create_entity_delete_command(Entity: type[BaseEntity]):
-    singular = _get_entity_singular(Entity)
+    singular = util.get_entity_singular(Entity)
 
     class DeleteCommand(CliCommand, Entity.Filter):
         f"""
@@ -528,13 +501,13 @@ def create_entity_delete_command(Entity: type[BaseEntity]):
         async def __run__(self):
             filter = self.read(Entity.Filter)
             async with self.use_database() as database:
-                return await _get_entity_manager(database, Entity).delete(filter)
+                return await util.get_entity_manager(database, Entity).delete(filter)
 
     return DeleteCommand
 
 
 def create_entity_delete_all_command(Entity: type[BaseEntity]):
-    plural = _get_entity_plural(Entity)
+    plural = util.get_entity_plural(Entity)
 
     class DeleteAllCommand(CliCommand, Entity.Filter):
         f"""
@@ -547,7 +520,7 @@ def create_entity_delete_all_command(Entity: type[BaseEntity]):
         async def __run__(self):
             async with self.use_database() as database:
                 filter = self.read(Entity.Filter)
-                manager = _get_entity_manager(database, Entity)
+                manager = util.get_entity_manager(database, Entity)
                 if self.confirm:
                     count = await manager.count(filter)
                     get_confirmation(f"Delete {count} particles?", abort=True)
@@ -583,7 +556,7 @@ def create_entity_command(
         mapping["delete_all"] = create_entity_delete_all_command(Entity)
 
     fields: Any = {key: (CliSubCommand[value], ...) for key, value in mapping.items()}
-    plural = _get_entity_plural(Entity)
+    plural = util.get_entity_plural(Entity)
 
     return create_model(
         f"{Entity.__name__}sCommand",

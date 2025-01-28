@@ -134,7 +134,7 @@ async def call(
 
 
 @router.get("/{address}/procedures/{procedure}/call", tags=["procedures"])
-async def call_query(
+async def call_by_get(
     engine: CurrentEngine,
     role: CurrentRole,
     request: Request,

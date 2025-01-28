@@ -45,7 +45,7 @@ from typing_extensions import TypeIs
 from ceres._internal.lazy import lazy_imports
 
 with lazy_imports(__name__, export=True):
-    from sqlalchemy import SQLColumnExpression, or_
+    from sqlalchemy import SQLColumnExpression
 
     from ceres.util import azip_latest as azip_latest
     from ceres.util import cancel as cancel
@@ -577,6 +577,8 @@ def flatten[T](value: RecursiveIterable[T]) -> Iterator[T]:
 def sqlorf(
     *expressions: Iterable[SQLColumnExpression[bool]],
 ) -> SQLColumnExpression[bool]:
+    from sqlalchemy import or_
+
     return or_(False, *flatten(expressions))
 
 
@@ -1163,3 +1165,35 @@ async def run_in_loop[T](
 
     await loop.run_in_executor(None, finished.wait)
     return future.result()
+
+
+if TYPE_CHECKING:
+    from ceres._internal.entity import BaseEntity
+    from ceres._internal.manager.entity import BaseEntityManager
+    from ceres.database import Database
+    from ceres.node import Node
+
+
+def get_entity_singular(Entity: type[BaseEntity]) -> str:
+    if Entity.__name__ == "LogEntry":
+        return "log entry"
+
+    return Entity.__name__.lower()
+
+
+def get_entity_plural(Entity: type[BaseEntity]) -> str:
+    if Entity.__name__ == "LogEntry":
+        return "log entries"
+
+    return f"{Entity.__name__.lower()}s"
+
+
+def _get_entity_manager_attr(Entity: type[BaseEntity]) -> str:
+    if Entity.__name__ == "LogEntry":
+        return "logs"
+
+    return get_entity_plural(Entity)
+
+
+def get_entity_manager(source: Database | Node, entity: type[BaseEntity]) -> BaseEntityManager:
+    return getattr(source, _get_entity_manager_attr(entity))
