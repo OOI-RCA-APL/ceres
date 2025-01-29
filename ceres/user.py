@@ -8,9 +8,7 @@ from typing import (
     TypedDict,
     override,
 )
-from uuid import UUID, uuid4
 
-from pydantic import Field
 from sqlalchemy import Boolean, Text
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.schema import SchemaItem, UniqueConstraint
@@ -129,7 +127,6 @@ class UserFilter(BaseUUIDEntityFilter["User", UserField, UserOrder]):
 
 
 class UserCreate(BaseUUIDEntityCreate):
-    id: UUID = Field(default_factory=uuid4)
     username: UsernameStr
     email: EmailStr
     password: PasswordStr | PasswordHash

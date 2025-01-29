@@ -2,17 +2,17 @@ from __future__ import annotations
 
 from abc import ABC
 from typing import TYPE_CHECKING, Literal, Sequence, TypeAlias, cast
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from pydantic import ByteSize, Field
 
 from ceres.address import Address
-from ceres.data import DateTime, ImmutableDataObject, PositiveTimeDelta
+from ceres.data import DateTime, ImmutableDataObject, PositiveTimeDelta, uuid7
 from ceres.timing import utc
 
 
 class Event(ImmutableDataObject):
-    id: UUID = Field(default_factory=uuid4)
+    id: UUID = Field(default_factory=uuid7)
 
     if TYPE_CHECKING:
         address: Address = cast(Address, None)

@@ -36,6 +36,7 @@ dependencies = [
     "sqlalchemy[asyncio]~=2.0",
     "sqlparse>=0.4",
     "starlette-compress~=1.2",
+    "uuid-utils>=0.10.0",
     "uvloop>=0.17; platform_system == 'Linux' or platform_system == 'Darwin'",
     "watchfiles>=0.10",
     "websockets~=10.0",

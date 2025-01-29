@@ -12,7 +12,7 @@ from typing import (
     TypedDict,
     override,
 )
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from pydantic import Field, NonNegativeInt
 from sqlalchemy import (
@@ -35,7 +35,7 @@ from ceres._internal import util
 from ceres._internal.database.types import UUIDMapper
 from ceres._internal.filter import BaseFilter, BaseFilterArgs
 from ceres._internal.lazy import lazy_imports
-from ceres.data import DeferBuild, ImmutableDataObject, MaybeSequence
+from ceres.data import DeferBuild, ImmutableDataObject, MaybeSequence, uuid7
 from ceres.database import DatabaseType
 
 with lazy_imports(__name__):
@@ -274,7 +274,7 @@ class BaseEntity(BaseEntityCreate):
 class BaseUUIDEntityRow(BaseEntityRow):
     __abstract__: ClassVar[bool] = True
 
-    id: Mapped[UUID] = mapped_column(UUIDMapper, sort_order=-3000, default_factory=uuid4)
+    id: Mapped[UUID] = mapped_column(UUIDMapper, sort_order=-3000, default_factory=uuid7)
 
     @classmethod
     @override
@@ -329,7 +329,7 @@ class BaseUUIDEntityFilter[
 
 
 class BaseUUIDEntityCreate(BaseEntity):
-    id: UUID = Field(default_factory=uuid4)
+    id: UUID = Field(default_factory=uuid7)
 
 
 class BaseUUIDEntityUpdate(BaseEntityUpdate, total=False):

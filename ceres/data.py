@@ -21,6 +21,7 @@ from typing import (
     dataclass_transform,
     override,
 )
+from uuid import UUID
 
 import pydantic
 import pydantic.generics
@@ -144,6 +145,28 @@ def __validate_non_negative_timedelta(value: object) -> timedelta | None:
 NonNegativeTimeDelta: TypeAlias = Annotated[
     timedelta, BeforeValidator(__validate_non_negative_timedelta)
 ]
+
+
+def uuid4() -> UUID:
+    """Generate a version 4 UUID."""
+    try:
+        from uuid_utils import uuid4
+
+        return UUID(int=uuid4().int)
+    except ImportError:
+        from uuid import uuid4
+
+        return uuid4()
+
+
+def uuid7(
+    timestamp: int | None = None,
+    nanoseconds: int | None = None,
+) -> UUID:
+    """Generate a version 7 UUID using a time value and random bytes."""
+    from uuid_utils import uuid7
+
+    return UUID(int=uuid7(timestamp, nanoseconds).int)
 
 
 def __pre_validate_from_json(value: object) -> object:

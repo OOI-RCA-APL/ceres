@@ -21,7 +21,7 @@ from typing import (
     final,
     override,
 )
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from pydantic import ValidationError
 from sqlalchemy import URL, AsyncAdaptedQueuePool, Connection, delete, event, inspect, text
@@ -33,7 +33,7 @@ from ceres._internal.entity import BaseEntity, BaseEntityRow
 from ceres._internal.lazy import lazy_imports
 from ceres._internal.util import PathLike
 from ceres.config import DatabaseConfig, PostgresDatabaseConfig, SQLiteDatabaseConfig
-from ceres.data import PasswordHash, jsonify
+from ceres.data import PasswordHash, jsonify, uuid4
 from ceres.database import DatabaseType
 from ceres.entity import EntityType
 from ceres.error import DatabaseInitError, DatabaseLoadError, Failure
