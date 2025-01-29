@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC
-from typing import Any, override
+from typing import override
 
 from ceres._internal.lazy import lazy_imports
 
@@ -45,6 +45,3 @@ class BaseBoundManager[T](BaseManager[T]):
         node = super()._node
         assert node is not None
         return node
-
-
-AnyManager = BaseManager[Any]
