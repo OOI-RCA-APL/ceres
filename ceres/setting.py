@@ -13,7 +13,14 @@ from typing import (
 )
 from uuid import UUID
 
-from sqlalchemy import JSON, PrimaryKeyConstraint, SQLColumnExpression, Text, Uuid
+from sqlalchemy import (
+    JSON,
+    ForeignKeyConstraint,
+    PrimaryKeyConstraint,
+    SQLColumnExpression,
+    Text,
+    Uuid,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.schema import SchemaItem
 
@@ -28,6 +35,7 @@ from ceres._internal.entity import (
 )
 from ceres.data import FromYaml, JSONSerializable, MaybeSequence
 from ceres.database import DatabaseType
+from ceres.user import UserRow
 
 
 class SettingRow(BaseEntityRow, kw_only=True):
@@ -43,6 +51,13 @@ class SettingRow(BaseEntityRow, kw_only=True):
         return (
             *super().__get_table_args__(),
             PrimaryKeyConstraint("user_id", "name", name=f"pk_{cls.__tablename__}"),
+            ForeignKeyConstraint(
+                [cls.user_id],
+                [UserRow.id],
+                name=f"fk_{cls.__tablename__}__user_id__users__id",
+                ondelete="CASCADE",
+                onupdate="CASCADE",
+            ),
         )
 
 
