@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import os
+import platform
 import re
 import typing
 from asyncio import AbstractEventLoop, Future
@@ -10,6 +12,7 @@ from collections.abc import Set
 from contextlib import contextmanager
 from datetime import timedelta
 from os import PathLike as _BasePathLike
+from pathlib import Path
 from threading import Event
 from typing import (
     TYPE_CHECKING,
@@ -1192,3 +1195,17 @@ def _get_entity_manager_attr(Entity: type[BaseEntity]) -> str:
 
 def get_entity_manager(source: Database | Node, entity: type[BaseEntity]) -> BaseEntityManager:
     return getattr(source, _get_entity_manager_attr(entity))
+
+
+LINUX = platform.system() == "Linux"
+MACOS = platform.system() == "Darwin"
+WINDOWS = platform.system() == "Windows"
+
+
+def get_temporary_directory() -> Path:
+    if (MACOS or LINUX) and os.path.isdir("/tmp"):
+        return Path("/tmp")
+
+    from tempfile import gettempdir
+
+    return Path(gettempdir())
