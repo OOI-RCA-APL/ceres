@@ -28,7 +28,7 @@ from ceres._internal.entity import BaseEntity
 from ceres._internal.lazy import lazy_imports
 from ceres._internal.project import LoadedProject, Project
 from ceres.config import Config, ConfigCheckType, ConfigMeta
-from ceres.data import DataObject, DeferBuild, FromYaml, NonEmpty, SerializeArgs, jsonify
+from ceres.data import DataObject, DeferBuild, FromYaml, NonEmpty, SerializeKwargs, jsonify
 from ceres.result import Ok
 
 
@@ -157,7 +157,7 @@ def write_json(
     flush: bool = False,
     to: Literal["stdout", "stderr"] = "stderr",
     color: bool | None = None,
-    **kwargs: Unpack[SerializeArgs],
+    **kwargs: Unpack[SerializeKwargs],
 ):
     if "indent" not in kwargs:
         kwargs["indent"] = 2

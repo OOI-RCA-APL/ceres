@@ -9,8 +9,8 @@ from ceres._internal.util import BytesLike
 from ceres.message import MessageFilterArgs
 
 with lazy_imports(__name__):
+    from ceres.connection import Connection
     from ceres.message import Message
-    from ceres.roles.connection import Connection
 
 
 class Transport:

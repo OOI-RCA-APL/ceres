@@ -23,7 +23,7 @@ with lazy_imports(__name__):
     from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
     from ceres.component import ComponentSystem
-    from ceres.manager.job import _get_trigger_adapter_class
+    from ceres.job import _get_trigger_adapter_class
 
 
 class PrunerManager:

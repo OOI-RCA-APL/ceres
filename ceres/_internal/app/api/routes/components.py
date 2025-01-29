@@ -54,8 +54,8 @@ def _get_component_roles(component: Component | type[Component]) -> Sequence[Com
     if not isinstance(component, type):
         component = type(component)
 
-    from ceres.roles.connection import Connection
-    from ceres.roles.interface import Interface
+    from ceres.connection import Connection
+    from ceres.interface import Interface
 
     roles: list[ComponentRole] = []
     if issubclass(component, Connection):

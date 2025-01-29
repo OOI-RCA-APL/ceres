@@ -15,8 +15,8 @@ from ceres.component import Component, action, routine
 from ceres.config import JobConfig
 from ceres.data import ImmutableDataObject, NonBlankStr, jsonify
 from ceres.loaded import Loaded
+from ceres.notifier import Notification, Notifier
 from ceres.reference import Ref
-from ceres.roles.notifier import Notification, Notifier
 from ceres.schedule import ScheduleExpr
 
 

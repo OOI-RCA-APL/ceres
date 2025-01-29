@@ -50,14 +50,14 @@ with lazy_imports(__name__):
         create_async_engine,
     )
 
-    from ceres.manager.alert import AlertManager
-    from ceres.manager.logs import LogManager
-    from ceres.manager.message import MessageManager
-    from ceres.manager.particle import ParticleManager
-    from ceres.manager.setting import SettingManager
-    from ceres.manager.statistic import StatisticsManager
-    from ceres.manager.user import UserManager
-    from ceres.manager.variable import VariableManager
+    from ceres.alert import AlertManager
+    from ceres.logs import LogManager
+    from ceres.message import MessageManager
+    from ceres.particle import ParticleManager
+    from ceres.setting import SettingManager
+    from ceres.statistics import StatisticsManager
+    from ceres.user import UserManager
+    from ceres.variable import VariableManager
 
 if TYPE_CHECKING:
     from sqlalchemy.dialects.sqlite.aiosqlite import AsyncAdapt_aiosqlite_connection

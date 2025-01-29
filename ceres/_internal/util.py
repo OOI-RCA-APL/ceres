@@ -722,10 +722,6 @@ def strlist(value: str | Sequence[str] | None) -> list[str]:
 def as_sequence[T: Stringy](value: T) -> Sequence[T]: ...
 
 
-# @overload
-# def as_sequence[T](value: Sequence[T]) -> Sequence[T]: ...
-
-
 @overload
 def as_sequence[T](value: T | Sequence[T]) -> Sequence[T]: ...
 
@@ -1168,8 +1164,7 @@ async def run_in_loop[T](
 
 
 if TYPE_CHECKING:
-    from ceres._internal.entity import BaseEntity
-    from ceres._internal.manager.entity import BaseEntityManager
+    from ceres._internal.entity import BaseEntity, BaseEntityManager
     from ceres.database import Database
     from ceres.node import Node
 

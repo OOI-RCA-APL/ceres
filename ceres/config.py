@@ -679,7 +679,7 @@ class Config(ConfigMeta):
 
     @model_validator(mode="after")
     def _validate_after(self) -> Self:
-        from ceres.roles.interface import Interface
+        from ceres.interface import Interface
 
         if self.console.dashboard is not None:
             for address in util.as_sequence(self.console.dashboard):

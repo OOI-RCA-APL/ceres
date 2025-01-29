@@ -24,8 +24,8 @@ from typing import (
     Protocol,
     Self,
     Sequence,
+    TypeAlias,
     Unpack,
-    dataclass_transform,
     final,
     get_args,
     get_type_hints,
@@ -34,9 +34,7 @@ from typing import (
     runtime_checkable,
 )
 
-from pydantic import ConfigDict, Field, PositiveFloat, ValidationError
-from pydantic.fields import FieldInfo
-from sqlalchemy.util.typing import TypeAlias
+from pydantic import ConfigDict, PositiveFloat, ValidationError
 
 from ceres._internal import util
 from ceres._internal.filter import BaseFilter, BaseFilterArgs
@@ -81,9 +79,9 @@ from ceres.event import (
     StoppingEvent,
     WillDetachEvent,
 )
-from ceres.manager.pruner import PrunerManager
 from ceres.node import InternalVariableName as InternalVariableName
 from ceres.node import Node
+from ceres.pruner import PrunerManager
 from ceres.status import Status
 from ceres.variable import Variable
 
@@ -92,14 +90,10 @@ with lazy_imports(__name__):
 
     from ceres.config import ComponentConfig, JobConfig, SieveConfig
     from ceres.database import Database
-    from ceres.manager.job import JobManager
-    from ceres.manager.sieve import SieveManager
-    from ceres.reference import Reference, unref
-
-if TYPE_CHECKING:
     from ceres.engine import Engine
-else:
-    Engine = object
+    from ceres.job import JobManager
+    from ceres.reference import Reference, unref
+    from ceres.sieve import SieveManager
 
 
 warnings.filterwarnings(
@@ -142,10 +136,6 @@ else:
     _Container = object
 
 
-@dataclass_transform(
-    kw_only_default=True,
-    field_specifiers=(Field, FieldInfo),
-)
 class Component(ValidatedDataclass):
     __with_name__: InitVar[Name | None] = field(default=None)
     __with_config__: InitVar[ComponentConfig | None] = field(default=None)

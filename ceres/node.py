@@ -28,21 +28,21 @@ with lazy_imports(__name__):
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from ceres._internal.database.writer import Writer
+    from ceres.alert import BoundAlertManager
     from ceres.component import Component, ComponentFilter, ComponentFilterArgs, ComponentSystem
     from ceres.config import ComponentConfig, Config, LoggingConfig
     from ceres.database import Database
     from ceres.engine import Engine
+    from ceres.event import BoundEventManager
     from ceres.item import Item
-    from ceres.manager.alert import BoundAlertManager
-    from ceres.manager.event import EventManager
-    from ceres.manager.logs import BoundLogManager
-    from ceres.manager.message import BoundMessageManager
-    from ceres.manager.particle import BoundParticleManager
-    from ceres.manager.setting import SettingManager
-    from ceres.manager.statistic import StatisticsManager
-    from ceres.manager.user import UserManager
-    from ceres.manager.variable import BoundVariableManager
+    from ceres.logs import BoundLogManager
+    from ceres.message import BoundMessageManager
+    from ceres.particle import BoundParticleManager
+    from ceres.setting import SettingManager
+    from ceres.statistics import StatisticsManager
     from ceres.status import Status
+    from ceres.user import UserManager
+    from ceres.variable import BoundVariableManager
 
 
 class InternalVariableName(StrEnum):
@@ -119,8 +119,8 @@ class Node(Tasklet):
         return SettingManager(self)
 
     @cached_property
-    def events(self) -> EventManager:
-        return EventManager(self)
+    def events(self) -> BoundEventManager:
+        return BoundEventManager(self)
 
     @cached_property
     def statistics(self) -> StatisticsManager:

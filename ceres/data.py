@@ -45,7 +45,7 @@ from ceres._internal import util
 from ceres._internal.util import NAME_PATTERN, PydanticDataclassLike, get_type_adapter
 
 
-class SimplifyArgs(TypedDict, total=False):
+class SimplifyKwargs(TypedDict, total=False):
     include: IncEx | None
     exclude: IncEx | None
     by_alias: bool
@@ -54,19 +54,19 @@ class SimplifyArgs(TypedDict, total=False):
     exclude_none: bool
 
 
-class SerializeArgs(SimplifyArgs, total=False):
+class SerializeKwargs(SimplifyKwargs, total=False):
     indent: int | None
 
 
-def simplify(obj: object, **kwargs: Unpack[SimplifyArgs]) -> Any:
+def simplify(obj: object, **kwargs: Unpack[SimplifyKwargs]) -> Any:
     return json.loads(jsonify(obj, **kwargs))
 
 
-def jsonify(obj: object, **kwargs: Unpack[SerializeArgs]) -> str:
+def jsonify(obj: object, **kwargs: Unpack[SerializeKwargs]) -> str:
     return get_type_adapter(type(obj)).dump_json(obj, **kwargs).decode()
 
 
-def yamlify(obj: object, **kwargs: Unpack[SerializeArgs]) -> str:
+def yamlify(obj: object, **kwargs: Unpack[SerializeKwargs]) -> str:
     import yaml
 
     return yaml.safe_dump(simplify(obj, **kwargs), indent=kwargs.get("indent", None))
