@@ -98,6 +98,10 @@ class Node(Tasklet):
     def alerts(self) -> BoundAlertManager:
         return BoundAlertManager(self)
 
+    @property
+    def alert(self) -> BoundAlertManager:
+        return self.alerts
+
     @cached_property
     def logs(self) -> BoundLogManager:
         return BoundLogManager(self)
