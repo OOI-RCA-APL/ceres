@@ -392,8 +392,7 @@ def main(args: Sequence[str] | None = None) -> None:
             result = await command.__execute__()
             if result is not None:
                 result = jsonify(result, indent=2)
-
-            write(result, to="stdout")
+                write(result, to="stdout")
         except Failure as failure:
             write(jsonify(failure.error, indent=2))
             exit(1)
