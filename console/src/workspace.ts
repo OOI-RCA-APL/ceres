@@ -166,6 +166,7 @@ export const WidgetRowModel = Zod.object({
 
 export type WorkspaceInfo = Zod.infer<typeof WorkspaceModel>
 export const WorkspaceModel = Zod.object({
+  id: Zod.string().catch(() => v4()),
   name: Zod.string(),
   layout: WidgetRowModel.array().catch(() => []),
 })
