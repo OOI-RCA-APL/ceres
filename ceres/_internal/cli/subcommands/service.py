@@ -8,6 +8,7 @@ from pydantic_settings import CliPositionalArg, CliSubCommand
 
 from ceres._internal.cli.shared import CliCommand, CliCommandGroup, write, write_table
 from ceres._internal.lazy import lazy_imports
+from ceres._internal.util import LINUX, MACOS
 
 with lazy_imports(__name__):
     from ceres._internal.cli.service import LaunchDService, Service, SystemDService
@@ -87,9 +88,9 @@ class StatusCommand(CliCommand):
 
 
 def _get_service(project: LoadedProject) -> Service:
-    if sys.platform == "linux":
+    if LINUX:
         return SystemDService(project, silent=False)
-    if sys.platform == "darwin":
+    if MACOS:
         return LaunchDService(project, silent=False)
 
     raise NotImplementedError(f"unsupported platform: {sys.platform}")
