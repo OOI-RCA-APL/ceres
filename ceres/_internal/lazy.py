@@ -6,7 +6,7 @@ from threading import Lock
 from types import ModuleType, UnionType
 from typing import TYPE_CHECKING, Any, Final, Iterable, Mapping, Sequence, overload, override
 
-_undefined = object()
+_UNDEFINED = object()
 
 
 class LazyProxy:
@@ -27,12 +27,12 @@ class LazyProxy:
             self.__proxy_module__ = module
             self.__proxy_proxied_attrs__ = proxied_attrs
             self.__proxy_target_attr__ = target_attr
-            self.__proxy_target__ = _undefined
+            self.__proxy_target__ = _UNDEFINED
         else:
             object.__setattr__(self, "__proxy_module__", module)
             object.__setattr__(self, "__proxy_proxied_attrs__", proxied_attrs)
             object.__setattr__(self, "__proxy_target_attr__", target_attr)
-            object.__setattr__(self, "__proxy_target__", _undefined)
+            object.__setattr__(self, "__proxy_target__", _UNDEFINED)
 
     @override
     def __getattribute__(self, name: str) -> Any:
@@ -70,7 +70,7 @@ class LazyProxy:
         return self.__proxy_get__()[key]
 
     def __proxy_get__(self) -> Any:
-        if self.__proxy_target__ is not _undefined:
+        if self.__proxy_target__ is not _UNDEFINED:
             return self.__proxy_target__
 
         import importlib

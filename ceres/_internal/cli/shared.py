@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import sys
 import warnings
@@ -24,12 +25,16 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError,
 from pydantic_settings import CliImplicitFlag, CliSubCommand, SettingsError, get_subcommand
 
 from ceres._internal import util
-from ceres._internal.entity import BaseEntity
 from ceres._internal.lazy import lazy_imports
 from ceres._internal.project import LoadedProject, Project
-from ceres.config import Config, ConfigCheckType, ConfigMeta
 from ceres.data import DataObject, DeferBuild, FromYaml, NonEmpty, SerializeKwargs, jsonify
 from ceres.result import Ok
+
+with lazy_imports(__name__):
+    from ceres._internal.cli.client import Client
+    from ceres._internal.entity import BaseEntity
+    from ceres.config import Config, ConfigCheckType, ConfigMeta
+    from ceres.engine import Engine
 
 
 def get_confirmation(
@@ -202,13 +207,6 @@ Assign: TypeAlias = Annotated[
     Field(description="Field(s) to assign, passed as a non-empty JSON or YAML object."),
 ]
 
-
-with lazy_imports(__name__):
-    import json
-
-    from ceres._internal.cli.client import Client
-    from ceres.data import jsonify
-    from ceres.engine import Engine
 
 chdir = os.chdir
 

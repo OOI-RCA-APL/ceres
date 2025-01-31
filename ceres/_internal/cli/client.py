@@ -6,12 +6,9 @@ from pydantic import BaseModel
 
 from ceres._internal import util
 from ceres._internal.cli.shared import CliCommandFailed
-from ceres._internal.lazy import lazy_imports
-
-with lazy_imports(__name__):
-    from ceres._internal.project import LoadedProject
-    from ceres.data import simplify
-    from ceres.status import Status
+from ceres._internal.project import LoadedProject
+from ceres.data import simplify
+from ceres.status import Status
 
 
 class Client:

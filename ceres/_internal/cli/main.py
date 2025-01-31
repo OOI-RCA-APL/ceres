@@ -31,7 +31,6 @@ from ceres._internal.cli.shared import (
 )
 from ceres._internal.lazy import lazy_imports, unlazy
 from ceres.address import AddressSelector
-from ceres.config import ConfigCheckType
 from ceres.data import jsonify
 from ceres.error import Failure
 from ceres.result import Fail, Ok
@@ -71,6 +70,8 @@ class CheckCommand(CliCommand):
 
     @override
     async def __run__(self) -> None:
+        from ceres.config import ConfigCheckType
+
         await self.use_config(checks=ConfigCheckType.all())
         write("All checks passed.")
 

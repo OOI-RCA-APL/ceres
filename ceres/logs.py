@@ -38,6 +38,7 @@ from ceres.address import Address
 from ceres.data import MaybeSequence
 from ceres.database import DatabaseType
 from ceres.level import Level
+from ceres.stream import Stream
 from ceres.timing import utc
 
 
@@ -228,7 +229,6 @@ if TYPE_CHECKING:
     from ceres.level import Level
     from ceres.message import Message
     from ceres.particle import Particle
-    from ceres.stream import Stream
 
 
 class LogManager(
