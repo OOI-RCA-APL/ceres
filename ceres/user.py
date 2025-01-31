@@ -29,6 +29,7 @@ from ceres._internal.entity import (
     BaseUUIDEntityOrder,
     BaseUUIDEntityRow,
 )
+from ceres._internal.protocols import DatabaseSource
 from ceres.data import (
     EmailStr,
     MaybeSequence,
@@ -160,8 +161,6 @@ class User(BaseUUIDEntity, UserCreate):
 
 if TYPE_CHECKING:
     from ceres.data import PasswordHash
-    from ceres.database import Database
-    from ceres.node import Node
 
 
 class UserManager(
@@ -174,36 +173,36 @@ class UserManager(
         User.FilterArgs,
     ]
 ):
-    def __init__(self, source: Database | Node, /) -> None:
+    def __init__(self, source: DatabaseSource, /) -> None:
         super().__init__(source, User)
 
     @override
     async def update_all(self, filter: UserFilter, assign: UserUpdate) -> int:
         if "password" in assign:
-            assign["password"] = await self._maybe_hash_password(assign["password"])
+            assign["password"] = await self.__maybe_hash_password(assign["password"])
 
         return await super().update_all(filter, assign)
 
     @override
     async def update(self, filter: UserFilter, assign: UserUpdate) -> User | None:
         if "password" in assign:
-            assign["password"] = await self._maybe_hash_password(assign["password"])
+            assign["password"] = await self.__maybe_hash_password(assign["password"])
 
         return await super().update(filter, assign)
 
     @override
     async def _from_create(self, data: UserCreate) -> User:
         fields = {**data.__dict__}
-        fields["password"] = await self._maybe_hash_password(fields["password"])
+        fields["password"] = await self.__maybe_hash_password(fields["password"])
         return User(**fields)
 
-    async def _maybe_hash_password(self, password: str) -> PasswordHash:
+    async def __maybe_hash_password(self, password: str) -> PasswordHash:
         from ceres._internal.auth import verify_password_hash
 
         if verify_password_hash(password):
             return password
 
-        return await self._database.hash_password(password)
+        return await self.__database__.hash_password(password)
 
     if TYPE_CHECKING:
         # See: https://github.com/python/typing/issues/1399

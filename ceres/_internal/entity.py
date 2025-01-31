@@ -44,7 +44,8 @@ from ceres._internal import util
 from ceres._internal.database.types import UUIDMapper
 from ceres._internal.filter import BaseFilter, BaseFilterArgs
 from ceres._internal.lazy import lazy_imports
-from ceres._internal.manager import BaseManager
+from ceres._internal.manager import BaseDatabaseManager
+from ceres._internal.protocols import DatabaseSource
 from ceres.data import DeferBuild, ImmutableDataObject, MaybeSequence, uuid7
 from ceres.database import DatabaseType
 
@@ -370,7 +371,14 @@ class BaseEntityManager[
     UpdateT: BaseEntityUpdate,
     FilterT: BaseEntityFilter[Any, Any, Any],
     FilterArgsT: BaseEntityFilterArgs[Any, Any],
-](BaseManager[EntityT]):
+](BaseDatabaseManager):
+    __slots__ = ("_cls",)
+
+    @override
+    def __init__(self, source: DatabaseSource, cls: type[EntityT], /) -> None:
+        super().__init__(source)
+        self._cls = cls
+
     async def create(
         self,
         data: CreateT,
@@ -378,7 +386,7 @@ class BaseEntityManager[
         upsert_on: Sequence[str | ColumnElement[Any] | DDLConstraintColumnRole] | None = None,
     ) -> EntityT:
         result = await self._from_create(data)
-        await self._insert(result, upsert_on=upsert_on)
+        await self.__insert(result, upsert_on=upsert_on)
         return result
 
     async def get_all(
@@ -386,12 +394,12 @@ class BaseEntityManager[
         filter: FilterT | None = None,
         **kwargs: Any,
     ) -> list[EntityT]:
-        Row = self._get_row_cls()
+        Row = self.__get_row_cls()
 
-        filter = self._apply_default_filter(filter, kwargs)
+        filter = self._apply_filter_defaults(filter, kwargs)
         statement = select(*Row.__table__.columns.values())
-        statement = filter.apply(statement, self._database.type)
-        return await self._execute_and_get_many(statement, self._cls)
+        statement = filter.apply(statement, self.__database__.type)
+        return await self.__execute_and_get_many(statement, self._cls)
 
     async def get(
         self,
@@ -406,77 +414,99 @@ class BaseEntityManager[
         filter: FilterT | None = None,
         **kwargs: Unpack[FilterArgsT],  # type: ignore
     ) -> AsyncIterable[EntityT]:
-        Row = self._get_row_cls()
+        Row = self.__get_row_cls()
 
-        filter = self._apply_default_filter(filter, kwargs)
+        filter = self._apply_filter_defaults(filter, kwargs)
         statement = select(*Row.__table__.columns.values())
-        statement = filter.apply(statement, self._database.type)
-        async for result in self._execute_and_iter(statement, self._cls):
+        statement = filter.apply(statement, self.__database__.type)
+        async for result in self.__execute_and_iter(statement, self._cls):
             yield result
 
     async def update_all(self, filter: FilterT, assign: UpdateT) -> int:
-        Row = self._get_row_cls()
+        Row = self.__get_row_cls()
         if not assign:
             return 0
 
-        filter = self._apply_default_filter(filter)
+        filter = self._apply_filter_defaults(filter)
         statement = update(Row).values(assign)
-        statement = filter.apply(statement, self._database.type)
-        return await self._execute_and_get_count(statement)
+        statement = filter.apply(statement, self.__database__.type)
+        return await self.__execute_and_get_count(statement)
 
     async def update(self, filter: FilterT, assign: UpdateT) -> EntityT | None:
-        Row = self._get_row_cls()
+        Row = self.__get_row_cls()
         if not assign:
             return None
 
-        filter = self._apply_default_filter(filter, {"limit": 1})
+        filter = self._apply_filter_defaults(filter, {"limit": 1})
         statement = update(Row).values(assign).returning(self._cls.Row)
-        statement = filter.apply(statement, self._database.type)  # type: ignore
-        return await self._execute_and_get_scalar(statement, self._cls)
+        statement = filter.apply(statement, self.__database__.type)  # type: ignore
+        return await self.__execute_and_get_scalar(statement, self._cls)
 
     async def delete_all(
         self,
         filter: FilterT | None = None,
         **kwargs: Unpack[FilterArgsT],  # type: ignore
     ) -> int:
-        Row = self._get_row_cls()
+        Row = self.__get_row_cls()
 
-        filter = self._apply_default_filter(filter, kwargs)
+        filter = self._apply_filter_defaults(filter, kwargs)
         statement = delete(Row)
-        statement = filter.apply(statement, self._database.type)  # type: ignore
-        return await self._execute_and_get_count(statement)
+        statement = filter.apply(statement, self.__database__.type)  # type: ignore
+        return await self.__execute_and_get_count(statement)
 
     async def delete(
         self,
         filter: FilterT | None = None,
         **kwargs: Unpack[FilterArgsT],  # type: ignore
     ) -> EntityT | None:
-        Row = self._get_row_cls()
+        Row = self.__get_row_cls()
 
-        filter = self._apply_default_filter(filter, {**kwargs, "limit": 1})
+        filter = self._apply_filter_defaults(filter, {**kwargs, "limit": 1})
         statement = delete(Row).returning(Row)
-        statement = filter.apply(statement, self._database.type)
-        return await self._execute_and_get_scalar(statement, self._cls)
+        statement = filter.apply(statement, self.__database__.type)
+        return await self.__execute_and_get_scalar(statement, self._cls)
 
     async def count(
         self,
         filter: FilterT | None = None,
         **kwargs: Unpack[FilterArgsT],  # type: ignore
     ) -> int:
-        Row = self._get_row_cls()
+        Row = self.__get_row_cls()
 
-        filter = self._apply_default_filter(filter, kwargs)
+        filter = self._apply_filter_defaults(filter, kwargs)
         statement = select(func.count()).select_from(Row)
         statement = filter.apply(
             statement,
-            self._database.type,
+            self.__database__.type,
             ignore_order=True,
             always_use_subquery=filter.limit is not None or filter.offset is not None,
         )
 
-        return await self._execute_and_get_scalar(statement, int) or 0
+        return await self.__execute_and_get_scalar(statement, int) or 0
 
-    async def _execute_and_iter[T: BaseEntity](
+    async def _from_create(self, data: CreateT) -> EntityT:
+        if isinstance(data, self._cls):
+            return data
+
+        return self._cls(**data.__dict__)
+
+    def _apply_filter_defaults(
+        self,
+        filter: FilterT | None,
+        kwargs: Any | None = None,
+    ) -> FilterT:
+        if kwargs is None:
+            kwargs = {}
+
+        Filter = self.__get_filter_cls()
+        result = Filter(**kwargs).with_defaults(filter)  # type: ignore
+        defaults = self.__construct_filter_defaults()
+        if defaults is not None:
+            result = result.with_defaults(defaults)  # type: ignore
+
+        return result
+
+    async def __execute_and_iter[T: BaseEntity](
         self,
         statement: Select[tuple[Any, ...]] | Delete | Update,
         parse: type[T],
@@ -484,7 +514,7 @@ class BaseEntityManager[
         from ceres._internal.util import construct_model
 
         with util.wrap_database_errors():
-            async with await self._database.init() as session:
+            async with await self.__database__.init() as session:
                 results = await session.stream(statement)
                 try:
                     async for result in results:
@@ -492,7 +522,7 @@ class BaseEntityManager[
                 finally:
                     await session.commit()
 
-    async def _execute_and_get_many[T: BaseEntity](
+    async def __execute_and_get_many[T: BaseEntity](
         self,
         statement: Select[tuple[Any, ...]] | Update | Delete,
         parse: type[T],
@@ -500,11 +530,11 @@ class BaseEntityManager[
         from ceres._internal.util import construct_model
 
         with util.wrap_database_errors():
-            async with await self._database.init() as session:
+            async with await self.__database__.init() as session:
                 results = await session.execute(statement)
                 return [construct_model(parse, row._mapping) for row in results]
 
-    async def _execute_and_get_scalar[T](
+    async def __execute_and_get_scalar[T](
         self,
         statement: Select[tuple[Any, ...]] | Update | Delete,
         parse: type[T],
@@ -512,7 +542,7 @@ class BaseEntityManager[
         adapter = util.get_type_adapter(parse)
 
         with util.wrap_database_errors():
-            async with await self._database.init() as session:
+            async with await self.__database__.init() as session:
                 result = await session.execute(statement)
                 row = result.scalar()
                 await session.commit()
@@ -522,35 +552,29 @@ class BaseEntityManager[
 
         return adapter.validate_python(row, from_attributes=True)
 
-    async def _execute_and_get_count(self, statement: Update | Delete) -> int:
+    async def __execute_and_get_count(self, statement: Update | Delete) -> int:
         with util.wrap_database_errors():
-            async with await self._database.init() as session:
+            async with await self.__database__.init() as session:
                 result = await session.execute(statement)
                 await session.commit()
                 return result.rowcount
 
-    async def _from_create(self, data: CreateT) -> EntityT:
-        if isinstance(data, self._cls):
-            return data
-
-        return self._cls(**data.__dict__)
-
-    async def _insert(
+    async def __insert(
         self,
         data: EntityT,
         *,
         upsert_on: Sequence[str | Column[Any] | DDLConstraintColumnRole] | None = None,
     ) -> RowT:
-        Row = self._get_row_cls()
+        Row = self.__get_row_cls()
         row = Row(**data.__dict__)
-        match self._database.type:
+        match self.__database__.type:
             case DatabaseType.SQLITE:
                 from sqlalchemy.dialects.sqlite import insert
             case DatabaseType.POSTGRES:
                 from sqlalchemy.dialects.postgresql import insert
 
         with util.wrap_database_errors():
-            async with await self._database.init() as session:
+            async with await self.__database__.init() as session:
                 statement = insert(Row).values(row.values())
                 pk = Row.get_primary_key_columns()
 
@@ -569,38 +593,14 @@ class BaseEntityManager[
                 await session.commit()
                 return row
 
-    def _apply_default_filter(
-        self,
-        filter: FilterT | None,
-        kwargs: Any | None = None,
-    ) -> FilterT:
-        if kwargs is None:
-            kwargs = {}
+    def __construct_filter_defaults(self) -> FilterT | None:
+        Filter = self.__get_filter_cls()
+        return util.call_partial(Filter, **self.__get_filter_defaults__())
 
-        Filter = self._get_filter_cls()
-        result = Filter(**kwargs).with_defaults(filter)  # type: ignore
-        defaults = self._get_filter_defaults()
-        if defaults is not None:
-            result = result.with_defaults(defaults)  # type: ignore
-
-        return result
-
-    def _get_filter_defaults(self) -> FilterT | None:
-        if self._node is None:
-            return None
-
-        Filter = self._get_filter_cls()
-        address = self._node.address
-        return util.call_partial(
-            Filter,
-            root=address,  # type: ignore
-            address=address.all(),  # type: ignore
-        )
-
-    def _get_filter_cls(self) -> type[FilterT]:
+    def __get_filter_cls(self) -> type[FilterT]:
         Filter = self._cls.Filter
         return cast(type[FilterT], Filter)
 
-    def _get_row_cls(self) -> type[RowT]:
+    def __get_row_cls(self) -> type[RowT]:
         Row = self._cls.Row
         return cast(type[RowT], Row)

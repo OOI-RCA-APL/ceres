@@ -14,15 +14,15 @@ with lazy_imports(__name__):
 
 class Project:
     def __init__(self, config_path: Path) -> None:
-        self._config_path = config_path.resolve()
+        self.__config_path = config_path.resolve()
 
     @property
     def config_path(self) -> Path:
-        return self._config_path
+        return self.__config_path
 
     @property
     def directory(self) -> Directory:
-        return Directory(self._config_path.parent)
+        return Directory(self.__config_path.parent)
 
     @property
     def directory_hash(self) -> str:

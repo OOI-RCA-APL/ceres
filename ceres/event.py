@@ -5,16 +5,17 @@ import inspect
 import traceback
 from abc import ABC
 from asyncio import Queue as AsyncQueue
-from typing import TYPE_CHECKING, Awaitable, Callable, Literal, Sequence, TypeAlias, cast, override
+from typing import TYPE_CHECKING, Awaitable, Callable, Literal, Sequence, TypeAlias, cast
 from uuid import UUID
 
 from pydantic import ByteSize, Field
 
 from ceres._internal import util
-from ceres._internal.lazy import lazy_imports
-from ceres._internal.manager import BaseBoundManager
+from ceres._internal.manager import BaseNodeManager
+from ceres._internal.protocols import NodeSource
 from ceres.address import Address
 from ceres.data import DateTime, ImmutableDataObject, PositiveTimeDelta, uuid7
+from ceres.stream import Stream, WriteStream
 from ceres.timing import utc
 
 
@@ -450,62 +451,57 @@ from ceres.particle import Particle  # noqa: E402
 from ceres.setting import Setting  # noqa: E402
 from ceres.variable import Variable  # noqa: E402
 
-with lazy_imports(__name__):
+if TYPE_CHECKING:
     from ceres.component import ComponentSystem, ListenerBinding
     from ceres.config import LoggingConfig
     from ceres.node import Node
-    from ceres.stream import Stream, WriteStream
 
 
-class BoundEventManager(BaseBoundManager[Event]):
+class NodeEventManager(BaseNodeManager):
     __slots__ = (
-        "_stream",
-        "_listeners",
+        "__stream",
+        "__listeners",
     )
 
-    def __init__(self, source: Node, /) -> None:
-        super().__init__(source, Event)
-        self._stream: WriteStream[Event] = WriteStream()
-        self._listeners = (
+    def __init__(self, source: NodeSource, /) -> None:
+        super().__init__(source)
+        self.__stream: WriteStream[Event] = WriteStream()
+        self.__listeners = (
             []
-            if self._system is None
+            if self.__system__ is None
             else [
-                _Listener(system=self._system, binding=binding)
-                for binding in self._system.get_listener_bindings()
+                _ComponentEventListener(
+                    system=self.__system__,
+                    binding=binding,
+                )
+                for binding in self.__system__.get_listener_bindings()
             ]
         )
 
     @property
+    def __system__(self) -> ComponentSystem | None:
+        from ceres.component import ComponentSystem
+
+        if isinstance(self.__node__, ComponentSystem):
+            return self.__node__
+
+    @property
     def settled(self) -> bool:
-        return all(listener.settled for listener in self._listeners)
-
-    @property
-    @override
-    def _node(self) -> Node:
-        node = super()._node
-        assert node is not None
-        return node
-
-    @property
-    def _system(self) -> ComponentSystem | None:
-        if isinstance(self._node, ComponentSystem):
-            return self._node
-
-        return None
+        return all(listener.settled for listener in self.__listeners)
 
     async def __run__(self) -> None:
-        if not self._listeners:
+        if not self.__listeners:
             await util.sleep_forever()
             return
 
-        await util.concurrently(listener.__run__() for listener in self._listeners)
+        await util.concurrently(listener.__run__() for listener in self.__listeners)
 
     async def settle(self) -> None:
         while not self.settled:
-            await util.concurrently(listener.settle() for listener in self._listeners)
+            await util.concurrently(listener.settle() for listener in self.__listeners)
 
     def follow(self) -> Stream[Event]:
-        return self._stream.view()
+        return self.__stream.view()
 
     def emit[**P, T: Event](
         self,
@@ -519,11 +515,11 @@ class BoundEventManager(BaseBoundManager[Event]):
         address if unset.
         """
         if "address" not in kwargs:
-            kwargs["address"] = self._node.address
+            kwargs["address"] = self.__node__.address
 
         event = event_cls(*args, **kwargs)
 
-        self.propagate(event, logging=self._node.get_resolved_logging_config())
+        self.propagate(event, logging=self.__node__.get_resolved_logging_config())
         return event
 
     def propagate(self, event: Event, *, logging: LoggingConfig | None = None) -> None:
@@ -533,18 +529,18 @@ class BoundEventManager(BaseBoundManager[Event]):
         """
         if logging is not None:
             if logging.log_events and not isinstance(event, LogEvent):
-                self._node.log.event(logging.log_events_level, event)
+                self.__node__.log.event(logging.log_events_level, event)
             if logging.log_messages and isinstance(event, MessageEvent):
-                self._node.log.message(logging.log_messages_level, event.message)
+                self.__node__.log.message(logging.log_messages_level, event.message)
             elif logging.log_particles and isinstance(event, ParticleEvent):
-                self._node.log.particle(logging.log_particles_level, event.particle)
+                self.__node__.log.particle(logging.log_particles_level, event.particle)
             elif logging.log_alerts and isinstance(event, AlertEvent):
-                self._node.log.alert(logging.log_alerts_level or event.alert.level, event.alert)
+                self.__node__.log.alert(logging.log_alerts_level or event.alert.level, event.alert)
 
         # Add the event to the outgoing event stream.
-        self._stream.put(event)
+        self.__stream.put(event)
 
-        container = self._node.__container__
+        container = self.__node__.__container__
 
         # If there is a containing node, defer propagation to it.
         if container is not None:
@@ -552,13 +548,13 @@ class BoundEventManager(BaseBoundManager[Event]):
             return
 
         seen: set[Node] = set()
-        seen.add(self._node)
+        seen.add(self.__node__)
 
         # Handle the event ourselves.
         self.handle(event)
 
         # Traverse the tree, calling `handle(event)` for every component.
-        for component in self._node.get_components(inclusive=False):
+        for component in self.__node__.get_components(inclusive=False):
             if component.system not in seen:
                 seen.add(component.system)
                 component.system.events.handle(event)
@@ -569,7 +565,7 @@ class BoundEventManager(BaseBoundManager[Event]):
                     referencer.system.events.handle(event)
 
     def listening(self, event_cls: type[Event], address: Address) -> bool:
-        for listener in self._listeners:
+        for listener in self.__listeners:
             if listener.handles(event_cls, address):
                 return True
 
@@ -580,7 +576,7 @@ class BoundEventManager(BaseBoundManager[Event]):
             return False
 
         handled = False
-        for listener in self._listeners:
+        for listener in self.__listeners:
             if listener.handle(event):
                 handled = True
 
@@ -588,12 +584,12 @@ class BoundEventManager(BaseBoundManager[Event]):
 
     def would_handle(self, event: Event) -> bool:
         # If the node is not running, the event is not handled.
-        if not self._node.running:
+        if not self.__node__.running:
             return False
 
         # If the node is stopping, only handle events from nodes it contains.
-        if self._node.stopping:
-            if not self._node.address.contains(event.address):
+        if self.__node__.stopping:
+            if not self.__node__.address.contains(event.address):
                 return False
 
         return self.listening(type(event), event.address)
@@ -604,14 +600,14 @@ _ComponentEventHandler = (
 )
 
 
-class _Listener:
+class _ComponentEventListener:
     __slots__ = (
-        "_system",
-        "_binding",
-        "_handler",
-        "_handler_arity",
-        "_queue",
-        "_running",
+        "__system",
+        "__binding",
+        "__handler",
+        "__handler_arity",
+        "__queue",
+        "__running",
     )
 
     def __init__(
@@ -620,64 +616,64 @@ class _Listener:
         system: ComponentSystem,
         binding: ListenerBinding,
     ) -> None:
-        self._system = system
-        self._binding = binding
-        self._handler: _ComponentEventHandler = getattr(system.component, binding.method)
-        self._handler_arity = len(inspect.signature(self._handler).parameters)
-        self._queue: AsyncQueue[Event] = AsyncQueue()
-        self._running = False
+        self.__system = system
+        self.__binding = binding
+        self.__handler: _ComponentEventHandler = getattr(system.component, binding.method)
+        self.__handler_arity = len(inspect.signature(self.__handler).parameters)
+        self.__queue: AsyncQueue[Event] = AsyncQueue()
+        self.__running = False
 
     @property
     def settled(self) -> bool:
-        return self._queue._finished.is_set()  # type: ignore
+        return self.__queue._finished.is_set()  # type: ignore
 
     def would_handle(self, event: Event) -> bool:
         return self.handles(type(event), event.address)
 
     async def __run__(self) -> None:
-        self._running = True
+        self.__running = True
         try:
             while True:
-                event = await self._queue.get()
+                event = await self.__queue.get()
                 await self._process(event)
         finally:
-            self._running = False
+            self.__running = False
 
     async def settle(self) -> None:
-        if self._queue.empty():
+        if self.__queue.empty():
             return
 
         while True:
             try:
-                event = self._queue.get_nowait()
+                event = self.__queue.get_nowait()
             except asyncio.QueueEmpty:
                 break
 
             await self._process(event)
 
     def clear(self) -> None:
-        while not self._queue.empty():
-            self._queue.get_nowait()
-            self._queue.task_done()
+        while not self.__queue.empty():
+            self.__queue.get_nowait()
+            self.__queue.task_done()
 
     def handles(self, event_cls: type[Event], address: Address) -> bool:
-        if not util.lenient_issubclass(event_cls, self._binding.event):
+        if not util.lenient_issubclass(event_cls, self.__binding.event):
             return False
 
-        if self._binding.local:
-            if address == self._system.address:
+        if self.__binding.local:
+            if address == self.__system.address:
                 return True
 
-        if self._binding.reference:
-            for alias in self._binding.reference:
+        if self.__binding.reference:
+            for alias in self.__binding.reference:
                 if any(
                     component.system.address == address
-                    for component in self._system.get_referenced_components(alias)
+                    for component in self.__system.get_referenced_components(alias)
                 ):
                     return True
 
-        if self._binding.address is not None:
-            if self._binding.address.matches(address, self._system.address):
+        if self.__binding.address is not None:
+            if self.__binding.address.matches(address, self.__system.address):
                 return True
 
         return False
@@ -686,18 +682,18 @@ class _Listener:
         if not self.would_handle(event):
             return False
 
-        self._queue.put_nowait(event)
+        self.__queue.put_nowait(event)
         return True
 
     async def _process(self, event: Event) -> None:
         try:
-            result = self._handler(*[event][: self._handler_arity])
+            result = self.__handler(*[event][: self.__handler_arity])
             if inspect.iscoroutine(result):
                 await result
         except Exception:
-            self._system.log.error(
+            self.__system.log.error(
                 f"An exception occurred while processing event {event}: "
                 f"{traceback.format_exc()}"
             )
         finally:
-            self._queue.task_done()
+            self.__queue.task_done()

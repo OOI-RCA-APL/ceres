@@ -22,8 +22,8 @@ from sqlalchemy.schema import Index, SchemaItem
 from ceres._internal import util
 from ceres._internal.database.types import EnumConstraint, EnumMapper
 from ceres._internal.entity import BaseEntityManager
-from ceres._internal.lazy import lazy_imports
-from ceres._internal.manager import BaseBoundManager
+from ceres._internal.manager import BaseNodeManager
+from ceres._internal.protocols import DatabaseSource, NodeSource
 from ceres._internal.record import (
     BaseRecord,
     BaseRecordCreate,
@@ -241,11 +241,6 @@ class Alert(BaseRecord, AlertCreate):
     Order = AlertOrder
 
 
-with lazy_imports(__name__):
-    from ceres.database import Database
-    from ceres.node import Node
-
-
 class AlertManager(
     BaseEntityManager[
         Alert,
@@ -256,7 +251,7 @@ class AlertManager(
         Alert.FilterArgs,
     ]
 ):
-    def __init__(self, source: Database | Node, /) -> None:
+    def __init__(self, source: DatabaseSource, /) -> None:
         super().__init__(source, Alert)
 
     if TYPE_CHECKING:
@@ -296,12 +291,9 @@ class AlertManager(
         ) -> int: ...
 
 
-class BoundAlertManager(AlertManager, BaseBoundManager[Alert]):
-    def __init__(self, source: Node, /) -> None:
+class BoundAlertManager(AlertManager, BaseNodeManager):
+    def __init__(self, source: NodeSource, /) -> None:
         super().__init__(source)
-
-    def store(self, alert: Alert, /) -> None:
-        return self._node.store(alert)
 
     def follow(
         self,
@@ -310,9 +302,9 @@ class BoundAlertManager(AlertManager, BaseBoundManager[Alert]):
     ) -> Stream[Alert]:
         from ceres.event import AlertEvent
 
-        filter = self._apply_default_filter(filter, kwargs)
+        filter = self._apply_filter_defaults(filter, kwargs)
         return (
-            self._node.events.follow()
+            self.__node__.events.follow()
             .every(AlertEvent)
             .map(lambda event: event.alert)
             .filter(filter.matches)
@@ -327,14 +319,14 @@ class BoundAlertManager(AlertManager, BaseBoundManager[Alert]):
         from ceres.event import AlertEvent
 
         alert = Alert(
-            address=self._node.address,
+            address=self.__node__.address,
             level=level,
             type=code,
             data=data if data is not None else {},
         )
 
-        self._node.store(alert)
-        self._node.events.emit(AlertEvent, alert=alert)
+        self.__node__.store(alert)
+        self.__node__.events.emit(AlertEvent, alert=alert)
         return alert
 
     def debug(self, type: str, data: dict[str, Any] | None = None) -> Alert:

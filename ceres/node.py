@@ -3,13 +3,14 @@ from __future__ import annotations
 import asyncio
 from abc import abstractmethod
 from functools import cached_property
-from typing import AsyncIterable, Unpack, dataclass_transform, override
+from typing import Any, AsyncIterable, Unpack, dataclass_transform, override
 
 from pydantic import Field
 from pydantic.fields import FieldInfo
 
 from ceres._internal import util
 from ceres._internal.lazy import lazy_imports
+from ceres._internal.protocols import NodeSource
 from ceres.address import Address, AddressSelector, DynamicAddress
 from ceres.data import StrEnum
 from ceres.event import (
@@ -33,16 +34,16 @@ with lazy_imports(__name__):
     from ceres.config import ComponentConfig, Config, LoggingConfig
     from ceres.database import Database
     from ceres.engine import Engine
-    from ceres.event import BoundEventManager
+    from ceres.event import NodeEventManager
     from ceres.item import Item
-    from ceres.logs import BoundLogManager
-    from ceres.message import BoundMessageManager
-    from ceres.particle import BoundParticleManager
+    from ceres.logs import NodeLogManager
+    from ceres.message import NodeMessageManager
+    from ceres.particle import NodeParticleManager
     from ceres.setting import SettingManager
     from ceres.statistics import StatisticsManager
     from ceres.status import Status
     from ceres.user import UserManager
-    from ceres.variable import BoundVariableManager
+    from ceres.variable import NodeVariableManager
 
 
 class InternalVariableName(StrEnum):
@@ -53,15 +54,32 @@ class InternalVariableName(StrEnum):
     kw_only_default=True,
     field_specifiers=(Field, FieldInfo),
 )
-class Node(Tasklet):
+class Node(Tasklet, NodeSource):
     __slots__ = ("__tasklet__",)
 
-    def __init__(self, /) -> None:
+    def __init__(self) -> None:
         super().__init__()
 
     @property
     @abstractmethod
     def __container__(self) -> Node | None: ...
+
+    @property
+    @override
+    def __database__(self) -> Database:
+        return self.database
+
+    @override
+    def __get_filter_defaults__(self) -> dict[str, Any]:
+        return {
+            "root": self.address,
+            "address": self.address.all(),
+        }
+
+    @property
+    @override
+    def __node__(self) -> Node:
+        return self
 
     async def __node_sync__(self, session: AsyncSession | None = None) -> None:
         pass
@@ -87,12 +105,12 @@ class Node(Tasklet):
     def root(self) -> ComponentSystem | None: ...
 
     @cached_property
-    def messages(self) -> BoundMessageManager:
-        return BoundMessageManager(self)
+    def messages(self) -> NodeMessageManager:
+        return NodeMessageManager(self)
 
     @cached_property
-    def particles(self) -> BoundParticleManager:
-        return BoundParticleManager(self)
+    def particles(self) -> NodeParticleManager:
+        return NodeParticleManager(self)
 
     @cached_property
     def alerts(self) -> BoundAlertManager:
@@ -103,11 +121,11 @@ class Node(Tasklet):
         return self.alerts
 
     @cached_property
-    def logs(self) -> BoundLogManager:
-        return BoundLogManager(self)
+    def logs(self) -> NodeLogManager:
+        return NodeLogManager(self)
 
     @property
-    def log(self) -> BoundLogManager:
+    def log(self) -> NodeLogManager:
         return self.logs
 
     @cached_property
@@ -115,16 +133,16 @@ class Node(Tasklet):
         return UserManager(self)
 
     @cached_property
-    def variables(self) -> BoundVariableManager:
-        return BoundVariableManager(self)
+    def variables(self) -> NodeVariableManager:
+        return NodeVariableManager(self)
 
     @cached_property
     def settings(self) -> SettingManager:
         return SettingManager(self)
 
     @cached_property
-    def events(self) -> BoundEventManager:
-        return BoundEventManager(self)
+    def events(self) -> NodeEventManager:
+        return NodeEventManager(self)
 
     @cached_property
     def statistics(self) -> StatisticsManager:

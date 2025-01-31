@@ -68,7 +68,7 @@ else:
 
 
 class Database:
-    def __new__(cls, /, config: DatabaseConfig | None = None) -> Database:
+    def __new__(cls, config: DatabaseConfig | None = None, /) -> Database:
         if cls is Database:
             match config:
                 case None | SQLiteDatabaseConfig():
@@ -78,7 +78,7 @@ class Database:
 
         return cls(config)  # type: ignore
 
-    def __init__(self, /, config: DatabaseConfig | None = None) -> None:
+    def __init__(self, config: DatabaseConfig | None = None, /) -> None:
         assert config is not None
 
         self.__id = uuid4()
@@ -86,6 +86,13 @@ class Database:
         self.__engine = self._create_engine()
         self.__init_lock = AsyncLock()
         self.__completed_init_successfully = False
+
+    @property
+    def __database__(self) -> Database:
+        return self
+
+    def __get_filter_defaults__(self) -> dict[str, Any]:
+        return {}
 
     @property
     def id(self) -> UUID:
@@ -632,6 +639,10 @@ class PostgresDatabase(Database):
             "json_serializer": jsonify,  # Serialize any Pydantic compatible object to JSON.
             **self.config.engine,
         }
+
+    @override
+    def _pre_configure_engine(self, engine: AsyncEngine) -> None:
+        pass
 
     @override
     async def dump_csv(self, path: PathLike, entity_type: EntityType) -> None:

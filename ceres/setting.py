@@ -33,6 +33,7 @@ from ceres._internal.entity import (
     BaseEntityManager,
     BaseEntityRow,
 )
+from ceres._internal.protocols import DatabaseSource
 from ceres.data import FromYaml, JSONSerializable, MaybeSequence
 from ceres.database import DatabaseType
 from ceres.user import UserRow
@@ -140,11 +141,6 @@ class Setting(BaseEntity, SettingCreate):
     Order = SettingOrder
 
 
-if TYPE_CHECKING:
-    from ceres.database import Database
-    from ceres.node import Node
-
-
 class SettingManager(
     BaseEntityManager[
         Setting,
@@ -155,7 +151,7 @@ class SettingManager(
         Setting.FilterArgs,
     ]
 ):
-    def __init__(self, source: Database | Node, /) -> None:
+    def __init__(self, source: DatabaseSource, /) -> None:
         super().__init__(source, Setting)
 
     if TYPE_CHECKING:

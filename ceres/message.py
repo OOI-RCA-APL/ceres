@@ -20,9 +20,10 @@ from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.schema import Index, SchemaItem
 
 from ceres._internal import util
+from ceres._internal.database.types import EnumConstraint, EnumMapper
 from ceres._internal.entity import BaseEntityManager
-from ceres._internal.lazy import lazy_imports
-from ceres._internal.manager import BaseBoundManager
+from ceres._internal.manager import BaseNodeManager
+from ceres._internal.protocols import DatabaseSource, NodeSource
 from ceres._internal.record import (
     BaseRecord,
     BaseRecordCreate,
@@ -35,10 +36,8 @@ from ceres._internal.record import (
 )
 from ceres.data import MaybeSequence, StrEnum
 from ceres.database import DatabaseType
+from ceres.stream import Stream
 from ceres.timing import utc
-
-with lazy_imports(__name__):
-    from ceres._internal.database.types import EnumConstraint, EnumMapper
 
 
 class MessageDirection(StrEnum):
@@ -208,12 +207,6 @@ class Message(BaseRecord, MessageCreate):
     Direction: ClassVar[type[MessageDirection]] = MessageDirection
 
 
-with lazy_imports(__name__):
-    from ceres.database import Database
-    from ceres.node import Node
-    from ceres.stream import Stream
-
-
 class MessageManager(
     BaseEntityManager[
         Message,
@@ -224,7 +217,7 @@ class MessageManager(
         Message.FilterArgs,
     ]
 ):
-    def __init__(self, source: Database | Node, /) -> None:
+    def __init__(self, source: DatabaseSource, /) -> None:
         super().__init__(source, Message)
 
     if TYPE_CHECKING:
@@ -264,12 +257,9 @@ class MessageManager(
         ) -> int: ...
 
 
-class BoundMessageManager(MessageManager, BaseBoundManager[Message]):
-    def __init__(self, source: Node, /) -> None:
+class NodeMessageManager(MessageManager, BaseNodeManager):
+    def __init__(self, source: NodeSource, /) -> None:
         super().__init__(source)
-
-    def store(self, message: Message, /) -> None:
-        return self._node.store(message)
 
     def follow(
         self,
@@ -278,13 +268,13 @@ class BoundMessageManager(MessageManager, BaseBoundManager[Message]):
     ) -> Stream[Message]:
         from ceres.event import MessageEvent, MessageReceivedEvent
 
-        filter = self._apply_default_filter(filter, kwargs)
+        filter = self._apply_filter_defaults(filter, kwargs)
 
         if TYPE_CHECKING:
             util.blackhole(MessageEvent)
 
         return (
-            self._node.events.follow()
+            self.__node__.events.follow()
             .every(MessageEvent if not TYPE_CHECKING else MessageReceivedEvent)
             .map(lambda event: event.message)
             .filter(filter.matches)

@@ -31,8 +31,8 @@ from ceres._internal.item import (
     BaseItemOrder,
     BaseItemRow,
 )
-from ceres._internal.lazy import lazy_imports
-from ceres._internal.manager import BaseBoundManager
+from ceres._internal.manager import BaseNodeManager
+from ceres._internal.protocols import DatabaseSource, NodeSource
 from ceres._internal.util import get_type_adapter
 from ceres.address import Address
 from ceres.data import FromYaml, JSONSerializable, MaybeSequence
@@ -150,11 +150,6 @@ class Variable(BaseItem, VariableCreate):
     Order = VariableOrder
 
 
-with lazy_imports(__name__):
-    from ceres.database import Database
-    from ceres.node import Node
-
-
 class VariableManager(
     BaseEntityManager[
         Variable,
@@ -165,7 +160,7 @@ class VariableManager(
         Variable.FilterArgs,
     ]
 ):
-    def __init__(self, source: Database | Node, /) -> None:
+    def __init__(self, source: DatabaseSource, /) -> None:
         super().__init__(source, Variable)
 
     if TYPE_CHECKING:
@@ -205,24 +200,21 @@ class VariableManager(
         ) -> int: ...
 
 
-class BoundVariableManager(VariableManager, BaseBoundManager[Variable]):
-    def __init__(self, source: Node, /) -> None:
+class NodeVariableManager(VariableManager, BaseNodeManager):
+    def __init__(self, source: NodeSource, /) -> None:
         super().__init__(source)
-
-    def store(self, variable: Variable, /) -> None:
-        return self._node.store(variable)
 
     def assign(self, name: str, value: Any) -> Variable:
         from ceres.event import VariableAssignedEvent
 
         variable = Variable(
-            address=self._node.address,
+            address=self.__node__.address,
             name=name,
             value=value,
         )
 
-        self.store(variable)
-        self._node.events.emit(VariableAssignedEvent, variable=variable)
+        self.__node__.store(variable)
+        self.__node__.events.emit(VariableAssignedEvent, variable=variable)
         return variable
 
     @overload
@@ -263,7 +255,7 @@ class BoundVariableManager(VariableManager, BaseBoundManager[Variable]):
         *,
         address: Address | None = None,
     ) -> Any | None:
-        variable = await self.get(address=address or self._node.address, name=name)
+        variable = await self.get(address=address or self.__node__.address, name=name)
         if variable is None:
             return default
 
@@ -282,9 +274,9 @@ class BoundVariableManager(VariableManager, BaseBoundManager[Variable]):
     ) -> Stream[Variable]:
         from ceres.event import VariableAssignedEvent
 
-        filter = self._apply_default_filter(filter, kwargs)
+        filter = self._apply_filter_defaults(filter, kwargs)
         return (
-            self._node.events.follow()
+            self.__node__.events.follow()
             .every(VariableAssignedEvent)
             .map(lambda event: event.variable)
             .filter(filter.matches)

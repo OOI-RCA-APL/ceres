@@ -45,7 +45,6 @@ class APIComponent(ImmutableDataObject, DeferBuild):
 
 
 APIComponent.__name__ = "Component"
-APIComponent.model_rebuild()
 
 router = APIRouter(prefix="/components", tags=["components"])
 

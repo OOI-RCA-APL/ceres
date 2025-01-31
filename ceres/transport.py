@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 from datetime import timedelta
-from typing import Callable, Unpack, overload, override
+from typing import TYPE_CHECKING, Callable, Unpack, overload, override
 
 from ceres._internal import util
-from ceres._internal.lazy import lazy_imports
 from ceres._internal.util import BytesLike
 from ceres.message import MessageFilterArgs
 
-with lazy_imports(__name__):
+if TYPE_CHECKING:
     from ceres.connection import Connection
     from ceres.message import Message
 

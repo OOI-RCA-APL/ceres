@@ -1,47 +1,54 @@
 from __future__ import annotations
 
 from abc import ABC
-from typing import override
+from typing import TYPE_CHECKING, Any, override
 
-from ceres._internal.lazy import lazy_imports
+from ceres._internal.protocols import ComponentSource, DatabaseSource, NodeSource
 
-with lazy_imports(__name__):
+if TYPE_CHECKING:
+    from ceres.component import Component, ComponentSystem
     from ceres.database import Database
     from ceres.node import Node
 
 
-class BaseManager[T](ABC):
-    __slots__ = (
-        "_source",
-        "_cls",
-    )
+class BaseDatabaseManager(ABC, DatabaseSource):
+    __slots__ = ("__source__",)
 
-    def __init__(self, source: Database | Node, cls: type[T]) -> None:
-        self._source = source
-        self._cls = cls
-
-    @property
-    def _node(self) -> Node | None:
-        if isinstance(self._source, Database):
-            return None
-
-        return self._source
-
-    @property
-    def _database(self) -> Database:
-        if isinstance(self._source, Database):
-            return self._source
-
-        return self._source.database
-
-
-class BaseBoundManager[T](BaseManager[T]):
-    def __init__(self, source: Node, cls: type[T]) -> None:
-        super().__init__(source, cls)
+    def __init__(self, source: DatabaseSource, /) -> None:
+        self.__source__ = source
 
     @property
     @override
-    def _node(self) -> Node:
-        node = super()._node
-        assert node is not None
-        return node
+    def __database__(self) -> Database:
+        return self.__source__.__database__
+
+    @override
+    def __get_filter_defaults__(self) -> dict[str, Any]:
+        return self.__source__.__get_filter_defaults__()
+
+
+class BaseNodeManager(BaseDatabaseManager, NodeSource):
+    def __init__(self, source: NodeSource, /) -> None:
+        super().__init__(source)
+        self.__source__ = source
+
+    @property
+    @override
+    def __node__(self) -> Node:
+        return self.__source__.__node__
+
+
+class BaseComponentManager(BaseNodeManager, ComponentSource):
+    def __init__(self, source: ComponentSource, /) -> None:
+        super().__init__(source)
+        self.__source__ = source
+
+    @property
+    @override
+    def __component__(self) -> Component:
+        return self.__source__.__component__
+
+    @property
+    @override
+    def __system__(self) -> ComponentSystem:
+        return self.__source__.__system__

@@ -22,6 +22,8 @@ from sqlalchemy.sql import SQLColumnExpression
 from ceres._internal import util
 from ceres._internal.database.types import EnumConstraint, EnumMapper
 from ceres._internal.entity import BaseEntityManager
+from ceres._internal.manager import BaseNodeManager
+from ceres._internal.protocols import DatabaseSource, NodeSource
 from ceres._internal.record import (
     BaseRecord,
     BaseRecordCreate,
@@ -222,11 +224,9 @@ def get_logger(name: str) -> logging.Logger:
 
 if TYPE_CHECKING:
     from ceres.alert import Alert
-    from ceres.database import Database
     from ceres.event import Event
     from ceres.level import Level
     from ceres.message import Message
-    from ceres.node import Node
     from ceres.particle import Particle
     from ceres.stream import Stream
 
@@ -241,7 +241,7 @@ class LogManager(
         LogEntry.FilterArgs,
     ]
 ):
-    def __init__(self, source: Database | Node, /) -> None:
+    def __init__(self, source: DatabaseSource, /) -> None:
         super().__init__(source, LogEntry)
 
     if TYPE_CHECKING:
@@ -281,15 +281,9 @@ class LogManager(
         ) -> int: ...
 
 
-class BoundLogManager(LogManager):
-    if TYPE_CHECKING:
-        _node: Node  # type: ignore
-
-    def __init__(self, source: Node, /) -> None:
+class NodeLogManager(LogManager, BaseNodeManager):
+    def __init__(self, source: NodeSource, /) -> None:
         super().__init__(source)
-
-    def store(self, entry: LogEntry, /) -> None:
-        return self._node.store(entry)
 
     def follow(
         self,
@@ -298,9 +292,9 @@ class BoundLogManager(LogManager):
     ) -> Stream[LogEntry]:
         from ceres.event import LogEvent
 
-        filter = self._apply_default_filter(filter, kwargs)
+        filter = self._apply_filter_defaults(filter, kwargs)
         return (
-            self._node.events.follow()
+            self.__node__.events.follow()
             .every(LogEvent)
             .map(lambda event: event.entry)
             .filter(filter.matches)
@@ -309,13 +303,13 @@ class BoundLogManager(LogManager):
     def write(self, entry: LogEntry, /) -> None:
         from ceres.event import LogEvent
 
-        config = self._node.get_resolved_logging_config()
+        config = self.__node__.get_resolved_logging_config()
         if entry.level >= config.level:
-            logger = get_logger(str(self._node.address))
+            logger = get_logger(str(self.__node__.address))
             logger.log(entry.level.to_int(), entry.content)
-            self._node.log.store(entry)
+            self.__node__.store(entry)
 
-        self._node.events.emit(LogEvent, entry=entry)
+        self.__node__.events.emit(LogEvent, entry=entry)
 
     def emit(
         self,
@@ -332,7 +326,7 @@ class BoundLogManager(LogManager):
             content = content.format(**kwargs)
 
         entry = LogEntry(
-            address=address or self._node.address,
+            address=address or self.__node__.address,
             level=level,
             content=content,
         )

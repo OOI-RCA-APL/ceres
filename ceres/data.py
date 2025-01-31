@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import json
 from abc import ABC
 from datetime import date, datetime, timedelta, timezone
@@ -279,7 +280,12 @@ class DeferBuild(BaseModel, ABC):
 
 @dataclass_transform(
     kw_only_default=True,
-    field_specifiers=(Field, FieldInfo),
+    field_specifiers=(
+        Field,
+        FieldInfo,
+        dataclasses.field,
+        dataclasses.Field,
+    ),
 )
 class ValidatedDataclass(ABC, PydanticDataclassLike):
     if TYPE_CHECKING:

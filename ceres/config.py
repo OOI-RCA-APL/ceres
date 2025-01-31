@@ -386,9 +386,6 @@ class ComponentConfig(__BaseConfigObject):
         return config.cls
 
 
-# ComponentConfig.model_rebuild()
-
-
 class ServiceConfig(__BaseConfigObject):
     name: Name | None = None
     user: Name | None = None

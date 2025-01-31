@@ -237,7 +237,7 @@ class Connection(Component):
             content=data,
         )
 
-        self.system.messages.store(message)
+        self.system.store(message)
         self.system.events.emit(MessageSentEvent, message=message)
         return message
 
@@ -324,7 +324,7 @@ class Connection(Component):
                         content=data,
                     )
 
-                    self.system.messages.store(message)
+                    self.system.store(message)
                     self.system.events.emit(MessageReceivedEvent, message=message)
 
                 # If any matches were found, drop all bytes up to the end of the last match.

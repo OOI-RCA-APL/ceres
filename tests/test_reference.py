@@ -116,13 +116,13 @@ def test_indirect_references():
         b: Ref[B]
         c: Ref[C]
 
-    a = A(__with_name__="a")
-    a.system.attach((b := B(__with_name__="b")))
-    a.system.attach((c := C(__with_name__="c", b=ref(b.system.address, B))))
+    a = A("a")
+    a.system.attach((b := B("b")))
+    a.system.attach((c := C("c", b=ref(b.system.address, B))))
     a.system.attach(
         (
             d := D(
-                __with_name__="d",
+                "d",
                 b=ref(b.system.address, B),
                 c=ref(c.system.address, C),
             )

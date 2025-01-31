@@ -2,14 +2,12 @@ from __future__ import annotations
 
 from typing import TypeGuard
 
+from argon2 import PasswordHasher
+
 from ceres._internal import util
-from ceres._internal.lazy import lazy_imports
 from ceres.config import Argon2HashingConfig, BCryptHashingConfig, HashingConfig
 from ceres.config import HashType as HashType
 from ceres.data import Argon2Hash, BCryptHash, PasswordHash, PasswordStr
-
-with lazy_imports(__name__):
-    from argon2 import PasswordHasher
 
 
 def get_password_hash_type(hash: str) -> HashType | None:

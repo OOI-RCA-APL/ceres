@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Callable, ClassVar, Literal, Sequence, TypeAlias
 
-from pydantic import ImportString, computed_field, model_serializer
+from pydantic import ImportString, ValidationError, computed_field, model_serializer
 from starlette.status import (
     HTTP_400_BAD_REQUEST,
     HTTP_401_UNAUTHORIZED,
@@ -19,7 +19,6 @@ from ceres.data import DataObject, DeferBuild, ImmutableDataObject, simplify
 
 if TYPE_CHECKING:
     from fastapi.exceptions import RequestValidationError
-    from pydantic import ValidationError
 
 
 _UNDEFINED = object()
@@ -33,7 +32,7 @@ class ValidationProblem(ImmutableDataObject, DeferBuild):
     @classmethod
     def extract(
         cls,
-        error: "ValidationError | RequestValidationError",
+        error: ValidationError | RequestValidationError,
         source: object = _UNDEFINED,
     ) -> list[ValidationProblem]:
         data = simplify(source) if source is not _UNDEFINED else _UNDEFINED
@@ -151,8 +150,6 @@ ComponentError: TypeAlias = (
     | ComponentJobInvalidError
     | ComponentCombinedError
 )
-
-# ComponentCombinedError.model_rebuild()
 
 
 class __BaseProcedureError(__BaseStandardError):
@@ -345,8 +342,6 @@ ConfigError: TypeAlias = (
     | ComponentError
     | ConfigCombinedError
 )
-
-# ConfigCombinedError.model_rebuild()
 
 
 class __BaseReloadError(__BaseStandardError):

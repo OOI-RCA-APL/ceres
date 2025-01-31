@@ -7,9 +7,9 @@ from sqlalchemy import func, select
 
 from ceres._internal import util
 from ceres._internal.filter import BaseFilter, BaseFilterArgs
-from ceres._internal.lazy import lazy_imports
-from ceres._internal.manager import BaseManager
+from ceres._internal.manager import BaseDatabaseManager
 from ceres.address import Address, AddressSelector
+from ceres.alert import Alert
 from ceres.data import DataObject, DateTime, DeferBuild
 from ceres.level import Level
 
@@ -47,16 +47,7 @@ class Statistics(__BaseStatisticsObject):
     alerts: AlertStatistics = Field(default_factory=AlertStatistics)
 
 
-with lazy_imports(__name__):
-    from ceres.alert import Alert
-    from ceres.database import Database
-    from ceres.node import Node
-
-
-class StatisticsManager(BaseManager[Statistics]):
-    def __init__(self, source: Database | Node, /) -> None:
-        super().__init__(source, Statistics)
-
+class StatisticsManager(BaseDatabaseManager):
     async def get(
         self,
         filter: StatisticsFilter | None = None,
@@ -79,7 +70,7 @@ class StatisticsManager(BaseManager[Statistics]):
         filter = (
             StatisticsFilter(**kwargs)
             .with_defaults(filter)
-            .with_defaults(self._get_filter_defaults())
+            .with_defaults(self._construct_filter_defaults())
         )
 
         statement = select(Alert.Row.address, Alert.Row.level, func.count()).group_by(
@@ -95,7 +86,7 @@ class StatisticsManager(BaseManager[Statistics]):
         results: dict[Address, Statistics] = {}
 
         with util.wrap_database_errors():
-            async with await self._database.init() as session:
+            async with await self.__database__.init() as session:
                 for address, level, count in await session.execute(statement):
                     address: Address
                     for ancestor in address.path:
@@ -119,13 +110,5 @@ class StatisticsManager(BaseManager[Statistics]):
             if filter.address is None or filter.address.matches(result.address, relative_to)
         )
 
-    def _get_filter_defaults(self) -> StatisticsFilter | None:
-        if self._node is None:
-            return None
-
-        address = self._node.address
-        return util.call_partial(
-            StatisticsFilter,
-            root=address,
-            address=address.all(),
-        )
+    def _construct_filter_defaults(self) -> StatisticsFilter | None:
+        return util.call_partial(StatisticsFilter, **self.__get_filter_defaults__())
