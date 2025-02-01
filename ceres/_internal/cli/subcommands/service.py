@@ -6,7 +6,7 @@ from typing import override
 from pydantic import FilePath, NewPath
 from pydantic_settings import CliPositionalArg, CliSubCommand
 
-from ceres._internal.cli.shared import CliCommand, CliCommandGroup, write, write_table
+from ceres._internal.cli.shared import CliCommand, CliCommandGroup, write_table
 from ceres._internal.lazy import lazy_imports
 from ceres._internal.project import LoadedProject
 from ceres._internal.util import LINUX, MACOS
@@ -45,9 +45,9 @@ class StartCommand(CliCommand):
     async def __run__(self) -> None:
         project = await self.use_loaded_project()
         service = _get_service(project)
-        write(f"Starting service {service.name!r} at {service.location!r}...")
+        self.write(f"Starting service {service.name!r} at {service.location!r}...")
         service.start()
-        write("Service started successfully.")
+        self.write("Service started successfully.")
 
 
 class StopCommand(CliCommand):
@@ -59,9 +59,9 @@ class StopCommand(CliCommand):
     async def __run__(self) -> None:
         project = await self.use_loaded_project()
         service = _get_service(project)
-        write(f"Stopping service {service.name!r} at {service.location}...")
+        self.write(f"Stopping service {service.name!r} at {service.location}...")
         service.stop()
-        write("Service stopped successfully.")
+        self.write("Service stopped successfully.")
 
 
 class StatusCommand(CliCommand):

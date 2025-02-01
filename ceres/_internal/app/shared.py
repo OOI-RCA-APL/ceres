@@ -91,6 +91,9 @@ class Socket:
     async def execute(self, callback: Callable[[], Coroutine[Any, Any, Any]]) -> None:
         await util.wait_any(callback(), self.server.wait_until_stopping(), cancelling=True)
 
+    async def close(self, code: int = 1000, reason: str | None = None) -> None:
+        await self.socket.close(code, reason)
+
 
 async def _use_current_socket(socket: WebSocket, engine: CurrentEngine) -> AsyncIterator[Socket]:
     from websockets.exceptions import ConnectionClosed
@@ -237,7 +240,7 @@ async def _get_current_identity(
         except ValidationError:
             return None
 
-        user = await engine.users.get(id=id)
+        user = await engine.users.get(id)
         if user is None:
             return None
 
@@ -365,11 +368,11 @@ def create_entity_get_route(router: APIRouter, Entity: type[BaseEntity]):
 
     QueryParameters.__name__ = f"Get{singular.title().replace(" ", "")}QueryParameters"
 
-    async def get(engine: CurrentEngine, id: UUID) -> Entity:  # type: ignore
-        return assert_found(await util.get_entity_manager(engine, Entity).get(id=id))
+    async def get(engine: CurrentEngine, id: UUID):
+        return assert_found(await util.get_entity_manager(engine, Entity).get(id))  # type: ignore
 
     get.__name__ = f"Get {singular.title()}"
-    return router.get("/{id}")(get)
+    return router.get("/{id}", response_model=Entity)(get)
 
 
 def create_entity_get_all_route(router: APIRouter, Entity: type[BaseEntity], limit: int):
@@ -385,11 +388,11 @@ def create_entity_get_all_route(router: APIRouter, Entity: type[BaseEntity], lim
     async def get_all(
         engine: CurrentEngine,
         filter: Annotated[QueryParameters, Query()],
-    ) -> list[Entity]:  # type: ignore
-        return await util.get_entity_manager(engine, Entity).get_all(filter)
+    ):
+        return await util.get_entity_manager(engine, Entity).where(filter)
 
-    get_all.__name__ = f"Get All {plural.title()}"
-    return router.get("")(get_all)
+    get_all.__name__ = f"Get {plural.title()}"
+    return router.get("", response_model=list[Entity])(get_all)
 
 
 def create_entity_follow_route(router: APIRouter, Entity: type[BaseEntity]):

@@ -46,6 +46,7 @@ with lazy_imports(__name__, export=True):
     from ceres.loaded import Loader as Loader
     from ceres.logs import LogEntry as LogEntry
     from ceres.message import Message as Message
+    from ceres.message import MessageDirection as MessageDirection
     from ceres.notifier import Notification as Notification
     from ceres.notifier import Notifier as Notifier
     from ceres.notifier import SMTPNotifier as SMTPNotifier
@@ -64,6 +65,7 @@ with lazy_imports(__name__, export=True):
     from ceres.result import Result as Result
     from ceres.schedule import Schedule as Schedule
     from ceres.schedule import ScheduleType as ScheduleType
+    from ceres.setting import Setting as Setting
     from ceres.sieve import MonoSieve as MonoSieve
     from ceres.sieve import Sieve as Sieve
     from ceres.statistics import Statistics as Statistics
@@ -74,4 +76,5 @@ with lazy_imports(__name__, export=True):
     from ceres.threading import spawn as spawn
     from ceres.timing import utc as utc
     from ceres.user import User as User
+    from ceres.variable import Variable as Variable
     from ceres.version import __version__ as __version__

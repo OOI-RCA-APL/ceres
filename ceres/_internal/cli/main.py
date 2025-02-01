@@ -29,6 +29,7 @@ from ceres._internal.cli.shared import (
     write,
     write_table,
 )
+from ceres._internal.entity import DeleteExecutor, SelectExecutor, UpdateExecutor
 from ceres._internal.lazy import lazy_imports, unlazy
 from ceres.address import AddressSelector
 from ceres.data import jsonify
@@ -253,7 +254,7 @@ class DownCommand(CliCommand):
         return await client.post("/down", query)
 
 
-def _show_validation_error(exception: ValidationError) -> None:
+def _show_validation_error(exception: ValidationError, color: bool | None = None) -> None:
     write("Errors:")
 
     for error in exception.errors():
@@ -272,22 +273,9 @@ def _show_validation_error(exception: ValidationError) -> None:
 
         value = error.get("input") or "(unknown-value)"
 
-        write(f"- {location} = {value!r}: {message}", file=sys.stderr)
+        write(f"- {location} = {value!r}: {message}", file=sys.stderr, color=color)
 
     exit(1)
-
-
-with lazy_imports(__name__):
-    from ceres._internal.cli.subcommands.alerts import AlertsCommand
-    from ceres._internal.cli.subcommands.database import DatabaseCommand
-    from ceres._internal.cli.subcommands.generate import GenerateCommand
-    from ceres._internal.cli.subcommands.logs import LogsCommand
-    from ceres._internal.cli.subcommands.messages import MessagesCommand
-    from ceres._internal.cli.subcommands.particles import ParticlesCommand
-    from ceres._internal.cli.subcommands.service import ServiceCommand
-    from ceres._internal.cli.subcommands.settings import SettingsCommand
-    from ceres._internal.cli.subcommands.users import UsersCommand
-    from ceres._internal.cli.subcommands.variables import VariablesCommand
 
 
 class BaseMainCommand(BaseSettings, CliCommandGroup):
@@ -326,7 +314,32 @@ class BaseMainCommand(BaseSettings, CliCommandGroup):
 
             return __version__
 
-        return await super().__execute__()
+        try:
+            result = await super().__execute__()
+            if result is not None:
+                if isinstance(result, SelectExecutor | UpdateExecutor | DeleteExecutor):
+                    async with result as values:
+                        async for current in values:
+                            current = jsonify(current)
+                            self.write(current, to="stdout")
+                elif util.is_true_iterable(result):
+                    for current in result:
+                        current = jsonify(current)
+                        self.write(current, to="stdout")
+                else:
+                    result = jsonify(result)
+                    self.write(result, to="stdout")
+
+            return result
+        except Failure as failure:
+            self.write(jsonify(failure.error, indent=2))
+            exit(1)
+        except SettingsError as exception:
+            self.write(exception)
+            exit(1)
+        except (KeyboardInterrupt, CancelledError):
+            self.write("Interrupted. Exiting...")
+            exit(0)
 
     def __init__(self, args: Sequence[str]) -> None:
         super().__init__(
@@ -343,6 +356,19 @@ class MainCliSettingsSource(CliSettingsSource):
     @override
     def __init__(self, settings_cls: type[BaseSettings], args: Sequence[str]) -> None:
         super().__init__(settings_cls, cli_parse_args=list(args))
+
+
+with lazy_imports(__name__):
+    from ceres._internal.cli.subcommands.alerts import AlertsCommand
+    from ceres._internal.cli.subcommands.database import DatabaseCommand
+    from ceres._internal.cli.subcommands.generate import GenerateCommand
+    from ceres._internal.cli.subcommands.logs import LogsCommand
+    from ceres._internal.cli.subcommands.messages import MessagesCommand
+    from ceres._internal.cli.subcommands.particles import ParticlesCommand
+    from ceres._internal.cli.subcommands.service import ServiceCommand
+    from ceres._internal.cli.subcommands.settings import SettingsCommand
+    from ceres._internal.cli.subcommands.users import UsersCommand
+    from ceres._internal.cli.subcommands.variables import VariablesCommand
 
 
 def main(args: Sequence[str] | None = None) -> None:
@@ -380,29 +406,22 @@ def main(args: Sequence[str] | None = None) -> None:
     )
 
     async def run() -> None:
+        color = None
+        if "--color" in args:
+            color = True
+        if "--no-color" in args:
+            color = False
+
         try:
             command = MainCommand(args)
         except ValidationError as exception:
-            _show_validation_error(exception)
+            _show_validation_error(exception, color)
             exit(1)
         except SettingsError as exception:
-            write(exception)
+            write(exception, color=color)
             exit(1)
 
-        try:
-            result = await command.__execute__()
-            if result is not None:
-                result = jsonify(result, indent=2)
-                write(result, to="stdout")
-        except Failure as failure:
-            write(jsonify(failure.error, indent=2))
-            exit(1)
-        except SettingsError as exception:
-            write(exception)
-            exit(1)
-        except KeyboardInterrupt:
-            write("Interrupted by user. Exiting...")
-            exit(0)
+        await command.__execute__()
 
     asyncio.run(run())
 

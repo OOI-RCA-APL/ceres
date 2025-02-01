@@ -36,14 +36,14 @@ with lazy_imports(__name__):
     from ceres.engine import Engine
     from ceres.event import NodeEventManager
     from ceres.item import Item
-    from ceres.logs import NodeLogManager
-    from ceres.message import NodeMessageManager
-    from ceres.particle import NodeParticleManager
+    from ceres.logs import BoundLogManager
+    from ceres.message import BoundMessageManager
+    from ceres.particle import BoundParticleManager
     from ceres.setting import SettingManager
     from ceres.statistics import StatisticsManager
     from ceres.status import Status
     from ceres.user import UserManager
-    from ceres.variable import NodeVariableManager
+    from ceres.variable import BoundVariableManager
 
 
 class InternalVariableName(StrEnum):
@@ -105,12 +105,12 @@ class Node(Tasklet, NodeSource):
     def root(self) -> ComponentSystem | None: ...
 
     @cached_property
-    def messages(self) -> NodeMessageManager:
-        return NodeMessageManager(self)
+    def messages(self) -> BoundMessageManager:
+        return BoundMessageManager(self)
 
     @cached_property
-    def particles(self) -> NodeParticleManager:
-        return NodeParticleManager(self)
+    def particles(self) -> BoundParticleManager:
+        return BoundParticleManager(self)
 
     @cached_property
     def alerts(self) -> BoundAlertManager:
@@ -121,11 +121,11 @@ class Node(Tasklet, NodeSource):
         return self.alerts
 
     @cached_property
-    def logs(self) -> NodeLogManager:
-        return NodeLogManager(self)
+    def logs(self) -> BoundLogManager:
+        return BoundLogManager(self)
 
     @property
-    def log(self) -> NodeLogManager:
+    def log(self) -> BoundLogManager:
         return self.logs
 
     @cached_property
@@ -133,8 +133,8 @@ class Node(Tasklet, NodeSource):
         return UserManager(self)
 
     @cached_property
-    def variables(self) -> NodeVariableManager:
-        return NodeVariableManager(self)
+    def variables(self) -> BoundVariableManager:
+        return BoundVariableManager(self)
 
     @cached_property
     def settings(self) -> SettingManager:

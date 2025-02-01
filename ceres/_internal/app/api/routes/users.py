@@ -23,7 +23,7 @@ router = APIRouter(prefix="/users", tags=["users"])
 
 @router.get("/{id}", dependencies=[VIEWER], response_model=APIUser)
 async def get_user(engine: CurrentEngine, id: UUID) -> User:
-    user = await engine.users.get(id=id)
+    user = await engine.users.get(id)
     if user is None:
         raise Failure(NotFoundError)
 
@@ -39,7 +39,7 @@ async def get_users(
     engine: CurrentEngine,
     filter: Annotated[GetUsersQueryParameters, Query()],
 ) -> list[User]:
-    return await engine.users.get_all(filter)
+    return await engine.users.where(filter)
 
 
 @router.post("", dependencies=[ADMIN], response_model=APIUser, status_code=HTTP_201_CREATED)
@@ -59,7 +59,7 @@ async def update_user(
         if user is None or id != user.id:
             raise Failure(NotPermittedError)
 
-    updated = await engine.users.update(UserFilter(id=id), assign)
+    updated = await engine.users.where(id=id).update(assign).first()
     if updated is None:
         raise Failure(NotFoundError)
 
@@ -68,7 +68,7 @@ async def update_user(
 
 @router.delete("/{id}", dependencies=[ADMIN], response_model=APIUser)
 async def delete_user(engine: CurrentEngine, id: UUID) -> User:
-    deleted = await engine.users.delete(id=id)
+    deleted = await engine.users.where(id=id).delete().first()
     if deleted is None:
         raise Failure(NotFoundError)
 

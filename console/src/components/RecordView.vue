@@ -373,7 +373,7 @@ async function loadPrevious() {
     const results: Record[] = await get({
       ...filter,
       before: earliestRecordTimestamp == null ? filter.before : earliestRecordTimestamp,
-      order: '-timestamp',
+      order: 'timestamp:desc',
       limit: recordLoadSize,
     })
 
@@ -399,7 +399,7 @@ async function loadCurrent() {
   try {
     const results: Record[] = await get({
       ...filter,
-      order: '-timestamp',
+      order: 'timestamp:desc',
       limit: recordLoadSizeInitial,
     })
 

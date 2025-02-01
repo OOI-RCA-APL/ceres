@@ -13,21 +13,36 @@ from typing import (
     Any,
     Literal,
     Mapping,
+    Self,
     Sequence,
     TypeAlias,
+    TypedDict,
     TypeVar,
-    Unpack,
     overload,
     override,
 )
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError, create_model
-from pydantic_settings import CliImplicitFlag, CliSubCommand, SettingsError, get_subcommand
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    TypeAdapter,
+    ValidationError,
+    create_model,
+    model_validator,
+)
+from pydantic_settings import (
+    CliImplicitFlag,
+    CliSubCommand,
+    NoDecode,
+    SettingsError,
+    get_subcommand,
+)
 
 from ceres._internal import util
 from ceres._internal.lazy import lazy_imports
 from ceres._internal.project import LoadedProject, Project
-from ceres.data import DataObject, DeferBuild, FromYaml, NonEmpty, SerializeKwargs, jsonify
+from ceres.data import DataObject, DeferBuild, FromYaml, NonEmpty, jsonify
 from ceres.result import Ok
 
 with lazy_imports(__name__):
@@ -153,29 +168,7 @@ def write(
     )
 
 
-def write_json(
-    value: Any,
-    *,
-    sep: str = " ",
-    end: str = "\n",
-    file: IO[str] | None = None,
-    flush: bool = False,
-    to: Literal["stdout", "stderr"] = "stderr",
-    color: bool | None = None,
-    **kwargs: Unpack[SerializeKwargs],
-):
-    if "indent" not in kwargs:
-        kwargs["indent"] = 2
-
-    write(
-        jsonify(value, **kwargs),
-        sep=sep,
-        end=end,
-        file=file,
-        flush=flush,
-        to=to,
-        color=color,
-    )
+_write = write
 
 
 @contextmanager
@@ -201,9 +194,10 @@ def __validate_non_empty(value: Any) -> Any:
 
 Confirm = Annotated[CliImplicitFlag[bool], Field(description="Ask before executing.")]
 
-_TFields = TypeVar("_TFields", bound=Mapping[Any, Any])
+_TFields = TypeVar("_TFields", bound=Mapping[str, Any])
 Assign: TypeAlias = Annotated[
     NonEmpty[FromYaml[_TFields]],
+    NoDecode,
     Field(description="Field(s) to assign, passed as a non-empty JSON or YAML object."),
 ]
 
@@ -229,6 +223,20 @@ class CliCommand(DataObject, DeferBuild):
     """
     Explicit path to a ceres configuration file.
     """
+
+    color: bool | None = None
+    """Enable or disable colorized output."""
+
+    @model_validator(mode="after")
+    def _globals(self) -> Self:
+        subcommands = self.get_subcommands()
+        for command in subcommands:
+            if self.color is None and command.color is not None:
+                self.color = command.color
+            if self.config_path is None and command.config_path is not None:
+                self.config_path = command.config_path
+
+        return self
 
     async def __execute__(self) -> Any:
         return await self.__run__()
@@ -305,6 +313,21 @@ class CliCommand(DataObject, DeferBuild):
         project = await self.use_loaded_project()
         return Client(project)
 
+    def write(
+        self,
+        *args: object,
+        sep: str = " ",
+        end: str = "\n",
+        file: IO[str] | None = None,
+        flush: bool = False,
+        to: Literal["stdout", "stderr"] = "stderr",
+        color: bool | None = None,
+    ):
+        if color is None:
+            color = self.color
+
+        _write(*args, sep=sep, end=end, file=file, flush=flush, to=to, color=color)
+
     @asynccontextmanager
     async def use_database(
         self,
@@ -339,6 +362,16 @@ class CliCommand(DataObject, DeferBuild):
 
     def read[T: BaseModel](self, model: type[T]) -> T:
         return model.model_validate(self.model_dump(include=set(model.model_fields)))
+
+    def get_subcommands(self, output: list[CliCommand] | None = None) -> list[CliCommand]:
+        if output is None:
+            output = []
+
+        for value in util.dictify(self).values():
+            if isinstance(value, CliCommand):
+                output.append(value)
+
+        return output
 
 
 class CliCommandGroup(CliCommand):
@@ -375,38 +408,21 @@ class CliCommandFailed(SettingsError):
 _T = TypeVar("_T")
 
 
-def create_entity_get_command(Entity: type[BaseEntity]):
-    singular = util.get_entity_singular(Entity)
-
-    class GetCommand(CliCommand, Entity.Filter):
-        f"""
-        Retrieve one {singular}.
-        """
-
-        @override
-        async def __run__(self):
-            filter = self.read(Entity.Filter)
-            async with self.use_database() as database:
-                return await util.get_entity_manager(database, Entity).get(filter)
-
-    return GetCommand
-
-
-def create_entity_get_all_command(Entity: type[BaseEntity]):
+def create_entity_select_command(Entity: type[BaseEntity]):
     plural = util.get_entity_plural(Entity)
 
-    class GetAllCommand(CliCommand, Entity.Filter):
+    class SelectCommand(CliCommand, Entity.Filter):
         f"""
-        Retrieve multiple {plural}.
+        Retrieve {plural}.
         """
 
         @override
         async def __run__(self):
             filter = self.read(Entity.Filter)
             async with self.use_database() as database:
-                return await util.get_entity_manager(database, Entity).get_all(filter)
+                return util.get_entity_manager(database, Entity).where(filter).select()
 
-    return GetAllCommand
+    return SelectCommand
 
 
 def create_entity_count_command(Entity: type[BaseEntity]):
@@ -421,7 +437,7 @@ def create_entity_count_command(Entity: type[BaseEntity]):
         async def __run__(self):
             filter = self.read(Entity.Filter)
             async with self.use_database() as database:
-                return await util.get_entity_manager(database, Entity).count(filter)
+                return await util.get_entity_manager(database, Entity).where(filter).count()
 
     return CountCommand
 
@@ -443,76 +459,47 @@ def create_entity_create_command(Entity: type[BaseEntity]):
     return CreateCommand
 
 
+class Dicto(TypedDict):
+    ortho: int
+
+
 def create_entity_update_command(Entity: type[BaseEntity]):
-    singular = util.get_entity_singular(Entity)
+    plural = util.get_entity_plural(Entity)
 
     class UpdateCommand(CliCommand, Entity.Filter):
         f"""
-        Update one {singular}. Return if found.
+        Update {plural}. Return the number updated.
         """
 
         assign: Assign[Entity.Update]  # type: ignore
+        confirm: Confirm = True
+        collect: bool = False
 
         @override
         async def __run__(self):
-            filter = self.read(Entity.Filter)
             async with self.use_database() as database:
-                return await util.get_entity_manager(database, Entity).update(filter, self.assign)
+                filter = self.read(Entity.Filter)
+                manager = util.get_entity_manager(database, Entity)
+                if self.confirm:
+                    count = await manager.where(filter).count()
+                    get_confirmation(f"Update {count} {plural}?", abort=True)
+
+                result = manager.where(filter).update(self.assign)
+                return result if self.collect else await result
 
     return UpdateCommand
 
 
-def create_entity_update_all_command(Entity: type[BaseEntity]):
-    plural = util.get_entity_plural(Entity)
-
-    class UpdateAllCommand(CliCommand, Entity.Filter):
-        f"""
-        Update multiple {plural}. Return the number updated.
-        """
-
-        assign: Assign[Entity.Update]  # type: ignore
-        confirm: Confirm = True
-
-        @override
-        async def __run__(self):
-            async with self.use_database() as database:
-                filter = self.read(Entity.Filter)
-                manager = util.get_entity_manager(database, Entity)
-                if self.confirm:
-                    count = await manager.count(filter)
-                    get_confirmation(f"Update {count} particles?", abort=True)
-
-                return await manager.update_all(filter, self.assign)
-
-    return UpdateAllCommand
-
-
 def create_entity_delete_command(Entity: type[BaseEntity]):
-    singular = util.get_entity_singular(Entity)
+    plural = util.get_entity_plural(Entity)
 
     class DeleteCommand(CliCommand, Entity.Filter):
         f"""
-        Delete one {singular}. Return if found.
-        """
-
-        @override
-        async def __run__(self):
-            filter = self.read(Entity.Filter)
-            async with self.use_database() as database:
-                return await util.get_entity_manager(database, Entity).delete(filter)
-
-    return DeleteCommand
-
-
-def create_entity_delete_all_command(Entity: type[BaseEntity]):
-    plural = util.get_entity_plural(Entity)
-
-    class DeleteAllCommand(CliCommand, Entity.Filter):
-        f"""
-        Delete multiple {plural}. Return the number deleted.
+        Delete {plural}. Return the number deleted.
         """
 
         confirm: Confirm = True
+        collect: bool = False
 
         @override
         async def __run__(self):
@@ -520,12 +507,13 @@ def create_entity_delete_all_command(Entity: type[BaseEntity]):
                 filter = self.read(Entity.Filter)
                 manager = util.get_entity_manager(database, Entity)
                 if self.confirm:
-                    count = await manager.count(filter)
-                    get_confirmation(f"Delete {count} particles?", abort=True)
+                    count = await manager.where(filter).count()
+                    get_confirmation(f"Delete {count} {plural}?", abort=True)
 
-                return await manager.delete_all(filter)
+                result = manager.where(filter).delete()
+                return result if self.collect else await result
 
-    return DeleteAllCommand
+    return DeleteCommand
 
 
 EntitySubCommandMapping = Mapping[str, type[CliCommand]]
@@ -536,22 +524,16 @@ def create_entity_command(
     overrides: EntitySubCommandMapping | None = None,
 ) -> type[CliCommandGroup]:
     mapping = dict(overrides or {})
-    if "get" not in mapping:
-        mapping["get"] = create_entity_get_command(Entity)
-    if "get_all" not in mapping:
-        mapping["get_all"] = create_entity_get_all_command(Entity)
+    if "select" not in mapping:
+        mapping["select"] = create_entity_select_command(Entity)
     if "count" not in mapping:
         mapping["count"] = create_entity_count_command(Entity)
     if "create" not in mapping:
         mapping["create"] = create_entity_create_command(Entity)
     if "update" not in mapping:
         mapping["update"] = create_entity_update_command(Entity)
-    if "update_all" not in mapping:
-        mapping["update_all"] = create_entity_update_all_command(Entity)
     if "delete" not in mapping:
         mapping["delete"] = create_entity_delete_command(Entity)
-    if "delete_all" not in mapping:
-        mapping["delete_all"] = create_entity_delete_all_command(Entity)
 
     fields: Any = {key: (CliSubCommand[value], ...) for key, value in mapping.items()}
     plural = util.get_entity_plural(Entity)

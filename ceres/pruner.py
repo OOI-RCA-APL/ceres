@@ -134,7 +134,7 @@ class ComponentPrunerManager(BaseComponentManager):
                 manager = self.__system__.log
 
         try:
-            deleted = await manager.delete_all(
+            deleted = await manager.delete(
                 filter=pruner.filter,  # type: ignore
             )
 

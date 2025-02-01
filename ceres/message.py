@@ -5,7 +5,6 @@ from typing import (
     TYPE_CHECKING,
     Annotated,
     Any,
-    AsyncIterable,
     ClassVar,
     Iterable,
     Literal,
@@ -13,6 +12,7 @@ from typing import (
     Unpack,
     override,
 )
+from uuid import UUID
 
 from pydantic import BeforeValidator, PlainSerializer
 from sqlalchemy import LargeBinary, SQLColumnExpression, func
@@ -21,7 +21,7 @@ from sqlalchemy.schema import Index, SchemaItem
 
 from ceres._internal import util
 from ceres._internal.database.types import EnumConstraint, EnumMapper
-from ceres._internal.entity import BaseEntityManager
+from ceres._internal.entity import BaseEntityManager, BaseEntityQuery, EntityQuery
 from ceres._internal.manager import BaseNodeManager
 from ceres._internal.protocols import DatabaseSource, NodeSource
 from ceres._internal.record import (
@@ -34,6 +34,7 @@ from ceres._internal.record import (
     BaseRecordRow,
     BaseRecordUpdate,
 )
+from ceres._internal.util import MatchMode
 from ceres.data import MaybeSequence, StrEnum
 from ceres.database import DatabaseType
 from ceres.stream import Stream
@@ -96,23 +97,28 @@ MessageOrder: TypeAlias = (
     BaseRecordOrder
     | Literal[
         "direction",
-        "-direction",
+        "direction:asc",
+        "direction:desc",
         "content",
-        "-content",
+        "content:asc",
+        "content:desc",
     ]
 )
 
 
 class MessageFilterArgs(BaseRecordFilterArgs[MessageField, MessageOrder], total=False):
-    direction: MessageDirection | None
+    direction: MaybeSequence[MessageDirection] | None
+    content: MaybeSequence[MessageContent] | None
     content_contains: MaybeSequence[MessageContent] | None
     content_prefix: MaybeSequence[MessageContent] | None
     content_suffix: MaybeSequence[MessageContent] | None
 
 
 class MessageFilter(BaseRecordFilter["Message", MessageField, MessageOrder]):
-    direction: MessageDirection | None = None
+    direction: MaybeSequence[MessageDirection] | None = None
     """Filter by `direction`."""
+    content: MaybeSequence[MessageContent] | None = None
+    """Filter by `content` being equal to one or more given byte sequences."""
     content_contains: MaybeSequence[MessageContent] | None = None
     """Filter by `content` containing one or more given byte substrings."""
     content_prefix: MaybeSequence[MessageContent] | None = None
@@ -126,24 +132,16 @@ class MessageFilter(BaseRecordFilter["Message", MessageField, MessageOrder]):
         if not super().matches(obj, now=now):
             return False
 
-        if self.direction is not None:
-            if obj.direction not in util.as_sequence(self.direction):
-                return False
-        if self.content_contains is not None:
-            if not any(
-                substring in obj.content for substring in util.as_sequence(self.content_contains)
-            ):
-                return False
-        if self.content_prefix is not None:
-            if not any(
-                obj.content.startswith(prefix) for prefix in util.as_sequence(self.content_prefix)
-            ):
-                return False
-        if self.content_suffix is not None:
-            if not any(
-                obj.content.endswith(suffix) for suffix in util.as_sequence(self.content_suffix)
-            ):
-                return False
+        if not util.match_value(obj.direction, self.direction):
+            return False
+        if not util.match_value(obj.content, self.content):
+            return False
+        if not util.match_string(obj.content, self.content_contains, MatchMode.CONTAINS):
+            return False
+        if not util.match_string(obj.content, self.content_prefix, MatchMode.PREFIX):
+            return False
+        if not util.match_string(obj.content, self.content_suffix, MatchMode.SUFFIX):
+            return False
 
         return True
 
@@ -164,22 +162,15 @@ class MessageFilter(BaseRecordFilter["Message", MessageField, MessageOrder]):
         columns = self._get_row_cls()
 
         if self.direction is not None:
-            yield columns.direction == self.direction
+            yield util.sql_match_value(columns.direction, self.direction)
+        if self.content is not None:
+            yield util.sql_match_value(columns.content, self.content)
         if self.content_contains is not None:
-            yield util.sqlorf(
-                columns.content.like(b"%" + _escape_bytes_like_expression(substring) + b"%")
-                for substring in util.as_sequence(self.content_contains)
-            )
+            yield util.sql_match_string(columns.content, self.content_contains, MatchMode.CONTAINS)
         if self.content_prefix is not None:
-            yield util.sqlorf(
-                columns.content.like(_escape_bytes_like_expression(prefix) + b"%")
-                for prefix in util.as_sequence(self.content_prefix)
-            )
+            yield util.sql_match_string(columns.content, self.content_prefix, MatchMode.PREFIX)
         if self.content_suffix is not None:
-            yield util.sqlorf(
-                columns.content.like(b"%" + _escape_bytes_like_expression(suffix))
-                for suffix in util.as_sequence(self.content_suffix)
-            )
+            yield util.sql_match_string(columns.content, self.content_suffix, MatchMode.SUFFIX)
 
 
 def _escape_bytes_like_expression(text: bytes) -> bytes:
@@ -196,68 +187,57 @@ class MessageUpdate(BaseRecordUpdate, total=False):
     content: MessageContent
 
 
-class Message(BaseRecord, MessageCreate):
-    Row: ClassVar[type[MessageRow]] = MessageRow
-    Create: ClassVar[type[MessageCreate]] = MessageCreate
-    Update: ClassVar[type[MessageUpdate]] = MessageUpdate
-    Filter: ClassVar[type[MessageFilter]] = MessageFilter
-    FilterArgs: ClassVar[type[MessageFilterArgs]] = MessageFilterArgs
-    Field = MessageField
-    Order = MessageOrder
-    Direction: ClassVar[type[MessageDirection]] = MessageDirection
+class _BaseMessageQuery(
+    BaseEntityQuery[
+        "Message",
+        MessageFilter,
+        MessageUpdate,
+        "MessageQuery",
+    ]
+):
+    @override
+    def _get_query_class(self) -> type[MessageQuery]:
+        return MessageQuery
+
+    @override
+    def where(
+        self,
+        filter: MessageFilter | None = None,
+        **kwargs: Unpack[MessageFilterArgs],
+    ) -> MessageQuery:
+        return super().where(filter, **kwargs)
+
+
+class MessageQuery(
+    EntityQuery[
+        "Message",
+        MessageFilter,
+        MessageUpdate,
+    ],
+    _BaseMessageQuery,
+):
+    pass
 
 
 class MessageManager(
     BaseEntityManager[
-        Message,
-        Message.Row,
-        Message.Create,
-        Message.Update,
-        Message.Filter,
-        Message.FilterArgs,
-    ]
+        "Message",
+        MessageRow,
+        MessageCreate,
+        MessageUpdate,
+        MessageFilter,
+        MessageFilterArgs,
+    ],
+    _BaseMessageQuery,
 ):
     def __init__(self, source: DatabaseSource, /) -> None:
         super().__init__(source, Message)
 
-    if TYPE_CHECKING:
-        # See: https://github.com/python/typing/issues/1399
-        _E = Message
-        _F = Message.Filter
-        _FA = Message.FilterArgs
-
-        @override
-        async def get_all(  # pyright: ignore[reportIncompatibleMethodOverride]
-            self, filter: _F | None = None, **kwargs: Unpack[_FA]
-        ) -> list[_E]: ...
-
-        @override
-        async def get(  # pyright: ignore[reportIncompatibleMethodOverride]
-            self, filter: _F | None = None, **kwargs: Unpack[_FA]
-        ) -> _E | None: ...
-
-        @override
-        def select(  # pyright: ignore[reportIncompatibleMethodOverride]
-            self, filter: _F | None = None, **kwargs: Unpack[_FA]
-        ) -> AsyncIterable[_E]: ...
-
-        @override
-        async def delete_all(  # pyright: ignore[reportIncompatibleMethodOverride]
-            self, filter: _F | None = None, **kwargs: Unpack[_FA]
-        ) -> int: ...
-
-        @override
-        async def delete(  # pyright: ignore[reportIncompatibleMethodOverride]
-            self, filter: _F | None = None, **kwargs: Unpack[_FA]
-        ) -> _E | None: ...
-
-        @override
-        async def count(  # pyright: ignore[reportIncompatibleMethodOverride]
-            self, filter: _F | None = None, **kwargs: Unpack[_FA]
-        ) -> int: ...
+    async def get(self, id: UUID, /) -> Message | None:
+        return await self.where(id=id).first()
 
 
-class NodeMessageManager(MessageManager, BaseNodeManager):
+class BoundMessageManager(MessageManager, BaseNodeManager):
     def __init__(self, source: NodeSource, /) -> None:
         super().__init__(source)
 
@@ -268,14 +248,23 @@ class NodeMessageManager(MessageManager, BaseNodeManager):
     ) -> Stream[Message]:
         from ceres.event import MessageEvent, MessageReceivedEvent
 
-        filter = self._apply_filter_defaults(filter, kwargs)
-
-        if TYPE_CHECKING:
-            util.blackhole(MessageEvent)
-
+        resolved = self._get_resolved_filter_args(filter, kwargs)
         return (
             self.__node__.events.follow()
             .every(MessageEvent if not TYPE_CHECKING else MessageReceivedEvent)
             .map(lambda event: event.message)
-            .filter(filter.matches)
+            .filter(resolved.matches)
         )
+
+
+class Message(BaseRecord, MessageCreate):
+    Manager: ClassVar[type[MessageManager]] = MessageManager
+    BoundManager: ClassVar[type[BoundMessageManager]] = BoundMessageManager
+    Row: ClassVar[type[MessageRow]] = MessageRow
+    Create: ClassVar[type[MessageCreate]] = MessageCreate
+    Update: ClassVar[type[MessageUpdate]] = MessageUpdate
+    Filter: ClassVar[type[MessageFilter]] = MessageFilter
+    FilterArgs: ClassVar[type[MessageFilterArgs]] = MessageFilterArgs
+    Field = MessageField
+    Order = MessageOrder
+    Direction: ClassVar[type[MessageDirection]] = MessageDirection

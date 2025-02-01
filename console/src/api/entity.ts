@@ -40,7 +40,7 @@ export const RecordModel = UUIDEntityModel.merge(ItemModel).extend({
 })
 
 export type RecordOrder = Zod.infer<typeof RecordOrderModel>
-export const RecordOrderModel = Zod.enum(['timestamp', '-timestamp'])
+export const RecordOrderModel = Zod.enum(['timestamp', 'timestamp:asc', 'timestamp:desc'])
 
 export type RecordFilter = Zod.infer<typeof RecordFilterModel>
 export const RecordFilterModel = UUIDEntityFilterModel.merge(ItemFilterModel).extend({

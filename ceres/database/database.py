@@ -135,10 +135,6 @@ class Database:
     def logs(self) -> LogManager:
         return LogManager(self)
 
-    @property
-    def log(self) -> LogManager:
-        return self.logs
-
     @cached_property
     def users(self) -> UserManager:
         return UserManager(self)
@@ -268,7 +264,10 @@ class Database:
                 await connection.commit()
 
     async def initialized(self) -> bool:
-        return await self.__run_sync(lambda connection: bool(inspect(connection).get_table_names()))
+        with util.wrap_database_errors():
+            return await self.__run_sync(
+                lambda connection: bool(inspect(connection).get_table_names())
+            )
 
     #
     # Users
@@ -385,10 +384,6 @@ class SQLiteDatabase(Database):  #
         # https://docs.sqlalchemy.org/en/20/core/events.html#sqlalchemy.events.PoolEvents.connect
         @event.listens_for(engine.sync_engine, "connect")
         def connect(connection: _SQLiteConnection, *args: object) -> None:
-            # Enable a 30 second busy timeout.
-            connection.execute("PRAGMA busy_timeout = 30000")
-            # Set like statements to be case sensitive to match Postgres.
-            connection.execute("PRAGMA case_sensitive_like = ON")
             # Clear the isolation level to stop "pysqlite" from:
             #   1. Automatically emitting "BEGIN"
             #   2. Automatically emitting "COMMIT" before any DDL
@@ -397,6 +392,10 @@ class SQLiteDatabase(Database):  #
             # Enable foreign key handling by default.
             # https://docs.sqlalchemy.org/en/latest/dialects/sqlite.html#foreign-key-support
             connection.execute("PRAGMA foreign_keys = ON")
+            # Set like statements to be case sensitive to match Postgres.
+            connection.execute("PRAGMA case_sensitive_like = ON")
+            # Enable a 30 second busy timeout.
+            connection.execute("PRAGMA busy_timeout = 30000")
 
             _sqlite_create_functions(connection)
 

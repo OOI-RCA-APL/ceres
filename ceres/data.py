@@ -34,7 +34,6 @@ from pydantic import (
     Field,
     StringConstraints,
 )
-from pydantic import EmailStr as _BaseEmailStr
 from pydantic.fields import FieldInfo
 from pydantic.functional_serializers import PlainSerializer
 from pydantic.main import IncEx
@@ -372,7 +371,18 @@ PasswordStr: TypeAlias = Annotated[
     AfterValidator(__validate_password_str),
 ]
 
-EmailStr: TypeAlias = _BaseEmailStr
+
+def __validate_email_str(value: str) -> str:
+    from email_validator import validate_email
+
+    validated = validate_email(value)
+    return validated.normalized.lower()
+
+
+EmailStr: TypeAlias = Annotated[
+    str,
+    AfterValidator(__validate_email_str),
+]
 
 __BCRYPT_HASH_PATTERN = r"^\$2[ayb]\$.{56}$"
 

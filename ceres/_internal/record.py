@@ -31,7 +31,7 @@ from ceres._internal.item import (
     BaseItemRow,
     BaseItemUpdate,
 )
-from ceres.data import DateTime, MaybeSequence, PositiveTimeDelta
+from ceres.data import DateTime, MaybeSequence, NonNegativeTimeDelta, PositiveTimeDelta
 from ceres.database import DatabaseType
 from ceres.timing import utc
 
@@ -56,7 +56,8 @@ BaseRecordOrder: TypeAlias = (
     | BaseItemOrder
     | Literal[
         "timestamp",
-        "-timestamp",
+        "timestamp:asc",
+        "timestamp:desc",
     ]
 )
 
@@ -72,9 +73,9 @@ class BaseRecordFilterArgs[
     timestamp: MaybeSequence[DateTime] | None
     before: DateTime | None
     after: DateTime | None
-    timespan: PositiveTimeDelta | None
-    max_age: PositiveTimeDelta | None
-    min_age: PositiveTimeDelta | None
+    timespan: NonNegativeTimeDelta | None
+    max_age: NonNegativeTimeDelta | None
+    min_age: NonNegativeTimeDelta | None
     after_hour: NonNegativeInt | None
     before_hour: NonNegativeInt | None
     after_minute: NonNegativeInt | None
@@ -103,13 +104,13 @@ class BaseRecordFilter[
     time.
     """
 
-    min_age: PositiveTimeDelta | None = None
+    min_age: NonNegativeTimeDelta | None = None
     """
     Filter by the age of `timestamp`, relative to the current time, being greater than or equal to a
     given threshold.
     """
 
-    max_age: PositiveTimeDelta | None = None
+    max_age: NonNegativeTimeDelta | None = None
     """
     Filter by the age of `timestamp`, relative to the current time, being less than a given
     threshold.
@@ -148,10 +149,10 @@ class BaseRecordFilter[
                 if obj.timestamp < ((self.before or now) - self.timespan):
                     return False
         if self.max_age is not None:
-            if obj.timestamp < now - self.max_age:
+            if obj.timestamp <= now - self.max_age:
                 return False
         if self.min_age is not None:
-            if obj.timestamp >= now - self.min_age:
+            if obj.timestamp > now - self.min_age:
                 return False
 
         if self.after_hour is not None or self.before_hour is not None:
@@ -196,7 +197,7 @@ class BaseRecordFilter[
         columns = self._get_row_cls()
 
         if self.timestamp is not None:
-            yield columns.timestamp.in_(util.as_sequence(self.timestamp))
+            yield util.sql_match_value(columns.timestamp, self.timestamp)
         if self.after is not None:
             yield columns.timestamp >= self.after
         if self.before is not None:
@@ -209,9 +210,9 @@ class BaseRecordFilter[
             else:
                 yield columns.timestamp >= (self.before or now) - self.timespan
         if self.max_age is not None:
-            yield columns.timestamp >= now - self.max_age
+            yield columns.timestamp > now - self.max_age
         if self.min_age is not None:
-            yield columns.timestamp < now - self.min_age
+            yield columns.timestamp <= now - self.min_age
 
         if self.after_hour is not None or self.before_hour is not None:
             min_hour = self.after_hour if self.after_hour is not None else 0

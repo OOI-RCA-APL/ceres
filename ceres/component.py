@@ -132,7 +132,7 @@ class ComponentFilter(BaseFilter):
 
 
 if TYPE_CHECKING:
-    _Container: TypeAlias = "ComponentSystem | Engine | None"
+    _Container: TypeAlias = "Component | ComponentSystem | Engine | None"
 else:
     _Container = object
 
@@ -146,7 +146,7 @@ class Component(ValidatedDataclass, ComponentSource):
         self,
         __with_name__: Name | None = None,
         __with_config__: ComponentConfig | None = None,
-        __with_container__: ComponentSystem | Engine | None = None,
+        __with_container__: Component | ComponentSystem | Engine | None = None,
     ) -> None:
         self.__system = ComponentSystem(
             self,
@@ -722,12 +722,14 @@ class ComponentSystem(Node, ComponentSource):
         *,
         __with_config__: ComponentConfig | None = None,
         __with_name__: Name | None = None,
-        __with_container__: ComponentSystem | Engine | None = None,
+        __with_container__: Component | ComponentSystem | Engine | None = None,
     ) -> None:
         super().__init__()
 
         if __with_name__ is None:
             __with_name__ = util.randstr(ascii_lowercase, 8)
+        if isinstance(__with_container__, Component):
+            __with_container__ = __with_container__.system
 
         self.__name = __with_name__
         self.__config: ComponentConfig | None = __with_config__

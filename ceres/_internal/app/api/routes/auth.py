@@ -24,7 +24,7 @@ from ceres.error import (
     NotAuthenticatedError,
     NotFoundError,
 )
-from ceres.user import User, UserFilter
+from ceres.user import User
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -51,7 +51,7 @@ async def login(
     if authentication is None:
         raise Failure(AuthenticationDisabledError)
 
-    user = await engine.users.get(username=input.username)
+    user = await engine.users.where(username=input.username).first()
     if user is None or not await engine.verify_password(input.password, user.password):
         await asyncio.sleep(WRONG_PASSWORD_DELAY_SECONDS)
         raise Failure(BadCredentialsError)
@@ -132,7 +132,7 @@ async def change_password(
         await asyncio.sleep(WRONG_PASSWORD_DELAY_SECONDS)
         raise Failure(BadCredentialsError)
 
-    changed = await engine.users.update(UserFilter(id=user.id), {"password": input.new_password})
+    changed = await engine.users.where(id=user.id).update({"password": input.new_password}).first()
     if changed is None:
         raise Failure(NotFoundError)
 

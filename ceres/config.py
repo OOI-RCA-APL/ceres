@@ -18,7 +18,6 @@ from typing import (
     override,
 )
 
-from annotated_types import Ge, Le
 from argon2.profiles import RFC_9106_LOW_MEMORY
 from pydantic import (
     BaseModel,
@@ -489,16 +488,16 @@ class __BaseHashingConfig(__BaseConfigObject):
 
 class BCryptHashingConfig(__BaseHashingConfig):
     type: Literal[HashType.BCRYPT] = HashType.BCRYPT
-    rounds: PositiveInt = 12
+    rounds: int = Field(default=12, ge=4)
 
 
 class Argon2HashingConfig(__BaseHashingConfig):
     type: Literal[HashType.ARGON2] = HashType.ARGON2
     time_cost: PositiveInt = RFC_9106_LOW_MEMORY.time_cost  # 3
-    memory_cost: Annotated[int, Ge(8)] = RFC_9106_LOW_MEMORY.memory_cost  # 65536 KiB
+    memory_cost: int = Field(default=RFC_9106_LOW_MEMORY.memory_cost, ge=8)  # 65536 KiB
     parallelism: PositiveInt = RFC_9106_LOW_MEMORY.parallelism  # 4
-    hash_length: Annotated[int, Ge(4), Le(256)] = 32  # True allowed range is 4-32768.
-    salt_length: Annotated[int, Ge(8), Le(64)] = 16  # True allowed range is 8-4096.
+    hash_length: int = Field(default=32, ge=4, le=256)  # True allowed range is 4-32768.
+    salt_length: int = Field(default=16, ge=8, le=64)  # True allowed range is 8-4096.
 
     @field_validator("parallelism")
     def _validate_memory_cost(cls, value: int, info: ValidationInfo) -> int:

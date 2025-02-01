@@ -2,9 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import (
-    TYPE_CHECKING,
     Any,
-    AsyncIterable,
     ClassVar,
     Iterable,
     Literal,
@@ -13,6 +11,7 @@ from typing import (
     Unpack,
     override,
 )
+from uuid import UUID
 
 from pydantic import Field
 from sqlalchemy import JSON, SQLColumnExpression, Text, cast
@@ -21,7 +20,11 @@ from sqlalchemy.schema import Index, SchemaItem
 
 from ceres._internal import util
 from ceres._internal.database.types import EnumConstraint, EnumMapper
-from ceres._internal.entity import BaseEntityManager
+from ceres._internal.entity import (
+    BaseEntityManager,
+    BaseEntityQuery,
+    EntityQuery,
+)
 from ceres._internal.manager import BaseNodeManager
 from ceres._internal.protocols import DatabaseSource, NodeSource
 from ceres._internal.record import (
@@ -33,6 +36,7 @@ from ceres._internal.record import (
     BaseRecordOrder,
     BaseRecordRow,
 )
+from ceres._internal.util import MatchMode
 from ceres.address import Address
 from ceres.data import DateTime, FromYaml, JSONSerializableDict, MaybeSequence, jsonify
 from ceres.database import DatabaseType
@@ -79,9 +83,11 @@ AlertOrder: TypeAlias = (
     BaseRecordOrder
     | Literal[
         "level",
-        "-level",
+        "level:asc",
+        "level:desc",
         "type",
-        "-type",
+        "type:asc",
+        "type:desc",
     ]
 )
 
@@ -121,26 +127,17 @@ class AlertFilter(BaseRecordFilter["Alert", AlertField, AlertOrder]):
         if not super().matches(obj, now=now):
             return False
 
-        if self.level is not None:
-            if obj.level not in util.as_sequence(self.level):
-                return False
+        if not util.match_value(obj.level, self.level):
+            return False
 
-        if self.type is not None:
-            if obj.type not in util.as_sequence(self.type):
-                return False
-        if self.type_contains is not None:
-            if not any(substring in obj.type for substring in util.as_sequence(self.type_contains)):
-                return False
-        if self.type_prefix is not None:
-            if not any(
-                obj.type.startswith(prefix) for prefix in util.as_sequence(self.type_prefix)
-            ):
-                return False
-        if self.type_suffix is not None:
-            if not any(
-                obj.type.startswith(suffix) for suffix in util.as_sequence(self.type_suffix)
-            ):
-                return False
+        if not util.match_value(obj.type, self.type):
+            return False
+        if not util.match_string(obj.type, self.type_contains, MatchMode.CONTAINS):
+            return False
+        if not util.match_string(obj.type, self.type_prefix, MatchMode.PREFIX):
+            return False
+        if not util.match_string(obj.type, self.type_suffix, MatchMode.SUFFIX):
+            return False
 
         if (
             self.data_contains is not None
@@ -148,21 +145,12 @@ class AlertFilter(BaseRecordFilter["Alert", AlertField, AlertOrder]):
             or self.data_suffix is not None
         ):
             data_json = jsonify(obj.data)
-            if self.data_contains is not None:
-                if not any(
-                    substring in data_json for substring in util.as_sequence(self.data_contains)
-                ):
-                    return False
-            if self.data_prefix is not None:
-                if not any(
-                    data_json.startswith(prefix) for prefix in util.as_sequence(self.data_prefix)
-                ):
-                    return False
-            if self.data_suffix is not None:
-                if not any(
-                    data_json.startswith(suffix) for suffix in util.as_sequence(self.data_suffix)
-                ):
-                    return False
+            if not util.match_string(data_json, self.data_contains, MatchMode.CONTAINS):
+                return False
+            if not util.match_string(data_json, self.data_prefix, MatchMode.PREFIX):
+                return False
+            if not util.match_string(data_json, self.data_suffix, MatchMode.SUFFIX):
+                return False
 
         return True
 
@@ -183,37 +171,28 @@ class AlertFilter(BaseRecordFilter["Alert", AlertField, AlertOrder]):
         columns = self._get_row_cls()
 
         if self.level is not None:
-            yield columns.level.in_(util.as_sequence(self.level))
+            yield util.sql_match_value(columns.level, self.level)
 
         if self.type is not None:
-            yield columns.type.in_(util.as_sequence(self.type))
+            yield util.sql_match_string(columns.type, self.type, MatchMode.EQUALS)
         if self.type_contains is not None:
-            yield util.sqlorf(
-                columns.type.contains(type) for type in util.as_sequence(self.type_contains)
-            )
+            yield util.sql_match_string(columns.type, self.type_contains, MatchMode.CONTAINS)
         if self.type_prefix is not None:
-            yield util.sqlorf(
-                columns.type.startswith(prefix) for prefix in util.as_sequence(self.type_prefix)
-            )
+            yield util.sql_match_string(columns.type, self.type_prefix, MatchMode.PREFIX)
         if self.type_suffix is not None:
-            yield util.sqlorf(
-                columns.type.endswith(suffix) for suffix in util.as_sequence(self.type_suffix)
-            )
+            yield util.sql_match_string(columns.type, self.type_suffix, MatchMode.SUFFIX)
 
         if self.data_contains is not None:
-            yield util.sqlorf(
-                cast(columns.data, Text).contains(substring)
-                for substring in util.as_sequence(self.data_contains)
+            yield util.sql_match_string(
+                cast(columns.data, Text), self.data_contains, MatchMode.CONTAINS
             )
         if self.data_prefix is not None:
-            yield util.sqlorf(
-                cast(columns.data, Text).startswith(prefix)
-                for prefix in util.as_sequence(self.data_prefix)
+            yield util.sql_match_string(
+                cast(columns.data, Text), self.data_prefix, MatchMode.PREFIX
             )
         if self.data_suffix is not None:
-            yield util.sqlorf(
-                cast(columns.data, Text).endswith(suffix)
-                for suffix in util.as_sequence(self.data_suffix)
+            yield util.sql_match_string(
+                cast(columns.data, Text), self.data_suffix, MatchMode.SUFFIX
             )
 
 
@@ -231,64 +210,54 @@ class AlertUpdate(TypedDict, total=False):
     data: FromYaml[JSONSerializableDict]
 
 
-class Alert(BaseRecord, AlertCreate):
-    Row: ClassVar[type[AlertRow]] = AlertRow
-    Create: ClassVar[type[AlertCreate]] = AlertCreate
-    Update: ClassVar[type[AlertUpdate]] = AlertUpdate
-    Filter: ClassVar[type[AlertFilter]] = AlertFilter
-    FilterArgs: ClassVar[type[AlertFilterArgs]] = AlertFilterArgs
-    Field = AlertField
-    Order = AlertOrder
+class _BaseAlertQuery(
+    BaseEntityQuery[
+        "Alert",
+        AlertFilter,
+        AlertUpdate,
+        "AlertQuery",
+    ]
+):
+    @override
+    def _get_query_class(self) -> type[AlertQuery]:
+        return AlertQuery
+
+    @override
+    def where(
+        self,
+        filter: AlertFilter | None = None,
+        **kwargs: Unpack[AlertFilterArgs],
+    ) -> AlertQuery:
+        return super().where(filter, **kwargs)
+
+
+class AlertQuery(
+    EntityQuery[
+        "Alert",
+        AlertFilter,
+        AlertUpdate,
+    ],
+    _BaseAlertQuery,
+):
+    pass
 
 
 class AlertManager(
     BaseEntityManager[
-        Alert,
-        Alert.Row,
-        Alert.Create,
-        Alert.Update,
-        Alert.Filter,
-        Alert.FilterArgs,
-    ]
+        "Alert",
+        AlertRow,
+        AlertCreate,
+        AlertUpdate,
+        AlertFilter,
+        AlertFilterArgs,
+    ],
+    _BaseAlertQuery,
 ):
     def __init__(self, source: DatabaseSource, /) -> None:
         super().__init__(source, Alert)
 
-    if TYPE_CHECKING:
-        # See: https://github.com/python/typing/issues/1399
-        _E = Alert
-        _F = AlertFilter
-        _FA = AlertFilterArgs
-
-        @override
-        async def get_all(  # pyright: ignore[reportIncompatibleMethodOverride]
-            self, filter: _F | None = None, **kwargs: Unpack[_FA]
-        ) -> list[_E]: ...
-
-        @override
-        async def get(  # pyright: ignore[reportIncompatibleMethodOverride]
-            self, filter: _F | None = None, **kwargs: Unpack[_FA]
-        ) -> _E | None: ...
-
-        @override
-        def select(  # pyright: ignore[reportIncompatibleMethodOverride]
-            self, filter: _F | None = None, **kwargs: Unpack[_FA]
-        ) -> AsyncIterable[_E]: ...
-
-        @override
-        async def delete_all(  # pyright: ignore[reportIncompatibleMethodOverride]
-            self, filter: _F | None = None, **kwargs: Unpack[_FA]
-        ) -> int: ...
-
-        @override
-        async def delete(  # pyright: ignore[reportIncompatibleMethodOverride]
-            self, filter: _F | None = None, **kwargs: Unpack[_FA]
-        ) -> _E | None: ...
-
-        @override
-        async def count(  # pyright: ignore[reportIncompatibleMethodOverride]
-            self, filter: _F | None = None, **kwargs: Unpack[_FA]
-        ) -> int: ...
+    async def get(self, id: UUID, /) -> Alert | None:
+        return await self.where(id=id).first()
 
 
 class BoundAlertManager(AlertManager, BaseNodeManager):
@@ -302,12 +271,12 @@ class BoundAlertManager(AlertManager, BaseNodeManager):
     ) -> Stream[Alert]:
         from ceres.event import AlertEvent
 
-        filter = self._apply_filter_defaults(filter, kwargs)
+        resolved = self._get_resolved_filter_args(filter, kwargs)
         return (
             self.__node__.events.follow()
             .every(AlertEvent)
             .map(lambda event: event.alert)
-            .filter(filter.matches)
+            .filter(resolved.matches)
         )
 
     def emit(
@@ -343,3 +312,16 @@ class BoundAlertManager(AlertManager, BaseNodeManager):
 
     def critical(self, type: str, data: dict[str, Any] | None = None) -> Alert:
         return self.emit(Level.CRITICAL, type, data)
+
+
+class Alert(BaseRecord, AlertCreate):
+    Manager: ClassVar[type[AlertManager]] = AlertManager
+    BoundManager: ClassVar[type[BoundAlertManager]] = BoundAlertManager
+    Row: ClassVar[type[AlertRow]] = AlertRow
+    Create: ClassVar[type[AlertCreate]] = AlertCreate
+    Update: ClassVar[type[AlertUpdate]] = AlertUpdate
+    Filter: ClassVar[type[AlertFilter]] = AlertFilter
+    FilterArgs: ClassVar[type[AlertFilterArgs]] = AlertFilterArgs
+    Field = AlertField
+    Order = AlertOrder
+    Level: ClassVar[type[Level]] = Level

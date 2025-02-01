@@ -29,7 +29,7 @@ async def get_setting(
     if role < UserRole.ADMIN and (user is None or user.id != user_id):
         raise Failure(NotPermittedError)
 
-    setting = await engine.settings.get(user_id=user_id, name=name)
+    setting = await engine.settings.get(user_id, name)
     if setting is None:
         raise Failure(NotFoundError)
 

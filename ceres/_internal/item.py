@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from abc import abstractmethod
-from typing import TYPE_CHECKING, ClassVar, Iterable, Literal, override
+from typing import TYPE_CHECKING, ClassVar, Iterable, Literal, TypeAlias, override
 
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.schema import Index, SchemaItem
@@ -33,8 +33,12 @@ class BaseItemRow(BaseEntityRow, kw_only=True):
         )
 
 
-BaseItemField = Literal["address"]
-BaseItemOrder = Literal["address", "-address"]
+BaseItemField: TypeAlias = Literal["address"]
+BaseItemOrder: TypeAlias = Literal[
+    "address",
+    "address:asc",
+    "address:desc",
+]
 
 
 class BaseItemFilterArgs[

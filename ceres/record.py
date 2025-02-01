@@ -8,7 +8,7 @@ from ceres.data import StrEnum
 from ceres.item import ItemType
 from ceres.logs import LogEntry as LogEntry
 from ceres.message import Message as Message
-from ceres.particle import Particle
+from ceres.particle import Particle as Particle
 
 Record: TypeAlias = Message | Particle[Any] | Alert | LogEntry
 

@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import asyncio
 import traceback
-from asyncio import CancelledError
 from typing import Annotated, Any, Literal, Mapping, Sequence
 
 from fastapi import APIRouter, Body, Request, WebSocket, WebSocketException
@@ -14,6 +12,7 @@ from ceres._internal.app.shared import (
     CurrentEngine,
     CurrentProcedureQueryArguments,
     CurrentRole,
+    CurrentSocket,
 )
 from ceres.address import Address
 from ceres.component import Component, ProcedureBinding, ProcedureType
@@ -188,18 +187,17 @@ async def _call(
 
 @router.websocket("/{address}/procedures/{procedure}/subscribe")
 async def subscribe(
-    socket: WebSocket,
+    socket: CurrentSocket,
+    connection: WebSocket,
     engine: CurrentEngine,
     role: CurrentRole,
     address: Address,
     procedure: Name,
     query_arguments: CurrentProcedureQueryArguments,
 ) -> None:
-    await socket.accept()
-
     arguments = {}
     arguments.update(query_arguments or {})
-    arguments.update(socket.query_params)
+    arguments.update(connection.query_params)
     arguments.pop("arguments", None)
     arguments.pop("args", None)
 
@@ -223,19 +221,10 @@ async def subscribe(
             jsonify(Fail(ProcedureNotPermittedError())),
         )
 
-    async def read() -> None:
-        try:
-            while True:
-                await socket.receive_text()
-        except Exception:
-            pass
-        finally:
-            task_write.cancel()
-
     async def write() -> None:
         try:
             async for output in component.system.subscribe(procedure, arguments):
-                await socket.send_text(jsonify(output))
+                await socket.send(output)
         except Exception as exception:
             if isinstance(exception, Failure) and isinstance(exception.error, ProcedureError):
                 if not isinstance(exception.error, ProcedureInternalError):
@@ -249,13 +238,5 @@ async def subscribe(
                 reason = jsonify(util.strify(exception)[0:100])
 
             await socket.close(code, reason)
-        finally:
-            task_read.cancel()
 
-    task_read = asyncio.create_task(read(), name="read")
-    task_write = asyncio.create_task(write(), name="write")
-
-    try:
-        await asyncio.gather(task_read, task_write)
-    except CancelledError:
-        pass
+    await socket.execute(write)

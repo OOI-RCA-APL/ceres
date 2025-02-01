@@ -12,7 +12,7 @@ from ceres.setting import Setting as Setting
 from ceres.user import User as User
 from ceres.variable import Variable as Variable
 
-Entity: TypeAlias = Alert | LogEntry | Message | User | Variable | Particle | Setting
+Entity: TypeAlias = Message | Particle | Alert | LogEntry | User | Variable | Setting
 
 
 class EntityType(StrEnum):

@@ -11,6 +11,7 @@ from collections import defaultdict
 from collections.abc import Set
 from contextlib import contextmanager
 from datetime import timedelta
+from enum import Enum
 from os import PathLike as _BasePathLike
 from pathlib import Path
 from threading import Event
@@ -50,6 +51,7 @@ from ceres._internal.lazy import lazy_imports
 with lazy_imports(__name__, export=True):
     from sqlalchemy import SQLColumnExpression
 
+    from ceres.data import MaybeSequence
     from ceres.util import azip_latest as azip_latest
     from ceres.util import cancel as cancel
     from ceres.util import concurrently as concurrently
@@ -583,6 +585,116 @@ def sqlorf(
     from sqlalchemy import or_
 
     return or_(False, *flatten(expressions))
+
+
+@overload
+def escape_like_expression(text: str) -> str: ...
+
+
+@overload
+def escape_like_expression(text: bytes) -> bytes: ...
+
+
+@overload
+def escape_like_expression(text: str | bytes) -> str | bytes: ...
+
+
+def escape_like_expression(text: str | bytes) -> str | bytes:
+    if isinstance(text, bytes):
+        return text.replace(b"%", rb"\%").replace(b"_", rb"\_")
+    else:
+        return text.replace("%", r"\%").replace("_", r"\_")
+
+
+def match_value[T](value: T, possibilities: MaybeSequence[T] | None = None) -> bool:
+    if possibilities is None:
+        return True
+
+    return value in as_sequence(possibilities)
+
+
+class MatchMode(Enum):
+    EQUALS = 0
+    CONTAINS = 1
+    PREFIX = 2
+    SUFFIX = 3
+
+
+def match_string[T: (str, bytes)](
+    value: T,
+    possibilities: MaybeSequence[T] | None,
+    mode: MatchMode,
+    *,
+    insensitive: bool = False,
+) -> bool:
+    if possibilities is None:
+        return True
+
+    possibilities = as_sequence(possibilities)
+    if not possibilities:
+        return False
+
+    if insensitive:
+        value = value.lower()
+        possibilities = [current.lower() for current in possibilities]
+
+    match mode:
+        case MatchMode.EQUALS:
+            return value in possibilities
+        case MatchMode.CONTAINS:
+            return any(current in value for current in possibilities)
+        case MatchMode.PREFIX:
+            return any(value.startswith(current) for current in possibilities)
+        case MatchMode.SUFFIX:
+            return any(value.endswith(current) for current in possibilities)
+
+    raise ValueError(f"invalid mode: {mode!r}")
+
+
+def sql_match_value[T](
+    expression: SQLColumnExpression[T],
+    value: MaybeSequence[T],
+) -> SQLColumnExpression[bool]:
+    return expression.in_(as_sequence(value))
+
+
+def sql_match_string[T: (str, bytes)](
+    expression: SQLColumnExpression[T],
+    value: MaybeSequence[T],
+    mode: MatchMode,
+    *,
+    insensitive: bool = False,
+) -> SQLColumnExpression[bool]:
+    import sqlalchemy
+
+    values = as_sequence(value)
+    if not values:
+        return sqlalchemy.false()
+
+    values = [escape_like_expression(value) for value in values]
+
+    def like(current: str | bytes) -> SQLColumnExpression[bool]:
+        if insensitive:
+            return expression.ilike(current, "\\")
+        else:
+            return expression.like(current, "\\")
+
+    wildcard: Any = b"%" if isinstance(values[0], bytes) else "%"
+
+    match mode:
+        case MatchMode.EQUALS:
+            if insensitive:
+                return sqlorf(like(current) for current in values)
+            else:
+                return expression.in_(values)
+        case MatchMode.CONTAINS:
+            return sqlorf(like(wildcard + current + wildcard) for current in values)
+        case MatchMode.PREFIX:
+            return sqlorf(like(current + wildcard) for current in values)
+        case MatchMode.SUFFIX:
+            return sqlorf(like(wildcard + current) for current in values)
+
+    raise ValueError(f"invalid mode: {mode!r}")
 
 
 BytesLike: TypeAlias = str | bytes | bytearray | memoryview

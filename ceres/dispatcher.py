@@ -51,13 +51,13 @@ class Dispatcher(Component):
         query = dispatch.alerts.with_defaults(
             AlertFilter(
                 address=Address.ENGINE.all(),
-                order="-timestamp",
+                order="timestamp:desc",
                 limit=1000,
             )
         )
 
         try:
-            alerts = await self.system.alerts.get_all(query)
+            alerts = await self.system.alerts.where(query)
         except Exception:
             self.system.log.error(
                 f"An exception occurred while reading alerts for dispatch '{dispatch.subject}': "

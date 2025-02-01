@@ -9,7 +9,7 @@ update:
 	uv update
 	cd console && make update
 test:
-	uv run pytest -vv
+	uv run pytest -vv -s
 lint:
 	uv run sh -c "ruff check . && ruff format --check . && pyright ."
 	cd console && make lint
