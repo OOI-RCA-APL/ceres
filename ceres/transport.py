@@ -59,7 +59,7 @@ class Transport:
             timeout = timeout.total_seconds()
 
         if kwargs:
-            query = Message.Filter(**kwargs)
+            query = Message.Filter.model_validate(kwargs)
         else:
             query = None
 

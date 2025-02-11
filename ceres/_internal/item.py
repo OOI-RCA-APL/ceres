@@ -46,7 +46,7 @@ class BaseItemFilterArgs[
     OrderT: str,
 ](BaseEntityFilterArgs[FieldT, OrderT], total=False):
     root: Address
-    address: AddressSelector | None
+    address: AddressSelector | str | None
 
 
 class BaseItemFilter[
