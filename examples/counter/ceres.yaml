@@ -19,5 +19,5 @@ components:
       delta: -5 # Decrement by 5 every second.
 
 # The component definitions above are roughly equivalent to:
-# Counter(__with_name__="counter-a", initial=5)
-# Counter(__with_name__="counter-b", initial=100, delta=-5)
+# Counter("counter-a", initial=5)
+# Counter("counter-b", initial=100, delta=-5)

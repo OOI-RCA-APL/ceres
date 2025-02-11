@@ -449,7 +449,7 @@ self.emit(
 
 #### Retrieval
 
-Messages can be retrieved using `system.messages.get_all` and `system.messages.get`.
+Messages can be retrieved using `system.messages.where()` and `system.messages.select()`.
 
 ```python
 from asyncio import sleep
@@ -463,22 +463,18 @@ class Driver(Component)
     async def routine__log_connection_messages(self) -> None:
         while True:
             # Get the latest 10 messages sent or received by the connection component.
-            latest = await self.connection.system.messages.get_all(
-              order="-timestamp",
-              limit=10
-            )
+            latest = await self.connection.system.where(order="timestamp:desc").limit(10)
             self.log.info(latest)
 
             # Alternatively, you can pass the address of `@connection`.
-            latest = await self.system.messages.get_all(
-              address="@connection",
-              order="-timestamp",
-              limit=10
-            )
+            latest = await self.system.messages.where(
+                address="@connection",
+                order="timestamp:desc",
+            ).limit(10)
             self.log.info(latest)
 
             # Get the oldest message sent or received by the connection component.
-            oldest = await self.connection.system.messages.get()
+            oldest = await self.connection.system.messages.select().first()
             self.log.info(oldest)
 
             await sleep(5)
@@ -514,7 +510,7 @@ self.alert(Level.INFO, "airlock/recovered", {"message": "Oh, nevermind. We're go
 
 #### Retrieval
 
-Alerts can be retrieved using `system.alerts.get_all()` and `system.alerts.get()`.
+Alerts can be retrieved using `system.alerts.where()` and `system.alerts.select()`.
 
 ```python
 from asyncio import sleep
@@ -526,20 +522,16 @@ class Example(Component)
     async def routine__log_alerts(self) -> None:
         while True:
             # Get the latest 10 alerts emitted by this component.
-            latest = await self.system.alerts.get_all(
-              order="-timestamp",
-              limit=10
-            )
+            latest = await self.system.alerts.where(order="timestamp:desc").limit(10)
 
             # Get the latest 10 alerts from the component `@other`.
-            latest = await self.system.alerts.get_all(
-              address="@other",
-              order="-timestamp",
-              limit=10
-            )
+            latest = await self.system.alerts.where(
+                address="@other",
+                order="timestamp:desc"
+            ).limit(10)
 
             # Get the oldest alert emitted by any component in the tree.
-            oldest = await self.root.alerts.get_all(address="all")
+            oldest = await self.root.alerts.where(address="all").first()
             await sleep(5)
 ```
 
@@ -590,7 +582,7 @@ class Example(Component):
 
 #### Retrieval
 
-Log entries can be retrieved using `system.log.get_all()` and `system.log.get()`.
+Log entries can be retrieved using `system.log.where()` and `system.logs.select()`.
 
 ```python
 from asyncio import sleep
@@ -602,19 +594,12 @@ class Example(Component)
     async def routine__get_log_entry_counts(self) -> None:
         while True:
             # Get the latest 10 alerts emitted by this component.
-            latest = await self.log.get_all(
-              order="-timestamp",
-              limit=10
-            )
+            latest = await self.logs.where(order="timestamp:desc").limit(10)
 
             # Get the latest 10 log entries from the component `@other`.
-            latest = await self.log.get_all(
-              address="@other",
-              order="-timestamp",
-              limit=10
-            )
+            latest = await self.logs.where(address="@other", order="timestamp:desc").limit(10)
 
             # Get the oldest log entry emitted by any component in the tree.
-            oldest = await self.root.get(address="all")
+            oldest = await self.root.logs.select().first()
             await sleep(5)
 ```
