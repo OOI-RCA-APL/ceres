@@ -591,6 +591,7 @@ class UpdateExecutor[
         assign: UpdateT,
         assign_transform: Callable[[UpdateT], Awaitable[UpdateT]] | None = None,
     ) -> None:
+        super().__init__(query=cast(Any, query))
         self._query: Final = query  # type: ignore
         self._assign: Final = assign
 
