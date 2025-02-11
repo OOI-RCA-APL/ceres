@@ -308,11 +308,12 @@ class BaseMainCommand(BaseSettings, CliCommandGroup):
     down: CliSubCommand[DownCommand]
 
     @override
-    async def __execute__(self) -> Any:
+    async def __execute__(self) -> None:
         if self.version:
             from ceres import __version__
 
-            return __version__
+            self.write(__version__)
+            return
 
         try:
             result = await super().__execute__()
@@ -325,8 +326,6 @@ class BaseMainCommand(BaseSettings, CliCommandGroup):
                 else:
                     result = jsonify(result)
                     self.write(result, to="stdout")
-
-            return result
         except Failure as failure:
             self.write(jsonify(failure.error, indent=2))
             exit(1)
