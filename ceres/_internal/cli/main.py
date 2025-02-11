@@ -322,10 +322,6 @@ class BaseMainCommand(BaseSettings, CliCommandGroup):
                         async for current in values:
                             current = jsonify(current)
                             self.write(current, to="stdout")
-                elif util.is_true_iterable(result):
-                    for current in result:
-                        current = jsonify(current)
-                        self.write(current, to="stdout")
                 else:
                     result = jsonify(result)
                     self.write(result, to="stdout")
