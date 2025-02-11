@@ -156,16 +156,17 @@ async def execute_filter_test(
         assert manager.where(filter) == manager.where(**filter_kwargs)
         assert manager.where(filter).select() == manager.where(**filter_kwargs).select()
         assert manager.where(filter).delete() == manager.where(**filter_kwargs).delete()
-        await reset()
         if update:
             assert manager.where(filter).update(update) == manager.where(**filter_kwargs).update(
                 update
             )
-            await reset()
 
         assert await manager.where(filter) == expected
         assert await manager.where(filter).select() == expected
+        assert await manager.where(filter).count() == len(expected)
         assert await manager.where(filter).delete() == len(expected)
+        assert await manager.where(filter) == []
+        assert await manager.count() == len(entities) - len(expected)
         await reset()
         if update:
             assert await manager.where(filter).update(update) == len(expected)
@@ -174,6 +175,8 @@ async def execute_filter_test(
         assert await manager.where(filter).all() == expected
         assert await manager.where(filter).select().all() == expected
         assert unordered(await manager.where(filter).delete().all()) == uexpected
+        assert await manager.where(filter) == []
+        assert await manager.count() == len(entities) - len(expected)
         await reset()
         if update:
             assert unordered(await manager.where(filter).update(update).all()) == uexpected
@@ -182,6 +185,8 @@ async def execute_filter_test(
         assert await manager.where(filter).first() == first
         assert await manager.where(filter).select().first() == first
         assert await manager.where(filter).delete().first() == first
+        assert await manager.where(filter) == expected[1:]
+        assert await manager.count() == len(entities) - (1 if first is not None else 0)
         await reset()
         if update:
             assert await manager.where(filter).update(update).first() == first
@@ -190,6 +195,8 @@ async def execute_filter_test(
         assert await it(manager.where(filter)) == expected
         assert await it(manager.where(filter).select()) == expected
         assert unordered(await it(manager.where(filter).delete())) == uexpected
+        assert await manager.where(filter) == []
+        assert await manager.count() == len(entities) - len(expected)
         await reset()
         if update:
             assert await it(manager.where(filter).update(update)) == uexpected
@@ -199,6 +206,8 @@ async def execute_filter_test(
         assert await ifirst(manager.where(filter).select()) == first
         if i_first := await ifirst(manager.where(filter).delete()):
             assert i_first in expected
+        assert await manager.where(filter) == []
+        assert await manager.count() == len(entities) - len(expected)
         await reset()
 
         if update:
@@ -209,6 +218,8 @@ async def execute_filter_test(
         assert await iall(manager.where(filter)) == expected
         assert await iall(manager.where(filter).select()) == expected
         assert unordered(await iall(manager.where(filter).delete())) == uexpected
+        assert await manager.where(filter) == []
+        assert await manager.count() == len(entities) - len(expected)
         await reset()
         if update:
             assert unordered(await iall(manager.where(filter).update(update))) == uexpected

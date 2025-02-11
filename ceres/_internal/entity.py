@@ -483,7 +483,11 @@ class _BaseStatementExecutor[
 
         async with await database.init() as session:
             result = await session.execute(statement)
-            return list(self._parse_rows(result))
+            if self._should_commit():
+                await session.commit()
+
+            entities = list(self._parse_rows(result))
+            return entities
 
     @abstractmethod
     def _should_commit(self) -> bool: ...
