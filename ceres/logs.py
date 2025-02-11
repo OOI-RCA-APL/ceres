@@ -86,9 +86,10 @@ LogEntryOrder: TypeAlias = (
 
 class LogEntryFilterArgs(BaseRecordFilterArgs[LogEntryField, LogEntryOrder], total=False):
     level: MaybeSequence[Level] | None
-    content_contains: MaybeSequence[str] | None
-    content_prefix: MaybeSequence[str] | None
-    content_suffix: MaybeSequence[str] | None
+    content: MaybeSequence[str] | None
+    contains: MaybeSequence[str] | None
+    prefix: MaybeSequence[str] | None
+    suffix: MaybeSequence[str] | None
 
 
 class LogEntryFilter(BaseRecordFilter["LogEntry", LogEntryField, LogEntryOrder]):
@@ -96,11 +97,11 @@ class LogEntryFilter(BaseRecordFilter["LogEntry", LogEntryField, LogEntryOrder])
     """Filter by `level` being equal to one or more given levels."""
     content: MaybeSequence[str] | None = None
     """Filter by `content` being equal to one or more given strings."""
-    content_contains: MaybeSequence[str] | None = None
+    contains: MaybeSequence[str] | None = None
     """Filter by `content` containing one or more given substrings."""
-    content_prefix: MaybeSequence[str] | None = None
+    prefix: MaybeSequence[str] | None = None
     """Filter by `content` starting with one or more given prefixes."""
-    content_suffix: MaybeSequence[str] | None = None
+    suffix: MaybeSequence[str] | None = None
     """Filter by `content` ending with one or more given suffixes."""
 
     @override
@@ -113,11 +114,11 @@ class LogEntryFilter(BaseRecordFilter["LogEntry", LogEntryField, LogEntryOrder])
             return False
         if not util.match_value(obj.content, self.content):
             return False
-        if not util.match_string(obj.content, self.content_contains, MatchMode.CONTAINS):
+        if not util.match_string(obj.content, self.contains, MatchMode.CONTAINS):
             return False
-        if not util.match_string(obj.content, self.content_prefix, MatchMode.PREFIX):
+        if not util.match_string(obj.content, self.prefix, MatchMode.PREFIX):
             return False
-        if not util.match_string(obj.content, self.content_suffix, MatchMode.SUFFIX):
+        if not util.match_string(obj.content, self.suffix, MatchMode.SUFFIX):
             return False
 
         return True
@@ -141,12 +142,12 @@ class LogEntryFilter(BaseRecordFilter["LogEntry", LogEntryField, LogEntryOrder])
             yield util.sql_match_value(columns.level, self.level)
         if self.content is not None:
             yield util.sql_match_value(columns.content, self.content)
-        if self.content_contains is not None:
-            yield util.sql_match_string(columns.content, self.content_contains, MatchMode.CONTAINS)
-        if self.content_prefix is not None:
-            yield util.sql_match_string(columns.content, self.content_prefix, MatchMode.PREFIX)
-        if self.content_suffix is not None:
-            yield util.sql_match_string(columns.content, self.content_suffix, MatchMode.SUFFIX)
+        if self.contains is not None:
+            yield util.sql_match_string(columns.content, self.contains, MatchMode.CONTAINS)
+        if self.prefix is not None:
+            yield util.sql_match_string(columns.content, self.prefix, MatchMode.PREFIX)
+        if self.suffix is not None:
+            yield util.sql_match_string(columns.content, self.suffix, MatchMode.SUFFIX)
 
 
 class LogEntryCreate(BaseRecordCreate):

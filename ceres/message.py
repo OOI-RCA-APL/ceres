@@ -109,9 +109,9 @@ MessageOrder: TypeAlias = (
 class MessageFilterArgs(BaseRecordFilterArgs[MessageField, MessageOrder], total=False):
     direction: MaybeSequence[MessageDirection] | None
     content: MaybeSequence[MessageContent] | None
-    content_contains: MaybeSequence[MessageContent] | None
-    content_prefix: MaybeSequence[MessageContent] | None
-    content_suffix: MaybeSequence[MessageContent] | None
+    contains: MaybeSequence[MessageContent] | None
+    prefix: MaybeSequence[MessageContent] | None
+    suffix: MaybeSequence[MessageContent] | None
 
 
 class MessageFilter(BaseRecordFilter["Message", MessageField, MessageOrder]):
@@ -119,11 +119,11 @@ class MessageFilter(BaseRecordFilter["Message", MessageField, MessageOrder]):
     """Filter by `direction`."""
     content: MaybeSequence[MessageContent] | None = None
     """Filter by `content` being equal to one or more given byte sequences."""
-    content_contains: MaybeSequence[MessageContent] | None = None
+    contains: MaybeSequence[MessageContent] | None = None
     """Filter by `content` containing one or more given byte substrings."""
-    content_prefix: MaybeSequence[MessageContent] | None = None
+    prefix: MaybeSequence[MessageContent] | None = None
     """Filter by `content` starting with one or more given byte prefixes."""
-    content_suffix: MaybeSequence[MessageContent] | None = None
+    suffix: MaybeSequence[MessageContent] | None = None
     """Filter by `content` ending with one or more given byte suffixes."""
 
     @override
@@ -136,11 +136,11 @@ class MessageFilter(BaseRecordFilter["Message", MessageField, MessageOrder]):
             return False
         if not util.match_value(obj.content, self.content):
             return False
-        if not util.match_string(obj.content, self.content_contains, MatchMode.CONTAINS):
+        if not util.match_string(obj.content, self.contains, MatchMode.CONTAINS):
             return False
-        if not util.match_string(obj.content, self.content_prefix, MatchMode.PREFIX):
+        if not util.match_string(obj.content, self.prefix, MatchMode.PREFIX):
             return False
-        if not util.match_string(obj.content, self.content_suffix, MatchMode.SUFFIX):
+        if not util.match_string(obj.content, self.suffix, MatchMode.SUFFIX):
             return False
 
         return True
@@ -163,14 +163,20 @@ class MessageFilter(BaseRecordFilter["Message", MessageField, MessageOrder]):
 
         if self.direction is not None:
             yield util.sql_match_value(columns.direction, self.direction)
+
         if self.content is not None:
             yield util.sql_match_value(columns.content, self.content)
-        if self.content_contains is not None:
-            yield util.sql_match_string(columns.content, self.content_contains, MatchMode.CONTAINS)
-        if self.content_prefix is not None:
-            yield util.sql_match_string(columns.content, self.content_prefix, MatchMode.PREFIX)
-        if self.content_suffix is not None:
-            yield util.sql_match_string(columns.content, self.content_suffix, MatchMode.SUFFIX)
+
+        decoded = func.ceres_decode_latin1(columns.content)
+        if self.contains is not None:
+            matches = [current.decode("latin-1") for current in util.as_sequence(self.contains)]
+            yield util.sql_match_string(decoded, matches, MatchMode.CONTAINS)
+        if self.prefix is not None:
+            matches = [current.decode("latin-1") for current in util.as_sequence(self.prefix)]
+            yield util.sql_match_string(decoded, matches, MatchMode.PREFIX)
+        if self.suffix is not None:
+            matches = [current.decode("latin-1") for current in util.as_sequence(self.suffix)]
+            yield util.sql_match_string(decoded, matches, MatchMode.SUFFIX)
 
 
 def _escape_bytes_like_expression(text: bytes) -> bytes:

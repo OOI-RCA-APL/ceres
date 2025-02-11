@@ -15,4 +15,4 @@ async def test_log_timestamp_filtering():
 
 
 async def test_log_content_filtering():
-    await testing.execute_string_filter_test(LogEntry, "content")
+    await testing.execute_string_filter_test(LogEntry, "content", prefixed=False)

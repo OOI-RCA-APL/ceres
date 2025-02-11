@@ -823,24 +823,18 @@ def _read_csv_entities[T: BaseEntity](
         yield entity
 
 
-def _decode(value: bytes, encoding: str) -> str:
-    if isinstance(value, str):
-        return value
-
-    return value.decode(encoding)
+def _ceres_decode_latin1(value: bytes) -> str:
+    return value.decode("latin-1")
 
 
-def _encode(value: str, encoding: str) -> bytes:
-    if isinstance(value, bytes):
-        return value
-
-    return value.encode(encoding)
+def _ceres_encode_latin1(value: str) -> bytes:
+    return value.encode("latin-1")
 
 
 def _sqlite_create_functions(connection: _SQLiteConnection) -> None:
     sqlite3.enable_callback_tracebacks(True)
-    connection.create_function("decode", 2, _decode)
-    connection.create_function("encode", 2, _encode)
+    connection.create_function("ceres_decode_latin1", 1, _ceres_decode_latin1)
+    connection.create_function("ceres_encode_latin1", 1, _ceres_encode_latin1)
 
 
 _Replace = Mapping[EntityType, Mapping[str, str]]

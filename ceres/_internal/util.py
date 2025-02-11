@@ -587,25 +587,6 @@ def sqlorf(
     return or_(False, *flatten(expressions))
 
 
-@overload
-def escape_like_expression(text: str) -> str: ...
-
-
-@overload
-def escape_like_expression(text: bytes) -> bytes: ...
-
-
-@overload
-def escape_like_expression(text: str | bytes) -> str | bytes: ...
-
-
-def escape_like_expression(text: str | bytes) -> str | bytes:
-    if isinstance(text, bytes):
-        return text.replace(b"%", rb"\%").replace(b"_", rb"\_")
-    else:
-        return text.replace("%", r"\%").replace("_", r"\_")
-
-
 def match_value[T](value: T, possibilities: MaybeSequence[T] | None = None) -> bool:
     if possibilities is None:
         return True
@@ -658,6 +639,13 @@ def sql_match_value[T](
     return expression.in_(as_sequence(value))
 
 
+def _escape_like_expression[T: (str, bytes)](text: T, escape: str) -> T:
+    if isinstance(text, bytes):
+        return text.replace(b"%", escape.encode() + b"%").replace(b"_", escape.encode() + b"_")
+    else:
+        return text.replace("%", escape + "%").replace("_", escape + "_")
+
+
 def sql_match_string[T: (str, bytes)](
     expression: SQLColumnExpression[T],
     value: MaybeSequence[T],
@@ -671,22 +659,26 @@ def sql_match_string[T: (str, bytes)](
     if not values:
         return sqlalchemy.false()
 
-    values = [escape_like_expression(value) for value in values]
+    values = [_escape_like_expression(value, "^") for value in values]
 
     def like(current: str | bytes) -> SQLColumnExpression[bool]:
         if insensitive:
-            return expression.ilike(current, "\\")
+            return expression.ilike(current, escape="^")
         else:
-            return expression.like(current, "\\")
+            return expression.like(current, escape="^")
 
     wildcard: Any = b"%" if isinstance(values[0], bytes) else "%"
 
+    if mode == MatchMode.EQUALS:
+        if insensitive:
+            return sqlorf(like(current) for current in values)
+        else:
+            return expression.in_(values)
+
+    if all(value == "" or value == b"" for value in values):
+        return sqlalchemy.true()
+
     match mode:
-        case MatchMode.EQUALS:
-            if insensitive:
-                return sqlorf(like(current) for current in values)
-            else:
-                return expression.in_(values)
         case MatchMode.CONTAINS:
             return sqlorf(like(wildcard + current + wildcard) for current in values)
         case MatchMode.PREFIX:

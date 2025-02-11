@@ -19,4 +19,4 @@ async def test_message_direction_filtering():
 
 
 async def test_message_content_filtering():
-    await testing.execute_string_filter_test(Message, "content")
+    await testing.execute_string_filter_test(Message, "content", prefixed=False)

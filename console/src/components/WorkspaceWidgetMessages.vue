@@ -24,10 +24,7 @@ const columns = $computed(() => [
   {
     label: 'Content',
     name: 'content',
-    filtered:
-      (widget.filter.content_contains ??
-        widget.filter.content_prefix ??
-        widget.filter.content_suffix) != null,
+    filtered: (widget.filter.contains ?? widget.filter.prefix ?? widget.filter.suffix) != null,
   },
 ])
 
@@ -134,11 +131,11 @@ async function submit() {
     <template #column-filter-content>
       <div class="column q-gutter-xs" style="min-width: 300px">
         <schema-form-base
-          v-model="widget.filter.content_contains"
+          v-model="widget.filter.contains"
           :schema="{ title: 'Contains', type: 'string', optional: true }"
         />
         <schema-form-base
-          v-model="widget.filter.content_prefix"
+          v-model="widget.filter.prefix"
           :schema="{ title: 'Prefix', type: 'string', optional: true }"
         />
       </div>

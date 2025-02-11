@@ -354,15 +354,12 @@ async def execute_string_filter_test(
     cls: type[Entity],
     field: str,
     *,
-    equals: bool = True,
-    contains: bool = True,
-    prefix: bool = True,
-    suffix: bool = True,
+    prefixed: bool = True,
 ):
     equals_field = field
-    contains_field = f"{field}_contains"
-    prefix_field = f"{field}_prefix"
-    suffix_field = f"{field}_suffix"
+    contains_field = f"{field}_contains" if prefixed else "contains"
+    prefix_field = f"{field}_prefix" if prefixed else "prefix"
+    suffix_field = f"{field}_suffix" if prefixed else "suffix"
 
     group: FilterTestGroup[BaseEntityFilterArgs] = {
         "order": field,
