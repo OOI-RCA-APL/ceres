@@ -5,27 +5,33 @@ from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterable
 
+from ceres._internal import util
 from ceres._internal.lazy import lazy_imports
-from ceres._internal.typedecs import __Entity__
 
 with lazy_imports(__name__):
     from sqlalchemy.ext.asyncio import AsyncSession
 
-    from ceres._internal import util
-    from ceres.database import Database
-    from ceres.database.enums import DatabaseType
+    from ceres.database import Database, DatabaseType
+    from ceres.entity import Entity
 
 
 @dataclass(slots=True)
 class Flush:
-    entities: list[__Entity__]
+    entities: list[Entity]
     event: AsyncEvent = field(default_factory=AsyncEvent)
 
 
 class Writer:
-    def __init__(self, database: Callable[[], Database]) -> None:
+    __slots__ = (
+        "_database",
+        "_buffer",
+        "_flushes",
+        "_settled",
+    )
+
+    def __init__(self, database: Callable[[], Database], /) -> None:
         self._database = database
-        self._buffer: list[__Entity__] = []
+        self._buffer: list[Entity] = []
         self._flushes: deque[Flush] = deque()
         self._settled = AsyncEvent()
         self._settled.set()
@@ -46,7 +52,7 @@ class Writer:
     def settled(self) -> bool:
         return self._settled.is_set()
 
-    def add(self, entity: __Entity__) -> None:
+    def add(self, entity: Entity) -> None:
         # Add the record to the flush buffer and clear the flushed event.
         self._buffer.append(entity)
         self._settled.clear()
@@ -108,9 +114,9 @@ class Writer:
         self,
         database: Database,
         session: AsyncSession,
-        entities: Iterable[__Entity__],
+        entities: Iterable[Entity],
     ) -> None:
-        by_type: defaultdict[type[__Entity__], list[__Entity__]] = defaultdict(list)
+        by_type: defaultdict[type[Entity], list[Entity]] = defaultdict(list)
         for cls, group in util.group_by(entities, type):
             by_type[cls] = list(group)
 
@@ -121,8 +127,8 @@ class Writer:
         self,
         database: Database,
         session: AsyncSession,
-        cls: type[__Entity__],
-        entities: list[__Entity__],
+        cls: type[Entity],
+        entities: list[Entity],
     ) -> None:
         if not entities:
             return

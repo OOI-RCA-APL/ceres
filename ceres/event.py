@@ -1,18 +1,26 @@
 from __future__ import annotations
 
+import asyncio
+import inspect
+import traceback
 from abc import ABC
-from typing import TYPE_CHECKING, Literal, Sequence, TypeAlias, cast
-from uuid import UUID, uuid4
+from asyncio import Queue as AsyncQueue
+from typing import TYPE_CHECKING, Awaitable, Callable, Literal, Sequence, TypeAlias, cast
+from uuid import UUID
 
 from pydantic import ByteSize, Field
 
+from ceres._internal import util
+from ceres._internal.manager import BaseNodeManager
+from ceres._internal.protocols import NodeSource
 from ceres.address import Address
-from ceres.data import DateTime, ImmutableDataObject, PositiveTimeDelta
+from ceres.data import DateTime, ImmutableDataObject, PositiveTimeDelta, uuid7
+from ceres.stream import Stream, WriteStream
 from ceres.timing import utc
 
 
 class Event(ImmutableDataObject):
-    id: UUID = Field(default_factory=uuid4)
+    id: UUID = Field(default_factory=uuid7)
 
     if TYPE_CHECKING:
         address: Address = cast(Address, None)
@@ -443,11 +451,249 @@ from ceres.particle import Particle  # noqa: E402
 from ceres.setting import Setting  # noqa: E402
 from ceres.variable import Variable  # noqa: E402
 
-AlertEvent.model_rebuild()
-LogEvent.model_rebuild()
-MessageSentEvent.model_rebuild()
-MessageReceivedEvent.model_rebuild()
-ParticleEvent.model_rebuild()
-VariableAssignedEvent.model_rebuild()
-SettingAssignedEvent.model_rebuild()
-SieveParticleErrorEvent.model_rebuild()
+if TYPE_CHECKING:
+    from ceres.component import ComponentSystem, ListenerBinding
+    from ceres.config import LoggingConfig
+    from ceres.node import Node
+
+
+class NodeEventManager(BaseNodeManager):
+    __slots__ = (
+        "__stream",
+        "__listeners",
+    )
+
+    def __init__(self, source: NodeSource, /) -> None:
+        super().__init__(source)
+        self.__stream: WriteStream[Event] = WriteStream()
+        self.__listeners = (
+            []
+            if self.__system__ is None
+            else [
+                _ComponentEventListener(
+                    system=self.__system__,
+                    binding=binding,
+                )
+                for binding in self.__system__.get_listener_bindings()
+            ]
+        )
+
+    @property
+    def __system__(self) -> ComponentSystem | None:
+        from ceres.component import ComponentSystem
+
+        if isinstance(self.__node__, ComponentSystem):
+            return self.__node__
+
+    @property
+    def settled(self) -> bool:
+        return all(listener.settled for listener in self.__listeners)
+
+    async def __run__(self) -> None:
+        if not self.__listeners:
+            await util.sleep_forever()
+            return
+
+        await util.concurrently(listener.__run__() for listener in self.__listeners)
+
+    async def settle(self) -> None:
+        while not self.settled:
+            await util.concurrently(listener.settle() for listener in self.__listeners)
+
+    def follow(self) -> Stream[Event]:
+        return self.__stream.view()
+
+    def emit[**P, T: Event](
+        self,
+        event_cls: Callable[P, T],
+        /,
+        *args: P.args,
+        **kwargs: P.kwargs,
+    ) -> T:
+        """
+        Construct and `propagate` an event, assigning the address of the event to this node's
+        address if unset.
+        """
+        if "address" not in kwargs:
+            kwargs["address"] = self.__node__.address
+
+        event = event_cls(*args, **kwargs)
+
+        self.propagate(event, logging=self.__node__.get_resolved_logging_config())
+        return event
+
+    def propagate(self, event: Event, *, logging: LoggingConfig | None = None) -> None:
+        """
+        Propagate an event to all systems in the tree, any systems holding a direct or indirect
+        reference to a system in the tree, and the containing engine.
+        """
+        if logging is not None:
+            if logging.log_events and not isinstance(event, LogEvent):
+                self.__node__.log.event(logging.log_events_level, event)
+            if logging.log_messages and isinstance(event, MessageEvent):
+                self.__node__.log.message(logging.log_messages_level, event.message)
+            elif logging.log_particles and isinstance(event, ParticleEvent):
+                self.__node__.log.particle(logging.log_particles_level, event.particle)
+            elif logging.log_alerts and isinstance(event, AlertEvent):
+                self.__node__.log.alert(logging.log_alerts_level or event.alert.level, event.alert)
+
+        # Add the event to the outgoing event stream.
+        self.__stream.put(event)
+
+        container = self.__node__.__container__
+
+        # If there is a containing node, defer propagation to it.
+        if container is not None:
+            container.events.propagate(event)
+            return
+
+        seen: set[Node] = set()
+        seen.add(self.__node__)
+
+        # Handle the event ourselves.
+        self.handle(event)
+
+        # Traverse the tree, calling `handle(event)` for every component.
+        for component in self.__node__.get_components(inclusive=False):
+            if component.system not in seen:
+                seen.add(component.system)
+                component.system.events.handle(event)
+
+            for referencer in component.system.get_referencing_components():
+                if referencer.system not in seen:
+                    seen.add(referencer.system)
+                    referencer.system.events.handle(event)
+
+    def listening(self, event_cls: type[Event], address: Address) -> bool:
+        for listener in self.__listeners:
+            if listener.handles(event_cls, address):
+                return True
+
+        return False
+
+    def handle(self, event: Event) -> bool:
+        if not self.would_handle(event):
+            return False
+
+        handled = False
+        for listener in self.__listeners:
+            if listener.handle(event):
+                handled = True
+
+        return handled
+
+    def would_handle(self, event: Event) -> bool:
+        # If the node is not running, the event is not handled.
+        if not self.__node__.running:
+            return False
+
+        # If the node is stopping, only handle events from nodes it contains.
+        if self.__node__.stopping:
+            if not self.__node__.address.contains(event.address):
+                return False
+
+        return self.listening(type(event), event.address)
+
+
+_ComponentEventHandler = (
+    Callable[[Event], None | Awaitable[None]] | Callable[[], None | Awaitable[None]]
+)
+
+
+class _ComponentEventListener:
+    __slots__ = (
+        "__system",
+        "__binding",
+        "__handler",
+        "__handler_arity",
+        "__queue",
+        "__running",
+    )
+
+    def __init__(
+        self,
+        *,
+        system: ComponentSystem,
+        binding: ListenerBinding,
+    ) -> None:
+        self.__system = system
+        self.__binding = binding
+        self.__handler: _ComponentEventHandler = getattr(system.component, binding.method)
+        self.__handler_arity = len(inspect.signature(self.__handler).parameters)
+        self.__queue: AsyncQueue[Event] = AsyncQueue()
+        self.__running = False
+
+    @property
+    def settled(self) -> bool:
+        return self.__queue._finished.is_set()  # type: ignore
+
+    def would_handle(self, event: Event) -> bool:
+        return self.handles(type(event), event.address)
+
+    async def __run__(self) -> None:
+        self.__running = True
+        try:
+            while True:
+                event = await self.__queue.get()
+                await self._process(event)
+        finally:
+            self.__running = False
+
+    async def settle(self) -> None:
+        if self.__queue.empty():
+            return
+
+        while True:
+            try:
+                event = self.__queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+
+            await self._process(event)
+
+    def clear(self) -> None:
+        while not self.__queue.empty():
+            self.__queue.get_nowait()
+            self.__queue.task_done()
+
+    def handles(self, event_cls: type[Event], address: Address) -> bool:
+        if not util.lenient_issubclass(event_cls, self.__binding.event):
+            return False
+
+        if self.__binding.local:
+            if address == self.__system.address:
+                return True
+
+        if self.__binding.reference:
+            for alias in self.__binding.reference:
+                if any(
+                    component.system.address == address
+                    for component in self.__system.get_referenced_components(alias)
+                ):
+                    return True
+
+        if self.__binding.address is not None:
+            if self.__binding.address.matches(address, self.__system.address):
+                return True
+
+        return False
+
+    def handle(self, event: Event) -> bool:
+        if not self.would_handle(event):
+            return False
+
+        self.__queue.put_nowait(event)
+        return True
+
+    async def _process(self, event: Event) -> None:
+        try:
+            result = self.__handler(*[event][: self.__handler_arity])
+            if inspect.iscoroutine(result):
+                await result
+        except Exception:
+            self.__system.log.error(
+                f"An exception occurred while processing event {event}: "
+                f"{traceback.format_exc()}"
+            )
+        finally:
+            self.__queue.task_done()

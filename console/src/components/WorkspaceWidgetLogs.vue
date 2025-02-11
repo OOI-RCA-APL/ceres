@@ -16,10 +16,7 @@ const columns = $computed(() => [
   {
     label: 'Content',
     name: 'content',
-    filtered:
-      (widget.filter.content_contains ??
-        widget.filter.content_prefix ??
-        widget.filter.content_suffix) != null,
+    filtered: (widget.filter.contains ?? widget.filter.prefix ?? widget.filter.suffix) != null,
   },
 ])
 </script>
@@ -43,12 +40,12 @@ const columns = $computed(() => [
       <div style="min-width: 300px">
         <div class="q-mb-xs">
           <schema-form-base
-            v-model="widget.filter.content_prefix"
+            v-model="widget.filter.prefix"
             :schema="{ title: 'Prefix', type: 'string', optional: true }"
           />
         </div>
         <schema-form-base
-          v-model="widget.filter.content_contains"
+          v-model="widget.filter.contains"
           :schema="{ title: 'Contains', type: 'string', optional: true }"
         />
       </div>

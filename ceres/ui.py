@@ -8,7 +8,6 @@ from types import MethodType
 from typing import Annotated, Any, Callable, Literal, Sequence, TypeAlias, TypedDict, Unpack
 
 from pydantic import (
-    ConfigDict,
     Field,
     StrictBool,
     StrictFloat,
@@ -17,12 +16,9 @@ from pydantic import (
     field_validator,
 )
 
-from ceres._internal.lazy import lazy_imports
+from ceres._internal import util
 from ceres.address import Address
-from ceres.data import Color, DataObject, ImmutableDataObject, Name, StrEnum
-
-with lazy_imports(__name__):
-    from ceres._internal import util
+from ceres.data import Color, DataObject, DeferBuild, Name, StrEnum
 
 
 class ElementType(StrEnum):
@@ -58,28 +54,15 @@ class Sizing(StrEnum):
     GROW = "grow"
 
 
-_element_classes: list[type[DataObject]] = []
-
-
-def __update_forward_refs() -> None:
-    for current in _element_classes:
-        current.model_rebuild()
-
-
 class _BaseElementArgs(TypedDict, total=False):
     css_style: str | dict[str, str] | None
     css_class: str | list[str] | None
 
 
-class _BaseElement(DataObject, ABC):
+class _BaseElement(DataObject, DeferBuild, ABC):
     type: ElementType
     css_style: str | dict[str, str] | None = None
     css_class: str | list[str] | None = None
-
-    def __init_subclass__(cls, **kwargs: Unpack[ConfigDict]):
-        super().__init_subclass__(**kwargs)
-        _element_classes.append(cls)
-        return cls
 
 
 class Button(_BaseElement):
@@ -266,7 +249,7 @@ AtomicValue: TypeAlias = StrictBool | StrictInt | StrictFloat | Decimal | Strict
 
 
 class State(_BaseElement):
-    class Option(DataObject):
+    class Option(DataObject, DeferBuild):
         value: AtomicValue
         label: str
         color: Color
@@ -314,7 +297,7 @@ class State(_BaseElement):
 
 
 class Gauge(_BaseElement):
-    class ColorStop(ImmutableDataObject):
+    class ColorStop(DataObject, DeferBuild):
         value: float
         color: Color
 
@@ -452,6 +435,3 @@ Element: TypeAlias = Annotated[
     Button | Row | Column | Carousel | Text | HTML | State | Gauge | Chart | Render | Display,
     Field(discriminator="type"),
 ]
-
-
-__update_forward_refs()

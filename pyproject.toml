@@ -36,6 +36,7 @@ dependencies = [
     "sqlalchemy[asyncio]~=2.0",
     "sqlparse>=0.4",
     "starlette-compress~=1.2",
+    "uuid-utils>=0.10.0",
     "uvloop>=0.17; platform_system == 'Linux' or platform_system == 'Darwin'",
     "watchfiles>=0.10",
     "websockets~=10.0",
@@ -46,6 +47,7 @@ dev = [
     "pyright==1.1.380",
     "pytest==7.4.0",
     "pytest-asyncio==0.21.1",
+    "pytest-timeout==2.3.1",
     "ruff==0.8.1",
     "types-pyyaml~=6.0",
 ]
@@ -82,3 +84,5 @@ reportMatchNotExhaustive = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+timeout = 60
+timeout_method = "thread"

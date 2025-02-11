@@ -21,9 +21,9 @@ export const MessageModel = RecordModel.extend({
 export type MessageFilter = Zod.infer<typeof MessageFilterModel>
 export const MessageFilterModel = RecordFilterModel.extend({
   direction: MessageDirectionModel.nullish(),
-  content_contains: Zod.string().nullish(),
-  content_prefix: Zod.string().nullish(),
-  content_suffix: Zod.string().nullish(),
+  contains: Zod.string().nullish(),
+  prefix: Zod.string().nullish(),
+  suffix: Zod.string().nullish(),
 })
 
 export type SendMessageResult = Zod.infer<typeof SendMessageResultModel>

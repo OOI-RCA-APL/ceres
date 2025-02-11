@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from dataclasses import dataclass
 from datetime import datetime
 from typing import (
@@ -24,11 +22,22 @@ from fastapi import (
     WebSocketDisconnect,
 )
 from fastapi.requests import HTTPConnection
-from pydantic import Json, ValidationError
+from fastapi.routing import APIRouter
+from pydantic import Field, Json, ValidationError
 from starlette.status import HTTP_400_BAD_REQUEST, HTTP_401_UNAUTHORIZED
 
+from ceres._internal import util
+from ceres._internal.entity import BaseEntity
 from ceres._internal.lazy import lazy_imports
-from ceres.data import DateTime, EmailStr, ImmutableDataObject, StrEnum, UsernameStr, jsonify
+from ceres.data import (
+    DateTime,
+    DeferBuild,
+    EmailStr,
+    ImmutableDataObject,
+    StrEnum,
+    UsernameStr,
+    jsonify,
+)
 from ceres.error import Failure, NotAuthenticatedError, NotFoundError, NotPermittedError
 from ceres.timing import utc
 from ceres.user import User, UserRole
@@ -43,7 +52,6 @@ else:
 with lazy_imports(__name__):
     import jwt
 
-    from ceres._internal import util
     from ceres._internal.server import Server
     from ceres.config import ServerAuthenticationConfig
 
@@ -83,6 +91,9 @@ class Socket:
     async def execute(self, callback: Callable[[], Coroutine[Any, Any, Any]]) -> None:
         await util.wait_any(callback(), self.server.wait_until_stopping(), cancelling=True)
 
+    async def close(self, code: int = 1000, reason: str | None = None) -> None:
+        await self.socket.close(code, reason)
+
 
 async def _use_current_socket(socket: WebSocket, engine: CurrentEngine) -> AsyncIterator[Socket]:
     from websockets.exceptions import ConnectionClosed
@@ -121,7 +132,7 @@ CurrentProcedureQueryArguments = Annotated[
 ]
 
 
-class APIUser(ImmutableDataObject):
+class APIUser(ImmutableDataObject, DeferBuild):
     id: UUID
     username: UsernameStr
     email: EmailStr
@@ -132,7 +143,7 @@ class APIUser(ImmutableDataObject):
 APIUser.__name__ = "User"
 
 
-class APIIdentity(ImmutableDataObject):
+class APIIdentity(ImmutableDataObject, DeferBuild):
     user: APIUser
     token: str
     expires: DateTime
@@ -229,7 +240,7 @@ async def _get_current_identity(
         except ValidationError:
             return None
 
-        user = await engine.users.get(id=id)
+        user = await engine.users.get(id)
         if user is None:
             return None
 
@@ -347,3 +358,71 @@ def assert_found[T](value: T | None, /) -> T:
         raise Failure(NotFoundError)
 
     return value
+
+
+def create_entity_get_route(router: APIRouter, Entity: type[BaseEntity]):
+    singular = util.get_entity_plural(Entity)
+
+    class QueryParameters(Entity.Filter):
+        pass
+
+    QueryParameters.__name__ = f"Get{singular.title().replace(" ", "")}QueryParameters"
+
+    async def get(engine: CurrentEngine, id: UUID):
+        return assert_found(await util.get_entity_manager(engine, Entity).get(id))  # type: ignore
+
+    get.__name__ = f"Get {singular.title()}"
+    return router.get("/{id}", response_model=Entity)(get)
+
+
+def create_entity_get_all_route(router: APIRouter, Entity: type[BaseEntity], limit: int):
+    plural = util.get_entity_plural(Entity)
+
+    _limit = limit
+
+    class QueryParameters(Entity.Filter):
+        limit: int = Field(default=100, ge=0, le=_limit)
+
+    QueryParameters.__name__ = f"GetAll{plural.title().replace(" ", "")}QueryParameters"
+
+    async def get_all(
+        engine: CurrentEngine,
+        filter: Annotated[QueryParameters, Query()],
+    ):
+        return await util.get_entity_manager(engine, Entity).where(filter)
+
+    get_all.__name__ = f"Get {plural.title()}"
+    return router.get("", response_model=list[Entity])(get_all)
+
+
+def create_entity_follow_route(router: APIRouter, Entity: type[BaseEntity]):
+    plural = util.get_entity_plural(Entity)
+
+    class QueryParameters(Entity.Filter):
+        pass
+
+    QueryParameters.__name__ = f"Follow{plural.title().replace(" ", "")}QueryParameters"
+
+    async def follow(
+        socket: CurrentSocket,
+        engine: CurrentEngine,
+        filter: Annotated[QueryParameters, Query()],
+    ) -> None:
+        async def write() -> None:
+            async for message in util.get_entity_manager(engine, Entity).follow(filter):  # type: ignore
+                await socket.send(message)
+
+        await socket.execute(write)
+
+    follow.__name__ = f"Follow {plural.title()}"
+    return router.websocket("")(follow)
+
+
+def create_entity_router(Entity: type[BaseEntity], name: str, limit: int):
+    router = APIRouter(prefix=f"/{name}", tags=[name])
+
+    create_entity_get_route(router, Entity)
+    create_entity_get_all_route(router, Entity, limit)
+    create_entity_follow_route(router, Entity)
+
+    return router

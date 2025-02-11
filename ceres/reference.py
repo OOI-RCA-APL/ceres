@@ -18,12 +18,9 @@ from pydantic import GetCoreSchemaHandler
 from pydantic_core import CoreSchema
 from pydantic_core.core_schema import no_info_after_validator_function
 
-from ceres._internal.lazy import lazy_imports
+from ceres._internal import util
 from ceres.address import Address, DynamicAddress
-
-with lazy_imports(__name__):
-    from ceres._internal import util
-    from ceres.component import Component
+from ceres.component import Component
 
 _reference_static_cls_generic_cache: dict[type | None, type[Reference]] = {}
 _reference_dynamic_cls_generic_cache: dict[tuple[type | None, type], type[Reference]] = {}
@@ -443,7 +440,7 @@ class Reference:
     def __reference_sync_dynamic_class__(self) -> type[Reference]:
         current = self.__reference_get_dynamic_class__()
         if self.__class__ is not current:
-            self.__class__ = current
+            self.__class__ = current  # type: ignore
 
         return current
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import json
 from abc import ABC
 from datetime import date, datetime, timedelta, timezone
@@ -13,6 +14,7 @@ from typing import (
     ClassVar,
     Literal,
     NewType,
+    Sequence,
     Sized,
     TypeAlias,
     TypedDict,
@@ -20,6 +22,7 @@ from typing import (
     dataclass_transform,
     override,
 )
+from uuid import UUID
 
 import pydantic
 import pydantic.generics
@@ -30,9 +33,7 @@ from pydantic import (
     ConfigDict,
     Field,
     StringConstraints,
-    TypeAdapter,
 )
-from pydantic import EmailStr as _BaseEmailStr
 from pydantic.fields import FieldInfo
 from pydantic.functional_serializers import PlainSerializer
 from pydantic.main import IncEx
@@ -41,10 +42,10 @@ from pydantic_extra_types.color import Color as Color
 from typing_extensions import TypeVar
 
 from ceres._internal import util
-from ceres._internal.util import NAME_PATTERN, PydanticDataclassLike
+from ceres._internal.util import NAME_PATTERN, PydanticDataclassLike, get_type_adapter
 
 
-class SimplifyArgs(TypedDict, total=False):
+class SimplifyKwargs(TypedDict, total=False):
     include: IncEx | None
     exclude: IncEx | None
     by_alias: bool
@@ -53,22 +54,19 @@ class SimplifyArgs(TypedDict, total=False):
     exclude_none: bool
 
 
-class SerializeArgs(SimplifyArgs, total=False):
+class SerializeKwargs(SimplifyKwargs, total=False):
     indent: int | None
 
 
-__ANY_ADAPTOR = TypeAdapter(Any) if not TYPE_CHECKING else TypeAdapter(object)
-
-
-def simplify(obj: object, **kwargs: Unpack[SimplifyArgs]) -> Any:
+def simplify(obj: object, **kwargs: Unpack[SimplifyKwargs]) -> Any:
     return json.loads(jsonify(obj, **kwargs))
 
 
-def jsonify(obj: object, **kwargs: Unpack[SerializeArgs]) -> str:
-    return __ANY_ADAPTOR.dump_json(obj, **kwargs).decode()
+def jsonify(obj: object, **kwargs: Unpack[SerializeKwargs]) -> str:
+    return get_type_adapter(type(obj)).dump_json(obj, **kwargs).decode()
 
 
-def yamlify(obj: object, **kwargs: Unpack[SerializeArgs]) -> str:
+def yamlify(obj: object, **kwargs: Unpack[SerializeKwargs]) -> str:
     import yaml
 
     return yaml.safe_dump(simplify(obj, **kwargs), indent=kwargs.get("indent", None))
@@ -149,6 +147,28 @@ NonNegativeTimeDelta: TypeAlias = Annotated[
 ]
 
 
+def uuid4() -> UUID:
+    """Generate a version 4 UUID."""
+    try:
+        from uuid_utils import uuid4
+
+        return UUID(int=uuid4().int)
+    except ImportError:
+        from uuid import uuid4
+
+        return uuid4()
+
+
+def uuid7(
+    timestamp: int | None = None,
+    nanoseconds: int | None = None,
+) -> UUID:
+    """Generate a version 7 UUID using a time value and random bytes."""
+    from uuid_utils import uuid7
+
+    return UUID(int=uuid7(timestamp, nanoseconds).int)
+
+
 def __pre_validate_from_json(value: object) -> object:
     if isinstance(value, str | bytes):
         try:
@@ -178,15 +198,6 @@ FromJson: TypeAlias = Annotated[_T, BeforeValidator(__pre_validate_from_json)]
 FromYaml: TypeAlias = Annotated[_T, BeforeValidator(__pre_validate_from_yaml)]
 
 
-def __validate_jsonable(value: object) -> object:
-    try:
-        jsonify(value)
-    except Exception as error:
-        raise ValueError(f"not serializable to JSON: {error}")
-
-    return value
-
-
 def __validate_number(value: object) -> object:
     if isinstance(value, float) and value.is_integer():
         return int(value)
@@ -208,17 +219,32 @@ Number: TypeAlias = Annotated[
     PlainSerializer(__serialize_number),
 ]
 
-type JsonValue = None | bool | Number | str | JsonList | JsonDict
-JsonDict: TypeAlias = dict[str, JsonValue]
-JsonList: TypeAlias = list[JsonValue]
+type JSONValue = None | bool | Number | str | JSONList | JSONDict
+JSONDict: TypeAlias = dict[str, JSONValue]
+JSONList: TypeAlias = list[JSONValue]
+
+
+def __validate_jsonable(value: object) -> object:
+    try:
+        jsonify(value)
+    except Exception as error:
+        raise ValueError(f"not serializable to JSON: {error}")
+
+    return value
+
 
 _TAny = TypeVar("_TAny", default=Any)
-Jsonable: TypeAlias = Annotated[_TAny, AfterValidator(__validate_jsonable)]
+JSONSerializable: TypeAlias = Annotated[_TAny, AfterValidator(__validate_jsonable)]
 
 _TKey = TypeVar("_TKey", default=str)
 _TValue = TypeVar("_TValue", default=Any)
-JsonableDict: TypeAlias = Jsonable[dict[str, _TValue]]
-JsonableList: TypeAlias = Jsonable[list[_TValue]]
+JSONSerializableDict: TypeAlias = JSONSerializable[dict[str, _TValue]]
+JSONSerializableList: TypeAlias = JSONSerializable[list[_TValue]]
+
+if TYPE_CHECKING:
+    MaybeSequence: TypeAlias = _T | Sequence[_T]
+else:
+    MaybeSequence: TypeAlias = _T | list[_T]
 
 
 def __validate_non_empty(value: object) -> object:
@@ -236,7 +262,6 @@ class DataObject(BaseModel, ABC):
         extra="forbid",
         populate_by_name=True,
         use_attribute_docstrings=True,
-        # defer_build=True,  # Uncomment when https://github.com/pydantic/pydantic/issues/7713 is fixed.
     )
 
     @override
@@ -244,13 +269,22 @@ class DataObject(BaseModel, ABC):
         return super().__repr__()
 
 
-class ImmutableDataObject(DataObject, ABC):
+class ImmutableDataObject(DataObject):
     model_config = ConfigDict(frozen=True)
+
+
+class DeferBuild(BaseModel, ABC):
+    model_config = ConfigDict(defer_build=True)
 
 
 @dataclass_transform(
     kw_only_default=True,
-    field_specifiers=(Field, FieldInfo),
+    field_specifiers=(
+        Field,
+        FieldInfo,
+        dataclasses.field,
+        dataclasses.Field,
+    ),
 )
 class ValidatedDataclass(ABC, PydanticDataclassLike):
     if TYPE_CHECKING:
@@ -337,7 +371,18 @@ PasswordStr: TypeAlias = Annotated[
     AfterValidator(__validate_password_str),
 ]
 
-EmailStr: TypeAlias = _BaseEmailStr
+
+def __validate_email_str(value: str) -> str:
+    from email_validator import validate_email
+
+    validated = validate_email(value)
+    return validated.normalized.lower()
+
+
+EmailStr: TypeAlias = Annotated[
+    str,
+    AfterValidator(__validate_email_str),
+]
 
 __BCRYPT_HASH_PATTERN = r"^\$2[ayb]\$.{56}$"
 

@@ -2,20 +2,22 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import os
+import platform
 import re
 import typing
 from asyncio import AbstractEventLoop, Future
-from collections import OrderedDict, defaultdict
+from collections import defaultdict
 from collections.abc import Set
 from contextlib import contextmanager
-from datetime import datetime, timedelta
+from datetime import timedelta
+from enum import Enum
 from os import PathLike as _BasePathLike
+from pathlib import Path
 from threading import Event
-from types import ModuleType, NoneType, UnionType
 from typing import (
     TYPE_CHECKING,
     AbstractSet,
-    Annotated,
     Any,
     Awaitable,
     Callable,
@@ -34,8 +36,6 @@ from typing import (
     TypeVar,
     Union,
     cast,
-    get_args,
-    get_origin,
     overload,
     override,
 )
@@ -48,11 +48,10 @@ from typing_extensions import TypeIs
 
 from ceres._internal.lazy import lazy_imports
 
-with lazy_imports(__name__):
-    from sqlalchemy.sql import SQLColumnExpression, func, or_
-    from sqlalchemy.sql.expression import BinaryExpression
-
 with lazy_imports(__name__, export=True):
+    from sqlalchemy import SQLColumnExpression
+
+    from ceres.data import MaybeSequence
     from ceres.util import azip_latest as azip_latest
     from ceres.util import cancel as cancel
     from ceres.util import concurrently as concurrently
@@ -170,29 +169,6 @@ def is_pydantic_dataclass(
 
 
 ModelLike = BaseModel | PydanticDataclassLike
-
-
-def has_field(obj: Any, name: str, type: Any = None) -> bool:
-    name = snakecase(name)
-
-    if is_dataclass_instance(obj):
-        return any(
-            field.name == name and (type is None or is_subtype(field.type, type))  # type: ignore
-            for field in dataclasses.fields(obj)
-        )
-
-    if isinstance(obj, BaseModel) or issubclass(obj, BaseModel):
-        field = obj.model_fields.get(name)
-        if field is None:
-            return False
-        if type is None:
-            return True
-        if field.annotation is None:
-            return False
-
-        return is_subtype(field.annotation, type)
-
-    return False
 
 
 def snakecase(text: str) -> str:
@@ -313,29 +289,11 @@ def decode_td(value: str | timedelta | int | float | Any) -> timedelta:
     raise get_exception()
 
 
-def is_subtype(subtype: type | UnionType, base: type | UnionType) -> bool:
-    try:
-        if subtype is base:
-            return True
-        if isinstance(subtype, type) and isinstance(base, type | UnionType):
-            return issubclass(subtype, base)
-        if isinstance(subtype, UnionType):
-            return all(is_subtype(arg, base) for arg in subtype.__args__)
-    except Exception:
-        pass
-
-    return False
+Stringy: TypeAlias = str | bytes | bytearray | memoryview
 
 
-def is_optional_type(type_: type | UnionType) -> bool:
-    return is_subtype(NoneType, type_)
-
-
-StrLike: TypeAlias = str | bytes | bytearray | memoryview
-
-
-def is_stringy(obj: Any) -> TypeIs[StrLike]:
-    return isinstance(obj, StrLike)
+def is_stringy(obj: Any) -> TypeIs[Stringy]:
+    return isinstance(obj, Stringy)
 
 
 def is_iterable(obj: Any) -> TypeIs[Iterable[Any]]:
@@ -398,19 +356,6 @@ def is_mapping(obj: Any) -> TypeIs[Mapping[Any, Any]]:
         return False
 
     return True
-
-
-def get_unannotated_type(type: Any) -> Any:
-    current = type
-    while True:
-        try:
-            if get_origin(current) is Annotated:
-                current = get_args(type)[0]
-                continue
-        except Exception:
-            pass
-
-        return current
 
 
 def traverse(
@@ -479,38 +424,6 @@ def get_event_loop_or_none() -> AbstractEventLoop | None:
         return asyncio.get_running_loop()
     except RuntimeError:
         return None
-
-
-@contextmanager
-def temporary_signal_handler(signums: Sequence[int], handler: Callable[..., Any]) -> Iterator[None]:
-    import signal
-
-    loop = get_event_loop_or_none()
-    originals: dict[int, Any] = {}
-
-    for signum in signums:
-        if original := signal.getsignal(signum):
-            originals[signum] = original
-
-        if loop is not None:
-            loop.add_signal_handler(signum, handler)
-        else:
-            signal.signal(signum, handler)
-
-    try:
-        yield
-    finally:
-        for signum, original in originals.items():
-            signal.signal(signum, original)
-
-
-def set_current_process_name(name: str) -> None:
-    try:
-        from setproctitle import setproctitle
-
-        setproctitle(name)
-    except Exception:
-        pass
 
 
 def dbg[T](value: T) -> T:
@@ -654,35 +567,6 @@ def get_return_annotation(
     return hints.get("return", default)
 
 
-def setattr_internal[T](cls: type[T], instance: T, name: str, value: object) -> None:
-    if name.startswith("__") and not name.endswith("__"):
-        name = f"_{cls.__name__}{name}"
-
-    object.__setattr__(instance, name, value)
-
-
-def getattr_internal[T](cls: type[T], instance: T, name: str, value: object) -> None:
-    if name.startswith("__") and not name.endswith("__"):
-        name = f"_{cls.__name__}{name}"
-
-    object.__setattr__(instance, name, value)
-
-
-@overload
-def escape_like_expression(text: str) -> str: ...
-
-
-@overload
-def escape_like_expression(text: bytes) -> bytes: ...
-
-
-def escape_like_expression(text: str | bytes) -> str | bytes:
-    if isinstance(text, str):
-        return text.replace("%", "%%").replace("_", "__")
-
-    return text.replace(b"%", b"%%").replace(b"_", b"__")
-
-
 type RecursiveIterable[T] = Iterable[T | RecursiveIterable[T]]
 type MaybeRecursiveIterable[T] = T | RecursiveIterable[T]
 
@@ -698,7 +582,111 @@ def flatten[T](value: RecursiveIterable[T]) -> Iterator[T]:
 def sqlorf(
     *expressions: Iterable[SQLColumnExpression[bool]],
 ) -> SQLColumnExpression[bool]:
+    from sqlalchemy import or_
+
     return or_(False, *flatten(expressions))
+
+
+def match_value[T](value: T, possibilities: MaybeSequence[T] | None = None) -> bool:
+    if possibilities is None:
+        return True
+
+    return value in as_sequence(possibilities)
+
+
+class MatchMode(Enum):
+    EQUALS = 0
+    CONTAINS = 1
+    PREFIX = 2
+    SUFFIX = 3
+
+
+def match_string[T: (str, bytes)](
+    value: T,
+    possibilities: MaybeSequence[T] | None,
+    mode: MatchMode,
+    *,
+    insensitive: bool = False,
+) -> bool:
+    if possibilities is None:
+        return True
+
+    possibilities = as_sequence(possibilities)
+    if not possibilities:
+        return False
+
+    if insensitive:
+        value = value.lower()
+        possibilities = [current.lower() for current in possibilities]
+
+    match mode:
+        case MatchMode.EQUALS:
+            return value in possibilities
+        case MatchMode.CONTAINS:
+            return any(current in value for current in possibilities)
+        case MatchMode.PREFIX:
+            return any(value.startswith(current) for current in possibilities)
+        case MatchMode.SUFFIX:
+            return any(value.endswith(current) for current in possibilities)
+
+    raise ValueError(f"invalid mode: {mode!r}")
+
+
+def sql_match_value[T](
+    expression: SQLColumnExpression[T],
+    value: MaybeSequence[T],
+) -> SQLColumnExpression[bool]:
+    return expression.in_(as_sequence(value))
+
+
+def _escape_like_expression[T: (str, bytes)](text: T, escape: str) -> T:
+    if isinstance(text, bytes):
+        return text.replace(b"%", escape.encode() + b"%").replace(b"_", escape.encode() + b"_")
+    else:
+        return text.replace("%", escape + "%").replace("_", escape + "_")
+
+
+def sql_match_string[T: (str, bytes)](
+    expression: SQLColumnExpression[T],
+    value: MaybeSequence[T],
+    mode: MatchMode,
+    *,
+    insensitive: bool = False,
+) -> SQLColumnExpression[bool]:
+    import sqlalchemy
+
+    values = as_sequence(value)
+    if not values:
+        return sqlalchemy.false()
+
+    values = [_escape_like_expression(value, "^") for value in values]
+
+    def like(current: str | bytes) -> SQLColumnExpression[bool]:
+        if insensitive:
+            return expression.ilike(current, escape="^")
+        else:
+            return expression.like(current, escape="^")
+
+    wildcard: Any = b"%" if isinstance(values[0], bytes) else "%"
+
+    if mode == MatchMode.EQUALS:
+        if insensitive:
+            return sqlorf(like(current) for current in values)
+        else:
+            return expression.in_(values)
+
+    if all(value == "" or value == b"" for value in values):
+        return sqlalchemy.true()
+
+    match mode:
+        case MatchMode.CONTAINS:
+            return sqlorf(like(wildcard + current + wildcard) for current in values)
+        case MatchMode.PREFIX:
+            return sqlorf(like(current + wildcard) for current in values)
+        case MatchMode.SUFFIX:
+            return sqlorf(like(wildcard + current) for current in values)
+
+    raise ValueError(f"invalid mode: {mode!r}")
 
 
 BytesLike: TypeAlias = str | bytes | bytearray | memoryview
@@ -714,30 +702,6 @@ def bytes_of(data: BytesLike) -> bytes:
 
 _K = TypeVar("_K")
 _V = TypeVar("_V")
-
-
-class CacheDict(OrderedDict[_K, _V]):
-    def __init__(self, size: int = 10) -> None:
-        assert size > 0
-        self.cache_len = size
-
-        super().__init__()
-
-    @override
-    def __setitem__(self, key: _K, value: _V) -> None:
-        super().__setitem__(key, value)
-        super().move_to_end(key)
-
-        while len(self) > self.cache_len:
-            oldkey = next(iter(self))
-            super().__delitem__(oldkey)
-
-    @override
-    def __getitem__(self, key: _K) -> _V:
-        val = super().__getitem__(key)
-        super().move_to_end(key)
-
-        return val
 
 
 def _hash(value: object) -> Hashable:
@@ -777,38 +741,6 @@ if TYPE_CHECKING:
 else:
     Database = object
     AsyncSession = object
-
-
-async def get_session(database: Database, session: AsyncSession | None) -> AsyncSession:
-    if session is None:
-        return await database.init()
-    return session
-
-
-def sqlstmt(statement: str, *, indent: int = 0) -> str:
-    import textwrap
-
-    statement = textwrap.dedent(statement).strip()
-    import sqlparse
-
-    sqlparse.format(statement, keyword_case="upper").strip()
-    statement = statement.rstrip(";")
-    statement += ";"
-    if indent:
-        statement = textwrap.indent(statement, " " * (indent * 4))
-    return statement
-
-
-def sqlexpr(statement: str, *, indent: int = 0) -> str:
-    import textwrap
-
-    statement = textwrap.dedent(statement).strip()
-    import sqlparse
-
-    sqlparse.format(statement, keyword_case="upper").strip()
-    if indent:
-        statement = textwrap.indent(statement, " " * (indent * 4))
-    return statement
 
 
 _CallableT = TypeVar("_CallableT", bound=Callable[..., Any])
@@ -894,7 +826,7 @@ def strlist(value: str | Sequence[str] | None) -> list[str]:
 
 
 @overload
-def as_sequence[T: StrLike](value: T) -> Sequence[T]: ...
+def as_sequence[T: Stringy](value: T) -> Sequence[T]: ...
 
 
 @overload
@@ -906,13 +838,6 @@ def as_sequence[T](value: T | Sequence[T]) -> Sequence[T]:
         return value
 
     return (value,)
-
-
-def sequence[T](start: T, next: Callable[[T], T]) -> Iterator[T]:
-    current = start
-    while True:
-        yield current
-        current = next(start)
 
 
 def upper_camel(string: str) -> str:
@@ -1131,39 +1056,6 @@ class OrderedWeakSet[T](WeakSet[T]):
 WeakRef = ref
 
 
-def format_timestamp(timestamp: datetime) -> str:
-    return timestamp.strftime("%Y-%m-%d %H:%M:%f")
-
-
-def format_sql_like(
-    expression: SQLColumnExpression[Any],
-    pattern: str | bytes,
-    case_sensitive: bool = False,
-) -> BinaryExpression[bool]:
-    if case_sensitive:
-        return expression.like(pattern)
-    return expression.ilike(pattern)
-
-
-if TYPE_CHECKING:
-    from ceres.database.enums import DatabaseType as __DatabaseType__
-else:
-    __DatabaseType__ = object
-
-
-def format_sql_timestamp(
-    timestamp: SQLColumnExpression[datetime],
-    dialect: __DatabaseType__,
-) -> Any:
-    from ceres.database.enums import DatabaseType
-
-    match dialect:
-        case DatabaseType.SQLITE:
-            return timestamp
-        case DatabaseType.POSTGRES:
-            return func.to_char(timestamp, "YYYY-MM-DD HH24:MI:SS.US")
-
-
 def blackhole(any: Any, /) -> None:
     pass
 
@@ -1378,20 +1270,46 @@ async def run_in_loop[T](
     return future.result()
 
 
-def import_submodules(package: str | ModuleType, recursive: bool = True) -> dict[str, ModuleType]:
-    import importlib
-    import pkgutil
+if TYPE_CHECKING:
+    from ceres._internal.entity import BaseEntity, BaseEntityManager
+    from ceres.database import Database
+    from ceres.node import Node
 
-    if isinstance(package, str):
-        package = importlib.import_module(package)
 
-    modules: dict[str, ModuleType] = {}
+def get_entity_singular(Entity: type[BaseEntity]) -> str:
+    if Entity.__name__ == "LogEntry":
+        return "log entry"
 
-    for loader, name, is_pkg in pkgutil.walk_packages(package.__path__):
-        path = package.__name__ + "." + name
-        modules[path] = importlib.import_module(path)
+    return Entity.__name__.lower()
 
-        if recursive and is_pkg:
-            modules.update(import_submodules(path))
 
-    return modules
+def get_entity_plural(Entity: type[BaseEntity]) -> str:
+    if Entity.__name__ == "LogEntry":
+        return "log entries"
+
+    return f"{Entity.__name__.lower()}s"
+
+
+def _get_entity_manager_attr(Entity: type[BaseEntity]) -> str:
+    if Entity.__name__ == "LogEntry":
+        return "logs"
+
+    return get_entity_plural(Entity)
+
+
+def get_entity_manager(source: Database | Node, entity: type[BaseEntity]) -> BaseEntityManager:
+    return getattr(source, _get_entity_manager_attr(entity))
+
+
+LINUX = platform.system() == "Linux"
+MACOS = platform.system() == "Darwin"
+WINDOWS = platform.system() == "Windows"
+
+
+def get_temporary_directory() -> Path:
+    if (MACOS or LINUX) and os.path.isdir("/tmp"):
+        return Path("/tmp")
+
+    from tempfile import gettempdir
+
+    return Path(gettempdir())

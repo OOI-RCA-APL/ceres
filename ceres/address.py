@@ -6,16 +6,12 @@ from typing import TYPE_CHECKING, Any, Final, Literal, Self, Sequence, override
 from pydantic import GetCoreSchemaHandler
 from pydantic_core import CoreSchema, SchemaSerializer
 from pydantic_core.core_schema import no_info_after_validator_function, to_string_ser_schema
-from sqlalchemy.util import LRUCache  # pyright: ignore[reportAttributeAccessIssue]
+from sqlalchemy.sql import ColumnElement, SQLColumnExpression
+from sqlalchemy.util import LRUCache
 
 from ceres._internal import util
-from ceres._internal.lazy import lazy_imports
 from ceres._internal.util import NAME_PATTERN, classproperty
 from ceres.data import Name
-
-with lazy_imports(__name__):
-    from sqlalchemy.sql.elements import ColumnElement, SQLColumnExpression
-
 
 _NAME = NAME_PATTERN[1:-1]
 _MODIFIER = r":(all|children|descendants)"

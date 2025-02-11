@@ -2,12 +2,11 @@ from __future__ import annotations
 
 from typing import Callable
 
+from ceres._internal import util
 from ceres._internal.lazy import lazy_imports
 
 with lazy_imports(__name__):
     from concurrent.futures import ThreadPoolExecutor
-
-    from ceres._internal import util
 
 
 async def spawn[**P, T](function: Callable[P, T], *args: P.args, **kwargs: P.kwargs) -> T:

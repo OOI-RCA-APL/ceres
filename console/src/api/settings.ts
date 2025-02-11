@@ -63,6 +63,7 @@ export const useSettings = defineStore('settings', () => {
 
   async function readConsoleSettings() {
     if (auth.user == null) {
+      console.log('Currently logged out, no console settings to fetch.')
       return null
     }
 
@@ -107,12 +108,19 @@ export const useSettings = defineStore('settings', () => {
   const debouncedWriteConsoleSettings = debounce(writeConsoleSettings, 250)
 
   const query = useQuery({
-    refetchOnWindowFocus: true,
-    queryKey: computed(() => ['settings', auth.user?.id]),
+    queryKey: [],
     queryFn: async () => {
-      return readConsoleSettings()
+      return await readConsoleSettings()
     },
   })
+
+  watch(
+    () => auth.user?.id ?? null,
+    () => {
+      console.log('User ID changed, refetching console settings...')
+      query.refetch()
+    }
+  )
 
   watch(settings, () => {
     writes++

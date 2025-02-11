@@ -1,23 +1,22 @@
 from __future__ import annotations
 
-import asyncio
 import traceback
-from asyncio import CancelledError
 from typing import Annotated, Any, Literal, Mapping, Sequence
 
 from fastapi import APIRouter, Body, Request, WebSocket, WebSocketException
 from starlette.status import WS_1008_POLICY_VIOLATION, WS_1011_INTERNAL_ERROR
 
+from ceres._internal import util
 from ceres._internal.app.shared import (
     VIEWER,
     CurrentEngine,
     CurrentProcedureQueryArguments,
     CurrentRole,
+    CurrentSocket,
 )
-from ceres._internal.lazy import lazy_imports
 from ceres.address import Address
 from ceres.component import Component, ProcedureBinding, ProcedureType
-from ceres.data import ImmutableDataObject, Name, StrEnum, jsonify
+from ceres.data import DeferBuild, ImmutableDataObject, Name, StrEnum, jsonify
 from ceres.error import (
     Failure,
     NotFoundError,
@@ -30,16 +29,13 @@ from ceres.error import (
 from ceres.result import Fail, Ok, Result
 from ceres.user import UserRole
 
-with lazy_imports(__name__):
-    from ceres._internal import util
-
 
 class ComponentRole(StrEnum):
     CONNECTION = "connection"
     INTERFACE = "interface"
 
 
-class APIComponent(ImmutableDataObject):
+class APIComponent(ImmutableDataObject, DeferBuild):
     name: Name
     address: Address
     components: Sequence[APIComponent]
@@ -48,7 +44,6 @@ class APIComponent(ImmutableDataObject):
 
 
 APIComponent.__name__ = "Component"
-APIComponent.model_rebuild()
 
 router = APIRouter(prefix="/components", tags=["components"])
 
@@ -57,8 +52,8 @@ def _get_component_roles(component: Component | type[Component]) -> Sequence[Com
     if not isinstance(component, type):
         component = type(component)
 
-    from ceres.roles.connection import Connection
-    from ceres.roles.interface import Interface
+    from ceres.connection import Connection
+    from ceres.interface import Interface
 
     roles: list[ComponentRole] = []
     if issubclass(component, Connection):
@@ -137,7 +132,7 @@ async def call(
 
 
 @router.get("/{address}/procedures/{procedure}/call", tags=["procedures"])
-async def call_query(
+async def call_by_get(
     engine: CurrentEngine,
     role: CurrentRole,
     request: Request,
@@ -192,18 +187,17 @@ async def _call(
 
 @router.websocket("/{address}/procedures/{procedure}/subscribe")
 async def subscribe(
-    socket: WebSocket,
+    socket: CurrentSocket,
+    connection: WebSocket,
     engine: CurrentEngine,
     role: CurrentRole,
     address: Address,
     procedure: Name,
     query_arguments: CurrentProcedureQueryArguments,
 ) -> None:
-    await socket.accept()
-
     arguments = {}
     arguments.update(query_arguments or {})
-    arguments.update(socket.query_params)
+    arguments.update(connection.query_params)
     arguments.pop("arguments", None)
     arguments.pop("args", None)
 
@@ -227,19 +221,10 @@ async def subscribe(
             jsonify(Fail(ProcedureNotPermittedError())),
         )
 
-    async def read() -> None:
-        try:
-            while True:
-                await socket.receive_text()
-        except Exception:
-            pass
-        finally:
-            task_write.cancel()
-
     async def write() -> None:
         try:
             async for output in component.system.subscribe(procedure, arguments):
-                await socket.send_text(jsonify(output))
+                await socket.send(output)
         except Exception as exception:
             if isinstance(exception, Failure) and isinstance(exception.error, ProcedureError):
                 if not isinstance(exception.error, ProcedureInternalError):
@@ -253,13 +238,5 @@ async def subscribe(
                 reason = jsonify(util.strify(exception)[0:100])
 
             await socket.close(code, reason)
-        finally:
-            task_read.cancel()
 
-    task_read = asyncio.create_task(read(), name="read")
-    task_write = asyncio.create_task(write(), name="write")
-
-    try:
-        await asyncio.gather(task_read, task_write)
-    except CancelledError:
-        pass
+    await socket.execute(write)

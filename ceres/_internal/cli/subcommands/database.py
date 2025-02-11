@@ -4,20 +4,16 @@ from typing import Sequence, override
 from pydantic import FilePath, NewPath
 from pydantic_settings import CliPositionalArg, CliSubCommand
 
+from ceres._internal import util
 from ceres._internal.cli.shared import (
     CliCommand,
     CliCommandFailed,
     CliCommandGroup,
     get_confirmation,
-    write,
 )
-from ceres._internal.lazy import lazy_imports
 from ceres.database.enums import DataFormat
 from ceres.entity import EntityType
 from ceres.timing import utc
-
-with lazy_imports(__name__):
-    from ceres._internal import util
 
 
 class InitCommand(CliCommand):
@@ -36,7 +32,7 @@ class InitCommand(CliCommand):
 
             print("<PENDING>")
             for statement in database.ddl:
-                write(statement, to="stdout")
+                self.write(statement, to="stdout")
             print("</PENDING>")
 
             if await database.initialized():
@@ -47,7 +43,7 @@ class InitCommand(CliCommand):
             if get_confirmation(confirmation):
                 await database.init()
             else:
-                write("Database has not been modified.")
+                self.write("Database has not been modified.")
 
 
 class DumpCommand(CliCommand):
@@ -88,14 +84,14 @@ class DumpCommand(CliCommand):
         async with self.use_database() as database:
             match format:
                 case DataFormat.CSV:
-                    write("Dumping data to CSV...")
+                    self.write("Dumping data to CSV...")
                     await database.dump_csv(self.path, entity_type[0])
                 case DataFormat.SQLITE:
-                    write("Dumping data to SQLite...")
+                    self.write("Dumping data to SQLite...")
                     await database.dump_sqlite(self.path, entity_type)
 
         duration = utc() - start
-        write(f"Dump completed in {util.show_td(duration)}.")
+        self.write(f"Dump completed in {util.show_td(duration)}.")
 
 
 class LoadCommand(CliCommand):
@@ -135,14 +131,14 @@ class LoadCommand(CliCommand):
         async with self.use_database() as database:
             match format:
                 case DataFormat.CSV:
-                    write("Loading data from CSV...")
+                    self.write("Loading data from CSV...")
                     await database.load_csv(self.path, entity_type[0])
                 case DataFormat.SQLITE:
-                    write("Loading data from SQLite...")
+                    self.write("Loading data from SQLite...")
                     await database.load_sqlite(self.path, entity_type)
 
         duration = utc() - start
-        write(f"Load completed in {util.show_td(duration)}.")
+        self.write(f"Load completed in {util.show_td(duration)}.")
 
 
 class ClearCommand(CliCommand):
@@ -154,7 +150,7 @@ class ClearCommand(CliCommand):
     async def __run__(self) -> None:
         async with self.use_database() as database:
             if not get_confirmation("Clear all data from the project database?"):
-                write("Database has not been modified. Exiting.")
+                self.write("Database has not been modified. Exiting.")
                 return
 
             start = utc()
@@ -162,7 +158,7 @@ class ClearCommand(CliCommand):
             await database.clear()
 
             duration = utc() - start
-            write(f"Cleared all data from database in {util.show_td(duration)}.")
+            self.write(f"Cleared all data from database in {util.show_td(duration)}.")
 
 
 class DdlCommand(CliCommand):
@@ -174,7 +170,7 @@ class DdlCommand(CliCommand):
     async def __run__(self) -> None:
         async with self.use_database(require_initialized=False, require_connect=False) as database:
             for statement in database.ddl:
-                write(statement, to="stdout", color=False)
+                self.write(statement, to="stdout", color=False)
 
 
 def _guess_format(format: DataFormat | None, path: Path) -> DataFormat:

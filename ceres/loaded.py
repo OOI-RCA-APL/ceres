@@ -14,11 +14,8 @@ from pydantic import (
 from pydantic_core import CoreSchema
 from pydantic_core.core_schema import no_info_after_validator_function
 
-from ceres._internal.lazy import lazy_imports
+from ceres._internal import util
 from ceres.data import ImmutableDataObject
-
-with lazy_imports(__name__):
-    from ceres._internal import util
 
 
 class Loader[T](ImmutableDataObject):

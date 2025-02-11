@@ -3,6 +3,8 @@ from typing import Iterable
 
 import pytest
 
+pytest.register_assert_rewrite("tests.testing")
+
 
 @pytest.fixture(scope="session")
 def event_loop() -> Iterable[AbstractEventLoop]:

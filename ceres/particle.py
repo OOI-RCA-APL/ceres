@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from abc import ABC
 from collections.abc import Mapping
 from datetime import datetime
 from typing import (
@@ -16,18 +15,25 @@ from typing import (
     MutableMapping,
     Type,
     TypeAlias,
+    Unpack,
     ValuesView,
+    overload,
     override,
 )
+from uuid import UUID
 
 from pydantic import ConfigDict, SerializeAsAny, ValidationError, model_validator
 from pydantic.types import ImportString
-from sqlalchemy import cast
+from sqlalchemy import JSON, SQLColumnExpression, Text, cast
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.sql.sqltypes import JSON, Text
+from sqlalchemy.schema import Index, SchemaItem
 from typing_extensions import TypeVar
 
-from ceres._internal.entity import (
+from ceres._internal import util
+from ceres._internal.entity import BaseEntityManager, BaseEntityQuery, EntityQuery, EntityTransform
+from ceres._internal.manager import BaseNodeManager
+from ceres._internal.protocols import DatabaseSource, NodeSource
+from ceres._internal.record import (
     BaseRecord,
     BaseRecordCreate,
     BaseRecordField,
@@ -37,24 +43,18 @@ from ceres._internal.entity import (
     BaseRecordRow,
     BaseRecordUpdate,
 )
-from ceres._internal.lazy import lazy_imports
-from ceres._internal.types import MaybeSequence
-from ceres.data import FromYaml, ImmutableDataObject, JsonableDict, jsonify
+from ceres._internal.util import MatchMode
+from ceres.data import FromYaml, ImmutableDataObject, JSONSerializableDict, MaybeSequence, jsonify
+from ceres.database import DatabaseType
+from ceres.stream import Stream
 from ceres.timing import utc
-
-with lazy_imports(__name__):
-    from sqlalchemy.schema import Index, SchemaItem
-    from sqlalchemy.sql import SQLColumnExpression
-
-    from ceres._internal import util
-    from ceres.database.enums import DatabaseType
 
 
 class ParticleRow(BaseRecordRow, kw_only=True):
     __tablename__: ClassVar[str] = "particles"
 
     type: Mapped[str] = mapped_column(Text)
-    data: Mapped[JsonableDict] = mapped_column(JSON)
+    data: Mapped[JSONSerializableDict] = mapped_column(JSON)
 
     @classmethod
     @override
@@ -81,14 +81,15 @@ ParticleOrder: TypeAlias = (
     BaseRecordOrder
     | Literal[
         "type",
-        "-type",
+        "type:asc",
+        "type:desc",
     ]
 )
 
 UNKNOWN_TYPE: LiteralString = "__unknown__"
 
 
-class ParticleData(ImmutableDataObject, Mapping[str, Any], ABC):
+class ParticleData(ImmutableDataObject, Mapping[str, Any]):
     model_config = ConfigDict(extra="allow")
 
     __type__: ClassVar[LiteralString]
@@ -123,7 +124,7 @@ class ParticleData(ImmutableDataObject, Mapping[str, Any], ABC):
         return value in self.__dict__
 
 
-DynamicParticleData: TypeAlias = ParticleData | JsonableDict
+DynamicParticleData: TypeAlias = JSONSerializableDict | ParticleData
 
 if TYPE_CHECKING:
     _T = TypeVar(
@@ -132,9 +133,20 @@ if TYPE_CHECKING:
         default=DynamicParticleData,
         covariant=True,
     )
+    _O = TypeVar(
+        "_O",
+        bound=DynamicParticleData,
+        default=DynamicParticleData,
+        covariant=True,
+    )
 else:
     _T = TypeVar(
         "_T",
+        default=DynamicParticleData,
+        covariant=True,
+    )
+    _O = TypeVar(
+        "_O",
         default=DynamicParticleData,
         covariant=True,
     )
@@ -186,22 +198,14 @@ class ParticleFilter(
             if not isinstance(obj.data, self.cls):
                 return False
 
-        if self.type is not None:
-            if obj.type not in util.as_sequence(self.type):
-                return False
-        if self.type_contains is not None:
-            if not any(obj.type in substring for substring in util.as_sequence(self.type_contains)):
-                return False
-        if self.type_prefix is not None:
-            if not any(
-                obj.type.startswith(prefix) for prefix in util.as_sequence(self.type_prefix)
-            ):
-                return False
-        if self.type_suffix is not None:
-            if not any(
-                obj.type.startswith(suffix) for suffix in util.as_sequence(self.type_suffix)
-            ):
-                return False
+        if not util.match_value(obj.type, self.type):
+            return False
+        if not util.match_string(obj.type, self.type_contains, MatchMode.CONTAINS):
+            return False
+        if not util.match_string(obj.type, self.type_prefix, MatchMode.PREFIX):
+            return False
+        if not util.match_string(obj.type, self.type_suffix, MatchMode.SUFFIX):
+            return False
 
         if (
             self.data_contains is not None
@@ -209,21 +213,12 @@ class ParticleFilter(
             or self.data_suffix is not None
         ):
             data_json = jsonify(obj.data)
-            if self.data_contains is not None:
-                if not any(
-                    substring in data_json for substring in util.as_sequence(self.data_contains)
-                ):
-                    return False
-            if self.data_prefix is not None:
-                if not any(
-                    data_json.startswith(prefix) for prefix in util.as_sequence(self.data_prefix)
-                ):
-                    return False
-            if self.data_suffix is not None:
-                if not any(
-                    data_json.startswith(suffix) for suffix in util.as_sequence(self.data_suffix)
-                ):
-                    return False
+            if not util.match_string(data_json, self.data_contains, MatchMode.CONTAINS):
+                return False
+            if not util.match_string(data_json, self.data_prefix, MatchMode.PREFIX):
+                return False
+            if not util.match_string(data_json, self.data_suffix, MatchMode.SUFFIX):
+                return False
 
         return True
 
@@ -248,55 +243,160 @@ class ParticleFilter(
                 yield columns.type == self.cls.__type__
 
         if self.type is not None:
-            yield columns.type.in_(util.as_sequence(self.type))
+            yield util.sql_match_value(columns.type, self.type)
         if self.type_contains is not None:
-            yield util.sqlorf(
-                columns.type.contains(type) for type in util.as_sequence(self.type_contains)
-            )
+            yield util.sql_match_string(columns.type, self.type_contains, MatchMode.CONTAINS)
         if self.type_prefix is not None:
-            yield util.sqlorf(
-                columns.type.startswith(prefix) for prefix in util.as_sequence(self.type_prefix)
-            )
+            yield util.sql_match_string(columns.type, self.type_prefix, MatchMode.PREFIX)
         if self.type_suffix is not None:
-            yield util.sqlorf(
-                columns.type.endswith(suffix) for suffix in util.as_sequence(self.type_suffix)
-            )
+            yield util.sql_match_string(columns.type, self.type_suffix, MatchMode.SUFFIX)
 
         if self.data_contains is not None:
-            yield util.sqlorf(
-                cast(columns.data, Text).contains(substring)
-                for substring in util.as_sequence(self.data_contains)
+            yield util.sql_match_string(
+                cast(columns.data, Text), self.data_contains, MatchMode.CONTAINS
             )
         if self.data_prefix is not None:
-            yield util.sqlorf(
-                cast(columns.data, Text).startswith(prefix)
-                for prefix in util.as_sequence(self.data_prefix)
+            yield util.sql_match_string(
+                cast(columns.data, Text), self.data_prefix, MatchMode.PREFIX
             )
         if self.data_suffix is not None:
-            yield util.sqlorf(
-                cast(columns.data, Text).endswith(suffix)
-                for suffix in util.as_sequence(self.data_suffix)
+            yield util.sql_match_string(
+                cast(columns.data, Text), self.data_suffix, MatchMode.SUFFIX
             )
 
 
 class ParticleCreate(BaseRecordCreate):
     type: str
-    data: FromYaml[JsonableDict]
+    data: FromYaml[JSONSerializableDict]
 
 
 class ParticleUpdate(BaseRecordUpdate, total=False):
     type: str
-    data: FromYaml[JsonableDict]
+    data: FromYaml[JSONSerializableDict]
+
+
+class _BaseParticleQuery(
+    BaseEntityQuery[
+        "Particle[_T]",
+        ParticleFilter[_T],
+        ParticleUpdate,
+        "ParticleQuery",
+    ],
+    Generic[_T],
+):
+    @override
+    def _get_query_class(self) -> type[ParticleQuery]:
+        return ParticleQuery
+
+    @override
+    def _get_transform(self) -> EntityTransform | None:
+        data_class = _get_data_class(self._get_resolved_filter(), None)
+        if data_class is None:
+            return None
+
+        def transform(entity: Particle[_T]) -> Particle[Any] | None:
+            return _convert_or_none(entity, data_class)
+
+        return transform
+
+    @overload
+    def where(
+        self,
+        filter: ParticleFilter[_O] | None = None,
+        **kwargs: Unpack[ParticleFilterArgs[_O]],
+    ) -> ParticleQuery[_O]: ...
+
+    @overload
+    def where(
+        self,
+        filter: ParticleFilter[Any] | None = None,
+        **kwargs: Unpack[ParticleFilterArgs[Any]],
+    ) -> ParticleQuery[Any]: ...
+
+    @override
+    def where(
+        self,
+        filter: ParticleFilter[Any] | None = None,
+        **kwargs: Unpack[ParticleFilterArgs[Any]],
+    ) -> ParticleQuery[Any]:
+        return super().where(filter, **kwargs)  # type: ignore
+
+
+class ParticleQuery(  # type: ignore
+    _BaseParticleQuery[_T],
+    EntityQuery[
+        "Particle[_T]",
+        ParticleFilter[_T],
+        ParticleUpdate,
+    ],
+    Generic[_T],
+):
+    pass
+
+
+class ParticleManager(
+    BaseEntityManager[
+        "Particle",
+        ParticleRow,
+        ParticleCreate,
+        ParticleUpdate,
+        ParticleFilter,
+        ParticleFilterArgs,
+    ],
+    _BaseParticleQuery[DynamicParticleData],
+):
+    def __init__(self, source: DatabaseSource, /) -> None:
+        super().__init__(source, Particle)
+
+    @overload
+    async def get(self, id: UUID, cls: None = None, /) -> Particle | None: ...
+
+    @overload
+    async def get(self, id: UUID, cls: type[_O], /) -> Particle[_O] | None: ...
+
+    async def get(self, id: UUID, cls: type[_O] | None = None, /) -> Particle[_O] | None:
+        return await self.where(id=id, cls=cls, limit=1).first()
+
+
+class BoundParticleManager(ParticleManager, BaseNodeManager):
+    def __init__(self, source: NodeSource, /) -> None:
+        super().__init__(source)
+
+    def follow(
+        self,
+        filter: ParticleFilter[_T] | None = None,
+        **kwargs: Unpack[ParticleFilterArgs[_T]],
+    ) -> Stream[Particle[_T]]:
+        from ceres.event import ParticleEvent
+
+        assert self.__node__ is not None
+        resolved = self._get_resolved_filter_args(filter, kwargs)
+
+        if TYPE_CHECKING:
+            util.blackhole(ParticleEvent)
+
+        result = (
+            self.__node__.events.follow()
+            .every(ParticleEvent)
+            .map(lambda event: event.particle)
+            .filter(resolved.matches)
+        )
+
+        return result  # type: ignore
 
 
 class Particle(BaseRecord, ParticleCreate, Generic[_T]):
     if TYPE_CHECKING:
+        Manager: ClassVar[type[ParticleManager]] = ParticleManager
+        BoundManager: ClassVar[type[BoundParticleManager]] = BoundParticleManager
         Row: ClassVar[type[ParticleRow]] = ParticleRow
         Create: ClassVar[type[ParticleCreate]] = ParticleCreate
         Update: ClassVar[type[ParticleUpdate]] = ParticleUpdate
         Filter: ClassVar[type[ParticleFilter]] = ParticleFilter
         FilterArgs: ClassVar[type[ParticleFilterArgs]] = ParticleFilterArgs
     else:
+        Manager: ClassVar[type] = ParticleManager
+        BoundManager: ClassVar[type] = BoundParticleManager
         Row: ClassVar[type] = ParticleRow
         Create: ClassVar[type] = ParticleCreate
         Update: ClassVar[type] = ParticleUpdate
@@ -351,3 +451,31 @@ class Particle(BaseRecord, ParticleCreate, Generic[_T]):
             return self.convert(cls)
         except ValidationError:
             return None
+
+
+def _convert_or_none(
+    particle: Particle | None,
+    data_class: type[_T] | None,
+) -> Particle[_T] | None:
+    if particle is None:
+        return None
+
+    if data_class is None:
+        return particle  # type: ignore
+
+    try:
+        return particle.convert_or_none(data_class)
+    except ValueError:
+        return None
+
+
+def _get_data_class(
+    filter: ParticleFilter[_T] | None,
+    filter_kwargs: ParticleFilterArgs[_T] | None,
+) -> type[_T] | None:
+    data_class = filter_kwargs.get("cls") if filter_kwargs is not None else None
+    if data_class is None:
+        if filter is not None:
+            data_class = filter.cls
+
+    return data_class

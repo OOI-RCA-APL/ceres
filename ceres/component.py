@@ -24,8 +24,8 @@ from typing import (
     Protocol,
     Self,
     Sequence,
+    TypeAlias,
     Unpack,
-    dataclass_transform,
     final,
     get_args,
     get_type_hints,
@@ -34,12 +34,13 @@ from typing import (
     runtime_checkable,
 )
 
-from pydantic import ConfigDict, Field, PositiveFloat, ValidationError
-from pydantic.fields import FieldInfo
-from sqlalchemy.util.typing import TypeAlias
+from pydantic import ConfigDict, PositiveFloat, ValidationError
 
+from ceres._internal import util
 from ceres._internal.filter import BaseFilter, BaseFilterArgs
 from ceres._internal.lazy import lazy_imports
+from ceres._internal.protocols import ComponentSource
+from ceres._internal.util import OrderedWeakSet, Undefined
 from ceres.address import Address, AddressSelector, DynamicAddress
 from ceres.config import PrunerConfig
 from ceres.connectivity import Connectivity
@@ -79,27 +80,21 @@ from ceres.event import (
     StoppingEvent,
     WillDetachEvent,
 )
-from ceres.manager.pruner import PrunerManager
 from ceres.node import InternalVariableName as InternalVariableName
 from ceres.node import Node
+from ceres.pruner import ComponentPrunerManager
 from ceres.status import Status
 from ceres.variable import Variable
 
 with lazy_imports(__name__):
     from sqlalchemy.ext.asyncio import AsyncSession
 
-    from ceres._internal import util
-    from ceres._internal.util import OrderedWeakSet, Undefined
     from ceres.config import ComponentConfig, JobConfig, SieveConfig
     from ceres.database import Database
-    from ceres.manager.job import JobManager
-    from ceres.manager.sieve import SieveManager
-    from ceres.reference import Reference, unref
-
-if TYPE_CHECKING:
     from ceres.engine import Engine
-else:
-    Engine = object
+    from ceres.job import ComponentJobManager
+    from ceres.reference import Reference, unref
+    from ceres.sieve import ComponentSieveManager
 
 
 warnings.filterwarnings(
@@ -137,17 +132,13 @@ class ComponentFilter(BaseFilter):
 
 
 if TYPE_CHECKING:
-    _Container: TypeAlias = "ComponentSystem | Engine | None"
+    _Container: TypeAlias = "Component | ComponentSystem | Engine | None"
 else:
     _Container = object
 
 
-@dataclass_transform(
-    kw_only_default=True,
-    field_specifiers=(Field, FieldInfo),
-)
-class Component(ValidatedDataclass):
-    __with_name__: InitVar[Name | None] = field(default=None)
+class Component(ValidatedDataclass, ComponentSource):
+    __with_name__: InitVar[Name | None] = field(default=None, kw_only=False)
     __with_config__: InitVar[ComponentConfig | None] = field(default=None)
     __with_container__: InitVar[_Container] = field(default=None)
 
@@ -155,7 +146,7 @@ class Component(ValidatedDataclass):
         self,
         __with_name__: Name | None = None,
         __with_config__: ComponentConfig | None = None,
-        __with_container__: ComponentSystem | Engine | None = None,
+        __with_container__: Component | ComponentSystem | Engine | None = None,
     ) -> None:
         self.__system = ComponentSystem(
             self,
@@ -164,6 +155,40 @@ class Component(ValidatedDataclass):
             __with_container__=__with_container__,
         )
         self.__setup__()
+
+    @final
+    @property
+    @override
+    def __database__(self) -> Database:
+        return self.__system.database
+
+    @final
+    @override
+    def __get_filter_defaults__(self) -> dict[str, Any]:
+        return self.__system.__get_filter_defaults__()
+
+    @final
+    @property
+    @override
+    def __node__(self) -> Node:
+        return self.__system
+
+    @final
+    @property
+    @override
+    def __system__(self) -> ComponentSystem:
+        return self.__system
+
+    @final
+    @property
+    @override
+    def __component__(self) -> Component:
+        return self
+
+    @final
+    @property
+    def system(self) -> ComponentSystem:
+        return self.__system
 
     def __setup__(self) -> None:
         pass
@@ -187,11 +212,6 @@ class Component(ValidatedDataclass):
     @final
     def __unref__(self) -> Self:
         return self
-
-    @final
-    @property
-    def system(self) -> ComponentSystem:
-        return self.__system
 
 
 @util.cached
@@ -323,7 +343,7 @@ def listener(
     reference: str | Sequence[str] | None = None,
     address: str | AddressSelector | Sequence[str | AddressSelector] | None = None,
 ) -> _ListenerMethod | _ListenerMethodTransform:
-    reference = util.strlist(reference)
+    reference = util.as_sequence(reference or ())
 
     if address is not None:
         address = AddressSelector(address)
@@ -684,16 +704,16 @@ warnings.filterwarnings(
 
 
 @final
-class ComponentSystem(Node):
+class ComponentSystem(Node, ComponentSource):
     __slots__ = (
-        "_name",
-        "_config",
-        "_referencers",
+        "__name",
+        "__config",
+        "__referencers",
         "_container",
-        "_children",
-        "_enabled",
-        "_database",
-        "_component",
+        "__children",
+        "__enabled",
+        "__database",
+        "__component",
     )
 
     def __init__(
@@ -702,26 +722,28 @@ class ComponentSystem(Node):
         *,
         __with_config__: ComponentConfig | None = None,
         __with_name__: Name | None = None,
-        __with_container__: ComponentSystem | Engine | None = None,
+        __with_container__: Component | ComponentSystem | Engine | None = None,
     ) -> None:
         super().__init__()
 
         if __with_name__ is None:
             __with_name__ = util.randstr(ascii_lowercase, 8)
+        if isinstance(__with_container__, Component):
+            __with_container__ = __with_container__.system
 
-        self._name = __with_name__
-        self._config: ComponentConfig | None = __with_config__
-        self._referencers: Final[OrderedWeakSet[ComponentSystem]] = OrderedWeakSet()
-        self._container: ComponentSystem | Engine | None = None
-        self._children: Final[dict[Name, ComponentSystem]] = {}
-        self._enabled = False
-        self._database: Database | None = None
-        self._component: Final[Component] = component
-        self._component.__bind__(self)
+        self.__name = __with_name__
+        self.__config: ComponentConfig | None = __with_config__
+        self.__referencers: Final[OrderedWeakSet[ComponentSystem]] = OrderedWeakSet()
+        self.__container: ComponentSystem | Engine | None = None
+        self.__children: Final[dict[Name, ComponentSystem]] = {}
+        self.__enabled = False
+        self.__database: Database | None = None
+        self.__component: Final[Component] = component
+        self.__component.__bind__(self)
 
         if __with_container__ is not None:
             __with_container__.attach(self)
-            assert self._container is __with_container__
+            assert self.__container is __with_container__
 
         self.sync_references()
 
@@ -748,14 +770,27 @@ class ComponentSystem(Node):
 
     @override
     def __repr__(self) -> str:
-        return (
-            f"{type(self).__name__}(name={self.name!r}, component={util.reprify(self.component)})"
-        )
+        return f"{type(self).__name__}(component={util.reprify(self.component)})"
 
     @property
     @override
     def __container__(self) -> Node | None:
-        return self._container
+        return self.__container
+
+    @property
+    @override
+    def __node__(self) -> Node:
+        return self
+
+    @property
+    @override
+    def __component__(self) -> Component:
+        return self.__component
+
+    @property
+    @override
+    def __system__(self) -> ComponentSystem:
+        return self
 
     @property
     @override
@@ -771,10 +806,23 @@ class ComponentSystem(Node):
     @property
     def container(self) -> ComponentSystem | Engine | None:
         """
-        Get the container of the component system, which is either another `ComponentSystem` as its
-        parent, or an `Engine`. Returns `None` if the component has no parent or containing engine.
+        Get the container of the component system. This can be either another `ComponentSystem` as
+        its parent, or an `Engine`. Returns `None` if the component has no parent or containing
+        engine.
         """
-        return self._container
+        return self.__container
+
+    @container.setter
+    def container(self, container: ComponentSystem | Engine | None) -> None:
+        from ceres.engine import Engine
+
+        self.__container = container
+        if isinstance(container, Engine):
+            if container.root is not self:
+                container.attach(self)
+        elif isinstance(container, ComponentSystem):
+            if container.__children.get(self.__name) is not self:
+                container.attach(self)
 
     @property
     @override
@@ -783,7 +831,7 @@ class ComponentSystem(Node):
         Get the engine this component is contained by. Returns `None` if the component is not
         contained by any engine.
         """
-        container = self._container
+        container = self.__container
         if container is None:
             return None
 
@@ -792,13 +840,13 @@ class ComponentSystem(Node):
     @property
     @override
     def database(self) -> Database:
-        container = self._container
+        container = self.__container
         if container is not None:
             return container.database
 
-        if self._database is None:
-            self._database = Database()
-        return self._database
+        if self.__database is None:
+            self.__database = Database()
+        return self.__database
 
     @property
     @override
@@ -806,7 +854,7 @@ class ComponentSystem(Node):
         """
         The configuration of the component, if available.
         """
-        return self._config
+        return self.__config
 
     @config.setter
     def config(self, config: ComponentConfig | None) -> None:
@@ -815,7 +863,7 @@ class ComponentSystem(Node):
         the configuration. It will only indicate to the engine, that this configuration is the one
         currently applied. Generally, this is only for internal use and should not be used directly.
         """
-        self._config = config
+        self.__config = config
 
     @property
     @override
@@ -831,50 +879,50 @@ class ComponentSystem(Node):
         """
         Get the parent component's system if it exists, or return `None`.
         """
-        return util.as_component_system(self._container)
+        return util.as_component_system(self.__container)
 
     @cached_property
-    def jobs(self) -> JobManager:
-        return JobManager(self)
+    def jobs(self) -> ComponentJobManager:
+        return ComponentJobManager(self)
 
     @cached_property
-    def pruners(self) -> PrunerManager:
-        return PrunerManager(self)
+    def pruners(self) -> ComponentPrunerManager:
+        return ComponentPrunerManager(self)
 
     @cached_property
-    def sieves(self) -> SieveManager:
-        return SieveManager(self)
+    def sieves(self) -> ComponentSieveManager:
+        return ComponentSieveManager(self)
 
     @override
     async def __node_sync__(self, session: AsyncSession | None = None) -> None:
         await super().__node_sync__(session)
-        self._enabled = await self.__get_enabled_in_database()
+        self.__enabled = await self.__get_enabled_in_database()
 
     @property
     def name(self) -> Name:
-        return self._name
+        return self.__name
 
     @name.setter
     def name(self, name: Name) -> None:
         if self.parent is None:
-            self._name = name
+            self.__name = name
             return
 
-        if name in self.parent._children:
-            raise ValueError(f"parent already has child named {self._name!r}")
+        if name in self.parent.__children:
+            raise ValueError(f"parent already has child named {self.__name!r}")
 
-        self._name = name
-        self.parent._children[name] = self
+        self.__name = name
+        self.parent.__children[name] = self
         self.__propagate_tree_change()
 
-        self._name = name
+        self.__name = name
 
     @property
     def component(self) -> Component:
         """
         Get the underlying component of the component system.
         """
-        return self._component
+        return self.__component
 
     @property
     def enabled(self) -> bool:
@@ -882,7 +930,7 @@ class ComponentSystem(Node):
         `True` if the component is enabled. Enabled components start automatically when their parent
         starts.
         """
-        return self._enabled
+        return self.__enabled
 
     async def enable(self) -> None:
         """
@@ -893,7 +941,7 @@ class ComponentSystem(Node):
             await self.parent.enable()
 
         await self.__set_enabled_in_database(True)
-        self._enabled = True
+        self.__enabled = True
         self.events.emit(EnabledEvent)
 
     async def disable(self) -> None:
@@ -901,7 +949,7 @@ class ComponentSystem(Node):
         Disable the component.
         """
         await self.__set_enabled_in_database(False)
-        self._enabled = False
+        self.__enabled = False
         self.events.emit(DisabledEvent)
 
     async def up(self) -> None:
@@ -940,7 +988,7 @@ class ComponentSystem(Node):
         """
         Get all child component systems of this component.
         """
-        return list(self._children.values())
+        return list(self.__children.values())
 
     def get_listener_bindings(self) -> Sequence[ListenerBinding]:
         """
@@ -1015,16 +1063,16 @@ class ComponentSystem(Node):
 
             if component is not None:
                 resolved.append(reference)
-                component.system._referencers.add(self)
+                component.system.__referencers.add(self)
             else:
                 unresolved.append(reference)
 
         discard: list[ComponentSystem] = []
-        for referencer in self._referencers:
+        for referencer in self.__referencers:
             if self.component not in referencer.get_referenced_components():
                 discard.append(referencer)
 
-        self._referencers.difference_update(discard)
+        self.__referencers.difference_update(discard)
         return resolved, unresolved
 
     def get_references(self) -> list[Reference]:
@@ -1083,7 +1131,7 @@ class ComponentSystem(Node):
         if recursive:
             return self.__get_referencing_components_recursive()
 
-        return util.as_components(self._referencers)
+        return util.as_components(self.__referencers)
 
     def __get_referencing_components_recursive(self) -> list[Component]:
         seen: set[int] = set()
@@ -1115,15 +1163,15 @@ class ComponentSystem(Node):
         child.detach()
 
         name = name or child.name
-        current = self._children.get(name)
+        current = self.__children.get(name)
         if current is not None:
             raise ValueError(f"child with name '{name}' already exists")
 
         if child.name != name:
             child.name = name
 
-        self._children[child.name] = child
-        child._container = self
+        self.__children[child.name] = child
+        child.__container = self
 
         self.__propagate_tree_change()
         child.events.emit(AttachedEvent)
@@ -1133,17 +1181,17 @@ class ComponentSystem(Node):
         Remove the component from its container (either its parent component, or its containing
         engine). If the component has no container, this does nothing.
         """
-        if self._container is None:
+        if self.__container is None:
             return
 
-        engine = util.as_engine(self._container)
+        engine = util.as_engine(self.__container)
         if engine is not None:
             self.events.emit(WillDetachEvent)
             address_before = self.address
             logging_before = self.get_resolved_logging_config()
 
-            engine._root = None
-            self._container = None
+            self.__container = None
+            engine.root = None
             self.__propagate_tree_change()
 
             engine.events.propagate(
@@ -1156,7 +1204,7 @@ class ComponentSystem(Node):
         if parent is None:
             return
 
-        current = parent._children.get(self.name)
+        current = parent.__children.get(self.name)
 
         try:
             if current is not None and current is self:
@@ -1165,8 +1213,8 @@ class ComponentSystem(Node):
                 address_before = self.address
                 logging_before = self.get_resolved_logging_config()
 
-                parent._children.pop(self.name, None)
-                self._container = None
+                parent.__children.pop(self.name, None)
+                self.__container = None
 
                 self.__propagate_tree_change()
                 parent.__propagate_tree_change()
@@ -1177,7 +1225,7 @@ class ComponentSystem(Node):
                 )
                 self.events.emit(DetachedEvent)
         finally:
-            self._container = None
+            self.__container = None
 
     @override
     def get_component(
@@ -1199,7 +1247,7 @@ class ComponentSystem(Node):
             if current is None:
                 break
 
-            current = current._children.get(name)
+            current = current.__children.get(name)
 
         if current is None:
             return None
@@ -1231,7 +1279,7 @@ class ComponentSystem(Node):
             if (inclusive or current is not self) and filter.matches(current):
                 components.append(current.component)
 
-            for component in current._children.values():
+            for component in current.__children.values():
                 traverse(component)
 
         traverse(self)
@@ -1378,9 +1426,9 @@ class ComponentSystem(Node):
         await super().__post_stop__()
         await self.flush()
 
-        if self._database is not None:
-            await self._database.dispose()
-            self._database = None
+        if self.__database is not None:
+            await self.__database.dispose()
+            self.__database = None
 
         self.events.emit(StoppedEvent)
 
@@ -1505,19 +1553,19 @@ class ComponentSystem(Node):
             raise Failure(ProcedureInternalError(traceback=list(traceback)))
 
     def sync_child_order(self) -> None:
-        if self._config is None:
+        if self.__config is None:
             return
 
         order: list[ComponentSystem] = []
-        for config in self._config.components:
-            component = self._children.get(config.name)
+        for config in self.__config.components:
+            component = self.__children.get(config.name)
             if component is not None:
                 order.append(component)
 
-        for component in self._children.values():
+        for component in self.__children.values():
             if not any(current is component for current in order):
                 order.append(component)
 
-        self._children.clear()
+        self.__children.clear()
         for component in order:
-            self._children[component.name] = component
+            self.__children[component.name] = component

@@ -21,9 +21,10 @@ from typing import (
     final,
     override,
 )
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from pydantic import ValidationError
+from sqlalchemy import URL, AsyncAdaptedQueuePool, Connection, delete, event, inspect, text
 from sqlalchemy.engine.interfaces import DBAPIConnection
 
 from ceres._internal import util
@@ -32,8 +33,8 @@ from ceres._internal.entity import BaseEntity, BaseEntityRow
 from ceres._internal.lazy import lazy_imports
 from ceres._internal.util import PathLike
 from ceres.config import DatabaseConfig, PostgresDatabaseConfig, SQLiteDatabaseConfig
-from ceres.data import PasswordHash, jsonify
-from ceres.database.enums import DatabaseType
+from ceres.data import PasswordHash, jsonify, uuid4
+from ceres.database import DatabaseType
 from ceres.entity import EntityType
 from ceres.error import DatabaseInitError, DatabaseLoadError, Failure
 from ceres.threading import spawn
@@ -42,15 +43,6 @@ with lazy_imports(__name__):
     import sqlite3
 
     import asyncpg
-    from sqlalchemy import (
-        URL,
-        AsyncAdaptedQueuePool,
-        Connection,
-        delete,
-        event,
-        inspect,
-        text,
-    )
     from sqlalchemy.ext.asyncio import (
         AsyncConnection,
         AsyncEngine,
@@ -58,14 +50,14 @@ with lazy_imports(__name__):
         create_async_engine,
     )
 
-    from ceres.manager.alert import AlertManager
-    from ceres.manager.logs import LogManager
-    from ceres.manager.message import MessageManager
-    from ceres.manager.particle import ParticleManager
-    from ceres.manager.setting import SettingManager
-    from ceres.manager.statistic import StatisticsManager
-    from ceres.manager.user import UserManager
-    from ceres.manager.variable import VariableManager
+    from ceres.alert import AlertManager
+    from ceres.logs import LogManager
+    from ceres.message import MessageManager
+    from ceres.particle import ParticleManager
+    from ceres.setting import SettingManager
+    from ceres.statistics import StatisticsManager
+    from ceres.user import UserManager
+    from ceres.variable import VariableManager
 
 if TYPE_CHECKING:
     from sqlalchemy.dialects.sqlite.aiosqlite import AsyncAdapt_aiosqlite_connection
@@ -76,7 +68,7 @@ else:
 
 
 class Database:
-    def __new__(cls, /, config: DatabaseConfig | None = None) -> Database:
+    def __new__(cls, config: DatabaseConfig | None = None, /) -> Database:
         if cls is Database:
             match config:
                 case None | SQLiteDatabaseConfig():
@@ -86,7 +78,7 @@ class Database:
 
         return cls(config)  # type: ignore
 
-    def __init__(self, /, config: DatabaseConfig | None = None) -> None:
+    def __init__(self, config: DatabaseConfig | None = None, /) -> None:
         assert config is not None
 
         self.__id = uuid4()
@@ -94,6 +86,13 @@ class Database:
         self.__engine = self._create_engine()
         self.__init_lock = AsyncLock()
         self.__completed_init_successfully = False
+
+    @property
+    def __database__(self) -> Database:
+        return self
+
+    def __get_filter_defaults__(self) -> dict[str, Any]:
+        return {}
 
     @property
     def id(self) -> UUID:
@@ -133,7 +132,7 @@ class Database:
         return AlertManager(self)
 
     @cached_property
-    def log(self) -> LogManager:
+    def logs(self) -> LogManager:
         return LogManager(self)
 
     @cached_property
@@ -190,9 +189,9 @@ class Database:
 
         self._pre_configure_engine(engine)
 
-        init = util.strlist(self.config.hooks.init)
-        connect = util.strlist(self.config.hooks.connect)
-        disconnect = util.strlist(self.config.hooks.close)
+        init = util.as_sequence(self.config.hooks.init or ())
+        connect = util.as_sequence(self.config.hooks.connect or ())
+        disconnect = util.as_sequence(self.config.hooks.close or ())
 
         if init:
 
@@ -265,7 +264,10 @@ class Database:
                 await connection.commit()
 
     async def initialized(self) -> bool:
-        return await self.__run_sync(lambda connection: bool(inspect(connection).get_table_names()))
+        with util.wrap_database_errors():
+            return await self.__run_sync(
+                lambda connection: bool(inspect(connection).get_table_names())
+            )
 
     #
     # Users
@@ -382,10 +384,6 @@ class SQLiteDatabase(Database):  #
         # https://docs.sqlalchemy.org/en/20/core/events.html#sqlalchemy.events.PoolEvents.connect
         @event.listens_for(engine.sync_engine, "connect")
         def connect(connection: _SQLiteConnection, *args: object) -> None:
-            # Enable a 30 second busy timeout.
-            connection.execute("PRAGMA busy_timeout = 30000")
-            # Set like statements to be case sensitive to match Postgres.
-            connection.execute("PRAGMA case_sensitive_like = ON")
             # Clear the isolation level to stop "pysqlite" from:
             #   1. Automatically emitting "BEGIN"
             #   2. Automatically emitting "COMMIT" before any DDL
@@ -394,6 +392,10 @@ class SQLiteDatabase(Database):  #
             # Enable foreign key handling by default.
             # https://docs.sqlalchemy.org/en/latest/dialects/sqlite.html#foreign-key-support
             connection.execute("PRAGMA foreign_keys = ON")
+            # Set like statements to be case sensitive to match Postgres.
+            connection.execute("PRAGMA case_sensitive_like = ON")
+            # Enable a 30 second busy timeout.
+            connection.execute("PRAGMA busy_timeout = 30000")
 
             _sqlite_create_functions(connection)
 
@@ -638,6 +640,10 @@ class PostgresDatabase(Database):
         }
 
     @override
+    def _pre_configure_engine(self, engine: AsyncEngine) -> None:
+        pass
+
+    @override
     async def dump_csv(self, path: PathLike, entity_type: EntityType) -> None:
         path = _prepare_write_path(path)
 
@@ -817,24 +823,18 @@ def _read_csv_entities[T: BaseEntity](
         yield entity
 
 
-def _decode(value: bytes, encoding: str) -> str:
-    if isinstance(value, str):
-        return value
-
-    return value.decode(encoding)
+def _ceres_decode_latin1(value: bytes) -> str:
+    return value.decode("latin-1")
 
 
-def _encode(value: str, encoding: str) -> bytes:
-    if isinstance(value, bytes):
-        return value
-
-    return value.encode(encoding)
+def _ceres_encode_latin1(value: str) -> bytes:
+    return value.encode("latin-1")
 
 
 def _sqlite_create_functions(connection: _SQLiteConnection) -> None:
     sqlite3.enable_callback_tracebacks(True)
-    connection.create_function("decode", 2, _decode)
-    connection.create_function("encode", 2, _encode)
+    connection.create_function("ceres_decode_latin1", 1, _ceres_decode_latin1)
+    connection.create_function("ceres_encode_latin1", 1, _ceres_encode_latin1)
 
 
 _Replace = Mapping[EntityType, Mapping[str, str]]

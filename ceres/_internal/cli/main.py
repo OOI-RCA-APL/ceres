@@ -6,8 +6,9 @@ import signal
 import sys
 from asyncio import CancelledError
 from asyncio import Event as AsyncEvent
+from contextlib import contextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Sequence, override
+from typing import TYPE_CHECKING, Any, Callable, Sequence, override
 
 from pydantic import Field, ValidationError, create_model
 from pydantic_settings import (
@@ -19,6 +20,7 @@ from pydantic_settings import (
     SettingsError,
 )
 
+from ceres._internal import util
 from ceres._internal.cli.shared import (
     CliCommand,
     CliCommandFailed,
@@ -27,17 +29,16 @@ from ceres._internal.cli.shared import (
     write,
     write_table,
 )
+from ceres._internal.entity import DeleteExecutor, SelectExecutor, UpdateExecutor
 from ceres._internal.lazy import lazy_imports, unlazy
 from ceres.address import AddressSelector
-from ceres.config import ConfigCheckType
+from ceres.data import jsonify
 from ceres.error import Failure
 from ceres.result import Fail, Ok
 
 with lazy_imports(__name__):
-    from ceres._internal import util
     from ceres._internal.cli.client import Client
     from ceres.component import ComponentFilter
-    from ceres.data import jsonify
     from ceres.engine import Engine
     from ceres.threading import spawn
 
@@ -70,6 +71,8 @@ class CheckCommand(CliCommand):
 
     @override
     async def __run__(self) -> None:
+        from ceres.config import ConfigCheckType
+
         await self.use_config(checks=ConfigCheckType.all())
         write("All checks passed.")
 
@@ -251,7 +254,7 @@ class DownCommand(CliCommand):
         return await client.post("/down", query)
 
 
-def _show_validation_error(exception: ValidationError) -> None:
+def _show_validation_error(exception: ValidationError, color: bool | None = None) -> None:
     write("Errors:")
 
     for error in exception.errors():
@@ -270,22 +273,9 @@ def _show_validation_error(exception: ValidationError) -> None:
 
         value = error.get("input") or "(unknown-value)"
 
-        write(f"- {location} = {value!r}: {message}", file=sys.stderr)
+        write(f"- {location} = {value!r}: {message}", file=sys.stderr, color=color)
 
     exit(1)
-
-
-with lazy_imports(__name__):
-    from ceres._internal.cli.subcommands.alerts import AlertsCommand
-    from ceres._internal.cli.subcommands.database import DatabaseCommand
-    from ceres._internal.cli.subcommands.generate import GenerateCommand
-    from ceres._internal.cli.subcommands.logs import LogsCommand
-    from ceres._internal.cli.subcommands.messages import MessagesCommand
-    from ceres._internal.cli.subcommands.particles import ParticlesCommand
-    from ceres._internal.cli.subcommands.service import ServiceCommand
-    from ceres._internal.cli.subcommands.settings import SettingsCommand
-    from ceres._internal.cli.subcommands.users import UsersCommand
-    from ceres._internal.cli.subcommands.variables import VariablesCommand
 
 
 class BaseMainCommand(BaseSettings, CliCommandGroup):
@@ -324,7 +314,28 @@ class BaseMainCommand(BaseSettings, CliCommandGroup):
 
             return __version__
 
-        return await super().__execute__()
+        try:
+            result = await super().__execute__()
+            if result is not None:
+                if isinstance(result, SelectExecutor | UpdateExecutor | DeleteExecutor):
+                    async with result as values:
+                        async for current in values:
+                            current = jsonify(current)
+                            self.write(current, to="stdout")
+                else:
+                    result = jsonify(result)
+                    self.write(result, to="stdout")
+
+            return result
+        except Failure as failure:
+            self.write(jsonify(failure.error, indent=2))
+            exit(1)
+        except SettingsError as exception:
+            self.write(exception)
+            exit(1)
+        except (KeyboardInterrupt, CancelledError):
+            self.write("Interrupted. Exiting...")
+            exit(0)
 
     def __init__(self, args: Sequence[str]) -> None:
         super().__init__(
@@ -341,6 +352,19 @@ class MainCliSettingsSource(CliSettingsSource):
     @override
     def __init__(self, settings_cls: type[BaseSettings], args: Sequence[str]) -> None:
         super().__init__(settings_cls, cli_parse_args=list(args))
+
+
+with lazy_imports(__name__):
+    from ceres._internal.cli.subcommands.alerts import AlertsCommand
+    from ceres._internal.cli.subcommands.database import DatabaseCommand
+    from ceres._internal.cli.subcommands.generate import GenerateCommand
+    from ceres._internal.cli.subcommands.logs import LogsCommand
+    from ceres._internal.cli.subcommands.messages import MessagesCommand
+    from ceres._internal.cli.subcommands.particles import ParticlesCommand
+    from ceres._internal.cli.subcommands.service import ServiceCommand
+    from ceres._internal.cli.subcommands.settings import SettingsCommand
+    from ceres._internal.cli.subcommands.users import UsersCommand
+    from ceres._internal.cli.subcommands.variables import VariablesCommand
 
 
 def main(args: Sequence[str] | None = None) -> None:
@@ -378,34 +402,22 @@ def main(args: Sequence[str] | None = None) -> None:
     )
 
     async def run() -> None:
+        color = None
+        if "--color" in args:
+            color = True
+        if "--no-color" in args:
+            color = False
+
         try:
             command = MainCommand(args)
         except ValidationError as exception:
-            _show_validation_error(exception)
+            _show_validation_error(exception, color)
             exit(1)
         except SettingsError as exception:
-            write(exception)
+            write(exception, color=color)
             exit(1)
 
-        try:
-            result = await command.__execute__()
-            if result is not None:
-                if not isinstance(result, str):
-                    try:
-                        result = jsonify(result, indent=2)
-                    except Exception:
-                        pass
-
-                write(result, to="stdout")
-        except Failure as failure:
-            write(jsonify(failure.error, indent=2))
-            exit(1)
-        except SettingsError as exception:
-            write(exception)
-            exit(1)
-        except KeyboardInterrupt:
-            write("Interrupted by user. Exiting...")
-            exit(0)
+        await command.__execute__()
 
     asyncio.run(run())
 
@@ -415,10 +427,10 @@ async def _run(addresses: Sequence[AddressSelector], *, config_path: Path, watch
 
     try:
         if watch:
-            util.set_current_process_name("ceres-watch")
+            _set_current_process_name("ceres-watch")
             await _run_watch(address, config_path=config_path)
         else:
-            util.set_current_process_name("ceres")
+            _set_current_process_name("ceres")
 
             engine = Engine()
             match await engine.load(config_path):
@@ -452,7 +464,7 @@ async def _run(addresses: Sequence[AddressSelector], *, config_path: Path, watch
             def handle_exit_signal(*args: Any, **kwargs: Any) -> None:
                 exiting.set()
 
-            with util.temporary_signal_handler([signal.SIGINT, signal.SIGTERM], handle_exit_signal):
+            with _temporary_signal_handler([signal.SIGINT, signal.SIGTERM], handle_exit_signal):
                 await main()
     except Exception as exception:
         if not isinstance(exception, CliCommandFailed):
@@ -537,10 +549,42 @@ async def _run_watch(
     def handle_exit_signal(*args: object, **kwargs: object) -> None:
         task.cancel()
 
-    with util.temporary_signal_handler([signal.SIGINT, signal.SIGTERM], handle_exit_signal):
+    with _temporary_signal_handler([signal.SIGINT, signal.SIGTERM], handle_exit_signal):
         try:
             await task
         except CancelledError:
             pass
         finally:
             await util.cancel(task)
+
+
+def _set_current_process_name(name: str) -> None:
+    try:
+        from setproctitle import setproctitle
+
+        setproctitle(name)
+    except Exception:
+        pass
+
+
+@contextmanager
+def _temporary_signal_handler(signums: Sequence[int], handler: Callable[..., Any]):
+    import signal
+
+    loop = util.get_event_loop_or_none()
+    originals: dict[int, Any] = {}
+
+    for signum in signums:
+        if original := signal.getsignal(signum):
+            originals[signum] = original
+
+        if loop is not None:
+            loop.add_signal_handler(signum, handler)
+        else:
+            signal.signal(signum, handler)
+
+    try:
+        yield
+    finally:
+        for signum, original in originals.items():
+            signal.signal(signum, original)

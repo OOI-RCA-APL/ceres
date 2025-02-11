@@ -3,13 +3,14 @@ from __future__ import annotations
 import asyncio
 from abc import abstractmethod
 from functools import cached_property
-from typing import AsyncIterable, Unpack, dataclass_transform, override
+from typing import Any, AsyncIterable, Unpack, dataclass_transform, override
 
 from pydantic import Field
 from pydantic.fields import FieldInfo
 
+from ceres._internal import util
 from ceres._internal.lazy import lazy_imports
-from ceres._internal.typedecs import __Item__
+from ceres._internal.protocols import NodeSource
 from ceres.address import Address, AddressSelector, DynamicAddress
 from ceres.data import StrEnum
 from ceres.event import (
@@ -27,22 +28,22 @@ from ceres.tasklet import Tasklet
 with lazy_imports(__name__):
     from sqlalchemy.ext.asyncio import AsyncSession
 
-    from ceres._internal import util
     from ceres._internal.database.writer import Writer
+    from ceres.alert import BoundAlertManager
     from ceres.component import Component, ComponentFilter, ComponentFilterArgs, ComponentSystem
     from ceres.config import ComponentConfig, Config, LoggingConfig
     from ceres.database import Database
     from ceres.engine import Engine
-    from ceres.manager.alert import BoundAlertManager
-    from ceres.manager.event import EventManager
-    from ceres.manager.logs import BoundLogManager
-    from ceres.manager.message import BoundMessageManager
-    from ceres.manager.particle import BoundParticleManager
-    from ceres.manager.setting import SettingManager
-    from ceres.manager.statistic import StatisticsManager
-    from ceres.manager.user import UserManager
-    from ceres.manager.variable import BoundVariableManager
+    from ceres.event import NodeEventManager
+    from ceres.item import Item
+    from ceres.logs import BoundLogManager
+    from ceres.message import BoundMessageManager
+    from ceres.particle import BoundParticleManager
+    from ceres.setting import SettingManager
+    from ceres.statistics import StatisticsManager
     from ceres.status import Status
+    from ceres.user import UserManager
+    from ceres.variable import BoundVariableManager
 
 
 class InternalVariableName(StrEnum):
@@ -53,15 +54,32 @@ class InternalVariableName(StrEnum):
     kw_only_default=True,
     field_specifiers=(Field, FieldInfo),
 )
-class Node(Tasklet):
+class Node(Tasklet, NodeSource):
     __slots__ = ("__tasklet__",)
 
-    def __init__(self, /) -> None:
+    def __init__(self) -> None:
         super().__init__()
 
     @property
     @abstractmethod
     def __container__(self) -> Node | None: ...
+
+    @property
+    @override
+    def __database__(self) -> Database:
+        return self.database
+
+    @override
+    def __get_filter_defaults__(self) -> dict[str, Any]:
+        return {
+            "root": self.address,
+            "address": self.address.all(),
+        }
+
+    @property
+    @override
+    def __node__(self) -> Node:
+        return self
 
     async def __node_sync__(self, session: AsyncSession | None = None) -> None:
         pass
@@ -98,9 +116,17 @@ class Node(Tasklet):
     def alerts(self) -> BoundAlertManager:
         return BoundAlertManager(self)
 
+    @property
+    def alert(self) -> BoundAlertManager:
+        return self.alerts
+
     @cached_property
-    def log(self) -> BoundLogManager:
+    def logs(self) -> BoundLogManager:
         return BoundLogManager(self)
+
+    @property
+    def log(self) -> BoundLogManager:
+        return self.logs
 
     @cached_property
     def users(self) -> UserManager:
@@ -115,8 +141,8 @@ class Node(Tasklet):
         return SettingManager(self)
 
     @cached_property
-    def events(self) -> EventManager:
-        return EventManager(self)
+    def events(self) -> NodeEventManager:
+        return NodeEventManager(self)
 
     @cached_property
     def statistics(self) -> StatisticsManager:
@@ -144,19 +170,15 @@ class Node(Tasklet):
 
         return local if local is not None else LoggingConfig()
 
-    def store(self, item: __Item__, /) -> None:
-        from ceres.alert import Alert
-        from ceres.logs import LogEntry
-        from ceres.message import Message
-        from ceres.particle import Particle
-        from ceres.variable import Variable
+    def store(self, item: Item, /) -> None:
+        from ceres.item import Item
 
-        if type(item) not in (Message, Particle, Alert, LogEntry, Variable):
+        if not isinstance(item, Item):
             raise TypeError(f"invalid item type {type(item)}")
 
         self.__store(item)
 
-    def __store(self, item: __Item__, /) -> None:
+    def __store(self, item: Item, /) -> None:
         container = self.__container__
         if container is None:
             self.__writer.add(item)

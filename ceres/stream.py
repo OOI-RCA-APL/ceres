@@ -18,10 +18,7 @@ from typing import (
 )
 from weakref import WeakSet
 
-from ceres._internal.lazy import lazy_imports
-
-with lazy_imports(__name__):
-    from ceres._internal import util
+from ceres._internal import util
 
 
 def _get_running_loop() -> AbstractEventLoop | None:

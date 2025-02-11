@@ -1,7 +1,18 @@
 from __future__ import annotations
 
-from ceres._internal.typedecs import __Entity__
+from functools import wraps
+from typing import TypeAlias
+
+from ceres.alert import Alert as Alert
 from ceres.data import StrEnum
+from ceres.logs import LogEntry as LogEntry
+from ceres.message import Message as Message
+from ceres.particle import Particle as Particle
+from ceres.setting import Setting as Setting
+from ceres.user import User as User
+from ceres.variable import Variable as Variable
+
+Entity: TypeAlias = Message | Particle | Alert | LogEntry | User | Variable | Setting
 
 
 class EntityType(StrEnum):
@@ -14,6 +25,26 @@ class EntityType(StrEnum):
     SETTING = "setting"
 
     @property
+    def cls(self) -> type[Entity]:
+        match self:
+            case EntityType.MESSAGE:
+                return Message
+            case EntityType.PARTICLE:
+                return Particle
+            case EntityType.ALERT:
+                return Alert
+            case EntityType.LOG_ENTRY:
+                return LogEntry
+            case EntityType.USER:
+                return User
+            case EntityType.VARIABLE:
+                return Variable
+            case EntityType.SETTING:
+                return Setting
+
+        raise ValueError(self)
+
+    @property
     def table(self) -> str:
         match self:
             case EntityType.MESSAGE:
@@ -23,47 +54,13 @@ class EntityType(StrEnum):
             case EntityType.ALERT:
                 return "alerts"
             case EntityType.LOG_ENTRY:
-                return "log_entries"
+                return "logs"
             case EntityType.USER:
                 return "users"
             case EntityType.VARIABLE:
                 return "variables"
             case EntityType.SETTING:
                 return "settings"
-
-        raise ValueError(self)
-
-    @property
-    def cls(self) -> type[__Entity__]:
-        match self:
-            case EntityType.MESSAGE:
-                from ceres.message import Message
-
-                return Message
-            case EntityType.PARTICLE:
-                from ceres.particle import Particle
-
-                return Particle
-            case EntityType.ALERT:
-                from ceres.alert import Alert
-
-                return Alert
-            case EntityType.LOG_ENTRY:
-                from ceres.logs import LogEntry
-
-                return LogEntry
-            case EntityType.USER:
-                from ceres.user import User
-
-                return User
-            case EntityType.VARIABLE:
-                from ceres.variable import Variable
-
-                return Variable
-            case EntityType.SETTING:
-                from ceres.setting import Setting
-
-                return Setting
 
         raise ValueError(self)
 
@@ -79,11 +76,15 @@ __ENTITY_TYPE_ALIASES = {
     "settings": "setting",
 }
 
-
-def __new_override(cls: type[EntityType], alias: str) -> EntityType:
-    return cls(__ENTITY_TYPE_ALIASES.get(alias, alias))
+__new = EntityType.__new__
 
 
-__new_override.__name__ = "__new__"
+@wraps(__new)
+def __new_override(cls: type[EntityType], value: str) -> EntityType:
+    if isinstance(value, EntityType):
+        return value
+
+    return __new(cls, __ENTITY_TYPE_ALIASES.get(value, value))
+
 
 EntityType.__new__ = __new_override  # type: ignore

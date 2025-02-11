@@ -7,7 +7,7 @@ from dataclasses import field
 from datetime import datetime
 from typing import Any, Iterable, Sequence, final, override
 
-from ceres._internal.lazy import lazy_imports
+from ceres._internal import util
 from ceres._internal.templates import templates
 from ceres.address import Address
 from ceres.alert import Alert, AlertFilter, Level
@@ -15,12 +15,9 @@ from ceres.component import Component, action, routine
 from ceres.config import JobConfig
 from ceres.data import ImmutableDataObject, NonBlankStr, jsonify
 from ceres.loaded import Loaded
+from ceres.notifier import Notification, Notifier
 from ceres.reference import Ref
-from ceres.roles.notifier import Notification, Notifier
 from ceres.schedule import ScheduleExpr
-
-with lazy_imports(__name__):
-    from ceres._internal import util
 
 
 class Dispatch(ImmutableDataObject):
@@ -54,13 +51,13 @@ class Dispatcher(Component):
         query = dispatch.alerts.with_defaults(
             AlertFilter(
                 address=Address.ENGINE.all(),
-                order="-timestamp",
+                order="timestamp:desc",
                 limit=1000,
             )
         )
 
         try:
-            alerts = await self.system.alerts.get_all(query)
+            alerts = await self.system.alerts.where(query)
         except Exception:
             self.system.log.error(
                 f"An exception occurred while reading alerts for dispatch '{dispatch.subject}': "

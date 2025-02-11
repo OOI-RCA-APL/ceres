@@ -15,6 +15,11 @@ with lazy_imports(__name__, export=True):
     from ceres.component import routine as routine
     from ceres.config import Config as Config
     from ceres.config import ConfigCheckType as ConfigCheckType
+    from ceres.connection import Connection as Connection
+    from ceres.connection import ConnectionException as ConnectionException
+    from ceres.connection import ConnectionInactive as ConnectionInactive
+    from ceres.connection import ConnectionLost as ConnectionLost
+    from ceres.connection import TCPConnection as TCPConnection
     from ceres.connectivity import Connectivity as Connectivity
     from ceres.data import DataObject as DataObject
     from ceres.data import ImmutableDataObject as ImmutableDataObject
@@ -24,41 +29,43 @@ with lazy_imports(__name__, export=True):
     from ceres.database.enums import DatabaseType as DatabaseType
     from ceres.database.enums import DataFormat as DataFormat
     from ceres.directory import Directory as Directory
+    from ceres.dispatcher import Dispatch as Dispatch
+    from ceres.dispatcher import Dispatcher as Dispatcher
+    from ceres.dispatcher import DispatchWriter as DispatchWriter
+    from ceres.dispatcher import HTMLDispatchWriter as HTMLDispatchWriter
     from ceres.engine import Engine as Engine
+    from ceres.entity import Entity as Entity
     from ceres.entity import EntityType as EntityType
     from ceres.event import Event as Event
     from ceres.event import StandardEvent as StandardEvent
+    from ceres.interface import Interface as Interface
+    from ceres.item import Item as Item
+    from ceres.item import ItemType as ItemType
     from ceres.level import Level as Level
     from ceres.loaded import Loaded as Loaded
     from ceres.loaded import Loader as Loader
     from ceres.logs import LogEntry as LogEntry
     from ceres.message import Message as Message
+    from ceres.message import MessageDirection as MessageDirection
+    from ceres.notifier import Notification as Notification
+    from ceres.notifier import Notifier as Notifier
+    from ceres.notifier import SMTPNotifier as SMTPNotifier
     from ceres.parsing import ParseFailed as ParseFailed
     from ceres.parsing import Parser as Parser
     from ceres.particle import DynamicParticleData as DynamicParticleData
     from ceres.particle import Particle as Particle
     from ceres.particle import ParticleData as ParticleData
+    from ceres.record import Record as Record
+    from ceres.record import RecordType as RecordType
     from ceres.reference import Ref as Ref
     from ceres.reference import Reference as Reference
     from ceres.reference import unref as unref
     from ceres.result import Fail as Fail
     from ceres.result import Ok as Ok
     from ceres.result import Result as Result
-    from ceres.roles.connection import Connection as Connection
-    from ceres.roles.connection import ConnectionException as ConnectionException
-    from ceres.roles.connection import ConnectionInactive as ConnectionInactive
-    from ceres.roles.connection import ConnectionLost as ConnectionLost
-    from ceres.roles.connection import TCPConnection as TCPConnection
-    from ceres.roles.dispatcher import Dispatch as Dispatch
-    from ceres.roles.dispatcher import Dispatcher as Dispatcher
-    from ceres.roles.dispatcher import DispatchWriter as DispatchWriter
-    from ceres.roles.dispatcher import HTMLDispatchWriter as HTMLDispatchWriter
-    from ceres.roles.interface import Interface as Interface
-    from ceres.roles.notifier import Notification as Notification
-    from ceres.roles.notifier import Notifier as Notifier
-    from ceres.roles.notifier import SMTPNotifier as SMTPNotifier
     from ceres.schedule import Schedule as Schedule
     from ceres.schedule import ScheduleType as ScheduleType
+    from ceres.setting import Setting as Setting
     from ceres.sieve import MonoSieve as MonoSieve
     from ceres.sieve import Sieve as Sieve
     from ceres.statistics import Statistics as Statistics
@@ -69,4 +76,5 @@ with lazy_imports(__name__, export=True):
     from ceres.threading import spawn as spawn
     from ceres.timing import utc as utc
     from ceres.user import User as User
+    from ceres.variable import Variable as Variable
     from ceres.version import __version__ as __version__

@@ -17,11 +17,12 @@ from typing import (
     overload,
     override,
 )
-from uuid import uuid4
 
 from pydantic import GetCoreSchemaHandler
 from pydantic_core import CoreSchema
 from pydantic_core.core_schema import no_info_after_validator_function
+
+from ceres.data import uuid4
 
 if TYPE_CHECKING:
     from _typeshed import OpenBinaryMode as OpenBinaryMode

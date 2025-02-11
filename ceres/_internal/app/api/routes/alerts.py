@@ -1,46 +1,6 @@
 from __future__ import annotations
 
-from typing import Annotated
-from uuid import UUID
+from ceres._internal.app.shared import create_entity_router
+from ceres.alert import Alert
 
-from fastapi import APIRouter, Query
-from pydantic import Field
-
-from ceres._internal.app.shared import CurrentEngine, CurrentSocket, assert_found
-from ceres.alert import Alert, AlertFilter
-
-router = APIRouter(prefix="/alerts", tags=["alerts"])
-
-
-@router.get("/{id}")
-async def get_alert(engine: CurrentEngine, id: UUID) -> Alert:
-    return assert_found(await engine.alerts.get(id=id))
-
-
-class GetAlertsQueryParameters(AlertFilter):
-    limit: int = Field(default=100, ge=0, le=1000)
-
-
-@router.get("")
-async def get_alerts(
-    engine: CurrentEngine,
-    filter: Annotated[GetAlertsQueryParameters, Query()],
-) -> list[Alert]:
-    return await engine.alerts.get_all(filter)
-
-
-class FollowAlertsQueryParameters(GetAlertsQueryParameters):
-    pass
-
-
-@router.websocket("")
-async def follow_alerts(
-    socket: CurrentSocket,
-    engine: CurrentEngine,
-    filter: Annotated[FollowAlertsQueryParameters, Query()],
-) -> None:
-    async def write() -> None:
-        async for alert in engine.alerts.follow(filter):
-            await socket.send(alert)
-
-    await socket.execute(write)
+router = create_entity_router(Alert, "alerts", 1000)

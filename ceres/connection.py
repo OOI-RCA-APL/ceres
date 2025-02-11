@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import re
+import socket
 import sys
 import traceback
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from asyncio import StreamReader, StreamWriter
 from dataclasses import dataclass, field
 from datetime import timedelta
@@ -21,7 +22,7 @@ from pydantic import (
     model_validator,
 )
 
-from ceres._internal.lazy import lazy_imports
+from ceres._internal import util
 from ceres.component import Component, action, routine
 from ceres.connectivity import Connectivity
 from ceres.data import ImmutableDataObject, PositiveTimeDelta, StrEnum
@@ -40,11 +41,6 @@ from ceres.event import (
 from ceres.message import Message, MessageContent, MessageDirection
 from ceres.schedule import IntervalSchedule
 from ceres.timing import utc
-
-with lazy_imports(__name__):
-    import socket
-
-    from ceres._internal import util
 
 
 class ConnectionException(Exception):
@@ -112,7 +108,7 @@ def __pre_validate_regex_flags(value: object) -> object:
 RegexFlags = Annotated[RegexFlag, BeforeValidator(__pre_validate_regex_flags)]
 
 
-class Connection(Component, ABC):
+class Connection(Component):
     separator: bytes
     regex: bytes | None = None
     regex_flags: RegexFlags = RegexFlag.MULTILINE | RegexFlag.DOTALL
@@ -241,7 +237,7 @@ class Connection(Component, ABC):
             content=data,
         )
 
-        self.system.messages.store(message)
+        self.system.store(message)
         self.system.events.emit(MessageSentEvent, message=message)
         return message
 
@@ -328,7 +324,7 @@ class Connection(Component, ABC):
                         content=data,
                     )
 
-                    self.system.messages.store(message)
+                    self.system.store(message)
                     self.system.events.emit(MessageReceivedEvent, message=message)
 
                 # If any matches were found, drop all bytes up to the end of the last match.
