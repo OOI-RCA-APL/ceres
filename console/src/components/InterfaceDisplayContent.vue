@@ -85,8 +85,8 @@ const emit = defineEmits<{
 }
 
 .spinnerContainer.spinnerContainerRefresh {
-  left: 4px;
-  top: -26px;
+  left: 3px;
+  top: -30px;
 }
 
 .placeholder {

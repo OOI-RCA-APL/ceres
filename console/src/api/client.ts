@@ -198,9 +198,16 @@ function useStream<TParseModel extends ZodTypeAny>(
 
     entry.socket?.close()
     entry.socket = null
-    if (mounted) {
+    if (mounted && !options.disable) {
       setTimeout(() => {
-        if (mounted && entry.socket == null) {
+        if (
+          !options.disable &&
+          mounted &&
+          entry.socket == null &&
+          entries[stream.id] != null &&
+          entries[stream.id].socket == null &&
+          JSON.stringify(entries[stream.id].stream) === JSON.stringify(stream)
+        ) {
           entries[stream.id].socket = createSocket(
             entry.stream,
             options as UseStreamOptions<TParseModel>,
