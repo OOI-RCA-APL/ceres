@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from abc import ABC, abstractmethod
 from typing import (
     TYPE_CHECKING,
@@ -409,6 +410,9 @@ class ResultsIterator[EntityT: BaseEntity]:
 type EntityTransform[EntityT] = Callable[[EntityT], BaseEntity | None]
 type EntityParser[EntityT] = Callable[[Any], EntityT | None]
 
+_EXECUTOR_STREAM_THRESHOLD = 5000
+_EXECUTOR_PARSE_YIELD_CONTROL_EVERY = 50
+
 
 class _BaseStatementExecutor[
     EntityT: BaseEntity,
@@ -474,19 +478,29 @@ class _BaseStatementExecutor[
         if resolved.limit is None or resolved.limit > 1:
             self = self.limit(1)
 
+        assert self._query._get_resolved_filter().limit == 1
         entities = await self.all()
         return entities[0] if entities else None
 
     async def all(self) -> list[EntityT]:
+        resolved = self._query._get_resolved_filter()
         database = self._query._get_database()
         statement = await self._get_statement(True)
 
         async with await database.init() as session:
-            result = await session.execute(statement)
-            if self._should_commit():
-                await session.commit()
+            if resolved.limit is not None and resolved.limit <= _EXECUTOR_STREAM_THRESHOLD:
+                result = await session.execute(statement)
+                if self._should_commit():
+                    await session.commit()
 
-            entities = list(self._parse_rows(result))
+                entities = await self._parse_rows(result)
+            else:
+                stream = await session.stream(statement)
+                if self._should_commit():
+                    await session.commit()
+
+                entities = [entity async for entity in self._parse_async_rows(stream)]
+
             return entities
 
     @abstractmethod
@@ -522,31 +536,40 @@ class _BaseStatementExecutor[
 
         return parse
 
+    async def _parse_rows(self, rows: Result[Any]) -> list[EntityT]:
+        parse = self._get_parser()
+        entities: list[EntityT] = []
+
+        count = 0
+        for row in rows:
+            entity = parse(row)
+            if entity is not None:
+                entities.append(entity)
+
+            count += 1
+            if count >= _EXECUTOR_PARSE_YIELD_CONTROL_EVERY:
+                count = 0
+                # Yield control to the event loop.
+                await asyncio.sleep(0)
+                await asyncio.sleep(0)
+
+        return entities
+
     async def _parse_async_rows(self, rows: AsyncResult[Any]) -> AsyncIterator[EntityT]:
         parser = self._get_parser()
 
+        count = 0
         async for row in rows:
             entity = parser(row)
             if entity is not None:
                 yield entity
 
-    def _parse_rows(self, rows: Result[Any]) -> list[EntityT]:
-        parse = self._get_parser()
-
-        collected: Sequence[Any] = rows.all()
-        if not isinstance(collected, list):
-            collected = list(collected)
-
-        count = 0
-        for row in collected:
-            entity = parse(row)
-            if entity is not None:
-                collected[count] = entity
-                count += 1
-
-        del collected[count:]
-
-        return collected
+            count += 1
+            if count >= _EXECUTOR_PARSE_YIELD_CONTROL_EVERY:
+                count = 0
+                # Yield control to the event loop.
+                await asyncio.sleep(0)
+                await asyncio.sleep(0)
 
 
 class SelectExecutor[
@@ -830,17 +853,10 @@ class EntityQuery[
                 self._select_executor = None
 
     async def all(self) -> list[EntityT]:
-        async with self as results:
-            return await results.all()
+        return await self.select().all()
 
     async def first(self) -> EntityT | None:
-        resolved = self._get_resolved_filter()
-        if resolved.limit is None or resolved.limit > 1:
-            self = self.limit(1)
-
-        assert self._filter is not None and self._filter.limit == 1
-        async with self as results:
-            return await results.first()
+        return await self.select().first()
 
     def limit(self, limit: int) -> Self:
         return self.where(limit=limit)  # type: ignore
