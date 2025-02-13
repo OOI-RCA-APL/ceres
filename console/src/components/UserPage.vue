@@ -2,7 +2,7 @@
 import { omit, upperFirst } from 'lodash-es'
 
 import { useEngine } from '@/api/engine'
-import { UserRole } from '@/api/users'
+import { UserRole, UserCreate } from '@/api/users'
 import CardPage from '@/components/CardPage.vue'
 import { useDialogs } from '@/dialogs'
 import { NotFoundError, guard } from '@/errors'
@@ -74,13 +74,12 @@ async function logout() {
 
 const form = useForm({
   editing: user == null,
-  data: {
+  data: <UserCreate>{
     username: '',
     email: '',
     password: '',
     disabled: false,
-    role: 'operator' as UserRole,
-    settings: {},
+    role: 'operator',
   },
   validators: {
     username: validate.isUsername(

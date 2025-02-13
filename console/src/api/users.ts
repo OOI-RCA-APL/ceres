@@ -15,6 +15,8 @@ export const UserModel = UUIDEntityModel.extend({
   disabled: Zod.boolean(),
 })
 
+export type UserCreate = Omit<User, 'id'> & { password: string }
+
 export type UserOrder = 'username' | 'username:desc' | 'email' | 'email:desc'
 
 export type UserFilter = EntityFilter &
