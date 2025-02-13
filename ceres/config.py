@@ -38,7 +38,7 @@ from pydantic import (
 
 from ceres._internal import util
 from ceres._internal.lazy import lazy_imports
-from ceres.address import Address, DynamicAddress
+from ceres.address import Address, AddressSelector, DynamicAddress
 from ceres.alert import AlertFilter
 from ceres.data import (
     DeferBuild,
@@ -707,6 +707,23 @@ class Config(ConfigMeta):
 
     def get_component(self, address: DynamicAddress) -> ComponentConfig | None:
         return self.root.get_component(address)
+
+    def get_components(
+        self,
+        address: AddressSelector | None = None,
+    ) -> dict[Address, ComponentConfig]:
+        configs: dict[Address, ComponentConfig] = {}
+
+        def recurse(config: ComponentConfig, address: Address, selector: AddressSelector | None):
+            if not selector or selector.matches(address, Address.ROOT):
+                configs[address] = config
+
+            for child in config.components:
+                recurse(child, address / child.name, selector)
+
+        recurse(self.root, Address.ROOT, address)
+
+        return configs
 
     def get_component_class(self, address: DynamicAddress) -> type[Component] | None:
         config = self.get_component(address)

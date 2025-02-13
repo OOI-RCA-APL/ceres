@@ -293,7 +293,7 @@ class CliCommand(DataObject, DeferBuild):
             case fail:
                 raise CliCommandFailed(f"Failed to load configuration. {jsonify(fail, indent=2)}")
 
-    async def use_config(self, checks: Sequence[ConfigCheckType]) -> Config:
+    async def use_config(self, checks: Sequence[ConfigCheckType] = ()) -> Config:
         match await Config.load(self.use_config_path(), checks=checks):
             case Ok(config):
                 return config
@@ -353,6 +353,20 @@ class CliCommand(DataObject, DeferBuild):
 
         async with database:
             yield database
+
+    @asynccontextmanager
+    async def use_database_session(
+        self,
+        *,
+        require_initialized: bool = True,
+        require_connect: bool = True,
+    ):
+        async with self.use_database(
+            require_initialized=require_initialized,
+            require_connect=require_connect,
+        ) as database:
+            async with database.session() as session:
+                yield session
 
     async def use_temporary_engine(self):
         config_path = self.use_config_path()

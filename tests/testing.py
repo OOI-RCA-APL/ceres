@@ -366,6 +366,10 @@ async def execute_string_filter_test(
     field: str,
     *,
     prefixed: bool = True,
+    equals: bool = True,
+    contains: bool = True,
+    prefix: bool = True,
+    suffix: bool = True,
 ):
     equals_field = field
     contains_field = f"{field}_contains" if prefixed else "contains"
@@ -383,40 +387,64 @@ async def execute_string_filter_test(
         "tests": [
             {"filter": {}, "keys": None},
             # Equals
-            {"filter": {equals_field: ""}, "keys": []},
-            {"filter": {equals_field: "abc"}, "keys": ["abc"]},
-            {"filter": {equals_field: ["abc"]}, "keys": ["abc"]},
-            {"filter": {equals_field: "cba"}, "keys": ["cba"]},
-            {"filter": {equals_field: "ABC"}, "keys": ["ABC"]},
-            {"filter": {equals_field: ["abc", "CBA"]}, "keys": ["CBA", "abc"]},
+            *(
+                [
+                    {"filter": {equals_field: ""}, "keys": []},
+                    {"filter": {equals_field: "abc"}, "keys": ["abc"]},
+                    {"filter": {equals_field: ["abc"]}, "keys": ["abc"]},
+                    {"filter": {equals_field: "cba"}, "keys": ["cba"]},
+                    {"filter": {equals_field: "ABC"}, "keys": ["ABC"]},
+                    {"filter": {equals_field: ["abc", "CBA"]}, "keys": ["CBA", "abc"]},
+                ]
+                if equals
+                else []
+            ),
             # Contains
-            {"filter": {contains_field: ""}, "keys": None},
-            {"filter": {contains_field: []}, "keys": []},
-            {"filter": {contains_field: "ab"}, "keys": ["abc"]},
-            {"filter": {contains_field: ["ab"]}, "keys": ["abc"]},
-            {"filter": {contains_field: "ba"}, "keys": ["cba"]},
-            {"filter": {contains_field: ["ab", "ba"]}, "keys": ["abc", "cba"]},
-            {"filter": {contains_field: "A"}, "keys": ["ABC", "CBA"]},
-            {"filter": {contains_field: "CBA"}, "keys": ["CBA"]},
-            {"filter": {contains_field: ["", "CBA"]}, "keys": None},
+            *(
+                [
+                    {"filter": {contains_field: ""}, "keys": None},
+                    {"filter": {contains_field: []}, "keys": []},
+                    {"filter": {contains_field: "ab"}, "keys": ["abc"]},
+                    {"filter": {contains_field: ["ab"]}, "keys": ["abc"]},
+                    {"filter": {contains_field: "ba"}, "keys": ["cba"]},
+                    {"filter": {contains_field: ["ab", "ba"]}, "keys": ["abc", "cba"]},
+                    {"filter": {contains_field: "A"}, "keys": ["ABC", "CBA"]},
+                    {"filter": {contains_field: "CBA"}, "keys": ["CBA"]},
+                    {"filter": {contains_field: ["", "CBA"]}, "keys": None},
+                ]
+                if contains
+                else []
+            ),
             # Prefix
-            {"filter": {prefix_field: ""}, "keys": None},
-            {"filter": {prefix_field: []}, "keys": []},
-            {"filter": {prefix_field: "a"}, "keys": ["abc"]},
-            {"filter": {prefix_field: ["a"]}, "keys": ["abc"]},
-            {"filter": {prefix_field: "abc"}, "keys": ["abc"]},
-            {"filter": {prefix_field: "AB"}, "keys": ["ABC"]},
-            {"filter": {prefix_field: ["CB", "c"]}, "keys": ["CBA", "cba"]},
-            {"filter": {prefix_field: ["", "CBA"]}, "keys": None},
+            *(
+                [
+                    {"filter": {prefix_field: ""}, "keys": None},
+                    {"filter": {prefix_field: []}, "keys": []},
+                    {"filter": {prefix_field: "a"}, "keys": ["abc"]},
+                    {"filter": {prefix_field: ["a"]}, "keys": ["abc"]},
+                    {"filter": {prefix_field: "abc"}, "keys": ["abc"]},
+                    {"filter": {prefix_field: "AB"}, "keys": ["ABC"]},
+                    {"filter": {prefix_field: ["CB", "c"]}, "keys": ["CBA", "cba"]},
+                    {"filter": {prefix_field: ["", "CBA"]}, "keys": None},
+                ]
+                if prefix
+                else []
+            ),
             # Suffix
-            {"filter": {suffix_field: ""}, "keys": None},
-            {"filter": {suffix_field: []}, "keys": []},
-            {"filter": {suffix_field: "c"}, "keys": ["abc"]},
-            {"filter": {suffix_field: "abc"}, "keys": ["abc"]},
-            {"filter": {suffix_field: ["abc"]}, "keys": ["abc"]},
-            {"filter": {suffix_field: "BC"}, "keys": ["ABC"]},
-            {"filter": {suffix_field: ["BA", "a"]}, "keys": ["CBA", "cba"]},
-            {"filter": {suffix_field: ["", "CBA"]}, "keys": None},
+            *(
+                [
+                    {"filter": {suffix_field: ""}, "keys": None},
+                    {"filter": {suffix_field: []}, "keys": []},
+                    {"filter": {suffix_field: "c"}, "keys": ["abc"]},
+                    {"filter": {suffix_field: "abc"}, "keys": ["abc"]},
+                    {"filter": {suffix_field: ["abc"]}, "keys": ["abc"]},
+                    {"filter": {suffix_field: "BC"}, "keys": ["ABC"]},
+                    {"filter": {suffix_field: ["BA", "a"]}, "keys": ["CBA", "cba"]},
+                    {"filter": {suffix_field: ["", "CBA"]}, "keys": None},
+                ]
+                if suffix
+                else []
+            ),
         ],
     }
 

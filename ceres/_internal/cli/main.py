@@ -31,14 +31,16 @@ from ceres._internal.cli.shared import (
 )
 from ceres._internal.entity import DeleteExecutor, SelectExecutor, UpdateExecutor
 from ceres._internal.lazy import lazy_imports, unlazy
-from ceres.address import AddressSelector
+from ceres.address import Address, AddressSelector
 from ceres.data import jsonify
 from ceres.error import Failure
 from ceres.result import Fail, Ok
 
 with lazy_imports(__name__):
+    from ceres._internal.app.api import DisableResult, EnableResult
     from ceres._internal.cli.client import Client
     from ceres.component import ComponentFilter
+    from ceres.database import Database
     from ceres.engine import Engine
     from ceres.threading import spawn
 
@@ -116,18 +118,30 @@ class StatusCommand(CliCommand):
         client = Client(project)
         address = AddressSelector(addresses if addresses else "all")
 
-        try:
-            from ceres.status import Status
+        from ceres.status import Status
 
+        try:
             statuses = await client.get(
                 "/statuses",
                 params=GetStatusesQueryParameters(address=address),
                 result=list[Status],
             )
+            running = True
         except ClientError:
-            statuses = None
-
-        running = statuses is not None
+            running = False
+            config = await self.use_config()  # TODO: Don't require a validated config.
+            async with self.use_database(
+                require_initialized=False,
+                require_connect=False,
+            ) as database:
+                if await database.ping():
+                    enabled = await _get_enabled(database)
+                    statuses = [
+                        Status(address=address, running=False, enabled=address in enabled)
+                        for address in config.get_components()
+                    ]
+                else:
+                    statuses = []
 
         with write_table("Engine") as table:
             table.add_column("Configuration")
@@ -141,19 +155,17 @@ class StatusCommand(CliCommand):
                 str(project.socket_path),
             )
 
-        if not running:
-            return
-
-        with write_table("Components") as table:
-            table.add_column("Address")
-            table.add_column("Running")
-            table.add_column("Enabled")
-            for status in statuses:
-                table.add_row(
-                    str(status.address),
-                    strbool(status.running),
-                    strbool(status.enabled if status.enabled is not None else False),
-                )
+        if statuses:
+            with write_table("Components") as table:
+                table.add_column("Address")
+                table.add_column("Enabled")
+                table.add_column("Running")
+                for status in statuses:
+                    table.add_row(
+                        str(status.address),
+                        strbool(status.enabled if status.enabled is not None else False),
+                        strbool(status.running),
+                    )
 
 
 class StartCommand(CliCommand):
@@ -202,8 +214,13 @@ class EnableCommand(CliCommand):
     async def __run__(self) -> Any:
         client = await self.use_client()
         address = AddressSelector(self.addresses)
-        query = ComponentFilter(address=address)
-        return await client.post("/enable", query)
+
+        if await client.alive():
+            query = ComponentFilter(address=address)
+            return await client.post("/enable", query)
+
+        async with self.use_database() as database:
+            return await _set_enabled(database, address, True)
 
 
 class DisableCommand(CliCommand):
@@ -218,8 +235,13 @@ class DisableCommand(CliCommand):
     async def __run__(self) -> Any:
         client = await self.use_client()
         address = AddressSelector(self.addresses)
-        query = ComponentFilter(address=address)
-        return await client.post("/disable", query)
+
+        if await client.alive():
+            query = ComponentFilter(address=address)
+            return await client.post("/disable", query)
+
+        async with self.use_database() as database:
+            return await _set_enabled(database, address, False)
 
 
 class UpCommand(CliCommand):
@@ -587,3 +609,37 @@ def _temporary_signal_handler(signums: Sequence[int], handler: Callable[..., Any
     finally:
         for signum, original in originals.items():
             signal.signal(signum, original)
+
+
+async def _set_enabled(
+    database: Database,
+    address: AddressSelector,
+    enabled: bool,
+) -> EnableResult | DisableResult:
+    from ceres.variable import InternalVariableName, Variable
+
+    manager = Variable.Manager(database)
+    variables = await (
+        manager.where(
+            address=address,
+            name=InternalVariableName.ENABLED,
+            value=not enabled,
+        )
+        .update({"value": enabled})
+        .all()
+    )
+
+    affected = sorted(variable.address for variable in variables)
+    return EnableResult(enabled=affected) if enabled else DisableResult(disabled=affected)
+
+
+async def _get_enabled(database: Database) -> list[Address]:
+    from ceres.variable import InternalVariableName, Variable
+
+    manager = Variable.Manager(database)
+    variables = await manager.where(
+        name=InternalVariableName.ENABLED,
+        value=True,
+    )
+
+    return sorted(variable.address for variable in variables)

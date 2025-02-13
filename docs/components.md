@@ -165,11 +165,11 @@ Conversely, when a given component is stopped, all its subcomponents are too.
 
 #### Enabling & Disabling
 
-_Enabling_ a component means it will start automatically when its parent component starts. Similar to starting a component, enabling a given component will also be implicitly enable its ancestors. All components are _disabled_ by default.
+_Enabling_ a component means it will start automatically when its parent component, or containing engine if it's the root component, starts. All components are _disabled_ by default.
 
 #### Database Inheritance
 
-Components inherit the `database` object of their parent, meaning component trees implicitly store all associated data in the same place. If a component has no parent, and no explicit database is assigned, a temporary one is created automatically.
+Components inherit the `database` object of their parent, or containing engine if it's the root component, meaning component trees implicitly store all associated data in the same place. If a component has no parent and is not the root component of an engine, a temporary one is created for it automatically.
 
 #### Configuration
 

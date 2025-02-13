@@ -1,6 +1,6 @@
 from typing import Any, Sequence
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Response
 from starlette.responses import RedirectResponse
 
 from ceres._internal import util
@@ -38,6 +38,11 @@ router.include_router(router__users)
 router.include_router(router__settings)
 
 
+@router.get("/alive")
+def get_alive() -> Response:
+    return Response(status_code=200)
+
+
 @router.get("")
 async def get_api() -> RedirectResponse:
     return RedirectResponse(url="/api/openapi.json")
@@ -66,7 +71,7 @@ async def start(engine: CurrentEngine, filter: ComponentFilter) -> StartResult:
     stopped = engine.get_components(filter, running=False)
     for component in stopped:
         component.system.start()
-    return StartResult(started=[current.system.address for current in stopped])
+    return StartResult(started=sorted(current.system.address for current in stopped))
 
 
 class StopResult(ImmutableDataObject):
@@ -78,7 +83,7 @@ async def stop(engine: CurrentEngine, filter: ComponentFilter) -> StopResult:
     running = engine.get_components(filter, running=True)
     await util.concurrently(component.system.stop() for component in running)
 
-    return StopResult(stopped=[current.system.address for current in running])
+    return StopResult(stopped=sorted(current.system.address for current in running))
 
 
 class EnableResult(ImmutableDataObject):
@@ -90,7 +95,7 @@ async def enable(engine: CurrentEngine, filter: ComponentFilter) -> EnableResult
     disabled = engine.get_components(filter, enabled=False)
     await util.concurrently(component.system.enable() for component in disabled)
 
-    return EnableResult(enabled=[current.system.address for current in disabled])
+    return EnableResult(enabled=sorted(current.system.address for current in disabled))
 
 
 class DisableResult(ImmutableDataObject):
@@ -102,7 +107,7 @@ async def disable(engine: CurrentEngine, filter: ComponentFilter) -> DisableResu
     enabled = engine.get_components(filter, enabled=True)
     await util.concurrently(system.system.disable() for system in enabled)
 
-    return DisableResult(disabled=[current.system.address for current in enabled])
+    return DisableResult(disabled=sorted(current.system.address for current in enabled))
 
 
 class UpResult(ImmutableDataObject):
@@ -119,8 +124,8 @@ async def up(engine: CurrentEngine, filter: ComponentFilter) -> UpResult:
     )
 
     return UpResult(
-        enabled=[current.system.address for current in disabled],
-        started=[current.system.address for current in stopped],
+        enabled=sorted(current.system.address for current in disabled),
+        started=sorted(current.system.address for current in stopped),
     )
 
 
@@ -138,8 +143,8 @@ async def down(engine: CurrentEngine, filter: ComponentFilter) -> DownResult:
     )
 
     return DownResult(
-        disabled=[current.system.address for current in enabled],
-        stopped=[current.system.address for current in running],
+        disabled=sorted(current.system.address for current in enabled),
+        stopped=sorted(current.system.address for current in running),
     )
 
 

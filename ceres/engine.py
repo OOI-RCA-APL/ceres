@@ -171,9 +171,8 @@ class Engine(Node):
             components = self.get_components()
             for component in components:
                 await component.system.__node_sync__(session)
-            for component in components:
-                if component.system.enabled:
-                    component.system.start()
+            if self.root is not None and self.root.enabled:
+                self.root.start(all_enabled=True)
 
         try:
             await super().__run__()
