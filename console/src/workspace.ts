@@ -100,7 +100,9 @@ export const ChartWidgetModel = BaseWidgetModel.extend({
   unit: Zod.string().nullish(),
   after: DateTimeModel.nullish(),
   before: DateTimeModel.nullish(),
-  timespan: Zod.union([Zod.number(), Zod.string()]).catch(60 * 60),
+  timespan: Zod.union([Zod.number(), Zod.string()])
+    .nullish()
+    .catch(60 * 60),
   particles: safeArrayOf(ChartWidgetParticleModel),
 })
 

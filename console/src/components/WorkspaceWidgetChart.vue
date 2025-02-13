@@ -29,7 +29,7 @@ let isLoading = $ref(true)
 const pending: Data = $ref({})
 
 const start = $computed(() => {
-  const timespan = parseDuration(widget.timespan)
+  const timespan = parseDuration(widget.timespan ?? '1h')
   if (widget.after == null && widget.before == null) {
     return moment.utc(time.now).subtract(timespan)
   }

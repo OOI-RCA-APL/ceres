@@ -1,5 +1,6 @@
 <script lang="ts" setup>
 import { keepPreviousData, useQuery } from '@tanstack/vue-query'
+import { uniqBy, orderBy } from 'lodash-es'
 
 import { useEngine } from '@/api/engine'
 import CardPage from '@/components/CardPage.vue'
@@ -11,11 +12,18 @@ const engine = useEngine()
 const search = $ref('')
 const query = useQuery({
   queryKey: debouncedComputed(() => ['users', search], 100),
-  queryFn: async () =>
-    engine.users.getAll({
-      search,
-      search_field: ['username', 'email'],
-    }),
+  queryFn: async () => {
+    const [usernameMatches, emailMatches] = await Promise.all([
+      engine.users.getAll({
+        username_contains: search,
+      }),
+      engine.users.getAll({
+        email_contains: search,
+      }),
+    ])
+
+    return orderBy(uniqBy([...usernameMatches, ...emailMatches], 'id'), 'username')
+  },
   placeholderData: keepPreviousData,
 })
 

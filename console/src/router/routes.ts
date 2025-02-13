@@ -42,7 +42,7 @@ const routes: RouteRecordRaw[] = [
         meta: {
           auth: 'admin',
         },
-        component: () => User,
+        component: User,
         props: (route) => ({
           id: parseStringOrNull(route.params.id),
         }),

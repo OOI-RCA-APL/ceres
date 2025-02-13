@@ -15,12 +15,18 @@ export const UserModel = UUIDEntityModel.extend({
   disabled: Zod.boolean(),
 })
 
-export type UserOrder = 'username' | '-username' | 'email' | '-email'
+export type UserOrder = 'username' | 'username:desc' | 'email' | 'email:desc'
 
 export type UserFilter = EntityFilter &
   Partial<{
     username: string | string[] | null
+    username_contains: string | string[] | null
+    username_prefix: string | string[] | null
+    username_suffix: string | string[] | null
     email: string | string[] | null
+    email_contains: string | string[] | null
+    email_prefix: string | string[] | null
+    email_suffix: string | string[] | null
     role: UserRole | UserRole[] | null
     disabled: boolean | null
     order: UserOrder | null

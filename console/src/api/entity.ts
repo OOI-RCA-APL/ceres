@@ -8,8 +8,6 @@ export const EntityModel = Zod.object({})
 
 export type EntityFilter = Zod.infer<typeof EntityFilterModel>
 export const EntityFilterModel = Zod.object({
-  search: Zod.string().nullish(),
-  search_field: Zod.union([Zod.string(), Zod.array(Zod.string())]).nullish(),
   limit: Zod.number().nullish(),
   offset: Zod.number().nullish(),
 })

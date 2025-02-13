@@ -10,6 +10,7 @@ import WorkspaceWidgetParticles from '@/components/WorkspaceWidgetParticles.vue'
 import WorkspaceWidgetProcedures from '@/components/WorkspaceWidgetProcedures.vue'
 import WorkspaceWidgetUi from '@/components/WorkspaceWidgetUi.vue'
 import icons from '@/icons'
+import { usePreferences } from '@/preferences'
 import { useWorkspace, Widget, WidgetRow } from '@/workspace'
 
 defineProps<{
@@ -20,6 +21,9 @@ defineProps<{
 }>()
 
 const workspace = useWorkspace()
+const preferences = usePreferences()
+
+const darkModeKey = $computed(() => String(preferences.isDarkModeEnabled))
 
 let isShowingEditDialog = $ref(false)
 </script>
@@ -189,6 +193,7 @@ let isShowingEditDialog = $ref(false)
         <workspace-widget-ui v-else-if="widget.type === 'ui'" :widget="widget" />
         <workspace-widget-chart
           v-else-if="widget.type === 'chart'"
+          :key="darkModeKey"
           class="full-height"
           :widget="widget"
         />

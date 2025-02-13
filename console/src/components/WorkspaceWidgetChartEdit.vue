@@ -69,7 +69,13 @@ const particlesSchema = $computed<any>(() => ({
       />
       <schema-form-base
         v-model="widget.timespan"
-        :schema="{ type: 'string', format: 'duration', title: 'Timespan', default: '1h' }"
+        :schema="{
+          type: 'string',
+          format: 'duration',
+          title: 'Timespan',
+          optional: true,
+          default: '1h',
+        }"
       />
     </div>
     <div class="q-pt-sm q-px-sm">
@@ -84,7 +90,7 @@ const particlesSchema = $computed<any>(() => ({
       "
       :schema="particlesSchema"
       @update:model-value="
-        (particles) => {
+        (particles: any) => {
           const updated = particles.map((current: ChartWidgetParticle) => ({
             ...current,
             address: current.address ? new AddressSelector(current.address) : current.address,
