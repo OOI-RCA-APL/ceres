@@ -14,7 +14,7 @@ from typing import (
 )
 
 from pydantic import ValidationError
-from sqlalchemy import JSON, Text
+from sqlalchemy import JSON, Text, cast
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.schema import Index, PrimaryKeyConstraint, SchemaItem
 from sqlalchemy.sql import SQLColumnExpression
@@ -34,7 +34,7 @@ from ceres._internal.manager import BaseNodeManager
 from ceres._internal.protocols import DatabaseSource, NodeSource
 from ceres._internal.util import MatchMode, get_type_adapter
 from ceres.address import Address
-from ceres.data import FromYaml, JSONSerializable, MaybeSequence
+from ceres.data import FromYaml, JSONSerializable, MaybeSequence, StrEnum, jsonify
 from ceres.database import DatabaseType
 from ceres.stream import Stream
 
@@ -83,6 +83,8 @@ class VariableFilterArgs(BaseItemFilterArgs[VariableField, VariableOrder], total
     name_contains: MaybeSequence[str] | None
     name_prefix: MaybeSequence[str] | None
     name_suffix: MaybeSequence[str] | None
+    internal: bool | None
+    value: JSONSerializable | None
 
 
 class VariableFilter(BaseItemFilter["Variable", VariableField, VariableOrder]):
@@ -100,6 +102,7 @@ class VariableFilter(BaseItemFilter["Variable", VariableField, VariableOrder]):
     start with an end with two underscores. For example: `__enabled__`. If `None`, both internal and
     non-internal variables will be matched.
     """
+    value: JSONSerializable | None = None
 
     @override
     def matches(self, obj: Variable) -> bool:
@@ -118,6 +121,10 @@ class VariableFilter(BaseItemFilter["Variable", VariableField, VariableOrder]):
         if self.internal is not None:
             internal = obj.name.startswith("__") and obj.name.endswith("__")
             if internal != self.internal:
+                return False
+
+        if "value" in self.model_fields_set:
+            if jsonify(obj.value) != jsonify(self.value):
                 return False
 
         return True
@@ -145,6 +152,9 @@ class VariableFilter(BaseItemFilter["Variable", VariableField, VariableOrder]):
             internal = util.sql_match_string(columns.name, "__", MatchMode.PREFIX)
             internal &= util.sql_match_string(columns.name, "__", MatchMode.SUFFIX)
             yield internal if self.internal else ~internal
+
+        if "value" in self.model_fields_set:
+            yield util.sql_match_value(cast(columns.value, Text), jsonify(self.value))
 
     @override
     def _get_default_order(self) -> Sequence[VariableOrder]:
@@ -305,3 +315,7 @@ class Variable(BaseItem, VariableCreate):
     FilterArgs: ClassVar[type[VariableFilterArgs]] = VariableFilterArgs
     Field = VariableField
     Order = VariableOrder
+
+
+class InternalVariableName(StrEnum):
+    ENABLED = "__enabled__"

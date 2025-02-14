@@ -225,6 +225,13 @@ class Database:
     def connect(self) -> AsyncConnection:
         return self.__engine.connect()
 
+    async def ping(self) -> bool:
+        try:
+            async with self.connect():
+                return True
+        except Exception:
+            return False
+
     async def __aenter__(self) -> Self:
         return self
 

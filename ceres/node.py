@@ -12,7 +12,6 @@ from ceres._internal import util
 from ceres._internal.lazy import lazy_imports
 from ceres._internal.protocols import NodeSource
 from ceres.address import Address, AddressSelector, DynamicAddress
-from ceres.data import StrEnum
 from ceres.event import (
     ConnectedEvent,
     ConnectFailedEvent,
@@ -44,10 +43,6 @@ with lazy_imports(__name__):
     from ceres.status import Status
     from ceres.user import UserManager
     from ceres.variable import BoundVariableManager
-
-
-class InternalVariableName(StrEnum):
-    ENABLED = "__enabled__"
 
 
 @dataclass_transform(

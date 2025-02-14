@@ -6,19 +6,29 @@ from pydantic import BaseModel
 
 from ceres._internal import util
 from ceres._internal.cli.shared import CliCommandFailed
+from ceres._internal.lazy import lazy_imports
 from ceres._internal.project import LoadedProject
 from ceres.data import simplify
-from ceres.status import Status
+
+with lazy_imports(__name__):
+    from aiohttp import ClientSession, UnixConnector
+
+BASE_API_URL = "http://ceres.local/api"
 
 
 class Client:
     def __init__(self, project: LoadedProject) -> None:
         self.project = project
 
-    async def online(self) -> bool:
+    async def alive(self) -> bool:
+        from aiohttp import ClientError
+
         try:
-            await self.get("/status", result=Status)
-        except Exception:
+            async with self.__get_session() as session:
+                async with session.get(f"{BASE_API_URL}/alive", allow_redirects=True) as response:
+                    if response.status >= 400:
+                        return False
+        except ClientError:
             return False
 
         return True
@@ -35,19 +45,18 @@ class Client:
         if result is None:
             result = cast(type[T], Any)
 
-        url = f"http://ceres.local/api/{path.lstrip('/')}"
+        url = f"{BASE_API_URL}/{path.lstrip('/')}"
 
         if isinstance(params, BaseModel):
             params = {key: value for key, value in params.model_dump(exclude_defaults=True).items()}
 
-        from aiohttp import ClientSession, UnixConnector
-
-        async with ClientSession(connector=UnixConnector(str(self.project.socket_path))) as session:
+        async with self.__get_session() as session:
             async with session.request(
                 method,
                 url,
-                json=simplify(data),
-                params=simplify(params),
+                json=simplify(data) if data is not None else None,
+                params=simplify(params) if params is not None else None,
+                allow_redirects=True,
             ) as response:
                 if response.status >= 400:
                     try:
@@ -77,3 +86,6 @@ class Client:
         result: type[T] | None = None,
     ) -> T:
         return await self.request("POST", path, data=data, params=params, result=result)
+
+    def __get_session(self) -> ClientSession:
+        return ClientSession(connector=UnixConnector(str(self.project.socket_path)))

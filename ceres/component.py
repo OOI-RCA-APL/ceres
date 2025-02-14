@@ -80,11 +80,9 @@ from ceres.event import (
     StoppingEvent,
     WillDetachEvent,
 )
-from ceres.node import InternalVariableName as InternalVariableName
 from ceres.node import Node
-from ceres.pruner import ComponentPrunerManager
 from ceres.status import Status
-from ceres.variable import Variable
+from ceres.variable import InternalVariableName, Variable
 
 with lazy_imports(__name__):
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -93,6 +91,7 @@ with lazy_imports(__name__):
     from ceres.database import Database
     from ceres.engine import Engine
     from ceres.job import ComponentJobManager
+    from ceres.pruner import ComponentPrunerManager
     from ceres.reference import Reference, unref
     from ceres.sieve import ComponentSieveManager
 
@@ -928,25 +927,23 @@ class ComponentSystem(Node, ComponentSource):
     def enabled(self) -> bool:
         """
         `True` if the component is enabled. Enabled components start automatically when their parent
-        starts.
+        or containing engine starts.
         """
         return self.__enabled
 
     async def enable(self) -> None:
         """
-        Enable the component, and implicitly, all its ancestors. Enabled components start
-        automatically when their parent starts.
+        Enable the component. Enabled components start automatically when their parent or containing
+        engine starts.
         """
-        if self.parent is not None:
-            await self.parent.enable()
-
         await self.__set_enabled_in_database(True)
         self.__enabled = True
         self.events.emit(EnabledEvent)
 
     async def disable(self) -> None:
         """
-        Disable the component.
+        Disable the component. Disabled components will not start automatically when their parent
+        or containing engine starts.
         """
         await self.__set_enabled_in_database(False)
         self.__enabled = False
@@ -1342,7 +1339,7 @@ class ComponentSystem(Node, ComponentSource):
         if all_enabled:
             for child in self.children:
                 if child.enabled:
-                    child.start()
+                    child.start(all_enabled=True)
 
     @override
     async def __run__(self) -> None:
