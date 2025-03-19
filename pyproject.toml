@@ -21,14 +21,12 @@ dependencies = [
     "email-validator~=2.1",
     "fastapi>=0.115",
     "humanize~=4.9",
-    "hypercorn>=0.17.3",
     "jinja2~=3.1",
     "launchd~=0.3.0; platform_system == 'Darwin'",
     "mistune~=3.0",
     "pydantic-extra-types~=2.8",
     "pydantic~=2.10",
-    # "pydantic-settings~=2.7", # Switch back to real version when variadic CLI arguments are supported.
-    "pydantic-settings @ git+https://github.com/pydantic/pydantic-settings",
+    "pydantic-settings~=2.8",
     "pyjwt~=2.8",
     "pyyaml~=6.0",
     "rich~=13.9",
@@ -40,6 +38,7 @@ dependencies = [
     "uvloop>=0.17; platform_system == 'Linux' or platform_system == 'Darwin'",
     "watchfiles>=0.10",
     "websockets~=10.0",
+    "granian>=2.0.0",
 ]
 
 [dependency-groups]

@@ -22,6 +22,7 @@ from typing import (
     override,
 )
 
+from aiohttp import ClientError
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -417,6 +418,10 @@ class CliCommandFailed(SettingsError):
             text = f"Error: {text}"
 
         return text
+
+
+class CliClientError(CliCommandFailed, ClientError):
+    pass
 
 
 _T = TypeVar("_T")

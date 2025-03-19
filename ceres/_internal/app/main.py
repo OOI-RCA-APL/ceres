@@ -16,7 +16,13 @@ from ceres._internal import util
 from ceres._internal.app.api import router as router__api
 from ceres._internal.app.shared import CurrentEngine
 from ceres._internal.lazy import lazy_imports
-from ceres.error import Failure, HTTPError, ValidationFailedError, ValidationProblem
+from ceres.error import (
+    Failure,
+    HTTPError,
+    NotAuthenticatedError,
+    ValidationFailedError,
+    ValidationProblem,
+)
 from ceres.level import Level
 from ceres.version import __version__
 
@@ -56,7 +62,14 @@ def get_favicon_svg(engine: CurrentEngine) -> FileResponse:
 
 @final
 class App(FastAPI):
-    def __init__(self, engine: Engine, config: ServerConfig | None = None) -> None:
+    def __init__(
+        self,
+        engine: Engine,
+        config: ServerConfig | None = None,
+        cli_token: str | None = None,
+    ) -> None:
+        self.__cli_token = cli_token
+
         if config is None:
             config = engine.config.server
 
@@ -104,6 +117,7 @@ class App(FastAPI):
 
         self.add_middleware(LoggingMiddleware)  # type: ignore
 
+        self.middleware("http")(self._cli_token_middleware)
         self.middleware("http")(self._error_middleware)
         self.exception_handler(HTTPException)(self._http_exception_handler)
         self.exception_handler(RequestValidationError)(self._request_validation_error_handler)
@@ -118,6 +132,21 @@ class App(FastAPI):
     @property
     def engine(self) -> Engine:
         return self.__engine
+
+    @property
+    def cli(self) -> bool:
+        return self.__cli_token is not None
+
+    async def _cli_token_middleware(
+        self,
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
+        if self.__cli_token is not None:
+            if request.headers.get("Authorization") != self.__cli_token:
+                raise Failure(NotAuthenticatedError)
+
+        return await call_next(request)
 
     async def _error_middleware(
         self,
@@ -214,7 +243,7 @@ class LoggingMiddleware:
                         client = socket["client"]
                         host = client[0] if client else "?"
 
-                        app.engine.log.info(f"[WS] '{verb}' {path} {host}")
+                        app.engine.log.info(f"[WS] {verb} {path} {host}")
                 except Exception:
                     traceback.print_exc()
 

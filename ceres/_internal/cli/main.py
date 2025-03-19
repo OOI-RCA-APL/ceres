@@ -144,15 +144,17 @@ class StatusCommand(CliCommand):
                     statuses = []
 
         with write_table("Engine") as table:
+            cli_server_info = project.get_cli_server_info()
+
             table.add_column("Configuration")
             table.add_column("Running")
-            table.add_column("Port")
-            table.add_column("Socket")
+            table.add_column("Web Server Port")
+            table.add_column("CLI Server Port")
             table.add_row(
                 str(project.config_path),
                 strbool(running),
                 str(project.port or "(Disabled)"),
-                str(project.socket_path),
+                str(cli_server_info.port if cli_server_info else "(Stopped)"),
             )
 
         if statuses:

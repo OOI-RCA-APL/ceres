@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import ssl
 from datetime import timedelta
 from pathlib import Path
@@ -430,7 +429,6 @@ class ServerCompressionConfig(__BaseConfigObject):
 class ServerConfig(__BaseConfigObject):
     host: str = "0.0.0.0"  # Bind to IPV4 all addresses by default
     port: int | None = None
-    socket: Path | None = None
     ssl: ServerSSLConfig | None = None
     authentication: ServerAuthenticationConfig | None = None
     cors: ServerCorsConfig | None = None
@@ -440,21 +438,6 @@ class ServerConfig(__BaseConfigObject):
     def _validate_host(cls, host: str) -> str:
         util.get_type_adapter(IPvAnyAddress).validate_python(host)
         return host
-
-    @field_validator("socket")
-    def _validate_socket(cls, socket: Path | None) -> Path | None:
-        if socket is None:
-            return None
-
-        try:
-            resolved = Path(os.path.normpath(socket)).absolute()
-        except Exception:
-            return socket
-
-        if len(str(resolved)) > 108:
-            raise ValueError(f"resolved socket path {resolved!r} cannot exceed 108 bytes")
-
-        return socket
 
 
 class ConsoleConfig(__BaseConfigObject):

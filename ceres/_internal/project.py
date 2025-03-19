@@ -8,6 +8,7 @@ from ceres._internal.lazy import lazy_imports
 with lazy_imports(__name__):
     from hashlib import sha1
 
+    from ceres._internal.server import CLIServerInfo
     from ceres.config import ConfigMeta
     from ceres.directory import Directory
 
@@ -43,12 +44,23 @@ class LoadedProject(Project):
         return self._config
 
     @property
-    def socket_path(self) -> Path:
-        if self._config.server.socket is not None:
-            return self._config.server.socket
-
-        return util.get_temporary_directory() / f"ceres-{self.directory_hash}.sock"
+    def cli_server_info_path(self) -> Path:
+        return util.get_temporary_directory() / f"ceres-{self.directory_hash}.server.json"
 
     @property
     def port(self) -> int | None:
         return self._config.server.port
+
+    def get_cli_server_info(self) -> CLIServerInfo | None:
+        try:
+            return CLIServerInfo.model_validate_json(self.cli_server_info_path.read_text())
+        except Exception:
+            return None
+
+    def write_cli_server_info(self, info: CLIServerInfo) -> None:
+        self.cli_server_info_path.touch(0o600)
+        self.cli_server_info_path.write_text(info.model_dump_json())
+        self.cli_server_info_path.chmod(0o600)
+
+    def delete_cli_server_info(self) -> None:
+        self.cli_server_info_path.unlink(missing_ok=True)
