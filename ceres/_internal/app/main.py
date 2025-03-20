@@ -5,7 +5,7 @@ from http.client import responses
 from pathlib import Path
 from typing import Awaitable, Callable, cast, final
 
-from fastapi import APIRouter, FastAPI, Request, Response, WebSocket
+from fastapi import APIRouter, FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.requests import HTTPConnection
 from fastapi.responses import FileResponse, JSONResponse
@@ -58,16 +58,6 @@ def get_favicon_png(engine: CurrentEngine) -> FileResponse:
 @router.get("/favicon.svg")
 def get_favicon_svg(engine: CurrentEngine) -> FileResponse:
     return _get_favicon_response(engine, ".svg", "image/svg+xml")
-
-
-@router.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    await websocket.accept()
-    try:
-        while True:
-            await websocket.send_text("Hello, WebSocket!")
-    finally:
-        await websocket.close()
 
 
 @final
@@ -213,8 +203,7 @@ class LoggingMiddleware:
         send: ASGISendCallable,
     ) -> None:
         async def receive_wrapper() -> ASGIReceiveEvent:
-            res = await receive()
-            return res
+            return await receive()
 
         async def send_wrapper(message: ASGISendEvent) -> None:
             from ceres._internal.app.main import App
