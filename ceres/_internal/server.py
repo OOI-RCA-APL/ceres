@@ -83,13 +83,9 @@ class Server(Tasklet):
             )
         )
 
-        ssl = self.__config.ssl
         shared: dict[str, Any] = {
             "log_enabled": False,
             "interface": Interfaces.ASGI,
-            "ssl_key": ssl.key if ssl else None,
-            "ssl_cert": ssl.cert if ssl else None,
-            "ssl_key_password": ssl.key_password if ssl else None,
         }
 
         self.__granian_cli = Granian(
@@ -100,16 +96,20 @@ class Server(Tasklet):
         )
 
         if self.__config.port is not None:
+            ssl = self.__config.ssl
             self.__granian_web = Granian(
                 App(self.__engine),
                 address=self.__config.host,
                 port=self.__config.port,
+                ssl_key=ssl.key if ssl else None,
+                ssl_cert=ssl.cert if ssl else None,
+                ssl_key_password=ssl.key_password if ssl else None,
                 **shared,
             )
 
         try:
             await util.concurrently(
-                self.__granian_cli.serve(),
+                self.__granian_cli.serve() if self.__granian_cli is not None else None,
                 self.__granian_web.serve() if self.__granian_web is not None else None,
             )
         finally:
