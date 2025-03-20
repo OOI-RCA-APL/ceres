@@ -44,6 +44,7 @@ async def concurrently(
 async def wait_any[T](
     *tasks: MaybeRecursiveIterable[Task[T] | Coroutine[T, Any, Any]],
     cancelling: bool = False,
+    raised: bool = False,
 ) -> tuple[set[Task[T]], set[Task[T]]]:
     """
     Wait for any of the given tasks or coroutines to complete.
@@ -57,6 +58,11 @@ async def wait_any[T](
     done, pending = await _wait_many(asyncio.FIRST_COMPLETED, list(flatten(tasks)))
     if cancelling:
         await cancel(pending)
+
+    if raised:
+        for task in done:
+            if not task.cancelled() and (exception := task.exception()):
+                raise exception
 
     return done, pending
 

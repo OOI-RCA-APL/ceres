@@ -222,6 +222,7 @@ function useStream<TParseModel extends ZodTypeAny>(
     for (const entry of Object.values(entries)) {
       if (entry.socket != null && entry.socket.readyState === WebSocket.OPEN) {
         entry.socket.close()
+        entry.socket = null
       }
     }
 
