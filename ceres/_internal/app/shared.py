@@ -78,22 +78,44 @@ def _get_current_cli(app: CurrentApp) -> bool:
 CurrentCLI = Annotated[bool, Depends(_get_current_cli)]
 
 
+class SocketDirection(StrEnum):
+    SEND = "send"
+    RECEIVE = "receive"
+    BOTH = "both"
+
+
 @dataclass
 class Socket:
     socket: WebSocket
     server: Server
 
     async def send(self, data: Any) -> None:
-        if self.socket.client_state != WebSocketState.CONNECTED:
-            await self.socket.accept()
-
         await self.socket.send_text(jsonify(data))
 
     async def receive(self) -> Any:
         await self.socket.receive_json()
 
-    async def execute(self, callback: Callable[[], Coroutine[Any, Any, Any]]) -> None:
-        await util.wait_any(callback(), self.server.wait_until_stopping(), cancelling=True)
+    async def execute(
+        self,
+        callback: Callable[[], Coroutine[Any, Any, Any]],
+        direction: SocketDirection = SocketDirection.SEND,
+    ) -> None:
+        async def poll():
+            if direction == SocketDirection.SEND:
+                # If we're only sending data, poll the socket for disconnects.
+                while True:
+                    await self.socket.receive_bytes()
+            else:
+                # Otherwise, do nothing.
+                await util.sleep_forever()
+
+        await util.wait_any(
+            callback(),
+            poll(),
+            self.server.wait_until_stopping(),
+            cancelling=True,
+            raised=True,
+        )
 
     async def close(self, code: int = 1000, reason: str | None = None) -> None:
         await self.socket.close(code, reason)
@@ -108,6 +130,9 @@ async def _use_current_socket(socket: WebSocket, engine: CurrentEngine) -> Async
         yield Socket(socket, engine.server)
     except (WebSocketDisconnect, ConnectionClosed):
         pass
+    finally:
+        if socket.application_state == WebSocketState.CONNECTED:
+            await socket.close()
 
 
 CurrentSocket = Annotated[Socket, Depends(_use_current_socket)]
