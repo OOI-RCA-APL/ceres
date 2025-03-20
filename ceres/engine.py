@@ -5,6 +5,7 @@ import traceback
 from pathlib import Path
 from typing import Literal, Self, Sequence, Unpack, final, override
 
+import anyio
 from pydantic import Field
 
 from ceres._internal import util
@@ -322,25 +323,34 @@ class Engine(Node):
 
         return Server(self, LoadedProject(self.config_path, self.config), self.config.server)
 
-    def __start_server(self) -> Server | None:
+    async def __start_server(self) -> Server | None:
         if self.__server is None:
             self.__server = self.__create_server()
 
         if self.__server is not None and not self.__server.running:
-            self.log.info(f"Starting HTTP server on {self.__server.binds}.")
+            self.log.info("Starting HTTP server.")
             self.__server.start(on_exception=self.__on_server_exception)
+
+            with anyio.move_on_after(1):
+                while self.__server.cli_bind is None:
+                    await asyncio.sleep(0.01)
+
+            if self.__server.cli_bind:
+                self.log.info(f"HTTP CLI server listening on {self.__server.cli_bind}.")
+            if self.__server.bind:
+                self.log.info(f"HTTP web server listening on {self.__server.bind}.")
 
         return self.__server
 
     async def __stop_server(self) -> None:
         if self.__server is not None:
-            self.log.info(f"Stopping HTTP server on {self.__server.binds}.")
+            self.log.info("Stopping HTTP server.")
             await self.__server.stop()
             self.__server = None
             self.log.info("HTTP server stopped.")
 
     def __on_server_exception(self, server: Server, exception: BaseException) -> None:
-        self.log.error(f"An exception occurred while running server on {server.binds}: {exception}")
+        self.log.error(f"An exception occurred while running server: {exception}")
 
     async def __apply(
         self,
@@ -376,7 +386,7 @@ class Engine(Node):
 
                 try:
                     await self.__stop_server()
-                    self.__start_server()
+                    await self.__start_server()
                     if not silent:
                         self.log.info(f"Server configuration {verb}ed successfully.")
                 except Exception:

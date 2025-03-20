@@ -23,6 +23,7 @@ from fastapi import (
 )
 from fastapi.requests import HTTPConnection
 from fastapi.routing import APIRouter
+from fastapi.websockets import WebSocketState
 from pydantic import Field, Json, ValidationError
 from starlette.status import HTTP_400_BAD_REQUEST, HTTP_401_UNAUTHORIZED
 
@@ -70,8 +71,8 @@ def _get_current_engine(app: CurrentApp) -> Engine:
 CurrentEngine = Annotated[Engine, Depends(_get_current_engine)]
 
 
-def _get_current_cli(connection: HTTPConnection) -> bool:
-    return connection.client is None
+def _get_current_cli(app: CurrentApp) -> bool:
+    return app.cli
 
 
 CurrentCLI = Annotated[bool, Depends(_get_current_cli)]
@@ -83,6 +84,9 @@ class Socket:
     server: Server
 
     async def send(self, data: Any) -> None:
+        if self.socket.client_state != WebSocketState.CONNECTED:
+            await self.socket.accept()
+
         await self.socket.send_text(jsonify(data))
 
     async def receive(self) -> Any:

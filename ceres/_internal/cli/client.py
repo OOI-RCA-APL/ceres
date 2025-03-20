@@ -5,15 +5,13 @@ from typing import Any, Mapping, cast
 from pydantic import BaseModel
 
 from ceres._internal import util
-from ceres._internal.cli.shared import CliCommandFailed
+from ceres._internal.cli.shared import CliClientError
 from ceres._internal.lazy import lazy_imports
 from ceres._internal.project import LoadedProject
 from ceres.data import simplify
 
 with lazy_imports(__name__):
-    from aiohttp import ClientSession, UnixConnector
-
-BASE_API_URL = "http://ceres.local/api"
+    from aiohttp import ClientSession
 
 
 class Client:
@@ -25,7 +23,11 @@ class Client:
 
         try:
             async with self.__get_session() as session:
-                async with session.get(f"{BASE_API_URL}/alive", allow_redirects=True) as response:
+                info = self.project.get_cli_server_info()
+                if info is None:
+                    return False
+
+                async with session.get("alive", allow_redirects=True) as response:
                     if response.status >= 400:
                         return False
         except ClientError:
@@ -45,15 +47,13 @@ class Client:
         if result is None:
             result = cast(type[T], Any)
 
-        url = f"{BASE_API_URL}/{path.lstrip('/')}"
-
         if isinstance(params, BaseModel):
             params = {key: value for key, value in params.model_dump(exclude_defaults=True).items()}
 
         async with self.__get_session() as session:
             async with session.request(
                 method,
-                url,
+                path.lstrip("/"),
                 json=simplify(data) if data is not None else None,
                 params=simplify(params) if params is not None else None,
                 allow_redirects=True,
@@ -64,7 +64,7 @@ class Client:
                     except Exception:
                         content = await response.text()
 
-                    raise CliCommandFailed(content)
+                    raise CliClientError(content)
 
                 return util.get_type_adapter(result).validate_python(await response.json())  # type: ignore
 
@@ -88,4 +88,13 @@ class Client:
         return await self.request("POST", path, data=data, params=params, result=result)
 
     def __get_session(self) -> ClientSession:
-        return ClientSession(connector=UnixConnector(str(self.project.socket_path)))
+        info = self.project.get_cli_server_info()
+        if info is None:
+            raise CliClientError(
+                f"Server does not appear to be running. {str(self.project.cli_server_info_path)!r} doesn't exist or isn't readable."
+            )
+
+        return ClientSession(
+            f"http://localhost:{info.port}/api/",
+            headers={"Authorization": f"{info.token}"},
+        )
