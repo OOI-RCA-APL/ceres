@@ -59,14 +59,24 @@ export const useAuth = defineStore('auth', () => {
   }
 
   async function changePassword(oldPassword: string, newPassword: string): Promise<User | null> {
-    return await client.post('/api/auth/change-password', {
-      data: { oldPassword, newPassword },
-      parse: UserModel,
-    })
+    try {
+      return await client.post('/api/auth/change-password', {
+        data: { old_password: oldPassword, new_password: newPassword },
+        parse: UserModel,
+      })
+    } catch (error) {
+      console.error(error)
+      return null
+    }
   }
 
-  async function assignPassword(userId: string, password: string): Promise<User> {
-    return await users.update(userId, { password })
+  async function assignPassword(userId: string, password: string): Promise<User | null> {
+    try {
+      return await users.update(userId, { password })
+    } catch (error) {
+      console.error(error)
+      return null
+    }
   }
 
   return {
