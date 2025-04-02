@@ -227,7 +227,7 @@ def assign_authorization_cookie(
     )
 
 
-async def _get_cookies(request: Request) -> dict[str, str]:
+async def _get_current_cookies(request: Request) -> dict[str, str]:
     """
     Parse cookies from request headers.
 
@@ -243,15 +243,15 @@ async def _get_cookies(request: Request) -> dict[str, str]:
     return cookies
 
 
-CurrentCookies = Annotated[dict[str, str], Depends(_get_cookies)]
+CurrentCookies = Annotated[dict[str, str], Depends(_get_current_cookies)]
 
 
-async def _get_authorization_cookie(cookies: CurrentCookies) -> str | None:
+async def _get_current_authorization_cookie(cookies: CurrentCookies) -> str | None:
     return cookies.get("Authorization")
 
 
 CurrentAuthorizationHeader = Annotated[str | None, Header(alias="Authorization")]
-CurrentAuthorizationCookie = Annotated[str | None, Depends(_get_authorization_cookie)]
+CurrentAuthorizationCookie = Annotated[str | None, Depends(_get_current_authorization_cookie)]
 
 
 async def _get_current_identity(
