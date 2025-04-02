@@ -228,6 +228,14 @@ def assign_authorization_cookie(
 
 
 async def _get_cookies(request: Request) -> dict[str, str]:
+    """
+    Parse cookies from request headers.
+
+    Multiple "cookie" headers, as allowed in HTTP/2, will be combined into a single dictionary, with
+    later cookies with the same name overriding earlier ones.
+
+    See https://github.com/encode/starlette/discussions/2916.
+    """
     cookies: dict[str, str] = {}
     for value in request.headers.getlist("cookie"):
         cookies.update(cookie_parser(value))
