@@ -12,11 +12,11 @@ from typing import (
 from uuid import UUID
 
 from fastapi import (
-    Cookie,
     Depends,
     Header,
     HTTPException,
     Query,
+    Request,
     Response,
     WebSocket,
     WebSocketDisconnect,
@@ -25,6 +25,7 @@ from fastapi.requests import HTTPConnection
 from fastapi.routing import APIRouter
 from fastapi.websockets import WebSocketState
 from pydantic import Field, Json, ValidationError
+from starlette.requests import cookie_parser
 from starlette.status import HTTP_400_BAD_REQUEST, HTTP_401_UNAUTHORIZED
 
 from ceres._internal import util
@@ -226,10 +227,29 @@ def assign_authorization_cookie(
     )
 
 
+async def _get_cookies(request: Request) -> dict[str, str]:
+    cookies: dict[str, str] = {}
+    for value in request.headers.getlist("cookie"):
+        cookies.update(cookie_parser(value))
+
+    return cookies
+
+
+CurrentCookies = Annotated[dict[str, str], Depends(_get_cookies)]
+
+
+async def _get_authorization_cookie(cookies: CurrentCookies) -> str | None:
+    return cookies.get("Authorization")
+
+
+CurrentAuthorizationHeader = Annotated[str | None, Header(alias="Authorization")]
+CurrentAuthorizationCookie = Annotated[str | None, Depends(_get_authorization_cookie)]
+
+
 async def _get_current_identity(
     engine: CurrentEngine,
-    authorization_cookie: str | None = Cookie(None, alias="Authorization"),
-    authorization_header: Annotated[str | None, Header(alias="Authorization")] = None,
+    authorization_header: CurrentAuthorizationHeader = None,
+    authorization_cookie: CurrentAuthorizationCookie = None,
 ) -> Identity | None:
     from jwt import InvalidTokenError
 
