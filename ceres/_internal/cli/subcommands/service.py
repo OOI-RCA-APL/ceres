@@ -6,7 +6,7 @@ from typing import override
 from pydantic import FilePath, NewPath
 from pydantic_settings import CliPositionalArg, CliSubCommand
 
-from ceres._internal.cli.shared import CliCommand, CliCommandGroup, write_table
+from ceres._internal.cli.shared import CLICommand, CLICommandGroup, write_table
 from ceres._internal.lazy import lazy_imports
 from ceres._internal.project import LoadedProject
 from ceres._internal.util import LINUX, MACOS
@@ -15,7 +15,7 @@ with lazy_imports(__name__):
     from ceres._internal.cli.service import LaunchDService, Service, SystemDService
 
 
-class GenerateCommand(CliCommand):
+class GenerateCommand(CLICommand):
     """
     Generate a service definition file for this project.
     """
@@ -36,7 +36,7 @@ class GenerateCommand(CliCommand):
             self.path.write_bytes(definition)
 
 
-class StartCommand(CliCommand):
+class StartCommand(CLICommand):
     """
     Start the background service, creating and/or updating the service file as needed.
     """
@@ -50,7 +50,7 @@ class StartCommand(CliCommand):
         self.write("Service started successfully.")
 
 
-class StopCommand(CliCommand):
+class StopCommand(CLICommand):
     """
     Stop the background service, deleting the service file afterwards.
     """
@@ -64,7 +64,7 @@ class StopCommand(CliCommand):
         self.write("Service stopped successfully.")
 
 
-class StatusCommand(CliCommand):
+class StatusCommand(CLICommand):
     """
     Show the status of the background service.
     """
@@ -96,7 +96,7 @@ def _get_service(project: LoadedProject) -> Service:
     raise NotImplementedError(f"unsupported platform: {sys.platform}")
 
 
-class ServiceCommand(CliCommandGroup):
+class ServiceCommand(CLICommandGroup):
     """
     Manage a user-level SystemD or LaunchD background service for this project.
     """

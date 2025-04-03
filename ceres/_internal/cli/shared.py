@@ -16,7 +16,6 @@ from typing import (
     Self,
     Sequence,
     TypeAlias,
-    TypedDict,
     TypeVar,
     overload,
     override,
@@ -43,7 +42,7 @@ from pydantic_settings import (
 from ceres._internal import util
 from ceres._internal.lazy import lazy_imports
 from ceres._internal.project import LoadedProject, Project
-from ceres.data import DataObject, DeferBuild, FromYaml, NonEmpty, jsonify
+from ceres.data import DataObject, DeferBuild, FromYAML, NonEmpty, jsonify
 from ceres.result import Ok
 
 with lazy_imports(__name__):
@@ -81,7 +80,7 @@ def get_confirmation(
             break
 
     if abort and not confirmed:
-        raise CliCommandFailed("Aborted.")
+        raise CLICommandFailed("Aborted.")
 
     return confirmed
 
@@ -197,7 +196,7 @@ Confirm = Annotated[CliImplicitFlag[bool], Field(description="Ask before executi
 
 _TFields = TypeVar("_TFields", bound=Mapping[str, Any])
 Assign: TypeAlias = Annotated[
-    NonEmpty[FromYaml[_TFields]],
+    NonEmpty[FromYAML[_TFields]],
     NoDecode,
     Field(description="Field(s) to assign, passed as a non-empty JSON or YAML object."),
 ]
@@ -214,7 +213,7 @@ def disable_chdir() -> None:
     os.chdir = __disabled_chdir__
 
 
-class CliCommand(DataObject, DeferBuild):
+class CLICommand(DataObject, DeferBuild):
     model_config = ConfigDict(
         defer_build=True,
         use_attribute_docstrings=True,
@@ -274,7 +273,7 @@ class CliCommand(DataObject, DeferBuild):
             if not required:
                 return None
 
-            raise CliCommandFailed(
+            raise CLICommandFailed(
                 f"Must be in a directory containing one of: {POSSIBLE_CONFIG_NAMES}"
             )
 
@@ -292,14 +291,14 @@ class CliCommand(DataObject, DeferBuild):
             case Ok(config):
                 return config
             case fail:
-                raise CliCommandFailed(f"Failed to load configuration. {jsonify(fail, indent=2)}")
+                raise CLICommandFailed(f"Failed to load configuration. {jsonify(fail, indent=2)}")
 
     async def use_config(self, checks: Sequence[ConfigCheckType] = ()) -> Config:
         match await Config.load(self.use_config_path(), checks=checks):
             case Ok(config):
                 return config
             case fail:
-                raise CliCommandFailed(f"Failed to load configuration. {jsonify(fail, indent=2)}")
+                raise CLICommandFailed(f"Failed to load configuration. {jsonify(fail, indent=2)}")
 
     async def use_project(self) -> Project:
         config_path = self.use_config_path()
@@ -346,11 +345,11 @@ class CliCommand(DataObject, DeferBuild):
                 async with database.connect():
                     pass
             except Exception as exception:
-                raise CliCommandFailed(f"Failed to connect to database: {exception}")
+                raise CLICommandFailed(f"Failed to connect to database: {exception}")
 
             if require_initialized:
                 if not await database.initialized():
-                    raise CliCommandFailed("Database appears uninitialized, exiting.")
+                    raise CLICommandFailed("Database appears uninitialized, exiting.")
 
         async with database:
             yield database
@@ -378,18 +377,18 @@ class CliCommand(DataObject, DeferBuild):
     def read[T: BaseModel](self, model: type[T]) -> T:
         return model.model_validate(self.model_dump(include=set(model.model_fields)))
 
-    def get_subcommands(self, output: list[CliCommand] | None = None) -> list[CliCommand]:
+    def get_subcommands(self, output: list[CLICommand] | None = None) -> list[CLICommand]:
         if output is None:
             output = []
 
         for value in util.dictify(self).values():
-            if isinstance(value, CliCommand):
+            if isinstance(value, CLICommand):
                 output.append(value)
 
         return output
 
 
-class CliCommandGroup(CliCommand):
+class CLICommandGroup(CLICommand):
     @override
     async def __run__(self) -> Any:
         subcommand = get_subcommand(self, cli_exit_on_error=True)
@@ -397,7 +396,7 @@ class CliCommandGroup(CliCommand):
             return await subcommand.__execute__()
 
 
-class CliCommandFailed(SettingsError):
+class CLICommandFailed(SettingsError):
     def __init__(self, message: Any) -> None:
         try:
             content = json.loads(message)
@@ -420,7 +419,7 @@ class CliCommandFailed(SettingsError):
         return text
 
 
-class CliClientError(CliCommandFailed, ClientError):
+class CLIClientError(CLICommandFailed, ClientError):
     pass
 
 
@@ -430,7 +429,7 @@ _T = TypeVar("_T")
 def create_entity_select_command(Entity: type[BaseEntity]):
     plural = util.get_entity_plural(Entity)
 
-    class SelectCommand(CliCommand, Entity.Filter):
+    class SelectCommand(CLICommand, Entity.Filter):
         f"""
         Retrieve {plural}.
         """
@@ -447,7 +446,7 @@ def create_entity_select_command(Entity: type[BaseEntity]):
 def create_entity_count_command(Entity: type[BaseEntity]):
     plural = util.get_entity_plural(Entity)
 
-    class CountCommand(CliCommand, Entity.Filter):
+    class CountCommand(CLICommand, Entity.Filter):
         f"""
         Count {plural}.
         """
@@ -464,7 +463,7 @@ def create_entity_count_command(Entity: type[BaseEntity]):
 def create_entity_create_command(Entity: type[BaseEntity]):
     singular = util.get_entity_singular(Entity)
 
-    class CreateCommand(CliCommand, Entity.Create):
+    class CreateCommand(CLICommand, Entity.Create):
         f"""
         Create a new {singular}.
         """
@@ -478,14 +477,10 @@ def create_entity_create_command(Entity: type[BaseEntity]):
     return CreateCommand
 
 
-class Dicto(TypedDict):
-    ortho: int
-
-
 def create_entity_update_command(Entity: type[BaseEntity]):
     plural = util.get_entity_plural(Entity)
 
-    class UpdateCommand(CliCommand, Entity.Filter):
+    class UpdateCommand(CLICommand, Entity.Filter):
         f"""
         Update {plural}. Return the number updated.
         """
@@ -512,7 +507,7 @@ def create_entity_update_command(Entity: type[BaseEntity]):
 def create_entity_delete_command(Entity: type[BaseEntity]):
     plural = util.get_entity_plural(Entity)
 
-    class DeleteCommand(CliCommand, Entity.Filter):
+    class DeleteCommand(CLICommand, Entity.Filter):
         f"""
         Delete {plural}. Return the number deleted.
         """
@@ -535,24 +530,49 @@ def create_entity_delete_command(Entity: type[BaseEntity]):
     return DeleteCommand
 
 
-EntitySubCommandMapping = Mapping[str, type[CliCommand]]
+def create_entity_follow_command(Entity: type[BaseEntity]):
+    plural = util.get_entity_plural(Entity)
+    route = util.get_entity_route_name(Entity)
+
+    class FollowCommand(CLICommand, Entity.Filter):
+        f"""
+        Follow new {plural}.
+        """
+
+        @override
+        async def __run__(self):
+            client = await self.use_client()
+            filter = self.read(Entity.Filter)
+            return client.follow(route, params=filter, result=Entity)
+
+    return FollowCommand
+
+
+EntitySubCommandMapping = Mapping[str, type[CLICommand]]
+
+_COMMAND_CREATORS = {
+    "select": create_entity_select_command,
+    "follow": create_entity_follow_command,
+    "count": create_entity_count_command,
+    "create": create_entity_create_command,
+    "update": create_entity_update_command,
+    "delete": create_entity_delete_command,
+}
 
 
 def create_entity_command(
     Entity: type[BaseEntity],
     overrides: EntitySubCommandMapping | None = None,
-) -> type[CliCommandGroup]:
+    *,
+    follow: bool = False,
+) -> type[CLICommandGroup]:
     mapping = dict(overrides or {})
-    if "select" not in mapping:
-        mapping["select"] = create_entity_select_command(Entity)
-    if "count" not in mapping:
-        mapping["count"] = create_entity_count_command(Entity)
-    if "create" not in mapping:
-        mapping["create"] = create_entity_create_command(Entity)
-    if "update" not in mapping:
-        mapping["update"] = create_entity_update_command(Entity)
-    if "delete" not in mapping:
-        mapping["delete"] = create_entity_delete_command(Entity)
+
+    for name, creator in _COMMAND_CREATORS.items():
+        if name == "follow" and not follow:
+            continue
+        if name not in mapping:
+            mapping[name] = creator(Entity)
 
     fields: Any = {key: (CliSubCommand[value], ...) for key, value in mapping.items()}
     plural = util.get_entity_plural(Entity)
@@ -560,6 +580,6 @@ def create_entity_command(
     return create_model(
         f"{Entity.__name__}sCommand",
         **fields,
-        __base__=CliCommandGroup,
+        __base__=CLICommandGroup,
         __doc__=f"Manage {plural}.",
     )

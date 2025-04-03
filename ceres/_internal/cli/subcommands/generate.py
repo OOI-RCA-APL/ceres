@@ -6,7 +6,7 @@ from typing import override
 from pydantic import FilePath, NewPath, NonNegativeInt
 from pydantic_settings import CliSubCommand
 
-from ceres._internal.cli.shared import CliCommand, CliCommandGroup
+from ceres._internal.cli.shared import CLICommand, CLICommandGroup
 from ceres.data import StrEnum, jsonify, yamlify
 
 
@@ -15,7 +15,7 @@ class OpenAPISchemaFormat(StrEnum):
     JSON = "json"
 
 
-class OpenApiCommand(CliCommand):
+class OpenApiCommand(CLICommand):
     """
     Generate up-to-date OpenAPI schema for the Ceres Rest API.
     """
@@ -47,7 +47,7 @@ class OpenApiCommand(CliCommand):
             sys.stdout.write(text)
 
 
-class GenerateCommand(CliCommandGroup):
+class GenerateCommand(CLICommandGroup):
     """
     Generate various project resources.
     """

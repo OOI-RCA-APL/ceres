@@ -5,7 +5,7 @@ from typing import Any, override
 from pydantic import field_validator
 from typing_extensions import TYPE_CHECKING
 
-from ceres._internal.cli.shared import CliCommand, create_entity_command, get_input
+from ceres._internal.cli.shared import CLICommand, create_entity_command, get_input
 from ceres.data import PasswordHash, PasswordStr
 from ceres.user import User, UserCreate
 
@@ -23,7 +23,7 @@ class PromptedUserCreate(UserCreate):
         return value
 
 
-class CreateCommand(CliCommand, PromptedUserCreate):
+class CreateCommand(CLICommand, PromptedUserCreate):
     @override
     async def __run__(self) -> Any:
         create = self.read(PromptedUserCreate)

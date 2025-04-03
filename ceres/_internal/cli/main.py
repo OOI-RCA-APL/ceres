@@ -8,7 +8,14 @@ from asyncio import CancelledError
 from asyncio import Event as AsyncEvent
 from contextlib import contextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Sequence, override
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    AsyncContextManager,
+    Callable,
+    Sequence,
+    override,
+)
 
 from pydantic import Field, ValidationError, create_model
 from pydantic_settings import (
@@ -22,14 +29,13 @@ from pydantic_settings import (
 
 from ceres._internal import util
 from ceres._internal.cli.shared import (
-    CliCommand,
-    CliCommandFailed,
-    CliCommandGroup,
+    CLICommand,
+    CLICommandFailed,
+    CLICommandGroup,
     strbool,
     write,
     write_table,
 )
-from ceres._internal.entity import DeleteExecutor, SelectExecutor, UpdateExecutor
 from ceres._internal.lazy import lazy_imports, unlazy
 from ceres.address import Address, AddressSelector
 from ceres.data import jsonify
@@ -45,7 +51,7 @@ with lazy_imports(__name__):
     from ceres.threading import spawn
 
 
-class RunCommand(CliCommand):
+class RunCommand(CLICommand):
     """
     Start the engine as a foreground process.
     """
@@ -66,7 +72,7 @@ class RunCommand(CliCommand):
         await _run(self.addresses, config_path=config_path, watch=self.watch)
 
 
-class CheckCommand(CliCommand):
+class CheckCommand(CLICommand):
     """
     Validate project configuration (ceres.yaml) for errors.
     """
@@ -79,7 +85,7 @@ class CheckCommand(CliCommand):
         write("All checks passed.")
 
 
-class ReloadCommand(CliCommand):
+class ReloadCommand(CLICommand):
     """
     Apply configuration changes.
     """
@@ -90,7 +96,7 @@ class ReloadCommand(CliCommand):
         await client.post("/reload")
 
 
-class StatusCommand(CliCommand):
+class StatusCommand(CLICommand):
     """
     Show engine and component statuses.
     """
@@ -170,7 +176,7 @@ class StatusCommand(CliCommand):
                     )
 
 
-class StartCommand(CliCommand):
+class StartCommand(CLICommand):
     """
     Start components at the provided addresses.
     """
@@ -188,7 +194,7 @@ class StartCommand(CliCommand):
         return await client.post("/start", query)
 
 
-class StopCommand(CliCommand):
+class StopCommand(CLICommand):
     """
     Stop components at the provided addresses.
     """
@@ -204,7 +210,7 @@ class StopCommand(CliCommand):
         return await client.post("/stop", query)
 
 
-class EnableCommand(CliCommand):
+class EnableCommand(CLICommand):
     """
     Enable components at the provided addresses.
     """
@@ -225,7 +231,7 @@ class EnableCommand(CliCommand):
             return await _set_enabled(database, address, True)
 
 
-class DisableCommand(CliCommand):
+class DisableCommand(CLICommand):
     """
     Disable components at the provided addresses.
     """
@@ -246,7 +252,7 @@ class DisableCommand(CliCommand):
             return await _set_enabled(database, address, False)
 
 
-class UpCommand(CliCommand):
+class UpCommand(CLICommand):
     """
     Start and enable components at the provided addresses.
     """
@@ -262,7 +268,7 @@ class UpCommand(CliCommand):
         return await client.post("/up", query)
 
 
-class DownCommand(CliCommand):
+class DownCommand(CLICommand):
     """
     Stop and disable components at the provided addresses.
     """
@@ -302,7 +308,7 @@ def _show_validation_error(exception: ValidationError, color: bool | None = None
     exit(1)
 
 
-class BaseMainCommand(BaseSettings, CliCommandGroup):
+class BaseMainCommand(BaseSettings, CLICommandGroup):
     model_config = SettingsConfigDict(
         cli_prog_name="ceres",
         case_sensitive=True,
@@ -342,7 +348,7 @@ class BaseMainCommand(BaseSettings, CliCommandGroup):
         try:
             result = await super().__execute__()
             if result is not None:
-                if isinstance(result, SelectExecutor | UpdateExecutor | DeleteExecutor):
+                if isinstance(result, AsyncContextManager):
                     async with result as values:
                         async for current in values:
                             current = jsonify(current)
@@ -460,7 +466,7 @@ async def _run(addresses: Sequence[AddressSelector], *, config_path: Path, watch
                 case Ok():
                     pass
                 case Fail() as fail:
-                    raise CliCommandFailed(
+                    raise CLICommandFailed(
                         f"Failed to load engine with current configuration. {jsonify(fail, indent=2)}"
                     )
 
@@ -490,8 +496,8 @@ async def _run(addresses: Sequence[AddressSelector], *, config_path: Path, watch
             with _temporary_signal_handler([signal.SIGINT, signal.SIGTERM], handle_exit_signal):
                 await main()
     except Exception as exception:
-        if not isinstance(exception, CliCommandFailed):
-            raise CliCommandFailed(f"Engine startup failed. {util.get_traceback(exception)}")
+        if not isinstance(exception, CLICommandFailed):
+            raise CLICommandFailed(f"Engine startup failed. {util.get_traceback(exception)}")
         else:
             raise
 

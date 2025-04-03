@@ -194,8 +194,8 @@ def __pre_validate_from_yaml(value: object) -> object:
 
 _T = TypeVar("_T")
 
-FromJson: TypeAlias = Annotated[_T, BeforeValidator(__pre_validate_from_json)]
-FromYaml: TypeAlias = Annotated[_T, BeforeValidator(__pre_validate_from_yaml)]
+FromJSON: TypeAlias = Annotated[_T, BeforeValidator(__pre_validate_from_json)]
+FromYAML: TypeAlias = Annotated[_T, BeforeValidator(__pre_validate_from_yaml)]
 
 
 def __validate_number(value: object) -> object:
