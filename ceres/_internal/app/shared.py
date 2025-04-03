@@ -16,7 +16,6 @@ from fastapi import (
     Header,
     HTTPException,
     Query,
-    Request,
     Response,
     WebSocket,
     WebSocketDisconnect,
@@ -227,7 +226,7 @@ def assign_authorization_cookie(
     )
 
 
-async def _get_current_cookies(request: Request) -> dict[str, str]:
+async def _get_current_cookies(connection: HTTPConnection) -> dict[str, str]:
     """
     Parse cookies from request headers.
 
@@ -237,7 +236,7 @@ async def _get_current_cookies(request: Request) -> dict[str, str]:
     See https://github.com/encode/starlette/discussions/2916.
     """
     cookies: dict[str, str] = {}
-    for value in request.headers.getlist("cookie"):
+    for value in connection.headers.getlist("cookie"):
         cookies.update(cookie_parser(value))
 
     return cookies
