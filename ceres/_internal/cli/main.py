@@ -8,7 +8,14 @@ from asyncio import CancelledError
 from asyncio import Event as AsyncEvent
 from contextlib import contextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Sequence, override
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    AsyncContextManager,
+    Callable,
+    Sequence,
+    override,
+)
 
 from pydantic import Field, ValidationError, create_model
 from pydantic_settings import (
@@ -29,7 +36,6 @@ from ceres._internal.cli.shared import (
     write,
     write_table,
 )
-from ceres._internal.entity import DeleteExecutor, SelectExecutor, UpdateExecutor
 from ceres._internal.lazy import lazy_imports, unlazy
 from ceres.address import Address, AddressSelector
 from ceres.data import jsonify
@@ -342,7 +348,7 @@ class BaseMainCommand(BaseSettings, CliCommandGroup):
         try:
             result = await super().__execute__()
             if result is not None:
-                if isinstance(result, SelectExecutor | UpdateExecutor | DeleteExecutor):
+                if isinstance(result, AsyncContextManager):
                     async with result as values:
                         async for current in values:
                             current = jsonify(current)

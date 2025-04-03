@@ -535,24 +535,49 @@ def create_entity_delete_command(Entity: type[BaseEntity]):
     return DeleteCommand
 
 
+def create_entity_follow_command(Entity: type[BaseEntity]):
+    plural = util.get_entity_plural(Entity)
+    route = util.get_entity_route_name(Entity)
+
+    class FollowCommand(CliCommand, Entity.Filter):
+        f"""
+        Follow new {plural}.
+        """
+
+        @override
+        async def __run__(self):
+            client = await self.use_client()
+            filter = self.read(Entity.Filter)
+            return client.follow(route, params=filter, result=Entity)
+
+    return FollowCommand
+
+
 EntitySubCommandMapping = Mapping[str, type[CliCommand]]
+
+_COMMAND_CREATORS = {
+    "select": create_entity_select_command,
+    "follow": create_entity_follow_command,
+    "count": create_entity_count_command,
+    "create": create_entity_create_command,
+    "update": create_entity_update_command,
+    "delete": create_entity_delete_command,
+}
 
 
 def create_entity_command(
     Entity: type[BaseEntity],
     overrides: EntitySubCommandMapping | None = None,
+    *,
+    follow: bool = False,
 ) -> type[CliCommandGroup]:
     mapping = dict(overrides or {})
-    if "select" not in mapping:
-        mapping["select"] = create_entity_select_command(Entity)
-    if "count" not in mapping:
-        mapping["count"] = create_entity_count_command(Entity)
-    if "create" not in mapping:
-        mapping["create"] = create_entity_create_command(Entity)
-    if "update" not in mapping:
-        mapping["update"] = create_entity_update_command(Entity)
-    if "delete" not in mapping:
-        mapping["delete"] = create_entity_delete_command(Entity)
+
+    for name, creator in _COMMAND_CREATORS.items():
+        if name == "follow" and not follow:
+            continue
+        if name not in mapping:
+            mapping[name] = creator(Entity)
 
     fields: Any = {key: (CliSubCommand[value], ...) for key, value in mapping.items()}
     plural = util.get_entity_plural(Entity)

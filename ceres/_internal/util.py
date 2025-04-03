@@ -1299,6 +1299,14 @@ def _get_entity_manager_attr(Entity: type[BaseEntity]) -> str:
     return get_entity_plural(Entity)
 
 
+def get_entity_route_name(Entity: type[BaseEntity]) -> str:
+    return _get_entity_manager_attr(Entity)
+
+
+def get_entity_command_name(Entity: type[BaseEntity]) -> str:
+    return get_entity_route_name(Entity)
+
+
 def get_entity_manager(source: Database | Node, entity: type[BaseEntity]) -> BaseEntityManager:
     return getattr(source, _get_entity_manager_attr(entity))
 
