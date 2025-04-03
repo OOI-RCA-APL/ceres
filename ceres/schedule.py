@@ -167,7 +167,7 @@ def __pre_validate_schedule_expression(value: Any) -> Any:
 
 ScheduleExpr: TypeAlias = Annotated[
     Schedule,
-    Field(discriminator="type", union_mode="left_to_right"),
+    Field(discriminator="type"),
     BeforeValidator(__pre_validate_schedule_expression),
 ]
 
