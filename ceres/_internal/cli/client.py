@@ -6,7 +6,7 @@ from typing import Any, Mapping, cast
 from pydantic import BaseModel, ValidationError
 
 from ceres._internal import util
-from ceres._internal.cli.shared import CliClientError
+from ceres._internal.cli.shared import CLIClientError
 from ceres._internal.lazy import lazy_imports
 from ceres._internal.project import LoadedProject
 from ceres.data import simplify
@@ -71,7 +71,7 @@ class Client:
                     except Exception:
                         content = await response.text()
 
-                    raise CliClientError(content)
+                    raise CLIClientError(content)
 
                 return adapter.validate_python(await response.json())  # type: ignore
 
@@ -104,16 +104,16 @@ class Client:
                             case WSMsgType.TEXT | WSMsgType.BINARY:
                                 json = message.data
                             case WSMsgType.CLOSE:
-                                raise CliClientError("Connection closed.")
+                                raise CLIClientError("Connection closed.")
                             case WSMsgType.ERROR:
-                                raise CliClientError(f"Connection error: {message.data}")
+                                raise CLIClientError(f"Connection error: {message.data}")
                             case _:
                                 continue
 
                         try:
                             yield adapter.validate_json(json)
                         except ValidationError:
-                            raise CliClientError(
+                            raise CLIClientError(
                                 f"Received invalid JSON data for {result}: {json!r}"
                             )
 
@@ -142,7 +142,7 @@ class Client:
         if self.__server_info is None:
             self.__server_info = self.project.get_cli_server_info()
             if self.__server_info is None:
-                raise CliClientError(
+                raise CLIClientError(
                     f"Server does not appear to be running. {str(self.project.cli_server_info_path)!r} doesn't exist or isn't readable."
                 )
 

@@ -44,7 +44,7 @@ from ceres._internal.record import (
     BaseRecordUpdate,
 )
 from ceres._internal.util import MatchMode
-from ceres.data import FromYaml, ImmutableDataObject, JSONSerializableDict, MaybeSequence, jsonify
+from ceres.data import FromYAML, ImmutableDataObject, JSONSerializableDict, MaybeSequence, jsonify
 from ceres.database import DatabaseType
 from ceres.stream import Stream
 from ceres.timing import utc
@@ -267,12 +267,12 @@ class ParticleFilter(
 
 class ParticleCreate(BaseRecordCreate):
     type: str
-    data: FromYaml[JSONSerializableDict]
+    data: FromYAML[JSONSerializableDict]
 
 
 class ParticleUpdate(BaseRecordUpdate, total=False):
     type: str
-    data: FromYaml[JSONSerializableDict]
+    data: FromYAML[JSONSerializableDict]
 
 
 class _BaseParticleQuery(

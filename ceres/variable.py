@@ -34,7 +34,7 @@ from ceres._internal.manager import BaseNodeManager
 from ceres._internal.protocols import DatabaseSource, NodeSource
 from ceres._internal.util import MatchMode, get_type_adapter
 from ceres.address import Address
-from ceres.data import FromYaml, JSONSerializable, MaybeSequence, StrEnum, jsonify
+from ceres.data import FromYAML, JSONSerializable, MaybeSequence, StrEnum, jsonify
 from ceres.database import DatabaseType
 from ceres.stream import Stream
 
@@ -163,12 +163,12 @@ class VariableFilter(BaseItemFilter["Variable", VariableField, VariableOrder]):
 
 class VariableCreate(BaseItemCreate):
     name: str
-    value: FromYaml[JSONSerializable]
+    value: FromYAML[JSONSerializable]
 
 
 class VariableUpdate(TypedDict, total=False):
     name: str
-    value: FromYaml[JSONSerializable]
+    value: FromYAML[JSONSerializable]
 
 
 class _BaseVariableQuery(

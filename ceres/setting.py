@@ -30,7 +30,7 @@ from ceres._internal.entity import (
 from ceres._internal.manager import BaseNodeManager
 from ceres._internal.protocols import DatabaseSource, NodeSource
 from ceres._internal.util import MatchMode
-from ceres.data import FromYaml, JSONSerializable, MaybeSequence, uuid7
+from ceres.data import FromYAML, JSONSerializable, MaybeSequence, uuid7
 from ceres.database import DatabaseType
 from ceres.user import UserRow
 
@@ -147,12 +147,12 @@ class SettingFilter(BaseEntityFilter["Setting", SettingField, SettingOrder]):
 class SettingCreate(BaseEntityCreate):
     user_id: UUID
     name: str
-    value: FromYaml[JSONSerializable]
+    value: FromYAML[JSONSerializable]
 
 
 class SettingUpdate(TypedDict, total=False):
     name: str
-    value: FromYaml[JSONSerializable]
+    value: FromYAML[JSONSerializable]
 
 
 class _BaseSettingQuery(

@@ -6,9 +6,9 @@ from pydantic_settings import CliPositionalArg, CliSubCommand
 
 from ceres._internal import util
 from ceres._internal.cli.shared import (
-    CliCommand,
-    CliCommandFailed,
-    CliCommandGroup,
+    CLICommand,
+    CLICommandFailed,
+    CLICommandGroup,
     get_confirmation,
 )
 from ceres.database.enums import DataFormat
@@ -16,7 +16,7 @@ from ceres.entity import EntityType
 from ceres.timing import utc
 
 
-class InitCommand(CliCommand):
+class InitCommand(CLICommand):
     """
     Initialize the database, creating tables and indexes as needed.
     """
@@ -28,7 +28,7 @@ class InitCommand(CliCommand):
                 async with database.connect():
                     pass
             except Exception:
-                raise CliCommandFailed("Failed to connect to database.")
+                raise CLICommandFailed("Failed to connect to database.")
 
             print("<PENDING>")
             for statement in database.ddl:
@@ -46,7 +46,7 @@ class InitCommand(CliCommand):
                 self.write("Database has not been modified.")
 
 
-class DumpCommand(CliCommand):
+class DumpCommand(CLICommand):
     """
     Dump data from the database into a CSV or SQLite file.
     """
@@ -72,9 +72,9 @@ class DumpCommand(CliCommand):
 
         if format == DataFormat.CSV:
             if not self.entity_type:
-                raise CliCommandFailed("Dumping to CSV requires '--entity-type' to be specified.")
+                raise CLICommandFailed("Dumping to CSV requires '--entity-type' to be specified.")
             elif len(self.entity_type) != 1:
-                raise CliCommandFailed(
+                raise CLICommandFailed(
                     "Dumping to CSV requires exactly one '--entity-type' to be specified."
                 )
 
@@ -94,7 +94,7 @@ class DumpCommand(CliCommand):
         self.write(f"Dump completed in {util.show_td(duration)}.")
 
 
-class LoadCommand(CliCommand):
+class LoadCommand(CLICommand):
     """
     Load data into the database from a CSV or SQLite file.
     """
@@ -119,9 +119,9 @@ class LoadCommand(CliCommand):
         format = _guess_format(self.format, self.path)
         if format == DataFormat.CSV:
             if not self.entity_type:
-                raise CliCommandFailed("Loading from CSV requires '--entity-type' to be specified.")
+                raise CLICommandFailed("Loading from CSV requires '--entity-type' to be specified.")
             elif len(self.entity_type) != 1:
-                raise CliCommandFailed(
+                raise CLICommandFailed(
                     "Loading from CSV requires exactly one '--entity-type' to be specified."
                 )
 
@@ -141,7 +141,7 @@ class LoadCommand(CliCommand):
         self.write(f"Load completed in {util.show_td(duration)}.")
 
 
-class ClearCommand(CliCommand):
+class ClearCommand(CLICommand):
     """
     Remove all data from the database. Tables and indexes are not removed, only truncated.
     """
@@ -161,7 +161,7 @@ class ClearCommand(CliCommand):
             self.write(f"Cleared all data from database in {util.show_td(duration)}.")
 
 
-class DdlCommand(CliCommand):
+class DdlCommand(CLICommand):
     """
     Show DDL commands used to initialize the database.
     """
@@ -181,13 +181,13 @@ def _guess_format(format: DataFormat | None, path: Path) -> DataFormat:
     if path.suffix in (".db", ".sqlite", ".sqlite3"):
         return DataFormat.SQLITE
 
-    raise CliCommandFailed(
+    raise CLICommandFailed(
         f"Could not infer data format from file extension: {path.suffix!r}. "
         + "Try specifying the '--format' option."
     )
 
 
-class DatabaseCommand(CliCommandGroup):
+class DatabaseCommand(CLICommandGroup):
     """
     Manage the project database.
     """

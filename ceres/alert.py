@@ -38,7 +38,7 @@ from ceres._internal.record import (
 )
 from ceres._internal.util import MatchMode
 from ceres.address import Address
-from ceres.data import DateTime, FromYaml, JSONSerializableDict, MaybeSequence, jsonify
+from ceres.data import DateTime, FromYAML, JSONSerializableDict, MaybeSequence, jsonify
 from ceres.database import DatabaseType
 from ceres.level import Level
 from ceres.stream import Stream
@@ -199,7 +199,7 @@ class AlertFilter(BaseRecordFilter["Alert", AlertField, AlertOrder]):
 class AlertCreate(BaseRecordCreate):
     level: Level
     type: str
-    data: FromYaml[JSONSerializableDict] = Field(default_factory=dict)
+    data: FromYAML[JSONSerializableDict] = Field(default_factory=dict)
 
 
 class AlertUpdate(TypedDict, total=False):
@@ -207,7 +207,7 @@ class AlertUpdate(TypedDict, total=False):
     timestamp: DateTime
     level: Level
     type: str
-    data: FromYaml[JSONSerializableDict]
+    data: FromYAML[JSONSerializableDict]
 
 
 class _BaseAlertQuery(
