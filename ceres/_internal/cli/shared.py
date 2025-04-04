@@ -50,7 +50,7 @@ from pydantic_settings import (
 from ceres._internal import util
 from ceres._internal.lazy import lazy_imports
 from ceres._internal.project import LoadedProject, Project
-from ceres.data import DataObject, DeferBuild, FromYAML, NonEmpty, jsonify
+from ceres.data import DataObject, DeferBuild, FromYAML, MaybeSequence, NonEmpty, jsonify
 from ceres.result import Ok
 
 with lazy_imports(__name__):
@@ -345,9 +345,12 @@ class CLICommand(DataObject, DeferBuild):
         to: Literal["stdout", "stderr"] = "stdout",
         color: bool | None = None,
         data_format: CLIDataFormat | None = None,
+        fields: Sequence[str] | Mapping[str, str] | None = None,
     ) -> None:
         if data_format is None:
             data_format = CLIDataFormat.JSON
+        if fields is not None and not isinstance(fields, Mapping):
+            fields = {field: field for field in fields}
 
         def write(value: object) -> None:
             self.write(value, end=end, file=file, flush=flush, to=to, color=color)
@@ -361,6 +364,12 @@ class CLICommand(DataObject, DeferBuild):
                     if data is None:
                         return
 
+                    if fields is not None:
+                        if isinstance(data, BaseModel) or is_dataclass(data):
+                            data = {
+                                alias: getattr(data, field, None) for field, alias in fields.items()
+                            }
+
                     write(jsonify(data))
             case CLIDataFormat.CSV:
                 import csv
@@ -371,11 +380,19 @@ class CLICommand(DataObject, DeferBuild):
                 def write_formatted(data: object) -> None:
                     nonlocal need_header
 
+                    if data is None:
+                        return
+
                     if isinstance(data, BaseModel) or is_dataclass(data):
-                        if hasattr(data, "__dict__"):
-                            values = data.__dict__
+                        if fields is not None:
+                            values = {
+                                alias: getattr(data, field, None) for field, alias in fields.items()
+                            }
                         else:
-                            values = util.dictify(data)
+                            if hasattr(data, "__dict__"):
+                                values = data.__dict__
+                            else:
+                                values = util.dictify(data)
 
                         if need_header:
                             writer.writerow(values.keys())
@@ -383,7 +400,8 @@ class CLICommand(DataObject, DeferBuild):
 
                         writer.writerow([_csv_stringify(value) for value in values.values()])
                     else:
-                        write(_csv_stringify(data))
+                        if fields is None:
+                            write(_csv_stringify(data))
 
         if isinstance(data, AsyncContextManager):
             async with data as values:
@@ -534,6 +552,7 @@ class CLIDataFormat(StrEnum):
 
 class CLIDataCommand(CLICommand):
     data_format: CLIDataFormat = CLIDataFormat.JSON
+    field: MaybeSequence[str] | None = None
 
     @override
     async def put(
@@ -545,9 +564,24 @@ class CLIDataCommand(CLICommand):
         to: Literal["stdout", "stderr"] = "stdout",
         color: bool | None = None,
         data_format: CLIDataFormat | None = None,
+        fields: Sequence[str] | Mapping[str, str] | None = None,
     ) -> None:
         if data_format is None:
             data_format = self.data_format
+
+        if fields is None and self.field is not None:
+            fields = util.as_sequence(self.field)
+
+        mapping: dict[str, str] | None = None
+
+        if fields is not None:
+            mapping = {}
+            for i, field in enumerate(fields):
+                if ":" in field:
+                    field, alias = field.split(":", 1)
+                    mapping[field] = alias
+                else:
+                    mapping[field] = field
 
         await super().put(
             data=data,
@@ -557,6 +591,7 @@ class CLIDataCommand(CLICommand):
             to=to,
             color=color,
             data_format=data_format,
+            fields=mapping,
         )
 
 
