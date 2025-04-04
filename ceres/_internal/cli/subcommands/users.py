@@ -25,10 +25,10 @@ class PromptedUserCreate(UserCreate):
 
 class CreateCommand(CLICommand, PromptedUserCreate):
     @override
-    async def __run__(self) -> Any:
+    async def __run__(self) -> None:
         create = self.read(PromptedUserCreate)
         async with self.use_database() as database:
-            return await database.users.create(create)
+            await self.put(await database.users.create(create))
 
 
 UsersCommand = create_entity_command(User, {"create": CreateCommand})
