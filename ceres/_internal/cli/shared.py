@@ -3,10 +3,10 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
 import warnings
 from abc import abstractmethod
 from contextlib import asynccontextmanager, contextmanager
-from dataclasses import is_dataclass
 from datetime import date, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
@@ -16,6 +16,7 @@ from typing import (
     Annotated,
     Any,
     AsyncContextManager,
+    AsyncIterable,
     Callable,
     Collection,
     Literal,
@@ -144,21 +145,46 @@ def get_input(
             pass
 
 
+def _compute_color_enabled_by_variables() -> bool | None:
+    if os.getenv("NO_COLOR") is not None:
+        return False
+    if os.getenv("FORCE_COLOR") is not None:
+        return True
+
+    return None
+
+
+_color_enabled_by_variables: bool | None = _compute_color_enabled_by_variables()
+_color_enabled_checked = time.time()
+
+
+def _get_color_enabled_by_variables() -> bool | None:
+    global _color_enabled_by_variables
+    global _color_enabled_checked
+
+    now = time.time()
+    if now - _color_enabled_checked > 1:
+        _color_enabled_by_variables = _compute_color_enabled_by_variables()
+        _color_enabled_checked = now
+
+    _color_enabled_by_variables = _compute_color_enabled_by_variables()
+    return _color_enabled_by_variables
+
+
 def write(
-    *args: object,
-    sep: str = " ",
+    value: object,
+    file: IO[str] = sys.stderr,
     end: str = "\n",
-    file: IO[str] | None = None,
     flush: bool = False,
-    to: Literal["stdout", "stderr"] = "stderr",
     color: bool | None = None,
 ):
-    if file is None:
-        file = sys.stdout if to == "stdout" else sys.stderr
-
     interactive = file.isatty() if file else None
     if color is None:
-        color = interactive
+        color_enabled_by_variables = _get_color_enabled_by_variables()
+        if color_enabled_by_variables is not None:
+            color = color_enabled_by_variables
+        else:
+            color = interactive
 
     if color:
         import rich
@@ -167,26 +193,20 @@ def write(
     else:
         printer = print
 
-    printer(
-        *args,
-        sep=sep,
-        end=end,
-        file=file,
-        flush=flush,
-    )
+    printer(value, end=end, file=file, flush=flush)
 
 
 _write = write
 
 
 @contextmanager
-def write_table(title: str | None = None, *, to: Literal["stdout", "stderr"] = "stderr"):
+def write_table(title: str | None = None, file: IO[str] = sys.stderr):
     import rich.box
     from rich.table import Table
 
     table = Table(title=title, box=rich.box.ROUNDED, title_justify="left")
     yield table
-    write(table, to=to)
+    write(table, file)
 
 
 def strbool(value: bool) -> str:
@@ -323,26 +343,25 @@ class CLICommand(DataObject, DeferBuild):
 
     def write(
         self,
-        *args: object,
-        sep: str = " ",
+        value: object,
+        file: IO[str] = sys.stderr,
+        *,
         end: str = "\n",
-        file: IO[str] | None = None,
         flush: bool = False,
-        to: Literal["stdout", "stderr"] = "stderr",
         color: bool | None = None,
     ) -> None:
         if color is None:
             color = self.color
 
-        _write(*args, sep=sep, end=end, file=file, flush=flush, to=to, color=color)
+        _write(value, file=file, end=end, flush=flush, color=color)
 
     async def put(
         self,
         data: object,
+        file: IO[str] = sys.stdout,
+        *,
         end: str = "\n",
-        file: IO[str] | None = None,
         flush: bool = False,
-        to: Literal["stdout", "stderr"] = "stdout",
         color: bool | None = None,
         data_format: CLIDataFormat | None = None,
         fields: Sequence[str] | Mapping[str, str] | None = None,
@@ -353,62 +372,52 @@ class CLICommand(DataObject, DeferBuild):
             fields = {field: field for field in fields}
 
         def write(value: object) -> None:
-            self.write(value, end=end, file=file, flush=flush, to=to, color=color)
+            self.write(value, file=file, end=end, flush=flush, color=color)
 
         match data_format:
             case CLIDataFormat.JSON:
 
-                def write_formatted(data: object) -> None:
-                    nonlocal need_header
-
-                    if data is None:
+                def output(value: object) -> None:
+                    if value is None:
                         return
 
                     if fields is not None:
-                        if isinstance(data, BaseModel) or is_dataclass(data):
-                            data = {
-                                alias: getattr(data, field, None) for field, alias in fields.items()
-                            }
+                        value = _extract(value, fields)
 
-                    write(jsonify(data))
+                    write(_json_stringify(value))
             case CLIDataFormat.CSV:
                 import csv
 
-                need_header = True
                 writer = csv.writer(_CallbackWriter(write), lineterminator="")
+                started = False
 
-                def write_formatted(data: object) -> None:
-                    nonlocal need_header
+                def output(value: object) -> None:
+                    nonlocal started
 
-                    if data is None:
+                    if value is None:
                         return
 
-                    if isinstance(data, BaseModel) or is_dataclass(data):
-                        if fields is not None:
-                            values = {
-                                alias: getattr(data, field, None) for field, alias in fields.items()
-                            }
-                        else:
-                            if hasattr(data, "__dict__"):
-                                values = data.__dict__
-                            else:
-                                values = util.dictify(data)
-
-                        if need_header:
-                            writer.writerow(values.keys())
-                            need_header = False
-
-                        writer.writerow([_csv_stringify(value) for value in values.values()])
+                    if _is_csv_atomic(value) and fields is None:
+                        write(_csv_stringify(value))
                     else:
-                        if fields is None:
-                            write(_csv_stringify(data))
+                        value = _extract(value, fields)
+                        if not started:
+                            writer.writerow(value.keys())
+
+                        writer.writerow([_csv_stringify(current) for current in value.values()])
+
+                    started = True
 
         if isinstance(data, AsyncContextManager):
             async with data as values:
-                async for current in values:
-                    write_formatted(current)
+                if isinstance(values, AsyncIterable):
+                    async for current in values:
+                        output(current)
+        elif isinstance(data, AsyncIterable):
+            async for current in data:
+                output(current)
         else:
-            write_formatted(data)
+            output(data)
 
     @asynccontextmanager
     async def use_database(
@@ -480,7 +489,7 @@ class _CallbackWriter:
         self.callback(text)
 
 
-_CSV_STRINGIFIERS: dict[type, Callable[[Any], str]] = {
+_CSV_ATOMIC_STRINGIFIERS: dict[type, Callable[[Any], str]] = {
     NoneType: lambda value: "",
     str: lambda value: value,
     int: jsonify,
@@ -488,16 +497,32 @@ _CSV_STRINGIFIERS: dict[type, Callable[[Any], str]] = {
     bool: jsonify,
     bytes: lambda value: value.decode("latin-1"),
     bytearray: lambda value: value.decode("latin-1"),
-    list: jsonify,
-    dict: jsonify,
     datetime: lambda value: jsonify(value)[1:-1],
     timedelta: lambda value: jsonify(value)[1:-1],
     date: lambda value: jsonify(value)[1:-1],
     UUID: lambda value: str(value),
 }
 
+_CSV_STRINGIFIERS: dict[type, Callable[[Any], str]] = {
+    **_CSV_ATOMIC_STRINGIFIERS,
+    list: jsonify,
+    dict: jsonify,
+}
 
-def _csv_stringify(value: object) -> str:
+
+def _is_csv_atomic(value: object) -> bool:
+    if isinstance(value, str):
+        return True
+
+    return type(value) in _CSV_ATOMIC_STRINGIFIERS
+
+
+def _csv_stringify(value: object) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value
+
     stringify = _CSV_STRINGIFIERS.get(type(value))
     if stringify is not None:
         return stringify(value)
@@ -505,6 +530,32 @@ def _csv_stringify(value: object) -> str:
         return jsonify(value)
 
     return str(value)
+
+
+def _json_stringify(value: object) -> str:
+    return jsonify(value)
+
+
+_EMPTY_DICT = {}
+
+
+def _extract(obj: object, fields: Mapping[str, str] | None = None) -> Mapping[str, object]:
+    if fields is None:
+        __dict__ = getattr(obj, "__dict__")
+        if __dict__ is not None:
+            return __dict__
+
+        __slots__ = getattr(obj, "__slots__")
+        if __slots__ is not None:
+            return {slot: getattr(obj, slot) for slot in __slots__}
+
+        return _EMPTY_DICT
+
+    cls: dict[str, object] = getattr(obj.__class__, "__dict__")
+    return {
+        alias: getattr(obj, field, None) if field not in cls else None
+        for field, alias in fields.items()
+    }
 
 
 class CLICommandGroup(CLICommand):
@@ -558,10 +609,10 @@ class CLIDataCommand(CLICommand):
     async def put(
         self,
         data: object,
+        file: IO[str] = sys.stdout,
+        *,
         end: str = "\n",
-        file: IO[str] | None = None,
         flush: bool = False,
-        to: Literal["stdout", "stderr"] = "stdout",
         color: bool | None = None,
         data_format: CLIDataFormat | None = None,
         fields: Sequence[str] | Mapping[str, str] | None = None,
@@ -584,11 +635,10 @@ class CLIDataCommand(CLICommand):
                     mapping[field] = field
 
         await super().put(
-            data=data,
+            data,
+            file,
             end=end,
-            file=file,
             flush=flush,
-            to=to,
             color=color,
             data_format=data_format,
             fields=mapping,

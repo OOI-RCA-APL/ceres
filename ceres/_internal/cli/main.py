@@ -335,7 +335,7 @@ class BaseMainCommand(BaseSettings, CLICommandGroup):
         if self.version:
             from ceres import __version__
 
-            self.write(__version__)
+            self.write(__version__, sys.stdout)
             return
 
         try:
