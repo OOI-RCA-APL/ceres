@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from enum import Enum as BaseEnum
-from typing import Any, Callable, override
+from typing import TYPE_CHECKING, Any, Callable, override
 from uuid import UUID
 
 from sqlalchemy import TIMESTAMP, CheckConstraint, Dialect, Enum, Text, TypeDecorator, Uuid
@@ -32,10 +32,22 @@ def EnumConstraint(column: str, cls: type[BaseEnum], name: str) -> CheckConstrai
     )
 
 
-class UUIDMapper(Uuid[UUID]):
+class UUIDMapper(TypeDecorator[UUID]):
+    impl = Uuid
+    cache_ok = True
+
+    if TYPE_CHECKING:
+        impl_instance: Uuid
+
+    def __init__(self) -> None:
+        super().__init__(
+            as_uuid=True,
+            native_uuid=True,
+        )
+
     @override
     def bind_processor(self, dialect: Dialect) -> Callable[..., str | None]:
-        if dialect.supports_native_uuid and self.native_uuid:
+        if dialect.supports_native_uuid:
             return super().bind_processor(dialect)  # type: ignore
 
         # Reformat to keep dashes.
@@ -48,6 +60,37 @@ class UUIDMapper(Uuid[UUID]):
             return str(value)
 
         return process
+
+    @override
+    def result_processor(self, dialect: Dialect, coltype: Any) -> Callable[..., UUID | None]:
+        def process_native(value: UUID | None) -> UUID | None:
+            if value is None:
+                return None
+
+            # Convert subclasses of UUID, such as `asyncpg.pgproto.pgproto.UUID`, to normal UUIDs.
+            return UUID(int=value.int)
+
+        def process_non_native(value: str | None) -> UUID | None:
+            if value is None:
+                return None
+
+            return UUID(value)
+
+        if dialect.supports_native_uuid:
+            return process_native
+
+        return process_non_native
+
+    @override
+    def process_result_value(self, value: object, dialect: Dialect) -> UUID | None:
+        if value is None:
+            return None
+        if isinstance(value, UUID):
+            return UUID(int=value.int)
+        if isinstance(value, str):
+            return UUID(value)
+
+        raise NotImplementedError(f"Received invalid UUID value from driver: {value!r}")
 
 
 class AddressMapper(TypeDecorator[Address]):

@@ -1,3 +1,4 @@
+import sys
 from pathlib import Path
 from typing import Sequence, override
 
@@ -32,7 +33,7 @@ class InitCommand(CLICommand):
 
             print("<PENDING>")
             for statement in database.ddl:
-                self.write(statement, to="stdout")
+                self.write(statement)
             print("</PENDING>")
 
             if await database.initialized():
@@ -161,7 +162,7 @@ class ClearCommand(CLICommand):
             self.write(f"Cleared all data from database in {util.show_td(duration)}.")
 
 
-class DdlCommand(CLICommand):
+class DDLCommand(CLICommand):
     """
     Show DDL commands used to initialize the database.
     """
@@ -170,7 +171,7 @@ class DdlCommand(CLICommand):
     async def __run__(self) -> None:
         async with self.use_database(require_initialized=False, require_connect=False) as database:
             for statement in database.ddl:
-                self.write(statement, to="stdout", color=False)
+                self.write(statement, sys.stdout, color=False)
 
 
 def _guess_format(format: DataFormat | None, path: Path) -> DataFormat:
@@ -196,4 +197,4 @@ class DatabaseCommand(CLICommandGroup):
     dump: CliSubCommand[DumpCommand]
     load: CliSubCommand[LoadCommand]
     clear: CliSubCommand[ClearCommand]
-    ddl: CliSubCommand[DdlCommand]
+    ddl: CliSubCommand[DDLCommand]

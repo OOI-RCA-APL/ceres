@@ -8,14 +8,7 @@ from asyncio import CancelledError
 from asyncio import Event as AsyncEvent
 from contextlib import contextmanager
 from pathlib import Path
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    AsyncContextManager,
-    Callable,
-    Sequence,
-    override,
-)
+from typing import TYPE_CHECKING, Any, Callable, Sequence, override
 
 from pydantic import Field, ValidationError, create_model
 from pydantic_settings import (
@@ -342,20 +335,11 @@ class BaseMainCommand(BaseSettings, CLICommandGroup):
         if self.version:
             from ceres import __version__
 
-            self.write(__version__)
+            self.write(__version__, sys.stdout)
             return
 
         try:
-            result = await super().__execute__()
-            if result is not None:
-                if isinstance(result, AsyncContextManager):
-                    async with result as values:
-                        async for current in values:
-                            current = jsonify(current)
-                            self.write(current, to="stdout")
-                else:
-                    result = jsonify(result)
-                    self.write(result, to="stdout")
+            await super().__execute__()
         except Failure as failure:
             self.write(jsonify(failure.error, indent=2))
             exit(1)
