@@ -1175,7 +1175,7 @@ _SQLITE_UNIQUE_ERROR_REGEX = re.compile(
     re.MULTILINE | re.DOTALL,
 )
 _POSTGRES_UNIQUE_ERROR_REGEX = re.compile(
-    r".*duplicate key.*\((?P<column>[^ ]+)\)=",
+    r".*duplicate key.*\((?P<column>[^ ]+)\)=\((?P<value>[^ ]+)\)",
     re.MULTILINE | re.DOTALL,
 )
 
@@ -1218,7 +1218,12 @@ def wrap_database_errors() -> Iterator[None]:
             ):
                 match = _POSTGRES_UNIQUE_ERROR_REGEX.match(str(exception.orig))
                 if match is not None:
-                    raise Failure(AlreadyExistsError(field=match.group("column")))
+                    raise Failure(
+                        AlreadyExistsError(
+                            field=match.group("column"),
+                            value=match.group("value"),
+                        )
+                    )
 
         raise Failure(DatabaseUnexpectedError(message=str(exception)))
 

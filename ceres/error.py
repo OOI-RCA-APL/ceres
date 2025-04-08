@@ -217,6 +217,7 @@ class AlreadyExistsError(__BaseAPIError):
     __error_status_code__: ClassVar[int] = HTTP_409_CONFLICT
     type: Literal["already-exists-error"] = "already-exists-error"
     field: str
+    value: str | None = None
 
 
 class NotAuthenticatedError(__BaseAPIError):
