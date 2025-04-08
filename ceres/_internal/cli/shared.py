@@ -40,6 +40,7 @@ from pydantic import (
     Field,
     FilePath,
     Json,
+    NewPath,
     TypeAdapter,
     ValidationError,
     create_model,
@@ -578,6 +579,32 @@ def _extract(obj: object, fields: Mapping[str, str] | None = None) -> Mapping[st
     }
 
 
+def _resolve_fields(fields: Sequence[str] | Mapping[str, str] | None) -> Mapping[str, str] | None:
+    if fields is not None and not isinstance(fields, Mapping):
+        mapping: dict[str, str] = {}
+        for i, field in enumerate(fields):
+            if ":" in field:
+                field, alias = field.split(":", 1)
+                mapping[field] = alias
+            else:
+                mapping[field] = field
+
+        return mapping
+
+    return fields
+
+
+def _resolve_data_format(path: Path, data_format: CLIDataFormat | None = None) -> CLIDataFormat:
+    if data_format is not None:
+        return data_format
+    if path.suffix in (".json", ".jsonl", ".ndjson", ".txt"):
+        return CLIDataFormat.JSON
+    elif path.suffix == ".csv":
+        return CLIDataFormat.CSV
+
+    raise CLICommandFailed(f"Cannot infer data format from extension: {path.suffix!r}")
+
+
 class CLICommandGroup(CLICommand):
     @override
     async def __run__(self) -> Any:
@@ -618,8 +645,17 @@ _T = TypeVar("_T")
 
 
 class CLIDataOutputCommand(CLICommand):
-    data_format: CLIDataFormat = CLIDataFormat.JSON
-    """Specify the data output format, as either "json" (JSONL) or "csv"."""
+    output: FilePath | NewPath | None = None
+    """
+    Output file to write data to. Data format will be inferred from the provided file extension. If
+    unspecified, data is written to stdout.
+    """
+
+    data_format: CLIDataFormat | None = None
+    """
+    Specify the data output format, as either "json" (JSONL) or "csv". Defaults to "json", unless
+    `--output` is specified, in which case the format can be inferred from the file extension.
+    """
 
     field: MaybeSequence[str] | None = None
     """
@@ -632,7 +668,7 @@ class CLIDataOutputCommand(CLICommand):
     async def put(
         self,
         data: object,
-        file: IO[str] = sys.stdout,
+        file: IO[str] | None = None,
         *,
         end: str = "\n",
         flush: bool = False,
@@ -640,22 +676,28 @@ class CLIDataOutputCommand(CLICommand):
         data_format: CLIDataFormat | None = None,
         fields: Sequence[str] | Mapping[str, str] | None = None,
     ) -> None:
-        if data_format is None:
-            data_format = self.data_format
+        if file is None:
+            if self.output is not None:
+                try:
+                    file = open(self.output, "w")
+                except FileNotFoundError:
+                    raise CLICommandFailed(f"Output file '{str(self.output)!r}' not found.")
+                except OSError:
+                    raise CLICommandFailed(f"Failed to open output file '{str(self.output)!r}'.")
+
+        if file is None:
+            file = sys.stdout
+
+        assert file is not None
+
+        data_format = data_format or self.data_format
+        if self.output is not None:
+            data_format = _resolve_data_format(self.output, data_format)
 
         if fields is None and self.field is not None:
             fields = util.as_sequence(self.field)
 
-        mapping: dict[str, str] | None = None
-
-        if fields is not None:
-            mapping = {}
-            for i, field in enumerate(fields):
-                if ":" in field:
-                    field, alias = field.split(":", 1)
-                    mapping[field] = alias
-                else:
-                    mapping[field] = field
+        fields = _resolve_fields(fields)
 
         await super().put(
             data,
@@ -664,17 +706,56 @@ class CLIDataOutputCommand(CLICommand):
             flush=flush,
             color=color,
             data_format=data_format,
-            fields=mapping,
+            fields=fields,
+        )
+
+
+class CLIDataOutputSelectionCommand(CLIDataOutputCommand):
+    fields: CliPositionalArg[list[str] | None] = None
+    """
+    Specify entity field name(s) to include in output data. If unspecified, all fields are output.
+    Specifying a colon after a field name in the format `<field>:<alias>` will rename the field in
+    the output data to the provided alias. Fields provided here and with `--field` option(s) are
+    merged, with `--field` option(s) taking precedence over these positional arguments.
+    """
+
+    @override
+    async def put(
+        self,
+        data: object,
+        file: IO[str] | None = None,
+        *,
+        end: str = "\n",
+        flush: bool = False,
+        color: bool | None = None,
+        data_format: CLIDataFormat | None = None,
+        fields: Sequence[str] | Mapping[str, str] | None = None,
+    ) -> None:
+        if fields is None:
+            fields = {
+                **(_resolve_fields(self.fields) or {}),
+                **(_resolve_fields(self.field) or {}),
+            } or None
+
+        await super().put(
+            data,
+            file,
+            end=end,
+            flush=flush,
+            color=color,
+            data_format=data_format,
+            fields=fields,
         )
 
 
 def create_entity_select_command(Entity: type[BaseEntity]):
     plural = util.get_entity_plural(Entity)
 
-    class SelectCommand(CLIDataOutputCommand, Entity.Filter):
+    class SelectCommand(CLIDataOutputSelectionCommand, Entity.Filter):
         f"""
         Retrieve {plural}.
         """
+        fields: CliPositionalArg[list[str] | None] = None
 
         @override
         async def __run__(self) -> None:
@@ -783,7 +864,7 @@ def create_entity_follow_command(Entity: type[BaseEntity]):
     plural = util.get_entity_plural(Entity)
     route = util.get_entity_route_name(Entity)
 
-    class FollowCommand(CLIDataOutputCommand, Entity.Filter):
+    class FollowCommand(CLIDataOutputSelectionCommand, Entity.Filter):
         f"""
         Follow new {plural}.
         """
@@ -846,17 +927,7 @@ def create_entity_load_command(Entity: type[Entity]):
             from ceres.entity import Entity
 
             path = Path(path)
-
-            if data_format is None:
-                if path.suffix in (".json", ".jsonl", ".ndjson", ".txt"):
-                    data_format = CLIDataFormat.JSON
-                elif path.suffix == ".csv":
-                    data_format = CLIDataFormat.CSV
-                else:
-                    raise CLICommandFailed(
-                        f"Cannot infer data format from extension: {path.suffix!r}"
-                    )
-
+            data_format = _resolve_data_format(path, data_format)
             cls = entity_type.cls
 
             batch: list[Entity] = []
@@ -940,6 +1011,10 @@ def create_entity_load_command(Entity: type[Entity]):
                                         if batch:
                                             await flush()
 
+                            except FileNotFoundError:
+                                raise CLICommandFailed(
+                                    f"Output file '{str(self.path)!r}' not found."
+                                )
                             except OSError:
                                 raise CLICommandFailed(f"Failed to read input file: {str(path)!r}")
                             except ValidationError as error:
