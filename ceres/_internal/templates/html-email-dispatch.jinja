@@ -19,17 +19,17 @@
       <table style="margin-bottom: 4px">
         <tr>
           <th>Source</th>
-          <th>Code</th>
-          <th>Info</th>
+          <th>Type</th>
+          <th>Data</th>
           <th>Count</th>
           <th>Latest (UTC)</th>
         </tr>
-        {% for (source, code, info), alerts in in_level.items() %}
+        {% for (source, type, data), alerts in in_level.items() %}
         <tr>
           <td>{{ source }}</td>
-          <td>{{ code }}</td>
+          <td>{{ type }}</td>
           <td>
-            <pre>{{ info }}</pre>
+            <pre>{{ data }}</pre>
           </td>
           <td>{{ get_size(alerts) }}</td>
           <td>{{ get_latest_alert_timestamp(alerts).strftime("%Y-%m-%d %H:%M:%S") }}</td>
