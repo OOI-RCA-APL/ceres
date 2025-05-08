@@ -375,7 +375,7 @@ PasswordStr: TypeAlias = Annotated[
 def __validate_email_str(value: str) -> str:
     from email_validator import validate_email
 
-    validated = validate_email(value)
+    validated = validate_email(value, check_deliverability=False)
     return validated.normalized.lower()
 
 
