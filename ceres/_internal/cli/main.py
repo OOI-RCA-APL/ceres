@@ -43,6 +43,12 @@ with lazy_imports(__name__):
     from ceres.engine import Engine
     from ceres.threading import spawn
 
+_watching = False
+"""
+Specifies if the current process is being watched by the parent process by the `--watch` flag, and
+ignore the `--watch` flag itself, as it's already being handled.
+"""
+
 
 class RunCommand(CLICommand):
     """
@@ -62,7 +68,11 @@ class RunCommand(CLICommand):
     @override
     async def __run__(self) -> None:
         config_path = self.use_config_path()
-        await _run(self.addresses, config_path=config_path, watch=self.watch)
+        await _run(
+            self.addresses,
+            config_path=config_path,
+            watch=not _watching and self.watch,
+        )
 
 
 class CheckCommand(CLICommand):
@@ -305,6 +315,7 @@ class BaseMainCommand(BaseSettings, CLICommandGroup):
     model_config = SettingsConfigDict(
         cli_prog_name="ceres",
         case_sensitive=True,
+        use_attribute_docstrings=True,
         cli_avoid_json=True,
         cli_enforce_required=True,
         cli_exit_on_error=True,
@@ -381,8 +392,16 @@ with lazy_imports(__name__):
 
 
 def main(args: Sequence[str] | None = None) -> None:
+    _main(args)
+
+
+def _main(args: Sequence[str] | None = None, *, watching: bool = False) -> None:
     if args is None:
         args = sys.argv[1:]
+
+    global _watching
+    if watching:
+        _watching = True
 
     arguments = [token for token in args if not token.startswith("-")]
     subcommand = arguments[0] if arguments else None
@@ -486,15 +505,6 @@ async def _run(addresses: Sequence[AddressSelector], *, config_path: Path, watch
             raise
 
 
-def _run_sync(
-    address: AddressSelector | None = None,
-    *,
-    config_path: Path,
-    watch: bool,
-) -> None:
-    util.syncify(_run)(addresses=[address] if address else [], config_path=config_path, watch=watch)
-
-
 async def _run_watch(
     address: AddressSelector | None = None,
     *,
@@ -510,14 +520,13 @@ async def _run_watch(
         assert ceres is not None and ceres.origin is not None
 
         async def start() -> CombinedProcess:
-            target = _run_sync
-            kwargs = {
-                "address": address,
-                "config_path": config_path,
-                "watch": False,
-            }
-
-            return await spawn(start_process, target, "function", (), kwargs)
+            return await spawn(
+                start_process,
+                _main,
+                "function",
+                (),
+                {"args": sys.argv[1:], "watching": True},
+            )
 
         # Start the initial process.
         process = await start()
