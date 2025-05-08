@@ -13,18 +13,21 @@ from pathlib import Path
 from types import NoneType
 from typing import (
     IO,
+    TYPE_CHECKING,
     Annotated,
     Any,
     AsyncContextManager,
     AsyncIterable,
     Callable,
     Collection,
+    Iterable,
     Literal,
     Mapping,
     Self,
     Sequence,
     TypeAlias,
     TypeVar,
+    cast,
     overload,
     override,
 )
@@ -35,6 +38,9 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    FilePath,
+    Json,
+    NewPath,
     TypeAdapter,
     ValidationError,
     create_model,
@@ -47,11 +53,15 @@ from pydantic_settings import (
     SettingsError,
     get_subcommand,
 )
+from pydantic_settings.sources import CliPositionalArg
 
 from ceres._internal import util
 from ceres._internal.lazy import lazy_imports
 from ceres._internal.project import LoadedProject, Project
+from ceres._internal.util import PathLike, wrap_database_errors
 from ceres.data import DataObject, DeferBuild, FromYAML, MaybeSequence, NonEmpty, jsonify
+from ceres.database.enums import DatabaseType
+from ceres.entity import EntityType
 from ceres.result import Ok
 
 with lazy_imports(__name__):
@@ -239,6 +249,17 @@ def __disabled_chdir__(*args: Any, **kwargs: Any) -> None:
 
 def disable_chdir() -> None:
     os.chdir = __disabled_chdir__
+
+
+class CLIDataFormat(StrEnum):
+    JSON = "json"
+    CSV = "csv"
+
+
+class CLIDataConflict(StrEnum):
+    ERROR = "error"
+    IGNORE = "ignore"
+    UPDATE = "update"
 
 
 class CLICommand(DataObject, DeferBuild):
@@ -558,6 +579,32 @@ def _extract(obj: object, fields: Mapping[str, str] | None = None) -> Mapping[st
     }
 
 
+def _resolve_fields(fields: Sequence[str] | Mapping[str, str] | None) -> Mapping[str, str] | None:
+    if fields is not None and not isinstance(fields, Mapping):
+        mapping: dict[str, str] = {}
+        for i, field in enumerate(fields):
+            if ":" in field:
+                field, alias = field.split(":", 1)
+                mapping[field] = alias
+            else:
+                mapping[field] = field
+
+        return mapping
+
+    return fields
+
+
+def _resolve_data_format(path: Path, data_format: CLIDataFormat | None = None) -> CLIDataFormat:
+    if data_format is not None:
+        return data_format
+    if path.suffix in (".json", ".jsonl", ".ndjson", ".txt"):
+        return CLIDataFormat.JSON
+    elif path.suffix == ".csv":
+        return CLIDataFormat.CSV
+
+    raise CLICommandFailed(f"Cannot infer data format from extension: {path.suffix!r}")
+
+
 class CLICommandGroup(CLICommand):
     @override
     async def __run__(self) -> Any:
@@ -570,12 +617,13 @@ class CLICommandFailed(SettingsError):
     def __init__(self, message: Any) -> None:
         try:
             content = json.loads(message)
-            if isinstance(content, dict):
-                content.pop("__error__", None)
-
-            message = json.dumps(content)
+            message = jsonify(content, indent=2)
         except Exception:
-            message = str(message)
+            if not isinstance(message, str):
+                try:
+                    message = jsonify(message, indent=2)
+                except Exception:
+                    message = str(message)
 
         self.message = message
         super().__init__(message)
@@ -596,20 +644,31 @@ class CLIClientError(CLICommandFailed, ClientError):
 _T = TypeVar("_T")
 
 
-class CLIDataFormat(StrEnum):
-    JSON = "json"
-    CSV = "csv"
+class CLIDataOutputCommand(CLICommand):
+    output: FilePath | NewPath | None = None
+    """
+    Output file to write data to. Data format will be inferred from the provided file extension. If
+    unspecified, data is written to stdout.
+    """
 
+    data_format: CLIDataFormat | None = None
+    """
+    Specify the data output format, as either "json" (JSONL) or "csv". Defaults to "json", unless
+    `--output` is specified, in which case the format can be inferred from the file extension.
+    """
 
-class CLIDataCommand(CLICommand):
-    data_format: CLIDataFormat = CLIDataFormat.JSON
     field: MaybeSequence[str] | None = None
+    """
+    Specify entity field name(s) to include in output data. If unspecified, all fields are output.
+    Specifying a colon after a field name in the format `--field <field>:<alias>` will rename the
+    field in the output data to the provided alias.
+    """
 
     @override
     async def put(
         self,
         data: object,
-        file: IO[str] = sys.stdout,
+        file: IO[str] | None = None,
         *,
         end: str = "\n",
         flush: bool = False,
@@ -617,22 +676,28 @@ class CLIDataCommand(CLICommand):
         data_format: CLIDataFormat | None = None,
         fields: Sequence[str] | Mapping[str, str] | None = None,
     ) -> None:
-        if data_format is None:
-            data_format = self.data_format
+        if file is None:
+            if self.output is not None:
+                try:
+                    file = open(self.output, "w")
+                except FileNotFoundError:
+                    raise CLICommandFailed(f"Output file '{str(self.output)!r}' not found.")
+                except OSError:
+                    raise CLICommandFailed(f"Failed to open output file '{str(self.output)!r}'.")
+
+        if file is None:
+            file = sys.stdout
+
+        assert file is not None
+
+        data_format = data_format or self.data_format
+        if self.output is not None:
+            data_format = _resolve_data_format(self.output, data_format)
 
         if fields is None and self.field is not None:
             fields = util.as_sequence(self.field)
 
-        mapping: dict[str, str] | None = None
-
-        if fields is not None:
-            mapping = {}
-            for i, field in enumerate(fields):
-                if ":" in field:
-                    field, alias = field.split(":", 1)
-                    mapping[field] = alias
-                else:
-                    mapping[field] = field
+        fields = _resolve_fields(fields)
 
         await super().put(
             data,
@@ -641,17 +706,56 @@ class CLIDataCommand(CLICommand):
             flush=flush,
             color=color,
             data_format=data_format,
-            fields=mapping,
+            fields=fields,
+        )
+
+
+class CLIDataOutputSelectionCommand(CLIDataOutputCommand):
+    fields: CliPositionalArg[list[str] | None] = None
+    """
+    Specify entity field name(s) to include in output data. If unspecified, all fields are output.
+    Specifying a colon after a field name in the format `<field>:<alias>` will rename the field in
+    the output data to the provided alias. Fields provided here and with `--field` option(s) are
+    merged, with `--field` option(s) taking precedence over these positional arguments.
+    """
+
+    @override
+    async def put(
+        self,
+        data: object,
+        file: IO[str] | None = None,
+        *,
+        end: str = "\n",
+        flush: bool = False,
+        color: bool | None = None,
+        data_format: CLIDataFormat | None = None,
+        fields: Sequence[str] | Mapping[str, str] | None = None,
+    ) -> None:
+        if fields is None:
+            fields = {
+                **(_resolve_fields(self.fields) or {}),
+                **(_resolve_fields(self.field) or {}),
+            } or None
+
+        await super().put(
+            data,
+            file,
+            end=end,
+            flush=flush,
+            color=color,
+            data_format=data_format,
+            fields=fields,
         )
 
 
 def create_entity_select_command(Entity: type[BaseEntity]):
     plural = util.get_entity_plural(Entity)
 
-    class SelectCommand(CLIDataCommand, Entity.Filter):
+    class SelectCommand(CLIDataOutputSelectionCommand, Entity.Filter):
         f"""
         Retrieve {plural}.
         """
+        fields: CliPositionalArg[list[str] | None] = None
 
         @override
         async def __run__(self) -> None:
@@ -684,7 +788,7 @@ def create_entity_count_command(Entity: type[BaseEntity]):
 def create_entity_create_command(Entity: type[BaseEntity]):
     singular = util.get_entity_singular(Entity)
 
-    class CreateCommand(CLIDataCommand, Entity.Create):
+    class CreateCommand(CLIDataOutputCommand, Entity.Create):
         f"""
         Create a new {singular}.
         """
@@ -701,14 +805,17 @@ def create_entity_create_command(Entity: type[BaseEntity]):
 def create_entity_update_command(Entity: type[BaseEntity]):
     plural = util.get_entity_plural(Entity)
 
-    class UpdateCommand(CLIDataCommand, Entity.Filter):
+    class UpdateCommand(CLIDataOutputCommand, Entity.Filter):
         f"""
         Update {plural}. Return the number updated.
         """
 
         assign: Assign[Entity.Update]  # type: ignore
+        f"""Values to assign to matched {plural}. Specified as a JSON or YAML object."""
         confirm: Confirm = True
+        """Confirm before updating."""
         collect: bool = False
+        """Stream updated entities to stdout. Ordering is not preserved."""
 
         @override
         async def __run__(self) -> None:
@@ -728,13 +835,15 @@ def create_entity_update_command(Entity: type[BaseEntity]):
 def create_entity_delete_command(Entity: type[BaseEntity]):
     plural = util.get_entity_plural(Entity)
 
-    class DeleteCommand(CLIDataCommand, Entity.Filter):
+    class DeleteCommand(CLIDataOutputCommand, Entity.Filter):
         f"""
         Delete {plural}. Return the number deleted.
         """
 
         confirm: Confirm = True
+        """Confirm before deleting."""
         collect: bool = False
+        """Stream deleted entities to stdout. Ordering is not preserved."""
 
         @override
         async def __run__(self) -> None:
@@ -755,7 +864,7 @@ def create_entity_follow_command(Entity: type[BaseEntity]):
     plural = util.get_entity_plural(Entity)
     route = util.get_entity_route_name(Entity)
 
-    class FollowCommand(CLIDataCommand, Entity.Filter):
+    class FollowCommand(CLIDataOutputSelectionCommand, Entity.Filter):
         f"""
         Follow new {plural}.
         """
@@ -769,6 +878,155 @@ def create_entity_follow_command(Entity: type[BaseEntity]):
     return FollowCommand
 
 
+if TYPE_CHECKING:
+    from ceres.entity import Entity
+
+
+def create_entity_load_command(Entity: type[Entity]):
+    plural = util.get_entity_plural(Entity)
+
+    class LoadCommand(CLICommand):
+        f"""
+        Load {plural} from file. Return the number loaded.
+        """
+
+        path: CliPositionalArg[FilePath] = Field(description=f"File path to load {plural} from.")
+        f"""File path to load {plural} from."""
+
+        data_format: CLIDataFormat | None = None
+        """
+        Specify the data format for the input file, as either "json" (JSONL) or "csv". If
+        unspecified, this will be inferred from the file extension.
+        """
+
+        on_conflict: CLIDataConflict = CLIDataConflict.ERROR
+        """
+        Specify how to handle primary key conflicts in the event one occurs. If "error", raise an
+        error, and roll back any previous entity inserts. If "ignore", just skip updating the
+        existing entity and continue loading. If "update", update the existing entity with the
+        incoming values and continue loading.
+        """
+
+        @override
+        async def __run__(self) -> None:
+            count = await self.__load(
+                self.path,
+                EntityType.from_class(Entity),
+                self.data_format,
+                self.on_conflict,
+            )
+            self.write(count, sys.stdout)
+
+        async def __load(
+            self,
+            path: PathLike,
+            entity_type: EntityType,
+            data_format: CLIDataFormat | None = None,
+            on_conflict: CLIDataConflict = CLIDataConflict.ERROR,
+        ) -> int:
+            from ceres.entity import Entity
+
+            path = Path(path)
+            data_format = _resolve_data_format(path, data_format)
+            cls = entity_type.cls
+
+            batch: list[Entity] = []
+            batch_size = 1000
+            count = 0
+
+            async def flush() -> None:
+                nonlocal count
+
+                match database.type:
+                    case DatabaseType.POSTGRES:
+                        from sqlalchemy.dialects.postgresql import insert
+                    case DatabaseType.SQLITE:
+                        from sqlalchemy.dialects.sqlite import insert
+
+                statement = insert(cls.Row).values([entity.__dict__ for entity in batch])
+                match on_conflict:
+                    case CLIDataConflict.ERROR:
+                        pass
+                    case CLIDataConflict.IGNORE:
+                        statement = statement.on_conflict_do_nothing(
+                            cls.Row.get_primary_key_constraint()
+                        )
+                    case CLIDataConflict.UPDATE:
+                        statement = statement.on_conflict_do_update(
+                            cls.Row.get_primary_key_constraint(),
+                            set_={
+                                column: column
+                                for column in cls.Row.get_columns()
+                                if column.name not in cls.Row.get_primary_key_columns()
+                            },
+                        )
+
+                await connection.execute(statement)
+                count += len(batch)
+                batch.clear()
+
+            async with self.use_database() as database:
+                with wrap_database_errors():
+                    async with database.connect() as connection:
+                        async with connection.begin():
+                            try:
+                                match data_format:
+                                    case CLIDataFormat.JSON:
+                                        adapter = util.get_type_adapter(
+                                            cast(
+                                                Iterable[Json[Entity]],
+                                                Iterable[Json[cls]],
+                                            )
+                                        )
+
+                                        for entity in adapter.validate_python(open(path)):
+                                            batch.append(entity)
+                                            if len(batch) >= batch_size:
+                                                await flush()
+
+                                        if batch:
+                                            await flush()
+                                    case CLIDataFormat.CSV:
+                                        from csv import DictReader, Sniffer
+
+                                        adapter = util.get_type_adapter(
+                                            cast(
+                                                Iterable[Entity],
+                                                Iterable[cls],
+                                            )
+                                        )
+
+                                        with open(path) as stream:
+                                            sample = "".join([next(stream, "") for _ in range(10)])
+
+                                        dialect = Sniffer().sniff(sample)
+
+                                        with open(path) as stream:
+                                            reader = DictReader(stream, dialect=dialect)
+                                            for entity in adapter.validate_python(reader):
+                                                batch.append(entity)
+                                                if len(batch) >= batch_size:
+                                                    await flush()
+
+                                        if batch:
+                                            await flush()
+
+                            except FileNotFoundError:
+                                raise CLICommandFailed(
+                                    f"Output file '{str(self.path)!r}' not found."
+                                )
+                            except OSError:
+                                raise CLICommandFailed(f"Failed to read input file: {str(path)!r}")
+                            except ValidationError as error:
+                                raise CLICommandFailed(error.errors())
+
+                            await connection.commit()
+
+            return count
+
+    return LoadCommand
+
+
 EntitySubCommandMapping = Mapping[str, type[CLICommand]]
 
 _COMMAND_CREATORS = {
@@ -778,6 +1036,7 @@ _COMMAND_CREATORS = {
     "create": create_entity_create_command,
     "update": create_entity_update_command,
     "delete": create_entity_delete_command,
+    "load": create_entity_load_command,
 }
 
 
@@ -795,7 +1054,7 @@ def create_entity_command(
         if name not in mapping:
             mapping[name] = creator(Entity)
 
-    fields: Any = {key: (CliSubCommand[value], ...) for key, value in mapping.items()}
+    fields: Any = {key: (CliSubCommand[cls], ...) for key, cls in mapping.items()}
     plural = util.get_entity_plural(Entity)
 
     return create_model(
