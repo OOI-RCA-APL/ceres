@@ -1,5 +1,5 @@
 import asyncio
-from asyncio import AbstractEventLoop, Task, TaskGroup
+from asyncio import AbstractEventLoop, CancelledError, Task, TaskGroup
 from asyncio import Queue as AsyncQueue
 from dataclasses import dataclass
 from typing import (
@@ -49,22 +49,31 @@ async def wait_any[T](
     """
     Wait for any of the given tasks or coroutines to complete.
 
-    If `cancelling` is `True`, all remaining tasks will be cancelled and awaited once the first task completes. This is `False` by default.
+    If `cancelling` is `True`, all remaining tasks will be cancelled and awaited once the first task
+    completes. This is `False` by default.
 
     :param tasks: The tasks or coroutines to wait for. If coroutines are given, they will be automatically scheduled as tasks.
     :param cancelling: Whether or not to cancel all remaining tasks once one completes.
     :return: A tuple of two sets. The first set contains all tasks that completed, and the second set contains all tasks still pending.
     """
-    done, pending = await _wait_many(asyncio.FIRST_COMPLETED, list(flatten(tasks)))
-    if cancelling:
-        await cancel(pending)
+    flattened = _to_tasks(flatten(tasks))
+    try:
+        done, pending = await _wait_many(asyncio.FIRST_COMPLETED, flattened)
+        if cancelling:
+            await cancel(pending)
 
-    if raised:
-        for task in done:
-            if not task.cancelled() and (exception := task.exception()):
-                raise exception
+        if raised:
+            for task in done:
+                if not task.cancelled() and (exception := task.exception()):
+                    raise exception
 
-    return done, pending
+        return done, pending
+    except CancelledError:
+        try:
+            if cancelling:
+                await cancel(flattened)
+        finally:
+            raise
 
 
 async def wait_all[T](
@@ -76,16 +85,21 @@ async def wait_all[T](
     :param tasks: The tasks or coroutines to wait for. If a coroutines are given, they will be automatically scheduled as tasks.
     :return: A tuple of all tasks completed.
     """
-    done, _ = await _wait_many(asyncio.ALL_COMPLETED, list(flatten(tasks)))
+    done, _ = await _wait_many(asyncio.ALL_COMPLETED, _to_tasks(flatten(tasks)))
     return done  # type: ignore
+
+
+def _to_tasks[T](
+    tasks: Iterable[Task[T] | Coroutine[Any, Any, T]],
+) -> list[Task[T]]:
+    return [asyncio.create_task(task) if not isinstance(task, Task) else task for task in tasks]
 
 
 async def _wait_many[T](
     condition: str,
-    tasks: Sequence[Task[T] | Coroutine[Any, Any, T]],
+    tasks: Sequence[Task[T]],
 ) -> tuple[set[Task[T]], set[Task[T]]]:
-    waiting = [asyncio.create_task(task) if not isinstance(task, Task) else task for task in tasks]
-    result = await asyncio.wait(waiting, return_when=condition)
+    result = await asyncio.wait(tasks, return_when=condition)
     return result
 
 
