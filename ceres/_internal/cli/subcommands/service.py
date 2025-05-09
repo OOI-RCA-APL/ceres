@@ -59,7 +59,7 @@ class StopCommand(CLICommand):
     async def __run__(self) -> None:
         project = await self.use_loaded_project()
         service = _get_service(project)
-        self.write(f"Stopping service {service.name!r} at {service.location}...")
+        self.write(f"Stopping service {service.name!r} at {service.location!r}...")
         service.stop()
         self.write("Service stopped successfully.")
 

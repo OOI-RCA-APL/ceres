@@ -227,12 +227,7 @@ class LaunchDService(Service):
 
     @property
     def path(self) -> Path:
-        if sys.platform == "darwin":
-            import launchd
-        else:
-            raise NotImplementedError()
-
-        return Path(launchd.plist.compute_filename(self.label, launchd.plist.USER))
+        return Path("~/Library/LaunchAgents").expanduser() / f"{self.label}.plist"
 
     @property
     def target(self) -> str:
@@ -240,21 +235,13 @@ class LaunchDService(Service):
 
     @override
     def generate(self) -> bytes:
-        if sys.platform == "darwin":
-            import plistlib
-        else:
-            raise NotImplementedError()
+        import plistlib
 
         return plistlib.dumps(self._generate_plist_data())
 
     @override
     def create(self) -> None:
-        if sys.platform == "darwin":
-            import plistlib
-
-            import launchd
-        else:
-            raise NotImplementedError()
+        import plistlib
 
         try:
             current = plistlib.loads(self.path.read_text().encode()) if self.path.exists() else None
@@ -275,8 +262,8 @@ class LaunchDService(Service):
             data["StandardErrorPath"] = str(self.stderr)
 
         if current != data:
-            launchd.plist.write(self.label, data)
-            return
+            self.path.parent.mkdir(parents=True, mode=0o755, exist_ok=True)
+            self.path.write_bytes(plistlib.dumps(data))
 
         self._execute(["enable", self.target])
 
@@ -318,12 +305,8 @@ class LaunchDService(Service):
         log_output: bool = True,
     ) -> bytes | Exception | None:
         try:
-            if sys.platform == "darwin":
-                import launchd.cmd
-            else:
-                raise NotImplementedError()
-
-            output = launchd.cmd.launchctl(*(str(segment) for segment in command))
+            command = ["launchctl", *[str(segment) for segment in command]]
+            output = subprocess.check_output(command, stderr=subprocess.STDOUT)
             if log_output and output.strip():
                 self._log(output)
                 return output
