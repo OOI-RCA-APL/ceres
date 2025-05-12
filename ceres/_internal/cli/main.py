@@ -595,17 +595,13 @@ def _set_current_process_name(name: str) -> None:
 def _temporary_signal_handler(signums: Sequence[int], handler: Callable[..., Any]):
     import signal
 
-    loop = util.get_event_loop_or_none()
     originals: dict[int, Any] = {}
 
     for signum in signums:
         if original := signal.getsignal(signum):
             originals[signum] = original
 
-        if loop is not None:
-            loop.add_signal_handler(signum, handler)
-        else:
-            signal.signal(signum, handler)
+        signal.signal(signum, handler)
 
     try:
         yield
