@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from abc import abstractmethod
 from datetime import datetime
-from typing import TYPE_CHECKING, ClassVar, Iterable, Literal, TypeAlias, override
+from typing import TYPE_CHECKING, ClassVar, Iterable, Literal, Self, TypeAlias, override
 
-from pydantic import Field, NonNegativeInt
-from sqlalchemy import cast, func, literal
+from pydantic import Field, NonNegativeInt, PositiveInt
+from pydantic.functional_validators import model_validator
+from sqlalchemy import cast, func, literal, select
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.schema import Index, SchemaItem
 from sqlalchemy.sql import SQLColumnExpression
@@ -74,6 +75,7 @@ class BaseRecordFilterArgs[
     before: DateTime | None
     after: DateTime | None
     timespan: NonNegativeTimeDelta | None
+    subsample: bool | None
     max_age: NonNegativeTimeDelta | None
     min_age: NonNegativeTimeDelta | None
     after_hour: NonNegativeInt | None
@@ -116,6 +118,13 @@ class BaseRecordFilter[
     threshold.
     """
 
+    subsample: PositiveInt | None = None
+    """
+    Select/affect only one record per `subsample` divisions of time. To use this, a clear start and
+    end to the filtered time range must be specified using some combination of time range filter
+    fields, including: `after`, `before`, `timespan`, `min_age`, and/or `max_age`.
+    """
+
     after_hour: NonNegativeInt | None = Field(default=None, le=24)
     """Filter by the hour value of `timestamp` being greater than or equal to a given value."""
     before_hour: NonNegativeInt | None = Field(default=None, le=24)
@@ -124,6 +133,31 @@ class BaseRecordFilter[
     """Filter by the minute value of `timestamp` being greater than or equal to a given value."""
     before_minute: NonNegativeInt | None = Field(default=None, le=60)
     """Filter by the minute of `timestamp` being less than a given value."""
+
+    @model_validator(mode="after")
+    def _validate_subsample(self) -> Self:
+        if self.subsample is None:
+            return self
+
+        start, end = self._get_time_bounds(utc())
+        if start is None or end is None:
+            if start is None and end is None:
+                subject = "Start and end time"
+            elif start is None:
+                subject = "Start time"
+            else:
+                subject = "End time"
+
+            message = (
+                "for `subsample` time range could not be determined. "
+                "`timespan` requires a clear start and end to the filtered time range to be "
+                "specified using some combination of time range filter fields, including: `after`, "
+                "`before`, `timespan`, `min_age` and/or `max_age`."
+            )
+
+            raise ValueError(f"{subject} {message}")
+
+        return self
 
     @override
     def matches(self, obj: RecordT, *, now: datetime | None = None) -> bool:
@@ -214,6 +248,25 @@ class BaseRecordFilter[
         if self.min_age is not None:
             yield columns.timestamp <= now - self.min_age
 
+        if self.subsample is not None:
+            start, end = self._get_time_bounds(now)
+            if start is not None and end is not None:
+                matches = (
+                    select(
+                        bin := func.date_bin(
+                            (end - start) / max(self.subsample, 1),
+                            columns.timestamp,
+                            start,
+                        ).label("bin"),
+                        func.min(columns.timestamp).label("timestamp"),
+                    )
+                    .where(columns.timestamp >= start)
+                    .where(columns.timestamp < end)
+                    .group_by(bin)
+                ).cte("matches")
+
+                yield columns.timestamp.in_(select(matches.columns.timestamp).select_from(matches))
+
         if self.after_hour is not None or self.before_hour is not None:
             min_hour = self.after_hour if self.after_hour is not None else 0
             max_hour = self.before_hour if self.before_hour is not None else 24
@@ -255,6 +308,34 @@ class BaseRecordFilter[
     @override
     def _get_default_order(self) -> OrderT:
         return "timestamp"  # type: ignore
+
+    def _get_time_bounds(self, now: datetime) -> tuple[datetime | None, datetime | None]:
+        starts: list[datetime] = []
+        ends: list[datetime] = []
+
+        if self.after is not None:
+            starts.append(self.after)
+        if self.before is not None:
+            ends.append(self.before)
+
+        if self.timespan is not None:
+            if self.after is not None:
+                ends.append(self.after + self.timespan)
+            elif self.before is not None:
+                starts.append(self.before - self.timespan)
+            else:
+                starts.append(now - self.timespan)
+                ends.append(now)
+
+        if self.max_age is not None:
+            starts.append(now - self.max_age)
+        if self.min_age is not None:
+            ends.append(now - self.min_age)
+
+        start = max(starts) if starts else None
+        end = min(ends) if ends else None
+
+        return start, end
 
 
 class BaseRecordCreate(BaseItem, BaseUUIDEntity):
