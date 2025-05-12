@@ -380,6 +380,7 @@ class MainCliSettingsSource(CliSettingsSource):
 
 with lazy_imports(__name__):
     from ceres._internal.cli.subcommands.alerts import AlertsCommand
+    from ceres._internal.cli.subcommands.console import ConsoleCommand
     from ceres._internal.cli.subcommands.database import DatabaseCommand
     from ceres._internal.cli.subcommands.generate import GenerateCommand
     from ceres._internal.cli.subcommands.logs import LogsCommand
@@ -407,6 +408,7 @@ def _main(args: Sequence[str] | None = None, *, watching: bool = False) -> None:
     subcommand = arguments[0] if arguments else None
     subcommands = {
         "alerts": AlertsCommand,
+        "console": ConsoleCommand,
         "database": DatabaseCommand,
         "generate": GenerateCommand,
         "logs": LogsCommand,
