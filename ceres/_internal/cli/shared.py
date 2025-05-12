@@ -270,7 +270,7 @@ class CLICommand(DataObject, DeferBuild):
 
     config_path: Path | None = Field(default=None, alias="config")
     """
-    Explicit path to a ceres configuration file.
+    Use a specific Ceres configuration file, possibly outside the current working directory.
     """
 
     color: bool | None = None
