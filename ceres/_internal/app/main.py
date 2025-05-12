@@ -123,11 +123,12 @@ class App(FastAPI):
         self.exception_handler(RequestValidationError)(self._request_validation_error_handler)
 
         self.include_router(router__api)
-        self.include_router(router)
 
-        from ceres._internal.app.console import ConsoleFiles
+        if not self.cli:
+            from ceres._internal.app.console import ConsoleFiles
 
-        self.mount("/", ConsoleFiles(), name="console")
+            self.include_router(router)
+            self.mount("/", ConsoleFiles(), name="console")
 
     @property
     def engine(self) -> Engine:
