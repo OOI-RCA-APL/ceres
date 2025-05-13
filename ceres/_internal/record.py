@@ -75,9 +75,9 @@ class BaseRecordFilterArgs[
     before: DateTime | None
     after: DateTime | None
     timespan: NonNegativeTimeDelta | None
-    subsample: bool | None
     max_age: NonNegativeTimeDelta | None
     min_age: NonNegativeTimeDelta | None
+    subsample: PositiveInt | None
     after_hour: NonNegativeInt | None
     before_hour: NonNegativeInt | None
     after_minute: NonNegativeInt | None
