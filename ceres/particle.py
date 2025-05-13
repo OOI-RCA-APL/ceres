@@ -165,7 +165,6 @@ class ParticleFilterArgs(
     data_contains: MaybeSequence[str] | None
     data_prefix: MaybeSequence[str] | None
     data_suffix: MaybeSequence[str] | None
-    subsample: bool | None
 
 
 class ParticleFilter(
