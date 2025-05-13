@@ -32,7 +32,7 @@ from ceres._internal.item import (
     BaseItemRow,
     BaseItemUpdate,
 )
-from ceres.data import DateTime, MaybeSequence, NonNegativeTimeDelta, PositiveTimeDelta
+from ceres.data import DateTime, MaybeSequence, NonNegativeTimeDelta, PositiveTimeDelta, StrEnum
 from ceres.database import DatabaseType
 from ceres.timing import utc
 
@@ -63,6 +63,17 @@ BaseRecordOrder: TypeAlias = (
 )
 
 
+class SubsampleSelect(StrEnum):
+    """
+    Specifies which sample to choose per subsampled time bucket.
+    """
+
+    FIRST = "first"
+    """Choose the first sample in each time bucket."""
+    LAST = "last"
+    """Choose the last sample in each time bucket."""
+
+
 class BaseRecordFilterArgs[
     FieldT: str,
     OrderT: str,
@@ -77,7 +88,9 @@ class BaseRecordFilterArgs[
     timespan: NonNegativeTimeDelta | None
     max_age: NonNegativeTimeDelta | None
     min_age: NonNegativeTimeDelta | None
+    subsample_every: PositiveTimeDelta | None
     subsample: PositiveInt | None
+    subsample_select: SubsampleSelect | None
     after_hour: NonNegativeInt | None
     before_hour: NonNegativeInt | None
     after_minute: NonNegativeInt | None
@@ -118,11 +131,33 @@ class BaseRecordFilter[
     threshold.
     """
 
+    subsample_every: PositiveTimeDelta | None = None
+    """
+    Subsample results, selecting at most one record per this interval of time.
+
+    For example, setting `timespan` to 1 hour and `subsample_every` to 1 minute will select one
+    record per minute for the last hour, with the total number of time buckets, meaning possible
+    samples, being equal 60.
+    """
+
     subsample: PositiveInt | None = None
     """
-    Select/affect only one record per `subsample` divisions of time. To use this, a clear start and
-    end to the filtered time range must be specified using some combination of time range filter
-    fields, including: `after`, `before`, `timespan`, `min_age`, and/or `max_age`.
+    Subsample results, selecting at most one record per `subsample` divisions of the total time
+    range specified by this filter.
+
+    To use `subsample`, a clear start and end to the filtered time range must be specified using
+    some combination of time range filter fields, including: `after`, `before`, `timespan`,
+    `min_age`, and/or `max_age`.
+
+    For example, setting `timespan` to 1 hour and `subsample` to 60 will select one record per
+    minute for the last hour, with the total number of time buckets, meaning possible samples, being
+    equal to 60.
+    """
+
+    subsample_select: SubsampleSelect | None = None
+    """
+    Specify which record to choose per subsampled time bucket specified by `subsample_every` and
+    `subsample`. If unspecified or `None`, this will default to `SubsampleSelect.FIRST`.
     """
 
     after_hour: NonNegativeInt | None = Field(default=None, le=24)
@@ -248,9 +283,51 @@ class BaseRecordFilter[
         if self.min_age is not None:
             yield columns.timestamp <= now - self.min_age
 
-        if self.subsample is not None:
+        if self.subsample_every is not None or self.subsample is not None:
             start, end = self._get_time_bounds(now)
-            if start is not None and end is not None:
+
+            match self.subsample_select:
+                case SubsampleSelect.FIRST | None:
+                    subsample_selector = func.min
+                case SubsampleSelect.LAST:
+                    subsample_selector = func.max
+
+            if self.subsample_every is not None:
+                seed = (
+                    start
+                    if start is not None
+                    # If there's no start time, use beginning of current hour.
+                    else now.replace(
+                        hour=0,
+                        minute=0,
+                        second=0,
+                        microsecond=0,
+                    )
+                )
+
+                matches = (
+                    select(
+                        bin := func.date_bin(
+                            self.subsample_every,
+                            columns.timestamp,
+                            seed,
+                        ).label("bin"),
+                        subsample_selector(columns.timestamp).label("timestamp"),
+                    )
+                    .where(
+                        *([columns.timestamp >= start] if start is not None else ()),
+                        *([columns.timestamp < end] if end is not None else ()),
+                    )
+                    .group_by(bin)
+                ).cte("matches")
+
+                yield columns.timestamp.in_(select(matches.columns.timestamp).select_from(matches))
+
+            if self.subsample is not None:
+                # These should have already been validated.
+                assert start is not None
+                assert end is not None
+
                 matches = (
                     select(
                         bin := func.date_bin(
@@ -258,7 +335,7 @@ class BaseRecordFilter[
                             columns.timestamp,
                             start,
                         ).label("bin"),
-                        func.min(columns.timestamp).label("timestamp"),
+                        subsample_selector(columns.timestamp).label("timestamp"),
                     )
                     .where(columns.timestamp >= start)
                     .where(columns.timestamp < end)
