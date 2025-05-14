@@ -209,7 +209,7 @@ async function load() {
             address,
             type,
             after: widget.after,
-            timespan: widget.timespan,
+            timespan: widget.timespan ?? '1h',
             subsample: 5000,
             limit: 5000,
           },
