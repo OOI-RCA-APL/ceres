@@ -124,7 +124,10 @@ defineExpose({
     instance?.setOption(option, params as any)
   },
   appendData(params: Parameters<ECharts['appendData']>[0]) {
-    instance?.appendData(params)
+    if (instance != null) {
+      instance.appendData(params)
+      instance.resize()
+    }
   },
   resize(...args: Parameters<ECharts['resize']>) {
     return instance?.resize(...args)

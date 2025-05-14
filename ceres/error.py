@@ -271,6 +271,13 @@ class DatabaseUnreachableError(__BaseStandardError):
     message: str
 
 
+class DatabaseProgrammingError(__BaseStandardError):
+    __error_status_code__: ClassVar[int] = HTTP_500_INTERNAL_SERVER_ERROR
+    type: Literal["database-programming-error"] = "database-programming-error"
+    message: str
+    traceback: Sequence[str]
+
+
 class DatabaseUnexpectedError(__BaseStandardError):
     __error_status_code__: ClassVar[int] = HTTP_500_INTERNAL_SERVER_ERROR
     type: Literal["database-unexpected-error"] = "database-unexpected-error"
@@ -293,6 +300,7 @@ DatabaseError: TypeAlias = (
     AlreadyExistsError
     | NotFoundError
     | DatabaseUnreachableError
+    | DatabaseProgrammingError
     | DatabaseUnexpectedError
     | DatabaseLoadError
     | DatabaseInitError

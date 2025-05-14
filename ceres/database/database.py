@@ -5,6 +5,7 @@ import shutil
 import traceback
 from abc import abstractmethod
 from asyncio import Lock as AsyncLock
+from datetime import datetime, timedelta
 from functools import cached_property
 from pathlib import Path
 from tempfile import NamedTemporaryFile, gettempdir
@@ -838,10 +839,33 @@ def _ceres_encode_latin1(value: str) -> bytes:
     return value.encode("latin-1")
 
 
+def _ceres_date_bin(
+    interval: float | object,
+    value: str | object,
+    origin: str | object,
+) -> str | None:
+    if not isinstance(interval, (int, float)):
+        return None
+    if not isinstance(value, str):
+        return None
+    if not isinstance(origin, str):
+        return None
+
+    value = datetime.fromisoformat(value)
+    origin = datetime.fromisoformat(origin)
+    delta = value - origin
+
+    binned_seconds = (delta.total_seconds() // interval) * interval
+    binned_time = origin + timedelta(seconds=binned_seconds)
+
+    return binned_time.isoformat(" ")
+
+
 def _sqlite_create_functions(connection: _SQLiteConnection) -> None:
     sqlite3.enable_callback_tracebacks(True)
     connection.create_function("ceres_decode_latin1", 1, _ceres_decode_latin1)
     connection.create_function("ceres_encode_latin1", 1, _ceres_encode_latin1)
+    connection.create_function("date_bin", 3, _ceres_date_bin)
 
 
 _Replace = Mapping[EntityType, Mapping[str, str]]

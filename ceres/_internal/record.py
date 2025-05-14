@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from abc import abstractmethod
 from datetime import datetime
-from typing import TYPE_CHECKING, ClassVar, Iterable, Literal, TypeAlias, override
+from typing import TYPE_CHECKING, ClassVar, Iterable, Literal, Self, TypeAlias, override
 
-from pydantic import Field, NonNegativeInt
-from sqlalchemy import cast, func, literal
+from pydantic import Field, NonNegativeInt, PositiveInt
+from pydantic.functional_validators import model_validator
+from sqlalchemy import cast, func, literal, select
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.schema import Index, SchemaItem
 from sqlalchemy.sql import SQLColumnExpression
@@ -31,7 +32,7 @@ from ceres._internal.item import (
     BaseItemRow,
     BaseItemUpdate,
 )
-from ceres.data import DateTime, MaybeSequence, NonNegativeTimeDelta, PositiveTimeDelta
+from ceres.data import DateTime, MaybeSequence, NonNegativeTimeDelta, PositiveTimeDelta, StrEnum
 from ceres.database import DatabaseType
 from ceres.timing import utc
 
@@ -46,7 +47,7 @@ class BaseRecordRow(BaseItemRow, BaseUUIDEntityRow, kw_only=True):
     def __get_table_args__(cls) -> tuple[SchemaItem, ...]:
         return (
             *super().__get_table_args__(),
-            Index(f"ix_{cls.__tablename__}__timestamp", "timestamp", postgresql_using="brin"),
+            Index(f"ix_{cls.__tablename__}__timestamp", "timestamp"),
         )
 
 
@@ -60,6 +61,17 @@ BaseRecordOrder: TypeAlias = (
         "timestamp:desc",
     ]
 )
+
+
+class SubsampleSelect(StrEnum):
+    """
+    Specifies which sample to choose per subsampled time bucket.
+    """
+
+    FIRST = "first"
+    """Choose the first sample in each time bucket."""
+    LAST = "last"
+    """Choose the last sample in each time bucket."""
 
 
 class BaseRecordFilterArgs[
@@ -76,6 +88,9 @@ class BaseRecordFilterArgs[
     timespan: NonNegativeTimeDelta | None
     max_age: NonNegativeTimeDelta | None
     min_age: NonNegativeTimeDelta | None
+    subsample_every: PositiveTimeDelta | None
+    subsample: PositiveInt | None
+    subsample_select: SubsampleSelect | None
     after_hour: NonNegativeInt | None
     before_hour: NonNegativeInt | None
     after_minute: NonNegativeInt | None
@@ -116,6 +131,35 @@ class BaseRecordFilter[
     threshold.
     """
 
+    subsample_every: PositiveTimeDelta | None = None
+    """
+    Subsample results, selecting at most one record per this interval of time.
+
+    For example, setting `timespan` to 1 hour and `subsample_every` to 1 minute will select one
+    record per minute for the last hour, with the total number of time buckets, meaning possible
+    samples, being equal 60.
+    """
+
+    subsample: PositiveInt | None = None
+    """
+    Subsample results, selecting at most one record per `subsample` divisions of the total time
+    range specified by this filter.
+
+    To use `subsample`, a clear start and end to the filtered time range must be specified using
+    some combination of time range filter fields, including: `after`, `before`, `timespan`,
+    `min_age`, and/or `max_age`.
+
+    For example, setting `timespan` to 1 hour and `subsample` to 60 will select one record per
+    minute for the last hour, with the total number of time buckets, meaning possible samples, being
+    equal to 60.
+    """
+
+    subsample_select: SubsampleSelect | None = None
+    """
+    Specify which record to choose per subsampled time bucket specified by `subsample_every` and
+    `subsample`. If unspecified or `None`, this will default to `SubsampleSelect.FIRST`.
+    """
+
     after_hour: NonNegativeInt | None = Field(default=None, le=24)
     """Filter by the hour value of `timestamp` being greater than or equal to a given value."""
     before_hour: NonNegativeInt | None = Field(default=None, le=24)
@@ -124,6 +168,31 @@ class BaseRecordFilter[
     """Filter by the minute value of `timestamp` being greater than or equal to a given value."""
     before_minute: NonNegativeInt | None = Field(default=None, le=60)
     """Filter by the minute of `timestamp` being less than a given value."""
+
+    @model_validator(mode="after")
+    def _validate_subsample(self) -> Self:
+        if self.subsample is None:
+            return self
+
+        start, end = self._get_time_bounds(utc())
+        if start is None or end is None:
+            if start is None and end is None:
+                subject = "Start and end time"
+            elif start is None:
+                subject = "Start time"
+            else:
+                subject = "End time"
+
+            message = (
+                "for `subsample` time range could not be determined. "
+                "`timespan` requires a clear start and end to the filtered time range to be "
+                "specified using some combination of time range filter fields, including: `after`, "
+                "`before`, `timespan`, `min_age` and/or `max_age`."
+            )
+
+            raise ValueError(f"{subject} {message}")
+
+        return self
 
     @override
     def matches(self, obj: RecordT, *, now: datetime | None = None) -> bool:
@@ -145,9 +214,15 @@ class BaseRecordFilter[
             if self.after is not None:
                 if obj.timestamp >= (self.after + self.timespan):
                     return False
-            else:
+            elif self.before is not None:
                 if obj.timestamp < ((self.before or now) - self.timespan):
                     return False
+            else:
+                if obj.timestamp < now - self.timespan:
+                    return False
+                if obj.timestamp >= now:
+                    return False
+
         if self.max_age is not None:
             if obj.timestamp <= now - self.max_age:
                 return False
@@ -207,12 +282,85 @@ class BaseRecordFilter[
         if self.timespan is not None:
             if self.after is not None:
                 yield columns.timestamp < self.after + self.timespan
+            elif self.before is not None:
+                yield columns.timestamp >= self.before - self.timespan
             else:
-                yield columns.timestamp >= (self.before or now) - self.timespan
+                yield columns.timestamp >= now - self.timespan
+                yield columns.timestamp < now
+
         if self.max_age is not None:
             yield columns.timestamp > now - self.max_age
         if self.min_age is not None:
             yield columns.timestamp <= now - self.min_age
+
+        if self.subsample_every is not None or self.subsample is not None:
+            start, end = self._get_time_bounds(now)
+
+            match self.subsample_select:
+                case SubsampleSelect.FIRST | None:
+                    subsample_selector = func.min
+                case SubsampleSelect.LAST:
+                    subsample_selector = func.max
+
+            if self.subsample_every is not None:
+                interval = self.subsample_every
+                if dialect == DatabaseType.SQLITE:
+                    interval = interval.total_seconds()
+
+                seed = (
+                    start
+                    if start is not None
+                    # If there's no start time, use beginning of current hour.
+                    else now.replace(
+                        hour=0,
+                        minute=0,
+                        second=0,
+                        microsecond=0,
+                    )
+                )
+
+                matches = (
+                    select(
+                        bin := func.date_bin(
+                            interval,
+                            columns.timestamp,
+                            seed,
+                        ).label("bin"),
+                        subsample_selector(columns.timestamp).label("timestamp"),
+                    )
+                    .where(
+                        *([columns.timestamp >= start] if start is not None else ()),
+                        *([columns.timestamp < end] if end is not None else ()),
+                    )
+                    .group_by(bin)
+                ).cte("matches")
+
+                yield columns.timestamp.in_(select(matches.columns.timestamp).select_from(matches))
+
+            if self.subsample is not None:
+                # These should have already been validated.
+                assert start is not None
+                assert end is not None
+
+                interval = (end - start) / max(self.subsample, 1)
+                if dialect == DatabaseType.SQLITE:
+                    interval = interval.total_seconds()
+
+                matches = (
+                    select(
+                        bin := func.date_bin(
+                            interval,
+                            columns.timestamp,
+                            start,
+                        ).label("bin"),
+                        subsample_selector(columns.timestamp).label("timestamp"),
+                    )
+                    .where(columns.timestamp >= start)
+                    .where(columns.timestamp < end)
+                    .group_by(bin)
+                ).cte("matches")
+
+                yield columns.timestamp.in_(select(matches.columns.timestamp).select_from(matches))
 
         if self.after_hour is not None or self.before_hour is not None:
             min_hour = self.after_hour if self.after_hour is not None else 0
@@ -255,6 +403,34 @@ class BaseRecordFilter[
     @override
     def _get_default_order(self) -> OrderT:
         return "timestamp"  # type: ignore
+
+    def _get_time_bounds(self, now: datetime) -> tuple[datetime | None, datetime | None]:
+        starts: list[datetime] = []
+        ends: list[datetime] = []
+
+        if self.after is not None:
+            starts.append(self.after)
+        if self.before is not None:
+            ends.append(self.before)
+
+        if self.timespan is not None:
+            if self.after is not None:
+                ends.append(self.after + self.timespan)
+            elif self.before is not None:
+                starts.append(self.before - self.timespan)
+            else:
+                starts.append(now - self.timespan)
+                ends.append(now)
+
+        if self.max_age is not None:
+            starts.append(now - self.max_age)
+        if self.min_age is not None:
+            ends.append(now - self.min_age)
+
+        start = max(starts) if starts else None
+        end = min(ends) if ends else None
+
+        return start, end
 
 
 class BaseRecordCreate(BaseItem, BaseUUIDEntity):

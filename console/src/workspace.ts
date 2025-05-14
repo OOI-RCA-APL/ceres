@@ -99,7 +99,6 @@ export const ChartWidgetModel = BaseWidgetModel.extend({
   display: ChartWidgetDisplayModel.catch('line'),
   unit: Zod.string().nullish(),
   after: DateTimeModel.nullish(),
-  before: DateTimeModel.nullish(),
   timespan: Zod.union([Zod.number(), Zod.string()])
     .nullish()
     .catch(60 * 60),

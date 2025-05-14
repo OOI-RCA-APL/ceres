@@ -5,6 +5,7 @@ import dataclasses
 import os
 import platform
 import re
+import traceback
 import typing
 from asyncio import AbstractEventLoop, Future
 from collections import defaultdict
@@ -1186,6 +1187,7 @@ def wrap_database_errors() -> Iterator[None]:
 
     from ceres.error import (
         AlreadyExistsError,
+        DatabaseProgrammingError,
         DatabaseUnexpectedError,
         DatabaseUnreachableError,
         Failure,
@@ -1204,6 +1206,20 @@ def wrap_database_errors() -> Iterator[None]:
         from sqlite3 import IntegrityError as SQLiteIntegrityError
 
         import sqlalchemy.exc
+
+        if isinstance(
+            exception,
+            (
+                sqlalchemy.exc.ArgumentError,
+                sqlalchemy.exc.InvalidRequestError,
+            ),
+        ):
+            raise Failure(
+                DatabaseProgrammingError(
+                    message=str(exception),
+                    traceback=traceback.format_exception(exception),
+                )
+            )
 
         if isinstance(exception, sqlalchemy.exc.TimeoutError):
             raise Failure(DatabaseUnreachableError(message=str(exception)))

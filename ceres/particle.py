@@ -62,7 +62,7 @@ class ParticleRow(BaseRecordRow, kw_only=True):
         return (
             *super().__get_table_args__(),
             Index(
-                f"ix__{cls.__tablename__}__type",
+                f"ix_{cls.__tablename__}__type",
                 cls.type,
                 postgresql_ops={"type": "gin_trgm_ops"},
                 postgresql_using="gin",
