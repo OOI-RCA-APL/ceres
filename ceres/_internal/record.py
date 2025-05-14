@@ -303,6 +303,10 @@ class BaseRecordFilter[
                     subsample_selector = func.max
 
             if self.subsample_every is not None:
+                interval = self.subsample_every
+                if dialect == DatabaseType.SQLITE:
+                    interval = interval.total_seconds()
+
                 seed = (
                     start
                     if start is not None
@@ -318,7 +322,7 @@ class BaseRecordFilter[
                 matches = (
                     select(
                         bin := func.date_bin(
-                            self.subsample_every,
+                            interval,
                             columns.timestamp,
                             seed,
                         ).label("bin"),
@@ -338,10 +342,14 @@ class BaseRecordFilter[
                 assert start is not None
                 assert end is not None
 
+                interval = (end - start) / max(self.subsample, 1)
+                if dialect == DatabaseType.SQLITE:
+                    interval = interval.total_seconds()
+
                 matches = (
                     select(
                         bin := func.date_bin(
-                            (end - start) / max(self.subsample, 1),
+                            interval,
                             columns.timestamp,
                             start,
                         ).label("bin"),

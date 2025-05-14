@@ -839,17 +839,20 @@ def _ceres_encode_latin1(value: str) -> bytes:
     return value.encode("latin-1")
 
 
-def _ceres_date_bin(interval: float, value: str | datetime, origin: str | datetime) -> str | None:
-    if not isinstance(value, (str, datetime)):
+def _ceres_date_bin(
+    interval: float | object,
+    value: str | object,
+    origin: str | object,
+) -> str | None:
+    if not isinstance(interval, (int, float)):
         return None
-    if not isinstance(origin, (str, datetime)):
+    if not isinstance(value, str):
+        return None
+    if not isinstance(origin, str):
         return None
 
-    if not isinstance(value, datetime):
-        value = datetime.fromisoformat(value)
-    if not isinstance(origin, datetime):
-        origin = datetime.fromisoformat(origin)
-
+    value = datetime.fromisoformat(value)
+    origin = datetime.fromisoformat(origin)
     delta = value - origin
 
     binned_seconds = (delta.total_seconds() // interval) * interval
