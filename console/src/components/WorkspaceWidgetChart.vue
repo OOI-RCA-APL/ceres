@@ -29,20 +29,18 @@ let isLoading = $ref(true)
 const pending: Data = $ref({})
 
 const start = $computed(() => {
-  const timespan = parseDuration(widget.timespan ?? '1h')
-  if (widget.after == null && widget.before == null) {
-    return moment.utc(time.now).subtract(timespan)
-  }
   if (widget.after != null) {
-    return moment.utc(widget.after).add(timespan)
+    return moment.utc(widget.after)
   }
 
-  return moment.utc(widget.before).subtract(timespan)
+  const timespan = parseDuration(widget.timespan ?? '1h')
+  return moment.utc(time.now).subtract(timespan)
 })
 
 const end = $computed(() => {
-  if (widget.before != null) {
-    return moment.utc(widget.before)
+  if (widget.after != null) {
+    const timespan = parseDuration(widget.timespan ?? '1h')
+    return moment.utc(widget.after).add(timespan)
   }
 
   return null
@@ -205,25 +203,18 @@ async function load() {
   await Promise.all(
     widget.particles.map(async ({ address, type, series }) => {
       const data = {} as Data
-      let currentTimestamp = start
-      while (instance != null) {
+      if (instance != null) {
         const particles = await engine.particles.getAll(
           {
             address,
             type,
-            after: currentTimestamp.toISOString(),
-            before: end?.toISOString(),
+            after: widget.after,
             timespan: widget.timespan,
+            subsample: 5000,
             limit: 5000,
           },
           { cache: 1000 }
         )
-
-        if (particles.length === 0) {
-          break
-        }
-
-        currentTimestamp = moment.utc(particles[particles.length - 1].timestamp).add(1, 'ms')
 
         for (const { name, field } of series) {
           if (field == null) {
@@ -307,19 +298,16 @@ watch(
   }
 )
 
-watch(
-  [() => JSON.stringify(widget.particles), () => [widget.after, widget.before, widget.timespan]],
-  () => {
-    isLoading = true
-  }
-)
+watch([() => JSON.stringify(widget.particles), () => [widget.after, widget.timespan]], () => {
+  isLoading = true
+})
 
 watch(
   [
     () => instance,
     () => isInitialized,
     debouncedComputed(() => JSON.stringify(widget.particles), 1000),
-    debouncedComputed(() => [widget.after, widget.before, widget.timespan], 250),
+    debouncedComputed(() => [widget.after, widget.timespan], 250),
   ],
   async () => {
     if (instance == null || !isInitialized) {
@@ -395,7 +383,7 @@ function prune() {
     }
 
     let i = 0
-    while (data.length > 0) {
+    while (i < data.length) {
       const [timestamp] = data[i]
       if (moment.utc(timestamp).isSameOrAfter(start)) {
         break
