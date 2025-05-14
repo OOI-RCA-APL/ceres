@@ -214,9 +214,15 @@ class BaseRecordFilter[
             if self.after is not None:
                 if obj.timestamp >= (self.after + self.timespan):
                     return False
-            else:
+            elif self.before is not None:
                 if obj.timestamp < ((self.before or now) - self.timespan):
                     return False
+            else:
+                if obj.timestamp < now - self.timespan:
+                    return False
+                if obj.timestamp >= now:
+                    return False
+
         if self.max_age is not None:
             if obj.timestamp <= now - self.max_age:
                 return False
@@ -276,8 +282,12 @@ class BaseRecordFilter[
         if self.timespan is not None:
             if self.after is not None:
                 yield columns.timestamp < self.after + self.timespan
+            elif self.before is not None:
+                yield columns.timestamp >= self.before - self.timespan
             else:
-                yield columns.timestamp >= (self.before or now) - self.timespan
+                yield columns.timestamp >= now - self.timespan
+                yield columns.timestamp < now
+
         if self.max_age is not None:
             yield columns.timestamp > now - self.max_age
         if self.min_age is not None:
