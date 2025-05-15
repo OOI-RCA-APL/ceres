@@ -149,7 +149,7 @@ class ComponentSieveManager(BaseComponentManager):
             while True:
                 try:
                     async for current in sieve.read(
-                        self.__system__.messages.follow(address=self.__system__.address)
+                        self.__system__.messages.follow(filter=config.filter)
                     ):
                         if isinstance(current, ParticleError):
                             self.__system__.events.emit(

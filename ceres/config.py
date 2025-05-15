@@ -87,15 +87,12 @@ class __BaseConfigObject(ImmutableDataObject, DeferBuild):
 
 
 class LoggingConfig(__BaseConfigObject):
-    level: Level = Level.INFO
-    log_events: bool = False
-    log_events_level: Level = Level.INFO
-    log_messages: bool = False
-    log_messages_level: Level = Level.INFO
-    log_particles: bool = False
-    log_particles_level: Level = Level.INFO
-    log_alerts: bool = False
-    log_alerts_level: Level | None = None
+    output: Level = Level.INFO
+    store: Level = Level.DEBUG
+    events: bool | Level = False
+    messages: bool | Level = False
+    particles: bool | Level = False
+    alerts: bool | Level = False
 
 
 class JobConfig(__BaseConfigObject):
@@ -159,6 +156,7 @@ class SieveConfig(__BaseConfigObject):
     arguments: Mapping[str, Any] = Field(default_factory=dict)
     retries: NonNegativeInt | None = None
     retry_delay: PositiveTimeDelta = timedelta(seconds=5)
+    filter: MessageFilter | None = None
 
     @field_validator("cls")
     def _validate_cls(

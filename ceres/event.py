@@ -5,7 +5,15 @@ import inspect
 import traceback
 from abc import ABC
 from asyncio import Queue as AsyncQueue
-from typing import TYPE_CHECKING, Awaitable, Callable, Literal, Sequence, TypeAlias, cast
+from typing import (
+    TYPE_CHECKING,
+    Awaitable,
+    Callable,
+    Literal,
+    Sequence,
+    TypeAlias,
+    cast,
+)
 from uuid import UUID
 
 from pydantic import ByteSize, Field
@@ -15,6 +23,7 @@ from ceres._internal.manager import BaseNodeManager
 from ceres._internal.protocols import NodeSource
 from ceres.address import Address
 from ceres.data import DateTime, ImmutableDataObject, PositiveTimeDelta, uuid7
+from ceres.level import Level
 from ceres.stream import Stream, WriteStream
 from ceres.timing import utc
 
@@ -29,6 +38,7 @@ class Event(ImmutableDataObject):
 
     timestamp: DateTime = Field(default_factory=utc)
     type: str
+    level: Level = Level.INFO
 
 
 class __BaseStandardEvent(Event, ABC):
@@ -57,14 +67,17 @@ class DisabledEvent(__BaseStandardEvent):
 
 class AttachedEvent(__BaseStandardEvent):
     type: Literal["attached"] = "attached"
+    level: Level = Level.DEBUG
 
 
 class WillDetachEvent(__BaseStandardEvent):
     type: Literal["will-detach"] = "will-detach"
+    level: Level = Level.DEBUG
 
 
 class DetachedEvent(__BaseStandardEvent):
     type: Literal["detached"] = "detached"
+    level: Level = Level.DEBUG
 
 
 LifecycleEvent: TypeAlias = (
@@ -96,10 +109,12 @@ class DisconnectedEvent(__BaseStandardEvent):
 
 class ConnectionLostEvent(__BaseStandardEvent):
     type: Literal["connection-lost"] = "connection-lost"
+    level: Level = Level.WARNING
 
 
 class ConnectFailedEvent(__BaseStandardEvent):
     type: Literal["connect-failed"] = "connect-failed"
+    level: Level = Level.ERROR
 
 
 class ReconnectScheduledEvent(__BaseStandardEvent):
@@ -109,6 +124,7 @@ class ReconnectScheduledEvent(__BaseStandardEvent):
 
 class BufferOverflowEvent(__BaseStandardEvent):
     type: Literal["buffer-overflow"] = "buffer-overflow"
+    level: Level = Level.ERROR
     size: ByteSize
     limit: ByteSize
     dropped: ByteSize
@@ -145,6 +161,7 @@ class AlertEvent(__BaseStandardEvent):
 
 class LogEvent(__BaseStandardEvent):
     type: Literal["log"] = "log"
+    level: Level = Level.DEBUG
     entry: LogEntry
 
 
@@ -191,6 +208,7 @@ class RoutineCancelledEvent(__BaseStandardEvent):
 
 class RoutineExceptionEvent(__BaseStandardEvent):
     type: Literal["routine-exception"] = "routine-exception"
+    level: Level = Level.ERROR
     routine: str
     traceback: Sequence[str]
 
@@ -308,6 +326,7 @@ class PruneCancelledEvent(__BaseStandardEvent):
 
 class PruneExceptionEvent(__BaseStandardEvent):
     type: Literal["prune-exception"] = "prune-exception"
+    level: Level = Level.ERROR
     pruner: str
     traceback: Sequence[str]
 
@@ -350,6 +369,7 @@ class SieveCancelledEvent(__BaseStandardEvent):
 
 class SieveExceptionEvent(__BaseStandardEvent):
     type: Literal["sieve-exception"] = "sieve-exception"
+    level: Level = Level.ERROR
     sieve: str
     traceback: Sequence[str]
 
@@ -366,6 +386,7 @@ class SieveRetryEvent(__BaseStandardEvent):
 
 
 class SieveParticleErrorEvent(__BaseStandardEvent):
+    level: Level = Level.ERROR
     type: Literal["sieve-particle-error"] = "sieve-particle-error"
     sieve: str
     error: ParticleError
@@ -401,6 +422,7 @@ class ProcedureCancelledEvent(__BaseStandardEvent):
 
 class ProcedureExceptionEvent(__BaseStandardEvent):
     type: Literal["procedure-exception"] = "procedure-exception"
+    level: Level = Level.ERROR
     procedure: str
     traceback: Sequence[str]
 
@@ -415,6 +437,7 @@ ProcedureEvent: TypeAlias = (
 
 class DatabaseExceptionEvent(__BaseStandardEvent):
     type: Literal["database-exception"] = "database-exception"
+    level: Level = Level.ERROR
     traceback: Sequence[str]
 
 
@@ -528,14 +551,20 @@ class NodeEventManager(BaseNodeManager):
         reference to a system in the tree, and the containing engine.
         """
         if logging is not None:
-            if logging.log_events and not isinstance(event, LogEvent):
-                self.__node__.log.event(logging.log_events_level, event)
-            if logging.log_messages and isinstance(event, MessageEvent):
-                self.__node__.log.message(logging.log_messages_level, event.message)
-            elif logging.log_particles and isinstance(event, ParticleEvent):
-                self.__node__.log.particle(logging.log_particles_level, event.particle)
-            elif logging.log_alerts and isinstance(event, AlertEvent):
-                self.__node__.log.alert(logging.log_alerts_level or event.alert.level, event.alert)
+            if logging.events and not isinstance(event, LogEvent):
+                level = logging.events if isinstance(logging.events, Level) else None
+                self.__node__.log.event(event, level)
+
+            if logging.messages and isinstance(event, MessageEvent):
+                level = logging.messages if isinstance(logging.messages, Level) else Level.INFO
+                self.__node__.log.message(event.message, level)
+            elif logging.particles and isinstance(event, ParticleEvent):
+                level = logging.particles if isinstance(logging.particles, Level) else Level.INFO
+                self.__node__.log.particle(event.particle, level)
+            elif logging.alerts and isinstance(event, AlertEvent):
+                level = logging.alerts if isinstance(logging.alerts, Level) else Level.INFO
+                if event.alert.level >= level:
+                    self.__node__.log.alert(event.alert)
 
         # Add the event to the outgoing event stream.
         self.__stream.put(event)
