@@ -167,7 +167,7 @@ const baseOption: Option = $computed(() => {
   )
 
   return {
-    tooltip: { trigger: 'axis' },
+    tooltip: { trigger: 'axis', confine: true },
     legend: { show: true },
     dataZoom: [{ type: 'inside' }],
     series,
