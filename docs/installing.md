@@ -3,31 +3,26 @@
 ## Prerequisites
 
 - [Python 3.12+](https://www.python.org/downloads/)
+- [uv](https://docs.astral.sh/uv/getting-started/installation/) (Recommended)
 
 ## Installation
 
 There is presently no PyPi package for Ceres due to access restrictions, though this may change in the future. For now, the package should be installed directly from GitHub.
 
-### Pip
+### Using `uv`
+
+```sh
+uv init # If project is not already initialized.
+uv add git+ssh://git@github.com/OOI-RCA-APL/ceres.git # Install latest package from GitHub.
+source .venv/bin/activate # Activate the virtual envronment.
+ceres --help # The "ceres" command should now be available within the virtual environment.
+```
+
+### Using `pip`
 
 ```sh
 pip install git+ssh://git@github.com/OOI-RCA-APL/ceres.git # Install latest package from GitHub.
-ceres --help # The "ceres" command should now be available.
-```
-
-### Alternative Package Managers (Recommended)
-
-- [uv](https://github.com/astral-sh/uv)
-- [poetry](https://python-poetry.org/docs)
-- [pdm](https://pdm-project.org/en/latest)
-
-
-```sh
-# Replace `$PM` with your package manager of choice.
-$PM init # Create a Python project if it doesn't already exist.
-$PM add git+ssh://git@github.com/OOI-RCA-APL/ceres.git # Install latest package from GitHub.
-source .venv/bin/activate # Enter the auto-generated virtual environment.
-ceres --help # The "ceres" command should now be available in the virtual environment.
+ceres --help # The "ceres" command should now be available globally.
 ```
 
 ## Versioning
