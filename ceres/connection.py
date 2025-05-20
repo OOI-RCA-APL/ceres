@@ -256,18 +256,28 @@ class Connection(Component):
     @routine
     async def routine__process_connection(self) -> None:
         regex = self.__regex_pattern
+        initialized = False
 
         while True:
             trigger = self.reconnect_on.schedule.as_trigger()
 
-            while not await self.connect():
-                next = trigger.get_next_fire_time()
-                if next is None:
-                    break
+            while True:
+                if initialized:
+                    next = trigger.get_next_fire_time()
+                    if next is None:
+                        break
 
-                delay = next - utc()
-                self.system.events.emit(ReconnectScheduledEvent, delay=delay)
-                await asyncio.sleep(delay.total_seconds())
+                    delay = next - utc()
+                    self.system.events.emit(ReconnectScheduledEvent, delay=delay)
+                    await asyncio.sleep(delay.total_seconds())
+
+                # Yield to event loop.
+                await asyncio.sleep(0)
+
+                connected = await self.connect()
+                initialized = True
+                if connected:
+                    break
 
             while self.connected:
                 try:
@@ -276,9 +286,12 @@ class Connection(Component):
                     self.system.log.error(traceback.format_exc())
                     received = None
 
-                # If `_receive` returns `None` or throws an exception, the connection is considered
-                # lost.
-                if received is None:
+                # Yield to event loop.
+                await asyncio.sleep(0)
+
+                # If `_receive` returns `None`, an empty `bytes`, or throws an exception, the
+                # connection is considered lost.
+                if not received:
                     if self.connected:
                         self.system.events.emit(ConnectionLostEvent)
                         await self.disconnect()
@@ -446,7 +459,7 @@ class TCPConnection(Connection):
             return None
 
         try:
-            return await self.__stream.reader.read(count)
+            return await self.__stream.reader.read(count) or None
         except Exception:
             return None
 
