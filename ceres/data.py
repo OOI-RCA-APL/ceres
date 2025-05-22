@@ -28,12 +28,14 @@ import pydantic
 import pydantic.generics
 from pydantic import (
     AfterValidator,
+    AliasGenerator,
     BaseModel,
     BeforeValidator,
     ConfigDict,
     Field,
     StringConstraints,
 )
+from pydantic.aliases import AliasChoices
 from pydantic.fields import FieldInfo
 from pydantic.functional_serializers import PlainSerializer
 from pydantic.main import IncEx
@@ -257,11 +259,24 @@ def __validate_non_empty(value: object) -> object:
 NonEmpty: TypeAlias = Annotated[_T, AfterValidator(__validate_non_empty)]
 
 
+def __generate_validation_aliases(field: str) -> str | AliasChoices:
+    if "_" not in field:
+        return field
+
+    return AliasChoices(field, field.replace("_", "-"))
+
+
+_DATA_OBJECT_ALIAS_GENERATOR = AliasGenerator(
+    validation_alias=__generate_validation_aliases,
+)
+
+
 class DataObject(BaseModel, ABC):
     model_config = ConfigDict(
         extra="forbid",
         populate_by_name=True,
         use_attribute_docstrings=True,
+        alias_generator=_DATA_OBJECT_ALIAS_GENERATOR,
     )
 
     @override

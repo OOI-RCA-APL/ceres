@@ -107,6 +107,31 @@ class DisconnectedEvent(__BaseStandardEvent):
     type: Literal["disconnected"] = "disconnected"
 
 
+class IdleTimeoutEvent(__BaseStandardEvent):
+    type: Literal["idle-timeout"] = "idle-timeout"
+    level: Level = Level.WARNING
+
+
+class DisconnectVerifyStartedEvent(__BaseStandardEvent):
+    type: Literal["disconnect-verify-started"] = "disconnect-verify-started"
+    level: Level = Level.WARNING
+
+
+class DisconnectVerifiedEvent(__BaseStandardEvent):
+    type: Literal["disconnect-verified"] = "disconnect-verified"
+    level: Level = Level.WARNING
+
+
+class DisconnectUnverifiedEvent(__BaseStandardEvent):
+    type: Literal["disconnect-unverified"] = "disconnect-unverified"
+    level: Level = Level.WARNING
+
+
+class DisconnectVerifyEndedEvent(__BaseStandardEvent):
+    type: Literal["disconnect-verify-ended"] = "disconnect-verify-ended"
+    level: Level = Level.WARNING
+
+
 class ConnectionLostEvent(__BaseStandardEvent):
     type: Literal["connection-lost"] = "connection-lost"
     level: Level = Level.WARNING
@@ -115,6 +140,7 @@ class ConnectionLostEvent(__BaseStandardEvent):
 class ConnectFailedEvent(__BaseStandardEvent):
     type: Literal["connect-failed"] = "connect-failed"
     level: Level = Level.ERROR
+    reason: str | None = None
 
 
 class ReconnectScheduledEvent(__BaseStandardEvent):
@@ -134,10 +160,55 @@ ConnectionEvent: TypeAlias = (
     ConnectedEvent
     | DisconnectedEvent
     | DisconnectingEvent
+    | IdleTimeoutEvent
+    | DisconnectVerifyStartedEvent
+    | DisconnectVerifiedEvent
+    | DisconnectUnverifiedEvent
+    | DisconnectVerifyEndedEvent
     | ConnectionLostEvent
     | ConnectFailedEvent
     | ReconnectScheduledEvent
     | BufferOverflowEvent
+)
+
+
+class ServerBindEvent(__BaseStandardEvent):
+    type: Literal["server-bind"] = "server-bind"
+    bind: str
+
+
+class ServerBindExceptionEvent(__BaseStandardEvent):
+    type: Literal["server-bind-exception"] = "server-bind-exception"
+    level: Level = Level.ERROR
+    bind: str
+    traceback: Sequence[str]
+
+
+class ClientConnectedEvent(__BaseStandardEvent):
+    type: Literal["client-connected"] = "client-connected"
+    level: Level = Level.INFO
+    client: str
+
+
+class ClientDisconnectedEvent(__BaseStandardEvent):
+    type: Literal["client-disconnected"] = "client-disconnected"
+    level: Level = Level.INFO
+    client: str
+
+
+class ServerProcessingExceptionEvent(__BaseStandardEvent):
+    type: Literal["server-processing-exception"] = "server-processing-exception"
+    level: Level = Level.ERROR
+    client: str
+    traceback: Sequence[str]
+
+
+ServerEvent: TypeAlias = (
+    ServerBindEvent
+    | ServerBindExceptionEvent
+    | ClientConnectedEvent
+    | ClientDisconnectedEvent
+    | ServerProcessingExceptionEvent
 )
 
 
@@ -446,6 +517,7 @@ DatabaseEvent: TypeAlias = DatabaseExceptionEvent
 StandardEvent: TypeAlias = (
     LifecycleEvent
     | ConnectionEvent
+    | ServerEvent
     | MessageEvent
     | AlertEvent
     | LogEvent
@@ -455,14 +527,6 @@ StandardEvent: TypeAlias = (
     | SieveEvent
     | ProcedureEvent
     | DatabaseEvent
-)
-
-ExceptionEvent: TypeAlias = (
-    RoutineExceptionEvent
-    | JobExceptionEvent
-    | PruneExceptionEvent
-    | ProcedureExceptionEvent
-    | DatabaseExceptionEvent
 )
 
 
