@@ -14,11 +14,11 @@ from ceres._internal.lazy import lazy_imports
 from ceres._internal.util import UNIX
 from ceres.data import NonEmptyStr
 from ceres.event import (
+    ClientConnectedEvent,
     ClientDisconnectedEvent,
-    ClientHandlerExceptionEvent,
     ServerBindEvent,
     ServerBindExceptionEvent,
-    ServerClientConnectedEvent,
+    ServerProcessingExceptionEvent,
 )
 from ceres.schedule import IntervalSchedule, Schedule
 from ceres.timing import utc
@@ -144,7 +144,7 @@ class AnyIOServer[ClientT: AnyIOClient](Server[ClientT]):
         bind = client.bind
 
         self.system.events.emit(
-            ServerClientConnectedEvent,
+            ClientConnectedEvent,
             client=bind,
         )
 
@@ -161,7 +161,7 @@ class AnyIOServer[ClientT: AnyIOClient](Server[ClientT]):
                         pass
         except Exception as exception:
             self.system.events.emit(
-                ClientHandlerExceptionEvent,
+                ServerProcessingExceptionEvent,
                 traceback=util.get_traceback(exception),
                 client=bind,
             )

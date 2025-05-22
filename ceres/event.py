@@ -184,20 +184,20 @@ class ServerBindExceptionEvent(__BaseStandardEvent):
     traceback: Sequence[str]
 
 
-class ServerClientConnectedEvent(__BaseStandardEvent):
-    type: Literal["server-client-connected"] = "server-client-connected"
+class ClientConnectedEvent(__BaseStandardEvent):
+    type: Literal["client-connected"] = "client-connected"
     level: Level = Level.INFO
     client: str
 
 
 class ClientDisconnectedEvent(__BaseStandardEvent):
-    type: Literal["server-client-disconnected"] = "server-client-disconnected"
+    type: Literal["client-disconnected"] = "client-disconnected"
     level: Level = Level.INFO
     client: str
 
 
-class ClientHandlerExceptionEvent(__BaseStandardEvent):
-    type: Literal["server-handler-exception"] = "server-handler-exception"
+class ServerProcessingExceptionEvent(__BaseStandardEvent):
+    type: Literal["server-processing-exception"] = "server-processing-exception"
     level: Level = Level.ERROR
     client: str
     traceback: Sequence[str]
@@ -206,9 +206,9 @@ class ClientHandlerExceptionEvent(__BaseStandardEvent):
 ServerEvent: TypeAlias = (
     ServerBindEvent
     | ServerBindExceptionEvent
-    | ServerClientConnectedEvent
+    | ClientConnectedEvent
     | ClientDisconnectedEvent
-    | ClientHandlerExceptionEvent
+    | ServerProcessingExceptionEvent
 )
 
 
