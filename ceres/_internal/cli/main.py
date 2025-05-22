@@ -190,11 +190,11 @@ class StartCommand(CLICommand):
     """
 
     @override
-    async def __run__(self) -> Any:
+    async def __run__(self) -> None:
         client = await self.use_client()
         address = AddressSelector(self.addresses)
         query = ComponentFilter(address=address)
-        return await client.post("/start", query)
+        await self.put(await client.post("/start", query))
 
 
 class StopCommand(CLICommand):
@@ -206,11 +206,11 @@ class StopCommand(CLICommand):
     """Addresses of components to stop."""
 
     @override
-    async def __run__(self) -> Any:
+    async def __run__(self) -> None:
         client = await self.use_client()
         address = AddressSelector(self.addresses)
         query = ComponentFilter(address=address)
-        return await client.post("/stop", query)
+        await self.put(await client.post("/stop", query))
 
 
 class EnableCommand(CLICommand):
@@ -222,16 +222,18 @@ class EnableCommand(CLICommand):
     """Addresses of components to enable."""
 
     @override
-    async def __run__(self) -> Any:
+    async def __run__(self) -> None:
         client = await self.use_client()
         address = AddressSelector(self.addresses)
 
         if await client.alive():
             query = ComponentFilter(address=address)
-            return await client.post("/enable", query)
+            result = await client.post("/enable", query)
+        else:
+            async with self.use_database() as database:
+                result = await _set_enabled(database, address, True)
 
-        async with self.use_database() as database:
-            return await _set_enabled(database, address, True)
+        await self.put(result)
 
 
 class DisableCommand(CLICommand):
@@ -243,16 +245,18 @@ class DisableCommand(CLICommand):
     """Addresses of components to disable."""
 
     @override
-    async def __run__(self) -> Any:
+    async def __run__(self) -> None:
         client = await self.use_client()
         address = AddressSelector(self.addresses)
 
         if await client.alive():
             query = ComponentFilter(address=address)
-            return await client.post("/disable", query)
+            result = await client.post("/disable", query)
+        else:
+            async with self.use_database() as database:
+                result = await _set_enabled(database, address, False)
 
-        async with self.use_database() as database:
-            return await _set_enabled(database, address, False)
+        await self.put(result)
 
 
 class UpCommand(CLICommand):
@@ -264,11 +268,11 @@ class UpCommand(CLICommand):
     """Addresses of components to start and enable."""
 
     @override
-    async def __run__(self) -> Any:
+    async def __run__(self) -> None:
         client = await self.use_client()
         address = AddressSelector(self.addresses)
         query = ComponentFilter(address=address)
-        return await client.post("/up", query)
+        await self.put(await client.post("/up", query))
 
 
 class DownCommand(CLICommand):
@@ -280,11 +284,11 @@ class DownCommand(CLICommand):
     """Addresses of components to stop and disable."""
 
     @override
-    async def __run__(self) -> Any:
+    async def __run__(self) -> None:
         client = await self.use_client()
         address = AddressSelector(self.addresses)
         query = ComponentFilter(address=address)
-        return await client.post("/down", query)
+        await self.put(await client.post("/down", query))
 
 
 def _show_validation_error(exception: ValidationError, color: bool | None = None) -> None:

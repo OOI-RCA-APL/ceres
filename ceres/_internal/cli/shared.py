@@ -288,7 +288,7 @@ class CLICommand(DataObject, DeferBuild):
         return self
 
     async def __execute__(self) -> None:
-        return await self.__run__()
+        await self.__run__()
 
     @abstractmethod
     async def __run__(self) -> None: ...
@@ -607,10 +607,10 @@ def _resolve_data_format(path: Path, data_format: CLIDataFormat | None = None) -
 
 class CLICommandGroup(CLICommand):
     @override
-    async def __run__(self) -> Any:
+    async def __run__(self) -> None:
         subcommand = get_subcommand(self, cli_exit_on_error=True)
         if subcommand is not None:
-            return await subcommand.__execute__()
+            await subcommand.__execute__()
 
 
 class CLICommandFailed(SettingsError):
