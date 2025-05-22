@@ -2,30 +2,22 @@ from __future__ import annotations
 
 import asyncio
 import re
-import socket
-import sys
 import traceback
 from abc import abstractmethod
-from asyncio import StreamReader, StreamWriter
-from dataclasses import dataclass, field
+from dataclasses import field
 from datetime import timedelta
 from functools import cached_property
 from re import Match, Pattern, RegexFlag
-from typing import Annotated, Literal, Self, override
+from typing import Annotated, Any, Literal, Self, override
 
-from pydantic import (
-    BeforeValidator,
-    ByteSize,
-    Field,
-    TypeAdapter,
-    field_validator,
-    model_validator,
-)
+from pydantic import BeforeValidator, ByteSize, Field, TypeAdapter, model_validator
 
 from ceres._internal import util
+from ceres._internal.lazy import lazy_imports
+from ceres._internal.util import UNIX
 from ceres.component import Component, action, routine
 from ceres.connectivity import Connectivity
-from ceres.data import ImmutableDataObject, PositiveTimeDelta, StrEnum
+from ceres.data import ImmutableDataObject, NonEmptyStr, PositiveTimeDelta, StrEnum
 from ceres.event import (
     BufferOverflowEvent,
     ConnectedEvent,
@@ -34,6 +26,10 @@ from ceres.event import (
     ConnectionLostEvent,
     DisconnectedEvent,
     DisconnectingEvent,
+    DisconnectUnverifiedEvent,
+    DisconnectVerifiedEvent,
+    DisconnectVerifyStartedEvent,
+    IdleTimeoutEvent,
     MessageReceivedEvent,
     MessageSentEvent,
     ReconnectScheduledEvent,
@@ -41,6 +37,10 @@ from ceres.event import (
 from ceres.message import Message, MessageContent, MessageDirection
 from ceres.schedule import IntervalSchedule
 from ceres.timing import utc
+
+with lazy_imports(__name__):
+    import anyio
+    from anyio.abc import SocketStream
 
 
 class ConnectionException(Exception):
@@ -55,7 +55,7 @@ class ConnectionLost(ConnectionException):
     pass
 
 
-class ConnectionReconnectOn(ImmutableDataObject):
+class ReconnectOn(ImmutableDataObject):
     schedule: IntervalSchedule = Field(
         default_factory=lambda: IntervalSchedule(
             interval=timedelta(seconds=1),
@@ -65,7 +65,7 @@ class ConnectionReconnectOn(ImmutableDataObject):
     )
 
 
-class ConnectionBuffering(ImmutableDataObject):
+class Buffering(ImmutableDataObject):
     read: ByteSize = Field(default=TypeAdapter(ByteSize).validate_python("1 KB"), gt=0)
     limit: ByteSize = Field(default=TypeAdapter(ByteSize).validate_python("100 KB"), gt=0)
     drop: ByteSize = Field(default=TypeAdapter(ByteSize).validate_python("10 KB"), gt=0)
@@ -112,8 +112,8 @@ class Connection(Component):
     separator: bytes
     regex: bytes | None = None
     regex_flags: RegexFlags = RegexFlag.MULTILINE | RegexFlag.DOTALL
-    buffering: ConnectionBuffering = field(default_factory=ConnectionBuffering)
-    reconnect_on: ConnectionReconnectOn = field(default_factory=ConnectionReconnectOn)
+    buffering: Buffering = field(default_factory=Buffering)
+    reconnect_on: ReconnectOn = field(default_factory=ReconnectOn)
 
     @model_validator(mode="after")
     def _validate(self) -> Self:
@@ -151,7 +151,7 @@ class Connection(Component):
 
     @property
     @abstractmethod
-    def target(self) -> str: ...
+    def bind(self) -> str: ...
 
     @property
     def connectivity(self) -> Connectivity:
@@ -180,19 +180,21 @@ class Connection(Component):
         self.system.events.emit(ConnectingEvent)
         self.__connectivity = Connectivity.CONNECTING
 
+        reason: str | None = None
+
         try:
             connected = await self._connect()
         except Exception as exception:
             connected = False
-            if error := str(exception).strip():
-                self.system.log.error(error)
+            if text := str(exception).strip():
+                reason = text
 
         if connected:
             self.__connectivity = Connectivity.CONNECTED
             self.system.events.emit(ConnectedEvent)
         else:
             self.__connectivity = Connectivity.DISCONNECTED
-            self.system.events.emit(ConnectFailedEvent)
+            self.system.events.emit(ConnectFailedEvent, reason=reason)
 
         return self.connected
 
@@ -352,101 +354,62 @@ class Connection(Component):
             await self.disconnect()
 
 
-class TCPConnectionDisconnectVerifyType(StrEnum):
+class DisconnectVerifyType(StrEnum):
     RECONNECT = "reconnect"
 
 
-class TCPConnectionDisconnectVerify(ImmutableDataObject):
-    type: Literal[TCPConnectionDisconnectVerifyType.RECONNECT] = (
-        TCPConnectionDisconnectVerifyType.RECONNECT
-    )
+class DisconnectVerify(ImmutableDataObject):
+    type: Literal[DisconnectVerifyType.RECONNECT] = DisconnectVerifyType.RECONNECT
     interval: PositiveTimeDelta = timedelta(seconds=5)
     count: int = Field(ge=1)
 
 
-class TCPConnectionDisconnectOn(ImmutableDataObject):
+class DisconnectOn(ImmutableDataObject):
     idle: PositiveTimeDelta
-    verify: TCPConnectionDisconnectVerify | None = None
+    verify: DisconnectVerify | None = None
 
 
-class TCPConnectionKeepAlive(ImmutableDataObject):
-    idle: PositiveTimeDelta
-    interval: PositiveTimeDelta
-    count: int = Field(ge=1)
-
-    @field_validator("idle", "interval")
-    def _validate_timedeltas(cls, value: timedelta) -> timedelta:
-        if value.microseconds != 0:
-            raise ValueError("sub-second interval resolution is not allowed")
-
-        return value
-
-
-@dataclass(kw_only=True, frozen=True)
-class _Stream:
-    reader: StreamReader
-    writer: StreamWriter
-
-
-class TCPConnection(Connection):
-    host: str
-    port: int
+class AnyIOConnection(Connection):
     timeout: PositiveTimeDelta = timedelta(seconds=5)
-    disconnect_on: TCPConnectionDisconnectOn | None = None
-    keep_alive: TCPConnectionKeepAlive | None = None
+    disconnect_on: DisconnectOn | None = None
 
     @override
     def __setup__(self) -> None:
         super().__setup__()
-        self.__stream: _Stream | None = None
-
-    @property
-    @override
-    def target(self) -> str:
-        return f"{self.host}:{self.port}"
+        self._stream: SocketStream | None = None
 
     @override
     async def _connect(self) -> bool:
-        if self.__stream:
+        if self._stream:
             return True
 
-        loop = util.ensure_event_loop()
-        sock = self.__create_socket()
-        address = self.host, self.port
-        await asyncio.wait_for(
-            loop.sock_connect(sock, address),
+        self._stream = await asyncio.wait_for(
+            self._connect_anyio_stream(),
             self.timeout.total_seconds(),
-        )
-
-        reader, writer = await asyncio.open_connection(sock=sock)
-        self.__stream = _Stream(
-            reader=reader,
-            writer=writer,
         )
 
         return True
 
     @override
     async def _disconnect(self) -> None:
-        if not self.__stream:
+        if not self._stream:
             return
 
         try:
-            self.__stream.writer.close()
+            await self._stream.aclose()
         except Exception as exception:
             if error := str(exception).strip():
                 self.system.log.error(error)
 
-        self.__stream = None
+        self._stream = None
 
     @override
     async def _send(self, data: bytes) -> bytes | None:
-        if not self.__stream:
+        if not self._stream:
             return None
 
         try:
-            self.__stream.writer.write(data)
-            await self.__stream.writer.drain()
+            await self._stream.send(data)
         except Exception:
             self.system.log.error(traceback.format_exc())
             return None
@@ -455,11 +418,11 @@ class TCPConnection(Connection):
 
     @override
     async def _receive(self, count: int) -> bytes | None:
-        if not self.__stream:
+        if not self._stream:
             return None
 
         try:
-            return await self.__stream.reader.read(count) or None
+            return await self._stream.receive(count) or None
         except Exception:
             return None
 
@@ -486,48 +449,28 @@ class TCPConnection(Connection):
                 if not self.connected:
                     continue
 
-            self.system.log.warning(
-                f"No new message has been received in {util.show_td(condition.idle)}."
-            )
+            self.system.events.emit(IdleTimeoutEvent)
 
             disconnected = True
 
-            if condition.verify is None:
-                self.system.log.warning(
-                    "No disconnect verification is set. Disconnect will happen immediately."
-                )
-            else:
+            if condition.verify is not None:
+                self.system.events.emit(DisconnectVerifyStartedEvent)
                 for count in range(1, condition.verify.count + 1):
-                    self.system.log.warning(
-                        f"Running disconnect verification {count}/{condition.verify.count}..."
-                    )
-
                     match condition.verify.type:
-                        case TCPConnectionDisconnectVerifyType.RECONNECT:
-                            self.system.log.warning(
-                                f"Attempting to create another connection to {self.target} within "
-                                f"{util.show_td(condition.verify.interval)}..."
-                            )
+                        case DisconnectVerifyType.RECONNECT:
                             try:
                                 await asyncio.wait_for(
-                                    asyncio.open_connection(
-                                        host=self.host,
-                                        port=self.port,
-                                    ),
-                                    condition.verify.interval.total_seconds(),
+                                    self._connect_anyio_stream(),
+                                    self.timeout.total_seconds(),
                                 )
-                                self.system.log.info(
-                                    "A second connection was created and dropped successfully. A "
-                                    "disconnect has not occurred."
-                                )
+                                self.system.events.emit(DisconnectUnverifiedEvent)
                                 disconnected = False
                                 break
                             except Exception:
-                                self.system.log.warning("Failed to create a second connection.")
                                 continue
 
                 if disconnected:
-                    self.system.log.error("Disconnect verified.")
+                    self.system.events.emit(DisconnectVerifiedEvent)
 
             if disconnected:
                 try:
@@ -537,47 +480,40 @@ class TCPConnection(Connection):
                 except Exception:
                     pass
 
-    def __create_socket(self) -> socket.socket:
-        instance = socket.socket()
+    @abstractmethod
+    async def _connect_anyio_stream(self) -> SocketStream: ...
 
-        if self.keep_alive is not None:
-            keep_alive_idle = int(self.keep_alive.idle.total_seconds())
-            keep_alive_interval = int(self.keep_alive.interval.total_seconds())
-            keep_alive_count = self.keep_alive.count
 
-            keep_alive_idle_ms = keep_alive_interval * 1000
-            keep_alive_interval_ms = keep_alive_interval * 1000
+class TCPConnection(AnyIOConnection):
+    host: str
+    port: int
 
-            if sys.platform == "darwin":
-                instance.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
-                # Set keep alive interval and count. The idle option is not configurable on Darwin.
-                instance.setsockopt(
-                    socket.IPPROTO_TCP,
-                    socket.TCP_KEEPALIVE,
-                    keep_alive_interval_ms,
-                )
-                instance.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, keep_alive_count)
-            elif sys.platform == "linux":
-                instance.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
-                # Set keep alive idle, interval and count for Linux.
-                instance.setsockopt(
-                    socket.IPPROTO_TCP,
-                    socket.TCP_KEEPIDLE,  # type: ignore
-                    keep_alive_idle,
-                )
-                instance.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, keep_alive_interval)
-                instance.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, keep_alive_count)
-            elif sys.platform == "win32":
-                # Set keep alive idle and interval. The count option is not configurable on Windows.
-                instance.ioctl(  # type: ignore
-                    socket.SIO_KEEPALIVE_VALS,  # type: ignore
-                    (
-                        1,
-                        keep_alive_idle_ms,
-                        keep_alive_interval_ms,
-                    ),
-                )
+    @property
+    @override
+    def bind(self) -> str:
+        return f"{self.host}:{self.port}"
 
-        instance.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        instance.setblocking(False)
-        return instance
+    @override
+    async def _connect_anyio_stream(self) -> SocketStream:
+        return await anyio.connect_tcp(self.host, self.port)
+
+
+class UNIXSocketConnection(AnyIOConnection):
+    socket: NonEmptyStr
+
+    @model_validator(mode="before")
+    @classmethod
+    def _validate_os(cls, value: Any) -> Any:
+        if not UNIX:
+            raise ValueError(f"`{cls.__name__}` is not supported on the current operating system.")
+
+        return value
+
+    @property
+    @override
+    def bind(self) -> str:
+        return self.socket
+
+    @override
+    async def _connect_anyio_stream(self) -> SocketStream:
+        return await anyio.connect_unix(self.socket)

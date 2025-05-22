@@ -3,7 +3,7 @@ from __future__ import annotations
 from asyncio import CancelledError
 from datetime import timezone
 from threading import Lock
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 from ceres._internal import util
 from ceres._internal.lazy import lazy_imports
@@ -134,9 +134,7 @@ class ComponentPrunerManager(BaseComponentManager):
                 manager = self.__system__.log
 
         try:
-            deleted = await manager.delete(
-                filter=pruner.filter,  # type: ignore
-            )
+            deleted = await manager.where(cast(Any, pruner.filter)).delete()
 
             self.__system__.events.emit(
                 PruneCompletedEvent,

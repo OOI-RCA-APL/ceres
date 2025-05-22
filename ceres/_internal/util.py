@@ -1335,10 +1335,11 @@ def get_entity_manager(source: Database | Node, entity: type[BaseEntity]) -> Bas
 LINUX = platform.system() == "Linux"
 MACOS = platform.system() == "Darwin"
 WINDOWS = platform.system() == "Windows"
+UNIX = not WINDOWS
 
 
 def get_temporary_directory() -> Path:
-    if (MACOS or LINUX) and os.path.isdir("/tmp"):
+    if UNIX and os.path.isdir("/tmp"):
         return Path("/tmp")
 
     from tempfile import gettempdir
