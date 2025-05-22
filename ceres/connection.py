@@ -4,14 +4,13 @@ import asyncio
 import re
 import traceback
 from abc import abstractmethod
-from dataclasses import field
 from datetime import timedelta
 from functools import cached_property
 from re import Match, Pattern, RegexFlag
-from typing import Annotated, Any, Literal, Self, override
+from typing import Annotated, Any, Literal, Self, TypeAlias, override
 
 from pydantic import BeforeValidator, ByteSize, Field, TypeAdapter, model_validator
-from pydantic.types import NonNegativeInt
+from pydantic.types import NonNegativeInt, PositiveInt
 
 from ceres._internal import util
 from ceres._internal.lazy import lazy_imports
@@ -54,6 +53,24 @@ class ConnectionInactive(ConnectionException):
 
 class ConnectionLost(ConnectionException):
     pass
+
+
+class DisconnectVerifyType(StrEnum):
+    RECONNECT = "reconnect"
+
+
+class DisconnectVerifyByReconnect(ImmutableDataObject):
+    type: Literal[DisconnectVerifyType.RECONNECT] = DisconnectVerifyType.RECONNECT
+    interval: PositiveTimeDelta = timedelta(seconds=5)
+    count: PositiveInt = 1
+
+
+DisconnectVerify: TypeAlias = DisconnectVerifyByReconnect
+
+
+class DisconnectOn(ImmutableDataObject):
+    idle: PositiveTimeDelta
+    verify: DisconnectVerify | None = None
 
 
 class ReconnectOn(ImmutableDataObject):
@@ -113,8 +130,14 @@ class Connection(Component):
     separator: bytes
     regex: bytes | None = None
     regex_flags: RegexFlags = RegexFlag.MULTILINE | RegexFlag.DOTALL
-    buffering: Buffering = field(default_factory=Buffering)
-    reconnect_on: ReconnectOn = field(default_factory=ReconnectOn)
+    buffering: Buffering = Field(default_factory=Buffering)
+    disconnect_on: DisconnectOn | None = None
+    reconnect_on: ReconnectOn = Field(default_factory=ReconnectOn)
+
+    auto_eof: bool = Field(default=True, validation_alias="auto-eof")
+    """
+    If `True`, ensure an EOF is sent before disconnect, provided one has not already been sent.
+    """
 
     @model_validator(mode="after")
     def _validate(self) -> Self:
@@ -355,24 +378,8 @@ class Connection(Component):
             await self.disconnect()
 
 
-class DisconnectVerifyType(StrEnum):
-    RECONNECT = "reconnect"
-
-
-class DisconnectVerify(ImmutableDataObject):
-    type: Literal[DisconnectVerifyType.RECONNECT] = DisconnectVerifyType.RECONNECT
-    interval: PositiveTimeDelta = timedelta(seconds=5)
-    count: int = Field(ge=1)
-
-
-class DisconnectOn(ImmutableDataObject):
-    idle: PositiveTimeDelta
-    verify: DisconnectVerify | None = None
-
-
 class AnyIOConnection(Connection):
     timeout: PositiveTimeDelta = timedelta(seconds=5)
-    disconnect_on: DisconnectOn | None = None
 
     @override
     def __setup__(self) -> None:
@@ -400,6 +407,12 @@ class AnyIOConnection(Connection):
             return
 
         try:
+            if self.auto_eof:
+                try:
+                    await self._stream.send_eof()
+                except Exception:
+                    pass
+
             await self._stream.aclose()
         except Exception as exception:
             if error := str(exception).strip():
@@ -459,16 +472,25 @@ class AnyIOConnection(Connection):
 
             if condition.verify is not None:
                 self.system.events.emit(DisconnectVerifyStartedEvent)
-                for count in range(1, condition.verify.count + 1):
+                for i in range(condition.verify.count):
+                    if i > 0:
+                        await asyncio.sleep(condition.verify.interval.total_seconds())
+
                     match condition.verify.type:
                         case DisconnectVerifyType.RECONNECT:
                             try:
-                                await asyncio.wait_for(
+                                async with await asyncio.wait_for(
                                     self._create_stream(),
                                     self.timeout.total_seconds(),
-                                )
-                                self.system.events.emit(DisconnectUnverifiedEvent)
+                                ) as stream:
+                                    if self.auto_eof:
+                                        try:
+                                            await stream.send_eof()
+                                        except Exception:
+                                            pass
+
                                 disconnected = False
+                                self.system.events.emit(DisconnectUnverifiedEvent)
                                 break
                             except Exception:
                                 continue
