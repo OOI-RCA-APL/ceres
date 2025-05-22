@@ -6,6 +6,7 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Any, Final, Generic, Protocol, TypeVar, override
 
+from anyio import BrokenResourceError, ClosedResourceError, EndOfStream
 from pydantic import NonNegativeInt, model_validator
 
 from ceres import Component, routine
@@ -164,6 +165,8 @@ class AnyIOServer[ClientT: AnyIOClient](Server[ClientT]):
                             await client.send_eof()
                     except Exception:
                         pass
+        except (EndOfStream, BrokenResourceError, ClosedResourceError):
+            pass
         except Exception as exception:
             self.system.events.emit(
                 ServerProcessingExceptionEvent,
