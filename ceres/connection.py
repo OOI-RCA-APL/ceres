@@ -11,6 +11,7 @@ from re import Match, Pattern, RegexFlag
 from typing import Annotated, Any, Literal, Self, override
 
 from pydantic import BeforeValidator, ByteSize, Field, TypeAdapter, model_validator
+from pydantic.types import NonNegativeInt
 
 from ceres._internal import util
 from ceres._internal.lazy import lazy_imports
@@ -485,8 +486,8 @@ class AnyIOConnection(Connection):
 
 
 class TCPConnection(AnyIOConnection):
-    host: str
-    port: int
+    host: NonEmptyStr
+    port: NonNegativeInt
 
     @property
     @override
