@@ -105,10 +105,13 @@ class AnyIOServer[ClientT: AnyIOClient](Server[ClientT]):
     def bind(self) -> str: ...
 
     @abstractmethod
-    async def _create_anyio_listener(self) -> Listener[SocketStream]: ...
+    async def _create_listener(self) -> Listener[SocketStream]: ...
 
     @abstractmethod
     def _create_client(self, stream: SocketStream) -> ClientT: ...
+
+    @abstractmethod
+    async def _cleanup(self) -> None: ...
 
     @override
     async def serve(self) -> None:
@@ -116,7 +119,7 @@ class AnyIOServer[ClientT: AnyIOClient](Server[ClientT]):
 
         while True:
             try:
-                async with await self._create_anyio_listener() as listener:
+                async with await self._create_listener() as listener:
                     # Reset rebind schedule on success.
                     trigger = self.rebind_on.as_trigger()
                     self.system.events.emit(
@@ -132,6 +135,8 @@ class AnyIOServer[ClientT: AnyIOClient](Server[ClientT]):
                     bind=self.bind,
                     traceback=util.get_traceback(exception),
                 )
+            finally:
+                await self._cleanup()
 
             next = trigger.get_next_fire_time()
             if next is None:
@@ -213,7 +218,7 @@ class TCPServer(AnyIOServer[TCPClient]):
     async def _handle(self, client: TCPClient) -> None: ...
 
     @override
-    async def _create_anyio_listener(self) -> Listener[SocketStream]:
+    async def _create_listener(self) -> Listener[SocketStream]:
         return await anyio.create_tcp_listener(
             local_host=self.host,
             local_port=self.port,
@@ -223,6 +228,10 @@ class TCPServer(AnyIOServer[TCPClient]):
     @override
     def _create_client(self, stream: SocketStream) -> TCPClient:
         return TCPClient(stream)
+
+    @override
+    async def _cleanup(self) -> None:
+        pass
 
 
 class UNIXSocketClient(AnyIOClient[SocketStream]):
@@ -268,7 +277,7 @@ class UNIXSocketServer(AnyIOServer[UNIXSocketClient]):
     async def _handle(self, client: UNIXSocketClient) -> None: ...
 
     @override
-    async def _create_anyio_listener(self) -> Listener[SocketStream]:
+    async def _create_listener(self) -> Listener[SocketStream]:
         return await anyio.create_unix_listener(
             self.socket,
             mode=self.socket_mode,
@@ -277,3 +286,10 @@ class UNIXSocketServer(AnyIOServer[UNIXSocketClient]):
     @override
     def _create_client(self, stream: SocketStream) -> UNIXSocketClient:
         return UNIXSocketClient(stream)
+
+    @override
+    async def _cleanup(self) -> None:
+        try:
+            self.socket.unlink(missing_ok=True)
+        except OSError:
+            pass

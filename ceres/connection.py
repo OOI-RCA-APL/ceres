@@ -378,13 +378,16 @@ class AnyIOConnection(Connection):
         super().__setup__()
         self._stream: SocketStream | None = None
 
+    @abstractmethod
+    async def _create_stream(self) -> SocketStream: ...
+
     @override
     async def _connect(self) -> bool:
         if self._stream:
             return True
 
         self._stream = await asyncio.wait_for(
-            self._connect_anyio_stream(),
+            self._create_stream(),
             self.timeout.total_seconds(),
         )
 
@@ -460,7 +463,7 @@ class AnyIOConnection(Connection):
                         case DisconnectVerifyType.RECONNECT:
                             try:
                                 await asyncio.wait_for(
-                                    self._connect_anyio_stream(),
+                                    self._create_stream(),
                                     self.timeout.total_seconds(),
                                 )
                                 self.system.events.emit(DisconnectUnverifiedEvent)
@@ -480,9 +483,6 @@ class AnyIOConnection(Connection):
                 except Exception:
                     pass
 
-    @abstractmethod
-    async def _connect_anyio_stream(self) -> SocketStream: ...
-
 
 class TCPConnection(AnyIOConnection):
     host: str
@@ -494,7 +494,7 @@ class TCPConnection(AnyIOConnection):
         return f"{self.host}:{self.port}"
 
     @override
-    async def _connect_anyio_stream(self) -> SocketStream:
+    async def _create_stream(self) -> SocketStream:
         return await anyio.connect_tcp(self.host, self.port)
 
 
@@ -515,5 +515,5 @@ class UNIXSocketConnection(AnyIOConnection):
         return self.socket
 
     @override
-    async def _connect_anyio_stream(self) -> SocketStream:
+    async def _create_stream(self) -> SocketStream:
         return await anyio.connect_unix(self.socket)
