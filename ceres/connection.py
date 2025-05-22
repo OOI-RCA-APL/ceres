@@ -383,7 +383,7 @@ class AnyIOConnection(Connection):
 
     @override
     async def _connect(self) -> bool:
-        if self._stream:
+        if self._stream is not None:
             return True
 
         self._stream = await asyncio.wait_for(
@@ -395,7 +395,7 @@ class AnyIOConnection(Connection):
 
     @override
     async def _disconnect(self) -> None:
-        if not self._stream:
+        if self._stream is None:
             return
 
         try:
@@ -408,7 +408,7 @@ class AnyIOConnection(Connection):
 
     @override
     async def _send(self, data: bytes) -> bytes | None:
-        if not self._stream:
+        if self._stream is None:
             return None
 
         try:
@@ -421,7 +421,7 @@ class AnyIOConnection(Connection):
 
     @override
     async def _receive(self, count: int) -> bytes | None:
-        if not self._stream:
+        if self._stream is None:
             return None
 
         try:
