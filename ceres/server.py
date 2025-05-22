@@ -196,7 +196,6 @@ class TCPClient(AnyIOClient[SocketStream]):
 
     @property
     def host(self) -> str:
-        self.stream.extra(SocketAttribute.remote_address)
         return self._host
 
     @property
