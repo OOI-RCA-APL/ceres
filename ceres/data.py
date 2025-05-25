@@ -433,12 +433,12 @@ class StrEnum(BaseStrEnum):
         return self.value
 
 
-_priority_cache: dict[tuple[type[PriorityStrEnum], str], int] = {}
+_priority_cache: dict[tuple[type[OrderedStrEnum], str], int] = {}
 
 
-class PriorityStrEnum(StrEnum):
+class OrderedStrEnum(StrEnum):
     @property
-    def priority(self) -> Any:
+    def order(self) -> int:
         key = (type(self), self)
         priority = _priority_cache.get(key)
         if priority is None:
@@ -453,7 +453,7 @@ class PriorityStrEnum(StrEnum):
             return False
 
         if isinstance(__x, type(self)):
-            return self.priority < __x.priority
+            return self.order < __x.order
 
         return super().__lt__(__x)
 
@@ -463,7 +463,7 @@ class PriorityStrEnum(StrEnum):
             return False
 
         if isinstance(__x, type(self)):
-            return self.priority <= __x.priority
+            return self.order <= __x.order
 
         return super().__le__(__x)
 
@@ -473,7 +473,7 @@ class PriorityStrEnum(StrEnum):
             return True
 
         if isinstance(__x, type(self)):
-            return self.priority > __x.priority
+            return self.order > __x.order
 
         return super().__gt__(__x)
 
@@ -483,6 +483,6 @@ class PriorityStrEnum(StrEnum):
             return True
 
         if isinstance(__x, type(self)):
-            return self.priority >= __x.priority
+            return self.order >= __x.order
 
         return super().__ge__(__x)

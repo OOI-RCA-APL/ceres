@@ -37,15 +37,15 @@ from ceres._internal.util import MatchMode
 from ceres.data import (
     EmailStr,
     MaybeSequence,
+    OrderedStrEnum,
     PasswordHash,
     PasswordStr,
-    PriorityStrEnum,
     UsernameStr,
 )
 from ceres.database import DatabaseType
 
 
-class UserRole(PriorityStrEnum):
+class UserRole(OrderedStrEnum):
     VIEWER = "viewer"
     OPERATOR = "operator"
     ADMIN = "admin"
