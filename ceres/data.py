@@ -282,8 +282,31 @@ class DataObject(BaseModel, ABC):
     )
 
     @override
+    def __setattr__(self, name: str, value: Any, /) -> None:
+        super().__setattr__(name, value)
+        self.model_fields_set.add(name)
+
+    @override
+    def __repr__(self) -> str:
+        fields = self.model_fields_set
+        tokens: list[str] = [self.__class__.__name__, "("]
+        for i, field in enumerate(fields):
+            try:
+                value = getattr(self, field)
+            except Exception:
+                continue
+
+            if i < len(fields) - 1:
+                tokens.append(f"{field}={value!r}, ")
+            else:
+                tokens.append(f"{field}={value!r}")
+
+        tokens.append(")")
+        return "".join(tokens)
+
+    @override
     def __str__(self) -> str:
-        return super().__repr__()
+        return self.__repr__()
 
 
 class ImmutableDataObject(DataObject):
@@ -324,7 +347,7 @@ class ValidatedDataclass(ABC, PydanticDataclassLike):
         cls,
         *,
         init: Literal[False] = False,
-        repr: bool = True,
+        repr: bool = False,
         eq: bool = True,
         order: bool = False,
         unsafe_hash: bool = False,
@@ -360,6 +383,35 @@ class ValidatedDataclass(ABC, PydanticDataclassLike):
             validate_on_init=validate_on_init,
             kw_only=kw_only,
         )(cls)
+
+    @override
+    def __repr__(self) -> str:
+        fields = self.__pydantic_fields__
+        tokens: list[str] = [self.__class__.__name__, "("]
+        for i, (name, field) in enumerate(fields.items()):
+            try:
+                value = getattr(self, name)
+            except Exception:
+                continue
+
+            try:
+                is_default = value == field.default
+            except Exception:
+                is_default = False
+
+            if not is_default:
+                tokens.append(f"{name}={value!r}")
+                tokens.append(", ")
+
+        if tokens and tokens[-1] == ", ":
+            tokens.pop()
+
+        tokens.append(")")
+        return "".join(tokens)
+
+    @override
+    def __str__(self) -> str:
+        return self.__repr__()
 
 
 __USERNAME_PATTERN = r"[a-zA-Z\-_]+"
