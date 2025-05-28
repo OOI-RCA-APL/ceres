@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from random import choice, randbytes, shuffle
 from string import ascii_letters, printable
 from typing import (
+    TYPE_CHECKING,
     Any,
     Awaitable,
     Callable,
@@ -33,17 +34,19 @@ from ceres import (
 from ceres._internal import util
 from ceres._internal.auth import get_password_hash
 from ceres._internal.entity import BaseEntityFilterArgs
-from ceres._internal.item import BaseItemFilterArgs
-from ceres._internal.record import BaseRecordFilterArgs
-from ceres.alert import AlertFilterArgs
 from ceres.config import BCryptHashingConfig
 from ceres.data import JSONDict, MaybeSequence, StrEnum, jsonify, uuid7
 from ceres.database import Database
 from ceres.item import Item
-from ceres.particle import ParticleFilterArgs
 from ceres.record import Record
 from ceres.timing import _now_context_var
 from ceres.user import UserRole
+
+if TYPE_CHECKING:
+    from ceres._internal.item import BaseItemFilterArgs
+    from ceres._internal.record import BaseRecordFilterArgs
+    from ceres.alert import AlertFilterArgs
+    from ceres.particle import ParticleFilterArgs
 
 
 async def wait_for_condition(

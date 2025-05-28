@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import (
+    TYPE_CHECKING,
     ClassVar,
     Iterable,
     Literal,
@@ -11,9 +12,8 @@ from typing import (
 )
 from uuid import UUID
 
-from sqlalchemy import JSON, ForeignKeyConstraint, PrimaryKeyConstraint, SQLColumnExpression, Text
+from sqlalchemy import JSON, ForeignKeyConstraint, PrimaryKeyConstraint, Text
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.schema import SchemaItem
 
 from ceres._internal import util
 from ceres._internal.database.types import UUIDMapper
@@ -28,11 +28,16 @@ from ceres._internal.entity import (
     EntityQuery,
 )
 from ceres._internal.manager import BaseNodeManager
-from ceres._internal.protocols import DatabaseSource, NodeSource
 from ceres._internal.util import MatchMode
 from ceres.data import FromYAML, JSONSerializable, MaybeSequence, uuid7
-from ceres.database import DatabaseType
 from ceres.user import UserRow
+
+if TYPE_CHECKING:
+    from sqlalchemy import SQLColumnExpression
+    from sqlalchemy.schema import SchemaItem
+
+    from ceres._internal.protocols import DatabaseSource, NodeSource
+    from ceres.database import DatabaseType
 
 
 class SettingRow(BaseEntityRow, kw_only=True):
@@ -99,8 +104,8 @@ class SettingFilter(BaseEntityFilter["Setting", SettingField, SettingOrder]):
     """Filter by `name` ending with one or more given suffixes."""
 
     @override
-    def matches(self, obj: Setting) -> bool:
-        if not super().matches(obj):
+    def _matches(self, obj: Setting) -> bool:
+        if not super()._matches(obj):
             return False
 
         if not util.match_value(obj.user_id, self.user_id):

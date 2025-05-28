@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import (
+    TYPE_CHECKING,
     Any,
     ClassVar,
     Iterable,
@@ -14,10 +15,8 @@ from typing import (
 )
 
 from pydantic import ValidationError
-from sqlalchemy import JSON, Text, cast
+from sqlalchemy import JSON, Index, PrimaryKeyConstraint, Text, cast
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.schema import Index, PrimaryKeyConstraint, SchemaItem
-from sqlalchemy.sql import SQLColumnExpression
 
 from ceres._internal import util
 from ceres._internal.entity import BaseEntityManager, BaseEntityQuery, EntityQuery
@@ -31,12 +30,17 @@ from ceres._internal.item import (
     BaseItemRow,
 )
 from ceres._internal.manager import BaseNodeManager
-from ceres._internal.protocols import DatabaseSource, NodeSource
 from ceres._internal.util import MatchMode, get_type_adapter
-from ceres.address import Address
 from ceres.data import FromYAML, JSONSerializable, MaybeSequence, StrEnum, jsonify
-from ceres.database import DatabaseType
-from ceres.stream import Stream
+
+if TYPE_CHECKING:
+    from sqlalchemy import SQLColumnExpression
+    from sqlalchemy.schema import SchemaItem
+
+    from ceres._internal.protocols import DatabaseSource, NodeSource
+    from ceres.address import Address
+    from ceres.database import DatabaseType
+    from ceres.stream import Stream
 
 
 class VariableRow(BaseItemRow, kw_only=True):
@@ -105,8 +109,8 @@ class VariableFilter(BaseItemFilter["Variable", VariableField, VariableOrder]):
     value: JSONSerializable | None = None
 
     @override
-    def matches(self, obj: Variable) -> bool:
-        if not super().matches(obj):
+    def _matches(self, obj: Variable) -> bool:
+        if not super()._matches(obj):
             return False
 
         if not util.match_value(obj.name, self.name):

@@ -422,7 +422,7 @@ def create_entity_get_route(router: APIRouter, Entity: type[BaseEntity]):
     class QueryParameters(Entity.Filter):
         pass
 
-    QueryParameters.__name__ = f"Get{singular.title().replace(" ", "")}QueryParameters"
+    QueryParameters.__name__ = f"Get{singular.title().replace(' ', '')}QueryParameters"
 
     async def get(engine: CurrentEngine, id: UUID):
         return assert_found(await util.get_entity_manager(engine, Entity).get(id))  # type: ignore
@@ -439,7 +439,7 @@ def create_entity_get_all_route(router: APIRouter, Entity: type[BaseEntity], lim
     class QueryParameters(Entity.Filter):
         limit: int = Field(default=100, ge=0, le=_limit)
 
-    QueryParameters.__name__ = f"GetAll{plural.title().replace(" ", "")}QueryParameters"
+    QueryParameters.__name__ = f"GetAll{plural.title().replace(' ', '')}QueryParameters"
 
     async def get_all(
         engine: CurrentEngine,
@@ -457,7 +457,7 @@ def create_entity_follow_route(router: APIRouter, Entity: type[BaseEntity]):
     class QueryParameters(Entity.Filter):
         pass
 
-    QueryParameters.__name__ = f"Follow{plural.title().replace(" ", "")}QueryParameters"
+    QueryParameters.__name__ = f"Follow{plural.title().replace(' ', '')}QueryParameters"
 
     async def follow(
         socket: CurrentSocket,

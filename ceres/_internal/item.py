@@ -3,9 +3,8 @@ from __future__ import annotations
 from abc import abstractmethod
 from typing import TYPE_CHECKING, ClassVar, Iterable, Literal, TypeAlias, override
 
+from sqlalchemy import Index
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.schema import Index, SchemaItem
-from sqlalchemy.sql import SQLColumnExpression
 
 from ceres._internal.database.types import AddressMapper
 from ceres._internal.entity import (
@@ -16,7 +15,12 @@ from ceres._internal.entity import (
     BaseEntityUpdate,
 )
 from ceres.address import Address, AddressSelector
-from ceres.database import DatabaseType
+
+if TYPE_CHECKING:
+    from sqlalchemy import SQLColumnExpression
+    from sqlalchemy.schema import SchemaItem
+
+    from ceres.database import DatabaseType
 
 
 class BaseItemRow(BaseEntityRow, kw_only=True):
@@ -60,8 +64,8 @@ class BaseItemFilter[
     """The address which relative address selectors in `address` are relative to."""
 
     @override
-    def matches(self, obj: ItemT) -> bool:
-        if not super().matches(obj):
+    def _matches(self, obj: ItemT) -> bool:
+        if not super()._matches(obj):
             return False
 
         if self.address is not None:

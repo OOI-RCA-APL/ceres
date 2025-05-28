@@ -8,8 +8,8 @@ from ceres.data import StrEnum
 from ceres.entity import EntityType
 from ceres.logs import LogEntry as LogEntry
 from ceres.message import Message as Message
-from ceres.particle import Particle
-from ceres.variable import Variable
+from ceres.particle import Particle as Particle
+from ceres.variable import Variable as Variable
 
 Item: TypeAlias = Message | Particle | Alert | LogEntry | Variable
 
@@ -27,7 +27,7 @@ class ItemType(StrEnum):
 
     @property
     def cls(self) -> type[Item]:
-        return cast(type[Item], self.upcast().cls)
+        return cast("type[Item]", self.upcast().cls)
 
     def upcast(self) -> EntityType:
         return EntityType(self)

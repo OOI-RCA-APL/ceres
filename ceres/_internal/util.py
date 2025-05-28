@@ -9,7 +9,6 @@ import traceback
 import typing
 from asyncio import AbstractEventLoop, Future
 from collections import defaultdict
-from collections.abc import Set
 from contextlib import contextmanager
 from datetime import timedelta
 from enum import Enum
@@ -43,16 +42,19 @@ from typing import (
 from weakref import WeakSet, ref
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, create_model, validate_call
-from pydantic.fields import FieldInfo
-from pydantic_core import CoreSchema, SchemaSerializer, SchemaValidator
-from typing_extensions import TypeIs
 
 from ceres._internal.lazy import lazy_imports
 
-with lazy_imports(__name__, export=True):
+if TYPE_CHECKING:
+    from pydantic.fields import FieldInfo
+    from pydantic_core import CoreSchema, SchemaSerializer, SchemaValidator
     from sqlalchemy import SQLColumnExpression
+    from typing_extensions import TypeIs
 
     from ceres.data import MaybeSequence
+
+
+with lazy_imports(__name__, export=True):
     from ceres.util import azip_latest as azip_latest
     from ceres.util import cancel as cancel
     from ceres.util import concurrently as concurrently
@@ -84,7 +86,7 @@ def syncify[**P, T](function: Callable[P, Awaitable[T] | T]) -> Callable[P, T]:
     from ceres.util import ensure_event_loop
 
     if not inspect.iscoroutinefunction(function):
-        return cast(Callable[P, T], function)
+        return cast("Callable[P, T]", function)
 
     from functools import wraps
 
@@ -92,16 +94,16 @@ def syncify[**P, T](function: Callable[P, Awaitable[T] | T]) -> Callable[P, T]:
     def wrapper(*args: P.args, **kwargs: P.kwargs) -> Any:
         return ensure_event_loop().run_until_complete(function(*args, **kwargs))
 
-    return cast(Callable[P, T], wrapper)
+    return cast("Callable[P, T]", wrapper)
 
 
 async def awaitify[T](value: Awaitable[T] | T) -> T:
     import inspect
 
     if inspect.isawaitable(value):
-        return cast(T, await value)
+        return cast("T", await value)
 
-    return cast(T, value)
+    return cast("T", value)
 
 
 def dictify(obj: object) -> dict[str, Any]:
@@ -982,7 +984,7 @@ class OrderedSet(set[_T]):
 
     @override
     def intersection(self, *other: Iterable[Any]) -> OrderedSet[_T]:
-        other_set: Set[Any] = set()
+        other_set: set[Any] = set()
         other_set.update(*other)
         return self.__class__(a for a in self if a in other_set)
 
@@ -1007,7 +1009,7 @@ class OrderedSet(set[_T]):
 
     @override
     def __xor__(self, other: AbstractSet[_S]) -> OrderedSet[Union[_T, _S]]:
-        return cast(OrderedSet[Union[_T, _S]], self).symmetric_difference(other)
+        return cast("OrderedSet[Union[_T, _S]]", self).symmetric_difference(other)
 
     @override
     def difference(self, *other: Iterable[Any]) -> OrderedSet[_T]:
@@ -1038,7 +1040,7 @@ class OrderedSet(set[_T]):
     @override
     def __ixor__(self, other: AbstractSet[_S]) -> OrderedSet[Union[_T, _S]]:  # type: ignore
         self.symmetric_difference_update(other)
-        return cast(OrderedSet[Union[_T, _S]], self)
+        return cast("OrderedSet[Union[_T, _S]]", self)
 
     @override
     def difference_update(self, *other: Iterable[Any]) -> None:

@@ -10,12 +10,10 @@ from typing import (
     Unpack,
     override,
 )
-from uuid import UUID
 
-from sqlalchemy import Boolean, Text
+from sqlalchemy import Boolean, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.schema import SchemaItem, UniqueConstraint
-from sqlalchemy.sql import SQLColumnExpression, expression
+from sqlalchemy.sql import expression
 
 from ceres._internal import util
 from ceres._internal.database.types import EnumConstraint, EnumMapper
@@ -32,7 +30,6 @@ from ceres._internal.entity import (
     EntityQuery,
 )
 from ceres._internal.manager import BaseNodeManager
-from ceres._internal.protocols import DatabaseSource, NodeSource
 from ceres._internal.util import MatchMode
 from ceres.data import (
     EmailStr,
@@ -42,7 +39,15 @@ from ceres.data import (
     PasswordStr,
     UsernameStr,
 )
-from ceres.database import DatabaseType
+
+if TYPE_CHECKING:
+    from uuid import UUID
+
+    from sqlalchemy import SQLColumnExpression
+    from sqlalchemy.schema import SchemaItem
+
+    from ceres._internal.protocols import DatabaseSource, NodeSource
+    from ceres.database import DatabaseType
 
 
 class UserRole(OrderedStrEnum):
@@ -73,8 +78,8 @@ class UserRow(BaseUUIDEntityRow, kw_only=True):
     def __get_table_args__(cls) -> tuple[SchemaItem, ...]:
         return (
             *super().__get_table_args__(),
-            UniqueConstraint("username", name=f"uq_{cls.__tablename__}__username"),
-            EnumConstraint("role", UserRole, name=f"ck_{cls.__tablename__}__role"),
+            UniqueConstraint(cls.username, name=f"uq_{cls.__tablename__}__username"),
+            EnumConstraint(cls.role, UserRole, name=f"ck_{cls.__tablename__}__role"),
         )
 
 
@@ -139,8 +144,8 @@ class UserFilter(BaseUUIDEntityFilter["User", UserField, UserOrder]):
         return UserRow
 
     @override
-    def matches(self, obj: User) -> bool:
-        if not super().matches(obj):
+    def _matches(self, obj: User) -> bool:
+        if not super()._matches(obj):
             return False
 
         if not util.match_value(obj.username, self.username):
@@ -225,10 +230,6 @@ class UserUpdate(TypedDict, total=False):
     password: PasswordStr | PasswordHash
     role: UserRole
     disabled: bool
-
-
-if TYPE_CHECKING:
-    from ceres.data import PasswordHash
 
 
 class _BaseUserQuery(

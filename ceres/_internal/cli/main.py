@@ -35,11 +35,13 @@ from ceres.data import jsonify
 from ceres.error import Failure
 from ceres.result import Fail, Ok
 
+if TYPE_CHECKING:
+    from ceres.database import Database
+
 with lazy_imports(__name__):
     from ceres._internal.app.api import DisableResult, EnableResult
     from ceres._internal.cli.client import Client
     from ceres.component import ComponentFilter
-    from ceres.database import Database
     from ceres.engine import Engine
     from ceres.threading import spawn
 

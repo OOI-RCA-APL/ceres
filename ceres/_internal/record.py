@@ -1,16 +1,11 @@
 from __future__ import annotations
 
 from abc import abstractmethod
-from datetime import datetime
 from typing import TYPE_CHECKING, ClassVar, Iterable, Literal, Self, TypeAlias, override
 
-from pydantic import Field, NonNegativeInt, PositiveInt
-from pydantic.functional_validators import model_validator
-from sqlalchemy import cast, func, literal, select
+from pydantic import Field, NonNegativeInt, PositiveInt, model_validator
+from sqlalchemy import Index, Integer, cast, func, literal, select
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.schema import Index, SchemaItem
-from sqlalchemy.sql import SQLColumnExpression
-from sqlalchemy.types import Integer
 
 from ceres._internal import util
 from ceres._internal.database.types import DateTimeMapper
@@ -36,11 +31,17 @@ from ceres.data import DateTime, MaybeSequence, NonNegativeTimeDelta, PositiveTi
 from ceres.database import DatabaseType
 from ceres.timing import utc
 
+if TYPE_CHECKING:
+    from datetime import datetime
+
+    from sqlalchemy import SQLColumnExpression
+    from sqlalchemy.schema import SchemaItem
+
 
 class BaseRecordRow(BaseItemRow, BaseUUIDEntityRow, kw_only=True):
     __abstract__: ClassVar[bool] = True
 
-    timestamp: Mapped[datetime] = mapped_column(DateTimeMapper, sort_order=-1000)
+    timestamp: Mapped[DateTime] = mapped_column(DateTimeMapper, sort_order=-1000)
 
     @classmethod
     @override
@@ -195,8 +196,8 @@ class BaseRecordFilter[
         return self
 
     @override
-    def matches(self, obj: RecordT, *, now: datetime | None = None) -> bool:
-        if not super().matches(obj):
+    def _matches(self, obj: RecordT, *, now: datetime | None = None) -> bool:
+        if not super()._matches(obj):
             return False
 
         if self.timestamp is not None:

@@ -17,7 +17,6 @@ from typing import (
     override,
 )
 
-from argon2.profiles import RFC_9106_LOW_MEMORY
 from pydantic import (
     BaseModel,
     ByteSize,
@@ -76,9 +75,12 @@ from ceres.particle import ParticleFilter
 from ceres.result import Fail, Ok, Result
 from ceres.schedule import ScheduleExpr
 
-with lazy_imports(__name__):
-    from ceres.component import Component, ComponentSystem
+if TYPE_CHECKING:
+    from ceres.component import ComponentSystem
     from ceres.engine import Engine
+
+with lazy_imports(__name__):
+    from ceres.component import Component
     from ceres.sieve import Sieve
 
 
@@ -474,15 +476,16 @@ class BCryptHashingConfig(__BaseHashingConfig):
 
 class Argon2HashingConfig(__BaseHashingConfig):
     type: Literal[HashType.ARGON2] = HashType.ARGON2
-    time_cost: PositiveInt = RFC_9106_LOW_MEMORY.time_cost  # 3
-    memory_cost: int = Field(default=RFC_9106_LOW_MEMORY.memory_cost, ge=8)  # 65536 KiB
-    parallelism: PositiveInt = RFC_9106_LOW_MEMORY.parallelism  # 4
+    # These default values are taken from `argon2.profiles.RFC_9106_LOW_MEMORY`.
+    time_cost: PositiveInt = 3
+    memory_cost: int = Field(default=65536, ge=8)  # Default is 64 MiB.
+    parallelism: PositiveInt = 4
     hash_length: int = Field(default=32, ge=4, le=256)  # True allowed range is 4-32768.
     salt_length: int = Field(default=16, ge=8, le=64)  # True allowed range is 8-4096.
 
     @field_validator("parallelism")
     def _validate_memory_cost(cls, value: int, info: ValidationInfo) -> int:
-        memory_cost = info.data.get("memory_cost", RFC_9106_LOW_MEMORY.memory_cost)
+        memory_cost = info.data.get("memory_cost", 65536)
         if (memory_cost / value) < 8:
             raise ValueError("parallelism must be at least 8 times smaller than memory_cost")
 

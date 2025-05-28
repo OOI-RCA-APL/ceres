@@ -60,13 +60,15 @@ from ceres._internal.lazy import lazy_imports
 from ceres._internal.project import LoadedProject, Project
 from ceres._internal.util import PathLike, wrap_database_errors
 from ceres.data import DataObject, DeferBuild, FromYAML, MaybeSequence, NonEmpty, jsonify
-from ceres.database.enums import DatabaseType
+from ceres.database import DatabaseType
 from ceres.entity import EntityType
 from ceres.result import Ok
 
+if TYPE_CHECKING:
+    from ceres._internal.entity import BaseEntity
+
 with lazy_imports(__name__):
     from ceres._internal.cli.client import Client
-    from ceres._internal.entity import BaseEntity
     from ceres.config import Config, ConfigCheckType, ConfigMeta
     from ceres.engine import Engine
 
@@ -924,8 +926,6 @@ def create_entity_load_command(Entity: type[Entity]):
             data_format: CLIDataFormat | None = None,
             on_conflict: CLIDataConflict = CLIDataConflict.ERROR,
         ) -> int:
-            from ceres.entity import Entity
-
             path = Path(path)
             data_format = _resolve_data_format(path, data_format)
             cls = entity_type.cls
@@ -974,7 +974,7 @@ def create_entity_load_command(Entity: type[Entity]):
                                     case CLIDataFormat.JSON:
                                         adapter = util.get_type_adapter(
                                             cast(
-                                                Iterable[Json[Entity]],
+                                                "Iterable[Json[Entity]]",
                                                 Iterable[Json[cls]],
                                             )
                                         )
@@ -991,7 +991,7 @@ def create_entity_load_command(Entity: type[Entity]):
 
                                         adapter = util.get_type_adapter(
                                             cast(
-                                                Iterable[Entity],
+                                                "Iterable[Entity]",
                                                 Iterable[cls],
                                             )
                                         )

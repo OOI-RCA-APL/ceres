@@ -1,15 +1,19 @@
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from ceres._internal import util
 from ceres._internal.lazy import lazy_imports
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from ceres.config import ConfigMeta
 
 with lazy_imports(__name__):
     from hashlib import sha1
 
     from ceres._internal.server import CLIServerInfo
-    from ceres.config import ConfigMeta
     from ceres.directory import Directory
 
 

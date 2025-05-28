@@ -3,7 +3,7 @@ from __future__ import annotations
 import socket
 import traceback
 from contextlib import closing
-from typing import Any, Final, override
+from typing import TYPE_CHECKING, Any, Final, override
 
 from ceres._internal import util
 from ceres._internal.lazy import lazy_imports
@@ -16,6 +16,8 @@ with lazy_imports(__name__):
     from granian.server.embed import Server as Granian
 
     from ceres._internal.app import App
+
+if TYPE_CHECKING:
     from ceres._internal.project import LoadedProject
     from ceres.config import ServerConfig
     from ceres.engine import Engine

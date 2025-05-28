@@ -42,15 +42,8 @@ from ceres._internal.lazy import lazy_imports
 from ceres._internal.protocols import ComponentSource
 from ceres._internal.util import OrderedWeakSet, Undefined
 from ceres.address import Address, AddressSelector, DynamicAddress
-from ceres.config import PrunerConfig
-from ceres.connectivity import Connectivity
-from ceres.data import (
-    ImmutableDataObject,
-    Name,
-    PositiveTimeDelta,
-    StrEnum,
-    ValidatedDataclass,
-)
+from ceres.config import ComponentConfig, JobConfig, PrunerConfig, SieveConfig
+from ceres.data import ImmutableDataObject, Name, PositiveTimeDelta, StrEnum, ValidatedDataclass
 from ceres.error import (
     Failure,
     ProcedureInternalError,
@@ -81,15 +74,17 @@ from ceres.event import (
     WillDetachEvent,
 )
 from ceres.node import Node
-from ceres.status import Status
 from ceres.variable import InternalVariableName, Variable
 
-with lazy_imports(__name__):
+if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
-    from ceres.config import ComponentConfig, JobConfig, SieveConfig
-    from ceres.database import Database
+    from ceres.connectivity import Connectivity
     from ceres.engine import Engine
+    from ceres.status import Status
+
+with lazy_imports(__name__):
+    from ceres.database import Database
     from ceres.job import ComponentJobManager
     from ceres.pruner import ComponentPrunerManager
     from ceres.reference import Reference, unref

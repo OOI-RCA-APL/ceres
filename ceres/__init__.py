@@ -85,3 +85,5 @@ with lazy_imports(__name__, export=True):
     from ceres.user import User as User
     from ceres.variable import Variable as Variable
     from ceres.version import __version__ as __version__
+    from ceres.workspace import Workspace as Workspace
+    from ceres.workspace import WorkspaceMembership as WorkspaceMembership

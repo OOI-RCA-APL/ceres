@@ -26,6 +26,7 @@ from typing import (
 from uuid import UUID
 
 from pydantic import Field, NonNegativeInt
+from pydantic.functional_validators import model_validator
 from sqlalchemy import (
     ClauseElement,
     Column,
@@ -37,29 +38,35 @@ from sqlalchemy import (
     Select,
     SQLColumnExpression,
     Update,
+    and_,
     delete,
     func,
+    or_,
     select,
     tuple_,
     update,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, MappedAsDataclass, declared_attr, mapped_column
 from sqlalchemy.schema import CreateIndex, CreateTable, PrimaryKeyConstraint, SchemaItem, Table
-from sqlalchemy.sql.base import ReadOnlyColumnCollection
-from sqlalchemy.sql.dml import ReturningDelete, ReturningUpdate
-from sqlalchemy.sql.roles import DDLConstraintColumnRole
 
 from ceres._internal import util
 from ceres._internal.database.types import UUIDMapper
 from ceres._internal.filter import BaseFilter, BaseFilterArgs
 from ceres._internal.lazy import lazy_imports
 from ceres._internal.manager import BaseDatabaseManager
-from ceres._internal.protocols import DatabaseSource
 from ceres.data import DeferBuild, ImmutableDataObject, MaybeSequence, uuid7
 from ceres.database import DatabaseType
 
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncResult, AsyncSession
+    from sqlalchemy.sql.base import ReadOnlyColumnCollection
+    from sqlalchemy.sql.dml import ReturningDelete, ReturningUpdate
+    from sqlalchemy.sql.roles import DDLConstraintColumnRole
+
+    from ceres._internal.protocols import DatabaseSource
+
 with lazy_imports(__name__):
-    from sqlalchemy.ext.asyncio import AsyncEngine, AsyncResult, AsyncSession
+    from sqlalchemy.ext.asyncio import AsyncEngine
 
 
 class BaseEntityRow(
@@ -194,6 +201,9 @@ class BaseEntityFilterArgs[
     limit: NonNegativeInt | None
     offset: NonNegativeInt | None
 
+    or__: Sequence[Self | BaseEntityFilter[Any, FieldT, OrderT]] | None
+    and__: Sequence[Self | BaseEntityFilter[Any, FieldT, OrderT]] | None
+
 
 class BaseEntityFilter[
     EntityT: BaseEntity,
@@ -201,18 +211,140 @@ class BaseEntityFilter[
     OrderT: str,
 ](BaseFilter):
     order: MaybeSequence[OrderT] | None = None
-    """Specify ordering of results by field. Prefix field names with '-' for descending order."""
+    """
+    Specify ordering of results by field. Prefix field names with '-' for descending order.
+
+    If `and__` subfilters are defined, and `order` is unspecified in this root `order` argument, the
+    last `order` defined in `and__` will be used instead.
+    """
+
     limit: NonNegativeInt | None = None
-    """Limit the number of returned results."""
+
+    """
+    Limit the number of returned results.
+
+    If any `and__` subfilters are defined, and any of them specify a `limit` which is lower than
+    this root `limit` argument, the lowest defined `limit` value in `and__` will be used instead.
+    """
     offset: NonNegativeInt | None = None
-    """Skip over a given number of results."""
+
+    """
+    Skip over a given number of results.
+
+    If any `and__` subfilters are defined, and any of them specify an `offset` which is higher than
+    this root `offset` argument, the highest defined `offset` value in `and__` will be used instead.
+    """
+
+    or__: Sequence[Self] | None = Field(default=None, min_length=1)
+    """
+    A list of subfilters, where in the case any match the queried value, the overall filter should
+    match.
+
+    This is a logical OR operation, and can be added to using the `|` operator.
+
+    If both `or__` and `and__` are defined within the same filter object, `and__` is evaluated
+    first, meaning whether or not all conditions in `and__` are matched, if any condition in `or__`
+    is matched, the overall filter will match.
+    """
+
+    and__: Sequence[Self] | None = Field(default=None, min_length=1)
+    """
+    A list of subfilters, where in the case all of them they match the queried value, the overall
+    filter should match.
+
+    This is a logical AND operation, and can be added to using the `&` operator.
+
+    If both `or__` and `and__` are defined within the same filter object, `and__` is evaluated
+    first, meaning whether or not all conditions in `and__` are matched, if any condition in `or__`
+    is matched, the overall filter will match.
+    """
+
+    @model_validator(mode="after")
+    def _resolve_and_or(self) -> Self:
+        if self.or__:
+            for subfilter in self.or__:
+                if subfilter.order is not None:
+                    raise ValueError(
+                        "Cannot specify `order` in `or__` subfilters. Use `and__` instead."
+                    )
+                if subfilter.limit is not None:
+                    raise ValueError(
+                        "Cannot specify `limit` in `or__` subfilters. Use `and__` instead."
+                    )
+                if subfilter.offset is not None:
+                    raise ValueError(
+                        "Cannot specify `offset` in `or__` subfilters. Use `and__` instead."
+                    )
+
+        if self.and__:
+            for subfilter in self.and__:
+                if subfilter.order is not None:
+                    object.__setattr__(self, "order", subfilter.order)
+                    self.model_fields_set.add("order")
+                if subfilter.limit is not None:
+                    if self.limit is None or subfilter.limit < self.limit:
+                        object.__setattr__(self, "limit", subfilter.limit)
+                        self.model_fields_set.add("limit")
+                if subfilter.offset is not None:
+                    if self.offset is None or subfilter.offset > self.offset:
+                        object.__setattr__(self, "offset", subfilter.offset)
+                        self.model_fields_set.add("offset")
+
+        return self
+
+    def __or__(self, other: Self, /) -> Self:
+        # Because `or__` has lower precedence than `and__` within the same filter, we can always
+        # just append the filter to the `or__` conditions.
+        or__ = [*(other.or__ or ()), self]
+        return self.model_copy(update={"or__": or__})
+
+    def __and__(self, other: Self, /) -> Self:
+        # Because `and__` has higher precedence than `or__` within the same filter, if `or__` is
+        # present, we need create a new parent filter to maintain operator precedence.
+        if self.or__ or other.or__:
+            return self.__class__(and__=[self, cast("Self", other)])
+
+        # Otherwise, we can append the filter to the `and__` conditions.
+        and__ = [*(self.and__ or ()), *(other.and__ or ())]
+        return self.model_copy(update={"and__": and__})
 
     @classmethod
     @abstractmethod
     def _get_row_cls(cls) -> type[BaseEntityRow]: ...
 
     def matches(self, obj: EntityT) -> bool:
+        matches_root = self._matches(obj)
+        matches_and = (
+            all(subcondition.matches(obj) for subcondition in self.and__) if self.and__ else True
+        )
+        matches_or = (
+            any(subcondition.matches(obj) for subcondition in self.or__) if self.or__ else True
+        )
+
+        return (matches_root and matches_and) or matches_or
+
+    @abstractmethod
+    def _matches(self, obj: EntityT) -> bool:
         return True
+
+    def _get_combined_where(self, dialect: DatabaseType) -> Iterable[SQLColumnExpression[bool]]:
+        ands = list(self._get_where(dialect))
+
+        if self.and__:
+            for subcondition in self.and__:
+                ands.extend(subcondition._get_combined_where(dialect))
+
+        if not self.or__:
+            yield from ands
+        else:
+            ors: list[SQLColumnExpression[bool]] = []
+            for subcondition in self.or__:
+                ors.extend(subcondition._get_combined_where(dialect))
+
+            if ands:
+                yield or_(and_(*ands), *ors)
+            else:
+                yield or_(*ors)
 
     def _get_where(self, dialect: DatabaseType) -> Iterable[SQLColumnExpression[bool]]:
         return ()
@@ -244,7 +376,7 @@ class BaseEntityFilter[
         ignore_where: bool = False,
         ignore_order: bool = False,
     ) -> StatementT:
-        where = () if ignore_where else tuple(self._get_where(dialect))
+        where = () if ignore_where else tuple(self._get_combined_where(dialect))
         order_by = () if ignore_order else tuple(self._get_order_by())
         limit = self.limit
         offset = self.offset
@@ -338,8 +470,8 @@ class BaseUUIDEntityFilter[
     def _get_row_cls(cls) -> type[BaseUUIDEntityRow]: ...
 
     @override
-    def matches(self, obj: EntityT) -> bool:
-        if not super().matches(obj):
+    def _matches(self, obj: EntityT) -> bool:
+        if not super()._matches(obj):
             return False
 
         if not util.match_value(obj.id, self.id):
@@ -614,7 +746,7 @@ class UpdateExecutor[
         assign: UpdateT,
         assign_transform: Callable[[UpdateT], Awaitable[UpdateT]] | None = None,
     ) -> None:
-        super().__init__(query=cast(Any, query))
+        super().__init__(query=cast("Any", query))
         self._query: Final = query  # type: ignore
         self._assign: Final = assign
 
@@ -786,7 +918,11 @@ class BaseEntityQuery[
         kwargs: BaseEntityFilterArgs,
     ) -> FilterT:
         Filter = self._get_filter_class()
-        return Filter(**kwargs).with_defaults(filter).with_defaults(self._get_resolved_filter())
+        return (
+            Filter(**cast("Any", kwargs))
+            .with_defaults(filter)
+            .with_defaults(self._get_resolved_filter())
+        )
 
     async def _assign_transform(self, assign: UpdateT) -> UpdateT:
         return assign

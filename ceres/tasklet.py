@@ -57,7 +57,7 @@ class Tasklet(ABC):
     @property
     def __tasklet_internal__(self) -> _TaskletInternal:
         if internal := getattr(self, _INTERNAL_ATTRIBUTE_NAME, None):
-            return cast(_TaskletInternal, internal)
+            return cast("_TaskletInternal", internal)
 
         internal = _TaskletInternal()
         internal.stopping.set()

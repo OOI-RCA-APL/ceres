@@ -184,7 +184,7 @@ class Stream[T](AsyncIterable[T]):
     def every[O](self, cls: O, /) -> Stream[O]: ...
 
     def every[O](self, cls: O | type[O], /) -> Stream[O]:
-        derived = cast(Stream[O], Stream(self))
+        derived = cast("Stream[O]", Stream(self))
         derived._every = cls  # type: ignore
         return derived
 
@@ -194,7 +194,7 @@ class Stream[T](AsyncIterable[T]):
         return derived
 
     def map[O](self, transform: Callable[[T], O], /) -> Stream[O]:
-        derived = cast(Stream[O], Stream(self))
+        derived = cast("Stream[O]", Stream(self))
         derived._map = transform  # type: ignore
         return derived
 

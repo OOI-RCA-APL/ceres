@@ -3,11 +3,10 @@ from __future__ import annotations
 import traceback
 from http.client import responses
 from pathlib import Path
-from typing import Awaitable, Callable, cast, final
+from typing import TYPE_CHECKING, Awaitable, Callable, cast, final
 
 from fastapi import APIRouter, FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
-from fastapi.requests import HTTPConnection
 from fastapi.responses import FileResponse, JSONResponse
 from starlette.exceptions import HTTPException
 from starlette.status import HTTP_422_UNPROCESSABLE_ENTITY
@@ -26,7 +25,7 @@ from ceres.error import (
 from ceres.level import Level
 from ceres.version import __version__
 
-with lazy_imports(__name__):
+if TYPE_CHECKING:
     from asgiref.typing import (
         ASGIReceiveCallable,
         ASGIReceiveEvent,
@@ -36,10 +35,13 @@ with lazy_imports(__name__):
         Scope,
         WebSocketScope,
     )
+    from fastapi.requests import HTTPConnection
 
+    from ceres.engine import Engine
+
+with lazy_imports(__name__):
     from ceres.config import ServerCompressionConfig, ServerConfig
     from ceres.data import simplify
-    from ceres.engine import Engine
 
 
 router = APIRouter()
@@ -214,7 +216,7 @@ class LoggingMiddleware:
             if isinstance(app, App):
                 try:
                     if message["type"] == "http.response.start" and scope["type"] == "http":
-                        http = cast(HTTPScope, scope)
+                        http = cast("HTTPScope", scope)
                         path = http["path"]
                         verb = http["method"]
                         client = http["client"]
@@ -233,7 +235,7 @@ class LoggingMiddleware:
                         or message["type"] == "websocket.close"
                         and scope["type"] == "websocket"
                     ):
-                        socket = cast(WebSocketScope, scope)
+                        socket = cast("WebSocketScope", scope)
                         type = message["type"]
                         path = socket["path"]
                         match type:

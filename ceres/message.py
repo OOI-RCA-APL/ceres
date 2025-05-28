@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime
 from typing import (
     TYPE_CHECKING,
     Annotated,
@@ -12,18 +11,15 @@ from typing import (
     Unpack,
     override,
 )
-from uuid import UUID
 
 from pydantic import BeforeValidator, PlainSerializer
-from sqlalchemy import LargeBinary, SQLColumnExpression, func
+from sqlalchemy import Index, LargeBinary, func
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.schema import Index, SchemaItem
 
 from ceres._internal import util
 from ceres._internal.database.types import EnumConstraint, EnumMapper
 from ceres._internal.entity import BaseEntityManager, BaseEntityQuery, EntityQuery
 from ceres._internal.manager import BaseNodeManager
-from ceres._internal.protocols import DatabaseSource, NodeSource
 from ceres._internal.record import (
     BaseRecord,
     BaseRecordCreate,
@@ -36,9 +32,18 @@ from ceres._internal.record import (
 )
 from ceres._internal.util import MatchMode
 from ceres.data import MaybeSequence, StrEnum
-from ceres.database import DatabaseType
-from ceres.stream import Stream
 from ceres.timing import utc
+
+if TYPE_CHECKING:
+    from datetime import datetime
+    from uuid import UUID
+
+    from sqlalchemy import SQLColumnExpression
+    from sqlalchemy.schema import SchemaItem
+
+    from ceres._internal.protocols import DatabaseSource, NodeSource
+    from ceres.database import DatabaseType
+    from ceres.stream import Stream
 
 
 class MessageDirection(StrEnum):
@@ -75,7 +80,7 @@ class MessageRow(BaseRecordRow, kw_only=True):
     def __get_table_args__(cls) -> tuple[SchemaItem, ...]:
         return (
             *super().__get_table_args__(),
-            EnumConstraint("direction", MessageDirection, f"ck_{cls.__tablename__}__direction"),
+            EnumConstraint(cls.direction, MessageDirection, f"ck_{cls.__tablename__}__direction"),
             Index(f"ix_{cls.__tablename__}__content", cls.content).ddl_if("sqlite"),
             Index(
                 f"ix_{cls.__tablename__}__content",
@@ -127,9 +132,9 @@ class MessageFilter(BaseRecordFilter["Message", MessageField, MessageOrder]):
     """Filter by `content` ending with one or more given byte suffixes."""
 
     @override
-    def matches(self, obj: Message, *, now: datetime | None = None) -> bool:
+    def _matches(self, obj: Message, *, now: datetime | None = None) -> bool:
         now = utc(now)
-        if not super().matches(obj, now=now):
+        if not super()._matches(obj, now=now):
             return False
 
         if not util.match_value(obj.direction, self.direction):

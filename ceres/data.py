@@ -38,13 +38,15 @@ from pydantic import (
 from pydantic.aliases import AliasChoices
 from pydantic.fields import FieldInfo
 from pydantic.functional_serializers import PlainSerializer
-from pydantic.main import IncEx
-from pydantic_core import CoreSchema, SchemaSerializer, SchemaValidator
 from pydantic_extra_types.color import Color as Color
 from typing_extensions import TypeVar
 
 from ceres._internal import util
 from ceres._internal.util import NAME_PATTERN, PydanticDataclassLike, get_type_adapter
+
+if TYPE_CHECKING:
+    from pydantic.main import IncEx
+    from pydantic_core import CoreSchema, SchemaSerializer, SchemaValidator
 
 
 class SimplifyKwargs(TypedDict, total=False):
@@ -433,26 +435,34 @@ class StrEnum(BaseStrEnum):
         return self.value
 
 
-_priority_cache: dict[tuple[type[OrderedStrEnum], str], int] = {}
+_order_cache: dict[tuple[type[OrderedStrEnum], str], int] = {}
 
 
 class OrderedStrEnum(StrEnum):
+    @classmethod
+    def __order_mapping__(cls) -> dict[Any, int]:
+        return {}
+
     @property
     def order(self) -> int:
         key = (type(self), self)
-        priority = _priority_cache.get(key)
-        if priority is None:
-            priority = tuple(type(self)).index(self)
-            _priority_cache[key] = priority
+        value = _order_cache.get(key)
+        if value is not None:
+            return value
 
-        return priority
+        value = self.__order_mapping__().get(self)
+        if value is None:
+            value = tuple(type(self)).index(self)
+
+        _order_cache[key] = value
+        return value
 
     @override
     def __lt__(self, __x: str | None) -> bool:
         if __x is None:
             return False
 
-        if isinstance(__x, type(self)):
+        if isinstance(__x, OrderedStrEnum):
             return self.order < __x.order
 
         return super().__lt__(__x)
@@ -462,7 +472,7 @@ class OrderedStrEnum(StrEnum):
         if __x is None:
             return False
 
-        if isinstance(__x, type(self)):
+        if isinstance(__x, OrderedStrEnum):
             return self.order <= __x.order
 
         return super().__le__(__x)
@@ -472,7 +482,7 @@ class OrderedStrEnum(StrEnum):
         if __x is None:
             return True
 
-        if isinstance(__x, type(self)):
+        if isinstance(__x, OrderedStrEnum):
             return self.order > __x.order
 
         return super().__gt__(__x)
@@ -482,7 +492,7 @@ class OrderedStrEnum(StrEnum):
         if __x is None:
             return True
 
-        if isinstance(__x, type(self)):
+        if isinstance(__x, OrderedStrEnum):
             return self.order >= __x.order
 
         return super().__ge__(__x)

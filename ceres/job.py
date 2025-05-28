@@ -10,8 +10,6 @@ from typing import TYPE_CHECKING
 from ceres._internal import util
 from ceres._internal.lazy import lazy_imports
 from ceres._internal.manager import BaseComponentManager
-from ceres._internal.protocols import ComponentSource
-from ceres.data import Name
 from ceres.event import (
     JobAddedEvent,
     JobCancelledEvent,
@@ -23,6 +21,9 @@ from ceres.event import (
     JobRetryPendingEvent,
     JobStartedEvent,
 )
+
+if TYPE_CHECKING:
+    from ceres._internal.protocols import ComponentSource
 
 with lazy_imports(__name__):
     from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -64,7 +65,7 @@ class ComponentJobManager(BaseComponentManager):
     def __init__(self, source: ComponentSource, /) -> None:
         super().__init__(source)
         self.__scheduler = self.__create_scheduler()
-        self.__jobs: dict[Name, JobConfig] = {}
+        self.__jobs: dict[str, JobConfig] = {}
         self.__lock = Lock()
 
     @classmethod
@@ -105,13 +106,13 @@ class ComponentJobManager(BaseComponentManager):
             self.__system__.events.emit(JobAddedEvent, job=job.name)
             self.__sync_jobs()
 
-    def get(self, name: Name) -> JobConfig | None:
+    def get(self, name: str) -> JobConfig | None:
         return self.__jobs.get(name)
 
     def get_all(self) -> list[JobConfig]:
         return list(self.__jobs.values())
 
-    def remove(self, name: Name) -> JobConfig | None:
+    def remove(self, name: str) -> JobConfig | None:
         from apscheduler.jobstores.base import JobLookupError
 
         with self.__lock:

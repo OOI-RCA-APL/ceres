@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+import importlib
 import sys
 from contextlib import contextmanager
 from threading import Lock
-from types import ModuleType, UnionType
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -15,6 +15,9 @@ from typing import (
     overload,
     override,
 )
+
+if TYPE_CHECKING:
+    from types import ModuleType, UnionType
 
 _UNDEFINED = object()
 
@@ -83,8 +86,6 @@ class LazyImportProxy:
         if self.__proxy_target__ is not _UNDEFINED:
             return self.__proxy_target__
 
-        import importlib
-
         module = importlib.import_module(self.__proxy_module__)
         if self.__proxy_target_attr__ is None:
             target = module
@@ -122,32 +123,33 @@ def __lazy_import__(
     name: str,
     globals: Mapping[str, object] | None = None,
     locals: Mapping[str, object] | None = None,
-    fromlist: Sequence[str] | None = None,
+    fromlist: Sequence[str] = (),
     level: int = 0,
 ) -> ModuleType | LazyImportProxy:
-    if locals is not None:
-        module__name__ = locals.get("__name__")
-        if module__name__ is not None:
-            if module__name__ in _lazy_importing_modules:
-                if level > 0:
-                    base = module__name__
-                    while level > 0:
-                        base = base[: base.rindex(".")]
-                        level -= 1
+    # Ensure imports are only lazy for modules currently marked for lazy importing.
+    if locals is None or (module__name__ := locals.get("__name__")) not in _lazy_importing_modules:
+        return _original__import__(
+            name,
+            globals,
+            locals,
+            fromlist,
+            level,
+        )
 
-                    absolute = f"{base}.{name}"
-                else:
-                    absolute = name
+    # When `level` > 0 this is a relative import and we need to convert it to an absolute one.
+    if level > 0:
+        # Ascend the current module name to the correct module based on `level`.
+        end = len(module__name__)
+        for _ in range(level - 1):
+            end = module__name__.rindex(".", 0, end)
 
-                return _get_cached_lazy_proxy(absolute, tuple(fromlist or ()))
+        # Concatenate the base module and `name` to get the absolute import.
+        base = module__name__[:end]
+        absolute = f"{base}.{name}"
+    else:
+        absolute = name
 
-    return _original__import__(
-        name,
-        globals,
-        locals,
-        fromlist,  # type: ignore
-        level,
-    )
+    return _get_cached_lazy_proxy(absolute, tuple(fromlist or ()))
 
 
 @contextmanager

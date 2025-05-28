@@ -25,7 +25,7 @@ class RecordType(StrEnum):
 
     @property
     def cls(self) -> type[Record]:
-        return cast(type[Record], self.upcast().cls)
+        return cast("type[Record]", self.upcast().cls)
 
     def upcast(self) -> ItemType:
         return ItemType(self)
