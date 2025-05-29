@@ -145,7 +145,7 @@ class SettingFilter(BaseEntityFilter["Setting", SettingField, SettingOrder]):
             yield util.sql_match_string(columns.name, self.name_suffix, MatchMode.SUFFIX)
 
     @override
-    def _get_default_order(self) -> SettingOrder:
+    def _get_default_order(self) -> MaybeSequence[SettingOrder]:
         return "name"
 
 

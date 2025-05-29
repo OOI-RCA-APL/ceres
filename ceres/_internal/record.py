@@ -402,7 +402,7 @@ class BaseRecordFilter[
                 yield within_min | within_max
 
     @override
-    def _get_default_order(self) -> OrderT:
+    def _get_default_order(self) -> MaybeSequence[OrderT]:
         return "timestamp"  # type: ignore
 
     def _get_time_bounds(self, now: datetime) -> tuple[datetime | None, datetime | None]:

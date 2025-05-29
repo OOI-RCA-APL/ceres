@@ -14,7 +14,7 @@ from typing import (
 )
 from uuid import UUID
 
-from pydantic import model_validator
+from pydantic import Field, model_validator
 from sqlalchemy import (
     JSON,
     ForeignKeyConstraint,
@@ -45,7 +45,14 @@ from ceres._internal.entity import (
     EntityQuery,
 )
 from ceres._internal.util import MatchMode
-from ceres.data import EmailStr, JSONSerializableDict, MaybeSequence, NonEmptyStr, OrderedStrEnum
+from ceres.data import (
+    EmailStr,
+    FromYAML,
+    JSONSerializableDict,
+    MaybeSequence,
+    NonEmptyStr,
+    OrderedStrEnum,
+)
 from ceres.user import UserRole, UserRow
 
 if TYPE_CHECKING:
@@ -85,7 +92,7 @@ class WorkspaceMembershipRow(BaseEntityRow, kw_only=True):
     user_id: Mapped[UUID] = mapped_column(UUIDMapper)
     workspace_id: Mapped[UUID] = mapped_column(UUIDMapper)
     role: Mapped[WorkspaceMembershipRole] = mapped_column(EnumMapper(WorkspaceMembershipRole))
-    data: Mapped[JSONSerializableDict | None] = mapped_column(JSON, default=None, nullable=True)
+    data: Mapped[JSONSerializableDict | None] = mapped_column(JSON, default=None)
 
     @classmethod
     @override
@@ -119,7 +126,14 @@ WorkspaceMembershipField: TypeAlias = Literal[
 ]
 WorkspaceMembershipOrder: TypeAlias = Literal[
     "user_id",
+    "user_id:asc",
+    "user_id:desc",
     "workspace_id",
+    "workspace_id:asc",
+    "workspace_id:desc",
+    "role",
+    "role:asc",
+    "role:desc",
 ]
 
 
@@ -146,17 +160,52 @@ class WorkspaceMembershipFilter(
     workspace_id: MaybeSequence[UUID] | None = None
     role: MaybeSequence[WorkspaceMembershipRole] | None = None
 
+    @classmethod
+    @override
+    def _get_row_cls(cls) -> type[WorkspaceMembershipRow]:
+        return WorkspaceMembershipRow
+
+    @override
+    def _matches(self, obj: WorkspaceMembership) -> bool:
+        if not super()._matches(obj):
+            return False
+
+        if not util.match_value(obj.user_id, self.user_id):
+            return False
+        if not util.match_value(obj.workspace_id, self.workspace_id):
+            return False
+        if not util.match_value(obj.role, self.role):
+            return False
+
+        return True
+
+    @override
+    def _get_where(self, dialect: DatabaseType) -> Iterable[SQLColumnExpression[bool]]:
+        yield from super()._get_where(dialect)
+        columns = self._get_row_cls()
+
+        if self.user_id is not None:
+            yield util.sql_match_value(columns.user_id, self.user_id)
+        if self.workspace_id is not None:
+            yield util.sql_match_value(columns.workspace_id, self.workspace_id)
+        if self.role is not None:
+            yield util.sql_match_value(columns.role, self.role)
+
+    @override
+    def _get_default_order(self) -> MaybeSequence[WorkspaceMembershipOrder]:
+        return "user_id", "workspace_id"
+
 
 class WorkspaceMembershipCreate(BaseEntityCreate):
     user_id: UUID
     workspace_id: UUID
     role: WorkspaceMembershipRole
-    data: JSONSerializableDict | None = None
+    data: FromYAML[JSONSerializableDict] | None = None
 
 
 class WorkspaceMembershipUpdate(TypedDict, total=False):
     role: WorkspaceMembershipRole
-    data: JSONSerializableDict | None
+    data: FromYAML[JSONSerializableDict] | None
 
 
 class _BaseWorkspaceMembershipQuery(
@@ -259,7 +308,11 @@ class WorkspaceRow(BaseUUIDEntityRow, kw_only=True):
         default=WorkspaceAccessRestriction.PRIVATE,
         server_default=str(WorkspaceAccessRestriction.PRIVATE),
     )
-    data: Mapped[JSONSerializableDict] = mapped_column(JSON)
+    data: Mapped[JSONSerializableDict] = mapped_column(
+        JSON,
+        default_factory=dict,
+        server_default="{}",
+    )
 
     @classmethod
     @override
@@ -460,17 +513,17 @@ class WorkspaceFilter(BaseUUIDEntityFilter["Workspace", WorkspaceField, Workspac
             )
 
     @override
-    def _get_default_order(self) -> WorkspaceOrder:
+    def _get_default_order(self) -> MaybeSequence[WorkspaceOrder]:
         return "name"
 
 
 class WorkspaceCreate(BaseUUIDEntityCreate):
     name: NonEmptyStr
     client: str = "console"
-    data: JSONSerializableDict
     default_viewership: WorkspaceAccessRestriction = WorkspaceAccessRestriction.PRIVATE
     default_editorship: WorkspaceAccessRestriction = WorkspaceAccessRestriction.PRIVATE
     default_ownership: WorkspaceAccessRestriction = WorkspaceAccessRestriction.PRIVATE
+    data: FromYAML[JSONSerializableDict] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def _validate(self) -> Self:

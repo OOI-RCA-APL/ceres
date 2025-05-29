@@ -6,7 +6,6 @@ from typing import (
     ClassVar,
     Iterable,
     Literal,
-    Sequence,
     TypeAlias,
     TypedDict,
     Unpack,
@@ -161,7 +160,7 @@ class VariableFilter(BaseItemFilter["Variable", VariableField, VariableOrder]):
             yield util.sql_match_value(cast(columns.value, Text), jsonify(self.value))
 
     @override
-    def _get_default_order(self) -> Sequence[VariableOrder]:
+    def _get_default_order(self) -> MaybeSequence[VariableOrder]:
         return ("address", "name")
 
 

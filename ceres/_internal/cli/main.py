@@ -396,6 +396,8 @@ with lazy_imports(__name__):
     from ceres._internal.cli.subcommands.settings import SettingsCommand
     from ceres._internal.cli.subcommands.users import UsersCommand
     from ceres._internal.cli.subcommands.variables import VariablesCommand
+    from ceres._internal.cli.subcommands.workspace_memberships import WorkspaceMembershipsCommand
+    from ceres._internal.cli.subcommands.workspaces import WorkspacesCommand
 
 
 def main(args: Sequence[str] | None = None) -> None:
@@ -424,6 +426,8 @@ def _main(args: Sequence[str] | None = None, *, watching: bool = False) -> None:
         "settings": SettingsCommand,
         "users": UsersCommand,
         "variables": VariablesCommand,
+        "workspaces": WorkspacesCommand,
+        "workspace-memberships": WorkspaceMembershipsCommand,
     }
 
     if subcommand in subcommands:

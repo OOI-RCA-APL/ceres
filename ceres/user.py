@@ -212,7 +212,7 @@ class UserFilter(BaseUUIDEntityFilter["User", UserField, UserOrder]):
             yield columns.disabled == self.disabled
 
     @override
-    def _get_default_order(self) -> UserOrder:
+    def _get_default_order(self) -> MaybeSequence[UserOrder]:
         return "username"
 
 

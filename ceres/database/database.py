@@ -63,6 +63,7 @@ with lazy_imports(__name__):
     from ceres.statistics import StatisticsManager
     from ceres.user import UserManager
     from ceres.variable import VariableManager
+    from ceres.workspace import WorkspaceManager, WorkspaceMembershipManager
 
 if TYPE_CHECKING:
     from sqlalchemy.dialects.sqlite.aiosqlite import AsyncAdapt_aiosqlite_connection
@@ -151,6 +152,14 @@ class Database:
     @cached_property
     def settings(self) -> SettingManager:
         return SettingManager(self)
+
+    @cached_property
+    def workspaces(self) -> WorkspaceManager:
+        return WorkspaceManager(self)
+
+    @cached_property
+    def workspace_memberships(self) -> WorkspaceMembershipManager:
+        return WorkspaceMembershipManager(self)
 
     @cached_property
     def statistics(self) -> StatisticsManager:

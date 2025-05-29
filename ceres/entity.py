@@ -16,11 +16,23 @@ with lazy_imports(__name__, export=True):
     from ceres.setting import Setting as Setting
     from ceres.user import User as User
     from ceres.variable import Variable as Variable
+    from ceres.workspace import Workspace as Workspace
+    from ceres.workspace import WorkspaceMembership as WorkspaceMembership
 
 __Entity: object = None
 
 if TYPE_CHECKING:
-    Entity: TypeAlias = Message | Particle | Alert | LogEntry | User | Variable | Setting
+    Entity: TypeAlias = (
+        Message
+        | Particle
+        | Alert
+        | LogEntry
+        | User
+        | Variable
+        | Setting
+        | Workspace
+        | WorkspaceMembership
+    )
 
 __lazy_getattr = sys.modules[__name__].__getattr__
 
@@ -37,8 +49,19 @@ def __getattr__(name: str):
             from ceres.setting import Setting
             from ceres.user import User
             from ceres.variable import Variable
+            from ceres.workspace import Workspace, WorkspaceMembership
 
-            __Entity = Message | Particle | Alert | LogEntry | User | Variable | Setting
+            __Entity = (
+                Message
+                | Particle
+                | Alert
+                | LogEntry
+                | User
+                | Variable
+                | Setting
+                | Workspace
+                | WorkspaceMembership
+            )
 
         return __Entity
 
@@ -53,6 +76,8 @@ class EntityType(StrEnum):
     USER = "user"
     VARIABLE = "variable"
     SETTING = "setting"
+    WORKSPACE = "workspace"
+    WORKSPACE_MEMBERSHIP = "workspace-membership"
 
     @property
     def cls(self) -> type[Entity]:
@@ -85,6 +110,14 @@ class EntityType(StrEnum):
                 from ceres.setting import Setting
 
                 return Setting
+            case EntityType.WORKSPACE:
+                from ceres.workspace import Workspace
+
+                return Workspace
+            case EntityType.WORKSPACE_MEMBERSHIP:
+                from ceres.workspace import WorkspaceMembership
+
+                return WorkspaceMembership
 
         raise ValueError(self)
 
@@ -105,6 +138,10 @@ class EntityType(StrEnum):
                 return cls.VARIABLE
             case "Setting":
                 return cls.SETTING
+            case "Workspace":
+                return cls.WORKSPACE
+            case "WorkspaceMembership":
+                return cls.WORKSPACE_MEMBERSHIP
             case _:
                 raise ValueError(f"Unknown entity type: {source}")
 
@@ -125,6 +162,10 @@ class EntityType(StrEnum):
                 return "variables"
             case EntityType.SETTING:
                 return "settings"
+            case EntityType.WORKSPACE:
+                return "workspaces"
+            case EntityType.WORKSPACE_MEMBERSHIP:
+                return "workspace_memberships"
 
         raise ValueError(self)
 
@@ -138,6 +179,8 @@ __ENTITY_TYPE_ALIASES = {
     "users": "user",
     "variables": "variable",
     "settings": "setting",
+    "workspaces": "workspace",
+    "workspace-memberships": "workspace-membership",
 }
 
 __new = EntityType.__new__

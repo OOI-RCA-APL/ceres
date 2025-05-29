@@ -1311,6 +1311,8 @@ def get_entity_singular(Entity: type[BaseEntity]) -> str:
 def get_entity_plural(Entity: type[BaseEntity]) -> str:
     if Entity.__name__ == "LogEntry":
         return "log entries"
+    if Entity.__name__ == "WorkspaceMembership":
+        return "workspace memberships"
 
     return f"{Entity.__name__.lower()}s"
 
@@ -1318,6 +1320,8 @@ def get_entity_plural(Entity: type[BaseEntity]) -> str:
 def _get_entity_manager_attr(Entity: type[BaseEntity]) -> str:
     if Entity.__name__ == "LogEntry":
         return "logs"
+    if Entity.__name__ == "WorkspaceMembership":
+        return "workspace_memberships"
 
     return get_entity_plural(Entity)
 

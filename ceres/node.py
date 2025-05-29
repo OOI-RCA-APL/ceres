@@ -40,10 +40,8 @@ with lazy_imports(__name__):
     from ceres.logs import BoundLogManager
     from ceres.message import BoundMessageManager
     from ceres.particle import BoundParticleManager
-    from ceres.setting import SettingManager
     from ceres.statistics import StatisticsManager
     from ceres.status import Status
-    from ceres.user import UserManager
     from ceres.variable import BoundVariableManager
 
 
@@ -126,16 +124,8 @@ class Node(Tasklet, NodeSource):
         return self.logs
 
     @cached_property
-    def users(self) -> UserManager:
-        return UserManager(self)
-
-    @cached_property
     def variables(self) -> BoundVariableManager:
         return BoundVariableManager(self)
-
-    @cached_property
-    def settings(self) -> SettingManager:
-        return SettingManager(self)
 
     @cached_property
     def events(self) -> NodeEventManager:

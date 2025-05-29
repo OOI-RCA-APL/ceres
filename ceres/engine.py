@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import traceback
+from functools import cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, Self, Sequence, Unpack, final, override
 
@@ -26,6 +27,9 @@ if TYPE_CHECKING:
 
 with lazy_imports(__name__):
     from ceres.database import Database
+    from ceres.setting import SettingManager
+    from ceres.user import UserManager
+    from ceres.workspace import WorkspaceManager, WorkspaceMembershipManager
 
 
 SyncActionType = Literal[
@@ -141,6 +145,22 @@ class Engine(Node):
     @override
     def config(self) -> Config:
         return self.__config
+
+    @cached_property
+    def users(self) -> UserManager:
+        return UserManager(self)
+
+    @cached_property
+    def settings(self) -> SettingManager:
+        return SettingManager(self)
+
+    @cached_property
+    def workspaces(self) -> WorkspaceManager:
+        return WorkspaceManager(self)
+
+    @cached_property
+    def workspace_memberships(self) -> WorkspaceMembershipManager:
+        return WorkspaceMembershipManager(self)
 
     @property
     def config_path(self) -> Path | None:
