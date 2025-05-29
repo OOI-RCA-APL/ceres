@@ -25,7 +25,7 @@ from typing import (
 )
 from uuid import UUID
 
-from pydantic import Field, NonNegativeInt
+from pydantic import ConfigDict, Field, NonNegativeInt
 from pydantic.functional_validators import model_validator
 from sqlalchemy import (
     ClauseElement,
@@ -54,7 +54,7 @@ from ceres._internal.database.types import UUIDMapper
 from ceres._internal.filter import BaseFilter, BaseFilterArgs
 from ceres._internal.lazy import lazy_imports
 from ceres._internal.manager import BaseDatabaseManager
-from ceres.data import DeferBuild, ImmutableDataObject, MaybeSequence, uuid7
+from ceres.data import DeferBuild, FromYAML, ImmutableDataObject, MaybeSequence, uuid7
 from ceres.database import DatabaseType
 
 if TYPE_CHECKING:
@@ -226,8 +226,8 @@ class BaseEntityFilter[
     If any `and__` subfilters are defined, and any of them specify a `limit` which is lower than
     this root `limit` argument, the lowest defined `limit` value in `and__` will be used instead.
     """
-    offset: NonNegativeInt | None = None
 
+    offset: NonNegativeInt | None = None
     """
     Skip over a given number of results.
 
@@ -235,9 +235,13 @@ class BaseEntityFilter[
     this root `offset` argument, the highest defined `offset` value in `and__` will be used instead.
     """
 
-    or__: Sequence[Self] | None = Field(default=None, min_length=1)
+    or__: MaybeSequence[Self] | None = Field(
+        default=None,
+        min_length=1,
+        validation_alias="or",
+    )
     """
-    A list of subfilters, where in the case any match the queried value, the overall filter should
+    One or more subfilters, where in the case any match the queried value, the overall filter should
     match.
 
     This is a logical OR operation, and can be added to using the `|` operator.
@@ -247,9 +251,13 @@ class BaseEntityFilter[
     is matched, the overall filter will match.
     """
 
-    and__: Sequence[Self] | None = Field(default=None, min_length=1)
+    and__: MaybeSequence[Self] | None = Field(
+        default=None,
+        min_length=1,
+        validation_alias="and",
+    )
     """
-    A list of subfilters, where in the case all of them they match the queried value, the overall
+    One or more subfilters, where in the case all of them they match the queried value, the overall
     filter should match.
 
     This is a logical AND operation, and can be added to using the `&` operator.
@@ -259,10 +267,24 @@ class BaseEntityFilter[
     is matched, the overall filter will match.
     """
 
+    def __init_subclass__(cls, **kwargs: Unpack[ConfigDict]):
+        super().__init_subclass__(**kwargs)
+
+        # This is a hacky workaround for FastAPI not being able to generate query parameters for
+        # `Query()`models when `Self` is used in a field's type annotation. Here we just replace the
+        # annotations of `or__` and `and__` with the actual concrete type of this filter class.
+        or__ = cls.model_fields.get("or__")
+        if or__ is not None:
+            or__.annotation = cast("type[Any]", MaybeSequence[FromYAML[cls]] | None)
+
+        and__ = cls.model_fields.get("and__")
+        if and__ is not None:
+            and__.annotation = cast("type[Any]", MaybeSequence[FromYAML[cls]] | None)
+
     @model_validator(mode="after")
     def _resolve_and_or(self) -> Self:
         if self.or__:
-            for subfilter in self.or__:
+            for subfilter in util.as_sequence(self.or__):
                 if subfilter.order is not None:
                     raise ValueError(
                         "Cannot specify `order` in `or__` subfilters. Use `and__` instead."
@@ -277,7 +299,7 @@ class BaseEntityFilter[
                     )
 
         if self.and__:
-            for subfilter in self.and__:
+            for subfilter in util.as_sequence(self.and__):
                 if subfilter.order is not None:
                     object.__setattr__(self, "order", subfilter.order)
                     self.model_fields_set.add("order")
@@ -315,10 +337,14 @@ class BaseEntityFilter[
     def matches(self, obj: EntityT) -> bool:
         matches_root = self._matches(obj)
         matches_and = (
-            all(subcondition.matches(obj) for subcondition in self.and__) if self.and__ else True
+            all(subcondition.matches(obj) for subcondition in util.as_sequence(self.and__))
+            if self.and__
+            else True
         )
         matches_or = (
-            any(subcondition.matches(obj) for subcondition in self.or__) if self.or__ else True
+            any(subcondition.matches(obj) for subcondition in util.as_sequence(self.or__))
+            if self.or__
+            else True
         )
 
         return (matches_root and matches_and) or matches_or
@@ -331,14 +357,14 @@ class BaseEntityFilter[
         ands = list(self._get_where(dialect))
 
         if self.and__:
-            for subcondition in self.and__:
+            for subcondition in util.as_sequence(self.and__):
                 ands.extend(subcondition._get_combined_where(dialect))
 
         if not self.or__:
             yield from ands
         else:
             ors: list[SQLColumnExpression[bool]] = []
-            for subcondition in self.or__:
+            for subcondition in util.as_sequence(self.or__):
                 ors.extend(subcondition._get_combined_where(dialect))
 
             if ands:

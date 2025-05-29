@@ -21,7 +21,7 @@ from ceres.user import User, UserCreate, UserFilter, UserRole, UserUpdate
 router = APIRouter(prefix="/users", tags=["users"])
 
 
-@router.get("/{id}", dependencies=[VIEWER], response_model=APIUser)
+@router.get("/{id:uuid}", dependencies=[VIEWER], response_model=APIUser)
 async def get_user(engine: CurrentEngine, id: UUID) -> User:
     user = await engine.users.get(id)
     if user is None:
@@ -47,7 +47,7 @@ async def create_user(engine: CurrentEngine, data: UserCreate) -> User:
     return await engine.users.create(data)
 
 
-@router.patch("/{id}", dependencies=[ADMIN], response_model=APIUser)
+@router.patch("/{id:uuid}", dependencies=[ADMIN], response_model=APIUser)
 async def update_user(
     engine: CurrentEngine,
     role: CurrentRole,
@@ -66,7 +66,7 @@ async def update_user(
     return updated
 
 
-@router.delete("/{id}", dependencies=[ADMIN], response_model=APIUser)
+@router.delete("/{id:uuid}", dependencies=[ADMIN], response_model=APIUser)
 async def delete_user(engine: CurrentEngine, id: UUID) -> User:
     deleted = await engine.users.where(id=id).delete().first()
     if deleted is None:

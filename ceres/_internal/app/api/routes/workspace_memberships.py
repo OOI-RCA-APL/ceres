@@ -6,34 +6,34 @@ from fastapi import APIRouter
 from pydantic import Field
 
 from ceres._internal.app.shared import CurrentEngine, CurrentRole, CurrentUser
-from ceres.data import Name
 from ceres.error import Failure, NotFoundError, NotPermittedError
-from ceres.setting import Setting, SettingCreate, SettingFilter
+from ceres.setting import Setting, SettingCreate
 from ceres.user import UserRole
+from ceres.workspace import WorkspaceMembership, WorkspaceMembershipFilter
 
-router = APIRouter(prefix="/settings", tags=["settings"])
+router = APIRouter(prefix="/workspace-memberships", tags=["workspace-memberships"])
 
 
-class GetSettingsQueryParameters(SettingFilter):
+class GetWorkspaceMembershipsQueryParameters(WorkspaceMembershipFilter):
     limit: int = Field(default=100, ge=0, le=1000)
 
 
-@router.get("/{user_id}/{name}")
-async def get_setting(
+@router.get("/{user_id:uuid}/{workspace_id:uuid}")
+async def get_workspace_membership(
     engine: CurrentEngine,
     role: CurrentRole,
     user: CurrentUser,
     user_id: UUID,
-    name: Name,
-) -> Setting:
+    workspace_id: UUID,
+) -> WorkspaceMembership:
     if role < UserRole.ADMIN and (user is None or user.id != user_id):
         raise Failure(NotPermittedError)
 
-    setting = await engine.settings.get(user_id, name)
-    if setting is None:
+    membership = await engine.workspace_memberships.get(user_id, workspace_id)
+    if membership is None:
         raise Failure(NotFoundError)
 
-    return setting
+    return membership
 
 
 @router.put("")

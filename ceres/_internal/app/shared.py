@@ -28,8 +28,8 @@ from starlette.requests import cookie_parser
 from starlette.status import HTTP_400_BAD_REQUEST, HTTP_401_UNAUTHORIZED
 
 from ceres._internal import util
-from ceres._internal.entity import BaseEntity
 from ceres._internal.lazy import lazy_imports
+from ceres._internal.record import BaseRecord
 from ceres.data import (
     DateTime,
     DeferBuild,
@@ -416,27 +416,27 @@ def assert_found[T](value: T | None, /) -> T:
     return value
 
 
-def create_entity_get_route(router: APIRouter, Entity: type[BaseEntity]):
-    singular = util.get_entity_plural(Entity)
+def create_record_get_route(router: APIRouter, Record: type[BaseRecord]):
+    singular = util.get_entity_plural(Record)
 
-    class QueryParameters(Entity.Filter):
+    class QueryParameters(Record.Filter):
         pass
 
     QueryParameters.__name__ = f"Get{singular.title().replace(' ', '')}QueryParameters"
 
     async def get(engine: CurrentEngine, id: UUID):
-        return assert_found(await util.get_entity_manager(engine, Entity).get(id))  # type: ignore
+        return assert_found(await util.get_entity_manager(engine, Record).get(id))  # type: ignore
 
     get.__name__ = f"Get {singular.title()}"
-    return router.get("/{id}", response_model=Entity)(get)
+    return router.get("/{id:uuid}", response_model=Record)(get)
 
 
-def create_entity_get_all_route(router: APIRouter, Entity: type[BaseEntity], limit: int):
-    plural = util.get_entity_plural(Entity)
+def create_record_get_all_route(router: APIRouter, Record: type[BaseRecord], limit: int):
+    plural = util.get_entity_plural(Record)
 
     _limit = limit
 
-    class QueryParameters(Entity.Filter):
+    class QueryParameters(Record.Filter):
         limit: int = Field(default=100, ge=0, le=_limit)
 
     QueryParameters.__name__ = f"GetAll{plural.title().replace(' ', '')}QueryParameters"
@@ -445,16 +445,16 @@ def create_entity_get_all_route(router: APIRouter, Entity: type[BaseEntity], lim
         engine: CurrentEngine,
         filter: Annotated[QueryParameters, Query()],
     ):
-        return await util.get_entity_manager(engine, Entity).where(filter)
+        return await util.get_entity_manager(engine, Record).where(filter)
 
     get_all.__name__ = f"Get {plural.title()}"
-    return router.get("", response_model=list[Entity])(get_all)
+    return router.get("", response_model=list[Record])(get_all)
 
 
-def create_entity_follow_route(router: APIRouter, Entity: type[BaseEntity]):
-    plural = util.get_entity_plural(Entity)
+def create_record_follow_route(router: APIRouter, Record: type[BaseRecord]):
+    plural = util.get_entity_plural(Record)
 
-    class QueryParameters(Entity.Filter):
+    class QueryParameters(Record.Filter):
         pass
 
     QueryParameters.__name__ = f"Follow{plural.title().replace(' ', '')}QueryParameters"
@@ -465,8 +465,8 @@ def create_entity_follow_route(router: APIRouter, Entity: type[BaseEntity]):
         filter: Annotated[QueryParameters, Query()],
     ) -> None:
         async def write() -> None:
-            async for message in util.get_entity_manager(engine, Entity).follow(filter):  # type: ignore
-                await socket.send(message)
+            async for record in util.get_entity_manager(engine, Record).follow(filter):  # type: ignore
+                await socket.send(record)
 
         await socket.execute(write)
 
@@ -474,11 +474,11 @@ def create_entity_follow_route(router: APIRouter, Entity: type[BaseEntity]):
     return router.websocket("")(follow)
 
 
-def create_entity_router(Entity: type[BaseEntity], name: str, limit: int):
+def create_record_router(name: str, Record: type[BaseRecord], *, limit: int = 1000):
     router = APIRouter(prefix=f"/{name}", tags=[name])
 
-    create_entity_get_route(router, Entity)
-    create_entity_get_all_route(router, Entity, limit)
-    create_entity_follow_route(router, Entity)
+    create_record_get_route(router, Record)
+    create_record_get_all_route(router, Record, limit)
+    create_record_follow_route(router, Record)
 
     return router

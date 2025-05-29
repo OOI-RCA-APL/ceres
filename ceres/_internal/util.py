@@ -298,10 +298,15 @@ Stringy: TypeAlias = str | bytes | bytearray | memoryview
 
 
 def is_stringy(obj: Any) -> TypeIs[Stringy]:
+    if obj is None:
+        return False
+
     return isinstance(obj, Stringy)
 
 
 def is_iterable(obj: Any) -> TypeIs[Iterable[Any]]:
+    if obj is None:
+        return False
     if not isinstance(obj, Iterable):
         return False
 
@@ -318,6 +323,10 @@ def is_true_iterable(obj: Any) -> TypeIs[Iterable[Any]]:
 
 
 def is_collection(obj: Any) -> TypeIs[Collection[Any]]:
+    if obj is None:
+        return False
+    if isinstance(obj, (list, tuple, set, frozenset)):
+        return True
     if not isinstance(obj, Collection):
         return False
 
@@ -335,6 +344,10 @@ def is_true_collection(obj: Any) -> TypeIs[Collection[Any]]:
 
 
 def is_sequence(obj: Any) -> TypeIs[Sequence[Any]]:
+    if obj is None:
+        return False
+    if isinstance(obj, (list, tuple)):
+        return True
     if not isinstance(obj, Sequence):
         return False
 
@@ -352,6 +365,10 @@ def is_true_sequence(obj: Any) -> TypeIs[Sequence[Any]]:
 
 
 def is_mapping(obj: Any) -> TypeIs[Mapping[Any, Any]]:
+    if obj is None:
+        return False
+    if isinstance(obj, dict):
+        return True
     if not isinstance(obj, Mapping):
         return False
 

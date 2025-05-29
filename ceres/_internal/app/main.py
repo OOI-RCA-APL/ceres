@@ -12,7 +12,6 @@ from starlette.exceptions import HTTPException
 from starlette.status import HTTP_422_UNPROCESSABLE_ENTITY
 
 from ceres._internal import util
-from ceres._internal.app.api import router as router__api
 from ceres._internal.app.shared import CurrentEngine
 from ceres._internal.lazy import lazy_imports
 from ceres.error import (
@@ -124,7 +123,9 @@ class App(FastAPI):
         self.exception_handler(HTTPException)(self._http_exception_handler)
         self.exception_handler(RequestValidationError)(self._request_validation_error_handler)
 
-        self.include_router(router__api)
+        from ceres._internal.app.api import router as api
+
+        self.include_router(api)
 
         if not self.cli:
             from ceres._internal.app.console import ConsoleFiles

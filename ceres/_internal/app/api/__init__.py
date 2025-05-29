@@ -15,6 +15,10 @@ from ceres._internal.app.api.routes.settings import router as router__settings
 from ceres._internal.app.api.routes.statistics import router as router__statistics
 from ceres._internal.app.api.routes.statuses import router as router__statuses
 from ceres._internal.app.api.routes.users import router as router__users
+from ceres._internal.app.api.routes.workspace_memberships import (
+    router as router__workspace_memberships,
+)
+from ceres._internal.app.api.routes.workspaces import router as router__workspaces
 from ceres._internal.app.shared import OPERATOR, CurrentEngine
 from ceres.address import Address
 from ceres.component import ComponentFilter
@@ -32,10 +36,12 @@ router.include_router(router__config)
 router.include_router(router__logs)
 router.include_router(router__messages)
 router.include_router(router__particles)
+router.include_router(router__settings)
 router.include_router(router__statistics)
 router.include_router(router__statuses)
 router.include_router(router__users)
-router.include_router(router__settings)
+router.include_router(router__workspace_memberships)
+router.include_router(router__workspaces)
 
 
 @router.get("/alive")
