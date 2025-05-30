@@ -411,7 +411,7 @@ class Particle(BaseRecord, ParticleCreate, Generic[_T]):
     Order = ParticleOrder
 
     type: str = UNKNOWN_TYPE
-    data: SerializeAsAny[_T]
+    data: SerializeAsAny[FromYAML[_T]]
 
     @model_validator(mode="before")
     @classmethod

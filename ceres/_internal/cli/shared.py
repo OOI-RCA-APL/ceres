@@ -987,7 +987,7 @@ def create_entity_load_command(Entity: type[Entity]):
                                         if batch:
                                             await flush()
                                     case CLIDataFormat.CSV:
-                                        from csv import DictReader, Sniffer
+                                        from csv import DictReader
 
                                         adapter = util.get_type_adapter(
                                             cast(
@@ -997,12 +997,7 @@ def create_entity_load_command(Entity: type[Entity]):
                                         )
 
                                         with open(path) as stream:
-                                            sample = "".join([next(stream, "") for _ in range(10)])
-
-                                        dialect = Sniffer().sniff(sample)
-
-                                        with open(path) as stream:
-                                            reader = DictReader(stream, dialect=dialect)
+                                            reader = DictReader(stream)
                                             for entity in adapter.validate_python(reader):
                                                 batch.append(entity)
                                                 if len(batch) >= batch_size:

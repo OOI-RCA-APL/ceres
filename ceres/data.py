@@ -174,7 +174,7 @@ def uuid7(
 
 
 def __pre_validate_from_json(value: object) -> object:
-    if isinstance(value, str | bytes):
+    if isinstance(value, (str, bytes)):
         try:
             return json.loads(value)
         except JSONDecodeError as error:
@@ -184,13 +184,12 @@ def __pre_validate_from_json(value: object) -> object:
 
 
 def __pre_validate_from_yaml(value: object) -> object:
-    import yaml
-    from yaml import YAMLError
+    if isinstance(value, (str, bytes)):
+        import yaml
 
-    if isinstance(value, str | bytes):
         try:
             return yaml.safe_load(value)
-        except YAMLError as error:
+        except yaml.YAMLError as error:
             raise ValueError(f"invalid YAML: {error}")
 
     return value
