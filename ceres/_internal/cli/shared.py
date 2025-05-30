@@ -1008,7 +1008,7 @@ def create_entity_load_command(Entity: type[Entity]):
 
                             except FileNotFoundError:
                                 raise CLICommandFailed(
-                                    f"Output file '{str(self.path)!r}' not found."
+                                    f"Input file '{str(self.path)!r}' not found."
                                 )
                             except OSError:
                                 raise CLICommandFailed(f"Failed to read input file: {str(path)!r}")

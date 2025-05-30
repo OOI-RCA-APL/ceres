@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 import dataclasses
-import json
 from abc import ABC
 from datetime import date, datetime, timedelta, timezone
 from enum import StrEnum as BaseStrEnum
-from json import JSONDecodeError
 from typing import (
     TYPE_CHECKING,
     Annotated,
@@ -24,8 +22,7 @@ from typing import (
 )
 from uuid import UUID
 
-import pydantic
-import pydantic.generics
+import pydantic.dataclasses
 from pydantic import (
     AfterValidator,
     AliasGenerator,
@@ -33,11 +30,11 @@ from pydantic import (
     BeforeValidator,
     ConfigDict,
     Field,
+    PlainSerializer,
     StringConstraints,
 )
 from pydantic.aliases import AliasChoices
 from pydantic.fields import FieldInfo
-from pydantic.functional_serializers import PlainSerializer
 from pydantic_extra_types.color import Color as Color
 from typing_extensions import TypeVar
 
@@ -62,8 +59,27 @@ class SerializeKwargs(SimplifyKwargs, total=False):
     indent: int | None
 
 
+_parse_json_impl: Callable[[str | bytes], Any] | None = None
+
+
+def _parse_json(value: str | bytes) -> Any:
+    global _parse_json_impl
+
+    if _parse_json_impl is None:
+        try:
+            import orjson
+
+            _parse_json_impl = orjson.loads
+        except ImportError:
+            import json
+
+            _parse_json_impl = json.loads
+
+    return _parse_json_impl(value)
+
+
 def simplify(obj: object, **kwargs: Unpack[SimplifyKwargs]) -> Any:
-    return json.loads(jsonify(obj, **kwargs))
+    return _parse_json(jsonify(obj, **kwargs))
 
 
 def jsonify(obj: object, **kwargs: Unpack[SerializeKwargs]) -> str:
@@ -176,8 +192,8 @@ def uuid7(
 def __pre_validate_from_json(value: object) -> object:
     if isinstance(value, (str, bytes)):
         try:
-            return json.loads(value)
-        except JSONDecodeError as error:
+            return _parse_json(value)
+        except Exception as error:
             raise ValueError(f"invalid JSON: {error}")
 
     return value
@@ -185,11 +201,16 @@ def __pre_validate_from_json(value: object) -> object:
 
 def __pre_validate_from_yaml(value: object) -> object:
     if isinstance(value, (str, bytes)):
+        try:
+            return _parse_json(value)
+        except Exception:
+            pass
+
         import yaml
 
         try:
             return yaml.safe_load(value)
-        except yaml.YAMLError as error:
+        except Exception as error:
             raise ValueError(f"invalid YAML: {error}")
 
     return value
