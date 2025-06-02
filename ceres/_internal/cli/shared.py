@@ -289,9 +289,6 @@ class CLICommand(DataObject, DeferBuild):
 
         return self
 
-    async def __execute__(self) -> None:
-        await self.__run__()
-
     @abstractmethod
     async def __run__(self) -> None: ...
 
@@ -612,31 +609,38 @@ class CLICommandGroup(CLICommand):
     async def __run__(self) -> None:
         subcommand = get_subcommand(self, cli_exit_on_error=True)
         if subcommand is not None:
-            await subcommand.__execute__()
+            await subcommand.__run__()
 
 
-class CLICommandFailed(SettingsError):
-    def __init__(self, message: Any) -> None:
-        try:
-            content = json.loads(message)
-            message = jsonify(content, indent=2)
-        except Exception:
-            if not isinstance(message, str):
-                try:
-                    message = jsonify(message, indent=2)
-                except Exception:
-                    message = str(message)
+class CLICommandExit(SettingsError):
+    def __init__(self, status: int = 0, message: str | None = None) -> None:
+        if message is not None:
+            try:
+                content = json.loads(message)
+                message = jsonify(content, indent=2)
+            except Exception:
+                if not isinstance(message, str):
+                    try:
+                        message = jsonify(message, indent=2)
+                    except Exception:
+                        message = str(message)
 
-        self.message = message
-        super().__init__(message)
+        self.message: str | None = message
+        self.status: int = status
 
     @override
     def __str__(self) -> str:
-        text = super().__str__()
-        if not text.startswith("Error: "):
-            text = f"Error: {text}"
+        text = (self.message or "").strip()
+        if text and self.status != 0:
+            if not text.startswith("Error: "):
+                text = f"Error: {text}"
 
         return text
+
+
+class CLICommandFailed(CLICommandExit):
+    def __init__(self, message: str) -> None:
+        super().__init__(1, message)
 
 
 class CLIClientError(CLICommandFailed, ClientError):
@@ -1013,7 +1017,7 @@ def create_entity_load_command(Entity: type[Entity]):
                             except OSError:
                                 raise CLICommandFailed(f"Failed to read input file: {str(path)!r}")
                             except ValidationError as error:
-                                raise CLICommandFailed(error.errors())
+                                raise CLICommandFailed(str(error.errors()))
 
                             await connection.commit()
 

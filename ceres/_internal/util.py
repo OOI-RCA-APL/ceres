@@ -80,23 +80,6 @@ def reprify(value: object) -> str:
         return "<__repr__() raised exception>"
 
 
-def syncify[**P, T](function: Callable[P, Awaitable[T] | T]) -> Callable[P, T]:
-    import inspect
-
-    from ceres.util import ensure_event_loop
-
-    if not inspect.iscoroutinefunction(function):
-        return cast("Callable[P, T]", function)
-
-    from functools import wraps
-
-    @wraps(function)
-    def wrapper(*args: P.args, **kwargs: P.kwargs) -> Any:
-        return ensure_event_loop().run_until_complete(function(*args, **kwargs))
-
-    return cast("Callable[P, T]", wrapper)
-
-
 async def awaitify[T](value: Awaitable[T] | T) -> T:
     import inspect
 
@@ -1368,3 +1351,22 @@ def get_temporary_directory() -> Path:
     from tempfile import gettempdir
 
     return Path(gettempdir())
+
+
+@contextmanager
+def temporary_signal_handler(signums: Sequence[int], handler: Callable[..., Any]):
+    import signal
+
+    originals: dict[int, Any] = {}
+
+    for signum in signums:
+        if original := signal.getsignal(signum):
+            originals[signum] = original
+
+        signal.signal(signum, handler)
+
+    try:
+        yield
+    finally:
+        for signum, original in originals.items():
+            signal.signal(signum, original)
