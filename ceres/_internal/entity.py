@@ -34,6 +34,8 @@ from sqlalchemy import (
     Delete,
     Dialect,
     Engine,
+    Index,
+    Integer,
     Result,
     Select,
     SQLColumnExpression,
@@ -41,6 +43,7 @@ from sqlalchemy import (
     and_,
     delete,
     func,
+    literal,
     or_,
     select,
     tuple_,
@@ -50,15 +53,30 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, MappedAsDataclass, declared_
 from sqlalchemy.schema import CreateIndex, CreateTable, PrimaryKeyConstraint, SchemaItem, Table
 
 from ceres._internal import util
-from ceres._internal.database.types import UUIDMapper
+from ceres._internal.database.types import AddressMapper, DateTimeMapper, UUIDMapper
 from ceres._internal.filter import BaseFilter, BaseFilterArgs
 from ceres._internal.lazy import lazy_imports
 from ceres._internal.manager import BaseDatabaseManager
-from ceres.data import DeferBuild, FromYAML, ImmutableDataObject, MaybeSequence, uuid7
+from ceres.address import Address, AddressSelector
+from ceres.data import (
+    DateTime,
+    DeferBuild,
+    FromYAML,
+    ImmutableDataObject,
+    MaybeSequence,
+    NonNegativeTimeDelta,
+    PositiveTimeDelta,
+    uuid7,
+)
 from ceres.database import DatabaseType
+from ceres.timing import utc
 
 if TYPE_CHECKING:
+    from datetime import datetime
+
+    from sqlalchemy import SQLColumnExpression
     from sqlalchemy.ext.asyncio import AsyncResult, AsyncSession
+    from sqlalchemy.schema import SchemaItem
     from sqlalchemy.sql.base import ReadOnlyColumnCollection
     from sqlalchemy.sql.dml import ReturningDelete, ReturningUpdate
     from sqlalchemy.sql.roles import DDLConstraintColumnRole
@@ -537,6 +555,380 @@ class BaseUUIDEntity(BaseUUIDEntityCreate):
         FilterArgs: ClassVar[type[BaseUUIDEntityFilterArgs]] = BaseUUIDEntityFilterArgs
         Field: ClassVar[type[BaseUUIDEntityField]] = BaseUUIDEntityField
         Order: ClassVar[type[BaseUUIDEntityOrder]] = BaseUUIDEntityOrder
+
+
+class BaseAddressEntityRow(BaseEntityRow, kw_only=True):
+    __abstract__: ClassVar[bool] = True
+
+    address: Mapped[Address] = mapped_column(AddressMapper, sort_order=-2000)
+
+    @classmethod
+    @override
+    def __get_table_args__(cls) -> tuple[SchemaItem, ...]:
+        return (
+            *super().__get_table_args__(),
+            Index(f"ix_{cls.__tablename__}__address", cls.address),
+        )
+
+
+BaseAddressEntityField: TypeAlias = Literal["address"]
+BaseAddressEntityOrder: TypeAlias = Literal[
+    "address",
+    "address:asc",
+    "address:desc",
+]
+
+
+class BaseAddressEntityFilterArgs[
+    FieldT: str,
+    OrderT: str,
+](BaseEntityFilterArgs[FieldT, OrderT], total=False):
+    root: Address
+    address: AddressSelector | str | None
+
+
+class BaseAddressEntityFilter[
+    ItemT: BaseAddressEntity,
+    FieldT: str,
+    OrderT: str,
+](BaseEntityFilter[ItemT, FieldT, OrderT]):
+    address: AddressSelector | None = None
+    """Filter by `address` matching one or more address selectors."""
+    root: Address = Address.ROOT
+    """The address which relative address selectors in `address` are relative to."""
+
+    @override
+    def _matches(self, obj: ItemT) -> bool:
+        if not super()._matches(obj):
+            return False
+
+        if self.address is not None:
+            if not self.address.matches(obj.address, self.root):
+                return False
+
+        return True
+
+    @classmethod
+    @abstractmethod
+    @override
+    def _get_row_cls(cls) -> type[BaseAddressEntityRow]: ...
+
+    @override
+    def _get_where(self, dialect: DatabaseType) -> Iterable[SQLColumnExpression[bool]]:
+        yield from super()._get_where(dialect)
+        columns = self._get_row_cls()
+
+        if self.address is not None:
+            yield self.address.matches_expression(columns.address, self.root)
+
+
+class BaseAddressEntityCreate(BaseEntity):
+    address: Address
+
+
+class BaseAddressEntityUpdate(BaseEntityUpdate, total=False):
+    address: Address
+
+
+class BaseAddressEntity(BaseAddressEntityCreate):
+    Row: ClassVar[type[BaseAddressEntityRow]] = BaseAddressEntityRow
+    Create: ClassVar[type[BaseAddressEntityCreate]] = BaseAddressEntityCreate
+    Update: ClassVar[type[BaseAddressEntityUpdate]] = BaseAddressEntityUpdate
+
+    if TYPE_CHECKING:
+        Filter: ClassVar = BaseAddressEntityFilter
+        FilterArgs: ClassVar = BaseAddressEntityFilterArgs
+        Field: ClassVar = BaseAddressEntityField
+        Order: ClassVar = BaseAddressEntityOrder
+    else:
+        Filter: ClassVar[type[BaseAddressEntityFilter]] = BaseAddressEntityFilter
+        FilterArgs: ClassVar[type[BaseAddressEntityFilterArgs]] = BaseAddressEntityFilterArgs
+        Field: ClassVar[type[BaseAddressEntityField]] = BaseAddressEntityField
+        Order: ClassVar[type[BaseAddressEntityOrder]] = BaseAddressEntityOrder
+
+
+class BaseTimestampEntityRow(BaseEntityRow):
+    __abstract__: ClassVar[bool] = True
+
+    timestamp: Mapped[DateTime] = mapped_column(
+        DateTimeMapper,
+        sort_order=-1000,
+        default_factory=utc,
+        server_default=func.now(),
+    )
+
+    @classmethod
+    @override
+    def __get_table_args__(cls) -> tuple[SchemaItem, ...]:
+        return (
+            *super().__get_table_args__(),
+            Index(f"ix_{cls.__tablename__}__timestamp", "timestamp"),
+        )
+
+
+BaseTimestampEntityField: TypeAlias = Literal["timestamp"]
+BaseTimestampEntityOrder: TypeAlias = Literal[
+    "timestamp",
+    "timestamp:asc",
+    "timestamp:desc",
+]
+
+
+class BaseTimestampEntityFilterArgs[
+    FieldT: str,
+    OrderT: str,
+](BaseEntityFilterArgs[FieldT, OrderT], total=False):
+    timestamp: MaybeSequence[DateTime] | None
+    after: DateTime | None
+    before: DateTime | None
+    timespan: PositiveTimeDelta | None
+    min_age: NonNegativeTimeDelta | None
+    max_age: NonNegativeTimeDelta | None
+    after_hour: NonNegativeInt | None
+    before_hour: NonNegativeInt | None
+
+
+class BaseTimestampEntityFilter[
+    EntityT: BaseTimestampEntity,
+    FieldT: str,
+    OrderT: str,
+](BaseEntityFilter[EntityT, FieldT, OrderT]):
+    timestamp: MaybeSequence[DateTime] | None = None
+    """Filter by `timestamp` being exactly equal to one or more given datetimes."""
+    after: DateTime | None = None
+    """Filter by `timestamp` being greater than or equal to a given datetime."""
+    before: DateTime | None = None
+    """Filter by `timestamp` being less than a given datetime."""
+
+    timespan: PositiveTimeDelta | None = None
+    """
+    Filter by maximum age relative to `after`, or minimum age relative to `before` if `after` is
+    `None`. If both `after` and `before` are `None`, filter by maximum age relative to the current
+    time.
+    """
+
+    min_age: NonNegativeTimeDelta | None = None
+    """
+    Filter by the age of `timestamp`, relative to the current time, being greater than or equal to a
+    given threshold.
+    """
+
+    max_age: NonNegativeTimeDelta | None = None
+    """
+    Filter by the age of `timestamp`, relative to the current time, being less than a given
+    threshold.
+    """
+
+    after_hour: NonNegativeInt | None = Field(default=None, le=24)
+    """Filter by the hour value of `timestamp` being greater than or equal to a given value."""
+    before_hour: NonNegativeInt | None = Field(default=None, le=24)
+    """Filter by the hour value of `timestamp` being less than a given value."""
+    after_minute: NonNegativeInt | None = Field(default=None, le=60)
+    """Filter by the minute value of `timestamp` being greater than or equal to a given value."""
+    before_minute: NonNegativeInt | None = Field(default=None, le=60)
+    """Filter by the minute of `timestamp` being less than a given value."""
+
+    @override
+    def _matches(self, obj: EntityT, *, now: datetime | None = None) -> bool:
+        if not super()._matches(obj):
+            return False
+
+        if self.timestamp is not None:
+            if obj.timestamp not in util.as_sequence(self.timestamp):
+                return False
+        if self.after is not None:
+            if obj.timestamp < self.after:
+                return False
+        if self.before is not None:
+            if obj.timestamp >= self.before:
+                return False
+
+        now = utc(now)
+        if self.timespan is not None:
+            if self.after is not None:
+                if obj.timestamp >= (self.after + self.timespan):
+                    return False
+            elif self.before is not None:
+                if obj.timestamp < ((self.before or now) - self.timespan):
+                    return False
+            else:
+                if obj.timestamp < now - self.timespan:
+                    return False
+                if obj.timestamp >= now:
+                    return False
+
+        if self.max_age is not None:
+            if obj.timestamp <= now - self.max_age:
+                return False
+        if self.min_age is not None:
+            if obj.timestamp > now - self.min_age:
+                return False
+
+        if self.after_hour is not None or self.before_hour is not None:
+            if obj.timestamp is None:
+                return False
+
+            min_hour = self.after_hour if self.after_hour is not None else 0
+            max_hour = self.before_hour if self.before_hour is not None else 24
+            within_min = obj.timestamp.hour >= min_hour
+            within_max = obj.timestamp.hour < max_hour
+            if min_hour <= max_hour:
+                if not within_min or not within_max:
+                    return False
+            else:
+                if not within_min and not within_max:
+                    return False
+
+        if self.after_minute is not None or self.before_minute is not None:
+            if obj.timestamp is None:
+                return False
+
+            min_minute = self.after_minute if self.after_minute is not None else 0
+            max_minute = self.before_minute if self.before_minute is not None else 60
+            within_min = obj.timestamp.minute >= min_minute
+            within_max = obj.timestamp.minute < max_minute
+            if min_minute <= max_minute:
+                if not within_min or not within_max:
+                    return False
+            else:
+                if not within_min and not within_max:
+                    return False
+
+        return True
+
+    @classmethod
+    @abstractmethod
+    @override
+    def _get_row_cls(cls) -> type[BaseTimestampEntityRow]: ...
+
+    @override
+    def _get_where(
+        self,
+        dialect: DatabaseType,
+        *,
+        now: datetime | None = None,
+    ) -> Iterable[SQLColumnExpression[bool]]:
+        yield from super()._get_where(dialect)
+        columns = self._get_row_cls()
+
+        from sqlalchemy import cast
+
+        if self.timestamp is not None:
+            yield util.sql_match_value(columns.timestamp, self.timestamp)
+        if self.after is not None:
+            yield columns.timestamp >= self.after
+        if self.before is not None:
+            yield columns.timestamp < self.before
+
+        now = utc(now)
+        if self.timespan is not None:
+            if self.after is not None:
+                yield columns.timestamp < self.after + self.timespan
+            elif self.before is not None:
+                yield columns.timestamp >= self.before - self.timespan
+            else:
+                yield columns.timestamp >= now - self.timespan
+                yield columns.timestamp < now
+
+        if self.max_age is not None:
+            yield columns.timestamp > now - self.max_age
+        if self.min_age is not None:
+            yield columns.timestamp <= now - self.min_age
+
+        if self.after_hour is not None or self.before_hour is not None:
+            min_hour = self.after_hour if self.after_hour is not None else 0
+            max_hour = self.before_hour if self.before_hour is not None else 24
+            match dialect:
+                case DatabaseType.POSTGRES:
+                    hour = func.date_part(
+                        literal("hour", literal_execute=True),
+                        columns.timestamp.op("AT TIME ZONE")(literal("UTC", literal_execute=True)),
+                    )
+                case DatabaseType.SQLITE:
+                    hour = cast(func.strftime("%H", columns.timestamp), Integer)
+
+            within_min = hour >= min_hour
+            within_max = hour < max_hour
+            if min_hour <= max_hour:
+                yield within_min & within_max
+            else:
+                yield within_min | within_max
+
+        if self.after_minute is not None or self.before_minute is not None:
+            min_minute = self.after_minute if self.after_minute is not None else 0
+            max_minute = self.before_minute if self.before_minute is not None else 60
+            match dialect:
+                case DatabaseType.POSTGRES:
+                    minute = func.date_part(
+                        literal("minute", literal_execute=True),
+                        columns.timestamp.op("AT TIME ZONE")(literal("UTC", literal_execute=True)),
+                    )
+                case DatabaseType.SQLITE:
+                    minute = cast(func.strftime("%M", columns.timestamp), Integer)
+
+            within_min = minute >= min_minute
+            within_max = minute < max_minute
+            if min_minute <= max_minute:
+                yield within_min & within_max
+            else:
+                yield within_min | within_max
+
+    @override
+    def _get_default_order(self) -> MaybeSequence[OrderT]:
+        return "timestamp"  # type: ignore
+
+    def _get_time_bounds(self, now: datetime) -> tuple[datetime | None, datetime | None]:
+        starts: list[datetime] = []
+        ends: list[datetime] = []
+
+        if self.after is not None:
+            starts.append(self.after)
+        if self.before is not None:
+            ends.append(self.before)
+
+        if self.timespan is not None:
+            if self.after is not None:
+                ends.append(self.after + self.timespan)
+            elif self.before is not None:
+                starts.append(self.before - self.timespan)
+            else:
+                starts.append(now - self.timespan)
+                ends.append(now)
+
+        if self.max_age is not None:
+            starts.append(now - self.max_age)
+        if self.min_age is not None:
+            ends.append(now - self.min_age)
+
+        start = max(starts) if starts else None
+        end = min(ends) if ends else None
+
+        return start, end
+
+
+class BaseTimestampEntityCreate(BaseEntity):
+    timestamp: DateTime = Field(default_factory=utc)
+
+
+class BaseTimestampEntityUpdate(BaseEntityUpdate, total=False):
+    timestamp: DateTime
+
+
+class BaseTimestampEntity(BaseTimestampEntityCreate):
+    Row: ClassVar[type[BaseTimestampEntityRow]] = BaseTimestampEntityRow
+    Create: ClassVar[type[BaseTimestampEntityCreate]] = BaseTimestampEntityCreate
+    Update: ClassVar[type[BaseTimestampEntityUpdate]] = BaseTimestampEntityUpdate
+
+    if TYPE_CHECKING:
+        Filter: ClassVar = BaseTimestampEntityFilter
+        FilterArgs: ClassVar = BaseTimestampEntityFilterArgs
+        Field: ClassVar = BaseTimestampEntityField
+        Order: ClassVar = BaseTimestampEntityOrder
+    else:
+        Filter: ClassVar[type[BaseTimestampEntityFilter]] = BaseTimestampEntityFilter
+        FilterArgs: ClassVar[type[BaseTimestampEntityFilterArgs]] = BaseTimestampEntityFilterArgs
+        Field: ClassVar[type[BaseTimestampEntityField]] = BaseTimestampEntityField
+        Order: ClassVar[type[BaseTimestampEntityOrder]] = BaseTimestampEntityOrder
 
 
 if TYPE_CHECKING:
@@ -1124,7 +1516,9 @@ class BaseEntityManager[
         upsert_on: Sequence[str | Column[Any] | DDLConstraintColumnRole] | None = None,
     ) -> RowT:
         Row = self._get_row_class()
-        row = Row(**data.__dict__)
+        row = Row(
+            **{key: value for key, value in data.__dict__.items() if key in data.model_fields_set}
+        )
         match self.__database__.type:
             case DatabaseType.SQLITE:
                 from sqlalchemy.dialects.sqlite import insert

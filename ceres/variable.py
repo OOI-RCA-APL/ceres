@@ -18,15 +18,17 @@ from sqlalchemy import JSON, Index, PrimaryKeyConstraint, Text, cast
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ceres._internal import util
-from ceres._internal.entity import BaseEntityManager, BaseEntityQuery, EntityQuery
-from ceres._internal.item import (
-    BaseItem,
-    BaseItemCreate,
-    BaseItemField,
-    BaseItemFilter,
-    BaseItemFilterArgs,
-    BaseItemOrder,
-    BaseItemRow,
+from ceres._internal.entity import (
+    BaseAddressEntity,
+    BaseAddressEntityCreate,
+    BaseAddressEntityField,
+    BaseAddressEntityFilter,
+    BaseAddressEntityFilterArgs,
+    BaseAddressEntityOrder,
+    BaseAddressEntityRow,
+    BaseEntityManager,
+    BaseEntityQuery,
+    EntityQuery,
 )
 from ceres._internal.manager import BaseNodeManager
 from ceres._internal.util import MatchMode, get_type_adapter
@@ -42,7 +44,7 @@ if TYPE_CHECKING:
     from ceres.stream import Stream
 
 
-class VariableRow(BaseItemRow, kw_only=True):
+class VariableRow(BaseAddressEntityRow, kw_only=True):
     __tablename__: ClassVar[str] = "variables"
 
     name: Mapped[str] = mapped_column(Text)
@@ -62,14 +64,14 @@ class VariableRow(BaseItemRow, kw_only=True):
 
 
 VariableField: TypeAlias = (
-    BaseItemField
+    BaseAddressEntityField
     | Literal[
         "name",
         "value",
     ]
 )
 VariableOrder: TypeAlias = (
-    BaseItemOrder
+    BaseAddressEntityOrder
     | Literal[
         "name",
         "name:asc",
@@ -81,7 +83,7 @@ VariableOrder: TypeAlias = (
 )
 
 
-class VariableFilterArgs(BaseItemFilterArgs[VariableField, VariableOrder], total=False):
+class VariableFilterArgs(BaseAddressEntityFilterArgs[VariableField, VariableOrder], total=False):
     name: MaybeSequence[str] | None
     name_contains: MaybeSequence[str] | None
     name_prefix: MaybeSequence[str] | None
@@ -90,7 +92,7 @@ class VariableFilterArgs(BaseItemFilterArgs[VariableField, VariableOrder], total
     value: JSONSerializable | None
 
 
-class VariableFilter(BaseItemFilter["Variable", VariableField, VariableOrder]):
+class VariableFilter(BaseAddressEntityFilter["Variable", VariableField, VariableOrder]):
     name: MaybeSequence[str] | None = None
     """Filter by `name` being equal to one or more given names."""
     name_contains: MaybeSequence[str] | None = None
@@ -164,7 +166,7 @@ class VariableFilter(BaseItemFilter["Variable", VariableField, VariableOrder]):
         return ("address", "name")
 
 
-class VariableCreate(BaseItemCreate):
+class VariableCreate(BaseAddressEntityCreate):
     name: str
     value: FromYAML[JSONSerializable]
 
@@ -308,7 +310,7 @@ class BoundVariableManager(VariableManager, BaseNodeManager):
         )
 
 
-class Variable(BaseItem, VariableCreate):
+class Variable(BaseAddressEntity, VariableCreate):
     Manager: ClassVar[type[VariableManager]] = VariableManager
     BoundManager: ClassVar[type[BoundVariableManager]] = BoundVariableManager
     Row: ClassVar[type[VariableRow]] = VariableRow

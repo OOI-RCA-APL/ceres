@@ -14,7 +14,7 @@ from typing import (
 )
 from uuid import UUID
 
-from pydantic import Field, model_validator
+from pydantic import model_validator
 from sqlalchemy import (
     JSON,
     ForeignKeyConstraint,
@@ -35,6 +35,7 @@ from ceres._internal.entity import (
     BaseEntityManager,
     BaseEntityQuery,
     BaseEntityRow,
+    BaseEntityUpdate,
     BaseUUIDEntity,
     BaseUUIDEntityCreate,
     BaseUUIDEntityField,
@@ -200,12 +201,10 @@ class WorkspaceMembershipCreate(BaseEntityCreate):
     user_id: UUID
     workspace_id: UUID
     role: WorkspaceMembershipRole
-    data: FromYAML[JSONSerializableDict] | None = None
 
 
 class WorkspaceMembershipUpdate(TypedDict, total=False):
     role: WorkspaceMembershipRole
-    data: FromYAML[JSONSerializableDict] | None
 
 
 class _BaseWorkspaceMembershipQuery(
@@ -268,6 +267,72 @@ class WorkspaceMembership(BaseEntity, WorkspaceMembershipCreate):
     Field = WorkspaceMembershipField
     Order = WorkspaceMembershipOrder
     Role: ClassVar[type[WorkspaceMembershipRole]] = WorkspaceMembershipRole
+
+
+class WorkspaceEditRow(BaseEntityRow, kw_only=True):
+    __tablename__: ClassVar[str] = "workspace_edits"
+
+    user_id: Mapped[UUID] = mapped_column(UUIDMapper)
+    workspace_id: Mapped[UUID] = mapped_column(UUIDMapper)
+    data: Mapped[JSONSerializableDict] = mapped_column(JSON)
+
+    @classmethod
+    @override
+    def __get_table_args__(cls) -> tuple[SchemaItem, ...]:
+        return (
+            *super().__get_table_args__(),
+            PrimaryKeyConstraint(cls.workspace_id, cls.user_id, name=f"pk_{cls.__tablename__}"),
+            ForeignKeyConstraint(
+                [cls.workspace_id],
+                ["workspaces.id"],
+                name=f"fk_{cls.__tablename__}__workspace_id__workspaces__id",
+                ondelete="CASCADE",
+                onupdate="CASCADE",
+            ),
+            ForeignKeyConstraint(
+                [cls.user_id],
+                [UserRow.id],
+                name=f"fk_{cls.__tablename__}__user_id__users__id",
+                ondelete="CASCADE",
+                onupdate="CASCADE",
+            ),
+        )
+
+
+WorkspaceEditField: TypeAlias = Literal[
+    "user_id",
+    "workspace_id",
+    "data",
+]
+WorkspaceEditOrder: TypeAlias = Literal[
+    "user_id",
+    "user_id:asc",
+    "user_id:desc",
+    "workspace_id",
+    "workspace_id:asc",
+    "workspace_id:desc",
+]
+
+
+class WorkspaceEditFilterArgs(
+    BaseEntityFilterArgs[
+        WorkspaceEditField,
+        WorkspaceEditOrder,
+    ],
+    total=False,
+):
+    user_id: MaybeSequence[UUID] | None
+    workspace_id: MaybeSequence[UUID] | None
+
+
+class WorkspaceEditUpdate(BaseEntityUpdate, total=False):
+    data: FromYAML[JSONSerializableDict]
+
+
+class WorkspaceEditCreate(BaseEntityCreate):
+    user_id: UUID
+    workspace_id: UUID
+    data: FromYAML[JSONSerializableDict]
 
 
 def _access_levels_ge(
@@ -523,7 +588,6 @@ class WorkspaceCreate(BaseUUIDEntityCreate):
     default_viewership: WorkspaceAccessRestriction = WorkspaceAccessRestriction.PRIVATE
     default_editorship: WorkspaceAccessRestriction = WorkspaceAccessRestriction.PRIVATE
     default_ownership: WorkspaceAccessRestriction = WorkspaceAccessRestriction.PRIVATE
-    data: FromYAML[JSONSerializableDict] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def _validate(self) -> Self:

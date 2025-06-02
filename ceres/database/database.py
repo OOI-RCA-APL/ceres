@@ -8,17 +8,9 @@ from functools import cached_property
 from pathlib import Path
 from tempfile import gettempdir
 from textwrap import dedent
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Callable,
-    Mapping,
-    Self,
-    final,
-    override,
-)
+from typing import TYPE_CHECKING, Any, Callable, Mapping, Self, final, override
 
-from sqlalchemy import URL, AsyncAdaptedQueuePool, Connection, delete, event, inspect, text
+from sqlalchemy import URL, AsyncAdaptedQueuePool, delete, event, inspect, text
 
 from ceres._internal import util
 from ceres._internal.lazy import lazy_imports
@@ -29,11 +21,20 @@ from ceres.error import DatabaseInitError, Failure
 from ceres.threading import spawn
 
 if TYPE_CHECKING:
+    import sqlite3
     from uuid import UUID
 
+    from sqlalchemy import Connection
+    from sqlalchemy.dialects.sqlite.aiosqlite import AsyncAdapt_aiosqlite_connection
     from sqlalchemy.engine.interfaces import DBAPIConnection
 
+    from ceres._internal.entity import BaseEntityRow
     from ceres.database import DatabaseType
+
+    _SQLiteConnection = AsyncAdapt_aiosqlite_connection | sqlite3.Connection
+else:
+    _SQLiteConnection = object
+
 
 with lazy_imports(__name__):
     import sqlite3
@@ -55,13 +56,6 @@ with lazy_imports(__name__):
     from ceres.user import UserManager
     from ceres.variable import VariableManager
     from ceres.workspace import WorkspaceManager, WorkspaceMembershipManager
-
-if TYPE_CHECKING:
-    from sqlalchemy.dialects.sqlite.aiosqlite import AsyncAdapt_aiosqlite_connection
-
-    _SQLiteConnection = AsyncAdapt_aiosqlite_connection | sqlite3.Connection
-else:
-    _SQLiteConnection = object
 
 
 class Database:
@@ -575,7 +569,7 @@ def _get_entity_row_classes() -> list[type[BaseEntityRow]]:
     from ceres.setting import SettingRow
     from ceres.user import UserRow
     from ceres.variable import VariableRow
-    from ceres.workspace import WorkspaceMembershipRow, WorkspaceRow
+    from ceres.workspace import WorkspaceEditRow, WorkspaceMembershipRow, WorkspaceRow
 
     return [
         MessageRow,
@@ -587,4 +581,5 @@ def _get_entity_row_classes() -> list[type[BaseEntityRow]]:
         VariableRow,
         WorkspaceRow,
         WorkspaceMembershipRow,
+        WorkspaceEditRow,
     ]
