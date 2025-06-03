@@ -162,6 +162,10 @@ class Engine(Node):
     def workspace_memberships(self) -> WorkspaceMembershipManager:
         return WorkspaceMembershipManager(self)
 
+    @cached_property
+    def workspace_edits(self) -> WorkspaceMembershipManager:
+        return WorkspaceMembershipManager(self)
+
     @property
     def config_path(self) -> Path | None:
         return self.__config_path

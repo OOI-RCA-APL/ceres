@@ -1,23 +1,21 @@
+import { useQuery } from '@tanstack/vue-query'
 import { defineStore } from 'pinia'
-import { exportFile as download } from 'quasar'
 import { v4 } from 'uuid'
 import { computed, inject, MaybeRef, provide, reactive, unref, watchEffect } from 'vue'
 import Zod from 'zod'
 
-import { DateTimeModel } from './api/shared'
-
 import { AddressModel, AddressSelectorModel } from '@/api/address'
 import { AlertFilterModel } from '@/api/alerts'
+import { useAuth } from '@/api/auth'
+import { useClient } from '@/api/client'
 import { ProcedureTypeModel } from '@/api/components'
 import { LogEntryFilterModel } from '@/api/logs'
 import { MessageFilterModel } from '@/api/messages'
 import { ParticleFilterModel } from '@/api/particles'
-import { useSettings } from '@/api/settings'
-import { getter } from '@/getter'
+import { DateTimeModel } from '@/api/shared'
 import { useNavigation } from '@/navigation'
-import { useNotify } from '@/notify'
 import { workspaceInjectionKey } from '@/symbols'
-import { safeArrayOf, selectFile } from '@/utilities'
+import { safeArrayOf } from '@/utilities'
 
 export type BaseWidget = Zod.infer<typeof BaseWidgetModel>
 const BaseWidgetModel = Zod.object({
@@ -165,18 +163,47 @@ export const WidgetRowModel = Zod.object({
   widgets: safeArrayOf(WidgetModel),
 })
 
-export type WorkspaceInfo = Zod.infer<typeof WorkspaceModel>
-export const WorkspaceModel = Zod.object({
-  id: Zod.string().catch(() => v4()),
-  name: Zod.string(),
+export const WorkspaceDataModel = Zod.object({
   layout: WidgetRowModel.array().catch(() => []),
 })
 
-export type WorkspaceContext = ReturnType<typeof createWorkspaceContext>
+export const WorkspaceAccessRestriction = Zod.enum(['viewer', 'operator', 'admin', 'private'])
+export const WorkspaceAccessRestrictionOrdering = {
+  viewer: 0,
+  operator: 1,
+  admin: 2,
+  private: 3,
+} as const
 
-export type WorkspaceContextOptions = {
-  name: MaybeRef<string>
-}
+export type Workspace = Zod.infer<typeof WorkspaceModel>
+export type WorkspaceInput = Zod.input<typeof WorkspaceModel>
+export const WorkspaceModel = Zod.object({
+  id: Zod.string().catch(() => v4()),
+  name: Zod.string(),
+  client: Zod.literal('console').default('console'),
+  default_viewership: WorkspaceAccessRestriction.default('private'),
+  default_editorship: WorkspaceAccessRestriction.default('private'),
+  default_ownership: WorkspaceAccessRestriction.default('private'),
+  data: WorkspaceDataModel.catch(() => WorkspaceDataModel.parse({})),
+})
+
+export type WorkspaceMembershipRole = Zod.infer<typeof WorkspaceMembershipRoleModel>
+export const WorkspaceMembershipRoleModel = Zod.enum(['viewer', 'editor', 'owner'])
+export const WorkspaceMembershipRoleOrdering = {
+  viewer: 0,
+  editor: 1,
+  owner: 2,
+} as const
+
+export type WorkspaceMembership = Zod.infer<typeof WorkspaceMembershipModel>
+export const WorkspaceMembershipModel = Zod.object({
+  user_id: Zod.string(),
+  workspace_id: Zod.string(),
+  role: WorkspaceMembershipRoleModel.default('viewer'),
+  data: WorkspaceDataModel.nullish().catch(null),
+})
+
+export type WorkspaceContext = ReturnType<typeof createWorkspaceContext>
 
 export type Drag = {
   widget: Widget
@@ -184,25 +211,32 @@ export type Drag = {
   column: number
 }
 
-function createWorkspaceContext(options: WorkspaceContextOptions) {
+function createWorkspaceContext(workspaceId: MaybeRef<string>) {
+  const auth = useAuth()
   const workspaces = useWorkspaces()
-  const name = $computed(() => unref(options.name))
-  const workspace = $computed(() => workspaces.get(unref(options.name)))
+  const id = $computed(() => unref(workspaceId))
 
-  function create() {
-    return workspaces.create(name)
+  const query = $(
+    useQuery({
+      queryKey: ['workspace', id, auth.user?.id],
+      queryFn: async () => {
+        return await workspaces.get(id)
+      },
+    })
+  )
+
+  const workspace = $computed(() => query.data)
+
+  async function rename(newName: string) {
+    return await workspaces.rename(id, newName)
   }
 
-  function rename(newName: string) {
-    return workspaces.rename(name, newName)
+  async function duplicate(newName?: string | null) {
+    return workspaces.duplicate(id, newName)
   }
 
-  function duplicate(newName?: string | null) {
-    return workspaces.duplicate(name, newName)
-  }
-
-  function del() {
-    workspaces.delete(name)
+  async function del() {
+    workspaces.delete(id)
   }
 
   function insertWidget(widget: Widget, row: number, column: number = 0) {
@@ -210,18 +244,18 @@ function createWorkspaceContext(options: WorkspaceContextOptions) {
       return
     }
 
-    row = Math.min(workspace.layout.length, row)
-    const widgets = [...(workspace.layout[row]?.widgets ?? [])]
+    row = Math.min(workspace.data.layout.length, row)
+    const widgets = [...(workspace.data.layout[row]?.widgets ?? [])]
     widgets.splice(column, 0, widget)
     widget.width = Math.min(100 / widgets.length, widget.width)
     resolveWidgetWidths(widgets, widgets.indexOf(widget))
 
     if (row < 0) {
-      workspace.layout = [WidgetRowModel.parse({ widgets }), ...workspace.layout]
-    } else if (workspace.layout[row] == null) {
-      workspace.layout = [...workspace.layout, WidgetRowModel.parse({ widgets })]
+      workspace.data.layout = [WidgetRowModel.parse({ widgets }), ...workspace.data.layout]
+    } else if (workspace.data.layout[row] == null) {
+      workspace.data.layout = [...workspace.data.layout, WidgetRowModel.parse({ widgets })]
     } else {
-      workspace.layout[row].widgets = widgets
+      workspace.data.layout[row].widgets = widgets
     }
   }
 
@@ -241,14 +275,14 @@ function createWorkspaceContext(options: WorkspaceContextOptions) {
       return null
     }
 
-    for (const [i, row] of workspace.layout.entries()) {
+    for (const [i, row] of workspace.data.layout.entries()) {
       const widget = row.widgets.find((widget) => widget.id === id) ?? null
       if (widget != null) {
         row.widgets = row.widgets.filter((widget) => widget.id !== id)
         resolveWidgetWidths(row.widgets)
 
         if (row.widgets.length === 0) {
-          workspace.layout = workspace.layout.filter((_, index) => index !== i)
+          workspace.data.layout = workspace.data.layout.filter((_, index) => index !== i)
         }
 
         return widget
@@ -260,12 +294,13 @@ function createWorkspaceContext(options: WorkspaceContextOptions) {
 
   function getWidget(id: string) {
     return (
-      workspace?.layout.flatMap((row) => row.widgets).find((widget) => widget.id === id) ?? null
+      workspace?.data.layout.flatMap((row) => row.widgets).find((widget) => widget.id === id) ??
+      null
     )
   }
 
   function getWidgetPosition(id: string): [row: number, column: number] | null {
-    for (const [rowIndex, row] of workspace?.layout.entries() ?? []) {
+    for (const [rowIndex, row] of workspace?.data.layout.entries() ?? []) {
       const columnIndex = row.widgets.findIndex((widget) => widget.id === id)
       if (columnIndex !== -1) {
         return [rowIndex, columnIndex]
@@ -276,7 +311,7 @@ function createWorkspaceContext(options: WorkspaceContextOptions) {
   }
 
   function getWidgetAt(row: number, column: number) {
-    return workspace?.layout[row]?.widgets[column] ?? null
+    return workspace?.data.layout[row]?.widgets[column] ?? null
   }
 
   function moveWidget(id: string, toRow: number, toColumn?: number | null) {
@@ -290,7 +325,7 @@ function createWorkspaceContext(options: WorkspaceContextOptions) {
     }
     const [fromRow, fromColumn] = position
 
-    const sourceRow = workspace.layout[fromRow] ?? null
+    const sourceRow = workspace.data.layout[fromRow] ?? null
     if (sourceRow == null) {
       return null
     }
@@ -304,7 +339,7 @@ function createWorkspaceContext(options: WorkspaceContextOptions) {
 
     // If there is no column specified, create a new row.
     if (toColumn == null) {
-      let layout = [...workspace.layout]
+      let layout = [...workspace.data.layout]
       const destinationRow: WidgetRow = {
         id: v4(),
         height: sourceRow.height,
@@ -314,14 +349,14 @@ function createWorkspaceContext(options: WorkspaceContextOptions) {
 
       layout.splice(toRow, 0, destinationRow)
       layout = layout.filter((row) => row != null && row.widgets.length > 0)
-      workspace.layout = layout
+      workspace.data.layout = layout
 
       resolveWidgetWidths(sourceRow.widgets)
       resolveWidgetWidths(destinationRow.widgets)
       return widget
     }
 
-    const destinationRow = workspace.layout[toRow] ?? null
+    const destinationRow = workspace.data.layout[toRow] ?? null
     if (destinationRow == null) {
       resolveWidgetWidths(sourceRow.widgets)
       return null
@@ -336,7 +371,9 @@ function createWorkspaceContext(options: WorkspaceContextOptions) {
     widget.width = Math.min(100 / destinationRow.widgets.length, widget.width)
     resolveWidgetWidths(destinationRow.widgets, destinationRow.widgets.indexOf(widget))
 
-    workspace.layout = workspace.layout.filter((row) => row != null && row.widgets.length > 0)
+    workspace.data.layout = workspace.data.layout.filter(
+      (row) => row != null && row.widgets.length > 0
+    )
 
     return widget
   }
@@ -359,15 +396,15 @@ function createWorkspaceContext(options: WorkspaceContextOptions) {
       return
     }
 
-    if (workspace.layout.some((row) => row.widgets.length === 0)) {
-      workspace.layout = workspace.layout.filter((row) => row.widgets.length > 0)
+    if (workspace.data.layout.some((row) => row.widgets.length === 0)) {
+      workspace.data.layout = workspace.data.layout.filter((row) => row.widgets.length > 0)
     }
   })
 
   return reactive({
-    name: computed(() => unref(options.name)),
-    data: computed(() => workspaces.get(unref(options.name))),
-    create,
+    load: async () => await query.promise,
+    name: computed(() => workspace?.id ?? null),
+    data: computed(() => workspace?.data ?? { layout: [] }),
     duplicate,
     delete: del,
     rename,
@@ -383,8 +420,8 @@ function createWorkspaceContext(options: WorkspaceContextOptions) {
   })
 }
 
-export function provideWorkspace(options: WorkspaceContextOptions) {
-  const context = createWorkspaceContext(options)
+export function provideWorkspace(id: string) {
+  const context = createWorkspaceContext(id)
   provide(workspaceInjectionKey, context)
   return context
 }
@@ -400,163 +437,117 @@ export function useWorkspace() {
 
 export const useWorkspaces = defineStore('workspaces', () => {
   const navigation = useNavigation()
-  const notify = useNotify()
+  const client = useClient()
 
-  const settings = useSettings()
-
-  function getUniqueName(name?: string | null) {
-    let base = name ?? 'Workspace'
-    if (name == null) {
-      name = base
-    }
-
-    let number: number
-    const match = name.match(/\(\d+\)$/)?.[0]
-    if (match != null) {
-      base = name.slice(0, -match.length).trimEnd()
-      number = Number(match.slice(1, -1))
-    } else {
-      number = 1
-    }
-
-    while (get(name) != null) {
-      name = `${base} (${number})`
-      number++
-    }
-
-    return name
+  async function get(id: string) {
+    return await client.get(`/api/workspaces/${id}`, {
+      parse: WorkspaceModel,
+    })
   }
 
-  function get(name: string) {
-    return settings.workspaces.find((current) => current.name === name) ?? null
+  async function getAll() {
+    return await client.get('/api/workspaces', {
+      parse: Zod.array(WorkspaceModel),
+    })
   }
 
-  function add(workspace: WorkspaceInfo, rename?: string | null) {
-    workspace.name = getUniqueName(rename ?? workspace.name)
-    settings.workspaces = [...settings.workspaces, workspace].sort((left, right) =>
-      left.name.localeCompare(right.name)
-    )
-
-    return workspace
+  async function create(
+    workspace: Omit<WorkspaceInput, 'name'> & { name?: string }
+  ): Promise<Workspace> {
+    workspace = WorkspaceModel.parse({ name: 'NewWorkspace', ...workspace })
+    return await client.post('/api/workspaces', {
+      data: workspace,
+      parse: WorkspaceModel,
+    })
   }
 
-  function create(name?: string | null) {
-    name = getUniqueName(name)
-    let workspace = get(name)
-    if (workspace == null) {
-      workspace = WorkspaceModel.parse({
-        name,
-        layout: [
-          { height: 250, widgets: [{ type: 'messages' }] },
-          { height: 200, widgets: [{ type: 'particles' }] },
-          { height: 200, widgets: [{ type: 'alerts' }] },
-          { height: 200, widgets: [{ type: 'logs' }] },
-          { height: 150, widgets: [{ type: 'procedures' }] },
-        ],
-      } as Zod.input<typeof WorkspaceModel>)
-
-      add(workspace)
-    }
-
-    return workspace
+  async function update(id: string, data: Partial<Workspace>) {
+    await client.patch(`/api/workspaces/${id}`, {
+      data: WorkspaceModel.partial().parse(data),
+      parse: WorkspaceModel,
+    })
   }
 
-  function rename(oldName: string, newName: string) {
-    const workspace = get(oldName)
-    if (workspace != null && workspace.name !== newName) {
-      workspace.name = getUniqueName(newName)
-      return workspace
-    }
-
-    return workspace
+  async function rename(id: string, name: string) {
+    return await update(id, { name })
   }
 
-  function duplicate(name: string, newName?: string | null) {
-    const workspace = get(name)
+  async function duplicate(id: string, newName?: string | null) {
+    const workspace = await get(id)
     if (workspace == null) {
       return null
     }
 
-    const copy = JSON.parse(JSON.stringify(workspace))
-    add(copy, newName)
-    return copy
+    const copy = {
+      ...JSON.parse(JSON.stringify(workspace)),
+      id: v4(),
+      name: newName ?? workspace.name + ' Copy',
+    }
+    return await create(copy)
   }
 
-  async function open(name: string) {
-    const workspace = get(name)
+  async function open(id: string) {
+    const workspace = await get(id)
     if (workspace != null) {
-      await navigation.go(`/workspaces/${name}`)
+      await navigation.go(`/workspaces/${id}`)
       return workspace
     }
 
     return null
   }
 
-  function del(name: string) {
-    const index = settings.workspaces.findIndex((current) => current.name === name)
-    if (index === -1) {
-      return
-    }
-
-    settings.workspaces = settings.workspaces.filter((_, i) => i !== index)
+  async function del(name: string) {
+    await client.delete(`/api/workspaces/${name}`, {
+      parse: WorkspaceModel,
+    })
   }
 
-  function exportFile(name: string) {
-    const workspace = get(name)
-    if (workspace == null) {
-      notify.error('Workspace not found.')
-      return
-    }
-
-    download(`${name}.workspace.json`, JSON.stringify(workspace, null, 2))
-  }
-
-  async function importFiles() {
-    const files = await selectFile({ multiple: true, accept: 'application/json' })
-    if (files == null) {
+  async function getMembership(userId: string, workspaceId: string) {
+    try {
+      return await client.get(`/api/workspace-memberships`, {
+        query: {
+          user_id: userId,
+          workspace_id: workspaceId,
+        },
+        parse: Zod.array(WorkspaceMembershipModel),
+      })
+    } catch {
       return null
     }
+  }
 
-    const imported: WorkspaceInfo[] = []
+  async function getMemberships() {
+    return await client.get(`/api/workspace-memberships`, {
+      parse: Zod.array(WorkspaceMembershipModel),
+    })
+  }
 
-    for (const file of files) {
-      const parsed = JSON.parse(await file.text())
-      if (parsed === undefined) {
-        notify.error(`Import of '${file.name}' failed. Invalid JSON.`)
-        continue
-      }
-
-      const { data: workspace, error } = WorkspaceModel.safeParse(parsed)
-      if (error != null) {
-        notify.error(`Import of '${file.name}' failed. Invalid workspace file. ${error.message}`)
-        continue
-      }
-
-      add(workspace)
-      imported.push(workspace)
-    }
-
-    if (imported.length == 0) {
-      notify.success(`${imported.length} workspace(s) imported successfully.`)
-    }
-
-    return imported
+  async function createMembership(
+    userId: string,
+    workspaceId: string,
+    role: WorkspaceMembershipRole = 'viewer'
+  ) {
+    return await client.post('/api/workspace-memberships', {
+      data: <WorkspaceMembership>{
+        user_id: userId,
+        workspace_id: workspaceId,
+        role,
+      },
+      parse: Zod.array(WorkspaceMembershipModel),
+    })
   }
 
   return {
-    all: computed(() => settings.workspaces),
-    get: getter(
-      computed(() => settings.workspaces),
-      get
-    ),
-    add,
+    get,
+    getAll,
     create,
     rename,
     duplicate,
     open,
     delete: del,
-    exportFile,
-    importFiles,
+    getMembership,
+    getMemberships,
+    createMembership,
   }
 })
 

@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { useEventListener, useMouse, useResizeObserver } from '@vueuse/core'
 import { QPopupEdit } from 'quasar'
-import { computed, onMounted, reactive, watchEffect } from 'vue'
+import { onMounted, reactive, watchEffect } from 'vue'
 
 import CommonText from '@/components/CommonText.vue'
 import FullPage from '@/components/FullPage.vue'
@@ -13,16 +13,17 @@ import { useDialogs } from '@/dialogs'
 import icons from '@/icons'
 import { provideWorkspace, resolveWidgetWidths, useWorkspaces, Widget } from '@/workspace'
 
-const { name } = $defineProps<{
-  name: string
+const { id } = $defineProps<{
+  id: string
 }>()
 
 const workspaces = useWorkspaces()
 const dialogs = useDialogs()
 const layout = $ref<HTMLDivElement | null>(null)
-const workspace = provideWorkspace({
-  name: computed(() => name),
-})
+const workspace = provideWorkspace(id)
+await workspace.load()
+
+const name = $computed(() => workspace.name ?? 'Unnamed Workspace')
 
 let renamePopup = $ref<QPopupEdit | null>(null)
 let layoutWidth = $ref<number | null>(null)
@@ -66,10 +67,10 @@ let nameValue = $computed({
   },
 })
 
-function duplicate() {
-  const copied = workspace.duplicate()
+async function duplicate() {
+  const copied = await workspace.duplicate()
   if (copied != null) {
-    workspaces.open(copied.name)
+    workspaces.open(copied.id)
   }
 }
 

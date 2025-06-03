@@ -325,14 +325,117 @@ class WorkspaceEditFilterArgs(
     workspace_id: MaybeSequence[UUID] | None
 
 
-class WorkspaceEditUpdate(BaseEntityUpdate, total=False):
-    data: FromYAML[JSONSerializableDict]
+class WorkspaceEditFilter(
+    BaseEntityFilter[
+        "WorkspaceEdit",
+        WorkspaceEditField,
+        WorkspaceEditOrder,
+    ]
+):
+    user_id: MaybeSequence[UUID] | None = None
+    workspace_id: MaybeSequence[UUID] | None = None
+
+    @classmethod
+    @override
+    def _get_row_cls(cls) -> type[WorkspaceEditRow]:
+        return WorkspaceEditRow
+
+    @override
+    def _matches(self, obj: WorkspaceEdit) -> bool:
+        if not super()._matches(obj):
+            return False
+
+        if not util.match_value(obj.user_id, self.user_id):
+            return False
+        if not util.match_value(obj.workspace_id, self.workspace_id):
+            return False
+
+        return True
+
+    @override
+    def _get_where(self, dialect: "DatabaseType") -> Iterable[SQLColumnExpression[bool]]:
+        yield from super()._get_where(dialect)
+        columns = self._get_row_cls()
+
+        if self.user_id is not None:
+            yield util.sql_match_value(columns.user_id, self.user_id)
+        if self.workspace_id is not None:
+            yield util.sql_match_value(columns.workspace_id, self.workspace_id)
+
+    @override
+    def _get_default_order(self) -> MaybeSequence[WorkspaceEditOrder]:
+        return "user_id", "workspace_id"
 
 
 class WorkspaceEditCreate(BaseEntityCreate):
     user_id: UUID
     workspace_id: UUID
     data: FromYAML[JSONSerializableDict]
+
+
+class WorkspaceEditUpdate(BaseEntityUpdate, total=False):
+    data: FromYAML[JSONSerializableDict]
+
+
+class _BaseWorkspaceEditQuery(
+    BaseEntityQuery[
+        "WorkspaceEdit",
+        WorkspaceEditFilter,
+        WorkspaceEditUpdate,
+        "WorkspaceEditQuery",
+    ]
+):
+    @override
+    def where(
+        self,
+        filter: WorkspaceEditFilter | None = None,
+        **kwargs: Unpack[WorkspaceEditFilterArgs],
+    ) -> WorkspaceEditQuery:
+        return super().where(filter, **kwargs)
+
+    @override
+    def _get_query_class(self) -> type[WorkspaceEditQuery]:
+        return WorkspaceEditQuery
+
+
+class WorkspaceEditQuery(
+    EntityQuery[
+        "WorkspaceEdit",
+        WorkspaceEditFilter,
+        WorkspaceEditUpdate,
+    ],
+    _BaseWorkspaceEditQuery,
+):
+    pass
+
+
+class WorkspaceEditManager(
+    BaseEntityManager[
+        "WorkspaceEdit",
+        WorkspaceEditRow,
+        WorkspaceEditCreate,
+        WorkspaceEditUpdate,
+        WorkspaceEditFilter,
+        WorkspaceEditFilterArgs,
+    ],
+    _BaseWorkspaceEditQuery,
+):
+    def __init__(self, source: DatabaseSource, /) -> None:
+        super().__init__(source, WorkspaceEdit)
+
+    async def get(self, user_id: UUID, workspace_id: UUID, /) -> WorkspaceEdit | None:
+        return await self.where(user_id=user_id, workspace_id=workspace_id).first()
+
+
+class WorkspaceEdit(BaseEntity, WorkspaceEditCreate):
+    Manager: ClassVar[type[WorkspaceEditManager]] = WorkspaceEditManager
+    Row: ClassVar[type[WorkspaceEditRow]] = WorkspaceEditRow
+    Create: ClassVar[type[WorkspaceEditCreate]] = WorkspaceEditCreate
+    Update: ClassVar[type[WorkspaceEditUpdate]] = WorkspaceEditUpdate
+    Filter: ClassVar[type[WorkspaceEditFilter]] = WorkspaceEditFilter
+    FilterArgs: ClassVar[type[WorkspaceEditFilterArgs]] = WorkspaceEditFilterArgs
+    Field = WorkspaceEditField
+    Order = WorkspaceEditOrder
 
 
 def _access_levels_ge(
@@ -680,4 +783,6 @@ class Workspace(BaseUUIDEntity, WorkspaceCreate):
     FilterArgs: ClassVar[type[WorkspaceFilterArgs]] = WorkspaceFilterArgs
     Field = WorkspaceField
     Order = WorkspaceOrder
-    Role: ClassVar[type[UserRole]] = UserRole
+
+    Edit: ClassVar[type[WorkspaceEdit]] = WorkspaceEdit
+    Membership: ClassVar[type[WorkspaceMembership]] = WorkspaceMembership
