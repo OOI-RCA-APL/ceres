@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/vue-query'
 import { useEventListener } from '@vueuse/core'
 import { debounce } from 'lodash-es'
 import { defineStore } from 'pinia'
-import { v4 } from 'uuid'
+import { v7 } from 'uuid'
 import {
   computed,
   inject,
@@ -31,7 +31,7 @@ import { safeArrayOf } from '@/utilities'
 
 export type BaseWidget = Zod.infer<typeof BaseWidgetModel>
 const BaseWidgetModel = Zod.object({
-  id: Zod.string().catch(() => v4()),
+  id: Zod.string().catch(() => v7()),
   name: Zod.string(),
   width: Zod.number().catch(100), // Percentage of row width, not pixels.
 })
@@ -169,7 +169,7 @@ export const widgetInfos = {
 
 export type WidgetRow = Zod.infer<typeof WidgetRowModel>
 export const WidgetRowModel = Zod.object({
-  id: Zod.string().catch(() => v4()),
+  id: Zod.string().catch(() => v7()),
   height: Zod.number().catch(250),
   collapsed: Zod.boolean().catch(false),
   widgets: safeArrayOf(WidgetModel),
@@ -191,7 +191,7 @@ export const WorkspaceAccessRestrictionOrdering = {
 export type Workspace = Zod.infer<typeof WorkspaceModel>
 export type WorkspaceInput = Zod.input<typeof WorkspaceModel>
 export const WorkspaceModel = Zod.object({
-  id: Zod.string().catch(() => v4()),
+  id: Zod.string().catch(() => v7()),
   name: Zod.string(),
   default_viewership: WorkspaceAccessRestriction.default('private'),
   default_editorship: WorkspaceAccessRestriction.default('private'),
@@ -391,7 +391,7 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     if (toColumn == null) {
       let layout = [...data.layout]
       const destinationRow: WidgetRow = {
-        id: v4(),
+        id: v7(),
         height: sourceRow.height,
         widgets: [widget],
         collapsed: sourceRow.collapsed,
@@ -433,7 +433,7 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     }
 
     const copy: Widget = JSON.parse(JSON.stringify(widget))
-    copy.id = v4()
+    copy.id = v7()
 
     insertWidget(copy, toRow, toColumn)
     return copy
@@ -587,34 +587,26 @@ export const useWorkspaces = defineStore('workspaces', () => {
   }
 
   async function duplicate(id: string, newName?: string | null) {
-    const workspace = await get(id)
+    const [workspace, edit] = await Promise.all([get(id), getEdit(id)])
     if (workspace == null) {
       return null
     }
 
-    const edit = await getEdit(id)
-    const copy = {
+    const copy: WorkspaceInput = {
       ...workspace,
-      id: v4(),
+      id: v7(),
       name: newName ?? workspace.name + ' Copy',
     }
 
     if (edit != null) {
       copy.data = edit.data
     }
-    console.log(`Duplicating workspace ${id} to ${copy.id}. ${JSON.stringify(copy)}`)
 
     return await create(copy)
   }
 
   async function open(id: string) {
-    const workspace = await get(id)
-    if (workspace != null) {
-      await navigation.go(`/workspaces/${id}`)
-      return workspace
-    }
-
-    return null
+    await navigation.go(`/workspaces/${id}`)
   }
 
   async function del(id: string) {

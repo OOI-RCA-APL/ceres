@@ -9,7 +9,7 @@ import {
 } from '@tanstack/vue-query'
 import { DeepMaybeRef, useMounted } from '@vueuse/core'
 import { defineStore } from 'pinia'
-import { v4 } from 'uuid'
+import { v7 } from 'uuid'
 import { reactive, watchEffect, onUnmounted, DeepReadonly, MaybeRef } from 'vue'
 import { ZodAny, ZodError, ZodTypeAny } from 'zod'
 
@@ -171,7 +171,7 @@ function useStream<TParseModel extends ZodTypeAny>(
   const ids = [] as string[]
   function getId(index: number) {
     while (ids.length <= index) {
-      ids.push(v4())
+      ids.push(v7())
     }
     return ids[index]
   }
