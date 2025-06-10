@@ -12,6 +12,7 @@ from typing import (
 from uuid import UUID
 
 from fastapi import (
+    Cookie,
     Depends,
     Header,
     HTTPException,
@@ -24,7 +25,6 @@ from fastapi.requests import HTTPConnection
 from fastapi.routing import APIRouter
 from fastapi.websockets import WebSocketState
 from pydantic import Field, Json, ValidationError
-from starlette.requests import cookie_parser
 from starlette.status import HTTP_400_BAD_REQUEST, HTTP_401_UNAUTHORIZED
 
 from ceres._internal import util
@@ -226,31 +226,8 @@ def assign_authorization_cookie(
     )
 
 
-async def _get_current_cookies(connection: HTTPConnection) -> dict[str, str]:
-    """
-    Parse cookies from request headers.
-
-    Multiple "cookie" headers, as allowed in HTTP/2, will be combined into a single dictionary, with
-    later cookies with the same name overriding earlier ones.
-
-    See https://github.com/encode/starlette/discussions/2916.
-    """
-    cookies: dict[str, str] = {}
-    for value in connection.headers.getlist("cookie"):
-        cookies.update(cookie_parser(value))
-
-    return cookies
-
-
-CurrentCookies = Annotated[dict[str, str], Depends(_get_current_cookies)]
-
-
-async def _get_current_authorization_cookie(cookies: CurrentCookies) -> str | None:
-    return cookies.get("Authorization")
-
-
 CurrentAuthorizationHeader = Annotated[str | None, Header(alias="Authorization")]
-CurrentAuthorizationCookie = Annotated[str | None, Depends(_get_current_authorization_cookie)]
+CurrentAuthorizationCookie = Annotated[str | None, Cookie(alias="Authorization")]
 
 
 async def _get_current_identity(
