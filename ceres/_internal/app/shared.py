@@ -482,3 +482,27 @@ def create_record_router(name: str, Record: type[BaseRecord], *, limit: int = 10
     create_record_follow_route(router, Record)
 
     return router
+
+
+def __require_self_or_admin(
+    connection: HTTPConnection,
+    user: RequireViewer,
+    role: CurrentRole,
+) -> UUID:
+    user_id = connection.path_params.get("user_id") or connection.path_params.get("id")
+    if user_id is None:
+        raise Failure(NotPermittedError)
+
+    try:
+        user_id = UUID(str(user_id))
+    except ValueError:
+        raise Failure(NotPermittedError)
+
+    if role < UserRole.ADMIN:
+        if user is None or user.id != user_id:
+            raise Failure(NotPermittedError)
+
+    return user_id
+
+
+SELF_OR_ADMIN = Depends(__require_self_or_admin)

@@ -60,7 +60,7 @@ class AddressSelector:
         return [AddressSelector(segment) for segment in self._text.split("|")]
 
     def __init__(self, value: str | AddressSelector | Sequence[str | AddressSelector], /) -> None:
-        value = util.as_sequence(value)
+        value = util.seq(value)
 
         segments: list[str] = []
         for segment in value:

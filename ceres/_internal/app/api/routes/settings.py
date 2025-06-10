@@ -46,7 +46,4 @@ async def put_setting(
     if role < UserRole.ADMIN and (user is None or user.id != setting.user_id):
         raise Failure(NotPermittedError())
 
-    return await engine.settings.create(
-        setting,
-        upsert_on=[Setting.Row.user_id, Setting.Row.name],
-    )
+    return await engine.settings.create(setting, upsert=True)

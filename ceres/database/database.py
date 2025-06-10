@@ -8,7 +8,7 @@ from functools import cached_property
 from pathlib import Path
 from tempfile import gettempdir
 from textwrap import dedent
-from typing import TYPE_CHECKING, Any, Callable, Mapping, Self, final, override
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Mapping, Self, final, override
 
 from sqlalchemy import URL, AsyncAdaptedQueuePool, delete, event, inspect, text
 
@@ -55,7 +55,7 @@ with lazy_imports(__name__):
     from ceres.statistics import StatisticsManager
     from ceres.user import UserManager
     from ceres.variable import VariableManager
-    from ceres.workspace import WorkspaceManager, WorkspaceMembershipManager
+    from ceres.workspace import WorkspaceEditManager, WorkspaceManager, WorkspaceMembershipManager
 
 
 class Database:
@@ -147,6 +147,10 @@ class Database:
         return WorkspaceMembershipManager(self)
 
     @cached_property
+    def workspace_edits(self) -> WorkspaceEditManager:
+        return WorkspaceEditManager(self)
+
+    @cached_property
     def statistics(self) -> StatisticsManager:
         return StatisticsManager(self)
 
@@ -157,46 +161,79 @@ class Database:
     @abstractmethod
     def _get_engine_config(self) -> dict[str, Any]: ...
 
-    @abstractmethod
-    def _pre_configure_engine(self, engine: AsyncEngine) -> None: ...
-
-    def _create_base_engine(self) -> AsyncEngine:
-        return create_async_engine(self.url, **self._get_engine_config())
-
+    @final
     def _create_engine(self) -> AsyncEngine:
-        engine = self._create_base_engine()
-
-        self._pre_configure_engine(engine)
-
-        init = util.as_sequence(self.config.hooks.init or ())
-        connect = util.as_sequence(self.config.hooks.connect or ())
-        disconnect = util.as_sequence(self.config.hooks.close or ())
-
-        if init:
-
-            @event.listens_for(engine.sync_engine, "first_connect")
-            def init_hook(connection: DBAPIConnection, *args: object) -> None:
-                cursor = connection.cursor()
-                for statement in init:
-                    cursor.execute(statement)
-
-        if connect:
-
-            @event.listens_for(engine.sync_engine, "connect")
-            def connect_hook(connection: DBAPIConnection, *args: object) -> None:
-                cursor = connection.cursor()
-                for statement in connect:
-                    cursor.execute(statement)
-
-        if disconnect:
-
-            @event.listens_for(engine.sync_engine, "close")
-            def close_hook(connection: DBAPIConnection, *args: object) -> None:
-                cursor = connection.cursor()
-                for statement in disconnect:
-                    cursor.execute(statement)
-
+        engine = create_async_engine(self.url, **self._get_engine_config())
+        self._setup_engine(engine)
         return engine
+
+    def _setup_engine(self, engine: AsyncEngine) -> None:
+        on_init = [*self._get_base_init_commands(), *(self.config.hooks.init or ())]
+        on_connect = [*self._get_base_connect_commands(), *(self.config.hooks.connect or ())]
+        on_close = [*self._get_base_close_commands(), *(self.config.hooks.close or ())]
+
+        if on_init:
+            # https://docs.sqlalchemy.org/en/20/core/events.html#sqlalchemy.events.PoolEvents.first_connect
+            @event.listens_for(engine.sync_engine, "first_connect")
+            def first_connect(connection: DBAPIConnection, *args: object) -> None:
+                cursor = connection.cursor()
+                try:
+                    for statement in on_init:
+                        cursor.execute(statement)
+                finally:
+                    cursor.close()
+
+        if on_connect:
+            # https://docs.sqlalchemy.org/en/20/core/events.html#sqlalchemy.events.PoolEvents.connect
+            @event.listens_for(engine.sync_engine, "connect")
+            def connect(connection: DBAPIConnection, *args: object) -> None:
+                cursor = connection.cursor()
+                try:
+                    for statement in on_connect:
+                        cursor.execute(statement)
+                finally:
+                    cursor.close()
+
+        if on_close:
+            # https://docs.sqlalchemy.org/en/20/core/events.html#sqlalchemy.events.PoolEvents.close
+            @event.listens_for(engine.sync_engine, "close")
+            def close(connection: DBAPIConnection, *args: object) -> None:
+                cursor = connection.cursor()
+                try:
+                    for statement in on_close:
+                        cursor.execute(statement)
+                finally:
+                    cursor.close()
+
+    @final
+    def _get_init_commands(self) -> Iterable[str]:
+        """Get all SQL commands to run when first connecting to the database."""
+        yield from self._get_base_init_commands()
+        yield from self.config.hooks.init or ()
+
+    def _get_base_init_commands(self) -> Iterable[str]:
+        """Get base SQL commands to run when first connecting to the database."""
+        yield from ()
+
+    @final
+    def _get_connect_commands(self) -> Iterable[str]:
+        """Get all SQL commands to run when connecting to the database."""
+        yield from self._get_base_connect_commands()
+        yield from self.config.hooks.connect or ()
+
+    def _get_base_connect_commands(self) -> Iterable[str]:
+        """Get base SQL commands to run when connecting to the database."""
+        yield from ()
+
+    @final
+    def _get_close_commands(self) -> Iterable[str]:
+        """Get all SQL commands to run when closing the database connection."""
+        yield from self._get_base_close_commands()
+        yield from self.config.hooks.close or ()
+
+    def _get_base_close_commands(self) -> Iterable[str]:
+        """Get base SQL commands to run when connecting to the database."""
+        yield from ()
 
     def session(self) -> AsyncSession:
         return AsyncSession(self.__engine, expire_on_commit=False)
@@ -286,7 +323,7 @@ class Database:
 
 
 @final
-class SQLiteDatabase(Database):  #
+class SQLiteDatabase(Database):
     @override
     def __new__(cls, /, config: SQLiteDatabaseConfig | None = None) -> Self:
         instance = object.__new__(cls)
@@ -347,7 +384,7 @@ class SQLiteDatabase(Database):  #
         }
 
     @override
-    def _pre_configure_engine(self, engine: AsyncEngine) -> None:
+    def _setup_engine(self, engine: AsyncEngine) -> None:
         # https://docs.sqlalchemy.org/en/latest/core/events.html#sqlalchemy.events.DialectEvents.do_connect
         @event.listens_for(engine.sync_engine, "do_connect")
         def do_connect(*args: object) -> None:
@@ -358,31 +395,15 @@ class SQLiteDatabase(Database):  #
                 except Exception:
                     traceback.print_exc()
 
-        @event.listens_for(engine.sync_engine, "first_connect")
-        def first_connect(connection: _SQLiteConnection, *args: object) -> None:
-            # Enable incremental "auto_vacuum" mode when the first connection to the database is
-            # made. This can only be done before database tables are created and is disabled by
-            # default, so we do it here just in case "incremental_vacuum" is needed later on.
-            # https://www.sqlite.org/pragma.html#pragma_auto_vacuum
-            # https://www.sqlite.org/pragma.html#pragma_incremental_vacuum
-            connection.execute("PRAGMA auto_vacuum = INCREMENTAL")
-
         # https://docs.sqlalchemy.org/en/20/core/events.html#sqlalchemy.events.PoolEvents.connect
         @event.listens_for(engine.sync_engine, "connect")
         def connect(connection: _SQLiteConnection, *args: object) -> None:
-            # Clear the isolation level to stop "pysqlite" from:
+            # Clear the isolation level to stop "sqlite3" from:
             #   1. Automatically emitting "BEGIN"
             #   2. Automatically emitting "COMMIT" before any DDL
             # https://docs.sqlalchemy.org/en/latest/dialects/sqlite.html#serializable-isolation-savepoints-transactional-ddl
             connection.isolation_level = None
-            # Enable foreign key handling by default.
-            # https://docs.sqlalchemy.org/en/latest/dialects/sqlite.html#foreign-key-support
-            connection.execute("PRAGMA foreign_keys = ON")
-            # Set like statements to be case sensitive to match Postgres.
-            connection.execute("PRAGMA case_sensitive_like = ON")
-            # Enable a 30 second busy timeout.
-            connection.execute("PRAGMA busy_timeout = 30000")
-
+            # Create custom functions.
             _sqlite_create_functions(connection)
 
         # https://docs.sqlalchemy.org/en/20/core/events.html#sqlalchemy.events.ConnectionEvents.begin
@@ -391,6 +412,30 @@ class SQLiteDatabase(Database):  #
             # Emit our own "BEGIN" statement.
             # https://docs.sqlalchemy.org/en/latest/dialects/sqlite.html#serializable-isolation-savepoints-transactional-ddl
             connection.exec_driver_sql("BEGIN IMMEDIATE")
+
+        # Apply base setup.
+        super()._setup_engine(engine)
+
+    @override
+    def _get_base_init_commands(self) -> Iterable[str]:
+        yield from super()._get_base_init_commands()
+        # Enable incremental "auto_vacuum" mode when the first connection to the database is
+        # made. This can only be done before database tables are created and is disabled by
+        # default, so we do it here just in case "incremental_vacuum" is needed later on.
+        # https://www.sqlite.org/pragma.html#pragma_auto_vacuum
+        # https://www.sqlite.org/pragma.html#pragma_incremental_vacuum
+        yield "PRAGMA auto_vacuum = INCREMENTAL"
+
+    @override
+    def _get_base_connect_commands(self) -> Iterable[str]:
+        yield from super()._get_base_connect_commands()
+        # Enable foreign key handling by default.
+        # https://docs.sqlalchemy.org/en/latest/dialects/sqlite.html#foreign-key-support
+        yield "PRAGMA foreign_keys = ON"
+        # Set like statements to be case sensitive to match Postgres.
+        yield "PRAGMA case_sensitive_like = ON"
+        # Enable a 30 second busy timeout.
+        yield "PRAGMA busy_timeout = 30000"
 
     def __get_temporary_path(self) -> Path:
         return Path(gettempdir()) / f"ceres-{self.id}.sqlite"
@@ -483,10 +528,6 @@ class PostgresDatabase(Database):
             "json_serializer": jsonify,  # Serialize any Pydantic compatible object to JSON.
             **self.config.engine,
         }
-
-    @override
-    def _pre_configure_engine(self, engine: AsyncEngine) -> None:
-        pass
 
 
 def _ceres_decode_latin1(value: bytes) -> str:

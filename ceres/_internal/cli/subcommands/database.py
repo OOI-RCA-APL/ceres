@@ -91,6 +91,13 @@ class ShellCommand(CLICommand):
                 case DatabaseType.SQLITE:
                     assert isinstance(database, SQLiteDatabase)
                     command = ["sqlite3", str(database.path)]
+                    command.extend(["-cmd", f".output {os.devnull}"])
+                    for statement in database._get_connect_commands():
+                        command.extend(["-cmd", statement])
+                    for statement in database.config.hooks.init or ():
+                        command.extend(["-cmd", statement])
+
+                    command.extend(["-cmd", ".output"])
 
             executable = command[0]
             if which(executable) is None:

@@ -29,6 +29,7 @@ from ceres._internal.cli.shared import (
     write,
     write_table,
 )
+from ceres._internal.cli.subcommands.workspace_memberships import WorkspaceMembershipsCommand
 from ceres._internal.lazy import lazy_imports, unlazy
 from ceres.address import Address, AddressSelector
 from ceres.data import jsonify

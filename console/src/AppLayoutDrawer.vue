@@ -27,6 +27,8 @@ const workspaces = useWorkspaces()
 const route = useRoute()
 const preferences = usePreferences()
 
+const iconSize = '18px'
+
 const persisted = usePersisted({
   schema: ({ object, boolean, number }) =>
     object({
@@ -36,16 +38,9 @@ const persisted = usePersisted({
   methods: [{ type: 'local-storage', key: 'component/app-layout-drawer' }],
 })
 
-function createWorkspace() {
-  const created = workspaces.create()
-  workspaces.open(created.name)
-}
-
-async function importWorkspaces() {
-  const imported = await workspaces.importFiles()
-  if (imported != null && imported.length > 0) {
-    workspaces.open(imported[0].name)
-  }
+async function createWorkspace() {
+  const created = await workspaces.create()
+  workspaces.open(created.id)
 }
 
 function clearLocalStorage() {
@@ -127,10 +122,10 @@ function promptReload() {
         :style="{ left: `${drawer.width}px` }"
       />
       <div class="col-grow overflow-scroll scroll" style="height: 0">
-        <q-list>
-          <q-item :active="route.fullPath === '/'" clickable to="/">
+        <q-list dense>
+          <q-item :active="route.fullPath === '/'" :class="$style.largeItem" clickable to="/">
             <q-item-section avatar>
-              <q-icon :name="icons.dashboard" />
+              <q-icon :name="icons.dashboard" :size="iconSize" />
             </q-item-section>
             <q-item-section avatar>
               <q-item-label>Dashboard</q-item-label>
@@ -151,7 +146,7 @@ function promptReload() {
                 >
                   <q-icon
                     :name="persisted.isShowingWorkspaces ? icons.menuDown : icons.menuRight"
-                    size="22px"
+                    :size="iconSize"
                   />
                 </q-btn>
               </div>
@@ -162,54 +157,70 @@ function promptReload() {
                 <div class="items-center row">
                   <q-btn flat :icon="icons.more" round size="xs">
                     <q-menu class="no-shadow">
-                      <q-list bordered dense>
-                        <q-item clickable @click="createWorkspace">
-                          <q-item-section avatar>
-                            <q-icon :name="icons.add" />
-                          </q-item-section>
-                          <q-item-section>
-                            <q-item-label>New</q-item-label>
-                          </q-item-section>
-                        </q-item>
-                        <q-item v-close-popup clickable @click="importWorkspaces">
-                          <q-item-section avatar>
-                            <q-icon :name="icons.import" />
-                          </q-item-section>
-                          <q-item-section>
-                            <q-item-label>Import</q-item-label>
-                          </q-item-section>
-                        </q-item>
-                      </q-list>
+                      <q-card bordered>
+                        <q-list dense>
+                          <q-item clickable @click="createWorkspace">
+                            <q-item-section avatar>
+                              <q-icon :name="icons.add" />
+                            </q-item-section>
+                            <q-item-section>
+                              <q-item-label>New</q-item-label>
+                            </q-item-section>
+                          </q-item>
+                        </q-list>
+                      </q-card>
                     </q-menu>
                   </q-btn>
                 </div>
               </q-item-section>
             </q-item>
             <div v-if="persisted.isShowingWorkspaces" class="relative-position">
-              <div
-                class="overflow-auto scroll"
+              <q-list
+                class="overflow-hidden scroll"
                 :style="{ height: `${persisted.workspaceDropdownHeight}px` }"
               >
                 <q-item
-                  v-for="workspace in [...workspaces.all].sort((left, right) =>
-                    left.name.localeCompare(right.name)
-                  )"
-                  :key="workspace.name"
+                  v-for="workspace in workspaces.joined"
+                  :key="workspace.id"
                   clickable
                   dense
-                  :to="`/workspaces/${workspace.name}`"
+                  :to="`/workspaces/${workspace.id}`"
                 >
                   <q-item-section avatar>
                     <q-icon class="q-ml-md" :name="icons.circle" size="7px" />
                   </q-item-section>
                   <q-item-section>
                     <q-item-label>
-                      <span class="q-ml-sm">
+                      <span class="q-ml-sm" style="text-wrap: nowrap">
                         {{ workspace.name }}
                       </span>
                     </q-item-label>
                   </q-item-section>
                 </q-item>
+                <template v-if="workspaces.unjoined.length > 0">
+                  <q-separator />
+                  <q-item
+                    v-for="workspace in workspaces.unjoined"
+                    :key="workspace.id"
+                    clickable
+                    dense
+                    :to="`/workspaces/${workspace.id}`"
+                  >
+                    <q-item-section avatar>
+                      <q-icon class="q-ml-md" :name="icons.circle" size="7px" />
+                    </q-item-section>
+                    <q-item-section no-wrap>
+                      <q-item-label>
+                        <span class="q-ml-sm" style="text-wrap: nowrap">
+                          {{ workspace.name }}
+                        </span>
+                      </q-item-label>
+                    </q-item-section>
+                    <q-item-section side>
+                      <q-btn color="primary" label="Join" round />
+                    </q-item-section>
+                  </q-item>
+                </template>
                 <resize-handle
                   v-model="persisted.workspaceDropdownHeight"
                   :class="$style.workspaceDropdownResizeHandle"
@@ -217,93 +228,99 @@ function promptReload() {
                   :max="400"
                   :min="34"
                 />
-              </div>
+              </q-list>
             </div>
-            <app-layout-drawer-component
-              v-if="engine.components.root != null"
-              :address="root"
-              :component="engine.components.root"
-            />
+            <div class="overflow-hidden scroll">
+              <app-layout-drawer-component
+                v-if="engine.components.root != null"
+                :address="root"
+                :component="engine.components.root"
+              />
+            </div>
           </template>
         </q-list>
       </div>
       <q-separator />
-      <q-list>
+      <q-list dense>
         <q-item v-if="engine.auth.isAdmin" clickable>
           <q-item-section avatar>
-            <q-icon :name="icons.admin" />
+            <q-icon :name="icons.admin" :size="iconSize" />
           </q-item-section>
           <q-item-section>
             <q-item-label>Admin</q-item-label>
           </q-item-section>
           <q-item-section side>
-            <q-icon :name="icons.menuRight" />
+            <q-icon :name="icons.menuRight" :size="iconSize" />
           </q-item-section>
           <q-menu anchor="top right" class="no-shadow" :offset="[8, 0]" self="top left">
-            <q-list bordered>
-              <q-item to="/users">
-                <q-item-section avatar>
-                  <q-icon :name="icons.user" />
-                </q-item-section>
-                <q-item-section>
-                  <q-item-label>Users</q-item-label>
-                </q-item-section>
-              </q-item>
-            </q-list>
+            <q-card bordered>
+              <q-list dense>
+                <q-item to="/users">
+                  <q-item-section avatar>
+                    <q-icon :name="icons.user" :size="iconSize" />
+                  </q-item-section>
+                  <q-item-section>
+                    <q-item-label>Users</q-item-label>
+                  </q-item-section>
+                </q-item>
+              </q-list>
+            </q-card>
           </q-menu>
         </q-item>
         <q-item v-if="engine.auth.isOperator" clickable>
           <q-item-section avatar>
-            <q-icon :name="icons.configuration" />
+            <q-icon :name="icons.configuration" :size="iconSize" />
           </q-item-section>
           <q-item-section>
             <q-item-label>Configuration</q-item-label>
           </q-item-section>
           <q-item-section side>
-            <q-icon :name="icons.menuRight" />
+            <q-icon :name="icons.menuRight" :size="iconSize" />
           </q-item-section>
           <q-menu anchor="bottom right" class="no-shadow" :offset="[8, 0]" self="bottom left">
-            <q-list bordered>
-              <q-item clickable @click="promptReload">
-                <q-item-section avatar>
-                  <q-icon :name="icons.reload" />
-                </q-item-section>
-                <q-item-section>
-                  <q-item-label>Reload Engine Configuration</q-item-label>
-                </q-item-section>
-              </q-item>
-            </q-list>
+            <q-card bordered>
+              <q-list dense>
+                <q-item clickable @click="promptReload">
+                  <q-item-section avatar>
+                    <q-icon :name="icons.reload" :size="iconSize" />
+                  </q-item-section>
+                  <q-item-section>
+                    <q-item-label>Reload Engine Configuration</q-item-label>
+                  </q-item-section>
+                </q-item>
+              </q-list>
+            </q-card>
           </q-menu>
         </q-item>
         <q-item clickable>
           <q-item-section avatar>
-            <q-icon :name="icons.preferences" />
+            <q-icon :name="icons.preferences" :size="iconSize" />
           </q-item-section>
           <q-item-section>
             <q-item-label>Preferences</q-item-label>
           </q-item-section>
           <q-item-section side>
-            <q-icon :name="icons.menuRight" />
+            <q-icon :name="icons.menuRight" :size="iconSize" />
           </q-item-section>
           <q-menu anchor="bottom right" class="no-shadow" :offset="[8, 0]" self="bottom left">
-            <q-card bordered flat :style="{ minWidth: '400px' }">
+            <q-card bordered flat :style="{ minWidth: '350px' }">
               <div class="items-center justify-evenly no-wrap row">
                 <q-toggle
                   v-model="preferences.isDarkModeEnabled"
-                  class="col q-pa-xs"
+                  class="col"
                   :icon="icons.darkMode"
                   label="Dark Mode"
                 />
                 <q-separator vertical />
                 <q-toggle
                   v-model="preferences.isDeveloperModeEnabled"
-                  class="col q-pa-xs"
+                  class="col"
                   :icon="icons.developer"
                   label="Developer Mode"
                 />
               </div>
               <q-separator />
-              <div class="q-pa-md">
+              <div class="q-pb-xs q-pt-sm q-px-sm">
                 <q-select
                   v-model="preferences.statisticsDuration"
                   dense
@@ -329,7 +346,7 @@ function promptReload() {
           <q-separator />
           <q-item clickable>
             <q-item-section avatar>
-              <q-icon :name="icons.developer" />
+              <q-icon :name="icons.developer" :size="iconSize" />
             </q-item-section>
             <q-item-section>
               <q-item-label>Developer</q-item-label>
@@ -338,10 +355,10 @@ function promptReload() {
               <q-icon :name="icons.menuRight" />
             </q-item-section>
             <q-menu anchor="bottom right" class="no-shadow" :offset="[8, 0]" self="bottom left">
-              <q-list bordered>
+              <q-list bordered dense>
                 <q-item clickable @click="clearLocalStorage">
                   <q-item-section avatar>
-                    <q-icon :name="icons.clearLocalStorage" />
+                    <q-icon :name="icons.clearLocalStorage" :size="iconSize" />
                   </q-item-section>
                   <q-item-section>
                     <q-item-label>Clear Local Storage</q-item-label>
@@ -349,7 +366,7 @@ function promptReload() {
                 </q-item>
                 <q-item clickable to="/developer/schema-form-playground">
                   <q-item-section avatar>
-                    <q-icon :name="icons.json" />
+                    <q-icon :name="icons.json" :size="iconSize" />
                   </q-item-section>
                   <q-item-section>
                     <q-item-label>Schema Form Playground</q-item-label>
@@ -362,7 +379,7 @@ function promptReload() {
         <q-separator />
         <q-item :to="engine.auth.user == null ? '/login' : '/account'">
           <q-item-section avatar>
-            <q-icon :name="icons.user" />
+            <q-icon :name="icons.user" :size="iconSize" />
           </q-item-section>
           <q-item-section>
             <q-item-label>{{
@@ -387,7 +404,7 @@ function promptReload() {
 }
 
 .toggleButton {
-  margin-left: -16px;
+  margin-left: -22px;
 }
 
 .iconContainer {
@@ -398,5 +415,10 @@ function promptReload() {
   position: absolute;
   bottom: 0;
   left: 0;
+}
+
+.largeItem {
+  padding-top: 12px !important;
+  padding-bottom: 12px !important;
 }
 </style>

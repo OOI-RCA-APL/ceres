@@ -1,8 +1,9 @@
 <script lang="ts" setup>
 import { useEventListener, useMouse, useResizeObserver } from '@vueuse/core'
 import { QPopupEdit } from 'quasar'
-import { onMounted, reactive, watchEffect } from 'vue'
+import { onMounted, reactive, watchEffect, watch } from 'vue'
 
+import { useAuth } from '@/api/auth'
 import CommonText from '@/components/CommonText.vue'
 import FullPage from '@/components/FullPage.vue'
 import ResizeHandle from '@/components/ResizeHandle.vue'
@@ -10,7 +11,9 @@ import WorkspaceAddWidgetMenu from '@/components/WorkspaceAddWidgetMenu.vue'
 import WorkspaceGap from '@/components/WorkspaceGap.vue'
 import WorkspaceWidget from '@/components/WorkspaceWidget.vue'
 import { useDialogs } from '@/dialogs'
+import { NotFoundError } from '@/errors'
 import icons from '@/icons'
+import { useNavigation } from '@/navigation'
 import { provideWorkspace, resolveWidgetWidths, useWorkspaces, Widget } from '@/workspace'
 
 const { id } = $defineProps<{
@@ -18,12 +21,24 @@ const { id } = $defineProps<{
 }>()
 
 const workspaces = useWorkspaces()
+const auth = useAuth()
 const dialogs = useDialogs()
+const navigation = useNavigation()
 const layout = $ref<HTMLDivElement | null>(null)
 const workspace = provideWorkspace(id)
 await workspace.load()
 
-const name = $computed(() => workspace.name ?? 'Unnamed Workspace')
+if (workspace.data == null || workspace.name == null) {
+  throw new NotFoundError('workspace', id)
+}
+
+let name = $ref<string>(workspace.name)
+watch(
+  () => name,
+  async () => {
+    await workspace.rename(name)
+  }
+)
 
 let renamePopup = $ref<QPopupEdit | null>(null)
 let layoutWidth = $ref<number | null>(null)
@@ -53,20 +68,6 @@ const draggedWidgetIconStyle = $computed(() => ({
   transform: 'translate(-50%, -50%)',
 }))
 
-let nameValue = $computed({
-  get: () => workspace.name,
-  set: (value: string) => {
-    if (value == workspace.name) {
-      return
-    }
-
-    const renamed = workspace.rename(value)
-    if (renamed != null) {
-      workspaces.open(renamed.name)
-    }
-  },
-})
-
 async function duplicate() {
   const copied = await workspace.duplicate()
   if (copied != null) {
@@ -80,8 +81,9 @@ function promptDelete() {
       title: 'Delete Workspace',
       message: `Are you sure you want to delete workspace "${workspace.name}"?`,
     })
-    .onOk(() => {
-      workspace.delete()
+    .onOk(async () => {
+      await workspace.delete()
+      await navigation.go('/')
     })
 }
 
@@ -130,13 +132,13 @@ onMounted(() => {
     <template #header-append>
       <div>
         <common-text class="q-ml-md q-py-sm" variant="title2">
-          {{ workspace.name }}
+          {{ name }}
         </common-text>
         <q-popup-edit
-          v-if="workspace.data != null"
+          v-if="auth.isAdmin && workspace.data != null"
           ref="renamePopup"
           v-slot="scope"
-          v-model="nameValue"
+          v-model="name"
           anchor="bottom left"
           auto-save
           :class="$style.popupEdit"
@@ -181,19 +183,6 @@ onMounted(() => {
                 <q-item-label>Duplicate</q-item-label>
               </q-item-section>
             </q-item>
-            <q-item
-              clickable
-              dense
-              :disable="workspace.data == null"
-              @click="workspaces.exportFile(workspace.name)"
-            >
-              <q-item-section avatar>
-                <q-icon :name="icons.export" />
-              </q-item-section>
-              <q-item-section>
-                <q-item-label>Export</q-item-label>
-              </q-item-section>
-            </q-item>
             <q-item clickable dense @click="promptDelete">
               <q-item-section avatar>
                 <q-icon :name="icons.delete" />
@@ -218,8 +207,7 @@ onMounted(() => {
     </template>
     <div class="q-pa-xs">
       <div v-if="workspace.data == null" ref="layout" class="q-py-lg text-center">
-        <div>No workspace named "{{ name }}" exists. Create it?</div>
-        <q-btn class="q-mt-md" color="primary" dense label="Create" @click="workspace.create" />
+        <div>No workspace named "{{ name }}" exists.</div>
       </div>
       <div v-else ref="layout">
         <div
@@ -310,7 +298,7 @@ onMounted(() => {
     <div class="faded-hover items-center justify-center q-mt-sm row">
       <q-btn v-if="workspace.data != null" color="primary" :icon="icons.add" round size="8px">
         <q-tooltip class="bg-primary">Add Widget</q-tooltip>
-        <WorkspaceAddWidgetMenu :offset="[0, 8]" :row="workspace.data.layout.length" />
+        <workspace-add-widget-menu :offset="[0, 8]" :row="workspace.data.layout.length" />
       </q-btn>
     </div>
     <div :class="$style.bottomPadding" />

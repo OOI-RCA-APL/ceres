@@ -1,6 +1,6 @@
 import Zod from 'zod'
 
-import { Address } from '@/api/address'
+import { Address, AddressModel } from '@/api/address'
 
 export type BaseElement = Zod.infer<typeof BaseElementModel>
 export const BaseElementModel = Zod.object({
@@ -147,7 +147,7 @@ export const ChartElementModel = BaseElementModel.extend({
 export type RenderElement = Zod.infer<typeof RenderElementModel>
 export const RenderElementModel = BaseElementModel.extend({
   type: Zod.literal('display'),
-  address: Zod.string().transform(Address.parse),
+  address: AddressModel,
   query: Zod.string(),
 })
 
@@ -155,7 +155,7 @@ export type DisplayElement = Zod.infer<typeof DisplayElementModel>
 export const DisplayElementModel = BaseElementModel.extend({
   type: Zod.literal('display'),
   title: Zod.string(),
-  address: Zod.string().transform(Address.parse),
+  address: AddressModel,
   query: Zod.string(),
 })
 

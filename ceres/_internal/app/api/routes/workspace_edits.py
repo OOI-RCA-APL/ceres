@@ -1,52 +1,104 @@
 from __future__ import annotations
 
+from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 from pydantic import Field
 
-from ceres._internal.app.shared import CurrentEngine, CurrentRole, CurrentUser
-from ceres.error import Failure, NotFoundError, NotPermittedError
-from ceres.setting import Setting, SettingCreate
-from ceres.user import UserRole
-from ceres.workspace import WorkspaceMembership, WorkspaceMembershipFilter
+from ceres._internal.app.shared import SELF_OR_ADMIN, CurrentEngine, assert_found
+from ceres.data import DeferBuild, ImmutableDataObject, JSONSerializableDict
+from ceres.workspace import WorkspaceEdit, WorkspaceEditCreate, WorkspaceEditFilter
 
-router = APIRouter(prefix="/workspace-edits", tags=["workspace-edits"])
+router = APIRouter(tags=["workspace-edits"])
 
 
-class GetWorkspaceEditsQueryParameters(WorkspaceMembershipFilter):
+@router.get(
+    "/users/{user_id:uuid}/workspace-edits/{workspace_id:uuid}",
+    dependencies=[SELF_OR_ADMIN],
+)
+async def get_workspace_edit(
+    engine: CurrentEngine,
+    user_id: UUID,
+    workspace_id: UUID,
+) -> WorkspaceEdit:
+    return assert_found(await engine.workspace_edits.get(user_id, workspace_id))
+
+
+class GetWorkspaceEditsQueryParameters(WorkspaceEditFilter):
     limit: int = Field(default=100, ge=0, le=1000)
 
 
-@router.get("/{user_id:uuid}/{workspace_id:uuid}")
-async def get_workspace_edit(
+@router.get("/users/{user_id:uuid}/workspace-edits", dependencies=[SELF_OR_ADMIN])
+async def get_workspace_edits(
     engine: CurrentEngine,
-    role: CurrentRole,
-    user: CurrentUser,
+    user_id: UUID,
+    filter: Annotated[GetWorkspaceEditsQueryParameters, Query()],
+) -> list[WorkspaceEdit]:
+    return await engine.workspace_edits.where(user_id=user_id, and__=filter)
+
+
+class CreateWorkspaceEditData(ImmutableDataObject, DeferBuild):
+    data: JSONSerializableDict
+
+
+@router.post(
+    "/users/{user_id:uuid}/workspace-edits/{workspace_id:uuid}",
+    dependencies=[SELF_OR_ADMIN],
+)
+async def create_workspace_edit(
+    engine: CurrentEngine,
     user_id: UUID,
     workspace_id: UUID,
-) -> WorkspaceMembership:
-    if role < UserRole.ADMIN and (user is None or user.id != user_id):
-        raise Failure(NotPermittedError)
+    values: CreateWorkspaceEditData,
+) -> WorkspaceEdit:
+    return await engine.workspace_edits.create(
+        WorkspaceEditCreate(
+            user_id=user_id,
+            workspace_id=workspace_id,
+            data=values.data,
+        )
+    )
 
-    membership = await engine.workspace_memberships.get(user_id, workspace_id)
-    if membership is None:
-        raise Failure(NotFoundError)
 
-    return membership
+class AssignWorkspaceEditData(CreateWorkspaceEditData):
+    pass
 
 
-@router.put("")
-async def put_setting(
+@router.put(
+    "/users/{user_id:uuid}/workspace-edits/{workspace_id:uuid}",
+    dependencies=[SELF_OR_ADMIN],
+)
+async def assign_workspace_edit(
     engine: CurrentEngine,
-    role: CurrentRole,
-    user: CurrentUser,
-    setting: SettingCreate,
-) -> Setting:
-    if role < UserRole.ADMIN and (user is None or user.id != setting.user_id):
-        raise Failure(NotPermittedError())
+    user_id: UUID,
+    workspace_id: UUID,
+    values: AssignWorkspaceEditData,
+) -> WorkspaceEdit:
+    return await engine.workspace_edits.create(
+        WorkspaceEditCreate(
+            user_id=user_id,
+            workspace_id=workspace_id,
+            data=values.data,
+        ),
+        upsert=True,
+    )
 
-    return await engine.settings.create(
-        setting,
-        upsert_on=[Setting.Row.user_id, Setting.Row.name],
+
+@router.delete(
+    "/users/{user_id:uuid}/workspace-edits/{workspace_id:uuid}",
+    dependencies=[SELF_OR_ADMIN],
+)
+async def delete_workspace_edit(
+    engine: CurrentEngine,
+    user_id: UUID,
+    workspace_id: UUID,
+) -> WorkspaceEdit:
+    return assert_found(
+        await engine.workspace_edits.where(
+            user_id=user_id,
+            workspace_id=workspace_id,
+        )
+        .delete()
+        .first()
     )

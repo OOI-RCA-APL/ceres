@@ -28,7 +28,7 @@ function toggleExpanded() {
 </script>
 
 <template>
-  <q-item :class="[$style.root, 'items-center', 'row']" :dense="address.depth > 0">
+  <q-item :class="[$style.root, 'items-center', 'row']" dense>
     <div
       :class="[$style.iconContainer, 'items-center', 'justify-center', 'row']"
       :style="{ marginLeft: `${8 * address.depth}px` }"
@@ -43,7 +43,7 @@ function toggleExpanded() {
         :tabindex="isLeaf ? -1 : 0"
         @click.stop.prevent="isLeaf ? undefined : toggleExpanded()"
       >
-        <q-icon :name="isExpanded ? icons.menuDown : icons.menuRight" size="22px" />
+        <q-icon :name="isExpanded ? icons.menuDown : icons.menuRight" size="18px" />
       </q-btn>
     </div>
     <q-item-section no-wrap>
@@ -69,12 +69,8 @@ function toggleExpanded() {
 </template>
 
 <style module>
-.root {
-  min-height: 38px;
-}
-
 .left {
-  margin-left: -16px;
+  margin-left: -22px;
 }
 
 .iconContainer {

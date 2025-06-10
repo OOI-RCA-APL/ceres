@@ -160,7 +160,7 @@ class BaseRecordFilter[
             return False
 
         if self.timestamp is not None:
-            if obj.timestamp not in util.as_sequence(self.timestamp):
+            if obj.timestamp not in util.seq(self.timestamp):
                 return False
         if self.after is not None:
             if obj.timestamp < self.after:

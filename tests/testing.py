@@ -170,9 +170,11 @@ async def execute_filter_test(
         assert await manager.where(filter) == expected
         assert await manager.where(filter).select() == expected
         assert await manager.where(filter).count() == len(expected)
+        assert bool(expected) == await manager.where(filter).any()
         assert await manager.where(filter).delete() == len(expected)
         assert await manager.where(filter) == []
         assert await manager.count() == len(entities) - len(expected)
+        assert await manager.any() == bool(len(entities) - len(expected))
         await reset()
         if update:
             assert await manager.where(filter).update(update) == len(expected)
@@ -183,6 +185,7 @@ async def execute_filter_test(
         assert unordered(await manager.where(filter).delete().all()) == uexpected
         assert await manager.where(filter) == []
         assert await manager.count() == len(entities) - len(expected)
+        assert await manager.any() == bool(len(entities) - len(expected))
         await reset()
         if update:
             assert unordered(await manager.where(filter).update(update).all()) == uexpected

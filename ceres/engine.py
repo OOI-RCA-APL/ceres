@@ -29,7 +29,7 @@ with lazy_imports(__name__):
     from ceres.database import Database
     from ceres.setting import SettingManager
     from ceres.user import UserManager
-    from ceres.workspace import WorkspaceManager, WorkspaceMembershipManager
+    from ceres.workspace import WorkspaceEditManager, WorkspaceManager, WorkspaceMembershipManager
 
 
 SyncActionType = Literal[
@@ -163,8 +163,8 @@ class Engine(Node):
         return WorkspaceMembershipManager(self)
 
     @cached_property
-    def workspace_edits(self) -> WorkspaceMembershipManager:
-        return WorkspaceMembershipManager(self)
+    def workspace_edits(self) -> WorkspaceEditManager:
+        return WorkspaceEditManager(self)
 
     @property
     def config_path(self) -> Path | None:

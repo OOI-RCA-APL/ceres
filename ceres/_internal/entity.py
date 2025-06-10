@@ -25,20 +25,14 @@ from typing import (
 )
 from uuid import UUID
 
-from pydantic import ConfigDict, Field, NonNegativeInt
-from pydantic.functional_validators import model_validator
+from pydantic import ConfigDict, Field, NonNegativeInt, model_validator
 from sqlalchemy import (
-    ClauseElement,
-    Column,
-    ColumnElement,
     Delete,
     Dialect,
     Engine,
     Index,
     Integer,
-    Result,
     Select,
-    SQLColumnExpression,
     Update,
     and_,
     delete,
@@ -74,12 +68,11 @@ from ceres.timing import utc
 if TYPE_CHECKING:
     from datetime import datetime
 
-    from sqlalchemy import SQLColumnExpression
-    from sqlalchemy.ext.asyncio import AsyncResult, AsyncSession
+    from sqlalchemy import ClauseElement, ColumnElement, ScalarResult, SQLColumnExpression
+    from sqlalchemy.ext.asyncio import AsyncScalarResult, AsyncSession
     from sqlalchemy.schema import SchemaItem
     from sqlalchemy.sql.base import ReadOnlyColumnCollection
     from sqlalchemy.sql.dml import ReturningDelete, ReturningUpdate
-    from sqlalchemy.sql.roles import DDLConstraintColumnRole
 
     from ceres._internal.protocols import DatabaseSource
 
@@ -164,15 +157,18 @@ class BaseEntityRow(
         if isinstance(dialect, (Engine, AsyncEngine)):
             dialect = dialect.dialect
 
-        for index in sorted(cls.__table__.indexes, key=lambda index: str(index.name)):
+        for index in sorted(cls.__table__.indexes, key=lambda index: str(index.name or "")):
             if index._ddl_if is not None:
-                if dialect.name not in util.as_sequence(index._ddl_if.dialect):
+                # `DDLif.dialect` can be a tuple of dialect names, despite the type annotation being
+                # `str | None` at the time of writing.
+                if dialect.name not in util.seq(index._ddl_if.dialect):
                     continue
 
             yield _compile(dialect, CreateIndex(index, if_not_exists=if_not_exists))
 
     def values(self) -> dict[str, Any]:
-        return {column.name: getattr(self, column.name) for column in self.__table__.columns}
+        values = self.__dict__
+        return {column: values[column] for column in self.__table__.columns.keys()}
 
     @declared_attr
     def __table_args__(cls) -> Any:
@@ -219,8 +215,8 @@ class BaseEntityFilterArgs[
     limit: NonNegativeInt | None
     offset: NonNegativeInt | None
 
-    or__: Sequence[Self | BaseEntityFilter[Any, FieldT, OrderT]] | None
-    and__: Sequence[Self | BaseEntityFilter[Any, FieldT, OrderT]] | None
+    or__: MaybeSequence[Self | BaseEntityFilter[Any, FieldT, OrderT]] | None
+    and__: MaybeSequence[Self | BaseEntityFilter[Any, FieldT, OrderT]] | None
 
 
 class BaseEntityFilter[
@@ -253,11 +249,7 @@ class BaseEntityFilter[
     this root `offset` argument, the highest defined `offset` value in `and__` will be used instead.
     """
 
-    or__: MaybeSequence[Self] | None = Field(
-        default=None,
-        min_length=1,
-        validation_alias="or",
-    )
+    or__: MaybeSequence[Self] | None = Field(default=None, validation_alias="or")
     """
     One or more subfilters, where in the case any match the queried value, the overall filter should
     match.
@@ -269,11 +261,7 @@ class BaseEntityFilter[
     is matched, the overall filter will match.
     """
 
-    and__: MaybeSequence[Self] | None = Field(
-        default=None,
-        min_length=1,
-        validation_alias="and",
-    )
+    and__: MaybeSequence[Self] | None = Field(default=None, validation_alias="and")
     """
     One or more subfilters, where in the case all of them they match the queried value, the overall
     filter should match.
@@ -302,7 +290,7 @@ class BaseEntityFilter[
     @model_validator(mode="after")
     def _resolve_and_or(self) -> Self:
         if self.or__:
-            for subfilter in util.as_sequence(self.or__):
+            for subfilter in util.seq(self.or__):
                 if subfilter.order is not None:
                     raise ValueError(
                         "Cannot specify `order` in `or__` subfilters. Use `and__` instead."
@@ -317,7 +305,7 @@ class BaseEntityFilter[
                     )
 
         if self.and__:
-            for subfilter in util.as_sequence(self.and__):
+            for subfilter in util.seq(self.and__):
                 if subfilter.order is not None:
                     object.__setattr__(self, "order", subfilter.order)
                     self.model_fields_set.add("order")
@@ -353,19 +341,14 @@ class BaseEntityFilter[
     def _get_row_cls(cls) -> type[BaseEntityRow]: ...
 
     def matches(self, obj: EntityT) -> bool:
-        matches_root = self._matches(obj)
-        matches_and = (
-            all(subcondition.matches(obj) for subcondition in util.as_sequence(self.and__))
-            if self.and__
-            else True
-        )
-        matches_or = (
-            any(subcondition.matches(obj) for subcondition in util.as_sequence(self.or__))
-            if self.or__
-            else True
-        )
+        ands: Sequence[Self] = util.seq(self.and__ or ())
+        ors: Sequence[Self] = util.seq(self.or__ or ())
 
-        return (matches_root and matches_and) or matches_or
+        return (
+            self._matches(obj)
+            and all(subcondition.matches(obj) for subcondition in ands)
+            or any(subcondition.matches(obj) for subcondition in ors)
+        )
 
     @abstractmethod
     def _matches(self, obj: EntityT) -> bool:
@@ -375,14 +358,14 @@ class BaseEntityFilter[
         ands = list(self._get_where(dialect))
 
         if self.and__:
-            for subcondition in util.as_sequence(self.and__):
+            for subcondition in util.seq(self.and__):
                 ands.extend(subcondition._get_combined_where(dialect))
 
         if not self.or__:
             yield from ands
         else:
             ors: list[SQLColumnExpression[bool]] = []
-            for subcondition in util.as_sequence(self.or__):
+            for subcondition in util.seq(self.or__):
                 ors.extend(subcondition._get_combined_where(dialect))
 
             if ands:
@@ -403,7 +386,7 @@ class BaseEntityFilter[
 
         Row = self._get_row_cls()
         columns: list[SQLColumnExpression[Any]] = []
-        for value in util.as_sequence(order):
+        for value in util.seq(order):
             base = value.split(":")[0]
             ascending = not value.endswith(":desc")
             column = Row.__table__.columns[base]
@@ -429,11 +412,11 @@ class BaseEntityFilter[
         if not always_use_subquery:
             if isinstance(statement, Select):
                 return statement.where(*where).order_by(*order_by).limit(limit).offset(offset)
-            else:
-                # This is an update or delete statement, and if there is no `limit` or `offset`,
-                # `order_by` does not matter, so we can avoid using a subquery.
-                if limit is None and offset is None and not statement._returning:
-                    return statement.where(*where)
+
+            # This is an update or delete statement, and if there is no `limit` or `offset`,
+            # `order_by` does not matter, so we can avoid using a subquery.
+            if limit is None and offset is None and not statement._returning:
+                return statement.where(*where)
 
         pk = self._get_row_cls().get_primary_key_columns()
         pks = select(*pk).where(*where).order_by(*order_by).limit(limit).offset(offset)
@@ -734,7 +717,7 @@ class BaseTimestampEntityFilter[
             return False
 
         if self.timestamp is not None:
-            if obj.timestamp not in util.as_sequence(self.timestamp):
+            if obj.timestamp not in util.seq(self.timestamp):
                 return False
         if self.after is not None:
             if obj.timestamp < self.after:
@@ -982,7 +965,7 @@ class _BaseStatementExecutor[
     ) -> None:
         self._query: Final = query
         self._session: AsyncSession | None = None
-        self._stream: AsyncResult[Any] | None = None
+        self._stream: AsyncScalarResult[BaseEntityRow] | None = None
 
     @override
     def __eq__(self, value: object, /) -> bool:
@@ -999,7 +982,9 @@ class _BaseStatementExecutor[
             if self._session is None:
                 self._session = await self._query._get_database().init()
             if self._stream is None:
-                self._stream = await self._session.stream(await self._get_statement(True))
+                self._stream = await self._session.stream_scalars(
+                    await self._get_statement(True),
+                )
 
         return ResultsIterator(self._parse_async_rows(self._stream))
 
@@ -1039,13 +1024,13 @@ class _BaseStatementExecutor[
 
         async with await database.init() as session:
             if resolved.limit is not None and resolved.limit <= _EXECUTOR_STREAM_THRESHOLD:
-                result = await session.execute(statement)
+                result = await session.scalars(statement)
                 if self._should_commit():
                     await session.commit()
 
                 entities = await self._parse_rows(result)
             else:
-                stream = await session.stream(statement)
+                stream = await session.stream_scalars(statement)
                 if self._should_commit():
                     await session.commit()
 
@@ -1071,14 +1056,14 @@ class _BaseStatementExecutor[
         returning: bool,
     ) -> Select[Any] | Update | ReturningUpdate | Delete | ReturningDelete: ...
 
-    def _get_parser(self) -> Callable[[Any], EntityT | None]:
+    def _get_parser(self) -> Callable[[BaseEntityRow], EntityT | None]:
         from ceres._internal.util import construct_model
 
         Entity = self._query._get_entity_class()
         transform = self._query._get_transform()
 
-        def parse(row: Any) -> EntityT | None:
-            entity = construct_model(Entity, row._mapping)
+        def parse(row: BaseEntityRow) -> EntityT | None:
+            entity = construct_model(Entity, row.values())
             if transform is not None:
                 entity = transform(entity)
 
@@ -1086,7 +1071,10 @@ class _BaseStatementExecutor[
 
         return parse
 
-    async def _parse_rows(self, rows: Result[Any]) -> list[EntityT]:
+    async def _parse_rows(
+        self,
+        rows: ScalarResult[BaseEntityRow],
+    ) -> list[EntityT]:
         parse = self._get_parser()
         entities: list[EntityT] = []
 
@@ -1105,7 +1093,10 @@ class _BaseStatementExecutor[
 
         return entities
 
-    async def _parse_async_rows(self, rows: AsyncResult[Any]) -> AsyncIterator[EntityT]:
+    async def _parse_async_rows(
+        self,
+        rows: AsyncScalarResult[BaseEntityRow],
+    ) -> AsyncIterator[EntityT]:
         parser = self._get_parser()
 
         count = 0
@@ -1134,7 +1125,7 @@ class SelectExecutor[
     async def _get_statement(self, returning: bool = True) -> Select[tuple[Any]]:
         Row = self._query._get_row_class()
         database = self._query._get_database()
-        statement = select(*Row.get_columns())
+        statement = select(Row)
         statement = self._query._get_resolved_filter().apply(statement, database.type)
         return statement
 
@@ -1195,7 +1186,7 @@ class UpdateExecutor[
 
         statement = update(Row).values(assign)
         if returning:
-            statement = statement.returning(*Row.get_columns())
+            statement = statement.returning(Row)
 
         statement = self._query._get_resolved_filter().apply(statement, database.type)
         return statement
@@ -1237,7 +1228,7 @@ class DeleteExecutor[
 
         statement = delete(Row)
         if returning:
-            statement = statement.returning(*Row.get_columns())
+            statement = statement.returning(Row)
 
         statement = self._query._get_resolved_filter().apply(statement, database.type)
         return statement
@@ -1298,6 +1289,23 @@ class BaseEntityQuery[
         async with await database.init() as session:
             results = await session.execute(statement)
             return results.scalar() or 0
+
+    async def any(self) -> bool:
+        database = self._get_database()
+        filter = self._get_resolved_filter()
+        statement = select("*").select_from(self._get_row_class())
+        statement = filter.apply(
+            statement,
+            database.type,
+            ignore_order=True,
+            always_use_subquery=filter.limit is not None or filter.offset is not None,
+        )
+        statement = select(statement.exists())
+
+        async with await database.init() as session:
+            results = await session.execute(statement)
+            count = results.scalar() or 0
+            return count > 0
 
     @abstractmethod
     def _get_database(self) -> Database: ...
@@ -1503,17 +1511,17 @@ class BaseEntityManager[
         self,
         data: CreateT,
         *,
-        upsert_on: Sequence[str | ColumnElement[Any] | DDLConstraintColumnRole] | None = None,
+        upsert: bool = False,
     ) -> EntityT:
         result = await self._create_transform(data)
-        await self._insert(result, upsert_on=upsert_on)
+        await self._insert(result, upsert=upsert)
         return result
 
     async def _insert(
         self,
         data: EntityT,
         *,
-        upsert_on: Sequence[str | Column[Any] | DDLConstraintColumnRole] | None = None,
+        upsert: bool = False,
     ) -> RowT:
         Row = self._get_row_class()
         row = Row(
@@ -1530,15 +1538,15 @@ class BaseEntityManager[
                 statement = insert(Row).values(row.values())
                 pk = Row.get_primary_key_columns()
 
-                if upsert_on is not None:
-                    upsert = {
+                if upsert:
+                    upsert_columns = {
                         name: column
                         for name, column in statement.excluded.items()
                         if name not in pk
                     }
                     statement = statement.on_conflict_do_update(
-                        index_elements=upsert_on,
-                        set_=upsert,
+                        index_elements=pk,
+                        set_=upsert_columns,
                     )
 
                 await session.execute(statement)

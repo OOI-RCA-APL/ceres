@@ -15,6 +15,7 @@ from ceres._internal.app.api.routes.settings import router as router__settings
 from ceres._internal.app.api.routes.statistics import router as router__statistics
 from ceres._internal.app.api.routes.statuses import router as router__statuses
 from ceres._internal.app.api.routes.users import router as router__users
+from ceres._internal.app.api.routes.workspace_edits import router as router__workspace_edits
 from ceres._internal.app.api.routes.workspace_memberships import (
     router as router__workspace_memberships,
 )
@@ -40,6 +41,7 @@ router.include_router(router__settings)
 router.include_router(router__statistics)
 router.include_router(router__statuses)
 router.include_router(router__users)
+router.include_router(router__workspace_edits)
 router.include_router(router__workspace_memberships)
 router.include_router(router__workspaces)
 

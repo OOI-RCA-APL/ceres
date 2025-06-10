@@ -14,15 +14,8 @@ from typing import (
 )
 from uuid import UUID
 
-from pydantic import model_validator
-from sqlalchemy import (
-    JSON,
-    ForeignKeyConstraint,
-    PrimaryKeyConstraint,
-    Text,
-    case,
-    select,
-)
+from pydantic import Field, model_validator
+from sqlalchemy import JSON, ForeignKeyConstraint, PrimaryKeyConstraint, Text, case, select
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ceres._internal import util
@@ -47,7 +40,6 @@ from ceres._internal.entity import (
 )
 from ceres._internal.util import MatchMode
 from ceres.data import (
-    EmailStr,
     FromYAML,
     JSONSerializableDict,
     MaybeSequence,
@@ -93,7 +85,6 @@ class WorkspaceMembershipRow(BaseEntityRow, kw_only=True):
     user_id: Mapped[UUID] = mapped_column(UUIDMapper)
     workspace_id: Mapped[UUID] = mapped_column(UUIDMapper)
     role: Mapped[WorkspaceMembershipRole] = mapped_column(EnumMapper(WorkspaceMembershipRole))
-    data: Mapped[JSONSerializableDict | None] = mapped_column(JSON, default=None)
 
     @classmethod
     @override
@@ -460,7 +451,6 @@ class WorkspaceRow(BaseUUIDEntityRow, kw_only=True):
     __tablename__: ClassVar[str] = "workspaces"
 
     name: Mapped[str] = mapped_column(Text)
-    client: Mapped[str] = mapped_column(Text, default="console", server_default="console")
     default_viewership: Mapped[WorkspaceAccessRestriction] = mapped_column(
         EnumMapper(WorkspaceAccessRestriction),
         default=WorkspaceAccessRestriction.PRIVATE,
@@ -510,7 +500,6 @@ WorkspaceField: TypeAlias = (
     BaseUUIDEntityField
     | Literal[
         "name",
-        "client",
         "default_viewership",
         "default_editorship",
         "default_ownership",
@@ -523,9 +512,6 @@ WorkspaceOrder: TypeAlias = (
         "name",
         "name:asc",
         "name:desc",
-        "client",
-        "client:asc",
-        "client:desc",
         "default_viewership",
         "default_viewership:asc",
         "default_viewership:desc",
@@ -547,16 +533,13 @@ class WorkspaceFilterArgs(BaseUUIDEntityFilterArgs[WorkspaceField, WorkspaceOrde
     name_contains: MaybeSequence[str] | None
     name_prefix: MaybeSequence[str] | None
     name_suffix: MaybeSequence[str] | None
-    client: MaybeSequence[str] | None
-    client_contains: MaybeSequence[str] | None
-    client_prefix: MaybeSequence[str] | None
-    client_suffix: MaybeSequence[str] | None
     default_viewership: MaybeSequence[WorkspaceAccessRestriction]
     default_editorship: MaybeSequence[WorkspaceAccessRestriction]
     default_ownership: MaybeSequence[WorkspaceAccessRestriction]
-    viewable_by: UUID | None
-    editable_by: UUID | None
-    owned_by: UUID | None
+    viewable_by: MaybeSequence[UUID] | None
+    editable_by: MaybeSequence[UUID] | None
+    ownable_by: MaybeSequence[UUID] | None
+    joined_by: MaybeSequence[UUID] | None
 
 
 class WorkspaceFilter(BaseUUIDEntityFilter["Workspace", WorkspaceField, WorkspaceOrder]):
@@ -568,26 +551,20 @@ class WorkspaceFilter(BaseUUIDEntityFilter["Workspace", WorkspaceField, Workspac
     """Filter by `name` starting with one or more given prefixes."""
     name_suffix: MaybeSequence[str] | None = None
     """Filter by `name` ending with one or more given suffixes."""
-    client: MaybeSequence[EmailStr] | None = None
-    """Filter by `client` being equal to one or more given email addresses."""
-    client_contains: MaybeSequence[str] | None = None
-    """Filter by `client` containing one or more given substrings."""
-    client_prefix: MaybeSequence[str] | None = None
-    """Filter by `client` starting with one or more given prefixes."""
-    client_suffix: MaybeSequence[str] | None = None
-    """Filter by `client` ending with one or more given suffixes."""
     default_viewership: MaybeSequence[WorkspaceAccessRestriction] | None = None
     """Filter by `default_viewership` being equal to one or more given access levels."""
     default_editorship: MaybeSequence[WorkspaceAccessRestriction] | None = None
     """Filter by `default_editorship` being equal to one or more given access levels."""
     default_ownership: MaybeSequence[WorkspaceAccessRestriction] | None = None
     """Filter by `default_ownership` being equal to one or more given access levels."""
-    viewable_by: UUID | None = None
-    """Filter, matching only workspaces viewable by a given user ID."""
-    editable_by: UUID | None = None
-    """Filter, matching only workspaces editable by a given user ID."""
-    owned_by: UUID | None = None
-    """Filter, matching only workspaces owned by a given user ID."""
+    viewable_by: MaybeSequence[UUID] | None = None
+    """Filter, matching only workspaces viewable by one or more given user IDs."""
+    editable_by: MaybeSequence[UUID] | None = None
+    """Filter, matching only workspaces editable by one or more given user IDs."""
+    ownable_by: MaybeSequence[UUID] | None = None
+    """Filter, matching only workspaces ownable by one or more a given user IDs."""
+    joined_by: MaybeSequence[UUID] | None = None
+    """Filter, matching only workspaces where on or more given user IDs are members."""
 
     @classmethod
     @override
@@ -606,15 +583,6 @@ class WorkspaceFilter(BaseUUIDEntityFilter["Workspace", WorkspaceField, Workspac
         if not util.match_string(obj.name, self.name_prefix, MatchMode.PREFIX):
             return False
         if not util.match_string(obj.name, self.name_suffix, MatchMode.SUFFIX):
-            return False
-
-        if not util.match_string(obj.client, self.client, MatchMode.EQUALS):
-            return False
-        if not util.match_string(obj.client, self.client_contains, MatchMode.CONTAINS):
-            return False
-        if not util.match_string(obj.client, self.client_prefix, MatchMode.PREFIX):
-            return False
-        if not util.match_string(obj.client, self.client_suffix, MatchMode.SUFFIX):
             return False
 
         if not util.match_value(obj.default_viewership, self.default_viewership):
@@ -640,15 +608,6 @@ class WorkspaceFilter(BaseUUIDEntityFilter["Workspace", WorkspaceField, Workspac
         if self.name_suffix is not None:
             yield util.sql_match_string(columns.name, self.name_suffix, MatchMode.SUFFIX)
 
-        if self.client is not None:
-            yield util.sql_match_value(columns.client, self.client)
-        if self.client_contains is not None:
-            yield util.sql_match_string(columns.client, self.client_contains, MatchMode.CONTAINS)
-        if self.client_prefix is not None:
-            yield util.sql_match_string(columns.client, self.client_prefix, MatchMode.PREFIX)
-        if self.client_suffix is not None:
-            yield util.sql_match_string(columns.client, self.client_suffix, MatchMode.SUFFIX)
-
         if self.default_viewership is not None:
             yield util.sql_match_value(columns.default_viewership, self.default_viewership)
         if self.default_editorship is not None:
@@ -659,7 +618,7 @@ class WorkspaceFilter(BaseUUIDEntityFilter["Workspace", WorkspaceField, Workspac
         for user_id, default_access_level, min_membership_role in (
             (self.viewable_by, columns.default_viewership, WorkspaceMembershipRole.VIEWER),
             (self.editable_by, columns.default_editorship, WorkspaceMembershipRole.EDITOR),
-            (self.owned_by, columns.default_ownership, WorkspaceMembershipRole.OWNER),
+            (self.ownable_by, columns.default_ownership, WorkspaceMembershipRole.OWNER),
         ):
             if user_id is None:
                 continue
@@ -674,9 +633,16 @@ class WorkspaceFilter(BaseUUIDEntityFilter["Workspace", WorkspaceField, Workspac
             ) | (
                 columns.id.in_(
                     select(WorkspaceMembershipRow.workspace_id).where(
-                        WorkspaceMembershipRow.user_id == user_id,
+                        WorkspaceMembershipRow.user_id.in_(util.seq(user_id)),
                         WorkspaceMembershipRow.role.in_(_membership_roles_ge(min_membership_role)),
                     )
+                )
+            )
+
+        if self.joined_by is not None:
+            yield columns.id.in_(
+                select(WorkspaceMembershipRow.workspace_id).where(
+                    WorkspaceMembershipRow.user_id.in_(util.seq(self.joined_by)),
                 )
             )
 
@@ -687,10 +653,10 @@ class WorkspaceFilter(BaseUUIDEntityFilter["Workspace", WorkspaceField, Workspac
 
 class WorkspaceCreate(BaseUUIDEntityCreate):
     name: NonEmptyStr
-    client: str = "console"
     default_viewership: WorkspaceAccessRestriction = WorkspaceAccessRestriction.PRIVATE
     default_editorship: WorkspaceAccessRestriction = WorkspaceAccessRestriction.PRIVATE
     default_ownership: WorkspaceAccessRestriction = WorkspaceAccessRestriction.PRIVATE
+    data: FromYAML[JSONSerializableDict] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def _validate(self) -> Self:
@@ -717,11 +683,10 @@ class WorkspaceCreate(BaseUUIDEntityCreate):
 
 class WorkspaceUpdate(TypedDict, total=False):
     name: NonEmptyStr
-    client: str
     default_viewership: WorkspaceAccessRestriction
     default_editorship: WorkspaceAccessRestriction
     default_ownership: WorkspaceAccessRestriction
-    data: JSONSerializableDict
+    data: FromYAML[JSONSerializableDict]
 
 
 class _BaseWorkspaceQuery(

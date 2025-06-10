@@ -4,7 +4,7 @@ import { defineStore } from 'pinia'
 import { computed } from 'vue'
 import Zod from 'zod'
 
-import { Address } from '@/api/address'
+import { Address, AddressModel } from '@/api/address'
 import { useAuth } from '@/api/auth'
 import { useClient } from '@/api/client'
 import { LevelModel } from '@/api/shared'
@@ -25,7 +25,7 @@ export const AlertStatisticsModel = Zod.object({
 
 export type Statistics = Zod.infer<typeof StatisticsModel>
 export const StatisticsModel = Zod.object({
-  address: Zod.string().transform(Address.parse),
+  address: AddressModel,
   alerts: AlertStatisticsModel,
 })
 

@@ -9,11 +9,13 @@ from starlette.status import HTTP_201_CREATED
 
 from ceres._internal.app.shared import (
     ADMIN,
+    SELF_OR_ADMIN,
     VIEWER,
     APIUser,
     CurrentEngine,
     CurrentRole,
     CurrentUser,
+    assert_found,
 )
 from ceres.error import Failure, NotFoundError, NotPermittedError
 from ceres.user import User, UserCreate, UserFilter, UserRole, UserUpdate
@@ -23,11 +25,7 @@ router = APIRouter(prefix="/users", tags=["users"])
 
 @router.get("/{id:uuid}", dependencies=[VIEWER], response_model=APIUser)
 async def get_user(engine: CurrentEngine, id: UUID) -> User:
-    user = await engine.users.get(id)
-    if user is None:
-        raise Failure(NotFoundError)
-
-    return user
+    return assert_found(await engine.users.get(id))
 
 
 class GetUsersQueryParameters(UserFilter):
@@ -47,7 +45,7 @@ async def create_user(engine: CurrentEngine, data: UserCreate) -> User:
     return await engine.users.create(data)
 
 
-@router.patch("/{id:uuid}", dependencies=[ADMIN], response_model=APIUser)
+@router.patch("/{id:uuid}", dependencies=[SELF_OR_ADMIN], response_model=APIUser)
 async def update_user(
     engine: CurrentEngine,
     role: CurrentRole,
@@ -56,7 +54,7 @@ async def update_user(
     assign: UserUpdate,
 ) -> User:
     if role < UserRole.ADMIN:
-        if user is None or id != user.id:
+        if "role" in assign:
             raise Failure(NotPermittedError)
 
     updated = await engine.users.where(id=id).update(assign).first()
@@ -68,8 +66,4 @@ async def update_user(
 
 @router.delete("/{id:uuid}", dependencies=[ADMIN], response_model=APIUser)
 async def delete_user(engine: CurrentEngine, id: UUID) -> User:
-    deleted = await engine.users.where(id=id).delete().first()
-    if deleted is None:
-        raise Failure(NotFoundError)
-
-    return deleted
+    return assert_found(await engine.users.where(id=id).delete().first())

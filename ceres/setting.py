@@ -133,7 +133,7 @@ class SettingFilter(BaseEntityFilter["Setting", SettingField, SettingOrder]):
         columns = self._get_row_cls()
 
         if self.user_id is not None:
-            yield columns.user_id.in_(util.as_sequence(self.user_id))
+            yield columns.user_id.in_(util.seq(self.user_id))
 
         if self.name is not None:
             yield util.sql_match_value(columns.name, self.name)

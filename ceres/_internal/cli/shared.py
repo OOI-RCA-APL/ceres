@@ -701,7 +701,7 @@ class CLIDataOutputCommand(CLICommand):
             data_format = _resolve_data_format(self.output, data_format)
 
         if fields is None and self.field is not None:
-            fields = util.as_sequence(self.field)
+            fields = util.seq(self.field)
 
         fields = _resolve_fields(fields)
 
@@ -789,6 +789,25 @@ def create_entity_count_command(Entity: type[BaseEntity]):
                 )
 
     return CountCommand
+
+
+def create_entity_any_command(Entity: type[BaseEntity]):
+    plural = util.get_entity_plural(Entity)
+
+    class AnyCommand(CLICommand, Entity.Filter):
+        f"""
+        Check if one or more {plural} match the provided filter.
+        """
+
+        @override
+        async def __run__(self) -> None:
+            filter = self.read(Entity.Filter)
+            async with self.use_database() as database:
+                exists = await util.get_entity_manager(database, Entity).where(filter).any()
+                await self.put(exists)
+                raise CLICommandExit(0 if exists else 1)
+
+    return AnyCommand
 
 
 def create_entity_create_command(Entity: type[BaseEntity]):
@@ -1032,6 +1051,7 @@ _COMMAND_CREATORS = {
     "select": create_entity_select_command,
     "follow": create_entity_follow_command,
     "count": create_entity_count_command,
+    "any": create_entity_any_command,
     "create": create_entity_create_command,
     "update": create_entity_update_command,
     "delete": create_entity_delete_command,

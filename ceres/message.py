@@ -174,13 +174,13 @@ class MessageFilter(BaseRecordFilter["Message", MessageField, MessageOrder]):
 
         decoded = func.ceres_decode_latin1(columns.content)
         if self.contains is not None:
-            matches = [current.decode("latin-1") for current in util.as_sequence(self.contains)]
+            matches = [current.decode("latin-1") for current in util.seq(self.contains)]
             yield util.sql_match_string(decoded, matches, MatchMode.CONTAINS)
         if self.prefix is not None:
-            matches = [current.decode("latin-1") for current in util.as_sequence(self.prefix)]
+            matches = [current.decode("latin-1") for current in util.seq(self.prefix)]
             yield util.sql_match_string(decoded, matches, MatchMode.PREFIX)
         if self.suffix is not None:
-            matches = [current.decode("latin-1") for current in util.as_sequence(self.suffix)]
+            matches = [current.decode("latin-1") for current in util.seq(self.suffix)]
             yield util.sql_match_string(decoded, matches, MatchMode.SUFFIX)
 
 

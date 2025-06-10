@@ -1,7 +1,19 @@
 import { useQuery } from '@tanstack/vue-query'
+import { useEventListener } from '@vueuse/core'
+import { debounce } from 'lodash-es'
 import { defineStore } from 'pinia'
 import { v4 } from 'uuid'
-import { computed, inject, MaybeRef, provide, reactive, unref, watchEffect } from 'vue'
+import {
+  computed,
+  inject,
+  MaybeRef,
+  provide,
+  reactive,
+  readonly,
+  unref,
+  watch,
+  watchEffect,
+} from 'vue'
 import Zod from 'zod'
 
 import { AddressModel, AddressSelectorModel } from '@/api/address'
@@ -163,6 +175,7 @@ export const WidgetRowModel = Zod.object({
   widgets: safeArrayOf(WidgetModel),
 })
 
+export type WorkspaceData = Zod.infer<typeof WorkspaceDataModel>
 export const WorkspaceDataModel = Zod.object({
   layout: WidgetRowModel.array().catch(() => []),
 })
@@ -180,7 +193,6 @@ export type WorkspaceInput = Zod.input<typeof WorkspaceModel>
 export const WorkspaceModel = Zod.object({
   id: Zod.string().catch(() => v4()),
   name: Zod.string(),
-  client: Zod.literal('console').default('console'),
   default_viewership: WorkspaceAccessRestriction.default('private'),
   default_editorship: WorkspaceAccessRestriction.default('private'),
   default_ownership: WorkspaceAccessRestriction.default('private'),
@@ -203,6 +215,13 @@ export const WorkspaceMembershipModel = Zod.object({
   data: WorkspaceDataModel.nullish().catch(null),
 })
 
+export type WorkspaceEdit = Zod.infer<typeof WorkspaceEditModel>
+export const WorkspaceEditModel = Zod.object({
+  user_id: Zod.string(),
+  workspace_id: Zod.string(),
+  data: WorkspaceDataModel,
+})
+
 export type WorkspaceContext = ReturnType<typeof createWorkspaceContext>
 
 export type Drag = {
@@ -216,16 +235,46 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
   const workspaces = useWorkspaces()
   const id = $computed(() => unref(workspaceId))
 
-  const query = $(
-    useQuery({
-      queryKey: ['workspace', id, auth.user?.id],
-      queryFn: async () => {
-        return await workspaces.get(id)
-      },
-    })
-  )
+  const query = useQuery({
+    queryKey: ['workspace-context', id, auth.user?.id],
+    experimental_prefetchInRender: true,
+    queryFn: async () => {
+      return {
+        workspace: await workspaces.get(id),
+        membership: await workspaces.getMembership(id),
+      }
+    },
+  })
 
-  const workspace = $computed(() => query.data)
+  const workspace = $computed(() =>
+    query.data.value?.workspace ? readonly(query.data.value?.workspace) : null
+  )
+  const membership = $computed(() => query.data.value?.membership)
+  let data = $ref<WorkspaceData | null>(null)
+
+  async function save() {
+    if (workspace == null || data == null) {
+      return
+    }
+
+    console.log(`Saving edit for workspace ${id}.`)
+    await workspaces.assignEdit(id, data)
+  }
+
+  watch($$(data), debounce(save, 500), { deep: true })
+
+  useEventListener(window, 'beforeunload', async () => {
+    try {
+      await save()
+    } catch {
+      // Ignore.
+    }
+  })
+
+  const edited = $computed(
+    () =>
+      data != null && workspace != null && JSON.stringify(data) !== JSON.stringify(workspace?.data)
+  )
 
   async function rename(newName: string) {
     return await workspaces.rename(id, newName)
@@ -235,32 +284,36 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     return workspaces.duplicate(id, newName)
   }
 
+  async function update(data: Partial<Workspace>) {
+    return await workspaces.update(id, data)
+  }
+
   async function del() {
-    workspaces.delete(id)
+    return await workspaces.delete(id)
   }
 
   function insertWidget(widget: Widget, row: number, column: number = 0) {
-    if (workspace == null) {
+    if (data == null) {
       return
     }
 
-    row = Math.min(workspace.data.layout.length, row)
-    const widgets = [...(workspace.data.layout[row]?.widgets ?? [])]
+    row = Math.min(data.layout.length, row)
+    const widgets = [...(data.layout[row]?.widgets ?? [])]
     widgets.splice(column, 0, widget)
     widget.width = Math.min(100 / widgets.length, widget.width)
     resolveWidgetWidths(widgets, widgets.indexOf(widget))
 
     if (row < 0) {
-      workspace.data.layout = [WidgetRowModel.parse({ widgets }), ...workspace.data.layout]
-    } else if (workspace.data.layout[row] == null) {
-      workspace.data.layout = [...workspace.data.layout, WidgetRowModel.parse({ widgets })]
+      data.layout = [WidgetRowModel.parse({ widgets }), ...data.layout]
+    } else if (data.layout[row] == null) {
+      data.layout = [...data.layout, WidgetRowModel.parse({ widgets })]
     } else {
-      workspace.data.layout[row].widgets = widgets
+      data.layout[row].widgets = widgets
     }
   }
 
   function addWidget(type: WidgetType, row: number, column: number = 0) {
-    if (workspace == null) {
+    if (data == null) {
       return null
     }
 
@@ -271,18 +324,18 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
   }
 
   function deleteWidget(id: string) {
-    if (workspace == null) {
+    if (data == null) {
       return null
     }
 
-    for (const [i, row] of workspace.data.layout.entries()) {
+    for (const [i, row] of data.layout.entries()) {
       const widget = row.widgets.find((widget) => widget.id === id) ?? null
       if (widget != null) {
         row.widgets = row.widgets.filter((widget) => widget.id !== id)
         resolveWidgetWidths(row.widgets)
 
         if (row.widgets.length === 0) {
-          workspace.data.layout = workspace.data.layout.filter((_, index) => index !== i)
+          data.layout = data.layout.filter((_, index) => index !== i)
         }
 
         return widget
@@ -293,14 +346,11 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
   }
 
   function getWidget(id: string) {
-    return (
-      workspace?.data.layout.flatMap((row) => row.widgets).find((widget) => widget.id === id) ??
-      null
-    )
+    return data?.layout.flatMap((row) => row.widgets).find((widget) => widget.id === id) ?? null
   }
 
   function getWidgetPosition(id: string): [row: number, column: number] | null {
-    for (const [rowIndex, row] of workspace?.data.layout.entries() ?? []) {
+    for (const [rowIndex, row] of data?.layout.entries() ?? []) {
       const columnIndex = row.widgets.findIndex((widget) => widget.id === id)
       if (columnIndex !== -1) {
         return [rowIndex, columnIndex]
@@ -311,11 +361,11 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
   }
 
   function getWidgetAt(row: number, column: number) {
-    return workspace?.data.layout[row]?.widgets[column] ?? null
+    return data?.layout[row]?.widgets[column] ?? null
   }
 
   function moveWidget(id: string, toRow: number, toColumn?: number | null) {
-    if (workspace == null) {
+    if (data == null) {
       return null
     }
 
@@ -325,7 +375,7 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     }
     const [fromRow, fromColumn] = position
 
-    const sourceRow = workspace.data.layout[fromRow] ?? null
+    const sourceRow = data.layout[fromRow] ?? null
     if (sourceRow == null) {
       return null
     }
@@ -339,7 +389,7 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
 
     // If there is no column specified, create a new row.
     if (toColumn == null) {
-      let layout = [...workspace.data.layout]
+      let layout = [...data.layout]
       const destinationRow: WidgetRow = {
         id: v4(),
         height: sourceRow.height,
@@ -349,14 +399,14 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
 
       layout.splice(toRow, 0, destinationRow)
       layout = layout.filter((row) => row != null && row.widgets.length > 0)
-      workspace.data.layout = layout
+      data.layout = layout
 
       resolveWidgetWidths(sourceRow.widgets)
       resolveWidgetWidths(destinationRow.widgets)
       return widget
     }
 
-    const destinationRow = workspace.data.layout[toRow] ?? null
+    const destinationRow = data.layout[toRow] ?? null
     if (destinationRow == null) {
       resolveWidgetWidths(sourceRow.widgets)
       return null
@@ -371,9 +421,7 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     widget.width = Math.min(100 / destinationRow.widgets.length, widget.width)
     resolveWidgetWidths(destinationRow.widgets, destinationRow.widgets.indexOf(widget))
 
-    workspace.data.layout = workspace.data.layout.filter(
-      (row) => row != null && row.widgets.length > 0
-    )
+    data.layout = data.layout.filter((row) => row != null && row.widgets.length > 0)
 
     return widget
   }
@@ -392,22 +440,34 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
   }
 
   watchEffect(() => {
-    if (workspace == null) {
+    if (data == null) {
       return
     }
 
-    if (workspace.data.layout.some((row) => row.widgets.length === 0)) {
-      workspace.data.layout = workspace.data.layout.filter((row) => row.widgets.length > 0)
+    if (data.layout.some((row) => row.widgets.length === 0)) {
+      data.layout = data.layout.filter((row) => row.widgets.length > 0)
     }
   })
 
   return reactive({
-    load: async () => await query.promise,
-    name: computed(() => workspace?.id ?? null),
-    data: computed(() => workspace?.data ?? { layout: [] }),
+    load: async () => {
+      await query.promise.value
+      if (data == null) {
+        data =
+          (await workspaces.getEdit(id))?.data ??
+          JSON.parse(JSON.stringify(workspace?.data ?? null)) ??
+          null
+      }
+    },
+    name: computed(() => workspace?.name ?? null),
+    membership: computed(() => membership),
+    originalData: computed(() => workspace?.data ?? null),
+    data: computed(() => data),
+    edited: computed(() => edited),
     duplicate,
     delete: del,
     rename,
+    update,
     getWidget,
     getWidgetAt,
     getWidgetPosition,
@@ -438,6 +498,15 @@ export function useWorkspace() {
 export const useWorkspaces = defineStore('workspaces', () => {
   const navigation = useNavigation()
   const client = useClient()
+  const auth = useAuth()
+
+  function getUserId() {
+    if (auth.user == null) {
+      throw new Error('Not logged in.')
+    }
+
+    return auth.user.id
+  }
 
   async function get(id: string) {
     return await client.get(`/api/workspaces/${id}`, {
@@ -446,26 +515,71 @@ export const useWorkspaces = defineStore('workspaces', () => {
   }
 
   async function getAll() {
-    return await client.get('/api/workspaces', {
+    return await client.get(`/api/workspaces`, {
       parse: Zod.array(WorkspaceModel),
     })
   }
 
-  async function create(
-    workspace: Omit<WorkspaceInput, 'name'> & { name?: string }
-  ): Promise<Workspace> {
-    workspace = WorkspaceModel.parse({ name: 'NewWorkspace', ...workspace })
-    return await client.post('/api/workspaces', {
-      data: workspace,
-      parse: WorkspaceModel,
+  async function getAllJoined() {
+    return await client.get(`/api/users/${getUserId()}/workspaces`, {
+      parse: Zod.array(WorkspaceModel),
     })
   }
 
+  const query = useQuery({
+    queryKey: ['workspaces', auth.user?.id],
+    queryFn: async () => {
+      return {
+        all: await getAll(),
+        joined: await getAllJoined(),
+      }
+    },
+  })
+
+  async function load() {
+    await query.promise.value
+  }
+
+  async function refresh() {
+    await query.refetch()
+  }
+
+  const allWorkspaces = $computed(
+    () => new Map((query.data.value?.all ?? []).map((workspace) => [workspace.id, workspace]))
+  )
+
+  const joinedWorkspaces = $computed(
+    () => new Map((query.data.value?.joined ?? []).map((workspace) => [workspace.id, workspace]))
+  )
+
+  const unjoinedWorkspaces = $computed(
+    () =>
+      new Map(
+        [...allWorkspaces.values()]
+          .filter((workspace) => !joinedWorkspaces.has(workspace.id))
+          .map((workspace) => [workspace.id, workspace])
+      )
+  )
+
+  async function create(
+    workspace?: Omit<WorkspaceInput, 'name'> & { name?: string }
+  ): Promise<Workspace> {
+    workspace = WorkspaceModel.parse({ name: 'New Workspace', ...workspace })
+    const result = await client.post(`/api/workspaces`, {
+      data: workspace,
+      parse: WorkspaceModel,
+    })
+    await refresh()
+    return result
+  }
+
   async function update(id: string, data: Partial<Workspace>) {
-    await client.patch(`/api/workspaces/${id}`, {
+    const result = await client.patch(`/api/workspaces/${id}`, {
       data: WorkspaceModel.partial().parse(data),
       parse: WorkspaceModel,
     })
+    await refresh()
+    return result
   }
 
   async function rename(id: string, name: string) {
@@ -478,11 +592,18 @@ export const useWorkspaces = defineStore('workspaces', () => {
       return null
     }
 
+    const edit = await getEdit(id)
     const copy = {
-      ...JSON.parse(JSON.stringify(workspace)),
+      ...workspace,
       id: v4(),
       name: newName ?? workspace.name + ' Copy',
     }
+
+    if (edit != null) {
+      copy.data = edit.data
+    }
+    console.log(`Duplicating workspace ${id} to ${copy.id}. ${JSON.stringify(copy)}`)
+
     return await create(copy)
   }
 
@@ -496,20 +617,22 @@ export const useWorkspaces = defineStore('workspaces', () => {
     return null
   }
 
-  async function del(name: string) {
-    await client.delete(`/api/workspaces/${name}`, {
+  async function del(id: string) {
+    const result = await client.delete(`/api/workspaces/${id}`, {
       parse: WorkspaceModel,
     })
+    await refresh()
+    return result
   }
 
-  async function getMembership(userId: string, workspaceId: string) {
+  async function getMembership(workspaceId: string) {
+    if (auth.user == null) {
+      return null
+    }
+
     try {
-      return await client.get(`/api/workspace-memberships`, {
-        query: {
-          user_id: userId,
-          workspace_id: workspaceId,
-        },
-        parse: Zod.array(WorkspaceMembershipModel),
+      return await client.get(`/api/users/${auth.user.id}/workspace-memberships/${workspaceId}`, {
+        parse: WorkspaceMembershipModel,
       })
     } catch {
       return null
@@ -517,7 +640,11 @@ export const useWorkspaces = defineStore('workspaces', () => {
   }
 
   async function getMemberships() {
-    return await client.get(`/api/workspace-memberships`, {
+    if (auth.user == null) {
+      return []
+    }
+
+    return await client.get(`/api/users/${auth.user.id}/workspace-memberships`, {
       parse: Zod.array(WorkspaceMembershipModel),
     })
   }
@@ -537,17 +664,49 @@ export const useWorkspaces = defineStore('workspaces', () => {
     })
   }
 
+  async function getEdit(workspaceId: string) {
+    if (auth.user == null) {
+      return null
+    }
+
+    try {
+      return await client.get(`/api/users/${auth.user.id}/workspace-edits/${workspaceId}`, {
+        parse: WorkspaceEditModel,
+      })
+    } catch {
+      return null
+    }
+  }
+
+  async function assignEdit(workspaceId: string, data: WorkspaceData) {
+    return await client.put(`/api/users/${getUserId()}/workspace-edits/${workspaceId}`, {
+      data: {
+        data,
+      },
+      parse: WorkspaceEditModel,
+    })
+  }
+
   return {
+    load,
+    refresh,
+    all: computed(() => [...allWorkspaces.values()]),
+    joined: computed(() => [...joinedWorkspaces.values()]),
+    unjoined: computed(() => [...unjoinedWorkspaces.values()]),
     get,
     getAll,
+    getAllJoined,
     create,
     rename,
+    update,
     duplicate,
     open,
     delete: del,
     getMembership,
     getMemberships,
     createMembership,
+    getEdit,
+    assignEdit,
   }
 })
 

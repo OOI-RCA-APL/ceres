@@ -55,12 +55,12 @@ const routes: RouteRecordRaw[] = [
         component: Users,
       },
       {
-        path: '/workspaces/:name',
+        path: '/workspaces/:id',
         meta: {
           auth: 'viewer',
         },
         props: (route) => ({
-          name: parseStringOrNull(route.params.name),
+          id: parseStringOrNull(route.params.id),
         }),
         component: Workspace,
       },

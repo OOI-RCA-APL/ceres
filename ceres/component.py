@@ -337,7 +337,7 @@ def listener(
     reference: str | Sequence[str] | None = None,
     address: str | AddressSelector | Sequence[str | AddressSelector] | None = None,
 ) -> _ListenerMethod | _ListenerMethodTransform:
-    reference = util.as_sequence(reference or ())
+    reference = util.seq(reference or ())
 
     if address is not None:
         address = AddressSelector(address)
@@ -972,7 +972,7 @@ class ComponentSystem(Node, ComponentSource):
                 name=InternalVariableName.ENABLED,
                 value=enabled,
             ),
-            upsert_on=(Variable.Row.address, Variable.Row.name),
+            upsert=True,
         )
 
     @property

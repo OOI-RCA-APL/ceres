@@ -21,7 +21,6 @@ from ceres.error import (
     ValidationFailedError,
     ValidationProblem,
 )
-from ceres.level import Level
 from ceres.version import __version__
 
 if TYPE_CHECKING:
@@ -105,14 +104,14 @@ class App(FastAPI):
         if cors is not None and cors.enabled:
             self.add_middleware(
                 CORSMiddleware,
-                allow_origins=util.as_sequence(cors.allow_origins),
-                allow_methods=util.as_sequence(cors.allow_methods),
-                allow_headers=util.as_sequence(cors.allow_headers),
+                allow_origins=util.seq(cors.allow_origins),
+                allow_methods=util.seq(cors.allow_methods),
+                allow_headers=util.seq(cors.allow_headers),
                 allow_credentials=cors.allow_credentials,
                 allow_origin_regex=cors.allow_origin_regex.pattern
                 if cors.allow_origin_regex
                 else None,
-                expose_headers=util.as_sequence(cors.expose_headers),
+                expose_headers=util.seq(cors.expose_headers),
                 max_age=cors.max_age,
             )
 
@@ -225,10 +224,8 @@ class LoggingMiddleware:
 
                         status = message["status"]
                         description = responses.get(status, "Unknown")
-                        level = Level.INFO if status < 400 else Level.ERROR
 
-                        app.engine.log.emit(
-                            level,
+                        app.engine.log.debug(
                             f"[HTTP] {verb} {path} {host} {status} {description}",
                         )
                     elif (
@@ -247,7 +244,7 @@ class LoggingMiddleware:
                         client = socket["client"]
                         host = client[0] if client else "?"
 
-                        app.engine.log.info(f"[WS] {verb} {path} {host}")
+                        app.engine.log.debug(f"[WS] {verb} {path} {host}")
                 except Exception:
                     traceback.print_exc()
 

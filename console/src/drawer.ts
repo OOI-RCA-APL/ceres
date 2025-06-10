@@ -1,16 +1,16 @@
 import { defineStore } from 'pinia'
 import { computed } from 'vue'
 
-import { Address } from '@/api/address'
+import { AddressModel } from '@/api/address'
 import { usePersisted } from '@/persistence'
 
 export const useDrawer = defineStore('drawer', () => {
   const state = usePersisted({
-    schema: ({ object, array, number, string, boolean }) =>
+    schema: ({ object, array, number, boolean }) =>
       object({
         width: number().default(300),
         isOpen: boolean().default(true),
-        collapsed: array(string().transform(Address.parse)).default(() => []),
+        collapsed: array(AddressModel).default(() => []),
       }),
     methods: [{ type: 'local-storage', key: ['store', 'drawer'] }],
   })

@@ -44,8 +44,6 @@ export class AddressSelector {
   }
 }
 
-export const AddressSelectorModel = Zod.string().transform(AddressSelector.parse)
-
 const addressRegex = new RegExp(`^~|@(${name}(\\.${name})*)*$`)
 
 export class Address extends AddressSelector {
@@ -107,4 +105,6 @@ export class Address extends AddressSelector {
   }
 }
 
-export const AddressModel = Zod.string().transform(Address.parse)
+export const AddressInputModel = Zod.union([Zod.string(), Zod.instanceof(AddressSelector)])
+export const AddressModel = AddressInputModel.transform(Address.parse)
+export const AddressSelectorModel = AddressInputModel.transform(AddressSelector.parse)

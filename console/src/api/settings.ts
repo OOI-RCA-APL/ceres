@@ -80,7 +80,6 @@ export const useSettings = defineStore('settings', () => {
       unwritten(() => {
         // Update stores here.
       })
-      console.error(error)
       return null
     }
   }

@@ -596,7 +596,7 @@ def match_value[T](value: T, possibilities: MaybeSequence[T] | None = None) -> b
     if possibilities is None:
         return True
 
-    return value in as_sequence(possibilities)
+    return value in seq(possibilities)
 
 
 class MatchMode(Enum):
@@ -616,7 +616,7 @@ def match_string[T: (str, bytes)](
     if possibilities is None:
         return True
 
-    possibilities = as_sequence(possibilities)
+    possibilities = seq(possibilities)
     if not possibilities:
         return False
 
@@ -641,7 +641,7 @@ def sql_match_value[T](
     expression: SQLColumnExpression[T],
     value: MaybeSequence[T],
 ) -> SQLColumnExpression[bool]:
-    return expression.in_(as_sequence(value))
+    return expression.in_(seq(value))
 
 
 def _escape_like_expression[T: (str, bytes)](text: T, escape: str) -> T:
@@ -660,7 +660,7 @@ def sql_match_string[T: (str, bytes)](
 ) -> SQLColumnExpression[bool]:
     import sqlalchemy
 
-    values = as_sequence(value)
+    values = seq(value)
     if not values:
         return sqlalchemy.false()
 
@@ -819,26 +819,15 @@ def get_traceback(exception: BaseException) -> list[str]:
     return traceback.format_exception(exception)
 
 
-def strlist(value: str | Sequence[str] | None) -> list[str]:
-    if value is None:
-        return []
-    if isinstance(value, str):
-        return [value]
-    if isinstance(value, list):
-        return value
-
-    return list(value)
+@overload
+def seq[T: Stringy](value: T) -> Sequence[T]: ...
 
 
 @overload
-def as_sequence[T: Stringy](value: T) -> Sequence[T]: ...
+def seq[T](value: T | Sequence[T]) -> Sequence[T]: ...
 
 
-@overload
-def as_sequence[T](value: T | Sequence[T]) -> Sequence[T]: ...
-
-
-def as_sequence[T](value: T | Sequence[T]) -> Sequence[T]:
+def seq[T](value: T | Sequence[T]) -> Sequence[T]:
     if is_true_sequence(value):
         return value
 
@@ -847,13 +836,6 @@ def as_sequence[T](value: T | Sequence[T]) -> Sequence[T]:
 
 def upper_camel(string: str) -> str:
     return "".join(segment.capitalize() for segment in string.replace("_", "-").split("-"))
-
-
-def lower_camel(string: str) -> str:
-    if string == "":
-        return string
-
-    return string[0].lower() + upper_camel(string)[1:]
 
 
 Undefined = object()
@@ -1174,18 +1156,19 @@ def model_is_empty(model: BaseModel) -> bool:
 
 
 _SQLITE_UNIQUE_ERROR_REGEX = re.compile(
-    r"UNIQUE constraint failed: ([^ ]+)\.(?P<column>[^ ]+)",
+    r"UNIQUE constraint failed: (.+?)\.(?P<column>.+?)",
     re.MULTILINE | re.DOTALL,
 )
 _POSTGRES_UNIQUE_ERROR_REGEX = re.compile(
-    r".*duplicate key.*\((?P<column>[^ ]+)\)=\((?P<value>[^ ]+)\)",
+    r".*duplicate key.*\((?P<column>.+?)\)=\((?P<value>.+?)\)",
     re.MULTILINE | re.DOTALL,
 )
 
 
 @contextmanager
 def wrap_database_errors() -> Iterator[None]:
-    from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+    from sqlalchemy.exc import IntegrityError as SQLAlchemyIntegrityError
+    from sqlalchemy.exc import SQLAlchemyError
 
     from ceres.error import (
         AlreadyExistsError,
@@ -1193,6 +1176,7 @@ def wrap_database_errors() -> Iterator[None]:
         DatabaseUnexpectedError,
         DatabaseUnreachableError,
         Failure,
+        IntegrityError,
     )
 
     try:
@@ -1226,7 +1210,7 @@ def wrap_database_errors() -> Iterator[None]:
         if isinstance(exception, sqlalchemy.exc.TimeoutError):
             raise Failure(DatabaseUnreachableError(message=str(exception)))
 
-        if isinstance(exception, IntegrityError):
+        if isinstance(exception, SQLAlchemyIntegrityError):
             if isinstance(exception.orig, SQLiteIntegrityError):
                 match = _SQLITE_UNIQUE_ERROR_REGEX.match(str(exception.orig))
                 if match is not None:
@@ -1242,6 +1226,8 @@ def wrap_database_errors() -> Iterator[None]:
                             value=match.group("value"),
                         )
                     )
+
+            raise Failure(IntegrityError)
 
         raise Failure(DatabaseUnexpectedError(message=str(exception)))
 

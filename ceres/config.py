@@ -662,7 +662,7 @@ class Config(ConfigMeta):
         from ceres.interface import Interface
 
         if self.console.dashboard is not None:
-            for address in util.as_sequence(self.console.dashboard):
+            for address in util.seq(self.console.dashboard):
                 component = self.get_component(address)
                 if component is None:
                     raise ValueError(f"dashboard component '{address}' does not exist")
