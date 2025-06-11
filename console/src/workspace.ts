@@ -27,7 +27,7 @@ import { ParticleFilterModel } from '@/api/particles'
 import { DateTimeModel } from '@/api/shared'
 import { useNavigation } from '@/navigation'
 import { workspaceInjectionKey } from '@/symbols'
-import { safeArrayOf } from '@/utilities'
+import { deepClone, jsonEquals, safeArrayOf } from '@/utilities'
 
 export type BaseWidget = Zod.infer<typeof BaseWidgetModel>
 const BaseWidgetModel = Zod.object({
@@ -252,7 +252,7 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
   const membership = $computed(() => query.data.value?.membership)
   let data = $ref<WorkspaceData | null>(null)
 
-  async function save() {
+  async function saveEdit() {
     if (workspace == null || data == null) {
       return
     }
@@ -261,19 +261,18 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     await workspaces.assignEdit(id, data)
   }
 
-  watch($$(data), debounce(save, 500), { deep: true })
+  watch($$(data), debounce(saveEdit, 500), { deep: true })
 
   useEventListener(window, 'beforeunload', async () => {
     try {
-      await save()
+      await saveEdit()
     } catch {
       // Ignore.
     }
   })
 
   const edited = $computed(
-    () =>
-      data != null && workspace != null && JSON.stringify(data) !== JSON.stringify(workspace?.data)
+    () => data != null && workspace != null && !jsonEquals(data, workspace?.data)
   )
 
   async function rename(newName: string) {
@@ -282,6 +281,33 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
 
   async function duplicate(newName?: string | null) {
     return workspaces.duplicate(id, newName)
+  }
+
+  async function save() {
+    if (workspace == null || data == null) {
+      return
+    }
+
+    console.log(`Saving workspace changes to ${id}.`)
+    const result = await update({ data })
+    await refresh()
+    return result
+  }
+
+  async function discard() {
+    if (workspace == null || data == null) {
+      return
+    }
+
+    await refresh()
+    if (workspace == null || data == null) {
+      return
+    }
+
+    console.log(`Discarding workspace changes to ${id}.`)
+    data = deepClone(workspace.data) as WorkspaceData
+    await workspaces.assignEdit(id, data)
+    return workspace
   }
 
   async function update(data: Partial<Workspace>) {
@@ -432,7 +458,7 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
       return null
     }
 
-    const copy: Widget = JSON.parse(JSON.stringify(widget))
+    const copy: Widget = deepClone(widget)
     copy.id = v7()
 
     insertWidget(copy, toRow, toColumn)
@@ -449,16 +475,25 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     }
   })
 
+  async function afterFetch() {
+    if (data == null) {
+      data = (await workspaces.getEdit(id))?.data ?? deepClone(workspace?.data ?? null) ?? null
+    }
+  }
+
+  async function load() {
+    await query.promise.value
+    await afterFetch()
+  }
+
+  async function refresh() {
+    await query.refetch()
+    await afterFetch()
+  }
+
   return reactive({
-    load: async () => {
-      await query.promise.value
-      if (data == null) {
-        data =
-          (await workspaces.getEdit(id))?.data ??
-          JSON.parse(JSON.stringify(workspace?.data ?? null)) ??
-          null
-      }
-    },
+    load,
+    refresh,
     name: computed(() => workspace?.name ?? null),
     membership: computed(() => membership),
     originalData: computed(() => workspace?.data ?? null),
@@ -468,6 +503,8 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     delete: del,
     rename,
     update,
+    save,
+    discard,
     getWidget,
     getWidgetAt,
     getWidgetPosition,
@@ -529,10 +566,8 @@ export const useWorkspaces = defineStore('workspaces', () => {
   const query = useQuery({
     queryKey: ['workspaces', auth.user?.id],
     queryFn: async () => {
-      return {
-        all: await getAll(),
-        joined: await getAllJoined(),
-      }
+      const [all, joined] = await Promise.all([getAll(), getAllJoined()])
+      return { all, joined }
     },
   })
 
@@ -679,6 +714,20 @@ export const useWorkspaces = defineStore('workspaces', () => {
     })
   }
 
+  async function discardEdit(workspaceId: string) {
+    if (auth.user == null) {
+      return null
+    }
+
+    try {
+      await client.delete(`/api/users/${auth.user.id}/workspace-edits/${workspaceId}`, {
+        parse: WorkspaceEditModel,
+      })
+    } catch {
+      return null
+    }
+  }
+
   return {
     load,
     refresh,
@@ -699,6 +748,7 @@ export const useWorkspaces = defineStore('workspaces', () => {
     createMembership,
     getEdit,
     assignEdit,
+    discardEdit,
   }
 })
 

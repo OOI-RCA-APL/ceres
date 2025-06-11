@@ -1,3 +1,4 @@
+import { merge } from 'lodash-es'
 import { defineStore } from 'pinia'
 import { QDialogOptions, useQuasar } from 'quasar'
 
@@ -15,26 +16,47 @@ export const useDialogs = defineStore('dialogs', () => {
   const quasar = useQuasar()
 
   return {
-    show: (options: QDialogOptions) =>
-      quasar.dialog({
-        ...defaults,
-        ...options,
-      }),
+    show: (options: QDialogOptions) => quasar.dialog(merge({}, defaults, options)),
+    confirm: (options: QDialogOptions) =>
+      quasar.dialog(
+        merge(
+          {},
+          defaults,
+          {
+            title: 'Confirm',
+            ok: {
+              color: 'primary',
+              label: 'Ok',
+            },
+            cancel: {
+              label: 'Cancel',
+              color: 'grey',
+              flat: true,
+            },
+          },
+          options
+        )
+      ),
     delete: (options: QDialogOptions) =>
-      quasar.dialog({
-        ...defaults,
-        title: 'Confirm Deletion',
-        ok: {
-          color: 'negative',
-          label: 'Delete',
-        },
-        cancel: {
-          label: 'Cancel',
-          color: 'grey',
-          flat: true,
-        },
-        ...options,
-      }),
+      quasar.dialog(
+        merge(
+          {},
+          defaults,
+          {
+            title: 'Confirm Deletion',
+            ok: {
+              color: 'negative',
+              label: 'Delete',
+            },
+            cancel: {
+              label: 'Cancel',
+              color: 'grey',
+              flat: true,
+            },
+          },
+          options
+        )
+      ),
     changePassword: (userId: string) =>
       quasar.dialog({
         component: ChangePasswordDialog,

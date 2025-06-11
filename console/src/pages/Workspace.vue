@@ -14,23 +14,57 @@ import { useDialogs } from '@/dialogs'
 import { NotFoundError } from '@/errors'
 import icons from '@/icons'
 import { useNavigation } from '@/navigation'
-import { provideWorkspace, resolveWidgetWidths, useWorkspaces, Widget } from '@/workspace'
+import { useNotify } from '@/notify'
+import { deepClone } from '@/utilities'
+import {
+  provideWorkspace,
+  resolveWidgetWidths,
+  useWorkspaces,
+  Widget,
+  WorkspaceData,
+} from '@/workspace'
 
 const { id } = $defineProps<{
   id: string
 }>()
 
-const workspaces = useWorkspaces()
 const auth = useAuth()
 const dialogs = useDialogs()
 const navigation = useNavigation()
-const layout = $ref<HTMLDivElement | null>(null)
+const notify = useNotify()
+const workspaces = useWorkspaces()
+
 const workspace = provideWorkspace(id)
 await workspace.load()
+
+const layout = $ref<HTMLDivElement | null>(null)
+let originalData = $ref<WorkspaceData | null>(null)
+let isViewingOriginal = $computed(() => originalData != null)
 
 if (workspace.data == null || workspace.name == null) {
   throw new NotFoundError('workspace', id)
 }
+
+async function startViewingOriginal() {
+  await workspace.refresh()
+  originalData = deepClone(workspace.originalData) as WorkspaceData
+  key++
+}
+
+function stopViewingOriginal() {
+  originalData = null
+  key++
+}
+
+const data = $computed(() => {
+  if (isViewingOriginal) {
+    return originalData
+  } else {
+    return workspace.data
+  }
+})
+
+let key = $ref(0)
 
 let name = $ref<string>(workspace.name)
 watch(
@@ -87,12 +121,50 @@ function promptDelete() {
     })
 }
 
+function promptSave() {
+  dialogs
+    .confirm({
+      title: 'Save Changes',
+      message:
+        `Save changes to workspace "${workspace.name}"? ` +
+        'This will update the shared version of this workspace, allowing users with access to it ' +
+        'to see this updated version.',
+      ok: {
+        label: 'Save',
+        color: 'primary',
+      },
+    })
+    .onOk(async () => {
+      await workspace.save()
+      notify.success('Workspace saved successfully.')
+    })
+}
+
+function promptDiscard() {
+  dialogs
+    .confirm({
+      title: 'Discard Changes',
+      message:
+        `This action will discard all changes to workspace "${workspace.name}" and revert your ` +
+        'working copy to the latest shared version. This will not modify the workspace for other ' +
+        'users.',
+      ok: {
+        label: 'Discard',
+        color: 'warning',
+      },
+    })
+    .onOk(async () => {
+      await workspace.discard()
+      key++
+    })
+}
+
 function resolveAllWidgetWidths() {
-  if (workspace.data == null) {
+  if (data == null) {
     return
   }
 
-  for (const row of workspace.data.layout) {
+  for (const row of data.layout) {
     resolveWidgetWidths(row.widgets)
   }
 }
@@ -204,14 +276,56 @@ onMounted(() => {
           </q-list>
         </q-menu>
       </q-btn>
+      <q-space />
+      <div>
+        <q-btn
+          v-if="workspace.edited && isViewingOriginal"
+          clickable
+          color="primary"
+          dense
+          label="Stop Viewing Original"
+          rounded
+          @click="stopViewingOriginal"
+        />
+        <q-chip
+          v-else-if="workspace.edited"
+          clickable
+          color="primary"
+          dense
+          label="Working Copy"
+          outline
+        >
+          <q-menu class="no-shadow" :offset="[0, 10]">
+            <q-card bordered style="min-width: 140px">
+              <q-list dense>
+                <q-item clickable @click="promptSave">
+                  <q-item-section>
+                    <q-item-label>Save Changes</q-item-label>
+                  </q-item-section>
+                </q-item>
+                <q-item clickable @click="promptDiscard">
+                  <q-item-section>
+                    <q-item-label>Discard Changes</q-item-label>
+                  </q-item-section>
+                </q-item>
+                <q-item clickable @click="startViewingOriginal">
+                  <q-item-section>
+                    <q-item-label>View Original</q-item-label>
+                  </q-item-section>
+                </q-item>
+              </q-list>
+            </q-card>
+          </q-menu>
+        </q-chip>
+      </div>
     </template>
-    <div class="q-pa-xs">
-      <div v-if="workspace.data == null" ref="layout" class="q-py-lg text-center">
+    <div :key="key" class="q-pa-xs" :style="isViewingOriginal && { border: `1px solid yellow` }">
+      <div v-if="data == null" ref="layout" class="q-py-lg text-center">
         <div>No workspace named "{{ name }}" exists.</div>
       </div>
       <div v-else ref="layout">
         <div
-          v-for="(row, i) in workspace.data.layout"
+          v-for="(row, i) in data.layout"
           :key="row.id"
           class="full-width no-wrap q-gutter-xs q-py-xs relative-position row"
           :style="{ height: row.collapsed ? undefined : `${row.height}px` }"
@@ -223,7 +337,7 @@ onMounted(() => {
             :row="i"
           />
           <workspace-gap
-            v-if="workspace.drag != null && i === workspace.data.layout.length - 1"
+            v-if="workspace.drag != null && i === data.layout.length - 1"
             v-show="workspace.drag != null"
             :class="$style.gapVerticalBottom"
             direction="vertical"
@@ -295,10 +409,10 @@ onMounted(() => {
         </div>
       </div>
     </div>
-    <div class="faded-hover items-center justify-center q-mt-sm row">
-      <q-btn v-if="workspace.data != null" color="primary" :icon="icons.add" round size="8px">
+    <div v-if="!isViewingOriginal" class="faded-hover items-center justify-center q-mt-sm row">
+      <q-btn v-if="data != null" color="primary" :icon="icons.add" round size="8px">
         <q-tooltip class="bg-primary">Add Widget</q-tooltip>
-        <workspace-add-widget-menu :offset="[0, 8]" :row="workspace.data.layout.length" />
+        <workspace-add-widget-menu :offset="[0, 8]" :row="data.layout.length" />
       </q-btn>
     </div>
     <div :class="$style.bottomPadding" />
