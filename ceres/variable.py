@@ -28,6 +28,7 @@ from ceres._internal.entity import (
     BaseAddressEntityRow,
     BaseEntityManager,
     BaseEntityQuery,
+    EntityNaming,
     EntityQuery,
 )
 from ceres._internal.manager import BaseNodeManager
@@ -320,6 +321,8 @@ class Variable(BaseAddressEntity, VariableCreate):
     FilterArgs: ClassVar[type[VariableFilterArgs]] = VariableFilterArgs
     Field = VariableField
     Order = VariableOrder
+
+    __naming__: ClassVar[EntityNaming] = EntityNaming("user")
 
 
 class InternalVariableName(StrEnum):

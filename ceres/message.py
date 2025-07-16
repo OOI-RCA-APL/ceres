@@ -18,7 +18,13 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from ceres._internal import util
 from ceres._internal.database.types import EnumConstraint, EnumMapper
-from ceres._internal.entity import BaseEntityManager, BaseEntityQuery, EntityQuery
+from ceres._internal.entity import (
+    BaseEntityManager,
+    BaseEntityQuery,
+    ConcreteEntity,
+    EntityNaming,
+    EntityQuery,
+)
 from ceres._internal.manager import BaseNodeManager
 from ceres._internal.record import (
     BaseRecord,
@@ -268,7 +274,7 @@ class BoundMessageManager(MessageManager, BaseNodeManager):
         )
 
 
-class Message(BaseRecord, MessageCreate):
+class Message(BaseRecord, MessageCreate, ConcreteEntity):
     Manager: ClassVar[type[MessageManager]] = MessageManager
     BoundManager: ClassVar[type[BoundMessageManager]] = BoundMessageManager
     Row: ClassVar[type[MessageRow]] = MessageRow
@@ -279,3 +285,5 @@ class Message(BaseRecord, MessageCreate):
     Field = MessageField
     Order = MessageOrder
     Direction: ClassVar[type[MessageDirection]] = MessageDirection
+
+    __naming__: ClassVar[EntityNaming] = EntityNaming("message")

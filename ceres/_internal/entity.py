@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 from abc import ABC, abstractmethod
 from typing import (
     TYPE_CHECKING,
@@ -21,6 +22,7 @@ from typing import (
     Unpack,
     cast,
     final,
+    is_typeddict,
     override,
 )
 from uuid import UUID
@@ -219,6 +221,9 @@ class BaseEntityFilterArgs[
     and__: MaybeSequence[Self | BaseEntityFilter[Any, FieldT, OrderT]] | None
 
 
+seen: set[int] = set()
+
+
 class BaseEntityFilter[
     EntityT: BaseEntity,
     FieldT: str,
@@ -249,7 +254,7 @@ class BaseEntityFilter[
     this root `offset` argument, the highest defined `offset` value in `and__` will be used instead.
     """
 
-    or__: MaybeSequence[Self] | None = Field(default=None, validation_alias="or")
+    or__: MaybeSequence[FromYAML[Self]] | None = Field(default=None, validation_alias="or")
     """
     One or more subfilters, where in the case any match the queried value, the overall filter should
     match.
@@ -261,7 +266,7 @@ class BaseEntityFilter[
     is matched, the overall filter will match.
     """
 
-    and__: MaybeSequence[Self] | None = Field(default=None, validation_alias="and")
+    and__: MaybeSequence[FromYAML[Self]] | None = Field(default=None, validation_alias="and")
     """
     One or more subfilters, where in the case all of them they match the queried value, the overall
     filter should match.
@@ -273,19 +278,17 @@ class BaseEntityFilter[
     is matched, the overall filter will match.
     """
 
-    def __init_subclass__(cls, **kwargs: Unpack[ConfigDict]):
-        super().__init_subclass__(**kwargs)
-
+    @classmethod
+    @override
+    def __pydantic_init_subclass__(cls, **kwargs: Any) -> None:
         # This is a hacky workaround for FastAPI not being able to generate query parameters for
         # `Query()`models when `Self` is used in a field's type annotation. Here we just replace the
         # annotations of `or__` and `and__` with the actual concrete type of this filter class.
-        or__ = cls.model_fields.get("or__")
-        if or__ is not None:
-            or__.annotation = cast("type[Any]", MaybeSequence[FromYAML[cls]] | None)
-
-        and__ = cls.model_fields.get("and__")
-        if and__ is not None:
-            and__.annotation = cast("type[Any]", MaybeSequence[FromYAML[cls]] | None)
+        super().__pydantic_init_subclass__(**kwargs)
+        or__ = cls.__pydantic_fields__["or__"]
+        or__.annotation = cast("type[Any]", MaybeSequence[FromYAML[cls]] | None)
+        and__ = cls.__pydantic_fields__["and__"]
+        and__.annotation = cast("type[Any]", MaybeSequence[FromYAML[cls]] | None)
 
     @model_validator(mode="after")
     def _resolve_and_or(self) -> Self:
@@ -323,7 +326,7 @@ class BaseEntityFilter[
     def __or__(self, other: Self, /) -> Self:
         # Because `or__` has lower precedence than `and__` within the same filter, we can always
         # just append the filter to the `or__` conditions.
-        or__ = [*(other.or__ or ()), self]
+        or__ = [*(self.or__ or ()), other]
         return self.model_copy(update={"or__": or__})
 
     def __and__(self, other: Self, /) -> Self:
@@ -333,7 +336,7 @@ class BaseEntityFilter[
             return self.__class__(and__=[self, cast("Self", other)])
 
         # Otherwise, we can append the filter to the `and__` conditions.
-        and__ = [*(self.and__ or ()), *(other.and__ or ())]
+        and__ = [*(self.and__ or ()), other]
         return self.model_copy(update={"and__": and__})
 
     @classmethod
@@ -437,7 +440,678 @@ class BaseEntityUpdate(TypedDict, total=False):
     pass
 
 
+@dataclasses.dataclass(init=False, slots=True)
+class EntityNaming:
+    singular: str
+    plural: str
+    container: str
+    table: str
+    command: str
+    route: str
+    manager: str
+
+    def __init__(
+        self,
+        singular: str,
+        *,
+        plural: str | None = None,
+        container: str | None = None,
+        table: str | None = None,
+        command: str | None = None,
+        route: str | None = None,
+        manager: str | None = None,
+    ) -> None:
+        self.singular = singular
+        self.plural = plural if plural else singular + "s"
+        self.container = container if container else self.plural
+        self.table = table if table else util.snakecase(self.container)
+        self.route = route if route else util.kebabcase(self.container)
+        self.command = command if command else util.kebabcase(self.container)
+        self.manager = manager if manager else util.snakecase(self.container)
+
+
+if TYPE_CHECKING:
+    from ceres.database import Database
+
+
+class ResultsIterator[EntityT: BaseEntity]:
+    __slots__ = ("_results",)
+
+    def __init__(self, results: AsyncIterator[EntityT]) -> None:
+        self._results: Final = results
+
+    def __aiter__(self) -> ResultsIterator[EntityT]:
+        return self
+
+    async def __anext__(self) -> EntityT:
+        return await anext(self._results)
+
+    async def first(self) -> EntityT | None:
+        try:
+            return await anext(self)
+        except StopAsyncIteration:
+            return None
+
+    async def all(self) -> list[EntityT]:
+        return [result async for result in self]
+
+
+type EntityTransform[EntityT] = Callable[[EntityT], BaseEntity | None]
+type EntityParser[EntityT] = Callable[[Any], EntityT | None]
+
+_EXECUTOR_STREAM_THRESHOLD = 5000
+_EXECUTOR_PARSE_YIELD_CONTROL_EVERY = 50
+
+
+class _BaseStatementExecutor[
+    EntityT: BaseEntity,
+    FilterT: BaseEntityFilter[Any, Any, Any],
+    AwaitT,
+](ABC):
+    __slots__ = (
+        "_query",
+        "_session",
+        "_stream",
+    )
+
+    def __init__(
+        self,
+        *,
+        query: EntityQuery[EntityT, FilterT, BaseEntityUpdate],
+    ) -> None:
+        self._query: Final = query
+        self._session: AsyncSession | None = None
+        self._stream: AsyncScalarResult[BaseEntityRow] | None = None
+
+    @override
+    def __eq__(self, value: object, /) -> bool:
+        if type(value) is not type(self):
+            return False
+
+        return self._query == value._query
+
+    def __await__(self) -> Generator[Any, Any, AwaitT]:
+        return self._await().__await__()
+
+    async def __aenter__(self) -> ResultsIterator[EntityT]:
+        with util.wrap_database_errors():
+            if self._session is None:
+                self._session = await self._query._get_database().init()
+            if self._stream is None:
+                self._stream = await self._session.stream_scalars(
+                    await self._get_statement(True),
+                )
+
+        return ResultsIterator(self._parse_async_rows(self._stream))
+
+    async def __aexit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None:
+        try:
+            if self._stream is not None:
+                await self._stream.close()
+        finally:
+            self._stream = None
+            if self._session is not None:
+                if exc_type is None and self._should_commit():
+                    await self._session.commit()
+                try:
+                    await self._session.__aexit__(exc_type, exc_value, traceback)
+                finally:
+                    self._session = None
+
+    def limit(self, limit: int) -> Self:
+        return self._with_query(self._query.limit(limit))
+
+    def offset(self, offset: int) -> Self:
+        return self._with_query(self._query.offset(offset))
+
+    async def first(self) -> EntityT | None:
+        resolved = self._query._get_resolved_filter()
+        if resolved.limit is None or resolved.limit > 1:
+            self = self.limit(1)
+
+        assert self._query._get_resolved_filter().limit == 1
+        entities = await self.all()
+        return entities[0] if entities else None
+
+    async def all(self) -> list[EntityT]:
+        resolved = self._query._get_resolved_filter()
+        database = self._query._get_database()
+        statement = await self._get_statement(True)
+
+        async with await database.init() as session:
+            if resolved.limit is not None and resolved.limit <= _EXECUTOR_STREAM_THRESHOLD:
+                result = await session.scalars(statement)
+                if self._should_commit():
+                    await session.commit()
+
+                entities = await self._parse_rows(result)
+            else:
+                stream = await session.stream_scalars(statement)
+                if self._should_commit():
+                    await session.commit()
+
+                entities = [entity async for entity in self._parse_async_rows(stream)]
+
+            return entities
+
+    @abstractmethod
+    def _should_commit(self) -> bool: ...
+
+    @abstractmethod
+    def _with_query(
+        self,
+        query: EntityQuery[EntityT, FilterT, BaseEntityUpdate],
+    ) -> Self: ...
+
+    @abstractmethod
+    async def _await(self) -> AwaitT: ...
+
+    @abstractmethod
+    async def _get_statement(
+        self,
+        returning: bool,
+    ) -> Select[Any] | Update | ReturningUpdate | Delete | ReturningDelete: ...
+
+    def _get_parser(self) -> Callable[[BaseEntityRow], EntityT | None]:
+        from ceres._internal.util import construct_model
+
+        Entity = self._query._get_entity_class()
+        transform = self._query._get_transform()
+
+        def parse(row: BaseEntityRow) -> EntityT | None:
+            entity = construct_model(Entity, row.values())
+            if transform is not None:
+                entity = transform(entity)
+
+            return entity  # type: ignore
+
+        return parse
+
+    async def _parse_rows(
+        self,
+        rows: ScalarResult[BaseEntityRow],
+    ) -> list[EntityT]:
+        parse = self._get_parser()
+        entities: list[EntityT] = []
+
+        count = 0
+        for row in rows:
+            entity = parse(row)
+            if entity is not None:
+                entities.append(entity)
+
+            count += 1
+            if count >= _EXECUTOR_PARSE_YIELD_CONTROL_EVERY:
+                count = 0
+                # Yield control to the event loop.
+                await asyncio.sleep(0)
+                await asyncio.sleep(0)
+
+        return entities
+
+    async def _parse_async_rows(
+        self,
+        rows: AsyncScalarResult[BaseEntityRow],
+    ) -> AsyncIterator[EntityT]:
+        parser = self._get_parser()
+
+        count = 0
+        async for row in rows:
+            entity = parser(row)
+            if entity is not None:
+                yield entity
+
+            count += 1
+            if count >= _EXECUTOR_PARSE_YIELD_CONTROL_EVERY:
+                count = 0
+                # Yield control to the event loop.
+                await asyncio.sleep(0)
+                await asyncio.sleep(0)
+
+
+class SelectExecutor[
+    EntityT: BaseEntity,
+    FilterT: BaseEntityFilter[Any, Any, Any],
+](_BaseStatementExecutor[EntityT, FilterT, list[EntityT]]):
+    @override
+    async def _await(self) -> list[EntityT]:
+        return await self.all()
+
+    @override
+    async def _get_statement(self, returning: bool = True) -> Select[tuple[Any]]:
+        Row = self._query._get_row_class()
+        database = self._query._get_database()
+        statement = select(Row)
+        statement = self._query._get_resolved_filter().apply(statement, database.type)
+        return statement
+
+    @override
+    def _should_commit(self) -> bool:
+        return False
+
+    @override
+    def _with_query(
+        self,
+        query: EntityQuery[EntityT, FilterT, BaseEntityUpdate],
+    ) -> SelectExecutor[EntityT, FilterT]:
+        return SelectExecutor(query=query)
+
+
+class UpdateExecutor[
+    EntityT: BaseEntity,
+    FilterT: BaseEntityFilter[Any, Any, Any],
+    UpdateT: BaseEntityUpdate,
+](_BaseStatementExecutor[EntityT, FilterT, int]):
+    __slots__ = ("_assign",)
+
+    def __init__(
+        self,
+        *,
+        query: EntityQuery[EntityT, FilterT, UpdateT],
+        assign: UpdateT,
+        assign_transform: Callable[[UpdateT], Awaitable[UpdateT]] | None = None,
+    ) -> None:
+        super().__init__(query=cast("Any", query))
+        self._query: Final = query  # type: ignore
+        self._assign: Final = assign
+
+    @override
+    def __eq__(self, value: object, /) -> bool:
+        if not super().__eq__(value):
+            return False
+
+        assert isinstance(value, UpdateExecutor)
+        return self._assign == value._assign
+
+    @override
+    async def _await(self) -> int:
+        database = self._query._get_database()
+        statement = await self._get_statement(False)
+
+        with util.wrap_database_errors():
+            async with await database.init() as session:
+                result = await session.execute(statement)
+                await session.commit()
+                return result.rowcount
+
+    @override
+    async def _get_statement(self, returning: bool) -> Update | ReturningUpdate:
+        Row = self._query._get_row_class()
+        database = self._query._get_database()
+        assign = await self._query._assign_transform(self._assign)
+
+        statement = update(Row).values(assign)
+        if returning:
+            statement = statement.returning(Row)
+
+        statement = self._query._get_resolved_filter().apply(statement, database.type)
+        return statement
+
+    @override
+    def _should_commit(self) -> bool:
+        return True
+
+    @override
+    def _with_query(
+        self,
+        query: EntityQuery[EntityT, FilterT, BaseEntityUpdate],
+    ) -> UpdateExecutor[EntityT, FilterT, UpdateT]:
+        return cast(
+            "UpdateExecutor[EntityT, FilterT, UpdateT]",
+            UpdateExecutor(query=query, assign=self._assign),
+        )
+
+
+class DeleteExecutor[
+    EntityT: BaseEntity,
+    FilterT: BaseEntityFilter[Any, Any, Any],
+](_BaseStatementExecutor[EntityT, FilterT, int]):
+    @override
+    async def _await(self) -> int:
+        database = self._query._get_database()
+        statement = await self._get_statement(False)
+
+        with util.wrap_database_errors():
+            async with await database.init() as session:
+                result = await session.execute(statement)
+                await session.commit()
+                return result.rowcount
+
+    @override
+    async def _get_statement(self, returning: bool) -> Delete | ReturningDelete:
+        Row = self._query._get_row_class()
+        database = self._query._get_database()
+
+        statement = delete(Row)
+        if returning:
+            statement = statement.returning(Row)
+
+        statement = self._query._get_resolved_filter().apply(statement, database.type)
+        return statement
+
+    @override
+    def _should_commit(self) -> bool:
+        return True
+
+    @override
+    def _with_query(
+        self,
+        query: EntityQuery[EntityT, FilterT, BaseEntityUpdate],
+    ) -> DeleteExecutor[EntityT, FilterT]:
+        return DeleteExecutor(query=query)
+
+
+class BaseEntityQuery[
+    EntityT: BaseEntity,
+    FilterT: BaseEntityFilter[Any, Any, Any],
+    UpdateT: BaseEntityUpdate,
+    QueryT: EntityQuery[Any, Any, Any],
+](ABC):
+    __slots__ = ()
+
+    def where(
+        self,
+        filter: FilterT | None = None,
+        **kwargs: Unpack[BaseEntityFilterArgs],
+    ) -> QueryT:
+        filter = self._get_resolved_filter_args(filter, kwargs)
+        return self._get_query_class()(
+            database=self._get_database(),
+            entity_class=self._get_entity_class(),
+            filter=filter,
+            filter_defaults=self._get_filter_defaults(),
+        )
+
+    def select(self) -> SelectExecutor[EntityT, FilterT]:
+        return SelectExecutor(query=self.where())
+
+    def update(self, assign: UpdateT) -> UpdateExecutor[EntityT, FilterT, UpdateT]:
+        return UpdateExecutor(query=self.where(), assign=assign)
+
+    def delete(self) -> DeleteExecutor[EntityT, FilterT]:
+        return DeleteExecutor(query=self.where())
+
+    async def count(self) -> int:
+        database = self._get_database()
+        filter = self._get_resolved_filter()
+        statement = select(func.count()).select_from(self._get_row_class())
+        statement = filter.apply(
+            statement,
+            database.type,
+            ignore_order=True,
+            always_use_subquery=filter.limit is not None or filter.offset is not None,
+        )
+
+        async with await database.init() as session:
+            results = await session.execute(statement)
+            return results.scalar() or 0
+
+    async def any(self) -> bool:
+        database = self._get_database()
+        filter = self._get_resolved_filter()
+        statement = select("*").select_from(self._get_row_class())
+        statement = filter.apply(
+            statement,
+            database.type,
+            ignore_order=True,
+            always_use_subquery=filter.limit is not None or filter.offset is not None,
+        )
+        statement = select(statement.exists())
+
+        async with await database.init() as session:
+            results = await session.execute(statement)
+            count = results.scalar() or 0
+            return count > 0
+
+    @abstractmethod
+    def _get_database(self) -> Database: ...
+
+    @abstractmethod
+    def _get_entity_class(self) -> type[EntityT]: ...
+
+    @abstractmethod
+    def _get_filter(self) -> FilterT: ...
+
+    @abstractmethod
+    def _get_filter_defaults(self) -> FilterT: ...
+
+    @abstractmethod
+    def _get_transform(self) -> EntityTransform[EntityT] | None: ...
+
+    @abstractmethod
+    def _get_query_class(self) -> type[QueryT]: ...
+
+    @final
+    def _get_filter_class(self) -> type[FilterT]:
+        return self._get_entity_class().Filter  # type: ignore
+
+    @final
+    def _get_row_class(self) -> type[BaseEntityRow]:
+        return self._get_entity_class().Row
+
+    def _get_resolved_filter(self) -> FilterT:
+        filter = self._get_filter()
+        filter = filter.with_defaults(self._get_filter_defaults())
+        return filter
+
+    def _get_resolved_filter_args(
+        self,
+        filter: FilterT | None,
+        kwargs: Mapping[str, Any],
+    ) -> FilterT:
+        Filter = self._get_filter_class()
+        return (
+            Filter(**cast("Any", kwargs))
+            .with_defaults(filter)
+            .with_defaults(self._get_resolved_filter())
+        )
+
+    async def _assign_transform(self, assign: UpdateT) -> UpdateT:
+        return assign
+
+
+class EntityQuery[
+    EntityT: BaseEntity,
+    FilterT: BaseEntityFilter[Any, Any, Any],
+    UpdateT: BaseEntityUpdate,
+](
+    BaseEntityQuery[
+        EntityT,
+        FilterT,
+        UpdateT,
+        "EntityQuery[EntityT, FilterT, UpdateT]",
+    ]
+):
+    __slots__ = (
+        "_database",
+        "_entity_class",
+        "_filter",
+        "_filter_defaults",
+        "_select_executor",
+    )
+
+    def __init__(
+        self,
+        *,
+        database: Database,
+        entity_class: type[EntityT],
+        filter: FilterT | None,
+        filter_defaults: FilterT | None,
+    ) -> None:
+        self._database: Final = database
+        self._entity_class: Final = entity_class
+        self._filter: Final = filter
+        self._filter_defaults: Final = filter_defaults
+        self._select_executor: SelectExecutor | None = None
+
+    @override
+    def __eq__(self, value: object, /) -> bool:
+        if type(value) is not type(self):
+            return False
+
+        return (
+            self._database == value._database
+            and self._entity_class == value._entity_class
+            and self._filter == value._filter
+            and self._filter_defaults == value._filter_defaults
+        )
+
+    def __await__(self) -> Generator[Any, Any, list[EntityT]]:
+        return self.select().__await__()
+
+    async def __aenter__(self) -> ResultsIterator[EntityT]:
+        self._select_executor = self.select()
+        return await self._select_executor.__aenter__()
+
+    async def __aexit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None:
+        if self._select_executor is not None:
+            try:
+                await self._select_executor.__aexit__(exc_type, exc_value, traceback)
+            finally:
+                self._select_executor = None
+
+    async def all(self) -> list[EntityT]:
+        return await self.select().all()
+
+    async def first(self) -> EntityT | None:
+        return await self.select().first()
+
+    def limit(self, limit: int) -> Self:
+        return self.where(limit=limit)  # type: ignore
+
+    def offset(self, offset: int) -> Self:
+        return self.where(offset=offset)  # type: ignore
+
+    @override
+    def _get_database(self) -> Database:
+        return self._database
+
+    @override
+    def _get_entity_class(self) -> type[EntityT]:
+        return self._entity_class
+
+    @override
+    def _get_filter(self) -> FilterT:
+        if self._filter is not None:
+            return self._filter
+
+        return self._get_filter_class()()
+
+    @override
+    def _get_filter_defaults(self) -> FilterT:
+        if self._filter_defaults is None:
+            return self._get_filter_class()()
+
+        return self._filter_defaults
+
+    @override
+    def _get_transform(self) -> EntityTransform[EntityT] | None:
+        return None
+
+
+class BaseEntityManager[
+    EntityT: BaseEntity,
+    RowT: BaseEntityRow,
+    CreateT: BaseEntityCreate,
+    UpdateT: BaseEntityUpdate,
+    FilterT: BaseEntityFilter[Any, Any, Any],
+    FilterArgsT: BaseEntityFilterArgs[Any, Any],
+](
+    BaseDatabaseManager,
+    BaseEntityQuery[
+        EntityT,
+        FilterT,
+        UpdateT,
+        EntityQuery[
+            EntityT,
+            FilterT,
+            UpdateT,
+        ],
+    ],
+):
+    __slots__ = ("_entity_class",)
+
+    @override
+    def __init__(self, source: DatabaseSource, cls: type[EntityT], /) -> None:
+        super().__init__(source)
+        self._entity_class: Final = cls
+
+    @override
+    def _get_database(self) -> Database:
+        return self.__database__
+
+    @override
+    def _get_entity_class(self) -> type[EntityT]:
+        return self._entity_class
+
+    @override
+    def _get_filter(self) -> FilterT:
+        return self._get_filter_class()()
+
+    @override
+    def _get_filter_defaults(self) -> FilterT:
+        Filter = self._get_filter_class()
+        return util.call_partial(Filter, **self.__get_filter_defaults__())
+
+    @override
+    def _get_transform(self) -> EntityTransform[EntityT] | None:
+        return None
+
+    async def _create_transform(self, data: CreateT) -> EntityT:
+        if isinstance(data, self._entity_class):
+            return data
+
+        return self._entity_class(**data.__dict__)
+
+    async def create(
+        self,
+        data: CreateT,
+        *,
+        upsert: bool = False,
+    ) -> EntityT:
+        result = await self._create_transform(data)
+        await self._insert(result, upsert=upsert)
+        return result
+
+    async def _insert(
+        self,
+        data: EntityT,
+        *,
+        upsert: bool = False,
+    ) -> RowT:
+        Row = self._get_row_class()
+        row = Row(
+            **{key: value for key, value in data.__dict__.items() if key in data.model_fields_set}
+        )
+        match self.__database__.type:
+            case DatabaseType.SQLITE:
+                from sqlalchemy.dialects.sqlite import insert
+            case DatabaseType.POSTGRES:
+                from sqlalchemy.dialects.postgresql import insert
+
+        with util.wrap_database_errors():
+            async with await self.__database__.init() as session:
+                statement = insert(Row).values(row.values())
+                pk = Row.get_primary_key_columns()
+
+                if upsert:
+                    upsert_columns = {
+                        name: column
+                        for name, column in statement.excluded.items()
+                        if name not in pk
+                    }
+                    statement = statement.on_conflict_do_update(
+                        index_elements=pk,
+                        set_=upsert_columns,
+                    )
+
+                await session.execute(statement)
+                await session.commit()
+                return row  # type: ignore
+
+
 class BaseEntity(BaseEntityCreate):
+    Manager: ClassVar[type[BaseEntityManager]] = BaseEntityManager
     Row: ClassVar[type[BaseEntityRow]] = BaseEntityRow
     Create: ClassVar[type[BaseEntityCreate]] = BaseEntityCreate
     Update: ClassVar[type[BaseEntityUpdate]] = BaseEntityUpdate
@@ -452,6 +1126,49 @@ class BaseEntity(BaseEntityCreate):
         FilterArgs: ClassVar[type[BaseEntityFilterArgs]] = BaseEntityFilterArgs
         Field: ClassVar[type[str]] = str
         Order: ClassVar[type[str]] = str
+
+
+_REQUIRED_CONCRETE_CLASS_ATTRIBUTES: dict[str, type[Any] | None] = {
+    "__naming__": EntityNaming,
+    "Manager": BaseEntityManager,
+    "Row": BaseEntityRow,
+    "Create": BaseEntityCreate,
+    "Update": BaseEntityUpdate,
+    "Filter": BaseEntityFilter,
+    "FilterArgs": BaseEntityFilterArgs,
+    "Field": None,
+    "Order": None,
+}
+
+
+class ConcreteEntity(BaseEntity):
+    __naming__: ClassVar[EntityNaming]
+
+    def __init_subclass__(cls, **kwargs: Unpack[ConfigDict]) -> None:
+        super().__init_subclass__(**kwargs)
+        if cls.__name__.startswith("Base"):
+            return
+
+        for attribute, constraint in _REQUIRED_CONCRETE_CLASS_ATTRIBUTES.items():
+            value = cls.__dict__.get(attribute)
+            if value is None:
+                raise TypeError(
+                    f"Concrete entity class `{cls.__name__}` must define `{attribute}` as a class attribute."
+                )
+            elif constraint is not None:
+                if is_typeddict(constraint):
+                    continue
+
+                if isinstance(value, type):
+                    if not issubclass(value, constraint):
+                        raise TypeError(
+                            f"Concrete entity class `{cls.__name__}` must define `{attribute}` as a subclass of `{constraint.__name__}`."
+                        )
+                else:
+                    if not isinstance(value, constraint):
+                        raise TypeError(
+                            f"Concrete entity class `{cls.__name__}` must define `{attribute}` as an instance of `{constraint.__name__}`."
+                        )
 
 
 class BaseUUIDEntityRow(BaseEntityRow):
@@ -912,643 +1629,3 @@ class BaseTimestampEntity(BaseTimestampEntityCreate):
         FilterArgs: ClassVar[type[BaseTimestampEntityFilterArgs]] = BaseTimestampEntityFilterArgs
         Field: ClassVar[type[BaseTimestampEntityField]] = BaseTimestampEntityField
         Order: ClassVar[type[BaseTimestampEntityOrder]] = BaseTimestampEntityOrder
-
-
-if TYPE_CHECKING:
-    from ceres.database import Database
-
-
-class ResultsIterator[EntityT: BaseEntity]:
-    __slots__ = ("_results",)
-
-    def __init__(self, results: AsyncIterator[EntityT]) -> None:
-        self._results: Final = results
-
-    def __aiter__(self) -> ResultsIterator[EntityT]:
-        return self
-
-    async def __anext__(self) -> EntityT:
-        return await anext(self._results)
-
-    async def first(self) -> EntityT | None:
-        try:
-            return await anext(self)
-        except StopAsyncIteration:
-            return None
-
-    async def all(self) -> list[EntityT]:
-        return [result async for result in self]
-
-
-type EntityTransform[EntityT] = Callable[[EntityT], BaseEntity | None]
-type EntityParser[EntityT] = Callable[[Any], EntityT | None]
-
-_EXECUTOR_STREAM_THRESHOLD = 5000
-_EXECUTOR_PARSE_YIELD_CONTROL_EVERY = 50
-
-
-class _BaseStatementExecutor[
-    EntityT: BaseEntity,
-    FilterT: BaseEntityFilter[Any, Any, Any],
-    AwaitT,
-](ABC):
-    __slots__ = (
-        "_query",
-        "_session",
-        "_stream",
-    )
-
-    def __init__(
-        self,
-        *,
-        query: EntityQuery[EntityT, FilterT, BaseEntityUpdate],
-    ) -> None:
-        self._query: Final = query
-        self._session: AsyncSession | None = None
-        self._stream: AsyncScalarResult[BaseEntityRow] | None = None
-
-    @override
-    def __eq__(self, value: object, /) -> bool:
-        if type(value) is not type(self):
-            return False
-
-        return self._query == value._query
-
-    def __await__(self) -> Generator[Any, Any, AwaitT]:
-        return self._await().__await__()
-
-    async def __aenter__(self) -> ResultsIterator[EntityT]:
-        with util.wrap_database_errors():
-            if self._session is None:
-                self._session = await self._query._get_database().init()
-            if self._stream is None:
-                self._stream = await self._session.stream_scalars(
-                    await self._get_statement(True),
-                )
-
-        return ResultsIterator(self._parse_async_rows(self._stream))
-
-    async def __aexit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None:
-        try:
-            if self._stream is not None:
-                await self._stream.close()
-        finally:
-            self._stream = None
-            if self._session is not None:
-                if exc_type is None and self._should_commit():
-                    await self._session.commit()
-                try:
-                    await self._session.__aexit__(exc_type, exc_value, traceback)
-                finally:
-                    self._session = None
-
-    def limit(self, limit: int) -> Self:
-        return self._with_query(self._query.limit(limit))
-
-    def offset(self, offset: int) -> Self:
-        return self._with_query(self._query.offset(offset))
-
-    async def first(self) -> EntityT | None:
-        resolved = self._query._get_resolved_filter()
-        if resolved.limit is None or resolved.limit > 1:
-            self = self.limit(1)
-
-        assert self._query._get_resolved_filter().limit == 1
-        entities = await self.all()
-        return entities[0] if entities else None
-
-    async def all(self) -> list[EntityT]:
-        resolved = self._query._get_resolved_filter()
-        database = self._query._get_database()
-        statement = await self._get_statement(True)
-
-        async with await database.init() as session:
-            if resolved.limit is not None and resolved.limit <= _EXECUTOR_STREAM_THRESHOLD:
-                result = await session.scalars(statement)
-                if self._should_commit():
-                    await session.commit()
-
-                entities = await self._parse_rows(result)
-            else:
-                stream = await session.stream_scalars(statement)
-                if self._should_commit():
-                    await session.commit()
-
-                entities = [entity async for entity in self._parse_async_rows(stream)]
-
-            return entities
-
-    @abstractmethod
-    def _should_commit(self) -> bool: ...
-
-    @abstractmethod
-    def _with_query(
-        self,
-        query: EntityQuery[EntityT, FilterT, BaseEntityUpdate],
-    ) -> Self: ...
-
-    @abstractmethod
-    async def _await(self) -> AwaitT: ...
-
-    @abstractmethod
-    async def _get_statement(
-        self,
-        returning: bool,
-    ) -> Select[Any] | Update | ReturningUpdate | Delete | ReturningDelete: ...
-
-    def _get_parser(self) -> Callable[[BaseEntityRow], EntityT | None]:
-        from ceres._internal.util import construct_model
-
-        Entity = self._query._get_entity_class()
-        transform = self._query._get_transform()
-
-        def parse(row: BaseEntityRow) -> EntityT | None:
-            entity = construct_model(Entity, row.values())
-            if transform is not None:
-                entity = transform(entity)
-
-            return entity  # type: ignore
-
-        return parse
-
-    async def _parse_rows(
-        self,
-        rows: ScalarResult[BaseEntityRow],
-    ) -> list[EntityT]:
-        parse = self._get_parser()
-        entities: list[EntityT] = []
-
-        count = 0
-        for row in rows:
-            entity = parse(row)
-            if entity is not None:
-                entities.append(entity)
-
-            count += 1
-            if count >= _EXECUTOR_PARSE_YIELD_CONTROL_EVERY:
-                count = 0
-                # Yield control to the event loop.
-                await asyncio.sleep(0)
-                await asyncio.sleep(0)
-
-        return entities
-
-    async def _parse_async_rows(
-        self,
-        rows: AsyncScalarResult[BaseEntityRow],
-    ) -> AsyncIterator[EntityT]:
-        parser = self._get_parser()
-
-        count = 0
-        async for row in rows:
-            entity = parser(row)
-            if entity is not None:
-                yield entity
-
-            count += 1
-            if count >= _EXECUTOR_PARSE_YIELD_CONTROL_EVERY:
-                count = 0
-                # Yield control to the event loop.
-                await asyncio.sleep(0)
-                await asyncio.sleep(0)
-
-
-class SelectExecutor[
-    EntityT: BaseEntity,
-    FilterT: BaseEntityFilter[Any, Any, Any],
-](_BaseStatementExecutor[EntityT, FilterT, list[EntityT]]):
-    @override
-    async def _await(self) -> list[EntityT]:
-        return await self.all()
-
-    @override
-    async def _get_statement(self, returning: bool = True) -> Select[tuple[Any]]:
-        Row = self._query._get_row_class()
-        database = self._query._get_database()
-        statement = select(Row)
-        statement = self._query._get_resolved_filter().apply(statement, database.type)
-        return statement
-
-    @override
-    def _should_commit(self) -> bool:
-        return False
-
-    @override
-    def _with_query(
-        self,
-        query: EntityQuery[EntityT, FilterT, BaseEntityUpdate],
-    ) -> SelectExecutor[EntityT, FilterT]:
-        return SelectExecutor(query=query)
-
-
-class UpdateExecutor[
-    EntityT: BaseEntity,
-    FilterT: BaseEntityFilter[Any, Any, Any],
-    UpdateT: BaseEntityUpdate,
-](_BaseStatementExecutor[EntityT, FilterT, int]):
-    __slots__ = ("_assign",)
-
-    def __init__(
-        self,
-        *,
-        query: EntityQuery[EntityT, FilterT, UpdateT],
-        assign: UpdateT,
-        assign_transform: Callable[[UpdateT], Awaitable[UpdateT]] | None = None,
-    ) -> None:
-        super().__init__(query=cast("Any", query))
-        self._query: Final = query  # type: ignore
-        self._assign: Final = assign
-
-    @override
-    def __eq__(self, value: object, /) -> bool:
-        if not super().__eq__(value):
-            return False
-
-        assert isinstance(value, UpdateExecutor)
-        return self._assign == value._assign
-
-    @override
-    async def _await(self) -> int:
-        database = self._query._get_database()
-        statement = await self._get_statement(False)
-
-        with util.wrap_database_errors():
-            async with await database.init() as session:
-                result = await session.execute(statement)
-                await session.commit()
-                return result.rowcount
-
-    @override
-    async def _get_statement(self, returning: bool) -> Update | ReturningUpdate:
-        Row = self._query._get_row_class()
-        database = self._query._get_database()
-        assign = await self._query._assign_transform(self._assign)
-
-        statement = update(Row).values(assign)
-        if returning:
-            statement = statement.returning(Row)
-
-        statement = self._query._get_resolved_filter().apply(statement, database.type)
-        return statement
-
-    @override
-    def _should_commit(self) -> bool:
-        return True
-
-    @override
-    def _with_query(
-        self,
-        query: EntityQuery[EntityT, FilterT, BaseEntityUpdate],
-    ) -> UpdateExecutor[EntityT, FilterT, UpdateT]:
-        return cast(
-            "UpdateExecutor[EntityT, FilterT, UpdateT]",
-            UpdateExecutor(query=query, assign=self._assign),
-        )
-
-
-class DeleteExecutor[
-    EntityT: BaseEntity,
-    FilterT: BaseEntityFilter[Any, Any, Any],
-](_BaseStatementExecutor[EntityT, FilterT, int]):
-    @override
-    async def _await(self) -> int:
-        database = self._query._get_database()
-        statement = await self._get_statement(False)
-
-        with util.wrap_database_errors():
-            async with await database.init() as session:
-                result = await session.execute(statement)
-                await session.commit()
-                return result.rowcount
-
-    @override
-    async def _get_statement(self, returning: bool) -> Delete | ReturningDelete:
-        Row = self._query._get_row_class()
-        database = self._query._get_database()
-
-        statement = delete(Row)
-        if returning:
-            statement = statement.returning(Row)
-
-        statement = self._query._get_resolved_filter().apply(statement, database.type)
-        return statement
-
-    @override
-    def _should_commit(self) -> bool:
-        return True
-
-    @override
-    def _with_query(
-        self,
-        query: EntityQuery[EntityT, FilterT, BaseEntityUpdate],
-    ) -> DeleteExecutor[EntityT, FilterT]:
-        return DeleteExecutor(query=query)
-
-
-class BaseEntityQuery[
-    EntityT: BaseEntity,
-    FilterT: BaseEntityFilter[Any, Any, Any],
-    UpdateT: BaseEntityUpdate,
-    QueryT: EntityQuery[Any, Any, Any],
-](ABC):
-    __slots__ = ()
-
-    def where(
-        self,
-        filter: FilterT | None = None,
-        **kwargs: Unpack[BaseEntityFilterArgs[Any, Any]],
-    ) -> QueryT:
-        filter = self._get_resolved_filter_args(filter, kwargs)
-        return self._get_query_class()(
-            database=self._get_database(),
-            entity_class=self._get_entity_class(),
-            filter=filter,
-            filter_defaults=self._get_filter_defaults(),
-        )
-
-    def select(self) -> SelectExecutor[EntityT, FilterT]:
-        return SelectExecutor(query=self.where())
-
-    def update(self, assign: UpdateT) -> UpdateExecutor[EntityT, FilterT, UpdateT]:
-        return UpdateExecutor(query=self.where(), assign=assign)
-
-    def delete(self) -> DeleteExecutor[EntityT, FilterT]:
-        return DeleteExecutor(query=self.where())
-
-    async def count(self) -> int:
-        database = self._get_database()
-        filter = self._get_resolved_filter()
-        statement = select(func.count()).select_from(self._get_row_class())
-        statement = filter.apply(
-            statement,
-            database.type,
-            ignore_order=True,
-            always_use_subquery=filter.limit is not None or filter.offset is not None,
-        )
-
-        async with await database.init() as session:
-            results = await session.execute(statement)
-            return results.scalar() or 0
-
-    async def any(self) -> bool:
-        database = self._get_database()
-        filter = self._get_resolved_filter()
-        statement = select("*").select_from(self._get_row_class())
-        statement = filter.apply(
-            statement,
-            database.type,
-            ignore_order=True,
-            always_use_subquery=filter.limit is not None or filter.offset is not None,
-        )
-        statement = select(statement.exists())
-
-        async with await database.init() as session:
-            results = await session.execute(statement)
-            count = results.scalar() or 0
-            return count > 0
-
-    @abstractmethod
-    def _get_database(self) -> Database: ...
-
-    @abstractmethod
-    def _get_entity_class(self) -> type[EntityT]: ...
-
-    @abstractmethod
-    def _get_filter(self) -> FilterT: ...
-
-    @abstractmethod
-    def _get_filter_defaults(self) -> FilterT: ...
-
-    @abstractmethod
-    def _get_transform(self) -> EntityTransform[EntityT] | None: ...
-
-    @abstractmethod
-    def _get_query_class(self) -> type[QueryT]: ...
-
-    @final
-    def _get_filter_class(self) -> type[FilterT]:
-        return self._get_entity_class().Filter  # type: ignore
-
-    @final
-    def _get_row_class(self) -> type[BaseEntityRow]:
-        return self._get_entity_class().Row
-
-    def _get_resolved_filter(self) -> FilterT:
-        filter = self._get_filter()
-        filter = filter.with_defaults(self._get_filter_defaults())
-        return filter
-
-    def _get_resolved_filter_args(
-        self,
-        filter: FilterT | None,
-        kwargs: BaseEntityFilterArgs,
-    ) -> FilterT:
-        Filter = self._get_filter_class()
-        return (
-            Filter(**cast("Any", kwargs))
-            .with_defaults(filter)
-            .with_defaults(self._get_resolved_filter())
-        )
-
-    async def _assign_transform(self, assign: UpdateT) -> UpdateT:
-        return assign
-
-
-class EntityQuery[
-    EntityT: BaseEntity,
-    FilterT: BaseEntityFilter[Any, Any, Any],
-    UpdateT: BaseEntityUpdate,
-](
-    BaseEntityQuery[
-        EntityT,
-        FilterT,
-        UpdateT,
-        "EntityQuery[EntityT, FilterT, UpdateT]",
-    ]
-):
-    __slots__ = (
-        "_database",
-        "_entity_class",
-        "_filter",
-        "_filter_defaults",
-        "_select_executor",
-    )
-
-    def __init__(
-        self,
-        *,
-        database: Database,
-        entity_class: type[EntityT],
-        filter: FilterT | None,
-        filter_defaults: FilterT | None,
-    ) -> None:
-        self._database: Final = database
-        self._entity_class: Final = entity_class
-        self._filter: Final = filter
-        self._filter_defaults: Final = filter_defaults
-        self._select_executor: SelectExecutor | None = None
-
-    @override
-    def __eq__(self, value: object, /) -> bool:
-        if type(value) is not type(self):
-            return False
-
-        return (
-            self._database == value._database
-            and self._entity_class == value._entity_class
-            and self._filter == value._filter
-            and self._filter_defaults == value._filter_defaults
-        )
-
-    def __await__(self) -> Generator[Any, Any, list[EntityT]]:
-        return self.select().__await__()
-
-    async def __aenter__(self) -> ResultsIterator[EntityT]:
-        self._select_executor = self.select()
-        return await self._select_executor.__aenter__()
-
-    async def __aexit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None:
-        if self._select_executor is not None:
-            try:
-                await self._select_executor.__aexit__(exc_type, exc_value, traceback)
-            finally:
-                self._select_executor = None
-
-    async def all(self) -> list[EntityT]:
-        return await self.select().all()
-
-    async def first(self) -> EntityT | None:
-        return await self.select().first()
-
-    def limit(self, limit: int) -> Self:
-        return self.where(limit=limit)  # type: ignore
-
-    def offset(self, offset: int) -> Self:
-        return self.where(offset=offset)  # type: ignore
-
-    @override
-    def _get_database(self) -> Database:
-        return self._database
-
-    @override
-    def _get_entity_class(self) -> type[EntityT]:
-        return self._entity_class
-
-    @override
-    def _get_filter(self) -> FilterT:
-        if self._filter is not None:
-            return self._filter
-
-        return self._get_filter_class()()
-
-    @override
-    def _get_filter_defaults(self) -> FilterT:
-        if self._filter_defaults is None:
-            return self._get_filter_class()()
-
-        return self._filter_defaults
-
-    @override
-    def _get_transform(self) -> EntityTransform[EntityT] | None:
-        return None
-
-
-class BaseEntityManager[
-    EntityT: BaseEntity,
-    RowT: BaseEntityRow,
-    CreateT: BaseEntityCreate,
-    UpdateT: BaseEntityUpdate,
-    FilterT: BaseEntityFilter[Any, Any, Any],
-    FilterArgsT: BaseEntityFilterArgs[Any, Any],
-](
-    BaseDatabaseManager,
-    BaseEntityQuery[
-        EntityT,
-        FilterT,
-        UpdateT,
-        EntityQuery[
-            EntityT,
-            FilterT,
-            UpdateT,
-        ],
-    ],
-):
-    __slots__ = ("_entity_class",)
-
-    @override
-    def __init__(self, source: DatabaseSource, cls: type[EntityT], /) -> None:
-        super().__init__(source)
-        self._entity_class: Final = cls
-
-    @override
-    def _get_database(self) -> Database:
-        return self.__database__
-
-    @override
-    def _get_entity_class(self) -> type[EntityT]:
-        return self._entity_class
-
-    @override
-    def _get_filter(self) -> FilterT:
-        return self._get_filter_class()()
-
-    @override
-    def _get_filter_defaults(self) -> FilterT:
-        Filter = self._get_filter_class()
-        return util.call_partial(Filter, **self.__get_filter_defaults__())
-
-    @override
-    def _get_transform(self) -> EntityTransform[EntityT] | None:
-        return None
-
-    async def _create_transform(self, data: CreateT) -> EntityT:
-        if isinstance(data, self._entity_class):
-            return data
-
-        return self._entity_class(**data.__dict__)
-
-    async def create(
-        self,
-        data: CreateT,
-        *,
-        upsert: bool = False,
-    ) -> EntityT:
-        result = await self._create_transform(data)
-        await self._insert(result, upsert=upsert)
-        return result
-
-    async def _insert(
-        self,
-        data: EntityT,
-        *,
-        upsert: bool = False,
-    ) -> RowT:
-        Row = self._get_row_class()
-        row = Row(
-            **{key: value for key, value in data.__dict__.items() if key in data.model_fields_set}
-        )
-        match self.__database__.type:
-            case DatabaseType.SQLITE:
-                from sqlalchemy.dialects.sqlite import insert
-            case DatabaseType.POSTGRES:
-                from sqlalchemy.dialects.postgresql import insert
-
-        with util.wrap_database_errors():
-            async with await self.__database__.init() as session:
-                statement = insert(Row).values(row.values())
-                pk = Row.get_primary_key_columns()
-
-                if upsert:
-                    upsert_columns = {
-                        name: column
-                        for name, column in statement.excluded.items()
-                        if name not in pk
-                    }
-                    statement = statement.on_conflict_do_update(
-                        index_elements=pk,
-                        set_=upsert_columns,
-                    )
-
-                await session.execute(statement)
-                await session.commit()
-                return row  # type: ignore

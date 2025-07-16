@@ -51,7 +51,7 @@ const isShowingNewPassword = $ref(false)
 
 <template>
   <q-dialog ref="dialogRef" persistent @hide="onDialogHide">
-    <q-card class="q-dialog-plugin">
+    <q-card bordered class="q-dialog-plugin" flat>
       <div class="q-px-md">
         <common-text element="h2" variant="title1">Change Password</common-text>
       </div>

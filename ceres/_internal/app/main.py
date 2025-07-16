@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import traceback
-from http.client import responses
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Awaitable, Callable, cast, final
+from typing import TYPE_CHECKING, Any, cast, final
 
 from fastapi import APIRouter, FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
@@ -13,7 +12,7 @@ from starlette.status import HTTP_422_UNPROCESSABLE_ENTITY
 
 from ceres._internal import util
 from ceres._internal.app.shared import CurrentEngine
-from ceres._internal.lazy import lazy_imports
+from ceres.data import simplify
 from ceres.error import (
     Failure,
     HTTPError,
@@ -21,25 +20,24 @@ from ceres.error import (
     ValidationFailedError,
     ValidationProblem,
 )
+from ceres.timing import utc
 from ceres.version import __version__
 
 if TYPE_CHECKING:
+    from datetime import datetime
+
     from asgiref.typing import (
+        ASGI3Application,
         ASGIReceiveCallable,
         ASGIReceiveEvent,
         ASGISendCallable,
         ASGISendEvent,
-        HTTPScope,
         Scope,
-        WebSocketScope,
     )
     from fastapi.requests import HTTPConnection
 
+    from ceres.config import ServerConfig
     from ceres.engine import Engine
-
-with lazy_imports(__name__):
-    from ceres.config import ServerCompressionConfig, ServerConfig
-    from ceres.data import simplify
 
 
 router = APIRouter()
@@ -83,6 +81,28 @@ class App(FastAPI):
             openapi_url="/api/openapi.json",
         )
 
+        # Middlewares are run in reverse order. IE, this `CLIAuthMiddleware` is the last to be
+        # entered on the way down the middleware stack.
+        if self.__cli_token is not None:
+            self.add_middleware(
+                CLIAuthMiddleware,  # type: ignore
+                self.__cli_token,
+            )
+
+        self.add_middleware(
+            ScopeModifyMiddleware,  # type: ignore
+        )
+        self.add_middleware(
+            ErrorMiddleware,  # type: ignore
+            self.engine,
+        )
+        self.add_middleware(
+            LoggingMiddleware,  # type: ignore
+            self.engine,
+        )
+
+        from ceres.config import ServerCompressionConfig
+
         compression = config.compression or ServerCompressionConfig()
         if compression.enabled:
             from starlette_compress import CompressMiddleware
@@ -115,13 +135,8 @@ class App(FastAPI):
                 max_age=cors.max_age,
             )
 
-        self.add_middleware(LoggingMiddleware)  # type: ignore
-
-        self.middleware("http")(self._cli_token_middleware)
-        self.middleware("http")(self._error_middleware)
-        self.middleware("http")(self._scope_modify_middleware)
-        self.exception_handler(HTTPException)(self._http_exception_handler)
-        self.exception_handler(RequestValidationError)(self._request_validation_error_handler)
+        self.exception_handler(HTTPException)(self.__http_exception_handler)
+        self.exception_handler(RequestValidationError)(self.__request_validation_error_handler)
 
         from ceres._internal.app.api import router as api
 
@@ -141,63 +156,138 @@ class App(FastAPI):
     def cli(self) -> bool:
         return self.__cli_token is not None
 
-    async def _cli_token_middleware(
+    @property
+    def cli_token(self) -> str | None:
+        return self.__cli_token
+
+    async def __http_exception_handler(
+        self,
+        request: HTTPConnection,
+        exception: HTTPException,
+    ) -> Response:
+        error = simplify(HTTPError(status=exception.status_code))
+        return JSONResponse(simplify(error), exception.status_code)
+
+    async def __request_validation_error_handler(
         self,
         request: Request,
-        call_next: Callable[[Request], Awaitable[Response]],
+        exception: RequestValidationError,
     ) -> Response:
-        if self.__cli_token is not None:
-            if request.headers.get("Authorization") != self.__cli_token:
-                raise Failure(NotAuthenticatedError)
+        error = simplify(ValidationFailedError(problems=ValidationProblem.extract(exception)))
+        return JSONResponse(simplify(error), HTTP_422_UNPROCESSABLE_ENTITY)
 
-        return await call_next(request)
 
-    async def _error_middleware(
+class LoggingMiddleware:
+    def __init__(self, app: ASGI3Application, engine: Engine) -> None:
+        self.app = app
+        self.engine = engine
+
+    async def __call__(
         self,
-        request: Request,
-        call_next: Callable[[Request], Awaitable[Response]],
-    ) -> Response:
-        try:
-            return await call_next(request)
-        except Failure as failure:
-            try:
-                error = simplify(failure.error)
-                status = failure.error.__error_status_code__
+        scope: Scope,
+        receive: ASGIReceiveCallable,
+        send: ASGISendCallable,
+    ) -> None:
+        from http.client import responses
 
-                if status >= 500:
-                    self.engine.log.error(traceback.format_exc())
-            except Exception:
-                traceback.print_exc()
-                raise
+        connected_at: datetime | None = None
 
-            try:
-                return JSONResponse(error, status)
-            except Exception:
-                self.engine.log.error(traceback.format_exc())
-                raise
-        except Exception:
-            self.engine.log.error(traceback.format_exc())
-            raise
+        def duration() -> str:
+            if connected_at is None:
+                return ""
 
-    async def _scope_modify_middleware(
+            duration = util.encode_td(utc() - connected_at, decimals=2, space=True)
+            return f" ({duration})" if connected_at is not None else ""
+
+        def handle(event: ASGIReceiveEvent | ASGISendEvent) -> None:
+            nonlocal connected_at
+
+            match scope["type"]:
+                case "http":
+                    if event["type"] == "http.request" or event["type"] == "http.response.start":
+                        path = scope["path"]
+                        verb = scope["method"].upper()
+                        client = scope["client"]
+                        host = client[0] if client else "?"
+
+                        if event["type"] == "http.request":
+                            connected_at = utc()
+                            self.engine.log.debug(f"[HTTP] {verb} {path} {host}")
+                        else:
+                            status = event["status"]
+                            description = responses.get(status, "Unknown")
+                            self.engine.log.debug(
+                                f"[HTTP] {verb} {path} {host} {status} {description}{duration()}"
+                            )
+                case "websocket":
+                    if (
+                        event["type"] == "websocket.connect"
+                        or event["type"] == "websocket.accept"
+                        or event["type"] == "websocket.close"
+                        or event["type"] == "websocket.disconnect"
+                    ):
+                        path = scope["path"]
+                        verb = event["type"].split(".")[1].upper()
+                        client = scope["client"]
+                        host = client[0] if client else "?"
+
+                        if event["type"] == "websocket.connect":
+                            connected_at = utc()
+                            self.engine.log.debug(f"[WS] {verb} {path} {host}")
+                        elif (
+                            event["type"] == "websocket.close"
+                            or event["type"] == "websocket.disconnect"
+                        ):
+                            code = event["code"]
+                            self.engine.log.debug(f"[WS] {verb} {path} {host} {code}{duration()}")
+                        else:
+                            self.engine.log.debug(f"[WS] {verb} {path} {host}{duration()}")
+                case "lifespan":
+                    pass
+
+        async def receive_wrapper() -> ASGIReceiveEvent:
+            event = await receive()
+            handle(event)
+            return event
+
+        async def send_wrapper(event: ASGISendEvent) -> None:
+            handle(event)
+            await send(event)
+
+        await self.app(scope, receive_wrapper, send_wrapper)
+
+
+class ScopeModifyMiddleware:
+    def __init__(self, app: ASGI3Application) -> None:
+        self.app = app
+
+    async def __call__(
         self,
-        request: Request,
-        call_next: Callable[[Request], Awaitable[Response]],
-    ) -> Response:
-        # Remove the "http.response.pathsend" extension from the request scope as it causes issues
-        # with FastAPI.
-        extensions: dict[str, dict[str, Any]] | None = request.scope.get("extensions")
+        scope: Scope,
+        receive: ASGIReceiveCallable,
+        send: ASGISendCallable,
+    ) -> None:
+        if scope["type"] not in ("http", "websocket"):
+            await self.app(scope, receive, send)
+            return
+
+        # Remove the "http.response.pathsend" extension from the scope as it conflicts with
+        # `CompressMiddleware` at the time of writing.
+        extensions = scope.get("extensions")
         if extensions is not None:
             extensions.pop("http.response.pathsend", None)
 
         # Combine multiple cookie headers into a single header. Starlette doesn't support multiple
         # cookie headers, despite them being the sent by default on HTTP/2 and above in Chrome.
-        headers: list[tuple[bytes, bytes]] = request.scope.get("headers", [])
+        headers = scope.get("headers", [])
+        if not isinstance(headers, list):
+            headers = list(headers)
+
         cookie_header_index: int | None = None
         cookie_header_values: list[bytes] = []
 
         for i, (key, value) in enumerate(headers):
-            if key == b"cookie":
+            if key.lower() == b"cookie":
                 if cookie_header_index is None:
                     cookie_header_index = i
 
@@ -215,28 +305,13 @@ class App(FastAPI):
             headers.clear()
             headers.extend(merged_headers)
 
-        return await call_next(request)
-
-    async def _http_exception_handler(
-        self,
-        request: HTTPConnection,
-        exception: HTTPException,
-    ) -> Response:
-        error = simplify(HTTPError(status=exception.status_code))
-        return JSONResponse(simplify(error), exception.status_code)
-
-    async def _request_validation_error_handler(
-        self,
-        request: Request,
-        exception: RequestValidationError,
-    ) -> Response:
-        error = simplify(ValidationFailedError(problems=ValidationProblem.extract(exception)))
-        return JSONResponse(simplify(error), HTTP_422_UNPROCESSABLE_ENTITY)
+        return await self.app(scope, receive, send)
 
 
-class LoggingMiddleware:
-    def __init__(self, app: App) -> None:
+class CLIAuthMiddleware:
+    def __init__(self, app: ASGI3Application, cli_token: str) -> None:
         self.app = app
+        self.cli_token = cli_token
 
     async def __call__(
         self,
@@ -244,52 +319,52 @@ class LoggingMiddleware:
         receive: ASGIReceiveCallable,
         send: ASGISendCallable,
     ) -> None:
-        async def receive_wrapper() -> ASGIReceiveEvent:
-            return await receive()
+        if scope["type"] not in ("http", "websocket"):
+            await self.app(scope, receive, send)
 
-        async def send_wrapper(message: ASGISendEvent) -> None:
-            from ceres._internal.app.main import App
+        request = Request(cast("Any", scope))
+        if request.headers.get("Authorization") != self.cli_token:
+            raise Failure(NotAuthenticatedError)
 
-            app = scope.get("app")
+        return await self.app(scope, receive, send)
 
-            if isinstance(app, App):
-                try:
-                    if message["type"] == "http.response.start" and scope["type"] == "http":
-                        http = cast("HTTPScope", scope)
-                        path = http["path"]
-                        verb = http["method"]
-                        client = http["client"]
-                        host = client[0] if client else "?"
 
-                        status = message["status"]
-                        description = responses.get(status, "Unknown")
+class ErrorMiddleware:
+    def __init__(self, app: ASGI3Application, engine: Engine) -> None:
+        self.app = app
+        self.engine = engine
 
-                        app.engine.log.debug(
-                            f"[HTTP] {verb} {path} {host} {status} {description}",
-                        )
-                    elif (
-                        message["type"] == "websocket.accept"
-                        or message["type"] == "websocket.close"
-                        and scope["type"] == "websocket"
-                    ):
-                        socket = cast("WebSocketScope", scope)
-                        type = message["type"]
-                        path = socket["path"]
-                        match type:
-                            case "websocket.accept":
-                                verb = "ACCEPT"
-                            case "websocket.close":
-                                verb = "CLOSE"
-                        client = socket["client"]
-                        host = client[0] if client else "?"
+    async def __call__(
+        self,
+        scope: Scope,
+        receive: ASGIReceiveCallable,
+        send: ASGISendCallable,
+    ) -> None:
+        try:
+            await self.app(scope, receive, send)
+        except Failure as failure:
+            try:
+                error = simplify(failure.error)
+                status = failure.error.__error_status_code__
 
-                        app.engine.log.debug(f"[WS] {verb} {path} {host}")
-                except Exception:
-                    traceback.print_exc()
+                if status >= 500:
+                    self.engine.log.error(traceback.format_exc())
+            except Exception:
+                traceback.print_exc()
+                raise
 
-            return await send(message)
-
-        return await self.app(scope, receive_wrapper, send_wrapper)  # type: ignore
+            try:
+                await JSONResponse(error, status)(
+                    scope,  # type: ignore
+                    receive,  # type: ignore
+                    send,  # type: ignore
+                )
+            except Exception:
+                self.engine.log.error(traceback.format_exc())
+                raise
+        except Exception:
+            self.engine.log.error(traceback.format_exc())
+            raise
 
 
 def _get_favicon_response(

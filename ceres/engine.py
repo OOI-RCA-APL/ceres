@@ -23,7 +23,9 @@ from ceres.node import Node
 from ceres.result import Fail, Ok, Result
 
 if TYPE_CHECKING:
+    from ceres._internal.entity import BaseEntityManager
     from ceres.component import Component, ComponentFilter, ComponentFilterArgs, ComponentSystem
+    from ceres.entity import Entity
 
 with lazy_imports(__name__):
     from ceres.database import Database
@@ -165,6 +167,9 @@ class Engine(Node):
     @cached_property
     def workspace_edits(self) -> WorkspaceEditManager:
         return WorkspaceEditManager(self)
+
+    def __manager__(self, Entity: type[Entity], /) -> BaseEntityManager:
+        return util.get_entity_manager(self, Entity)
 
     @property
     def config_path(self) -> Path | None:

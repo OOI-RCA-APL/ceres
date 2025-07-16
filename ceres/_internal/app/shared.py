@@ -1,3 +1,4 @@
+import json
 from dataclasses import dataclass
 from datetime import datetime
 from typing import (
@@ -8,6 +9,7 @@ from typing import (
     Callable,
     Coroutine,
     Mapping,
+    cast,
 )
 from uuid import UUID
 
@@ -29,7 +31,6 @@ from starlette.status import HTTP_400_BAD_REQUEST, HTTP_401_UNAUTHORIZED
 
 from ceres._internal import util
 from ceres._internal.lazy import lazy_imports
-from ceres._internal.record import BaseRecord
 from ceres.data import (
     DateTime,
     DeferBuild,
@@ -44,17 +45,19 @@ from ceres.timing import utc
 from ceres.user import User, UserRole
 
 if TYPE_CHECKING:
+    from asgiref.typing import WebSocketReceiveEvent
+
     from ceres._internal.app.main import App
     from ceres.engine import Engine
+    from ceres.message import MessageFilter
 else:
     Engine = object
     App = object
 
 with lazy_imports(__name__):
-    import jwt
-
     from ceres._internal.server import Server
     from ceres.config import ServerAuthenticationConfig
+    from ceres.record import Record
 
 
 def _get_current_app(connection: HTTPConnection) -> App:
@@ -93,7 +96,14 @@ class Socket:
         await self.socket.send_text(jsonify(data))
 
     async def receive(self) -> Any:
-        await self.socket.receive_json()
+        message = cast("WebSocketReceiveEvent", await self.socket.receive())
+        data: bytes | str | None = message.get("text")
+        if data is None:
+            data = message.get("bytes")
+        if data is None:
+            raise ValueError("Invalid message format.")
+
+        return json.loads(data)
 
     async def execute(
         self,
@@ -104,7 +114,10 @@ class Socket:
             if direction == SocketDirection.SEND:
                 # If we're only sending data, poll the socket for disconnects.
                 while True:
-                    await self.socket.receive_bytes()
+                    try:
+                        await self.socket.receive()
+                    except RuntimeError:
+                        break
             else:
                 # Otherwise, do nothing.
                 await util.sleep_forever()
@@ -126,7 +139,11 @@ async def _use_current_socket(socket: WebSocket, engine: CurrentEngine) -> Async
 
     assert engine.server is not None
     try:
-        await socket.accept()
+        try:
+            await socket.accept()
+        except RuntimeError:
+            pass
+
         yield Socket(socket, engine.server)
     except (WebSocketDisconnect, ConnectionClosed):
         pass
@@ -189,6 +206,8 @@ def create_identity(
     user: User,
     authentication: ServerAuthenticationConfig,
 ) -> Identity:
+    import jwt
+
     expires = utc() + authentication.duration
     token = jwt.encode(
         {
@@ -248,6 +267,8 @@ async def _get_current_identity(
     if authorization.startswith("Bearer "):
         token = authorization.removeprefix("Bearer ")
         try:
+            import jwt
+
             info: Mapping[str, object] = jwt.decode(
                 token,
                 authentication.secret,
@@ -393,48 +414,76 @@ def assert_found[T](value: T | None, /) -> T:
     return value
 
 
-def create_record_get_route(router: APIRouter, Record: type[BaseRecord]):
-    singular = util.get_entity_plural(Record)
-
-    class QueryParameters(Record.Filter):
-        pass
-
-    QueryParameters.__name__ = f"Get{singular.title().replace(' ', '')}QueryParameters"
+def create_record_get_route(router: APIRouter, Record: type[Record]):
+    naming = Record.__naming__
 
     async def get(engine: CurrentEngine, id: UUID):
-        return assert_found(await util.get_entity_manager(engine, Record).get(id))  # type: ignore
+        filter = cast("type[MessageFilter]", Record.Filter)(id=id)
+        return assert_found(await engine.__manager__(Record).where(filter).first())
 
-    get.__name__ = f"Get {singular.title()}"
-    return router.get("/{id:uuid}", response_model=Record)(get)
+    get.__name__ = f"get_{util.snakecase(naming.singular)}"
+    return router.get(
+        "/{id:uuid}",
+        response_model=Record,
+        dependencies=[VIEWER],
+        tags=[util.kebabcase(naming.plural)],
+    )(get)
 
 
-def create_record_get_all_route(router: APIRouter, Record: type[BaseRecord], limit: int):
-    plural = util.get_entity_plural(Record)
+def create_record_get_all_route(router: APIRouter, Record: type[Record], limit: int):
+    naming = Record.__naming__
 
     _limit = limit
 
-    class QueryParameters(Record.Filter):
+    class QueryParameters(cast("type", Record.Filter)):
         limit: int = Field(default=100, ge=0, le=_limit)
 
-    QueryParameters.__name__ = f"GetAll{plural.title().replace(' ', '')}QueryParameters"
+    QueryParameters.__name__ = f"GetAll{util.ucamelcase(naming.plural)}QueryParameters"
 
     async def get_all(
         engine: CurrentEngine,
         filter: Annotated[QueryParameters, Query()],
     ):
-        return await util.get_entity_manager(engine, Record).where(filter)
+        return await engine.__manager__(Record).where(filter)
 
-    get_all.__name__ = f"Get {plural.title()}"
-    return router.get("", response_model=list[Record])(get_all)
+    get_all.__name__ = f"get_all_{util.snakecase(naming.plural)}"
+    return router.get(
+        "",
+        response_model=list[Record],
+        dependencies=[VIEWER],
+        tags=[util.kebabcase(naming.plural)],
+    )(get_all)
 
 
-def create_record_follow_route(router: APIRouter, Record: type[BaseRecord]):
-    plural = util.get_entity_plural(Record)
+def create_record_count_route(router: APIRouter, Record: type[Record]):
+    naming = Record.__naming__
 
-    class QueryParameters(Record.Filter):
+    class QueryParameters(cast("type", Record.Filter)):
         pass
 
-    QueryParameters.__name__ = f"Follow{plural.title().replace(' ', '')}QueryParameters"
+    QueryParameters.__name__ = f"Count{util.ucamelcase(naming.plural)}QueryParameters"
+
+    async def count(
+        engine: CurrentEngine,
+        filter: Annotated[QueryParameters, Query()],
+    ) -> int:
+        return await engine.__manager__(Record).where(filter).count()
+
+    count.__name__ = f"count_{util.snakecase(naming.plural)}"
+    return router.get(
+        "/count",
+        dependencies=[VIEWER],
+        tags=[util.kebabcase(naming.plural)],
+    )(count)
+
+
+def create_record_follow_route(router: APIRouter, Record: type[Record]):
+    naming = Record.__naming__
+
+    class QueryParameters(cast("type", Record.Filter)):
+        pass
+
+    QueryParameters.__name__ = f"Follow{util.ucamelcase(naming.plural)}QueryParameters"
 
     async def follow(
         socket: CurrentSocket,
@@ -442,20 +491,21 @@ def create_record_follow_route(router: APIRouter, Record: type[BaseRecord]):
         filter: Annotated[QueryParameters, Query()],
     ) -> None:
         async def write() -> None:
-            async for record in util.get_entity_manager(engine, Record).follow(filter):  # type: ignore
+            async for record in engine.__manager__(Record).follow(filter):  # type: ignore
                 await socket.send(record)
 
         await socket.execute(write)
 
-    follow.__name__ = f"Follow {plural.title()}"
-    return router.websocket("")(follow)
+    follow.__name__ = f"follow_{util.snakecase(naming.plural)}"
+    return router.websocket("", dependencies=[VIEWER])(follow)
 
 
-def create_record_router(name: str, Record: type[BaseRecord], *, limit: int = 1000):
+def create_record_router(name: str, Record: type[Record], *, limit: int = 1000):
     router = APIRouter(prefix=f"/{name}", tags=[name])
 
     create_record_get_route(router, Record)
     create_record_get_all_route(router, Record, limit)
+    create_record_count_route(router, Record)
     create_record_follow_route(router, Record)
 
     return router

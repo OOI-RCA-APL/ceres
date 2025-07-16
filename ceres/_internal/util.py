@@ -131,10 +131,49 @@ class PydanticDataclassLike(DataclassLike, Protocol):
 
 
 def is_dataclass_instance(obj: object) -> TypeIs[DataclassLike]:
+    """
+    >>> from dataclasses import dataclass
+    >>>
+    >>> @dataclass
+    ... class Dataclass:
+    ...    pass
+    >>>
+    >>> is_dataclass_instance(Dataclass())
+    True
+    >>> is_dataclass_instance(Dataclass)
+    False
+    >>>
+    >>> class Normal:
+    ...    pass
+    >>>
+    >>> is_dataclass_instance(Normal())
+    False
+    >>> is_dataclass_instance(Normal)
+    False
+    """
     return not isinstance(obj, type) and is_dataclass(obj)
 
 
 def is_dataclass_type(obj: object) -> TypeIs[DataclassLike]:
+    """
+    >>> from dataclasses import dataclass
+    >>>
+    >>> @dataclass
+    ... class Dataclass:
+    ...    pass
+    >>>
+    >>> is_dataclass_type(Dataclass)
+    True
+    >>> is_dataclass_type(Dataclass())
+    False
+    >>>
+    >>> class Normal:
+    ...    pass
+    >>> is_dataclass_type(Normal)
+    False
+    >>> is_dataclass_type(Normal())
+    False
+    """
     return isinstance(obj, type) and is_dataclass(obj)
 
 
@@ -160,11 +199,81 @@ ModelLike = BaseModel | PydanticDataclassLike
 
 
 def snakecase(text: str) -> str:
-    import re
+    """
+    >>> snakecase("Hello World")
+    'hello_world'
+    >>> snakecase("helloWorld")
+    'hello_world'
+    >>> snakecase("hello-world")
+    'hello_world'
+    >>> snakecase("hello_world")
+    'hello_world'
+    >>> snakecase("HELLO")
+    'hello'
+    """
+    from pydantic.alias_generators import to_snake
 
-    text = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1_\2", text)
-    text = re.sub(r"([a-z\d])([A-Z])", r"\1_\2", text)
-    return text.replace("-", "_").lower()
+    text = text.strip()
+    # Convert all runs of whitespace and hyphens to a single underscore.
+    text = re.sub(r"[\s-]+", "_", text)
+    return to_snake(text)
+
+
+def kebabcase(text: str) -> str:
+    """
+    >>> kebabcase("Hello World")
+    'hello-world'
+    >>> kebabcase("helloWorld")
+    'hello-world'
+    >>> kebabcase("hello-world")
+    'hello-world'
+    >>> kebabcase("hello_world")
+    'hello-world'
+    >>> kebabcase("HELLO")
+    'hello'
+    """
+    return snakecase(text).replace("_", "-")
+
+
+def ucamelcase(text: str) -> str:
+    """
+    >>> upper_camelcase("Hello World")
+    'HelloWorld'
+    >>> upper_camelcase("helloWorld")
+    'HelloWorld'
+    >>> upper_camelcase("hello-world")
+    'HelloWorld'
+    >>> upper_camelcase("hello_world")
+    'HelloWorld'
+    >>> upper_camelcase("HELLO")
+    'Hello'
+    """
+    from pydantic.alias_generators import to_camel
+
+    text = text.strip()
+    # Convert all runs of whitespace and hyphens to a single underscore.
+    text = re.sub(r"[\s-]+", "_", text)
+    text = to_camel(text)
+    if not text:
+        return ""
+
+    return text[0].upper() + text[1:]  # Capitalize the first letter.
+
+
+def titlecase(string: str) -> str:
+    """
+    >>> titlecase("Hello World")
+    'Hello World'
+    >>> titlecase("helloWorld")
+    'Hello World'
+    >>> titlecase("hello-world")
+    'Hello World'
+    >>> titlecase("hello_world")
+    'Hello World'
+    >>> titlecase("HELLO")
+    'Hello'
+    """
+    return " ".join(segment.capitalize() for segment in snakecase(string).split("_"))
 
 
 def randstr(characters: str, length: int) -> str:
@@ -173,38 +282,43 @@ def randstr(characters: str, length: int) -> str:
     return "".join(random.choice(characters) for _ in range(length))
 
 
-def encode_td(value: timedelta) -> str:
-    if value < timedelta(milliseconds=1):
-        encoded_value, encoded_unit = float(value.microseconds), "us"
-    elif value < timedelta(seconds=1):
-        encoded_value, encoded_unit = value.microseconds / 1000, "ms"
-    elif value < timedelta(minutes=1):
-        encoded_value, encoded_unit = value.total_seconds(), "s"
-    elif value < timedelta(hours=1):
-        encoded_value, encoded_unit = value.total_seconds() / 60, "m"
-    elif value < timedelta(days=1):
-        encoded_value, encoded_unit = value.total_seconds() / (60 * 60), "h"
+_DELTA_MS = timedelta(milliseconds=1)
+_DELTA_S = timedelta(seconds=1)
+_DELTA_M = timedelta(minutes=1)
+_DELTA_H = timedelta(hours=1)
+_DELTA_D = timedelta(days=1)
+
+
+def encode_td(
+    value: timedelta,
+    *,
+    decimals: int | None = None,
+    space: bool = False,
+) -> str:
+    if value < _DELTA_MS:
+        number, unit = float(value.microseconds), "us"
+    elif value < _DELTA_S:
+        number, unit = value.microseconds / 1000, "ms"
+    elif value < _DELTA_M:
+        number, unit = value.total_seconds(), "s"
+    elif value < _DELTA_H:
+        number, unit = value.total_seconds() / 60, "m"
+    elif value < _DELTA_D:
+        number, unit = value.total_seconds() / (60 * 60), "h"
     else:
-        encoded_value, encoded_unit = value.total_seconds() / (60 * 60 * 24), "d"
+        number, unit = value.total_seconds() / (60 * 60 * 24), "d"
 
-    return f"{str(encoded_value).rstrip('0').rstrip('.')}{encoded_unit}"
-
-
-def show_td(value: timedelta) -> str:
-    if value < timedelta(milliseconds=1):
-        encoded_value, encoded_unit = float(value.microseconds), "microseconds"
-    elif value < timedelta(seconds=1):
-        encoded_value, encoded_unit = value.microseconds / 1000, "milliseconds"
-    elif value < timedelta(minutes=1):
-        encoded_value, encoded_unit = value.total_seconds(), "seconds"
-    elif value < timedelta(hours=1):
-        encoded_value, encoded_unit = value.total_seconds() / 60, "minutes"
-    elif value < timedelta(days=1):
-        encoded_value, encoded_unit = value.total_seconds() / (60 * 60), "hours"
+    if decimals is not None:
+        number_text = f"{number:.{decimals}f}"
     else:
-        encoded_value, encoded_unit = value.total_seconds() / (60 * 60 * 24), "days"
+        number_text = f"{number}"
 
-    return f"{str(encoded_value).rstrip('0').rstrip('.')} {encoded_unit}"
+    number_text = number_text.rstrip("0").rstrip(".")
+
+    if space:
+        return f"{number_text} {unit}"
+    else:
+        return f"{number_text}{unit}"
 
 
 def decode_td(value: str | timedelta | int | float | Any) -> timedelta:
@@ -253,7 +367,7 @@ def decode_td(value: str | timedelta | int | float | Any) -> timedelta:
             raise get_exception()
 
         try:
-            decoded_value = float(value[: -len(decoded_unit)])
+            decoded_value = float(value[: -len(decoded_unit)].strip())
         except Exception:
             raise get_exception()
 
@@ -509,7 +623,7 @@ def get_args_model(
     function = get_inner_function(function) if inner else function
 
     if model_name is None:
-        model_name = f"{upper_camel(function.__name__)}Args"
+        model_name = f"{ucamelcase(function.__name__)}Args"
 
     (
         position_parameter_names,
@@ -832,10 +946,6 @@ def seq[T](value: T | Sequence[T]) -> Sequence[T]:
         return value
 
     return (value,)
-
-
-def upper_camel(string: str) -> str:
-    return "".join(segment.capitalize() for segment in string.replace("_", "-").split("-"))
 
 
 Undefined = object()
@@ -1282,46 +1392,21 @@ async def run_in_loop[T](
 
 
 if TYPE_CHECKING:
-    from ceres._internal.entity import BaseEntity, BaseEntityManager
+    from ceres._internal.entity import BaseEntityManager
     from ceres.database import Database
+    from ceres.entity import Entity
     from ceres.node import Node
 
 
-def get_entity_singular(Entity: type[BaseEntity]) -> str:
-    if Entity.__name__ == "LogEntry":
-        return "log entry"
+def get_entity_manager(source: Database | Node, entity: type[Entity]) -> BaseEntityManager:
+    naming = entity.__naming__
+    manager = getattr(source, naming.manager, None)
+    if manager is None:
+        raise ValueError(
+            f"Object `{source}` has no manager for {entity} at attribute {naming.manager!r}."
+        )
 
-    return Entity.__name__.lower()
-
-
-def get_entity_plural(Entity: type[BaseEntity]) -> str:
-    if Entity.__name__ == "LogEntry":
-        return "log entries"
-    if Entity.__name__ == "WorkspaceMembership":
-        return "workspace memberships"
-
-    return f"{Entity.__name__.lower()}s"
-
-
-def _get_entity_manager_attr(Entity: type[BaseEntity]) -> str:
-    if Entity.__name__ == "LogEntry":
-        return "logs"
-    if Entity.__name__ == "WorkspaceMembership":
-        return "workspace_memberships"
-
-    return get_entity_plural(Entity)
-
-
-def get_entity_route_name(Entity: type[BaseEntity]) -> str:
-    return _get_entity_manager_attr(Entity)
-
-
-def get_entity_command_name(Entity: type[BaseEntity]) -> str:
-    return get_entity_route_name(Entity)
-
-
-def get_entity_manager(source: Database | Node, entity: type[BaseEntity]) -> BaseEntityManager:
-    return getattr(source, _get_entity_manager_attr(entity))
+    return manager
 
 
 LINUX = platform.system() == "Linux"
@@ -1356,3 +1441,9 @@ def temporary_signal_handler(signums: Sequence[int], handler: Callable[..., Any]
     finally:
         for signum, original in originals.items():
             signal.signal(signum, original)
+
+
+if __name__ == "__main__":
+    from doctest import testmod
+
+    testmod()

@@ -15,7 +15,7 @@ from ceres._internal.app.shared import (
     assert_found,
 )
 from ceres.data import DeferBuild, ImmutableDataObject
-from ceres.error import Failure, NotPermittedError
+from ceres.error import Failure, NotFoundError, NotPermittedError
 from ceres.user import UserRole
 from ceres.workspace import (
     WorkspaceFilter,
@@ -53,10 +53,23 @@ async def get_workspace_memberships(
     return await engine.workspace_memberships.where(user_id=user_id, and__=filter)
 
 
+@router.get("/workspaces/{workspace_id:uuid}/memberships")
+async def get_workspace_memberships_in_workspace(
+    engine: CurrentEngine,
+    user: RequireViewer,
+    workspace_id: UUID,
+    filter: Annotated[GetWorkspaceMembershipsQueryParameters, Query()],
+) -> list[WorkspaceMembership]:
+    if user is not None and user.role < UserRole.ADMIN:
+        if not await engine.workspaces.where(viewable_by=user.id).any():
+            raise Failure(NotFoundError)
+
+    return await engine.workspace_memberships.where(workspace_id=workspace_id, and__=filter)
+
+
 async def _guard_membership_mutation(
     engine: CurrentEngine,
     user: CurrentUser,
-    user_id: UUID,
     workspace_id: UUID,
     workspace_role: WorkspaceMembershipRole | None,
 ) -> None:
@@ -69,8 +82,8 @@ async def _guard_membership_mutation(
                 filter = WorkspaceFilter(viewable_by=user.id)
             case WorkspaceMembershipRole.EDITOR:
                 filter = WorkspaceFilter(editable_by=user.id)
-            case WorkspaceMembershipRole.OWNER:
-                filter = WorkspaceFilter(ownable_by=user.id)
+            case WorkspaceMembershipRole.MANAGER:
+                filter = WorkspaceFilter(manageable_by=user.id)
 
         if not await engine.workspaces.where(id=workspace_id, and__=filter).any():
             raise Failure(NotPermittedError)
@@ -91,7 +104,7 @@ async def create_workspace_membership(
     workspace_id: UUID,
     data: WorkspaceMembershipCreateData,
 ) -> WorkspaceMembership:
-    await _guard_membership_mutation(engine, user, user_id, workspace_id, data.role)
+    await _guard_membership_mutation(engine, user, workspace_id, data.role)
     return await engine.workspace_memberships.create(
         WorkspaceMembership(
             user_id=user_id,
@@ -117,7 +130,7 @@ async def update_workspace_membership(
     assign: WorkspaceMembershipUpdate,
 ) -> WorkspaceMembership:
     if "role" in assign:
-        await _guard_membership_mutation(engine, user, user_id, workspace_id, assign["role"])
+        await _guard_membership_mutation(engine, user, workspace_id, assign["role"])
 
     return assert_found(
         await engine.workspace_memberships.where(
@@ -137,9 +150,9 @@ async def delete_workspace_membership(
     workspace_id: UUID,
 ) -> WorkspaceMembership:
     if user is not None and user.role < UserRole.ADMIN and user.id != user_id:
-        # Only owners or admins can delete memberships for other users.
+        # Only editors or admins can delete memberships for other users.
         membership = await engine.workspace_memberships.get(user.id, workspace_id)
-        if membership is None or membership.role < WorkspaceMembershipRole.OWNER:
+        if membership is None or membership.role < WorkspaceMembershipRole.EDITOR:
             raise Failure(NotPermittedError)
 
     return assert_found(

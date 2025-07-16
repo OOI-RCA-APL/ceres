@@ -459,7 +459,7 @@ watchEffect((cleanup) => {
     isJustLoaded = true
     const timeout = setTimeout(() => {
       isJustLoaded = false
-    }, 1000)
+    }, 100)
     cleanup(() => {
       clearTimeout(timeout)
     })

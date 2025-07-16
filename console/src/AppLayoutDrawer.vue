@@ -1,9 +1,12 @@
 <script lang="ts" setup>
+import { upperFirst } from 'lodash-es'
 import moment from 'moment'
 import { LocalStorage } from 'quasar'
 import { useRoute } from 'vue-router'
+import Zod from 'zod'
 
 import AppLayoutDrawerComponent from '@/AppLayoutDrawerComponent.vue'
+import AppLayoutDrawerWorkspace from '@/AppLayoutDrawerWorkspace.vue'
 import { Address } from '@/api/address'
 import { useAuth } from '@/api/auth'
 import { useEngine } from '@/api/engine'
@@ -34,8 +37,19 @@ const persisted = usePersisted({
     object({
       isShowingWorkspaces: boolean().default(false),
       workspaceDropdownHeight: number().default(200),
+      workspaceFilter: Zod.enum(['all', 'joined', 'unjoined']).default('all'),
     }),
   methods: [{ type: 'local-storage', key: 'component/app-layout-drawer' }],
+})
+
+const displayedWorkspaces = $computed(() => {
+  if (persisted.workspaceFilter === 'all') {
+    return [...workspaces.joined, ...workspaces.unjoined]
+  } else if (persisted.workspaceFilter === 'joined') {
+    return workspaces.joined
+  } else if (persisted.workspaceFilter === 'unjoined') {
+    return workspaces.unjoined
+  }
 })
 
 async function createWorkspace() {
@@ -118,7 +132,7 @@ function promptReload() {
         :class="$style.resizeHandle"
         direction="horizontal"
         :max="600"
-        :min="54"
+        :min="250"
         :style="{ left: `${drawer.width}px` }"
       />
       <div class="col-grow overflow-scroll scroll" style="height: 0">
@@ -151,7 +165,45 @@ function promptReload() {
                 </q-btn>
               </div>
               <q-item-section no-wrap>
-                <q-item-label class="q-ml-md">Workspaces</q-item-label>
+                <q-item-label class="q-ml-md">
+                  Workspaces
+                  <q-chip class="no-shadow q-ml-sm" clickable :icon="icons.filter" size="10px">
+                    {{ upperFirst(persisted.workspaceFilter) }}
+                    <q-menu anchor="top right" class="no-shadow" :offset="[8, 0]" self="top left">
+                      <q-card bordered flat>
+                        <q-list dense>
+                          <q-item
+                            v-close-popup
+                            clickable
+                            @click="persisted.workspaceFilter = 'all'"
+                          >
+                            <q-item-section>
+                              <q-item-label>All</q-item-label>
+                            </q-item-section>
+                          </q-item>
+                          <q-item
+                            v-close-popup
+                            clickable
+                            @click="persisted.workspaceFilter = 'joined'"
+                          >
+                            <q-item-section>
+                              <q-item-label>Joined</q-item-label>
+                            </q-item-section>
+                          </q-item>
+                          <q-item
+                            v-close-popup
+                            clickable
+                            @click="persisted.workspaceFilter = 'unjoined'"
+                          >
+                            <q-item-section>
+                              <q-item-label>Unjoined</q-item-label>
+                            </q-item-section>
+                          </q-item>
+                        </q-list>
+                      </q-card>
+                    </q-menu>
+                  </q-chip>
+                </q-item-label>
               </q-item-section>
               <q-item-section side>
                 <div class="items-center row">
@@ -175,62 +227,22 @@ function promptReload() {
               </q-item-section>
             </q-item>
             <div v-if="persisted.isShowingWorkspaces" class="relative-position">
-              <q-list
-                class="overflow-hidden scroll"
-                :style="{ height: `${persisted.workspaceDropdownHeight}px` }"
-              >
-                <q-item
-                  v-for="workspace in workspaces.joined"
+              <q-list class="scroll" :style="{ height: `${persisted.workspaceDropdownHeight}px` }">
+                <app-layout-drawer-workspace
+                  v-for="workspace in displayedWorkspaces"
                   :key="workspace.id"
-                  clickable
-                  dense
-                  :to="`/workspaces/${workspace.id}`"
-                >
-                  <q-item-section avatar>
-                    <q-icon class="q-ml-md" :name="icons.circle" size="7px" />
-                  </q-item-section>
-                  <q-item-section>
-                    <q-item-label>
-                      <span class="q-ml-sm" style="text-wrap: nowrap">
-                        {{ workspace.name }}
-                      </span>
-                    </q-item-label>
-                  </q-item-section>
-                </q-item>
-                <template v-if="workspaces.unjoined.length > 0">
-                  <q-separator />
-                  <q-item
-                    v-for="workspace in workspaces.unjoined"
-                    :key="workspace.id"
-                    clickable
-                    dense
-                    :to="`/workspaces/${workspace.id}`"
-                  >
-                    <q-item-section avatar>
-                      <q-icon class="q-ml-md" :name="icons.circle" size="7px" />
-                    </q-item-section>
-                    <q-item-section no-wrap>
-                      <q-item-label>
-                        <span class="q-ml-sm" style="text-wrap: nowrap">
-                          {{ workspace.name }}
-                        </span>
-                      </q-item-label>
-                    </q-item-section>
-                    <q-item-section side>
-                      <q-btn color="primary" label="Join" round />
-                    </q-item-section>
-                  </q-item>
-                </template>
-                <resize-handle
-                  v-model="persisted.workspaceDropdownHeight"
-                  :class="$style.workspaceDropdownResizeHandle"
-                  direction="vertical"
-                  :max="400"
-                  :min="34"
+                  :workspace="workspace"
                 />
               </q-list>
+              <resize-handle
+                v-model="persisted.workspaceDropdownHeight"
+                :class="$style.workspaceDropdownResizeHandle"
+                direction="vertical"
+                :max="500"
+                :min="36"
+              />
             </div>
-            <div class="overflow-hidden scroll">
+            <div class="scroll">
               <app-layout-drawer-component
                 v-if="engine.components.root != null"
                 :address="root"
@@ -382,9 +394,17 @@ function promptReload() {
             <q-icon :name="icons.user" :size="iconSize" />
           </q-item-section>
           <q-item-section>
-            <q-item-label>{{
-              engine.auth.user != null ? engine.auth.user.username : 'Login'
-            }}</q-item-label>
+            <q-item-label>
+              {{ engine.auth.user != null ? engine.auth.user.username : 'Login' }}
+            </q-item-label>
+          </q-item-section>
+          <q-item-section v-if="engine.auth.user" side>
+            <q-chip color="primary" dense outline size="10px">
+              {{ upperFirst(engine.auth.user.role) }}
+              <q-tooltip class="bg-primary" :offset="[0, 8]">
+                You are currently logged in with {{ engine.auth.user.role }}-level permissions.
+              </q-tooltip>
+            </q-chip>
           </q-item-section>
         </q-item>
       </q-list>

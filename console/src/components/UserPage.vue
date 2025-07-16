@@ -103,7 +103,10 @@ const form = useForm({
       return
     }
 
-    const updated = await guard(engine.users.update(id, omit(data, ['password'])), [
+    const update = engine.auth.isAdmin
+      ? omit(data, ['password'])
+      : omit(data, ['password', 'role', 'disabled'])
+    const updated = await guard(engine.users.update(id, update), [
       {
         type: 'already-exists-error',
         do: () => notify.error(`User "${data.username}" already exists.`),
@@ -134,6 +137,17 @@ form.load({
   <card-page :title="getTitle()">
     <template #header-append>
       <q-space />
+      <q-chip color="primary" dense outline text-color="black">
+        {{ upperFirst(form.data.role) }}
+        <q-tooltip class="bg-primary" :delay="250">
+          <template v-if="isAccountPage">
+            Your account has {{ form.data.role }}-level permissions.
+          </template>
+          <template v-else>
+            This user's account has {{ form.data.role }}-level permissions.
+          </template>
+        </q-tooltip>
+      </q-chip>
     </template>
     <q-form :ref="form.bind" @submit.prevent>
       <div class="q-pa-md">
@@ -236,15 +250,17 @@ form.load({
                 color="primary"
                 :icon="icons.edit"
                 label="Edit"
+                unelevated
                 @click="form.edit"
               />
             </template>
             <template v-else>
               <q-btn
                 class="col"
-                color="grey"
+                color="grey-8"
                 :icon="icons.cancel"
                 label="Cancel"
+                unelevated
                 @click="form.discard"
               />
               <q-btn
@@ -253,6 +269,7 @@ form.load({
                 :disable="form.validation !== 'valid'"
                 :icon="icons.submit"
                 label="Update"
+                unelevated
                 @click="form.submit"
               />
             </template>
@@ -260,17 +277,22 @@ form.load({
           <template v-if="form.state === 'viewing' && (engine.auth.isAdmin || isAccountPage)">
             <div class="q-gutter-sm q-pt-sm row" spread>
               <q-btn
+                class="col"
                 color="warning"
-                icon="password"
+                dense
+                :icon="icons.password"
                 label="Change Password"
+                unelevated
                 @click="promptChangePassword"
               />
               <q-btn
                 v-if="isAccountPage"
                 class="col"
                 color="negative"
-                icon="logout"
+                dense
+                :icon="icons.logout"
                 label="Sign Out"
+                unelevated
                 @click="logout"
               />
               <q-btn

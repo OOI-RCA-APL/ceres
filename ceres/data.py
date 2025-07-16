@@ -163,7 +163,8 @@ def __validate_non_negative_timedelta(value: object) -> timedelta | None:
 
 
 NonNegativeTimeDelta: TypeAlias = Annotated[
-    timedelta, BeforeValidator(__validate_non_negative_timedelta)
+    timedelta,
+    BeforeValidator(__validate_non_negative_timedelta),
 ]
 
 

@@ -13,7 +13,7 @@ from ceres._internal.app.shared import (
     RequireViewer,
     assert_found,
 )
-from ceres.error import Failure, NotPermittedError
+from ceres.error import Failure, NotFoundError, NotPermittedError
 from ceres.user import UserRole
 from ceres.workspace import (
     Workspace,
@@ -25,10 +25,6 @@ from ceres.workspace import (
 )
 
 router = APIRouter(tags=["workspaces"])
-
-
-class GetWorkspaceQueryParameters(WorkspaceFilter):
-    limit: int = Field(default=100, ge=0, le=1000)
 
 
 @router.get("/workspaces/{id:uuid}")
@@ -45,12 +41,16 @@ async def get_workspace(
     return assert_found(await engine.workspaces.where(scope).first())
 
 
+class GetWorkspacesQueryParameters(WorkspaceFilter):
+    limit: int = Field(default=100, ge=0, le=1000)
+
+
 @router.get("/workspaces")
 async def get_workspaces(
     engine: CurrentEngine,
     role: CurrentRole,
     user: RequireViewer,
-    filter: Annotated[GetWorkspaceQueryParameters, Query()],
+    filter: Annotated[GetWorkspacesQueryParameters, Query()],
 ) -> list[Workspace]:
     scope = WorkspaceFilter.model_validate(filter, from_attributes=True)
     if user is not None and role < UserRole.ADMIN:
@@ -63,7 +63,7 @@ async def get_workspaces(
 async def get_workspaces_for_user(
     engine: CurrentEngine,
     user_id: UUID,
-    filter: Annotated[GetWorkspaceQueryParameters, Query()],
+    filter: Annotated[GetWorkspacesQueryParameters, Query()],
 ) -> list[Workspace]:
     return await engine.workspaces.where(joined_by=user_id, and__=filter)
 
@@ -71,7 +71,6 @@ async def get_workspaces_for_user(
 @router.post("/workspaces")
 async def create_workspace(
     engine: CurrentEngine,
-    role: CurrentRole,
     user: RequireViewer,
     workspace: WorkspaceCreate,
 ) -> Workspace:
@@ -81,7 +80,7 @@ async def create_workspace(
             WorkspaceMembershipCreate(
                 user_id=user.id,
                 workspace_id=workspace.id,
-                role=WorkspaceMembershipRole.OWNER,
+                role=WorkspaceMembershipRole.MANAGER,
             )
         )
 
@@ -96,15 +95,18 @@ async def update_workspace(
     id: UUID,
     update: WorkspaceUpdate,
 ) -> Workspace:
-    if role < UserRole.ADMIN and user is not None:
+    if user is not None and role < UserRole.ADMIN:
         if (
-            "default_viewership" in update
-            or "default_editorship" in update
-            or "default_ownership" in update
+            "name" in update
+            or "general_viewership" in update
+            or "general_viewership" in update
+            or "general_managership" in update
         ):
-            # Only owners can change default roles.
+            if not await engine.workspaces.where(id=id, viewable_by=user.id).any():
+                raise Failure(NotFoundError)
+            # Only managers and admins can change these workspace settings.
             membership = await engine.workspace_memberships.get(user.id, id)
-            if membership is None or membership.role < WorkspaceMembershipRole.OWNER:
+            if membership is None or membership.role < WorkspaceMembershipRole.MANAGER:
                 raise Failure(NotPermittedError)
         elif not await engine.workspaces.where(editable_by=user.id).any():
             # Only editors can update workspaces.
@@ -120,9 +122,11 @@ async def delete_workspace(
     user: RequireViewer,
     id: UUID,
 ) -> Workspace:
-    scope = WorkspaceFilter()
     if user is not None and role < UserRole.ADMIN:
-        # Only workspace owners and admins can delete a workspaces.
-        scope = WorkspaceFilter(ownable_by=user.id)
+        if not await engine.workspaces.where(id=id, viewable_by=user.id).any():
+            raise Failure(NotFoundError)
+        if not await engine.workspaces.where(id=id, manageable_by=user.id).any():
+            # Only workspace managers and admins can delete a workspaces.
+            raise Failure(NotPermittedError)
 
     return assert_found(await engine.workspaces.where(id=id).delete().first())

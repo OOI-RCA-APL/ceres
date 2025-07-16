@@ -26,7 +26,13 @@ from sqlalchemy.orm import Mapped, mapped_column
 from typing_extensions import TypeVar
 
 from ceres._internal import util
-from ceres._internal.entity import BaseEntityManager, BaseEntityQuery, EntityQuery, EntityTransform
+from ceres._internal.entity import (
+    BaseEntityManager,
+    BaseEntityQuery,
+    EntityNaming,
+    EntityQuery,
+    EntityTransform,
+)
 from ceres._internal.manager import BaseNodeManager
 from ceres._internal.record import (
     BaseRecord,
@@ -409,6 +415,8 @@ class Particle(BaseRecord, ParticleCreate, Generic[_T]):
 
     Field = ParticleField
     Order = ParticleOrder
+
+    __naming__: ClassVar[EntityNaming] = EntityNaming("particle")
 
     type: str = UNKNOWN_TYPE
     data: SerializeAsAny[FromYAML[_T]]

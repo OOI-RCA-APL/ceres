@@ -15,8 +15,18 @@ from typing import (
 from uuid import UUID
 
 from pydantic import Field, model_validator
-from sqlalchemy import JSON, ForeignKeyConstraint, PrimaryKeyConstraint, Text, case, select
+from sqlalchemy import (
+    JSON,
+    ForeignKeyConstraint,
+    Integer,
+    PrimaryKeyConstraint,
+    Text,
+    case,
+    or_,
+    select,
+)
 from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.sql.elements import literal_column
 
 from ceres._internal import util
 from ceres._internal.database.types import EnumConstraint, EnumMapper, UUIDMapper
@@ -36,6 +46,7 @@ from ceres._internal.entity import (
     BaseUUIDEntityFilterArgs,
     BaseUUIDEntityOrder,
     BaseUUIDEntityRow,
+    EntityNaming,
     EntityQuery,
 )
 from ceres._internal.util import MatchMode
@@ -61,22 +72,22 @@ class WorkspaceAccessRestriction(OrderedStrEnum):
     @override
     def __order_mapping__(cls) -> dict[WorkspaceAccessRestriction, int]:
         return {
-            cls.VIEWER: UserRole.VIEWER.order,
-            cls.OPERATOR: UserRole.OPERATOR.order,
-            cls.ADMIN: UserRole.ADMIN.order,
+            cls.ANYONE: UserRole.VIEWER.order,
+            cls.OPERATORS: UserRole.OPERATOR.order,
+            cls.ADMINS: UserRole.ADMIN.order,
             cls.PRIVATE: UserRole.ADMIN.order + 1,
         }
 
-    VIEWER = "viewer"
-    OPERATOR = "operator"
-    ADMIN = "admin"
+    ANYONE = "anyone"
+    OPERATORS = "operators"
+    ADMINS = "admins"
     PRIVATE = "private"
 
 
 class WorkspaceMembershipRole(StrEnum):
     VIEWER = "viewer"
     EDITOR = "editor"
-    OWNER = "owner"
+    MANAGER = "manager"
 
 
 class WorkspaceMembershipRow(BaseEntityRow, kw_only=True):
@@ -259,6 +270,8 @@ class WorkspaceMembership(BaseEntity, WorkspaceMembershipCreate):
     Order = WorkspaceMembershipOrder
     Role: ClassVar[type[WorkspaceMembershipRole]] = WorkspaceMembershipRole
 
+    __naming__: ClassVar[EntityNaming] = EntityNaming("workspace membership")
+
 
 class WorkspaceEditRow(BaseEntityRow, kw_only=True):
     __tablename__: ClassVar[str] = "workspace_edits"
@@ -428,22 +441,25 @@ class WorkspaceEdit(BaseEntity, WorkspaceEditCreate):
     Field = WorkspaceEditField
     Order = WorkspaceEditOrder
 
-
-def _access_levels_ge(
-    access: WorkspaceAccessRestriction | UserRole,
-) -> list[WorkspaceAccessRestriction]:
-    return [current for current in WorkspaceAccessRestriction if current >= access]
+    __naming__: ClassVar[EntityNaming] = EntityNaming("workspace edit")
 
 
 def _membership_roles_ge(access: WorkspaceMembershipRole) -> list[WorkspaceMembershipRole]:
     return [current for current in WorkspaceMembershipRole if current >= access]
 
 
-def _access_level_value(
-    value: SQLColumnExpression[WorkspaceAccessRestriction] | SQLColumnExpression[UserRole],
+def _ordered_enum_value[T: OrderedStrEnum](
+    enum: type[T],
+    value: SQLColumnExpression[T],
 ) -> SQLColumnExpression[int | None]:
     return case(
-        *[(value == current, current.order) for current in WorkspaceAccessRestriction],
+        *[
+            (
+                value == literal_column("'" + current + "'"),
+                literal_column(str(current.order), type_=Integer),
+            )
+            for current in enum
+        ],
     )
 
 
@@ -451,17 +467,17 @@ class WorkspaceRow(BaseUUIDEntityRow, kw_only=True):
     __tablename__: ClassVar[str] = "workspaces"
 
     name: Mapped[str] = mapped_column(Text)
-    default_viewership: Mapped[WorkspaceAccessRestriction] = mapped_column(
+    general_viewership: Mapped[WorkspaceAccessRestriction] = mapped_column(
         EnumMapper(WorkspaceAccessRestriction),
         default=WorkspaceAccessRestriction.PRIVATE,
         server_default=str(WorkspaceAccessRestriction.PRIVATE),
     )
-    default_editorship: Mapped[WorkspaceAccessRestriction] = mapped_column(
+    general_editorship: Mapped[WorkspaceAccessRestriction] = mapped_column(
         EnumMapper(WorkspaceAccessRestriction),
         default=WorkspaceAccessRestriction.PRIVATE,
         server_default=str(WorkspaceAccessRestriction.PRIVATE),
     )
-    default_ownership: Mapped[WorkspaceAccessRestriction] = mapped_column(
+    general_managership: Mapped[WorkspaceAccessRestriction] = mapped_column(
         EnumMapper(WorkspaceAccessRestriction),
         default=WorkspaceAccessRestriction.PRIVATE,
         server_default=str(WorkspaceAccessRestriction.PRIVATE),
@@ -479,19 +495,19 @@ class WorkspaceRow(BaseUUIDEntityRow, kw_only=True):
             *super().__get_table_args__(),
             PrimaryKeyConstraint(cls.id, name=f"pk_{cls.__tablename__}"),
             EnumConstraint(
-                cls.default_viewership,
+                cls.general_viewership,
                 WorkspaceAccessRestriction,
-                name=f"ck_{cls.__tablename__}__default_viewership",
+                name=f"ck_{cls.__tablename__}__general_viewership",
             ),
             EnumConstraint(
-                cls.default_editorship,
+                cls.general_editorship,
                 WorkspaceAccessRestriction,
-                name=f"ck_{cls.__tablename__}__default_editorship",
+                name=f"ck_{cls.__tablename__}__general_editorship",
             ),
             EnumConstraint(
-                cls.default_ownership,
+                cls.general_managership,
                 WorkspaceAccessRestriction,
-                name=f"ck_{cls.__tablename__}__default_ownership",
+                name=f"ck_{cls.__tablename__}__general_managership",
             ),
         )
 
@@ -500,9 +516,9 @@ WorkspaceField: TypeAlias = (
     BaseUUIDEntityField
     | Literal[
         "name",
-        "default_viewership",
-        "default_editorship",
-        "default_ownership",
+        "general_viewership",
+        "general_editorship",
+        "general_managership",
         "data",
     ]
 )
@@ -512,15 +528,15 @@ WorkspaceOrder: TypeAlias = (
         "name",
         "name:asc",
         "name:desc",
-        "default_viewership",
-        "default_viewership:asc",
-        "default_viewership:desc",
-        "default_editorship",
-        "default_editorship:asc",
-        "default_editorship:desc",
-        "default_ownership",
-        "default_ownership:asc",
-        "default_ownership:desc",
+        "general_viewership",
+        "general_viewership:asc",
+        "general_viewership:desc",
+        "general_editorship",
+        "general_editorship:asc",
+        "general_editorship:desc",
+        "general_managership",
+        "general_managership:asc",
+        "general_managership:desc",
         "data",
         "data:asc",
         "data:desc",
@@ -533,12 +549,12 @@ class WorkspaceFilterArgs(BaseUUIDEntityFilterArgs[WorkspaceField, WorkspaceOrde
     name_contains: MaybeSequence[str] | None
     name_prefix: MaybeSequence[str] | None
     name_suffix: MaybeSequence[str] | None
-    default_viewership: MaybeSequence[WorkspaceAccessRestriction]
-    default_editorship: MaybeSequence[WorkspaceAccessRestriction]
-    default_ownership: MaybeSequence[WorkspaceAccessRestriction]
+    general_viewership: MaybeSequence[WorkspaceAccessRestriction]
+    general_editorship: MaybeSequence[WorkspaceAccessRestriction]
+    general_managership: MaybeSequence[WorkspaceAccessRestriction]
     viewable_by: MaybeSequence[UUID] | None
     editable_by: MaybeSequence[UUID] | None
-    ownable_by: MaybeSequence[UUID] | None
+    manageable_by: MaybeSequence[UUID] | None
     joined_by: MaybeSequence[UUID] | None
 
 
@@ -551,18 +567,18 @@ class WorkspaceFilter(BaseUUIDEntityFilter["Workspace", WorkspaceField, Workspac
     """Filter by `name` starting with one or more given prefixes."""
     name_suffix: MaybeSequence[str] | None = None
     """Filter by `name` ending with one or more given suffixes."""
-    default_viewership: MaybeSequence[WorkspaceAccessRestriction] | None = None
-    """Filter by `default_viewership` being equal to one or more given access levels."""
-    default_editorship: MaybeSequence[WorkspaceAccessRestriction] | None = None
-    """Filter by `default_editorship` being equal to one or more given access levels."""
-    default_ownership: MaybeSequence[WorkspaceAccessRestriction] | None = None
-    """Filter by `default_ownership` being equal to one or more given access levels."""
+    general_viewership: MaybeSequence[WorkspaceAccessRestriction] | None = None
+    """Filter by `general_viewership` being equal to one or more given access levels."""
+    general_editorship: MaybeSequence[WorkspaceAccessRestriction] | None = None
+    """Filter by `general_editorship` being equal to one or more given access levels."""
+    general_managership: MaybeSequence[WorkspaceAccessRestriction] | None = None
+    """Filter by `general_managership` being equal to one or more given access levels."""
     viewable_by: MaybeSequence[UUID] | None = None
     """Filter, matching only workspaces viewable by one or more given user IDs."""
     editable_by: MaybeSequence[UUID] | None = None
     """Filter, matching only workspaces editable by one or more given user IDs."""
-    ownable_by: MaybeSequence[UUID] | None = None
-    """Filter, matching only workspaces ownable by one or more a given user IDs."""
+    manageable_by: MaybeSequence[UUID] | None = None
+    """Filter, matching only workspaces manageable by one or more given user IDs."""
     joined_by: MaybeSequence[UUID] | None = None
     """Filter, matching only workspaces where on or more given user IDs are members."""
 
@@ -585,11 +601,11 @@ class WorkspaceFilter(BaseUUIDEntityFilter["Workspace", WorkspaceField, Workspac
         if not util.match_string(obj.name, self.name_suffix, MatchMode.SUFFIX):
             return False
 
-        if not util.match_value(obj.default_viewership, self.default_viewership):
+        if not util.match_value(obj.general_viewership, self.general_viewership):
             return False
-        if not util.match_value(obj.default_editorship, self.default_editorship):
+        if not util.match_value(obj.general_editorship, self.general_editorship):
             return False
-        if not util.match_value(obj.default_ownership, self.default_ownership):
+        if not util.match_value(obj.general_managership, self.general_managership):
             return False
 
         return True
@@ -608,27 +624,38 @@ class WorkspaceFilter(BaseUUIDEntityFilter["Workspace", WorkspaceField, Workspac
         if self.name_suffix is not None:
             yield util.sql_match_string(columns.name, self.name_suffix, MatchMode.SUFFIX)
 
-        if self.default_viewership is not None:
-            yield util.sql_match_value(columns.default_viewership, self.default_viewership)
-        if self.default_editorship is not None:
-            yield util.sql_match_value(columns.default_editorship, self.default_editorship)
-        if self.default_ownership is not None:
-            yield util.sql_match_value(columns.default_ownership, self.default_ownership)
+        if self.general_viewership is not None:
+            yield util.sql_match_value(columns.general_viewership, self.general_viewership)
+        if self.general_editorship is not None:
+            yield util.sql_match_value(columns.general_editorship, self.general_editorship)
+        if self.general_managership is not None:
+            yield util.sql_match_value(columns.general_managership, self.general_managership)
 
-        for user_id, default_access_level, min_membership_role in (
-            (self.viewable_by, columns.default_viewership, WorkspaceMembershipRole.VIEWER),
-            (self.editable_by, columns.default_editorship, WorkspaceMembershipRole.EDITOR),
-            (self.ownable_by, columns.default_ownership, WorkspaceMembershipRole.OWNER),
+        for user_id, general_access_restriction, min_membership_role in (
+            (self.viewable_by, columns.general_viewership, WorkspaceMembershipRole.VIEWER),
+            (self.editable_by, columns.general_editorship, WorkspaceMembershipRole.EDITOR),
+            (self.manageable_by, columns.general_managership, WorkspaceMembershipRole.MANAGER),
         ):
             if user_id is None:
                 continue
 
-            yield columns.id.in_(
-                select(columns.id)
-                .join(WorkspaceMembershipRow)
-                .join(UserRow)
-                .where(
-                    _access_level_value(UserRow.role) >= _access_level_value(default_access_level)
+            yield or_(
+                *(
+                    columns.id.in_(
+                        select(columns.id).where(
+                            _ordered_enum_value(
+                                WorkspaceAccessRestriction,
+                                general_access_restriction,
+                            )
+                            <= _ordered_enum_value(
+                                UserRole,
+                                select(UserRow.role)
+                                .where(UserRow.id == current_user_id)
+                                .label("role"),
+                            )
+                        )
+                    )
+                    for current_user_id in util.seq(user_id)
                 )
             ) | (
                 columns.id.in_(
@@ -653,29 +680,29 @@ class WorkspaceFilter(BaseUUIDEntityFilter["Workspace", WorkspaceField, Workspac
 
 class WorkspaceCreate(BaseUUIDEntityCreate):
     name: NonEmptyStr
-    default_viewership: WorkspaceAccessRestriction = WorkspaceAccessRestriction.PRIVATE
-    default_editorship: WorkspaceAccessRestriction = WorkspaceAccessRestriction.PRIVATE
-    default_ownership: WorkspaceAccessRestriction = WorkspaceAccessRestriction.PRIVATE
+    general_viewership: WorkspaceAccessRestriction = WorkspaceAccessRestriction.PRIVATE
+    general_editorship: WorkspaceAccessRestriction = WorkspaceAccessRestriction.PRIVATE
+    general_managership: WorkspaceAccessRestriction = WorkspaceAccessRestriction.PRIVATE
     data: FromYAML[JSONSerializableDict] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def _validate(self) -> Self:
-        default_editorship_restriction = (
-            self.default_editorship.order if self.default_editorship is not None else -1
+        general_editorship_restriction = (
+            self.general_editorship.order if self.general_editorship is not None else -1
         )
-        default_viewership_value = (
-            self.default_viewership.order if self.default_viewership is not None else -1
+        general_viewership_value = (
+            self.general_viewership.order if self.general_viewership is not None else -1
         )
-        default_ownership_restriction = (
-            self.default_ownership.order if self.default_ownership is not None else -1
+        general_managership_restriction = (
+            self.general_managership.order if self.general_managership is not None else -1
         )
-        if default_editorship_restriction < default_viewership_value:
+        if general_editorship_restriction < general_viewership_value:
             raise ValueError(
-                "`default_editorship` must be as or more restrictive than `default_viewership`"
+                "`general_editorship` must be as or more restrictive than `general_viewership`"
             )
-        if default_ownership_restriction < default_editorship_restriction:
+        if general_managership_restriction < general_editorship_restriction:
             raise ValueError(
-                "`default_ownership` must be as or more restrictive than `default_editorship`"
+                "`general_managership` must be as or more restrictive than `general_editorship`"
             )
 
         return self
@@ -683,9 +710,9 @@ class WorkspaceCreate(BaseUUIDEntityCreate):
 
 class WorkspaceUpdate(TypedDict, total=False):
     name: NonEmptyStr
-    default_viewership: WorkspaceAccessRestriction
-    default_editorship: WorkspaceAccessRestriction
-    default_ownership: WorkspaceAccessRestriction
+    general_viewership: WorkspaceAccessRestriction
+    general_editorship: WorkspaceAccessRestriction
+    general_managership: WorkspaceAccessRestriction
     data: FromYAML[JSONSerializableDict]
 
 
@@ -751,3 +778,5 @@ class Workspace(BaseUUIDEntity, WorkspaceCreate):
 
     Edit: ClassVar[type[WorkspaceEdit]] = WorkspaceEdit
     Membership: ClassVar[type[WorkspaceMembership]] = WorkspaceMembership
+
+    __naming__: ClassVar[EntityNaming] = EntityNaming("workspace")

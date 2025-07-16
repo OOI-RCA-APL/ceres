@@ -48,7 +48,7 @@ function toggleExpanded() {
     </div>
     <q-item-section no-wrap>
       <q-item-label class="q-ml-md text-no-wrap">
-        {{ address.isRoot ? 'Components' : component.name }}
+        {{ address.isRoot ? 'Components' : component.address }}
       </q-item-label>
     </q-item-section>
     <q-item-section side>

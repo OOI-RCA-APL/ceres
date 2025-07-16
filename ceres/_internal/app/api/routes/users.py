@@ -40,6 +40,14 @@ async def get_users(
     return await engine.users.where(filter)
 
 
+@router.get("/count", dependencies=[VIEWER])
+async def count_users(
+    engine: CurrentEngine,
+    filter: Annotated[GetUsersQueryParameters, Query()],
+) -> int:
+    return await engine.users.where(filter).count()
+
+
 @router.post("", dependencies=[ADMIN], response_model=APIUser, status_code=HTTP_201_CREATED)
 async def create_user(engine: CurrentEngine, data: UserCreate) -> User:
     return await engine.users.create(data)
@@ -54,7 +62,7 @@ async def update_user(
     assign: UserUpdate,
 ) -> User:
     if role < UserRole.ADMIN:
-        if "role" in assign:
+        if "role" in assign or "disabled" in assign:
             raise Failure(NotPermittedError)
 
     updated = await engine.users.where(id=id).update(assign).first()

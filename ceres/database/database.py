@@ -28,8 +28,9 @@ if TYPE_CHECKING:
     from sqlalchemy.dialects.sqlite.aiosqlite import AsyncAdapt_aiosqlite_connection
     from sqlalchemy.engine.interfaces import DBAPIConnection
 
-    from ceres._internal.entity import BaseEntityRow
+    from ceres._internal.entity import BaseEntityManager, BaseEntityRow
     from ceres.database import DatabaseType
+    from ceres.entity import Entity
 
     _SQLiteConnection = AsyncAdapt_aiosqlite_connection | sqlite3.Connection
 else:
@@ -153,6 +154,9 @@ class Database:
     @cached_property
     def statistics(self) -> StatisticsManager:
         return StatisticsManager(self)
+
+    def __manager__(self, Entity: type[Entity], /) -> BaseEntityManager:
+        return util.get_entity_manager(self, Entity)
 
     @property
     @abstractmethod

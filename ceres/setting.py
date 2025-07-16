@@ -25,6 +25,7 @@ from ceres._internal.entity import (
     BaseEntityManager,
     BaseEntityQuery,
     BaseEntityRow,
+    EntityNaming,
     EntityQuery,
 )
 from ceres._internal.manager import BaseNodeManager
@@ -225,3 +226,5 @@ class Setting(BaseEntity, SettingCreate):
     FilterArgs: ClassVar[type[SettingFilterArgs]] = SettingFilterArgs
     Field = SettingField
     Order = SettingOrder
+
+    __naming__: ClassVar[EntityNaming] = EntityNaming("setting")

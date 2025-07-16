@@ -25,6 +25,7 @@ class Client:
 
     async def alive(self) -> bool:
         from aiohttp import ClientError
+        from starlette.status import HTTP_502_BAD_GATEWAY
 
         try:
             async with self.__get_session() as session:
@@ -36,7 +37,7 @@ class Client:
                     self.__get_http_root_url() + "alive",
                     allow_redirects=True,
                 ) as response:
-                    if response.status >= 400:
+                    if response.status >= HTTP_502_BAD_GATEWAY:
                         return False
         except ClientError:
             return False

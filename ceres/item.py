@@ -22,10 +22,6 @@ class ItemType(StrEnum):
     VARIABLE = "variable"
 
     @property
-    def table(self) -> str:
-        return self.upcast().table
-
-    @property
     def cls(self) -> type[Item]:
         return cast("type[Item]", self.upcast().cls)
 

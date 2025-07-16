@@ -20,6 +20,11 @@ defineProps<{
 </template>
 
 <style lang="scss" module>
+.root {
+  position: relative;
+  height: calc(100vh - 48px - 2px);
+}
+
 .header {
   height: 48px !important;
 }

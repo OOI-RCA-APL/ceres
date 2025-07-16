@@ -114,8 +114,6 @@ class StatusCommand(CLICommand):
 
     @override
     async def __run__(self) -> None:
-        from aiohttp import ClientError
-
         if TYPE_CHECKING:
             from ceres._internal.app.api.routes.statuses import GetStatusesQueryParameters
         else:
@@ -132,14 +130,14 @@ class StatusCommand(CLICommand):
 
         from ceres.status import Status
 
-        try:
+        if await client.alive():
             statuses = await client.get(
                 "/statuses",
                 params=GetStatusesQueryParameters(address=address),
                 result=list[Status],
             )
             running = True
-        except ClientError:
+        else:
             running = False
             config = await self.use_config()  # TODO: Don't require a validated config.
             async with self.use_database(
@@ -363,7 +361,6 @@ class BaseMainCommand(BaseSettings, CLICommandGroup):
             return 1
         except CLICommandExit as exception:
             if exception.message is not None:
-                print(exception, exception.message)
                 self.write(exception.message)
             return exception.status
         except (KeyboardInterrupt, CancelledError):
@@ -446,10 +443,13 @@ def _main(args: Sequence[str] | None = None, *, watching: bool = False) -> int:
         name: (CliSubCommand[subcommand], ...) for name, subcommand in subcommands.items()
     }
 
+    from ceres.version import __version__
+
     MainCommand = create_model(
         "MainCommand",
         **fields,
         __base__=BaseMainCommand,
+        __doc__=f"""Ceres CLI Version {__version__}""",
     )
 
     color = None

@@ -141,7 +141,7 @@ class ClearCommand(CLICommand):
             await database.clear()
 
             duration = utc() - start
-            self.write(f"Cleared all data from database in {util.show_td(duration)}.")
+            self.write(f"Cleared all data from database in {util.encode_td(duration)}.")
 
 
 class DatabaseCommand(CLICommandGroup):

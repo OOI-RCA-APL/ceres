@@ -6,6 +6,11 @@ import { EntityFilter, UUIDEntityModel } from '@/api/entity'
 
 export type UserRole = Zod.infer<typeof UserRoleModel>
 export const UserRoleModel = Zod.enum(['viewer', 'operator', 'admin'])
+export const UserRoleOf = {
+  viewer: 0,
+  operator: 1,
+  admin: 2,
+} as const
 
 export type User = Zod.infer<typeof UserModel>
 export const UserModel = UUIDEntityModel.extend({
@@ -32,6 +37,7 @@ export type UserFilter = EntityFilter &
     role: UserRole | UserRole[] | null
     disabled: boolean | null
     order: UserOrder | null
+    has_workspace_membership: string | string[] | null
   }>
 
 export const useUsers = defineStore('users', () => {

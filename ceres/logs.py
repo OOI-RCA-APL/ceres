@@ -17,7 +17,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from ceres._internal import util
 from ceres._internal.database.types import EnumConstraint, EnumMapper
-from ceres._internal.entity import BaseEntityManager, BaseEntityQuery, EntityQuery
+from ceres._internal.entity import BaseEntityManager, BaseEntityQuery, EntityNaming, EntityQuery
 from ceres._internal.manager import BaseNodeManager
 from ceres._internal.record import (
     BaseRecord,
@@ -409,3 +409,9 @@ class LogEntry(BaseRecord, LogEntryCreate):
     Field = LogEntryField
     Order = LogEntryOrder
     Level: ClassVar[type[Level]] = Level
+
+    __naming__: ClassVar[EntityNaming] = EntityNaming(
+        singular="log entry",
+        plural="log entries",
+        container="logs",
+    )
