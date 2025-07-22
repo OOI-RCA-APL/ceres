@@ -725,16 +725,29 @@ export const useWorkspaces = defineStore('workspaces', () => {
   async function createMembership(
     userId: string,
     workspaceId: string,
-    role: WorkspaceMembershipRole = 'viewer'
+    role: WorkspaceMembershipRole
   ) {
-    return await client.post('/api/workspace-memberships', {
-      data: <WorkspaceMembership>{
-        user_id: userId,
-        workspace_id: workspaceId,
+    return await client.post(`/api/users/${userId}/workspace-memberships/${workspaceId}`, {
+      data: {
         role,
       },
-      parse: Zod.array(WorkspaceMembershipModel),
+      parse: WorkspaceMembershipModel,
     })
+  }
+
+  async function updateMembership(
+    userId: string,
+    workspaceId: string,
+    data: Partial<WorkspaceMembership>
+  ) {
+    return await client.patch(`/api/users/${userId}/workspace-memberships/${workspaceId}`, {
+      data,
+      parse: WorkspaceMembershipModel,
+    })
+  }
+
+  async function deleteMembership(userId: string, workspaceId: string) {
+    return await client.delete(`/api/users/${userId}/workspace-memberships/${workspaceId}`)
   }
 
   async function getEdit(workspaceId: string) {
@@ -775,22 +788,11 @@ export const useWorkspaces = defineStore('workspaces', () => {
   }
 
   async function join(workspaceId: string, role: WorkspaceMembershipRole) {
-    return await client.post(`/api/users/${getUserId()}/workspace-memberships/${workspaceId}`, {
-      data: {
-        role,
-      },
-      parse: WorkspaceMembershipModel,
-    })
+    return await createMembership(getUserId(), workspaceId, role)
   }
 
   async function leave(workspaceId: string) {
-    try {
-      await client.delete(`/api/users/${getUserId()}/workspace-memberships/${workspaceId}`, {
-        parse: WorkspaceMembershipModel,
-      })
-    } catch {
-      return null
-    }
+    return await deleteMembership(getUserId(), workspaceId)
   }
 
   return {
@@ -813,6 +815,8 @@ export const useWorkspaces = defineStore('workspaces', () => {
     getMemberships,
     getMembershipsInWorkspace,
     createMembership,
+    updateMembership,
+    deleteMembership,
     getEdit,
     assignEdit,
     discardEdit,
@@ -860,7 +864,7 @@ export function resolveWidgetWidths(
 export function userCouldViewWorkspace(user: User | null, workspace: Workspace) {
   return (
     user != null &&
-    WorkspaceAccessRestrictionOf[workspace.general_viewership] > UserRoleOf[user.role]
+    UserRoleOf[user.role] >= WorkspaceAccessRestrictionOf[workspace.general_viewership]
   )
 }
 
@@ -878,7 +882,7 @@ export function userCanViewWorkspace(user: User | null, membership: WorkspaceMem
 export function userCouldEditWorkspace(user: User | null, workspace: Workspace) {
   return (
     user != null &&
-    WorkspaceAccessRestrictionOf[workspace.general_editorship] > UserRoleOf[user.role]
+    UserRoleOf[user.role] >= WorkspaceAccessRestrictionOf[workspace.general_editorship]
   )
 }
 
@@ -896,7 +900,7 @@ export function userCanEditWorkspace(user: User | null, membership: WorkspaceMem
 export function userCouldManageWorkspace(user: User | null, workspace: Workspace) {
   return (
     user != null &&
-    WorkspaceAccessRestrictionOf[workspace.general_managership] > UserRoleOf[user.role]
+    UserRoleOf[user.role] >= WorkspaceAccessRestrictionOf[workspace.general_managership]
   )
 }
 

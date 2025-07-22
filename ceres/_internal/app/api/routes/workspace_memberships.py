@@ -4,13 +4,13 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Query
-from pydantic import Field
 from sqlalchemy.util.typing import TypedDict
 
 from ceres._internal.app.shared import (
     SELF_OR_ADMIN,
     CurrentEngine,
     CurrentUser,
+    Limit,
     RequireViewer,
     assert_found,
 )
@@ -28,19 +28,17 @@ from ceres.workspace import (
 router = APIRouter(tags=["workspace-memberships"])
 
 
-class GetWorkspaceMembershipsQueryParameters(WorkspaceMembershipFilter):
-    limit: int = Field(default=100, ge=0, le=1000)
-
-
-@router.get(
-    "/users/{user_id:uuid}/workspace-memberships/{workspace_id:uuid}",
-    dependencies=[SELF_OR_ADMIN],
-)
+@router.get("/users/{user_id:uuid}/workspace-memberships/{workspace_id:uuid}")
 async def get_workspace_membership(
     engine: CurrentEngine,
+    user: RequireViewer,
     user_id: UUID,
     workspace_id: UUID,
 ) -> WorkspaceMembership:
+    if user is not None and user.role < UserRole.ADMIN and user.id != user_id:
+        if not await engine.workspaces.where(viewable_by=user.id).any():
+            raise Failure(NotFoundError)
+
     return assert_found(await engine.workspace_memberships.get(user_id, workspace_id))
 
 
@@ -48,7 +46,7 @@ async def get_workspace_membership(
 async def get_workspace_memberships(
     engine: CurrentEngine,
     user_id: UUID,
-    filter: Annotated[GetWorkspaceMembershipsQueryParameters, Query()],
+    filter: Annotated[WorkspaceMembershipFilter, Query(), Limit(1000)],
 ) -> list[WorkspaceMembership]:
     return await engine.workspace_memberships.where(user_id=user_id, and__=filter)
 
@@ -58,7 +56,7 @@ async def get_workspace_memberships_in_workspace(
     engine: CurrentEngine,
     user: RequireViewer,
     workspace_id: UUID,
-    filter: Annotated[GetWorkspaceMembershipsQueryParameters, Query()],
+    filter: Annotated[WorkspaceMembershipFilter, Query(), Limit(1000)],
 ) -> list[WorkspaceMembership]:
     if user is not None and user.role < UserRole.ADMIN:
         if not await engine.workspaces.where(viewable_by=user.id).any():
@@ -69,34 +67,36 @@ async def get_workspace_memberships_in_workspace(
 
 async def _guard_membership_mutation(
     engine: CurrentEngine,
-    user: CurrentUser,
-    workspace_id: UUID,
-    workspace_role: WorkspaceMembershipRole | None,
+    acting_user: CurrentUser,
+    membership_user_id: UUID,
+    membership_workspace_id: UUID,
+    assigning_workspace_role: WorkspaceMembershipRole | None,
 ) -> None:
-    if user is not None and user.role < UserRole.ADMIN:
-        if workspace_role is None:
-            return
+    if acting_user is not None and acting_user.role < UserRole.ADMIN:
+        if assigning_workspace_role is not None:
+            if acting_user.id == membership_user_id:
+                # The acting user owns the membership. Only allow them to change their workspace
+                # role to one equal to or below their current one.
+                match assigning_workspace_role:
+                    case WorkspaceMembershipRole.VIEWER:
+                        filter = WorkspaceFilter(viewable_by=acting_user.id)
+                    case WorkspaceMembershipRole.EDITOR:
+                        filter = WorkspaceFilter(editable_by=acting_user.id)
+                    case WorkspaceMembershipRole.MANAGER:
+                        filter = WorkspaceFilter(manageable_by=acting_user.id)
+            else:
+                # Otherwise, only allow managers (or admins) to change the role of other users.
+                filter = WorkspaceFilter(manageable_by=acting_user.id)
 
-        match workspace_role:
-            case WorkspaceMembershipRole.VIEWER:
-                filter = WorkspaceFilter(viewable_by=user.id)
-            case WorkspaceMembershipRole.EDITOR:
-                filter = WorkspaceFilter(editable_by=user.id)
-            case WorkspaceMembershipRole.MANAGER:
-                filter = WorkspaceFilter(manageable_by=user.id)
-
-        if not await engine.workspaces.where(id=workspace_id, and__=filter).any():
-            raise Failure(NotPermittedError)
+            if not await engine.workspaces.where(id=membership_workspace_id, and__=filter).any():
+                raise Failure(NotPermittedError)
 
 
 class WorkspaceMembershipCreateData(ImmutableDataObject, DeferBuild):
     role: WorkspaceMembershipRole
 
 
-@router.post(
-    "/users/{user_id:uuid}/workspace-memberships/{workspace_id:uuid}",
-    dependencies=[SELF_OR_ADMIN],
-)
+@router.post("/users/{user_id:uuid}/workspace-memberships/{workspace_id:uuid}")
 async def create_workspace_membership(
     engine: CurrentEngine,
     user: RequireViewer,
@@ -104,7 +104,7 @@ async def create_workspace_membership(
     workspace_id: UUID,
     data: WorkspaceMembershipCreateData,
 ) -> WorkspaceMembership:
-    await _guard_membership_mutation(engine, user, workspace_id, data.role)
+    await _guard_membership_mutation(engine, user, user_id, workspace_id, data.role)
     return await engine.workspace_memberships.create(
         WorkspaceMembership(
             user_id=user_id,
@@ -118,10 +118,7 @@ class WorkspaceMembershipUpdateData(TypedDict, total=False):
     role: WorkspaceMembershipRole
 
 
-@router.patch(
-    "/users/{user_id:uuid}/workspace-memberships/{workspace_id:uuid}",
-    dependencies=[SELF_OR_ADMIN],
-)
+@router.patch("/users/{user_id:uuid}/workspace-memberships/{workspace_id:uuid}")
 async def update_workspace_membership(
     engine: CurrentEngine,
     user: RequireViewer,
@@ -130,7 +127,7 @@ async def update_workspace_membership(
     assign: WorkspaceMembershipUpdate,
 ) -> WorkspaceMembership:
     if "role" in assign:
-        await _guard_membership_mutation(engine, user, workspace_id, assign["role"])
+        await _guard_membership_mutation(engine, user, user_id, workspace_id, assign["role"])
 
     return assert_found(
         await engine.workspace_memberships.where(

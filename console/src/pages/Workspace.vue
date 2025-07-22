@@ -1,9 +1,11 @@
 <script lang="ts" setup>
 import { useEventListener, useMouse, useResizeObserver } from '@vueuse/core'
 import { upperFirst } from 'lodash-es'
-import { QPopupEdit } from 'quasar'
+import { QPopupEdit, colors } from 'quasar'
 import { onMounted, reactive, watchEffect, watch } from 'vue'
 
+import { useAuth } from '@/api/auth'
+import { useEngine } from '@/api/engine'
 import CommonText from '@/components/CommonText.vue'
 import FullPage from '@/components/FullPage.vue'
 import ResizeHandle from '@/components/ResizeHandle.vue'
@@ -16,12 +18,22 @@ import icons from '@/icons'
 import { useNavigation } from '@/navigation'
 import { useNotify } from '@/notify'
 import { deepClone } from '@/utilities'
-import { provideWorkspace, resolveWidgetWidths, Widget, WorkspaceData } from '@/workspace'
+import {
+  provideWorkspace,
+  resolveWidgetWidths,
+  Widget,
+  WorkspaceData,
+  WorkspaceMembershipRole,
+  WorkspaceMembershipRoleModel,
+  WorkspaceMembershipRoleOf,
+} from '@/workspace'
 
 const { id } = $defineProps<{
   id: string
 }>()
 
+const engine = useEngine()
+const auth = useAuth()
 const dialogs = useDialogs()
 const navigation = useNavigation()
 const notify = useNotify()
@@ -106,13 +118,20 @@ function duplicate() {
 }
 
 function promptLeave() {
+  const role = workspace.membership?.role
+  if (role == null) {
+    return
+  }
+
   dialogs
     .confirm({
       title: 'Leave Workspace',
+      html: true,
       message:
-        `Are you sure you want to leave workspace "${workspace.name}"?\n\n` +
-        'You will no longer be a member, and if this workspace does not allow general access for ' +
-        "your account's role, you will not be able to rejoin on your own.",
+        `Are you sure you'd like to leave workspace "${workspace.name}"?\n\n` +
+        '<i>You will no longer be a member. If the workspace does not allow general ' +
+        `access for your account's role level (${role}) you will not be able to rejoin on your ` +
+        'own.</i>',
       ok: {
         label: 'Leave',
         color: 'negative',
@@ -128,10 +147,11 @@ function promptDelete() {
   dialogs
     .delete({
       title: 'Delete Workspace',
+      html: true,
       message:
-        `Are you sure you want to delete workspace "${workspace.name}"?\n\n` +
-        'This action cannot be undone, and any users with access to this workspace will never ' +
-        'be able to use it again.',
+        `Are you sure you'd like to delete workspace "${workspace.name}"?\n\n` +
+        '<i>This action cannot be undone. You and any users with access to this workspace will ' +
+        'never see it again.</i>',
     })
     .onOk(async () => {
       await workspace.delete()
@@ -162,12 +182,13 @@ function promptDiscard() {
   dialogs
     .confirm({
       title: 'Discard Changes',
+      html: true,
       message:
-        `This action will discard all changes to workspace "${workspace.name}" and revert your ` +
-        'working copy to the latest shared version. This will not modify the workspace for other ' +
-        'users.',
+        `Discard all personal changes to this workspace?\n\n<i>This will revert your ` +
+        'working copy to the latest shared version. It will not modify the workspace for any ' +
+        'other users.</i>',
       ok: {
-        label: 'Discard',
+        label: 'Yes',
         color: 'warning',
       },
     })
@@ -203,6 +224,39 @@ function getWidgetWidthStyle(widget: Widget) {
 onMounted(() => {
   resolveAllWidgetWidths()
 })
+
+function promptChangeRole(role: WorkspaceMembershipRole) {
+  const user = auth.user
+  const membership = workspace.membership
+  if (user == null || membership == null) {
+    return
+  }
+
+  const isDemotion = WorkspaceMembershipRoleOf[role] < WorkspaceMembershipRoleOf[membership.role]
+  const verb = isDemotion ? 'Demote' : 'Change'
+
+  dialogs
+    .confirm({
+      title: 'Change Workspace Role',
+      message: `${verb} your workspace role from ${membership.role} to ${role}?`,
+      ok: {
+        label: 'Yes',
+        color: isDemotion ? 'negative' : 'primary',
+      },
+    })
+    .onOk(async () => {
+      if (membership == null || workspace == null) {
+        return
+      }
+
+      await engine.workspaces.updateMembership(membership.user_id, id, {
+        role,
+      })
+
+      notify.success(`Workspace role changed to ${role} successfully.`)
+      await workspace.refresh()
+    })
+}
 </script>
 
 <template>
@@ -252,30 +306,39 @@ onMounted(() => {
         </q-popup-edit>
       </div>
       <q-separator class="q-my-md" spaced="md" vertical />
-      <q-chip
-        v-if="workspace.membership == null"
-        class="no-shadow"
-        clickable
-        :icon="icons.join"
-        size="sm"
-      >
+      <q-chip v-if="workspace.membership == null" clickable :icon="icons.join" size="sm">
         Join
-        <q-menu class="no-shadow" :offset="[0, 8]">
+        <q-menu :offset="[0, 8]">
           <q-card bordered flat>
             <q-list dense>
-              <q-item v-close-popup clickable @click="workspace.join('viewer')">
+              <q-item
+                v-if="workspace.couldView"
+                v-close-popup
+                clickable
+                @click="workspace.join('viewer')"
+              >
                 <q-item-section avatar>
                   <q-icon :name="icons.viewer" />
                 </q-item-section>
                 <q-item-section>As Viewer</q-item-section>
               </q-item>
-              <q-item v-close-popup clickable @click="workspace.join('editor')">
+              <q-item
+                v-if="workspace.couldEdit"
+                v-close-popup
+                clickable
+                @click="workspace.join('editor')"
+              >
                 <q-item-section avatar>
                   <q-icon :name="icons.editor" />
                 </q-item-section>
                 <q-item-section>As Editor</q-item-section>
               </q-item>
-              <q-item v-close-popup clickable @click="workspace.join('manager')">
+              <q-item
+                v-if="workspace.couldManage"
+                v-close-popup
+                clickable
+                @click="workspace.join('manager')"
+              >
                 <q-item-section avatar>
                   <q-icon :name="icons.manager" />
                 </q-item-section>
@@ -288,6 +351,7 @@ onMounted(() => {
       <q-chip
         v-else
         class="no-shadow q-px-sm"
+        clickable
         color="primary"
         dense
         flat
@@ -296,10 +360,68 @@ onMounted(() => {
         text-color="white"
       >
         {{ upperFirst(workspace.membership.role) }}
+        <q-icon v-if="workspace.membership" class="q-ml-xs" :name="icons.menuDown" />
+
         <q-tooltip class="bg-primary text-white" :delay="500">
           You are {{ workspace.membership.role === 'editor' ? 'an' : 'a' }}
           {{ workspace.membership.role }} of this workspace.
         </q-tooltip>
+        <q-menu
+          v-if="workspace.membership != null"
+          anchor="top right"
+          :offset="[8, 0]"
+          self="top left"
+        >
+          <q-card bordered flat>
+            <q-list dense>
+              <q-item clickable>
+                <q-item-section avatar>
+                  <q-icon :name="icons.changeRole" />
+                </q-item-section>
+                <q-item-section>
+                  <q-item-label>Change Role</q-item-label>
+                </q-item-section>
+                <q-item-section side>
+                  <q-icon :name="icons.menuRight" />
+                </q-item-section>
+                <q-menu anchor="top right" :offset="[8, 0]" self="top left">
+                  <q-card bordered flat>
+                    <q-list dense>
+                      <q-item
+                        v-for="role in WorkspaceMembershipRoleModel.options.filter(
+                          (role) =>
+                            workspace.membership?.role != role &&
+                            (WorkspaceMembershipRoleOf[role] <=
+                              WorkspaceMembershipRoleOf[workspace.membership?.role ?? 'viewer'] ||
+                              (role === 'viewer' && workspace.couldView) ||
+                              (role === 'editor' && workspace.couldEdit) ||
+                              (role === 'manager' && workspace.couldManage))
+                        )"
+                        :key="role"
+                        v-close-popup
+                        clickable
+                        @click="promptChangeRole(role)"
+                      >
+                        <q-item-section avatar>
+                          <q-icon :name="icons[role]" />
+                        </q-item-section>
+                        <q-item-section>
+                          <q-item-label>To {{ upperFirst(role) }}</q-item-label>
+                        </q-item-section>
+                      </q-item>
+                    </q-list>
+                  </q-card>
+                </q-menu>
+              </q-item>
+              <q-item v-close-popup clickable @click="promptLeave">
+                <q-item-section avatar>
+                  <q-icon :name="icons.leave" />
+                </q-item-section>
+                <q-item-section>Leave Workspace</q-item-section>
+              </q-item>
+            </q-list>
+          </q-card>
+        </q-menu>
       </q-chip>
       <q-btn
         v-if="workspace.data != null"
@@ -309,55 +431,65 @@ onMounted(() => {
         round
         size="8px"
       >
-        <q-menu anchor="top right" class="no-shadow" :offset="[8, 0]" self="top left">
-          <q-list bordered dense>
-            <q-item
-              v-close-popup
-              clickable
-              dense
-              @click="dialogs.workspaceSettings(id).onOk(() => workspace.refresh())"
-            >
-              <q-item-section avatar>
-                <q-icon :name="icons.settings" />
-              </q-item-section>
-              <q-item-section>
-                <q-item-label>Settings</q-item-label>
-              </q-item-section>
-            </q-item>
-            <q-separator />
-            <q-item v-close-popup clickable dense @click="duplicate">
-              <q-item-section avatar>
-                <q-icon :name="icons.duplicate" />
-              </q-item-section>
-              <q-item-section>
-                <q-item-label>Duplicate</q-item-label>
-              </q-item-section>
-            </q-item>
-            <q-item v-if="workspace.canManage" v-close-popup clickable dense @click="promptDelete">
-              <q-item-section avatar>
-                <q-icon :name="icons.delete" />
-              </q-item-section>
-              <q-item-section>
-                <q-item-label>Delete</q-item-label>
-              </q-item-section>
-            </q-item>
-            <q-item v-close-popup clickable @click="promptLeave">
-              <q-item-section avatar>
-                <q-icon :name="icons.leave" />
-              </q-item-section>
-              <q-item-section>Leave</q-item-section>
-            </q-item>
-            <q-separator />
-            <q-item v-close-popup clickable dense>
-              <q-item-section avatar>
-                <q-icon :name="icons.add" />
-              </q-item-section>
-              <q-item-section>
-                <q-item-label>Add Widget</q-item-label>
-              </q-item-section>
-              <workspace-add-widget-menu :row="-1" />
-            </q-item>
-          </q-list>
+        <q-menu anchor="top right" :offset="[8, 0]" self="top left">
+          <q-card bordered>
+            <q-list dense>
+              <q-item
+                v-close-popup
+                clickable
+                dense
+                @click="dialogs.workspaceSettings(id).onOk(() => workspace.refresh())"
+              >
+                <q-item-section avatar>
+                  <q-icon :name="icons.settings" />
+                </q-item-section>
+                <q-item-section>
+                  <q-item-label>Settings</q-item-label>
+                </q-item-section>
+              </q-item>
+              <q-separator />
+              <q-item v-close-popup clickable dense @click="duplicate">
+                <q-item-section avatar>
+                  <q-icon :name="icons.duplicate" />
+                </q-item-section>
+                <q-item-section>
+                  <q-item-label>Duplicate</q-item-label>
+                </q-item-section>
+              </q-item>
+              <q-item clickable dense>
+                <q-item-section avatar>
+                  <q-icon :name="icons.add" />
+                </q-item-section>
+                <q-item-section>
+                  <q-item-label>Add Widget</q-item-label>
+                </q-item-section>
+                <workspace-add-widget-menu
+                  anchor="top right"
+                  :offset="[8, 0]"
+                  :row="-1"
+                  self="top left"
+                />
+                <q-item-section side>
+                  <q-icon :name="icons.menuRight" />
+                </q-item-section>
+              </q-item>
+              <q-separator />
+              <q-item
+                v-if="workspace.canManage"
+                v-close-popup
+                clickable
+                dense
+                @click="promptDelete"
+              >
+                <q-item-section avatar>
+                  <q-icon :name="icons.delete" />
+                </q-item-section>
+                <q-item-section>
+                  <q-item-label>Delete</q-item-label>
+                </q-item-section>
+              </q-item>
+            </q-list>
+          </q-card>
         </q-menu>
       </q-btn>
       <q-space />
@@ -369,7 +501,7 @@ onMounted(() => {
           dense
           :icon="icons.close"
           label="Stop Viewing Original"
-          size="sm"
+          size="md"
           @click="stopViewingOriginal"
         />
         <q-chip
@@ -381,20 +513,29 @@ onMounted(() => {
           size="12px"
           square
         >
-          <q-menu class="no-shadow" :offset="[0, 10]">
+          <q-menu :offset="[0, 10]">
             <q-card bordered style="min-width: 140px">
               <q-list dense>
                 <q-item clickable :disable="!workspace.canEdit" @click="promptCommit">
+                  <q-item-section avatar>
+                    <q-icon :name="icons.confirm" />
+                  </q-item-section>
                   <q-item-section>
                     <q-item-label>Commit Changes</q-item-label>
                   </q-item-section>
                 </q-item>
                 <q-item clickable @click="promptDiscard">
+                  <q-item-section avatar>
+                    <q-icon :name="icons.discard" />
+                  </q-item-section>
                   <q-item-section>
                     <q-item-label>Discard Changes</q-item-label>
                   </q-item-section>
                 </q-item>
                 <q-item clickable @click="startViewingOriginal">
+                  <q-item-section avatar>
+                    <q-icon :name="icons.cancel" />
+                  </q-item-section>
                   <q-item-section>
                     <q-item-label>View Original</q-item-label>
                   </q-item-section>
@@ -405,7 +546,11 @@ onMounted(() => {
         </q-chip>
       </div>
     </template>
-    <div :key="key" class="q-pa-xs" :style="isViewingOriginal && { border: `1px solid yellow` }">
+    <div
+      :key="key"
+      class="q-px-sm"
+      :style="isViewingOriginal && { border: `1px dashed ${colors.getPaletteColor('warning')}` }"
+    >
       <div v-if="data == null" ref="layout" class="q-py-lg text-center">
         <div>No workspace named "{{ name }}" exists.</div>
       </div>
@@ -413,8 +558,10 @@ onMounted(() => {
         <div
           v-for="(row, i) in data.layout"
           :key="row.id"
-          class="full-width no-wrap q-gutter-xs q-py-xs relative-position row"
-          :style="{ height: row.collapsed ? undefined : `${row.height}px` }"
+          class="full-width no-wrap q-my-sm relative-position row"
+          :style="{
+            height: row.collapsed ? undefined : `${row.height}px`,
+          }"
         >
           <workspace-gap
             v-if="workspace.drag != null"
@@ -440,7 +587,17 @@ onMounted(() => {
           <div
             v-for="(widget, j) in row.widgets"
             :key="widget.id"
-            :class="[j < row.widgets.length - 1 ? 'col-shrink' : 'col-grow', 'relative-position']"
+            :class="[
+              j < row.widgets.length - 1 ? 'col-shrink' : 'col-grow',
+              'relative-position',
+              row.widgets.length === 1
+                ? ''
+                : j === 0
+                ? 'q-mr-xs'
+                : j === row.widgets.length - 1
+                ? 'q-ml-xs'
+                : 'q-mx-xs',
+            ]"
             :style="j === row.widgets.length - 1 ? undefined : getWidgetWidthStyle(widget)"
           >
             <template v-if="workspace.drag != null">
@@ -516,14 +673,14 @@ onMounted(() => {
 
 .verticalResizeHandle {
   position: absolute;
-  left: -2px;
-  bottom: 4px;
+  left: 0px;
+  bottom: 0px;
   z-index: 1;
 }
 
 .horizontalResizeHandle {
   position: absolute;
-  right: -2.5px;
+  right: 0px;
   top: 0px;
   z-index: 1;
 }
@@ -543,29 +700,29 @@ onMounted(() => {
 
 .gapVerticalTop {
   @include gap;
-  top: -2px;
+  top: -10px;
   left: 0;
 }
 
 .gapVerticalBottom {
   @include gap;
-  bottom: -2px;
+  bottom: -10px;
   left: 0;
 }
 
 .gapHorizontalLeft {
   @include gap;
-  left: -5.5px;
+  left: -5px;
 }
 
 .gapHorizontalMiddle {
   @include gap;
-  left: -8px;
+  left: -10px;
 }
 
 .gapHorizontalRight {
   @include gap;
-  right: -5.5px;
+  right: -5px;
 }
 
 .draggedWidgetIcon {

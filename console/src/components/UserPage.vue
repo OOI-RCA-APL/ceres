@@ -55,7 +55,8 @@ function promptDelete() {
 
   dialogs
     .delete({
-      message: `Permanently delete the user "${user.username}"?`,
+      title: 'Delete User',
+      message: `Permanently delete user "${user.username}"?`,
     })
     .onOk(async () => {
       await engine.users.delete(id)

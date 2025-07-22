@@ -14,19 +14,21 @@ function add(type: WidgetType) {
 </script>
 
 <template>
-  <q-menu class="no-shadow" :offset="[0, 8]">
-    <q-list bordered dense>
-      <q-item
-        v-for="widget in widgetInfos"
-        :key="widget.type"
-        v-close-popup
-        clickable
-        @click="add(widget.type)"
-      >
-        <q-item-section>
-          <q-item-label>{{ widget.name }}</q-item-label>
-        </q-item-section>
-      </q-item>
-    </q-list>
+  <q-menu>
+    <q-card bordered>
+      <q-list dense>
+        <q-item
+          v-for="widget in widgetInfos"
+          :key="widget.type"
+          v-close-popup
+          clickable
+          @click="add(widget.type)"
+        >
+          <q-item-section>
+            <q-item-label>{{ widget.name }}</q-item-label>
+          </q-item-section>
+        </q-item>
+      </q-list>
+    </q-card>
   </q-menu>
 </template>

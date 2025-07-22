@@ -10,13 +10,9 @@ from ceres.statistics import Statistics, StatisticsFilter
 router = APIRouter(prefix="/statistics", tags=["statistics"])
 
 
-class GetStatisticsQueryParameters(StatisticsFilter):
-    pass
-
-
 @router.get("")
 async def get_statistics(
     engine: CurrentEngine,
-    filter: Annotated[GetStatisticsQueryParameters, Query()],
+    filter: Annotated[StatisticsFilter, Query()],
 ) -> list[Statistics]:
     return await engine.statistics.get_all(filter)

@@ -149,13 +149,7 @@ function onBackspace() {
       <template v-if="$slots.append || presets" #append>
         <slot name="append" />
         <q-btn color="primary" flat :icon="icons.settings" round size="8px" tabindex="-1">
-          <q-menu
-            class="no-shadow"
-            dense
-            transition-duration="100"
-            transition-hide="scale"
-            transition-show="scale"
-          >
+          <q-menu dense transition-duration="100" transition-hide="scale" transition-show="scale">
             <q-list bordered class="rounded-borders" dense>
               <q-item
                 v-for="preset in presets"

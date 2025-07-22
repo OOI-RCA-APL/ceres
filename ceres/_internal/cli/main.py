@@ -114,11 +114,6 @@ class StatusCommand(CLICommand):
 
     @override
     async def __run__(self) -> None:
-        if TYPE_CHECKING:
-            from ceres._internal.app.api.routes.statuses import GetStatusesQueryParameters
-        else:
-            GetStatusesQueryParameters = dict
-
         if self.addresses:
             addresses = self.addresses
         else:
@@ -133,7 +128,7 @@ class StatusCommand(CLICommand):
         if await client.alive():
             statuses = await client.get(
                 "/statuses",
-                params=GetStatusesQueryParameters(address=address),
+                params=ComponentFilter(address=address),
                 result=list[Status],
             )
             running = True

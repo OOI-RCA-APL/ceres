@@ -217,8 +217,8 @@ class BaseEntityFilterArgs[
     limit: NonNegativeInt | None
     offset: NonNegativeInt | None
 
-    or__: MaybeSequence[Self | BaseEntityFilter[Any, FieldT, OrderT]] | None
-    and__: MaybeSequence[Self | BaseEntityFilter[Any, FieldT, OrderT]] | None
+    or__: MaybeSequence[FromYAML[Self | BaseEntityFilter[Any, FieldT, OrderT]] | None]
+    and__: MaybeSequence[FromYAML[Self | BaseEntityFilter[Any, FieldT, OrderT]] | None]
 
 
 seen: set[int] = set()

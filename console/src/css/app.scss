@@ -196,3 +196,14 @@ input::-webkit-inner-spin-button {
   padding-bottom: 8px;
   white-space: pre-line;
 }
+
+.q-menu {
+  box-shadow: none;
+}
+
+.q-menu[role='listbox'] {
+  @extend .bordered;
+}
+.q-dialog-plugin {
+    width: 350px;
+}

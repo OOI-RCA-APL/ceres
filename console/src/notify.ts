@@ -14,6 +14,7 @@ export const useNotify = defineStore('notify', () => {
     return {
       textColor: options.color != null ? getForegroundColor(options.color) : undefined,
       badgeColor: options.color != null ? options.color : undefined,
+      timeout: ['warning', 'negative'].includes(options.color ?? '') ? 5000 : 1000,
       actions: [
         {
           icon: icons.close,

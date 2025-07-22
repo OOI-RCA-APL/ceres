@@ -17,13 +17,15 @@ const defaults = {
     label: 'Ok',
     color: 'primary',
     unelevated: true,
-    autofocus: false,
-    'data-autofocus': false,
+    // flat: true,
+    class: 'col-3',
   },
   cancel: {
     label: 'Cancel',
     color: 'grey-8',
+    class: 'col-3',
     unelevated: true,
+    // flat: true,
   },
 } as const
 

@@ -478,7 +478,6 @@ useStream(debouncedFilter, async (record: Record) => {
               <q-menu
                 v-if="columnHasFilterMenu(column.name)"
                 anchor="top left"
-                class="no-shadow"
                 :offset="[0, 4]"
                 self="bottom left"
               >

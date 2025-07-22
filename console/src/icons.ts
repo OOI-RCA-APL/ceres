@@ -1,5 +1,12 @@
 const icons = {
   add: 'mdi-plus',
+  stop: 'mdi-stop',
+  start: 'mdi-play',
+  all: 'mdi-asterisk',
+  disable: 'mdi-minus-circle-outline',
+  changeRole: 'mdi-account-convert',
+  removeMember: 'mdi-minus-circle',
+  enable: 'mdi-check-circle-outline',
   admin: 'admin_panel_settings', // Material Icons
   arrowDown: 'mdi-arrow-down',
   arrowLeft: 'mdi-arrow-left',
@@ -16,6 +23,7 @@ const icons = {
   darkMode: 'dark_mode',
   dashboard: 'space_dashboard', // Material Icons
   delete: 'mdi-delete',
+  discard: 'mdi-arrow-u-left-top',
   developer: 'construction', // Material Icons
   duplicate: 'mdi-content-duplicate',
   edit: 'mdi-pencil',

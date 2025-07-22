@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from enum import StrEnum
 from typing import (
     TYPE_CHECKING,
     ClassVar,
@@ -84,7 +83,7 @@ class WorkspaceAccessRestriction(OrderedStrEnum):
     PRIVATE = "private"
 
 
-class WorkspaceMembershipRole(StrEnum):
+class WorkspaceMembershipRole(OrderedStrEnum):
     VIEWER = "viewer"
     EDITOR = "editor"
     MANAGER = "manager"

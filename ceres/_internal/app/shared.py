@@ -26,10 +26,12 @@ from fastapi import (
 from fastapi.requests import HTTPConnection
 from fastapi.routing import APIRouter
 from fastapi.websockets import WebSocketState
-from pydantic import Field, Json, ValidationError
+from pydantic import AfterValidator, Json, ValidationError
+from pydantic_core import PydanticKnownError
 from starlette.status import HTTP_400_BAD_REQUEST, HTTP_401_UNAUTHORIZED
 
 from ceres._internal import util
+from ceres._internal.entity import BaseEntityFilter
 from ceres._internal.lazy import lazy_imports
 from ceres.data import (
     DateTime,
@@ -433,16 +435,13 @@ def create_record_get_route(router: APIRouter, Record: type[Record]):
 def create_record_get_all_route(router: APIRouter, Record: type[Record], limit: int):
     naming = Record.__naming__
 
-    _limit = limit
-
-    class QueryParameters(cast("type", Record.Filter)):
-        limit: int = Field(default=100, ge=0, le=_limit)
-
-    QueryParameters.__name__ = f"GetAll{util.ucamelcase(naming.plural)}QueryParameters"
-
     async def get_all(
         engine: CurrentEngine,
-        filter: Annotated[QueryParameters, Query()],
+        filter: Annotated[
+            Record.Filter,  # type: ignore
+            Query(),
+            Limit(limit),
+        ],
     ):
         return await engine.__manager__(Record).where(filter)
 
@@ -458,14 +457,12 @@ def create_record_get_all_route(router: APIRouter, Record: type[Record], limit: 
 def create_record_count_route(router: APIRouter, Record: type[Record]):
     naming = Record.__naming__
 
-    class QueryParameters(cast("type", Record.Filter)):
-        pass
-
-    QueryParameters.__name__ = f"Count{util.ucamelcase(naming.plural)}QueryParameters"
-
     async def count(
         engine: CurrentEngine,
-        filter: Annotated[QueryParameters, Query()],
+        filter: Annotated[
+            Record.Filter,  # type: ignore
+            Query(),
+        ],
     ) -> int:
         return await engine.__manager__(Record).where(filter).count()
 
@@ -480,15 +477,13 @@ def create_record_count_route(router: APIRouter, Record: type[Record]):
 def create_record_follow_route(router: APIRouter, Record: type[Record]):
     naming = Record.__naming__
 
-    class QueryParameters(cast("type", Record.Filter)):
-        pass
-
-    QueryParameters.__name__ = f"Follow{util.ucamelcase(naming.plural)}QueryParameters"
-
     async def follow(
         socket: CurrentSocket,
         engine: CurrentEngine,
-        filter: Annotated[QueryParameters, Query()],
+        filter: Annotated[
+            Record.Filter,  # type: ignore
+            Query(),
+        ],
     ) -> None:
         async def write() -> None:
             async for record in engine.__manager__(Record).follow(filter):  # type: ignore
@@ -533,3 +528,22 @@ def __require_self_or_admin(
 
 
 SELF_OR_ADMIN = Depends(__require_self_or_admin)
+
+
+def Limit[FilterT: BaseEntityFilter](max: int) -> AfterValidator:
+    """
+    Decorator to validate limits for a filter.
+
+    :param default: Default limit if not specified.
+    :param max: Maximum limit allowed.
+    """
+
+    def validate_limit(filter: FilterT) -> FilterT:
+        if filter.limit is None:
+            filter = filter.model_copy(update={"limit": max})
+        elif filter.limit > max:
+            raise PydanticKnownError("less_than_equal", {"le": max})
+
+        return filter
+
+    return AfterValidator(validate_limit)

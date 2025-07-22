@@ -29,6 +29,7 @@ const dialogs = useDialogs()
 const workspaces = useWorkspaces()
 const route = useRoute()
 const preferences = usePreferences()
+const isDevelopment = process.env.DEV
 
 const iconSize = '18px'
 
@@ -88,16 +89,15 @@ const root = new Address('@')
 function promptReload() {
   dialogs
     .show({
-      title: 'Confirm Reload',
-      message: 'Are you sure you want to reload the engine configuration?',
+      title: 'Reload Engine Configuration',
+      message:
+        'Apply any new changes in the configuration file (ceres.yaml) to the running engine?',
       class: 'no-shadow',
       componentProps: {
         outline: true,
       },
-      cancel: true,
       ok: {
-        label: 'Reload',
-        color: 'primary',
+        label: 'Yes',
       },
     })
     .onOk(async () => {
@@ -169,7 +169,7 @@ function promptReload() {
                   Workspaces
                   <q-chip class="no-shadow q-ml-sm" clickable :icon="icons.filter" size="10px">
                     {{ upperFirst(persisted.workspaceFilter) }}
-                    <q-menu anchor="top right" class="no-shadow" :offset="[8, 0]" self="top left">
+                    <q-menu anchor="top right" :offset="[8, 0]" self="top left">
                       <q-card bordered flat>
                         <q-list dense>
                           <q-item
@@ -208,7 +208,7 @@ function promptReload() {
               <q-item-section side>
                 <div class="items-center row">
                   <q-btn flat :icon="icons.more" round size="xs">
-                    <q-menu class="no-shadow">
+                    <q-menu>
                       <q-card bordered>
                         <q-list dense>
                           <q-item clickable @click="createWorkspace">
@@ -264,7 +264,7 @@ function promptReload() {
           <q-item-section side>
             <q-icon :name="icons.menuRight" :size="iconSize" />
           </q-item-section>
-          <q-menu anchor="top right" class="no-shadow" :offset="[8, 0]" self="top left">
+          <q-menu anchor="top right" :offset="[8, 0]" self="top left">
             <q-card bordered>
               <q-list dense>
                 <q-item to="/users">
@@ -289,10 +289,10 @@ function promptReload() {
           <q-item-section side>
             <q-icon :name="icons.menuRight" :size="iconSize" />
           </q-item-section>
-          <q-menu anchor="bottom right" class="no-shadow" :offset="[8, 0]" self="bottom left">
+          <q-menu anchor="bottom right" :offset="[8, 0]" self="bottom left">
             <q-card bordered>
               <q-list dense>
-                <q-item clickable @click="promptReload">
+                <q-item v-close-popup clickable @click="promptReload">
                   <q-item-section avatar>
                     <q-icon :name="icons.reload" :size="iconSize" />
                   </q-item-section>
@@ -314,22 +314,27 @@ function promptReload() {
           <q-item-section side>
             <q-icon :name="icons.menuRight" :size="iconSize" />
           </q-item-section>
-          <q-menu anchor="bottom right" class="no-shadow" :offset="[8, 0]" self="bottom left">
+          <q-menu anchor="bottom right" :offset="[8, 0]" self="bottom left">
             <q-card bordered flat :style="{ minWidth: '350px' }">
               <div class="items-center justify-evenly no-wrap row">
-                <q-toggle
-                  v-model="preferences.isDarkModeEnabled"
-                  class="col"
-                  :icon="icons.darkMode"
-                  label="Dark Mode"
-                />
-                <q-separator vertical />
-                <q-toggle
-                  v-model="preferences.isDeveloperModeEnabled"
-                  class="col"
-                  :icon="icons.developer"
-                  label="Developer Mode"
-                />
+                <div class="col justify-center row">
+                  <q-toggle
+                    v-model="preferences.isDarkModeEnabled"
+                    :icon="icons.darkMode"
+                    label="Dark Mode"
+                  />
+                </div>
+                <template v-if="isDevelopment">
+                  <q-separator vertical />
+                  <div class="col justify-center row">
+                    <q-toggle
+                      v-model="preferences.isDeveloperModeEnabled"
+                      class="col"
+                      :icon="icons.developer"
+                      label="Developer Mode"
+                    />
+                  </div>
+                </template>
               </div>
               <q-separator />
               <div class="q-pb-xs q-pt-sm q-px-sm">
@@ -354,7 +359,7 @@ function promptReload() {
             </q-card>
           </q-menu>
         </q-item>
-        <template v-if="preferences.isDeveloperModeEnabled">
+        <template v-if="isDevelopment && preferences.isDeveloperModeEnabled">
           <q-separator />
           <q-item clickable>
             <q-item-section avatar>
@@ -364,9 +369,9 @@ function promptReload() {
               <q-item-label>Developer</q-item-label>
             </q-item-section>
             <q-item-section side>
-              <q-icon :name="icons.menuRight" />
+              <q-icon :name="icons.menuRight" :size="iconSize" />
             </q-item-section>
-            <q-menu anchor="bottom right" class="no-shadow" :offset="[8, 0]" self="bottom left">
+            <q-menu anchor="bottom right" :offset="[8, 0]" self="bottom left">
               <q-list bordered dense>
                 <q-item clickable @click="clearLocalStorage">
                   <q-item-section avatar>

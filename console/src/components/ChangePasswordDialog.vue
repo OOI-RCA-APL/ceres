@@ -98,14 +98,14 @@ const isShowingNewPassword = $ref(false)
           </q-input>
         </div>
         <q-card-actions class="justify-end">
-          <q-btn v-close-popup color="grey" flat label="Cancel" />
+          <q-btn v-close-popup color="grey-8" label="Cancel" unelevated />
           <q-btn
             color="primary"
             :disable="form.validation !== 'valid'"
-            flat
             label="Submit"
             :loading="form.state === 'submitting'"
             type="submit"
+            unelevated
           />
         </q-card-actions>
       </q-form>

@@ -4,9 +4,8 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Query
-from pydantic import Field
 
-from ceres._internal.app.shared import SELF_OR_ADMIN, CurrentEngine, assert_found
+from ceres._internal.app.shared import SELF_OR_ADMIN, CurrentEngine, Limit, assert_found
 from ceres.data import DeferBuild, ImmutableDataObject, JSONSerializableDict
 from ceres.workspace import WorkspaceEdit, WorkspaceEditCreate, WorkspaceEditFilter
 
@@ -25,15 +24,11 @@ async def get_workspace_edit(
     return assert_found(await engine.workspace_edits.get(user_id, workspace_id))
 
 
-class GetWorkspaceEditsQueryParameters(WorkspaceEditFilter):
-    limit: int = Field(default=100, ge=0, le=1000)
-
-
 @router.get("/users/{user_id:uuid}/workspace-edits", dependencies=[SELF_OR_ADMIN])
 async def get_workspace_edits(
     engine: CurrentEngine,
     user_id: UUID,
-    filter: Annotated[GetWorkspaceEditsQueryParameters, Query()],
+    filter: Annotated[WorkspaceEditFilter, Query(), Limit(1000)],
 ) -> list[WorkspaceEdit]:
     return await engine.workspace_edits.where(user_id=user_id, and__=filter)
 

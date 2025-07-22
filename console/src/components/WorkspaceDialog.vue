@@ -7,7 +7,10 @@ import { computed, watch, reactive, nextTick } from 'vue'
 import { AuthStore } from '@/api/auth'
 import { useQuery } from '@/api/client'
 import { Engine } from '@/api/engine'
+import { User } from '@/api/users'
 import CommonText from '@/components/CommonText.vue'
+import UserChooser from '@/components/UserChooser.vue'
+import { useDialogs } from '@/dialogs'
 import { useForm } from '@/form'
 import icons from '@/icons'
 import { Navigation } from '@/navigation'
@@ -20,6 +23,10 @@ import {
   WorkspaceAccessRestriction,
   WorkspaceAccessRestrictionModel,
   WorkspaceAccessRestrictionOf,
+  WorkspaceMembership,
+  WorkspaceMembershipRole,
+  WorkspaceMembershipRoleModel,
+  WorkspaceMembershipRoleOf,
 } from '@/workspace'
 
 const { workspaceId, data, action, engine, auth, navigation } = $defineProps<
@@ -46,10 +53,14 @@ defineEmits([...useDialogPluginComponent.emits])
 const notify = useNotify()
 const validate = useValidate()
 const theme = useTheme()
+const dialogs = useDialogs()
 
 const { dialogRef, onDialogHide, onDialogOK, onDialogCancel } = useDialogPluginComponent()
 
 let tab = $ref<'general' | 'members'>('general')
+
+let addingMember = $ref<User | null>(null)
+let addingMemberRole = $ref<WorkspaceMembershipRole | null>(null)
 
 const key = Math.random()
 const query = reactive(
@@ -100,6 +111,12 @@ const userMemberships = $computed(() =>
     })
   )
 )
+
+const memberIds = $computed(() => new Set(userMemberships.map((membership) => membership.user.id)))
+
+type UserWorkspaceMembership = WorkspaceMembership & {
+  user: User
+}
 
 const form = useForm({
   editing: action === 'duplicate',
@@ -202,11 +219,75 @@ function getRestrictionLabel(restriction: WorkspaceAccessRestriction) {
 
   return upperFirst(restriction)
 }
+
+async function addMember(user: User, role: WorkspaceMembershipRole) {
+  try {
+    await engine.workspaces.createMembership(user.id, workspaceId, role)
+    notify.success(`User "${user.username}" added to workspace successfully.`)
+  } finally {
+    query.refetch()
+    addingMember = null
+    addingMemberRole = null
+  }
+}
+
+function promptRemoveMember(membership: UserWorkspaceMembership) {
+  if (workspace == null) {
+    return
+  }
+
+  dialogs
+    .confirm({
+      title: 'Remove Member',
+      message: `Remove user "${membership.user.username}" from this workspace?`,
+      ok: {
+        label: 'Yes',
+        color: 'negative',
+      },
+    })
+    .onOk(async () => {
+      await engine.workspaces.deleteMembership(membership.user_id, workspaceId)
+
+      notify.success(`User "${membership.user.username}" removed from workspace successfully.`)
+      query.refetch()
+    })
+}
+
+function promptChangeRole(membership: UserWorkspaceMembership, role: WorkspaceMembershipRole) {
+  if (membership == null || workspace == null) {
+    return
+  }
+
+  const isDemotion = WorkspaceMembershipRoleOf[role] < WorkspaceMembershipRoleOf[membership.role]
+  const verb = isDemotion ? 'Demote' : 'Promote'
+
+  dialogs
+    .confirm({
+      title: 'Change Workspace Role',
+      message: `${verb} "${membership.user.username}" from ${membership.role} to ${role}?`,
+      ok: {
+        label: 'Yes',
+        color: 'negative',
+      },
+    })
+    .onOk(async () => {
+      if (membership == null || workspace == null) {
+        return
+      }
+
+      await engine.workspaces.updateMembership(membership.user_id, workspace.id, {
+        role,
+      })
+
+      notify.success(`Workspace role of "${membership.user.username}" changed successfully.`)
+      query.refetch()
+    })
+}
 </script>
 
 <template>
   <q-dialog ref="dialogRef" :persistent="form.editable" @hide="onDialogHide">
-    <q-card bordered class="q-dialog-plugin" :class="$style.card" flat>
+    <q-card v-if="auth.user != null" bordered class="q-dialog-plugin" :class="$style.card" flat>
       <div class="q-px-md row">
         <common-text class="q-mb-sm q-mt-sm" element="h2" variant="title1">
           {{ action === 'view' ? 'Workspace Settings' : 'Duplicate Workspace' }}
@@ -216,7 +297,9 @@ function getRestrictionLabel(restriction: WorkspaceAccessRestriction) {
           <q-btn flat :icon="icons.close" round size="10px" @click="onDialogCancel" />
         </div>
       </div>
-      <q-spinner-orbit v-if="query.isLoading" />
+      <div v-if="query.isLoading" class="justify-center q-pa-md row">
+        <q-spinner-orbit color="primary" size="25px" />
+      </div>
       <template v-else>
         <template v-if="action === 'view'">
           <q-separator />
@@ -370,14 +453,22 @@ function getRestrictionLabel(restriction: WorkspaceAccessRestriction) {
           </q-tab-panel>
           <q-tab-panel name="members">
             <div class="column q-col-gutter-y-sm q-pt-xs">
-              <q-card bordered :class="['q-pa-none scroll', $style.userListContainer]" flat>
+              <div v-if="userMemberships.length === 0" class="q-pa-sm text-center">
+                This workspace has no members.
+              </div>
+              <q-card
+                v-else
+                bordered
+                :class="['q-pa-none q-mb-xs scroll', $style.userListContainer]"
+                flat
+              >
                 <q-list dense>
                   <q-item v-for="membership in userMemberships" :key="membership.user.id">
                     <q-item-section>
                       <q-item-label>
                         {{ membership.user.username }}
                         <q-chip
-                          v-if="membership.user.id === auth.user?.id"
+                          v-if="membership.user.id === auth.user.id"
                           class="q-ml-sm"
                           color="primary"
                           dense
@@ -401,12 +492,131 @@ function getRestrictionLabel(restriction: WorkspaceAccessRestriction) {
                         >
                           {{ upperFirst(membership.role) }}
                         </q-chip>
-                        <q-btn dense flat :icon="icons.more" round size="8px" />
+                        <q-btn
+                          dense
+                          :disable="!canManage || membership.user.id === auth.user.id"
+                          flat
+                          :icon="icons.more"
+                          round
+                          size="8px"
+                        >
+                          <q-menu anchor="center right" :offset="[8, 0]" self="center left">
+                            <q-card bordered flat>
+                              <q-list dense>
+                                <q-item clickable>
+                                  <q-item-section avatar>
+                                    <q-icon :name="icons.changeRole" />
+                                  </q-item-section>
+                                  <q-item-section>
+                                    <q-item-label>Change Role</q-item-label>
+                                  </q-item-section>
+                                  <q-item-section side>
+                                    <q-icon :name="icons.menuRight" />
+                                  </q-item-section>
+                                  <q-menu
+                                    v-if="membership.user.id !== auth.user.id"
+                                    anchor="top right"
+                                    :offset="[8, 0]"
+                                    self="top left"
+                                  >
+                                    <q-card bordered flat>
+                                      <q-list dense>
+                                        <q-item
+                                          v-for="role in WorkspaceMembershipRoleModel.options"
+                                          :key="role"
+                                          v-close-popup
+                                          clickable
+                                          :disable="membership.role === role"
+                                          @click="promptChangeRole(membership, role)"
+                                        >
+                                          <q-item-section avatar>
+                                            <q-icon :name="icons[role]" />
+                                          </q-item-section>
+                                          <q-item-section>
+                                            <q-item-label>To {{ upperFirst(role) }}</q-item-label>
+                                          </q-item-section>
+                                        </q-item>
+                                      </q-list>
+                                    </q-card>
+                                  </q-menu>
+                                </q-item>
+                                <q-item
+                                  v-close-popup
+                                  clickable
+                                  @click="promptRemoveMember(membership)"
+                                >
+                                  <q-item-section avatar>
+                                    <q-icon :name="icons.removeMember" />
+                                  </q-item-section>
+                                  <q-item-section>
+                                    <q-item-label>Remove Member</q-item-label>
+                                  </q-item-section>
+                                </q-item>
+                              </q-list>
+                            </q-card>
+                          </q-menu>
+                        </q-btn>
                       </div>
                     </q-item-section>
                   </q-item>
                 </q-list>
               </q-card>
+              <div v-if="canManage" class="justify-center row">
+                <q-btn color="primary" dense :icon="icons.add" round size="10px" unelevated>
+                  <q-menu
+                    anchor="top middle"
+                    :offset="[0, 12]"
+                    self="bottom middle"
+                    @hide="addingMember = null"
+                  >
+                    <q-card bordered :class="$style.addMemberMenu" flat>
+                      <user-chooser
+                        v-if="addingMember == null"
+                        :omit="(user) => user.id === auth.user?.id || memberIds.has(user.id)"
+                        @select="(user) => (addingMember = user)"
+                      />
+                      <div v-else class="column q-col-gutter-sm q-pa-sm">
+                        <div>
+                          <q-card bordered class="q-py-xs" flat>
+                            <q-item dense>
+                              <q-item-section>
+                                <q-item-label>{{ addingMember.username }}</q-item-label>
+                                <q-item-label caption>{{ addingMember.email }}</q-item-label>
+                              </q-item-section>
+                            </q-item>
+                          </q-card>
+                        </div>
+                        <q-select
+                          v-model="addingMemberRole"
+                          dense
+                          label="Workspace Role"
+                          :option-label="upperFirst"
+                          :options="WorkspaceMembershipRoleModel.options"
+                          options-dense
+                          outlined
+                        />
+                        <div>
+                          <q-btn
+                            v-close-popup
+                            class="full-width"
+                            color="primary"
+                            dense
+                            :disable="addingMemberRole == null"
+                            label="Add"
+                            @click="
+                              () => {
+                                if (addingMember != null && addingMemberRole != null) {
+                                  addMember(addingMember, addingMemberRole)
+                                }
+                              }
+                            "
+                          />
+                        </div>
+                      </div>
+                    </q-card>
+                  </q-menu>
+                </q-btn>
+              </div>
             </div>
           </q-tab-panel>
         </q-tab-panels>
@@ -440,5 +650,9 @@ function getRestrictionLabel(restriction: WorkspaceAccessRestriction) {
 
 .userListContainer {
   max-height: 300px;
+}
+
+.addMemberMenu {
+  min-width: 200px;
 }
 </style>

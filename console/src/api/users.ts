@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import Zod from 'zod'
 
 import { useClient } from '@/api/client'
-import { EntityFilter, UUIDEntityModel } from '@/api/entity'
+import { EntityFilter, FilterOperators, UUIDEntityModel } from '@/api/entity'
 
 export type UserRole = Zod.infer<typeof UserRoleModel>
 export const UserRoleModel = Zod.enum(['viewer', 'operator', 'admin'])
@@ -24,21 +24,23 @@ export type UserCreate = Omit<User, 'id'> & { password: string }
 
 export type UserOrder = 'username' | 'username:desc' | 'email' | 'email:desc'
 
-export type UserFilter = EntityFilter &
-  Partial<{
-    username: string | string[] | null
-    username_contains: string | string[] | null
-    username_prefix: string | string[] | null
-    username_suffix: string | string[] | null
-    email: string | string[] | null
-    email_contains: string | string[] | null
-    email_prefix: string | string[] | null
-    email_suffix: string | string[] | null
-    role: UserRole | UserRole[] | null
-    disabled: boolean | null
-    order: UserOrder | null
-    has_workspace_membership: string | string[] | null
-  }>
+export type UserFilter = FilterOperators<
+  EntityFilter &
+    Partial<{
+      username: string | string[] | null
+      username_contains: string | string[] | null
+      username_prefix: string | string[] | null
+      username_suffix: string | string[] | null
+      email: string | string[] | null
+      email_contains: string | string[] | null
+      email_prefix: string | string[] | null
+      email_suffix: string | string[] | null
+      role: UserRole | UserRole[] | null
+      disabled: boolean | null
+      order: UserOrder | null
+      has_workspace_membership: string | string[] | null
+    }>
+>
 
 export const useUsers = defineStore('users', () => {
   const client = useClient()

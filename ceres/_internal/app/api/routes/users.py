@@ -4,7 +4,6 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Query
-from pydantic import Field
 from starlette.status import HTTP_201_CREATED
 
 from ceres._internal.app.shared import (
@@ -15,6 +14,7 @@ from ceres._internal.app.shared import (
     CurrentEngine,
     CurrentRole,
     CurrentUser,
+    Limit,
     assert_found,
 )
 from ceres.error import Failure, NotFoundError, NotPermittedError
@@ -28,14 +28,10 @@ async def get_user(engine: CurrentEngine, id: UUID) -> User:
     return assert_found(await engine.users.get(id))
 
 
-class GetUsersQueryParameters(UserFilter):
-    limit: int = Field(default=100, ge=0, le=1000)
-
-
 @router.get("", dependencies=[VIEWER], response_model=list[APIUser])
 async def get_users(
     engine: CurrentEngine,
-    filter: Annotated[GetUsersQueryParameters, Query()],
+    filter: Annotated[UserFilter, Query(), Limit(1000)],
 ) -> list[User]:
     return await engine.users.where(filter)
 
@@ -43,7 +39,7 @@ async def get_users(
 @router.get("/count", dependencies=[VIEWER])
 async def count_users(
     engine: CurrentEngine,
-    filter: Annotated[GetUsersQueryParameters, Query()],
+    filter: Annotated[UserFilter, Query()],
 ) -> int:
     return await engine.users.where(filter).count()
 

@@ -106,7 +106,7 @@ let isShowingEditDialog = $ref(false)
             @mousedown.stop
             @touchstart.stop
           >
-            <q-menu anchor="top right" class="no-shadow" :offset="[8, 0]" self="top left">
+            <q-menu anchor="top right" :offset="[8, 0]" self="top left">
               <q-list bordered>
                 <q-item
                   v-close-popup

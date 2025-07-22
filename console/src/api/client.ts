@@ -324,17 +324,9 @@ function createQueryParameters(values: Record<string, unknown>): string {
     return ''
   }
 
-  const result = new URLSearchParams()
-  for (const key of keys) {
-    let value = values[key]
-    if (Array.isArray(value)) {
-      for (const element of value) {
-        if (element != undefined) {
-          result.append(key, String(element.valueOf()))
-        }
-      }
-
-      continue
+  function stringify(value: unknown): string {
+    if (value == undefined) {
+      return ''
     }
 
     if (typeof value === 'object') {
@@ -345,8 +337,24 @@ function createQueryParameters(values: Record<string, unknown>): string {
       }
     }
 
+    return String(value)
+  }
+
+  const result = new URLSearchParams()
+  for (const key of keys) {
+    const value = values[key]
+    if (Array.isArray(value)) {
+      for (const element of value) {
+        if (element != undefined) {
+          result.append(key, stringify(element))
+        }
+      }
+
+      continue
+    }
+
     if (value !== undefined) {
-      result.append(key, String(value))
+      result.append(key, stringify(value))
     }
   }
 

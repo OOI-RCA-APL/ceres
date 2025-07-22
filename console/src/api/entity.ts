@@ -12,6 +12,11 @@ export const EntityFilterModel = Zod.object({
   offset: Zod.number().nullish(),
 })
 
+export type FilterOperators<T> = T & {
+  and?: T | T[] | null
+  or?: T | T[] | null
+}
+
 export type UUIDEntity = Zod.infer<typeof UUIDEntityModel>
 export const UUIDEntityModel = Zod.object({
   id: Zod.string(),

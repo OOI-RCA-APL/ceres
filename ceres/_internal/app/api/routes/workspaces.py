@@ -4,12 +4,12 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Query
-from pydantic import Field
 
 from ceres._internal.app.shared import (
     SELF_OR_ADMIN,
     CurrentEngine,
     CurrentRole,
+    Limit,
     RequireViewer,
     assert_found,
 )
@@ -41,16 +41,12 @@ async def get_workspace(
     return assert_found(await engine.workspaces.where(scope).first())
 
 
-class GetWorkspacesQueryParameters(WorkspaceFilter):
-    limit: int = Field(default=100, ge=0, le=1000)
-
-
 @router.get("/workspaces")
 async def get_workspaces(
     engine: CurrentEngine,
     role: CurrentRole,
     user: RequireViewer,
-    filter: Annotated[GetWorkspacesQueryParameters, Query()],
+    filter: Annotated[WorkspaceFilter, Query(), Limit(1000)],
 ) -> list[Workspace]:
     scope = WorkspaceFilter.model_validate(filter, from_attributes=True)
     if user is not None and role < UserRole.ADMIN:
@@ -63,7 +59,7 @@ async def get_workspaces(
 async def get_workspaces_for_user(
     engine: CurrentEngine,
     user_id: UUID,
-    filter: Annotated[GetWorkspacesQueryParameters, Query()],
+    filter: Annotated[WorkspaceFilter, Query()],
 ) -> list[Workspace]:
     return await engine.workspaces.where(joined_by=user_id, and__=filter)
 
