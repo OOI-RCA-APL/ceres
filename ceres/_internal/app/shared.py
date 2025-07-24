@@ -112,7 +112,13 @@ class Socket:
         callback: Callable[[], Coroutine[Any, Any, Any]],
         direction: SocketDirection = SocketDirection.SEND,
     ) -> None:
-        async def poll():
+        async def run():
+            try:
+                await callback()
+            except RuntimeError:
+                return
+
+        async def wait_disconnect():
             if direction == SocketDirection.SEND:
                 # If we're only sending data, poll the socket for disconnects.
                 while True:
@@ -125,8 +131,8 @@ class Socket:
                 await util.sleep_forever()
 
         await util.wait_any(
-            callback(),
-            poll(),
+            run(),
+            wait_disconnect(),
             self.server.wait_until_stopping(),
             cancelling=True,
             raised=True,
