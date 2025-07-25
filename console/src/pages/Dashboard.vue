@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { Address } from '@/api/address'
 import { useEngine } from '@/api/engine'
-import CommonText from '@/components/CommonText.vue'
+import FullPage from '@/components/FullPage.vue'
 import Interface from '@/components/Interface.vue'
 import Panel from '@/components/Panel.vue'
 import PanelGroup from '@/components/PanelGroup.vue'
@@ -19,11 +19,7 @@ const renderer = $computed(() => {
 </script>
 
 <template>
-  <div>
-    <div class="items-center row">
-      <common-text class="q-mx-md q-py-sm" variant="title2">Dashboard</common-text>
-    </div>
-    <q-separator />
+  <full-page title="Dashboard">
     <div
       v-if="renderer == null || (renderer as Address[] ?? []).length === 0"
       class="q-py-lg text-center"
@@ -50,5 +46,5 @@ const renderer = $computed(() => {
     <div v-else class="q-ma-sm">
       <interface :address="renderer" />
     </div>
-  </div>
+  </full-page>
 </template>

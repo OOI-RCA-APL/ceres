@@ -307,7 +307,7 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     return result
   }
 
-  async function discard() {
+  async function revert() {
     if (workspace == null || data == null) {
       return
     }
@@ -532,7 +532,7 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     rename,
     update,
     save,
-    discard,
+    revert,
     join,
     leave,
     getWidget,

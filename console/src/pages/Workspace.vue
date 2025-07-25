@@ -42,8 +42,9 @@ const workspace = provideWorkspace(id)
 await workspace.load()
 
 const layout = $ref<HTMLDivElement | null>(null)
-let originalData = $ref<WorkspaceData | null>(null)
-let isViewingOriginal = $computed(() => originalData != null)
+let original = $ref<WorkspaceData | null>(null)
+let isViewingOriginal = $computed(() => original != null)
+let isMembershipMenuOpen = $ref(false)
 
 if (workspace.data == null || workspace.name == null) {
   throw new NotFoundError('workspace', id)
@@ -51,18 +52,18 @@ if (workspace.data == null || workspace.name == null) {
 
 async function startViewingOriginal() {
   await workspace.refresh()
-  originalData = deepClone(workspace.originalData) as WorkspaceData
+  original = deepClone(workspace.originalData) as WorkspaceData
   key++
 }
 
 function stopViewingOriginal() {
-  originalData = null
+  original = null
   key++
 }
 
 const data = $computed(() => {
   if (isViewingOriginal) {
-    return originalData
+    return original
   } else {
     return workspace.data
   }
@@ -129,9 +130,10 @@ function promptLeave() {
       html: true,
       message:
         `Are you sure you'd like to leave workspace "${workspace.name}"?\n\n` +
-        '<i>You will no longer be a member. If the workspace does not allow general ' +
-        `access for your account's role level (${role}) you will not be able to rejoin on your ` +
-        'own.</i>',
+        '<i>' +
+        'You will no longer be a member. If the workspace does not allow general access for your ' +
+        `account's role level (${role}) you will not be able to rejoin on your own.` +
+        '</i>',
       ok: {
         label: 'Leave',
         color: 'negative',
@@ -150,8 +152,10 @@ function promptDelete() {
       html: true,
       message:
         `Are you sure you'd like to delete workspace "${workspace.name}"?\n\n` +
-        '<i>This action cannot be undone. You and any users with access to this workspace will ' +
-        'never see it again.</i>',
+        '<i>' +
+        'This action cannot be undone. You and any users with access to this workspace will ' +
+        'never see it again.' +
+        '</i>',
     })
     .onOk(async () => {
       await workspace.delete()
@@ -163,10 +167,13 @@ function promptCommit() {
   dialogs
     .confirm({
       title: 'Commit Changes',
+      html: true,
       message:
-        `Commit changes to workspace "${workspace.name}"? ` +
+        `Commit changes to workspace "${workspace.name}"?\n\n` +
+        '<i>' +
         'This will update the current shared version of this workspace, allowing users with ' +
-        'access to see this version.',
+        'access to see this version.' +
+        '</i>',
       ok: {
         label: 'Commit',
         color: 'primary',
@@ -178,22 +185,25 @@ function promptCommit() {
     })
 }
 
-function promptDiscard() {
+function promptRevert() {
   dialogs
     .confirm({
-      title: 'Discard Changes',
+      title: 'Revert Changes',
       html: true,
       message:
-        `Discard all personal changes to this workspace?\n\n<i>This will revert your ` +
-        'working copy to the latest shared version. It will not modify the workspace for any ' +
-        'other users.</i>',
+        `Revert all personal changes to this workspace?\n\n` +
+        '<i>' +
+        'This will discard your current working copy and replace it with the latest shared ' +
+        'version of the workspace. The workspace will not be modified for any other users.' +
+        '</i>',
       ok: {
         label: 'Yes',
         color: 'warning',
       },
     })
     .onOk(async () => {
-      await workspace.discard()
+      await workspace.revert()
+      original = null
       key++
     })
 }
@@ -276,7 +286,7 @@ function promptChangeRole(role: WorkspaceMembershipRole) {
     <template #header-append>
       <div>
         <common-text
-          class="q-ml-md q-mr-xs q-py-sm"
+          class="q-ml-md q-mr-sm"
           :class="workspace.canManage && $style.nameEditable"
           variant="title2"
         >
@@ -305,7 +315,6 @@ function promptChangeRole(role: WorkspaceMembershipRole) {
           </q-card>
         </q-popup-edit>
       </div>
-      <q-separator class="q-my-md" spaced="md" vertical />
       <q-chip v-if="workspace.membership == null" clickable :icon="icons.join" size="sm">
         Join
         <q-menu :offset="[0, 8]">
@@ -362,14 +371,15 @@ function promptChangeRole(role: WorkspaceMembershipRole) {
         {{ upperFirst(workspace.membership.role) }}
         <q-icon v-if="workspace.membership" class="q-ml-xs" :name="icons.menuDown" />
 
-        <q-tooltip class="bg-primary text-white" :delay="500">
+        <q-tooltip v-if="!isMembershipMenuOpen" class="bg-primary text-white" :delay="500">
           You are {{ workspace.membership.role === 'editor' ? 'an' : 'a' }}
           {{ workspace.membership.role }} of this workspace.
         </q-tooltip>
         <q-menu
           v-if="workspace.membership != null"
-          anchor="top right"
-          :offset="[8, 0]"
+          v-model="isMembershipMenuOpen"
+          anchor="bottom left"
+          :offset="[0, 8]"
           self="top left"
         >
           <q-card bordered flat>
@@ -431,7 +441,7 @@ function promptChangeRole(role: WorkspaceMembershipRole) {
         round
         size="8px"
       >
-        <q-menu anchor="top right" :offset="[8, 0]" self="top left">
+        <q-menu anchor="top right" :offset="[8, 5]" self="top left">
           <q-card bordered>
             <q-list dense>
               <q-item
@@ -496,25 +506,40 @@ function promptChangeRole(role: WorkspaceMembershipRole) {
       <div class="q-mr-md">
         <q-btn
           v-if="workspace.edited && isViewingOriginal"
+          class="q-mr-sm"
           clickable
-          color="primary"
+          color="warning"
+          dense
+          flat
+          :icon="icons.revertToOriginal"
+          label="Revert to Original Version"
+          style="padding-top: 2px; padding-bottom: 2px"
+          @click="promptRevert"
+        />
+        <q-btn
+          v-if="workspace.edited && isViewingOriginal"
+          clickable
           dense
           :icon="icons.close"
-          label="Stop Viewing Original"
-          size="md"
+          round
+          size="12px"
+          unelevated
           @click="stopViewingOriginal"
         />
         <q-chip
           v-else-if="workspace.edited"
+          class="q-px-sm"
           clickable
           color="warning"
           dense
+          icon="mdi-pencil-box-multiple"
           label="Working Copy"
           size="12px"
-          square
+          text-color="white"
         >
+          <q-icon v-if="workspace.membership" class="q-ml-xs" :name="icons.menuDown" />
           <q-menu :offset="[0, 10]">
-            <q-card bordered style="min-width: 140px">
+            <q-card bordered>
               <q-list dense>
                 <q-item clickable :disable="!workspace.canEdit" @click="promptCommit">
                   <q-item-section avatar>
@@ -524,17 +549,9 @@ function promptChangeRole(role: WorkspaceMembershipRole) {
                     <q-item-label>Commit Changes</q-item-label>
                   </q-item-section>
                 </q-item>
-                <q-item clickable @click="promptDiscard">
-                  <q-item-section avatar>
-                    <q-icon :name="icons.discard" />
-                  </q-item-section>
-                  <q-item-section>
-                    <q-item-label>Discard Changes</q-item-label>
-                  </q-item-section>
-                </q-item>
                 <q-item clickable @click="startViewingOriginal">
                   <q-item-section avatar>
-                    <q-icon :name="icons.cancel" />
+                    <q-icon :name="icons.viewOriginal" />
                   </q-item-section>
                   <q-item-section>
                     <q-item-label>View Original</q-item-label>

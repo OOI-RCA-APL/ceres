@@ -16,12 +16,13 @@ const navigation = useNavigation()
       <div :class="[$style.header, 'items-center q-pr-md row']">
         <q-btn
           :class="[$style.backButton, 'gt-xs']"
-          fab-mini
+          dense
           flat
           :icon="icons.arrowLeft"
+          round
           @click="navigation.back()"
         >
-          <q-tooltip>Back</q-tooltip>
+          <q-tooltip :delay="500">Back</q-tooltip>
         </q-btn>
         <common-text class="q-mx-md q-my-sm" element="h1" variant="title1">{{ title }}</common-text>
         <slot name="header-append" />
@@ -43,6 +44,10 @@ const navigation = useNavigation()
   padding-top: 40px;
 }
 
+:global(.light) .root {
+  background-color: $grey-1;
+}
+
 @media (max-width: $breakpoint-xs-max) {
   .page {
     padding-bottom: 16px;
@@ -61,8 +66,8 @@ const navigation = useNavigation()
 
 .backButton {
   position: absolute;
-  top: 5px;
-  left: -50px;
+  top: 8px;
+  left: -46px;
   opacity: 0.3;
   transition: opacity 0.25s;
 }

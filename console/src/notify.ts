@@ -15,13 +15,16 @@ export const useNotify = defineStore('notify', () => {
       textColor: options.color != null ? getForegroundColor(options.color) : undefined,
       badgeColor: options.color != null ? options.color : undefined,
       timeout: ['warning', 'negative'].includes(options.color ?? '') ? 5000 : 1000,
+      closeBtn: false,
       actions: [
         {
           icon: icons.close,
-          color: options.color != null ? getForegroundColor(options.color) : undefined,
+          textColor: options.color != null ? getForegroundColor(options.color) : undefined,
+          color: options.color,
           dense: true,
+          size: '13px',
           round: true,
-          flat: true,
+          class: 'faded-hover',
         },
       ],
       ...options,

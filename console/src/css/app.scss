@@ -199,11 +199,13 @@ input::-webkit-inner-spin-button {
 
 .q-menu {
   box-shadow: none;
+  transform: translate(0, -1px);
 }
 
 .q-menu[role='listbox'] {
   @extend .bordered;
 }
+
 .q-dialog-plugin {
-    width: 350px;
+  width: 350px;
 }

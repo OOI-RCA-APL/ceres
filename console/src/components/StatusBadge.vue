@@ -109,7 +109,9 @@ const connectionColor = $computed(() => {
         v-if="engine.auth.isOperator"
         v-model="menuIsOpen"
         anchor="top right"
-        :offset="[8, 0]"
+        class="relative-position"
+        :offset="[12, 12]"
+        self="top left"
       >
         <q-card bordered>
           <q-list dense>

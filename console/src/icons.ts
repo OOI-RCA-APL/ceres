@@ -1,35 +1,33 @@
 const icons = {
   add: 'mdi-plus',
-  stop: 'mdi-stop',
-  start: 'mdi-play',
-  all: 'mdi-asterisk',
-  disable: 'mdi-minus-circle-outline',
-  changeRole: 'mdi-account-convert',
-  removeMember: 'mdi-account-remove',
-  enable: 'mdi-check-circle-outline',
   admin: 'admin_panel_settings', // Material Icons
+  all: 'mdi-asterisk',
   arrowDown: 'mdi-arrow-down',
   arrowLeft: 'mdi-arrow-left',
   arrowUp: 'mdi-arrow-up',
   cancel: 'mdi-close-circle',
+  changeRole: 'mdi-account-convert',
   chevronLeft: 'mdi-chevron-left',
   chevronRight: 'mdi-chevron-right',
   circle: 'mdi-circle',
   clearLocalStorage: 'mdi-delete-sweep',
   close: 'mdi-close',
   configuration: 'mdi-cogs',
+  confirm: 'mdi-check',
   connection: 'route', // Material Icons
   copy: 'mdi-content-copy',
   darkMode: 'dark_mode',
   dashboard: 'space_dashboard', // Material Icons
   delete: 'mdi-delete',
-  discard: 'mdi-arrow-u-left-top',
   developer: 'construction', // Material Icons
+  disable: 'mdi-minus-circle-outline',
+  discard: 'mdi-arrow-u-left-top',
+  drawer: 'mdi-menu',
   duplicate: 'mdi-content-duplicate',
   edit: 'mdi-pencil',
   editor: 'mdi-account-edit',
+  enable: 'mdi-check-circle-outline',
   export: 'mdi-download',
-  confirm: 'mdi-check',
   filter: 'mdi-filter',
   grab: 'mdi-grab',
   help: 'mdi-help',
@@ -40,7 +38,6 @@ const icons = {
   leave: 'mdi-exit-run',
   lightMode: 'light_mode', // Material Icons
   logout: 'mdi-logout', // Material Icons
-  menu: 'mdi-menu',
   manager: 'mdi-account-star',
   menuDown: 'mdi-menu-down',
   menuLeft: 'mdi-menu-left',
@@ -48,18 +45,25 @@ const icons = {
   menuUp: 'mdi-menu-up',
   more: 'mdi-dots-horizontal',
   operations: 'mdi-cog-transfer',
+  operator: 'mdi-account-cog',
   password: 'password', // Material Icons
-  preferences: 'mdi-account-cog',
+  preferences: 'mdi-theme-light-dark',
   reload: 'mdi-cog-sync',
+  removeMember: 'mdi-account-remove',
   rename: 'mdi-rename',
+  revertToOriginal: 'mdi-restore',
   search: 'mdi-magnify',
   send: 'mdi-send',
   settings: 'mdi-cog',
+  start: 'mdi-play',
+  stop: 'mdi-stop',
   submit: 'mdi-check',
   switchLeft: 'switch_left', // Material Icons
   switchRight: 'switch_right', // Material Icons
   user: 'mdi-account',
+  viewOriginal: 'mdi-eye-arrow-left',
   viewer: 'mdi-account-eye',
+  workspace: 'mdi-dots-grid',
 } as const
 
 export default icons

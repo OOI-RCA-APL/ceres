@@ -33,7 +33,7 @@ function toggleExpanded() {
       :class="[$style.iconContainer, 'items-center', 'justify-center', 'row']"
       :style="{ marginLeft: `${8 * address.depth}px` }"
     >
-      <q-icon v-if="isLeaf" :class="$style.left" :name="icons.circle" size="7px" />
+      <q-icon v-if="isLeaf" :class="$style.left" :name="icons.circle" size="6px" />
       <q-btn
         v-else
         :class="$style.left"

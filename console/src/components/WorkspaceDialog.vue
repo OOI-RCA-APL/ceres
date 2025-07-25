@@ -497,7 +497,7 @@ function promptChangeRole(membership: UserWorkspaceMembership, role: WorkspaceMe
                           round
                           size="8px"
                         >
-                          <q-menu anchor="top right" :offset="[8, 0]" self="top left">
+                          <q-menu anchor="top right" :offset="[8, 7]" self="top left">
                             <q-card bordered flat>
                               <q-list dense>
                                 <q-item clickable>

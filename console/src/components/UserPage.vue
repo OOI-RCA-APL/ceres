@@ -138,7 +138,14 @@ form.load({
   <card-page :title="getTitle()">
     <template #header-append>
       <q-space />
-      <q-chip color="primary" dense outline text-color="black">
+      <q-chip
+        class="q-px-sm"
+        color="primary"
+        dense
+        :icon="icons[form.data.role]"
+        size="13px"
+        text-color="white"
+      >
         {{ upperFirst(form.data.role) }}
         <q-tooltip class="bg-primary" :delay="250">
           <template v-if="isAccountPage">

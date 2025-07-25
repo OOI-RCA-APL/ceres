@@ -208,7 +208,7 @@ function promptReload() {
               <q-item-section side>
                 <div class="items-center row">
                   <q-btn flat :icon="icons.more" round size="xs">
-                    <q-menu>
+                    <q-menu anchor="top right" :offset="[8, 5]" self="top left">
                       <q-card bordered>
                         <q-list dense>
                           <q-item clickable @click="createWorkspace">
@@ -289,7 +289,7 @@ function promptReload() {
           <q-item-section side>
             <q-icon :name="icons.menuRight" :size="iconSize" />
           </q-item-section>
-          <q-menu anchor="bottom right" :offset="[8, 0]" self="bottom left">
+          <q-menu anchor="top right" :offset="[8, 0]" self="top left">
             <q-card bordered>
               <q-list dense>
                 <q-item v-close-popup clickable @click="promptReload">
@@ -404,7 +404,14 @@ function promptReload() {
             </q-item-label>
           </q-item-section>
           <q-item-section v-if="engine.auth.user" side>
-            <q-chip color="primary" dense outline size="10px">
+            <q-chip
+              class="q-px-sm"
+              color="primary"
+              dense
+              :icon="icons[engine.auth.user.role]"
+              size="10px"
+              text-color="white"
+            >
               {{ upperFirst(engine.auth.user.role) }}
               <q-tooltip class="bg-primary" :offset="[0, 8]">
                 You are currently logged in with {{ engine.auth.user.role }}-level permissions.
@@ -417,7 +424,7 @@ function promptReload() {
   </q-drawer>
 </template>
 
-<style module>
+<style lang="scss" module>
 .root {
   overflow: visible !important;
   position: relative;

@@ -20,7 +20,7 @@ const icon = $computed(() => {
 <template>
   <q-item clickable dense :to="`/workspaces/${workspace.id}`">
     <q-item-section avatar>
-      <q-icon class="q-ml-md" :name="icons.circle" size="7px" />
+      <q-icon class="q-ml-md" :name="icons.circle" size="6px" />
     </q-item-section>
     <q-item-section>
       <q-item-label>

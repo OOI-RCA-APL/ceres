@@ -57,7 +57,7 @@ const users = $computed(() => query.data.value ?? [])
         <q-list class="fit scroll" dense separator>
           <q-item v-for="user in users" :key="user.id" :to="`/users/${user.id}`">
             <q-item-section avatar>
-              <q-icon :name="icons.user" />
+              <q-icon :name="icons[user.role]" size="16px" />
             </q-item-section>
             <q-item-section>
               {{ user.username }}
