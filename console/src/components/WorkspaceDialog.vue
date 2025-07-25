@@ -2,60 +2,57 @@
 import { until } from '@vueuse/core'
 import { compact, orderBy, upperFirst } from 'lodash-es'
 import { useDialogPluginComponent } from 'quasar'
-import { computed, watch, reactive, nextTick } from 'vue'
+import { reactive, computed, watch, nextTick } from 'vue'
 
-import { AuthStore } from '@/api/auth'
+import { useAuth } from '@/api/auth'
 import { useQuery } from '@/api/client'
-import { Engine } from '@/api/engine'
+import { useEngine } from '@/api/engine'
 import { User } from '@/api/users'
 import CommonText from '@/components/CommonText.vue'
 import UserChooser from '@/components/UserChooser.vue'
 import { useDialogs } from '@/dialogs'
 import { useForm } from '@/form'
 import icons from '@/icons'
-import { Navigation } from '@/navigation'
+import { useNavigation } from '@/navigation'
 import { useNotify } from '@/notify'
 import { useTheme } from '@/theme'
 import { useValidate } from '@/validate'
 import {
   userCanManageWorkspace,
-  WorkspaceData,
   WorkspaceAccessRestriction,
   WorkspaceAccessRestrictionModel,
   WorkspaceAccessRestrictionOf,
+  WorkspaceData,
   WorkspaceMembership,
   WorkspaceMembershipRole,
   WorkspaceMembershipRoleModel,
   WorkspaceMembershipRoleOf,
 } from '@/workspace'
 
-const { workspaceId, data, action, engine, auth, navigation } = $defineProps<
-  (
-    | {
-        workspaceId: string
-        action: 'view'
-        data?: null
-      }
-    | {
-        workspaceId: string
-        action: 'duplicate'
-        data?: WorkspaceData
-      }
-  ) & {
-    engine: Engine
-    auth: AuthStore
-    navigation: Navigation
-  }
+const { workspaceId, data, action } = $defineProps<
+  | {
+      workspaceId: string
+      action: 'view'
+      data?: null
+    }
+  | {
+      workspaceId: string
+      action: 'duplicate'
+      data?: WorkspaceData
+    }
 >()
 
 defineEmits([...useDialogPluginComponent.emits])
 
-const notify = useNotify()
-const validate = useValidate()
-const theme = useTheme()
-const dialogs = useDialogs()
-
 const { dialogRef, onDialogHide, onDialogOK, onDialogCancel } = useDialogPluginComponent()
+
+const auth = useAuth()
+const dialogs = useDialogs()
+const engine = useEngine()
+const navigation = useNavigation()
+const notify = useNotify()
+const theme = useTheme()
+const validate = useValidate()
 
 let tab = $ref<'general' | 'members'>('general')
 
@@ -459,7 +456,7 @@ function promptChangeRole(membership: UserWorkspaceMembership, role: WorkspaceMe
               <q-card
                 v-else
                 bordered
-                :class="['q-pa-none q-mb-xs scroll', $style.userListContainer]"
+                :class="['q-pa-none q-mb-xs scroll', $style.memberListContainer]"
                 flat
               >
                 <q-list dense>
@@ -500,7 +497,7 @@ function promptChangeRole(membership: UserWorkspaceMembership, role: WorkspaceMe
                           round
                           size="8px"
                         >
-                          <q-menu anchor="center right" :offset="[8, 0]" self="center left">
+                          <q-menu anchor="top right" :offset="[8, 0]" self="top left">
                             <q-card bordered flat>
                               <q-list dense>
                                 <q-item clickable>
@@ -511,12 +508,12 @@ function promptChangeRole(membership: UserWorkspaceMembership, role: WorkspaceMe
                                     <q-item-label>Change Role</q-item-label>
                                   </q-item-section>
                                   <q-item-section side>
-                                    <q-icon :name="icons.menuRight" />
+                                    <q-icon :name="icons.menuRight" size="16px" />
                                   </q-item-section>
                                   <q-menu
                                     v-if="membership.user.id !== auth.user.id"
                                     anchor="top right"
-                                    :offset="[8, 0]"
+                                    :offset="[8, 1]"
                                     self="top left"
                                   >
                                     <q-card bordered flat>
@@ -549,7 +546,7 @@ function promptChangeRole(membership: UserWorkspaceMembership, role: WorkspaceMe
                                     <q-icon :name="icons.removeMember" />
                                   </q-item-section>
                                   <q-item-section>
-                                    <q-item-label>Remove Member</q-item-label>
+                                    <q-item-label>Remove</q-item-label>
                                   </q-item-section>
                                 </q-item>
                               </q-list>
@@ -563,6 +560,7 @@ function promptChangeRole(membership: UserWorkspaceMembership, role: WorkspaceMe
               </q-card>
               <div v-if="canManage" class="justify-center row">
                 <q-btn color="primary" dense :icon="icons.add" round size="10px" unelevated>
+                  <q-tooltip class="bg-primary text-white">Add Member</q-tooltip>
                   <q-menu
                     anchor="top middle"
                     :offset="[0, 12]"
@@ -588,6 +586,7 @@ function promptChangeRole(membership: UserWorkspaceMembership, role: WorkspaceMe
                         </div>
                         <q-select
                           v-model="addingMemberRole"
+                          autofocus
                           dense
                           label="Workspace Role"
                           :option-label="upperFirst"
@@ -648,11 +647,11 @@ function promptChangeRole(membership: UserWorkspaceMembership, role: WorkspaceMe
   opacity: 0.85;
 }
 
-.userListContainer {
+.memberListContainer {
   max-height: 300px;
 }
 
 .addMemberMenu {
-  min-width: 200px;
+  min-width: 220px;
 }
 </style>

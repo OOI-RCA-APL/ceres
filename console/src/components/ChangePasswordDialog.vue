@@ -1,19 +1,19 @@
 <script lang="ts" setup>
 import { useDialogPluginComponent } from 'quasar'
 
-import { Engine } from '@/api/engine'
+import { useEngine } from '@/api/engine'
 import CommonText from '@/components/CommonText.vue'
 import { useForm } from '@/form'
 import { useNotify } from '@/notify'
 import { useValidate } from '@/validate'
 
-const { userId, engine } = $defineProps<{
+const { userId } = $defineProps<{
   userId: string
-  engine: Engine
 }>()
 
 defineEmits([...useDialogPluginComponent.emits])
 
+const engine = useEngine()
 const notify = useNotify()
 const validate = useValidate()
 

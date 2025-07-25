@@ -382,7 +382,7 @@ function promptChangeRole(role: WorkspaceMembershipRole) {
                   <q-item-label>Change Role</q-item-label>
                 </q-item-section>
                 <q-item-section side>
-                  <q-icon :name="icons.menuRight" />
+                  <q-icon :name="icons.menuRight" size="16px" />
                 </q-item-section>
                 <q-menu anchor="top right" :offset="[8, 0]" self="top left">
                   <q-card bordered flat>
@@ -470,7 +470,7 @@ function promptChangeRole(role: WorkspaceMembershipRole) {
                   self="top left"
                 />
                 <q-item-section side>
-                  <q-icon :name="icons.menuRight" />
+                  <q-icon :name="icons.menuRight" size="16px" />
                 </q-item-section>
               </q-item>
               <q-separator />

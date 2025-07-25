@@ -2,9 +2,10 @@
 import { useQuery } from '@/api/client'
 import { useEngine } from '@/api/engine'
 import { User, UserFilter } from '@/api/users'
+import icons from '@/icons'
 import { debouncedComputed } from '@/utilities'
 
-defineEmits<{
+const emit = defineEmits<{
   (emit: 'select', user: User): void
 }>()
 
@@ -47,9 +48,24 @@ const users = $computed(() => query.data.value ?? [])
 
 <template>
   <div class="q-pa-sm">
-    <q-input v-model="search" class="q-mb-sm" dense outlined :spellcheck="false">
+    <q-input
+      v-model="search"
+      autofocus
+      class="q-mb-sm"
+      dense
+      label="Users"
+      outlined
+      :spellcheck="false"
+      @keyup.enter="
+        () => {
+          if (users.length > 0) {
+            emit('select', users[0])
+          }
+        }
+      "
+    >
       <template #prepend>
-        <q-icon name="search" />
+        <q-icon :name="icons.search" />
       </template>
     </q-input>
     <q-card bordered flat>
@@ -60,6 +76,8 @@ const users = $computed(() => query.data.value ?? [])
         <q-item
           v-for="user in users"
           :key="user.id"
+          :active="users.length === 1"
+          class="q-pb-sm"
           clickable
           :disable="disable?.(user) ?? false"
           @click="$emit('select', user)"

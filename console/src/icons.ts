@@ -5,7 +5,7 @@ const icons = {
   all: 'mdi-asterisk',
   disable: 'mdi-minus-circle-outline',
   changeRole: 'mdi-account-convert',
-  removeMember: 'mdi-minus-circle',
+  removeMember: 'mdi-account-remove',
   enable: 'mdi-check-circle-outline',
   admin: 'admin_panel_settings', // Material Icons
   arrowDown: 'mdi-arrow-down',

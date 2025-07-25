@@ -2,11 +2,8 @@ import { merge } from 'lodash-es'
 import { defineStore } from 'pinia'
 import { QDialogOptions, useQuasar } from 'quasar'
 
-import { useAuth } from '@/api/auth'
-import { useEngine } from '@/api/engine'
 import ChangePasswordDialog from '@/components/ChangePasswordDialog.vue'
 import WorkspaceDialog from '@/components/WorkspaceDialog.vue'
-import { useNavigation } from '@/navigation'
 import { WorkspaceData } from '@/workspace'
 
 export type Dialogs = ReturnType<typeof useDialogs>
@@ -17,7 +14,6 @@ const defaults = {
     label: 'Ok',
     color: 'primary',
     unelevated: true,
-    // flat: true,
     class: 'col-3',
   },
   cancel: {
@@ -25,15 +21,11 @@ const defaults = {
     color: 'grey-8',
     class: 'col-3',
     unelevated: true,
-    // flat: true,
   },
 } as const
 
 export const useDialogs = defineStore('dialogs', () => {
-  const engine = useEngine()
   const quasar = useQuasar()
-  const auth = useAuth()
-  const navigation = useNavigation()
 
   function withDefaults(...options: QDialogOptions[]) {
     return merge({}, defaults, ...options)
@@ -71,7 +63,6 @@ export const useDialogs = defineStore('dialogs', () => {
         withDefaults({
           component: ChangePasswordDialog,
           componentProps: {
-            engine,
             userId,
           },
         })
@@ -83,9 +74,6 @@ export const useDialogs = defineStore('dialogs', () => {
           componentProps: {
             workspaceId,
             action: 'view',
-            engine,
-            auth,
-            navigation,
           },
         })
       ),
@@ -97,9 +85,6 @@ export const useDialogs = defineStore('dialogs', () => {
             workspaceId,
             action: 'duplicate',
             data,
-            engine,
-            auth,
-            navigation,
           },
         })
       ),
