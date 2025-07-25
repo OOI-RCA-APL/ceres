@@ -134,7 +134,7 @@ function onBackspace() {
       @keydown.backspace="onBackspace"
     >
       <template #label>
-        <div class="monospace-md row">
+        <div class="monospace-md no-wrap row">
           <span>{{ title }}</span>
           <span :class="$style.labelExtra">
             <span class="q-mx-xs">{{ '⸱' }}</span>

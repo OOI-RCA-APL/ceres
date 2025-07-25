@@ -9,6 +9,8 @@ import WorkspaceWidgetMessages from '@/components/WorkspaceWidgetMessages.vue'
 import WorkspaceWidgetParticles from '@/components/WorkspaceWidgetParticles.vue'
 import WorkspaceWidgetProcedures from '@/components/WorkspaceWidgetProcedures.vue'
 import WorkspaceWidgetUi from '@/components/WorkspaceWidgetUi.vue'
+import WorkspaceWidgetValue from '@/components/WorkspaceWidgetValue.vue'
+import WorkspaceWidgetValueEdit from '@/components/WorkspaceWidgetValueEdit.vue'
 import icons from '@/icons'
 import { usePreferences } from '@/preferences'
 import { useWorkspace, Widget, WidgetRow } from '@/workspace'
@@ -69,7 +71,7 @@ let isShowingEditDialog = $ref(false)
             </q-popup-edit>
           </common-text>
         </div>
-        <div v-if="widget.type == 'chart'">
+        <div v-if="widget.type === 'chart' || widget.type === 'value'">
           <q-btn
             class="faded-hover"
             flat
@@ -83,6 +85,8 @@ let isShowingEditDialog = $ref(false)
             <q-dialog v-model="isShowingEditDialog">
               <q-card bordered :class="$style.editDialog" flat outline>
                 <workspace-widget-chart-edit v-if="widget.type === 'chart'" :widget="widget" />
+                <workspace-widget-value-edit v-if="widget.type === 'value'" :widget="widget" />
+
                 <q-separator />
                 <q-btn
                   class="full-width"
@@ -194,6 +198,11 @@ let isShowingEditDialog = $ref(false)
         <workspace-widget-chart
           v-else-if="widget.type === 'chart'"
           :key="darkModeKey"
+          class="full-height"
+          :widget="widget"
+        />
+        <workspace-widget-value
+          v-else-if="widget.type === 'value'"
           class="full-height"
           :widget="widget"
         />

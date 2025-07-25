@@ -117,6 +117,22 @@ export const ChartWidgetModel = BaseWidgetModel.extend({
   particles: safeArrayOf(ChartWidgetParticleModel),
 })
 
+export type TextWeight = Zod.infer<typeof TextWeightModel>
+export const TextWeightModel = Zod.enum(['slim', 'normal', 'bold'])
+
+export type ValueWidget = Zod.infer<typeof ValueWidgetModel>
+export const ValueWidgetModel = BaseWidgetModel.extend({
+  type: Zod.literal('value'),
+  name: Zod.string().catch('Value'),
+  particleAddress: AddressSelectorModel.nullish(),
+  particleType: Zod.string().nullish(),
+  particleField: Zod.string().nullish(),
+  fontSize: Zod.number().min(1).max(60).default(20).catch(20),
+  fontWeight: TextWeightModel.default('normal').catch('normal'),
+  prefix: Zod.string().nullish(),
+  suffix: Zod.string().nullish(),
+})
+
 export type Widget = Zod.infer<typeof WidgetModel>
 export const WidgetModel = Zod.discriminatedUnion('type', [
   MessagesWidgetModel,
@@ -126,6 +142,7 @@ export const WidgetModel = Zod.discriminatedUnion('type', [
   ProceduresWidgetModel,
   UIWidgetModel,
   ChartWidgetModel,
+  ValueWidgetModel,
 ])
 
 export type WidgetType = Widget['type']
@@ -166,6 +183,11 @@ export const widgetInfos = {
     type: 'chart',
     name: 'Chart',
     model: ChartWidgetModel,
+  },
+  value: {
+    type: 'value',
+    name: 'Value',
+    model: ValueWidgetModel,
   },
 } as const
 
