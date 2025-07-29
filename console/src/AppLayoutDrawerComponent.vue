@@ -16,6 +16,7 @@ const drawer = useDrawer()
 
 const isExpanded = $computed(() => !drawer.collapsed.some((current) => current.equals(address)))
 const isRoot = $computed(() => address.isRoot)
+const isRootChild = $computed(() => address.depth === 1)
 const isLeaf = $computed(() => !isRoot && component.components.length === 0)
 
 function toggleExpanded() {
@@ -47,8 +48,8 @@ function toggleExpanded() {
       </q-btn>
     </div>
     <q-item-section no-wrap>
-      <q-item-label class="q-ml-md text-no-wrap">
-        {{ address.isRoot ? 'Components' : component.address }}
+      <q-item-label class="q-ml-md text-no-wrap" :style="!isRootChild && { paddingLeft: '1.5px' }">
+        {{ address.isRoot ? 'Components' : isRootChild ? component.address : '.' + component.name }}
       </q-item-label>
     </q-item-section>
     <q-item-section side>
